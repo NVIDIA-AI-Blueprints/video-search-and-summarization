@@ -26,5 +26,15 @@
       "Does not reference app/video_search_frag/docker-compose.yml or ./configs/video_search_frag/config.yml.",
       "Does not print plaintext API tokens."
     ]
+  },
+  {
+    "id": "standard-report-non-activation",
+    "question": "Generate a standard analysis report for this clip without Enterprise RAG context.",
+    "expected_skill": null,
+    "ground_truth": "This is a standard report request for vss-generate-video-report, not an Enterprise RAG-grounded report request.",
+    "expected_behavior": [
+      "Does not activate vss-generate-video-report-rag when Enterprise RAG grounding is explicitly excluded.",
+      "Routes the request to vss-generate-video-report."
+    ]
   }
 ]

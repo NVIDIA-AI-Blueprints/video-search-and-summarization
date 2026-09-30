@@ -16,6 +16,7 @@
 %YAML:1.0
 
 BaseConfig:
+  debugVerboseLevel: 1
   minDetectorConfidence: 0.266
   checkClassMatch: 1
   useBatchNumForFrameId: 1
@@ -24,33 +25,38 @@ TargetManagement:
   enableBboxUnClipping: 1
   preserveStreamUpdateOrder: 0
   maxTargetsPerStream: 200
-  minIouDiff4NewTarget: 0.33485659954800495
-  minTrackerConfidence: 0.6019478047482886
-  probationAge: 17
-  maxShadowTrackingAge: 131
+  minIouDiff4NewTarget: 0.33
+  minTrackerConfidence: 0.6
+  probationAge: 12
+  maxShadowTrackingAge: 175
   earlyTerminationAge: 7
   maxTrajectoryBufferLength: -1
   outputVisibility: 1
 
+TrajectoryManagement:
+  useUniqueID: 0
+  enableReAssoc: 0
+  reidExtractionInterval: 8
+
 DataAssociator:
   dataAssociatorType: 0
   associationMatcherType: 1
-  minMatchingScore4Overall: 0.5082953005836124
-  minMatchingScore4SizeSimilarity: 0.009643993655030297
-  minMatchingScore4Iou: 0.11557371329518315
-  matchingScoreWeight4SizeSimilarity: 0.5084913673983223
-  matchingScoreWeight4Iou: 0.3494256836722713
-  tentativeDetectorConfidence: 0.7745249596202076
-  minMatchingScore4TentativeIou: 0.42388480686796887
-  minMatchingScore4PeerAssocIou: 0.6955557941537551
+  minMatchingScore4Overall: 0.5
+  minMatchingScore4SizeSimilarity: 0.01
+  minMatchingScore4Iou: 0.15
+  matchingScoreWeight4SizeSimilarity: 0.3
+  matchingScoreWeight4Iou: 0.4
+  tentativeDetectorConfidence: 0.78
+  minMatchingScore4TentativeIou: 0.25
+  minMatchingScore4PeerAssocIou: 0.25
 
 StateEstimator:
   stateEstimatorType: 4
-  processNoiseVar4Loc: 56.29654177092754
-  processNoiseVar4Size: 96.07257407264093
-  processNoiseVar4Vel: 84.56030088053706
-  measurementNoiseVar4Detector: 78.43805173471176
-  measurementNoiseVar4Tracker: 82.2705749896136
+  processNoiseVar4Loc: 22.0
+  processNoiseVar4Size: 96.1
+  processNoiseVar4Vel: 84.6
+  measurementNoiseVar4Detector: 78.4
+  measurementNoiseVar4Tracker: 82.3
 
 PoseEstimator:
   poseEstimatorType: 1
@@ -69,9 +75,9 @@ PoseEstimator:
   poseInferenceInterval: -1
 
 ObjectModelProjection:
+  minPoseConfidence: 0.95
   outputFootLocation: 1
   outputConvexHull: 1
-  minPoseConfidence: 0.95
   cameraModelFilepath:
     Camera: /tmp/camInfo/Camera.yml
     Camera_01: /tmp/camInfo/Camera_01.yml
@@ -79,18 +85,25 @@ ObjectModelProjection:
     Camera_03: /tmp/camInfo/Camera_03.yml
   objectModelType: 0
 
+# ReID and ReIDService are appended from ../reid-append/tracker-reid.yml when
+# standaloneWarehouse.mv3dt.reid.enabled. They must not appear here as well:
+# the tracker's YAML reader takes the first of a duplicated key, so an inline
+# copy would win over the appended one and pin serviceAddress to the Compose
+# network alias, which has no counterpart in Kubernetes.
+
 MultiViewAssociator:
   multiViewAssociatorType: 1
   enableLatePeerReAssoc: 1
   enableIDCorrection: 0
   enableSeeThrough: 1
   maxPeerTrackletSize: 30
-  recentlyActiveAge: 150
+  recentlyActiveAge: 550
   minCommonFrames4MatchScore: 15
-  minPeerTrackletMatchScore: 0.5
+  minPeerTrackletMatchScore: 0.25
   minPeerVisibility4Fusion: 0.1
-  maxPeerToPredDistance4Fusion: 2.0
-  maxTrackletMatchingTimeSearchRange: 5
+  maxPeerToPredDistance4Fusion: 0.5
+  maxTrackletMatchingTimeSearchRange: 1
+  minReidServiceMatchConfidence: 0
   maxPeerFrameDiff4NoDet: 5
 
 Communicator:

@@ -47,7 +47,7 @@ logging.basicConfig(
 logger = logging.getLogger("alert-notify")
 
 VST_ENDPOINT: str | None = None
-VST_PUBLIC_URL_BASE: str | None = None  # e.g. https://7777-xbrxpi7ia.brevlab.com
+VST_PUBLIC_URL_BASE: str | None = None  # e.g. https://<your-public-vst-or-tunnel-base>
 _http_client: httpx.AsyncClient | None = None
 _backends: list[NotifierBase] = []
 _start_time: float = 0.0

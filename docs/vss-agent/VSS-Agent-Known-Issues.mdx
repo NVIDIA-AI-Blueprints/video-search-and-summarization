@@ -3,7 +3,14 @@ title: "Agent Known Issues"
 description: ""
 position: 9
 ---
-Nemotron Omni and `ENABLE_AUDIO`
+## VLM Clip Duration and Report Accuracy
+
+- For optimal results, use video clips between 5 and 300 seconds for VLM analysis.
+- VLM-generated reports may contain inaccurate timestamps.
+
+## Shared-GPU NIM Deployment
+
+On H100 and RTX PRO 6000 Blackwell, only the default LLM and VLM NIMs have been tested on shared GPUs. Shared-GPU mode is not supported on L40S. Use dedicated GPUs or remote NIMs for other models.
 
 ## Nemotron Omni and `ENABLE_AUDIO`
 
@@ -19,33 +26,6 @@ Audio-aware prompts and full-MP4 delivery apply only when `omni` appears in `VLM
 
 - Remote VLM with model-type `nim` (not Omni audio path): the VLM must reach VST on **port 30888** on the host. See [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos).
 - Remote **Nemotron Omni** with `ENABLE_AUDIO=true` on the base profile: the agent inlines the MP4 in the API request; ensure **port 30082** (OpenAI-compatible VLM API) is reachable from the VSS host. See [Using Nemotron Omni (audio-enabled VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) and [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos).
-
-## VA-MCP Slow Initialization (Hugging Face Rate Limiting)
-
-If VA-MCP initialization is slow or logs show HTTP 429 errors from Hugging Face, set `HF_TOKEN` before deploy. See [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc-hugging-face-api-keys) in [Prerequisites](/vss/getting-started/prerequisites).
-
-## Cosmos3 Nano Reasoner NIM Restart Failures (Shared GPU Mode)
-
-**Symptom:**
-
-If the `cosmos3-reasoner` NIM container stops, crashes, or is stopped manually
-**in shared GPU mode**, restarting the container alone may not recover the service.
-The agent UI or video-understanding requests may stop responding.
-
-**Cause:**
-
-In shared GPU mode, the `cosmos3-reasoner` NIM cannot be restarted
-independently after it has stopped in the current release.
-
-**Solution:**
-
-- **Shared GPU mode:** Redeploy the entire blueprint instead of restarting only
-  the `cosmos3-reasoner` container.
-- **Dedicated GPU mode:** Restarting the `cosmos3-reasoner` container is
-  sufficient; a full blueprint redeploy is not required.
-
-This limitation applies only to shared GPU deployments. The release plan is to
-move to Cosmos Reason 3, which should address this issue.
 
 ## Snapshot Timestamp Accuracy (Video Summarization Profile)
 

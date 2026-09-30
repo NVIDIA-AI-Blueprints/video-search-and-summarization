@@ -4,8 +4,8 @@
 
 The skill routes video questions through hot context, harness-owned OpenClaw
 Markdown recall, structured VSS memory, configured bounded introspection, or a
-direct fresh ``vss vlm run``. All VSS operations use the host checkout's
-project-local CLI. The adapter never substitutes direct judge, Elasticsearch,
+direct fresh ``vss vlm run``. All VSS operations use the vss CLI
+installed from the host checkout. The adapter never substitutes direct judge, Elasticsearch,
 VIOS, RT-VLM, or VSS Agent HTTP calls for that contract.
 
 The spec targets one platform by default (L40S). Override with ``--platform``.
@@ -95,12 +95,9 @@ PREAMBLE = (
 # `vss vios clip`. Applied globally it also reached the direct-VLM spec, whose
 # checks assert the run never touches VIOS, and regressed it.
 CLI_CLAUSE = (
-    " When a question names a VIOS sensor, obtain the clip with the host checkout's "
-    "project-local CLI rather than any REST call: set "
-    "`VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, require "
-    "`${VSS_REPO_ROOT}/libs/vss/pyproject.toml` to exist, then run "
-    "`uv run --project \"${VSS_REPO_ROOT}/libs/vss\" vss "
-    "vios clip --sensor <name>` and use its `media_url`. This applies to every step that "
+    " When a question names a VIOS sensor, obtain the clip with the `vss` CLI rather "
+    "than any REST call (if `vss` is not on PATH, install it from the host checkout with `uv tool install \"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/libs/vss/cli\"`), then run "
+    "`vss vios clip --sensor <name>` and use its `media_url`. This applies to every step that "
     "needs the clip, including a timestamp follow-up on a sensor already in play. Do not "
     "hand-build `/vst/api/v1/storage/file/.../url` with times read from `/storage/timelines`."
 )
@@ -141,19 +138,18 @@ def generate_test_script(step: int, spec_name: str) -> str:
 
 
 def generate_solve_script(platform: str) -> str:
-    """Gold solution verifies only the project-local CLI prerequisite."""
+    """Gold solution verifies only the CLI prerequisite (installed from the checkout)."""
     return (
         "#!/bin/bash\n"
         f"# Gold solution: vss-ask-video on {platform}\n"
-        "# The skill owns routing and invokes VSS only through the project-local CLI.\n"
+        "# The skill owns routing and invokes VSS only through the vss CLI on PATH.\n"
         "# This script does not call the judge, VLM, Elasticsearch, VIOS, or Agent directly.\n"
         "set -euo pipefail\n"
         "\n"
-        'VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"\n'
-        'test -f "${VSS_REPO_ROOT}/libs/vss/pyproject.toml"\n'
-        'VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)\n'
-        '"${VSS[@]}" --version\n'
-        "echo 'Project-local VSS CLI is available; the verifier evaluates the routing trajectory.'\n"
+        'export PATH="$HOME/.local/bin:$PATH"\n'
+        'command -v vss >/dev/null || uv tool install "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/libs/vss/cli"\n'
+        'vss --version\n'
+        "echo 'VSS CLI is available; the verifier evaluates the routing trajectory.'\n"
     )
 
 
@@ -237,7 +233,7 @@ def generate_task(
             f'gpu_type = "{pspec["gpu_type"]}"',
             f'brev_search = "{pspec["brev_search"]}"',
             f"min_vram_gb_per_gpu = {pspec['min_vram_per_gpu']}",
-            "# vss-ask-video uses the project-local CLI for structured memory,",
+            "# vss-ask-video uses the vss CLI for structured memory,",
             "# configured introspection, and explicitly scoped fresh VLM jobs.",
             "# OpenClaw Markdown recall is harness-owned and may be fixture-backed here.",
             f"step_index = {idx}",
@@ -403,7 +399,7 @@ def main() -> None:
     print(f"Generated {len(platforms)} platform(s) under {output_root}/{profile}/")
     print()
     print("Note: task queries declare any deployment and fixture prerequisites.")
-    print("All VSS operations are evaluated through the project-local CLI contract.")
+    print("All VSS operations are evaluated through the vss CLI contract.")
 
 
 if __name__ == "__main__":

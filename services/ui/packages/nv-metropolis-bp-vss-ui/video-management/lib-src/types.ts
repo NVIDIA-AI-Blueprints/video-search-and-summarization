@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 import type { RegisterChatVideoUploadComplete } from '@nv-metropolis-bp-vss-ui/chat';
 
 export interface StreamMetadata {
@@ -102,6 +103,7 @@ export interface VideoManagementData {
   vstApiUrl?: string | null;
   chatUploadFileConfigTemplateJson?: string | null;
   enableAddRtspButton?: boolean;
+  /** Starting position of the tab's "Enable video upload" switch. */
   enableVideoUpload?: boolean;
 }
 

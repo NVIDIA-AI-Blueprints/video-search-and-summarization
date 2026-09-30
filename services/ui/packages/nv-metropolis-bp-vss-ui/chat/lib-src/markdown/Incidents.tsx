@@ -1,13 +1,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: MIT AND Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 /**
  * `<incidents>` renderer for agent markdown.
  *
- * Copied from the toolkit's `components/Markdown/CustomIncidents.tsx` rather
- * than rewritten: it imports nothing from the toolkit (only React, Tabler and
- * `common`), and it is 300 lines of alert-card layout whose exact appearance is
- * the thing we are trying not to change. Copying keeps the migration a
- * deletion.
+ * Alert-card layout for `<incidents>` markdown.
  */
 
 import React, { memo, useState, useMemo } from 'react';

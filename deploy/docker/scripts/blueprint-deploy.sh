@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# blueprint-deploy.sh - Deploy Warehouse blueprint
-# Similar to dev-profile.sh but for warehouse deployment
+# blueprint-deploy.sh - Deploy the Warehouse blueprint
 
 script_dir="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 deploy_docker_dir="$( cd -- "${script_dir}/.." &> /dev/null && pwd )"
@@ -326,7 +325,6 @@ function get_rtvi_vllm_gpu_memory_utilization() {
 }
 
 # Hardware-specific RTVI local VLM max model length (empty = keep compose/env default).
-# Matches deploy/docker/scripts/dev-profile.sh.
 function get_rtvi_vlm_max_model_len() {
   local _hardware_profile="${1}"
   case "${_hardware_profile}" in
@@ -1344,7 +1342,7 @@ function state_up() {
     if [[ "${_vlm_mode}" != "remote" ]] && [[ -n "${vlm_device_id}" ]]; then
       set_env_var "VLM_DEVICE_ID" "${vlm_device_id}"
     fi
-    # RTVI local VLM sizing (same high-memory reductions as dev-profile.sh).
+    # Apply hardware-specific RTVI local VLM sizing.
     # Warehouse VLM_MODE=none still hosts the model in rtvi-vlm; only remote
     # VLM skips local vLLM reservation.
     if [[ "${_vlm_mode}" != "remote" ]]; then

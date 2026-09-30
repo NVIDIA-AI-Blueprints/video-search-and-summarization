@@ -10,7 +10,7 @@ description: >
   that does not include RT-Embed.
 license: Apache-2.0
 metadata:
-  version: "3.3.0"
+  version: "3.3.0-rc0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment byom rtvi-embed videoprism"
 ---
@@ -30,6 +30,14 @@ embedding model`.
 **Do not use this skill** for RT-CV, RT-VLM, VSS Agent, or general VSS
 deployment work unless the request deploys, operates, integrates, or customizes
 RT-Embed.
+
+## When to Use
+
+- Deploy, size, upgrade, roll back, or tear down standalone RT-Embed (Cosmos-Embed1 or a custom/BYOM model)
+- Call RT-Embed's `/v1` API for text/video embeddings, live streams, model listing, health, metrics
+- Wire RT-Embed into another service with Redis, Kafka, OpenTelemetry, auth, or storage
+- Add or validate a custom/BYOM embedding backend
+- Debug RT-Embed readiness, model/cache startup, or Redis/Kafka reachability
 
 ## Service Snapshot
 

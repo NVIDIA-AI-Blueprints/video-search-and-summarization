@@ -89,9 +89,7 @@ When time-slicing is enabled, each time-sliced partition appears as a separate `
 
 - **NVIDIA GPU Operator**
   - Install the GPU Operator on the cluster. Follow [GPU Operator getting started](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html).
-  - **Driver (x86 Ubuntu)** — pin via GPU Operator driver settings as appropriate:
-    - **580.105.08** (x86 hosts with Ubuntu 24.04)
-    - **580.65.06** (x86 hosts with Ubuntu 22.04)
+  - **Driver (x86 Ubuntu 24.04)** — pin **595.58.03** via GPU Operator driver settings.
 
 - **NVIDIA NIM Operator** (required only for [Option A: Local NIMs](#option-a-deploy-with-local-nims))
   - Required when `nims` subcharts are enabled (`NIMCache` / `NIMService`).
@@ -329,6 +327,33 @@ This single chart deploys all application components:
 - **VST Pipeline**: Sensor MS, Stream Processing, SDR Envoy, VST Ingress, VST MCP
 - **Search Pipeline**: NVStreamer, RTVI Embed (Cosmos), Search Analytics
 - **Agent Services**: VSS Agent (search mode), VSS UI
+
+### Webhook-based ingestion
+
+VIOS loads `configs/vios/notification_config.json` — the Helm counterpart of
+the Compose file
+`deploy/docker/developer-profiles/dev-profile-search/vios/configs/notification_config.json`.
+The Search chart renders it once per VIOS service into ConfigMaps
+`vios-sensor-notification-config` and
+`vios-streamprocessing-notification-config` (see
+`global.vios.notificationConfigFile` and the two `*NotificationConfigMapName`
+values). The names gain a `<release>-` prefix when
+`global.useReleaseNamePrefix` is true. Each VIOS pod projects its own rendered
+file over the subchart default, preserving that service's broker and endpoint
+overrides.
+
+`global.vios.notificationConfig` (inline JSON) replaces the bundled file in
+that ConfigMap. A per-subchart `vios.vss-vios-sensor.notificationConfig` or
+`vios.vss-vios-streamprocessing.notificationConfig` skips the overlay on that
+pod so the subchart-generated file is used instead.
+
+Edit the JSON to change Search webhook fan-out. Service-address placeholders
+(`__RTVI_CV_ADDRESS__`, `__RTVI_EMBED_ADDRESS__`, `__RTVI_VLM_ADDRESS__`,
+`__ELASTICSEARCH_ADDRESS__`) are resolved at install and honor
+`global.useReleaseNamePrefix`. When `global.rtviInternalIngress.enabled=true`,
+CV and Embed webhooks use the configured HAProxy controller paths so add/remove
+requests retain `x-stream-id` affinity. Explicit per-service
+`rtviCvServerAddress` / `rtviEmbedServerAddress` values take precedence.
 
 ### Critic Verification
 

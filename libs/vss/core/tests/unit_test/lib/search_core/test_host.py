@@ -6,11 +6,11 @@ from __future__ import annotations
 
 import asyncio
 
-from vss_core.critic import CriticAgentOutput
-from vss_core.critic import CriticAgentResult
-from vss_core.critic import VideoResult
 from vss_core.search_core import SearchRuntime
 from vss_core.search_core import VSSSearch
+from vss_core.search_core.critic import CriticAgentOutput
+from vss_core.search_core.critic import CriticAgentResult
+from vss_core.search_core.critic import VideoResult
 from vss_core.search_core.events import FinalResultEvent
 from vss_core.search_core.events import StatusEvent
 from vss_core.search_core.models import SearchOutput
@@ -201,7 +201,7 @@ def test_search_distinguishes_a_broken_verifier_from_no_verifier() -> None:
     output = asyncio.run(vss.search(query="forklift"))
 
     assert output.data[0].verification.result == "unverified"
-    assert any("produced no verdict for any hit" in message for message in output.search_messages)
+    assert any("produced no verdict for any evaluated hit" in message for message in output.search_messages)
 
     # No critic at all stays silent, so the two cases are tellable apart.
     quiet = VSSSearch.from_runtime(_runtime())

@@ -3,12 +3,17 @@ name: vss-deploy-warehouse-helm
 description: Use when the user asks to deploy, upgrade, or size the VSS warehouse blueprint (2D / 3D / MV3DT) on Kubernetes via Helm — as opposed to Docker Compose, which is covered by vss-build-vision-ai's warehouse reference. Handles GPU-aware NUM_STREAMS capping so the deployment matches what the perception pipeline can actually sustain.
 license: Apache-2.0
 metadata:
-  version: "1.0.0"
+  version: "3.3.0-rc0"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint deployment helm kubernetes warehouse"
 ---
 # VSS Warehouse — Helm Deploy
+
+## When to Use
+
+- Deploy, upgrade, or size the VSS warehouse blueprint (2D / 3D / MV3DT) on Kubernetes via Helm
+- Compute a GPU-aware `NUM_STREAMS` cap for a warehouse Helm install so it matches what the perception pipeline can sustain
 
 Do not use this skill for:
 

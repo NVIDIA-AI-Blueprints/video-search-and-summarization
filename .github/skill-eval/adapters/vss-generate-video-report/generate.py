@@ -79,12 +79,9 @@ PREAMBLE = (
 # the failure `vss vios clip` exists to make impossible. Same fix, and same
 # keying, as the vss-ask-video adapter.
 CLI_CLAUSE = (
-    " When a step needs a clip from a VIOS sensor, obtain it with the host checkout's "
-    "project-local CLI rather than a REST call: set "
-    "`VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, require "
-    "`${VSS_REPO_ROOT}/libs/vss/pyproject.toml` to exist, then run "
-    "`uv run --project \"${VSS_REPO_ROOT}/libs/vss\" vss "
-    "vios clip --sensor <name>` and use its `media_url`. A picture/frame endpoint returns a "
+    " When a step needs a clip from a VIOS sensor, obtain it with the `vss` CLI rather "
+    "than a REST call (if `vss` is not on PATH, install it from the host checkout with `uv tool install \"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/libs/vss/cli\"`), then run "
+    "`vss vios clip --sensor <name>` and use its `media_url`. A picture/frame endpoint returns a "
     "JPEG, which is not a clip."
 )
 

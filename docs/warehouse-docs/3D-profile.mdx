@@ -118,6 +118,8 @@ At this point the web-based application is only available for Chrome browser run
 
 **Configure**
 
+Select the sensors and streaming protocol, then click **Start Video Wall**.
+
 ![VIOS Configuration](/assets/images/analytics-blueprints/3D-analytics-blueprint-vios-config.png)
 
 **View VIOS Video Wall**
@@ -292,7 +294,7 @@ When using a custom recorded-video dataset, `NUM_STREAMS` depends on the number 
 
 To use a custom dataset:
 
-* For a custom synthetic dataset, use a dataset name that ends in `-synthetic` (for example, `my-warehouse-synthetic`). Custom real datasets do not have a naming convention.
+* For a custom synthetic dataset, use a dataset name that ends in `-synthetic` (for example, `my-warehouse-synthetic`). Custom real datasets do not have a suffix requirement.
 
 * Set `SAMPLE_VIDEO_DATASET` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env` to the name of your dataset.
 
@@ -375,7 +377,7 @@ To install the library:
 pip install spatialai-data-utils==2.0.1 --extra-index-url=https://edge.urm.nvidia.com/artifactory/api/pypi/sw-metropolis-pypi/simple
 ```
 
-The camera grouping tools are shipped with the full [spatialai-data-utils](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1/libs/analytics/spatialai-data-utils) package in the VSS repository. The examples below run the scripts from the package's `tools/camera_grouping` directory.
+The camera grouping tools are shipped with the full [spatialai-data-utils](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}/libs/analytics/spatialai-data-utils) package in the VSS repository. The examples below run the scripts from the package's `tools/camera_grouping` directory.
 
 #### BEV Group Origin Calculation
 

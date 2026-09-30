@@ -51,7 +51,7 @@
 # the SAME TARGETARCH as Jetson, so it cannot be selected by a branch here — it
 # needs its own image. See deploy/docker/container-inventory.json.
 # -----------------------------------------------------------------------------
-ARG BASE_IMAGE="nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-triton-dev111"
+ARG BASE_IMAGE="nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-triton-dev135"
 ARG DS_VERSION=9.1
 
 # =============================================================================
@@ -75,6 +75,8 @@ RUN set -eux; \
        /opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so; \
     cp "/tmp/prebuilts/${PREBUILT_DIR}/libnvds_infercustomparser_tao.so" \
        /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser_tao.so; \
+    cp "/tmp/prebuilts/${PREBUILT_DIR}/libnvds_infercustomparser.so" \
+       /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser.so; \
     rm -rf /tmp/prebuilts; \
     ldconfig
 
@@ -137,6 +139,7 @@ COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/sparse4d/configs/
 # Prebuilt libs + ldconfig so the loader can resolve them at runtime
 COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so /opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so
 COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser_tao.so /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser_tao.so
+COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser.so /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser.so
 RUN ldconfig
 
 # Third-party licence text, at the path the compliance scan expects
@@ -170,8 +173,7 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked,id=pip-${TARGETARC
       pip3 install --default-timeout=100 --retries 20 \
         torch==2.9.1 torchvision==0.24.1 --index-url https://download.pytorch.org/whl/cu130; \
     else \
-      pip3 install --default-timeout=100 --retries 20 --pre torch torchvision \
-        --index-url https://download.pytorch.org/whl/nightly/cu130 --force-reinstall; \
+      pip3 install --default-timeout=100 --retries 20 --pre torch torchvision; \
     fi
 
 # 4/4  Remaining pip deps (small, change most often -> last).

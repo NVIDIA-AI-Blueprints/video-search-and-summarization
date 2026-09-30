@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: MIT AND Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 import { IconCheck, IconClipboard, IconDownload } from '@tabler/icons-react';
 import React, { Suspense, lazy, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { copyToClipboard as copyToClipboardUtil } from 'common';
@@ -60,7 +60,7 @@ const EXTENSIONS: Record<string, string> = {
 };
 
 // Highlighting a large block costs more than it is worth, and re-running it on
-// every token during a stream is what makes the toolkit's chat stutter.
+// every token during a stream stutters the chat.
 const VERY_LARGE_CONTENT_THRESHOLD = 50_000;
 const CONTENT_STABLE_DELAY_MS = 500;
 

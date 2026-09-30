@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Reusable helpers for tab-specific Chat sidebar config.
  * Maps NEXT_PUBLIC_${TAB}_CHAT_* env variables (e.g. SEARCH_TAB, ALERTS_TAB) to the shape

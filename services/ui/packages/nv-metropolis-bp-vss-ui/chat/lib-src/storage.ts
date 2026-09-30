@@ -1,16 +1,14 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: MIT AND Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Conversation persistence.
  *
- * Ported from the toolkit's `utils/app/conversationDb.ts`, including the part
- * that is easy to miss: conversations live in IndexedDB but are *scoped to the
- * lifetime of a browser tab*. Every key is tagged with a per-tab id kept in
- * sessionStorage (which dies with the tab); on startup a BroadcastChannel
- * discovers which tab ids are still live and sweeps the rest. That reproduces
- * sessionStorage's wipe semantics — survives reload, cleared on tab close and
- * on browser restart — while allowing payloads far larger than sessionStorage
- * would hold.
+ * Conversations live in IndexedDB but are *scoped to the lifetime of a
+ * browser tab*. Every key is tagged with a per-tab id kept in sessionStorage
+ * (which dies with the tab); on startup a BroadcastChannel discovers which
+ * tab ids are still live and sweeps the rest. That reproduces sessionStorage's
+ * wipe semantics — survives reload, cleared on tab close and on browser
+ * restart — while allowing payloads far larger than sessionStorage would hold.
  *
  * Dropping this and using plain sessionStorage would look identical until a
  * conversation with a few base64 frames in it blew the 5 MB quota.
@@ -100,9 +98,9 @@ export async function loadSelectedConversationId(
 }
 
 /**
- * Folders and prompt templates are not rendered by VSS, but old toolkit
- * exports must survive an import/export migration unchanged. The toolkit kept
- * these small auxiliary arrays in sessionStorage, so retain the same lifetime.
+ * Folders and prompt templates are not rendered by VSS, but old exports must
+ * survive an import/export migration unchanged. Keep these small auxiliary
+ * arrays in sessionStorage so they share that lifetime.
  */
 export function loadChatExportAuxiliary(
   prefix?: string | null,

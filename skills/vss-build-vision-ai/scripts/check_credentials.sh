@@ -10,6 +10,36 @@
 # a skip. Compare each result with the chosen deployment mode before continuing.
 set -u
 
+usage() {
+  cat <<'EOF'
+Usage: check_credentials.sh
+
+Validate configured VSS deployment credentials without modifying them.
+
+Environment variables:
+  NGC_CLI_API_KEY, NGC_API_KEY  NGC registry key for local NIM images
+  NVIDIA_API_KEY                build.nvidia.com API key for remote NIMs
+  HF_TOKEN                      Hugging Face token for gated checkpoints
+
+Unset credentials are reported as skipped.
+EOF
+  return 0
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  "")
+    ;;
+  *)
+    echo "ERROR: unexpected argument: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
+
 # NGC — local NIM image pulls. NGC_CLI_API_KEY (NGC CLI / VSS env) and
 # NGC_API_KEY (NIM / RT-VLM containers) are the SAME personal NGC key under two
 # names; resolve to one. Refuse to proceed if both are set and differ.

@@ -18,6 +18,17 @@ storage:
   pvc:
     storageClass: ""
     size: "100Gi"
+  sharedMemorySizeLimit: "16Gi"
+
+# Keys to import from <nemotron35-fullname>-nim-env ConfigMap into
+# NIMService.spec.env. Missing keys are ignored (optional: true).
+envConfigMapKeys:
+  - NIM_PASSTHROUGH_ARGS
+  - NIM_MODEL_PROFILE
+  - NIM_KVCACHE_PERCENT
+  - NIM_GPU_MEM_FRACTION
+  - NIM_MAX_MODEL_LEN
+  - MAX_JOBS
 
 metrics:
   enabled: false

@@ -39,7 +39,7 @@ VideoWebRTCSender::VideoWebRTCSender (const std::string& consumer_name, const st
                     IMediaDataConsumer(consumer_name), m_uri(uri)
 {
     m_fpsDisplay = std::make_unique<FPSDisplay>();
-    setConsumerMediaType(MediaTypeVideo);
+    IMediaDataConsumer::setConsumerMediaType(MediaTypeVideo);
 }
 
 VideoWebRTCSender::VideoWebRTCSender (const std::string& consumer_name, double frame_rate, bool enable_frame_sync)
@@ -47,7 +47,7 @@ VideoWebRTCSender::VideoWebRTCSender (const std::string& consumer_name, double f
 {
     LOG(info) << "VideoWebRTCSender::VideoWebRTCSender m_frameRate:" << m_frameRate << endl;
     m_fpsDisplay = std::make_unique<FPSDisplay>();
-    setConsumerMediaType(MediaTypeVideo);
+    IMediaDataConsumer::setConsumerMediaType(MediaTypeVideo);
     if (frame_rate != 0)
     {
         m_idealFrameSendInterval = (1000/m_frameRate);
@@ -58,7 +58,7 @@ VideoWebRTCSender::VideoWebRTCSender (const std::string& consumer_name, double f
 VideoWebRTCSender::VideoWebRTCSender (const std::string& consumer_name) : IMediaDataConsumer(consumer_name)
 {
     m_fpsDisplay = std::make_unique<FPSDisplay>();
-    setConsumerMediaType(MediaTypeVideo);
+    IMediaDataConsumer::setConsumerMediaType(MediaTypeVideo);
 }
 
 int VideoWebRTCSender::createPassThroughMode(std::string& device_id)

@@ -145,3 +145,72 @@ NGC image pull secret name.
 {{- printf "%s-scripts" $base | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+Kubernetes name of one Search VIOS webhook ConfigMap. The caller supplies an
+unprefixed logical name; when global.useReleaseNamePrefix is true the release
+is prepended so two Search installs in one namespace do not share ConfigMaps.
+*/}}
+{{- define "dev-profile-search.viosNotificationConfigMapName" -}}
+{{- $root := .root -}}
+{{- $cm := .name | default "" -}}
+{{- $g := $root.Values.global | default dict -}}
+{{- $pfx := default false (index $g "useReleaseNamePrefix") -}}
+{{- if and $cm $pfx -}}
+{{- printf "%s-%s" $root.Release.Name $cm | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- $cm -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+One service-specific Search VIOS notification_config.json. The bundled webhook
+policy (or global inline replacement) is shared, but every scalar placeholder
+is resolved with that service's values so the overlay does not discard
+sensor/streamprocessing broker overrides.
+*/}}
+{{- define "dev-profile-search.viosNotificationConfig" -}}
+{{- $root := .root }}
+{{- $service := .service | default dict }}
+{{- $g := $root.Values.global | default dict }}
+{{- $vios := index $g "vios" | default dict }}
+{{- $path := index $vios "notificationConfigFile" | default "configs/vios/notification_config.json" }}
+{{- $raw := index $vios "notificationConfig" | default "" }}
+{{- if kindIs "map" $raw }}
+{{- $raw = $raw | toPrettyJson }}
+{{- end }}
+{{- if not $raw }}
+{{- $raw = $root.Files.Get $path }}
+{{- end }}
+{{- if not $raw }}
+{{- fail (printf "Search VIOS notification config is empty (set global.vios.notificationConfig or %q)" $path) }}
+{{- end }}
+{{- $pfx := default false (index $g "useReleaseNamePrefix") }}
+{{- $redisH := ternary (printf "%s-redis" $root.Release.Name) "redis" $pfx }}
+{{- $kafkaH := ternary (printf "%s-kafka-kafka" $root.Release.Name) "kafka-kafka" $pfx }}
+{{- $esH := ternary (printf "%s-elasticsearch" $root.Release.Name) "elasticsearch" $pfx }}
+{{- $rtviCvH := ternary (printf "%s-vss-rtvi-cv" $root.Release.Name) "vss-rtvi-cv" $pfx }}
+{{- $rtviEmbedH := ternary (printf "%s-vss-rtvi-embed" $root.Release.Name) "vss-rtvi-embed" $pfx }}
+{{- $rtviVlmH := ternary (printf "%s-vss-rtvi-vlm" $root.Release.Name) "vss-rtvi-vlm" $pfx }}
+{{- $mqttH := ternary (printf "%s-mosquitto" $root.Release.Name) "mosquitto" $pfx }}
+{{- $redisAddr := index $service "redisServerAddress" | default (printf "%s:6379" $redisH) }}
+{{- $kafkaAddr := index $service "kafkaServerAddress" | default (printf "%s:9092" $kafkaH) }}
+{{- $rtviVlmAddr := index $service "rtviVlmServerAddress" | default (printf "%s:8000" $rtviVlmH) }}
+{{- $elasticsearchAddr := index $service "elasticsearchServerAddress" | default (printf "%s:9200" $esH) }}
+{{- $mqttAddr := index $service "mqttBrokerAddress" | default (printf "tcp://%s:1883" $mqttH) }}
+{{- $messageBrokerConsumer := index $service "messageBrokerConsumer" | default (index $vios "messageBrokerConsumer" | default "redis") }}
+{{- $messageBrokerTopicConsumer := index $service "messageBrokerTopicConsumer" | default (index $vios "messageBrokerTopicConsumer" | default "mdx-raw") }}
+{{- $messageBrokerMetadataTopic := index $service "messageBrokerMetadataTopic" | default (index $vios "messageBrokerMetadataTopic" | default "mdx-raw") }}
+{{- $rii := index $g "rtviInternalIngress" | default dict }}
+{{- $riiEnabled := index $rii "enabled" | default false }}
+{{- $controllerService := index $rii "controllerService" | default "haproxy-kubernetes-ingress.haproxy-controller" }}
+{{- $controllerPort := index $rii "controllerPort" | default 80 }}
+{{- $rtviCvPath := index $rii "rtviCvPath" | default "/rtvi-cv" | trimSuffix "/" }}
+{{- $rtviEmbedPath := index $rii "rtviEmbedPath" | default "/rtvi-embed" | trimSuffix "/" }}
+{{- $rtviCvDefault := ternary (printf "%s:%v%s" $controllerService $controllerPort $rtviCvPath) (printf "%s:9000" $rtviCvH) $riiEnabled }}
+{{- $rtviEmbedDefault := ternary (printf "%s:%v%s" $controllerService $controllerPort $rtviEmbedPath) (printf "%s:8000" $rtviEmbedH) $riiEnabled }}
+{{- $rtviCvAddr := index $service "rtviCvServerAddress" | default $rtviCvDefault }}
+{{- $rtviEmbedAddr := index $service "rtviEmbedServerAddress" | default $rtviEmbedDefault }}
+{{- $raw | replace "__REDIS_ADDRESS__" $redisAddr | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__MQTT_BROKER_ADDRESS__" $mqttAddr | replace "__RTVI_CV_ADDRESS__" $rtviCvAddr | replace "__RTVI_EMBED_ADDRESS__" $rtviEmbedAddr | replace "__RTVI_VLM_ADDRESS__" $rtviVlmAddr | replace "__ELASTICSEARCH_ADDRESS__" $elasticsearchAddr | replace "__USE_MESSAGE_BROKER_CONSUMER__" $messageBrokerConsumer | replace "__MESSAGE_BROKER_TOPIC_CONSUMER__" $messageBrokerTopicConsumer | replace "__MESSAGE_BROKER_METADATA_TOPIC__" $messageBrokerMetadataTopic -}}
+{{- end }}
+

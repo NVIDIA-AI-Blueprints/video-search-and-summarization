@@ -1,6 +1,8 @@
 # VSS Skills
 
-Skills for working with the **NVIDIA Blueprint for Video Search & Summarization (VSS)** — a suite of GPU-accelerated microservices for building vision agents and video-analytics applications. Skills are grouped by what they do — `deployment/` stands a stack up, `operations/` drives a running one, `tools/` and `benchmarking/` hold standalone utilities, and `vss-build-vision-ai` sits at the top level as the entry point that composes the rest. Each skill directory is self-contained and follows the [agentskills.io](https://agentskills.io/specification) specification, with `name`, `description`, `version`, and `license` declared in its `SKILL.md` frontmatter. A skill's name is its directory's leaf name; the category is repository organisation and does not appear in the installed path.
+Skills for working with the **NVIDIA Blueprint for Video Search & Summarization (VSS)** — a suite of GPU-accelerated microservices for building vision agents and video-analytics applications. Skills are grouped by what they do — `deployment/` stands a stack up, `operations/` drives a running one, `tools/` and `benchmarking/` hold standalone utilities, and `vss-build-vision-ai` sits at the top level as the entry point that composes the rest. Each skill directory is self-contained and follows the [agentskills.io](https://agentskills.io/specification) specification, with `name`, `description`, `version`, and `license` declared in its `SKILL.md` frontmatter. A skill's name is its directory's leaf name; the category is repository organisation and does not appear in the installed path. **`metadata.version` is not edited by hand:** it is the repository's one version — the nearest `v*` git tag rendered as SemVer (`3.3.0-rc0` on the 3.3.0 line before its release), the same source `hatch-vcs` versions the agent (`GET /api/v1/version`) and the CLI (`vss --version`) from. [`stamp_versions.py`](../.github/scripts/stamp_versions.py) writes it into every skill (and the deployment edges' version fields) from the tag; a maintainer runs it after a new `v*` tag and lands the result in a normal PR, and CI's `--check` fails any PR whose fields disagree with each other or fall behind the tag. For a **release**, stamp first (`stamp_versions.py --version X.Y.Z`), land that commit, then tag it — tags are immutable, so this order is what makes the tagged tree agree with the tag. See [`version-convention.md`](../.github/version-convention.md).
+
+The `benchmarking/` skills additionally declare **`requires-vss`** under `metadata:` — the range of VSS deployment versions the skill supports, as comma-separated `>=`/`>`/`<`/`<=`/`==` comparators over bare `MAJOR.MINOR.PATCH` (e.g. `requires-vss: ">=3.2.0,<4.0.0"`). It is checked against `GET /api/v1/version` on the deployment by [`services/agent/scripts/check_vss_version.py`](../services/agent/scripts/check_vss_version.py), which `vss-benchmark-video-summarization`'s `preflight.sh` runs before every benchmark. Prerelease and build metadata are ignored when satisfying a range, so a prerelease of X.Y.Z counts as X.Y.Z and the Helm default (`3.3.0-65576357eb80`) behaves exactly like the Compose default (`3.3.0`). **Each skill's `author` owns its `requires-vss`:** shipping a new VSS minor does not widen any range, and the check failing closed is the signal to review and bump it. Full contract, including the checker's exit codes, is in [`services/agent/README.md`](../services/agent/README.md#deployment-version-api).
 
 > **New here? Read [Orientation](#orientation-how-vss-fits-together) first, then [Which skill do I need?](#which-skill-do-i-need).** Those two sections are the fastest path from a user request to the right skill.
 
@@ -32,7 +34,7 @@ VSS-based deployments are multi-layer systems. Most skills map to exactly one la
                          │  3. AGENT & OFFLINE PROCESSING               │
                          │     Reason over results for users            │
                          │     • Search, Summarize, Ask, Report         │
-                         │     • Query analytics  (via VA-MCP)          │
+                         │     • Query analytics  (via VSS CLI)         │
                          └──────────────────────────────────────────────┘
 
   MIDDLEWARE (cross-cutting): Video IO & Storage (VIOS) · API Gateway / MCP ·
@@ -60,9 +62,10 @@ Mode A. LVS operate uses `/lvs/v1/ready` and `/lvs/v1/summarize` for
 `vss-summarize-video` (and report Mode A when LVS is ready), with RT-VLM at the
 same `/rtvi-vlm/v1` as everywhere else. Nothing is published at the origin root
 `/v1`. Alerts operate
-uses `/vst`, `/alert-bridge` (rules + incidents; never Agent `/generate` for
-rule CRUD), and `/va-mcp` for `vss-manage-alerts` / `vss-query-analytics` —
-not Elasticsearch `:9200` or RT-VLM `:8018` through Ingress. Search archive
+uses `/vst`, `/alert-bridge` for `vss-manage-alerts` (rules + incidents; never
+Agent `/generate` for rule CRUD), and `/video-analytics-api` through
+`vss analytics` for `vss-query-analytics` — not Elasticsearch `:9200`,
+VA-MCP `:9901`, or RT-VLM `:8018` through Ingress. Search archive
 operate uses `/generate` and `/api/v1` via `vss-search-archive`. NvStreamer
 requires a separate `VSS_STREAMER_URL`. When `VSS_PUBLIC_URL` is unset, each
 skill retains its documented Docker Compose discovery or `HOST_IP` fallback.
@@ -99,12 +102,13 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Run object detection & tracking on streams (2D) | [`vss-deploy-detection-tracking-2d`](deployment/vss-deploy-detection-tracking-2d/SKILL.md) |
 | Run standalone RTVI-CV-3D / MV3DT multi-camera 3D tracking on calibrated MP4s or RTSP streams | [`vss-deploy-detection-tracking-3d`](deployment/vss-deploy-detection-tracking-3d/SKILL.md) |
 | Generate dense captions / detect anomalies via VLM on streams | [`vss-deploy-dense-captioning`](deployment/vss-deploy-dense-captioning/SKILL.md) |
+| Port or integrate a custom VLM into RT-VLM | [`rtvi-byom-porting`](deployment/rtvi-byom-porting/SKILL.md) |
 | Generate semantic video embeddings as a standalone service | [`vss-deploy-video-embedding`](deployment/vss-deploy-video-embedding/SKILL.md) |
 | Calibrate a multi-camera dataset (often a prerequisite for 3D) | [`vss-generate-video-calibration`](tools/vss-generate-video-calibration/SKILL.md) |
 | Deploy behavior analytics on its own | [`vss-setup-behavior-analytics`](deployment/vss-setup-behavior-analytics/SKILL.md) |
 | Deploy the video-analytics REST API on its own | [`vss-setup-video-analytics-api`](deployment/vss-setup-video-analytics-api/SKILL.md) |
-| Benchmark VLM video Q&A accuracy and latency (`vss vlm`) | [`benchmark-vlm-qa`](benchmarking/benchmark-vlm-qa/SKILL.md) |
-| Benchmark LVS summarization latency and burst throughput | [`benchmark-video-summarization`](benchmarking/benchmark-video-summarization/SKILL.md) |
+| Benchmark VLM video Q&A accuracy and latency (`vss vlm`) | [`vss-benchmark-vlm-qa`](benchmarking/vss-benchmark-vlm-qa/SKILL.md) |
+| Benchmark LVS summarization latency and burst throughput | [`vss-benchmark-video-summarization`](benchmarking/vss-benchmark-video-summarization/SKILL.md) |
 | Check an RT-VLM config change for a caption-accuracy regression | [`vss-evaluate-caption-accuracy`](benchmarking/vss-evaluate-caption-accuracy/SKILL.md) |
 
 **Skills chain.** Skills auto-invoke each other when a prerequisite is missing — e.g. `vss-deploy-detection-tracking-3d` calls `vss-generate-video-calibration` when calibration data is absent. When a request spans layers (deploy a profile *and* add a camera *and* run a search), the agent composes several skills in sequence — or `vss-build-vision-ai` composes the deploy half for you. The catalog below is grouped by directory, with each skill's pipeline layer in its own column.
@@ -143,6 +147,7 @@ repository organisation only and never appears in the installed path or in the
 | [vss-deploy-detection-tracking-2d](deployment/vss-deploy-detection-tracking-2d/SKILL.md) | 1 | Deploy/operate the RTVI-CV perception microservice for 2D detection & tracking (`warehouse-2d/3d`, `smartcity-rtdetr/gdino`) and call its REST API. |
 | [vss-deploy-detection-tracking-3d](deployment/vss-deploy-detection-tracking-3d/SKILL.md) | 1 | Deploy/operate the standalone RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) for calibrated MP4/file inputs or live RTSP streams, with BEV Fusion and saved/live outputs. Auto-chains to calibration when missing; explicit warehouse profile MV3DT requests route to `vss-build-vision-ai`. |
 | [vss-deploy-dense-captioning](deployment/vss-deploy-dense-captioning/SKILL.md) | 1 | Deploy and call the RT-VLM dense-captioning microservice (captions, alerts, stream management, OpenAI-compatible completions) on files and live RTSP. |
+| [rtvi-byom-porting](deployment/rtvi-byom-porting/SKILL.md) | 1 | Port, integrate, and validate custom VLMs in RT-VLM while preserving the existing serving contract. |
 | [vss-deploy-video-embedding](deployment/vss-deploy-video-embedding/SKILL.md) | 1 | Deploy and operate the RT-Embed video-embedding microservice — `/v1` REST API for file/text/video embeddings and live RTSP, plus Redis/Kafka/OTel integration. |
 | [vss-setup-behavior-analytics](deployment/vss-setup-behavior-analytics/SKILL.md) | 2 | Deploy the `vss-behavior-analytics` service standalone — pick the entrypoint (Analytics 2D / 3D / mv3dt, search_and_alerts), point it at a profile-shipped or custom config and optional calibration, and (with a Kafka / Redis Streams / MQTT broker reachable) push dynamic-config and dynamic-calibration updates over the `mdx-notification` topic — all without bringing up the full warehouse stack. |
 | [vss-setup-video-analytics-api](deployment/vss-setup-video-analytics-api/SKILL.md) | 2 | Deploy the `vss-video-analytics-api` REST service standalone against custom Elasticsearch and Kafka infrastructure. |
@@ -156,7 +161,7 @@ repository organisation only and never appears in the installed path or in the
 | [vss-ask-video](operations/vss-ask-video/SKILL.md) | 3 | Route video questions through hot conversation context, agent Markdown memory, structured VSS memory, bounded memory introspection, or a direct `vss vlm run` for an explicitly scoped fresh inspection. |
 | [vss-generate-video-report](operations/vss-generate-video-report/SKILL.md) | 3 | Produce a formatted markdown report through one of three backends — per-clip VLM, delegating to `vss-summarize-video` when LVS is ready or the clip is 120 seconds or longer (Mode A), incident-range via `vss-query-analytics` (Mode B), or SOP compliance via the SOP tools (Mode C). Never via the VSS agent's `/generate`. |
 | [vss-generate-video-report-rag](operations/vss-generate-video-report-rag/SKILL.md) | 3 | Generate video summary reports with Enterprise RAG context using the VSS frag/RAG pipeline and HITL parameter collection. |
-| [vss-query-analytics](operations/vss-query-analytics/SKILL.md) | 3 | Query analytics metrics, incidents, alerts, and sensor data from Elasticsearch via VA-MCP (`:9901` on Docker; `${VSS_PUBLIC_URL}/va-mcp` on Kubernetes). |
+| [vss-query-analytics](operations/vss-query-analytics/SKILL.md) | 3 | Query analytics metrics, incidents, alerts, and analytics sensor data through the project-local `vss analytics` CLI and configured Video Analytics API. |
 | [vss-manage-alerts](operations/vss-manage-alerts/SKILL.md) | 2 | Add, manage, and monitor alerts on streamed video — CV verification mode or VLM real-time mode, Alert-Bridge subscriptions, Slack notifications, camera onboarding. |
 | [vss-manage-video-io-storage](operations/vss-manage-video-io-storage/SKILL.md) | middleware | Video/stream management, recording timelines, clip extraction, snapshots, and add/delete sensors via the Video IO & Storage (VIOS) microservices. |
 
@@ -170,8 +175,8 @@ repository organisation only and never appears in the installed path or in the
 
 | Skill | Layer | Description |
 |---|---|---|
-| [benchmark-vlm-qa](benchmarking/benchmark-vlm-qa/SKILL.md) | — | E2E video Q&A accuracy + latency on `vss-devx-base` through `vss vlm run` (CR3 RT-VLM). Replaces `nat eval` QA. Not tool-calling / trajectory. |
-| [benchmark-video-summarization](benchmarking/benchmark-video-summarization/SKILL.md) | — | LVS latency and burst-throughput on a deployed summarization instance. |
+| [vss-benchmark-vlm-qa](benchmarking/vss-benchmark-vlm-qa/SKILL.md) | — | E2E video Q&A accuracy + latency on `vss-devx-base` through `vss vlm run` (CR3 RT-VLM). Replaces `nat eval` QA. Not tool-calling / trajectory. |
+| [vss-benchmark-video-summarization](benchmarking/vss-benchmark-video-summarization/SKILL.md) | — | LVS latency and burst-throughput on a deployed summarization instance. |
 | [vss-evaluate-caption-accuracy](benchmarking/vss-evaluate-caption-accuracy/SKILL.md) | — | Check whether an RT-VLM configuration change moved caption quality: capture paired baseline and candidate captions, score both against a ground truth with an LLM judge, and emit an accuracy and processing-time table. |
 
 Skills with `evals/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**`; legacy `eval/*.json` specs are still accepted for skills that have not moved yet. See [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.

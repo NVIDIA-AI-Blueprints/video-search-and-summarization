@@ -18,9 +18,9 @@
 #include "nvsurfacepool.h"
 
 #if defined(AARCH64_PLATFORM)
-#define OUTPUT_PLANE_NUM_BUFFERS 19
+constexpr int OUTPUT_PLANE_NUM_BUFFERS = 19;
 #else
-#define OUTPUT_PLANE_NUM_BUFFERS 10
+constexpr int OUTPUT_PLANE_NUM_BUFFERS = 10;
 #endif
 
 bool NvSurfacePool::allocateSurfaces (int num_surfaces, unsigned int target_width, unsigned int target_height, bool need_allocations,

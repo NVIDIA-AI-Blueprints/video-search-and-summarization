@@ -217,19 +217,19 @@ void elasticSearch::getBboxPosition(BBoxMetaData& outData)
     outData.m_searching = false;
 }
 
-std::pair<bool, std::vector<Json::Value>> elasticSearch::fetchRangeHits(
-                                                       const std::string& sensorId,
-                                                       const std::string& startIso,
-                                                       const std::string& endIso,
-                                                       int size)
+elasticSearch::RangeFetchResult elasticSearch::fetchRangeHits(const std::string& sensorId,
+                                                              const std::string& startIso,
+                                                              const std::string& endIso,
+                                                              int size)
 {
-    std::vector<Json::Value> results;
+    RangeFetchResult result;
+    std::vector<Json::Value>& results = result.hits;
     nv_vms::DeviceConfig config = GET_CONFIG();
     std::string elasticsearch_url = config.video_metadata_server;
     if (elasticsearch_url.empty())
     {
         LOG(warning) << "fetchRangeHits: Elasticsearch URL is empty" << endl;
-        return {false, results};
+        return result;
     }
 
     SearchParams inData(startIso, endIso, sensorId);
@@ -240,10 +240,11 @@ std::pair<bool, std::vector<Json::Value>> elasticSearch::fetchRangeHits(
     LOG(info) << "fetchRangeHits: querying camera: " << sensorId
                 << " Start: " << startIso << " End: " << endIso
                 << " size: " << size << endl;
-    Json::Value json_get = queryESMetadata(url, string_query);
+    Json::Value json_get = queryESMetadata(url, string_query, &result.httpStatus);
     // A reachable ES answers with a "hits" object even when there are zero
     // matches; a failed/unreachable request yields an empty/invalid document.
     const bool reachable = json_get.isObject() && json_get.isMember("hits");
+    result.reachable = reachable;
     Json::Value& hits = json_get["hits"]["hits"];
     const bool is3dSensor = !config.overlay_3d_sensor_name.empty();
     results.reserve(hits.size());
@@ -276,7 +277,8 @@ std::pair<bool, std::vector<Json::Value>> elasticSearch::fetchRangeHits(
     }
 
     LOG(info) << "fetchRangeHits: camera: " << sensorId
-                << " received: " << hits.size() << " reachable: " << reachable << endl;
+                << " received: " << hits.size() << " reachable: " << reachable
+                << " httpStatus: " << result.httpStatus << endl;
     if (static_cast<int>(hits.size()) >= size)
     {
         // Slice hit the (unpaginated) size cap; records beyond it are not
@@ -286,5 +288,5 @@ std::pair<bool, std::vector<Json::Value>> elasticSearch::fetchRangeHits(
                      << " [" << startIso << " .. " << endIso << "] hit the size cap "
                      << size << "; some metadata may be truncated" << endl;
     }
-    return {reachable, results};
+    return result;
 }

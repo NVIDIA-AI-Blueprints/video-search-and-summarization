@@ -156,5 +156,13 @@ class WorkflowTagSuffixInvocationTest(unittest.TestCase):
         self.assertIn(f"content_tag=tree-{'a' * 40}-sbsa", written)
 
 
+class WorkflowDiskReclamationTest(unittest.TestCase):
+    def test_all_image_build_paths_reclaim_hosted_toolcache(self):
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows" / "build-dev-images.yml"
+        ).read_text()
+        self.assertEqual(workflow.count("sudo rm -rf /opt/hostedtoolcache "), 2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Adding chat video-upload completion to another main tab (3 steps):
  *
@@ -23,7 +24,7 @@ import type { ChatVideoUploadCompletePayload } from '@nv-metropolis-bp-vss-ui/ch
  * Subscribe to upload-batch completions; returns an unsubscribe when it has one.
  *
  * Defined here rather than imported: this is the app's own fan-out contract
- * between Home and its tabs, and it outlived the toolkit that first declared it.
+ * between Home and its tabs.
  */
 export type RegisterChatVideoUploadComplete = (
   listener: (payload: ChatVideoUploadCompletePayload) => void,

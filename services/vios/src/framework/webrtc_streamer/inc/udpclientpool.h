@@ -28,7 +28,7 @@
 #include "udpclient.h"
 #include "network_utils.h"
 
-#define DEFAULT_UDP_PORT_RANGE "31000-31200"
+constexpr const char* DEFAULT_UDP_PORT_RANGE = "31000-31200";
 
 using namespace std;
 

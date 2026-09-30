@@ -36,9 +36,14 @@ from typing import TYPE_CHECKING
 from typing import Any
 
 __all__ = [
+    "DEFAULT_CRITIC_PROMPT",
     "AttributeSearch",
     "BackendUnreachableError",
     "ConfigurationError",
+    "CriticAgent",
+    "CriticAgentInput",
+    "CriticAgentOutput",
+    "CriticAgentResult",
     "EmbedSearch",
     "ErrorEvent",
     "FinalResultEvent",
@@ -52,7 +57,10 @@ __all__ = [
     "SearchRuntime",
     "StatusEvent",
     "TagSearch",
+    "TimeFormat",
     "VSSSearch",
+    "VideoInfo",
+    "VideoResult",
     "fuse_ranked_union",
     "models",
 ]
@@ -61,6 +69,15 @@ _LAZY_EXPORTS = {
     "AttributeSearch": ".primitives.attribute_search",
     "BackendUnreachableError": ".errors",
     "ConfigurationError": ".errors",
+    # Critic verifier -- inlined from the former vss_core.critic package.
+    "CriticAgent": ".critic",
+    "CriticAgentInput": ".critic",
+    "CriticAgentOutput": ".critic",
+    "CriticAgentResult": ".critic",
+    "DEFAULT_CRITIC_PROMPT": ".critic",
+    "TimeFormat": ".critic",
+    "VideoInfo": ".critic",
+    "VideoResult": ".critic",
     "EmbedSearch": ".primitives.embed_search",
     "ErrorEvent": ".events",
     "FinalResultEvent": ".events",
@@ -81,6 +98,14 @@ _LAZY_EXPORTS = {
 
 if TYPE_CHECKING:
     from . import models as models
+    from .critic import DEFAULT_CRITIC_PROMPT
+    from .critic import CriticAgent
+    from .critic import CriticAgentInput
+    from .critic import CriticAgentOutput
+    from .critic import CriticAgentResult
+    from .critic import TimeFormat
+    from .critic import VideoInfo
+    from .critic import VideoResult
     from .errors import BackendUnreachableError
     from .errors import ConfigurationError
     from .errors import IndexNotFoundError

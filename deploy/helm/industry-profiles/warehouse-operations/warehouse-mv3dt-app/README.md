@@ -31,9 +31,7 @@ Override **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** and **`vios.vss-vios-n
 
 - **Kubernetes cluster** with `kubectl` configured to reach its API server.
 
-- **NVIDIA GPU Operator** — installs the driver and device plugin so pods can request `nvidia.com/gpu`. Follow [GPU Operator getting started](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html). Recommended driver versions (x86):
-  - **580.105.08** — Ubuntu 24.04
-  - **580.65.06** — Ubuntu 22.04
+- **NVIDIA GPU Operator** — installs the driver and device plugin so pods can request `nvidia.com/gpu`. Follow [GPU Operator getting started](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html). Required driver version (x86 Ubuntu 24.04): **595.58.03**
 
 - **Volume provisioner** — the chart creates PVCs for VST, Elasticsearch, and related storage. A StorageClass must exist on the cluster. Set **`global.storageClass`** to its name in your values override. On bare-metal clusters with no provisioner yet, install [local-path-provisioner](https://github.com/rancher/local-path-provisioner) via Helm:
 
@@ -363,7 +361,7 @@ Create a values override file (e.g. `my-values.yaml`) and set at least:
 | **`global.vssIngress.enabled`** | Set **`true`** to create the HAProxy `Ingress`. Requires the controller installed in [step 2](#2-install-the-ingress-controller). Leave **`false`** and use `values-nodeport.yaml` instead for NodePort access. |
 | **`monitoring.grafana.rootUrl`** | Full external URL for Grafana including path prefix, e.g. `http://<NODE_IP>/grafana`. Grafana embeds this in redirect links; without it Grafana points at `localhost`. |
 | **`infra.kibana.kibanaPublicUrl`** | Full external URL for Kibana including path prefix, e.g. `http://<NODE_IP>/kibana`. Kibana uses this for absolute links in the UI. |
-| **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** | NGC resource version for the warehouse app-data bundle (models, configs, video seed). Default is `nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0`; override when using a different release. |
+| **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** | NGC resource version for the warehouse app-data bundle (models, configs, video seed). Default is `nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`; override when using a different release. |
 
 #### `values.yaml` vs your override file
 
@@ -383,6 +381,9 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`global.externalScheme`** | **`""`** | `http` or `https`. Builds browser-facing URLs together with **`global.externalHost`** and **`global.externalPort`**. |
 | **`global.externalPort`** | **`""`** | Port segment in generated URLs. Leave empty so URLs omit `:port` when using standard 80/443. Set only for non-standard ports. |
 | **`global.useReleaseNamePrefix`** | **`false`** | When `true`, all in-cluster service names are prefixed with the Helm release name. The SDRC `waitForWorkloads` target is rewritten the same way so it still reaches `vss-rtvi-cv`. |
+| **`global.vios.messageBrokerConsumer`** | **`kafka`** | Live metadata broker VST/VIOS listens on for overlay bounding boxes. Chart default is `redis`; this profile overrides it since perception publishes to Kafka. Shared by `vss-vios-sensor` and `vss-vios-streamprocessing`. |
+| **`global.vios.messageBrokerTopicConsumer`** | **`mdx-bev`** | Topic VIOS consumes for live overlay metadata. |
+| **`global.vios.messageBrokerMetadataTopic`** | **`mdx-bev`** | Same topic, used by the notification/webhook side of the same config. |
 | **`global.ngcApiSecret.name`** | **`ngc-api`** | Name of the Opaque secret holding the NGC API key (see [Required secrets](#required-secrets)). |
 | **`global.ngcApiSecret.key`** | **`NGC_CLI_API_KEY`** | Key inside the secret that holds the NGC API key value. |
 | **`global.imagePullSecrets`** | **`[{name: ngc-docker-reg-secret}]`** | Image pull credentials for nvcr.io. Must reference the docker-registry secret created in [Required secrets](#required-secrets). |
@@ -399,10 +400,12 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vios.vss-vios-streamprocessing.useSoftwarePath`** | **`false`** | Set **`true`** (paired with **`resources: null`**) to use FFmpeg software encode/decode and free the second GPU. Both flags required — see [GPU requirements](#gpu-requirements). |
 | **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Pod resource requests/limits for streamprocessing. Set **`null`** (with **`useSoftwarePath: true`**) to drop the GPU claim entirely. |
 | **`vios.vss-vios-nvstreamer.syncFileCount`** | **`4`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
-| **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** | **`nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0`** | NGC resource for the NVStreamer sample video seed. Keep in step with **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`**. |
+| **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** | **`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`** | NGC resource for the NVStreamer sample video seed. Keep in step with **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`**. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.fromExistingClaim`** | **`vss-rtvi-cv-models`** | Reuses the PVC from the `vss-rtvi-cv` NGC download job so the video data is not downloaded twice. Clear this and set **`resourceVersion`** to download the video seed independently. |
 | **`vios.vss-vios-sensor.videoMetadataServerUrl`** | **`""`** (derived: `<elasticsearch-svc>:9200/mdx-raw*`) | VST overlay metadata source. Derived from the in-cluster `elasticsearch` Service; override for a non-standard endpoint. No `http://` scheme — VST rejects one. |
-| **`vios.vss-vios-streamprocessing.videoMetadataServerUrl`** | **`""`** (derived: `<elasticsearch-svc>:9200/mdx-raw*`) | Same as above, for streamprocessing. |
+| **`vios.vss-vios-streamprocessing.videoMetadataServerUrl`** | **`""`** (derived: `<elasticsearch-svc>:9200/mdx-raw*`) | Same as above, for streamprocessing. Prefer **`videoMetadataIndexPattern`** below — this bypasses release-name-prefix awareness. |
+| **`vios.vss-vios-streamprocessing.videoMetadataIndexPattern`** | **`mdx-bev`\*** | Overlay index pattern, prefix-aware. This profile fuses detections into BEV metadata, so it overrides the chart's `mdx-raw*` default. |
+| **`vios.vss-vios-streamprocessing.overlaySensorName`** | **`bev-sensor-1`** | Associates BEV overlay metadata with camera streams. Must match `group.name` in `calibration.json`. |
 | **`vios.vss-vios-nvstreamer.videoMetadataServerUrl`** | **`""`** (derived: `http://<elasticsearch-svc>:9200/mdx-raw*`) | NVStreamer's overlay metadata source. Requires the `http://` scheme, unlike the two rows above. |
 
 ##### `infra`
@@ -429,7 +432,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** | **`nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0`** | NGC resource version for the warehouse app-data bundle (models, configs). Override when pinning to a specific release. |
+| **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** | **`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`** | NGC resource version for the warehouse app-data bundle (models, configs). Override when pinning to a specific release. |
 | **`rtvi.vss-rtvi-cv.persistence.models.size`** | **`100Gi`** | PVC size for the NGC model download job. Larger than 2D/3D because MV3DT downloads two models. |
 | **`rtvi.vss-rtvi-cv.resources`** | `nvidia.com/gpu: 1` | GPU request/limit for the CV inference pod. Always required for the MV3DT pipeline. |
 | **`rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.batchSize`** | **`4`** | Number of camera frames batched per BEV fusion pass. |
@@ -562,7 +565,7 @@ Then confirm the VST ingress responds:
 
 ```bash
 kubectl port-forward -n <namespace> svc/vss-vios-ingress 30888:30888
-curl -f http://127.0.0.1:30888/vst/api/health
+curl -f http://127.0.0.1:30888/health
 ```
 
 ### URLs
@@ -604,6 +607,24 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
 
 It sets **`global.vssIngress.enabled`** to false and clears the path prefixes, since
 each app then owns the root of its own port.
+
+### Port-forward
+
+No ingress, no NodePort:
+
+```bash
+kubectl port-forward -n <namespace> svc/vss-vios-ingress 30888:30888
+kubectl port-forward -n <namespace> svc/kibana 5601:5601
+kubectl port-forward -n <namespace> svc/grafana 3000:3000
+kubectl port-forward -n <namespace> svc/prometheus 9090:9090
+```
+
+| UI | URL |
+| --- | --- |
+| VST | `http://localhost:30888/vst/` |
+| Kibana | `http://localhost:5601` |
+| Grafana | `http://localhost:3000` |
+| Prometheus | `http://localhost:9090` |
 
 ## Monitoring
 

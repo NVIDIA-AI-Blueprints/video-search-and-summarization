@@ -26,7 +26,7 @@ class NativeStreamMonitor
 {
 private:
     static std::unique_ptr<NativeStreamMonitor> m_pInstance;
-    NativeStreamMonitor() { }
+    NativeStreamMonitor() = default;
     friend std::unique_ptr<NativeStreamMonitor> std::make_unique<NativeStreamMonitor>();
 
 public:

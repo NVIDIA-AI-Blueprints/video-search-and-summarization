@@ -446,7 +446,7 @@ download_clipreid_checkpoint() {
   echo "   $CLIPREID_CKPT_URL"
   rm -f "$CLIPREID_CKPT"
   if ! run_step \
-      "pip3 install -q --disable-pip-version-check --no-warn-script-location gdown && \
+      "python3 -m pip install -q --disable-pip-version-check --no-warn-script-location gdown && \
        python3 -m gdown '${CLIPREID_CKPT_ID}' \
          -O '${WORK}/checkpoints/${CLIPREID_CKPT_NAME}'"; then
     rm -f "$CLIPREID_CKPT"
@@ -481,7 +481,7 @@ convert_clipreid_onnx() {
 
   # CLIP-ReID deps missing from reid-service:latest (torch/onnx/regex are there).
   if ! run_step \
-      "pip3 install -q --disable-pip-version-check --no-warn-script-location yacs ftfy timm && \
+      "python3 -m pip install -q --disable-pip-version-check --no-warn-script-location yacs ftfy timm && \
        python3 ${WORK}/convert_clipreid_to_onnx.py \
          --repo-dir ${WORK}/src \
          --checkpoint ${WORK}/checkpoints/${CLIPREID_CKPT_NAME} \

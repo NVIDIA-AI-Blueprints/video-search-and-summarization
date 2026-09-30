@@ -48,6 +48,10 @@ class RTVIVLMAlertConfig(FunctionBaseConfig, name="rtvi_vlm_alert"):
         default=None,
         description="Optional reference to VA MCP get_incidents tool. If provided, reuses VA for incident queries instead of direct ES access.",
     )
+    va_get_incident_tool: FunctionRef | None = Field(
+        default=None,
+        description="Optional reference to VA MCP get_incident tool. Required for exact incident-ID queries.",
+    )
     default_model: str = Field(
         "nvidia/cosmos-reason1-7b",
         description="Default VLM model for caption/alert generation",
@@ -94,6 +98,14 @@ class RTVIVLMAlertInput(BaseModel):
         description="System prompt for VLM. Only for 'start' action.",
     )
     # Fields for get_incidents action
+    incident_id: str | None = Field(
+        None,
+        description="Exact incident ID to retrieve. Only for 'get_incidents' action. Avoids a bounded recent-incident scan.",
+    )
+    vlm_verified: bool | None = Field(
+        None,
+        description="Select the VLM-verified incident index. Only for 'get_incidents' action.",
+    )
     start_time: str | None = Field(
         None,
         description="Start time in ISO 8601 format (e.g., 2026-01-06T00:00:00.000Z). Only for 'get_incidents' action.",
@@ -180,50 +192,94 @@ async def rtvi_vlm_alert(config: RTVIVLMAlertConfig, builder: Builder) -> AsyncG
                     message="sensor_name is required for 'get_incidents' action.",
                 )
 
-            # Check if VA tool is configured
-            if not config.va_get_incidents_tool:
+            va_tool_ref = config.va_get_incident_tool if input_data.incident_id else config.va_get_incidents_tool
+            if not va_tool_ref:
+                tool_name = "va_get_incident_tool" if input_data.incident_id else "va_get_incidents_tool"
                 return RTVIVLMAlertOutput(
                     success=False,
                     sensor_name=sensor_name,
-                    message="va_get_incidents_tool is not configured. Cannot query incidents.",
+                    message=f"{tool_name} is not configured. Cannot query incidents.",
                 )
 
             try:
-                # Get the VA get_incidents tool
-                va_tool = await builder.get_tool(config.va_get_incidents_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+                va_tool = await builder.get_tool(va_tool_ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
 
-                # Build input for VA tool - use sensor_name directly as source
-                # When sensor_name is provided to RTVI-VLM, it's used as sensor_id in Kafka messages
-                # VA projects only Id/timestamp/end/sensorId unless extra fields are
-                # requested via `includes`. RT-VLM incidents carry their kind in
-                # `category` and the verification result in `info` (verdict,
-                # triggerPhrase, vlm_response), so ask for both.
-                va_input = {
-                    "source": sensor_name,
-                    "source_type": "sensor",
-                    "max_count": input_data.max_count,
-                    "includes": ["category", "info"],
-                }
+                if input_data.incident_id:
 
-                # Add time range if provided (VA tool requires both start and end)
-                if input_data.start_time and input_data.end_time:
-                    va_input["start_time"] = input_data.start_time
-                    va_input["end_time"] = input_data.end_time
+                    async def _fetch_incident(vlm_verified: bool | None) -> dict | None:
+                        va_input = {
+                            "id": input_data.incident_id,
+                            "includes": ["category", "info"],
+                            "vlm_verified": vlm_verified,
+                        }
+                        fetched = await va_tool.ainvoke(input=va_input)
+                        if isinstance(fetched, str):
+                            fetched = json.loads(fetched)
+                        return fetched or None
 
-                # Call VA tool
-                result = await va_tool.ainvoke(input=va_input)
+                    # Exact IDs can live in incidents-* or vlm-incidents-*. When
+                    # vlm_verified is omitted, VA falls back to server config
+                    # (true on the alerts profile), so retry the other index.
+                    incident = await _fetch_incident(input_data.vlm_verified)
+                    if not incident and input_data.vlm_verified is None:
+                        logger.info(
+                            "Incident %s not found in default index; retrying get_incident on the alternate index",
+                            input_data.incident_id,
+                        )
+                        for alt_vlm_verified in (False, True):
+                            incident = await _fetch_incident(alt_vlm_verified)
+                            if incident:
+                                break
+                else:
+                    # When sensor_name is provided to RTVI-VLM, it is used as
+                    # sensor_id in Kafka messages. Ask for alert metadata beyond
+                    # the default VA projection so reports can render it.
+                    va_input = {
+                        "source": sensor_name,
+                        "source_type": "sensor",
+                        "max_count": input_data.max_count,
+                        "includes": ["category", "info"],
+                        "vlm_verified": input_data.vlm_verified,
+                    }
 
-                # Parse result - VA tool returns {"incidents": [...], "has_more": bool}
-                if isinstance(result, str):
-                    result = json.loads(result)
+                    # VA requires both ends of a time range.
+                    if input_data.start_time and input_data.end_time:
+                        va_input["start_time"] = input_data.start_time
+                        va_input["end_time"] = input_data.end_time
 
-                incidents = result.get("incidents", [])
+                    result = await va_tool.ainvoke(input=va_input)
+
+                    if isinstance(result, str):
+                        result = json.loads(result)
+
+                if input_data.incident_id:
+                    # get_incident returns one document rather than an incidents
+                    # envelope. Keep this tool's output shape stable for callers.
+                    if incident and incident.get("sensorId") != sensor_name:
+                        logger.warning(
+                            "Incident %s belongs to sensor %s, not requested sensor %s",
+                            input_data.incident_id,
+                            incident.get("sensorId"),
+                            sensor_name,
+                        )
+                        incident = None
+                    incidents = [incident] if incident else []
+                else:
+                    incidents = result.get("incidents", [])
                 total = len(incidents)
 
                 return RTVIVLMAlertOutput(
                     success=True,
                     sensor_name=sensor_name,
-                    message=f"Found {total} incidents for sensor '{sensor_name}'.",
+                    message=(
+                        f"Found incident '{input_data.incident_id}' for sensor '{sensor_name}'."
+                        if total and input_data.incident_id
+                        else (
+                            f"Incident '{input_data.incident_id}' was not found for sensor '{sensor_name}'."
+                            if input_data.incident_id
+                            else f"Found {total} incidents for sensor '{sensor_name}'."
+                        )
+                    ),
                     incidents=incidents,
                     total_count=total,
                 )

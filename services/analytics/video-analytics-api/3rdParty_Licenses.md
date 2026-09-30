@@ -97,7 +97,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
 
-## @babel/generator:7.29.7
+## @babel/generator:7.29.8
 
 **License Type:** MIT
 
@@ -377,7 +377,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
 
-## @babel/parser:7.29.7
+## @babel/parser:7.29.8
 
 **License Type:** MIT
 
@@ -436,7 +436,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
 
-## @babel/traverse:7.29.7
+## @babel/traverse:7.29.8
 
 **License Type:** MIT
 
@@ -467,7 +467,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
 
-## @babel/types:7.29.7
+## @babel/types:7.29.8
 
 **License Type:** MIT
 
@@ -533,7 +533,42 @@ THE SOFTWARE.
 
 ---
 
-## @dabh/diagnostics:2.0.8
+## @colors/colors:1.6.1
+
+**License Type:** MIT
+
+```
+MIT License
+
+Original Library
+  - Copyright (c) Marak Squires
+
+Additional Functionality
+ - Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
+ - Copyright (c) DABH (https://github.com/DABH)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+---
+
+## @dabh/diagnostics:2.0.9
 
 **License Type:** MIT
 
@@ -1541,7 +1576,7 @@ SOFTWARE.
 
 ---
 
-## @jridgewell/sourcemap-codec:1.5.5
+## @jridgewell/sourcemap-codec:1.6.0
 
 **License Type:** MIT
 
@@ -1867,7 +1902,7 @@ Apache License
 
 ---
 
-## @opentelemetry/core:2.10.0
+## @opentelemetry/core:2.11.0
 
 **License Type:** Apache-2.0
 
@@ -2805,7 +2840,7 @@ MIT License
 
 ---
 
-## @types/node:26.1.2
+## @types/node:22.20.3
 
 **License Type:** MIT
 
@@ -3651,7 +3686,7 @@ SOFTWARE.
 
 ---
 
-## baseline-browser-mapping:2.11.8
+## baseline-browser-mapping:2.11.24
 
 **License Type:** Apache-2.0
 
@@ -3913,7 +3948,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ---
 
-## body-parser:1.20.6
+## body-parser:1.20.8
 
 **License Type:** MIT
 
@@ -3945,7 +3980,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
 
-## brace-expansion:1.1.18
+## brace-expansion:1.1.21
 
 **License Type:** MIT
 
@@ -3975,7 +4010,7 @@ SOFTWARE.
 
 ---
 
-## brace-expansion:2.1.4
+## brace-expansion:2.1.7
 
 **License Type:** MIT
 
@@ -4049,7 +4084,7 @@ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH RE
 
 ---
 
-## browserslist:4.28.7
+## browserslist:4.29.0
 
 **License Type:** MIT
 
@@ -4294,7 +4329,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ---
 
-## caniuse-lite:1.0.30001806
+## caniuse-lite:1.0.30001810
 
 **License Type:** CC-BY-4.0
 
@@ -6002,7 +6037,7 @@ THE SOFTWARE.
 
 ---
 
-## electron-to-chromium:1.5.399
+## electron-to-chromium:1.5.430
 
 **License Type:** ISC
 
@@ -6512,7 +6547,7 @@ SOFTWARE.
 
 ---
 
-## fast-uri:3.1.5
+## fast-uri:3.1.8
 
 **License Type:** BSD-3-Clause
 
@@ -8363,7 +8398,7 @@ THE SOFTWARE.
 
 ---
 
-## js-yaml:3.15.0
+## js-yaml:3.15.2
 
 **License Type:** MIT
 
@@ -8393,7 +8428,7 @@ THE SOFTWARE.
 
 ---
 
-## js-yaml:4.3.0
+## js-yaml:4.3.2
 
 **License Type:** MIT
 
@@ -9566,7 +9601,7 @@ THE SOFTWARE.
 
 ---
 
-## mocha-multi-reporters:1.5.1
+## mocha-multi-reporters:1.5.2
 
 **License Type:** MIT
 
@@ -9750,7 +9785,7 @@ SOFTWARE.
 
 ---
 
-## multer:2.2.0
+## multer:2.3.0
 
 **License Type:** MIT
 
@@ -9905,7 +9940,7 @@ SOFTWARE.
 
 ---
 
-## node-releases:2.0.51
+## node-releases:2.0.55
 
 **License Type:** MIT
 
@@ -10841,7 +10876,7 @@ support library is itself covered by the above license.
 
 ---
 
-## proxy-addr:2.0.7
+## proxy-addr:2.0.8
 
 **License Type:** MIT
 
@@ -10905,6 +10940,44 @@ OTHER DEALINGS IN THE SOFTWARE.
 ---
 
 ## qs:6.15.3
+
+**License Type:** BSD-3-Clause
+
+```
+BSD 3-Clause License
+
+Copyright (c) 2014, Nathan LaFreniere and other [contributors](https://github.com/ljharb/qs/graphs/contributors)
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+---
+
+## qs:6.16.0
 
 **License Type:** BSD-3-Clause
 
@@ -12696,7 +12769,7 @@ THE SOFTWARE.
 
 ---
 
-## undici:7.29.0
+## undici:7.29.1
 
 **License Type:** MIT
 
@@ -12726,7 +12799,7 @@ SOFTWARE.
 
 ---
 
-## undici-types:8.3.0
+## undici-types:6.21.0
 
 **License Type:** MIT
 
@@ -12787,14 +12860,14 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
 
-## update-browserslist-db:1.2.3
+## update-browserslist-db:1.3.3
 
 **License Type:** MIT
 
 ```
 The MIT License (MIT)
 
-Copyright 2022 Andrey Sitnik <andrey@sitnik.ru> and other contributors
+Copyright 2022 Andrey Sitnik <andrey@sitnik.es> and other contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in

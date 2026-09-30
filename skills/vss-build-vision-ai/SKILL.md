@@ -4,7 +4,7 @@ description: >-
   Add agent-ready vision capabilities — dense captioning, detection, search, alerting, summarization — to an agent or application through a customizable, self-contained vision stack built on the NVIDIA VSS Blueprint. Use this skill when a developer or agent wants to give their app vision: pick capabilities via guided intake ("build a vision agent", "add vision capabilities") or describe them in natural language ("create a profile for streaming dense captioning", "add agentic search to my base deployment", "deploy warehouse 3d"). Route, compose, configure, and deploy stock base, alerts, LVS, search developer profiles, or the warehouse industry profile and lean custom combinations expressed as delta overlays using one current developer profile as the Foundation. Not for operating a stack that is already deployed — searching, asking about a video, summarizing, managing alerts, or generating a report — and not for deploying a single microservice on its own; use the matching vss-* skill for those.
 license: Apache-2.0
 metadata:
-  version: "3.2.0"
+  version: "3.3.0-rc0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint orchestration deployment compose code-generation"
 ---
@@ -14,6 +14,12 @@ metadata:
 `build-vision-ai` gives agents and developers **agent-ready vision capabilities through a customizable, self-contained application stack** built on the **NVIDIA VSS Blueprint**. A developer or agent adds vision to their application by selecting the capabilities they want (guided intake) or describing them in natural language, and the skill routes to a validated developer profile — or composes the smallest delta overlay on top of one — and deploys it. Use it whenever the user wants vision capabilities composed for them: deploying a stock profile, extending a running deployment, or building a lean custom combination.
 
 **Two ways in:** **guided intake** (state an open intent like "build a vision agent" / "add vision capabilities" and the skill walks you through capability selection) or **prompt-driven** (name the capability or profile directly). Both land on the same routing and composition flow.
+
+## When to Use
+
+- Compose and deploy a self-contained vision application stack — a stock developer profile (`base`, `alerts`, `lvs`, `search`) or the `warehouse` industry profile — not a single microservice on its own
+- Extend or customize that stack as a delta overlay on a developer profile Foundation
+- Change a build's lifecycle: install the NemoClaw/OpenClaw/Hermes harness on it, resize it, or tear it down. Operating the running stack (search, Q&A, summaries, alerts, reports) is not this skill — see below
 
 ## Do Not Use This Skill For
 
@@ -43,6 +49,27 @@ metadata:
 - [`references/profiles/`](references/profiles/) — current developer profile capabilities, exact service sets, owner mappings, knobs, readiness checks, and sources.
 - [`references/services/`](references/services/) — capability-owner contracts for service keys, required peers, configurable environment knobs, and sources.
 
+### Bundled scripts and maintenance files
+
+Every executable shipped with this Skill has one owner and supports `-h` / `--help`
+without requiring credentials, probing services, or changing files:
+
+| Script | Owner and purpose |
+| --- | --- |
+| `scripts/check_credentials.sh` | `references/credentials.md`: read-only NGC, NVIDIA API, and Hugging Face credential probes. |
+| `scripts/probe_remote_models.sh` | `references/credentials.md`, `references/env-overrides.md`, and `references/troubleshooting.md`: OpenAI-compatible remote-model discovery. |
+| `scripts/normalize_resolved_yml.py` | `references/composition.md` and `references/deployment.md`: normalize the filtered Compose model. |
+| `scripts/validate_resolved_yml.py` | `references/composition.md` and `references/deployment.md`: validate the exact generated Compose model. |
+| `scripts/resolve_service_graph.py` | This file and `references/composition.md`: enforce service ownership and derive analytics readiness targets. |
+| `scripts/render_warehouse_configurator_env.py` | `references/profiles/warehouse.md`: materialize the warehouse configurator environment. |
+| `scripts/validate_warehouse_env.py` | `references/profiles/warehouse.md`: enforce warehouse constraints that Compose cannot express. |
+| `scripts/stage_vss_src.py` | Snapshots a checkout into `.openclaw/` / `.hermes/` so the sandbox image is built from it instead of `develop`. Run only for a [harness source ref](#harness-source-ref), from that ref's worktree; never for a default build. |
+| `scripts/sync_skills.py` | Harness runtime utility used by `.openclaw/` and `.hermes/` to activate operation Skills; not part of the build workflow. |
+
+`scripts/tests/` contains CI-only contracts, `evals/` contains Skill evaluation
+specifications, and `config/skillspector-baseline.yml` is scanner-maintenance
+configuration. Agents must not load or execute those files as workflow steps.
+
 ## Routing
 
 | Request | Route |
@@ -53,11 +80,12 @@ metadata:
 | Build, create, extend, customize, combine, add, or remove capabilities | Delta mode using the closest current developer profile as the Foundation. |
 | A named profile qualified as headless | Delta mode off that profile, not a stock deploy. |
 | Deploy capabilities with no exact match | Build the smallest delta, then deploy it. |
-| Drive the build from NemoClaw / OpenClaw / Hermes, a sandbox, or a chat UI instead of the in-stack agent | **Warehouse does not support NemoClaw yet.** The NemoClaw harness (`references/agent-harness.md`): a host-side harness step after readiness, plus one removal from the service set — the in-stack agent, since exactly one harness is deployed. That removal makes it a Delta build. Never add a `nemoclaw` key to `COMPOSE_PROFILES`. |
+| Drive the build from NemoClaw / OpenClaw / Hermes, a sandbox, or a chat UI instead of the in-stack agent | **Warehouse does not support NemoClaw yet.** The NemoClaw harness (`references/agent-harness.md`): a host-side harness step after readiness, plus removal of the in-stack agent and legacy VA-MCP from the service set. NemoClaw uses `vss analytics` through the Video Analytics API, so neither container is needed. Those removals make it a Delta build. Never add a `nemoclaw` key to `COMPOSE_PROFILES`. |
 | Install the harness against an already-deployed build (no composition requested) | `references/agent-harness.md` bring-up alone — resolve the origin from the running build, skip Steps 5–8. |
-| Provision, register, or ingest a source (file or live stream) into a deployed build, or fan it out to consumers | `vss-manage-video-io-storage` `references/provision-vios-source.md` — headless, direct REST (resolve consumer ports from `resolved.yml`, confirm no in-stack agent); not `vss-search-archive`. |
+| Provision, register, or ingest a source (file or live stream) into a deployed build, or fan it out to consumers | `vss-manage-video-io-storage` [`provision-vios-source.md`](../operations/vss-manage-video-io-storage/references/provision-vios-source.md) — headless registration; the build's mounted notification config fans the source out, so registering it is the whole job; not `vss-search-archive`. |
 | Resolution leaves a blocker the rules cannot settle (unmapped or ambiguous capability, Foundation tie, singleton conflict, or requested/excluded contradiction) | Clarification gate (`references/composition.md`): after one deterministic pass, ask one structured question, then resolve on the answer. Never re-run the same resolution or guess past the blocker. |
 | `smartcities` or another industry profile | Stop: `warehouse` is the only supported industry Foundation. |
+| RTX PRO 4500 Blackwell (`RTXPRO4500BW`) | Alerts only, with a remote LLM (`--use-remote-llm` + `LLM_ENDPOINT_URL`). Stop for Base, LVS, and Search. |
 | Open / generic / "quickstart" intent with no named capability or profile | Guided front door (Q1): Pre-built workflow (Stock mode) or Custom build (Delta mode). |
 
 **Every "Stock mode" row above is conditional on [Q3](#harness-selection--q3).** Each of `base`, `alerts`, `lvs`, and `search` ships the in-stack agent, which Q3 removes on either answer — so a stock route that reaches Q3 becomes a **Delta build**. Stock survives only where the profile carries no agent, where the request names the in-stack agent and so skips Q3, or on a warehouse variant, none of which reach Q3 at all (see Q2w).
@@ -125,7 +153,7 @@ The recommended first-run path. Deploys a validated developer profile via **Stoc
 
 These are **predefined developer profiles** — the skill keeps the profile's authoritative `COMPOSE_PROFILES` unchanged (Stock mode, Step 5 exact match) and follows the shared build lifecycle (Steps 5–9). For Alerts, set the profile `MODE` per Q2a-mode.
 
-**All four then reach [Q3](#harness-selection--q3). Q3 asks only whether to deploy NemoClaw: yes selects NemoClaw; no leaves the build with no harness. Either answer removes the in-stack agent and makes the build a Delta.** The quickstart is still the fast path — one removal, no added keys — but report it as a delta in the Step 6 diagram and the final summary rather than calling it a stock deploy. Keep it out of the Q3 question itself, per **Keep the question about the harness**. On `lvs` and `search`, a **no** is worth a sentence of its own: the Web UI reaches summarization and text search only through the agent, so with no harness those capabilities are `vss summarize` and `vss search` from the host, with the UI left as a dashboard.
+**All four then reach [Q3](#harness-selection--q3). Q3 asks only whether to deploy NemoClaw: yes selects NemoClaw; no leaves the build with no harness. Either answer removes the in-stack agent and any unrequested legacy VA-MCP, making the build a Delta.** The quickstart is still the fast path — removals only, no added keys — but report it as a delta in the Step 6 diagram and the final summary rather than calling it a stock deploy. Keep it out of the Q3 question itself, per **Keep the question about the harness**. On `lvs` and `search`, a **no** is worth a sentence of its own: the Web UI reaches summarization and text search only through the agent, so with no harness those capabilities are `vss summarize` and `vss search` from the host, with the UI left as a dashboard.
 
 **Customize a pre-built workflow → Custom build.** After a pre-built deploy (or instead of deploying), offer: *"Want to customize this workflow? I'll use **<selected profile>** as the starting point."* On **yes**, transition into **Custom build**, seeding the selected profile as the **Foundation** and computing a **capability delta** on top of it (the profile itself is never modified — it is only the baseline). The stock build becomes a **Delta build**: the same `_builds/<name>/` machinery now carries the added/removed profile keys and any changed knobs.
 
@@ -203,10 +231,18 @@ Offer the user **exactly** the capabilities in the table below. Each row's owner
 | **Dense captioning** — natural-language descriptions of video | `rt-vlm.md` | `rtvi-vlm` | `base` | — |
 | **Object detection & tracking (2D)** — bounding boxes, class labels, track IDs | `rt-cv.md` | `perception-2d-fusion` *(search)* / `perception-alerts` *(alerts)* | `search` | Kafka-backed; use the selected profile's key, not the shared `perception` extends source |
 | **Semantic search over video** — embeddings + agentic search | `search.md` (+ `rt-embed.md`) | `vss-search-analytics-2d-fusion`, `rtvi-embed` | `search` | Requires RT-CV + RT-Embed + ELK; retrieval alone needs no VLM. Add `rtvi-vlm` only when the request asks to verify results or ask questions about clips, and route `/rtvi-vlm` when you do |
-| **Real-time alerting / verification** — VLM-verified incidents | `alerts.md` | `alert-bridge`, `vss-va-mcp`, `vss-video-analytics-api` | `alerts` | Real-time needs RT-VLM; CV-verification needs RT-CV + Behavior Analytics |
+| **Read-only video analytics** — incidents, analytics sensors/places, occupancy, and speed metrics through `vss analytics` | `video-analytics-api.md` | `vss-video-analytics-api` | `alerts` | Requires Elasticsearch and indexed producer data; does not select `vss-va-mcp` or `vss-agent` |
+| **Real-time alerting / verification** — VLM-verified incidents | `alerts.md` | `alert-bridge`, `vss-video-analytics-api` | `alerts` | Real-time needs RT-VLM; CV-verification needs RT-CV + Behavior Analytics; legacy VA-MCP is not part of Alerts |
 | **Video summarization** — time-windowed summaries on demand | `lvs.md` | `lvs-server` | `lvs` | Requires one reachable LLM + one VLM/RT-VLM; something must drive `/v1/summarize`, but no agent need be deployed |
 
-**Always included — do not offer as choices:** VIOS video I/O + storage (`vios.md`) plus the shared `redis` cache peer that ships with the Foundation. **Added conditionally, never offered directly:** retain the HAProxy ingress (`ingress.md`) only with the Agent/UI tier or when the request explicitly asks for a unified browse/operate origin; otherwise prune `vss-haproxy-ingress` and create no ingress patch. The **ELK + Kafka broker / indexing stack** (`elk.md`) is pulled in **only** for capabilities that are Kafka-backed or Elasticsearch-indexed — Semantic search (`vss-search-analytics-2d-fusion` + `rtvi-embed`), Real-time alerting / verification (`alert-bridge` requires Kafka + Elasticsearch), or Video summarization when its Kafka/ES event or DB backend is enabled; RT-VLM adds Kafka when its resolved `RTVI_VLM_MESSAGE_BUS` is `kafka`. Kibana is not implied by selecting Elasticsearch: retain `kibana` and exactly the selected Foundation's initializer only when that Foundation already ships them, and never add or borrow Kibana keys for a Foundation that does not. A dense-captioning-only build means the request does not publish or index captions; it adds **no** ELK/Kafka and sets both `RTVI_VLM_MESSAGE_BUS=` and `RTVI_VLM_KAFKA_ENABLED=false` during the VSS Compose compatibility transition. If the request publishes captions or stores them in Elasticsearch, it is not dense-captioning-only: retain the approved Kafka/ELK service set and message-bus settings unchanged when generating artifacts. The LLM NIM (`llm-nim.md`) and VLM NIM (`vlm-nim.md`) model backends are likewise activated only when a selected capability needs a local model (integrated RT-VLM is the `rt-vlm.md` owner, not the VLM NIM backend).
+**Read-only analytics resolution is subtractive as well as additive.** When that
+is the only selected analytics capability, add `vss-video-analytics-api` and its
+Elasticsearch peers, and explicitly remove `vss-va-mcp` and `vss-agent` from
+the Foundation service set. Re-add either only when another selected capability
+explicitly owns it, such as **Real-time alerting / verification** for
+`vss-va-mcp` or a request naming the built-in VSS Agent for `vss-agent`.
+
+**Always included — do not offer as choices:** VIOS video I/O + storage (`vios.md`) plus the shared `redis` cache peer that ships with the Foundation. VIOS being included settles nothing about its fan-out: which of the selected capabilities receive a webhook on every newly registered stream is a build-time decision resolved in `vios.md`, and a capability that only ever runs on request is not one of them. **Added conditionally, never offered directly:** retain the HAProxy ingress (`ingress.md`) only with the Agent/UI tier or when the request explicitly asks for a unified browse/operate origin; otherwise prune `vss-haproxy-ingress` and create no ingress patch. The **ELK + Kafka broker / indexing stack** (`elk.md`) is pulled in **only** for capabilities that are Kafka-backed or Elasticsearch-indexed — Semantic search (`vss-search-analytics-2d-fusion` + `rtvi-embed`), Read-only video analytics (`vss-video-analytics-api` reads Elasticsearch), Real-time alerting / verification (`alert-bridge` requires Kafka + Elasticsearch), or Video summarization when its Kafka/ES event or DB backend is enabled; RT-VLM adds Kafka when its resolved `RTVI_VLM_MESSAGE_BUS` is `kafka`. Kibana is not implied by selecting Elasticsearch: retain `kibana` and exactly the selected Foundation's initializer only when that Foundation already ships them, and never add or borrow Kibana keys for a Foundation that does not. A dense-captioning-only build means the request does not publish or index captions; it adds **no** ELK/Kafka and sets both `RTVI_VLM_MESSAGE_BUS=` and `RTVI_VLM_KAFKA_ENABLED=false` during the VSS Compose compatibility transition. If the request publishes captions or stores them in Elasticsearch, it is not dense-captioning-only: retain the approved Kafka/ELK service set and message-bus settings unchanged when generating artifacts. The LLM NIM (`llm-nim.md`) and VLM NIM (`vlm-nim.md`) model backends are likewise activated only when a selected capability needs a local model (integrated RT-VLM is the `rt-vlm.md` owner, not the VLM NIM backend).
 
 Rules for the multi-select:
 
@@ -215,6 +251,75 @@ Rules for the multi-select:
 - Multiple selections compose in one deployment (e.g. captioning + alerting, or captioning + detection).
 
 After Q2b, the selected capabilities **are** the required-capability set. Select the closest current developer profile as the **Foundation**, compute the **smallest delta** (add or remove only canonical service-profile keys, change only requested knobs), and continue at Step 2. This is **Delta mode** (per the Routing table); `_builds/<name>/` is created here.
+
+### Container image tag
+
+An input of its own, orthogonal to the capability set and to the harness:
+`deploy/docker/containers.env` derives every managed first-party image tag from
+one knob, `VSS_CONTAINER_TAG`, defaulting to `develop-latest`. A build that must
+run a release's images selects that tag. **Never edit `containers.env`** — it is
+checked in and shared by every deployment on the host.
+
+Take the tag from the first source that answers, and do not ask when one does:
+
+1. The request — "deploy base at 3.4.0", "use image tag `<tag>`".
+2. `VSS_CONTAINER_TAG` already exported in the environment.
+3. Neither: select nothing and let `containers.env` default. This is the
+   ordinary case and nothing below applies to it.
+
+A selected tag must be non-empty once trimmed; an empty or whitespace-only
+value is a blocker to report, never a silent fall back to `develop-latest`.
+Record it as `VSS_CONTAINER_TAG` in `override.env`, name it in the Step 6
+diagram and the final summary, and resolve with it **exported** (Step 8).
+
+**Recording it in `override.env` is not what applies it.** Compose expands
+`containers.env` before `override.env`, so every per-service `VSS_*_TAG` is
+already fixed by the time the build layer is read. Only `vss-agent-ui`, whose
+Compose default reads `VSS_CONTAINER_TAG` directly, would move — leaving one
+image on the requested tag and the rest on `develop-latest`. The shell export
+outranks every `--env-file` layer, which is what makes the knob take effect;
+the `override.env` line is the build's record of the decision, and Step 8
+re-exports from it when the shell is silent.
+
+Two things still supersede the common tag, by design:
+
+- an explicit service tag such as `VSS_RT_CV_TAG` in `override.env`, read after
+  `containers.env` derived it from the common tag;
+- `VSS_CONTAINER_TAG_SUFFIX`, or the concrete SBSA tags
+  [`references/sizing.md`](references/sizing.md) writes, which augment the
+  common tag for the SBSA-suffixed services.
+
+### Harness source ref
+
+An input of its own, like the container image tag and independent of it: the
+revision of this repo the NemoClaw sandbox image is built from — its skills,
+the `vss` CLI, the OpenClaw/Hermes plugin and workspace docs. The sandbox
+Dockerfiles fetch `develop` by default, so without a ref a harness always gets
+develop's skills and CLI **whatever the checkout or the image tag says**.
+Applies only when Q3 selected NemoClaw.
+
+Take the ref from the first source that answers, and do not ask when one does:
+
+1. The request — "harness at `nightly-20260928`", "harness ref `v3.3.0`",
+   "deploy base with NemoClaw from `<tag or sha>`".
+2. `VSS_HARNESS_REF` already exported in the environment.
+3. Neither: select nothing. The sandbox builds from `develop`, nothing is
+   staged, and nothing below applies. This is the ordinary case.
+
+**Never derive it from the container image tag.** `3.4.0` or
+`develop-<sha12>` names images; a harness ref names a git revision. When a user
+wants both pinned they name both, and the summary shows both.
+
+A selected ref must resolve after `git fetch origin <ref>` to a commit
+(`git rev-parse --verify <ref>^{commit}`), and its `.openclaw/Dockerfile` must
+consume a staged snapshot (a `.vss-sr[c]` COPY) — refs from before staging
+existed cannot be built this way. Either failure is a blocker to report, never
+a silent fall back to `develop`. Build the harness from a worktree of that ref,
+staged with the ref's own `stage_vss_src.py`, with `VSS_REPO_DIR` pointing at
+the worktree — the exact commands are in
+[`references/agent-harness.md`](references/agent-harness.md#harness-source-ref).
+Name the ref and its resolved short sha in the Step 6 diagram and the final
+summary, next to the image tag.
 
 ### Harness selection — Q3
 
@@ -237,9 +342,18 @@ Applies to **every** entry mode — prompt-driven, quickstart, and custom build 
 
 Apply these on **either** answer:
 
-- **Remove the in-stack agent and change no other key.** `vss-ui`, `phoenix`, and the `llm_*` peer stay; pruning them is a capability decision, not a harness one. `vss-ui` remains useful with no agent — its Alerts, Dashboard, and Video Management tabs address Alert Bridge, Kibana, and VST directly. Its dependency on the agent ships as `required: false` so the filtered project resolves; never re-add a hard `depends_on` in a build override.
+- **Remove the in-stack agent and legacy VA-MCP.** Stock Alerts keeps
+  `vss-va-mcp` only because the in-stack agent still calls it. Host-side
+  analytics uses `vss analytics` through `vss-video-analytics-api`, so a Q3
+  answer removes both keys. Re-add `vss-va-mcp` only when the request
+  explicitly selects the legacy MCP interface (for example, the SOP-report
+  flow in `references/services/sop.md`) or names the in-stack agent. Use
+  `scripts/resolve_service_graph.py`'s `resolve_service_profiles` rule when
+  computing the final profile set.
+- **The agent's two private peers leave with it: the `llm_*` key and `phoenix`** (this is Step 5's agent-owned removal, on a **yes** and a **no** alike). The `llm_*` peer is the agent's LLM: with the agent gone nothing left in `base` calls the LLM, whether or not a harness is installed - and a NemoClaw harness brings its own model anyway. `phoenix` collects the agent's traces and has no other client. Drop both; the NIM is the build's largest GPU and image cost. Keep `llm_*` only when an enabled service still consumes it - `lvs-server`; `alert-bridge` never calls the LLM (its compose passes `LLM_MODE`, which nothing in it reads; its URL rewriting keys on `VLM_MODE`) - or the harness LLM is route (a) against the build's own NIM, which names the key in `REQUESTED_PROFILES`. `vss-ui` stays; pruning it is a capability decision, not a harness one. `vss-ui` remains useful with no agent — its Alerts, Dashboard, and Video Management tabs address Alert Bridge, Kibana, and VST directly. Its dependency on the agent ships as `required: false` so the filtered project resolves; never re-add a hard `depends_on` in a build override.
 - **Wire the Web UI chat to NemoClaw's default OpenClaw runtime on a yes**, per [`references/agent-harness.md`](references/agent-harness.md) *Connecting the Web UI to NemoClaw*.
-- **Provisioning moves to the headless path.** Use `vss-manage-video-io-storage` `references/provision-vios-source.md`: with no agent route its own gate passes, and it is the only path that fans a source into RT-CV and RT-Embed. Alert rules stay with `vss-manage-alerts`.
+- **On a no, retire the dead Web UI agent surfaces.** Set `NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR=false`, `NEXT_PUBLIC_ENABLE_CHAT_TAB=false`, and `NEXT_PUBLIC_ENABLE_SEARCH_TAB=false` in the build override when `vss-ui` remains. The Alerts, Dashboard, and Video Management tabs remain available.
+- **Provisioning moves to the headless path.** Use `vss-manage-video-io-storage` [`provision-vios-source.md`](../operations/vss-manage-video-io-storage/references/provision-vios-source.md): with no agent route its own gate passes, and it is the only path that gets a source to RT-CV and RT-Embed. Alert rules stay with `vss-manage-alerts`.
 - Removing a service key makes it a **Delta build**, never a Stock deploy — on a no as much as a yes, and on a quickstart as much as a custom build.
 - **A capability only the Agent owner serves contradicts a no.** Agentic natural-language decomposition (`/api/v1/search`) and `/generate` have no non-agent provider. When the request needs one, a no drops a requested capability: take it to the clarification gate rather than resolving it either way.
 
@@ -288,8 +402,8 @@ After the selection, ask in one typed-values message only for that provider's st
 
 ## Steps
 
-1. Detect the **entry mode** (see [Entry Mode (Step 0)](#entry-mode-step-0) above). Then parse the request and any eval specification into required capabilities, excluded capabilities, configuration knobs, the **harness** (see [Harness selection — Q3](#harness-selection--q3)) and, on a NemoClaw harness, its own model settings ([Q3a](#harness-model--q3a)), and observable success checks. Custom build supplies the capability set directly via multi-select; Pre-built workflow keeps a named profile's authoritative service set unchanged (Stock mode).
-2. Read the matching file under `references/profiles/` and `references/sizing.md`. In delta mode, compare all four developer profiles and select exactly one Foundation; ask only when two are equally plausible. `warehouse` never competes in that comparison — it is selected only by an explicit warehouse request. Read `references/edge.md` for DGX Spark or Thor.
+1. Detect the **entry mode** (see [Entry Mode (Step 0)](#entry-mode-step-0) above). Then parse the request and any eval specification into required capabilities, excluded capabilities, configuration knobs, the common container image tag ([Container image tag](#container-image-tag)), the **harness** (see [Harness selection — Q3](#harness-selection--q3)) and, on a NemoClaw harness, its own model settings ([Q3a](#harness-model--q3a)), and observable success checks. Custom build supplies the capability set directly via multi-select; Pre-built workflow keeps a named profile's authoritative service set unchanged (Stock mode).
+2. Read the matching file under `references/profiles/` and `references/sizing.md`. In delta mode, compare all four developer profiles and select exactly one Foundation; ask only when two are equally plausible. `warehouse` never competes in that comparison — it is selected only by an explicit warehouse request. Read `references/edge.md` for DGX Spark or Thor. For DGX Station GB300, apply the single-GPU placement and utilization contract in `sizing.md` (not the two-GPU H100/Search layout, and not Spark/Thor unified-memory recipes); run the GB300 OS and driver rows in `prerequisites.md`.
 3. Before resolution or deployment, run the applicable checks from `references/prerequisites.md`, `references/credentials.md`, and `references/ngc.md`. Run the Docker pin **first**, as a command rather than a decision — it pins the tested engine versions and sets the required `cgroupfs` driver, it has to precede the Step 9 image pulls to prevent the NGC pull failure, and a `dockerd` restart is free before Step 9 and disruptive after it:
 
    ```bash
@@ -302,9 +416,38 @@ After the selection, ask in one typed-values message only for that provider's st
 
    When the harness is NemoClaw — including by default — add its host preflight from `references/agent-harness.md`; a missing installer prerequisite, or a credential [Q3a](#harness-model--q3a) did not turn up for the endpoint it settled on, blocks here, while the build is still cheap to re-aim. Read the environment and Brev references when applicable.
 4. Read `references/composition.md` and only the capability-owner files under `references/services/` needed by the request.
-5. Determine the effective service set. For an exact stock match, keep its authoritative set unchanged. Otherwise compute the smallest delta from the Foundation’s exact `COMPOSE_PROFILES`: add or remove only canonical service profile keys and change only requested environment knobs. If this single pass leaves a blocker the rules cannot settle (an unmapped or ambiguous capability, a Foundation tie, a singleton conflict, or a requested/excluded contradiction), apply the clarification gate in `references/composition.md`: ask one structured question, then resolve on the answer; never re-run the same resolution or guess past the blocker.
-6. Before writing delta artifacts or starting a stock or delta deployment, present a compact architecture diagram in the conversation. Show the Foundation, added and removed capability owners and service keys, principal data flows and topics, external endpoints, and GPU/model placement. Whenever Q3 was asked, show the in-stack agent as removed; on a yes, add NemoClaw as a host-side box outside the Compose project, reaching the build through the ingress origin. That diagram is the clearest place for the user to catch a harness they did not intend, or the loss of a surface they were relying on. Do not save the diagram as a build artifact.
-7. For every stock or delta build, write `_builds/<name>/override.env`, `_builds/<name>/compose.yml`, and `_builds/<name>/resolved.yml`. Put the Foundation, the full effective `COMPOSE_PROFILES`, required build-local path/host values, and only environment values that are customized or transitively derived from a customization in `override.env`; do not copy unchanged Foundation defaults such as stock ports or model knobs. Make `compose.yml` include the root `deploy/docker/compose.yml` plus only minimal changed or new service Compose files, if any. Treat `<name>` only as a filesystem label; never add it to `COMPOSE_PROFILES`.
-8. Generate `resolved.yml` with `docker compose config` using the ordered env layers in `references/composition.md` — or, for `warehouse`, the env layers and resolve pipeline in `references/profiles/warehouse.md` — normalize dangling optional dependencies with `scripts/normalize_resolved_yml.py`, then run the mandatory check/create gate in `references/data-directory.md` on every build, deploy or not — it **blocks** a `warehouse` build whose `${VSS_DATA_DIR}` is not the supplied app-data bundle — it prepares the external `${VSS_DATA_DIR}` any later bring-up needs (this agent's or a hand-run `docker compose up`) and never touches the repo tree. When the effective `COMPOSE_PROFILES` includes an RT-CV perception key (`perception-alerts`, `perception-2d-fusion`), no host-side or agent detector staging is required: the RT-CV container downloads the detector ONNX at first boot (ds-start phase 0) from its mounted `models-download.json` into the world-writable `${VSS_DATA_DIR}/models` the gate just created. Reject stale placeholders and invalid checked-in bind sources with `scripts/validate_resolved_yml.py`; if validation finds real unresolved `${...}` Compose interpolation, add only the missing concrete values to `override.env` and regenerate before proceeding. Do not count escaped container-shell variables such as `$${HOST_IP}` as unresolved Compose interpolation. Validate the selected keys, services, images, required peers, GPU placement, utilization, and requested success checks against that exact file.
-9. If deployment was requested, deploy the exact `_builds/<name>/resolved.yml` validated in the previous step, refresh its registry images even when their tags already exist locally, use `references/readiness.md` with the matching profile checks, and follow `references/deployment.md` for the resolved-Compose lifecycle. When a source must be provisioned into the deployed build (a build with no agent registers none at bring-up), resolve the consumer ports and inspect `resolved.yml`: if it carries no in-stack agent, follow `vss-manage-video-io-storage` `references/provision-vios-source.md` — **except for `warehouse`, which registers its own sources automatically.** This condition covers both builds that reached Q3 and headless builds that skipped it. When a search query round-trip is then requested against the deployed build, run `vss configure --base-url <build-origin>` (the fronting `http://$HOST_IP:$HAPROXY_HOST_PORT`) through the project-local entry point (`uv run --project <repo>/libs/vss vss …`, per `references/deployment_resolution.md`) — not a bare `vss` — then defer entirely to `vss-search-archive` for decomposition, mode, and the query itself. For stop or cleanup, follow `references/teardown.md`: remove project volumes by default and preserve model caches only when the user explicitly requests it.
-10. When the harness is NemoClaw, bring it up **after** the readiness gate passes, per `references/agent-harness.md`: resolve the deployed origin, then execute the checked-in `deploy/docker/scripts/deploy_nemoclaw.ipynb` through `deploy/docker/scripts/run_setup_notebook.py`. That notebook is the single source of host-side harness logic — never reimplement its onboarding, policy, skill-install, or workspace steps, and never hand-run the NemoClaw CLI in its place. Pass `NEMOCLAW_RECREATE_SANDBOX=0` unless the user asked to rebuild the harness; the notebook's own default discards the sandbox and every agent session in it. For the harness's own LLM, pass exactly the provider and values [Q3a](#harness-model--q3a) settled. A required credential should have blocked at Step 3; reaching here without it is still a blocker to report, never grounds to silently substitute another provider. In the final summary, link the Agent UI's token-free origin and point to the local setup log for the authenticated URL, per the exact form in `references/agent-harness.md`; never expose its `#token=` fragment in the response. Also **name the sandbox** (`NEMOCLAW_SANDBOX_NAME`, as the notebook echoes it back) alongside that link: it is the handle the harness's own status and destroy commands take, and nothing else in the summary carries it. Harness and build are independent lifecycles: `references/teardown.md` removes the Compose project only, and destroying the sandbox is the separate command in `references/agent-harness.md`.
+5. Determine the effective service set. For an exact stock match, keep its authoritative set unchanged. Otherwise compute the smallest delta from the Foundation’s exact `COMPOSE_PROFILES`: add or remove only canonical service profile keys and change only requested environment knobs. If the build retains `vss-ui`, set its subtitle using [the UI subtitle rule](references/composition.md#ui-subtitle).
+
+   **Harness-only delta invariant (apply here, before capability pruning).** When the selected capabilities exactly equal the Foundation, Q3 is the only customization, and the user did not explicitly add or remove a capability, set `ADDED_PROFILES=∅` and set `REMOVED_PROFILES` only to the agent-owned removal: `vss-agent` with the two peers only it uses - `phoenix` and, when no remaining key consumes the LLM (`lvs-server` is the one that does), the Foundation `llm_*` key - plus `vss-va-mcp` only when it is present and the existing VA-MCP rule says it is unrequested. An explicit request keeps any of them (a harness on route (a) against the build's own NIM names the `llm_*` key). Set `REQUESTED_PROFILES` to the comma-separated explicitly requested profile keys **before** the validator runs, including `REQUESTED_PROFILES=` when that set is empty (the normal Q3-only path). Compute `FINAL_PROFILES = (FOUNDATION_PROFILES ∪ ADDED_PROFILES) − REMOVED_PROFILES` and bypass generic forward-closure/unused-service pruning. A Q3 **no** is host-CLI driven, not headless; beyond the agent-owned removal it does not authorize removing `vss-ui`, `vss-haproxy-ingress`, `redis`, VIOS, models, or any other Foundation capability service. A Q3 **yes** has the same Compose preservation rule; NemoClaw is added outside Compose.
+
+   Before continuing, run this exact check against the Foundation and final profile lists:
+
+   ```bash
+   uv run "$REPO/skills/vss-build-vision-ai/scripts/resolve_service_graph.py" \
+     --foundation "$FOUNDATION_PROFILES" \
+     --final "$FINAL_PROFILES" \
+     --requested "${REQUESTED_PROFILES:-}"
+   ```
+
+   Any unexpected addition or removal is a blocker: restore the Foundation list and apply only the agent-owned removal. Run ordinary capability pruning only when the user explicitly requested headless operation or a capability addition/removal; those builds are not harness-only and remain valid.
+
+   If this single pass leaves a blocker the rules cannot settle (an unmapped or ambiguous capability, a Foundation tie, a singleton conflict, or a requested/excluded contradiction), apply the clarification gate in `references/composition.md`: ask one structured question, then resolve on the answer; never re-run the same resolution or guess past the blocker.
+6. Before writing delta artifacts or starting a stock or delta deployment, present a compact architecture diagram in the conversation. Show the Foundation, added and removed capability owners and service keys, principal data flows and topics, external endpoints, GPU/model placement, and the selected container image tag when the build selected one. Whenever Q3 was asked, show the in-stack agent as removed; on a yes, add NemoClaw as a host-side box outside the Compose project, reaching the build through the ingress origin. That diagram is the clearest place for the user to catch a harness they did not intend, or the loss of a surface they were relying on. Do not save the diagram as a build artifact.
+7. For every stock or delta build, write `_builds/<name>/override.env`, `_builds/<name>/compose.yml`, and `_builds/<name>/resolved.yml`. Put the Foundation, the full effective `COMPOSE_PROFILES`, required build-local path/host values, and only environment values that are customized or transitively derived from a customization in `override.env`; do not copy unchanged Foundation defaults such as stock ports or model knobs. Make `compose.yml` include the root `deploy/docker/compose.yml` plus only minimal changed or new service Compose files, if any. Write `_builds/<name>/patches/notification_config.json` only when the capabilities that must act on every newly registered stream differ from what the inherited VIOS notification config already fans out to: copy the shipped superset, set each item's `enabled`, and point `VST_NOTIFICATION_CONFIG_PATH` at the copy — a payload selected by env, so it needs no `.yml` patch beside it, per [`references/services/vios.md`](references/services/vios.md). Treat `<name>` only as a filesystem label; never add it to `COMPOSE_PROFILES`. For a harness-only delta, read `COMPOSE_PROFILES` back from `override.env` and run this exact check again before generating `resolved.yml`:
+
+   ```bash
+   uv run "$REPO/skills/vss-build-vision-ai/scripts/resolve_service_graph.py" \
+     --foundation "$FOUNDATION_PROFILES" \
+     --final "$(sed -n 's/^COMPOSE_PROFILES=//p' "$BUILD_DIR/override.env")" \
+     --requested "${REQUESTED_PROFILES:-}"
+   ```
+
+   A non-zero exit is a blocker: fail clearly instead of writing or deploying an over-pruned build.
+8. Generate `resolved.yml` with `docker compose config` using the ordered env layers in `references/composition.md` — or, for `warehouse`, the env layers and resolve pipeline in `references/profiles/warehouse.md` — normalize dangling optional dependencies with `scripts/normalize_resolved_yml.py`, then run the mandatory check/create gate in `references/data-directory.md` on every build, deploy or not — it **blocks** a `warehouse` build whose `${VSS_DATA_DIR}` is not the supplied app-data bundle — it prepares the external `${VSS_DATA_DIR}` any later bring-up needs (this agent's or a hand-run `docker compose up`) and never touches the repo tree. When the effective `COMPOSE_PROFILES` includes an RT-CV perception key (`perception-alerts`, `perception-2d-fusion`), no host-side or agent detector staging is required: the RT-CV container downloads the detector ONNX at first boot (ds-start phase 0) from its mounted `models-download.json` into the world-writable `${VSS_DATA_DIR}/models` the gate just created. A selected container image tag reaches those layers only as an export — `export VSS_CONTAINER_TAG=<tag>` before `config`, then `--expect-container-tag <tag>` on `scripts/validate_resolved_yml.py`, which blocks a build whose images stayed on `develop-latest` ([Container image tag](#container-image-tag)). `config` is the only command in this lifecycle that reads `containers.env`; the deploy runs from the self-contained `resolved.yml`. Reject stale placeholders and invalid checked-in bind sources with `scripts/validate_resolved_yml.py`; if validation finds real unresolved `${...}` Compose interpolation, add only the missing concrete values to `override.env` and regenerate before proceeding. Do not count escaped container-shell variables such as `$${HOST_IP}` as unresolved Compose interpolation. Validate the selected keys, services, images, required peers, GPU placement, utilization, and requested success checks against that exact file. Derive analytics readiness targets from the resolved service names with `scripts/resolve_service_graph.py`'s `analytics_readiness_targets`; never probe Agent `:8000` or VA-MCP `:9901` when their services are absent.
+9. If deployment was requested, deploy the exact `_builds/<name>/resolved.yml` validated in the previous step, refresh its registry images even when their tags already exist locally, use `references/readiness.md` with the matching profile checks, and follow `references/deployment.md` for the resolved-Compose lifecycle. When a source must be provisioned into the deployed build (a build with no agent registers none at bring-up), inspect `resolved.yml`: if it carries no in-stack agent, follow `vss-manage-video-io-storage` [`provision-vios-source.md`](../operations/vss-manage-video-io-storage/references/provision-vios-source.md) — **except for `warehouse`, which registers its own sources automatically.** This condition covers both builds that reached Q3 and headless builds that skipped it. The enabled items in the notification config the build mounts are the fan-out a registered source gets, asynchronously and without a caller. When a search query round-trip is then requested against the deployed build, run `vss configure --base-url <build-origin>` (the fronting `http://$HOST_IP:$HAPROXY_HOST_PORT`) through the project-local entry point (`uv run --project <repo>/libs/vss vss …`, per `references/deployment_resolution.md`) — not a bare `vss` — then defer entirely to `vss-search-archive` for decomposition, mode, and the query itself. For stop or cleanup, follow `references/teardown.md`: remove project volumes by default and preserve model caches only when the user explicitly requests it.
+10. When the harness is NemoClaw, bring it up **after** the readiness gate passes, per `references/agent-harness.md`: resolve the deployed origin, then execute the checked-in `deploy/docker/scripts/deploy_nemoclaw.ipynb` through `deploy/docker/scripts/run_setup_notebook.py`. That notebook is the single source of host-side harness logic — never reimplement its onboarding, policy, skill-install, or workspace steps, and never hand-run the NemoClaw CLI in its place. Pass `NEMOCLAW_RECREATE_SANDBOX=1`: onboard is the only step that applies the harness's provider, endpoint, model and key, so a reused sandbox would keep whatever it was onboarded with and ignore Q3a. For the harness's own LLM, pass exactly the provider and values [Q3a](#harness-model--q3a) settled. A required credential should have blocked at Step 3; reaching here without it is still a blocker to report, never grounds to silently substitute another provider. In the final summary, link the Agent UI's token-free origin and hand over the recipe for the authenticated URL — `nemoclaw <name> gateway-token --quiet` on the deployment host, then that origin plus `/#token=<token>` — per the exact form in `references/agent-harness.md`; never expose its `#token=` fragment in the response, and never send the user to the setup log for it, which carries the fragment redacted. Also **name the sandbox** (`NEMOCLAW_SANDBOX_NAME`, as the notebook echoes it back) alongside that link: it is the handle the harness's own status and destroy commands take, and nothing else in the summary carries it. Say there too when the bring-up rebuilt an existing sandbox of that name, discarding its agent sessions. Harness and build are independent lifecycles: `references/teardown.md` removes the Compose project only, and destroying the sandbox is the separate command in `references/agent-harness.md`.
+
+   When the build includes `vss-ui` and the default OpenClaw runtime, also link
+   the deployed VSS Web UI and tell the user to enter the output of the same
+   `gateway-token --quiet` command in its **Connect NemoClaw chat** panel.
+   Do not add that token to `override.env` or recreate `vss-ui` after onboarding.

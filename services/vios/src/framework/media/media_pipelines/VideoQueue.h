@@ -112,7 +112,7 @@ class VideoQueue
 {
 public:
     VideoQueue();
-    ~VideoQueue() {}
+    ~VideoQueue() = default;
 
     void push(FrameInfo& frame);
     void pull(FrameInfo& frame);

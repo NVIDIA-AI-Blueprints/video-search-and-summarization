@@ -77,14 +77,7 @@ struct PTZSpaces
                ,y_max_range("0")
                {}
 
-    PTZSpaces(const PTZSpaces& p)
-    {
-        spaceType = p.spaceType;
-        x_min_range = p.x_min_range;
-        x_max_range = p.x_max_range;
-        y_min_range = p.y_min_range;
-        y_max_range = p.y_max_range;
-    }
+    PTZSpaces(const PTZSpaces& p) = default;
     void printInfo()
     {
         std::cout << "\tPTZ spaceType: "<< spaceType << std::endl;
@@ -111,20 +104,7 @@ struct Profile
               ,gov("")
     {
     }
-    Profile(const Profile& p)
-    {
-        token = p.token;
-        name = p.name;
-        encoderToken = p.encoderToken;
-        sourceToken = p.sourceToken;
-        ptzToken = p.ptzToken;
-        ptzNodeToken = p.ptzNodeToken;
-        resolution = p.resolution;
-        encoding = p.encoding;
-        encodingProfile = p.encodingProfile;
-        frameRate = p.frameRate;
-        gov = p.gov;
-    }
+    Profile(const Profile& p) = default;
     std::string token;
     std::string name;
     std::string encoderToken;
@@ -294,7 +274,7 @@ public:
              , m_membership(false)
     {
     }
-    ~NvSoap() {}
+    ~NvSoap() = default;
     bool ping(SensorInfo& sensor);
     int sendProbeToDevice(SensorInfo& sensor, bool ping = false);
     int GetSystemDateAndTime(nvsoap_& soap, std::string& res);

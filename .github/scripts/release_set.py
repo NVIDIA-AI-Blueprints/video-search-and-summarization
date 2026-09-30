@@ -52,6 +52,9 @@ from check_container_tag_source import (  # noqa: E402
     discover_env_files,
     image_name,
     read_env_file,
+    source_path_label,
+    source_paths_of,
+    source_tree_sha,
     strip_quotes,
 )
 from compose_image_golden import load_containers_env, resolve_nested  # noqa: E402
@@ -84,16 +87,13 @@ def inventory_by_compose_name(inventory: dict) -> dict[str, dict]:
 
 
 def git_tree_sha(repo_root: Path, source_path: str) -> str | None:
-    """Return the current commit's tree SHA for ``source_path``."""
-    result = subprocess.run(
-        ["git", "-C", str(repo_root), "rev-parse", f"HEAD:{source_path}"],
-        text=True,
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        return None
-    value = result.stdout.strip()
-    return value if TREE_RE.fullmatch(value) else None
+    """Return the current commit's tree SHA for ``source_path``.
+
+    ``source_path`` is one path or several joined by commas (the inventory's
+    list form as it appears in a release-set entry); the hash definition is
+    ``check_container_tag_source.source_tree_sha``, shared with every gate.
+    """
+    return source_tree_sha(repo_root, "HEAD", source_paths_of(source_path))
 
 
 def first_party_refs(repo_root: Path, inventory: dict) -> list[tuple[str, str]]:
@@ -261,7 +261,7 @@ def build_fragment(
         "tag_suffix": entry.get("tag_suffix", ""),
         "digest": digest,
         "platforms": sorted(platforms),
-        "source_path": entry.get("source_path"),
+        "source_path": source_path_label(source_paths_of(entry.get("source_path"))) or None,
         "source_tree_sha": source_tree_sha,
         "upstream_digest": upstream_digest,
     }
@@ -311,6 +311,19 @@ def _split_ref(resolved_ref: str) -> tuple[str, str]:
     return no_digest, ""
 
 
+def _is_non_compose_ghcr_build(entry: dict) -> bool:
+    """A GHCR-built image that declares, explicitly, that no Compose service
+    references it. ``compose_image_names: []`` is the declaration; an entry
+    that merely OMITS the key defaults to its own name (see
+    ``inventory_by_compose_name``) and is not one of these."""
+    return bool(
+        entry.get("strategy") == "build"
+        and entry.get("ghcr_build")
+        and entry.get("compose_image_names") == []
+        and entry.get("source_path")
+    )
+
+
 def reuse_entries(
     repo_root: Path,
     inventory: dict,
@@ -335,25 +348,32 @@ def reuse_entries(
         if name in built_names or entry.get("strategy") not in IN_SCOPE_STRATEGIES:
             continue
         coordinates = sorted(pinned.get(name, set()))
-        # A tagged variant can intentionally have no dedicated Compose
-        # reference: it shares the base image repository and is selected by
-        # an environment/profile tag override (for example, ``-sbsa``).
-        # Carry it forward from its immutable content tag so a no-change
-        # commit still produces a complete release set. This is branch-neutral:
-        # a PR must never fall back to develop-latest for unchanged content.
-        if not coordinates and entry.get("tag_suffix"):
+        # Two kinds of in-scope image intentionally have no dedicated Compose
+        # reference, and both are carried forward from their immutable content
+        # tag (``tree-<source tree sha><tag_suffix>``, exactly what the build
+        # workflow pushes) so a no-change commit still produces a complete
+        # release set:
+        #   * a tagged variant (``tag_suffix``, e.g. ``-sbsa``) that shares the
+        #     base image repository and is selected by a tag override;
+        #   * a GHCR-built image that is not a Compose service at all --
+        #     ``compose_image_names`` declared EMPTY, not omitted -- such as the
+        #     NemoClaw sandbox harnesses, consumed by ``nemoclaw onboard`` and
+        #     the eval harness rather than by any compose file.
+        # This is branch-neutral: a PR must never fall back to develop-latest
+        # for unchanged content.
+        if not coordinates and (entry.get("tag_suffix") or _is_non_compose_ghcr_build(entry)):
             ghcr_roots = [
                 root.rstrip("/")
                 for root in inventory.get("first_party_registry_roots", [])
                 if root.startswith("ghcr.io/")
             ]
-            tree_sha = tree_reader(repo_root, str(entry.get("source_path") or ""))
+            tree_sha = tree_reader(repo_root, source_path_label(source_paths_of(entry.get("source_path"))))
             if len(ghcr_roots) == 1 and tree_sha:
                 repository = entry.get("repository", name)
                 coordinates = [
                     (
                         f"{ghcr_roots[0]}/{repository}",
-                        f"tree-{tree_sha}{entry['tag_suffix']}",
+                        f"tree-{tree_sha}{entry.get('tag_suffix', '')}",
                     )
                 ]
         if not coordinates:
@@ -378,7 +398,7 @@ def reuse_entries(
                 "tag_suffix": entry.get("tag_suffix", ""),
                 "digest": None,
                 "platforms": sorted(entry.get("platforms", [])),
-                "source_path": entry.get("source_path"),
+                "source_path": source_path_label(source_paths_of(entry.get("source_path"))) or None,
                 "source_tree_sha": None,
                 "upstream_digest": None,
             }
@@ -547,6 +567,32 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_tree_sha(args: argparse.Namespace) -> int:
+    """Print the content hash build-dev-images.yml labels an image with.
+
+    One definition for the whole flow: the build job, the immutability guard,
+    the reuse check, the post-merge retag and the promotion gate all compare
+    against this value, so the workflow asks here instead of spelling
+    ``git rev-parse HEAD:<source_path>`` inline -- which was only right while
+    every image had exactly one source path.
+    """
+    repo_root = args.repo_root.resolve()
+    entry = inventory_by_name(load_inventory(repo_root)).get(args.name)
+    if entry is None:
+        print(f"FAIL: {args.name!r} is not an inventory image", file=sys.stderr)
+        return 1
+    paths = source_paths_of(entry.get("source_path"))
+    tree_sha = source_tree_sha(repo_root, args.commit, paths)
+    if not tree_sha:
+        print(
+            f"FAIL: {args.name}: no tree for {source_path_label(paths)!r} at {args.commit}",
+            file=sys.stderr,
+        )
+        return 1
+    print(tree_sha)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
@@ -580,12 +626,20 @@ def main() -> int:
     validate = sub.add_parser("validate", help="validate an existing release set")
     validate.add_argument("--file", type=Path, required=True)
 
+    tree = sub.add_parser(
+        "tree-sha",
+        help="print the source tree SHA of an inventory image at a commit",
+    )
+    tree.add_argument("--name", required=True, help="inventory image name")
+    tree.add_argument("--commit", default="HEAD")
+
     args = parser.parse_args()
     return {
         "closure": cmd_closure,
         "fragment": cmd_fragment,
         "assemble": cmd_assemble,
         "validate": cmd_validate,
+        "tree-sha": cmd_tree_sha,
     }[args.command](args)
 
 

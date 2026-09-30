@@ -21,10 +21,10 @@
 #include "config.h"
 #include "vst_common.h"
 
-#define STREAMBRIDGE_API "/api/v1/streambridge/stream/*"
+constexpr const char* STREAMBRIDGE_API = "/api/v1/streambridge/stream/*";
 #define EXECUTE_FUNC(func_key, arg1, arg2, arg3, agr4)  m_callbackMap[func_key](arg1, arg2, arg3, agr4);
 
-static string streamBridgeApiList = R"([
+static const string streamBridgeApiList = R"([
         {"method": "GET - Get streams list", "endpoint": "api/v1/streambridge/streams"},
         {"method": "POST - Start streaming", "endpoint": "api/v1/streambridge/stream/start"},
         {"method": "POST - Stop streaming", "endpoint": "api/v1/streambridge/stream/stop"},

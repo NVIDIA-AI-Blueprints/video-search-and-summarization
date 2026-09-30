@@ -3,13 +3,22 @@ name: vss-deploy-dense-captioning
 description: Use this skill when deploying standalone RT-VLM dense captioning or calling its REST API (uploads, captions, streams, chat-completions, Kafka). Not for VSS profile deploy or video-search ingestion.
 license: Apache-2.0
 metadata:
-  version: "3.2.1"
+  version: "3.3.0-rc0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment"
 ---
 ## Purpose
 
 Stand up the RT-VLM dense-captioning microservice on its own and exercise every endpoint it exposes (file upload, generate_captions, stream add/delete, chat-completions, Kafka topics).
+
+## When to Use
+
+- Deploy standalone RT-VLM dense captioning when no full VSS profile is running
+- Generate dense captions for an uploaded file or RTSP stream via the RT-VLM REST API
+- Manage RT-VLM stream lifecycle (add/get-info/delete) or call chat-completions against it
+- Wire RT-VLM to Kafka/ELK/VIOS or sibling model services
+
+Not for deploying a full VSS profile (use `vss-build-vision-ai`) or ingesting video for search (video-search ingestion is a separate path).
 
 ## Prerequisites
 

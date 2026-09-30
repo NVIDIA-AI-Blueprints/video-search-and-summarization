@@ -21,8 +21,8 @@
 class GstNvDecoder
 {
     public:
-        GstNvDecoder () {}
-        ~GstNvDecoder () {}
+        GstNvDecoder () = default;
+        ~GstNvDecoder () = default;
 
         virtual int create(bool blocking = false) { return 0; }
         virtual void destroy(bool expect_result) = 0;

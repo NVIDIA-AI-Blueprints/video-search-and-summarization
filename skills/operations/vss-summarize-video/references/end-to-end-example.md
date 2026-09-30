@@ -6,7 +6,7 @@ Use these implementations with the ordered stages in `SKILL.md`.
 - [Probe readiness](#probe-readiness)
 - [Prepare the video through VIOS](#prepare-the-video-through-vios)
 - [Submit one summarize job](#submit-one-summarize-job)
-- [Run an approved VLM fallback](#run-an-approved-vlm-fallback)
+- [Run the VLM fallback](#run-the-vlm-fallback)
 
 Do not run a direct VLM fallback when LVS is ready, and do not rerun the
 summarize job with broader events when the result is empty.
@@ -31,14 +31,12 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   # the backend sees them.
   LVS_BACKEND_URL="${VSS_PUBLIC_URL}/lvs"
   VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
-  VST_API_BASE="${VSS_PUBLIC_URL}/vst/api/v1"
   # RT-VLM is at its own mount; /v1/models and /v1/chat/completions hang off it.
   VLM="${VSS_PUBLIC_URL}/rtvi-vlm"
 else
   DEPLOYMENT_KIND="docker"
   LVS_BACKEND_URL="${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}"
   VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
-  VST_API_BASE="http://${HOST_IP:-localhost}:30888/vst/api/v1"
   VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
   VLM="${VLM%/v1}"
 fi
@@ -64,109 +62,52 @@ for i in $(seq 1 10); do
 done
 
 if [ "$video_sum_code" != "200" ]; then
-  cat <<EOF
-video summarization service not ready (HTTP $video_sum_code).
-
-Decision point:
-- Interactive run: ask the user whether to deploy the VSS lvs profile with the `/vss-build-vision-ai` stock Video Summarization workflow.
-- If deployment is approved or was pre-authorized in the original task, invoke that deploy skill, then rerun the readiness probe and continue with the LVS request below.
-- If lower-quality VLM fallback is explicitly approved or was pre-authorized in the original task, follow the SKILL.md Stages 3-4 VLM fallback.
-- Non-interactive / Harbor run: if neither deployment nor fallback was pre-authorized in the original task, report BLOCKED because the LVS service is unavailable and no user decision is available. Do not wait for input and do not silently fall back to VLM.
-EOF
-  # This is not a shell failure. The next action requires user approval or prior
-  # authorization, and the example intentionally does not run an automatic VLM
-  # fallback. In Harbor/non-interactive runs, report BLOCKED if neither path was
-  # pre-authorized by the original task.
-  return 0 2>/dev/null || exit 0
+  # Not a failure: LVS is not ready, so take the VLM fallback below without asking.
+  echo "video summarization service not ready (HTTP $video_sum_code): use the VLM fallback" >&2
 fi
 ```
 
 ### Prepare the video through VIOS
 
-Reuse the requested recording when present. Otherwise replace `SOURCE_FILE`
-with the exact requested local file and upload it directly. Preserve the
-returned stream ID, full timeline, and fresh MP4 URL for later stages.
+Use the `vss` CLI for every step; no VIOS REST calls and no `docker exec` /
+`kubectl exec` probe. Replace `SOURCE_FILE` with the exact requested file; for
+a named sensor, set `SENSOR_NAME` to it and start at `TIMELINE=`.
 
 ```bash
-VIOS_API="${VST_API_BASE:-http://${HOST_IP:-localhost}:30888/vst/api/v1}"
 SOURCE_FILE=/path/to/video.mp4
 FILENAME=$(basename "$SOURCE_FILE")
-UPLOAD_TIMESTAMP=2025-01-01T00:00:00.000Z
-FILE_SIZE=$(stat -c%s "$SOURCE_FILE")
+STEM="${FILENAME%.*}"   # VIOS names an uploaded sensor by its filename stem
 
-SENSOR_ID=$(curl -fsS "$VIOS_API/sensor/list" | jq -er \
-  --arg filename "$FILENAME" --arg stem "${FILENAME%.*}" \
-  '[.[] | select(.name == $filename or .name == $stem)][0].sensorId // empty' \
-  || true)
-if [ -n "$SENSOR_ID" ]; then
-  STREAM_ID=$(curl -fsS "$VIOS_API/sensor/$SENSOR_ID/streams" | jq -er \
-    '([.[] | select(.isMain == true)][0].streamId // .[0].streamId)')
+LISTING=$(vss vios list --sensor "$STEM") || exit $?
+if printf '%s' "$LISTING" | jq -e '.count > 0' >/dev/null; then
+  SENSOR_NAME="$STEM"
 else
-  curl -fsS -X PUT \
-    "$VIOS_API/storage/file/$FILENAME?timestamp=$UPLOAD_TIMESTAMP" \
-    -H "Content-Type: application/octet-stream" \
-    -H "Content-Length: $FILE_SIZE" \
-    --upload-file "$SOURCE_FILE" > /tmp/vios-upload.json
-  # The upload answers with both ids. Read the sensor one rather than assuming
-  # the stream id equals it: it does for an uploaded file today, but the record
-  # is keyed by sensor, and a sensor carrying several streams breaks that.
-  STREAM_ID=$(jq -er '.streamId' /tmp/vios-upload.json)
-  SENSOR_ID=$(jq -er '.sensorId' /tmp/vios-upload.json)
-  # VIOS anchors an uploaded file's timeline to this, so it is the media start.
-  UPLOADED_AT="$UPLOAD_TIMESTAMP"
+  ADDED=$(vss vios add "$SOURCE_FILE") || exit $?
+  SENSOR_NAME=$(printf '%s' "$ADDED" | jq -er '.name')
 fi
 
-for _ in $(seq 1 20); do
-  curl -fsS "$VIOS_API/storage/$STREAM_ID/timelines" \
-    > /tmp/vios-timeline.json
-  jq -e 'length > 0' /tmp/vios-timeline.json >/dev/null && break
-  sleep 3
-done
-START_TIME=$(jq -er 'map(.startTime) | min' /tmp/vios-timeline.json)
-END_TIME=$(jq -er 'map(.endTime) | max' /tmp/vios-timeline.json)
-curl -fsSG "$VIOS_API/storage/file/$STREAM_ID/url" \
-  --data-urlencode "startTime=$START_TIME" \
-  --data-urlencode "endTime=$END_TIME" \
-  --data-urlencode "container=mp4" \
-  --data-urlencode "disableAudio=true" > /tmp/vios-clip-url.json
-CLIP=$(jq -er '.videoUrl | sub("^http://http://"; "http://")' \
-  /tmp/vios-clip-url.json)
-```
-
-When LVS is selected, verify the URL is fetchable without writing the video
-body into tool output.
-
-**Docker** — probe from inside `vss-lvs`:
-
-```bash
-if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-  docker exec vss-lvs python3 -c '
-import sys
-import urllib.request
-request = urllib.request.Request(sys.argv[1], headers={"Range": "bytes=0-0"})
-with urllib.request.urlopen(request, timeout=30) as response:
-    response.read(1)
-    print(response.status)
-' "$CLIP"
+# A window may not span a gap, and an RTSP sensor has no default window:
+# clip each recorded segment with its own bounds, one summarize run per clip.
+TIMELINE=$(vss vios timeline --sensor "$SENSOR_NAME") || exit $?
+SEGMENT=$(printf '%s' "$TIMELINE" | jq -ec '.segments[0]')   # repeat per entry in .segments
+CLIPPED=$(vss vios clip --sensor "$SENSOR_NAME" \
+  --start-time "$(printf '%s' "$SEGMENT" | jq -r '.start_time')" \
+  --end-time "$(printf '%s' "$SEGMENT" | jq -r '.end_time')") || exit $?
+CLIP=$(printf '%s' "$CLIPPED" | jq -er '.media_url')
+# A loopback CLI origin mints a loopback URL, which vss-lvs cannot fetch (and rejects).
+if printf '%s' "$CLIP" | grep -Eq '^https?://(localhost|127\.0\.0\.1)[:/]'; then
+  case "${HOST_IP:-}" in ""|localhost|127.*) HOST_ADDR=$(hostname -I | awk '{print $1}') ;; *) HOST_ADDR="$HOST_IP" ;; esac
+  CLIP=$(printf '%s' "$CLIP" | sed -E "s#^(https?://)(localhost|127\.0\.0\.1)([:/])#\1${HOST_ADDR:?no host IP for the loopback clip URL}\3#")
 fi
-```
-
-**Kubernetes** — no `docker exec` / `kubectl exec`. Probe from the agent host
-with a bounded Range GET. The URL passed to LVS must remain the minted VIOS
-URL (deploy should set `VST_EXTERNAL_URL` to the public origin so the LVS pod
-can fetch it):
-
-```bash
-if [ "${DEPLOYMENT_KIND:-docker}" = "kubernetes" ]; then
-  curl -fsS --connect-timeout 5 --max-time 60 --range 0-0 -o /dev/null "$CLIP" \
-    || { echo "CLIP not reachable from agent host: $CLIP"; return 1 2>/dev/null || exit 1; }
-fi
+SENSOR_ID=$(printf '%s' "$CLIPPED" | jq -er '.sensor_id')
+START_TIME=$(printf '%s' "$CLIPPED" | jq -er '.start_time')
+[ "$(printf '%s' "$CLIPPED" | jq -r '.warmed')" = true ] || { echo "clip is cold: $CLIP" >&2; exit 1; }
 ```
 
 ### Submit one summarize job
 
 Assume video preparation established `$CLIP`, and the SKILL.md prerequisites
-resolved `${VSS[@]}` and ran `vss configure`. One `vss summarize run` is exactly
+put `vss` on `PATH` and ran `vss configure`. One `vss summarize run` is exactly
 one `POST /v1/summarize`; the CLI resolves the LVS endpoint and the default
 model from the recorded deployment, so no model discovery is needed here and no
 payload is built by hand.
@@ -187,12 +128,9 @@ VIDEO_ID="$SENSOR_ID"
   echo "no VIOS sensor id resolved; do not persist under a stream id"
   return 1 2>/dev/null || exit 1
 }
-# The media's absolute start: the timestamp this run anchored the upload to, or
-# for a recording that was already in VIOS, the start VIOS reports for it --
-# never a constant standing in for media someone else uploaded. Without
-# --creation-time the event times are clip offsets, which unified memory cannot
-# store as instants (exit 6, summary intact).
-CREATION_TIME="${UPLOADED_AT:-$START_TIME}"
+# The clip's absolute start, from `vss vios clip` above -- never a constant.
+# Without --creation-time event times are clip offsets memory cannot store.
+CREATION_TIME="$START_TIME"
 [ -n "$CREATION_TIME" ] || {
   echo "no VIOS timeline start resolved; event times would not be instants"
   return 1 2>/dev/null || exit 1
@@ -200,7 +138,7 @@ CREATION_TIME="${UPLOADED_AT:-$START_TIME}"
 SUMMARIZE_OUT=/tmp/vss-summarize-video-run.json
 
 SUMMARIZE_COMMAND=(
-  "${VSS[@]}" summarize run
+  vss summarize run
   --url "$CLIP"
   --video-id "$VIDEO_ID"
   --scenario "$SCENARIO"
@@ -279,34 +217,23 @@ If both result fields are empty, use `summary.usage.total_chunks_processed` from
 the same payload to report whether LVS processed any media. Do not infer "no
 detections" when that value is zero or missing.
 
-### Run an approved VLM fallback
+### Run the VLM fallback
 
-Run this only after LVS remains unavailable and the user explicitly approves
-the lower-quality fallback. `$CLIP` must be reachable from the VLM endpoint.
+Run this when LVS is not ready; do not ask first. `vss vlm run` resolves the
+clip and the model itself, so there is nothing to discover by hand. One call
+per recorded segment, since a window may not span a gap between segments:
 
 ```bash
-VLM_MODEL=$(curl -fsS "$VLM/v1/models" | jq -er --arg preferred "${VLM_NAME:-}" '
-  [.data[]?.id | select(type == "string" and length > 0)] | unique as $ids
-  | if $preferred != "" and ($ids | index($preferred)) != null then $preferred
-    elif ($ids | length) == 1 then $ids[0]
-    else empty end
-') || { echo "Set VLM_NAME to an advertised model id"; return 1 2>/dev/null || exit 1; }
-
 PROMPT='Describe in detail what is happening in this video,
 including all visible people, vehicles, equipment, objects,
 actions, and environmental conditions.
 OUTPUT REQUIREMENTS:
 [timestamp-timestamp] Description of what is happening.'
 
-curl -sS --max-time 300 -X POST "$VLM/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -d "$(jq -n --arg model "$VLM_MODEL" --arg text "$PROMPT" --arg url "$CLIP" '{
-    model: $model,
-    temperature: 0.0,
-    max_tokens: 1024,
-    messages: [{role: "user", content: [
-      {type: "text", text: $text},
-      {type: "video_url", video_url: {url: $url}}
-    ]}]
-  }')" | jq -r '.choices[0].message.content'
+TIMELINE=$(vss vios timeline --sensor "$SENSOR_NAME") || exit $?
+printf '%s\n' "$TIMELINE" | jq -c '.segments[]' | while read -r SEGMENT; do
+  vss vlm run --sensor "$SENSOR_NAME" --prompt "$PROMPT" \
+    --start-time "$(printf '%s' "$SEGMENT" | jq -r '.start_time')" \
+    --end-time "$(printf '%s' "$SEGMENT" | jq -r '.end_time')" || exit $?
+done
 ```

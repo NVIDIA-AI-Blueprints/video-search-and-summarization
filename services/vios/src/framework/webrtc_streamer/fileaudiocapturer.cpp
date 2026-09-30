@@ -37,6 +37,5 @@ FileAudioSource::FileAudioSource(webrtc::scoped_refptr<webrtc::AudioDecoderFacto
 	LOG(info) << "FileAudioSource " << uri ;					
 }
 
-FileAudioSource::~FileAudioSource()  { 
-}
+FileAudioSource::~FileAudioSource() = default;
 #endif

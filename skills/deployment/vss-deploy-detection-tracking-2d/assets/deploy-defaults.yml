@@ -84,8 +84,8 @@ ngc_resources:
   # model weights use the standalone model-package entries below.
   warehouse_dataset:
     kind:        resource
-    ref:         nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
-    extract_dir: vss-warehouse-app-data_v3.2.0
+    ref:         nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026
+    extract_dir: vss-warehouse-app-data_vv3.3.0-09152026
 
   # Warehouse RT-DETR model.
   warehouse_rtdetr_model:

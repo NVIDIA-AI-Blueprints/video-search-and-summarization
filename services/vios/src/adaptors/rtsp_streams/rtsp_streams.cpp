@@ -22,7 +22,7 @@
 #include "udpclientpool.h"
 #include "vstmodule.h"
 
-#define DEFAULT_DEVICE_NAME "Camera"
+constexpr const char* DEFAULT_DEVICE_NAME = "Camera";
 
 extern "C" ISensorControlInterface* createObject()
 {

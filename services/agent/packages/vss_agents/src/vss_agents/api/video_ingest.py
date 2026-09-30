@@ -398,7 +398,10 @@ async def _run_rtvi_embedding(
 
     The call is synchronous on the RTVI-Embed side — it blocks until the
     generation completes (up to the 600s client timeout). Any non-200 raises
-    ``HTTPException(502)`` so the caller can surface the failure.
+    ``HTTPException(502)`` so the caller can surface the failure — except
+    ``AssetAlreadyExists``, which means the VIOS ``camera_streaming`` webhook
+    (``POST /v1/stream/add``) already registered this sensor with RTVI-Embed
+    before this call landed; that race is treated as success, not a failure.
     """
     rtvi_embed_url = rtvi_embed_base_url.rstrip("/")
     embedding_url = f"{rtvi_embed_url}/v1/generate_video_embeddings"
@@ -427,6 +430,17 @@ async def _run_rtvi_embedding(
             )
 
         if response.status_code != 200:
+            try:
+                error_body = response.json()
+            except ValueError:
+                error_body = {}
+            if error_body.get("code") == "AssetAlreadyExists":
+                logger.info(
+                    "RTVI-Embed already has asset %s registered (likely via the "
+                    "camera_streaming webhook); treating as success",
+                    sensor_id,
+                )
+                return 0
             error_msg = f"Embedding generation failed with status {response.status_code}: {response.text}"
             logger.error(error_msg)
             raise HTTPException(status_code=502, detail=f"Embedding generation failed: {error_msg}")

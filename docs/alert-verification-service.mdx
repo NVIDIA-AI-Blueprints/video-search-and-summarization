@@ -377,11 +377,12 @@ vlm:
 
 The path is the dotted module name relative to `/app/` — `parsers.ppe_classifier` resolves to `/app/parsers/ppe_classifier.py` and `PPEClassifier` is the class inside that file.
 
-**Step 6 — Restart the container**
+**Step 6 — Recreate the container**
 
-```bash
-docker compose restart alert-bridge
-```
+Run the `docker compose ... up -d` command from the
+[Alert Verification deployment workflow](/vss/vision-agent/agent-workflows/alert-verification#step-1-deploy-the-agent)
+again. Docker Compose recreates Alert Bridge to apply the new volume mount; a
+`docker compose restart` does not apply Compose configuration changes.
 
 On startup, look for the log line `Pluggable response parser active: 'parsers.ppe_classifier.PPEClassifier'`. A startup error here means the dotted path or class signature is wrong; the container will exit instead of running with a broken parser.
 
@@ -461,28 +462,29 @@ Repeat for each field you want to chart. For richer use cases, run a small inges
 
 ### Deployment
 
-Parser modules live outside the Alert Bridge image and are mounted into the container at `/app/parsers/`:
+Custom parser modules are not included in the Alert Bridge image or mounted by
+the shipped Compose configuration. Create a host directory for them, for
+example:
 
 ```text
-warehouse/vlm-as-verifier/
-  configs/
-    config.yml
-    alert_type_config.json
-  parsers/                      # mounted into /app/parsers/
-    __init__.py                 # empty, required for Python package
-    my_classifier.py            # your parser
+/absolute/path/to/alert-parsers/
+  __init__.py                 # empty, required for Python package
+  my_classifier.py            # your parser
 ```
 
-In `compose.yml`, add the parser directory as a read-only volume:
+In `deploy/docker/services/alert/compose.yml`, add that directory to the
+`alert-bridge` service as a read-only volume:
 
 ```yaml
-volumes:
-  - ${VLM_AS_VERIFIER_CONFIG_FILE}:/app/configs/config.yml:ro
-  - ${VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE}:/app/alert_type_config.json:ro
-  - ${VLM_AS_VERIFIER_PARSERS_DIR:-/dev/null}:/app/parsers/:ro
+services:
+  alert-bridge:
+    volumes:
+      - /absolute/path/to/alert-parsers:/app/parsers:ro
 ```
 
-To add or change parsers, drop a `.py` file into the `parsers/` folder, update `vlm.response_parser` in `config.yml`, and restart the container. No image rebuild is required.
+To add or change parsers, place a `.py` file in the mounted host directory,
+update `vlm.response_parser` in `config.yml`, and recreate the container. No
+image rebuild is required.
 
 <Note>
 When migrating from the legacy `vlm.custom_parser_module` registry mechanism, `vlm.response_parser` takes precedence on the default VLM path. Configuring both keys produces a startup WARN. Prefer `vlm.response_parser` for new integrations and remove `vlm.custom_parser_module` once migrated.
@@ -1126,6 +1128,7 @@ VLM warmup runs automatically at startup by default and sends 3 inference rounds
 
 | Parameter | Default | Description |
 | --- | --- | --- |
+| `alert_agent.always_on` | `false` | Enables `POST /api/v1/realtime/always-on`. Docker Compose substitutes `ALERT_AGENT_ALWAYS_ON` into this setting. When disabled, the endpoint returns HTTP `503` with reason `ALWAYS_ON_DISABLED`. |
 | `alert_agent.pipeline_mode` | `event_loop` | Dispatch model: `sync`, `thread_bridge`, or `event_loop`. See [Pipeline Modes](#pipeline-modes). |
 | `alert_agent.processes` | `1` | Independent pipeline processes. Values above `1` require `event_loop`, `persistence.enabled: true`, and enough Kafka partitions. See [Scaling Across Processes](#scaling-across-processes). |
 | `alert_agent.startup_timeout_seconds` | `60` | Budget for the whole of startup. Minimum 30. |
@@ -1139,6 +1142,44 @@ VLM warmup runs automatically at startup by default and sends 3 inference rounds
 | `alert_agent.vst_pass_through_mode` | `false` | Skip VIOS lookup; use local media files directly. |
 | `alert_agent.enrichment.enabled` | `false` | Enable alert enrichment for generating detailed event descriptions after verification. |
 | `alert_agent.metrics.per_sensor_labels` | `false` | When `true`, emits the opt-in `sensorId` histogram and counter variants documented under [Metrics](#metrics). |
+
+When always-on alerts are enabled, `ALWAYS_ON_RULES_CONFIG` must point to a
+valid YAML file containing `always_on_rules`. There is no implicit file lookup
+or fallback. A missing or invalid file fails service startup; a configuration
+error encountered by the endpoint returns HTTP `503` with reason
+`CONFIG_ERROR`.
+
+Docker Compose handles the container path: it mounts the host file selected by
+`VLM_AS_VERIFIER_CONFIG_FILE_REALTIME`, performs environment substitution into
+`/app/runtime/realtime-config.yml`, and sets
+`ALWAYS_ON_RULES_CONFIG=/app/runtime/realtime-config.yml`. Set
+`VLM_AS_VERIFIER_CONFIG_FILE_REALTIME` in the profile override file when you
+need a different rules source; do not set the container-internal path on the
+host.
+
+#### Event filter settings
+
+The Alerts developer profile ships the following
+`alert_agent.event_filters` values for the upstream alert-verification pipeline.
+Durations are in seconds unless noted otherwise.
+
+| Parameter | Shipped value | Description |
+| --- | --- | --- |
+| `dedup_ttl_seconds` | `5` | Retain an in-process deduplication key for this many seconds. |
+| `protect_confirmed_verdicts.enabled` | `true` | Skip re-verification when Elasticsearch contains a confirmed-verdict marker. |
+| `protect_confirmed_verdicts.ttl_seconds` | `600` | Lifetime of a confirmed-verdict marker. |
+| `protect_confirmed_verdicts.es_retry_backoff_seconds` | `30` | Cooldown before retrying Elasticsearch verdict checks after a store failure. |
+| `protect_confirmed_verdicts.retention_interval_seconds` | `3600` | Interval between expired-marker retention runs. |
+| `protect_confirmed_verdicts.retention_requests_per_second` | `50` requests/s | Maximum deletion request rate used by the retention job. |
+| `end_time_delta_filter.enabled` | `true` | Drop a repeated incident unless its end time has changed by the configured threshold. |
+| `end_time_delta_filter.threshold_seconds` | `3` | Minimum end-time change required to pass the filter. |
+| `end_time_delta_filter.ttl_seconds` | `3600` | Lifetime of end-time filter state. |
+| `end_time_in_dedup_key_categories` | `[]` | Alert categories whose deduplication key retains the incident end timestamp. Other categories omit it. |
+
+These are service-level verification filters, not tuning fields for
+`POST /api/v1/realtime`. Real-time VLM rules tune their prompt and chunk cadence
+in the request payload. Edit the profile `config.yml` and restart Alert Bridge
+after changing event filters.
 
 ### Elasticsearch Configuration
 

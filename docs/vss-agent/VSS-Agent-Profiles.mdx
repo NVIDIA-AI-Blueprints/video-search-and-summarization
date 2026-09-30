@@ -8,7 +8,7 @@ for a specific use case with tailored prompts, tools, and report templates.
 
 ## Blueprint Profiles
 
-Three production blueprint profiles are available. The agent configuration connects to
+Two production blueprint profiles are available. The agent configuration connects to
 the corresponding backend analytics pipeline.
 
 ### Warehouse Blueprint
@@ -22,12 +22,12 @@ Industrial facility monitoring for safety incidents.
 
 Traffic and urban monitoring at intersections.
 
-- **Config:** `deployments/smartcities/vss-agent/configs/config.yml`
+- **Config:** `deploy/docker/industry-profiles/smartcities/vss-agent/configs/config.yml`
 - [Smart Cities Blueprint Documentation](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint)
 
 ## Developer Profiles
 
-For development and testing without a full blueprint deployment, three developer profiles are available.
+For development and testing without a full blueprint deployment, four developer profiles are available.
 These use OOBE (Out-of-Box Experience) mode for standalone operation.
 
 ### dev-profile-base
@@ -49,14 +49,14 @@ Basic video upload and analysis without VA-MCP or incident database.
 - `video_understanding`: Analyze video content using Cosmos VLM
 - `vst_video_clip`: Get video playback URLs
 - `vst_snapshot`: Get snapshot images at specific timestamps
-- `vst_stream_list`: List available video streams
+- `vst_video_list`: List available video streams
 
 ### dev-profile-lvs
 
 Video Summarization and stream analysis with interactive Human-in-the-Loop (HITL) prompts.
 
 - **Config:** `deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config.yml`
-- **Use Case:** Summarize uploaded videos, generate reports, configure stream captioning, and answer questions over stored stream captions.
+- **Use Case:** Summarize uploaded videos, generate reports, and configure stream captioning.
 
 **Capabilities:**
 
@@ -67,7 +67,6 @@ All dev-profile-base capabilities, plus:
 - Stream caption generation with configurable scenario, events, and objects of interest (experimental).
 - Stream summarization over a requested timestamp range (experimental).
 - Report generation for a live stream over a requested time range (experimental).
-- Stored-caption retrieval for questions about configured live streams (experimental).
 - RTVI-VLM as the VLM path used by the Video Summarization profile.
 
 **Additional Tools:**
@@ -75,7 +74,6 @@ All dev-profile-base capabilities, plus:
 - `lvs_video_understanding`: Summarize uploaded videos with configurable Video Summarization parameters.
 - `lvs_config_media`: Start caption generation for a live stream after collecting HITL parameters (experimental).
 - `lvs_stream_understanding`: Summarize a live stream over a requested timestamp range (experimental).
-- `lvs_caption_retrieval`: Retrieve stored captions and events from Elasticsearch for stream Q&A (experimental).
 - `video_report_gen`: Generate downloadable reports for uploaded videos or live streams.
 
 **HITL Prompts:**
@@ -98,7 +96,6 @@ When using the Video Summarization profile, the agent prompts for:
 | `Generate a report for stream CAM_1 from 45 seconds till now` | Calls report generation with a stream for the requested time range. |
 | `Generate one report for video1.mp4 and video2.mp4` | Calls report generation once with both videos. |
 | `Summarize the stream CAM_1 from 2026-05-13T21:00:00Z to 2026-05-13T21:05:00Z` | Uses stream summarization for the requested timestamp range. |
-| `Were there PPE violations in CAM_1 from 2026-05-13T21:00:00Z to 2026-05-13T21:05:00Z?` | Retrieves stored stream captions and events, then answers with cited timestamps. |
 
 **Requirements:**
 
@@ -109,7 +106,7 @@ When using the Video Summarization profile, the agent prompts for:
 
 **Stream Caption Limitations:**
 
-- Stream summarization and stored-caption Q&A require captions in Elasticsearch for the requested timestamp range.
+- Stream summarization and report generation require captions in Elasticsearch for the requested timestamp range.
 - If multiple agent sessions or instances connect to the same backend, the caption generation prompt is overwritten by the latest query.
 - The agent cannot see caption prompts set by other agent instances.
 
@@ -139,18 +136,49 @@ All dev-profile-base capabilities, plus:
 - Elasticsearch for storing and querying embeddings
 - RTVI service for real-time video ingest
 
+### dev-profile-alerts
+
+Real-time alert generation and verification with two deployment modes:
+
+- **Alert verification (`MODE=2d_cv`):** RT-CV and Behavior Analytics generate
+  candidate incidents, and RT-VLM verifies them.
+- **Real-time alerts (`MODE=2d_vlm`):** RT-VLM continuously evaluates video
+  chunks against an alert rule.
+
+- **Config:** `deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml`
+- **Use Case:** Verify CV-generated incidents or generate alerts directly from
+  live video with a VLM.
+
+**Requirements:**
+
+- Alert Bridge and the Video Analytics API.
+- Elasticsearch and Kafka for incident storage and delivery.
+- RT-CV plus Behavior Analytics for `2d_cv`, or RT-VLM for `2d_vlm`.
+- Hardware-specific GPU counts and placement from
+  [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
+
 ### Developer Profile Comparison
 
-| Feature | dev-profile-base | dev-profile-lvs | dev-profile-search |
-| --- | --- | --- | --- |
-| Video Upload | ✓ | ✓ | ✓ |
-| Video Analysis (VLM) | ✓ | ✓ | ✓ |
-| Report Generation | ✓ | ✓ | ✓ |
-| Video Summarization Support | ✗ | ✓ (Video Summarization) | ✗ |
-| Live Stream Captioning | ✗ | ✓ | ✗ |
-| Semantic Search | ✗ | ✗ | ✓ |
-| Elasticsearch Required | ✗ | ✓ | ✓ |
-| Kafka Required | ✗ | ✓ | ✓ |
+| Feature | dev-profile-base | dev-profile-lvs | dev-profile-search | dev-profile-alerts |
+| --- | --- | --- | --- | --- |
+| Video Upload | ✓ | ✓ | ✓ | ✓ |
+| Video Analysis (VLM) | ✓ | ✓ | ✓ | ✓ |
+| Report Generation | ✓ | ✓ | ✓ | ✓ |
+| Video Summarization Support | ✗ | ✓ (Video Summarization) | ✗ | ✗ |
+| Live Stream Captioning | ✗ | ✓ | ✗ | ✓ (`2d_vlm`) |
+| Semantic Search | ✗ | ✗ | ✓ | ✗ |
+| Alert Verification | ✗ | ✗ | ✗ | ✓ (`2d_cv`) |
+| Real-Time VLM Alerts | ✗ | ✗ | ✗ | ✓ (`2d_vlm`) |
+| Elasticsearch Required | ✗ | ✓ | ✓ | ✓ |
+| Kafka Required | ✗ | ✓ | ✓ | ✓ |
+
+<Note>
+The stock developer profiles are alternative configurations of one Compose
+deployment, not independent stacks that can run side by side on the same host.
+To combine capabilities from multiple profiles—for example, real-time alerting
+and long-video summarization—use one
+[custom Build Vision AI deployment](/vss/vision-agent/build-vision-ai#combine-real-time-alerting-and-video-summarization).
+</Note>
 
 ## Services
 

@@ -9,11 +9,13 @@ SDRC is a coordinator and routing layer that manages which backend worker handle
 
 - Distribute streams across multiple workers (e.g. pods or containers)
 - Track active stream assignments in Redis
-- Call worker APIs like /add, /delete, and optionally /config
+- Call worker APIs like `/add`, `/delete`, and optionally `/config`
+- Probe worker HTTP health before placement (default `GET /healthz`)
 - Support Kafka or Redis as the message bus for event notification
+- Optionally accept add, delete, and reprovision over HTTP using a stream-ID header
 - Autonomously restore stream sessions if a worker fails
 - Expose APIs for discovery and management
-- Integrate with Envoy so traffic for a given stream goes to the right pod
+- Integrate with Envoy so traffic for a given stream goes to the right pod (REST xDS, with optional gRPC ADS)
 
 ## Usage
 
@@ -40,7 +42,7 @@ In Docker/Docker compose mode, SDRC runs with a fixed, statically defined set of
 
 ### How to set up statically defined worker containers
 
-Use a **two-stack** layout: run worker containers first, then run the SDRC controller with `config.yml`, one or more `docker_cluster_config*.json` files, and the Docker socket mounted. The reference Compose tree in the WDM repository (`compose/`) demonstrates two Docker workloads (`docker-workload-a` and `docker-workload-b`), each with two static workers.
+Use a **two-stack** layout: run worker containers first, then run the SDRC controller with `config.yml`, one or more `docker_cluster_config*.json` files, and the Docker socket mounted (the Docker SDK uses it for inventory). When `WDM_WL_HEALTH_CHECK_WAIT_ENABLED` is `true` (the default), placement and failure detection prefer HTTP health probes to `http://<provisioning_address><WDM_WL_HEALTH_CHECK_URL>` instead of Docker container-status checks. The reference Compose tree in the WDM repository (`compose/`) demonstrates two Docker workloads (`docker-workload-a` and `docker-workload-b`), each with two static workers.
 
 1. **Start the worker containers.**
 
@@ -109,7 +111,7 @@ Use a **two-stack** layout: run worker containers first, then run the SDRC contr
 
 2. **Start SDRC with mounts and Docker socket access.**
 
-   Mount `config.yml`, each `docker_cluster_config*.json`, and `/var/run/docker.sock` (required for the watcher to monitor container health). The reference stack runs `wdm-env-from-config` and `wait-for-docker-workloads` so SDRC starts only after Redis is reachable and every name in `WDM_CLUSTER_CONTAINER_NAMES` is running.
+   Mount `config.yml`, each `docker_cluster_config*.json`, and `/var/run/docker.sock` (required for Docker-mode inventory). With HTTP health enabled, `PodErrorWatcher` follows probe results rather than Docker inspect `Running` state. The reference stack runs `wdm-env-from-config` and `wait-for-docker-workloads` so SDRC starts only after Redis is reachable and every name in `WDM_CLUSTER_CONTAINER_NAMES` is running.
 
    Minimal SDRC service example. Mount paths are illustrative; use the conventions from your deployment profile.
 
@@ -180,43 +182,53 @@ SDRC expects a JSON **envelope** with metadata plus an inner object (by default 
 | --- | --- |
 | `camera_add` (reference Compose) | Allocate a worker and call `WDM_WL_ADD_URL` (for example `/add`) with the full envelope as the POST body. |
 | `camera_remove` | Deprovision: call `WDM_WL_DELETE_URL` and clear routing state. |
-| `camera_streaming` (common default) | Treat as an add/provision event when `WDM_WL_CHANGE_ID_ADD` is set to this value. |
-| `config` | Worker configuration update via `/config` (regex-based allocation flows). |
+| `camera_streaming` (source default for `WDM_WL_CHANGE_ID_ADD`) | Treat as an add/provision event when `WDM_WL_CHANGE_ID_ADD` is set to this value. |
+| `reprovision` (source default for `WDM_WL_CHANGE_ID_REPROVISION`) | Re-run placement using cached stream state (HTTP-header lifecycle empty-body add, or an explicit reprovision event). |
+| `config` | Worker configuration update via `/config`. Gated by `WDM_HANDLE_CONFIG_EVENTS`; see **Config event handling**. |
 
 ### Payload application and worker selection
 
 **How payloads are applied**
 
-When an add event arrives (from Redis, Kafka, or `POST /apply_metadata_payload`), SDRC runs a provisioning pipeline:
+When an add event arrives (from Redis, Kafka, `POST /apply_metadata_payload`, or HTTP-header lifecycle), SDRC runs a provisioning pipeline:
 
-1. **Parse and classify** the message. Read the inner object (`WDM_EVENT_OBJECT_FIELD`, default `event`) and compare `change` to `WDM_WL_CHANGE_ID_ADD` (for example `camera_add` in the reference Compose `config.yml`).
-2. **Build the candidate worker list** from `docker_cluster_config.json`. Each top-level key becomes a worker with container name, host IP, port, and phase from Docker inspect (`Running` vs down).
-3. **Select a worker** that is running and under the per-worker stream limit (see below).
-4. **Apply the payload** by POSTing the full envelope JSON to `http://<provisioning_address><WDM_WL_ADD_URL>` (for example `http://10.127.22.222:5000/add`).
-5. **On HTTP 200**, update Redis:
+1. **Parse and classify** the message. Read the inner object (`WDM_EVENT_OBJECT_FIELD`, default `event`) and compare `change` to `WDM_WL_CHANGE_ID_ADD` (for example `camera_add` in the reference Compose `config.yml`; the source default is `camera_streaming`).
+2. **Build the candidate worker list** from `docker_cluster_config.json` (Docker) or the Kubernetes API (k8s). Each worker has a name, host, port, and readiness state.
+3. **Filter by HTTP health** when `WDM_WL_HEALTH_CHECK_WAIT_ENABLED` is `true` (default): prefer workers whose latest `GET <WDM_WL_HEALTH_CHECK_URL>` probe returned HTTP 200. If no worker is healthy yet but capacity remains, SDRC still selects one and waits in `add()` up to `WDM_ADD_HEALTH_CHECK_TIMEOUT` (default 60s; `-1` waits forever). On timeout it defers the event (bus retry / HTTP 503) instead of blocking the consumer. When health wait is disabled, Docker mode falls back to container `Running` state.
+4. **Select a worker** that is eligible and under `WDM_WL_THRESHOLD` using `WDM_WL_ASSIGNING_METHOD` (`sequential` by default: first eligible from discovery order; `lru_round_robin`: fewest streams, then name/ordinal tie-break).
+5. **Apply the payload** by POSTing the envelope JSON to `http://<provisioning_address><WDM_WL_ADD_URL>`. Source default add path is `/api/v1/stream/add`; many examples and testapps override this to `/add`.
+6. **On HTTP 200**, update Redis:
 
    - `HSET {wl_obj_name} {camera_id} → {container_name}` for Envoy stream routing
    - `HSET {wl_obj_name}-pod {container_name} → {host}` for upstream lookup
    - Workload spec cache (`WDM_REDIS_CACHE_OBJECT`) records which streams each worker owns
 
-6. **Publish** an agent event on the configured bus and optionally call post-allocation webhooks.
+7. **Publish** an agent event on the configured bus and optionally call post-allocation webhooks.
 
-Delete events (`WDM_WL_CHANGE_ID_DEL`) reverse the flow: locate the assigned worker, POST `WDM_WL_DELETE_URL`, remove Redis mappings, and drop the stream from the workload spec.
+Delete events (`WDM_WL_CHANGE_ID_DEL`, source default `camera_remove`) reverse the flow: locate the assigned worker, call `WDM_WL_DELETE_URL` (source default `/api/v1/stream/remove`; examples often use `/delete`), remove Redis mappings, and drop the stream from the workload spec.
+
+Temporary failures (unhealthy workers, Redis/Kubernetes client blips, capacity that may free up) are **retryable**: Redis and Kafka consumers do not commit the event until it succeeds or `WDM_EVENT_RETRY_LIMIT` (default 20) is exhausted. Terminal failures are logged and committed so the bus is not blocked.
 
 ```mermaid
 flowchart TD
   A[Event on bus or HTTP] --> B{change type?}
-  B -->|camera_add| C[provisionStreamRedis]
-  B -->|camera_remove| D[deprovisionStreamRedis]
-  C --> E[Load workers from docker_cluster_config.json]
-  E --> R{Container running?}
-  R -->|No| K[Try next worker or fail]
+  B -->|add| C[provisionStreamRedis]
+  B -->|remove| D[deprovisionStreamRedis]
+  B -->|config| CFG[configure worker if enabled]
+  C --> E[Load workers]
+  E --> H{HTTP health enabled?}
+  H -->|Yes| R{Latest /healthz OK?}
+  H -->|No| RUN{Worker running?}
+  R -->|No, capacity remains| W[Wait in add up to timeout]
   R -->|Yes| F{"spec_count < WDM_WL_THRESHOLD?"}
-  F -->|Yes| G[POST /add with full envelope]
+  RUN -->|No| K[Try next worker or fail]
+  RUN -->|Yes| F
+  W --> F
+  F -->|Yes| G[POST WDM_WL_ADD_URL with envelope]
   F -->|No| K
-  G --> H{HTTP 200?}
-  H -->|Yes| I[Update Redis routing + workload spec]
-  H -->|No| J[Report add_stream_failed]
+  G --> I{HTTP 200?}
+  I -->|Yes| J[Update Redis routing + workload spec]
+  I -->|No| L[Report add_stream_failed or retry]
   classDef threshold fill:#fff3cd,stroke:#856404,stroke-width:2px
   class F threshold
 ```
@@ -234,13 +246,13 @@ SDRC tracks how many streams each worker already owns in the Redis workload spec
 
 **How an eligible worker is selected**
 
-For each add event, SDRC iterates workers from `docker_cluster_config.json` in file order and picks the **first** worker that passes all checks:
+For each add event, SDRC builds the candidate list then applies `WDM_WL_ASSIGNING_METHOD`:
 
-1. **Container is running** — Docker inspect reports `Running`; down workers are skipped. If all workers are down, the add is deferred.
+1. **Healthy / running** — With HTTP health enabled, prefer workers whose latest `WDM_WL_HEALTH_CHECK_URL` probe passed. Down or failing workers are skipped when another healthy worker has capacity. If all workers are down or still starting, the add is deferred.
 2. **Under capacity** — `spec_count < WDM_WL_THRESHOLD`. Workers at the threshold are skipped (saturated).
-3. **Stream not already on this worker** — If the stream ID is new, any worker with free capacity can be chosen. If the stream already has a workload spec entry on a worker, SDRC can add to that same worker when it still has capacity.
+3. **Assignment order** — `sequential` (default) picks the first eligible worker in discovery order. `lru_round_robin` picks the eligible worker with the fewest streams. If the stream already has a workload spec entry on a worker, SDRC can add to that same worker when it still has capacity.
 
-The chosen worker's `provisioning_address` (host and port from the cluster JSON) is used for the `/add` call. Ports must stay aligned with `WDM_TARGET_PORT_MAPPING` and the ports your worker containers listen on.
+The chosen worker's `provisioning_address` (host and port from the cluster JSON, or the Kubernetes pod address) is used for the add call. Ports must stay aligned with `WDM_TARGET_PORT_MAPPING` and the ports your worker containers listen on.
 
 **Example** (reference Compose, `WDM_WL_THRESHOLD: 3`, two workers in `docker_cluster_config-a.json`):
 
@@ -450,7 +462,7 @@ The manifests below are **self-contained**. You do not need a separate `kubernet
 
 6. **Send provisioning events.**
 
-   Use the same payload format as Docker mode (see **Provisioning event payload format** and **Payload application and worker selection**). SDRC assigns each stream to a pod where `spec_count < WDM_WL_THRESHOLD`.
+   Use the same payload format as Docker mode (see **Provisioning event payload format** and **Payload application and worker selection**), or HTTP-header lifecycle if `WDM_LIFECYCLE_INGRESS_MODE` is `http`. SDRC assigns each stream to a pod where `spec_count < WDM_WL_THRESHOLD`, preferring HTTP-healthy pods when health checks are enabled.
 
 To add worker capacity, increase `replicas` on your worker StatefulSet and redeploy, or configure HPA.
 
@@ -465,8 +477,9 @@ SDRC does not use a single shared ingress port. When the Envoy routing layer sta
 - Reads `config.yml` and generates one Envoy **listener** per workload block that defines both `WDM_MS_LISTENER_PORT` and `port`.
 - Configures per-listener stream lookup with that block's `wl_obj_name` as the default `X-WL-OBJECT-NAME`, so each workload gets its own dedicated listener port (for example `:9000` for one workload, `:9001` for another).
 - Starts Envoy with that generated configuration.
-- Publishes **xDS cluster definitions** via REST CDS on the controller port (default `5002`) so Envoy knows how to reach each worker per `WDM_TARGET_PORT_MAPPING`.
+- Publishes **xDS cluster definitions** so Envoy knows how to reach each worker per `WDM_TARGET_PORT_MAPPING`. REST CDS on the controller port (default `5002`) is the source default. VSS compose and Helm profiles set `WDM_XDS_GRPC_ADS_ENABLED: true` (with `GRPC_XDS_PORT`, default `4001`) to enable gRPC ADS for dynamic CDS cluster updates instead of REST CDS polling. Generated route configuration remains static and must be regenerated when routes change.
 - Exposes a separate **direct listener** (default `8010`, overridable with `WDM_SDRC_DIRECT_LISTENER_PORT`) that forwards `/sdrc` paths to the SDRC controller without stream routing.
+- When `WDM_LIFECYCLE_INGRESS_MODE` is `http` / `http-header`, also generates **lifecycle routes** on the per-workload listener. Those paths (add, delete, reprovision) rewrite to `/sdrc/<wl_obj_name>/...` and go to the controller instead of Redis stream routing.
 
 ### Request routing
 
@@ -476,10 +489,12 @@ Clients send HTTP requests to the **listener port** for their workerset (`WDM_MS
 
 On each request, the routing layer reads the stream ID header, looks up `HGET {wl_obj_name} {stream_id}` in Redis, and forwards the request to the assigned worker (container or pod). If the stream is not provisioned or the header is missing, routing fails.
 
+```mermaid
 flowchart LR
   C[Client HTTP request] -->|route header = stream ID| E[Envoy listener]
   E -->|Redis lookup in workerset| R[(Redis)]
   R -->|worker in set| W[Assigned worker]
+```
 
 Replace `<sdrc-host>` with the host where Envoy listens. Replace `<listener-port>` with `WDM_MS_LISTENER_PORT` for the target `wl_obj_name`. Replace `<route-header>` with the workload block's `ENVOY_ROUTE_HEADER` value, or `x-stream-id` when it is omitted. Replace `<stream-id>` with a provisioned `camera_id`.
 
@@ -510,6 +525,93 @@ Optional flags: `curl -v` for verbose output, `curl -i` to include response head
 **Common issues**
 
 - **503 / no upstream**: Stream ID not provisioned, missing route header, wrong listener port for the `wl_obj_name`, or Redis mapping missing.
+
+## HTTP-header stream lifecycle
+
+By default SDRC consumes add/delete events from Redis or Kafka (`WDM_LIFECYCLE_INGRESS_MODE: message-bus`). Set `WDM_LIFECYCLE_INGRESS_MODE` to `http` (aliases: `http-header`, `http_header`) to drive the same provision / deprovision / reprovision pipeline from HTTP on the **per-workload Envoy listener**.
+
+In HTTP-header mode:
+
+- Redis and Kafka lifecycle listeners for that workload stay disabled.
+- Clients send the stream ID in `WDM_HTTP_HEADER_LIFECYCLE_STREAM_ID_HEADER` (falls back to `ENVOY_ROUTE_HEADER`, then `ENVOYROUTEHEADER`, then `id`).
+- Envoy matches configured lifecycle method+path pairs and rewrites them to the workload coordinator (`/sdrc/<wl_obj_name>/...`) without Redis stream routing.
+- Add with a JSON body provisions (or uses the body as the event envelope). Reprovision with no body reuses the cached stream record for that header value. Delete deprovisions.
+- Add and reprovision may share the same method+path; SDRC treats a non-empty JSON body as add and an empty body as reprovision. Delete must use a distinct binding.
+- Successful responses are `{"status": "ok", "mode": "http-header", "action": "...", "stream_id": "..."}`. If workers are not ready yet, SDRC can return `status: deferred` with HTTP 503 so the client can retry.
+
+Source defaults (override these in `config.yml`):
+
+| Action | Default method | Default path |
+| --- | --- | --- |
+| add | `POST` | `/sdrc/v1/streams` |
+| delete | `DELETE` | `/sdrc/v1/streams` |
+| reprovision | `POST` | `/sdrc/v1/streams/reprovision` |
+
+The in-repo demo under `services/sdrc/demo/http-header-lifecycle/` uses RTVI-CV-compatible paths on listener port `10001`:
+
+```bash
+curl --location --request POST 'http://localhost:10001/api/v1/stream/add' \
+  --header 'streamid: camera-001' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "alert_type": "camera_status_change",
+    "created_at": "2026-01-01T00:00:00Z",
+    "event": {
+      "camera_id": "camera-001",
+      "camera_name": "Dock Camera 1",
+      "camera_url": "rtsp://<reachable-rtsp-url>",
+      "change": "camera_add",
+      "metadata": {"site": "warehouse-a"}
+    },
+    "source": "vst"
+  }'
+
+# Reprovision from cached state (same add path, no body)
+curl --location --request POST 'http://localhost:10001/api/v1/stream/add' \
+  --header 'streamid: camera-001'
+
+curl --location --request POST 'http://localhost:10001/api/v1/stream/remove' \
+  --header 'streamid: camera-001'
+```
+
+That demo sets `WDM_HTTP_HEADER_LIFECYCLE_ADD_PATH` / `DELETE_PATH` / `REPROVISION_PATH` to `/api/v1/stream/add` and `/api/v1/stream/remove` (delete method `POST`) so the listener URLs match the worker APIs. See `services/sdrc/demo/http-header-lifecycle/README.md` for Docker Compose and Helm runbooks.
+
+## Config event handling
+
+In addition to add/remove, SDRC can apply **configuration events** to an already allocated worker by POSTing to `WDM_CONFIG_URL` on `WDM_CONFIG_PORT` (defaults `/config` and `9002`). The event `change` value must match `WDM_WL_CHANGE_ID_POD_CONFIGURE` (default `config`).
+
+Config handling is **opt-in per workload** (`WDM_HANDLE_CONFIG_EVENTS`, default `false`) so a shared Redis or Kafka bus does not force every consumer to call `/config`.
+
+| `WDM_HANDLE_CONFIG_EVENTS` | Behavior |
+| --- | --- |
+| `true` | Resolve the allocated worker and call `/config`. |
+| `false` / unset | Skip (`CONFIGURE_NOOP`); do not call `/config`. |
+
+Leave this unset or `false` on workloads without a `/config` endpoint (stream processing, warehouse 2D). Set `true` only where `/config` is required (for example warehouse 3D `rtvi-cv`).
+
+When accepted, SDRC validates the payload (including the encoded worker name key `WDM_POD_ALLOCATION_ENCODED_NAME_KEY`), POSTs to the worker, and retries **transport errors only** using `WDM_CONFIG_RETRY_ATTEMPTS` / `WDM_CONFIG_RETRY_DELAY` (not the add/remove retry knobs). HTTP 4xx/5xx from the worker are not retried as transport errors. State is persisted only after HTTP 200.
+
+Bus commit policy (Redis and Kafka):
+
+| Result | Bus behavior |
+| --- | --- |
+| Success / no-op | Commit |
+| Terminal failure | ERROR log (log-based DLQ) and commit |
+| Retryable / deferred | Do not commit; retry up to `WDM_EVENT_RETRY_LIMIT`, then promote to terminal |
+
+On Kafka retryable failures, SDRC seeks back to the failed offset so a later commit cannot skip it. Set `WDM_CONFIG_DEFER_ON_FAILURE: true` only when you want configure events redelivered until `/config` succeeds.
+
+```yaml
+docker-workload-streamprocessing:
+  WDM_HANDLE_CONFIG_EVENTS: false
+
+docker-workload-rtvi-cv:
+  WDM_CONFIG_PORT: 9003
+  WDM_CONFIG_URL: /config
+  WDM_HANDLE_CONFIG_EVENTS: true
+  WDM_CONFIG_RETRY_ATTEMPTS: 60
+  WDM_CONFIG_RETRY_DELAY: 1
+```
 
 ## SDRC APIs
 
@@ -579,6 +681,7 @@ Most read-only endpoints use `GET` and do not require a request body. Mutating a
 | `POST /sdrc/<wl_obj_name>/apply_metadata_payload` | Full lifecycle payload. The inner event object must contain the configured stream ID field and change field. | Calls provision, reprovision, deprovision, or configure logic for that workload. |
 | `POST /sdrc/<wl_obj_name>/cache_metadata_update` | `{"stream_id": "<stream-id>", "additional_metadata": {...}, "overwrite": false, "cache_key": "external_metadata"}` | Updates metadata stored with the cached stream record. |
 | `POST /sdrc/<wl_obj_name>/remove_stream` | `{"stream_id": "<stream-id>"}` | Deprovisions the stream and removes its assignment. |
+| HTTP-header lifecycle (Envoy listener) | Optional JSON envelope on add; empty body on reprovision; stream ID in the lifecycle header | Add, delete, or reprovision when `WDM_LIFECYCLE_INGRESS_MODE` is `http`. |
 | `POST /v3/discovery:routes` | Optional: `{"resource_names": ["<wl_obj_name>"]}` | Returns Envoy route discovery resources. This endpoint is intended for Envoy/control-plane use. |
 | `POST /v3/discovery:clusters` | No body required. | Returns Envoy cluster discovery resources. This endpoint is intended for Envoy/control-plane use. |
 
@@ -589,17 +692,19 @@ Most read-only endpoints use `GET` and do not require a request body. Mutating a
 | `200` | Request succeeded. |
 | `400` | Invalid request body, wrong `Content-Type`, unsupported query option, or required field missing. |
 | `404` | Unknown workload, missing route resource, or stream not found. |
+| `409` | HTTP-header lifecycle path was hit while `WDM_LIFECYCLE_INGRESS_MODE` is `message-bus`. |
 | `500` | Internal processing, Redis, Kafka, Kubernetes, or worker lifecycle error. |
 | `502` | Router proxy could not reach the workload coordinator. |
-| `503` | Requested transport or route is not configured, or routed application traffic does not have a resolvable upstream. |
+| `503` | Requested transport or route is not configured, routed application traffic does not have a resolvable upstream, or provision/reprovision is deferred until a worker is healthy. |
 
 ### Runtime API surfaces
 
 | Surface | Default endpoint | Purpose |
 | --- | --- | --- |
-| SDRC controller / router | `http://<sdrc-host>:5002/` by default; Helm profiles may expose this as service port `5003`. | Multi-workload controller API, dashboard, OpenAPI document, xDS endpoints, and `/sdrc/<wl_obj_name>/...` proxy to each workload coordinator. |
+| SDRC controller / router | `http://<sdrc-host>:5002/` by default; Helm profiles may expose this as service port `5003`. | Multi-workload controller API, dashboard, OpenAPI document, REST xDS endpoints, and `/sdrc/<wl_obj_name>/...` proxy to each workload coordinator. |
+| gRPC ADS (optional) | `GRPC_XDS_PORT` (default `4001`) when `WDM_XDS_GRPC_ADS_ENABLED` is `true`. | Dynamic CDS cluster updates for Envoy instead of REST CDS polling. Generated route configuration remains static and must be regenerated when routes change. VSS profiles enable this by default. |
 | Direct SDRC Envoy listener | `http://<sdrc-host>:8010/` by default; Helm profiles may expose this as service port `8011`. | Envoy listener that forwards requests without an `upstream-cluster` header directly to the SDRC controller. Use this for controller access when the controller port is not exposed directly. |
-| Per-workload Envoy listener | `http://<sdrc-host>:<WDM_MS_LISTENER_PORT>/`. | Stream-routing listener generated from each enabled workload block. `/sdrc/...` paths go to SDRC APIs; other paths route to the assigned worker using the configured stream ID header. |
+| Per-workload Envoy listener | `http://<sdrc-host>:<WDM_MS_LISTENER_PORT>/`. | Stream-routing listener generated from each enabled workload block. `/sdrc/...` and HTTP-header lifecycle paths go to SDRC APIs; other paths route to the assigned worker using the configured stream ID header. |
 | Envoy admin | `http://<sdrc-host>:9901/` by default; Helm profiles may expose this as service port `9902`. | Envoy diagnostics and configuration inspection. Treat this as an operational/admin interface, not an application API. |
 
 ### Controller and router APIs
@@ -656,14 +761,16 @@ The generated Swagger UI for a workload coordinator is available at `/sdrc/<wl_o
 | `GET` | `/pod_list` | Pods/containers for this workload with phase, address, and assigned stream IDs. |
 | `GET` | `/down_pods` | Non-running pods/containers with phase, address, and assigned stream IDs. |
 | `GET` | `/getpodInfo?id=<stream-id>` | Disaggregated pod details for the pod/container currently assigned to a stream ID. |
+| configured | HTTP-header lifecycle paths | Catch-all coordinator routes used only when `WDM_LIFECYCLE_INGRESS_MODE` is `http`. See **HTTP-header stream lifecycle**. |
 
 ### Stream-routing API behavior
 
-Per-workload Envoy listeners are application traffic entry points, not only management APIs. For non-`/sdrc` paths, the listener expects the configured route header to contain a provisioned stream ID. The SDRC routing layer looks up the stream-to-worker assignment in Redis and forwards the request to the assigned worker.
+Per-workload Envoy listeners are application traffic entry points, not only management APIs. Configured HTTP-header lifecycle routes and `/sdrc` paths go to the coordinator. For other paths, the listener expects the configured route header to contain a provisioned stream ID. The SDRC routing layer looks up the stream-to-worker assignment in Redis and forwards the request to the assigned worker.
 
 Use these rules when calling through a per-workload listener:
 
 - `/sdrc/<endpoint>` reaches the workload coordinator API for that listener's `wl_obj_name`.
+- Configured HTTP-header lifecycle method+path pairs also reach the coordinator (rewritten to `/sdrc/<wl_obj_name>/...`) and do not require Redis stream routing.
 - Any other path, such as `/hello` or a workload-specific inference path, is routed to a worker only when the stream ID resolves to an assigned worker.
 - Send the stream ID in the configured route header. If the header is absent, the listener can also read the stream ID from a query parameter with the same name, for example `?streamid=<stream-id>` when the route header is `streamid`.
 - If `NOHEADERTARGETROUTE` is `true` for the workload, headerless non-`/sdrc` requests route to that workload's configured `HEADERLESS_SERVICE_ENDPOINTS` cluster.
@@ -673,7 +780,7 @@ Use these rules when calling through a per-workload listener:
 ### Operational and security notes
 
 - The current SDRC Flask APIs do not implement application-level authentication or rate limiting. Expose them only on trusted networks or behind an authenticated gateway.
-- Treat `/reset`, `/apply_metadata_payload`, `/remove_stream`, `/cache_metadata_update`, and `/dashboard/global_add` as administrative mutation APIs.
+- Treat `/reset`, `/apply_metadata_payload`, `/remove_stream`, `/cache_metadata_update`, `/dashboard/global_add`, and HTTP-header lifecycle add/delete/reprovision as administrative mutation APIs.
 - `/dashboard/config_yml` returns the mounted workload configuration. Do not expose it where configuration values, hostnames, or operational topology should remain private.
 - `/stream` is an unbounded streaming response; use it for diagnostics rather than high-frequency polling.
 - Envoy admin should stay private to operators. It can expose runtime configuration and diagnostics.
@@ -712,6 +819,8 @@ The two primary VSS workload object types managed through SDRC are:
   - **Routing, if enabled:** check `port`, `WDM_MS_LISTENER_PORT`, and `WDM_TARGET_PORT_MAPPING`. Profiles that use rtvi-cv only for placement/lifecycle may not expose it as a routed client-facing listener.
 
 - The Docker service exposes fixed runtime ports for the controller, direct `/sdrc` listener, and Envoy admin. Per-workload listener ports are generated from the active SDRC config only for workload blocks that define both `port` and `WDM_MS_LISTENER_PORT`.
+- VSS compose and Helm SDRC wiring sets `WDM_XDS_GRPC_ADS_ENABLED: true`. ADS is **pod-wide**. Resolution is environment → `defaults:` in `config.yml` → per-workload entries. An explicit env or `defaults:` value is used as-is and stops further lookup, so a workload-level `true` cannot enable ADS when `defaults:` is `false`, and a workload-level `false` cannot disable ADS when `defaults:` is `true`. Workload-level true-wins (any enabled workload with `true`) applies only when neither env nor `defaults:` sets the flag. Set ADS in env or `defaults:` so Envoy and the controller stay on the same path; otherwise the pod can keep REST xDS.
+- For HTTP-header lifecycle examples that are not part of a warehouse blueprint, use `services/sdrc/demo/http-header-lifecycle/`.
 - For less common tuning knobs, see **Advanced customization parameters**.
 
 ### Helm profiles
@@ -750,7 +859,7 @@ Workload listener ports are not declared in the Helm chart's `service.yaml`. The
 
 ## Autonomous stream session restoration on worker failure
 
-SDRC runs a background **pod/container watcher** that monitors worker health (Docker container state via the Docker socket, or Kubernetes pod phase via the API). When a worker in a set stops or becomes unavailable, SDRC performs **autonomous stream session restoration**: it moves the affected stream sessions onto another healthy worker in the same workerset without client intervention.
+SDRC runs a background **pod/container watcher** that monitors worker health. When `WDM_WL_HEALTH_CHECK_WAIT_ENABLED` is `true` (default), that watcher follows HTTP probe transitions from `WDM_WL_HEALTH_CHECK_URL` (Docker and Kubernetes). When health wait is disabled, Docker mode uses container state via the Docker socket and Kubernetes mode uses pod phase via the API. When a worker in a set stops or becomes unavailable, SDRC performs **autonomous stream session restoration**: it moves the affected stream sessions onto another healthy worker in the same workerset without client intervention.
 
 ### Failure detection
 
@@ -760,7 +869,7 @@ When the watcher reports that a worker is down:
 - SDRC reads the **workload spec cache** (`WDM_REDIS_CACHE_OBJECT`) for that worker and collects the stream payloads it was running.
 - If `WDM_CONTROLLER_REPROVISION` is `true` (default), SDRC initiates **autonomous stream session restoration** for each affected stream so placement runs again.
 
-In **Docker mode**, restoration triggers when the down container matches names in `WDM_DOCKER_CLUSTER_POD_DOWN_NAMES` or `WDM_DOCKER_CLUSTER_KEY_DOWN_NAMES` (see your `config.yml`). In **Kubernetes mode**, restoration triggers when a StatefulSet pod enters a failed or terminated state.
+In **Docker mode**, restoration triggers when HTTP health reports the worker down (health mode) or when the down container matches names in `WDM_DOCKER_CLUSTER_POD_DOWN_NAMES` or `WDM_DOCKER_CLUSTER_KEY_DOWN_NAMES` (legacy socket mode). In **Kubernetes mode**, restoration triggers when HTTP health fails or a StatefulSet pod enters a failed or terminated state.
 
 ### Restoration sequence
 
@@ -773,12 +882,14 @@ For each stream session on the failed worker, SDRC runs the same placement logic
 
 Clients keep sending requests to the same listener port and route header; after restoration completes, Envoy forwards traffic to the replacement worker without client changes.
 
+```mermaid
 flowchart TD
   W[Worker down detected] --> S[Load stream specs from cache]
   S --> D[Deprovision on failed worker]
   D --> P[Restore session on healthy worker]
   P --> R[Update Redis routing]
   R --> E[Envoy routes stream header to new worker]
+```
 
 ## SDRC Parameters
 
@@ -787,6 +898,8 @@ The following parameters are set in the SDRC workload configuration unless noted
 ### Minimum required parameters
 
 Set these explicitly for each new SDRC workload. Source defaults exist for some of them, but many defaults are demo-oriented and should not be treated as deployment recommendations. Start with deployment mode and workload discovery because those settings determine how SDRC finds workers in Docker Compose or Helm/Kubernetes profiles.
+
+An optional top-level `defaults:` block in `config.yml` sets pod-wide values shared across workloads (for example `WDM_XDS_GRPC_ADS_ENABLED`). For ADS, environment and `defaults:` take precedence over per-workload entries: each of those layers is pod-wide, and the first explicit value wins. Per-workload true-wins is used only when ADS is unset in both env and `defaults:`. Do not expect a workload-level `true` or `false` to override an explicit `defaults:` or environment value.
 
 #### Deployment mode and workload discovery
 
@@ -810,17 +923,19 @@ Use this set when SDRC needs to consume stream events, choose a worker, call add
 | Parameter | Summary |
 | --- | --- |
 | **WDM_WL_THRESHOLD** | Maximum concurrent stream sessions per worker. SDRC skips workers that have reached this capacity. |
+| **WDM_WL_ASSIGNING_METHOD** | Worker pick order: `sequential` (default, first eligible) or `lru_round_robin` (fewest streams). |
 | **WDM_WL_REDIS_SERVER** / **WDM_WL_REDIS_PORT** | Redis host and port used for stream events, stream-to-worker mappings, workload cache, and operational messages. |
 | **WDM_REDIS_CACHE_OBJECT** | Redis hash for this workload's stream placement cache. Use a unique value per workload. |
 | **WDM_REDIS_MSG_KEY** | Redis stream name SDRC consumes for stream lifecycle events. |
 | **WDM_WL_REDIS_MSG_FIELD** | Field in each Redis stream item that contains the JSON event payload. |
 | **WDM_CONSUMER_GRP_ID** | Consumer group for this workload. Use a unique value per workload so consumers do not steal each other's events. |
 | **WDM_KFK_ENABLE** | Set `false` for Redis-only input. Set `true` only when the workload should also consume Kafka. |
-| **WDM_WL_ADD_URL** / **WDM_WL_DELETE_URL** | Worker HTTP paths SDRC calls to add or remove a stream after placement decisions. |
+| **WDM_WL_ADD_URL** / **WDM_WL_DELETE_URL** | Worker HTTP paths SDRC calls to add or remove a stream after placement decisions. Source defaults are `/api/v1/stream/add` and `/api/v1/stream/remove`. |
 | **WDM_EVENT_OBJECT_FIELD** | Payload field containing the inner stream event object, commonly `event`. |
 | **WDM_WL_ID_FIELD** | Field inside the event object used as the stream ID, commonly `camera_id`. |
 | **WDM_WL_CHANGE_FIELD** | Field inside the event object that carries the lifecycle action, commonly `change`. |
-| **WDM_WL_CHANGE_ID_ADD** / **WDM_WL_CHANGE_ID_DEL** | Values in `WDM_WL_CHANGE_FIELD` that mean add and delete for this workload. |
+| **WDM_WL_CHANGE_ID_ADD** / **WDM_WL_CHANGE_ID_DEL** | Values in `WDM_WL_CHANGE_FIELD` that mean add and delete for this workload. Source defaults are `camera_streaming` and `camera_remove`. |
+| **WDM_LIFECYCLE_INGRESS_MODE** | `message-bus` (default) or `http` / `http-header`. HTTP mode disables Redis/Kafka lifecycle consumers for the workload. |
 
 #### Envoy routing
 
@@ -834,6 +949,7 @@ Add these only when clients will send workload traffic through SDRC's generated 
 | **WDM_WL_REDIS_SERVER** / **WDM_WL_REDIS_PORT** | Redis endpoint Envoy uses to resolve `stream ID -> assigned worker` at request time. |
 | **NOHEADERTARGETROUTE** | Optional. Set `true` only when headerless requests should route to a fallback workload endpoint instead of failing. |
 | **HEADERLESS_SERVICE_ENDPOINTS** | Required only when `NOHEADERTARGETROUTE` is `true`. JSON array of fallback `host:port` endpoints for requests that do not include the route header. |
+| **WDM_XDS_GRPC_ADS_ENABLED** | Optional. Source default `false` (REST CDS). VSS profiles set `true` so Envoy uses gRPC ADS for dynamic CDS cluster updates on `GRPC_XDS_PORT`. Routes stay inline in the generated Envoy config. Pod-wide: env, then `defaults:`, then (only if both unset) any workload `true`. |
 
 ### Advanced customization parameters
 
@@ -859,7 +975,12 @@ The values below show WDM container default values unless a value is explicitly 
 | **WDM_MIN_PODS** | 0 | Minimum number of pods to maintain. |
 | **WDM_STANDBY_POD_COUNT** | 2 | Number of standby pods expected by status/replica reporting. |
 | **WDM_TIMEOUT** | 300 | Default operation timeout in seconds. |
-| **WDM_POD_WATCH_DOCKER_DELAY** | 0.05 | Docker mode pod/container watch poll delay in seconds. |
+| **WDM_POD_WATCH_DOCKER_DELAY** | 0.05 | Docker socket watch poll delay in seconds (used only when no HTTP health watcher is attached). |
+| **WDM_WL_HEALTH_CHECK_WAIT_ENABLED** | True | Master switch for HTTP workload health checks. `true`: background polling, prefer healthy pods, wait in `add()` before the worker add call, and drive `PodErrorWatcher` from HTTP health. `false`: legacy Docker container-state / Kubernetes phase detection. |
+| **WDM_WL_HEALTH_CHECK_URL** | "/healthz" | HTTP path polled with GET for per-worker readiness. HTTP 200 means healthy. Host and port come from the worker provisioning address. |
+| **WDM_HEALTH_CHECK_INTERVAL** | 2.0 | Background health poll interval in seconds. |
+| **WDM_HEALTH_CHECK_TIMEOUT** | 2.0 | Per-probe HTTP timeout in seconds. |
+| **WDM_ADD_HEALTH_CHECK_TIMEOUT** | 60 | Max seconds `add()` waits for the selected worker's health before calling the add URL. `-1` waits forever. On timeout, SDRC defers (bus retry / HTTP 503). |
 | **WDM_POD_ALLOCATION_HASH_NAME** | "regex-dns-pod-mapping" | Redis hash name for regex-based pod allocation. |
 | **WDM_POD_ALLOCATION_REGEX_DELIMITER** | "\|" | Delimiter for regex allocation keys. |
 | **WDM_POD_ALLOCATION_ENCODED_NAME_KEY** | "name" | Event key that carries the encoded pod-allocation name. |
@@ -875,8 +996,20 @@ The values below show WDM container default values unless a value is explicitly 
 | **WDM_KFK_BOOTSTRAP_URL** | localhost:9092 | Kafka bootstrap address when Kafka consumption is enabled. |
 | **WDM_KFK_SESSION_TIME_OUT** | 30000 | Kafka session timeout in milliseconds. |
 | **WDM_FORWARD_MSG_TYPE** | "event_message" | Controls whether SDRC forwards the full event envelope or only the inner event data to workers. |
-| **WDM_WL_CHANGE_ID_POD_CONFIGURE** | "config" | Value in `WDM_WL_CHANGE_FIELD` that triggers pod configuration. |
-| **WDM_WL_HEALTH_CHECK_URL** | "/api/v1/stream/add" | Worker health-check endpoint path used by preload/readiness flows. |
+| **WDM_WL_CHANGE_ID_POD_CONFIGURE** | "config" | Value in `WDM_WL_CHANGE_FIELD` that triggers pod configuration. See **Config event handling**. |
+| **WDM_WL_CHANGE_ID_REPROVISION** | "reprovision" | Value used when HTTP-header lifecycle (or an explicit event) requests reprovision from cached state. |
+| **WDM_HANDLE_CONFIG_EVENTS** | False | Opt-in `/config` handling. Leave `false` unless the worker exposes `/config`. |
+| **WDM_CONFIG_RETRY_ATTEMPTS** | 3 | Transport retry budget for `/config` HTTP calls only. If unset at call time, falls back to `min(WDM_ADD_REMOVE_RETRY_ATTEMPTS, 5)`. |
+| **WDM_CONFIG_RETRY_DELAY** | 0.5 | Delay in seconds between `/config` transport retries. |
+| **WDM_CONFIG_DEFER_ON_FAILURE** | False | If `true`, failed config handling leaves the bus message uncommitted. Default treats config failures as terminal. |
+| **WDM_EVENT_RETRY_LIMIT** | 20 | Max times to retry the same Redis/Kafka event on temporary failures before logging and committing. |
+| **WDM_HTTP_HEADER_LIFECYCLE_STREAM_ID_HEADER** | `ENVOY_ROUTE_HEADER` / `id` | Header carrying the stream ID for HTTP-header lifecycle. |
+| **WDM_HTTP_HEADER_LIFECYCLE_ADD_PATH** | "/sdrc/v1/streams" | Listener path for HTTP-header add. |
+| **WDM_HTTP_HEADER_LIFECYCLE_ADD_METHOD** | POST | HTTP method for add. |
+| **WDM_HTTP_HEADER_LIFECYCLE_DELETE_PATH** | "/sdrc/v1/streams" | Listener path for HTTP-header delete. |
+| **WDM_HTTP_HEADER_LIFECYCLE_DELETE_METHOD** | DELETE | HTTP method for delete. |
+| **WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_PATH** | "/sdrc/v1/streams/reprovision" | Listener path for HTTP-header reprovision. |
+| **WDM_HTTP_HEADER_LIFECYCLE_REPROVISION_METHOD** | POST | HTTP method for reprovision. |
 | **WDM_WL_NAME_IGNORE_REGEX** | "" | Regex used to skip matching stream names during add processing. |
 | **WDM_MAP_ADD_FIELD** | "" | Optional JSON mapping for add-event field values before sending to the worker. |
 | **WDM_REMAP_EVENT_OBJECT** | "" | Optional JSON mapping to rename/remap the event object before sending to the worker. |
@@ -901,6 +1034,8 @@ The values below show WDM container default values unless a value is explicitly 
 | **ENVOY_ROUTE_URL_PREFIX_REWRITE** | "/hello" | Prefix rewrite used by generated Envoy route configuration. |
 | **WDM_XDS_USE_POD_DNS** | True | Prefer pod DNS names in generated xDS cluster endpoints. |
 | **WDM_XDS_USE_IP_ADDRESS** | False | Use pod IPs for generated xDS cluster endpoints when pod DNS is disabled. |
+| **WDM_XDS_GRPC_ADS_ENABLED** | False | Enable gRPC ADS for dynamic CDS cluster updates instead of REST CDS polling. Generated route configuration remains static and must be regenerated when routes change. VSS profiles set `true`. Resolved pod-wide as env → `defaults:` → workload true-wins only when the first two are unset. |
+| **GRPC_XDS_PORT** | 4001 | Port for the gRPC ADS server when ADS is enabled. |
 
 #### Startup, preload, and recovery
 
@@ -941,6 +1076,9 @@ The values below show WDM container default values unless a value is explicitly 
 | Parameter | Default Value | Description |
 | --- | --- | --- |
 | **OTEL_SERVICE_NAME** | "sdr-agent" | OpenTelemetry service name. |
+| **WDM_LOG_LEVEL** | "INFO" | Root log level (`DEBUG` / `INFO` / `WARNING` / `ERROR`). Use `DEBUG` for poll and inventory detail. |
+| **WDM_LOG_FORMAT** | "text" | `text` for console skim or `json` for collectors. |
+| **WDM_LOG_TO_FILE** | False | Write rotating files under `logs/` when `true`; stdout-only by default. |
 | **WDM_DISABLE_WERKZEUG_LOGGING** | False | Disable Werkzeug request logging. |
 | **WDM_CONTROLLER_SDR_AGENTS_PATH** | "/wdm/wdm-agents/agents-data.yaml" | File path for controller-tracked SDR agents. |
 | **WDM_SDR_AGENT_PORT** | "4000" | SDR agent service port reported to an external controller. |

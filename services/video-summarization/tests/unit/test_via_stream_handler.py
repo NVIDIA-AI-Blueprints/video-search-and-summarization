@@ -1466,7 +1466,8 @@ class TestGetAggregatedSummary:
         req_info._ctx_mgr.call.return_value = {
             "summarization": {
                 "result": (
-                    '{"events":[],"total_events":0,' '"video_summary":"","uuids":["source-1"]}'
+                    '{"events":[],"total_events":0,'
+                    '"video_summary":"Warehouse activity.","uuids":["source-1"]}'
                 ),
                 "metadata": {},
             }
@@ -1967,6 +1968,32 @@ class TestProcessOutputAdditional:
 
         # Exception is caught internally; status should be FAILED for non-live
         assert ri.status == RequestInfo.Status.FAILED
+
+    def test_empty_aggregation_failure_context_reaches_request(self):
+        from via_exception import ViaException
+        from via_stream_handler import RequestInfo
+
+        handler = self._make_handler()
+        ri = RequestInfo()
+        ri.is_live = False
+        ri.status = RequestInfo.Status.PROCESSING
+        ri.start_time = time.time()
+        handler._get_aggregated_summary = MagicMock(
+            side_effect=ViaException(
+                "Aggregation returned neither events nor a video summary",
+                "AggregationFailed",
+                502,
+                job_id=ri.request_id,
+                failed_stage="aggregation",
+            )
+        )
+
+        handler._process_output(ri, False, [self._make_chunk_response()])
+
+        assert ri.status == RequestInfo.Status.FAILED
+        assert ri.error_code == "AggregationFailed"
+        assert ri.error_status_code == 502
+        assert ri.failed_stage == "aggregation"
 
 
 # ---------------------------------------------------------------------------

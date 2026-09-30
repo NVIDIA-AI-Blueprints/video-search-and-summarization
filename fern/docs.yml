@@ -15,6 +15,9 @@ global-theme: nvidia
 layout:
   api-reference-expand-properties: true
 
+settings:
+  substitute-env-vars: true
+
 logo:
   href: /vss
   right-text: VSS
@@ -131,6 +134,9 @@ navigation:
                   - page: "Quickstart"
                     slug: quickstart
                     path: ../docs/warehouse-docs/Quickstart-Guide.mdx
+                  - page: "Helm Deployment"
+                    slug: helm-deployment
+                    path: ../docs/warehouse-docs/Helm-Deployment.mdx
                   - section: "Development Workflow"
                     slug: development-workflow
                     path: ../docs/warehouse-docs/Core-Development-Workflow.mdx
@@ -339,6 +345,9 @@ navigation:
               - page: "API Reference"
                 slug: api-reference
                 path: ../docs/object-detection-tracking-api.mdx
+              - page: "MV3DT Standalone Deployment"
+                slug: mv3dt-standalone-deployment
+                path: ../docs/mv3dt-standalone-deployment.mdx
           - section: "Real-Time VLM"
             slug: real-time-vlm
             path: ../docs/real-time-vlm.mdx

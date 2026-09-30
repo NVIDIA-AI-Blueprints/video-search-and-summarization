@@ -1,0 +1,22 @@
+[
+  {
+    "id": "deploy-warehouse-on-kubernetes",
+    "question": "Deploy the 3D warehouse blueprint on Kubernetes with Helm and cap streams for the available GPU.",
+    "expected_skill": "vss-deploy-warehouse-helm",
+    "ground_truth": "Use the warehouse Helm deployment and sizing workflow.",
+    "expected_behavior": [
+      "Activates vss-deploy-warehouse-helm.",
+      "Uses Helm and applies the hardware-aware stream limit."
+    ]
+  },
+  {
+    "id": "deploy-warehouse-with-compose",
+    "question": "Deploy the warehouse profile locally with Docker Compose.",
+    "expected_skill": null,
+    "ground_truth": "Route Docker Compose profile deployment to the build skill.",
+    "expected_behavior": [
+      "Does not activate vss-deploy-warehouse-helm.",
+      "Routes the request to vss-build-vision-ai."
+    ]
+  }
+]

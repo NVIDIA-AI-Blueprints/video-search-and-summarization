@@ -3,13 +3,20 @@ name: vss-deploy-detection-tracking-2d
 description: "Use this skill when the user wants to deploy, run, debug, tear down, or call the REST API of the RTVI-CV 2D detection / tracking microservice. Trigger when the user says things like 'deploy rtvi-cv', 'start warehouse 2d', 'add a stream', 'check rtvi-cv health', or 'stop the perception container'. Not for VLM, embedding, or analytics — use the matching vss-* skill."
 license: Apache-2.0
 metadata:
-  version: "3.2.1"
+  version: "3.3.0-rc0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia rtvi-cv deployment rest-api docker deepstream ngc warehouse smartcity sparse4d gdino rt-detr metropolis stream-management health-check metrics"
 ---
 ## Purpose
 
 Deploy, debug, and operate the RTVI-CV detection / tracking 2D microservice and drive its REST API.
+
+## When to Use
+
+- Deploy, tear down, or debug the RTVI-CV 2D microservice ("deploy rtvi-cv", "start warehouse 2d", "stop the perception container", "rtvi-cv won't start")
+- Manage streams or call the RTVI-CV REST API on an already-running instance (add/remove/list streams, health checks, metrics, embeddings)
+
+Not for VLM, embedding, or analytics — use the matching `vss-*` skill.
 
 ## Prerequisites
 

@@ -75,14 +75,14 @@
 constexpr int MIN_BUFS_OUTPUT_PLANE = 1;
 constexpr int DQBUF_WAIT_ON_ERROR = 1000;  //in msecs
 
-std::unordered_map<std::string, v4l2_enc_hw_tuning_info_type> stringToTuningInfoMap =
+const std::unordered_map<std::string, v4l2_enc_hw_tuning_info_type> stringToTuningInfoMap =
 {
         {"high_quality"        , v4l2_enc_hw_tuning_info_type::V4L2_ENC_TUNING_INFO_HIGH_QUALITY      },
         {"low_latency"         , v4l2_enc_hw_tuning_info_type::V4L2_ENC_TUNING_INFO_LOW_LATENCY       },
         {"ultra_low_latency"   , v4l2_enc_hw_tuning_info_type::V4L2_ENC_TUNING_INFO_ULTRA_LOW_LATENCY }
 };
 
-std::unordered_map<std::string, uint32_t> stringToPresetIDMap =
+const std::unordered_map<std::string, uint32_t> stringToPresetIDMap =
 {
         {"ultra_fast" , 1 },
         {"fast"       , 4 },

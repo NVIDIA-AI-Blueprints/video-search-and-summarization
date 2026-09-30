@@ -220,6 +220,8 @@ struct DeviceConfig
     uint64_t webrtc_latency_ms;
     bool enable_frame_drop;
     int video_metadata_query_batch_size_num_frames;
+    int video_metadata_query_max_threads;
+    int video_metadata_wait_timeout_ms;
     bool enable_qos_monitoring;
     string qos_logfile_path;
     int qos_data_capture_interval_sec;

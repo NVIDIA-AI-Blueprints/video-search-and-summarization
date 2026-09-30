@@ -37,8 +37,7 @@ RTSPAudioSource::RTSPAudioSource(webrtc::scoped_refptr<webrtc::AudioDecoderFacto
 				: LiveAudioSource(audioDecoderFactory, uri, opts, false) {
 }
 
-RTSPAudioSource::~RTSPAudioSource()  { 
-}
+RTSPAudioSource::~RTSPAudioSource() = default;
 
 
 #endif

@@ -9,5 +9,15 @@
       "Wires Elasticsearch (and optional Kafka) and does not run the full warehouse deploy.",
       "Does not print plaintext API tokens or other secrets."
     ]
+  },
+  {
+    "id": "video-analytics-query-non-activation",
+    "question": "List incidents from my already-running VSS deployment.",
+    "expected_skill": null,
+    "ground_truth": "This is a read-only analytics request for vss-query-analytics, not a request to deploy the analytics API.",
+    "expected_behavior": [
+      "Does not activate vss-setup-video-analytics-api for a query against an existing deployment.",
+      "Routes the request to vss-query-analytics."
+    ]
   }
 ]

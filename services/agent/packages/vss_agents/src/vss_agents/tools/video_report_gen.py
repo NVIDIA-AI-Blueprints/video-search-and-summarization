@@ -23,6 +23,8 @@ Handles VLM prompt sanitization, video analysis, and report formatting.
 import asyncio
 from collections import OrderedDict
 from collections.abc import AsyncGenerator
+from collections.abc import Awaitable
+from collections.abc import Callable
 from datetime import datetime
 from datetime import timedelta
 import json
@@ -83,6 +85,175 @@ CHUNK_TIMESTAMP_PROMPT = """
     START_TIME: {start_time}s
     END_TIME: {end_time}s
 """
+
+DEFAULT_HITL_VLM_PROMPT_TEMPLATE = """**VLM Prompt for Report Generation**
+
+**OPTIONS:**
+
+• Press Submit (empty) → Approve and generate report
+
+• Type a new prompt → Use it directly
+
+• Type `/generate <description>` → AI creates a prompt based on your description
+
+• Type `/refine <instructions>` → AI modifies the current prompt
+
+• Type `/default` → Restore the system default prompt
+
+• Type `/cancel` → Cancel report generation
+
+Enter your choice or press Submit to keep current value:"""
+
+HITL_VLM_PROMPT_PLACEHOLDER = "Enter prompt, /generate, /refine, /default, /cancel, or press Submit to approve"
+
+
+async def collect_hitl_vlm_prompt(
+    *,
+    current_prompt: str | None,
+    default_prompt: str,
+    hitl_template: str,
+    prompt_user_input: Callable[..., Awaitable[str | None]],
+    llm_generate_prompt: Callable[[str], Awaitable[str]],
+    llm_refine_prompt: Callable[[str, str], Awaitable[str]],
+    video_context: str = "",
+) -> str | None:
+    """Collect/confirm a VLM prompt via HITL.
+
+    Last approved edits are passed in as ``current_prompt`` by the caller and
+    are shown as CURRENTLY SET. ``/default`` restores ``default_prompt`` in the
+    confirmation loop without generating the report until the user submits.
+    Cancel does not return a prompt, so the caller should leave saved edits
+    unchanged.
+
+    Returns:
+        The confirmed prompt, or None if the user cancelled.
+    """
+    logger.info("Starting HITL VLM prompt collection workflow")
+
+    working_prompt = current_prompt or default_prompt
+    prompt_source = "CURRENTLY SET" if current_prompt else "DEFAULT"
+    error_message = ""
+
+    while True:
+        if error_message:
+            prompt_text = (
+                f"{video_context}**⚠️ ERROR:** {error_message}\n\n"
+                f"**{prompt_source}:**\n```\n{working_prompt}\n```\n\n{hitl_template}"
+            )
+            error_message = ""
+        else:
+            prompt_text = f"{video_context}**{prompt_source}:**\n```\n{working_prompt}\n```\n\n{hitl_template}"
+
+        user_input = await prompt_user_input(
+            prompt_text,
+            required=False,
+            placeholder=HITL_VLM_PROMPT_PLACEHOLDER,
+        )
+
+        if user_input is None:
+            logger.info("User cancelled report generation")
+            return None
+
+        if user_input == "":
+            logger.info(f"User approved {prompt_source.lower()} prompt")
+            return working_prompt
+
+        stripped = user_input.strip()
+        if stripped.lower() == "/cancel":
+            logger.info("User cancelled report generation via /cancel command")
+            return None
+
+        if stripped.lower() == "/default":
+            logger.info("User restored the system default VLM prompt via /default")
+            working_prompt = default_prompt
+            prompt_source = "DEFAULT"
+            continue
+
+        if stripped.lower().startswith("/default"):
+            error_message = "Use /default with no additional text to restore the system default prompt"
+            continue
+
+        if stripped.lower().startswith("/generate "):
+            description = stripped[10:].strip()
+            if not description:
+                logger.warning("Empty description for /generate, prompting again")
+                error_message = "Please provide a description after /generate"
+                continue
+            try:
+                working_prompt = await llm_generate_prompt(description)
+                prompt_source = "AI-GENERATED"
+                continue
+            except ValueError as e:
+                logger.error(f"Failed to generate prompt: {e!s}")
+                error_message = f"Failed to generate prompt: {e!s}"
+                continue
+
+        if stripped.lower().startswith("/refine "):
+            instructions = stripped[8:].strip()
+            if not instructions:
+                logger.warning("Empty instructions for /refine, prompting again")
+                error_message = "Please provide instructions after /refine"
+                continue
+            try:
+                working_prompt = await llm_refine_prompt(working_prompt, instructions)
+                prompt_source = "AI-REFINED"
+                continue
+            except ValueError as e:
+                logger.error(f"Failed to refine prompt: {e!s}")
+                error_message = f"Failed to refine prompt: {e!s}"
+                continue
+
+        if not stripped:
+            error_message = (
+                "Input is empty or whitespace. Press Submit with no text to approve the default, or enter a prompt."
+            )
+            continue
+
+        logger.info(f"User provided custom prompt: {stripped[:100]}...")
+        return stripped
+
+
+class VlmPromptConversationState:
+    """Per-conversation LRU of last-approved HITL VLM prompts."""
+
+    def __init__(self, max_conversations: int = 1000) -> None:
+        # Each entry stores ~1-2KB (thread_id + prompt string).
+        # At 1000 conversations: ~1-2MB memory footprint.
+        self.max_conversations = max_conversations
+        self._prompts: OrderedDict[str, str] = OrderedDict()
+
+    def store(self, thread_id: str, prompt: str) -> None:
+        """Store a prompt for a thread, evicting oldest entries if over capacity."""
+        if thread_id in self._prompts:
+            self._prompts.move_to_end(thread_id)
+        self._prompts[thread_id] = prompt
+        while len(self._prompts) > self.max_conversations:
+            evicted_id, _ = self._prompts.popitem(last=False)
+            logger.debug(f"Evicted prompt state for thread {evicted_id} (LRU capacity: {self.max_conversations})")
+
+    def get(self, thread_id: str) -> str | None:
+        """Get a prompt for a thread, updating access order (LRU behavior)."""
+        if thread_id in self._prompts:
+            self._prompts.move_to_end(thread_id)
+            return self._prompts[thread_id]
+        return None
+
+
+async def resolve_persisted_hitl_vlm_prompt(
+    state: VlmPromptConversationState,
+    thread_id: str,
+    collect: Callable[[str | None], Awaitable[str | None]],
+) -> str | None:
+    """Collect a HITL prompt using last saved edits, persisting only on approval.
+
+    Cancel returns None and leaves previously stored edits unchanged.
+    """
+    resolved = await collect(state.get(thread_id))
+    if resolved is None:
+        return None
+    state.store(thread_id, resolved)
+    return resolved
+
 
 # Appended to report VLM prompts only for Omni-capable VLMs when enable_audio=True.
 AUDIO_REPORT_PROMPT_SUFFIX = """
@@ -475,7 +646,7 @@ class VideoReportGenConfig(FunctionBaseConfig, name="video_report_gen"):
 
     hitl_prompt_llm: str | None = Field(
         default=None,
-        description="LLM to use for AI-assisted prompt generation (/generate and /refine commands). If None, AI features disabled.",
+        description="LLM to use for AI-assisted prompt generation (/generate and /refine commands). If None, AI features disabled. /default restores the configured vlm_prompt without calling the LLM.",
     )
 
     hitl_generate_system_prompt: str = Field(
@@ -1398,17 +1569,9 @@ async def video_report_gen(config: VideoReportGenConfig, builder: Builder) -> As
             logger.warning(f"Failed to load HITL LLM '{config.hitl_prompt_llm}': {e}. AI prompt generation disabled.")
             hitl_llm = None
 
-    # HITL state: maps thread_id -> vlm_prompt (persisted per conversation)
-    # Uses OrderedDict as LRU cache to prevent unbounded memory growth.
-    #
-    # max_conversations: Maximum number of conversation states to retain.
-    # - Each entry stores ~1-2KB (thread_id + prompt string)
-    # - At 1000 conversations: ~1-2MB memory footprint
-    # - Oldest entries are evicted when limit is exceeded (LRU policy)
-    # - Operators can adjust this value based on expected concurrent users
-    #   and available memory. For high-traffic deployments, consider 500-2000.
-    max_conversations = 1000
-    vlm_prompt_state: OrderedDict[str, str] = OrderedDict()
+    # HITL state: maps thread_id -> vlm_prompt (persisted per conversation).
+    # Oldest entries are evicted when the LRU capacity is exceeded.
+    vlm_prompt_state = VlmPromptConversationState()
 
     def _interactive_hitl_enabled() -> bool:
         """Resolve HITL availability without changing deployment-wide configuration."""
@@ -1421,42 +1584,6 @@ async def video_report_gen(config: VideoReportGenConfig, builder: Builder) -> As
             "proceeding noninteractively with the configured VLM prompt for this request only"
         )
         return False
-
-    def _store_prompt(thread_id: str, prompt: str) -> None:
-        """Store a prompt for a thread, evicting oldest entries if over capacity."""
-        # If key exists, remove it first to update insertion order (LRU behavior)
-        if thread_id in vlm_prompt_state:
-            vlm_prompt_state.move_to_end(thread_id)
-        vlm_prompt_state[thread_id] = prompt
-
-        # Evict oldest entries if over capacity
-        while len(vlm_prompt_state) > max_conversations:
-            evicted_id, _ = vlm_prompt_state.popitem(last=False)
-            logger.debug(f"Evicted prompt state for thread {evicted_id} (LRU capacity: {max_conversations})")
-
-    def _get_prompt(thread_id: str) -> str | None:
-        """Get a prompt for a thread, updating access order (LRU behavior)."""
-        if thread_id in vlm_prompt_state:
-            vlm_prompt_state.move_to_end(thread_id)
-            return vlm_prompt_state[thread_id]
-        return None
-
-    # Default HITL template if not provided in config
-    default_hitl_vlm_prompt_template = """**VLM Prompt for Report Generation**
-
-**OPTIONS:**
-
-• Press Submit (empty) → Approve and generate report
-
-• Type a new prompt → Use it directly
-
-• Type `/generate <description>` → AI creates a prompt based on your description
-
-• Type `/refine <instructions>` → AI modifies the current prompt
-
-• Type `/cancel` → Cancel report generation
-
-Enter your choice or press Submit to keep current value:"""
 
     async def _prompt_user_input(prompt_text: str, required: bool = True, placeholder: str = "") -> str | None:
         """Prompt user for input using HITL with option to cancel via /cancel.
@@ -1617,13 +1744,14 @@ Enter your choice or press Submit to keep current value:"""
         total_videos: int | None = None,
     ) -> str | None:
         """
-        Collect/confirm VLM prompt via HITL with support for /generate and /refine commands.
+        Collect/confirm VLM prompt via HITL with support for /generate, /refine, and /default.
 
         Flow:
-        1. Show current prompt
-        2. User can: approve (empty), edit directly, /generate, /refine, or /cancel
-        3. If /generate or /refine, show result and loop for approval
-        4. Plain text or empty = final answer (no loop)
+        1. Show last saved prompt when present, otherwise the system default
+        2. User can: approve (empty), edit directly, /generate, /refine, /default, or /cancel
+        3. If /generate, /refine, or /default, show result and loop for approval
+        4. Plain text or empty Submit = final answer (no loop)
+        5. /cancel leaves previously saved edits unchanged
 
         Args:
             current_prompt: Current prompt from state (if any)
@@ -1636,90 +1764,15 @@ Enter your choice or press Submit to keep current value:"""
         Returns:
             str: The confirmed or updated VLM prompt, or None if cancelled
         """
-        logger.info("Starting HITL VLM prompt collection workflow")
-
-        hitl_template = config.hitl_vlm_prompt_template or default_hitl_vlm_prompt_template
-
-        # Build video context header if sensor_ids provided
-        video_context = format_hitl_popup_header(sensor_ids, total_videos)
-
-        # Track the working prompt and its source
-        working_prompt = current_prompt or config.vlm_prompt
-        prompt_source = "CURRENTLY SET" if current_prompt else "DEFAULT"
-        error_message = ""  # Error message to display to user (cleared after each prompt)
-
-        while True:
-            # Build the display text, including any error message from previous iteration
-            if error_message:
-                prompt_text = f"{video_context}**⚠️ ERROR:** {error_message}\n\n**{prompt_source}:**\n```\n{working_prompt}\n```\n\n{hitl_template}"
-                error_message = ""  # Clear after displaying
-            else:
-                prompt_text = f"{video_context}**{prompt_source}:**\n```\n{working_prompt}\n```\n\n{hitl_template}"
-
-            user_input = await _prompt_user_input(
-                prompt_text,
-                required=False,
-                placeholder="Enter prompt, /generate, /refine, /cancel, or press Submit to approve",
-            )
-
-            # User clicked Cancel button
-            if user_input is None:
-                logger.info("User cancelled report generation")
-                return None
-
-            # Only truly empty input = approve (do not strip before check; space-only is not approval)
-            if user_input == "":
-                logger.info(f"User approved {prompt_source.lower()} prompt")
-                return working_prompt
-
-            stripped = user_input.strip()
-            # Handle /cancel command
-            if stripped.lower() == "/cancel":
-                logger.info("User cancelled report generation via /cancel command")
-                return None
-
-            # Handle /generate command
-            if stripped.lower().startswith("/generate "):
-                description = stripped[10:].strip()
-                if not description:
-                    logger.warning("Empty description for /generate, prompting again")
-                    error_message = "Please provide a description after /generate"
-                    continue
-                try:
-                    working_prompt = await _llm_generate_prompt(description)
-                    prompt_source = "AI-GENERATED"
-                    continue  # Loop to show generated prompt for approval
-                except ValueError as e:
-                    logger.error(f"Failed to generate prompt: {e!s}")
-                    error_message = f"Failed to generate prompt: {e!s}"
-                    continue
-
-            # Handle /refine command
-            if stripped.lower().startswith("/refine "):
-                instructions = stripped[8:].strip()
-                if not instructions:
-                    logger.warning("Empty instructions for /refine, prompting again")
-                    error_message = "Please provide instructions after /refine"
-                    continue
-                try:
-                    working_prompt = await _llm_refine_prompt(working_prompt, instructions)
-                    prompt_source = "AI-REFINED"
-                    continue  # Loop to show refined prompt for approval
-                except ValueError as e:
-                    logger.error(f"Failed to refine prompt: {e!s}")
-                    error_message = f"Failed to refine prompt: {e!s}"
-                    continue
-
-            # Whitespace-only = not valid; re-prompt
-            if not stripped:
-                error_message = (
-                    "Input is empty or whitespace. Press Submit with no text to approve the default, or enter a prompt."
-                )
-                continue
-
-            # Plain text = use directly (no further approval needed)
-            logger.info(f"User provided custom prompt: {stripped[:100]}...")
-            return stripped
+        return await collect_hitl_vlm_prompt(
+            current_prompt=current_prompt,
+            default_prompt=config.vlm_prompt,
+            hitl_template=config.hitl_vlm_prompt_template or DEFAULT_HITL_VLM_PROMPT_TEMPLATE,
+            prompt_user_input=_prompt_user_input,
+            llm_generate_prompt=_llm_generate_prompt,
+            llm_refine_prompt=_llm_refine_prompt,
+            video_context=format_hitl_popup_header(sensor_ids, total_videos),
+        )
 
     async def _process_multiple_videos(
         report_input: VideoReportGenInput, sensor_ids: list[str]
@@ -1788,11 +1841,14 @@ Enter your choice or press Submit to keep current value:"""
         vlm_prompt_override: str | None = None
         if base_sensor_ids and _interactive_hitl_enabled():
             thread_id = ContextState.get().conversation_id.get()
-            current_prompt = _get_prompt(thread_id)
-            resolved_prompt = await _collect_hitl_vlm_prompt(
-                current_prompt,
-                sensor_ids=base_sensor_ids,
-                total_videos=request_total_videos,
+            resolved_prompt = await resolve_persisted_hitl_vlm_prompt(
+                vlm_prompt_state,
+                thread_id,
+                lambda current: _collect_hitl_vlm_prompt(
+                    current,
+                    sensor_ids=base_sensor_ids,
+                    total_videos=request_total_videos,
+                ),
             )
             if resolved_prompt is None:
                 return VideoReportGenOutput(
@@ -1800,7 +1856,6 @@ Enter your choice or press Submit to keep current value:"""
                     http_url=None,
                 )
             vlm_prompt_override = resolved_prompt
-            _store_prompt(thread_id, resolved_prompt)
             logger.info(f"Collected VLM prompt for base videos: '{resolved_prompt[:100]}...'")
 
         # Step 3: Build tasks — LVS group as a single call, base VLM as individual calls
@@ -2193,8 +2248,11 @@ Enter your choice or press Submit to keep current value:"""
                 clean_prompt = _remove_som_markers(vlm_prompt_override)
             elif _interactive_hitl_enabled():
                 thread_id = ContextState.get().conversation_id.get()
-                current_prompt = _get_prompt(thread_id)
-                resolved_prompt = await _collect_hitl_vlm_prompt(current_prompt)
+                resolved_prompt = await resolve_persisted_hitl_vlm_prompt(
+                    vlm_prompt_state,
+                    thread_id,
+                    _collect_hitl_vlm_prompt,
+                )
 
                 if resolved_prompt is None:
                     logger.info("Report generation cancelled by user")
@@ -2209,7 +2267,6 @@ Enter your choice or press Submit to keep current value:"""
                         video_url=None,
                     )
 
-                _store_prompt(thread_id, resolved_prompt)
                 logger.info(f"[PROMPT LOADED] video_report_gen.vlm_prompt from HITL: '{resolved_prompt[:100]}...'")
                 clean_prompt = _remove_som_markers(resolved_prompt)
             else:

@@ -1,8 +1,5 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
-// No NeMo Agent Toolkit mocks here on purpose: this package has no toolkit
-// dependency, which is the reason it exists.
-//
 // Two projects because most of the logic here is pure (parsers, import/export,
 // markdown repairs) and runs faster and more honestly without a DOM, while the
 // panel itself needs one.

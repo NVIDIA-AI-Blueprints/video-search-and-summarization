@@ -65,7 +65,7 @@ the mapping above is the composition surface, not a second source of truth.
   RT-CV container at first boot (ds-start phase 0 when `DS_MODEL_DOWNLOAD=auto`)
   from its mounted `models-download.json` into `${VSS_DATA_DIR}/models/`; no
   host-side staging is required. This changes **no service definition**, so it
-  needs no `patches/` entry: do not patch `perception-2d-fusion` or `rtvi-cv` for
+  needs no `.yml` patch: do not patch `perception-2d-fusion` or `rtvi-cv` for
   a model or detector swap. Selecting and configuring `rtvi-cv` is likewise an env
   delta only — its mounts are interpolated knobs, so it never requires a patch.
 

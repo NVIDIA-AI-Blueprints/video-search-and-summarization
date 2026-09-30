@@ -45,6 +45,10 @@ if TYPE_CHECKING:
 #: singular flag, plural field, repeatable.
 FLAG_KEY = "cli_flag"
 
+#: ``json_schema_extra`` key naming the negative half of a tri-state Boolean
+#: option when ``--no-<flag>`` would be unclear or awkward.
+NEGATIVE_FLAG_KEY = "cli_negative_flag"
+
 #: ``json_schema_extra`` key to keep a field out of the CLI entirely -- set on
 #: fields that are populated from config or computed, never typed by a caller.
 HIDE_KEY = "cli_hide"
@@ -112,7 +116,7 @@ def option_for(name: str, field: FieldInfo) -> click.Option | None:
         # Otherwise a --x/--no-x pair, so "unset" stays distinguishable from
         # "explicitly false" -- which matters only when something else (a
         # config file, a deployment default) can supply the value.
-        negative = flag.replace("--", "--no-", 1)
+        negative = str(extra.get(NEGATIVE_FLAG_KEY) or flag.replace("--", "--no-", 1))
         return click.Option(
             [f"{flag}/{negative}", name],
             default=None,

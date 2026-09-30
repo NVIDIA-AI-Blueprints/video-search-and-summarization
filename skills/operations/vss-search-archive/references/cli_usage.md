@@ -3,31 +3,18 @@
 One CLI for Compose and Kubernetes. Endpoints come from the deployment recorded
 by `vss configure`; the command takes none.
 
-Run the `vss` console executable from the `vss` project in the checkout
-(`--no-dev` keeps the sync runtime-only — no NAT or dev tooling):
+Run the `vss` on `PATH` — shipped in the harness images, otherwise installed
+from this skill's checkout with `uv tool install <checkout>/libs/vss/cli`:
 
 ```bash
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-test -f "${VSS_REPO_ROOT}/libs/vss/pyproject.toml" || {
-  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
-  exit 1
-}
-cd "${VSS_REPO_ROOT}" &&
-uv run --project "${VSS_REPO_ROOT}/libs/vss" \
-  vss search run <path> [options]
+vss search run <path> [options]
 ```
 
-The executable is provided by that project and need not exist globally. Do not
-use `which vss`; verify the supported entry point directly:
+Verify the entry point directly:
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/libs/vss" \
-  vss search run --help
+vss search run --help
 ```
-
-`libs/vss` is the library's own workspace, so no extras and no `--no-dev` are
-needed: the agent stack is not in it and the environment is NAT-free by
-construction.
 
 If preflight fails, report its error and stop. Do not manually call
 Elasticsearch, embedding, or search endpoints.
@@ -69,7 +56,10 @@ that VST cannot resolve narrows to an empty result rather than failing.
 ## Query controls
 
 Shared by every path: `--source-type`, `--video-source` (repeatable),
-`--timestamp-start`, `--timestamp-end`, `--top-k`.
+`--timestamp-start`, `--timestamp-end`, `--top-k`, and `--original-query`.
+When a caller decomposes the request, `--original-query` carries the exact
+pre-decomposition user sentence to the critic; retrieval continues to use the
+path-specific query, attributes, or object IDs.
 
 ```bash
 # Embed-only
@@ -100,8 +90,12 @@ step 2) either way.
 `--fusion-method weighted_rrf|rrf`, `--w-tag`, `--w-embed`, `--w-attribute`,
 `--rrf-k`, `--rrf-w`, `--top-percent-filter`,
 `--embed-confidence-threshold`, `--min-cosine-similarity`. At least one
-provider weight must be positive; library defaults are `w_tag=0.45`,
-`w_embed=0.35`, `w_attribute=0.55`, `rrf_k=60`.
+provider weight must be positive; library defaults are `w_tag=0` (VLM tag leg
+off by default), `w_embed=0.35`, `w_attribute=0.55`, `rrf_k=60`,
+`rrf_w=0.5`, `fusion_method=rrf` (legacy embed + attribute RRF,
+no tag leg). Opting into the VLM tag leg with `--w-tag > 0`
+auto-selects `weighted_rrf` (the only method that fuses a tag leg);
+an explicit `--fusion-method rrf --w-tag > 0` is an input error.
 
 `--no-merge-adjacent` reports raw retrieval windows. By default contiguous
 same-sensor windows merge into one result whose score is the mean of the merged
@@ -120,7 +114,7 @@ JSON on stdout (`SearchOutput.data`). `--raw` compact, `--pretty` indented.
 | 5 | not found: a searched index that is not the uploads anchor is missing (an absent anchor returns exit 0 with empty results) |
 
 Search automatically attempts bounded visual verification through
-`vss_core.critic` when `vss configure` discovered both VST and an RT-VLM model.
+`vss_core.search_core.critic` when `vss configure` discovered both VST and an RT-VLM model.
 When those services are available, the critic attempts every returned hit.
 Every hit contains `verification.result`: `confirmed`, `rejected`, or
 `unverified`. Verification is fail-open: a missing VLM, inaccessible clip, or
@@ -142,9 +136,10 @@ Never provide secrets through CLI flags. Kubernetes Secret values are not read
 by this command.
 
 `vss search run` is read-only. For upload, registration, deletion, or
-repair, use the agent-backed mutation workflows in the parent skill. For **VLM
-tag ingestion**, use the headless direct-REST fan-out in
-`vss-manage-video-io-storage` `references/provision-vios-source.md` (the
-controlled JSON-tag `generate_captions` leg); on a build that fronts RT-VLM at
-`/rtvi-vlm` it is drivable from any host that reaches the origin, otherwise
-loopback-only on the deploy host.
+repair, use the agent-backed mutation workflows in the parent skill. **VLM tag
+ingestion** follows the build's notification config: where its tagging items are
+enabled, registering the source is enough; where they are not, a caller drives
+the controlled JSON-tag `generate_captions` leg — from any host that reaches the
+origin on a build that fronts RT-VLM at `/rtvi-vlm`, otherwise loopback-only on
+the deploy host. Both are in `vss-manage-video-io-storage`
+`references/provision-vios-source.md`.

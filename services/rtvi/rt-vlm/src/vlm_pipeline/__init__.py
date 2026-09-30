@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from .vlm_pipeline import (
+    MODEL_BACKEND_UNAVAILABLE_MESSAGE,
     PipelineChunkResult,
     VlmModelType,
     VlmPipeline,
@@ -21,6 +22,7 @@ from .vlm_pipeline import (
 )
 
 __all__ = [
+    "MODEL_BACKEND_UNAVAILABLE_MESSAGE",
     "PipelineChunkResult",
     "VlmModelType",
     "VlmPipeline",

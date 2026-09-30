@@ -76,6 +76,34 @@ does not mean the NAT-serve process is listening — it can be up while `:8000`
 never bound (config error, unreachable model endpoint), and Step 1 would still
 pass.
 
+**Analytics gates — derive each one from the resolved graph.** Alerts,
+NemoClaw, LVS, and host-side CLI selection do not imply VA-MCP. Probe only the
+service keys serialized into `resolved.yml`:
+
+```bash
+services=$(docker compose -f "$BUILD_DIR/resolved.yml" config --services)
+
+if grep -qx vss-video-analytics-api <<<"$services"; then
+  curl -sf --max-time 15 \
+    "http://${HOST_IP}:${VIDEO_ANALYTICS_API_HOST_PORT:-8081}/livez" \
+    >/dev/null && echo "video analytics API OK"
+fi
+if grep -qx alert-bridge <<<"$services"; then
+  curl -sf --max-time 15 \
+    "http://${HOST_IP}:${ALERT_BRIDGE_HOST_PORT:-9080}/health" \
+    >/dev/null && echo "alert bridge OK"
+fi
+if grep -qx vss-va-mcp <<<"$services"; then
+  curl -sf --max-time 15 \
+    "http://${HOST_IP}:${VSS_VA_MCP_HOST_PORT:-9901}/health" \
+    >/dev/null && echo "legacy VA-MCP OK"
+fi
+```
+
+The `:9901` probe is therefore present only for an explicitly selected legacy
+MCP workflow. A CLI-based Alerts build probes the Video Analytics API and Alert
+Bridge instead.
+
 ## Step 3 — triage slow containers
 
 If any probe times out, dump `docker compose ps` and

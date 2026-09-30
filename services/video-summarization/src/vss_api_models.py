@@ -98,6 +98,16 @@ class LvsError(ViaBaseModel):
         max_length=1024,
         pattern=ERROR_MESSAGE_PATTERN,
     )
+    job_id: Optional[str] = Field(
+        default=None,
+        description="Request identifier for a failure that occurred after the job was created.",
+        max_length=128,
+    )
+    failed_stage: Optional[str] = Field(
+        default=None,
+        description="Pipeline stage that failed.",
+        max_length=128,
+    )
 
 
 # Validate RFC3339 timestamp string

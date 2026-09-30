@@ -100,13 +100,16 @@ static GstPad* gst_dash_mp4_mux_request_new_pad(GstElement* element, GstPadTempl
 static void gst_dash_mp4_mux_release_pad(GstElement* element, GstPad* pad)
 {
     GstDashMp4Mux* self = GST_DASH_MP4_MUX(element);
-    if (self->mp4mux != NULL && GST_IS_GHOST_PAD(pad))
+    if (self->mp4mux != NULL)
     {
-        GstPad* target_pad = gst_ghost_pad_get_target(GST_GHOST_PAD(pad));
-        if (target_pad != NULL)
+        if (GST_IS_GHOST_PAD(pad))
         {
-            gst_element_release_request_pad(self->mp4mux, target_pad);
-            gst_object_unref(target_pad);
+            GstPad* target_pad = gst_ghost_pad_get_target(GST_GHOST_PAD(pad));
+            if (target_pad != NULL)
+            {
+                gst_element_release_request_pad(self->mp4mux, target_pad);
+                gst_object_unref(target_pad);
+            }
         }
     }
     gst_element_remove_pad(element, pad);

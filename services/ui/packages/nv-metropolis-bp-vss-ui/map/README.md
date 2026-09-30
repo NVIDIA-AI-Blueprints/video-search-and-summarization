@@ -1,4 +1,8 @@
-<!-- SPDX-License-Identifier: MIT -->
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # @nv-metropolis-bp-vss-ui/map
 
 Map component for embedding external map applications (e.g., from port 3002).

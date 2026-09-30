@@ -15,18 +15,18 @@ Human contributor guidance — licensing, DCO, file headers — is in
 
 ### Setup
 
+The skills call `vss` from `PATH`. The OpenClaw and Hermes harness images
+(`.openclaw/Dockerfile`, `.hermes/Dockerfile`) ship it; anywhere else, install
+it from the same checkout as the skills you run, so the CLI and the skills are
+one version:
+
 ```bash
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
+uv tool install ./libs/vss/cli   # from the checkout root
 vss --version
 ```
 
-A function rather than an alias — aliases are not expanded in non-interactive
-shells. No extras and no `--no-dev`: `libs/vss` is the library's own workspace
-and the agent stack is not in it, so the environment is NAT-free by
-construction rather than by remembering a flag.
-
-Use that checkout's `vss` — not one from `PATH`, and not through `docker exec`
+`libs/vss` is the library's own workspace and the agent stack is not in it, so
+the install is NAT-free by construction. Do not run `vss` through `docker exec`
 or `kubectl exec`.
 
 ### No deployment yet?
@@ -43,7 +43,9 @@ Then `vss configure --base-url <origin>` against what came up.
 
 A partial deployment is normal and fine: `vss configure check` reports which
 command groups it can serve, and the rest fail with exit 4 naming what is
-missing rather than misbehaving.
+missing rather than misbehaving. It also reports the version the deployment
+says it is, or why it cannot say — the same fact the benchmark skills gate on,
+so you learn it there rather than from an aborted benchmark.
 
 ### Point it at a deployment
 
@@ -52,7 +54,7 @@ Once per deployment. Nothing after this takes a host, port, or service URL.
 ```bash
 vss configure --base-url "${VSS_PUBLIC_URL}"   # e.g. http://localhost:7777
 vss configure show                              # what was recorded
-vss configure check                             # re-probe + what each group can serve
+vss configure check                             # re-probe + what each group can serve + the version reported
 ```
 
 `configure` probes the origin's ingress routes and writes `~/.vss/config.json`
@@ -90,8 +92,8 @@ pipefail`, or capture and check before piping.
    flight, and `get` returns the summary once it lands. `vss summarize list`
    finds the id, which `run` itself only prints when it exits.
 
-Per-command detail — sensor addressing, `--type`, window rules, what `vios`
-covers and what it does not — is in
+Per-command detail — analytics reads, the analytics/VIOS sensor distinction,
+sensor addressing, `--type`, window rules, and what `vios` covers — is in
 [`libs/vss/cli/AGENTS.md`](libs/vss/cli/AGENTS.md).
 
 ## Skills

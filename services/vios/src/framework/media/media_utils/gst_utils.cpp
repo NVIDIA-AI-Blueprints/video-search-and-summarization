@@ -39,14 +39,14 @@ using namespace std;
 
 // HW Encoder unsupported profiles
 // TODO-MB: Need to verify if these are supported on Orin
-std::map<std::string, std::string, std::less<>> videoProfiles{
+const std::map<std::string, std::string, std::less<>> videoProfiles{
     {"constrained-baseline", "baseline"},
     {"constrained-high", "high"},
     {"main-12", "main"}
 };
 
 // H264 SW Encoder unsupported profiles
-std::map<std::string, std::string, std::less<>> videoProfilesx264{
+const std::map<std::string, std::string, std::less<>> videoProfilesx264{
     {"constrained-high", "high"},
     {"main-12", "main"}
 };
@@ -58,7 +58,7 @@ std::map<std::string, std::string, std::less<>> videoProfilesx264{
 // };
 
 // Map of pair of resolution, frame rate and level
-std::multimap<std::pair<int, int>, string> H264Levels{
+const std::multimap<std::pair<int, int>, string> H264Levels{
     {{HEIGHT_144p, 15}, "1"}, {{HEIGHT_144p, 30}, "1.1"}, {{HEIGHT_144p, 60}, "1.2"},
     {{HEIGHT_240p, 10}, "1.1"}, {{HEIGHT_240p, 20}, "1.2"}, {{HEIGHT_240p, 36}, "1.3"},
     {{HEIGHT_480p, 15}, "2.2"}, {{HEIGHT_480p, 30}, "3"}, {{HEIGHT_480p, 80}, "3.1"},

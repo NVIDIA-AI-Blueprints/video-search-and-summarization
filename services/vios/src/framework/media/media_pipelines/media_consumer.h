@@ -211,8 +211,8 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
                 m_transcodeStats.clearQueue();
             }
 
-        virtual void onFrame(FrameParams& frame_params) {}
-        virtual void onFrame(std::shared_ptr<RawFrameParams> frame_data) {};
+        virtual void onFrame(FrameParams& frame_params) { /* Default no-op: consumers that only accept raw frames keep this empty. */ }
+        virtual void onFrame(std::shared_ptr<RawFrameParams> frame_data) { /* Default no-op: consumers that only accept encoded frames keep this empty. */ }
 
         virtual eMediaType getConsumerMediaType() { return m_mediaType; }
         virtual void setConsumerMediaType(eMediaType media_type) { m_mediaType = media_type; }
@@ -222,16 +222,16 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
         bool isPpsAvailable();
         bool isSpsPpsAvailable();
 
-        virtual void setWebrtcBroadcaster(webrtc::VideoBroadcaster* broadcaster) { };
-        virtual void onLastFrame() { }
-        virtual void reset() { }
+        virtual void setWebrtcBroadcaster(webrtc::VideoBroadcaster* broadcaster) { /* Default no-op: only WebRTC-backed consumers need a broadcaster. */ }
+        virtual void onLastFrame() { /* Default no-op: consumers with no end-of-stream work keep this empty. */ }
+        virtual void reset() { /* Default no-op: stateless consumers have nothing to reset. */ }
         /* Update start time for overlay */
-        virtual void updateStartTime(string start_time) { }
+        virtual void updateStartTime(string start_time) { /* Default no-op: only overlay-capable consumers track a start time. */ }
         /* Set decoder frame size provides original resolution decoded */
-        virtual void setOriginalFrameSize(int w, int h) { }
-        virtual void setOriginalFrameSize() { }
-        virtual void setIPCMeta() { };
-        virtual void getwebRTCFeedback(int* qp, int* bitrate, double* frame_rate) {}
+        virtual void setOriginalFrameSize(int w, int h) { /* Default no-op: consumers that do not rescale ignore the source resolution. */ }
+        virtual void setOriginalFrameSize() { /* Default no-op: consumers that do not rescale ignore the source resolution. */ }
+        virtual void setIPCMeta() { /* Default no-op: only IPC-backed consumers carry shared-memory metadata. */ }
+        virtual void getwebRTCFeedback(int* qp, int* bitrate, double* frame_rate) { /* Default no-op: only WebRTC-backed consumers report encoder feedback. */ }
         void startStatsProcessing()
         {
             m_transcodeStats.startProcessing();
@@ -278,8 +278,8 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
         // Writer lifecycle methods - default no-op implementations
         // ─────────────────────────────────────────────────────────────
         virtual bool start() { return true; }
-        virtual void stop() { }
-        virtual void sendEOS() { }
+        virtual void stop() { /* Default no-op: consumers with no writer lifecycle keep this empty. */ }
+        virtual void sendEOS() { /* Default no-op: consumers that emit no end-of-stream marker keep this empty. */ }
         virtual bool waitForCompletion(int64_t /*timeout_secs*/) { return true; }
         virtual bool hasError() const { return false; }
         virtual std::shared_ptr<IMediaDataConsumer> getAudioConsumer() { return nullptr; }

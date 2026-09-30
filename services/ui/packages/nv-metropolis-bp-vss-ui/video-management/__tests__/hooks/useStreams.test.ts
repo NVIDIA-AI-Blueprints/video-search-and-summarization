@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useStreams } from '../../lib-src/hooks/useStreams';
 import { ADDED_STREAM_POLL_DELAYS_MS, DELETED_STREAM_POLL_DELAYS_MS } from '../../lib-src/constants';

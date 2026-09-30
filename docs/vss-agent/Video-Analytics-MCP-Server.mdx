@@ -21,7 +21,7 @@ The server is implemented as a NAT (NVIDIA Agent Toolkit) function group and use
 
 **System Requirements**
 
-* Python 3.10 or higher
+* Python 3.13 or 3.14
 * NVIDIA Agent Toolkit installed. See [NAT Installation](https://docs.nvidia.com/nemo/agent-toolkit/latest/index.html).
 
 **External Dependencies**
@@ -87,6 +87,16 @@ A dummy workflow is required by NAT to start the MCP server.
 
 <details>
 <summary>Configuration Parameters</summary>
+
+| Parameter | Required | Default | Description |
+| --- | --- | --- | --- |
+| `_type` | Yes | — | Must be `video_analytics`. |
+| `es_url` | No | `http://localhost:9200` | Elasticsearch URL. |
+| `index_prefix` | No | Empty | Prefix applied to Elasticsearch index names. |
+| `vlm_verified` | No | `false` | Queries the VLM-verified incident index when enabled. |
+| `vst_sensor_list_tool` | No | — | VST sensor-list tool used to filter active sensors. |
+| `embedding_model_name` | No | `sentence-transformers/all-MiniLM-L6-v2` | Model used for semantic place-search fallback; set to `null` to disable it. |
+| `include` | No | All seven tools | Function names exposed by this function group. |
 
 </details>
 
@@ -168,6 +178,12 @@ Retrieve a specific incident by ID.
 <details>
 <summary>Parameters</summary>
 
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `id` | Yes | Incident ID. |
+| `includes` | No | Metadata fields to include in the response. |
+| `vlm_verified` | No | Per-request override for VLM-verified incident lookup; otherwise uses the server configuration. |
+
 </details>
 
 ### get_incidents
@@ -176,6 +192,16 @@ Query incidents with optional filtering.
 
 <details>
 <summary>Parameters</summary>
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `source` | No | Sensor ID or place name. Supply it together with `source_type`. |
+| `source_type` | With `source` | `sensor` or `place`. |
+| `start_time`, `end_time` | No | ISO 8601 UTC range. Supply both or neither. |
+| `max_count` | No | Maximum results; default `10`. |
+| `includes` | No | Metadata fields to include in the response. |
+| `vlm_verified` | No | Per-request override for VLM-verified incident lookup. |
+| `vlm_verdict` | No | VLM filter: `all`, `confirmed`, `rejected`, `verification-failed`, or `not-confirmed`. |
 
 </details>
 
@@ -203,6 +229,13 @@ Get object counts over time in field of view.
 
 <details>
 <summary>Parameters</summary>
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `source` | Yes | Sensor ID. |
+| `start_time`, `end_time` | Yes | ISO 8601 UTC range. |
+| `object_type` | No | Object class to include. |
+| `bucket_count` | No | Number of time buckets; default `10`. |
 
 </details>
 
@@ -242,6 +275,13 @@ Perform statistical analysis on video analytics data.
 <details>
 <summary>Parameters</summary>
 
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `source` | Yes | Sensor ID or place name. |
+| `source_type` | Yes | `sensor` or `place`. |
+| `start_time`, `end_time` | Yes | ISO 8601 UTC range. |
+| `analysis_type` | Yes | `max_min_incidents`, `average_speed`, `avg_num_people`, or `avg_num_vehicles`. |
+
 </details>
 
 **Analysis Types:**
@@ -268,7 +308,11 @@ source_type: "sensor"
 # Match all incidents in a city
 source: "Montague"
 source_type: "place"
+```
 
+For a specific intersection:
+
+```yaml
 # Match a specific intersection
 source: "Lafayette_Agnew"
 source_type: "place"

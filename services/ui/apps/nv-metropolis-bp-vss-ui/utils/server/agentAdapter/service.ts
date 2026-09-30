@@ -32,11 +32,15 @@ export class AgentAdapterService {
   readonly store: RunStore;
   private readonly connector: Connector;
 
-  constructor(readonly config: AgentAdapterConfig) {
+  constructor(
+    readonly config: AgentAdapterConfig,
+    sharedStore?: RunStore,
+    readonly ownerFingerprint?: string
+  ) {
     this.connector = buildConnector(config);
     // Reserve the thread-state ceiling up front so the independently managed
     // connector cache and run store cannot exceed the process-wide limit.
-    this.store = new RunStore(
+    this.store = sharedStore ?? new RunStore(
       config.runRetentionMs,
       config.maxRuns,
       config.maxEventsPerRun,
@@ -61,12 +65,17 @@ export class AgentAdapterService {
         transport: "connector-normalized",
         transports: [
           "openclaw-tool-result",
+          "openclaw-managed-image",
           "vss-cli-completion",
           "responses-client-tool",
           "agent-tool-output",
           "agent-text-envelope",
         ],
-        kinds: ["vss.search.results", "vss.alert.incidents"],
+        kinds: [
+          "vss.search.results",
+          "vss.alert.incidents",
+          "vss.media.image",
+        ],
       },
       connector: this.connector.capabilities,
       event_types: [
@@ -97,7 +106,7 @@ export class AgentAdapterService {
     request: CreateRunRequest,
     idempotencyKey?: string
   ): { record: RunRecord; replayed: boolean } {
-    const created = this.store.create(request, idempotencyKey);
+    const created = this.store.create(request, idempotencyKey, this.ownerFingerprint);
     if (created.replayed) return created;
     created.record.append("run.started", {
       surface: request.surface,
@@ -107,37 +116,69 @@ export class AgentAdapterService {
     return created;
   }
 
+  private static appendParsedEvents(
+    record: RunRecord,
+    events: Array<{ type: string; data: JsonObject }>
+  ): void {
+    for (const event of events) record.append(event.type, event.data);
+  }
+
+  private static toolArtifactSource(data: JsonObject): unknown {
+    if (data._artifact_source !== undefined) return data._artifact_source;
+    if (data.output !== undefined) return data.output;
+    return data.payload;
+  }
+
+  private static appendToolCompletion(
+    record: RunRecord,
+    parser: ArtifactStreamParser,
+    rawData: JsonObject
+  ): void {
+    const data = { ...rawData };
+    const artifacts = parser.inspectComplete(
+      AgentAdapterService.toolArtifactSource(data)
+    );
+    delete data._artifact_source;
+    if (data.output !== undefined) {
+      data.output = stripArtifactsFromValue(data.output);
+    } else if (data.payload !== undefined) {
+      data.payload = stripArtifactsFromValue(data.payload);
+    }
+    record.append("tool.completed", data);
+    AgentAdapterService.appendParsedEvents(record, artifacts);
+  }
+
+  private static appendConnectorEvent(
+    record: RunRecord,
+    parser: ArtifactStreamParser,
+    type: string,
+    rawData: JsonObject
+  ): void {
+    if (type === "message.delta" && typeof rawData.delta === "string") {
+      AgentAdapterService.appendParsedEvents(
+        record,
+        parser.feed(rawData.delta)
+      );
+      return;
+    }
+    if (type === "artifact.source") {
+      AgentAdapterService.appendParsedEvents(
+        record,
+        parser.inspectComplete(rawData.source)
+      );
+      return;
+    }
+    if (type === "tool.completed") {
+      AgentAdapterService.appendToolCompletion(record, parser, rawData);
+      return;
+    }
+    record.append(type, rawData);
+  }
+
   private async executeRun(record: RunRecord): Promise<void> {
     const parser = new ArtifactStreamParser(true);
-    const append = (type: string, rawData: JsonObject): void => {
-      if (type === "message.delta" && typeof rawData.delta === "string") {
-        for (const parsed of parser.feed(rawData.delta)) {
-          record.append(parsed.type, parsed.data);
-        }
-        return;
-      }
-      if (type === "tool.completed") {
-        const data = { ...rawData };
-        const artifactSource = data._artifact_source;
-        delete data._artifact_source;
-        const output = data.output;
-        const artifacts = parser.inspectComplete(
-          artifactSource === undefined ? output : artifactSource
-        );
-        if (output !== undefined) {
-          data.output = stripArtifactsFromValue(output);
-        }
-        record.append(type, data);
-        for (const artifact of artifacts) {
-          record.append(artifact.type, artifact.data);
-        }
-        return;
-      }
-      record.append(type, rawData);
-    };
     const flush = (): void => {
-      for (const event of parser.finish())
-        record.append(event.type, event.data);
+      AgentAdapterService.appendParsedEvents(record, parser.finish());
     };
 
     try {
@@ -153,7 +194,12 @@ export class AgentAdapterService {
             "connector_contract_error"
           );
         }
-        append(event.type, event.data);
+        AgentAdapterService.appendConnectorEvent(
+          record,
+          parser,
+          event.type,
+          event.data
+        );
       }
       flush();
       if (record.abortController.signal.aborted) {
@@ -191,7 +237,7 @@ export class AgentAdapterService {
   }
 
   async cancelRun(runId: string): Promise<RunRecord> {
-    const record = this.store.get(runId);
+    const record = this.store.get(runId, this.ownerFingerprint);
     if (!record.terminal) {
       record.abortController.abort(new Error("client cancelled"));
       try {

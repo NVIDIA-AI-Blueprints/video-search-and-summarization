@@ -416,6 +416,40 @@ class TestRequestOptionsContext:
         assert "<think>" not in result.plan
 
     @pytest.mark.asyncio
+    async def test_plan_node_recovers_reasoning_only_uploaded_video_report(self, monkeypatch):
+        """A reasoning-only planner response must not fall back to an analysis tool."""
+        chunks = []
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
+
+        agent = self._agent_with_search_tool()
+        report_tool = MagicMock()
+        report_tool.name = "report_agent"
+        report_tool.description = "Generate a video report."
+        report_tool.args_schema.model_fields = {
+            "sensor_id": MagicMock(),
+            "user_query": MagicMock(),
+        }
+        agent.tools_dict["report_agent"] = report_tool
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content="<think>Route this report carefully.</think>"))
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(
+                content="Generate a report for warehouse_sample using long video summarization."
+            ),
+            options=AgentRequestOptions(llm_reasoning=True),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.plan.startswith("1. Call `report_agent`")
+        assert "lvs_video_understanding" not in result.plan
+        assert any(chunk.type == AgentMessageChunkType.THOUGHT for chunk in chunks)
+
+    @pytest.mark.asyncio
     async def test_plan_node_does_not_turn_a_separate_reasoning_field_into_the_plan(self, monkeypatch):
         """NIM-style split: reasoning in `reasoning_content`, content empty."""
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
@@ -825,7 +859,8 @@ class TestRequestOptionsContext:
             "Generate an LVS report for gwfix6.",
         ],
     )
-    async def test_plan_node_requires_lvs_analysis_before_explicit_lvs_report(self, monkeypatch, question):
+    async def test_plan_node_keeps_report_agent_as_the_only_step_for_explicit_lvs_report(self, monkeypatch, question):
+        """report_agent selects LVS internally and is the only path that writes report artifacts."""
         chunks = []
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
 
@@ -835,13 +870,10 @@ class TestRequestOptionsContext:
             tool.name = tool_name
             tool.description = f"Run {tool_name}."
             agent.tools_dict[tool_name] = tool
+        report_plan = "1. Call `report_agent` with sensor_id='gwfix6' and the original request as user_query."
         agent.llm = MagicMock()
         agent.llm.model_name = "test-model"
-        agent.llm.ainvoke = AsyncMock(
-            return_value=AIMessage(
-                content="1. Call `report_agent` with sensor_id='gwfix6' and the original request as user_query."
-            )
-        )
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content=report_plan))
         agent.callbacks = []
         agent.plan_prompt = None
         agent.plan_system_prompt = "System prompt."
@@ -849,8 +881,8 @@ class TestRequestOptionsContext:
 
         result = await agent._plan_node(state)
 
-        assert result.plan.index("lvs_video_understanding") < result.plan.index("report_agent")
-        assert "same sensor ID and time range" in result.plan
+        assert result.plan == report_plan
+        assert "lvs_video_understanding" not in result.plan
         assert any(chunk.type == AgentMessageChunkType.THOUGHT for chunk in chunks)
 
     @pytest.mark.asyncio

@@ -39,6 +39,20 @@ authenticated reverse proxy in front of VSS:
 5. Collect proxy, firewall, container, and application logs so security events
    can be investigated.
 
+## Host Filesystem Permissions
+
+The Docker Compose quickstarts grant broad write access to selected bind-mount
+directories because the development profiles contain containers that run as
+different users. Treat those commands as a single-user development-host
+convenience, not as a production permission model.
+
+On a shared or production host, do not make the entire checkout or data root
+world-writable. Limit host access to trusted administrators, isolate the VSS
+data root from unrelated users and workloads, and grant each mounted directory
+only the ownership and access required by the containers that use it. Do not
+apply one blanket numeric owner to every directory: the shipped services do
+not all run under the same UID and GID.
+
 ## Example Firewall Intent
 
 For a single-host developer-profile deployment, the firewall policy should read

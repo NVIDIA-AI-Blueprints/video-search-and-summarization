@@ -25,10 +25,10 @@ Verified CV alerts carry an extended `info` block:
 |---|---|
 | `confirmed` | VLM determined the alert is real |
 | `rejected` | VLM determined it is a false positive |
-| `not-confirmed` | VLM response could not be parsed into a confirmed/rejected verdict (parse failure) |
-| `verification-failed` | Verification could not complete — API/VLM error |
+| `verification-failed` | Verification could not complete — API/VLM error, media fetch failure, or a VLM response that could not be parsed into a confirmed/rejected verdict (`verificationResponseCode: 500`, status names the schema error) |
 | `""` (empty) | No verdict parsing ran. Either the **default `use_verdict: false` freestyle deploy** — the common case: the raw VLM text is stored in `reasoning` / `vlm_response` and no verdict is stamped — or a pluggable response parser replaced the verdict path. An empty verdict is a **valid success, not a failure**; report the VLM text, never invent a `confirmed`/`rejected`. |
 
+- **`not-confirmed` is never a stored verdict.** Alert Bridge does not write it; it is only a `vlmVerdict` *filter* on the video-analytics API (`vss-query-analytics`) that matches `rejected` + `verification-failed`. Never search `info.verdict` for it or describe it as a parse failure.
 - Companion fields (camelCase, inside `info`): `verificationResponseCode` (HTTP-like; `200` = success), `verificationResponseStatus` (`OK` or an error description), `reasoning` (the VLM's explanation), and `vlm_response` (pluggable-parser output only).
 - VLM real-time mode incidents are always "confirmed" at source (the trigger itself is a Yes/No VLM answer), so there is **no** separate verdict field in VLM mode.
 

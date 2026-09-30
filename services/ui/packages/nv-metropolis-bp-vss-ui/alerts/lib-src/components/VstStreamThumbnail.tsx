@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Recent still frame for a registered VST sensor. Resolves `sensorName` to a
  * VST stream id via `/v1/sensor/list` (cached per `vstApiUrl`), then renders

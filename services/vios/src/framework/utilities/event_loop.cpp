@@ -23,12 +23,12 @@
 #include <assert.h>
 #include <chrono>
 
-#define MSG_EXIT_EVENT_LOOP     1
-#define MSG_POST_USER_DATA      2
-#define MSG_POST_EVENT_ALIVE    3
+constexpr int MSG_EXIT_EVENT_LOOP = 1;
+constexpr int MSG_POST_USER_DATA = 2;
+constexpr int MSG_POST_EVENT_ALIVE = 3;
 
-#define POST_MESSAGE_MAX_WAIT_SEC  15
-#define PROCESS_FUNCTION_MAX_WAIT_SEC  10
+constexpr int POST_MESSAGE_MAX_WAIT_SEC = 15;
+constexpr int PROCESS_FUNCTION_MAX_WAIT_SEC = 10;
 
 #define EVENT_LOOP_LOG  if ( (userData->m_taskName != "status") && (userData->m_taskName != "stats") && (userData->m_taskName != "query")) \
                         LOG(info) << "Run task:  "<< userData->m_taskName << ", msg id: "<< userData->m_msgId << " on event loop: " << m_threadName << endl;

@@ -5,12 +5,30 @@
 | Capability | Canonical service profile keys |
 |---|---|
 | REST query and configuration API | `vss-video-analytics-api` |
+| Host-side read-only incidents and analytics (`vss analytics`) | `vss-video-analytics-api` |
 | Warehouse calibration import | `import-calibration-output-container-<mode>` |
 
 `vss-video-analytics-api` is a shared Compose service: every Foundation uses the
 same profile key and the same `vss-video-analytics-api` container. Include it
 once when the requested capability needs its REST surface; never create a
 Foundation-specific alias or a second API instance.
+
+Read-only analytics requested through NemoClaw is owned here. Its skill declares
+`vss-requires: "analytics"`; `vss configure` maps that command capability to
+the `/video-analytics-api` route. The forward closure includes this API and its
+Elasticsearch peers, and excludes `vss-va-mcp` and `vss-agent` unless the user
+separately and explicitly requests those legacy/agent surfaces.
+
+For a read-only analytics-only composition seeded from a Foundation that
+contains those legacy keys, the deterministic delta is:
+
+```text
+included: vss-video-analytics-api
+excluded: vss-va-mcp
+excluded: vss-agent
+```
+
+Another explicitly selected capability may independently re-add a key it owns.
 
 ## Required peers
 

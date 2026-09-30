@@ -48,6 +48,7 @@ import urllib.parse
 # leg_timing.current_phase(); importing the global copies it once.
 import leg_timing
 from leg_timing import HEARTBEAT_SEC, leg_log, phase
+from model_config import SkillEvalModelRoutes, resolve_model_routes
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -67,6 +68,8 @@ VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
 AGENT_RUN_MARKER_OVERRIDE_ENV = "SKILL_EVAL_AGENT_RUN_MARKER"
 DEFER_AGENT_REAP_ENV = "SKILL_EVAL_DEFER_AGENT_REAP"
 REMOTE_AGENT_RUN_PREFIX = "skill-eval-"
+AGENT_ROUTE_API_KEY_ENV = "SKILL_EVAL_AGENT_ROUTE_API_KEY"
+AGENT_ROUTE_BASE_URL_ENV = "SKILL_EVAL_AGENT_ROUTE_BASE_URL"
 
 
 # Harbor phase budgets. Adapters set the task's base agent timeout to the same
@@ -334,18 +337,23 @@ def build_harbor_command(
         # Custom NvCodex subclass (agents/nv_codex.py) keeps the full
         # provider-prefixed model id — harbor's stock codex strips it to the
         # last path segment, which the NVIDIA gateway 401s on. Endpoint via
-        # `--ak api_base`; OPENAI_API_KEY is read from the environment (same as
-        # claude-code reads ANTHROPIC_API_KEY), so it never lands on the CLI.
+        # `--ak api_base`; route endpoint/key values are resolved from the
+        # Harbor process environment into agent-only `--ae` variables below,
+        # so the key never lands on the CLI and the verifier route stays intact.
         agent_flags = [
             "-a", "agents.nv_codex:NvCodex",
             "--model", model,
             "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
+            "--ae", f"OPENAI_API_KEY=${{{AGENT_ROUTE_API_KEY_ENV}}}",
+            "--ae", f"OPENAI_BASE_URL=${{{AGENT_ROUTE_BASE_URL_ENV}}}",
         ]
     elif agent == "claude-code":
         agent_flags = [
             "-a", "claude-code",
             "--model", model,
             "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
+            "--ae", f"ANTHROPIC_API_KEY=${{{AGENT_ROUTE_API_KEY_ENV}}}",
+            "--ae", f"ANTHROPIC_BASE_URL=${{{AGENT_ROUTE_BASE_URL_ENV}}}",
             "--ae", "CLAUDE_CODE_DISABLE_THINKING=1",
         ]
     elif agent == "nemoclaw":
@@ -1561,41 +1569,10 @@ def run_invocations(
     spec_stem: str,
     platform: str,
     harbor_timeout_sec: int,
+    model_routes: SkillEvalModelRoutes,
     work_deadline: float | None = None,
 ) -> int:
     env = harbor_env(instance)
-    agent = os.environ.get("EVAL_AGENT", "claude-code")
-    # Reject unknown agents loudly — otherwise a typo (e.g. "Codex") would
-    # silently fall through to the claude-code path and be indistinguishable
-    # from a real claude-code run in the logs.
-    if agent not in ("claude-code", "codex", "nemoclaw"):
-        print(
-            f"FATAL: unsupported EVAL_AGENT {agent!r} "
-            "(expected claude-code | codex | nemoclaw)",
-            file=sys.stderr,
-        )
-        return 1
-    model = os.environ.get("ANTHROPIC_MODEL", "")
-    base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
-    if not base_url:
-        print("FATAL: ANTHROPIC_BASE_URL not set", file=sys.stderr)
-        return 1
-    if agent == "codex":
-        model = os.environ.get("CODEX_MODEL", "")
-        if not model:
-            print("FATAL: CODEX_MODEL not set (required for EVAL_AGENT=codex)",
-                  file=sys.stderr)
-            return 1
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not anthropic_key:
-            print("FATAL: ANTHROPIC_API_KEY not set (required for EVAL_AGENT=codex)",
-                  file=sys.stderr)
-            return 1
-        env["OPENAI_API_KEY"] = anthropic_key
-        env["OPENAI_BASE_URL"] = _api_base_v1(base_url)
-    if not model:
-        print("FATAL: ANTHROPIC_MODEL not set", file=sys.stderr)
-        return 1
 
     results_root.mkdir(parents=True, exist_ok=True)
     # skills-eval.yml passes --results-root as <...>/results/<slug>/<run_id>;
@@ -1606,23 +1583,29 @@ def run_invocations(
     # leg that dies inside BrevEnvironment.start() (e.g. a disk-full box) still
     # leaves a trail pointing at the machine to inspect.
     record_machine(results_root, instance, leg_slug, run_id)
-    # Build Vision AI's own specs are coding-agent evaluations. For an
-    # operational spec, its first normal Harbor task is the setup contract:
-    # the coding agent follows Build Vision AI, deploys from expects[0], and
-    # attaches NemoClaw. The remaining normal tasks run through that sandbox.
-    nemoclaw_setup: HarborInvocation | None = None
+    # Skill location is the phase contract: coding/deployment/tool specs use
+    # the coding route throughout. Operational specs use expects[0] as their
+    # coding-agent deployment contract, then switch to the operational route.
+    spec_path = os.environ.get("EVAL_SPEC_PATH", "")
+    operational_eval = spec_path.startswith("skills/operations/")
+    if operational_eval and not invocations:
+        print("FATAL: no operational Harbor invocation to run", file=sys.stderr)
+        return 1
+
+    coding_setups: dict[str, HarborInvocation] = {}
+    if operational_eval:
+        for invocation in invocations:
+            coding_setups.setdefault(invocation.chain_key, invocation)
+
+    nemoclaw_setups: dict[str, HarborInvocation] = {}
     deferred_agent_marker: str | None = None
-    if agent == "nemoclaw" and os.environ.get("EVAL_SKILL") == "vss-build-vision-ai":
-        print("[run-leg] Build Vision AI specs use the coding-agent runtime", flush=True)
-        agent = "claude-code"
-    elif agent == "nemoclaw":
-        if not invocations:
-            print("FATAL: no operational Harbor invocation to run", file=sys.stderr)
-            return 1
-        nemoclaw_setup = invocations[0]
+    operational_config = model_routes.operational
+    if operational_eval and operational_config.runtime == "nemoclaw":
+        nemoclaw_setups = coding_setups
         operational_skill = os.environ.get("EVAL_SKILL", "operational-skill")
         try:
-            prepare_nemoclaw_setup_task(nemoclaw_setup, operational_skill)
+            for setup in nemoclaw_setups.values():
+                prepare_nemoclaw_setup_task(setup, operational_skill)
         except OSError as exc:
             print(f"FATAL: could not prepare NemoClaw setup task: {exc}", file=sys.stderr)
             return 1
@@ -1636,27 +1619,22 @@ def run_invocations(
         env.update(
             {
                 "NEMOCLAW_POLICY_MODE": os.environ.get("NEMOCLAW_POLICY_MODE", "skip"),
-                "NEMOCLAW_PROVIDER": os.environ.get("NEMOCLAW_PROVIDER", "custom"),
-                "NEMOCLAW_ENDPOINT_URL": os.environ.get("NEMOCLAW_ENDPOINT_URL", base_url),
-                "NEMOCLAW_MODEL": os.environ.get("NEMOCLAW_MODEL", model),
-                "COMPATIBLE_API_KEY": os.environ.get(
-                    "COMPATIBLE_API_KEY", env.get("ANTHROPIC_API_KEY", "")
-                ),
+                # Build Vision AI calls an OpenAI-compatible endpoint a
+                # "custom" provider. The endpoint itself is always the fixed
+                # public NVIDIA inference route resolved by model_config.py.
+                "NEMOCLAW_PROVIDER": "custom",
+                "NEMOCLAW_ENDPOINT_URL": operational_config.endpoint_url,
+                "NEMOCLAW_MODEL": operational_config.model,
             }
         )
+        env["COMPATIBLE_API_KEY"] = operational_config.api_key
         env["BREV_EXEC_TIMEOUT"] = str(
             max(
                 int(env.get("BREV_EXEC_TIMEOUT", "0")),
                 NEMOCLAW_SETUP_BREV_EXEC_TIMEOUT_SEC,
             )
         )
-        # The setup coding agent may start the NemoClaw gateway or other
-        # services required by later expects[]. Keep those descendants alive
-        # only after a successful agent exit; failures and cancellation still
-        # trigger BrevEnvironment's immediate marker-scoped cleanup.
         deferred_agent_marker = deferred_agent_run_marker(run_id, leg_slug)
-        env[AGENT_RUN_MARKER_OVERRIDE_ENV] = deferred_agent_marker
-        env[DEFER_AGENT_REAP_ENV] = "1"
     skipped_after: dict[str, int] = {}
     overall_rc = 0
 
@@ -1698,8 +1676,27 @@ def run_invocations(
                     )
                 return finish(124)
 
-        is_nemoclaw_setup = invocation is nemoclaw_setup
-        invocation_agent = "claude-code" if is_nemoclaw_setup else agent
+        is_coding_setup = invocation is coding_setups.get(invocation.chain_key)
+        is_nemoclaw_setup = invocation is nemoclaw_setups.get(invocation.chain_key)
+        if is_coding_setup:
+            # Every generated platform/mode chain owns an independent setup.
+            # Its first task must start from a clean deployment even when an
+            # earlier chain in this leg successfully enabled preservation.
+            env.pop("SKILL_EVAL_PRESERVE_DEPLOYMENT", None)
+        if is_nemoclaw_setup:
+            assert deferred_agent_marker is not None
+            # The setup coding agent may start the NemoClaw gateway or other
+            # services required by later expects[]. Keep those descendants
+            # alive only after a successful agent exit; failures and
+            # cancellation still trigger immediate marker-scoped cleanup.
+            env[AGENT_RUN_MARKER_OVERRIDE_ENV] = deferred_agent_marker
+            env[DEFER_AGENT_REAP_ENV] = "1"
+        invocation_config = (
+            model_routes.coding
+            if not operational_eval or is_coding_setup
+            else model_routes.operational
+        )
+        invocation_agent = invocation_config.runtime
         command_kwargs = {}
         if is_nemoclaw_setup:
             command_kwargs["agent_timeout_multiplier"] = (
@@ -1710,17 +1707,34 @@ def run_invocations(
                 "VSS and NemoClaw",
                 flush=True,
             )
+        invocation_model = invocation_config.model
+        invocation_base_url = invocation_config.endpoint_url
         cmd = build_harbor_command(
             invocation,
             results_root,
-            model,
-            base_url,
+            invocation_model,
+            invocation_base_url,
             invocation_agent,
             **command_kwargs,
         )
+        invocation_env = env.copy()
+        if invocation_agent == "claude-code":
+            # Harbor resolves the ${...} --ae templates from its process env,
+            # then scopes the resulting ANTHROPIC_* values to agent setup/run.
+            # The parent ANTHROPIC_* values therefore remain the coordinator's
+            # verifier route rather than being replaced by the evaluated route.
+            invocation_env[AGENT_ROUTE_API_KEY_ENV] = invocation_config.api_key
+            invocation_env[AGENT_ROUTE_BASE_URL_ENV] = _api_base_v1(
+                invocation_base_url
+            )
+        elif invocation_agent == "codex":
+            invocation_env[AGENT_ROUTE_API_KEY_ENV] = invocation_config.api_key
+            invocation_env[AGENT_ROUTE_BASE_URL_ENV] = _api_base_v1(
+                invocation_base_url
+            )
         started_at = time.time() - 1.0
         with phase(f"harbor:{invocation.include_task_name}"):
-            rc = run_command(cmd, env, harbor_timeout_sec)
+            rc = run_command(cmd, invocation_env, harbor_timeout_sec)
         # Publish before the rc checks below: a timed-out (rc=124) trial
         # returns early, and its partial trace is exactly what needs reading.
         try:
@@ -1733,7 +1747,7 @@ def run_invocations(
             overall_rc = rc
 
         reward: str | None = None
-        if is_nemoclaw_setup or (
+        if is_coding_setup or (
             invocation.step_index is not None and invocation.step_count is not None
         ):
             reward = latest_reward(results_root, invocation.include_task_name, started_at)
@@ -1758,19 +1772,38 @@ def run_invocations(
                 )
                 skipped_after[invocation.chain_key] = invocation.step_index
 
-        if is_nemoclaw_setup:
+        if is_coding_setup:
             if rc != 0 or _reward_value(reward) < 1.0:
+                if overall_rc == 0:
+                    overall_rc = rc or 1
+                if (
+                    invocation.step_index is not None
+                    and invocation.step_count is not None
+                    and invocation.chain_key not in skipped_after
+                ):
+                    write_skip_markers(
+                        scratch,
+                        spec_stem,
+                        platform or invocation.chain_key,
+                        invocation.step_index,
+                        reward,
+                        invocation.step_count,
+                    )
+                    skipped_after[invocation.chain_key] = invocation.step_index
                 print(
-                    "[run-leg] expects[0] deployment/setup failed; "
-                    "NemoClaw scenarios were not started",
+                    f"[run-leg] {invocation.chain_key} expects[0] "
+                    "deployment/setup failed; this chain's operational "
+                    "scenarios were not started",
                     file=sys.stderr,
                 )
-                return finish(rc or 1)
-            # Later Harbor tasks must reuse the VSS containers, checked-out
-            # repository, and sandbox created by the first task.
-            env["SKILL_EVAL_PRESERVE_DEPLOYMENT"] = "1"
-            env.pop(AGENT_RUN_MARKER_OVERRIDE_ENV, None)
-            env.pop(DEFER_AGENT_REAP_ENV, None)
+                env.pop(AGENT_RUN_MARKER_OVERRIDE_ENV, None)
+                env.pop(DEFER_AGENT_REAP_ENV, None)
+            else:
+                # Later tasks in this chain must reuse the VSS containers,
+                # checked-out repository, and sandbox created by setup.
+                env["SKILL_EVAL_PRESERVE_DEPLOYMENT"] = "1"
+                env.pop(AGENT_RUN_MARKER_OVERRIDE_ENV, None)
+                env.pop(DEFER_AGENT_REAP_ENV, None)
 
         # An outer Harbor timeout is terminal for the entire locked leg, not
         # only a multi-step chain. Continuing could wipe/reuse the same Brev
@@ -1846,6 +1879,14 @@ def main(argv: list[str] | None = None) -> int:
         # ValueError if not on the main thread; never fatal either way.
         signal.signal(signal.SIGTERM, _terminate)
     args = parse_args(argv or sys.argv[1:])
+    try:
+        model_routes = resolve_model_routes(os.environ)
+    except ValueError as exc:
+        print(
+            f"FATAL: invalid skill-eval model route: {exc}",
+            file=sys.stderr,
+        )
+        return 1
     # Instrumentation must not be able to fail the leg, and starting a thread
     # can: a runner at its thread limit raises RuntimeError here. Losing the
     # heartbeat costs visibility, while raising costs the whole leg, so this
@@ -1942,6 +1983,7 @@ def main(argv: list[str] | None = None) -> int:
                         args.spec_stem,
                         args.platform,
                         args.harbor_timeout_sec,
+                        model_routes,
                         work_deadline,
                     )
                     if rc == 0:

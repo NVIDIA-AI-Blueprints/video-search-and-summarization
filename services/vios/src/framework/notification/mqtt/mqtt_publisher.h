@@ -30,9 +30,7 @@ class MqttPublisher : public nv_vms::INotificationInterface
 public:
     static MqttPublisher* getInstance();
 
-    // Intentionally blank: the paho async client is created with
-    // set_automatic_reconnect(true), so reconnection is handled internally.
-    void retryConnection() override {}
+    void retryConnection() override { /* Intentionally blank: the paho async client reconnects internally (set_automatic_reconnect). */ }
     bool deliverMessage(Json::Value& message) override;
     bool sendToMqtt(std::string payload);
 

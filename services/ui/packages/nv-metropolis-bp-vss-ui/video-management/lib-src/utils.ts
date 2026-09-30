@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 import type { StreamInfo, StreamsApiResponse, FileUploadResponse, FileUploadError } from './types';
 import { NUM_PARALLEL_GET_PICTURES } from './constants';
 import { createApiEndpoints } from './api';

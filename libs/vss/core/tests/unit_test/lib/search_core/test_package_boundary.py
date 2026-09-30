@@ -40,9 +40,12 @@ def test_removed_search_core_modules_have_no_compatibility_shims() -> None:
     assert importlib.util.find_spec("vss_core.search_core.cli") is None
     assert importlib.util.find_spec("vss_core.search_core.clients.vst") is None
     assert importlib.util.find_spec("vss_core.search_core.clients.vlm_openai") is None
+    # The critic is inlined as a single search_core submodule, not split across
+    # models/primitives and not a standalone top-level package.
     assert importlib.util.find_spec("vss_core.search_core.models.critic") is None
     assert importlib.util.find_spec("vss_core.search_core.primitives.critic") is None
-    assert importlib.util.find_spec("vss_core.critic") is not None
+    assert importlib.util.find_spec("vss_core.critic") is None
+    assert importlib.util.find_spec("vss_core.search_core.critic") is not None
 
 
 def test_reusable_vst_and_vlm_packages_do_not_import_search_core() -> None:
@@ -51,7 +54,9 @@ def test_reusable_vst_and_vlm_packages_do_not_import_search_core() -> None:
     src_path = str(Path(__file__).resolve().parents[4] / "src")
     env["PYTHONPATH"] = src_path if not pythonpath else f"{src_path}{os.pathsep}{pythonpath}"
 
-    for package in ("vss_core.vios", "vss_core.vlm", "vss_core.critic"):
+    # The critic now lives inside search_core by design, so it is excluded;
+    # vios and vlm stay independently reusable and must not pull search_core.
+    for package in ("vss_core.vios", "vss_core.vlm"):
         code = f"import sys; import {package}; assert 'vss_core.search_core' not in sys.modules"
         subprocess.run([sys.executable, "-B", "-c", code], check=True, env=env)
 

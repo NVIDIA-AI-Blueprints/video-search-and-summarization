@@ -7,7 +7,7 @@ This skill is for demonstration purposes and not for production usage. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache-2.0 <br>
 ## Use Case: <br>
 Developers and engineers operating the NVIDIA Video Search and Summarization AI Blueprint alert pipeline — managing real-time monitoring, alert subscriptions, Slack notifications, incident queries, and camera onboarding. <br>
 
@@ -28,6 +28,7 @@ Mitigation: Review and scan skill before deployment. <br>
 - [Alert Notify Reference](references/alert-notify.md) <br>
 - [Alert Subscriptions Reference](references/alert-subscriptions.md) <br>
 - [CV Verifier Prompts Reference](references/cv-verifier-prompts.md) <br>
+- [Query Incidents Reference](references/query-incidents.md) <br>
 - [NVIDIA Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 

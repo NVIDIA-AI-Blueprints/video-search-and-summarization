@@ -29,6 +29,23 @@ The response is aggregated (if required) and formatted appropriately before resp
 Kafka is optional. If Kafka is not configured (`"brokers": null`) and a request is made to an API endpoint which uses it, an appropriate error message is returned in the response.
 </Note>
 
+## Base URL
+
+For a Docker Compose deployment that includes the Video Analytics API, call it
+through either of these self-hosted base URLs at the default host ports:
+
+- Direct service port: `http://<HOST_IP>:8081`
+- VSS ingress: `http://<HOST_IP>:7777/video-analytics-api`
+
+Append the endpoint paths in the API reference directly to either base URL. For
+example, `/alerts` becomes
+`http://<HOST_IP>:7777/video-analytics-api/alerts` through the ingress. HAProxy
+removes the `/video-analytics-api` prefix before forwarding the request to the
+service.
+
+If you override `VIDEO_ANALYTICS_API_HOST_PORT` or `HAPROXY_HOST_PORT`, replace
+the corresponding default port above with the configured value.
+
 ## Configurations
 
 ### API Bootstrap Config

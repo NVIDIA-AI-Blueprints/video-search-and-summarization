@@ -38,7 +38,11 @@ BASE_URL = "http://h:7777"
 # --------------------------------------------------------------------------
 
 
-def _deployment(*, rt_vlm_models: list[str] | None = None) -> config_mod.Deployment:
+def _deployment(
+    *,
+    rt_vlm_models: list[str] | None = None,
+    vlm: config_mod.VlmConfig | None = None,
+) -> config_mod.Deployment:
     models = rt_vlm_models if rt_vlm_models is not None else ["cosmos-reason1-7b"]
     return config_mod.Deployment(
         base_url=BASE_URL,
@@ -48,6 +52,7 @@ def _deployment(*, rt_vlm_models: list[str] | None = None) -> config_mod.Deploym
             "elasticsearch": config_mod.Service(url=f"{BASE_URL}/elasticsearch"),
         },
         memory=config_mod.MemoryConfig(),
+        vlm=vlm,
     )
 
 
@@ -88,6 +93,33 @@ def _in_memory(deployment: config_mod.Deployment) -> memory_mod.Memory:
     store = InMemoryStore()
     index = deployment.memory.index if deployment.memory else "vss-memory"
     return memory_mod.Memory(MemoryService(store), index=index)
+
+
+def _simulate_vllm_017_video_boundary(
+    request: dict[str, Any],
+    *,
+    total_frames: int = 600,
+    source_fps: float = 30,
+) -> tuple[int, bool, bool]:
+    """Apply vLLM 0.17's loader limits and the Qwen sampling handoff contract."""
+    loader = request.get("media_io_kwargs", {}).get("video", {})
+    duration = total_frames / source_fps
+    selected_frames = total_frames
+
+    num_frames = loader.get("num_frames", 32)
+    if num_frames > 0:
+        selected_frames = min(selected_frames, num_frames)
+
+    fps = loader.get("fps", -1)
+    if fps > 0:
+        selected_frames = min(selected_frames, max(1, int(duration * fps)))
+
+    loader_do_sample_frames = selected_frames == total_frames
+    processor_do_sample_frames = request.get("mm_processor_kwargs", {}).get(
+        "do_sample_frames",
+        loader_do_sample_frames,
+    )
+    return selected_frames, loader_do_sample_frames, processor_do_sample_frames
 
 
 # --------------------------------------------------------------------------
@@ -370,6 +402,38 @@ def test_cli_help_shows_required_flags() -> None:
     assert "--no-persist" in result.output
     assert "--use-base64" in result.output
     assert "--num-frames" in result.output
+    assert "--enable-reasoning" in result.output
+    assert "--disable-reasoning" in result.output
+    assert "--no-enable-reasoning" not in result.output
+    assert "--backend" not in result.output
+
+
+def test_cli_disable_reasoning_sends_false(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+    result = CliRunner().invoke(
+        VLM.cli(),
+        [
+            "run",
+            "--prompt",
+            "What?",
+            "--media-url",
+            "http://h/clip.mp4",
+            "--disable-reasoning",
+            "--no-persist",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["json"]["enable_reasoning"] is False
 
 
 def test_cli_mutually_exclusive_sensor_url(
@@ -492,7 +556,515 @@ def test_run_request_carries_fps(
     assert captured["json"].get("use_fps_for_chunking") is True
 
 
-def test_run_request_caps_fps_on_long_sensor_window(
+def test_run_request_carries_vlm_controls(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, timeout: float, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run(
+        "",
+        VlmInput(
+            prompt="What?",
+            media_url="http://h/clip.mp4",
+            timeout=600,
+            temperature=0,
+            max_tokens=8192,
+            seed=1,
+            enable_reasoning=False,
+            chunk_duration=0,
+            fps=4,
+            shortest_edge=262144,
+            longest_edge=16777216,
+        ),
+        ctx,
+    )
+
+    assert captured["timeout"] == 600
+    assert captured["json"]["temperature"] == 0
+    assert captured["json"]["max_tokens"] == 8192
+    assert captured["json"]["seed"] == 1
+    assert captured["json"]["enable_reasoning"] is False
+    assert captured["json"]["chunk_duration"] == 0
+    assert captured["json"]["num_frames_per_second_or_fixed_frames_chunk"] == 4
+    assert captured["json"]["use_fps_for_chunking"] is True
+    assert captured["json"]["mm_processor_kwargs"] == {
+        "size": {
+            "shortest_edge": 262144,
+            "longest_edge": 16777216,
+        }
+    }
+
+
+def test_standalone_vllm_translates_vlm_controls(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, timeout: float, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(vlm=config_mod.VlmConfig(backend="vllm"))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run(
+        "",
+        VlmInput(
+            prompt="What?",
+            media_url="http://h/clip.mp4",
+            timeout=600,
+            temperature=0,
+            max_tokens=8192,
+            seed=1,
+            enable_reasoning=False,
+            chunk_duration=0,
+            fps=4,
+            shortest_edge=262144,
+            longest_edge=16777216,
+        ),
+        ctx,
+    )
+
+    assert captured["timeout"] == 600
+    assert captured["json"]["temperature"] == 0
+    assert captured["json"]["max_tokens"] == 8192
+    assert captured["json"]["seed"] == 1
+    assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert captured["json"]["media_io_kwargs"] == {"video": {"num_frames": -1, "fps": 4}}
+    assert captured["json"]["mm_processor_kwargs"] == {
+        "do_sample_frames": False,
+        "size": {
+            "shortest_edge": 262144,
+            "longest_edge": 16777216,
+        },
+    }
+    assert "enable_reasoning" not in captured["json"]
+    assert "chunk_duration" not in captured["json"]
+    assert "use_fps_for_chunking" not in captured["json"]
+
+
+def test_cosmos_reason_nim_delegates_to_rt_vlm_with_alpha_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kwargs: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(vlm=config_mod.VlmConfig(backend="cosmos_reason_nim"))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+    with caplog.at_level("WARNING", logger="vss_cli.vlm.group"):
+        VlmGroup().run(
+            "",
+            VlmInput(
+                prompt="What?",
+                media_url="http://h/clip.mp4",
+                enable_reasoning=False,
+                chunk_duration=0,
+                fps=4,
+            ),
+            ctx,
+        )
+
+    assert captured["json"]["enable_reasoning"] is False
+    assert captured["json"]["chunk_duration"] == 0
+    assert captured["json"]["num_frames_per_second_or_fixed_frames_chunk"] == 4
+    assert captured["json"]["use_fps_for_chunking"] is True
+    assert "Cosmos Reason NIM backend support is alpha" in caplog.text
+    assert "pending refinement" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("num_frames", "expected"),
+    [
+        (16, 16),
+        (None, 8),
+    ],
+)
+def test_standalone_vllm_translates_fixed_frame_count(
+    monkeypatch: pytest.MonkeyPatch,
+    num_frames: int | None,
+    expected: int,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kwargs: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(vlm=config_mod.VlmConfig(backend="vllm"))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+
+    VlmGroup().run(
+        "",
+        VlmInput(
+            prompt="What?",
+            media_url="http://h/clip.mp4",
+            num_frames=num_frames,
+        ),
+        ctx,
+    )
+
+    assert captured["json"]["media_io_kwargs"] == {"video": {"num_frames": expected}}
+    assert captured["json"]["mm_processor_kwargs"] == {"do_sample_frames": False}
+
+
+def test_configured_vlm_policy_applies_all_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, timeout: float, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(
+        vlm=config_mod.VlmConfig(
+            timeout=600,
+            temperature=0,
+            max_tokens=8192,
+            seed=1,
+            enable_reasoning=False,
+            chunk_duration=0,
+            fps=4,
+            shortest_edge=262144,
+            longest_edge=16777216,
+            locked=True,
+        )
+    )
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4"), ctx)
+
+    assert captured["timeout"] == 600
+    assert captured["json"]["temperature"] == 0
+    assert captured["json"]["max_tokens"] == 8192
+    assert captured["json"]["seed"] == 1
+    assert captured["json"]["enable_reasoning"] is False
+    assert captured["json"]["chunk_duration"] == 0
+    assert captured["json"]["num_frames_per_second_or_fixed_frames_chunk"] == 4
+    assert captured["json"]["use_fps_for_chunking"] is True
+    assert captured["json"]["mm_processor_kwargs"] == {
+        "size": {
+            "shortest_edge": 262144,
+            "longest_edge": 16777216,
+        }
+    }
+
+
+def test_cli_run_uses_locked_policy_without_per_call_flags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, timeout: float, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    config_mod.save(
+        _deployment(
+            vlm=config_mod.VlmConfig(
+                timeout=600,
+                temperature=0,
+                max_tokens=8192,
+                seed=1,
+                enable_reasoning=False,
+                chunk_duration=0,
+                fps=4,
+                locked=True,
+            )
+        )
+    )
+
+    result = CliRunner().invoke(
+        VLM.cli(),
+        ["run", "--prompt", "What?", "--media-url", "http://h/clip.mp4", "--no-persist"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["timeout"] == 600
+    assert captured["json"]["temperature"] == 0
+    assert captured["json"]["max_tokens"] == 8192
+    assert captured["json"]["seed"] == 1
+    assert captured["json"]["enable_reasoning"] is False
+    assert captured["json"]["chunk_duration"] == 0
+    assert captured["json"]["num_frames_per_second_or_fixed_frames_chunk"] == 4
+
+
+def test_locked_vlm_policy_rejects_conflicting_override() -> None:
+    from vss_cli.group import Context
+    from vss_cli.group import InvalidInput
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(vlm=config_mod.VlmConfig(temperature=0, locked=True))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+
+    with pytest.raises(InvalidInput, match="--temperature is locked to 0"):
+        VlmGroup().run(
+            "",
+            VlmInput(prompt="What?", media_url="http://h/clip.mp4", temperature=0.5),
+            ctx,
+        )
+
+
+def test_locked_config_overrides_environment_and_rejects_explicit_run_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vss_cli.group import Context
+    from vss_cli.group import InvalidInput
+    from vss_cli.vlm.group import VlmGroup
+
+    monkeypatch.setenv("VSS_VLM_TEMPERATURE", "0.5")
+    deployment = _deployment(vlm=config_mod.VlmConfig(temperature=0, locked=True))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+
+    with pytest.raises(InvalidInput, match="--temperature is locked to 0"):
+        VlmGroup().run(
+            "",
+            VlmInput(prompt="What?", media_url="http://h/clip.mp4", temperature=0.5),
+            ctx,
+        )
+
+
+def test_explicit_run_argument_overrides_environment_when_unlocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kwargs: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+    monkeypatch.setenv("VSS_VLM_TEMPERATURE", "0")
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=_deployment())
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run(
+        "",
+        VlmInput(prompt="What?", media_url="http://h/clip.mp4", temperature=0.5),
+        ctx,
+    )
+
+    assert captured["json"]["temperature"] == 0.5
+
+
+def test_environment_policy_applies_without_persisted_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, timeout: float, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+    monkeypatch.setenv("VSS_VLM_TIMEOUT", "600")
+    monkeypatch.setenv("VSS_VLM_TEMPERATURE", "0")
+    monkeypatch.setenv("VSS_VLM_MAX_TOKENS", "8192")
+    monkeypatch.setenv("VSS_VLM_SEED", "1")
+    monkeypatch.setenv("VSS_VLM_ENABLE_REASONING", "false")
+    monkeypatch.setenv("VSS_VLM_CHUNK_DURATION", "0")
+    monkeypatch.setenv("VSS_VLM_FPS", "4")
+    monkeypatch.setenv("VSS_VLM_SHORTEST_EDGE", "262144")
+    monkeypatch.setenv("VSS_VLM_LONGEST_EDGE", "16777216")
+    monkeypatch.setenv("VSS_VLM_LOCKED", "true")
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=_deployment())
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4"), ctx)
+
+    assert captured["timeout"] == 600
+    assert captured["json"]["temperature"] == 0
+    assert captured["json"]["max_tokens"] == 8192
+    assert captured["json"]["seed"] == 1
+    assert captured["json"]["enable_reasoning"] is False
+    assert captured["json"]["chunk_duration"] == 0
+    assert captured["json"]["num_frames_per_second_or_fixed_frames_chunk"] == 4
+    assert captured["json"]["mm_processor_kwargs"] == {
+        "size": {
+            "shortest_edge": 262144,
+            "longest_edge": 16777216,
+        }
+    }
+
+
+def test_persisted_backend_overrides_environment_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+    monkeypatch.setenv(config_mod.VLM_ENV["backend"], "vllm")
+    monkeypatch.setenv(config_mod.VLM_ENV["fps"], "4")
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=_deployment(vlm=config_mod.VlmConfig(backend="rt_vlm")))
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4"), ctx)
+
+    assert captured["json"]["num_frames_per_second_or_fixed_frames_chunk"] == 4
+    assert captured["json"]["use_fps_for_chunking"] is True
+    assert "media_io_kwargs" not in captured["json"]
+
+
+def test_locked_processor_size_policy_rejects_conflicting_override() -> None:
+    from vss_cli.group import Context
+    from vss_cli.group import InvalidInput
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(vlm=config_mod.VlmConfig(longest_edge=16777216, locked=True))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+
+    with pytest.raises(InvalidInput, match="--longest-edge is locked to 16777216"):
+        VlmGroup().run(
+            "",
+            VlmInput(prompt="What?", media_url="http://h/clip.mp4", longest_edge=8000000),
+            ctx,
+        )
+
+
+def test_policy_shortest_edge_and_call_longest_edge_are_revalidated() -> None:
+    from vss_cli.group import Context
+    from vss_cli.group import InvalidInput
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(vlm=config_mod.VlmConfig(shortest_edge=16777216, locked=True))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+
+    with pytest.raises(
+        InvalidInput,
+        match="configured VLM policy and run arguments are incompatible",
+    ):
+        VlmGroup().run(
+            "",
+            VlmInput(
+                prompt="What?",
+                media_url="http://h/clip.mp4",
+                longest_edge=8000000,
+            ),
+            ctx,
+        )
+
+
+def test_policy_longest_edge_and_call_shortest_edge_are_revalidated() -> None:
+    from vss_cli.group import Context
+    from vss_cli.group import InvalidInput
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(vlm=config_mod.VlmConfig(longest_edge=8000000, locked=True))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+
+    with pytest.raises(
+        InvalidInput,
+        match="configured VLM policy and run arguments are incompatible",
+    ):
+        VlmGroup().run(
+            "",
+            VlmInput(
+                prompt="What?",
+                media_url="http://h/clip.mp4",
+                shortest_edge=16777216,
+            ),
+            ctx,
+        )
+
+
+def test_unlocked_vlm_policy_allows_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(vlm=config_mod.VlmConfig(temperature=0, locked=False))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run(
+        "",
+        VlmInput(prompt="What?", media_url="http://h/clip.mp4", temperature=0.5),
+        ctx,
+    )
+
+    assert captured["json"]["temperature"] == 0.5
+
+
+def test_locked_fps_policy_rejects_num_frames() -> None:
+    from vss_cli.group import Context
+    from vss_cli.group import InvalidInput
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(vlm=config_mod.VlmConfig(fps=4, locked=True))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+
+    with pytest.raises(InvalidInput, match="--num-frames conflicts with the locked VLM fps policy"):
+        VlmGroup().run(
+            "",
+            VlmInput(prompt="What?", media_url="http://h/clip.mp4", num_frames=16),
+            ctx,
+        )
+
+
+def test_run_request_preserves_fps_on_long_sensor_window(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -525,8 +1097,8 @@ def test_run_request_caps_fps_on_long_sensor_window(
         ctx,
     )
 
-    assert captured["json"].get("num_frames_per_second_or_fixed_frames_chunk") == 60
-    assert captured["json"].get("use_fps_for_chunking") is False
+    assert captured["json"].get("num_frames_per_second_or_fixed_frames_chunk") == 2.0
+    assert captured["json"].get("use_fps_for_chunking") is True
 
 
 def test_num_frames_and_fps_are_mutually_exclusive() -> None:
@@ -607,12 +1179,123 @@ def test_run_file_source_uses_base64(
     ctx = Context(deployment=configured)
     ctx.extra = {"no_persist": True}
     group = VlmGroup()
-    inputs = VlmInput(prompt="What?", file=str(video_file))
+    inputs = VlmInput(
+        prompt="What?",
+        file=str(video_file),
+        seed=1,
+        enable_reasoning=False,
+        chunk_duration=0,
+    )
     group.run("", inputs, ctx)
 
     content = captured["json"]["messages"][0]["content"]
     video_part = next(c for c in content if c.get("type") == "video_url")
     assert video_part["video_url"]["url"].startswith("data:video/mp4;base64,")
+    assert captured["json"]["seed"] == 1
+    assert captured["json"]["enable_reasoning"] is False
+    assert captured["json"]["chunk_duration"] == 0
+
+
+def test_standalone_vllm_base64_uses_backend_translation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import json as _json
+
+    video_file = tmp_path / "clip.mp4"
+    video_file.write_bytes(b"\x00\x01\x02video")
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, content: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = _json.loads(b"".join(content))
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(vlm=config_mod.VlmConfig(backend="vllm"))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run(
+        "",
+        VlmInput(
+            prompt="What?",
+            file=str(video_file),
+            enable_reasoning=False,
+            chunk_duration=0,
+            fps=4,
+            shortest_edge=262144,
+            longest_edge=16777216,
+        ),
+        ctx,
+    )
+
+    assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert captured["json"]["media_io_kwargs"] == {"video": {"num_frames": -1, "fps": 4}}
+    assert captured["json"]["mm_processor_kwargs"] == {
+        "do_sample_frames": False,
+        "size": {
+            "shortest_edge": 262144,
+            "longest_edge": 16777216,
+        },
+    }
+    assert "enable_reasoning" not in captured["json"]
+    assert "chunk_duration" not in captured["json"]
+    assert "use_fps_for_chunking" not in captured["json"]
+
+
+@pytest.mark.parametrize("source_kind", ["url", "base64"])
+@pytest.mark.parametrize(
+    ("sampling", "expected_frames"),
+    [
+        ({"fps": 4}, 80),
+        ({"num_frames": 30}, 30),
+    ],
+)
+def test_standalone_vllm_loader_owns_sampling_before_qwen(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    source_kind: str,
+    sampling: dict[str, Any],
+    expected_frames: int,
+) -> None:
+    """vLLM must select frames and Qwen must consume that selection unchanged."""
+    captured: dict[str, Any] = {}
+    json_loads = json.loads
+
+    def _capture(
+        _url: str,
+        *,
+        json: Any = None,
+        content: Any = None,
+        **_kwargs: Any,
+    ) -> httpx.Response:
+        captured["json"] = json if json is not None else json_loads(b"".join(content))
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    source: dict[str, Any]
+    if source_kind == "url":
+        source = {"media_url": "http://h/20-second-clip.mp4"}
+    else:
+        video_file = tmp_path / "20-second-clip.mp4"
+        video_file.write_bytes(b"video")
+        source = {"file": str(video_file)}
+
+    ctx = Context(deployment=_deployment(vlm=config_mod.VlmConfig(backend="vllm")))
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run("", VlmInput(prompt="What?", **source, **sampling), ctx)
+
+    selected, loader_resamples, processor_resamples = _simulate_vllm_017_video_boundary(captured["json"])
+    assert selected == expected_frames
+    assert loader_resamples is False
+    assert processor_resamples is False
 
 
 def test_run_file_not_found_exits_invalid_input(
@@ -716,6 +1399,34 @@ def test_num_frames_in_model_params(
     assert records
     assert records[0].input.params is not None
     assert records[0].input.params.get("num_frames") == 12
+
+
+def test_vlm_controls_in_model_params(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion())))
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    store = _in_memory(configured)
+    ctx = Context(deployment=configured, memory=store)
+    inputs = VlmInput(
+        prompt="What?",
+        media_url="http://h/clip.mp4",
+        seed=1,
+        enable_reasoning=False,
+        chunk_duration=0,
+    )
+    result = VlmGroup().run("", inputs, ctx)
+
+    assert result.exit == Exit.SUCCESS
+    params = store.service.list_jobs()[0].input.params
+    assert params is not None
+    assert params["seed"] == 1
+    assert params["enable_reasoning"] is False
+    assert params["chunk_duration"] == 0
 
 
 def test_sensor_path_uses_resolved_window_bounds(

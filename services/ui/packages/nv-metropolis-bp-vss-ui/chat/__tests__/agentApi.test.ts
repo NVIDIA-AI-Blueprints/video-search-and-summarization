@@ -96,6 +96,44 @@ describe('agentApiEventToChatEvents', () => {
     expect((updates[0] as { envelope: string }).envelope).toContain('/api/proxy/vst/clip.mp4');
   });
 
+  it('rebases relative snapshot media onto the configured UI proxy', () => {
+    const updates = agentApiEventToChatEvents(
+      event('artifact.created', {
+        version: '1.0',
+        kind: 'vss.media.image',
+        payload: {
+          media_url: '/vst/storage/temp/snapshot.jpg?token=one',
+          alt: 'VSS snapshot',
+        },
+      }),
+      createAgentApiChatState(),
+      '/api/proxy',
+    );
+
+    expect((updates[0] as { envelope: string }).envelope).toContain(
+      '/api/proxy/vst/storage/temp/snapshot.jpg?token=one',
+    );
+  });
+
+  it('normalizes absolute snapshot storage paths before proxying them', () => {
+    const updates = agentApiEventToChatEvents(
+      event('artifact.created', {
+        version: '1.0',
+        kind: 'vss.media.image',
+        payload: {
+          media_url: 'http://vios/storage/temp/snapshot.jpg?token=one',
+          alt: 'VSS snapshot',
+        },
+      }),
+      createAgentApiChatState(),
+      '/api/proxy',
+    );
+
+    expect((updates[0] as { envelope: string }).envelope).toContain(
+      '/api/proxy/vst/storage/temp/snapshot.jpg?token=one',
+    );
+  });
+
   it('does not advertise a response UI for unsupported interactions', () => {
     expect(
       agentApiEventToChatEvents(

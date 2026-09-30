@@ -511,6 +511,66 @@ class TestRunPostUploadProcessing:
                 )
         assert exc_info.value.status_code == 500
 
+    @pytest.mark.asyncio
+    async def test_embed_asset_already_exists_is_treated_as_success(self):
+        """The VIOS camera_streaming webhook (POST /v1/stream/add) can register a
+        sensor with RTVI-Embed before this function's own generate_video_embeddings
+        call lands, so RTVI-Embed replies 400 AssetAlreadyExists. That race must not
+        surface as a 502 to the caller — the webhook is already handling embedding.
+        """
+        storage_resp = self._mock_response(200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"})
+        embed_resp = self._mock_response(
+            400,
+            {"code": "AssetAlreadyExists", "message": "Asset with id sensor-abc already exists."},
+        )
+
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.get = AsyncMock(return_value=storage_resp)
+        client.post = self._post_router({"/v1/generate_video_embeddings": embed_resp})
+
+        with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
+            result = await _run_post_upload_processing(
+                camera_name="clip",
+                sensor_id="sensor-abc",
+                filename="clip.mp4",
+                vst_url="http://vst:30888",
+                rtvi_embed_base_url="http://rtvi-embed:8017",
+                rtvi_cv_base_url="",
+            )
+
+        assert result.sensor_id == "sensor-abc"
+        assert result.chunks_processed == 0
+
+    @pytest.mark.asyncio
+    async def test_embed_other_400_still_raises_502(self):
+        """Only AssetAlreadyExists is treated as benign — any other RTVI-Embed
+        error code must still surface as a failure."""
+        storage_resp = self._mock_response(200, {"videoUrl": "http://vst/vst/storage/temp_files/clip.mp4"})
+        embed_resp = self._mock_response(
+            400,
+            {"code": "BadParameters", "message": "No such model 'bogus-model'"},
+        )
+
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.get = AsyncMock(return_value=storage_resp)
+        client.post = self._post_router({"/v1/generate_video_embeddings": embed_resp})
+
+        with self._timeline_patch(), patch("vss_agents.api.video_ingest.httpx.AsyncClient", return_value=client):
+            with pytest.raises(HTTPException) as exc_info:
+                await _run_post_upload_processing(
+                    camera_name="clip",
+                    sensor_id="sensor-abc",
+                    filename="clip.mp4",
+                    vst_url="http://vst:30888",
+                    rtvi_embed_base_url="http://rtvi-embed:8017",
+                    rtvi_cv_base_url="",
+                )
+        assert exc_info.value.status_code == 502
+
 
 class TestVideoUploadUrlRoute:
     """``POST /api/v1/videos`` returns the VST nvstreamer URL."""

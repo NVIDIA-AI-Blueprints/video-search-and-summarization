@@ -473,8 +473,13 @@ jobs:
             .github/skill-eval/tests/test_vss_summarize_model_selection.py \
             deploy/docker/scripts/tests/test_orchestrator_mcp_helper.py \
             deploy/docker/scripts/tests/test_run_setup_notebook.py \
+            deploy/docker/scripts/tests/test_dashboard_relay.py \
+            .openclaw/tests/test_runtime_instructions.py \
             skills/vss-build-vision-ai/scripts/tests/test_sync_skills.py \
             skills/vss-build-vision-ai/scripts/tests/test_stage_vss_src.py \
+            skills/vss-build-vision-ai/scripts/tests/test_apply_onboard_config.py \
+            skills/vss-build-vision-ai/scripts/tests/test_container_tag_override.py \
+            skills/vss-build-vision-ai/scripts/tests/test_script_help.py \
             -q
 
       - name: Skill eval harness contracts
@@ -549,7 +554,6 @@ jobs:
           uv sync --frozen
           uv run --no-sync mypy \
             core/src/vss_core/_foundation \
-            core/src/vss_core/critic \
             core/src/vss_core/search_core \
             core/src/vss_core/vlm \
             core/src/vss_core/vios \
@@ -580,7 +584,7 @@ jobs:
 
           import vss_core
           import vss_cli
-          import vss_core.critic
+          import vss_core.search_core.critic
           import vss_core.search_core
           import vss_core.vlm
           import vss_core.vios
@@ -595,7 +599,7 @@ jobs:
           assert importlib.util.find_spec("nat") is None
           assert importlib.util.find_spec("torch") is None
           assert importlib.util.find_spec("vss_agents") is None
-          assert vss_core.critic is not None and vss_core.search_core is not None
+          assert importlib.util.find_spec("vss_core.critic") is None and vss_core.search_core is not None and vss_core.search_core.critic is not None
           assert vss_core.vlm is not None and vss_core.vios is not None
           PY
           .wheel-smoke/bin/vss --help >/dev/null
@@ -943,6 +947,7 @@ jobs:
             -m test_in_ci \
             tests/model/vllm_compatible/test_input_error_handling.py \
             tests/rtvi_vlm/test_vlm_thor_runtime.py \
+            tests/test_sbsa_decoder_bridge.py \
             -v
 
       - name: Run rt-embed unit tests
@@ -1418,6 +1423,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
+          # Full depth: the version-stamp check below derives the release line
+          # from the nearest v* tag, which a shallow clone cannot reach.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Unit-test static CI and deployment guards
@@ -1425,6 +1433,7 @@ jobs:
           python3 .github/scripts/test_agent_config_defaults.py
           python3 .github/scripts/test_compose_image_golden.py
           python3 .github/scripts/test_helm_release_channel_policy.py
+          python3 .github/scripts/test_rtvi_vlm_env_docs.py
           python3 .github/scripts/test_diagnose_sonarqube_failure.py
 
       - name: Unit-test the release-set tooling
@@ -1435,6 +1444,19 @@ jobs:
           python3 .github/scripts/test_detect_changed_images.py
           python3 .github/scripts/test_detect_sonarqube_projects.py
           python3 .github/scripts/test_container_build_plan.py
+
+      - name: Unit-test the version stamp (skills, compose edge, helm edge)
+        run: python3 .github/scripts/test_stamp_versions.py
+
+      # Every stamped version field -- SKILL.md metadata.version, the
+      # containers.env VSS_VERSION line, each ingress chart's vssVersion -- must
+      # equal the release line of the nearest v* tag (.github/version-convention.md).
+      # A hand edit, or a new skill / ingress chart without its field, fails
+      # here with the file list; the fix is `python3 .github/scripts/stamp_versions.py`,
+      # never the number. A PR opened before a new v* tag lands fails until it
+      # is rebased onto develop -- once per line, by design.
+      - name: Stamped version fields agree with the release tag
+        run: python3 .github/scripts/stamp_versions.py --check
 
       - name: Unit-test the downstream GHCR candidate reporter
         run: |
@@ -1455,6 +1477,44 @@ jobs:
 
       - name: Verify profile dependency closure over the container inventory
         run: python3 .github/scripts/release_set.py closure
+
+
+  # ---------------------------------------------------------------------------
+  # Job 11d: Helm chart render checks
+  # Renders the developer-profile charts and asserts what they emit: the VIOS
+  # sensor's peer endpoints name Services the same render creates (direct,
+  # SDRC and mixed-prefix installs, with mismatches refused), VST config
+  # timeouts and placeholders, the canonical ingress route table, and
+  # vssIngress.annotations on every profile. Uses the Helm preinstalled on the
+  # hosted runner; every profile dependency is a local file:// chart.
+  # ---------------------------------------------------------------------------
+  helm-render:
+    name: Helm Chart Render Checks
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+
+      - name: Build developer-profile chart dependencies
+        run: |
+          helm version --short
+          # Every chart that owns an ingress: the version route
+          # (deploy/tests/test_helm_ingress_version_route.py) is rendered on all of them.
+          for profile in deploy/helm/developer-profiles/*/ deploy/helm/industry-profiles/warehouse-operations/warehouse-{2d,3d,mv3dt}-app/; do
+            helm dependency build "$profile"
+          done
+
+      - name: Render checks
+        run: |
+          uv run --no-project --with pyyaml python deploy/helm/scripts/verify-vios-runtime.py
+          uv run --no-project --with pyyaml python deploy/helm/scripts/verify-ingress-routes.py
+          uvx --with pyyaml pytest -q deploy/tests
 
   # ---------------------------------------------------------------------------
   # Job 12: Wait for this commit's separate Build Dev Images workflow

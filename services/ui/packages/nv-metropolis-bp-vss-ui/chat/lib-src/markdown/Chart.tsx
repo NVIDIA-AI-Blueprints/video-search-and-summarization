@@ -1,15 +1,13 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: MIT AND Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 /**
  * `<chart>` renderer for agent markdown.
  *
- * Payload shape is the toolkit's, unchanged, so a workflow that already emits
- * charts keeps working:
+ * Payload shape:
  *
  *   <chart>{"Label":"…","ChartType":"BarChart","Data":[…],"XAxisKey":"…"}</chart>
  *
- * The toolkit also had a `GraphPlot` type backed by react-force-graph-2d. That
- * dependency is not installed in this workspace and no VSS workflow emits the
+ * `GraphPlot` is not installed in this workspace and no VSS workflow emits the
  * type, so it renders as "unsupported" rather than pulling in a force-directed
  * graph engine for a case that never fires.
  */
@@ -61,9 +59,8 @@ const STROKE = '#1f2937';
 /**
  * Fixed palette indexed by slice position.
  *
- * The toolkit generated a random colour per cell inside render, so every
- * re-render — one per streamed token — recoloured the pie. Deterministic
- * colours also mean a downloaded PNG matches what was on screen.
+ * Random colours inside render would recolour the pie on every streamed token.
+ * Deterministic colours also mean a downloaded PNG matches what was on screen.
  */
 const SLICE_COLORS = [
   '#76b900',

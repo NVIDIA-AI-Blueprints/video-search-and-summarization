@@ -21,7 +21,6 @@ on the sample dataset, and tears it down afterwards. Without --e2e-deploy the
 test verifies an already-running deployment (and does not tear it down).
 """
 
-import glob
 import logging
 import os
 import subprocess
@@ -32,7 +31,8 @@ import pytest
 
 logger = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+VSS_ROOT = Path(__file__).resolve().parents[6]
+DOCKER_DIR = VSS_ROOT / "deploy" / "docker"
 E2E_DIR = Path(__file__).resolve().parent
 # First-run TensorRT engine builds (RT-DETR + BodyPose3DNet) can take several minutes.
 DEPLOY_TIMEOUT_S = int(os.getenv("MV3DT_E2E_DEPLOY_TIMEOUT_S", "2400"))
@@ -40,16 +40,16 @@ DEPLOY_TIMEOUT_S = int(os.getenv("MV3DT_E2E_DEPLOY_TIMEOUT_S", "2400"))
 
 def pytest_addoption(parser):
     parser.addoption("--deploy-root", default=os.getenv("MV3DT_DEPLOY_ROOT"),
-                     help="vss-warehouse-compose .../deployments dir to run compose from.")
-    parser.addoption("--compose-rel", default=os.getenv(
-        "MV3DT_COMPOSE_REL", "warehouse/warehouse-3d-app-mv3dt/compose.yml"),
-        help="Compose file path relative to --deploy-root.")
-    parser.addoption("--env-rel", default=os.getenv("MV3DT_ENV_REL", "warehouse/.env"),
-                     help="Env file path relative to --deploy-root.")
+                     help="Compose root to deploy from (default: deploy/docker in this repo).")
+    parser.addoption("--compose-rel", default=os.getenv("MV3DT_COMPOSE_REL", "compose.yml"),
+                     help="Compose file path relative to --deploy-root.")
+    parser.addoption("--env-rel", default=os.getenv(
+        "MV3DT_ENV_REL", "industry-profiles/warehouse-operations/generated.env"),
+        help="Env file path relative to --deploy-root.")
     parser.addoption("--e2e-deploy", action="store_true", default=False,
                      help="Bring the stack up/down in-test (else verify a running deployment).")
     parser.addoption("--e2e-run-setup", action="store_true", default=False,
-                     help="Run setup_e2e_env.sh before deploy (needs NGC_CLI_API_KEY/HOST_IP/HARDWARE_PROFILE).")
+                     help="Run setup_e2e_env.sh before deploy (needs NGC_CLI_API_KEY/HARDWARE_PROFILE).")
     parser.addoption("--e2e-keep-up", action="store_true", default=False,
                      help="Do not tear the stack down after the test.")
 
@@ -65,14 +65,8 @@ class Deployment:
 
 
 def _discover_deploy_root(opt) -> Path | None:
-    if opt:
-        return Path(opt)
-    # Common location after setup_e2e_env.sh.
-    for pat in ("vss-warehouse-compose_v*/deployments", "*/vss-warehouse-compose_v*/deployments"):
-        hits = sorted(glob.glob(str(REPO_ROOT / pat)))
-        if hits:
-            return Path(hits[-1])
-    return None
+    # The compose tree is in this repo; it is no longer an NGC resource.
+    return Path(opt) if opt else (DOCKER_DIR if DOCKER_DIR.is_dir() else None)
 
 
 def _parse_env_file(path: Path) -> dict:
@@ -98,7 +92,7 @@ def deployment(request) -> Deployment:
     deploy_root = _discover_deploy_root(request.config.getoption("--deploy-root"))
     if not deploy_root or not deploy_root.exists():
         pytest.skip(
-            "warehouse-3d-app-mv3dt deployment not found. Run tests/e2e/setup_e2e_env.sh "
+            "warehouse mv3dt deployment not found. Run tests/e2e/setup_e2e_env.sh "
             "or pass --deploy-root / MV3DT_DEPLOY_ROOT."
         )
 
@@ -113,8 +107,13 @@ def deployment(request) -> Deployment:
     return Deployment(deploy_root, compose_rel, env_rel, env, num_streams, broker)
 
 
-def _compose(deployment: Deployment, *args, check=True, timeout=None):
-    cmd = ["docker", "compose", "-f", deployment.compose_rel, "--env-file", deployment.env_rel, *args]
+def _blueprint(deployment: Deployment, *args, check=True, timeout=None):
+    """Drive the stack through deploy/docker/scripts/blueprint-deploy.sh.
+
+    Compose here needs several layered env files, which that script resolves; a
+    bare `docker compose --env-file` would only pick up the last layer.
+    """
+    cmd = [str(deployment.deploy_root / "scripts" / "blueprint-deploy.sh"), *args]
     return subprocess.run(cmd, cwd=str(deployment.deploy_root), check=check,
                           capture_output=True, text=True, timeout=timeout)
 
@@ -125,13 +124,21 @@ def deployed_stack(request, deployment):
     do_deploy = request.config.getoption("--e2e-deploy")
     keep_up = request.config.getoption("--e2e-keep-up")
 
-    if do_deploy:
-        logger.info("Deploying warehouse-3d-app-mv3dt from %s", deployment.deploy_root)
-        _compose(deployment, "up", "--detach", "--build", "--force-recreate",
-                 timeout=DEPLOY_TIMEOUT_S)
+    # The data dir the stack was deployed with, so teardown matches.
+    data_dir = deployment.env.get("VSS_DATA_DIR") or os.getenv(
+        "VSS_DATA_DIR", str(deployment.deploy_root / "data-dir"))
+    # setup_e2e_env.sh already deployed; doing it again would overwrite generated.env.
+    if do_deploy and not request.config.getoption("--e2e-run-setup"):
+        hardware = os.getenv("HARDWARE_PROFILE")
+        if not hardware:
+            pytest.skip("--e2e-deploy needs HARDWARE_PROFILE (e.g. RTXPRO6000BW).")
+        logger.info("Deploying warehouse mv3dt from %s", deployment.deploy_root)
+        _blueprint(deployment, "up", "-d", "warehouse", "-m", "mv3dt",
+                   "-p", os.getenv("BP_PROFILE", "bp_wh_kafka"),
+                   "-D", data_dir, "-H", hardware, timeout=DEPLOY_TIMEOUT_S)
     try:
         yield deployment
     finally:
         if do_deploy and not keep_up:
-            logger.info("Tearing down warehouse-3d-app-mv3dt")
-            _compose(deployment, "down", "-v", check=False, timeout=600)
+            logger.info("Tearing down warehouse mv3dt")
+            _blueprint(deployment, "down", "-D", data_dir, check=False, timeout=600)

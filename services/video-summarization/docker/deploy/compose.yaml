@@ -308,7 +308,7 @@ services:
 
   # ── RTVI VLM service (profile-gated: only starts when COMPOSE_PROFILES includes "rtvi") ──
   rtvi-vlm:
-    image: ${RTVI_VLM_IMAGE:-nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2}
+    image: ${RTVI_VLM_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest}
     container_name: rtvi-vlm
     shm_size: '16gb'
     runtime: nvidia
@@ -396,6 +396,7 @@ services:
       ENABLE_REQUEST_PROFILING: ${ENABLE_REQUEST_PROFILING:-false}
       VIA_SKIP_PIPELINE_WARMUP: ${VIA_SKIP_PIPELINE_WARMUP:-0}
       VLLM_GPU_MEMORY_UTILIZATION: ${VLLM_GPU_MEMORY_UTILIZATION:-}
+      VLLM_DISABLED_KERNELS: ${VLLM_DISABLED_KERNELS:-FlashInferFP8ScaledMMLinearKernel}
       REMOTE_VIDEO_INPUT: ${REMOTE_VIDEO_INPUT:-false}
       ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS: ${ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS:-}
       ASSET_DOWNLOAD_MAX_REDIRECTS: ${ASSET_DOWNLOAD_MAX_REDIRECTS:-5}

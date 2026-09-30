@@ -10,9 +10,22 @@ through the VSS Orchestrator MCP server.
 
 ---
 
+## Existing deployment or video question
+
+The image already includes the pinned VSS CLI and `vss_cli` tool. For an
+operation against an existing deployment, read `ENV.md`, keep the supplied
+origin, and use the relevant operation skill. Use `vss configure` only when
+the CLI needs to record that origin; this configures the client, not the server.
+A supplied video URL needs no sensor registration or ingestion. Skip the
+deployment steps below and answer the requested question.
+
+Do not clone the repository, install dependencies, probe the orchestrator, or
+offer deployment choices as prerequisites for an operation. If a required service
+is unavailable, report it. Continue below only when the user requested deployment.
+
 ## Step 1: Run AGENTS.md "Every Session", then verify reachability
 
-1. Complete the `AGENTS.md` "Every Session" checklist. In particular Step 1 there runs the exports in `ENV.md`, which the rest of this bootstrap and every skill depends on.
+1. Complete the `AGENTS.md` "Every Session" checklist: read `ENV.md` and apply its defaults while preserving the supplied environment values.
 2. Run the **Orchestrator reachability check** from `TOOLS.md` ("Sandbox host alias" → "HTTP-response curl checks" → "Orchestrator reachability check"). It must print `host alias reachable` before you continue.
 
 `TOOLS.md` also documents the harmless warnings you may see during this step (`oom_score_adj`, `http_proxy` preset) — read it once if you haven't already. Do not re-document any of that here.

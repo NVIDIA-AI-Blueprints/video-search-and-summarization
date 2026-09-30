@@ -30,7 +30,7 @@
 using namespace std;
 using namespace nv_vms;
 
-#define CONFIRM_DEC_OUT_FRAMES 5
+constexpr int CONFIRM_DEC_OUT_FRAMES = 5;
 
 /* called when the appsink notifies us that there is a new buffer ready for
  * processing */

@@ -30,30 +30,14 @@ spec:
       value: nvidia/nemotron-3.5-lightning-30b-a3b
     - name: NIM_SERVED_MODEL_NAME
       value: nvidia/nemotron-3.5-lightning-30b-a3b
-    - name: NIM_PASSTHROUGH_ARGS
+    {{- range $key := .Values.envConfigMapKeys }}
+    - name: {{ $key }}
       valueFrom:
         configMapKeyRef:
-          name: {{ include "nemotron35.fullname" . }}-nim-env
-          key: NIM_PASSTHROUGH_ARGS
+          name: {{ include "nemotron35.fullname" $ }}-nim-env
+          key: {{ $key }}
           optional: true
-    - name: NIM_MODEL_PROFILE
-      valueFrom:
-        configMapKeyRef:
-          name: {{ include "nemotron35.fullname" . }}-nim-env
-          key: NIM_MODEL_PROFILE
-          optional: true
-    - name: NIM_KVCACHE_PERCENT
-      valueFrom:
-        configMapKeyRef:
-          name: {{ include "nemotron35.fullname" . }}-nim-env
-          key: NIM_KVCACHE_PERCENT
-          optional: true
-    - name: NIM_GPU_MEM_FRACTION
-      valueFrom:
-        configMapKeyRef:
-          name: {{ include "nemotron35.fullname" . }}-nim-env
-          key: NIM_GPU_MEM_FRACTION
-          optional: true
+    {{- end }}
   {{- if .Values.metrics.enabled }}
   metrics:
     enabled: true
@@ -78,3 +62,4 @@ spec:
   storage:
     nimCache:
       name: {{ include "nemotron35.fullname" . }}
+    sharedMemorySizeLimit: {{ .Values.storage.sharedMemorySizeLimit | default "16Gi" }}

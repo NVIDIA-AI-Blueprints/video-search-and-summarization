@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import sys
 from typing import TYPE_CHECKING
 
 import pytest
@@ -22,6 +23,19 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[6]  # libs/vss/cli/tests/unit
 SEARCH_SKILL = REPOSITORY_ROOT / "skills" / "operations" / "vss-search-archive"
 ASK_VIDEO_SKILL = REPOSITORY_ROOT / "skills" / "operations" / "vss-ask-video"
 SEARCH_ADAPTER = REPOSITORY_ROOT / ".github/skill-eval/adapters/vss-search-archive/generate.py"
+
+
+def _stamped_version() -> str:
+    """The repository's one stamped version (.github/version-convention.md).
+
+    Skill versions are written by .github/scripts/stamp_versions.py from the
+    nearest v* tag, never by hand, so a test must not pin a literal: it would
+    break on every tag. The containers.env line carries the same stamp.
+    """
+    env = (REPOSITORY_ROOT / "deploy/docker/containers.env").read_text(encoding="utf-8")
+    match = re.search(r'^VSS_VERSION="([^"$\n]+)"', env, re.MULTILINE)
+    assert match, "deploy/docker/containers.env has no stamped VSS_VERSION line"
+    return match.group(1)
 
 
 def _load_adapter(path: Path, name: str) -> ModuleType:
@@ -53,9 +67,9 @@ def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None
     normalized_verification = " ".join(verification.split())
 
     assert len(main.splitlines()) < 500
-    assert 'version: "3.3.0"' in main
+    assert f'version: "{_stamped_version()}"' in main
     assert "The CLI attempts critic verification by default" in main
-    assert 'VSS_ORIGIN=$("${VSS[@]}" configure show' in main
+    assert "VSS_ORIGIN=$(vss configure show" in main
     assert "Do not repeat public-origin selection" in main
     assert "Would you like me to verify the unverified search results?" in main
     assert "only when every displayed result is" in normalized_main
@@ -66,6 +80,16 @@ def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None
     assert "ordinary user-supplied `VIDEO_URL` interface" in verification
     assert "VERIFY_" not in verification
     assert "VERIFY_PIXELS" not in main
+
+
+def test_search_skill_passes_the_exact_original_query_to_every_path() -> None:
+    main = (SEARCH_SKILL / "SKILL.md").read_text(encoding="utf-8")
+    cli_usage = (SEARCH_SKILL / "references/cli_usage.md").read_text(encoding="utf-8")
+
+    assert ': "${ORIGINAL_QUERY:?set the exact pre-decomposition user question}"' in main
+    assert '--original-query "${ORIGINAL_QUERY}"' in main
+    assert 'search run "${SEARCH_PATH}"' in main
+    assert "pre-decomposition user sentence" in cli_usage
 
 
 def test_zero_candidates_may_not_be_reported_as_absence() -> None:
@@ -98,7 +122,7 @@ def test_neutrality_covers_the_final_reply_and_resolved_identifiers() -> None:
     assert "those describe how the answer was produced, not what was seen" in normalized
 
 
-def test_search_handoff_resolves_bounded_clip_for_existing_ask_video() -> None:
+def test_search_handoff_resolves_bounded_clip_for_existing_ask_video(tmp_path: Path) -> None:
     """The recipe maps the synthetic interval and mints the clip through the CLI.
 
     The mapping is this skill's job; resolving the stream, minting the URL and
@@ -115,29 +139,37 @@ def test_search_handoff_resolves_bounded_clip_for_existing_ask_video() -> None:
     assert "vios clip --sensor" in blocks[0]
     assert "VST_API_BASE" not in blocks[0], "clip resolution is the CLI's job now"
 
+    # A stub `vss` on PATH with a `python` beside it, laid out like an installed
+    # CLI's venv bin/: the recipe finds vss_core through the CLI's own
+    # interpreter, so this also exercises that lookup.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    # A wrapper, not a symlink: a symlinked venv python loses its venv.
+    (bin_dir / "python").write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n')
+    (bin_dir / "python").chmod(0o755)
+    stub = bin_dir / "vss"
+    stub.write_text(
+        """#!/bin/sh
+case "$*" in
+  'vios timeline --sensor sensor-1')
+    printf '%s\n' '{"recorded":true,"segments":[{"start_time":"2026-08-01T12:00:00.000Z","end_time":"2026-08-01T12:01:00.000Z"}]}'
+    ;;
+  'vios clip --sensor sensor-1 --start-time 2026-08-01T12:00:00.000Z --end-time 2026-08-01T12:00:10.000Z')
+    printf '%s\n' '{"media_url":"https://public.example/vst/storage/temp_files/clip.mp4?token=a"}'
+    ;;
+  *) echo "unexpected: $*" >&2; exit 9 ;;
+esac
+"""
+    )
+    stub.chmod(0o755)
     script = (
         """set -euo pipefail
-vss_stub() {
-  case "$*" in
-    'vios timeline --sensor sensor-1')
-      printf '%s\n' '{"recorded":true,"segments":[{"start_time":"2026-08-01T12:00:00.000Z","end_time":"2026-08-01T12:01:00.000Z"}]}'
-      ;;
-    'vios clip --sensor sensor-1 --start-time 2026-08-01T12:00:00.000Z --end-time 2026-08-01T12:00:10.000Z')
-      printf '%s\n' '{"media_url":"https://public.example/vst/storage/temp_files/clip.mp4?token=a"}'
-      ;;
-    *) echo "unexpected: $*" >&2; return 9 ;;
-  esac
-}
-VSS_REPO_ROOT_SAVED="${VSS_REPO_ROOT}"
 VST_URL=https://public.example
 HIT_SENSOR_ID=sensor-1
 HIT_START=2025-01-01T00:00:00Z
 HIT_END=2025-01-01T00:00:10Z
 """
-        + blocks[0].replace(
-            'VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/libs/vss" vss)',
-            "VSS=(vss_stub)",
-        )
+        + blocks[0]
         + """
 test "${VIDEO_URL}" = 'https://public.example/vst/storage/temp_files/clip.mp4?token=a'
 test "${VSS_PUBLIC_URL}" = 'https://public.example'
@@ -148,7 +180,7 @@ test "${VSS_PUBLIC_URL}" = 'https://public.example'
         check=True,
         capture_output=True,
         text=True,
-        env={**os.environ, "VSS_REPO_ROOT": str(REPOSITORY_ROOT)},
+        env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"},
     )
 
 
@@ -161,7 +193,7 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
     )
     evals_by_id = {case["id"]: case for case in evals}
 
-    assert 'version: "3.3.0"' in ask_video
+    assert f'version: "{_stamped_version()}"' in ask_video
     assert "user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL" in ask_video
     assert "Search agent Markdown memory using the harness-native memory search" in normalized
     assert "Markdown search is not a `vss` command" in normalized
@@ -309,7 +341,7 @@ def test_source_lifecycle_uses_current_configure_contract() -> None:
     assert "RuntimeSnapshot" not in lifecycle
     assert 'configure --base-url "${VSS_ORIGIN}"' in lifecycle
     assert "configure show" in lifecycle
-    assert "libs/vss" in lifecycle
+    assert "uv run --project" not in lifecycle and "vss search run --help" in lifecycle
     assert "dev-profile-sample-data:3.2.0" in lifecycle
     assert "mktemp -d" in lifecycle
     assert "Never send a mutating request directly" in lifecycle
@@ -319,7 +351,8 @@ def test_source_lifecycle_uses_current_configure_contract() -> None:
     assert "Deployment and public-origin selection are prerequisite work outside this ingestion budget" in prose
     assert "SEARCH_READINESS_DEADLINE:=$(($(date +%s) + 2400))" in lifecycle
     assert "CURRENT_EPOCH < SEARCH_READINESS_DEADLINE" in lifecycle
-    assert "is the one sanctioned construction" in prose
+    assert "there is no sanctioned construction" in prose
+    assert "/etc/brev/environment-context.json" in prose
     assert "--max-redirs 0" in origin_selector
     assert '.type == "vst"' in origin_selector
     assert origin_selector.count("curl ") == 1
@@ -524,7 +557,7 @@ vss_stub() {{
     *) return 9 ;;
   esac
 }}
-VSS=(vss_stub)
+vss() {{ vss_stub "$@"; }}
 VSS_ORIGIN=https://public.example
 ES_URL=http://elasticsearch:9200
 SAVED_SENSOR_ID=sensor-1

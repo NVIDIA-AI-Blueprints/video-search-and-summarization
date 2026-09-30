@@ -195,8 +195,10 @@ Default ports:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `TURN_HOST_PORT` / `TURN_PORT` | `3478` | TURN UDP/TCP listener |
-| `TURN_MIN_RELAY_HOST_PORT` / `TURN_MAX_RELAY_HOST_PORT` | `49160` / `49200` | Host relay port range |
-| `TURN_MIN_RELAY_PORT` / `TURN_MAX_RELAY_PORT` | `49160` / `49200` | Container relay port range |
+| `TURN_MIN_RELAY_HOST_PORT` / `TURN_MAX_RELAY_HOST_PORT` | `20000` / `20040` | Host relay port range |
+| `TURN_MIN_RELAY_PORT` / `TURN_MAX_RELAY_PORT` | `20000` / `20040` | Container relay port range |
+
+Docker binds every published relay port before the container starts, so keep the host relay range outside the kernel ephemeral port range (`sysctl net.ipv4.ip_local_port_range`, `32768-60999` by default). Inside that range, any short-lived outbound socket can take a relay port and fail `docker compose up` with `address already in use`. Also avoid the Kubernetes NodePort range (`30000-32767`) on hosts that run Kubernetes.
 
 Set `TURN_PUBLIC_HOST` to the DNS name or IP address that browser clients use to reach the deployment, and set `TURN_EXTERNAL_IP` to the host IP coturn should advertise. The warehouse profile uses a non-secret default `TURN_USERNAME` and starts a `turnserver-init` job that generates a random password once in the `vss-turn-password` Docker volume. Coturn and VST mount that same generated file; the VST startup helper derives the static TURN URL in the format `user:password@host:port` from `TURN_USERNAME`, the generated password file, `TURN_PUBLIC_HOST`, and `TURN_HOST_PORT`.
 
@@ -292,12 +294,12 @@ ngc \
    registry \
    resource \
    download-version \
-   nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
+   nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026
 
 # OR manually download the tar file from NGC:
-# https://catalog.ngc.nvidia.com/orgs/nvidia/teams/vss-warehouse/resources/vss-warehouse-app-data?version=3.2.0
+# https://catalog.ngc.nvidia.com/orgs/nvstaging/teams/vss-warehouse/resources/vss-warehouse-app-data?version=v3.3.0-09152026
 
-cd vss-warehouse-app-data_v3.2.0
+cd vss-warehouse-app-data_vv3.3.0-09152026
 tar -xvf vss-warehouse-app-data.tar.gz
 
 # Prepare the writable model destination used by ds-start phase-0 download

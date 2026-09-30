@@ -1,12 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import builtins
 import importlib.util
 import io
 import json
 import os
+import re
+import subprocess
+import symtable
+import sys
+import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import nullcontext, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -22,6 +28,50 @@ SCRIPTS_DIR = RUNNER_PATH.parent
 
 def marker_cell(*sources: str) -> dict:
     return {"cells": [{"source": source} for source in sources]}
+
+
+def without_ipython_magics(source: str) -> str:
+    """*source* with IPython's `!` and `%` lines reduced to plain Python."""
+
+    kept = []
+    for line in source.splitlines():
+        if line.lstrip().startswith(("!", "%")):
+            continue
+        kept.append(re.sub(r"=\s*!.*", "= None", line))
+    return "\n".join(kept)
+
+
+def referenced_globals(table: symtable.SymbolTable) -> set[str]:
+    """Names *table* and its nested scopes read from the enclosing namespace.
+
+    A function's own locals and parameters are not global, so they drop out
+    here while a global the body reads is kept, whichever scope reads it.
+    """
+
+    names = {
+        symbol.get_name()
+        for symbol in table.get_symbols()
+        if symbol.is_referenced() and symbol.is_global()
+    }
+    for child in table.get_children():
+        names |= referenced_globals(child)
+    return names
+
+
+def notebook_names(source: str) -> tuple[set[str], set[str]]:
+    """The global names *source* reads and the names it binds at module scope.
+
+    Bindings stay at module scope, so a local or a parameter never stands in
+    for a notebook-level definition.
+    """
+
+    table = symtable.symtable(without_ipython_magics(source), "notebook", "exec")
+    bound = {
+        symbol.get_name()
+        for symbol in table.get_symbols()
+        if symbol.is_assigned() or symbol.is_imported()
+    }
+    return referenced_globals(table), bound
 
 
 class ParameterContractTests(unittest.TestCase):
@@ -174,10 +224,13 @@ class HitlLaunchContractTests(unittest.TestCase):
 
     def test_external_adapter_forces_hitl_off_in_vss_deployment(self) -> None:
         sources = self._sources("deploy_vss_orchestrator.ipynb")
+        guidance = sources["d3d4cd3e"]
         settings = sources["20b35654"]
         server = sources["042eabd1"]
 
-        self.assertIn("HITL_ENABLED = False", settings)
+        self.assertIn("Structured HITL is enabled by default for `vss-agent`", guidance)
+        self.assertIn("Set `HITL_ENABLED=False` to disable it", guidance)
+        self.assertIn("HITL_ENABLED = True", settings)
         self.assertIn(
             "if VSS_AGENT_ADAPTER_ENABLED:\n    HITL_ENABLED = False",
             settings,
@@ -303,11 +356,11 @@ class HitlLaunchContractTests(unittest.TestCase):
         instructions = (
             repo / ".openclaw" / "workspace" / "_nemoclaw" / "AGENTS.md"
         ).read_text(encoding="utf-8")
-        self.assertIn("export HITL_ENABLED=false", environment)
+        self.assertIn('export HITL_ENABLED="${HITL_ENABLED-false}"', environment)
         self.assertIn("never invoke `AskUserQuestion`", instructions)
         self.assertIn("ordinary assistant text", instructions)
 
-    def test_every_shipped_hitl_tool_config_is_opt_in(self) -> None:
+    def test_every_shipped_hitl_tool_config_defaults_on(self) -> None:
         repo = runner.repo_root()
         found_types: set[str] = set()
 
@@ -335,14 +388,14 @@ class HitlLaunchContractTests(unittest.TestCase):
                             break
                     block = "\n".join(lines[index:block_end])
                     self.assertIn(
-                        "hitl_enabled: ${HITL_ENABLED:-false}",
+                        "hitl_enabled: ${HITL_ENABLED:-true}",
                         block,
                         f"{path.relative_to(repo)}:{index + 1}",
                     )
 
         self.assertEqual(found_types, self.HITL_TOOL_TYPES)
 
-    def test_docker_uses_one_opt_in_for_agent_and_both_ui_surfaces(self) -> None:
+    def test_docker_defaults_hitl_on_for_agent_and_both_ui_surfaces(self) -> None:
         repo = runner.repo_root()
         agent_compose = (
             repo / "deploy" / "docker" / "services" / "agent" / "compose.yml"
@@ -351,16 +404,16 @@ class HitlLaunchContractTests(unittest.TestCase):
             repo / "deploy" / "docker" / "services" / "ui" / "compose.yml"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("HITL_ENABLED: ${HITL_ENABLED:-false}", agent_compose)
+        self.assertIn("HITL_ENABLED: ${HITL_ENABLED:-true}", agent_compose)
         self.assertIn(
             "NEXT_PUBLIC_ENABLE_HITL: "
-            "${NEXT_PUBLIC_ENABLE_HITL:-${HITL_ENABLED:-false}}",
+            "${NEXT_PUBLIC_ENABLE_HITL:-${HITL_ENABLED:-true}}",
             ui_compose,
         )
         self.assertIn(
             "NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL: "
             "${NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL:-"
-            "${NEXT_PUBLIC_ENABLE_HITL:-${HITL_ENABLED:-false}}}",
+            "${NEXT_PUBLIC_ENABLE_HITL:-${HITL_ENABLED:-true}}}",
             ui_compose,
         )
 
@@ -373,12 +426,12 @@ class HitlLaunchContractTests(unittest.TestCase):
         self.assertTrue(override_paths)
         for path in override_paths:
             self.assertIn(
-                "HITL_ENABLED=${HITL_ENABLED:-false}",
+                "HITL_ENABLED=${HITL_ENABLED:-true}",
                 path.read_text(encoding="utf-8"),
                 str(path.relative_to(repo)),
             )
 
-    def test_helm_defaults_agent_and_ui_hitl_off(self) -> None:
+    def test_helm_defaults_agent_and_ui_hitl_on(self) -> None:
         repo = runner.repo_root()
         agent_chart = (
             repo / "deploy" / "helm" / "services" / "agent" / "charts" / "agent"
@@ -391,30 +444,39 @@ class HitlLaunchContractTests(unittest.TestCase):
             repo / "deploy" / "helm" / "services" / "ui" / "values.yaml"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("hitlEnabled: false", agent_values)
+        self.assertIn("hitlEnabled: true", agent_values)
         self.assertIn("- name: HITL_ENABLED", agent_deployment)
-        self.assertIn(".Values.hitlEnabled | default false", agent_deployment)
-        self.assertIn('- name: NEXT_PUBLIC_ENABLE_HITL\n    value: "false"', ui_values)
+        # No `| default true`: Sprig's `default` treats an explicit `false`
+        # as empty and silently discards it, so a values override could
+        # never disable HITL. values.yaml already declares the base default.
+        self.assertIn(".Values.hitlEnabled | quote", agent_deployment)
+        self.assertIn('- name: NEXT_PUBLIC_ENABLE_HITL\n    value: "true"', ui_values)
         self.assertIn(
-            '- name: NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL\n    value: "false"',
+            '- name: NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL\n    value: "true"',
             ui_values,
         )
 
 
 class NemoClawNotebookContractTests(unittest.TestCase):
-    def test_blank_tool_disclosure_clears_a_previous_notebook_run(self) -> None:
+    def _run_settings_cell(
+        self, shell_env: dict[str, str], environ: dict[str, str] | None = None
+    ) -> tuple[dict[str, object], dict[str, str]]:
+        """Execute the settings cell with *shell_env* standing in for the shell.
+
+        Returns the cell's namespace and the environment as the cell left it,
+        which is only observable while the patched environment is still up.
+        """
+
         notebook = json.loads(
             (SCRIPTS_DIR / "deploy_nemoclaw.ipynb").read_text(encoding="utf-8")
         )
         settings = next(
             "".join(cell.get("source", []))
             for cell in notebook["cells"]
-            if "NEMOCLAW_TOOL_DISCLOSURE = SHELL_ENV.get" in "".join(
-                cell.get("source", [])
-            )
+            if "_agent_adapter_raw = (" in "".join(cell.get("source", []))
         )
-        namespace = {
-            "_NOTEBOOK_SHELL_ENV": {},
+        namespace: dict[str, object] = {
+            "_NOTEBOOK_SHELL_ENV": shell_env,
             "NVIDIA_API_KEY": "",
             "NEMOCLAW_PROVIDER": "",
             "NEMOCLAW_ENDPOINT_URL": "",
@@ -422,15 +484,472 @@ class NemoClawNotebookContractTests(unittest.TestCase):
             "COMPATIBLE_API_KEY": "",
         }
         with (
-            mock.patch.dict(
-                os.environ, {"NEMOCLAW_TOOL_DISCLOSURE": "direct"}, clear=True
-            ),
+            mock.patch.dict(os.environ, environ or {}, clear=True),
             mock.patch("subprocess.check_output", return_value="test-token"),
             redirect_stdout(io.StringIO()),
         ):
-            exec(compile(settings, "deploy_nemoclaw.ipynb:settings", "exec"), namespace)
-            self.assertNotIn("NEMOCLAW_TOOL_DISCLOSURE", os.environ)
+            exec(  # noqa: S102 - executes a checked-in notebook settings cell.
+                compile(settings, "deploy_nemoclaw.ipynb:settings", "exec"), namespace
+            )
+            return namespace, dict(os.environ)
+
+    def test_blank_tool_disclosure_clears_a_previous_notebook_run(self) -> None:
+        namespace, environ = self._run_settings_cell(
+            {}, {"NEMOCLAW_TOOL_DISCLOSURE": "direct"}
+        )
+        self.assertNotIn("NEMOCLAW_TOOL_DISCLOSURE", environ)
         self.assertEqual(namespace["NEMOCLAW_TOOL_DISCLOSURE"], "")
+
+    def test_the_settings_cell_defaults_the_adapter_flag_off(self) -> None:
+        namespace, _ = self._run_settings_cell({})
+        self.assertIs(namespace["VSS_AGENT_ADAPTER_ENABLED"], False)
+
+    def test_the_shell_can_turn_the_adapter_flag_on(self) -> None:
+        # The harness documentation tells operators to export this before running the
+        # notebook, so the settings cell has to read it the way HITL_ENABLED does.
+        namespace, _ = self._run_settings_cell({"VSS_AGENT_ADAPTER_ENABLED": "true"})
+        self.assertIs(namespace["VSS_AGENT_ADAPTER_ENABLED"], True)
+
+    def test_a_non_boolean_adapter_flag_is_rejected(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "VSS_AGENT_ADAPTER_ENABLED must be true or false"
+        ):
+            self._run_settings_cell({"VSS_AGENT_ADAPTER_ENABLED": "maybe"})
+
+    def test_the_ui_cell_reads_no_name_the_notebook_never_binds(self) -> None:
+        """Section 3.5 inherits the namespace the earlier cells built, so a name none
+        of them binds is a NameError for every operator. Stubbing such a name into the
+        cell's namespace makes a unit test pass over a notebook that cannot run."""
+
+        notebook = json.loads(
+            (SCRIPTS_DIR / "deploy_nemoclaw.ipynb").read_text(encoding="utf-8")
+        )
+        available = set(dir(builtins)) | {"get_ipython", "In", "Out"}
+        for cell in notebook["cells"]:
+            if cell.get("cell_type") != "code":
+                continue
+            read, bound = notebook_names("".join(cell["source"]))
+            if cell.get("id") != "s37-ui-code":
+                available |= bound
+                continue
+            self.assertEqual(sorted(read - bound - available), [])
+            return
+        self.fail("deploy_nemoclaw.ipynb has no s37-ui-code cell")
+
+
+class NemoClawForwardContractTests(unittest.TestCase):
+    """Section 3.5's contract: NemoClaw's forward stays on loopback (its recovery
+    re-creates it there and refuses a port shared with any other listener), and
+    off-loopback clients get a relay on its own port whose bind is resolved at run
+    time - Docker's host-gateway address for the containerized UI, the wildcard on
+    Brev - and only when such a client exists."""
+
+    HOST_GATEWAY = "192.0.2.44"
+    PORT = 18789
+    RELAY_PORT = 18790
+    SANDBOX = "demo"
+    RELAY_SCRIPT = (SCRIPTS_DIR / "nemoclaw" / "dashboard-relay.py").resolve()
+    RECOVER = ("nemoclaw", SANDBOX, "recover")
+    RECOVER_FAILURE = "another process owns the recorded dashboard port"
+    RECOVER_HANDSHAKE = "SUPERVISOR_UNAVAILABLE"
+    FORWARD_PID = "4141"
+    RELAY_PID = "5151"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        path = SCRIPTS_DIR / "deploy_nemoclaw.ipynb"
+        notebook = json.loads(path.read_text(encoding="utf-8"))
+        cls.source = next(
+            "".join(cell["source"])
+            for cell in notebook["cells"]
+            if cell["id"] == "s37-ui-code"
+        )
+        verify_source = next(
+            "".join(cell["source"])
+            for cell in notebook["cells"]
+            if cell["id"] == "verify-code"
+        )
+        hooks_start = verify_source.index("if AGENT_HOOKS_ENABLED:\n")
+        hooks_end = verify_source.index("\nif gateway_container:\n", hooks_start)
+        cls.hooks_source = verify_source[hooks_start:hooks_end]
+        # The real generator, loaded the way the notebook loads it: the origin the
+        # cell demands has to be one NemoClaw would have baked.
+        spec = importlib.util.spec_from_file_location(
+            "apply_onboard_config", SCRIPTS_DIR.parents[2] / ".openclaw" / "apply-onboard-config.py"
+        )
+        onboard_config = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(onboard_config)
+        cls.control_ui_auth = staticmethod(onboard_config.control_ui_auth)
+
+    def _run_ui_cell(
+        self,
+        *,
+        adapter_enabled: bool,
+        chat_fqdn: str | None,
+        forward_up: bool = True,
+        forward_squatted: bool = False,
+        forward_listener_visible: bool = True,
+        recover_restores_forward: bool = True,
+        recover_handshake_fails: bool = False,
+        ui_origin_baked: bool = True,
+        brev_env_id: str | None = None,
+        gateway_lookup_fails: bool = False,
+        relay_running_for: list[str] | None = None,
+        relay_dead: bool = False,
+        runtime: str = "openclaw",
+    ) -> tuple[dict[str, object], list[tuple[str, ...]], list[list[str]]]:
+        """Run 3.5 against a fake host. `relay_running_for` is the --listen list of a
+        relay already on the relay port (this checkout's script, this sandbox);
+        `relay_dead` makes that relay hold the port without answering through it.
+        `forward_squatted` answers the dashboard port from something that is not this
+        sandbox's forward; `forward_listener_visible` off is a listener lsof cannot
+        report - started by another user, or no lsof on the host at all."""
+
+        # The controlUi the image carries: any origin, with auth flags from the
+        # CHAT_UI_URL 3.1 baked in -- or, built without one (ui_origin_baked=False),
+        # device auth left on.
+        auth = self.control_ui_auth(f"https://{chat_fqdn}" if chat_fqdn and ui_origin_baked else "")
+        control_ui_block = {
+            "allowedOrigins": ["*"],
+            **(auth or {"allowInsecureAuth": False, "dangerouslyDisableDeviceAuth": False}),
+        }
+        state = {
+            "forward": forward_up,
+            "relay": relay_running_for,
+            "relay_dead": relay_dead,
+            "config": {
+                "gateway": {
+                    "port": self.PORT,
+                    "controlUi": control_ui_block,
+                }
+            },
+        }
+        calls: list[tuple[str, ...]] = []
+        relays: list[list[str]] = []
+        # Also on the instance, so a run that raises can still be inspected.
+        self.calls, self.relays = calls, relays
+
+        def completed(command, returncode=0, stdout="", stderr=""):
+            return subprocess.CompletedProcess(command, returncode, stdout, stderr)
+
+        def relay_args():
+            return (
+                f"python3 {self.RELAY_SCRIPT} --sandbox {self.SANDBOX} --listen "
+                f"{','.join(state['relay'])} --port {self.RELAY_PORT} "
+                f"--upstream 127.0.0.1:{self.PORT}"
+            )
+
+        def forward_args():
+            """What holds the dashboard port: onboard's gRPC forward, or a squatter."""
+            if forward_squatted:
+                return f"python3 -m http.server {self.PORT} --bind 127.0.0.1"
+            return (
+                "/usr/local/bin/openshell --gateway nemoclaw --gateway-endpoint "
+                f"https://127.0.0.1:8080 --workspace default forward service {self.SANDBOX} "
+                f"--target-port {self.PORT} --target-host 127.0.0.1 --local 127.0.0.1:{self.PORT}"
+            )
+
+        def listener_pid(port):
+            if port == self.PORT:
+                return self.FORWARD_PID if state["forward"] and forward_listener_visible else ""
+            return self.RELAY_PID if state["relay"] else ""
+
+        def run(command, **_kwargs):
+            calls.append(tuple(command))
+            if command[:3] == ["docker", "inspect", "--format"]:
+                return completed(command, stdout="sha256:gateway-image\n")
+            if command[:2] == ["docker", "run"]:
+                if gateway_lookup_fails:
+                    return completed(command, 1, stderr="host alias unavailable")
+                return completed(command, stdout=f"{self.HOST_GATEWAY}\n")
+            if command[:3] == ["nemoclaw", self.SANDBOX, "recover"]:
+                # recover fails closed on its own preflight gates, leaving the
+                # forward as it found it.
+                if not recover_restores_forward:
+                    return completed(command, 1, stderr=f"{self.RECOVER_FAILURE}\n")
+                state["forward"] = True
+                if recover_handshake_fails:
+                    return completed(command, 1, stderr=f"{self.RECOVER_HANDSHAKE}\n")
+                return completed(command)
+            if command[:2] == ["lsof", "-t"]:
+                pid = listener_pid(int(command[2].removeprefix("-i:")))
+                return completed(command, stdout=f"{pid}\n" if pid else "")
+            if command[:2] == ["ps", "-ww"]:
+                if command[3] == self.FORWARD_PID:
+                    return completed(command, stdout=forward_args() + "\n")
+                return completed(command, stdout=relay_args() + "\n" if state["relay"] else "")
+            if command[:3] == ["openshell", "sandbox", "exec"]:
+                return completed(command, stdout=json.dumps(state["config"]))
+            if command[0] == "curl":
+                url = command[-1]
+                host, port = url.split("://", 1)[1].rsplit("/", 1)[0].rsplit(":", 1)
+                if int(port) == self.PORT:
+                    return completed(command, 0 if state["forward"] and host == "127.0.0.1" else 7)
+                reachable = state["relay"] is not None and not state["relay_dead"] and (
+                    "0.0.0.0" in state["relay"] or host in state["relay"]
+                )
+                return completed(command, 0 if reachable else 7)
+            if command[0] == "kill":
+                state["relay"] = None
+                return completed(command)
+            if command[:2] == ["hostname", "-I"]:
+                return completed(command, stdout="192.0.2.10\n")
+            raise AssertionError(f"unexpected command: {command}")
+
+        def popen(command, **_kwargs):
+            relays.append(list(command))
+            listen = command[command.index("--listen") + 1]
+            state["relay"] = listen.split(",")
+            state["relay_dead"] = False
+            process = mock.Mock()
+            process.poll.return_value = None
+            return process
+
+        namespace: dict[str, object] = {
+            "AGENT_CONNECT_CMD": "",
+            "AGENT_DASHBOARD_PORT": self.PORT,
+            "AGENT_DASHBOARD_RELAY_PORT": self.RELAY_PORT,
+            "AGENT_DASHBOARD_URL_CMD": "",
+            "AGENT_GATEWAY_TOKEN_CMD": "",
+            "AGENT_LABEL": "OpenClaw",
+            "AGENT_RUNTIME": runtime,
+            "AGENT_UI_USES_GATEWAY_TOKEN": False,
+            "BREV_ENVIRONMENT_CONTEXT_PATH": "",
+            "DASHBOARD_RELAY_PATH": self.RELAY_SCRIPT,
+            "NEMOCLAW_SANDBOX_NAME": self.SANDBOX,
+            "Path": lambda p: Path(self._tmp) / Path(p).name,
+            "SANDBOX_CONFIG_PATH": "/sandbox/.openclaw/openclaw.json",
+            "VSS_AGENT_ADAPTER_ENABLED": adapter_enabled,
+            "brev_environment_id": lambda: brev_env_id,
+            "brev_secure_link_fqdn": lambda _port: chat_fqdn,
+            "resolve_openshell_gateway_container": lambda _sandbox: "gateway",
+        }
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch("subprocess.run", side_effect=run),
+            mock.patch("subprocess.Popen", side_effect=popen),
+            mock.patch("time.sleep"),
+            mock.patch("builtins.print"),
+        ):
+            self._tmp = tmp
+            exec(  # noqa: S102 - executes a checked-in notebook cell with mocked I/O.
+                compile(self.source, "deploy_nemoclaw:s37-ui-code", "exec"),
+                namespace,
+            )
+        return namespace, calls, relays
+
+    def test_the_forward_is_never_re_bound_off_loopback(self) -> None:
+        # No configuration makes 3.5 request another bind: it neither starts nor stops
+        # the forward, and `nemoclaw recover` restores the recorded port, which is
+        # loopback.
+        self.assertNotIn("0.0.0.0:{AGENT_DASHBOARD_PORT}", self.source)
+        self.assertNotIn("_desired_bind", self.source)
+
+    def test_non_brev_without_adapter_keeps_loopback_and_starts_no_relay(self) -> None:
+        namespace, calls, relays = self._run_ui_cell(adapter_enabled=False, chat_fqdn=None)
+        self.assertEqual(namespace["_health"], f"http://127.0.0.1:{self.PORT}/health")
+        self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
+        self.assertNotIn(self.RECOVER, calls)
+        self.assertEqual(relays, [])
+        self.assertFalse(namespace["_relay_up"])
+        self.assertFalse(any(command[0] == "docker" for command in calls))
+
+    def test_a_dead_forward_is_repaired_by_nemoclaw_recover(self) -> None:
+        # 3.5 owns neither the forward nor the port check: a failed health probe hands
+        # the repair to NemoClaw, which verifies ownership and restores loopback.
+        namespace, calls, _ = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn=None, forward_up=False
+        )
+        self.assertIn(self.RECOVER, calls)
+        self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
+
+    def test_a_forward_recover_cannot_repair_stops_the_cell(self) -> None:
+        # recover's preflight gates are the only account of why it declined, so the
+        # cell has to carry its output out; nothing downstream may run on a dead
+        # forward, least of all a relay pointed at it.
+        with self.assertRaises(RuntimeError) as raised:
+            self._run_ui_cell(
+                adapter_enabled=True,
+                chat_fqdn=None,
+                forward_up=False,
+                recover_restores_forward=False,
+            )
+        self.assertIn(f"`nemoclaw {self.SANDBOX} recover` (exit 1)", str(raised.exception))
+        self.assertIn(self.RECOVER_FAILURE, str(raised.exception))
+        self.assertEqual(self.relays, [])
+
+    def test_a_listener_that_is_not_this_sandboxs_forward_never_gets_the_token(self) -> None:
+        # Answering /health proves only that something is there. A service of its own
+        # on this sandbox's dashboard port would be relayed to and handed the token in
+        # the printed link, so the cell asks NemoClaw, which refuses a listener it
+        # cannot attribute (#11149) and leaves it running.
+        with self.assertRaises(RuntimeError) as raised:
+            self._run_ui_cell(
+                adapter_enabled=True,
+                chat_fqdn=None,
+                forward_squatted=True,
+                recover_restores_forward=False,
+            )
+        self.assertIn(self.RECOVER, self.calls)
+        self.assertIn(self.RECOVER_FAILURE, str(raised.exception))
+        self.assertEqual(self.relays, [])
+        self.assertFalse(any(command[0] == "kill" for command in self.calls))
+
+    def test_a_forward_proved_ours_survives_a_recover_handshake_failure(self) -> None:
+        # recover also exits non-zero when its managed-control handshake gives up
+        # after restoring the forward (see 3.4), so its exit code cannot be the only
+        # gate: the port's own argv settles ownership when recover will not.
+        namespace, calls, relays = self._run_ui_cell(
+            adapter_enabled=False,
+            chat_fqdn=None,
+            forward_up=False,
+            recover_handshake_fails=True,
+        )
+        self.assertIn(self.RECOVER, calls)
+        self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
+        self.assertEqual(relays, [])
+
+    def test_a_listener_lsof_cannot_report_is_settled_by_recover(self) -> None:
+        # No lsof on the host, or a forward another user started: the cell cannot
+        # prove ownership itself, so it defers to recover rather than calling a
+        # healthy forward foreign.
+        namespace, calls, _ = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn=None, forward_listener_visible=False
+        )
+        self.assertIn(self.RECOVER, calls)
+        self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
+
+    def test_brev_relays_on_the_wildcard_without_host_gateway_lookup(self) -> None:
+        namespace, calls, relays = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn="agent.example.test"
+        )
+        self.assertEqual(len(relays), 1)
+        self.assertEqual(relays[0][relays[0].index("--listen") + 1], "0.0.0.0")
+        self.assertEqual(relays[0][relays[0].index("--upstream") + 1], f"127.0.0.1:{self.PORT}")
+        self.assertTrue(namespace["_relay_up"])
+        self.assertEqual(namespace["origin"], "https://agent.example.test")
+        self.assertFalse(any(command[0] == "docker" for command in calls))
+
+    def test_the_brev_ui_origin_is_read_from_the_image_not_written(self) -> None:
+        # Onboard derives gateway.controlUi from CHAT_UI_URL at build time and `config
+        # set` refuses gateway.*, so nothing can add the origin to a running sandbox.
+        # 3.5 may only read the live config and confirm the image was built for it.
+        namespace, calls, relays = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn="agent.example.test"
+        )
+        execs = [c for c in calls if c[:3] == ("openshell", "sandbox", "exec")]
+        self.assertEqual(len(execs), 1)
+        self.assertEqual(execs[0][-2:], ("cat", namespace["SANDBOX_CONFIG_PATH"]))
+        self.assertEqual(len(relays), 1)
+        self.assertTrue(namespace["_relay_up"])
+
+    def test_an_image_built_for_another_ui_origin_stops_the_cell(self) -> None:
+        # Without the origin baked in, the gateway answers "Browser origin not
+        # allowed" over the secure link, and only a rebuild can add it - so the cell
+        # has to stop at the check and name the step that rebuilds, not relay past it.
+        with self.assertRaises(AssertionError) as raised:
+            self._run_ui_cell(
+                adapter_enabled=False,
+                chat_fqdn="agent.example.test",
+                ui_origin_baked=False,
+            )
+        self.assertIn(
+            "built without a remote UI origin, so https://agent.example.test cannot sign in",
+            str(raised.exception),
+        )
+        self.assertIn("NEMOCLAW_RECREATE_SANDBOX = True", str(raised.exception))
+        self.assertEqual(self.relays, [])
+
+    def test_hermes_checks_no_ui_origin(self) -> None:
+        # Hermes has no controlUi block, so there is nothing for the secure link to
+        # check and no reason to read the sandbox's config at all.
+        _, calls, relays = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn="agent.example.test", runtime="hermes"
+        )
+        self.assertFalse(any(c[:3] == ("openshell", "sandbox", "exec") for c in calls))
+        self.assertEqual(len(relays), 1)
+
+    def test_unreadable_brev_context_still_relays_on_the_wildcard(self) -> None:
+        namespace, calls, relays = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn=None, brev_env_id="brev-env"
+        )
+        self.assertEqual(relays[0][relays[0].index("--listen") + 1], "0.0.0.0")
+        self.assertTrue(namespace["_relay_up"])
+        self.assertFalse(any(command[0] == "docker" for command in calls))
+
+    def test_non_brev_adapter_relays_on_the_docker_host_gateway(self) -> None:
+        namespace, calls, relays = self._run_ui_cell(adapter_enabled=True, chat_fqdn=None)
+        self.assertNotIn(self.RECOVER, calls)
+        self.assertEqual(relays[0][relays[0].index("--listen") + 1], self.HOST_GATEWAY)
+        self.assertTrue(namespace["_relay_up"])
+        # The forward itself stays on loopback, so the printed local link does too.
+        self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
+        inspect = next(c for c in calls if c[:3] == ("docker", "inspect", "--format"))
+        probe = next(c for c in calls if c[:2] == ("docker", "run"))
+        self.assertEqual(inspect[-1], "gateway")
+        self.assertIn("host.docker.internal:host-gateway", probe)
+        self.assertIn("sha256:gateway-image", probe)
+        self.assertIn("--rm", probe)
+        self.assertFalse(any("vss-agent-ui" in c for c in calls))
+
+    def test_host_gateway_discovery_failure_stops_the_cell(self) -> None:
+        with self.assertRaisesRegex(
+            RuntimeError, "Could not resolve Docker's host-gateway mapping: host alias unavailable"
+        ):
+            self._run_ui_cell(adapter_enabled=True, chat_fqdn=None, gateway_lookup_fails=True)
+
+    def test_a_relay_bound_for_a_previous_run_is_replaced(self) -> None:
+        namespace, calls, relays = self._run_ui_cell(
+            adapter_enabled=True, chat_fqdn=None, relay_running_for=["0.0.0.0"]
+        )
+        self.assertIn(("kill", "5151"), calls)
+        self.assertEqual(len(relays), 1)
+        self.assertEqual(relays[0][relays[0].index("--listen") + 1], self.HOST_GATEWAY)
+        self.assertTrue(namespace["_relay_up"])
+
+    def test_a_matching_relay_is_kept(self) -> None:
+        namespace, calls, relays = self._run_ui_cell(
+            adapter_enabled=True, chat_fqdn=None, relay_running_for=[self.HOST_GATEWAY]
+        )
+        self.assertEqual(relays, [])
+        self.assertNotIn(("kill", "5151"), calls)
+        self.assertTrue(namespace["_relay_up"])
+
+    def test_a_matching_relay_that_no_longer_answers_is_replaced(self) -> None:
+        # Bound correctly but dead end-to-end: kept relays get the same probe as new ones.
+        namespace, calls, relays = self._run_ui_cell(
+            adapter_enabled=True, chat_fqdn=None,
+            relay_running_for=[self.HOST_GATEWAY], relay_dead=True,
+        )
+        self.assertIn(("kill", "5151"), calls)
+        self.assertEqual(len(relays), 1)
+        self.assertTrue(namespace["_relay_up"])
+
+    def test_hooks_verification_posts_to_the_loopback_forward_without_proxy(self) -> None:
+        namespace, _, _ = self._run_ui_cell(adapter_enabled=True, chat_fqdn=None)
+        hook_calls: list[list[str]] = []
+
+        def run(command, **_kwargs):
+            hook_calls.append(command)
+            return subprocess.CompletedProcess(command, 0, "{}\n200", "")
+
+        namespace.update(
+            {
+                "AGENT_HOOKS_ENABLED": True,
+                "AGENT_HOOKS_PATH": "/hooks",
+                "AGENT_HOOKS_TOKEN": "test-token",
+                "AGENT_RUNTIME": "openclaw",
+                "json": json,
+            }
+        )
+        with mock.patch("subprocess.run", side_effect=run), mock.patch("builtins.print"):
+            exec(  # noqa: S102 - executes the checked-in hooks verification block.
+                compile(self.hooks_source, "deploy_nemoclaw:verify-code:hooks", "exec"),
+                namespace,
+            )
+        self.assertEqual(len(hook_calls), 1)
+        self.assertEqual(hook_calls[0][:4], ["curl", "-sS", "--noproxy", "*"])
+        self.assertIn(f"http://127.0.0.1:{self.PORT}/hooks/agent", hook_calls[0])
 
 
 class NemoRelayNotebookContractTests(unittest.TestCase):
@@ -545,6 +1064,164 @@ class OutputTests(unittest.TestCase):
         self.assertIn("SANDBOX READY", str(raised.exception))
 
 
+class TokenRedactionTests(unittest.TestCase):
+    """What an echoed log may contain once the gateway token is scrubbed."""
+
+    TOKEN = "cf1ba9d0e5b74c2f8a3b6d91e0472c5d"
+    SECOND_TOKEN = "7e42af08b1c34d96b5170ea3c8fd62b1"
+
+    @staticmethod
+    def _notebook(*outputs: dict) -> dict:
+        return {"cells": [{"outputs": [output]} for output in outputs]}
+
+    @staticmethod
+    def _streamed(*texts: str) -> dict:
+        return {
+            "cells": [
+                {"outputs": [{"output_type": "stream", "text": text}]} for text in texts
+            ]
+        }
+
+    def _echo(self, notebook: dict) -> str:
+        stream = io.StringIO()
+        with redirect_stdout(stream):
+            runner.echo_notebook_output(notebook)
+        return stream.getvalue()
+
+    def test_the_whole_token_goes_and_the_link_stays_readable(self) -> None:
+        printed = self._echo(
+            self._streamed(f"Agent UI: http://192.0.2.10:18789/#token={self.TOKEN}\n")
+        )
+        self.assertIn("Agent UI: http://192.0.2.10:18789/#token=<redacted>", printed)
+        # A pattern that matched only part of the value would leave one end of
+        # the secret in the log, so check both ends are gone, not just the URL.
+        self.assertNotIn(self.TOKEN, printed)
+        self.assertNotIn(self.TOKEN[:8], printed)
+        self.assertNotIn(self.TOKEN[-8:], printed)
+
+    def test_every_token_in_the_run_is_redacted(self) -> None:
+        printed = self._echo(
+            self._notebook(
+                {
+                    "output_type": "stream",
+                    "text": f"Agent UI: http://host-a:18789/#token={self.TOKEN}\n",
+                },
+                {
+                    "output_type": "execute_result",
+                    "data": {
+                        "text/plain": (
+                            f"'http://host-b:18789/#token={self.SECOND_TOKEN}'"
+                        )
+                    },
+                },
+            )
+        )
+        self.assertNotIn(self.TOKEN, printed)
+        self.assertNotIn(self.SECOND_TOKEN, printed)
+        self.assertEqual(printed.count("#token=<redacted>"), 2)
+
+    def test_redaction_ends_with_the_token_not_the_rest_of_the_line(self) -> None:
+        printed = self._echo(
+            self._streamed(
+                f'{{"url": "http://host:18789/#token={self.TOKEN}"}}\n'
+                f'<a href="http://host:18789/#token={self.TOKEN}">open</a>\n'
+                f"http://host:18789/#token={self.TOKEN} (paste this)\n"
+            )
+        )
+        self.assertNotIn(self.TOKEN, printed)
+        self.assertIn('{"url": "http://host:18789/#token=<redacted>"}', printed)
+        self.assertIn('#token=<redacted>">open</a>', printed)
+        self.assertIn("#token=<redacted> (paste this)", printed)
+
+    def test_output_that_carries_no_token_is_echoed_as_it_was(self) -> None:
+        text = (
+            "Sandbox 'nemoclaw-vss' ready.\n"
+            "WARNING: the dashboard forward did not come up\n"
+        )
+        self.assertEqual(self._echo(self._streamed(text)), f"{text}\n")
+
+    def test_a_run_that_printed_nothing_echoes_nothing(self) -> None:
+        self.assertEqual(self._echo({"cells": []}), "")
+        self.assertEqual(self._echo(self._streamed("\n   \n")), "")
+
+
+class EchoOutputTests(unittest.TestCase):
+    """Whether `execute_notebook` puts the notebook's output in the log."""
+
+    TOKEN = "b93c7f1ad0e4426fa8225c6e3b07d914"
+    AGENT_UI = "Agent UI: http://192.0.2.10:18789/#token="
+
+    def _execute(self, *, fail: bool = False, **kwargs: object) -> str:
+        """Capture stdout from a run whose kernel is a stub.
+
+        `nbformat` and `nbclient` are absent from the environment CI runs these
+        tests in, so they are injected rather than patched in place.
+        """
+
+        notebook = {"cells": [{"source": "", "outputs": []}]}
+
+        def execute() -> dict:
+            # NotebookClient records outputs on the notebook it was handed, so
+            # a failing run still leaves the completed cells' output behind.
+            notebook["cells"][0]["outputs"] = [
+                {"output_type": "stream", "text": f"{self.AGENT_UI}{self.TOKEN}\n"}
+            ]
+            if fail:
+                raise RuntimeError("cell 3 raised")
+            return notebook
+
+        nbformat = mock.Mock()
+        nbformat.read.return_value = notebook
+        nbclient = mock.Mock()
+        nbclient.NotebookClient.return_value.execute.side_effect = execute
+
+        # Pinned to the stub's message: the runner raises RuntimeError for a
+        # missing nbformat too, and that would echo nothing for another reason.
+        raised = (
+            self.assertRaisesRegex(RuntimeError, "cell 3 raised")
+            if fail
+            else nullcontext()
+        )
+        stream = io.StringIO()
+        with (
+            mock.patch.dict(sys.modules, {"nbformat": nbformat, "nbclient": nbclient}),
+            redirect_stdout(stream),
+            raised,
+        ):
+            runner.execute_notebook(
+                SCRIPTS_DIR / "deploy_nemoclaw.ipynb",
+                cwd=SCRIPTS_DIR,
+                timeout=600,
+                parameters=(),
+                **kwargs,
+            )
+        return stream.getvalue()
+
+    def test_a_default_run_reports_the_summary_and_nothing_else(self) -> None:
+        printed = self._execute()
+        self.assertIn("outputs were not persisted", printed)
+        self.assertNotIn("Agent UI", printed)
+        self.assertNotIn(self.TOKEN, printed)
+
+    def test_an_opt_in_run_echoes_the_output_with_the_token_redacted(self) -> None:
+        printed = self._execute(echo_output=True)
+        self.assertIn(f"{self.AGENT_UI}<redacted>", printed)
+        self.assertNotIn(self.TOKEN, printed)
+        self.assertIn("outputs were not persisted", printed)
+
+    def test_a_failed_cell_still_echoes_what_the_run_completed(self) -> None:
+        printed = self._execute(fail=True, echo_output=True)
+        self.assertIn(f"{self.AGENT_UI}<redacted>", printed)
+        self.assertNotIn(self.TOKEN, printed)
+        # The run did not finish, so it must not claim it did.
+        self.assertNotIn("outputs were not persisted", printed)
+
+    def test_a_failed_default_run_echoes_nothing(self) -> None:
+        printed = self._execute(fail=True)
+        self.assertNotIn("Agent UI", printed)
+        self.assertNotIn(self.TOKEN, printed)
+
+
 class RunNotebooksTests(unittest.TestCase):
     @staticmethod
     def _streamed(text: str) -> dict:
@@ -604,6 +1281,33 @@ class RunNotebooksTests(unittest.TestCase):
         self.assertIn("UI READY", str(raised.exception))
         self.assertNotIn("SANDBOX READY", str(raised.exception))
 
+    def test_output_is_not_echoed_unless_the_caller_asked(self) -> None:
+        with mock.patch.object(
+            runner, "execute_notebook", return_value=self._streamed("")
+        ) as execute:
+            runner.run_notebooks(
+                [SCRIPTS_DIR / "deploy_nemoclaw.ipynb"], cwd=SCRIPTS_DIR, timeout=600
+            )
+        self.assertIs(execute.call_args.kwargs["echo_output"], False)
+
+    def test_the_echo_choice_reaches_every_notebook_in_the_run(self) -> None:
+        with mock.patch.object(
+            runner, "execute_notebook", return_value=self._streamed("")
+        ) as execute:
+            runner.run_notebooks(
+                [
+                    SCRIPTS_DIR / "deploy_nemoclaw.ipynb",
+                    SCRIPTS_DIR / "deploy_vss_orchestrator.ipynb",
+                ],
+                cwd=SCRIPTS_DIR,
+                timeout=600,
+                echo_output=True,
+            )
+        self.assertEqual(
+            [call.kwargs["echo_output"] for call in execute.call_args_list],
+            [True, True],
+        )
+
 
 class CommandLineTests(unittest.TestCase):
     def test_forwards_the_notebooks_cwd_timeout_and_markers(self) -> None:
@@ -629,6 +1333,16 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(
             run_notebooks.call_args.kwargs["required_output"], ("SANDBOX READY",)
         )
+
+    def test_echoing_the_output_is_opt_in(self) -> None:
+        notebook = SCRIPTS_DIR / "deploy_nemoclaw.ipynb"
+        with mock.patch.object(runner, "run_notebooks") as run_notebooks:
+            runner.main(["--notebook", str(notebook)])
+        self.assertIs(run_notebooks.call_args.kwargs["echo_output"], False)
+
+        with mock.patch.object(runner, "run_notebooks") as run_notebooks:
+            runner.main(["--notebook", str(notebook), "--echo-output"])
+        self.assertIs(run_notebooks.call_args.kwargs["echo_output"], True)
 
     def test_defaults_the_kernel_directory_to_the_repository_root(self) -> None:
         with mock.patch.object(runner, "run_notebooks") as run_notebooks:

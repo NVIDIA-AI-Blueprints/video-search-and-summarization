@@ -6,7 +6,7 @@
       "stun.l.google.com:19302",
       "stun1.l.google.com:19302"
     ],
-    "static_turnurl_list": __STATIC_TURNURL_LIST__,
+    "static_turnurl_list": "__STATIC_TURNURL_LIST__",
     "use_coturn_auth_secret": false,
     "coturn_turnurl_list_with_secret": [],
     "use_twilio_stun_turn": false,
@@ -19,8 +19,8 @@
     "max_webrtc_out_connections": 16,
     "max_webrtc_in_connections": 1,
     "webservice_access_control_list": "",
-    "rtsp_server_port": __RTSP_SERVER_PORT__,
-    "rtsp_server_instances_count": __RTSP_SERVER_INSTANCES_COUNT__,
+    "rtsp_server_port": "__RTSP_SERVER_PORT__",
+    "rtsp_server_instances_count": "__RTSP_SERVER_INSTANCES_COUNT__",
     "rtsp_server_use_socket_poll": true,
     "rtsp_preferred_network_iface": "",
     "rtcp_rtp_port_multiplex": true,
@@ -145,7 +145,7 @@
     "nv_streamer_directory_path": "/home/vst/vst_release/streamer_videos/",
     "nv_streamer_loop_playback": true,
     "nv_streamer_seekable": true,
-    "nv_streamer_sync_file_count": __SYNC_FILE_COUNT__,
+    "nv_streamer_sync_file_count": "__SYNC_FILE_COUNT__",
     "nv_streamer_max_upload_file_size_MB": 10000,
     "nv_streamer_media_container_supported": [
       "mp4",

@@ -49,6 +49,9 @@ public:
     ~NvLLOverlay();
 
     void doDrawTask();
+    /* Only the raw-frame overload is overridden; keep the inherited
+     * FrameParams overload visible rather than hiding it. */
+    using IMediaDataConsumer::onFrame;
     void onFrame(std::shared_ptr<RawFrameParams> frame_data) override;
     void setConsumer(std::shared_ptr<IMediaDataConsumer> consumer);
     std::string getUri() { return m_uri; }

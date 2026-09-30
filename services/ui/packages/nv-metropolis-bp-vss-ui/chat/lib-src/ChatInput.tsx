@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: MIT AND Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 import {
   IconArrowDown,
   IconBrain,
@@ -126,7 +126,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     if (disabled) setShowParams(false);
   }, [disabled]);
 
-  // Grow with content up to a ceiling, then scroll — matching the toolkit.
+  // Grow with content up to a ceiling, then scroll.
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;

@@ -24,6 +24,7 @@ import pytest
 from vss_agents.tools.video_report_gen import TimestampMatch
 from vss_agents.tools.video_report_gen import VideoReportGenInput
 from vss_agents.tools.video_report_gen import VideoReportGenOutput
+from vss_agents.tools.video_report_gen import VlmPromptConversationState
 from vss_agents.tools.video_report_gen import _convert_markdown_to_pdf
 from vss_agents.tools.video_report_gen import _divide_video_into_chunks
 from vss_agents.tools.video_report_gen import _inject_snapshots
@@ -31,6 +32,8 @@ from vss_agents.tools.video_report_gen import _inject_video_clips
 from vss_agents.tools.video_report_gen import _normalize_chunk_timestamps
 from vss_agents.tools.video_report_gen import _parse_timestamps
 from vss_agents.tools.video_report_gen import _snapshot_image_src
+from vss_agents.tools.video_report_gen import collect_hitl_vlm_prompt
+from vss_agents.tools.video_report_gen import resolve_persisted_hitl_vlm_prompt
 from vss_agents.tools.video_understanding import VideoUnderstandingInput
 from vss_agents.tools.video_understanding import VideoUnderstandingOffsetInput
 
@@ -462,3 +465,159 @@ class TestInjectSnapshots:
         assert _snapshot_image_src(None) is None
         assert _snapshot_image_src(Empty()) is None
         assert _snapshot_image_src({"image_url": "http://example/a.jpg"}) == "http://example/a.jpg"
+
+
+class TestCollectHitlVlmPrompt:
+    """HITL command loop for report VLM prompts."""
+
+    DEFAULT = "system default prompt"
+    SAVED = "last approved custom prompt"
+
+    def _inputs(self, *values: str | None):
+        queue = list(values)
+
+        async def prompt_user_input(prompt_text: str, required: bool = False, placeholder: str = "") -> str | None:
+            assert queue, f"unexpected extra HITL prompt: {prompt_text}"
+            return queue.pop(0)
+
+        return prompt_user_input
+
+    async def _collect(self, current_prompt: str | None, *inputs: str | None, generate=None, refine=None) -> str | None:
+        return await collect_hitl_vlm_prompt(
+            current_prompt=current_prompt,
+            default_prompt=self.DEFAULT,
+            hitl_template="opts",
+            prompt_user_input=self._inputs(*inputs),
+            llm_generate_prompt=generate or AsyncMock(),
+            llm_refine_prompt=refine or AsyncMock(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_next_hitl_keeps_saved_edits(self):
+        approved = await self._collect(None, self.SAVED)
+        assert approved == self.SAVED
+        assert await self._collect(approved, "") == self.SAVED
+
+    @pytest.mark.asyncio
+    async def test_default_restores_system_prompt_after_generate(self):
+        generate = AsyncMock(return_value="ai generated")
+        result = await self._collect(None, "/generate look for trucks", "/default", "", generate=generate)
+        assert result == self.DEFAULT
+        generate.assert_awaited_once_with("look for trucks")
+
+    @pytest.mark.asyncio
+    async def test_default_restores_system_prompt_after_refine(self):
+        refine = AsyncMock(return_value="ai refined")
+        result = await self._collect(self.SAVED, "/refine add timestamps", "/default", "", refine=refine)
+        assert result == self.DEFAULT
+        refine.assert_awaited_once_with(self.SAVED, "add timestamps")
+
+    @pytest.mark.asyncio
+    async def test_cancel_after_default_does_not_return_restored_prompt(self):
+        assert await self._collect(self.SAVED, "/default", "/cancel") is None
+
+    @pytest.mark.asyncio
+    async def test_default_is_not_used_as_custom_vlm_prompt(self):
+        shown: list[str] = []
+
+        async def prompt_user_input(prompt_text: str, required: bool = False, placeholder: str = "") -> str:
+            shown.append(prompt_text)
+            return "/default" if len(shown) == 1 else ""
+
+        result = await collect_hitl_vlm_prompt(
+            current_prompt=self.SAVED,
+            default_prompt=self.DEFAULT,
+            hitl_template="opts",
+            prompt_user_input=prompt_user_input,
+            llm_generate_prompt=AsyncMock(),
+            llm_refine_prompt=AsyncMock(),
+        )
+        assert result == self.DEFAULT
+        assert "**CURRENTLY SET:**" in shown[0]
+        assert self.SAVED in shown[0]
+        assert "**DEFAULT:**" in shown[1]
+        assert self.DEFAULT in shown[1]
+
+    @pytest.mark.asyncio
+    async def test_default_with_extra_text_reprompts_without_replacing_saved_prompt(self):
+        shown: list[str] = []
+
+        async def prompt_user_input(prompt_text: str, required: bool = False, placeholder: str = "") -> str:
+            shown.append(prompt_text)
+            return "/default extra" if len(shown) == 1 else ""
+
+        result = await collect_hitl_vlm_prompt(
+            current_prompt=self.SAVED,
+            default_prompt=self.DEFAULT,
+            hitl_template="opts",
+            prompt_user_input=prompt_user_input,
+            llm_generate_prompt=AsyncMock(),
+            llm_refine_prompt=AsyncMock(),
+        )
+        assert result == self.SAVED
+        assert "Use /default with no additional text" in shown[1]
+
+
+class TestHitlVlmPromptPersistence:
+    """Caller-level persistence of last-approved HITL VLM prompts."""
+
+    DEFAULT = "system default prompt"
+    SAVED = "last approved custom prompt"
+
+    async def _resolve(
+        self, state: VlmPromptConversationState, thread_id: str, *inputs: str | None
+    ) -> tuple[str | None, list[str]]:
+        queue = list(inputs)
+        shown: list[str] = []
+
+        async def prompt_user_input(prompt_text: str, required: bool = False, placeholder: str = "") -> str | None:
+            shown.append(prompt_text)
+            assert queue, f"unexpected extra HITL prompt: {prompt_text}"
+            return queue.pop(0)
+
+        async def collect(current: str | None) -> str | None:
+            return await collect_hitl_vlm_prompt(
+                current_prompt=current,
+                default_prompt=self.DEFAULT,
+                hitl_template="opts",
+                prompt_user_input=prompt_user_input,
+                llm_generate_prompt=AsyncMock(),
+                llm_refine_prompt=AsyncMock(),
+            )
+
+        result = await resolve_persisted_hitl_vlm_prompt(state, thread_id, collect)
+        return result, shown
+
+    @pytest.mark.asyncio
+    async def test_approved_edits_are_shown_on_the_next_hitl_round(self):
+        state = VlmPromptConversationState()
+        first, first_shown = await self._resolve(state, "conv-1", self.SAVED)
+        second, second_shown = await self._resolve(state, "conv-1", "")
+        assert first == self.SAVED
+        assert second == self.SAVED
+        assert "**DEFAULT:**" in first_shown[0]
+        assert "**CURRENTLY SET:**" in second_shown[0]
+        assert self.SAVED in second_shown[0]
+
+    @pytest.mark.asyncio
+    async def test_cancel_after_default_leaves_saved_edits_unchanged(self):
+        state = VlmPromptConversationState()
+        await self._resolve(state, "conv-1", self.SAVED)
+        cancelled, cancel_shown = await self._resolve(state, "conv-1", "/default", "/cancel")
+        restored, restored_shown = await self._resolve(state, "conv-1", "")
+        assert cancelled is None
+        assert restored == self.SAVED
+        assert "**DEFAULT:**" in cancel_shown[1]
+        assert self.DEFAULT in cancel_shown[1]
+        assert "**CURRENTLY SET:**" in restored_shown[0]
+        assert self.SAVED in restored_shown[0]
+
+    @pytest.mark.asyncio
+    async def test_submitting_default_replaces_saved_edits(self):
+        state = VlmPromptConversationState()
+        await self._resolve(state, "conv-1", self.SAVED)
+        submitted, _ = await self._resolve(state, "conv-1", "/default", "")
+        next_round, shown = await self._resolve(state, "conv-1", "")
+        assert submitted == self.DEFAULT
+        assert next_round == self.DEFAULT
+        assert self.DEFAULT in shown[0]

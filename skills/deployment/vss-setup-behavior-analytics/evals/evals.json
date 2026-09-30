@@ -7,5 +7,15 @@
     "expected_behavior": [
       "Loads (activates) the vss-setup-behavior-analytics skill in response to the question."
     ]
+  },
+  {
+    "id": "behavior-analytics-query-non-activation",
+    "question": "Show me today's occupancy and incident metrics from my running VSS deployment.",
+    "expected_skill": null,
+    "ground_truth": "This is a read-only analytics request for vss-query-analytics, not a request to deploy behavior analytics.",
+    "expected_behavior": [
+      "Does not activate vss-setup-behavior-analytics for a query against an existing deployment.",
+      "Routes the request to vss-query-analytics."
+    ]
   }
 ]

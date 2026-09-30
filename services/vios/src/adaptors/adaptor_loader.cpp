@@ -76,9 +76,7 @@ static SharedLibrary* loadLibrary(const string& path)
     return static_cast<SharedLibrary*>(lib_handle);
 }
 
-AdaptorLoader::AdaptorLoader()
-{
-}
+AdaptorLoader::AdaptorLoader() = default;
 
 AdaptorLoader::~AdaptorLoader()
 {

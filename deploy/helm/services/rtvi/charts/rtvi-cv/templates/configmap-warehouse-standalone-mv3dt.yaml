@@ -88,15 +88,17 @@ data:
      section key, then point the model paths and service endpoint at values.
      The engine path is replaced with its quotes included so it cannot be
      partially rewritten by the onnxFile replacement, whose match is a prefix
-     of it. */}}
+     of it. reidExtractionInterval is rewritten in the base config instead:
+     TrajectoryManagement already exists there, and a repeated top-level key
+     is appended rather than merged, so the tracker would read the first. */}}
 {{- $reidRaw := $.Files.Get "files/warehouse-standalone-mv3dt/deepstream/reid-append/tracker-reid.yml" }}
-{{- $reidBody := printf "TrajectoryManagement:%s" (index (splitList "\nTrajectoryManagement:" $reidRaw) 1) }}
+{{- $reidBody := printf "ReID:%s" (index (splitList "\nReID:" $reidRaw) 1) }}
 {{- $reidBody = replace "\"/opt/storage/reid/reid_model.onnx_b64_gpu0_fp32.engine\"" (printf "\"%s/%s\"" $reidDir ($reid.engineFileName | default "reid_model.onnx_b64_gpu0_fp32.engine")) $reidBody }}
 {{- $reidBody = replace "\"/opt/storage/reid/reid_model.onnx\"" (printf "\"%s/%s\"" $reidDir ($reid.onnxFileName | default "reid_model.onnx")) $reidBody }}
 {{- $reidBody = replace "serviceAddress: \"reid-embed\"" (printf "serviceAddress: \"%s\"" (include "vss-rtvi-cv.reidServiceAddress" $)) $reidBody }}
 {{- $reidBody = replace "servicePort: 8088" (printf "servicePort: %s" ($reid.servicePort | default "8088" | toString)) $reidBody }}
-{{- $reidBody = regexReplaceAll "(?m)^  reidExtractionInterval: 8$" $reidBody (printf "  reidExtractionInterval: %s" ($reid.extractionInterval | default "8" | toString)) }}
-{{ printf "%s\n%s" $content $reidBody | nindent 4 }}
+{{- $c := regexReplaceAll "(?m)^  reidExtractionInterval: 8$" $content (printf "  reidExtractionInterval: %s" ($reid.extractionInterval | default "8" | toString)) }}
+{{ printf "%s\n%s" $c $reidBody | nindent 4 }}
 {{- else }}
 {{ $content | nindent 4 }}
 {{- end }}

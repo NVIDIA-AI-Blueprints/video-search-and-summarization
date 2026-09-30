@@ -188,6 +188,202 @@ Ready-to-use configurations are provided under
 Each profile has a companion `.env` file in the same directory with all deployment variables
 pre-configured.
 
+### Deployment version API
+
+`GET /api/v1/version` exposes the version of the deployed VSS release for
+automated compatibility checks. Only `GET` is served; other methods answer 405.
+It is served by the agent, so it is reachable
+wherever the agent is — directly at the agent service, and through the
+deployment origin on profiles whose ingress routes `/api` to the agent. Some
+profiles do not: the warehouse Helm ingress
+(`deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/templates/vss-ingress.yaml`)
+declares no agent backend at all, so on that profile point the check at the
+agent service rather than the deployment origin.
+
+```console
+$ curl -sS http://localhost:8000/api/v1/version
+{"service":"vss","version":"3.3.0+tree.4d9b2c1"}
+```
+
+`service` is always `vss`. `version` is the deployed version and must be strict
+[Semantic Versioning 2.0.0](https://semver.org/):
+`MAJOR.MINOR.PATCH`, optionally followed by a prerelease suffix and build
+metadata (for example, `3.3.0-rc.1+build.42`). The official SemVer grammar is
+enforced, so `03.3.0`, `3.3.0-01`, `3.3.0-.` and `v1.0.0` are all rejected.
+
+**Who answers.** On a deployed stack, the **HAProxy edge** answers
+`GET /api/v1/version` itself, on every profile — with or without this agent —
+from the version stamped into the deployment files from the git tag
+(`VSS_VERSION` in `deploy/docker/containers.env` on Compose, `vssVersion` in
+the profile chart's `values.yaml` on Helm; see
+[`.github/version-convention.md`](../../.github/version-convention.md)). The
+route below is the agent's own copy of the same contract: it is what you get at
+the agent's origin directly (`:8000`), and what `nat serve` from a checkout
+answers. Both derive from the same git tag, so they agree on the release line;
+the agent's carries `+tree.<sha>` build metadata, the edge's does not.
+
+**Where the agent's comes from.** One version, one source: what this process
+reports is the version of the `nvidia-vss-core` library it imported, read from
+its installed metadata by
+[`vss_core.version`](../../libs/vss/core/src/vss_core/version.py). Nothing
+outranks it and nothing stands in for it — no environment variable, no
+`git describe` at runtime. A version that can be edited at deploy time is one
+nobody can trust, and a version derived from whatever checkout the process
+happens to sit in is not the version of the code that was installed.
+
+`VSS_AGENT_VERSION` is **not** consulted. It carries the Phoenix telemetry
+project name and doubles as the fallback container image tag
+(`${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION:-develop-latest}}` in
+[`compose.yml`](../../deploy/docker/services/agent/compose.yml)), so it
+routinely holds something tag-shaped like `develop-latest` rather than a
+version. Those uses remain; the version endpoint ignores it.
+
+**How the version is made.** It is a function of git tags, and only of them —
+the same `git describe --tags --long --match 'v[0-9]*'` for every VSS package,
+the agent, the CLI and the skills, so one commit has one version everywhere:
+
+- A checkout install (`uv sync`) is versioned by `hatch-vcs` from that
+  describe: `3.3.0rc0` on the tag `v3.3.0rc0`, `3.3.0rc0.post1.dev20+g73f724482`
+  twenty commits later — reported as `3.3.0-rc0` and
+  `3.3.0-rc0.dev.20+g73f724482`.
+- An image has no `.git` to version from — the Dockerfile copies individual
+  paths and never the history — so `build-dev-images.yml` derives the release
+  line with the same describe (`--abbrev=0`) and passes the version in as
+  `<release line>+tree.<source tree sha>`: `3.3.0rc0+tree.<sha>`, reported as
+  `3.3.0-rc0+tree.<sha>`. The release segment changes only when a `v*` tag is
+  pushed and the tree segment names the source the image was built from, so
+  the stamp stays true when the workflow re-tags an already-published manifest
+  onto a later commit whose tree is identical; a commit-derived stamp would go
+  stale the moment that reuse fired.
+
+The release line is the nearest `v*` tag **reached**, never the next one:
+develop reports `3.2.1-…` until `v3.3.0rc0` is pushed and `3.3.0-rc0…` until
+`v3.3.0` is, because a release is not a fact before its tag. Nightly and other
+tags are invisible to the derivation. A bare `docker build` with no
+`VSS_PACKAGE_VERSION` stamps `0.0.0+local`: valid SemVer that satisfies no
+skill's range and cannot be mistaken for a shipped build.
+
+SemVer precedence ignores build metadata, and the checker below treats a
+prerelease of X.Y.Z as X.Y.Z, which is what makes the stamp usable for range
+checks: `3.3.0-rc0+tree.<sha>` satisfies `>=3.3.0,<4.0.0` exactly as a bare
+`3.3.0` does.
+
+Neither deployment path sets anything, and neither needs to: a stock Compose or
+Helm deployment answers 200 from the stamp.
+
+The module is standard-library only and runs as a file, so tooling on a host
+with VSS installed can ask for the same value the endpoint would report:
+
+```console
+$ python3 libs/vss/core/src/vss_core/version.py
+3.3.0-rc0.dev.20+g73f724482
+```
+
+**404 versus 503.** Both are failures to report a version, but they mean
+different things and call for different operator actions. Reading 503 as the
+only failure mode hides the case where the deployment is simply too old, or the
+check is aimed at an origin that does not route `/api` to the agent.
+
+| Status | Means | Operator action |
+|--------|-------|-----------------|
+| `404` | The deployment predates this endpoint and cannot report a version at all, **or** this origin's ingress does not route `/api` to the agent (the warehouse Helm ingress does not). | Upgrade the deployment, or point the check at the agent's own origin. |
+| `503` | The installed `nvidia-vss-core` carries no version that normalises to strict SemVer: the image is missing its build stamp, or a source tree is running with nothing installed. | Rebuild the image through `build-dev-images.yml` (or pass `--build-arg VSS_PACKAGE_VERSION=…` to a local build); for a source run, `uv sync` the checkout so `hatch-vcs` versions it. |
+
+**Seeing it.** `vss configure check` reports the version alongside its route
+probes, or says why the deployment cannot report one — a lean stack without the
+agent, an origin that does not route `/api`, or a misconfigured version. It
+does not fail on that: a stack without the agent is a legitimate deployment,
+and the point is that an operator finds out there rather than from an aborted
+benchmark.
+
+**Checking it.** [`scripts/check_vss_version.py`](scripts/check_vss_version.py)
+checks the endpoint on any deployment — standard library only, so it can be
+copied to a machine that has nothing but `python3`:
+
+```console
+$ python3 scripts/check_vss_version.py <base_url> [--timeout N] [--skill <path/to/SKILL.md> | --require '<range>']
+```
+
+`--skill` and `--require` are mutually exclusive. `--skill` is the preferred
+form: the range is read out of the skill's own metadata, so the value a run
+enforces cannot drift from the value the skill publishes. `--require` is for
+ad-hoc checks. With neither, the script only prints the deployed version.
+
+Exit codes — `0` is the only success:
+
+| Code | Meaning | Detail |
+|------|---------|--------|
+| `0` | compatible | The deployment reported a version, and it satisfies the range when one was given. The version is printed on stdout. |
+| `1` | indeterminate | The deployed version or the required range could not be determined: unreachable or timed out, HTTP 404, HTTP 503, any other HTTP error, non-JSON body, wrong JSON shape, a version that is not strict SemVer, an unreadable or front-matter-less `SKILL.md`, a `SKILL.md` with no `requires-vss` field, or a malformed or empty range. Reason on stderr, prefixed `error: cannot determine compatibility: `. |
+| `2` | usage | Bad command line (argparse's own exit code). |
+| `3` | incompatible | The deployed version is valid SemVer but outside the required range. Reason on stderr, prefixed `error: incompatible: `. |
+
+A version-only check, and a range check that passes:
+
+```console
+$ python3 scripts/check_vss_version.py http://localhost:8000
+3.3.0
+$ python3 scripts/check_vss_version.py http://localhost:8000 \
+    --skill ../../skills/benchmarking/vss-benchmark-video-summarization/SKILL.md
+3.3.0
+$ echo $?
+0
+```
+
+A range check that fails closed, here against a deployment reporting `3.2.1`:
+
+```console
+$ python3 scripts/check_vss_version.py http://localhost:8000 \
+    --skill ../../skills/benchmarking/vss-benchmark-vlm-qa/SKILL.md
+error: incompatible: deployed VSS 3.2.1 is outside the range >=3.3.0,<4.0.0 required by this skill (skill version 3.3.0). Do not benchmark this deployment: the results would not be comparable. Either deploy a VSS release inside that range, or use a revision of the skill whose declared range covers the deployment. A prerelease of X.Y.Z counts as X.Y.Z, so the suffix is not what excluded it.
+$ echo $?
+3
+```
+
+A check whose answer is unknowable, here against a deployment origin that does
+not route `/api` to the agent:
+
+```console
+$ python3 scripts/check_vss_version.py http://localhost:30080 --require '>=3.2.0,<4.0.0'
+error: cannot determine compatibility: http://localhost:30080/api/v1/version returned 404: this deployment predates the version endpoint and cannot report a version, so its compatibility cannot be determined. Upgrade the deployment, or check the agent's own origin if the deployment ingress does not route /api to the agent.
+$ echo $?
+1
+```
+
+**How the benchmark skills gate a run.** This endpoint and the checker above are
+the mechanism the VSS benchmarking skills use to decide whether a deployment may
+be benchmarked at all. Each declares the deployment range it supports in a
+`requires-vss` field under `metadata:` in its `SKILL.md` front matter.
+`vss-benchmark-video-summarization` enforces it in
+[`preflight.sh`](../../skills/benchmarking/vss-benchmark-video-summarization/scripts/preflight.sh),
+which runs the check before every benchmark run and hard-fails the run on exit
+`3`: benchmarking a deployment outside the range produces numbers that are not
+comparable to the skill's own baselines.
+
+| Skill | Declared `requires-vss` |
+|-------|-------------------------|
+| [`vss-benchmark-video-summarization`](../../skills/benchmarking/vss-benchmark-video-summarization/SKILL.md) | `>=3.2.0,<4.0.0` |
+| [`vss-benchmark-vlm-qa`](../../skills/benchmarking/vss-benchmark-vlm-qa/SKILL.md) | `>=3.3.0,<4.0.0` |
+| [`vss-evaluate-caption-accuracy`](../../skills/benchmarking/vss-evaluate-caption-accuracy/SKILL.md) | `>=3.2.0,<4.0.0` |
+
+A range is a comma-separated list of comparators, **all** of which must hold —
+`>=`, `>`, `<`, `<=` and `==`, each followed by a bare `MAJOR.MINOR.PATCH` bound
+with no prerelease or build metadata (`>=3.2.0,<4.0.0`). Comparison uses those
+three numbers only: **prerelease and build metadata are ignored, so a prerelease
+of X.Y.Z counts as X.Y.Z.** That is deliberate, and it is what lets a stamped
+image be range-checked at all: a deployment reporting `3.3.0+tree.<sha>` or a
+`3.3.0-rc.1` prerelease of the same release line satisfies `>=3.3.0,<4.0.0`,
+where under semver.org precedence a prerelease would otherwise be rejected. A
+skill's range names release lines, not individual builds.
+
+**Who bumps a range.** The skill's own owner — the VSS benchmarking skill owner
+named in the `author` field of its front matter (currently "NVIDIA Video Search
+and Summarization Team") — owns widening `requires-vss` when a deployment ships
+a new minor. A VSS release does not silently widen any skill's range, because
+whether the skill's workflow and baselines still hold on that release is a
+question only the skill's owner can answer. The check failing closed with exit
+`3` is the intended signal that somebody must go and answer it.
+
 ### Environment Variables
 
 The table below lists every variable referenced by the agent config files.
@@ -211,7 +407,7 @@ or are only needed for specific features.
 | `VSS_AGENT_PORT` | no | `8000` | Agent HTTP port |
 | `VSS_AGENT_OBJECT_STORE_TYPE` | no | `local_object_store` | Object store: `local_object_store` (in-memory) or `s3` |
 | `VSS_AGENT_REPORTS_BASE_URL` | no | — | Base URL for generated report assets |
-| `VSS_AGENT_VERSION` | no | — | Version tag (used in telemetry project name) |
+| `VSS_AGENT_VERSION` | no | — | Telemetry project naming and fallback container image tag; not consulted by `GET /api/v1/version` |
 | `PHOENIX_ENDPOINT` | no | — | Phoenix tracing endpoint (e.g. `http://HOST:6006`) |
 | `EVAL_LLM_JUDGE_NAME` | no | same as `LLM_NAME` | Model used for evaluation judge |
 | `EVAL_LLM_JUDGE_BASE_URL` | no | same as `LLM_BASE_URL` | Endpoint for evaluation judge |

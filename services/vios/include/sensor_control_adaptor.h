@@ -43,17 +43,7 @@ struct AdaptorInfo
                  , m_ipaddress("")
                  , m_url("")
     {}
-    AdaptorInfo(const AdaptorInfo& obj)
-    {
-        this->m_id = obj.m_id;
-        this->m_name = obj.m_name;
-        this->m_type = obj.m_type;
-        this->m_user = obj.m_user;
-        this->m_password = obj.m_password;
-        this->m_port = obj.m_port;
-        this->m_ipaddress = obj.m_ipaddress;
-        this->m_url = obj.m_url;
-    }
+    AdaptorInfo(const AdaptorInfo& obj) = default;
     void operator=(const AdaptorInfo& obj)
     {
         this->m_id = obj.m_id;

@@ -7,6 +7,10 @@ This section provides categorized frequently asked questions.
 
 ## Blueprint & Agent Deployment
 
+### Are VIOS and VST the same service?
+
+VIOS (Video IO & Storage) is also referred to as VST (Video Storage Toolkit). The Warehouse documentation uses VIOS for the service and UI; URLs such as `/vst/` and configuration variables such as `VST_USE_SDRC` retain the VST name.
+
 ### How do I resolve a failure when deploying the blueprints and agents?
 
 We recommend the following steps to resolve deployment failures -
@@ -65,6 +69,12 @@ If Kibana shows `Request timeout: "Request timed out"`, inspect the relevant ser
 A common root cause is Elasticsearch disk pressure. In Kibana Discover, this can appear as `Unable to retrieve search results` with `Request timeout: "Request timed out"`. Check Elasticsearch allocation and disk watermarks before tuning Kibana timeouts. See the Elasticsearch disk watermark FAQ below.
 
 If Docker marks Elasticsearch, Kibana, or Logstash as `unhealthy` during startup, that is a separate Docker health check timeout. Check the service logs first; if the service is only starting slowly, increase the affected service's `healthcheck.retries` value in `video-search-and-summarization/deploy/docker/services/infra/compose.yml` (or `deploy/docker/services/infra/compose.yml` from the deployment repository root) and redeploy.
+
+### Why is Logstash CPU usage high?
+
+Kafka-based deployments run four parallel analytics pipelines (`mdx-kafka`, `mdx-kafka-1`, `mdx-kafka-2`, and `mdx-kafka-3`), in addition to the separate `mdx-lvs` pipeline. This parallelism can increase CPU usage on hosts with fewer CPU cores.
+
+For Docker Compose deployments, reduce the analytics pipeline count in `$VSS_APPS_DIR/services/infra/elk/logstash/configs/pipelines-kafka.yml`. Comment out extra `pipeline.id` entries and their corresponding `path.config` lines, keeping at least `mdx-kafka`, then restart Logstash. Fewer pipelines can reduce CPU overhead but also reduce ingestion throughput. Leave `mdx-lvs` unchanged. Redis deployments already use one analytics pipeline.
 
 ### Why does Elasticsearch stop accepting writes or mark indices read-only when disk usage is high?
 
@@ -129,7 +139,13 @@ The videos can be encoded while uploading via NVStreamer UI.
 
 ### I get the message "unauthorized: authentication required" when downloading containers from NGC
 
-Generate NGC API Key from NGC: https://org.ngc.nvidia.com/setup and then `docker login nvcr.io -u '$oauthtoken' -p <NGC_API_KEY>`
+Follow [How to get an NVIDIA NGC API key](#how-to-get-an-nvidia-ngc-api-key), then sign in to the container registry:
+
+```bash
+docker login nvcr.io --username '$oauthtoken'
+```
+
+Enter your NGC API key when prompted for the password, then retry the download.
 
 ### Troubleshooting NVStreamer/VST Videos in Docker-Compose
 
@@ -195,10 +211,6 @@ If the logs show `tegra-vic` job submission failures because the VIC engine coul
 
 This change forces the PGIE scaling operation to run on the GPU, which may lower FPS.
 
-### Why are streams not getting added to RTVI CV?
-
-This issue can be caused due to exhausted retry attempts to add the cameras because RTVI containers took more time for engine build and application startup.
-Increase `WDM_ADD_REMOVE_RETRY_ATTEMPTS` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-<mode>-app/sdrc/configs/config.yml.tmpl`. Update the value in the `docker-workload-rtvi-cv` section for the 2D and 3D profiles, or in `docker-workload-rtvi-cv-mv3dt` for the MV3DT profile.
 
 ## VST
 
@@ -435,8 +447,9 @@ These are the fundamental assumptions and requirements for setting up passwordle
 
 2. **Generate Your API Key**
 
-- Log in to your NGC account
-- Navigate to **"Setup"** under your account name in the top right corner
+- Log in and open [NGC API Keys](https://org.ngc.nvidia.com/account/api-keys), or select **Account Settings** from your account menu and find **API Keys**.
+- Select **Generate Personal Key**, enter a name and expiration, and select the services needed to access your containers, models, and resources.
+- Generate the key and store it securely; it is shown only once. See the [NGC User Guide](https://docs.nvidia.com/ngc/latest/ngc-user-guide.html#generating-a-personal-api-key) for details.
 
 3. **API Key Types Available**
 
@@ -471,8 +484,6 @@ Password: <Your_API_Key>
 
 **Important:** For Docker login, always use `$oauthtoken` exactly as the username - this is a special authentication token for all users.
 
-`NGC API Key Setup` https://org.ngc.nvidia.com/setup/api-key
-
 ## IGX Thor
 
 <a id="nvidia-cdi-refresh-service-does-not-start-on-boot"></a>
@@ -490,44 +501,3 @@ This can occur because `nvidia-cdi-refresh.service` did not start correctly on b
 ```bash
 sudo systemctl enable --now nvidia-cdi-refresh.service
 ```
-
-## One-Click Deployment
-
-### How do I resolve a failure when deploying the one-click deployment?
-
-<Warning>
-The host-wide cleanup commands below are intended only for a dedicated deployment host. They stop and remove every container, delete every local image, and prune unused volumes and build data, including resources unrelated to Warehouse. Back up persistent data and verify that no other workloads use the host before running them.
-</Warning>
-
-We recommend the following steps to resolve deployment failures -
-
-    * In case of one click Baremetal Docker, Make sure a previous deployment isn't already running using `docker ps`. If a previous deployment exists, then perform a cleanup using the following commands and run the one click deployment again.
-
-      ```bash
-      sudo docker stop $(sudo docker ps -a -q)
-      sudo docker rm $(sudo docker ps -a -q)
-      sudo docker rmi $(sudo docker images -q)
-      sudo docker ps -a
-      sudo docker images
-      sudo docker volume prune
-      sudo docker system prune --all --volumes
-      ```
-
-    * A failure can happen if the previous deployment was not stopped and a redeployment was performed.
-    * A port being occupied is a common cause for deployment failure.
-    * Make sure the correct values are sourced from the `secrets.sh` file. Check the value by echo the variable. For example,
-
-      ```bash
-      echo $BM_SSH_USER
-      echo $BM_SSH_HOST
-      echo $profile etc..
-      ```
-
-    * Make sure the SSH private key file is present in the local machine and the public key file is present in the target machine.
-    * Make sure ssh private key has 400 permissions.
-    * Always have a new extract of a one-click tar file when deploying 2d or 3d
-    * A failure can happen if profile value is not set correctly in the `secrets.sh` file or value of profile is set to 2D Vision AI Profiles in case of 3d deployment or vice versa.
-    * In case of one click AWS Docker, make sure the right aws access key and secret key are set in the `secrets.sh` file.
-    * Make sure the right region and AZ are set in `config-surf-aws-2d.yml` and `config-surf-aws-3d.yml` files and has reserved capacity for the instance type `g6e.48xlarge`.
-    * Make sure the right CIDR block is set for variable `AWS_ACCESS_CIDRS` in the `secrets.sh` file to get the access to the newly deployed instance.
-    * A log file gets generated in the `logs` directory. Check the logs of the deployment to find the issue.

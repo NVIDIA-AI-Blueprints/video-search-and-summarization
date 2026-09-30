@@ -144,10 +144,13 @@ def _exit_for(exc: Exception) -> Exit | None:
     would undo that.
     """
     by_name = {
+        "AnalyticsInvalidInputError": Exit.INVALID_INPUT,
         "InvalidInputError": Exit.INVALID_INPUT,
         "VIOSInvalidInputError": Exit.INVALID_INPUT,
         "VIOSNotFoundError": Exit.NOT_FOUND,
         "VIOSTimeoutError": Exit.TIMEOUT,
+        "AnalyticsNotFoundError": Exit.NOT_FOUND,
+        "AnalyticsTimeoutError": Exit.TIMEOUT,
         "NestedCollectionError": Exit.INVALID_INPUT,
         "IndexNotFoundError": Exit.NOT_FOUND,
         "MemoryNotFoundError": Exit.NOT_FOUND,

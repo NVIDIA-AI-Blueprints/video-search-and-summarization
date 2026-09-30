@@ -34,7 +34,7 @@ const mockResponse = (): MockResponse => {
   return response;
 };
 
-describe("toolkit-free chat proxy", () => {
+describe("chat proxy", () => {
   const originalEnvironment = new Map<string, string | undefined>();
 
   beforeEach(() => {

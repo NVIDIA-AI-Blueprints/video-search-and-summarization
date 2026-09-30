@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Extracts Search API–shaped JSON from agent response text and transforms to SearchData[].
  * The agent may return markdown or plain text with an embedded JSON block (e.g. ```json ... ``` or raw { "data": [...] }).

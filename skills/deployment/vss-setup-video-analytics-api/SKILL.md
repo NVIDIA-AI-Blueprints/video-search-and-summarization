@@ -4,7 +4,7 @@ description: Use to deploy the vss-video-analytics-api REST service standalone w
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
-  version: "3.3.0"
+  version: "3.3.0-rc0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment video-analytics-api rest-api"
 ---

@@ -7,6 +7,7 @@ builds. Before resolving:
 - export `NGC_CLI_API_KEY` for local NVIDIA images/models;
 - export the required API key for explicitly requested remote endpoints;
 - set or confirm host paths and browser-reachable ingress values;
+- export the selected common container image tag, when the build selected one;
 - check the selected profile reference for stock-specific knobs and readiness.
 
 ## Resolve
@@ -40,6 +41,17 @@ env_args=(
   --env-file "$BUILD_DIR/override.env"
 )
 
+# containers.env derives every managed image tag from VSS_CONTAINER_TAG and is
+# expanded before override.env, so only an exported value reaches those tags.
+VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-$(
+  sed -n 's/^VSS_CONTAINER_TAG=//p' "$BUILD_DIR/override.env"
+)}"
+tag_args=()
+if [ -n "$VSS_CONTAINER_TAG" ]; then
+  export VSS_CONTAINER_TAG
+  tag_args=(--expect-container-tag "$VSS_CONTAINER_TAG")
+fi
+
 docker compose "${env_args[@]}" \
   -f "$BUILD_DIR/compose.yml" \
   config --no-consistency > "$BUILD_DIR/resolved.yml"
@@ -48,7 +60,7 @@ docker compose "${env_args[@]}" \
   "$BUILD_DIR/resolved.yml"
 
 "${VSS_SKILL_PY[@]}" "$REPO/skills/vss-build-vision-ai/scripts/validate_resolved_yml.py" \
-  "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
+  "$BUILD_DIR/resolved.yml" --repo-root "$REPO" "${tag_args[@]}"
 ```
 
 Write `resolved.yml` with the `>` redirect exactly as shown — see `composition.md`
@@ -120,16 +132,16 @@ fails, report the failing service and its recent logs; do not declare a partial
 deployment successful.
 
 Deployment and readiness bring the backends **up**; they register no source and
-serve no query. Both ends are separate runtime steps, and a headless
-`_builds/<name>` build has no agent to do either:
+serve no query. A build holding no sources is finished, not half-finished:
+neither path below runs unless the request asks for it, and provisioning a
+source to prove the stack works is not a readiness check.
 
-- **Write path (provisioning).** Resolve consumer ports from `resolved.yml`, confirm
-  the build is headless (no `vss-agent`), then follow `vss-manage-video-io-storage`
+- **Write path (provisioning), when a source was requested.** Confirm the build is
+  headless (no `vss-agent`), then follow `vss-manage-video-io-storage`
   [`provision-vios-source.md`](../../operations/vss-manage-video-io-storage/references/provision-vios-source.md)
-  to register one VIOS source and fan it out by direct REST to only the consumers
-  the build resolved (RT-CV / RT-Embed / RT-VLM), each driven from the retried
-  VIOS live-proxy URL.
-- **Read path (query).** Run `vss configure --base-url <build-origin>` (the fronting
+  to register one VIOS source. The build's mounted notification config fans it
+  out, asynchronously, so registration ends the write path.
+- **Read path (query), when a query was requested.** Run `vss configure --base-url <build-origin>` (the fronting
   `http://$HOST_IP:$HAPROXY_HOST_PORT`) through the project-local `vss` entry point
   (`uv run --project <repo>/libs/vss vss`; see `deployment_resolution.md`),
   not a bare `vss`, to record the deployment, then defer to `vss-search-archive` for

@@ -36,11 +36,11 @@
 using namespace std;
 using namespace nv_vms;
 
-#define DEFAULT_ENCODER_WIDTH 1280
-#define DEFAULT_ENCODER_HEIGHT 720
+constexpr int DEFAULT_ENCODER_WIDTH = 1280;
+constexpr int DEFAULT_ENCODER_HEIGHT = 720;
 
 #ifdef ENABLE_FRAMEID_SUPPORT_IN_WEBRTC
-#define WEBRTC_INPUT_LATENCY_DUMP_INTERVAL_SEC 60
+constexpr int WEBRTC_INPUT_LATENCY_DUMP_INTERVAL_SEC = 60;
 #endif
 
 GstNvVideoEncoder::GstNvVideoEncoder (const string& device_name, const string& peer_id) :

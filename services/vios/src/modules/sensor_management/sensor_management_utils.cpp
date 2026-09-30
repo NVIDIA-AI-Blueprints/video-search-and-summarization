@@ -27,7 +27,7 @@
 #include "nvsoap.h"
 #include "database.h"
 
-#define SENSOR_DEFAULT_PREFIX_NAME "SENSOR"
+constexpr const char* SENSOR_DEFAULT_PREFIX_NAME = "SENSOR";
 
 #define CHECK_VALUE_IF_ERROR_RETURN(para, val, min, max)                                                                                    \
     if (!(val.empty() || min.empty() || max.empty()) && !(min == "0" && max == "0") && valueWithinRange(val, min, max) == false)            \
@@ -74,7 +74,7 @@
         }                                                                           \
     }
 
-#define WEBSOCKET_WAIT_TIME 10000
+constexpr int WEBSOCKET_WAIT_TIME = 10000;
 
 #define CHECK_DEVICE_MANAGER(obj) {\
                                     if (obj == nullptr) { \

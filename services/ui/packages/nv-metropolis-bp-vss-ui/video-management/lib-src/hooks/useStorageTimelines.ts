@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { StorageSizeResponse, StreamStorageInfo } from '../types';
 import { createApiEndpoints } from '../api';

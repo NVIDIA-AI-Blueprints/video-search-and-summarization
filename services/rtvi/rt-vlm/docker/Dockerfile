@@ -12,6 +12,7 @@ ARG TRITON_CUDA_IMAGE="nvcr.io/nvidia/tritonserver:26.03-py3@sha256:72d1d796b49a
 ARG VLLM_IMAGE="nvcr.io/nvidia/vllm:26.03-py3@sha256:13e327dad79e6e417f6687fec2ba76b0386d597082ec0ee003c1e964ec6ad0e7"
 ARG PDM_EXPORT_IMAGE="python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a"
 ARG MEDIA_PLATFORM="ds"
+ARG ARM_PLATFORM="igpu"
 ARG DEEPSTREAM_X86_SHA256="fcafb7b5e4fbdf38b752eb35807011b69b14af826d6807180288d4d3d9b1ecbc"
 ARG DEEPSTREAM_JETSON_SHA256="14813cb7da9eafdd01ceed52c1c8d85a3255612a9b1c2691f5ad3ad5c5d39c2e"
 FROM ${PDM_EXPORT_IMAGE} AS pdm-export
@@ -27,7 +28,30 @@ FROM ${DS_MEDIA_IMAGE} AS media-runtime-ds
 FROM ${DS_MEDIA_IMAGE} AS media-runtime-igpu
 FROM ${SBSA_MEDIA_IMAGE} AS media-runtime-sbsa
 FROM media-runtime-${MEDIA_PLATFORM} AS media-runtime
-FROM ${SBSA_MEDIA_IMAGE} AS sbsa-media-runtime
+
+# Keep the large SBSA image out of non-SBSA build graphs. The empty source
+# stage is safe because every mount from it is guarded by ARM_PLATFORM=sbsa.
+FROM scratch AS sbsa-media-igpu
+FROM ${SBSA_MEDIA_IMAGE} AS sbsa-media-sbsa
+FROM sbsa-media-${ARM_PLATFORM} AS sbsa-media-runtime
+
+# Use the SEI-capable nvunixfd plugin published by the RTVI DeepStream images.
+# Pin each source stage to its architecture so multi-platform builds resolve
+# the correct image even when the build host has a different architecture.
+FROM --platform=linux/amd64 nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-triton-dev111@sha256:de434d6dc97158b64bb6ee04fcc79796b0321932548742d0299c2b61541f063f AS nvunixfd-amd64
+FROM --platform=linux/arm64 nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-sbsa-255@sha256:a1bb05d3fa6259c56fcf0a009cda1ece566749c413a4e3ea110c64e2e9f0df58 AS nvunixfd-arm64
+FROM nvunixfd-${TARGETARCH} AS nvunixfd-prebuilt
+ARG TARGETARCH
+# The arm64 image installs the plugin in the system GStreamer directory while
+# the amd64 image installs it in the DeepStream plugin directory. Normalize
+# both layouts for the runtime stage below.
+RUN if [ "$TARGETARCH" = "arm64" ] && [ ! -s /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so ]; then \
+        test -s /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvunixfd.so \
+        && mkdir -p /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins \
+        && cp /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvunixfd.so \
+            /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so; \
+    fi \
+    && test -s /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so
 
 # DeepStream 9.1's x86 plugins require CUDA 13 NPP/NVJPEG libraries. They are
 # present in Triton 26.03 but intentionally absent from the lean vLLM image.
@@ -38,7 +62,7 @@ FROM ${TRITON_CUDA_IMAGE} AS triton-cuda-runtime
 FROM ${VLLM_IMAGE} AS rtvi-media
 
 ARG TARGETARCH
-ARG ARM_PLATFORM="sbsa"
+ARG ARM_PLATFORM
 ARG DEEPSTREAM_X86_SHA256
 ARG DEEPSTREAM_JETSON_SHA256
 
@@ -64,10 +88,11 @@ RUN --mount=type=bind,source=docker/base/requirements_apt.txt,target=/tmp/requir
     && apt install -y --no-install-recommends $(cat /tmp/requirements_apt.txt) \
     && rm -rf /var/lib/apt/lists/*
 
-# x86 and Jetson use public DeepStream 9.1 GitHub release assets. SBSA has no
-# package artifact, so its DeepStream payload is copied from the official SBSA
-# image in the next layer.
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
+# Install or copy DeepStream and apply the shared GPL/media cleanup in one
+# layer so removed SDK files do not consume space in an intermediate layer.
+# x86 and Jetson use public release assets; SBSA uses its official image.
+RUN --mount=from=sbsa-media-runtime,source=/,target=/tmp/sbsa-root,readonly \
+    if [ "$TARGETARCH" = "amd64" ]; then \
         curl -fL --retry 3 -o /tmp/deepstream_sdk_v9.1.0_x86_64.tbz2 \
             https://github.com/NVIDIA/DeepStream/releases/download/v9.1.0/deepstream_sdk_v9.1.0_x86_64.tbz2 \
         && echo "${DEEPSTREAM_X86_SHA256}  /tmp/deepstream_sdk_v9.1.0_x86_64.tbz2" | sha256sum -c - \
@@ -81,19 +106,13 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
         && tar xf /tmp/deepstream_sdk_v9.1.0_jetson.tbz2 -C / \
         && /opt/nvidia/deepstream/deepstream-9.1/install.sh \
         && rm /tmp/deepstream_sdk_v9.1.0_jetson.tbz2; \
-    fi
-
-RUN --mount=from=sbsa-media-runtime,source=/,target=/tmp/sbsa-root,readonly \
-    if [ "$TARGETARCH" = "arm64" ] && [ "$ARM_PLATFORM" = "sbsa" ]; then \
+    elif [ "$TARGETARCH" = "arm64" ] && [ "$ARM_PLATFORM" = "sbsa" ]; then \
         # DeepStream SBSA libraries under /opt use absolute links into tegra.
         mkdir -p /opt/nvidia/deepstream /usr/lib/aarch64-linux-gnu/tegra \
         && cp -a /tmp/sbsa-root/opt/nvidia/deepstream/. /opt/nvidia/deepstream/ \
         && cp -a /tmp/sbsa-root/usr/lib/aarch64-linux-gnu/tegra/. /usr/lib/aarch64-linux-gnu/tegra/; \
-    fi
-
-# Apply the shared base image's GPL/media removal policy. DeepStream's required
-# runtime remains under /opt/nvidia/deepstream and is not part of this cleanup.
-RUN rm -rf /usr/lib/*-linux-gnu/gstreamer-1.0/libgstaudioparsers.so \
+    fi \
+    && rm -rf /usr/lib/*-linux-gnu/gstreamer-1.0/libgstaudioparsers.so \
         /usr/lib/*-linux-gnu/gstreamer-1.0/libgstfaad.so \
         /usr/lib/*-linux-gnu/gstreamer-1.0/libgstvoaacenc.so \
         /usr/lib/*-linux-gnu/gstreamer-1.0/libgstx264.so \
@@ -291,11 +310,34 @@ RUN env -u PIP_CONSTRAINT -u PIP_BUILD_CONSTRAINT \
 # source trees in the runtime image.
 RUN --mount=from=media-runtime,source=/tmp99,target=/tmp/ds-gst,readonly \
     --mount=from=native-builder,source=/opt/native-artifacts/libgsttimestampfilter.so,target=/tmp/libgsttimestampfilter.so,readonly \
+    --mount=from=nvunixfd-prebuilt,source=/opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so,target=/tmp/libgstnvunixfd.so,readonly \
     multiarch=$(dpkg-architecture -qDEB_HOST_MULTIARCH) \
     && install -Dm755 /tmp/ds-gst/libgstrtpmanager.so /usr/lib/${multiarch}/gstreamer-1.0/libgstrtpmanager.so \
     && install -Dm755 /tmp/ds-gst/libgstrtsp.so /usr/lib/${multiarch}/gstreamer-1.0/libgstrtsp.so \
     && install -Dm755 /tmp/ds-gst/libgstvideoparsersbad.so /usr/lib/${multiarch}/gstreamer-1.0/libgstvideoparsersbad.so \
-    && install -Dm755 /tmp/libgsttimestampfilter.so /usr/lib/${multiarch}/gstreamer-1.0/libgsttimestampfilter.so
+    && install -Dm755 /tmp/libgsttimestampfilter.so /usr/lib/${multiarch}/gstreamer-1.0/libgsttimestampfilter.so \
+    && install -Dm755 /tmp/libgstnvunixfd.so \
+        /opt/nvidia/deepstream/deepstream/lib/gst-plugins/libgstnvunixfd.so
+
+# GStreamer resolves duplicate plugin names by scan order. Fail the build if a
+# different libgstnvunixfd.so on GST_PLUGIN_PATH could shadow the SEI-capable
+# plugin installed above. This runtime does not install gst-inspect-1.0, and
+# DeepStream plugins require GPU-mounted driver libraries that are unavailable
+# during docker build, so live element loading is validated at runtime rather
+# than in this static image-construction step.
+RUN installed=/opt/nvidia/deepstream/deepstream/lib/gst-plugins/libgstnvunixfd.so \
+    && test -s "$installed" \
+    && installed_sum="$(sha256sum "$installed" | cut -d' ' -f1)" \
+    && for gst_plugin_dir in $(echo "$GST_PLUGIN_PATH" | tr ':' '\n'); do \
+           other="$gst_plugin_dir/libgstnvunixfd.so"; \
+           [ "$other" = "$installed" ] && continue; \
+           [ -s "$other" ] || continue; \
+           other_sum="$(sha256sum "$other" | cut -d' ' -f1)"; \
+           if [ "$other_sum" != "$installed_sum" ]; then \
+               echo "libgstnvunixfd.so at $other differs from the SEI-capable plugin installed at $installed and could shadow it" >&2; \
+               exit 1; \
+           fi; \
+       done
 
 # Intelligent Frame Selection (IFS): nvdsframeselector.
 #

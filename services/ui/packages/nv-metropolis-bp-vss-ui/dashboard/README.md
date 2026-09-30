@@ -1,4 +1,8 @@
-<!-- SPDX-License-Identifier: MIT -->
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # @nv-metropolis-bp-vss-ui/dashboard
 
 A React component for embedding Kibana dashboards and other analytics platforms.

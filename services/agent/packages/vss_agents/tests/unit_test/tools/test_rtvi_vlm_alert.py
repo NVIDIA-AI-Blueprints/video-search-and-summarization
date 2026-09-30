@@ -58,8 +58,10 @@ class TestRTVIVLMAlertConfig:
             alert_bridge_url="http://localhost:9080",
             vst_internal_url="http://10.0.0.1:30888",
             va_get_incidents_tool="va_get_incidents",
+            va_get_incident_tool="va_get_incident",
         )
         assert config.va_get_incidents_tool == "va_get_incidents"
+        assert config.va_get_incident_tool == "va_get_incident"
 
     def test_missing_required_raises(self):
         with pytest.raises(ValidationError):
@@ -93,9 +95,13 @@ class TestRTVIVLMAlertInput:
             start_time="2026-01-06T00:00:00.000Z",
             end_time="2026-01-07T00:00:00.000Z",
             max_count=5,
+            incident_id="incident-123",
+            vlm_verified=True,
         )
         assert inp.action == "get_incidents"
         assert inp.max_count == 5
+        assert inp.incident_id == "incident-123"
+        assert inp.vlm_verified is True
 
     def test_defaults(self):
         inp = RTVIVLMAlertInput(action="start")
@@ -106,6 +112,8 @@ class TestRTVIVLMAlertInput:
         assert inp.start_time is None
         assert inp.end_time is None
         assert inp.max_count == 10
+        assert inp.incident_id is None
+        assert inp.vlm_verified is None
 
     def test_invalid_action_raises(self):
         with pytest.raises(ValidationError):

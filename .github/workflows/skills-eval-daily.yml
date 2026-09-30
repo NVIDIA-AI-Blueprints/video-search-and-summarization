@@ -201,6 +201,7 @@ jobs:
           # GitHub Actions secret.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CODEX_MODEL: ${{ vars.CODEX_MODEL }}
+          DAILY_HARNESS_INPUT: ${{ inputs.agent || 'claude-code' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
@@ -214,6 +215,7 @@ jobs:
           mkdir -p "$GH_CONFIG_DIR"
           skill_eval_venv_dir="$SKILL_EVAL_VENV"
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
+          daily_harness="$DAILY_HARNESS_INPUT"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
@@ -223,6 +225,13 @@ jobs:
           export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
           export VIRTUAL_ENV="$skill_eval_venv_dir"
           export PATH="$skill_eval_venv_dir/bin:$PATH"
+          # The Daily workflow intentionally keeps one agent selector. Apply
+          # it to both explicit routes so a Codex run also uses Codex for
+          # coding/deployment tasks rather than silently falling back to
+          # Claude Code.
+          export EVAL_AGENT="$daily_harness"
+          export SKILLS_EVAL_CODING_HARNESS="$daily_harness"
+          export SKILLS_EVAL_OPERATIONAL_HARNESS="$daily_harness"
           hash -r
           python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
@@ -231,6 +240,8 @@ jobs:
           if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
             export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
           fi
+          # Validate the selected routes before waiting for a GPU worker.
+          python3 .github/skill-eval/model_config.py
           # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
           # processes (reparented to PID 1, never killed) on every
           # `brev exec` when SSH_AUTH_SOCK is unset — at eval cadence that
@@ -267,7 +278,6 @@ jobs:
           export EVAL_SPEC_STEM="${{ matrix.spec_stem }}"
           export EVAL_PLATFORM="${{ matrix.platform }}"
           export DAILY_RUN="true"
-          export EVAL_AGENT="${{ inputs.agent || 'claude-code' }}"
           # Per-leg scratch scope. Every leg keys its datasets/results/
           # viewer under <slug>/<run_id> (slug = skill__spec_stem__platform)
           # so concurrent legs — and concurrent PR runs on the same host —

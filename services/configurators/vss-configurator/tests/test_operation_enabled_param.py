@@ -200,3 +200,15 @@ def test_trim_sample_videos_expression_quoted_sensor_source():
     assert mgr._evaluate_expression(mgr._substitute_env_vars(expr)) is True
     mgr.env_vars['SENSOR_INFO_SOURCE'] = 'msb'
     assert mgr._evaluate_expression(mgr._substitute_env_vars(expr)) is True
+
+
+def test_file_operation_unset_enabled_variable_is_skipped():
+    """An unresolved enabled variable must not accidentally enable an operation."""
+    ops = [
+        {'operation_type': 'json_update', 'enabled': '${MISSING_FLAG}',
+         'target_file': '/dummy.json', 'updates': {'x': 1}, 'backup': False},
+    ]
+    mgr = make_manager(_configs_with_ops(ops))
+    with patch.object(mgr, '_execute_json_update', return_value=True) as mock_exec:
+        mgr.execute_file_operations()
+    mock_exec.assert_not_called()

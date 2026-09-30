@@ -21,7 +21,7 @@
 
 using namespace std;
 
-static string gRecorderApiList = R"([
+static const string gRecorderApiList = R"([
         {"method": "GET - Get streams list", "endpoint": "api/v1/record/streams"},
         {"method": "GET - Get Recorder configuration", "endpoint": "api/v1/record/configuration"},
         {"method": "POST - Start Recording for all", "endpoint": "api/v1/record/start"},

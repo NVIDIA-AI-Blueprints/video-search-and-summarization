@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: MIT AND Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
@@ -60,8 +60,7 @@ export interface UseChatStreamResult {
  *
  * Only `data` crosses the wire: `id`, `label` and `contextType` exist for the
  * chip UI. `contextType` is stripped even if a caller duplicated it inside
- * `data`, matching the toolkit's Chat.tsx exactly — the agent prompt is written
- * against that shape.
+ * `data`. The agent prompt is written against that shape.
  */
 export function buildContextPrefix(items: QueryDataContext[]): string {
   if (!items.length) return '';
@@ -86,6 +85,7 @@ export function useChatStream(
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const cancelUrlRef = useRef<string | null>(null);
+  const cancelHeadersRef = useRef<Record<string, string> | undefined>(undefined);
 
   // Callbacks and message state are read through refs so `send` stays stable:
   // it is handed to embedders via onSubmitMessageReady, and a new identity on
@@ -113,9 +113,10 @@ export function useChatStream(
     if (!cancelUrl) return;
     void fetch(cancelUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(cancelHeadersRef.current ?? {}) },
       body: '{}',
     }).catch(() => undefined);
+    cancelHeadersRef.current = undefined;
   }, []);
 
   const abort = useCallback(() => {
@@ -179,6 +180,18 @@ export function useChatStream(
       const patchReply = (fn: (m: ChatMessage) => ChatMessage) =>
         setMessages((prev) => prev.map((m) => (m.id === replyId ? fn(m) : m)));
 
+      // A turn can end without a terminal frame — cancelled, or the stream
+      // dropped mid-step. Steps left `in_progress` keep animating as though
+      // the agent were still working on them, so settle them at every exit.
+      const settleSteps = (status: 'complete' | 'error') => {
+        for (let index = 0; index < steps.length; index += 1) {
+          if (steps[index].status === 'in_progress') {
+            steps[index] = { ...steps[index], status };
+          }
+        }
+        return [...steps];
+      };
+
       let answer = '';
       let failed = '';
       let agentTerminal = false;
@@ -198,6 +211,7 @@ export function useChatStream(
             patchReply((m) => ({ ...m, steps: [...steps] }));
           } else if (ev.kind === 'artifact') {
             artifactEnvelopes.push(ev.envelope);
+            patchReply((m) => ({ ...m, artifacts: [...artifactEnvelopes] }));
           } else if (ev.kind === 'interaction') {
             if (ev.interaction.prompt.input_type !== 'text') {
               throw new Error(`Unsupported interaction type: ${ev.interaction.prompt.input_type}`);
@@ -220,12 +234,7 @@ export function useChatStream(
             failed = ev.message;
           } else {
             agentTerminal = true;
-            for (let index = 0; index < steps.length; index += 1) {
-              if (steps[index].status === 'in_progress') {
-                steps[index] = { ...steps[index], status: 'complete' };
-              }
-            }
-            patchReply((m) => ({ ...m, streaming: false, steps: [...steps] }));
+            patchReply((m) => ({ ...m, streaming: false, steps: settleSteps('complete') }));
           }
         }
       };
@@ -266,6 +275,7 @@ export function useChatStream(
             throw new Error('agent API returned an invalid run');
           }
           cancelUrlRef.current = run.cancel_url;
+          cancelHeadersRef.current = agentEndpoint.headers;
 
           const eventsResponse = await fetch(run.events_url, {
             signal: controller.signal,
@@ -303,6 +313,7 @@ export function useChatStream(
             throw new Error('agent API event stream ended before the run completed');
           }
           cancelUrlRef.current = null;
+          cancelHeadersRef.current = undefined;
         } else {
           const response = await fetch(endpointRef.current.url, {
             method: 'POST',
@@ -335,6 +346,9 @@ export function useChatStream(
             await consume(parser.feed(decoder.decode(value, { stream: true })));
           }
           await consume([...parser.feed(decoder.decode()), ...parser.finish()]);
+          if (!agentTerminal && !failed) {
+            throw new Error('backend event stream ended before the response completed');
+          }
         }
 
         // An upload auto-prompt whose conversation the user has since left
@@ -355,6 +369,7 @@ export function useChatStream(
           ...m,
           content: answer,
           streaming: false,
+          steps: settleSteps(failed ? 'error' : 'complete'),
           error: failed || undefined,
           callerInfo: typeof callerInfo === 'string' ? callerInfo : undefined,
         }));
@@ -363,11 +378,13 @@ export function useChatStream(
         patchReply((m) => ({
           ...m,
           streaming: false,
+          steps: settleSteps('error'),
           error: aborted ? 'cancelled' : err instanceof Error ? err.message : String(err),
         }));
       } finally {
         if (!agentTerminal) cancelAgentRun();
         cancelUrlRef.current = null;
+        cancelHeadersRef.current = undefined;
         abortRef.current = null;
         setBusyBoth(false);
       }

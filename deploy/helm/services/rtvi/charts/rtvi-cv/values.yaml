@@ -190,8 +190,38 @@ standaloneWarehouse:
       # Truly-dynamic sensor count would be an image-side feature, not a Helm wrapper.
       maxExpectedSensors: "4"
       bufferDurationS: "2.0"
-      fusionMethod: "gated_weighted"
+      fusionMethod: "rays"
       visibilityMin: "0.3"
+      # Views further than this from their own camera are dropped before fusing.
+      # Raising it adds distant detections, which are the noisiest.
+      # "0" disables the gate.
+      maxDist: "30"
+      # Filter each fused track over time; stateful, so it can be switched off.
+      # pixelSigma is the box's bottom-edge jitter, accelSigma how hard a tracked
+      # object may accelerate in m/s^2.
+      temporalFilter: "1"
+      pixelSigma: "3.0"
+      accelSigma: "3.0"
+      # "auto" measures it from overlapping views; "off" or metres to pin it.
+      footOffset: "auto"
+      # Views of one id further apart than this are different people. "0" disables.
+      conflictRadius: "2.0"
+      # Buckets of publish delay to let a backward pass run. "0" is causal.
+      smoothLag: "0"
+      # Reject a fused step implying more than this, m/s. "0" disables.
+      maxSpeed: "10"
+      reacquire: "10"
+      # On re-acquisition publish a new id instead of leaping the old one.
+      # "0" keeps the id and accepts the jump.
+      splitOnReacquire: "1"
+      # ConfigMap holding a calibration.json key, mounted for the fusionMethod
+      # values that use camera geometry (rays, closest). Leave empty and the
+      # chart resolves one itself: its own ConfigMap when
+      # files/warehouse-standalone-mv3dt/calibration/calibration.json is
+      # supplied, else an init container fetching from
+      # dynamicCameraConfig.calibrationApiUrl, the same source the perception pod
+      # uses. With none of the three available those methods refuse to start.
+      calibrationConfigMap: ""
       resources: {}
     # Appearance-based ReID re-association. When enabled, the tracker config
     # gains the ReID and ReIDService blocks, the perception app runs with

@@ -16,11 +16,11 @@
       "id": "video-report-routing-mode-b",
       "question": "Which skill should handle a report on incidents for a sensor between two timestamps?",
       "expected_skill": "vss-generate-video-report",
-      "ground_truth": "Loads vss-generate-video-report and explains that incident-range report requests use Mode B: /vss-query-analytics with video_analytics__get_incidents, then references/report-templates/incident-range-report.md for the final report. It should note that Mode B does not call the VLM and does not use POST /generate.",
+      "ground_truth": "Loads vss-generate-video-report and explains that incident-range report requests use Mode B: /vss-query-analytics with project-local vss analytics incidents, then references/report-templates/incident-range-report.md for the final report. It should note that Mode B does not call the VLM and does not use POST /generate.",
       "expected_behavior": [
         "Loads vss-generate-video-report.",
         "Identifies Mode B for incident range reports.",
-        "Mentions /vss-query-analytics and video_analytics__get_incidents.",
+        "Mentions /vss-query-analytics and vss analytics incidents.",
         "Mentions references/report-templates/incident-range-report.md as the output template.",
         "States that Mode B does not use the VLM chat path or POST /generate."
       ]
@@ -137,11 +137,12 @@
       "id": "video-report-long-video-lvs-handoff",
       "question": "If the input video is longer than 2 minutes, what should the report skill do?",
       "expected_skill": "vss-generate-video-report",
-      "ground_truth": "Loads vss-generate-video-report and states direct Mode A VLM should stop for videos that are 120 seconds or longer and prompt the user to deploy/use LVS via /vss-build-vision-ai and /vss-summarize-video.",
+      "ground_truth": "Loads vss-generate-video-report and states that a clip of 120 seconds or longer never takes the direct Mode A VLM path: it hands off to /vss-summarize-video (LVS when ready, otherwise `vss vlm run`) and fills the report template from that output. Clips under 120 seconds stay on the direct Mode A VLM path.",
       "expected_behavior": [
         "Loads vss-generate-video-report.",
         "States videos of 120 seconds or longer should not continue on direct Mode A VLM path.",
-        "Prompts user to deploy/use LVS for long videos."
+        "Hands long videos to /vss-summarize-video instead of asking the user to deploy LVS.",
+        "Keeps clips under 120 seconds on the direct Mode A VLM path."
       ]
     },
     {
@@ -169,6 +170,15 @@
         "Offers auto-discover based suggestion option.",
         "Offers deploy local VLM option."
       ]
+    },
+    {
+      "id": "summarize-without-report-non-activation",
+      "question": "Summarize this long recording; I do not need a formatted report.",
+      "expected_skill": null,
+      "ground_truth": "This is a summarization request for vss-summarize-video, not a request to generate a report.",
+      "expected_behavior": [
+        "Does not activate vss-generate-video-report when a formatted report is explicitly excluded.",
+        "Routes the request to vss-summarize-video."
+      ]
     }
   ]
-  

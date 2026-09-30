@@ -45,8 +45,7 @@ from .primitives.tag_search import TagSearch
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from vss_core.critic import CriticAgent
-
+    from .critic import CriticAgent
     from .events import SearchEvent
     from .runtime import SearchRuntime
 
@@ -160,10 +159,9 @@ class VSSSearch:
 
         from pydantic import ValidationError
 
-        from vss_core.critic import CriticAgentInput
-        from vss_core.critic import CriticAgentResult
-        from vss_core.critic import VideoInfo
-
+        from .critic import CriticAgentInput
+        from .critic import CriticAgentResult
+        from .critic import VideoInfo
         from .models.search import SearchVerification
 
         candidate_indices: list[int] = []
@@ -216,6 +214,15 @@ class VSSSearch:
                     )
                 }
             )
+        # `evaluation_count` can truncate the critic run below the candidate
+        # count; the hits it did not evaluate stay at their model default of
+        # `unverified`. Surface that rather than silently dropping them -- the
+        # CLI passes no cap today, so this is a guard for callers that do.
+        if len(critic_output.video_results) < len(candidate_indices):
+            extra_messages.append(
+                f"Visual verification evaluated {len(critic_output.video_results)} of "
+                f"{len(candidate_indices)} retrieved hits; the rest remain unverified."
+            )
 
         # The critic degrades a failed candidate to `unverified` instead of
         # raising, so a deployment whose VLM answers /v1/models but fails every
@@ -225,7 +232,8 @@ class VSSSearch:
             verdict.result == CriticAgentResult.UNVERIFIED for verdict in critic_output.video_results
         ):
             extra_messages.append(
-                "Visual verification ran but produced no verdict for any hit; check the configured RT-VLM service."
+                "Visual verification ran but produced no verdict for any evaluated hit; "
+                "check the configured RT-VLM service."
             )
 
         update: dict[str, Any] = {"data": verified_results}

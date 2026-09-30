@@ -23,13 +23,13 @@
 #include "v4l2_nv_extensions.h"
 
 // dev-nodes for encoder and decoder
-#define  V4L2_DEVICE_PATH_NVDEC       "/dev/nvhost-nvdec"
-#define  V4L2_DEVICE_PATH_NVDEC_ALT   "/dev/v4l2-nvdec"
-#define  V4L2_DEVICE_PATH_NVENC       "/dev/nvhost-msenc"
-#define  V4L2_DEVICE_PATH_NVENC_ALT   "/dev/v4l2-nvenc"
+constexpr const char* V4L2_DEVICE_PATH_NVDEC = "/dev/nvhost-nvdec";
+constexpr const char* V4L2_DEVICE_PATH_NVDEC_ALT = "/dev/v4l2-nvdec";
+constexpr const char* V4L2_DEVICE_PATH_NVENC = "/dev/nvhost-msenc";
+constexpr const char* V4L2_DEVICE_PATH_NVENC_ALT = "/dev/v4l2-nvenc";
 
-#define ABSOLUTE_LIBRARY_PATH_X86_64 "/usr/lib/x86_64-linux-gnu/libv4l2.so.0"
-#define ABSOLUTE_LIBRARY_PATH_ARCH64 "/usr/lib/aarch64-linux-gnu/libv4l2.so.0"
+constexpr const char* ABSOLUTE_LIBRARY_PATH_X86_64 = "/usr/lib/x86_64-linux-gnu/libv4l2.so.0";
+constexpr const char* ABSOLUTE_LIBRARY_PATH_ARCH64 = "/usr/lib/aarch64-linux-gnu/libv4l2.so.0";
 
 NvLibs* NvLibs::getInstance()
 {

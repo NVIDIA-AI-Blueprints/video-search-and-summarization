@@ -34,7 +34,7 @@
 #include <chrono>
 #include <iostream>
 
-#define MAX_PACKET_BUFFER_SIZE_IN_MB 1 * 1024 * 1024
+constexpr int MAX_PACKET_BUFFER_SIZE_IN_MB = 1 * 1024 * 1024;
 
 SessionSink::SessionSink(UsageEnvironment& env, SessionCallback* callback, bool qosmode)
 	: MediaSink(env)

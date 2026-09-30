@@ -191,7 +191,9 @@ reach (typically `VST_EXTERNAL_URL` equal to the public origin).
 
 Main host pattern: `vss.<ip>.nip.io` (Helm `dev-profile-alerts`) — same family as
 base/lvs, not `vss-search.*`. Stock Ingress publishes Agent, VIOS, Alert Bridge,
-and VA-MCP (path-rewrite strips the public prefix):
+and Video Analytics API. VA-MCP is published only when the resolved service
+graph explicitly selects the legacy MCP interface (path-rewrite strips the
+public prefix):
 
 | Capability | Public endpoint |
 |---|---|
@@ -199,22 +201,25 @@ and VA-MCP (path-rewrite strips the public prefix):
 | Realtime rules | `GET`/`POST`/`DELETE ${VSS_PUBLIC_URL}/alert-bridge/api/v1/realtime` |
 | Realtime incidents | `GET ${VSS_PUBLIC_URL}/alert-bridge/api/v1/realtime/incidents` |
 | On-demand / verifier config | `${VSS_PUBLIC_URL}/alert-bridge/api/v1/verification/...` |
-| VA-MCP health | `GET ${VSS_PUBLIC_URL}/va-mcp/health` (rewritten to `/health`; prefer over `/mcp` or `/`) |
-| VA-MCP | `${VSS_PUBLIC_URL}/va-mcp/mcp` (rewritten to `/mcp`) |
+| VA-MCP health (legacy service selected only) | `GET ${VSS_PUBLIC_URL}/va-mcp/health` (rewritten to `/health`; prefer over `/mcp` or `/`) |
+| VA-MCP (legacy service selected only) | `${VSS_PUBLIC_URL}/va-mcp/mcp` (rewritten to `/mcp`) |
 | VIOS list/inspect | `GET ${VST_API_BASE}/sensor/list`, … |
 | Agent generate | `POST ${VSS_PUBLIC_URL}/generate` — **not** for rule CRUD |
 | NvStreamer HTTP | `${VSS_STREAMER_URL}/api/v1/...` — separate `streamer.*` host |
 
-Derive Alert Bridge and VA-MCP from the **public origin** (force; ignore leftover
-Docker host-port env):
+Derive Alert Bridge from the **public origin** (force; ignore leftover Docker
+host-port env). Derive VA-MCP only when `vss-va-mcp` is in the resolved graph:
 
 ```bash
 # Kubernetes — path-rewrite strips /alert-bridge and /va-mcp on the Service.
 ALERT_BRIDGE_URL="${VSS_PUBLIC_URL%/}/alert-bridge"
-VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+if docker compose -f "$BUILD_DIR/resolved.yml" config --services |
+  grep -qx vss-va-mcp; then
+  VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+fi
 # Docker Compose (unchanged host ports)
 # ALERT_BRIDGE_URL=http://${HOST_IP}:9080
-# VA_MCP_URL=http://${HOST_IP}:9901
+# VA_MCP_URL=http://${HOST_IP}:9901  # explicit legacy selection only
 ```
 
 **Not on stock alerts Ingress** (Docker host ports / private backends only):
@@ -227,7 +232,8 @@ Alerts operate skills for the docs walkthrough (real-time mode):
 
 - `vss-manage-video-io-storage` — VIOS via `${VST_API_BASE}`
 - `vss-manage-alerts` — Alert Bridge via `${ALERT_BRIDGE_URL}` (Workflows C/D; never Agent `/generate` for rules)
-- `vss-query-analytics` / report Mode B — probe `${VA_MCP_URL}/health`, then MCP via `${VA_MCP_URL}/mcp`
+- `vss-query-analytics` — `vss configure check`, then the read-only
+  `vss analytics` commands through the recorded `/video-analytics-api` route
 
 ## Docker Compose
 
@@ -280,8 +286,9 @@ The two runtime paths resolve endpoints by **different** mechanisms, and the
 asymmetry is deliberate — each matches the vantage it runs from:
 
 - **Read / query → `vss configure`** against the build origin (the block above).
-  The search CLI takes no endpoints, so ingress-routed URLs for VST, Elasticsearch,
-  RT-Embed, and RT-CV all come from the recorded config. There is **no
+  The CLI takes no per-command endpoints, so ingress-routed URLs for VST,
+  Elasticsearch, Video Analytics API, RT-Embed, and RT-CV all come from the
+  recorded config. There is **no
   ingress-less read path**: a build must front the operate route-set (see
   `services/ingress.md`) to be queryable from the host CLI.
 - **Write / provision → loopback host ports**, *not* `vss configure`. The caller
@@ -293,12 +300,13 @@ asymmetry is deliberate — each matches the vantage it runs from:
   mechanisms do not overlap — except on a build that fronts RT-VLM for the tagging
   leg, where the RT-VLM tagging call may also use the recorded `/rtvi-vlm` origin
   from a remote host; loopback stays the lower-latency choice from the deploy host.
-- **RT-VLM is loopback-only by default**, but fronted at `/rtvi-vlm` on builds that
-  resolve the VLM **tagging** capability (see `services/ingress.md`), so the tagging
-  leg can be driven from any host that reaches the origin. `vss configure` then
-  records `rt_vlm` present (activating the search CLI's fail-open critic). On builds
-  that use RT-VLM only for Critic verification, it stays loopback-only
-  (`http://${HOST_IP:-127.0.0.1}:${RTVI_VLM_PORT:-8018}`) and records `absent`.
+- **RT-VLM is loopback-only by default**, but fronted at `/rtvi-vlm` on any build
+  whose host drives it — hand-driven tagging, or Critic verification and visual
+  Q&A (see `services/ingress.md`). `vss configure` then records `rt_vlm` present,
+  which is what enables the search CLI's critic — it builds the critic stack from
+  that recorded URL, so a build recording `absent` runs search without one rather
+  than failing. Only a build that never drives RT-VLM from the host keeps it
+  loopback-only (`http://${HOST_IP:-127.0.0.1}:${RTVI_VLM_PORT:-8018}`).
 
 ## Kubernetes consumer contract (no port-forward)
 
@@ -314,14 +322,17 @@ VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 # LVS client base is the /lvs mount (no /v1 suffix) — the bare origin is the
 # UI catch-all; ignore Docker-derived values:
 LVS_BACKEND_URL="${VSS_PUBLIC_URL}/lvs"
-# Alerts — force public prefixes; ignore leftover Docker :9080 / :9901:
+# Alerts — force public prefixes; ignore leftover Docker :9080:
 ALERT_BRIDGE_URL="${VSS_PUBLIC_URL}/alert-bridge"
-VA_MCP_URL="${VSS_PUBLIC_URL}/va-mcp"
+# Only an explicitly selected legacy MCP workflow defines:
+# VA_MCP_URL="${VSS_PUBLIC_URL}/va-mcp"
 ```
 
-The public Agent, VIOS (`/vst`), and — when the profile deploys them — RT-VLM
-(`/rtvi-vlm`), LVS (`/lvs`), Alert Bridge (`/alert-bridge`), and VA-MCP
-(`/va-mcp`) routes are the supported operate interfaces. Operate skills do not read
+The public Agent, VIOS (`/vst`), Video Analytics API
+(`/video-analytics-api`), and — when the profile deploys them — RT-VLM
+(`/rtvi-vlm`), LVS (`/lvs`), Alert Bridge (`/alert-bridge`), and explicitly
+selected legacy VA-MCP (`/va-mcp`) routes are supported operate interfaces.
+Operate skills do not read
 Deployments, ConfigMaps, Services, Secrets, or Helm values, and do not use
 Service DNS, NodePorts, guessed release names, `kubectl port-forward`, or
 `kubectl`/`docker exec` into pods.
@@ -332,9 +343,10 @@ forward them merely to satisfy host-side operate checks. Where a backend *is*
 deployed it is on the public origin at its canonical mount, the same on every
 profile: `${VSS_PUBLIC_URL}/rtvi-vlm/v1` is the supported public operate path for
 `vss-ask-video` and `vss-generate-video-report` Mode A, and
-`${VSS_PUBLIC_URL}/lvs/v1/ready` / `/lvs/v1/summarize` for `vss-summarize-video`. On the alerts profile, `${VSS_PUBLIC_URL}/alert-bridge`
-and `${VSS_PUBLIC_URL}/va-mcp` are the supported public operate paths for
-`vss-manage-alerts` and `vss-query-analytics`.
+`${VSS_PUBLIC_URL}/lvs/v1/ready` / `/lvs/v1/summarize` for
+`vss-summarize-video`. On the alerts profile, Alert Bridge serves
+`vss-manage-alerts`, while the configured `/video-analytics-api` route serves
+`vss-query-analytics` through `vss analytics`.
 
 ## Authentication boundary
 

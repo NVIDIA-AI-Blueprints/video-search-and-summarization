@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from typing import Any
 from unittest.mock import MagicMock
 
+from click.testing import CliRunner
 from pydantic import BaseModel
 import pytest
 
@@ -86,6 +87,79 @@ def test_search_exposes_only_the_safe_persistence_opt_out() -> None:
     assert {"--write-memory-note", "--no-write-memory-note"} <= options
 
 
+def test_search_cli_resolves_fusion_flags_at_invocation_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise Click parsing and the runtime handoff, not only the resolver helper."""
+    deployment = config_mod.Deployment(
+        base_url="http://h:7777",
+        services={
+            "elasticsearch": config_mod.Service(url="http://h:7777/elasticsearch"),
+            "rt_embed": config_mod.Service(url="http://h:7777/cosmos-embed"),
+            "rtvi_cv": config_mod.Service(url="http://h:7777/rtvi-cv"),
+        },
+    )
+    captured: list[dict[str, Any]] = []
+
+    def runtime_from(_deployment: Any, tuning: dict[str, Any] | None = None) -> MagicMock:
+        captured.append(dict(tuning or {}))
+        return MagicMock()
+
+    async def critic_from(
+        _deployment: Any, eval_count: int | None = None
+    ) -> tuple[None, None, None]:
+        del eval_count
+        return None, None, None
+
+    class _VSS:
+        async def __aenter__(self) -> Any:
+            return self
+
+        async def __aexit__(self, *_args: Any) -> None:
+            return None
+
+        async def search(self, **_kwargs: Any) -> SearchOutput:
+            return _search_output(0)
+
+        @classmethod
+        def from_runtime(cls, *_args: Any, **_kwargs: Any) -> Any:
+            return cls()
+
+    monkeypatch.setattr("vss_cli.group.context_from", lambda _values: Context(deployment=deployment))
+    monkeypatch.setattr("vss_cli.search.group._runtime_from", runtime_from)
+    monkeypatch.setattr("vss_cli.search.group._critic_from", critic_from)
+    monkeypatch.setattr("vss_core.search_core.host.VSSSearch", _VSS)
+    cli = SearchGroup().cli()
+    runner = CliRunner()
+
+    default = runner.invoke(cli, ["run", "fusion", "--query", "forklift", "--no-persist"])
+    automatic = runner.invoke(
+        cli,
+        ["run", "fusion", "--query", "forklift", "--w-tag", "0.2", "--no-persist"],
+    )
+    contradictory = runner.invoke(
+        cli,
+        [
+            "run",
+            "fusion",
+            "--query",
+            "forklift",
+            "--w-tag",
+            "0.2",
+            "--fusion-method",
+            "rrf",
+            "--no-persist",
+        ],
+    )
+
+    assert default.exit_code == 0, default.output
+    assert automatic.exit_code == 0, automatic.output
+    assert captured == [
+        {"fusion_method": "rrf"},
+        {"w_tag": 0.2, "fusion_method": "weighted_rrf"},
+    ]
+    assert contradictory.exit_code == int(Exit.INVALID_INPUT)
+    assert "has no VLM tag leg" in contradictory.output
+
+
 @pytest.fixture
 def search_group(monkeypatch: pytest.MonkeyPatch) -> SearchGroup:
     group = SearchGroup()
@@ -94,8 +168,8 @@ def search_group(monkeypatch: pytest.MonkeyPatch) -> SearchGroup:
         lambda *_args, **_kwargs: MagicMock(),
     )
 
-    async def _critic(_deployment: Any) -> tuple[None, None]:
-        return None, None
+    async def _critic(_deployment: Any, *, eval_count: int | None = None) -> tuple[None, None, None]:
+        return None, None, None
 
     monkeypatch.setattr("vss_cli.search.group._critic_from", _critic)
 
@@ -484,3 +558,47 @@ def test_search_get_status_list_parent_oriented(search_group: SearchGroup) -> No
     assert len(listed.body) == 1
     assert "record_id" not in listed.body[0]["job"]
     assert "children" not in listed.body[0]
+
+
+def test_search_get_preserves_zero_hit_critic_diagnostic(
+    search_group: SearchGroup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A persisted empty search must retain why visual verification was disabled."""
+
+    reason = "no RT-VLM route is configured"
+
+    async def disabled_critic(_deployment: Any, *, eval_count: int | None = None) -> tuple[None, None, str]:
+        _ = eval_count
+        return None, None, reason
+
+    class _EmptyVSS:
+        async def __aenter__(self) -> Any:
+            return self
+
+        async def __aexit__(self, *_args: Any) -> None:
+            return None
+
+        async def search(self, **_kwargs: Any) -> SearchOutput:
+            return SearchOutput(data=[])
+
+        @classmethod
+        def from_runtime(cls, *_args: Any, **_kwargs: Any) -> Any:
+            return cls()
+
+    monkeypatch.setattr("vss_cli.search.group._critic_from", disabled_critic)
+    monkeypatch.setattr("vss_core.search_core.host.VSSSearch", _EmptyVSS)
+    service = MemoryService(InMemoryStore())
+    ctx = Context(
+        deployment=_deployment(),
+        memory=Memory(service, index="vss-memory"),
+    )
+
+    run = search_group.run("embed", _inputs(), ctx)
+    got = search_group.get(run.job_id, ctx)
+
+    diagnostic = f"Visual verification disabled: {reason}."
+    assert run.body["data"] == []
+    assert run.body["search_messages"] == [diagnostic]
+    assert got.body["output"]["answer"] == "Found 0 matching video segments."
+    assert got.body["output"]["ext"]["search_messages"] == [diagnostic]

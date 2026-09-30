@@ -55,13 +55,30 @@ vstIngressEndpoint: ""   # default: <Release>-vss-vios-ingress:30888/vst (host:p
 redisServerAddress: ""
 # Kafka and MQTT use notification_config.json placeholders; video metadata and cloud storage remain in vst_config.json. Empty = release-based or Compose default.
 kafkaServerAddress: ""
+# Search-profile webhook targets. Empty values derive the in-cluster Service
+# names and honor global.useReleaseNamePrefix.
+rtviCvServerAddress: ""
+rtviEmbedServerAddress: ""
 # RT-VLM webhook target (__RTVI_VLM_ADDRESS__). Empty = vss-rtvi-vlm:8000, or
 # <Release.Name>-vss-rtvi-vlm:8000 when global.useReleaseNamePrefix is true.
 rtviVlmServerAddress: ""
+elasticsearchServerAddress: ""
 # Optional complete notification_config.json. Empty uses the chart default;
-# global.vios.notificationConfig provides one shared config to sensor and streamprocessing.
+# global.vios.notificationConfig provides one shared inline config to sensor and streamprocessing.
+# global.vios.streamprocessingNotificationConfigMapName (falling back to
+# global.vios.notificationConfigMapName) overlays a parent-chart ConfigMap key
+# notification_config.json (Search loads configs/vios/notification_config.json this way).
+# Logical name only; when useReleaseNamePrefix is true the release is prepended.
+# Set notificationConfig on this subchart to skip the overlay and use this JSON instead.
 notificationConfig: ""
+notificationConfigMapName: ""
+# message_broker fields in notification_config.json. Empty = chart default (redis/mdx-raw).
+messageBrokerConsumer: ""
+messageBrokerTopicConsumer: ""
+messageBrokerMetadataTopic: ""
 videoMetadataServerUrl: ""
+videoMetadataIndexPattern: ""
+overlaySensorName: ""
 cloudStorageEndpoint: ""
 mqttBrokerAddress: ""
 # Comma-separated static TURN URLs (username:password@host:port). Empty = STUN only,
@@ -147,6 +164,14 @@ securityContext:
 # Set true to use FFmpeg software encode/decode instead of GPU hardware path.
 # Must be paired with resources: null so the pod is not scheduled requiring a GPU.
 useSoftwarePath: false
+
+# Base download timeout in seconds, rendered into download_files_timeout_secs.
+# Paths that consume it directly (video_download.cpp -> waitForCompletion) time out at
+# exactly this value, so 120 still yields a 120-second timeout there. A pipeline that
+# keeps reporting progress (GstNvElements::pollBusMessages) may extend its own budget
+# incrementally, up to a ceiling of at least 600 seconds.
+# Increase for long videos when using the software encoding path.
+downloadFilesTimeoutSecs: 120
 
 # Request 1 GPU for HW encode/decode (matches Docker runtime: nvidia). Requires NVIDIA device plugin on nodes.
 resources:

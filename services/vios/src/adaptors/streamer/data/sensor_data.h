@@ -30,8 +30,8 @@ namespace nv_vms {
 class SensorDataCollector : public ISensorDiscoveryInterface
 {
     public:
-        SensorDataCollector() {}
-        virtual ~SensorDataCollector() {}
+        SensorDataCollector() = default;
+        virtual ~SensorDataCollector() = default;
 
     //ISensorDiscoveryInterface Interfaces
     void start();

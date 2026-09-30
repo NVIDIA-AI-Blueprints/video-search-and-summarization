@@ -178,7 +178,9 @@ export RTVI_VLM_URL=http://rtvi-vlm:8000     # URL of the RT-VLM service
 # Optional: set if RT-VLM should use a different NGC credential than NGC_CLI_API_KEY
 # export RTVI_VLM_API_KEY=<>
 # Optional: override the default local RT-VLM image
-# export RTVI_VLM_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2
+# The default is a pre-release development image; see
+# https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization#container-image-availability
+# export RTVI_VLM_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
 
 # RT-VLM model backend (mandatory when using `--profile rtvi`; no default —
 # rtvi-vlm refuses to start without it, see "RT-VLM model configuration" below)

@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Embedded external-agent adapter
 
 The VSS UI's Next.js process contains the trusted adapter between browser chat
@@ -28,7 +33,9 @@ The principal settings are:
 - `AGENT_RUN_RETENTION_SECONDS` and `AGENT_MAX_*`: optional in-process replay
   retention and memory bounds. `AGENT_MAX_RETAINED_CHARS` bounds all retained
   run requests, events, and Responses thread state; it defaults to 64 million
-  serialized characters.
+  serialized characters. Browser-entered gateway tokens share one bounded run
+  store. Replay retention is best effort: when that store reaches capacity, its
+  oldest completed run may be evicted before the retention window expires.
 
 The adapter connects to an already-configured harness. It does not install
 Skills, provision a CLI, or modify the harness's identity, memory, or history.
@@ -62,3 +69,20 @@ explicitly enabled its structured interaction tools.
 Run creation accepts an optional `Idempotency-Key`. Event streams support
 `Last-Event-ID` replay while retained. Interaction responses remain
 unsupported and return a conflict response.
+
+## Snapshot artifacts
+
+Snapshot tool results are normalized at the adapter boundary, independently of
+the selected harness protocol. The adapter recognizes the VSS CLI
+`kind: "snapshot"`/`media_url` result, native agent `snapshot_urls`, and
+`image_url` tool results. OpenClaw image-read results are also accepted when
+they contain a bounded base64 payload with an allowlisted raster MIME type;
+SVG and malformed payloads are rejected. The adapter emits a version 1.0
+`vss.media.image` artifact, which the shared chat renderer displays with
+fullscreen and download controls.
+
+VIOS container hostnames and bare `/storage` paths are rewritten to the UI's
+same-origin `/vst/...` route. Sandbox-local paths such as `/tmp/image.jpg` are
+not browser-accessible and are rejected instead of being presented as a broken
+image. When OpenClaw reads such a file as an image attachment, the validated
+bytes are carried in the artifact instead of exposing the sandbox path.

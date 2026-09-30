@@ -29,7 +29,7 @@ std::shared_ptr<Websocket> Websocket::m_instance = nullptr;
 
 using namespace std;
 
-#define WEBSOCKET_TIMEOUT_THREAD_COUNT 1
+constexpr int WEBSOCKET_TIMEOUT_THREAD_COUNT = 1;
 
 void Websocket::addConnection(std::string peerId, struct mg_connection *conn)
 {

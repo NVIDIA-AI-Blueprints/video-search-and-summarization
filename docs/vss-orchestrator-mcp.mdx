@@ -15,7 +15,7 @@ The notebook starts the MCP server with this config file:
 
 The registered function group implementation lives in:
 
-* `services/agent/src/vss_agents/orchestrator/tools.py`
+* `services/agent/packages/vss_agents/src/vss_agents/orchestrator/tools.py`
 
 Before starting the server outside the notebook, verify the absolute paths in the YAML match your checkout and writable data locations:
 
@@ -42,7 +42,7 @@ This section documents the environment variables read by the MCP server process.
 | --- | --- |
 | `NGC_CLI_API_KEY` | Propagated into the generated VSS env, where the containers use it to download model weights from NGC. |
 | `NVIDIA_API_KEY` | Propagated into generated VSS env for NVIDIA-hosted endpoints. |
-| `HARDWARE_PROFILE` | Hardware profile applied by the orchestrator. Supported values are `H100`, `L40S`, `RTXPRO6000BW`, `DGX-SPARK`, `IGX-THOR`, `AGX-THOR`, and `OTHER`. Edge profiles (`DGX-SPARK`, `IGX-THOR`, `AGX-THOR`) are valid only for `base` and `alerts`. |
+| `HARDWARE_PROFILE` | Hardware profile applied by the orchestrator. Supported values are `H100`, `GB300`, `L40S`, `RTXPRO4500BW`, `RTXPRO6000BW`, `DGX-SPARK`, `IGX-THOR`, `AGX-THOR`, and `OTHER`. For `GB300`, the orchestrator applies `VSS_CONTAINER_TAG_SUFFIX=-sbsa` and `RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN`. Edge profiles (`DGX-SPARK`, `IGX-THOR`, `AGX-THOR`) are valid only for `base` and `alerts`. |
 | `EXTERNAL_IP` | Externally reachable host IP used when generating URLs. If blank, the notebook resolves it from `hostname -I`. |
 | `OPENAI_API_KEY` | Key used by generated VSS services when remote OpenAI-compatible LLM/VLM endpoints are configured. |
 | `LLM_ENDPOINT_URL`, `LLM_NAME`, `LLM_MODEL_TYPE` | Force the deployed VSS LLM path to remote mode and set its endpoint/model metadata. |

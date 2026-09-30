@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# LVS profile — install overrides (equiv. dev-profile.sh up -p lvs -H H100, bp_developer_lvs_2d)
+# LVS profile — install overrides for an H100-based full LVS stack.
 # Install: helm upgrade --install vss . -f values-lvs.yaml -n vss --create-namespace
 #
 # Set ngc.apiKey, global.storageClass, global.externalHost (+ optional scheme/port), global.kibanaPublicUrl, and vssIngress as needed.

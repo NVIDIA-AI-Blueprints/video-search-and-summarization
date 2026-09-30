@@ -22,6 +22,11 @@
 class DashHttpHandler final : public CivetHandler
 {
 public:
+    /* Only the two-argument forms are overridden; keep the inherited
+     * status-code overloads visible rather than hiding them. */
+    using CivetHandler::handleGet;
+    using CivetHandler::handleHead;
+
     bool handleGet(CivetServer* server, struct mg_connection* connection) override;
     /* A player synchronising its clock against this deployment asks the
      * manifest for the time with HEAD, and civetweb routes that here rather

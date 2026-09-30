@@ -116,7 +116,7 @@ def _skill_dir(skill: str) -> pathlib.Path:
 
 
 def _skill_reldir(skill: str) -> str:
-    """Repo-relative posix dir for a skill, e.g. skills/benchmarking/benchmark-video-summarization."""
+    """Repo-relative posix dir for a skill, e.g. skills/benchmarking/vss-benchmark-video-summarization."""
     return _skill_dir(skill).relative_to(REPO_ROOT).as_posix()
 
 

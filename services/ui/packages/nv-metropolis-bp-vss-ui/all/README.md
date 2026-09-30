@@ -1,4 +1,8 @@
-<!-- SPDX-License-Identifier: MIT -->
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # @nv-metropolis-bp-vss-ui/all
 
 Aggregator package that re-exports all Metropolis VSS UI components. This package demonstrates SSR-enabled boilerplate architecture.

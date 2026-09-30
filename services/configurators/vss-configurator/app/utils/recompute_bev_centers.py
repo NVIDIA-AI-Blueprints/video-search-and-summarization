@@ -14,13 +14,22 @@
 # limitations under the License.
 
 from typing import List
-from spatialai_data_utils.core.cameras.bev import calculate_group_origins_from_calibration
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-def recompute_bev_centers(calibration_file: str, sensor_names: List[str], n_sensor_groups: int, max_sensors_per_group: int) -> str:
+
+def recompute_bev_centers(
+    calibration_file: str,
+    sensor_names: List[str],
+    n_sensor_groups: int,
+    max_sensors_per_group: int,
+) -> str:
     """Recompute BEV groups from calibration file."""
+    from spatialai_data_utils.core.cameras.bev import (
+        calculate_group_origins_from_calibration,
+    )
+
     logger.debug(f"Sensor names: {sensor_names}")
     logger.debug(f"N sensor groups: {n_sensor_groups}")
     logger.debug(f"Max sensors per group: {max_sensors_per_group}")

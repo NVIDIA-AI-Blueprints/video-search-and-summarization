@@ -87,26 +87,18 @@ To learn more about customizing agent report generation, see [Report Generation]
 ## Adding a Knowledge Layer (RAG)
 
 Opt-in. A pluggable retrieval surface registered as `_type: knowledge_retrieval`,
-exposed to the LLM as a named tool. Six backends ship today — two in the default
-agent image, four behind opt-in Python extras (marked *experimental* below):
+exposed to the LLM as a named tool. This page documents five backends — one in the
+default agent image and four behind opt-in Python extras (marked *experimental* below):
 
 | Backend | Use case | `backend_config` fields |
 | --- | --- | --- |
 | `frag_api` | Document grounding via a deployed [NVIDIA RAG Blueprint](https://github.com/NVIDIA-AI-Blueprints/rag) rag-server. | \| `rag_url` \| `collection_name` \| `api_key` *(optional)* |
-| `es_caption` | Q&A over stored Video Summarization stream captions in Elasticsearch. | \| `elasticsearch_url` \| `index` (default: `default_*`) \| `api_key` *(optional)* |
 | `frag_lib` *(experimental)* | In-process document grounding via the [nvidia-rag](https://pypi.org/project/nvidia-rag/) Python library (no rag-server hop). | \| `milvus_uri` \| `collection_name` \| `embedder_base_url`, `embedder_model_name` \| `llm_base_url`, `llm_model_name` |
 | `langchain` *(experimental)* | Embedded Chroma vector store via LangChain. Requires a pre-built persist directory mounted into the agent. | \| `persist_dir` \| `collection_name` \| `embed_model`, `embed_base_url` \| `embed_api_key` |
 | `llama_index` *(experimental)* | Embedded Chroma vector store via LlamaIndex. Requires a pre-built persist directory mounted into the agent. | \| `persist_dir` \| `collection_name` \| `embed_model`, `embed_base_url` \| `embed_api_key` |
 | `arango_graph` *(experimental)* | Relationship-aware retrieval from an existing ArangoDB graph. The backend generates read-only ArangoDB Query Language (AQL) queries. | \| ArangoDB connection fields \| `allow_dangerous_requests` \| `schema_description` *(optional)* \| `graph_semantics` *(optional)* \| Collection allowlists *(optional)* |
 
-`frag_api` and `es_caption` also accept `verify_ssl` and `timeout`.
-`es_caption` is already wired into the Video Summarization profile as
-`lvs_caption_retrieval` (see [Agent Profiles](/vss/vision-agent/vss-agents/agent-profiles)).
-
-<Note>
-Filtering by stream name is not supported today; by default it searches all matching
-indices (per the `index` pattern) and uses the stream ID as a filter.
-</Note>
+`frag_api` also accepts `verify_ssl` and `timeout`.
 
 To enable an experimental backend, add `--extra <backend>` to the `uv sync` line in
 `services/agent/docker/Dockerfile` and rebuild the agent image.
@@ -120,7 +112,7 @@ patches:
 functions:
   my_retriever:                 # tool name surfaced to the LLM
     _type: knowledge_retrieval
-    backend: frag_api           # or es_caption
+    backend: frag_api
     top_k: 5
     backend_config:
       # backend-specific fields per the table above

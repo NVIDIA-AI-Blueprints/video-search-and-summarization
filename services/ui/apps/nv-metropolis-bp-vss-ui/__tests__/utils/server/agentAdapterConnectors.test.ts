@@ -8,6 +8,7 @@ import { OpenClawConnector } from "../../../utils/server/agentAdapter/connectors
 import { ResponsesConnector } from "../../../utils/server/agentAdapter/connectors/responses";
 import type { WebSocketLike } from "../../../utils/server/agentAdapter/connectors/websocket";
 import { parseCreateRunRequest } from "../../../utils/server/agentAdapter/contract";
+import { AgentAdapterService } from "../../../utils/server/agentAdapter/service";
 
 const config = (
   overrides: Partial<AgentAdapterConfig> = {}
@@ -57,7 +58,7 @@ class FakeOpenClawSocket extends EventTarget implements WebSocketLike {
   private sessionKey = "";
   private runId = "";
 
-  constructor() {
+  constructor(private readonly imageMode?: "final" | "read") {
     super();
     queueMicrotask(() => {
       this.readyState = 1;
@@ -116,7 +117,20 @@ class FakeOpenClawSocket extends EventTarget implements WebSocketLike {
           payload: {
             sessionKey: this.sessionKey,
             runId: this.runId,
-            data: { id: "tool-1", name: "vss", phase: "started" },
+            data:
+              this.imageMode === "read"
+                ? {
+                    id: "tool-1",
+                    name: "tool_call",
+                    phase: "started",
+                    args: {
+                      id: "openclaw:core:read",
+                      args: {
+                        path: "/sandbox/.openclaw/workspace/warehouse_safety_0002_12.5s.jpg",
+                      },
+                    },
+                  }
+                : { id: "tool-1", name: "vss", phase: "started" },
           },
         });
         this.message({
@@ -129,7 +143,10 @@ class FakeOpenClawSocket extends EventTarget implements WebSocketLike {
               id: "tool-1",
               name: "vss",
               phase: "completed",
-              result: { ok: true },
+              result:
+                this.imageMode === "read"
+                  ? '{"result":{"content":[]}}[... 100 more characters truncated; rerun with narrower args if needed]'
+                  : { ok: true },
             },
           },
         });
@@ -150,6 +167,23 @@ class FakeOpenClawSocket extends EventTarget implements WebSocketLike {
             sessionKey: this.sessionKey,
             runId: this.runId,
             state: "final",
+            ...(this.imageMode === "final"
+              ? {
+                  message: {
+                    content: [
+                      { type: "text", text: "Found it" },
+                      {
+                        type: "image",
+                        url: `/api/chat/media/outgoing/${encodeURIComponent(
+                          this.sessionKey
+                        )}/797be77f-b6ce-47bd-b4ef-a95fdc2586d9/full`,
+                        alt: "warehouse_safety_0002_12.5s---939218c3-85e1-4221-9fcd-ba731cadfa93.jpg",
+                        mimeType: "image/jpeg",
+                      },
+                    ],
+                  },
+                }
+              : {}),
           },
         });
       });
@@ -234,10 +268,74 @@ describe("embedded adapter connectors", () => {
         model: "agent",
         stream: true,
         store: true,
-        tools: [expect.objectContaining({ name: "vss_ui_publish_artifact" })],
+        tools: [
+          expect.objectContaining({
+            name: "vss_ui_publish_artifact",
+            parameters: expect.objectContaining({
+              properties: expect.objectContaining({
+                kind: expect.objectContaining({
+                  enum: expect.arrayContaining(["vss.media.image"]),
+                }),
+              }),
+            }),
+          }),
+        ],
         instructions: expect.stringContaining(
           'VSS UI request parameters for this turn (JSON):\n{"llm_reasoning":true}'
         ),
+      })
+    );
+  });
+
+  it("extracts snapshot artifacts from legacy agent tool payloads", async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      new Response(
+        `intermediate_data: ${JSON.stringify({
+          id: "snapshot-1",
+          name: "snapshot",
+          status: "completed",
+          payload: {
+            kind: "snapshot",
+            media_url: "http://vios:30888/storage/temp/snapshot.jpg",
+            name: "warehouse_safety_0001",
+            at: "2026-09-15T00:00:05Z",
+          },
+        })}\ndata: [DONE]\n`,
+        { headers: { "Content-Type": "text/event-stream" } }
+      )
+    );
+    const service = new AgentAdapterService(
+      config({
+        backendProtocol: "legacy-chat",
+        backendPath: "/chat/completions",
+      })
+    );
+    const { record } = service.createRun(requestWithInstructions);
+
+    for (let attempt = 0; attempt < 20 && !record.terminal; attempt += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+
+    expect(record.terminal).toBe(true);
+    expect(record.eventsAfter(0)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "artifact.created",
+          data: expect.objectContaining({
+            kind: "vss.media.image",
+            payload: expect.objectContaining({
+              media_url: "/vst/storage/temp/snapshot.jpg",
+              sensor: "warehouse_safety_0001",
+            }),
+          }),
+        }),
+      ])
+    );
+    expect(service.capabilities()).toEqual(
+      expect.objectContaining({
+        artifact_protocol: expect.objectContaining({
+          kinds: expect.arrayContaining(["vss.media.image"]),
+        }),
       })
     );
   });
@@ -278,6 +376,163 @@ describe("embedded adapter connectors", () => {
     expect((send?.params as Record<string, unknown>).message).toBe(
       'VSS UI instructions:\nVSS UI request parameters for this turn (JSON):\n{"llm_reasoning":true}\n\nUser:\nFind a clip'
     );
+  });
+
+  it("materializes final OpenClaw managed images as private artifact sources", async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ available: true, mediaTicket: "media-ticket" }),
+          { headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(Uint8Array.from([0xff, 0xd8, 0xff]), {
+          headers: {
+            "Content-Type": "image/jpeg",
+            "Content-Length": "3",
+          },
+        })
+      ) as jest.Mock;
+    const connector = new OpenClawConnector(
+      config({
+        backendProtocol: "openclaw-ws",
+        backendUrl: "ws://agent.local/gateway",
+        backendPath: "/",
+        backendSessionField: undefined,
+        backendSessionHeader: undefined,
+      }),
+      () => new FakeOpenClawSocket("final")
+    );
+
+    const events = [];
+    for await (const event of connector.run(
+      requestWithInstructions,
+      "run-1",
+      new AbortController().signal
+    )) {
+      events.push(event);
+    }
+
+    expect(events.map((event) => event.type)).toEqual([
+      "tool.started",
+      "tool.completed",
+      "message.delta",
+      "artifact.source",
+    ]);
+    expect(events[3].data.source).toEqual({
+      type: "image",
+      data: "/9j/",
+      mimeType: "image/jpeg",
+      alt: "warehouse_safety_0002_12.5s---939218c3-85e1-4221-9fcd-ba731cadfa93.jpg",
+    });
+    const metadataUrl = new URL(
+      (global.fetch as jest.Mock).mock.calls[0][0] as URL
+    );
+    expect(metadataUrl.pathname).toBe(
+      "/gateway/__openclaw__/assistant-media"
+    );
+    expect(metadataUrl.searchParams.get("source")).toBe(
+      "/sandbox/.openclaw/workspace/warehouse_safety_0002_12.5s.jpg"
+    );
+    expect(
+      ((global.fetch as jest.Mock).mock.calls[0][1].headers as Headers).get(
+        "Authorization"
+      )
+    ).toBe("Bearer backend-secret");
+  });
+
+  it("recovers image reads when OpenClaw truncates the tool result", async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ available: true, mediaTicket: "media-ticket" }),
+          { headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(Uint8Array.from([0xff, 0xd8, 0xff]), {
+          headers: {
+            "Content-Type": "image/jpeg",
+            "Content-Length": "3",
+          },
+        })
+      ) as jest.Mock;
+    const connector = new OpenClawConnector(
+      config({
+        backendProtocol: "openclaw-ws",
+        backendUrl: "ws://agent.local",
+        backendPath: "/",
+        backendSessionField: undefined,
+        backendSessionHeader: undefined,
+      }),
+      () => new FakeOpenClawSocket("read")
+    );
+
+    const events = [];
+    for await (const event of connector.run(
+      requestWithInstructions,
+      "run-1",
+      new AbortController().signal
+    )) {
+      events.push(event);
+    }
+
+    expect(events.map((event) => event.type)).toEqual([
+      "tool.started",
+      "tool.completed",
+      "artifact.source",
+      "message.delta",
+    ]);
+    expect(events[2].data.source).toEqual({
+      type: "image",
+      data: "/9j/",
+      mimeType: "image/jpeg",
+      alt: "VSS snapshot",
+    });
+  });
+
+  it("cancels managed image recovery with the agent run", async () => {
+    const controller = new AbortController();
+    global.fetch = jest.fn((_url, options) => {
+      const signal = (options as RequestInit).signal as AbortSignal;
+      queueMicrotask(() => controller.abort());
+      return new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+      });
+    }) as jest.Mock;
+    const connector = new OpenClawConnector(
+      config({
+        backendProtocol: "openclaw-ws",
+        backendUrl: "ws://agent.local",
+        backendPath: "/",
+        backendSessionField: undefined,
+        backendSessionHeader: undefined,
+        requestTimeoutMs: 900_000,
+      }),
+      () => new FakeOpenClawSocket("final")
+    );
+
+    const events = [];
+    for await (const event of connector.run(
+      requestWithInstructions,
+      "run-1",
+      controller.signal
+    )) {
+      events.push(event);
+    }
+
+    expect(controller.signal.aborted).toBe(true);
+    expect(events.map((event) => event.type)).toEqual([
+      "tool.started",
+      "tool.completed",
+      "message.delta",
+    ]);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   it("continues ordinary OpenClaw follow-ups in the same session", async () => {

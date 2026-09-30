@@ -26,6 +26,7 @@ import json
 from pathlib import Path
 from typing import Any
 from typing import NoReturn
+from typing import cast
 
 import click
 
@@ -54,6 +55,48 @@ def _probe(base_url: str, probe_path: str, timeout: float) -> tuple[bool, str]:
         return False, f"{type(exc).__name__}: {exc}"
     routed = response.status_code in _PRESENT_STATUSES
     return routed, f"HTTP {response.status_code}"
+
+
+#: Where a deployment reports its version. Served by the agent; see
+#: services/agent/README.md for the contract and vss_core.version for how the
+#: value is resolved deployment-side.
+_VERSION_PATH = "/api/v1/version"
+
+
+def _deployment_version(base_url: str, timeout: float) -> tuple[str | None, str]:
+    """Return (version, detail) for the deployment's reported version.
+
+    Probed on every ``check`` rather than recorded by ``configure``: a redeploy
+    changes the version without changing the config, so a recorded value would
+    be the one thing in the file guaranteed to go stale.
+
+    A deployment that cannot report one is not an error here -- a lean stack
+    without the agent, or an origin whose ingress does not route ``/api``, is a
+    legitimate deployment. It is worth saying out loud, though, because the
+    benchmark skills stop on exactly this and an operator should learn it from
+    the prober rather than from an aborted benchmark.
+    """
+    import httpx
+
+    try:
+        response = httpx.get(f"{base_url.rstrip('/')}{_VERSION_PATH}", timeout=timeout, follow_redirects=True)
+    except httpx.HTTPError as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
+    if response.status_code == 404:
+        return None, "HTTP 404 — no agent behind /api here, or a deployment predating the endpoint"
+    if response.status_code == 503:
+        return None, "HTTP 503 — the deployment is configured with no usable version"
+    if response.status_code != 200:
+        return None, f"HTTP {response.status_code}"
+
+    try:
+        payload = response.json()
+    except ValueError:
+        return None, "the endpoint did not return JSON"
+    if not isinstance(payload, dict) or not isinstance(payload.get("version"), str):
+        return None, "the endpoint returned an unexpected payload"
+    return str(payload["version"]), ""
 
 
 def _describe(base_url: str, route: config_mod.ServiceRoute, timeout: float) -> list[str]:
@@ -140,6 +183,7 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
         base_url=base_url.rstrip("/"),
         services=services,
         memory=_configured_memory_or_none(),
+        vlm=_configured_vlm_or_none(),
         written_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
     path = config_mod.save(deployment)
@@ -166,6 +210,14 @@ def _configured_memory_or_none() -> config_mod.MemoryConfig | None:
     """Preserve valid static memory policy when deployment routes are refreshed."""
     try:
         return config_mod.load().memory
+    except config_mod.ConfigError:
+        return None
+
+
+def _configured_vlm_or_none() -> config_mod.VlmConfig | None:
+    """Preserve valid VLM request policy when deployment routes are refreshed."""
+    try:
+        return config_mod.load().vlm
     except config_mod.ConfigError:
         return None
 
@@ -488,14 +540,7 @@ def configure_memory(
             )
             resolved_detail = f" (endpoint reported {resolved_model})" if resolved_model is not None else ""
             click.echo(f"discovered embedding dimensions: {dimensions}{resolved_detail}", err=True)
-        path = config_mod.save(
-            config_mod.Deployment(
-                base_url=deployment.base_url,
-                services=deployment.services,
-                memory=candidate,
-                written_at=deployment.written_at,
-            )
-        )
+        path = config_mod.save(replace(deployment, memory=candidate))
     except config_mod.ConfigError as error:
         _memory_config_error(str(error))
     click.echo(f"wrote memory configuration to {path}", err=True)
@@ -603,14 +648,7 @@ def configure_memory_introspection(
     )
     try:
         candidate.validate()
-        path = config_mod.save(
-            config_mod.Deployment(
-                base_url=deployment.base_url,
-                services=deployment.services,
-                memory=candidate,
-                written_at=deployment.written_at,
-            )
-        )
+        path = config_mod.save(replace(deployment, memory=candidate))
     except config_mod.ConfigError as error:
         _memory_config_error(str(error))
     click.echo(f"wrote introspection judge configuration to {path}", err=True)
@@ -657,6 +695,116 @@ def check_memory() -> None:
                 f"Markdown memory workspace is invalid; re-run `vss configure memory --workspace /absolute/path` ({error})"
             )
         click.echo(f"OpenClaw Markdown cache enabled at {memory_config.markdown.workspace}/memory/YYYY-MM-DD-vss.md")
+
+
+def _vlm_config_error(message: str) -> NoReturn:
+    """Report a VLM policy/config-file failure using the stable CLI contract."""
+    click.echo(f"vss configure vlm: configuration error: {message}", err=True)
+    raise SystemExit(int(Exit.CONFIGURATION))
+
+
+@configure.command("vlm")
+@click.option(
+    "--backend",
+    type=click.Choice(["rt-vlm", "vllm", "cosmos-reason-nim"]),
+    help="VLM request backend.",
+)
+@click.option("--timeout", type=click.IntRange(1, 3600), help="VLM HTTP timeout in seconds.")
+@click.option("--temperature", type=click.FloatRange(0, 1), help="VLM sampling temperature.")
+@click.option("--max-tokens", type=click.IntRange(1, 1_000_000), help="Maximum generated tokens.")
+@click.option("--seed", type=click.IntRange(1, 2**32 - 1), help="Sampling seed.")
+@click.option(
+    "--enable-reasoning/--disable-reasoning",
+    default=None,
+    help="Enable or disable VLM reasoning output.",
+)
+@click.option(
+    "--chunk-duration",
+    type=click.IntRange(0, 3600),
+    help="Video chunk duration in seconds; 0 disables chunking.",
+)
+@click.option("--fps", type=click.FloatRange(min=0, min_open=True, max=256), help="Frames sampled per second.")
+@click.option(
+    "--shortest-edge",
+    type=click.IntRange(1, 2**31 - 1),
+    help="Minimum processor pixel budget passed as mm_processor_kwargs.size.shortest_edge.",
+)
+@click.option(
+    "--longest-edge",
+    type=click.IntRange(1, 2**31 - 1),
+    help="Maximum processor pixel budget passed as mm_processor_kwargs.size.longest_edge.",
+)
+@click.option("--lock/--unlock", "locked", default=None, help="Reject or allow per-call overrides.")
+@click.option("--reset", is_flag=True, help="Remove the VLM policy and restore CLI/backend defaults.")
+def configure_vlm(
+    backend: str | None,
+    timeout: int | None,
+    temperature: float | None,
+    max_tokens: int | None,
+    seed: int | None,
+    enable_reasoning: bool | None,
+    chunk_duration: int | None,
+    fps: float | None,
+    shortest_edge: int | None,
+    longest_edge: int | None,
+    locked: bool | None,
+    reset: bool,
+) -> None:
+    """Configure reusable defaults for ``vss vlm run``."""
+    try:
+        deployment = config_mod.load()
+    except config_mod.ConfigError as exc:
+        _vlm_config_error(str(exc))
+
+    supplied = any(
+        value is not None
+        for value in (
+            backend,
+            timeout,
+            temperature,
+            max_tokens,
+            seed,
+            enable_reasoning,
+            chunk_duration,
+            fps,
+            shortest_edge,
+            longest_edge,
+            locked,
+        )
+    )
+    if reset:
+        if supplied:
+            raise click.UsageError("cannot combine --reset with VLM policy options")
+        path = config_mod.save(replace(deployment, vlm=None))
+        click.echo(f"removed VLM request policy from {path}", err=True)
+        return
+
+    current = config_mod.effective_vlm_config(deployment.vlm) or config_mod.VlmConfig()
+    if not supplied:
+        click.echo(json.dumps(current.to_json(), indent=2))
+        return
+
+    try:
+        resolved_backend = (
+            current.backend if backend is None else cast("config_mod.VlmBackend", backend.replace("-", "_"))
+        )
+        policy = config_mod.VlmConfig(
+            backend=resolved_backend,
+            timeout=current.timeout if timeout is None else timeout,
+            temperature=current.temperature if temperature is None else temperature,
+            max_tokens=current.max_tokens if max_tokens is None else max_tokens,
+            seed=current.seed if seed is None else seed,
+            enable_reasoning=current.enable_reasoning if enable_reasoning is None else enable_reasoning,
+            chunk_duration=current.chunk_duration if chunk_duration is None else chunk_duration,
+            fps=current.fps if fps is None else fps,
+            shortest_edge=current.shortest_edge if shortest_edge is None else shortest_edge,
+            longest_edge=current.longest_edge if longest_edge is None else longest_edge,
+            locked=current.locked if locked is None else locked,
+        ).validate()
+    except config_mod.ConfigError as exc:
+        _vlm_config_error(str(exc))
+    path = config_mod.save(replace(deployment, vlm=policy))
+    click.echo(f"wrote VLM request policy to {path}", err=True)
 
 
 @configure.command("show")
@@ -724,6 +872,10 @@ def check() -> None:
         ok, detail = _probe(deployment.base_url, route.probe, _PROBE_TIMEOUT_SECONDS)
         click.echo(f"  {name:<14} {'ok' if ok else 'UNREACHABLE':<12} {service.url}  {detail}")
         stale = stale or not ok
+
+    version, version_detail = _deployment_version(deployment.base_url, _PROBE_TIMEOUT_SECONDS)
+    click.echo(f"  {'version':<14} {version if version else 'not reported':<12}  {version_detail}".rstrip())
+
     rows = _command_availability(deployment)
     if rows:
         click.echo("", err=True)

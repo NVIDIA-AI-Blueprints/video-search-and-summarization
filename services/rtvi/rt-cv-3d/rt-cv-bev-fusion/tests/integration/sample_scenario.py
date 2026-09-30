@@ -23,7 +23,7 @@ observes them with a small per-sensor measurement offset, so the fused output
 is a meaningful multi-view average — the real situation the BEV fusion handles,
 without needing the GPU perception pipeline.
 
-Same interface as frame_factory (generate_stream / expected_fused_coords) so the
+Same interface as frame_factory (generate_stream / gt_coords) so the
 integration test can parametrize over both scenarios.
 """
 
@@ -119,8 +119,6 @@ def generate_stream(
             )
 
 
-def expected_fused_coords(instant: int, obj_index: int, num_sensors: int) -> List[float]:
-    box = _object_box(instant, obj_index, 30.0)
-    # mean over sensors of (box + s*offset) = box + offset*(S-1)/2
-    bias = _SENSOR_OFFSET_M * (num_sensors - 1) / 2.0
-    return [c + bias for c in box]
+def gt_coords(instant: int, obj_index: int) -> List[float]:
+    """Ground truth the sensors observe, before their per-sensor offsets."""
+    return _object_box(instant, obj_index, 30.0)

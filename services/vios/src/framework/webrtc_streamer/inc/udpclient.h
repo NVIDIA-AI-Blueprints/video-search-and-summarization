@@ -56,7 +56,7 @@ namespace nv_vms
             UdpClient(const string& id, UdpStream& stream) : m_id(id)
                                                            , m_udpStream(stream)
             {}
-            virtual ~UdpClient() {}
+            virtual ~UdpClient() = default;
 
             virtual int create() { return -1; };
             virtual int create(int freq) { return -1; };

@@ -27,8 +27,8 @@
 #include "native_stream_monitor.h"
 #endif
 
-#define RTSP_SERVER_MAX_OUTPUT_BUFFER_SIZE 500*1000
-#define AUDIO_CODEC_CONFIG_ID_16K_STEREO "1410"
+constexpr int RTSP_SERVER_MAX_OUTPUT_BUFFER_SIZE = 500*1000;
+constexpr const char* AUDIO_CODEC_CONFIG_ID_16K_STEREO = "1410";
 
 using namespace std;
 
@@ -49,7 +49,7 @@ NvMediaSource
     LOG(info) << "::NvMediaSource filename:" << m_filename << ", media:" << mediaTypeAsString(m_mediaType)
         << ", source:" << m_sourceType << ", m_sessionId:" << m_sessionId << endl;
 
-    setConsumerMediaType(m_mediaType);
+    IMediaDataConsumer::setConsumerMediaType(m_mediaType);
     if (m_sourceType == SourceTypeFile)
     {
         if (m_mediaType == MediaTypeVideo)

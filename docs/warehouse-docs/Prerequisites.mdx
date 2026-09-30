@@ -9,8 +9,9 @@ This section covers the prerequisites for deploying and using the Warehouse Blue
 
 The Warehouse Blueprint has been validated and tested on the following NVIDIA GPUs:
 
-- NVIDIA RTX PRO 6000 Blackwell
 - NVIDIA GB300
+- NVIDIA RTX PRO 6000 Blackwell
+- NVIDIA RTX PRO 4500 Blackwell
 - NVIDIA H100 (NVL, SXM HBM3)
 - NVIDIA L40S
 - NVIDIA IGX-THOR
@@ -196,7 +197,7 @@ To verify your NGC key has the correct permissions:
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
 # Test access to the required resources
-ngc registry resource list "nvidia/vss-warehouse/*"
+ngc registry resource list "nvstaging/vss-warehouse/*"
 ngc registry resource list "nvidia/vss-core/*"
 
 # Test access to the required images
@@ -308,11 +309,11 @@ docker compose version
 ```
 
 The default `docker-compose-plugin` package in Ubuntu repositories may provide a version older than v2.39.1.
-If the version is missing or too old, install the required version manually:
+If the version is missing or too old, install the required version manually. The command selects the binary for the host architecture (`x86_64` or `aarch64`):
 
 ```bash
 sudo mkdir -p /usr/local/lib/docker/cli-plugins
-sudo curl -SL https://github.com/docker/compose/releases/download/v2.39.1/docker-compose-linux-x86_64 \
+sudo curl -fSL "https://github.com/docker/compose/releases/download/v2.39.1/docker-compose-linux-$(uname -m)" \
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 ```

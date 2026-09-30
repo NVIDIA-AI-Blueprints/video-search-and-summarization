@@ -1480,6 +1480,124 @@ class TestUtilityMethods:
         assert result is None
 
 
+def test_backend_death_terminalizes_all_live_subscribers(stream_handler):
+    asset = Asset(
+        asset_id="stream-engine-dead",
+        path="rtsp://example/stream",
+        purpose="",
+        media_type="",
+        asset_dir="",
+    )
+    requests = [
+        RequestInfo(request_id=f"request-engine-dead-{index}", assets=[asset], is_live=True)
+        for index in range(2)
+    ]
+    for request in requests:
+        request.status = RequestInfo.Status.PROCESSING
+        request._live_active_accounted = True
+        asset.lock()
+        stream_handler._request_info_map[request.request_id] = request
+    stream_handler._metrics._active_live_streams_counter = MagicMock()
+    stream_handler._cleanup_request_files = MagicMock()
+    stream_handler._safe_rmtree = MagicMock()
+
+    def finish_subscribers_before_remove_returns(*_args, **_kwargs):
+        for request in requests:
+            stream_handler._process_output(request, True, [])
+        return 0.0
+
+    stream_handler._vlm_pipeline.remove_live_stream.side_effect = (
+        finish_subscribers_before_remove_returns
+    )
+
+    stream_handler._on_vlm_chunk_response(
+        PipelineChunkResult(
+            chunk=ChunkInfo(file=asset.path, chunkIdx=4),
+            error="VLM model backend is unavailable",
+            error_status_code=503,
+        ),
+        requests[0],
+    )
+
+    deadline = monotonic() + 5
+    while stream_handler._request_info_map and monotonic() < deadline:
+        sleep(0.01)
+
+    assert stream_handler._request_info_map == {}
+    assert asset.use_count == 0
+    for request in requests:
+        assert request.status == RequestInfo.Status.FAILED
+        assert request.error_message == "VLM model backend is unavailable"
+        assert request.error_status_code == 503
+        assert request.status_event.is_set()
+    assert stream_handler._metrics._active_live_streams_counter.add.call_args_list == [
+        call(-1),
+        call(-1),
+    ]
+    stream_handler._vlm_pipeline.remove_live_stream.assert_called_once_with(
+        asset.asset_id,
+        timeout_sec=None,
+        abort_inflight=True,
+    )
+
+
+def test_query_rollback_preserves_backend_error_when_fps_cleanup_fails(stream_handler):
+    asset = Asset(
+        asset_id="file-engine-dead",
+        path="/tmp/video.mp4",
+        purpose="",
+        media_type="video",
+        asset_dir="",
+    )
+    unavailable = ServiceException(
+        "VLM model backend is unavailable", "ServiceUnavailable", 503
+    )
+    stream_handler._trigger_query = MagicMock(side_effect=unavailable)
+    stream_handler._finalize_stream_fps_tracking = MagicMock(
+        side_effect=RuntimeError("metrics cleanup failed")
+    )
+    stream_handler._cleanup_request_files = MagicMock()
+
+    with (
+        patch("server.rtvi_stream_handler.MediaFileInfo.get_info") as get_media_info,
+        pytest.raises(ServiceException) as error,
+    ):
+        get_media_info.return_value.video_duration_nsec = 1_000_000_000
+        stream_handler.query(
+            [asset],
+            VlmQuery(id=uuid.uuid4(), model="test-model", prompt="Describe the video."),
+        )
+
+    assert error.value is unavailable
+    assert asset.use_count == 0
+    assert stream_handler._request_info_map == {}
+    stream_handler._cleanup_request_files.assert_called_once()
+
+
+def test_unhealthy_backend_is_rejected_before_file_or_live_mutation(stream_handler):
+    asset = Asset(
+        asset_id="unhealthy-admission",
+        path="rtsp://example/stream",
+        purpose="",
+        media_type="",
+        asset_dir="",
+    )
+    unavailable = ServiceException(
+        "VLM model backend is unavailable", "ServiceUnavailable", 503
+    )
+    stream_handler._vlm_pipeline.ensure_model_available.side_effect = unavailable
+
+    with pytest.raises(ServiceException) as file_error:
+        stream_handler.query([asset], MagicMock())
+    with pytest.raises(ServiceException) as live_error:
+        stream_handler._create_rtsp_vlm_captions_request(asset, MagicMock())
+
+    assert file_error.value.status_code == 503
+    assert live_error.value.status_code == 503
+    assert asset.use_count == 0
+    assert stream_handler._request_info_map == {}
+
+
 class TestRequestManagement:
     """Test request management"""
 

@@ -409,6 +409,66 @@ class TestQueryDecompositionPrompt:
         assert "{few_shot_examples}" in QUERY_DECOMPOSITION_PROMPT
         assert "{user_query}" in QUERY_DECOMPOSITION_PROMPT
 
+    def test_attributes_has_an_empty_case_clause(self):
+        """The fix for the bug that routed every action query to fusion.
+
+        `attributes` was the only field in the prompt with no empty-case clause,
+        so the model filled it with the query's action phrase ("physically
+        assaulting someone"). A non-empty `attributes` routes to fusion or
+        attribute, never embed -- measured at 9/9 on the warehouse set, costing
+        mAP -25%, HIT@1 halved and +59% latency.
+
+        Asserted on the clause itself because the failure is a model behaviour:
+        nothing downstream can detect a decomposition that is well-formed and
+        wrong.
+        """
+        prompt = QUERY_DECOMPOSITION_PROMPT
+
+        attributes_line = next(
+            (line for line in prompt.splitlines() if line.strip().startswith("- attributes:")),
+            None,
+        )
+        assert attributes_line is not None, "the attributes field lost its description"
+        # The clause may wrap, so read to the next field bullet.
+        lines = prompt.splitlines()
+        start = lines.index(attributes_line)
+        clause = " ".join(lines[start : start + 4]).split("- has_action")[0]
+        assert "empty" in clause.lower(), (
+            "attributes must say what to emit when the query describes no appearance; "
+            "without it the model emits the action phrase and every action query routes to fusion"
+        )
+
+    def test_at_least_one_example_shows_empty_attributes(self):
+        """A clause the examples contradict is a clause the model ignores.
+
+        All nine original few-shot examples had a non-empty `attributes`, so the
+        model had never seen the empty case demonstrated regardless of what the
+        instructions said.
+        """
+        from vss_agents.tools.search import DEFAULT_FEW_SHOT_EXAMPLES
+
+        assert '"attributes": []' in DEFAULT_FEW_SHOT_EXAMPLES, (
+            "no few-shot example demonstrates the empty case, so the instruction is unmodelled"
+        )
+
+    def test_an_action_only_example_keeps_the_action_in_query_not_attributes(self):
+        """The exact shape that was being mis-decomposed."""
+        import json
+        import re
+
+        from vss_agents.tools.search import DEFAULT_FEW_SHOT_EXAMPLES
+
+        # The examples are a .format() template, so every brace is doubled.
+        literal = DEFAULT_FEW_SHOT_EXAMPLES.replace("{{", "{").replace("}}", "}")
+        outputs = [json.loads(m) for m in re.findall(r"Output: (\{.*?\})\n", literal + "\n")]
+        # `== []` deliberately, not `not o.get(...)`: the pre-fix examples
+        # omitted `attributes` altogether, which is falsy for the wrong reason
+        # and would let this pass against the prompt it is meant to catch.
+        action_only = [o for o in outputs if o.get("has_action") and o.get("attributes") == []]
+        assert action_only, "no example pairs has_action=true with an explicit attributes=[]"
+        for example in action_only:
+            assert example["query"], "the action belongs in query, not attributes"
+
     def test_prompt_contains_instructions(self):
         assert "query" in QUERY_DECOMPOSITION_PROMPT.lower()
         assert "video_sources" in QUERY_DECOMPOSITION_PROMPT

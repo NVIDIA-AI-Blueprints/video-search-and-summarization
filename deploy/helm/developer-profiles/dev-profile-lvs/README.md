@@ -133,9 +133,7 @@ Remote VLM + RTVI: RTVI-VLM also supports remote VLM endpoints when `global.vlmB
 
 - **NVIDIA GPU Operator**
   - Install the GPU Operator on the cluster. Follow [GPU Operator getting started](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html).
-  - **Driver (x86 Ubuntu)** — pin via GPU Operator driver settings as appropriate:
-    - **580.105.08** (x86 hosts with Ubuntu 24.04)
-    - **580.65.06** (x86 hosts with Ubuntu 22.04)
+  - **Driver (x86 Ubuntu 24.04)** — pin **595.58.03** via GPU Operator driver settings.
 
 - **NVIDIA NIM Operator**
   - Required **before deploying this profile with defaults**. The default **`nims.enabled: true`** path creates **`NIMCache`** and **`NIMService`** custom resources for the LLM NIM, so the NIM Operator and its CRDs must already exist on the cluster before `helm upgrade --install`.

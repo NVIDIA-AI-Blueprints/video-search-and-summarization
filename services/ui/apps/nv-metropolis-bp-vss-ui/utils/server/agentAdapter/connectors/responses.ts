@@ -29,16 +29,18 @@ const MAX_CLIENT_TOOL_ROUNDS = 4;
 const SUPPORTED_ARTIFACT_KINDS = new Set([
   "vss.search.results",
   "vss.alert.incidents",
+  "vss.media.image",
 ]);
 const ARTIFACT_TRANSPORT_INSTRUCTIONS = `VSS UI artifact transport contract:
-- If this turn successfully produces a validated VSS search result or alert-incident result, call the vss_ui_publish_artifact tool exactly once with the matching version, kind, and payload. Human-readable prose or a table is not a substitute.
+- If this turn successfully produces a validated VSS search result, alert-incident result, or snapshot image, call the vss_ui_publish_artifact tool exactly once with the matching version, kind, and payload. Human-readable prose or a table is not a substitute.
+- A snapshot uses kind vss.media.image with the browser-reachable media URL in payload.media_url and a concise description in payload.alt.
 - Do not call the publisher for ordinary chat, failed operations, unvalidated data, alert-rule inventory, or alert-rule mutation.
 - After a successful publisher result, finish the human-facing response without repeating its machine-readable payload.`;
 const PUBLISH_ARTIFACT_DEFINITION: JsonObject = {
   type: "function",
   name: PUBLISH_ARTIFACT_TOOL,
   description:
-    "Publish a validated VSS search-result or alert-incident payload to the VSS UI. Use this exactly once when an installed VSS skill requires a UI artifact; do not use it for ordinary chat or unvalidated data.",
+    "Publish a validated VSS search-result, alert-incident, or snapshot-image payload to the VSS UI. Use this exactly once when an installed VSS skill requires a UI artifact; do not use it for ordinary chat or unvalidated data.",
   parameters: {
     type: "object",
     properties: {
@@ -237,7 +239,7 @@ export class ResponsesConnector implements Connector {
     const artifact = parseArtifact(argumentsText);
     if (!artifact || !SUPPORTED_ARTIFACT_KINDS.has(artifact.kind)) {
       const message =
-        "artifact arguments must be a valid version 1.0 VSS search or alert artifact";
+        "artifact arguments must be a supported version 1.0 VSS UI artifact";
       return {
         event: {
           type: "tool.failed",

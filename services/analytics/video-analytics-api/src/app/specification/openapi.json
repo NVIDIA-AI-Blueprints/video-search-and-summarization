@@ -80,7 +80,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -90,7 +91,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "place",
@@ -278,7 +280,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "place",
@@ -515,7 +518,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -525,7 +529,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "place",
@@ -726,7 +731,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -736,7 +742,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "place",
@@ -3167,7 +3174,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -3177,7 +3185,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "objectTypes",
@@ -6171,7 +6180,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -6181,7 +6191,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "place",
@@ -6628,7 +6639,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -6638,7 +6650,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "place",
@@ -7385,7 +7398,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -7395,7 +7409,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "objectType",
@@ -7581,7 +7596,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -7591,7 +7607,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "maxResultSize",

@@ -39,6 +39,7 @@ vss = "vss_cli:main"
 
 # First-party groups register through the same contract third parties use.
 [project.entry-points."vss.commands"]
+analytics = "vss_cli.analytics.register:GROUP"
 configure = "vss_cli.configure:CONFIGURE"
 memory = "vss_cli.memory_cmd:MEMORY"
 search = "vss_cli.search.register:GROUP"
@@ -48,6 +49,7 @@ vios = "vss_cli.vios_group:VIOS"
 
 # Values here are read as raw strings for `vss --help` and are never imported.
 [project.entry-points."vss.command_summaries"]
+analytics = "Read incidents and video analytics metrics"
 configure = "Resolve and record a VSS deployment"
 memory = "Unified memory store surface"
 search = "Search indexed video"

@@ -135,6 +135,8 @@
 "**overlay**",**Section to define all overlay related parameters**,
 """video_metadata_server""","Server to fetch Metadata from","""10.0.0.1:9200/mdx-raw*"""
 """video_metadata_query_batch_size_num_frames""",Size of metadata to fetch,300
+"""video_metadata_query_max_threads""","Maximum concurrent Elasticsearch slice queries used to prefetch overlay metadata for downloads (clamped from 1 to 10)",2
+"""video_metadata_wait_timeout_ms""","Per-frame wait for in-flight overlay metadata during video downloads, in milliseconds",1000
 """use_video_metadata_protobuf""","Use Protobuf spec for metadata parsing",TRUE
 """enable_gem_drawing""",Enable/Disable GEM drawing,TRUE
 """calibration_file_path""",Path to calibration file,"""/home/vst/vst_release/configs/calibration.json"""

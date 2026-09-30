@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from typing import TYPE_CHECKING
 from typing import Any
@@ -57,6 +58,31 @@ def test_configure_memory_preserves_deployment_and_permissions(config_home: Path
     assert deployment.services["elasticsearch"].url == "http://example/elasticsearch"
     assert deployment.memory == config_mod.MemoryConfig()
     assert config_home.joinpath("config.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_configure_memory_preserves_vlm_policy(config_home: Path) -> None:
+    policy = config_mod.VlmConfig(fps=4, timeout=600, locked=True)
+    config_mod.save(replace(config_mod.load(), vlm=policy))
+
+    result = _invoke("--index", "tenant-memory")
+
+    assert result.exit_code == 0, result.output
+    assert config_mod.load().vlm == policy
+
+
+def test_configure_memory_introspection_preserves_vlm_policy(config_home: Path) -> None:
+    policy = config_mod.VlmConfig(fps=4, timeout=600, locked=True)
+    config_mod.save(replace(config_mod.load(), vlm=policy))
+
+    result = _invoke(
+        "introspection",
+        "--enable",
+        "--judge-endpoint",
+        "http://judge.example/v1",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert config_mod.load().vlm == policy
 
 
 def test_configure_memory_updates_only_supplied_values(config_home: Path) -> None:

@@ -67,6 +67,8 @@ BUILTIN_MODEL_CLASSES = {
 # Location to download and cache NGC models
 NGC_MODEL_CACHE = os.environ.get("NGC_MODEL_CACHE") or "/opt/nvidia/rtvi/.rtvi/ngc_model_cache/"
 DEFAULT_DECODE_MAX_ATTEMPTS = 2
+MODEL_HEALTH_CHECK_INTERVAL_SEC = 0.1
+MODEL_BACKEND_UNAVAILABLE_MESSAGE = "VLM model backend is unavailable"
 FAST_IMAGE_ASSET_CHUNK_DECODE_ENV = "RTVI_FAST_IMAGE_ASSET_CHUNK_DECODE"
 STRICT_FIXED_FRAME_CHUNK_DECODE_ENV = "RTVI_STRICT_FIXED_FRAME_CHUNK_DECODE"
 VLM_QUEUE_MAXSIZE_ENV = "RTVI_VLM_QUEUE_MAXSIZE"
@@ -309,6 +311,8 @@ class VlmRequestParams:
             config_kwargs["seed"] = vlm_query.seed
         if vlm_query.enable_reasoning:
             config_kwargs["enable_reasoning"] = vlm_query.enable_reasoning
+        if vlm_query._prompt_driven_reasoning:
+            config_kwargs["prompt_driven_reasoning"] = True
         if getattr(vlm_query, "preserve_reasoning_tags", False):
             config_kwargs["preserve_reasoning_tags"] = True
         if vlm_query.system_prompt:
@@ -1199,6 +1203,7 @@ class VlmProcess(ProcessBase):
         disabled=False,
         input_queue=None,
         input_queue_lock=None,
+        model_unhealthy_event=None,
     ) -> None:
         super().__init__(
             batch_size=args.vlm_batch_size,
@@ -1217,6 +1222,12 @@ class VlmProcess(ProcessBase):
         # Handle None vlm_batch_size - default to 1 if None
         vlm_batch_size = args.vlm_batch_size if args.vlm_batch_size is not None else 1
         self._num_futures_threads = max(1, vlm_batch_size)
+        self._model_unhealthy_event = (
+            model_unhealthy_event
+            if model_unhealthy_event is not None
+            else multiprocessing.get_context("spawn").Event()
+        )
+        self._next_model_health_check_at = 0.0
 
     def _initialize(self):
         # Determine the class path to use
@@ -1284,10 +1295,70 @@ class VlmProcess(ProcessBase):
             return False
 
     def _is_busy(self):
+        if not self._refresh_model_health():
+            return False
         if hasattr(self._model, "can_enqueue_requests"):
             return not self._model.can_enqueue_requests()
         else:
             return False
+
+    def _mark_model_unhealthy(self, message: str) -> None:
+        if not self._model_unhealthy_event.is_set():
+            logger.error(message)
+            self._model_unhealthy_event.set()
+
+    def _refresh_model_health(self, force: bool = False) -> bool:
+        if self._model_unhealthy_event.is_set():
+            return False
+        now = time.monotonic()
+        if not force and now < getattr(self, "_next_model_health_check_at", 0.0):
+            return True
+        self._next_model_health_check_at = now + MODEL_HEALTH_CHECK_INTERVAL_SEC
+        try:
+            is_healthy = self._model.is_healthy()
+        except Exception:
+            logger.exception("VLM model health check failed")
+            is_healthy = False
+        if not is_healthy:
+            self._mark_model_unhealthy("VLM model backend is unhealthy; rejecting further requests")
+        return is_healthy
+
+    def is_model_healthy(self) -> bool:
+        return not self._model_unhealthy_event.is_set()
+
+    @staticmethod
+    def _engine_dead_error_signals(error: BaseException | None) -> tuple[bool, bool]:
+        seen = set()
+        has_engine_dead_message = False
+        while error is not None and id(error) not in seen:
+            seen.add(id(error))
+            error_type = type(error)
+            if error_type.__name__ == "EngineDeadError" and error_type.__module__.startswith(
+                "vllm."
+            ):
+                return True, has_engine_dead_message
+            has_engine_dead_message = has_engine_dead_message or (
+                "EngineCore encountered an issue" in str(error)
+            )
+            error = error.__cause__ or error.__context__
+        return False, has_engine_dead_message
+
+    def _handle_result(self, result, **kwargs):
+        if isinstance(result, concurrent.futures.Future):
+            try:
+                error = result.exception()
+            except concurrent.futures.CancelledError as cancelled_error:
+                error = cancelled_error
+                result = cancelled_error
+        else:
+            error = result
+        if isinstance(error, BaseException):
+            is_engine_dead_type, has_engine_dead_message = self._engine_dead_error_signals(error)
+            if is_engine_dead_type:
+                self._mark_model_unhealthy("vLLM EngineCore is dead; marking VLM process unhealthy")
+            elif has_engine_dead_message:
+                self._refresh_model_health(force=True)
+        return super()._handle_result(result, **kwargs)
 
     def _warmup(self):
         if hasattr(self._model, "warmup"):
@@ -1297,6 +1368,9 @@ class VlmProcess(ProcessBase):
         self, chunk: list[ChunkInfo], request_params: list[VlmRequestParams | None], **kwargs
     ):
         """Generate VLM output for a batch of chunks"""
+
+        if not self._refresh_model_health(force=True):
+            raise ServiceException(MODEL_BACKEND_UNAVAILABLE_MESSAGE, "ServiceUnavailable", 503)
 
         if not request_params[0] or not request_params[0].vlm_prompt:
             for chunk_ in chunk:
@@ -2002,6 +2076,8 @@ class VlmPipeline:
 
         logger.info(f"num_vlm_procs set to {self._num_vlm_procs}")
 
+        self._model_unhealthy_event = mp_ctx.Event()
+
         # Create the VLM processes, one on each GPU
         self._vlm_procs = [
             VlmProcess(
@@ -2018,6 +2094,7 @@ class VlmPipeline:
                 args.disable_vlm,
                 self._vlm_q,
                 self._vlm_q_lock,
+                self._model_unhealthy_event,
             )
             for i in range(self._num_vlm_procs)
         ]
@@ -2386,10 +2463,9 @@ class VlmPipeline:
         # Build request params from vlm_query
         request_params = VlmRequestParams.from_vlm_query(vlm_query)
 
-        with self._enqueue_lock:
-            curr_chunk_counter = self._chunk_counter
-            self._chunk_counter += 1
-            self._chunk_callback_map[curr_chunk_counter] = on_chunk_result
+        curr_chunk_counter = self._reserve_chunk_callback(
+            chunk, on_chunk_result, raise_on_unhealthy=True
+        )
         self._decoder_procs[curr_chunk_counter % self._args.num_gpus].enqueue_chunk(
             chunk,
             vlm_query=vlm_query,
@@ -2422,10 +2498,10 @@ class VlmPipeline:
         request_params = VlmRequestParams.from_vlm_query(vlm_query)
         if chat_messages:
             request_params.chat_messages = chat_messages
+        curr_chunk_counter = self._reserve_chunk_callback(chunk, on_chunk_result)
+        if curr_chunk_counter is None:
+            return
         with self._enqueue_lock:
-            curr_chunk_counter = self._chunk_counter
-            self._chunk_counter += 1
-            self._chunk_callback_map[curr_chunk_counter] = on_chunk_result
             decode_start_time = decode_end_time = time.time()
             self._vlm_procs[curr_chunk_counter % self._args.num_vlm_procs].enqueue_chunk(
                 chunk,
@@ -2451,10 +2527,10 @@ class VlmPipeline:
         request_id="",
     ):
         request_params = VlmRequestParams.from_text_embeddings_query(text_embeddings_query)
+        curr_chunk_counter = self._reserve_chunk_callback(chunk, on_chunk_result)
+        if curr_chunk_counter is None:
+            return
         with self._enqueue_lock:
-            curr_chunk_counter = self._chunk_counter
-            self._chunk_counter += 1
-            self._chunk_callback_map[curr_chunk_counter] = on_chunk_result
             decode_start_time = decode_end_time = time.time()
             self._vlm_procs[curr_chunk_counter % self._args.num_vlm_procs].enqueue_chunk(
                 chunk,
@@ -2471,6 +2547,40 @@ class VlmPipeline:
                 error=None,
                 is_live_stream=False,
             )
+
+    def _reserve_chunk_callback(
+        self,
+        chunk: ChunkInfo,
+        on_chunk_result: Callable[[PipelineChunkResult], None],
+        raise_on_unhealthy: bool = False,
+    ) -> int | None:
+        with self._enqueue_lock:
+            curr_chunk_counter = self._chunk_counter
+            self._chunk_counter += 1
+            if self._all_vlm_processes_healthy():
+                self._chunk_callback_map[curr_chunk_counter] = on_chunk_result
+                return curr_chunk_counter
+        if raise_on_unhealthy:
+            raise ServiceException(MODEL_BACKEND_UNAVAILABLE_MESSAGE, "ServiceUnavailable", 503)
+        on_chunk_result(
+            PipelineChunkResult(
+                chunk=chunk,
+                error=MODEL_BACKEND_UNAVAILABLE_MESSAGE,
+                error_status_code=503,
+            )
+        )
+        return None
+
+    def _all_vlm_processes_healthy(self) -> bool:
+        return all(
+            getattr(process, "_disabled", False)
+            or (process.is_alive() and process.is_model_healthy())
+            for process in self._vlm_procs
+        )
+
+    def ensure_model_available(self) -> None:
+        if not self._all_vlm_processes_healthy():
+            raise ServiceException(MODEL_BACKEND_UNAVAILABLE_MESSAGE, "ServiceUnavailable", 503)
 
     def _live_stream_decode_signature(self, vlm_query: VlmQuery) -> tuple:
         return (
@@ -2497,6 +2607,7 @@ class VlmPipeline:
                 (including chunk_duration settings)
             on_chunk_result: Callback function for chunk results
         """
+        self.ensure_model_available()
         request_id = request_id or asset.asset_id
         request_params = VlmRequestParams.from_vlm_query(vlm_query)
         decode_signature = self._live_stream_decode_signature(vlm_query)
@@ -2735,10 +2846,19 @@ class VlmPipeline:
         for i, vlm in enumerate(self._vlm_procs):
             if vlm and not vlm._disabled:
                 is_alive = vlm.is_alive()
+                is_model_healthy = is_alive and vlm.is_model_healthy()
                 checks.append(
                     HealthStatus(
-                        healthy=is_alive,
-                        message=f"VLM process {i} is {'running' if is_alive else 'not running'}",
+                        healthy=is_model_healthy,
+                        message=(
+                            f"VLM process {i} is not running"
+                            if not is_alive
+                            else (
+                                f"VLM process {i} model backend is unhealthy"
+                                if not is_model_healthy
+                                else f"VLM process {i} is running"
+                            )
+                        ),
                         component=f"vlm_process_{i}",
                         timestamp=time.time(),
                     )
