@@ -233,14 +233,15 @@ not failures:
 - the anchor ES cleanups target the `*-2025-01-01` indices, so live-dated
   documents survive;
 - the emptied `default_<streamId>` index itself stays behind;
-- deleting a video **while it is still being tagged** brings its tags back:
-  RT-VLM refuses the remove (`409`, asset in use) and keeps publishing, so
-  chunks land after the cleanup has run. Wait for tagging to finish before
-  deleting, or remove the leftover tag documents by hand once it has.
+- deleting a video **while it is being tagged, or just after**, can bring its
+  tags back: VIOS fires the RT-VLM remove and the cleanup concurrently, so
+  chunks still publishing (RT-VLM refuses the remove with `409`) or still in
+  flight through Kafka and Logstash land after the cleanup. Let tagging finish
+  and settle before deleting, or remove the leftovers by hand.
 
-A hand-driven RT-VLM leg is torn down by its caller, before the sensor goes.
-That includes its tag documents: they carry no `cameraId`, so the shipped
-cleanup does not remove them.
+A hand-driven RT-VLM leg is torn down by its caller, before the sensor goes,
+tag documents included: they carry no `cameraId`, so the shipped cleanup
+misses them.
 
 ## Driving RT-VLM by hand
 
