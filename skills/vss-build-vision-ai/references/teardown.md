@@ -51,7 +51,10 @@ nemoclaw "$SANDBOX" destroy --yes --cleanup-gateway
 
 # Match the exact --sandbox argument, never the port or a name prefix: other
 # sandboxes' relays share the script and may sit on neighbouring ports.
-RELAY="dashboard-relay\.py --sandbox ${SANDBOX}( |$)"
+# pkill -f compiles an extended regex. Escape the recorded name so
+# vision.dev selects that sandbox's relay alone.
+SANDBOX_RE="$(printf '%s' "$SANDBOX" | sed 's/[][(){}.*+?^$|\\]/\\&/g')"
+RELAY="dashboard-relay\.py --sandbox ${SANDBOX_RE}( |$)"
 pkill -f -- "$RELAY"
 for _ in $(seq 50); do pgrep -f -- "$RELAY" >/dev/null || break; sleep 0.1; done
 if pgrep -af -- "$RELAY"; then
