@@ -56,7 +56,7 @@ inline constexpr const char* DEFAULT_IPC_SOCKET_PATH = "/tmp/";
 
 inline constexpr int MAX_TOLERANCE_SECS = 2;
 inline constexpr int RETRIES_FOR_DEVICE_ID = 2;
-inline constexpr int DEFAULT_FILE_EXPIRY_MINUTES = 10080;
+inline constexpr int DEFAULT_FILE_EXPIRY_MINUTES = 60;
 inline constexpr const char* DEFAULT_INGRESS_ENDPOINT = "30888/vst";
 
 static const string TYPE_VST  = "vst";
