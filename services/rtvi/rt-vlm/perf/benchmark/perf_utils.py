@@ -12,8 +12,17 @@
 """Shared utilities for perf benchmark reporting tools."""
 
 import json
+import math
 from pathlib import Path
 from typing import Dict, Optional
+
+
+def calc_vision_tokens(w: int, h: int, num_frames: int, model_preset: str = "") -> int:
+    """Estimate merged vision tokens using the configured model's temporal patching."""
+    spatial = math.ceil(w / 32) * math.ceil(h / 32)
+    return spatial * (
+        num_frames if model_preset == "cosmos3-edge-bf16" else num_frames // 2
+    )
 
 
 def load_json(path: Path, verbose: bool = True) -> Optional[Dict]:

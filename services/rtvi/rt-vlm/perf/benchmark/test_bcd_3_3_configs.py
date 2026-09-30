@@ -7,9 +7,17 @@ import unittest
 import yaml
 
 from generate_bcd_3_3_configs import HERE, PROFILES, SOURCE, render
+from perf_utils import calc_vision_tokens
 
 
 class PlatformConfigTest(unittest.TestCase):
+    def test_model_specific_vision_token_estimate(self):
+        for frames, expected in ((5, 2000), (10, 4000), (20, 8000)):
+            self.assertEqual(
+                calc_vision_tokens(640, 640, frames, "cosmos3-edge-bf16"), expected
+            )
+        self.assertEqual(calc_vision_tokens(640, 640, 10, "cr3-nano-reasoner-nvfp4"), 2000)
+
     def test_cosmos3_edge_frame_budgets(self):
         for platform, expected in (
             ("agx_orin", {"2k": 5, "4k": 10, "8k": 20}),

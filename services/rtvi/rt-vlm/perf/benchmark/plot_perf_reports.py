@@ -49,14 +49,13 @@ Chart Types:
 """
 
 import argparse
-import math
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
-from perf_utils import load_json
+from perf_utils import calc_vision_tokens, load_json
 
 try:
     import yaml
@@ -186,14 +185,6 @@ plt.rcParams.update(
 # ── Vision Token Calculation ─────────────────────────────────────────────────
 
 
-def calc_vision_tokens(w: int, h: int, num_frames: int) -> int:
-    """Calculate vision token count from resolution and frame count.
-
-    Formula: ceil(w/32) * ceil(h/32) * (num_frames // 2)
-    """
-    return math.ceil(w / 32) * math.ceil(h / 32) * (num_frames // 2)
-
-
 def tokens_label(tokens: int) -> str:
     """Return a human-readable token label like '~2K' or '~8K'."""
     k = round(tokens / 1000)
@@ -260,7 +251,7 @@ def get_scenario_vision_info(config: Dict, scenario_name: str) -> Dict[str, Any]
     h = params.get("vlm_input_height", 448)
     nf = params.get("num_frames_per_second_or_fixed_frames_chunk", 80)
     mt = params.get("max_tokens", 100)
-    tokens = calc_vision_tokens(w, h, nf)
+    tokens = calc_vision_tokens(w, h, nf, config.get("global", {}).get("model_preset", ""))
     return {
         "width": w,
         "height": h,

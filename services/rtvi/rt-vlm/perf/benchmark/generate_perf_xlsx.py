@@ -42,7 +42,6 @@ Usage:
 """
 
 import argparse
-import math
 import re
 import sys
 from pathlib import Path
@@ -54,7 +53,7 @@ from openpyxl.drawing.image import Image as XlImage
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from perf_platform import get_gpu_metric
-from perf_utils import load_json
+from perf_utils import calc_vision_tokens, load_json
 
 # ── Styling constants ────────────────────────────────────────────────────────
 HEADER_FONT = Font(bold=True, size=10)
@@ -119,14 +118,6 @@ def parse_stream_count_from_name(name: str) -> Optional[int]:
     if match:
         return int(match.group(1))
     return None
-
-
-def calc_vision_tokens(w: int, h: int, num_frames: int) -> int:
-    """Calculate vision tokens using the VLM tiling formula.
-
-    Formula: ceil(w/32) * ceil(h/32) * (num_frames // 2)
-    """
-    return math.ceil(w / 32) * math.ceil(h / 32) * (num_frames // 2)
 
 
 def vision_tokens_label(tokens: int) -> str:
@@ -205,7 +196,9 @@ def resolve_scenario_vision_info(
     if config:
         p = get_scenario_params(config, scenario_name)
         w, h, nf = p["vlm_input_width"], p["vlm_input_height"], p["num_frames"]
-        return w, h, nf, calc_vision_tokens(w, h, nf)
+        return w, h, nf, calc_vision_tokens(
+            w, h, nf, config.get("global", {}).get("model_preset", "")
+        )
 
     # Fallback: parse from name
     w, h = parse_resolution_from_name(scenario_name)
@@ -1743,7 +1736,9 @@ def write_machine_config_tab(
             scenario = sample_config["test_scenarios"][scenario_name]
             p = get_scenario_params(sample_config, scenario_name)
             w, h, nf = p["vlm_input_width"], p["vlm_input_height"], p["num_frames"]
-            vt = calc_vision_tokens(w, h, nf)
+            vt = calc_vision_tokens(
+                w, h, nf, sample_config.get("global", {}).get("model_preset", "")
+            )
 
             ws.cell(row=row, column=1, value=scenario_name)
             ws.cell(row=row, column=2, value=f"{w}x{h}")
