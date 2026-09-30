@@ -1459,19 +1459,32 @@ def _prior_agent_output_archive_command() -> str:
     classes aside: after an abrupt cancellation the root raw log may be the
     only surviving evidence because coordinator download never completed.
     Old archives are pruned to keep warm-box storage bounded.
+
+    The session skills dir is the third class. Harbor copies this trial's
+    skills into it, but never removes one a prior trial left, so a skill
+    deleted from the repo keeps being offered to the agent and can win
+    routing against the one under test (observed 2026-09-30: the L40S
+    ask-video leg deployed through `vss-deploy-profile`, retired 16 days
+    earlier in #2141, and followed its remote-VLM recipe instead of Build
+    Vision AI's).
     """
     return (
         "ts=$(date +%Y%m%d-%H%M%S)-$$; "
         "PROJ=/logs/agent/sessions/projects; "
+        "SKILLS=/logs/agent/sessions/skills; "
         "ROOT=/logs/agent; "
         "OUTPUTS='claude-code.txt trajectory.json trajectory.jsonl agent.log'; "
         "HAS_SESSIONS=0; "
+        "HAS_SKILLS=0; "
         "HAS_OUTPUT=0; "
         'if [ -d "$PROJ" ] && [ -n "$(ls -A "$PROJ" 2>/dev/null)" ]; then '
         "  HAS_SESSIONS=1; "
         "fi; "
+        'if [ -d "$SKILLS" ] && [ -n "$(ls -A "$SKILLS" 2>/dev/null)" ]; then '
+        "  HAS_SKILLS=1; "
+        "fi; "
         'for name in $OUTPUTS; do [ -e "$ROOT/$name" ] && HAS_OUTPUT=1; done; '
-        'if [ "$HAS_SESSIONS" -eq 1 ] || [ "$HAS_OUTPUT" -eq 1 ]; then '
+        'if [ "$HAS_SESSIONS" -eq 1 ] || [ "$HAS_SKILLS" -eq 1 ] || [ "$HAS_OUTPUT" -eq 1 ]; then '
         '  ARCHIVE="$HOME/.claude-archive/$ts"; '
         '  mkdir -p "$ARCHIVE" || exit 1; '
         "fi; "
@@ -1479,6 +1492,11 @@ def _prior_agent_output_archive_command() -> str:
         '  mkdir -p "$ARCHIVE/sessions" || exit 1; '
         '  mv "$PROJ"/* "$ARCHIVE/sessions/" || exit 1; '
         '  echo "[trajectory-isolation] archived prior sessions to $ARCHIVE/sessions"; '
+        "fi; "
+        'if [ "$HAS_SKILLS" -eq 1 ]; then '
+        '  mkdir -p "$ARCHIVE/skills" || exit 1; '
+        '  mv "$SKILLS"/* "$ARCHIVE/skills/" || exit 1; '
+        '  echo "[trajectory-isolation] archived prior session skills to $ARCHIVE/skills"; '
         "fi; "
         'if [ "$HAS_OUTPUT" -eq 1 ]; then '
         '  mkdir -p "$ARCHIVE/root-output" || exit 1; '
