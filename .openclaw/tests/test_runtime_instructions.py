@@ -7,9 +7,11 @@ import os
 import re
 import shlex
 import subprocess
+import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 ROOT = Path(os.environ.get("VSS_TEST_SOURCE_ROOT", Path(__file__).resolve().parents[2]))
 IMAGE = os.environ.get("VSS_TEST_IMAGE")
@@ -186,6 +188,9 @@ class StreamPreflightInstructions(unittest.TestCase):
                 self.assertNotIn("vss-deploy-dense-captioning", content)
                 self.assertNotIn("reject unless the user", content)
                 self.assertIn("`vss vios list --sensor <name>`", content)
+                self.assertIn("check its current registration for each new summary", content)
+                self.assertIn("Never reuse a file classification", content)
+                self.assertIn("does not establish an uploaded file", content)
                 self.assertIn('type is `stream`', content)
                 self.assertIn("Keep the rejection concise", content)
                 self.assertIn("A brief explanation of the source classification is acceptable", content)
@@ -202,6 +207,69 @@ class StreamPreflightInstructions(unittest.TestCase):
         self.assertLess(preflight, content.index("## VSS deployment origin"))
         self.assertLess(preflight, content.index("## First Run"))
         self.assertLess(preflight, content.index("## Every Session"))
+
+
+class StreamPreflightSync(unittest.TestCase):
+    def sync(self, target, template=None):
+        return subprocess.run(
+            ["python3", str(ROOT / ".openclaw/sync-stream-preflight.py"),
+             template if template is not None else (WORKSPACE / "AGENTS.md").read_text(), str(target)],
+            capture_output=True, text=True,
+        )
+
+    def test_reused_workspace_preserves_custom_instructions_and_is_idempotent(self):
+        original = "# Custom workspace\n\nLocal instructions.\n\n## Every Session\n\nCustom setup.\n"
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "AGENTS.md"
+            target.write_text(original)
+            self.assertEqual(self.sync(target).returncode, 0)
+            updated = target.read_text()
+            self.assertIn("Local instructions.", updated)
+            self.assertIn("Custom setup.", updated)
+            self.assertLess(updated.index("## Live-stream"), updated.index("## Every Session"))
+            self.assertEqual(self.sync(target).returncode, 0)
+            self.assertEqual(target.read_text(), updated)
+
+    def test_existing_preflight_is_replaced_not_duplicated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "AGENTS.md"
+            target.write_text("# Workspace\n\n## Every Session\nKeep me.\n\n"
+                              "## Live-stream summarization and report preflight\nOld policy.\n")
+            self.assertEqual(self.sync(target).returncode, 0)
+            updated = target.read_text()
+            self.assertNotIn("Old policy.", updated)
+            self.assertIn("Keep me.", updated)
+            self.assertEqual(updated.count("## Live-stream summarization and report preflight"), 1)
+            self.assertLess(updated.index("## Live-stream"), updated.index("## Every Session"))
+
+    def test_missing_workspace_is_seeded_and_missing_template_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "workspace/AGENTS.md"
+            self.assertEqual(self.sync(target).returncode, 0)
+            self.assertEqual(target.read_text(), (WORKSPACE / "AGENTS.md").read_text())
+            original = target.read_text()
+            self.assertNotEqual(self.sync(target, "# Missing policy\n").returncode, 0)
+            self.assertEqual(target.read_text(), original)
+
+    def test_notebook_refreshes_preflight_even_when_reusing_sandbox(self):
+        cells = json.loads((ROOT / "deploy/docker/scripts/deploy_nemoclaw.ipynb").read_text())["cells"]
+        source = next("".join(cell.get("source", [])) for cell in cells
+                      if "_preflight_sync =" in "".join(cell.get("source", [])))
+        start = source.index('if WORKSPACE_VARIANT == "nemoclaw":')
+        end = source.index("# Deployment settings", start)
+        runner = Mock()
+        scope = {"WORKSPACE_VARIANT": "nemoclaw", "WORKSPACE_DIR": WORKSPACE.parent,
+                 "NEMOCLAW_SANDBOX_NAME": "reused-sandbox", "WORKSPACE_REMOTE_DIR": "/workspace",
+                 "subprocess": runner}
+        exec(compile(source[start:end], "preflight-refresh", "exec"), scope)
+        arguments = runner.run.call_args.args[0]
+        self.assertEqual(arguments[-1], "/workspace/AGENTS.md")
+        self.assertEqual(arguments[-2], (WORKSPACE / "AGENTS.md").read_text())
+        self.assertTrue(runner.run.call_args.kwargs["check"])
+        runner.reset_mock()
+        scope["WORKSPACE_VARIANT"] = "other"
+        exec(compile(source[start:end], "preflight-refresh", "exec"), scope)
+        runner.run.assert_not_called()
 
 
 @unittest.skipUnless(IMAGE, "Set VSS_TEST_IMAGE to exercise the installed image CLI")

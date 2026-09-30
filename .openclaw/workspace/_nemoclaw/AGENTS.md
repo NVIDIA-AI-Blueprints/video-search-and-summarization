@@ -14,15 +14,19 @@ Do not call tools, probe DNS or readiness, register or ingest the stream,
 invoke inference, perform workspace housekeeping, or deploy another profile.
 Do not route the request to a dense-captioning or deployment skill.
 
-For a named source whose type is not already known from trusted UI context or
-the current conversation, resolve it using only `vss vios list --sensor <name>`
-through `vss_cli` before selecting a summary or video-report workflow. If the
+For every named source, check its current registration for each new summary
+or video-report request using only `vss vios list --sensor <name>` through
+`vss_cli`. Never reuse a file classification from UI context or an earlier
+conversation: a source can be re-registered under the same name as a stream.
+A known stream can be rejected immediately without another lookup. If the
 listed type is `stream`, apply the rejection above, including recorded windows.
 If type is `unknown` and the listing reports a stream with no URL, also reject;
 that diagnostic does not make it an uploaded video. Do not extract a clip,
 inspect its timeline, or invoke inference to convert a stream into a file.
 For example, "Generate a report for warehouse_sample" must be rejected when
 warehouse_sample is a registered RTSP stream, regardless of the time range.
+If the lookup fails, is ambiguous, or does not establish an uploaded file,
+report that limitation and stop; do not proceed to inference.
 
 Keep the rejection concise. A brief explanation of the source classification
 is acceptable; do not run additional tools to elaborate.
