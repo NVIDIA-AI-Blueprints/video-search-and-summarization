@@ -1854,7 +1854,7 @@ class TestCVStreamEndpoints:
 
         duplicate_response = test_client.post(f"{API_PREFIX}/stream/add", json=body)
         assert duplicate_response.status_code == 409
-        assert duplicate_response.json()["code"] == "DuplicateCameraId"
+        assert duplicate_response.json()["code"] == "DuplicateStreamId"
 
     def test_stream_add_auto_inference_accepts_non_uuid_camera_id(self, rtvi_server):
         """CV auto-inference accepts the stream ID format used by registration."""
@@ -1908,6 +1908,7 @@ class TestCVStreamEndpoints:
         duplicate_response = client.post(f"{API_PREFIX}/stream/add", json=body)
 
         assert duplicate_response.status_code == 409
+        assert duplicate_response.json()["code"] == "DuplicateStreamId"
         assert rtvi_server._process_vlm_request.await_count == 1
 
 
@@ -2174,7 +2175,7 @@ class TestNIMCompatibleEndpoints:
             vlm_output.reasoning_description = ""
             vlm_output.input_tokens = 52
             vlm_output.output_tokens = 154
-            kwargs["on_chunk_result"](MagicMock(vlm_model_output=vlm_output))
+            kwargs["on_chunk_result"](MagicMock(vlm_model_output=vlm_output, error=None))
 
         pipeline.enqueue_vlm_text_chunk.side_effect = enqueue_text_chunk
 
