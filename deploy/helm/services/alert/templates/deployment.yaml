@@ -34,7 +34,7 @@ spec:
         app.kubernetes.io/name: vss-alert-bridge
         app.kubernetes.io/instance: {{ .Release.Name }}
       annotations:
-        checksum/config: {{ tpl (.Files.Get "configs/config.yml") . | sha256sum }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       # At alert_agent.processes: 1, the shipped default, there is no
       # supervisor: up to 10s to terminate and join the API child, up to 15s
