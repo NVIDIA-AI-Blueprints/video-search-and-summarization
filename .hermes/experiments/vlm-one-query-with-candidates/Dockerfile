@@ -19,16 +19,14 @@ ARG HARNESS_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-harness-hermes:develop-46
 FROM ${HARNESS_IMAGE}
 USER root
 # Appending keeps the file's sandbox ownership and the workspace rules above it.
-RUN printf '%s\n' \
-      '' \
-      '## VLM query rule' \
-      '' \
-      'Only send one VLM query and use the response from the VLM to answer. Make' \
-      'sure the query includes the original question and the entire list of' \
-      'candidate answers. This rule overrides any other instruction in this' \
-      'workspace about how to query the VLM.' \
-      >> /sandbox/AGENTS.md \
-    && grep -q '^## VLM query rule$' /sandbox/AGENTS.md
+# The rule is the requester's wording, verbatim; the build fails unless that
+# exact line lands in AGENTS.md.
+RUN set -eu; \
+    rule='Only send one VLM query and use the response from VLM to asnwer, make sure the query includes the original question and the entire list of candidate answers'; \
+    printf '\n## VLM query rule\n\n%s\n\n%s\n' "$rule" \
+      'This rule overrides any other instruction in this workspace about how to query the VLM.' \
+      >> /sandbox/AGENTS.md; \
+    grep -qxF "$rule" /sandbox/AGENTS.md
 USER sandbox
 WORKDIR /sandbox
 
