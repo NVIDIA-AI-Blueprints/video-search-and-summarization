@@ -149,6 +149,11 @@ source to prove the stack works is not a readiness check.
 
 ## Stop
 
+A build holding a `sandbox` file starts with
+[`teardown.md`](teardown.md#nemoclaw-harness--before-compose) instead — the
+harness is outside the Compose project, and stopping the build first leaves it
+pointed at a dead origin.
+
 Clean the complete Compose project (`COMPOSE_PROJECT_NAME`, default `vss`) and its named volumes by default:
 
 ```bash
