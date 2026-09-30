@@ -28,6 +28,20 @@ describe('useCvAlertsVerificationConfigs', () => {
     global.fetch = originalFetch;
   });
 
+  it('loads configs added outside the editor when refreshVersion changes', async () => {
+    global.fetch = jest.fn()
+      .mockImplementationOnce(() => response({ configs: [] }))
+      .mockImplementationOnce(() => response({ configs: [sample] }));
+    const { result, rerender } = renderHook(({ refreshVersion }) =>
+      useCvAlertsVerificationConfigs({ alertsApiUrl: 'http://alerts.test/api/v1', refreshVersion }),
+      { initialProps: { refreshVersion: 0 } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    rerender({ refreshVersion: 1 });
+    await waitFor(() => expect(result.current.configs).toEqual([sample]));
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
   it('lists verification configs from the configured alert bridge', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,

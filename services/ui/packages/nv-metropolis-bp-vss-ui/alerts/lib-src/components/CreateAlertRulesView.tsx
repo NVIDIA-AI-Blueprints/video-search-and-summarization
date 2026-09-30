@@ -49,6 +49,8 @@ interface CreateAlertRulesViewProps {
   onTypeFilterChange?: (value: string) => void;
   /** vss-alert-bridge base URL (NEXT_PUBLIC_ALERTS_API_URL). */
   alertsApiUrl?: string;
+  /** Changes when chat completes or the Alerts tab becomes active. */
+  refreshVersion?: number;
   /** Base URL of the VST service (NEXT_PUBLIC_VST_API_URL); used for sensor thumbnails. */
   vstApiUrl?: string;
   enableRealtimeAlerts?: boolean;
@@ -79,6 +81,7 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
   onStreamFilterChange,
   onTypeFilterChange,
   alertsApiUrl,
+  refreshVersion,
   vstApiUrl,
   enableRealtimeAlerts = true,
   enableCvAlertsVerification = true,
@@ -153,6 +156,7 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
         >
     <RealtimeAlertsTab
       isDark={isDark}
+      refreshVersion={refreshVersion}
       alertsApiUrl={alertsApiUrl}
       vstApiUrl={vstApiUrl}
       streamFilter={streamFilter}
@@ -175,6 +179,7 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
         >
           <CvAlertsVerificationTab
             isDark={isDark}
+            refreshVersion={refreshVersion}
             alertsApiUrl={alertsApiUrl}
             visible={activeKind === 'verification'}
           />
@@ -201,6 +206,8 @@ export const CreateAlertRulesView: React.FC<CreateAlertRulesViewProps> = ({
 interface RealtimeAlertsTabProps {
   isDark: boolean;
   alertsApiUrl?: string;
+  /** Changes when chat completes or the Alerts tab becomes active. */
+  refreshVersion?: number;
   vstApiUrl?: string;
   streamFilter?: string;
   typeFilter?: string;
@@ -214,6 +221,7 @@ interface RealtimeAlertsTabProps {
 const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
   isDark,
   alertsApiUrl,
+  refreshVersion,
   vstApiUrl,
   streamFilter: streamFilterProp,
   typeFilter: typeFilterProp,
@@ -224,7 +232,7 @@ const RealtimeAlertsTab: React.FC<RealtimeAlertsTabProps> = ({
   thClass,
 }) => {
   const { rules, loading, error, lastRefreshedAt, createRule, deleteRule, refetch } =
-    useRealtimeAlertRules({ alertsApiUrl });
+    useRealtimeAlertRules({ alertsApiUrl, refreshVersion });
 
   const [drafts, setDrafts] = useState<RealtimeAlertRuleDraft[]>([]);
   // VST live-stream catalog used to populate the sensor picker in draft rows.

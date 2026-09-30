@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AlertsComponent } from '../../lib-src/AlertsComponent';
 
 jest.mock('@nvidia/foundations-react-core', () => {
@@ -121,7 +121,9 @@ jest.mock('../../lib-src/components/CreateAlertRulesView', () => ({
     onActiveKindChange,
     enableRealtimeAlerts,
     enableCvAlertsVerification,
+    refreshVersion,
   }: {
+    refreshVersion?: number;
     activeKind: string;
     onActiveKindChange: (kind: string) => void;
     enableRealtimeAlerts: boolean;
@@ -130,6 +132,7 @@ jest.mock('../../lib-src/components/CreateAlertRulesView', () => ({
     <div
       data-testid="create-alert-rules-view-stub"
       data-kind={activeKind}
+      data-refresh-version={refreshVersion}
       data-realtime-enabled={String(enableRealtimeAlerts)}
       data-cv-enabled={String(enableCvAlertsVerification)}
     >
@@ -164,6 +167,28 @@ const installSessionStorageMock = () => {
 describe('AlertsComponent sub-views', () => {
   beforeEach(() => {
     installSessionStorageMock();
+  });
+
+  it('refreshes mounted rule editors on chat completion and tab activation', () => {
+    sessionStorage.setItem('alertsTabView', JSON.stringify('create'));
+    let notify: (event: { type: 'answerComplete' | 'messageSubmitted' }) => void;
+    const register = jest.fn((handler) => { notify = handler; });
+    const props = {
+      theme: 'light',
+      isActive: false,
+      registerSidebarChatEventSubscriber: register,
+      alertsData: { systemStatus: 'active', alertsApiUrl: 'http://bridge.example/api/v1' },
+    };
+    const { rerender } = render(<AlertsComponent {...props} />);
+    const editor = screen.getByTestId('create-alert-rules-view-stub');
+    expect(editor).toHaveAttribute('data-refresh-version', '0');
+    act(() => notify({ type: 'messageSubmitted' }));
+    expect(editor).toHaveAttribute('data-refresh-version', '0');
+    act(() => notify({ type: 'answerComplete' }));
+    expect(editor).toHaveAttribute('data-refresh-version', '1');
+    rerender(<AlertsComponent {...props} isActive />);
+    expect(editor).toHaveAttribute('data-refresh-version', '2');
+    expect(screen.getByTestId('create-alert-rules-view-stub')).toBe(editor);
   });
 
   it('does not mount Manage Alerts until the user opens that sub-view', () => {

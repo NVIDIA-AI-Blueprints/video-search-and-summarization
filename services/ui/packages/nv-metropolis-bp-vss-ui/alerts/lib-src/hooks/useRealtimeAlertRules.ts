@@ -17,6 +17,8 @@ import { RealtimeAlertRule } from '../types';
 
 interface UseRealtimeAlertRulesOptions {
   alertsApiUrl?: string;
+  /** Refetch persisted rules without resetting editor state. */
+  refreshVersion?: number;
 }
 
 export interface CreateRealtimeRuleInput {
@@ -46,6 +48,7 @@ const parseError = async (response: Response): Promise<string> => {
 
 export const useRealtimeAlertRules = ({
   alertsApiUrl,
+  refreshVersion = 0,
 }: UseRealtimeAlertRulesOptions) => {
   const [rules, setRules] = useState<RealtimeAlertRule[]>([]);
   const [loading, setLoading] = useState(false);
@@ -176,7 +179,7 @@ export const useRealtimeAlertRules = ({
     return () => {
       controller.abort();
     };
-  }, [fetchRules]);
+  }, [fetchRules, refreshVersion]);
 
   return {
     rules,
