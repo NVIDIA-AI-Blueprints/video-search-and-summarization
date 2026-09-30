@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   VerificationAlertConfig,
   VerificationAlertConfigUpdate,
@@ -59,6 +59,9 @@ export const useCvAlertsVerificationConfigs = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  // Only the newest GET may update state. Successful mutations invalidate
+  // earlier snapshots so a background refresh cannot undo an editor change.
+  const requestVersionRef = useRef(0);
 
   const fetchConfigs = useCallback(
     async (
@@ -69,6 +72,7 @@ export const useCvAlertsVerificationConfigs = ({
         setError('Alerts API URL is not configured');
         return [];
       }
+      const requestVersion = ++requestVersionRef.current;
       setLoading(true);
       setError(null);
       const startedAt = Date.now();
@@ -79,12 +83,16 @@ export const useCvAlertsVerificationConfigs = ({
         const list: VerificationAlertConfig[] = Array.isArray(body?.configs)
           ? body.configs
           : [];
-        if (signal?.aborted) return [];
+        if (signal?.aborted || requestVersion !== requestVersionRef.current) return [];
         setConfigs(list);
         setLastRefreshedAt(new Date());
         return list;
       } catch (err) {
-        if (signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+        if (
+          signal?.aborted ||
+          requestVersion !== requestVersionRef.current ||
+          (err instanceof DOMException && err.name === 'AbortError')
+        ) {
           return [];
         }
         setError(err instanceof Error ? err.message : 'Failed to load verification configs');
@@ -94,7 +102,7 @@ export const useCvAlertsVerificationConfigs = ({
         if (remaining > 0 && !signal?.aborted) {
           await new Promise<void>((resolve) => setTimeout(resolve, remaining));
         }
-        if (!signal?.aborted) setLoading(false);
+        if (!signal?.aborted && requestVersion === requestVersionRef.current) setLoading(false);
       }
     },
     [alertsApiUrl],
@@ -115,6 +123,8 @@ export const useCvAlertsVerificationConfigs = ({
       });
       if (!response.ok) throw new Error(await parseError(response));
       const created = (await response.json()) as VerificationAlertConfig;
+      requestVersionRef.current += 1;
+      setLoading(false);
       setConfigs((current) => [
         ...current.filter((config) => config.alert_type !== created.alert_type),
         created,
@@ -140,6 +150,8 @@ export const useCvAlertsVerificationConfigs = ({
       );
       if (!response.ok) throw new Error(await parseError(response));
       const updated = (await response.json()) as VerificationAlertConfig;
+      requestVersionRef.current += 1;
+      setLoading(false);
       setConfigs((current) =>
         current.map((config) => (config.alert_type === alertType ? updated : config)),
       );
@@ -156,6 +168,8 @@ export const useCvAlertsVerificationConfigs = ({
         { method: 'DELETE' },
       );
       if (!response.ok) throw new Error(await parseError(response));
+      requestVersionRef.current += 1;
+      setLoading(false);
       setConfigs((current) => current.filter((config) => config.alert_type !== alertType));
     },
     [alertsApiUrl],

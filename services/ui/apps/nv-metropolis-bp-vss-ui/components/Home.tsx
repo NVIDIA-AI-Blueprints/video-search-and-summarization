@@ -448,6 +448,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     handleSidebarChatVideoUploadComplete,
     handleSidebarAnswerComplete,
     handleSidebarAnswerCompleteWithContent,
+    handleMainChatAnswerComplete,
     handleMainChatAnswerCompleteWithContent,
     handleSidebarSubmitMessageReady,
     handleSidebarMessageSubmitted,
@@ -734,6 +735,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
                   isActive={isActive}
                   features={vssMainChatFeatures}
                   {...vssMainChatExtraConfig}
+                  onAnswerComplete={handleMainChatAnswerComplete}
                   onAnswer={handleMainChatAnswerCompleteWithContent}
                   // The chat tab renders its conversation list in the app's left sidebar.
                   onControlsReady={isActive ? chatControlsReadyCallback : undefined}

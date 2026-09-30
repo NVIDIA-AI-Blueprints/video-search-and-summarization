@@ -73,14 +73,14 @@ describe('useChatSidebarMainTabBridge', () => {
     },
   );
 
-  it('notifies Alerts for full-page Chat answers without artifacts', () => {
+  it('notifies Alerts for full-page Chat completion without answer content', () => {
     const { result } = renderHook(() =>
       useChatSidebarMainTabBridge({ activeTab: 'chat', sidebarCollapsed: true }),
     );
     const handler = jest.fn();
     result.current.registerAlertsTabSidebarChatEvents(handler);
     act(() => {
-      result.current.handleMainChatAnswerCompleteWithContent('Alert rule created.');
+      result.current.handleMainChatAnswerComplete();
     });
     expect(handler).toHaveBeenCalledTimes(1);
     expect(handler).toHaveBeenCalledWith({ type: 'answerComplete' });

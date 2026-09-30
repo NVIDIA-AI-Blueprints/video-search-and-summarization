@@ -174,13 +174,10 @@ export function useChatSidebarMainTabBridge({
   // The full-page Chat tab uses the same artifact subscribers as the floating
   // sidebar. Keep its handler separate so completing a main-chat turn cannot
   // mutate sidebar-only in-flight state.
-  const handleMainChatAnswerCompleteWithContent = React.useCallback(
-    (answer: string): CallerInfo | void => {
-      sidebarMainTabChatRegistry.emitEventToTab('alerts', { type: 'answerComplete' });
-      return deliverAnswerToMainTabs(answer);
-    },
-    [sidebarMainTabChatRegistry, deliverAnswerToMainTabs],
-  );
+  const handleMainChatAnswerComplete = React.useCallback(() => {
+    sidebarMainTabChatRegistry.emitEventToTab('alerts', { type: 'answerComplete' });
+  }, [sidebarMainTabChatRegistry]);
+  const handleMainChatAnswerCompleteWithContent = deliverAnswerToMainTabs;
 
   const handleSidebarSubmitMessageReady = React.useCallback(
     (submitMessage: (message: string) => void) => {
@@ -245,6 +242,7 @@ export function useChatSidebarMainTabBridge({
     handleSidebarChatVideoUploadComplete,
     handleSidebarAnswerComplete,
     handleSidebarAnswerCompleteWithContent,
+    handleMainChatAnswerComplete,
     handleMainChatAnswerCompleteWithContent,
     handleSidebarSubmitMessageReady,
     handleSidebarMessageSubmitted,
