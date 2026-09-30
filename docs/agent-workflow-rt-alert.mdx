@@ -786,7 +786,7 @@ docker compose -f compose.yml \
   --env-file containers.env \
   --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
   --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
-  up -d
+  up --detach --pull always --force-recreate --build
 ```
 
 On the first bring-up, Docker Compose pulls the required containers from the
