@@ -507,6 +507,13 @@ uv run --isolated --no-project --python 3.12 \
     --require-output "Sandbox '${NEMOCLAW_SANDBOX_NAME}' ready." \
     --echo-output \
   2>&1 | tee "$REPO/_builds/${BUILD_NAME}/nemoclaw-setup.log"
+
+# Only a run that onboarded owns a sandbox, so record the name on success
+# alone — teardown destroys what this file names.
+if [ "${PIPESTATUS[0]}" -eq 0 ]; then
+  printf '%s\n' "$NEMOCLAW_SANDBOX_NAME" \
+    > "$REPO/_builds/${BUILD_NAME}/sandbox"
+fi
 ```
 
 **Take the status from the notebook, not from `tee`.** Keep `pipefail` set, or
@@ -714,13 +721,16 @@ guards — is NemoClaw's domain: see the
 
 ## Teardown
 
-The harness and the build are independent lifecycles. Tearing down one never
-tears down the other, and [`teardown.md`](teardown.md) covers only the Compose
-project.
+The harness and the build are independent lifecycles: nothing in Compose
+reaches the sandbox. Tearing down a build therefore starts with
+[`teardown.md`](teardown.md) →
+[NemoClaw harness](teardown.md#nemoclaw-harness--before-compose), which
+destroys the sandbox and stops the dashboard relay the destroy leaves behind.
+
+Only when the harness was built from a harness source ref, also remove its
+worktree:
 
 ```bash
-nemoclaw <sandbox> destroy --yes --cleanup-gateway
-# only when the harness was built from a harness source ref:
 git -C "$REPO" worktree remove --force "$REPO/_builds/<name>/harness-src"
 ```
 

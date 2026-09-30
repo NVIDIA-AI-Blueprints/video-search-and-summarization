@@ -2,6 +2,7 @@
 
 ## Contents
 
+- [NemoClaw harness](#nemoclaw-harness--before-compose)
 - [Default teardown](#default-teardown--clean-project-volumes)
 - [Cache-preserving teardown](#cache-preserving-teardown--explicit-opt-in)
 - [Bind-mounted data cleanup](#bind-mounted-data-cleanup)
@@ -13,6 +14,47 @@ target the selected project and pass `-v --remove-orphans`.
 
 The default removes all project volumes, including model caches. Use the
 cache-preserving path only when the user explicitly asks to keep model caches.
+
+## NemoClaw harness — before Compose
+
+Run this whenever the build has a `sandbox` file: tearing down the build covers
+its sandbox and relay without the user naming them. Run it first, so the
+sandbox is not left pointed at an origin that has stopped answering.
+
+`nemoclaw destroy` does not stop the dashboard relay the setup notebook
+started. Left running it holds `NEMOCLAW_DASHBOARD_RELAY_PORT` (default
+`18790`), and the next deploy's relay cell stops on it as a foreign listener.
+
+```bash
+REPO="$(git rev-parse --show-toplevel)"
+BUILD_DIR="$REPO/_builds/<name>"
+if [ -s "$BUILD_DIR/sandbox" ]; then
+  SANDBOX="$(cat "$BUILD_DIR/sandbox")"
+else  # a build harnessed before the skill wrote the sandbox file
+  SANDBOX="$(sed -n 's/^Sandbox: //p' "$BUILD_DIR/nemoclaw-setup.log" \
+    2>/dev/null | tail -1)"
+fi
+[ -n "$SANDBOX" ] || {
+  echo "no sandbox recorded in $BUILD_DIR" >&2
+  exit 1
+}
+nemoclaw "$SANDBOX" destroy --yes --cleanup-gateway
+
+# Match the exact --sandbox argument, never the port or a name prefix: other
+# sandboxes' relays share the script and may sit on neighbouring ports.
+RELAY="dashboard-relay\.py --sandbox ${SANDBOX}( |$)"
+pkill -f -- "$RELAY"
+for _ in $(seq 50); do pgrep -f -- "$RELAY" >/dev/null || break; sleep 0.1; done
+if pgrep -af -- "$RELAY"; then
+  echo "dashboard relay for $SANDBOX still running" >&2
+  exit 1
+fi
+```
+
+The name comes from that file and nowhere else: `nemoclaw list` names no
+Compose project and the sandbox carries no project label, so neither the build
+directory nor the `vss-harness-sandbox` default identifies the sandbox this
+build owns.
 
 ## Default teardown — clean project volumes
 
