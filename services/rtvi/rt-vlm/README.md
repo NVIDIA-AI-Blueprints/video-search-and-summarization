@@ -1082,7 +1082,7 @@ curl -X POST "$BACKEND/v1/stream/add" \
 
 Response:
 ```json
-{"camera_id": "cam-001", "asset_id": "uuid-...", "status": "processing", "inference": true}
+{"camera_id": "cam-001", "asset_id": "cam-001", "status": "processing", "inference": true}
 ```
 
 #### Add Stream without Inference (Passthrough)
@@ -1123,10 +1123,11 @@ curl "$BACKEND/v1/stream/get-stream-info"
 Response:
 ```json
 {
-  "streams": [
-    {"camera_id": "cam-001", "asset_id": "uuid-...", "camera_url": "rtsp://...", "inference_active": true}
-  ],
-  "stream_count": 1
+  "status": "ok",
+  "stream_count": 1,
+  "stream_list": [
+    {"camera_id": "cam-001", "asset_id": "cam-001", "camera_url": "rtsp://...", "inference_active": true}
+  ]
 }
 ```
 
@@ -1148,7 +1149,7 @@ curl -X POST "$BACKEND/v1/stream/remove" \
 
 Response:
 ```json
-{"camera_id": "cam-001", "asset_id": "uuid-...", "status": "removed"}
+{"camera_id": "cam-001", "asset_id": "cam-001", "status": "removed"}
 ```
 
 #### CLI Commands

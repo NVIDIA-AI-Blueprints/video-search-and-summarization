@@ -42,7 +42,7 @@ k8s-workload-streamprocessing:
   WDM_MS_LISTENER_PORT: 10000
   NOHEADERTARGETROUTE: true
   HEADERLESS_SERVICE_ENDPOINTS: '["vss-vios-streamprocessing:30001"]'
-  WDM_WL_REDIS_MSG_FIELD: sensor.id
+  WDM_WL_REDIS_MSG_FIELD: value
   WDM_MSG_KEY: vst_events
   WDM_WL_PROXY_URL: /
   ENVOY_ROUTE_URL_PREFIX_REWRITE: /
@@ -59,6 +59,7 @@ k8s-workload-rtvi-cv:
   WDM_CLUSTER_TYPE: k8s
   WDM_WL_OBJECT_NAME: vss-rtvi-cv
   WDM_CONSUMER_GRP_ID: sdr-rtvi-cv-cg
+  WDM_WL_REDIS_MSG_FIELD: value
   WDM_REDIS_CACHE_OBJECT: rtvi-cv-data
   WDM_XDS_USE_POD_DNS: true
   WDM_XDS_USE_IP_ADDRESS: false
@@ -86,6 +87,12 @@ k8s-workload-alerts-2d:
   WDM_REDIS_MSG_KEY: vst.event
   WDM_WL_REDIS_MSG_FIELD: value
   WDM_INITIALIZE_FROM_VST: false
+  VST_STREAMS_ENDPOINT: http://vss-vios-sensor:30000/api/v1/sensor/streams
+  VST_STATUS_ENDPOINT: http://vss-vios-sensor:30000/api/v1/sensor/status
+  WDM_WL_CONFIG_PORT: "9080"
+  WDM_TARGET_PORT_MAPPING: '{"default": 9080}'
+  WDM_XDS_USE_IP_ADDRESS: true
+  WDM_XDS_USE_POD_DNS: false
   WDM_KFK_ENABLE: true
   WDM_KFK_BOOTSTRAP_URL: kafka-kafka:9092
   WDM_WL_THRESHOLD: 100

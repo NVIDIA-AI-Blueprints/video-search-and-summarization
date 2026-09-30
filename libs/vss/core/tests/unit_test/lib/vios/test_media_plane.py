@@ -180,6 +180,59 @@ async def test_unknown_handle_is_a_not_found(vios_http) -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_deleted_sensor_still_in_the_listing_is_not_found_not_unreachable(vios_http) -> None:
+    """`/sensor/list` does not prune sensors VIOS has since deleted.
+
+    The direct-match path hitting a 404 on `/streams` for such a sensor must
+    read as "gone", not as a VIOS outage.
+    """
+    configure, _, _ = vios_http
+    configure(**{"/sensor/list": [{"name": "cam", "sensorId": "cam-id"}], "/sensor/cam-id/streams": (404, {})})
+
+    with pytest.raises(vios.VIOSNotFoundError, match="deleted from VIOS"):
+        await vios.resolve_sensor(VST, "cam")
+
+
+@pytest.mark.asyncio
+async def test_a_removed_sensor_never_gets_a_streams_call(vios_http) -> None:
+    """VIOS's own `state: "removed"` row is skipped before /streams, not after.
+
+    Checked on the `state` field, not by reactively catching the 404 -- so an
+    unrelated 404 elsewhere is never mistaken for a removed sensor.
+    """
+    configure, calls, _ = vios_http
+    configure(**{"/sensor/list": [{"name": "cam", "sensorId": "cam-id", "state": "removed"}]})
+
+    with pytest.raises(vios.VIOSNotFoundError, match="no VIOS sensor named"):
+        await vios.resolve_sensor(VST, "cam")
+
+    assert not any("/sensor/cam-id/streams" in c for c in calls)
+
+
+@pytest.mark.asyncio
+async def test_a_reused_name_resolves_to_the_live_sensor_not_ambiguously(vios_http) -> None:
+    """A removed row sharing a name with a live one must not read as a duplicate.
+
+    VIOS keeps a `state: "removed"` row for history after a delete-and-re-add
+    under the same name; only the live one should ever be addressable by name.
+    """
+    configure, _, _ = vios_http
+    configure(
+        **_routes(
+            sensors=[
+                {"name": "cam", "sensorId": "old-id", "state": "removed"},
+                {"name": "cam", "sensorId": "new-id"},
+            ],
+            streams={"new-id": [{"streamId": "s-1", "isMain": True, "url": "/videos/cam.mp4"}]},
+        )
+    )
+
+    ref = await vios.resolve_sensor(VST, "cam")
+
+    assert ref.sensor_id == "new-id"
+
+
+@pytest.mark.asyncio
 async def test_main_stream_is_preferred_over_substreams(vios_http) -> None:
     configure, _, _ = vios_http
     configure(
@@ -320,6 +373,15 @@ async def test_confirm_absent_passes_when_the_name_is_gone(vios_http) -> None:
 
 
 @pytest.mark.asyncio
+async def test_confirm_absent_ignores_the_removed_row_kept_recordings_leave(vios_http) -> None:
+    """A delete that keeps recordings leaves VIOS a `state: "removed"` row by the same name."""
+    configure, _, _ = vios_http
+    configure(**{"/sensor/list": [{"name": "cam", "sensorId": "cam_0", "state": "removed"}]})
+
+    await vios.confirm_absent(VST, "cam")
+
+
+@pytest.mark.asyncio
 async def test_deleting_an_uploaded_file_skips_the_sensor_call(vios_http, monkeypatch) -> None:
     configure, calls, _ = vios_http
     configure(**{"/sensor/list": [], "/storage/file/": (200, {})})
@@ -426,6 +488,46 @@ async def test_list_fails_rather_than_reporting_a_short_list(vios_http) -> None:
     configure(**{"/sensor/list": [{"name": "cam", "sensorId": "cam-id"}], "/sensor/cam-id/streams": (503, {})})
 
     with pytest.raises(vios.VSTError, match="503"):
+        await vios.list_media(VST)
+
+
+@pytest.mark.asyncio
+async def test_list_skips_a_removed_sensor_without_calling_its_streams(vios_http) -> None:
+    """VIOS's `state: "removed"` row is filtered before /streams, not after."""
+    configure, calls, _ = vios_http
+    configure(
+        **{
+            "/sensor/list": [
+                {"name": "gone", "sensorId": "gone-id", "state": "removed"},
+                {"name": "cam", "sensorId": "cam-id"},
+            ],
+            "/sensor/cam-id/streams": [{"streamId": "s-1", "isMain": True, "url": "/videos/cam.mp4"}],
+        }
+    )
+
+    rows = await vios.list_media(VST)
+
+    assert [row["name"] for row in rows] == ["cam"]
+    assert not any("/sensor/gone-id/streams" in c for c in calls)
+
+
+@pytest.mark.asyncio
+async def test_list_fails_on_an_unexplained_404_rather_than_reading_it_as_removed(vios_http) -> None:
+    """A 404 VIOS did not flag with `state: "removed"` is a real backend problem.
+
+    Pre-filtering on `state` (rather than reactively catching every 404) keeps
+    this distinct from a genuinely removed sensor: an unrelated 404 -- a route
+    or version mismatch -- must still fail `list` loudly, not read as "gone".
+    """
+    configure, _, _ = vios_http
+    configure(
+        **{
+            "/sensor/list": [{"name": "cam", "sensorId": "cam-id"}],
+            "/sensor/cam-id/streams": (404, {}),
+        }
+    )
+
+    with pytest.raises(vios.VSTError, match="404"):
         await vios.list_media(VST)
 
 
@@ -559,6 +661,29 @@ async def test_a_failed_stream_scan_is_a_backend_error_not_a_missing_sensor(vios
 
     with pytest.raises(vios.VSTError, match="503"):
         await vios.resolve_sensor(VST, "some-stream-id")
+
+
+@pytest.mark.asyncio
+async def test_a_stale_candidate_does_not_mask_a_later_backend_error(vios_http) -> None:
+    """A 404 dead-end earlier in the scan must not outrank a real outage later.
+
+    Recording the 404 as `scan_failure` would report "not found" for the whole
+    search when VIOS genuinely could not answer for a different candidate.
+    """
+    configure, _, _ = vios_http
+    configure(
+        **{
+            "/sensor/list": [
+                {"name": "early", "sensorId": "early-id"},
+                {"name": "late", "sensorId": "late-id"},
+            ],
+            "/sensor/early-id/streams": (404, {}),
+            "/sensor/late-id/streams": (503, {}),
+        }
+    )
+
+    with pytest.raises(vios.VSTError, match="503"):
+        await vios.resolve_sensor(VST, "target-stream")
 
 
 # ---------------------------------------- third review round (pane + Codex)

@@ -579,7 +579,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
         )
         onboard_config = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(onboard_config)
-        cls.control_ui = staticmethod(onboard_config.control_ui)
+        cls.control_ui_auth = staticmethod(onboard_config.control_ui_auth)
 
     def _run_ui_cell(
         self,
@@ -605,14 +605,14 @@ class NemoClawForwardContractTests(unittest.TestCase):
         sandbox's forward; `forward_listener_visible` off is a listener lsof cannot
         report - started by another user, or no lsof on the host at all."""
 
-        # The config the image carries: whatever onboard's generator derived from the
-        # CHAT_UI_URL 3.1 baked in - this session's secure link, or loopback alone
-        # when the sandbox was built without a remote origin.
-        built_for = (
-            f"https://{chat_fqdn}"
-            if chat_fqdn and ui_origin_baked
-            else f"http://127.0.0.1:{self.PORT}"
-        )
+        # The controlUi the image carries: any origin, with auth flags from the
+        # CHAT_UI_URL 3.1 baked in -- or, built without one (ui_origin_baked=False),
+        # device auth left on.
+        auth = self.control_ui_auth(f"https://{chat_fqdn}" if chat_fqdn and ui_origin_baked else "")
+        control_ui_block = {
+            "allowedOrigins": ["*"],
+            **(auth or {"allowInsecureAuth": False, "dangerouslyDisableDeviceAuth": False}),
+        }
         state = {
             "forward": forward_up,
             "relay": relay_running_for,
@@ -620,7 +620,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
             "config": {
                 "gateway": {
                     "port": self.PORT,
-                    "controlUi": self.control_ui(built_for, self.PORT),
+                    "controlUi": control_ui_block,
                 }
             },
         }
@@ -674,8 +674,8 @@ class NemoClawForwardContractTests(unittest.TestCase):
             if command[:2] == ["lsof", "-t"]:
                 pid = listener_pid(int(command[2].removeprefix("-i:")))
                 return completed(command, stdout=f"{pid}\n" if pid else "")
-            if command[:2] == ["ps", "-p"]:
-                if command[2] == self.FORWARD_PID:
+            if command[:2] == ["ps", "-ww"]:
+                if command[3] == self.FORWARD_PID:
                     return completed(command, stdout=forward_args() + "\n")
                 return completed(command, stdout=relay_args() + "\n" if state["relay"] else "")
             if command[:3] == ["openshell", "sandbox", "exec"]:
@@ -854,7 +854,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
                 ui_origin_baked=False,
             )
         self.assertIn(
-            "https://agent.example.test is not in the sandbox's allowedOrigins",
+            "built without a remote UI origin, so https://agent.example.test cannot sign in",
             str(raised.exception),
         )
         self.assertIn("NEMOCLAW_RECREATE_SANDBOX = True", str(raised.exception))

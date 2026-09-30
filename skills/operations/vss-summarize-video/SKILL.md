@@ -1,6 +1,6 @@
 ---
 name: vss-summarize-video
-description: Use when summarizing a recorded video through HITL-gated LVS, with an explicitly approved VLM fallback. Not for reports, archive search, or live RTSP captioning.
+description: Use when summarizing a recorded video through HITL-gated LVS, falling back to `vss vlm run` when LVS is not ready. Not for reports, archive search, or live RTSP captioning.
 license: Apache-2.0
 metadata:
   version: "3.3.0-rc0"
@@ -10,8 +10,8 @@ metadata:
   # What a live deployment must expose for this skill to be usable, as the vss CLI
   # names it: a command group (search, summarize, vlm, vios, memory), "alerts"
   # (Alert Bridge), or "always" for a skill every VSS deployment gets. The
-  # OpenClaw harness image ships and activates skills by it.
-  vss-requires: "summarize"
+  # OpenClaw harness image ships and activates skills by it. `a|b` = either one.
+  vss-requires: "summarize|vlm"
 ---
 
 # VSS Summarize Video
@@ -51,7 +51,7 @@ Load these files only as directed:
   shape, and read verbs.
 - [`references/video-summarization-api.md`](references/video-summarization-api.md):
   load before constructing a live LVS operation **by hand** — a direct API
-  question, or the approved VLM fallback. Follow its **Runtime OpenAPI
+  question. Follow its **Runtime OpenAPI
   Discovery** procedure on Docker. On Kubernetes, follow the K8s note there —
   stock LVS Ingress does not publish LVS `/openapi.json`. The ordered
   workflow does not build a summarize payload; the CLI owns that.
@@ -82,7 +82,7 @@ Load these files only as directed:
 - HTTP 200 from `/v1/ready` selects LVS. Empty response bodies do not mean
   unavailable.
 - Once LVS is selected, do not call a VLM `/v1/chat/completions` endpoint.
-- Issue exactly one `vss summarize run` per user summarize request. One run is
+- Issue exactly one `vss summarize run` per recorded segment. One run is
   one `POST /v1/summarize`. Never retry, hedge, broaden events, or run a second
   backend automatically.
 - Endpoints come from the deployment `vss configure` recorded. Never pass an
@@ -92,8 +92,8 @@ Load these files only as directed:
   the run's own exit code, service logs, and non-mutating GET requests.
 - Render `video_summary` and every returned event verbatim. Do not paraphrase,
   truncate descriptions, add fields, or fabricate `id`.
-- Direct VLM fallback requires explicit user approval unless the original
-  request pre-authorized it.
+- When LVS is not ready, fall back to `vss vlm run` directly. Do not ask
+  first, and do not offer to deploy LVS.
 
 ## Prerequisites
 
@@ -116,16 +116,14 @@ Configure against the
 ingress origin, never `:38111` — that LVS container port exposes no
 Elasticsearch, so a deployment recorded from it cannot persist.
 
-The `vss-build-vision-ai` skill can deploy the profile. A remote fallback VLM
-must be able to fetch the clip URL; it generally cannot fetch localhost or
-private addresses.
+The `vss-build-vision-ai` skill can deploy the profile.
 
 ## Limitations
 
 - Direct VLM fallback cannot target LVS scenarios or events and is lower
   quality.
 - Private VIOS URLs may be unreachable from remote VLM endpoints.
-- Each user request permits one `vss summarize run`, with no automatic retry.
+- One `vss summarize run` per recorded segment, with no automatic retry.
 - Persistence needs a routed Elasticsearch. A deployment without one summarizes
   and reports the result unpersisted rather than failing the job.
 - Both edges are configured to wait an hour, matching the CLI's own default, so
@@ -153,16 +151,12 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   # and the gateway strips /lvs before the backend sees them.
   LVS_BACKEND_URL="${VSS_PUBLIC_URL}/lvs"
   VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
-  VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
-  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
   # RT-VLM is at its own mount; /v1/models and /v1/chat/completions hang off it.
   VLM="${VSS_PUBLIC_URL}/rtvi-vlm"
 else
   DEPLOYMENT_KIND="docker"
   LVS_BACKEND_URL="${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}"
   VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
-  VSS_VIOS_URL="http://${HOST_IP:-localhost}:30888/vst"
-  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
   VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
   VLM="${VLM%/v1}"
 fi
@@ -180,7 +174,6 @@ schema (that path is Agent on stock Ingress).
 |---|---|
 | LVS | `${VIDEO_SUMMARIZATION_URL}` (K8s: `${VSS_PUBLIC_URL}`; Docker: `http://${HOST_IP}:38111`) |
 | VLM / RT-VLM | `${VLM}` then append `/v1/...` (K8s: the `/rtvi-vlm` mount; Docker: `:8018`) |
-| VIOS | `${VST_API_BASE}` |
 
 Strip a trailing `/v1` from the VLM base because this skill appends it. Do not
 scan ports or inspect configuration files to guess endpoints.
@@ -192,44 +185,21 @@ not inspect the body.
 | LVS result | Action |
 |---|---|
 | HTTP 200 | Use LVS for every video duration. |
-| Anything else | Report that LVS must be deployed, or ask before using VLM fallback. |
-
-If LVS is unavailable, ask:
-
-> The VSS `lvs` profile isn't reachable
-> (`${VSS_PUBLIC_URL:-$HOST_IP:38111}`). Shall I deploy it now using
-> `the `/vss-build-vision-ai` stock Video Summarization workflow`? Reply `no` to stop here; I can use the
-> lower-quality VLM-only fallback only if you explicitly ask for it.
-
-- Deployment approved or pre-authorized: invoke `vss-build-vision-ai`, re-probe,
-  and continue only after LVS returns 200.
-- Deployment declined: ask separately whether to use VLM fallback. Stop unless
-  the user approves it.
-- Fallback pre-authorized: use the fallback without another prompt.
-- Non-interactive run: the original task is the only approval source. If it
-  pre-authorizes neither deployment nor fallback, report blocked and stop.
+| Anything else | Use the VLM fallback (`vss vlm run`) without asking. |
 
 ## Recorded Video Workflow
 
 ### Stage 1: Select the Backend
 
 Load the end-to-end and CLI references. Run the LVS readiness probe before
-preparing the clip. Also probe VLM `/v1/models` so an approved fallback can be
-validated, but do not infer against it while LVS is ready.
+preparing the clip.
 
 The summarization model needs no discovery: `vss configure` recorded the id LVS
 reports serving, and `vss summarize run` defaults to it on both Docker and
-Kubernetes. Pass `--model` only when the caller named one, and read the recorded
-value from `vss configure show` when it has to be reported.
-
-Discover a model id by hand only for an approved VLM fallback, which does not
-run through the CLI:
-
-- **Docker:** honor `${VLM_NAME}` only if it matches an id from LVS `GET /models`;
-  otherwise use the sole advertised LVS id.
-- **Kubernetes:** prefer `${VLM_NAME}` when set; otherwise take the sole id from
-  `GET ${LVS_BACKEND_URL}/models` (LVS) or `GET ${VLM}/v1/models` (RT-VLM). If
-  multiple ids exist and no valid preference selects one, report them and stop.
+Kubernetes. The VLM fallback needs none either: `vss vlm run` defaults to the
+model the deployment's RT-VLM reports. Pass `--model` only when the caller
+named one, and read the recorded value from `vss configure show` when it has to
+be reported.
 
 A non-200 LVS readiness result after warmup is the only unavailability signal.
 An empty summary, empty events, missing optional fields, or empty readiness
@@ -237,38 +207,30 @@ stdout must not trigger fallback.
 
 ### Stage 2: Prepare the Video Through VIOS
 
-Execute VIOS API operations directly as part of this workflow; do not invoke a
-separate skill. Follow **Prepare the video through VIOS** in the end-to-end
-reference (uses `${VST_API_BASE}`).
+Use the `vss` CLI for every step; no VIOS REST calls, and do not invoke a
+separate skill.
 
-1. List sensors and reuse the exact requested recording when present.
-2. If absent and the exact local file is available, upload it through the VIOS
-   file API. For uploaded or sample media without a requested timestamp, use
-   `2025-01-01T00:00:00.000Z` so timeline resolution is deterministic.
-3. Poll the returned stream's timelines and obtain the complete minimum start
-   and maximum end time.
-4. Generate a fresh temporary MP4 URL for that full interval with audio
-   disabled. Pass that minted URL to `--url` **as returned** (after stripping a
-   doubled `http://` scheme if present). Do not rewrite it for browser Ingress
-   paths before the summarize run.
-5. If LVS was selected, verify one-byte reachability:
-   - **Docker:** `docker exec vss-lvs` Python range probe in the reference.
-   - **Kubernetes:** bounded Range GET of the minted URL from the agent host
-     (no `docker exec` / `kubectl exec`). Deploy must mint a URL the LVS pod
-     can fetch.
+1. A named sensor goes straight to step 3. For a file, `vss vios list --sensor
+   <stem>`; reuse the recording when present. VIOS names an uploaded sensor by
+   its filename stem.
+2. If absent and the exact local file is available, `vss vios add <file>`. It
+   waits for the timeline; its default timestamp is `2025-01-01T00:00:00.000Z`.
+3. `vss vios timeline --sensor <name>`, then for each segment `vss vios clip
+   --sensor <name> --start-time <start> --end-time <end>`. Always pass the
+   segment's bounds: a window may not span a gap, and an RTSP sensor has no
+   default window. Pass `media_url` to `--url` as returned, except that a
+   `localhost` / `127.0.0.1` host becomes the host's routable IP: `vss-lvs`
+   cannot fetch loopback and rejects it.
+4. If `warmed` is `false`, stop and report it. `warmed: true` shows only that
+   the CLI host fetched the URL, not that LVS can.
 
 Require the exact recording, full timeline, and fresh clip URL before
 continuing. When the source file is available, compare VIOS timeline duration
-with source duration. An upload response or byte probe proves reachability, not
-complete media readiness.
+with source duration.
 
 If preparation fails, stop and report the missing prerequisite. Do not choose
 an arbitrary `/tmp` video, alternate recording, local HTTP server, NvStreamer,
 or RTSP source unless the user explicitly requested that source.
-
-Do not use the `vss-lvs` container's lightweight `curl` shim for reachability;
-it can write the entire video into tool output. Use the one-byte Python probe
-on Docker.
 
 ### Stage 3: Collect LVS Settings
 
@@ -306,7 +268,7 @@ operator's configured persistence default applies. When persistence is enabled,
 the record needs two values:
 
 - `--video-id`, required alongside `--url`. Use the recording's VIOS **sensor**
-  id — from `sensor/list`, or from the `sensorId` an upload returns — never the
+  id — the `sensor_id` from Stage 2's `vss vios clip` output — never the
   stream id. It becomes the record's sensor, which is what `list --sensor-id`
   and time-windowed recall key on. Without `--video-id` the run exits 2 before
   summarizing rather than after.
@@ -362,9 +324,12 @@ detections."
 
 ### VLM Fallback for Stages 3-4
 
-Use the fallback command in the end-to-end reference only when LVS remained
-unavailable after warmup and the user explicitly approved fallback. Do not run
-LVS HITL, and never use fallback to repair or replace an LVS response.
+Use the fallback when LVS remained unavailable after warmup; do not ask first.
+Do not run LVS HITL, and never use fallback to repair or replace an LVS
+response. Run one `vss vlm run --sensor <name> --start-time <start> --end-time
+<end>` per recorded segment from `vss vios timeline --sensor <name>`, with the
+default prompt in the end-to-end reference. The CLI resolves the clip and the
+model itself; do not call `/v1/chat/completions` by hand.
 
 Before the result, include:
 
@@ -373,8 +338,7 @@ Before the result, include:
 > a generic default prompt. Deploy the `lvs` profile for higher-quality
 > summaries with scenario/events targeting.
 
-If the VLM cannot fetch the VIOS URL, report that blocker instead of sending
-an inference request.
+A non-zero `vss vlm run` exit is the result to report; do not retry it.
 
 ### Stage 5: Present the Result
 
@@ -438,6 +402,6 @@ reference.
   ordered workflow.
 - `vss-search-archive`: search archived video.
 - `vss-query-analytics`: query stored incidents and events.
-- `vss-generate-video-report`: Mode A delegates here when LVS `/v1/ready` is 200.
+- `vss-generate-video-report` and `vss-ask-video`: hand off here for recordings of 120 s or longer.
 
 bump:3
