@@ -4,6 +4,7 @@ Run deterministic instruction, notebook refresh, and workspace migration checks:
 
 ```bash
 python3 -m unittest discover -s .openclaw/tests -p test_runtime_instructions.py
+node .openclaw/tests/stream_preflight_ui.cjs --self-test
 ```
 
 ## Live UI scenarios (opt-in)
@@ -18,6 +19,7 @@ Set these environment variables locally; never commit credentials:
 - `VSS_TEST_GATEWAY_TOKEN`: gateway token from your sandbox's `gateway-token --quiet`.
 - `VSS_TEST_VIDEO`: name of an existing uploaded warehouse video (a short clip is sufficient).
 - `VSS_TEST_STREAM`: name of an existing registered stream.
+- `VSS_TEST_SANDBOX`: NemoClaw sandbox name, accessible with `openshell` on PATH.
 - Optional `VSS_TEST_RESULTS_FILE`: private, ignored output path for run IDs and answers.
 
 Refresh the sandbox policy by rerunning notebook section 3.2, then start the test
@@ -35,8 +37,12 @@ It checks raw RTSP/RTSPS rejection without tools, named-stream rejection with at
 most one classification tool, time-window rejection, and a stale-file-context
 challenge. That challenge does not mutate a real source registration.
 
-For stronger validation, inspect the sandbox session transcript for the returned
-run IDs: stream turns may only call `vss vios list --sensor <name>`, never ingestion,
-clip extraction, or inference. UI SSE exposes tool names but not CLI arguments,
-so UI assertions alone cannot prove which `vss_cli` subcommand ran. Verify the
-uploaded workflows' job IDs using the configured VSS CLI.
+The runner automatically reads sandbox transcripts through OpenShell and matches
+each stream tool-call ID from UI SSE to its actual CLI arguments. Only exactly
+`vss vios list --sensor <name>` is allowed. Clip extraction, inference, mutation,
+wrong-source lookups, and missing/ambiguous transcript evidence fail the test,
+even if the final reply says "unsupported" without a job ID. Raw stream requests
+must use no tools. Select the same OpenShell gateway as the tested sandbox before
+running; transcript retrieval failures fail the test rather than skipping audit.
+The `--self-test` checks this allowlist without Playwright, a deployment, or keys.
+Verify the uploaded workflows' job IDs using the configured VSS CLI.
