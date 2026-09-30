@@ -954,7 +954,7 @@ class StreamAddResponse(CommonBaseModel):
         pattern=ANY_CHAR_PATTERN,
     )
     asset_id: str = Field(
-        description="RTVI internal asset UUID.",
+        description="Asset identifier; for live streams, matches camera_id.",
         max_length=256,
         pattern=ANY_CHAR_PATTERN,
     )
@@ -1109,7 +1109,7 @@ class StreamInfo(CommonBaseModel):
         pattern=CV_STREAM_URL_PATTERN,
     )
     asset_id: str = Field(
-        description="RTVI internal asset UUID.",
+        description="RTVI asset identifier.",
         max_length=256,
         pattern=ANY_CHAR_PATTERN,
     )
