@@ -26,11 +26,13 @@ describe('useRealtimeAlertRules', () => {
   it('does not restore a deleted rule from an earlier background GET', async () => {
     const rule: RealtimeAlertRule = { id: 'rule-1', live_stream_url: 'rtsp://camera/live',
       sensor_name: 'camera', alert_type: 'collision', prompt: 'Watch collisions', status: 'active' };
+    const chatRule = { ...rule, id: 'chat-created', alert_type: 'new' };
     let finishRefresh: (value: Response) => void;
     global.fetch = jest.fn()
       .mockImplementationOnce(() => jsonResponse({ rules: [rule] }))
       .mockImplementationOnce(() => new Promise<Response>((resolve) => { finishRefresh = resolve; }))
-      .mockImplementationOnce(() => jsonResponse({ status: 'success' }));
+      .mockImplementationOnce(() => jsonResponse({ status: 'success' }))
+      .mockImplementationOnce(() => jsonResponse({ rules: [chatRule] }));
     const { result } = renderHook(() =>
       useRealtimeAlertRules({ alertsApiUrl: 'http://alerts.test/api/v1' }),
     );
@@ -39,10 +41,10 @@ describe('useRealtimeAlertRules', () => {
     act(() => { refresh = result.current.refetch(); });
     await act(async () => { await result.current.deleteRule(rule.id); });
     await act(async () => {
-      finishRefresh(await jsonResponse({ rules: [rule] }));
+      finishRefresh(await jsonResponse({ rules: [rule, chatRule] }));
       await refresh;
     });
-    expect(result.current.rules).toEqual([]);
+    expect(result.current.rules).toEqual([chatRule]);
     expect(result.current.loading).toBe(false);
   });
 
@@ -56,7 +58,8 @@ describe('useRealtimeAlertRules', () => {
       .mockImplementationOnce(() => jsonResponse({ rules: [oldRule] }))
       .mockImplementationOnce(() => jsonResponse({ id: 'new' }))
       .mockImplementationOnce(() => new Promise<Response>((resolve) => { finishRefresh = resolve; }))
-      .mockImplementationOnce(() => jsonResponse({ status: 'success' }));
+      .mockImplementationOnce(() => jsonResponse({ status: 'success' }))
+      .mockImplementationOnce(() => jsonResponse({ rules: [{ id: 'new', ...input, status: 'active' }] }));
     const { result } = renderHook(() =>
       useRealtimeAlertRules({ alertsApiUrl: 'http://alerts.test/api/v1' }),
     );
@@ -200,7 +203,8 @@ describe('useRealtimeAlertRules', () => {
           id: rule.id,
           message: 'Realtime alert rule deleted',
         }),
-      );
+      )
+      .mockImplementationOnce(() => jsonResponse({ rules: [] }));
 
     const { result } = renderHook(() =>
       useRealtimeAlertRules({ alertsApiUrl: 'http://alerts.test/api/v1' }),

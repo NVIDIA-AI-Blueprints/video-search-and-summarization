@@ -129,9 +129,10 @@ export const useCvAlertsVerificationConfigs = ({
         ...current.filter((config) => config.alert_type !== created.alert_type),
         created,
       ]);
+      await fetchConfigs();
       return created;
     },
-    [alertsApiUrl],
+    [alertsApiUrl, fetchConfigs],
   );
 
   const updateConfig = useCallback(
@@ -155,9 +156,10 @@ export const useCvAlertsVerificationConfigs = ({
       setConfigs((current) =>
         current.map((config) => (config.alert_type === alertType ? updated : config)),
       );
+      await fetchConfigs();
       return updated;
     },
-    [alertsApiUrl],
+    [alertsApiUrl, fetchConfigs],
   );
 
   const deleteConfig = useCallback(
@@ -171,8 +173,9 @@ export const useCvAlertsVerificationConfigs = ({
       requestVersionRef.current += 1;
       setLoading(false);
       setConfigs((current) => current.filter((config) => config.alert_type !== alertType));
+      await fetchConfigs();
     },
-    [alertsApiUrl],
+    [alertsApiUrl, fetchConfigs],
   );
 
   useEffect(() => {
