@@ -902,6 +902,8 @@ The Jaeger UI is present only when the `jaeger` Compose profile is enabled; see 
 
 ### Known Issues
 
+* Removing a camera from VIOS with always-on alerts enabled can leave an orphaned RT-VLM stream record even though the `camera_remove` webhook reports success. Alert Bridge stops caption generation and deletes the stream concurrently; RT-VLM can reject the delete with HTTP 409 while shutdown is in progress. Alert Bridge removes the in-memory rule despite the delete failure, so subsequent VIOS retries return HTTP 200 without cleaning up the stale record. The camera UUID can remain in `GET /v1/streams/get-stream-info` after the pipeline stops. **Workaround:** Wait for caption shutdown to complete, then retry the RT-VLM stream delete for that camera UUID. This issue affects automatic camera removal teardown.
+
 * Deleting a real-time alert rule for a camera that has multiple rules causes all other rules for that camera to stop producing alerts, even though they remain listed as active.
 
 * It is recommended to clear chat and refresh the VSS UI page after deployment to clear any data from a previous deployment.
