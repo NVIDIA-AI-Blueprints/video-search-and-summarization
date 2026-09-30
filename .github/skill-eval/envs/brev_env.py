@@ -277,9 +277,17 @@ class BrevEnvironment(BaseEnvironment):
         # in an unrelated profile_in_1 trial's artifact tarball). /logs/agent is
         # left intact here — its prior-trial session JSONLs are handled by the
         # archive step just below (move-not-delete, for forensic SSH access).
+        #
+        # /skills is wiped for the same reason. It is Harbor's configured skill
+        # source, and the per-trial upload extracts a tarball over it without
+        # removing anything, so on a warm box it holds the union of every skill
+        # any trial ever uploaded. A skill since deleted from the repo is still
+        # handed to the agent from there and can win routing against the one
+        # under test (observed 2026-09-30: `vss-deploy-profile`, retired in
+        # #2141, deployed the L40S ask-video leg sixteen days later).
         setup_dirs_result = await _run_brev_exec(
             self._instance_name,
-            "sudo rm -rf /logs/artifacts /logs/verifier && "
+            "sudo rm -rf /logs/artifacts /logs/verifier /skills && "
             "sudo rm -rf /tmp/skill-eval/uploads && "
             "sudo rm -f /tmp/.harbor_dl_*.b64 && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
@@ -1495,7 +1503,8 @@ def _prior_agent_output_archive_command() -> str:
         "fi; "
         'if [ "$HAS_SKILLS" -eq 1 ]; then '
         '  mkdir -p "$ARCHIVE/skills" || exit 1; '
-        '  mv "$SKILLS"/* "$ARCHIVE/skills/" || exit 1; '
+        '  find "$SKILLS" -mindepth 1 -maxdepth 1 '
+        '    -exec mv -t "$ARCHIVE/skills/" {} + || exit 1; '
         '  echo "[trajectory-isolation] archived prior session skills to $ARCHIVE/skills"; '
         "fi; "
         'if [ "$HAS_OUTPUT" -eq 1 ]; then '
