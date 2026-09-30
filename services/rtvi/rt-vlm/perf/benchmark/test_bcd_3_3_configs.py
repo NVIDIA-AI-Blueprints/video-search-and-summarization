@@ -42,6 +42,9 @@ class PlatformConfigTest(unittest.TestCase):
                         if name.startswith("max_live_streams_test_"):
                             self.assertEqual(video["initial_stream_count"], initial)
                             self.assertEqual(video["add_stream_count"], step)
+                            self.assertEqual(initial, 1)
+                            self.assertEqual(video["latency_plateau_counts"], levels)
+                            self.assertEqual(video["latency_plateau_duration_seconds"], 300)
                         elif name.startswith("concurrency_test_"):
                             self.assertEqual(video["stream_count"], levels)
                         elif name.startswith("file_burst_"):

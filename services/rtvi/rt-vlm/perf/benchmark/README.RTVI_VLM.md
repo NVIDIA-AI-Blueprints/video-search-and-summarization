@@ -436,7 +436,11 @@ This mode determines the maximum number of concurrent live streams the system ca
   - `latency_threshold_seconds`: Performance degradation threshold in seconds (required)
   - `name`: Identifier name for the stream (optional, default: "live_stream")
   - `initial_stream_count`: Starting number of streams (optional, default: 5)
+  - `latency_plateau_counts`: Sorted stream counts at which the ramp must pause for fixed-load latency reporting (optional)
+  - `latency_plateau_duration_seconds`: Minimum post-ramp measurement window at each requested count (optional, default: 300)
   - `chunk_overlap_duration`: Overlap between chunks in seconds (optional)
+
+BCD 3.3 platform profiles start at one stream and visit their configured fixed-load counts. The result JSON preserves full-window latency distributions, per-stream sample counts, drops, and unreached counts; the report writes reached and unreached counts to `Fixed_Load_Latency` and per-stream sample counts to `Fixed_Load_Per_Stream`. An initial launch, a short or stale window, a missing NTP timestamp, or an unreached count is not a fixed-load KPI pass. The separate concurrent-live scenarios remain configured until matched hardware results establish that the ramp-derived measurements can replace them.
 
 **Example configuration:**
 ```yaml

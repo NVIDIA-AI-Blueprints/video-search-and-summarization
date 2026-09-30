@@ -197,6 +197,73 @@ def _rtsp_source_config_for_results(video_config: Dict) -> Dict[str, Any]:
     return source_config
 
 
+def next_ramp_target(current: int, step: int, checkpoints: List[int]) -> int:
+    """Advance the capacity search without jumping over a latency checkpoint."""
+    target = current + step
+    return min((count for count in checkpoints if current < count <= target), default=target)
+
+
+def summarize_latency_plateau(
+    tracker: LatencyTracker,
+    active_stream_ids: List[str],
+    duration_seconds: float,
+    required_duration_seconds: float,
+    dropped_chunks: int,
+    latency_threshold_seconds: float,
+    all_windows_fresh: bool = True,
+    missing_latency_events: int = 0,
+) -> Dict[str, Any]:
+    """Report full-window latency at one fixed load, including invalid evidence."""
+    all_history = tracker.get_all_latencies()
+    history = {stream_id: list(all_history.get(stream_id, [])) for stream_id in active_stream_ids}
+    readings = [value for stream_readings in history.values() for value in stream_readings]
+    percentiles = {
+        f"p{p}_latency": float(np.percentile(readings, p)) if readings else 0.0
+        for p in (50, 75, 90, 95, 99)
+    }
+    fresh_streams = sum(bool(values) for values in history.values())
+    failures = []
+    if len(set(active_stream_ids)) != len(active_stream_ids):
+        failures.append("duplicate_stream_id")
+    if duration_seconds < required_duration_seconds:
+        failures.append("short_window")
+    if fresh_streams != len(active_stream_ids):
+        failures.append("missing_stream_measurement")
+    if not all_windows_fresh:
+        failures.append("stale_window")
+    if dropped_chunks:
+        failures.append("dropped_chunks")
+    if missing_latency_events:
+        failures.append("missing_latency_source")
+    if not readings:
+        failures.append("no_latency_measurements")
+    elif percentiles["p95_latency"] > latency_threshold_seconds:
+        failures.append("latency_threshold")
+    return {
+        "stream_count": len(active_stream_ids),
+        "duration_seconds": duration_seconds,
+        "fresh_streams": fresh_streams,
+        "fresh_every_window": all_windows_fresh,
+        "dropped_chunks": dropped_chunks,
+        "missing_latency_events": missing_latency_events,
+        "total_measurements": len(readings),
+        "avg_latency": sum(readings) / len(readings) if readings else 0.0,
+        "min_latency": min(readings) if readings else 0.0,
+        "max_latency": max(readings) if readings else 0.0,
+        **percentiles,
+        "per_stream_stats": {
+            stream_id: {
+                "total_measurements": len(values),
+                "avg_latency": sum(values) / len(values) if values else 0.0,
+            }
+            for stream_id, values in history.items()
+        },
+        "latency_history": history,
+        "valid": not failures,
+        "invalid_reasons": failures,
+    }
+
+
 class LiveStreamsBenchmark(BenchmarkBase):
     """Live streams benchmark - test maximum sustainable concurrent streams"""
 
@@ -210,6 +277,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
         self._stream_integrity_lock = threading.Lock()
         self._stream_last_chunk_ids: Dict[str, int] = {}
         self._stream_dropped_chunks: Dict[str, int] = {}
+        self._stream_missing_latency_events: Dict[str, int] = {}
         self._added_stream_ids: set[str] = set()
 
     def parse_benchmark_config(self, scenario_config: Dict, global_config: Dict) -> Dict[str, Any]:
@@ -289,6 +357,40 @@ class LiveStreamsBenchmark(BenchmarkBase):
         with self._stream_integrity_lock:
             self._stream_last_chunk_ids.clear()
             self._stream_dropped_chunks.clear()
+            self._stream_missing_latency_events.clear()
+
+    def _get_missing_latency_count(self, active_stream_ids: List[str]) -> int:
+        with self._stream_integrity_lock:
+            return sum(
+                self._stream_missing_latency_events.get(stream_id, 0)
+                for stream_id in active_stream_ids
+            )
+
+    def _record_result_latency(
+        self, stream_id: str, result: Dict[str, Any], source: str, strict_source: bool
+    ) -> None:
+        latency, actual_source = self._extract_live_stream_latency_seconds(
+            result, source, strict_source=strict_source
+        )
+        if latency is not None:
+            self.latency_tracker.record_latency(latency, stream_id)
+            self.logger.debug(
+                "Stream %s recorded %s latency: %.2fs", stream_id, actual_source, latency
+            )
+        elif strict_source and (
+            result.get("chunk_responses")
+            or "chunk_id" in result
+            or result.get("embeddings")
+            or any(
+                isinstance(choice, dict) and choice.get("finish_reason") == "stop"
+                for choice in result.get("choices") or []
+            )
+        ):
+            with self._stream_integrity_lock:
+                self._stream_missing_latency_events[stream_id] = (
+                    self._stream_missing_latency_events.get(stream_id, 0) + 1
+                )
+            self.logger.warning("Stream %s has a chunk without %s latency", stream_id, source)
 
     def _record_stream_chunk(self, stream_id: str, chunk_id: Any) -> None:
         """Record chunk IDs and count gaps as dropped chunks for BCD max-stream checks."""
@@ -338,7 +440,8 @@ class LiveStreamsBenchmark(BenchmarkBase):
         }
 
     def _extract_live_stream_latency_seconds(
-        self, result: Dict[str, Any], latency_measurement_source: str = "ntp_timestamp"
+        self, result: Dict[str, Any], latency_measurement_source: str = "ntp_timestamp",
+        strict_source: bool = False,
     ) -> Tuple[Optional[float], str]:
         """Extract the latency value used for max-stream stability.
 
@@ -351,12 +454,16 @@ class LiveStreamsBenchmark(BenchmarkBase):
             timestamp_latency = self._extract_ntp_timestamp_latency_seconds(result)
             if timestamp_latency[0] is not None:
                 return timestamp_latency
+            if strict_source:
+                return None, "ntp_timestamp_unavailable"
             return self._extract_server_processing_latency_seconds(result)
 
         if source in {"processing", "processing_latency", "processing_latency_s"}:
             processing_latency = self._extract_server_processing_latency_seconds(result)
             if processing_latency[0] is not None:
                 return processing_latency
+            if strict_source:
+                return None, "processing_latency_unavailable"
             return self._extract_ntp_timestamp_latency_seconds(result)
 
         self.logger.warning(
@@ -366,6 +473,8 @@ class LiveStreamsBenchmark(BenchmarkBase):
         timestamp_latency = self._extract_ntp_timestamp_latency_seconds(result)
         if timestamp_latency[0] is not None:
             return timestamp_latency
+        if strict_source:
+            return None, "ntp_timestamp_unavailable"
         return self._extract_server_processing_latency_seconds(result)
 
     def _extract_server_processing_latency_seconds(
@@ -390,10 +499,12 @@ class LiveStreamsBenchmark(BenchmarkBase):
         if not isinstance(media_info, dict):
             return None, ""
         if media_info.get("type") == "timestamp":
-            end_timestamp = media_info["end_timestamp"]
-            dt = datetime.strptime(end_timestamp, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
-                tzinfo=timezone.utc
-            )
+            try:
+                dt = datetime.strptime(
+                    media_info["end_timestamp"], "%Y-%m-%dT%H:%M:%S.%fZ"
+                ).replace(tzinfo=timezone.utc)
+            except (KeyError, TypeError, ValueError):
+                return None, ""
             current_time = datetime.now(timezone.utc)
             latency = (current_time - dt).total_seconds()
             if latency < 0:
@@ -503,13 +614,16 @@ class LiveStreamsBenchmark(BenchmarkBase):
                         scenario_dir,
                     )
                     execution_results["test_cases"].append(test_result)
-                    if test_result.get("success", False):
+                    if (
+                        test_result.get("success", False)
+                        and test_result.get("fixed_load_latency_complete") is not False
+                    ):
                         execution_results["successful_test_cases"] += 1
                         self.logger.info(f"Test case {test_case_id} completed successfully")
                     else:
                         execution_results["failed_test_cases"] += 1
                         self.logger.error(
-                            f"Test case {test_case_id} completed without sustainable streams"
+                            f"Test case {test_case_id} failed capacity or fixed-load KPI validation"
                         )
 
                 except BenchmarkCleanupError:
@@ -562,6 +676,36 @@ class LiveStreamsBenchmark(BenchmarkBase):
         """Execute live streams test case - gradually increase streams until degradation"""
         self.logger.info(f"Starting max live streams test: {test_case_id}")
 
+        initial_stream_count = video_config.get("initial_stream_count", 5)
+        if initial_stream_count <= 0:
+            raise ValueError(f"initial_stream_count must be > 0, got {initial_stream_count!r}")
+        plateau_counts = video_config.get("latency_plateau_counts", [])
+        if (
+            not isinstance(plateau_counts, list)
+            or any(type(count) is not int or count <= 0 for count in plateau_counts)
+            or plateau_counts != sorted(set(plateau_counts))
+            or (plateau_counts and plateau_counts[0] < initial_stream_count)
+        ):
+            raise ValueError(
+                "latency_plateau_counts must be sorted, unique, positive, "
+                "and >= initial_stream_count"
+            )
+        plateau_duration = float(video_config.get("latency_plateau_duration_seconds", 300))
+        if plateau_counts and plateau_duration <= 0:
+            raise ValueError("latency_plateau_duration_seconds must be positive")
+        latency_measurement_source = video_config.get(
+            "latency_measurement_source",
+            benchmark_config.get("latency_measurement_source", "ntp_timestamp"),
+        )
+        if plateau_counts and str(latency_measurement_source).strip().lower() not in {
+            "ntp",
+            "ntp_timestamp",
+            "timestamp",
+            "media_info.end_timestamp",
+        }:
+            raise ValueError("Fixed-load latency plateaus require an NTP timestamp source")
+        latency_threshold = video_config["latency_threshold_seconds"]
+
         test_case_dir = os.path.join(scenario_dir, test_case_id)
         os.makedirs(test_case_dir, exist_ok=True)
 
@@ -597,13 +741,9 @@ class LiveStreamsBenchmark(BenchmarkBase):
         stream_add_failure = ""
         stream_add_failure_stream_count = 0
         skipped_rtsp_sources: List[Dict[str, Any]] = []
+        latency_plateaus: List[Dict[str, Any]] = []
         # Snapshot latency stats every this many streams
         latency_snapshot_interval = video_config.get("latency_snapshot_interval", 20)
-
-        initial_stream_count = video_config.get("initial_stream_count", 5)
-        if initial_stream_count <= 0:
-            raise ValueError(f"initial_stream_count must be > 0, got {initial_stream_count!r}")
-        latency_threshold = video_config["latency_threshold_seconds"]
 
         try:
             self.logger.info(f"Starting with {initial_stream_count} initial streams...")
@@ -669,6 +809,8 @@ class LiveStreamsBenchmark(BenchmarkBase):
             self.reset_cpu_monitoring()
             self.reset_pipeline_stage_samples()
             start_metrics = self.scrape_metrics()
+            plateau_started_at = time.time()
+            plateau_all_windows_fresh = True
 
             # Consecutive window counters for robust stability detection
             consecutive_stable_windows = 0
@@ -748,6 +890,8 @@ class LiveStreamsBenchmark(BenchmarkBase):
                         active_streams = freshness["active_streams"]
                         fresh_streams = freshness["fresh_streams"]
                         fresh_coverage = freshness["coverage"]
+                        if current_stream_count in plateau_counts and fresh_coverage < 1.0:
+                            plateau_all_windows_fresh = False
                         freshness_pending = False
                         freshness_wait_elapsed = 0.0
                         if active_streams and fresh_coverage < min_stable_stream_coverage:
@@ -888,6 +1032,23 @@ class LiveStreamsBenchmark(BenchmarkBase):
                             not is_stable
                             and consecutive_unstable_windows >= required_unstable_windows
                         ):
+                            if current_stream_count in plateau_counts:
+                                plateau = summarize_latency_plateau(
+                                    self.latency_tracker,
+                                    active_stream_ids,
+                                    current_time - plateau_started_at,
+                                    plateau_duration,
+                                    stream_drops["total_dropped_chunks"],
+                                    latency_threshold,
+                                    plateau_all_windows_fresh,
+                                    self._get_missing_latency_count(active_stream_ids),
+                                )
+                                plateau["valid"] = False
+                                plateau["invalid_reasons"].append("unstable_load")
+                                plateau["started_at_epoch_seconds"] = plateau_started_at
+                                plateau["ended_at_epoch_seconds"] = current_time
+                                plateau["latency_measurement_source"] = latency_measurement_source
+                                latency_plateaus.append(plateau)
                             threshold_msg = (
                                 f"exceeds threshold: {latency_threshold:.2f}s"
                                 if recent_p95 > latency_threshold
@@ -906,7 +1067,36 @@ class LiveStreamsBenchmark(BenchmarkBase):
 
                         # Only add more streams if we have confirmed stability
                         # (require consecutive stable windows)
+                        if (
+                            consecutive_stable_windows >= required_stable_windows
+                            and current_stream_count in plateau_counts
+                            and current_time - plateau_started_at < plateau_duration
+                        ):
+                            window_measurement_baseline = current_measurement_counts
+                            last_check_time = current_time
+                            continue
                         if consecutive_stable_windows >= required_stable_windows:
+                            if current_stream_count in plateau_counts:
+                                plateau = summarize_latency_plateau(
+                                    self.latency_tracker,
+                                    active_stream_ids,
+                                    current_time - plateau_started_at,
+                                    plateau_duration,
+                                    stream_drops["total_dropped_chunks"],
+                                    latency_threshold,
+                                    plateau_all_windows_fresh,
+                                    self._get_missing_latency_count(active_stream_ids),
+                                )
+                                plateau["started_at_epoch_seconds"] = plateau_started_at
+                                plateau["ended_at_epoch_seconds"] = current_time
+                                plateau["latency_measurement_source"] = latency_measurement_source
+                                latency_plateaus.append(plateau)
+                                self.logger.info(
+                                    "Fixed-load latency @ %s streams: %s (%s samples)",
+                                    current_stream_count,
+                                    "valid" if plateau["valid"] else plateau["invalid_reasons"],
+                                    plateau["total_measurements"],
+                                )
                             # Reset counter for next stability check cycle
                             consecutive_stable_windows = 0
                             recent_moving_avg_history = []  # Reset history after adding streams
@@ -937,7 +1127,10 @@ class LiveStreamsBenchmark(BenchmarkBase):
                             # Add more streams, spread over one chunk window so the
                             # new streams join uniformly at the target request rate.
                             add_stream_count = video_config.get("add_stream_count", 1)
-                            target_count = current_stream_count + add_stream_count
+                            target_count = next_ramp_target(
+                                current_stream_count, add_stream_count, plateau_counts
+                            )
+                            add_stream_count = target_count - current_stream_count
                             inter_stream_delay = 1 + (chunk_size / target_count)
                             self.logger.info(
                                 f"Adding {add_stream_count} stream(s) → target {target_count}, "
@@ -1008,6 +1201,8 @@ class LiveStreamsBenchmark(BenchmarkBase):
                             self.reset_prometheus_collectors()
                             self.reset_cpu_monitoring()
                             self.reset_pipeline_stage_samples()
+                            plateau_started_at = time.time()
+                            plateau_all_windows_fresh = True
                             window_measurement_baseline = (
                                 self.latency_tracker.get_stream_measurement_counts()
                             )
@@ -1218,6 +1413,13 @@ class LiveStreamsBenchmark(BenchmarkBase):
                 "stream_add_latencies": arr,
             }
 
+        fixed_load_latency_complete = None
+        if plateau_counts:
+            fixed_load_latency_complete = (
+                len(latency_plateaus) == len(plateau_counts)
+                and all(plateau["valid"] for plateau in latency_plateaus)
+            )
+        capacity_success = max_sustainable > 0
         results = {
             "test_case_id": test_case_id,
             "benchmark_mode": "max_live_streams",
@@ -1234,7 +1436,8 @@ class LiveStreamsBenchmark(BenchmarkBase):
             "latency_threshold_seconds": latency_threshold,
             "total_test_duration_seconds": actual_duration,
             "total_streams_tested": current_stream_count,
-            "success": max_sustainable > 0,
+            "capacity_success": capacity_success,
+            "success": capacity_success and fixed_load_latency_complete is not False,
             "last_stable_stream_count": last_stable_stream_count,
             "first_unstable_stream_count": first_unstable_stream_count,
             "last_stable_moving_average_latency": last_stable_moving_average_latency,
@@ -1256,6 +1459,14 @@ class LiveStreamsBenchmark(BenchmarkBase):
             "decode_latency_seconds_avg": decode_latency_for_report,
             "latency_history": latency_history,
             "latency_snapshots": self.latency_snapshots,
+            "latency_plateau_counts": plateau_counts,
+            "latency_plateaus": latency_plateaus,
+            "fixed_load_latency_complete": fixed_load_latency_complete,
+            "unreached_latency_plateau_counts": [
+                count
+                for count in plateau_counts
+                if count not in {plateau["stream_count"] for plateau in latency_plateaus}
+            ],
             "backend_type": benchmark_config.get("backend_type", "rtvi_vlm"),
             "phase2_binary_search_applied": binary_search_applied,
             "phase2_stable_start": phase2_stable_start,
@@ -2053,15 +2264,6 @@ class LiveStreamsBenchmark(BenchmarkBase):
                                     )
                                     self.logger.debug("=" * 40)
 
-                        latency, latency_source = self._extract_live_stream_latency_seconds(
-                            result, latency_measurement_source
-                        )
-                        if latency is not None:
-                            self.latency_tracker.record_latency(latency, stream_id)
-                            self.logger.debug(
-                                f"Stream {stream_num} recorded {latency_source} latency: "
-                                f"{latency:.2f}s"
-                            )
                     else:
                         # Process captions content when available
                         choices = result.get("choices")
@@ -2089,15 +2291,12 @@ class LiveStreamsBenchmark(BenchmarkBase):
                                     )
                             self.logger.debug("=" * 40)
 
-                        latency, latency_source = self._extract_live_stream_latency_seconds(
-                            result, latency_measurement_source
-                        )
-                        if latency is not None:
-                            self.latency_tracker.record_latency(latency, stream_id)
-                            self.logger.debug(
-                                f"Stream {stream_num} recorded {latency_source} latency: "
-                                f"{latency:.2f}s"
-                            )
+                    self._record_result_latency(
+                        stream_id,
+                        result,
+                        latency_measurement_source,
+                        strict_source=bool(video_config.get("latency_plateau_counts")),
+                    )
 
                 except json.JSONDecodeError:
                     continue
@@ -2125,6 +2324,8 @@ class LiveStreamsBenchmark(BenchmarkBase):
         # Parse all test case results
         summary_data = []
         snapshots_data = []  # per-N-stream latency snapshots across all test cases
+        plateaus_data = []
+        plateau_stream_data = []
         per_core_data = []  # per-core CPU usage rows
 
         for test_case in execution_summary["test_cases"]:
@@ -2156,6 +2357,10 @@ class LiveStreamsBenchmark(BenchmarkBase):
                     "rtsp_url": stream_results.get("rtsp_url", ""),
                     "chunk_size": stream_results.get("chunk_size", 0),
                     "max_sustainable_streams": stream_results.get("max_sustainable_streams", 0),
+                    "capacity_success": stream_results.get("capacity_success"),
+                    "fixed_load_latency_complete": stream_results.get(
+                        "fixed_load_latency_complete"
+                    ),
                     "latency_threshold_seconds": stream_results.get("latency_threshold_seconds", 0),
                     "total_streams_tested": stream_results.get("total_streams_tested", 0),
                     "decode_latency": stream_results.get("decode_latency_seconds_avg", 0),
@@ -2203,6 +2408,37 @@ class LiveStreamsBenchmark(BenchmarkBase):
                 for snap in stream_results.get("latency_snapshots", []):
                     snapshots_data.append({"test_case_id": test_case_id, **snap})
 
+                for plateau in stream_results.get("latency_plateaus", []):
+                    plateaus_data.append({
+                        "test_case_id": test_case_id,
+                        **{
+                            key: value for key, value in plateau.items()
+                            if key not in {
+                                "latency_history", "per_stream_stats", "invalid_reasons"
+                            }
+                        },
+                        "invalid_reasons": ", ".join(plateau.get("invalid_reasons", [])),
+                    })
+                    for stream_id, stats in plateau.get("per_stream_stats", {}).items():
+                        plateau_stream_data.append({
+                            "test_case_id": test_case_id,
+                            "stream_count": plateau["stream_count"],
+                            "stream_id": stream_id,
+                            **stats,
+                        })
+                reached = {
+                    plateau["stream_count"]
+                    for plateau in stream_results.get("latency_plateaus", [])
+                }
+                for count in stream_results.get("latency_plateau_counts", []):
+                    if count not in reached:
+                        plateaus_data.append({
+                            "test_case_id": test_case_id,
+                            "stream_count": count,
+                            "valid": False,
+                            "invalid_reasons": "unreached",
+                        })
+
                 # Collect per-core CPU data for the CPU_Per_Core sheet
                 per_core = stream_results.get("per_core", {})
                 if per_core:
@@ -2222,6 +2458,15 @@ class LiveStreamsBenchmark(BenchmarkBase):
             if snapshots_data:
                 snapshots_df = pd.DataFrame(snapshots_data)
                 snapshots_df.to_excel(writer, sheet_name="Latency_Snapshots", index=False)
+
+            if plateaus_data:
+                pd.DataFrame(plateaus_data).to_excel(
+                    writer, sheet_name="Fixed_Load_Latency", index=False
+                )
+            if plateau_stream_data:
+                pd.DataFrame(plateau_stream_data).to_excel(
+                    writer, sheet_name="Fixed_Load_Per_Stream", index=False
+                )
 
             # Per-core CPU usage sheet (populated when cpu_monitoring is enabled)
             if per_core_data:

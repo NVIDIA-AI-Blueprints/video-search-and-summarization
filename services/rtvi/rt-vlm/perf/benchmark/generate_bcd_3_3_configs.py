@@ -11,15 +11,15 @@ HERE = Path(__file__).resolve().parent
 SOURCE = HERE / "rtvi_vlm_bcd_3_2_config.yaml"
 PROFILES = {
     # platform: (model preset, max-live starting count, increment, concurrency sweep)
-    "rtx_pro_6000_se": ("cr3-nano-reasoner-nvfp4", 5, 5, [1, 16, 32, 64, 128]),
+    "rtx_pro_6000_se": ("cr3-nano-reasoner-nvfp4", 1, 5, [1, 16, 32, 64, 128]),
     "rtx_pro_4500": ("cr3-nano-reasoner-nvfp4", 1, 1, [1, 4, 8, 16, 32]),
-    "l40s": ("cr3-nano-reasoner-fp8", 5, 5, [1, 16, 32, 64, 128]),
-    "h100_sxm": ("cr3-nano-reasoner-fp8", 5, 5, [1, 16, 32, 64, 128]),
-    "b200_sxm": ("cr3-nano-reasoner-nvfp4", 5, 5, [1, 16, 32, 64, 128]),
+    "l40s": ("cr3-nano-reasoner-fp8", 1, 5, [1, 16, 32, 64, 128]),
+    "h100_sxm": ("cr3-nano-reasoner-fp8", 1, 5, [1, 16, 32, 64, 128]),
+    "b200_sxm": ("cr3-nano-reasoner-nvfp4", 1, 5, [1, 16, 32, 64, 128]),
     "agx_thor_t5000": ("cr3-nano-reasoner-nvfp4", 1, 1, [1, 4, 8, 16]),
     "dgx_spark": ("cr3-nano-reasoner-nvfp4", 1, 1, [1, 4, 8, 16]),
     "agx_orin": ("cosmos3-edge-bf16", 1, 1, [1, 2, 4, 8]),
-    "gb200": ("cr3-nano-reasoner-nvfp4", 5, 5, [1, 16, 32, 64, 128]),
+    "gb200": ("cr3-nano-reasoner-nvfp4", 1, 5, [1, 16, 32, 64, 128]),
 }
 
 
@@ -63,7 +63,12 @@ def render(
     text = re.sub(r'dcgm_exporter_url: "[^"]+"', 'dcgm_exporter_url: "http://localhost:9400/metrics"', text)
     text = re.sub(r'node_exporter_url: "[^"]+"', 'node_exporter_url: "http://localhost:9100/metrics"', text)
     text = text.replace("initial_stream_count: 5", f"initial_stream_count: {initial}")
-    text = text.replace("add_stream_count: 5", f"add_stream_count: {step}")
+    text = text.replace(
+        "add_stream_count: 5\n",
+        f"add_stream_count: {step}\n"
+        f"        latency_plateau_counts: {levels}\n"
+        "        latency_plateau_duration_seconds: 300\n",
+    )
     text = text.replace("stream_count: [1, 16, 32, 64, 128]", f"stream_count: {levels}")
     text = text.replace("concurrency_levels: [1, 16, 32, 64, 128]", f"concurrency_levels: {levels}")
     return text

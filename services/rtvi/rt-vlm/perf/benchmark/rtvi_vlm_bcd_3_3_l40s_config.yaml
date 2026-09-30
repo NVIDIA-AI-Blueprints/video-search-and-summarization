@@ -85,10 +85,12 @@ test_scenarios:
         unique_rtsp_url_per_stream: false
         chunk_sizes: [10]
         latency_threshold_seconds: 10
-        initial_stream_count: 5
+        initial_stream_count: 1
         chunk_overlap_duration: 0
         stability_check_interval: 60
         add_stream_count: 5
+        latency_plateau_counts: [1, 16, 32, 64, 128]
+        latency_plateau_duration_seconds: 300
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
@@ -112,10 +114,12 @@ test_scenarios:
         unique_rtsp_url_per_stream: false
         chunk_sizes: [10]
         latency_threshold_seconds: 10
-        initial_stream_count: 5
+        initial_stream_count: 1
         chunk_overlap_duration: 0
         stability_check_interval: 60
         add_stream_count: 5
+        latency_plateau_counts: [1, 16, 32, 64, 128]
+        latency_plateau_duration_seconds: 300
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
@@ -139,10 +143,12 @@ test_scenarios:
         unique_rtsp_url_per_stream: false
         chunk_sizes: [10]
         latency_threshold_seconds: 10
-        initial_stream_count: 5
+        initial_stream_count: 1
         chunk_overlap_duration: 0
         stability_check_interval: 60
         add_stream_count: 5
+        latency_plateau_counts: [1, 16, 32, 64, 128]
+        latency_plateau_duration_seconds: 300
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
@@ -166,10 +172,12 @@ test_scenarios:
         unique_rtsp_url_per_stream: false
         chunk_sizes: [10]
         latency_threshold_seconds: 10
-        initial_stream_count: 5
+        initial_stream_count: 1
         chunk_overlap_duration: 0
         stability_check_interval: 60
         add_stream_count: 5
+        latency_plateau_counts: [1, 16, 32, 64, 128]
+        latency_plateau_duration_seconds: 300
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
@@ -193,10 +201,12 @@ test_scenarios:
         unique_rtsp_url_per_stream: false
         chunk_sizes: [10]
         latency_threshold_seconds: 10
-        initial_stream_count: 5
+        initial_stream_count: 1
         chunk_overlap_duration: 0
         stability_check_interval: 60
         add_stream_count: 5
+        latency_plateau_counts: [1, 16, 32, 64, 128]
+        latency_plateau_duration_seconds: 300
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
@@ -220,10 +230,12 @@ test_scenarios:
         unique_rtsp_url_per_stream: false
         chunk_sizes: [10]
         latency_threshold_seconds: 10
-        initial_stream_count: 5
+        initial_stream_count: 1
         chunk_overlap_duration: 0
         stability_check_interval: 60
         add_stream_count: 5
+        latency_plateau_counts: [1, 16, 32, 64, 128]
+        latency_plateau_duration_seconds: 300
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2

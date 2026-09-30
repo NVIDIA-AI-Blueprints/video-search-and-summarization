@@ -89,6 +89,8 @@ test_scenarios:
         chunk_overlap_duration: 0
         stability_check_interval: 60
         add_stream_count: 1
+        latency_plateau_counts: [1, 4, 8, 16]
+        latency_plateau_duration_seconds: 300
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
@@ -116,6 +118,8 @@ test_scenarios:
         chunk_overlap_duration: 0
         stability_check_interval: 60
         add_stream_count: 1
+        latency_plateau_counts: [1, 4, 8, 16]
+        latency_plateau_duration_seconds: 300
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
@@ -143,6 +147,8 @@ test_scenarios:
         chunk_overlap_duration: 0
         stability_check_interval: 60
         add_stream_count: 1
+        latency_plateau_counts: [1, 4, 8, 16]
+        latency_plateau_duration_seconds: 300
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
@@ -170,6 +176,8 @@ test_scenarios:
         chunk_overlap_duration: 0
         stability_check_interval: 60
         add_stream_count: 1
+        latency_plateau_counts: [1, 4, 8, 16]
+        latency_plateau_duration_seconds: 300
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
@@ -197,6 +205,8 @@ test_scenarios:
         chunk_overlap_duration: 0
         stability_check_interval: 60
         add_stream_count: 1
+        latency_plateau_counts: [1, 4, 8, 16]
+        latency_plateau_duration_seconds: 300
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
@@ -224,6 +234,8 @@ test_scenarios:
         chunk_overlap_duration: 0
         stability_check_interval: 60
         add_stream_count: 1
+        latency_plateau_counts: [1, 4, 8, 16]
+        latency_plateau_duration_seconds: 300
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
