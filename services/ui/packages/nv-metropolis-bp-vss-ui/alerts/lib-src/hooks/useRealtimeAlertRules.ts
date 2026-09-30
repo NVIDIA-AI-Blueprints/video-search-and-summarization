@@ -181,7 +181,7 @@ export const useRealtimeAlertRules = ({
       setLoading(false);
       setRules((prev) => prev.filter((rule) => rule.id !== id));
       // Reload after the mutation so unrelated chat-created rules are retained.
-      await fetchRules();
+      void fetchRules();
     },
     [alertsApiUrl, fetchRules],
   );
