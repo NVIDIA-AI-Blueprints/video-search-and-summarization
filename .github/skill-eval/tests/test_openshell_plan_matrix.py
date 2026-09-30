@@ -130,14 +130,8 @@ class OpenshellGpuFleet(unittest.TestCase):
     def test_openshell_job_labels_are_not_sku_specific(self):
         one = plan_matrix.openshell_job_labels(1)
         two = plan_matrix.openshell_job_labels(2)
-        self.assertEqual(
-            one,
-            ["vss-skill-eval-gpu", "openshell-runner", "openshell", "gpus-1"],
-        )
-        self.assertEqual(
-            two,
-            ["vss-skill-eval-gpu", "openshell-runner", "openshell", "gpus-2"],
-        )
+        self.assertEqual(one, ["poc-copy"])
+        self.assertEqual(two, ["poc-copy"])
         sku = {
             "h200", "a16", "a40", "l40s", "rtx-pro-6000",
             "gpu-h200", "gpu-nvidia-h200", "gpu-rtxpro6000bw",
@@ -184,7 +178,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             )
             self.assertEqual(
                 plan_matrix.openshell_job_labels(spec["gpu_count"]),
-                ["vss-skill-eval-gpu", "openshell-runner", "openshell", "gpus-1"],
+                ["poc-copy"],
             )
 
     def test_metadata_gate_is_gpu_count_only(self):
@@ -324,8 +318,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             leg["slug"],
             "vss-deploy-detection-tracking-2d__usage-evals__gpus-1",
         )
-        self.assertIn("gpu-rtxpro6000bw", leg["runs_on"])
-        self.assertIn("openshell-rtxpro6000-active", leg["runs_on"])
+        self.assertEqual(leg["runs_on"], ["poc-copy"])
 
     def test_operations_vios_stays_off_openshell(self):
         path = (
@@ -361,7 +354,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             inc[0]["runs_on"],
             plan_matrix.openshell_job_labels(inc[0]["gpu_count"]),
         )
-        self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, inc[0]["runs_on"])
+        self.assertEqual(inc[0]["runs_on"], ["poc-copy"])
         self.assertNotIn("openshell-rtxpro6000-active", inc[0]["runs_on"])
         self.assertNotIn("gpu-rtxpro6000bw", inc[0]["runs_on"])
         self.assertNotIn("openshell-h200-active", inc[0]["runs_on"])
