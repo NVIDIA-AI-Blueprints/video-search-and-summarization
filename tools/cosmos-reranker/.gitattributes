@@ -1,0 +1,2 @@
+# Unified diff context lines contain a required leading space.
+src/cosmos_reranker/finetuning/runtime/trainer.patch -whitespace

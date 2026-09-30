@@ -1,0 +1,26 @@
+{
+  "alpha_pattern": null,
+  "base_model_name_or_path": "nvidia/Cosmos3-Nano",
+  "init_lora_weights": true,
+  "lora_alpha": 64.0,
+  "lora_dropout": 0.0,
+  "lora_names": [
+    "default"
+  ],
+  "lora_path": null,
+  "modules_to_save": null,
+  "peft_type": "LORA",
+  "primary_adapter": null,
+  "r": 32,
+  "r_pattern": null,
+  "target_modules": [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "up_proj",
+    "down_proj",
+    "gate_proj"
+  ],
+  "use_rslora": false
+}
