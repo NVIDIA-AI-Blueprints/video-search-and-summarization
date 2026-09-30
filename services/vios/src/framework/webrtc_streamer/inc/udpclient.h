@@ -30,14 +30,7 @@ namespace nv_vms
                      , m_audioFreq(8000)
                      , m_videoCodec("h264")
         {}
-        UdpStream (const UdpStream& obj)
-        {
-            this->m_audioPort = obj.m_audioPort;
-            this->m_videoPort = obj.m_videoPort;
-            this->m_type = obj.m_type;
-            this->m_audioFreq = obj.m_audioFreq;
-            this->m_videoCodec = obj.m_videoCodec;
-        }
+        UdpStream (const UdpStream& obj) = default;
         unsigned int m_videoPort;
         unsigned int m_audioPort;
         std::string m_type;

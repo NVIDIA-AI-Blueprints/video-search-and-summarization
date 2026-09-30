@@ -238,8 +238,8 @@ class GstTranscode : public GstNvElements
 
     GstTranscode(const GstTranscode&) = delete;
     GstTranscode& operator=(const GstTranscode&) = delete;
-    GstTranscode(GstTranscode&&) = default;
-    GstTranscode& operator=(GstTranscode&&) = default;
+    GstTranscode(GstTranscode&&) = delete;
+    GstTranscode& operator=(GstTranscode&&) = delete;
 
     bool transcode (TranscodeParam params);
 

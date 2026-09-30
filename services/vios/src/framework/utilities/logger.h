@@ -73,6 +73,11 @@ struct CoutToString
         std::cout.rdbuf( old );
     }
 
+    CoutToString(const CoutToString&) = delete;
+    CoutToString& operator=(const CoutToString&) = delete;
+    CoutToString(CoutToString&&) = delete;
+    CoutToString& operator=(CoutToString&&) = delete;
+
 private:
     std::streambuf * old;
 };
