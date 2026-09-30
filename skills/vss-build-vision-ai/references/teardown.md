@@ -45,10 +45,12 @@ else  # a build harnessed before the skill wrote the sandbox file
   SANDBOX="$(sed -n 's/^Sandbox: //p' "$BUILD_DIR/nemoclaw-setup.log" \
     2>/dev/null | tail -1)"
 fi
-[ -n "$SANDBOX" ] || {
-  echo "no sandbox recorded in $BUILD_DIR" >&2
-  exit 1
-}
+if [ -z "$SANDBOX" ]; then
+  # Nothing was named, so nothing was created. Exit 0: the Compose teardown
+  # the user asked for still has to run.
+  echo "no sandbox recorded in $BUILD_DIR; nothing to destroy" >&2
+  exit 0
+fi
 nemoclaw "$SANDBOX" destroy --yes --cleanup-gateway
 
 # Match the exact --sandbox argument, never the port or a name prefix: other
@@ -68,6 +70,12 @@ fi
 A name recorded by a run that failed *before* onboarding belongs to a sandbox
 that was never created, so `destroy` reports it as not found. That is the one
 non-zero here to accept and move on from; any other failure is a blocker.
+
+A setup that failed even earlier records no name at all — an older build's log
+carries the `Sandbox:` line only once the notebook has printed it. Report the
+build as carrying no recorded sandbox and continue with the Compose teardown;
+never leave the requested teardown unfinished over a sandbox that was never
+created.
 
 The name comes from that file and nowhere else: `nemoclaw list` names no
 Compose project and the sandbox carries no project label, so neither the build
