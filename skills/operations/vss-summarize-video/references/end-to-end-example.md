@@ -89,11 +89,20 @@ in one call; no VIOS REST API and no `docker exec` / `kubectl exec` probe.
 
 ```bash
 SOURCE_FILE=/path/to/video.mp4
+# vss vios add registers a local file under its full basename (extension
+# included) unless --name overrides it, so reuse must match that, not the
+# stem -- a stem-only check misses the existing sensor and a re-upload of the
+# same name is a VIOS 409.
 FILENAME=$(basename "$SOURCE_FILE")
-STEM="${FILENAME%.*}"
 
-if vss vios list --sensor "$STEM" | jq -e '.sensors | length > 0' >/dev/null; then
-  SENSOR_NAME="$STEM"
+LISTING=$(vss vios list --sensor "$FILENAME")
+LISTING_RC=$?
+if [ "$LISTING_RC" -ne 0 ]; then
+  echo "vss vios list failed (exit $LISTING_RC): $LISTING" >&2
+  exit "$LISTING_RC"
+fi
+if printf '%s\n' "$LISTING" | jq -e '.sensors | length > 0' >/dev/null; then
+  SENSOR_NAME="$FILENAME"
 else
   vss vios add "$SOURCE_FILE" > /tmp/vios-add.json
   SENSOR_NAME=$(jq -er '.name' /tmp/vios-add.json)

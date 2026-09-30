@@ -94,9 +94,9 @@ export NEMOCLAW_DASHBOARD_RELAY_PORT="${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"
 export VSS_AGENT_ADAPTER_ENABLED=true
 ```
 
-After onboarding, the user runs `nemoclaw vss-harness-sandbox gateway-token --quiet` on
-the deployment host and enters the result in the Web UI's **Connect NemoClaw
-chat** panel. The UI checks the gateway and enables both chat surfaces when it
+After onboarding, the user runs `nemoclaw "$NEMOCLAW_SANDBOX_NAME" gateway-token --quiet`
+(`vss-harness-sandbox` unless overridden) on the deployment host and enters
+the result in the Web UI's **Connect NemoClaw chat** panel. The UI checks the gateway and enables both chat surfaces when it
 accepts the token. If the relay is unavailable, the panel offers a retry; if
 the token is rejected, the user can enter a current one. The token stays in
 the browser tab session and is sent only to the UI's same-origin agent API.
@@ -675,9 +675,9 @@ the bring-up was given, read back from section 3.5's `Sandbox: <name>` line
 rather than assumed. It is the handle every later command takes:
 `nemoclaw <name> status`, `openshell sandbox exec -n <name>`, and the
 [Teardown](#teardown) destroy. The sandbox lives outside the Compose project, so
-nothing that lists the build reveals it, and a name left at the `demo` default is
-the one a second build silently replaces — a user who cannot name this sandbox
-cannot tell the two apart later.
+nothing that lists the build reveals it. The default (`vss-harness-sandbox`,
+fixed) is what a second build silently replaces by design — naming it away
+from that default is how to keep two builds addressable at once.
 
 Say with it whether the bring-up **rebuilt** an existing sandbox of that name.
 `NEMOCLAW_RECREATE_SANDBOX=1` discards the previous sandbox and its agent

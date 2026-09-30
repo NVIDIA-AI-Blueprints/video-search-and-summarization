@@ -384,8 +384,17 @@ exact window, resolve the sensor's full recorded timeline first, then check
 whether LVS is deployed:
 
 ```bash
-vss configure check | grep -q '^ *summarize *available' && LVS_AVAILABLE=1 || LVS_AVAILABLE=0
+CONFIGURE_CHECK=$(vss configure check 2>&1)
+if [ $? -eq 0 ] && printf '%s\n' "$CONFIGURE_CHECK" | grep -q '^ *summarize *available'; then
+  LVS_AVAILABLE=1
+else
+  LVS_AVAILABLE=0
+fi
 ```
+
+A non-zero exit means the recorded deployment is stale (unreachable), even if
+the cached command list still prints `summarize available` from what was true
+when it was configured -- check the exit code, not just the printed line.
 
 If `LVS_AVAILABLE=1`, hand off to `/vss-summarize-video` for that sensor over
 its full recorded window. Otherwise, run `vss vlm run` directly with

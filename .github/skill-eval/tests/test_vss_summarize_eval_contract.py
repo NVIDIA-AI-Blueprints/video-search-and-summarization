@@ -208,7 +208,7 @@ def test_summarization_uses_one_ordered_workflow_without_return_protocol() -> No
     assert "vss-manage-video-io-storage" not in eval_spec["skills"]
     # Clip minting and reachability both route through the vss CLI now, not a
     # hand-rolled VIOS REST call or a docker/kubectl exec probe.
-    assert 'vss vios list --sensor "$STEM"' in end_to_end_example
+    assert 'vss vios list --sensor "$FILENAME"' in end_to_end_example
     assert 'vss vios add "$SOURCE_FILE"' in end_to_end_example
     assert 'vss vios clip --sensor "$SENSOR_NAME"' in end_to_end_example
     assert "jq -er '.media_url'" in end_to_end_example
