@@ -167,6 +167,43 @@ class EnvironmentInstructions(unittest.TestCase):
         )
 
 
+class StreamPreflightInstructions(unittest.TestCase):
+    def test_preflight_is_present_only_in_workspace(self):
+        paths = (
+            WORKSPACE / "AGENTS.md",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                content = " ".join(path.read_text().split())
+                self.assertIn("**Live-stream summarization / report generation isn't supported.** Then stop.", content)
+                self.assertIn("`rtsp://` or `rtsps://`", content)
+                self.assertIn("not URL validity or reachability", content)
+                self.assertIn("Do not call tools", content)
+                self.assertIn("register or ingest the stream", content)
+                self.assertIn("including recorded windows", content)
+                self.assertIn("does not reject uploaded video files", content)
+                self.assertIn('"Add RTSP"', content)
+                self.assertNotIn("vss-deploy-dense-captioning", content)
+                self.assertNotIn("reject unless the user", content)
+                self.assertIn("`vss vios list --sensor <name>`", content)
+                self.assertIn('type is `stream`', content)
+                self.assertIn("Keep the rejection concise", content)
+                self.assertIn("A brief explanation of the source classification is acceptable", content)
+
+        for name in ("vss-summarize-video", "vss-generate-video-report"):
+            with self.subTest(skill=name):
+                content = (ROOT / "skills/operations" / name / "SKILL.md").read_text()
+                self.assertNotIn("Live-stream preflight", content)
+                self.assertNotIn("Live-stream summarization / report generation isn't supported.", content)
+
+    def test_workspace_preflight_precedes_session_and_bootstrap(self):
+        content = (WORKSPACE / "AGENTS.md").read_text()
+        preflight = content.index("## Live-stream summarization and report preflight")
+        self.assertLess(preflight, content.index("## VSS deployment origin"))
+        self.assertLess(preflight, content.index("## First Run"))
+        self.assertLess(preflight, content.index("## Every Session"))
+
+
 @unittest.skipUnless(IMAGE, "Set VSS_TEST_IMAGE to exercise the installed image CLI")
 class InstalledCliInstructions(unittest.TestCase):
     def run_image(self, script):

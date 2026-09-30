@@ -2,6 +2,36 @@
 
 This folder is home. Treat it that way.
 
+## Live-stream summarization and report preflight
+
+Before any tool call, session setup, or bootstrap: if the user requests
+summarization or a video analysis report of any stream, including an
+`rtsp://` or `rtsps://` URL or a registered camera, reply concisely:
+**Live-stream summarization / report generation isn't supported.** Then stop.
+
+Reject based on the requested operation, not URL validity or reachability.
+Do not call tools, probe DNS or readiness, register or ingest the stream,
+invoke inference, perform workspace housekeeping, or deploy another profile.
+Do not route the request to a dense-captioning or deployment skill.
+
+For a named source whose type is not already known from trusted UI context or
+the current conversation, resolve it using only `vss vios list --sensor <name>`
+through `vss_cli` before selecting a summary or video-report workflow. If the
+listed type is `stream`, apply the rejection above, including recorded windows.
+If type is `unknown` and the listing reports a stream with no URL, also reject;
+that diagnostic does not make it an uploaded video. Do not extract a clip,
+inspect its timeline, or invoke inference to convert a stream into a file.
+For example, "Generate a report for warehouse_sample" must be rejected when
+warehouse_sample is a registered RTSP stream, regardless of the time range.
+
+Keep the rejection concise. A brief explanation of the source classification
+is acceptable; do not run additional tools to elaborate.
+
+This preflight does not reject uploaded video files.
+Incident-range and SOP reports over stored records are not live-video reports.
+It also does not reject an explicit camera-registration request such as
+"Add RTSP"; follow `vss-manage-video-io-storage` for that.
+
 ## VSS deployment origin
 
 Every VSS skill talks to one deployment through the installed `vss_cli` tool
