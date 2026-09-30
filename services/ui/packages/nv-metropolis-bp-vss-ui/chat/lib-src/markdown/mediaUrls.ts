@@ -37,8 +37,9 @@ export function rehypeOpenShellMediaUrls({ mediaProxyUrl }: { mediaProxyUrl?: st
       node.value = normalize(node.value);
     }
     if (node.properties) {
-      for (const key of ['href', 'src', 'poster']) {
-        const value = node.properties[key];
+      // URL-bearing attributes include srcSet and visible labels such as alt
+      // and title, as well as the usual href/src media targets.
+      for (const [key, value] of Object.entries(node.properties)) {
         if (typeof value === 'string') node.properties[key] = normalize(value);
       }
     }

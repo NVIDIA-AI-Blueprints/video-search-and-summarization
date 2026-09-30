@@ -176,7 +176,7 @@ describe('ChatPanel', () => {
       `\`\`\`bash\n${command}\n\`\`\``,
       `[Media](${url})`,
       `<a href="${url}">HTML media</a>`,
-      `<img src="${url}" alt="Forklift frame" />`,
+      `<img src="${url}" srcset="${url} 1x, ${url}&scale=2 2x, https://example.com/frame.jpg 3x" alt="Forklift frame" title="${url}" />`,
     ].join('\n\n');
     global.fetch = jest.fn().mockResolvedValue(sseResponse([
       `data: ${JSON.stringify({ choices: [{ delta: { content: answer } }] })}\n\n`,
@@ -191,6 +191,10 @@ describe('ChatPanel', () => {
     expect(screen.getByRole('link', { name: 'Media' })).toHaveAttribute('href', `/api/proxy${mediaPath}`);
     expect(screen.getByRole('link', { name: 'HTML media' })).toHaveAttribute('href', `/api/proxy${mediaPath}`);
     expect(screen.getByRole('img', { name: 'Forklift frame' })).toHaveAttribute('src', `/api/proxy${mediaPath}`);
+    expect(screen.getByRole('img', { name: 'Forklift frame' })).toHaveAttribute(
+      'srcset', `/api/proxy${mediaPath} 1x, /api/proxy${mediaPath}&scale=2 2x, https://example.com/frame.jpg 3x`,
+    );
+    expect(screen.getByRole('img', { name: 'Forklift frame' })).toHaveAttribute('title', `/api/proxy${mediaPath}`);
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
     await waitFor(() => expect(copyToClipboard).toHaveBeenCalledWith(command));
