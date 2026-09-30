@@ -14,15 +14,11 @@
     "multi_gpu_capable": true,
     "requires_blackwell": false,
     "supported_hardware_profiles": [
-      "H200",
       "L40S"
     ]
   },
   "resources": {
     "platforms": {
-      "H200": {
-        "gpu_count": 2
-      },
       "L40S": {
         "gpu_count": 2
       }
