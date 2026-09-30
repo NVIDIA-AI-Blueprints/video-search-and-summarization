@@ -21,9 +21,11 @@ next deploy re-downloads them.
 
 ## NemoClaw harness — before Compose
 
-Run this whenever the build has a `sandbox` file: tearing down the build covers
-its sandbox and relay without the user naming them. Run it first, so the
-sandbox is not left pointed at an origin that has stopped answering.
+Run this whenever the build was harnessed — it holds a `sandbox` file, or, from
+before that file existed, a `nemoclaw-setup.log` naming the sandbox. Tearing
+down the build covers its sandbox and relay without the user naming them. Run
+it first, so the sandbox is not left pointed at an origin that has stopped
+answering.
 
 A build whose harness setup **failed** has the file too — the name is recorded
 before the notebook runs, because onboarding happens in its section 3.1 and a
