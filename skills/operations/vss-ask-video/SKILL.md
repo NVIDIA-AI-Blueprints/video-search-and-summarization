@@ -1,6 +1,6 @@
 ---
 name: vss-ask-video
-description: Answer one question about one grounded VSS video by making exactly one direct VLM call. Use this skill when a task asks one grounded video question, requires exactly one direct VLM call, or forbids memory, introspection, retries, and follow-up calls.
+description: Answer one question about a video at a task-supplied URL by making exactly one direct VLM call. Use this skill for URL-based video questions requiring a single call without memory, introspection, retries, or follow-up calls.
 license: Apache-2.0
 metadata:
   version: "3.3.0-single-call"
@@ -16,11 +16,10 @@ video.
 
 ## Required behavior
 
-1. Use the video URL supplied by the task with `--media-url`. If no URL is
-   supplied, use its supplied sensor, normally `$VSS_SENSOR_ID`, with `--sensor`.
-   If the task explicitly requires a sensor, follow that requirement instead.
-   Choose one source for the single call; do not try both.
-2. Inspect the complete supplied video or sensor recording. Do not add start or
+1. Use the exact video URL supplied by the task with `--media-url`. If no URL is
+   supplied, stop without calling the VLM or writing `/output/answer.json`.
+   Do not resolve a sensor or derive a URL from a video ID.
+2. Inspect the complete supplied video. Do not add start or
    end bounds unless the task explicitly supplies them.
 3. Pass the original question AND every supplied labeled answer choice,
    unchanged and in their original order, to exactly one `vss vlm run` call.
@@ -53,17 +52,13 @@ and requested response format instead; do not invent options or require a letter
 
 ## Video source
 
-Execute exactly one of the following calls, not both.
-
-### Supplied video URL
-
 When the task says `The video is at <URL>`, set `VIDEO_URL` to that exact URL.
 This includes a supplied HTTP(S) RustFS/S3 object URL; do not reconstruct it
 from a video ID, bucket name, or endpoint, and do not substitute an `s3://` path.
 
 ```bash
 vss vlm run \
-  --media-url "$VIDEO_URL" \
+  --media-url "${VIDEO_URL:?The task must supply a video URL}" \
   --prompt "$VLM_PROMPT"
 ```
 
@@ -74,18 +69,6 @@ reachable from that backend. An internal hostname such as
 `rustfs.media.svc.cluster.local` requires backend access to Kubernetes DNS and
 networking; a supplied URL alone does not establish that access. Do not download,
 upload, ingest, or convert the video yourself, or switch sources after a failure.
-
-### Supplied sensor
-
-When no URL is supplied, or the task explicitly requires its sensor, use:
-
-```bash
-vss vlm run \
-  --sensor "$VSS_SENSOR_ID" \
-  --prompt "$VLM_PROMPT"
-```
-
-Do not derive a sensor ID from a video ID or filename.
 
 ## Hard constraints
 
@@ -126,7 +109,7 @@ to:
 
 ## Failure
 
-If the single `vss vlm run` call fails:
+If the task supplies no video URL, or the single `vss vlm run` call fails:
 
 - Do not retry.
 - Do not use another route to inspect the video.

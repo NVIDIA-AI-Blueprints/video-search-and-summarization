@@ -85,17 +85,19 @@ class EnvironmentInstructions(unittest.TestCase):
         text = SKILL.read_text()
         blocks = re.findall(r"```bash\n(.*?)\n```", text, re.DOTALL)
         calls = [block for block in blocks if "vss vlm run" in block]
-        self.assertEqual(len(calls), 2)  # Alternative URL and sensor examples.
+        self.assertEqual(len(calls), 1)
         for command in calls:
             self.assertEqual(command.count("vss vlm run"), 1)
             self.assertIn('--prompt "$VLM_PROMPT"', command)
             self.assertNotIn("--start", command)
             self.assertNotIn("--end", command)
             self.assertNotIn("vss memory", command)
+        self.assertNotIn("--sensor", text)
+        self.assertNotIn("$VSS_SENSOR_ID", text)
         self.assertIn("3.3.0-single-call", text)
         self.assertIn("/output/answer.json", text)
 
-    def test_video_qa_examples_pass_complete_prompt_and_exact_source(self):
+    def test_video_qa_example_preserves_prompt_and_requires_supplied_url(self):
         question = "What did the driver do after hearing 'stop'?"
         choices = "A. Waited for the officer\nB. Drove away\nC. Raised their hands"
         prompt_script = (
@@ -124,33 +126,43 @@ class EnvironmentInstructions(unittest.TestCase):
             + ' "$@"; }\n'
         )
         cases = (
-            ("### Supplied video URL", "--media-url", url),
-            ("### Supplied sensor", "--sensor", sensor),
+            {"VIDEO_URL": url},
+            {"VIDEO_URL": ""},
+            {},
         )
-        for heading, source_flag, source in cases:
-            with self.subTest(source=source_flag):
+        for values in cases:
+            with self.subTest(environment=values):
                 result = subprocess.run(
                     [
                         "bash",
                         "--noprofile",
                         "--norc",
                         "-c",
-                        "set -eu\n" + capture + prompt_script + "\n" + bash_block(SKILL, heading),
+                        "set -eu\n"
+                        + capture
+                        + prompt_script
+                        + "\n"
+                        + bash_block(SKILL, "## Video source"),
                     ],
                     env={
                         "PATH": "/usr/bin:/bin",
-                        "VIDEO_URL": url,
                         "VSS_SENSOR_ID": sensor,
+                        **values,
                     },
                     capture_output=True,
                     text=True,
-                    check=True,
+                    check=False,
                 )
+                if not values.get("VIDEO_URL"):
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout, "")
+                    continue
+                self.assertEqual(result.returncode, 0, result.stderr)
                 calls = result.stdout.splitlines()
                 self.assertEqual(len(calls), 1)
                 self.assertEqual(
                     json.loads(calls[0]),
-                    ["vlm", "run", source_flag, source, "--prompt", expected_prompt],
+                    ["vlm", "run", "--media-url", url, "--prompt", expected_prompt],
                 )
 
     def notebook_script(self, origin, hitl):
