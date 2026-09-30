@@ -453,7 +453,9 @@ vss-agent-ui:
   alertsApiUrl: "http://<NODE_IP>:30980/api/v1"
   dashboardKibanaBaseUrl: "http://<NODE_IP>:31560"
   envOverrides:
-    # Merge with existing entries; Helm replaces lists.
+    # Preserve existing entries; Helm replaces lists.
+    - name: NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX
+      value: "true"
     - name: NEXT_PUBLIC_MDX_WEB_API_URL
       value: "http://<NODE_IP>:30801"
 ```
