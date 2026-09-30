@@ -34,6 +34,7 @@ export ARTIFACTORY_TOKEN=<your-api-token>
 # export PERF_VIDEOS_DIR=~/rtvi-perf/vst_package/videos
 # export VLM_MODEL_PRESET=cr3-nano-reasoner-fp8
 # export VLM_MODEL_PRESET=cr3-nano-reasoner-nvfp4  # Blackwell platforms
+# export VLM_MODEL_PRESET=cosmos3-edge-bf16        # AGX Orin BCD 3.3 candidate
 # export MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
 
 bash perf/setup_perf_env.sh
@@ -110,6 +111,10 @@ export VLM_MODEL_PRESET=cr3-nano-reasoner-fp8
 # Equivalent explicit values:
 # export VLM_MODEL_TO_USE=cosmos-reason3
 # export MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix
+
+# Cosmos3-Edge BF16 for AGX Orin BCD 3.3 (requires an RTVI image with Edge support):
+# export VLM_MODEL_PRESET=cosmos3-edge-bf16
+# The preset selects vllm-compatible and pins the Hugging Face model commit.
 
 # Default BCD setup model:
 export MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-static-kv8

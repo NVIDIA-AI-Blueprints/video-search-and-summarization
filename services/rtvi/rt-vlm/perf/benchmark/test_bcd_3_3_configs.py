@@ -14,6 +14,13 @@ class PlatformConfigTest(unittest.TestCase):
         base = yaml.safe_load(SOURCE.read_text())
         self.assertEqual(len(base["test_scenarios"]), 24)
         self.assertEqual(len(PROFILES), 9)
+        self.assertEqual(PROFILES["agx_orin"][0], "cosmos3-edge-bf16")
+        self.assertRegex(
+            (HERE.parent / "setup_perf_env.sh").read_text(),
+            r'cosmos3-edge-bf16\)\s+_preset_model="vllm-compatible"\s+'
+            r'_preset_path="git:https://huggingface.co/nvidia/Cosmos3-Edge@'
+            r'344d602b128d1bbdacb43b08d0a3626f46343e29"',
+        )
         self.assertEqual(
             {platform for platform, (preset, *_rest) in PROFILES.items() if preset.endswith("fp8")},
             {"h100_sxm", "l40s"},

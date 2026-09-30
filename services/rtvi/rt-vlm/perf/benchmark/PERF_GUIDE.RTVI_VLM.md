@@ -111,6 +111,7 @@ export MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-static-kv8
 # Or use a setup preset:
 # export VLM_MODEL_PRESET=cr3-nano-reasoner-fp8
 # export VLM_MODEL_PRESET=cr3-nano-reasoner-nvfp4  # Blackwell platforms
+# export VLM_MODEL_PRESET=cosmos3-edge-bf16        # AGX Orin BCD 3.3 candidate
 # export HF_TOKEN=hf_...          # only needed for private HuggingFace repos
 
 
@@ -1286,6 +1287,7 @@ docker compose -f docker/compose.perf.yaml logs -f rtvi-server
 | Variable | Example | Description |
 |----------|---------|-------------|
 | `VLM_MODEL_PRESET` | `cr3-nano-reasoner-fp8` or `cr3-nano-reasoner-nvfp4` | Optional `perf/setup_perf_env.sh` preset. The FP8 preset fills `VLM_MODEL_TO_USE=cosmos-reason3` and `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix`; the Blackwell NVFP4 preset fills `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix`. Explicit exports take precedence. |
+| `VLM_MODEL_PRESET` (AGX Orin) | `cosmos3-edge-bf16` | BCD 3.3 candidate: selects `vllm-compatible` and the [Cosmos3-Edge](https://huggingface.co/nvidia/Cosmos3-Edge) BF16 model at pinned commit `344d602b128d1bbdacb43b08d0a3626f46343e29`. Requires an RTVI image with Edge support; preflight on Orin before any capacity claim. |
 | `VLM_MODEL_TO_USE` | `cosmos-reason3` | Model name |
 | `MODEL_PATH` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` or `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` | Model path |
 | `VLM_MAX_MODEL_LEN` | `32768` | Maximum model context length; raise only if the prompt/video token budget requires it |

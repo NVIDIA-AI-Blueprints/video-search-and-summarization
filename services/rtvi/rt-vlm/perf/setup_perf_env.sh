@@ -46,7 +46,7 @@
 #   VLM_MODEL_PRESET    — Optional model preset; supported values:
 #                         cr2-fp8-static-kv8, cr2-fp8-dynamic-kv8,
 #                         cr2-nvfp4-dynamic-kv8, cr3-nano-reasoner-fp8,
-#                         cr3-nano-reasoner-nvfp4
+#                         cr3-nano-reasoner-nvfp4, cosmos3-edge-bf16
 #   VLM_MODEL_TO_USE    — VLM model key (default: cosmos-reason2)
 #   MODEL_PATH          — Model source path (default: NGC Cosmos Reason2 path)
 #   BACKEND_PORT        — Host port for the RTVI VLM service (default: 8010)
@@ -126,7 +126,7 @@ Optional environment variables (sensible defaults shown):
   VLM_MODEL_PRESET      Optional model preset. Supported values:
                         cr2-fp8-static-kv8, cr2-fp8-dynamic-kv8,
                         cr2-nvfp4-dynamic-kv8, cr3-nano-reasoner-fp8,
-                        cr3-nano-reasoner-nvfp4
+                        cr3-nano-reasoner-nvfp4, cosmos3-edge-bf16
                         When set, fills VLM_MODEL_TO_USE and MODEL_PATH unless
                         those variables are explicitly exported.
   VLM_MODEL_TO_USE      VLM model key                      (default: cosmos-reason2)
@@ -546,8 +546,12 @@ apply_model_preset() {
             _preset_model="cosmos-reason3"
             _preset_path="ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix"
             ;;
+        cosmos3-edge-bf16)
+            _preset_model="vllm-compatible"
+            _preset_path="git:https://huggingface.co/nvidia/Cosmos3-Edge@344d602b128d1bbdacb43b08d0a3626f46343e29"
+            ;;
         *)
-            die "Unknown VLM_MODEL_PRESET='${_preset}'. Supported values: cr2-fp8-static-kv8, cr2-fp8-dynamic-kv8, cr2-nvfp4-dynamic-kv8, cr3-nano-reasoner-fp8, cr3-nano-reasoner-nvfp4."
+            die "Unknown VLM_MODEL_PRESET='${_preset}'. Supported values: cr2-fp8-static-kv8, cr2-fp8-dynamic-kv8, cr2-nvfp4-dynamic-kv8, cr3-nano-reasoner-fp8, cr3-nano-reasoner-nvfp4, cosmos3-edge-bf16."
             ;;
     esac
 
