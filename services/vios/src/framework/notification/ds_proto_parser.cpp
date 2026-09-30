@@ -200,7 +200,7 @@ Json::Value DsProtoParser::parseMessage(const unsigned char* msg, int len, int64
         }
 
         // SensorId
-        std::unique_ptr<char, decltype(&std::free)> sensorid(m_frame_get_sensorid(frame), std::free);
+        std::unique_ptr<char, decltype(&std::free)> sensorid(m_frame_get_sensorid(frame), &std::free);
         payload["sensorId"] = sensorid ? sensorid.get() : "";
 
         // Timestamp
