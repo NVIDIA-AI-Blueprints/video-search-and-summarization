@@ -9,13 +9,22 @@
   "infrastructure": ["brev", "openshell"],
   "openshell": {
     "gpu_count": 2,
+    "min_vram_gb_per_gpu": 96,
     "requires_video_codec": false,
-    "multi_gpu_capable": false,
-    "requires_blackwell": true
+    "multi_gpu_capable": true,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "H200",
+      "L40S",
+      "RTXPRO6000BW"
+    ]
   },
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": {
+      "H200": {
+        "gpu_count": 2
+      },
+      "L40S": {
         "gpu_count": 2
       }
     }
