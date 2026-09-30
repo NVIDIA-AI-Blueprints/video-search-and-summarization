@@ -1280,7 +1280,6 @@ class RTVIServer:
                 purpose="vision",
                 media_type="video",
                 creation_time=value.creation_time,
-                file_id=value.camera_id,
                 sensor_name=value.camera_id,
                 camera_id=value.camera_id,
             )
@@ -1296,7 +1295,7 @@ class RTVIServer:
                 purpose="vision",
                 media_type="video",
                 creation_time=value.creation_time,
-                file_id=value.camera_id,
+                file_id=None,
                 url_headers=url_headers,
                 sensor_name=value.camera_id,
                 camera_id=value.camera_id,
@@ -2523,14 +2522,11 @@ class RTVIServer:
                     video_id,
                 )
             else:
-                # Reuse camera_id as the internal stream/asset id so downstream
-                # correlation stays consistent with the caller-supplied id.
                 video_id = self._asset_manager.add_live_stream(
                     url=value.camera_url,
                     description=value.camera_name or value.camera_id,
                     camera_id=value.camera_id,
                     sensor_name=value.camera_id,
-                    stream_id=value.camera_id,
                 )
 
                 logger.info(

@@ -1054,6 +1054,7 @@ python3 rtvi_client_cli.py generate-captions \
 ### CV-Compatible Stream API
 
 The `/v1/stream/add` and `/v1/stream/remove` endpoints provide a CV-compatible interface for managing video streams. These are designed for integration with VST (Video Storage Toolkit) and other CV pipeline services.
+The caller's `camera_id` is retained for CV lookups; the returned `asset_id` is a generated UUID used by VLM inference and `/v1/generate_captions`.
 
 #### Add Stream with Auto-Inference
 

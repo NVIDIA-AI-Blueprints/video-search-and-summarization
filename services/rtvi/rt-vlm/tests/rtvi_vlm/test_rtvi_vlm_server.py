@@ -1598,6 +1598,7 @@ class TestCVStreamEndpoints:
         assert response.status_code == 200
         assert response.json()["inference"] is True
         query = process_request.await_args.args[0]
+        assert str(query.id_list[0]) == response.json()["asset_id"]
         assert query.stream is False
 
     def test_stream_add_downloads_vios_https_file_sensor(
@@ -1642,7 +1643,7 @@ class TestCVStreamEndpoints:
             purpose="vision",
             media_type="video",
             creation_time="2026-07-09T14:58:40.000Z",
-            file_id=camera_id,
+            file_id=None,
             url_headers=url_headers,
             sensor_name=camera_id,
             camera_id=camera_id,
@@ -1792,6 +1793,9 @@ class TestCVStreamEndpoints:
 
         first_response = test_client.post(f"{API_PREFIX}/stream/add", json=body)
         assert first_response.status_code == 200
+        assert str(uuid.UUID(first_response.json()["asset_id"])) == first_response.json()[
+            "asset_id"
+        ]
 
         duplicate_response = test_client.post(f"{API_PREFIX}/stream/add", json=body)
         assert duplicate_response.status_code == 409
@@ -1818,6 +1822,9 @@ class TestCVStreamEndpoints:
 
         first_response = client.post(f"{API_PREFIX}/stream/add", json=body)
         assert first_response.status_code == 200
+        assert str(uuid.UUID(first_response.json()["asset_id"])) == first_response.json()[
+            "asset_id"
+        ]
         assert first_response.json()["status"] == "processing"
         assert first_response.json()["inference"] is True
 
@@ -2090,7 +2097,7 @@ class TestNIMCompatibleEndpoints:
             vlm_output.reasoning_description = ""
             vlm_output.input_tokens = 52
             vlm_output.output_tokens = 154
-            kwargs["on_chunk_result"](MagicMock(vlm_model_output=vlm_output))
+            kwargs["on_chunk_result"](MagicMock(vlm_model_output=vlm_output, error=None))
 
         pipeline.enqueue_vlm_text_chunk.side_effect = enqueue_text_chunk
 
