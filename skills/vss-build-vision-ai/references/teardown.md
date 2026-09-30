@@ -72,6 +72,17 @@ Compose project and the sandbox carries no project label, so neither the build
 directory nor the `vss-harness-sandbox` default identifies the sandbox this
 build owns.
 
+A harness built from a [harness source
+ref](agent-harness.md#harness-source-ref) also left a detached worktree under
+the build directory. Remove it here: deleting `_builds/<name>/` alone leaves
+the worktree registered in the checkout.
+
+```bash
+if [ -d "$BUILD_DIR/harness-src" ]; then
+  git -C "$REPO" worktree remove --force "$BUILD_DIR/harness-src"
+fi
+```
+
 ## Default teardown — clean project volumes
 
 Removes containers, the project network, **and all named volumes** (including

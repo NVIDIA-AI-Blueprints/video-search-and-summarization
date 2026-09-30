@@ -726,14 +726,8 @@ The harness and the build are independent lifecycles: nothing in Compose
 reaches the sandbox. Tearing down a build therefore starts with
 [`teardown.md`](teardown.md) →
 [NemoClaw harness](teardown.md#nemoclaw-harness--before-compose), which
-destroys the sandbox and stops the dashboard relay the destroy leaves behind.
-
-Only when the harness was built from a harness source ref, also remove its
-worktree:
-
-```bash
-git -C "$REPO" worktree remove --force "$REPO/_builds/<name>/harness-src"
-```
+destroys the sandbox, stops the dashboard relay the destroy leaves behind, and
+removes the `harness-src` worktree when the build has one.
 
 Destroy the sandbox **before** the Compose project when doing both, so the
 harness is not left pointed at an origin that has stopped answering. Removing
