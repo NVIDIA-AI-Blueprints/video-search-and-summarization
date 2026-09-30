@@ -302,6 +302,8 @@ Refer to [RT-DETR Real-Time Performance](/vss/system-components/models/rt-detr-2
 
 * Remove `--calibration /resources/calibration.json` from the `vss-behavior-analytics` service's `command:` in `warehouse-2d-app/warehouse-2d-app.yml`. This is a static line in the compose file, not an env var, so it needs a direct edit (or a compose override file layered on top).
 
+* Also remove the `vss-behavior-analytics-2d` service's `calibration.json` bind mount in the same file — the `volumes:` line ending `.../calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/resources/calibration.json`. This is independent of the profile and command changes above. If a custom dataset has no `calibration.json` on the host, Compose creates an empty directory at that path to satisfy the mount, which then blocks placing a real `calibration.json` there later — leave the mount in only if the file already exists.
+
 #### Step 3: Deploy and generate new calibration
 
 Before deploying the stack and generating a calibration, create the projects directory:
