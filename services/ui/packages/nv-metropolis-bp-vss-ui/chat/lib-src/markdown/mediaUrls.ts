@@ -1,12 +1,20 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+interface MarkdownNode {
+  type: string;
+  tagName?: string;
+  value?: string;
+  properties?: Record<string, unknown>;
+  children?: MarkdownNode[];
+}
+
 /**
- * NemoClaw can cite VST media through its sandbox-only OpenShell hostname.
- * Rebase those links when displaying an answer so Markdown link targets and
- * visible URL text use the UI's same-origin media route.
+ * Rebase NemoClaw's sandbox-only VST URLs after Markdown and raw HTML parsing.
+ * This preserves autolinks and leaves literal code (including copied snippets)
+ * intact while links, embedded media, and visible URL text use the UI route.
  */
-export function normalizeOpenShellMediaUrls(content: string, mediaProxyUrl?: string): string {
+export function rehypeOpenShellMediaUrls({ mediaProxyUrl }: { mediaProxyUrl?: string } = {}) {
   let proxyPath = '';
   if (mediaProxyUrl) {
     try {
@@ -18,8 +26,23 @@ export function normalizeOpenShellMediaUrls(content: string, mediaProxyUrl?: str
       // The ingress still serves /vst directly when no proxy path is usable.
     }
   }
-  return content.replace(
+  const normalize = (value: string) => value.replace(
     /\bhttps?:\/\/host\.openshell\.internal(?::\d+)?(?=\/vst\/)/gi,
     proxyPath,
   );
+
+  const visit = (node: MarkdownNode): void => {
+    if (node.tagName === 'code' || node.tagName === 'pre') return;
+    if (node.type === 'text' && typeof node.value === 'string') {
+      node.value = normalize(node.value);
+    }
+    if (node.properties) {
+      for (const key of ['href', 'src', 'poster']) {
+        const value = node.properties[key];
+        if (typeof value === 'string') node.properties[key] = normalize(value);
+      }
+    }
+    node.children?.forEach(visit);
+  };
+  return visit;
 }
