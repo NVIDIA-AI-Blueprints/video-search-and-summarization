@@ -1,0 +1,1110 @@
+diff --git a/cosmos_rl/__init__.py b/cosmos_rl/__init__.py
+index cb0742a..ec1e014 100644
+--- a/cosmos_rl/__init__.py
++++ b/cosmos_rl/__init__.py
+@@ -13,6 +13,38 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
++# Some CUDA-12.8 policy environments intentionally pin PyTorch below the
++# version required by a separately installed optional torchao package.
++# Transformers and diffusers otherwise discover that package eagerly while
++# importing ordinary (non-quantized) VLM code and fail before training starts.
++# Hide only this incompatible optional dependency; compatible installations
++# and actual torchao workloads are unchanged.
++import importlib.metadata
++import importlib.util
++
++from packaging.version import Version
++
++
++def _mask_incompatible_optional_torchao() -> None:
++    try:
++        torch_version = Version(importlib.metadata.version("torch").split("+")[0])
++        torchao_version = Version(importlib.metadata.version("torchao").split("+")[0])
++    except importlib.metadata.PackageNotFoundError:
++        return
++    if torch_version >= Version("2.11") or torchao_version < Version("0.14"):
++        return
++    original_find_spec = importlib.util.find_spec
++
++    def find_spec(name, *args, **kwargs):
++        if name == "torchao" or name.startswith("torchao."):
++            return None
++        return original_find_spec(name, *args, **kwargs)
++
++    importlib.util.find_spec = find_spec
++
++
++_mask_incompatible_optional_torchao()
++
+ from . import policy
+ from . import comm
+ from . import dispatcher
+diff --git a/cosmos_rl/colocated/controller.py b/cosmos_rl/colocated/controller.py
+index a920065..57d144b 100644
+--- a/cosmos_rl/colocated/controller.py
++++ b/cosmos_rl/colocated/controller.py
+@@ -358,6 +358,7 @@ class ColocatedController(Controller):
+                 self.current_step % self.config.train.ckpt.save_freq == 0
+                 and self.current_step > 0
+             )
++        do_save = do_save or self.current_step in self.config.train.ckpt.save_steps
+ 
+         if hasattr(self, "init_data_fetch_command"):
+             data_fetch_cmd = self.init_data_fetch_command
+diff --git a/cosmos_rl/dispatcher/status.py b/cosmos_rl/dispatcher/status.py
+index 03a2b1f..e1f19b2 100644
+--- a/cosmos_rl/dispatcher/status.py
++++ b/cosmos_rl/dispatcher/status.py
+@@ -1936,6 +1936,7 @@ class PolicyStatusManager:
+                 self.current_step % self.config.train.ckpt.save_freq == 0
+                 and self.current_step > 0
+             )
++        do_save = do_save or self.current_step in self.config.train.ckpt.save_steps
+         # Finally check if checkpointing is enabled
+         # Only `do_save` when checkpointing is enabled
+         return do_save and self.config.train.ckpt.enable_checkpoint
+diff --git a/cosmos_rl/launcher/launch_controller.sh b/cosmos_rl/launcher/launch_controller.sh
+index 3d6fbbb..bd44ce4 100755
+--- a/cosmos_rl/launcher/launch_controller.sh
++++ b/cosmos_rl/launcher/launch_controller.sh
+@@ -49,30 +49,29 @@ done
+ 
+ echo "[Controller] Using script: $SCRIPT"
+ 
++PYTHON_BIN="${COSMOS_PYTHON_EXECUTABLE:-python}"
+ if [[ "$SCRIPT" != *.py ]]; then
+-  CMD="python -m $SCRIPT"
++  CMD=("$PYTHON_BIN" -m "$SCRIPT")
+ else
+-  CMD="python $SCRIPT"
++  CMD=("$PYTHON_BIN" "$SCRIPT")
+ fi
+ 
+ if [[ -n "$PORT" ]]; then
+-  CMD+=" --port $PORT"
++  CMD+=(--port "$PORT")
+ fi
+ 
+ if [[ -n "$CONFIG_FILE" ]]; then
+-  CMD+=" --config $CONFIG_FILE"
++  CMD+=(--config "$CONFIG_FILE")
+ fi
+ 
+ if [[ -n "$LOG_FILE" ]]; then
+-  CMD+=" --redis-logfile-path $LOG_FILE"
++  CMD+=(--redis-logfile-path "$LOG_FILE")
+ fi
+ 
+-if [[ -n "$SCRIPT_ARGS" ]]; then
+-  CMD+=" ${SCRIPT_ARGS[@]}"
+-fi
++CMD+=("${SCRIPT_ARGS[@]}")
+ 
+-echo "Controller CMD: ${CMD}"
++echo "Controller CMD: ${CMD[*]}"
+ 
+ export COSMOS_ROLE="Controller"
+ 
+-$CMD
++"${CMD[@]}"
+diff --git a/cosmos_rl/launcher/launch_replica.sh b/cosmos_rl/launcher/launch_replica.sh
+index 473869a..d72c8fd 100755
+--- a/cosmos_rl/launcher/launch_replica.sh
++++ b/cosmos_rl/launcher/launch_replica.sh
+@@ -5,7 +5,7 @@ NGPU=2
+ NNODES=1
+ LOG_RANKS=""
+ TYPE=""
+-RDZV_ENDPOINT="localhost:0"
++RDZV_ENDPOINT="127.0.0.1:0"
+ SCRIPT=""
+ SCRIPT_ARGS=()
+ CONFIG=""
+@@ -21,7 +21,7 @@ print_help() {
+   echo "  --nnodes <int>                        Number of nodes to launch. Default: 1"
+   echo "  --ngpus <int>                         Number of GPUs per node. Default: 2"
+   echo "  --log-rank <comma-separated ints>     Comma-separated list of ranks to enable logging. Default: Empty for all ranks."
+-  echo "  --rdzv-endpoint <host:port>           Rendezvous endpoint for distributed training. Default: localhost:0"
++  echo "  --rdzv-endpoint <host:port>           Rendezvous endpoint for distributed training. Default: 127.0.0.1:0"
+   echo "  --script <script>                     The user script to run before launch."
+   echo "  --config <path>                       The path to the config file."
+   echo "  --backend <vllm|vllm_async|trtllm>    The backend to use for the job. Default: vllm"
+@@ -145,17 +145,61 @@ if [ -z "$COSMOS_CONTROLLER_HOST" ]; then
+   exit 1
+ fi
+ 
+-LAUNCH_CMD=("$LAUNCH_BINARY")
++if [[ "$LAUNCH_BINARY" == torchrun && -n "${COSMOS_PYTHON_EXECUTABLE:-}" ]]; then
++  LAUNCH_CMD=("$COSMOS_PYTHON_EXECUTABLE" -m torch.distributed.run)
++else
++  LAUNCH_CMD=("$LAUNCH_BINARY")
++fi
+ 
+ if [ "$TYPE" == "policy" ]; then
+-  LAUNCH_CMD+=(
+-    --nproc-per-node="$NGPU"
+-    --nnodes="$NNODES"
+-    --role rank
+-    --tee 3
+-    --rdzv_backend c10d
+-    --rdzv_endpoint="$RDZV_ENDPOINT"
+-  )
++  if [ "${COSMOS_MULTINODE_STATIC_RDZV:-0}" = "1" ]; then
++    if [ "$NNODES" -le 1 ]; then
++      echo "Error: COSMOS_MULTINODE_STATIC_RDZV requires --nnodes > 1"
++      exit 1
++    fi
++    if [ -z "${LEPTON_JOB_WORKER_INDEX:-}" ]; then
++      echo "Error: COSMOS_MULTINODE_STATIC_RDZV requires LEPTON_JOB_WORKER_INDEX"
++      exit 1
++    fi
++    if [ -z "${COSMOS_LEPTON_WORKER0_IP:-}" ]; then
++      echo "Error: COSMOS_MULTINODE_STATIC_RDZV requires COSMOS_LEPTON_WORKER0_IP"
++      exit 1
++    fi
++    STATIC_MASTER_PORT="${COSMOS_MASTER_PORT:-${RDZV_ENDPOINT##*:}}"
++    case "$STATIC_MASTER_PORT" in
++      ''|*[!0-9]*)
++        echo "Error: invalid static rendezvous port '$STATIC_MASTER_PORT'"
++        exit 1
++        ;;
++    esac
++    LAUNCH_CMD+=(
++      --nproc-per-node="$NGPU"
++      --nnodes="$NNODES"
++      --node-rank="$LEPTON_JOB_WORKER_INDEX"
++      --role rank
++      --tee 3
++      --master-addr="$COSMOS_LEPTON_WORKER0_IP"
++      --master-port="$STATIC_MASTER_PORT"
++    )
++  elif [ "${COSMOS_LOCAL_STATIC_RDZV:-0}" = "1" ] && [ "$NNODES" = "1" ]; then
++    LAUNCH_CMD+=(
++      --nproc-per-node="$NGPU"
++      --nnodes=1
++      --role rank
++      --tee 3
++      --master-addr=127.0.0.1
++      --master-port="${COSMOS_MASTER_PORT:-29500}"
++    )
++  else
++    LAUNCH_CMD+=(
++      --nproc-per-node="$NGPU"
++      --nnodes="$NNODES"
++      --role rank
++      --tee 3
++      --rdzv_backend c10d
++      --rdzv_endpoint="$RDZV_ENDPOINT"
++    )
++  fi
+ 
+   if [ -n "$LOG_RANKS" ]; then
+     LAUNCH_CMD+=(--local-ranks-filter "$LOG_RANKS")
+diff --git a/cosmos_rl/policy/config/__init__.py b/cosmos_rl/policy/config/__init__.py
+index 5bd183a..9348b82 100644
+--- a/cosmos_rl/policy/config/__init__.py
++++ b/cosmos_rl/policy/config/__init__.py
+@@ -240,6 +240,10 @@ class CheckpointConfig(BaseModel):
+     save_freq: int = Field(
+         default=20, description="Checkpoint save frequency for training steps"
+     )
++    save_steps: List[int] = Field(
++        default_factory=list,
++        description="Additional exact positive training steps at which to save checkpoints.",
++    )
+     save_freq_in_epoch: int = Field(
+         default=0,
+         description="Checkpoint save frequency for training epochs. Default to 0 (disabled).",
+@@ -280,6 +284,10 @@ class CheckpointConfig(BaseModel):
+ 
+     @model_validator(mode="after")
+     def check_params_value(self):
++        if any(step <= 0 for step in self.save_steps):
++            raise ValueError(f"save_steps must contain only positive steps, got {self.save_steps}")
++        if len(set(self.save_steps)) != len(self.save_steps):
++            raise ValueError(f"save_steps must not contain duplicates, got {self.save_steps}")
+         if self.upload_s3:
+             if self.upload_s3 not in ["final", "all"]:
+                 raise ValueError(
+diff --git a/cosmos_rl/policy/kernel/loss.py b/cosmos_rl/policy/kernel/loss.py
+index a8b5c28..cc34d1d 100644
+--- a/cosmos_rl/policy/kernel/loss.py
++++ b/cosmos_rl/policy/kernel/loss.py
+@@ -17,7 +17,7 @@ def liger_cross_entropy(
+ ) -> torch.Tensor:
+     from liger_kernel.ops.cross_entropy import LigerCrossEntropyFunction
+ 
+-    loss, _, _ = LigerCrossEntropyFunction.apply(
++    result = LigerCrossEntropyFunction.apply(
+         input,
+         target,
+         None,
+@@ -29,7 +29,9 @@ def liger_cross_entropy(
+         False,  # return_z_loss
+         False,  # return_token_accuracy
+     )
+-    return loss
++    # Liger <=0.5 returned three values, while newer releases also return
++    # predicted tokens.  Cosmos only consumes the scalar loss.
++    return result[0] if isinstance(result, tuple) else result
+ 
+ 
+ def fused_linear_cross_entropy(
+@@ -44,7 +46,7 @@ def fused_linear_cross_entropy(
+         LigerFusedLinearCrossEntropyFunction,
+     )
+ 
+-    loss, _, _ = LigerFusedLinearCrossEntropyFunction.apply(
++    result = LigerFusedLinearCrossEntropyFunction.apply(
+         input,
+         lin_weight,  # linear weight
+         target,
+@@ -60,8 +62,9 @@ def fused_linear_cross_entropy(
+         False,  # use_token_scaling
+         False,  # return_token_accuracy
+     )
+-
+-    return loss
++    # Keep this wrapper compatible across the three- and four-output Liger
++    # APIs.  The auxiliary outputs are disabled above and are not used here.
++    return result[0] if isinstance(result, tuple) else result
+ 
+ 
+ class CrossEntropyType(Enum):
+diff --git a/cosmos_rl/policy/lora/plugin.py b/cosmos_rl/policy/lora/plugin.py
+index 46a77eb..4dc2305 100644
+--- a/cosmos_rl/policy/lora/plugin.py
++++ b/cosmos_rl/policy/lora/plugin.py
+@@ -231,7 +231,14 @@ def inject_lora_adapters(
+     lm_head_module_name = "lm_head"
+     from cosmos_rl.policy.model.hf_models import HFModel
+ 
+-    if isinstance(model, HFModel):
++    is_hf_model = isinstance(model, HFModel)
++    explicit_hf_lm_head = bool(
++        is_hf_model
++        and isinstance(config.target_modules, list)
++        and "lm_head" in config.target_modules
++    )
++    output_layer = None
++    if is_hf_model:
+         # Must enable input require grads for the HFModel to work with LoRA.
+         # Otherwise, the model will raise a RuntimeError:
+         # `element 0 of tensors does not require grad and does not have a grad_fn`.
+@@ -271,6 +278,12 @@ def inject_lora_adapters(
+             continue
+ 
+         if isinstance(module, nn.Linear):
++            # HF models may expose the tied output layer through aliases.  A
++            # generic setattr on the first named alias can leave
++            # get_output_embeddings() pointing at the original layer.  Handle
++            # an explicitly requested LM head once through the HF setter below.
++            if explicit_hf_lm_head and module is output_layer:
++                continue
+             if match_all_linear or _name_matches(module_name, config.target_modules):
+                 # exclude output layer if wildcard match is enabled
+                 if match_all_linear and (
+@@ -321,6 +334,24 @@ def inject_lora_adapters(
+                 replaced.append(module_name)
+                 replaced_names.append(module_name)
+ 
++    if explicit_hf_lm_head:
++        output_layer = model.model.get_output_embeddings()
++        if not isinstance(output_layer, nn.Linear):
++            raise TypeError(
++                "Explicit lm_head LoRA requires HF get_output_embeddings() "
++                f"to return nn.Linear, got {type(output_layer).__name__}"
++            )
++        lora_output = LoraInjectedLinear.from_linear(
++            base=output_layer,
++            r=config.r,
++            lora_alpha=config.lora_alpha,
++            lora_dropout=config.lora_dropout,
++            use_rslora=config.use_rslora,
++        )
++        model.model.set_output_embeddings(lora_output)
++        replaced.append("model.lm_head")
++        replaced_names.append("model.lm_head")
++
+     if not replaced:
+         raise RuntimeError(
+             "inject_lora_adapters found no matching nn.Linear modules. "
+@@ -376,9 +407,45 @@ def mark_only_lora_as_trainable(model: nn.Module, config: LoraConfig) -> None:
+ 
+ 
+ def reinitialize_lora_params(model: nn.Module) -> None:
+-    for m in model.modules():
++    local_reinit = os.environ.get("COSMOS_LORA_LOCAL_REINIT", "0") == "1"
++    for module_index, m in enumerate(model.modules()):
+         if isinstance(m, LoraInjectedLinear):
+-            m.reinitialize_lora_params()
++            if not local_reinit:
++                m.reinitialize_lora_params()
++                continue
++
++            # DTensor random initialization performs a cross-rank broadcast to
++            # coordinate its RNG state.  On a pure DP-replicate mesh every
++            # rank owns the same full local LoRA tensor, so using the same
++            # per-module seed locally is equivalent and avoids a fragile
++            # startup collective.  B remains zero, hence this also preserves
++            # the exact initial no-op property of LoRA.
++            a_weight = m.lora_A.weight
++            b_weight = m.lora_B.weight
++            if hasattr(a_weight, "placements"):
++                mesh_shape = tuple(a_weight.device_mesh.shape)
++                if any(
++                    not placement.is_replicate() and mesh_size != 1
++                    for placement, mesh_size in zip(
++                        a_weight.placements, mesh_shape, strict=True
++                    )
++                ):
++                    raise RuntimeError(
++                        "COSMOS_LORA_LOCAL_REINIT requires replicated LoRA parameters "
++                        "(degenerate size-1 shard dimensions are allowed); got "
++                        f"placements={a_weight.placements}, mesh_shape={mesh_shape}"
++                    )
++                a_local = a_weight.to_local()
++                b_local = b_weight.to_local()
++            else:
++                a_local = a_weight
++                b_local = b_weight
++            generator = torch.Generator(device=a_local.device)
++            generator.manual_seed(0xC05A05 + module_index)
++            nn.init.kaiming_uniform_(
++                a_local, a=math.sqrt(5), generator=generator
++            )
++            nn.init.zeros_(b_local)
+ 
+ 
+ @torch.no_grad()
+diff --git a/cosmos_rl/policy/model/base.py b/cosmos_rl/policy/model/base.py
+index 9b1aa1a..1316916 100644
+--- a/cosmos_rl/policy/model/base.py
++++ b/cosmos_rl/policy/model/base.py
+@@ -42,6 +42,55 @@ from transformers.utils import ModelOutput
+ from dataclasses import dataclass
+ 
+ 
++def cast_frozen_model_state_for_trainable_fp32_master(
++    model: torch.nn.Module,
++    frozen_dtype: torch.dtype,
++) -> dict[str, int]:
++    """Keep trainable master weights FP32 while storing frozen state compactly.
++
++    Cosmos normally constructs every parameter in ``master_dtype``.  That is
++    desirable for optimizer-owned trainable parameters, but unnecessarily
++    expensive for a frozen multi-billion-parameter base model.  Applying this
++    after all trainability rules have run gives LoRA (and modules_to_save)
++    FP32 optimizer weights while frozen base weights remain BF16/FP16.  FSDP's
++    mixed-precision policy still controls the forward/backward compute dtype.
++
++    The function is intentionally safe on meta tensors so it can run before
++    FSDP wrapping and checkpoint materialization.
++    """
++    if frozen_dtype not in (torch.bfloat16, torch.float16):
++        raise ValueError(
++            "frozen_dtype must be bfloat16 or float16 for trainable-FP32-master mode"
++        )
++
++    stats = {
++        "trainable_fp32_parameters": 0,
++        "frozen_cast_parameters": 0,
++        "frozen_cast_buffers": 0,
++    }
++    for parameter in model.parameters():
++        if not parameter.is_floating_point():
++            continue
++        if parameter.requires_grad:
++            if parameter.dtype != torch.float32:
++                raise ValueError(
++                    "trainable-FP32-master mode requires every trainable parameter "
++                    f"to start in float32, found {parameter.dtype}"
++                )
++            stats["trainable_fp32_parameters"] += parameter.numel()
++        else:
++            if parameter.dtype != frozen_dtype:
++                parameter.data = parameter.data.to(dtype=frozen_dtype)
++            stats["frozen_cast_parameters"] += parameter.numel()
++
++    for buffer in model.buffers():
++        if buffer.is_floating_point():
++            if buffer.dtype != frozen_dtype:
++                buffer.data = buffer.data.to(dtype=frozen_dtype)
++            stats["frozen_cast_buffers"] += buffer.numel()
++    return stats
++
++
+ @dataclass
+ class CosmosModelOutput(ModelOutput):
+     """
+@@ -674,6 +723,30 @@ class ModelRegistry:
+             if freeze_pattern is not None:
+                 model.apply_freeze_pattern(freeze_pattern)
+ 
++            # With low LoRA learning rates, a BF16 optimizer/master parameter
++            # can round an AdamW update to zero.  This opt-in mode keeps only
++            # optimizer-owned trainable parameters in FP32 and casts the
++            # frozen base back to the configured compute/storage dtype.  It
++            # must run after every LoRA/trainable/freeze rule above.
++            if config.custom.get("fp32_trainable_master_only", False):
++                if config.train.master_dtype != "float32":
++                    raise ValueError(
++                        "fp32_trainable_master_only requires train.master_dtype='float32'"
++                    )
++                frozen_dtype = util.str2torch_dtype(config.train.param_dtype)
++                precision_stats = cast_frozen_model_state_for_trainable_fp32_master(
++                    model, frozen_dtype
++                )
++                logger.info(
++                    "Mixed optimizer storage enabled: trainable master parameters "
++                    "remain FP32 (%s elements); frozen parameters use %s (%s elements; "
++                    "%s floating buffer elements)",
++                    precision_stats["trainable_fp32_parameters"],
++                    frozen_dtype,
++                    precision_stats["frozen_cast_parameters"],
++                    precision_stats["frozen_cast_buffers"],
++                )
++
+             return model
+ 
+         def _load_model_with_config(model_cls, hf_config, model_name_or_path, config):
+diff --git a/cosmos_rl/policy/model/hf_models/__init__.py b/cosmos_rl/policy/model/hf_models/__init__.py
+index 782ab87..fd62b4f 100644
+--- a/cosmos_rl/policy/model/hf_models/__init__.py
++++ b/cosmos_rl/policy/model/hf_models/__init__.py
+@@ -132,7 +132,15 @@ class HFModel(BaseModel):
+         super().set_gradient_checkpointing_enabled(enabled)
+         # Configure gradient checkpointing if enabled
+         if self._gradient_checkpointing_enabled:
+-            self.model.gradient_checkpointing_enable()
++            # The re-entrant implementation drops gradients for trainable
++            # LoRA modules inside a checkpointed block when the block input is
++            # produced by a frozen prefix (for example our cached vision
++            # block-24 input).  Non-reentrant checkpointing has no such
++            # requires-grad-on-input restriction and is the PyTorch-recommended
++            # path for this mixed frozen/trainable model.
++            self.model.gradient_checkpointing_enable(
++                gradient_checkpointing_kwargs={"use_reentrant": False}
++            )
+             assert self.model.is_gradient_checkpointing, (
+                 "Gradient checkpointing is not enabled"
+             )
+diff --git a/cosmos_rl/policy/model/hf_models/parallelize.py b/cosmos_rl/policy/model/hf_models/parallelize.py
+index f0a6896..71131af 100644
+--- a/cosmos_rl/policy/model/hf_models/parallelize.py
++++ b/cosmos_rl/policy/model/hf_models/parallelize.py
+@@ -13,6 +13,7 @@
+ # See the License for the specific language governing permissions and
+ # limitations under the License.
+ 
++import os
+ from typing import Callable, Optional
+ 
+ import torch
+@@ -314,6 +315,24 @@ def apply_ddp(
+     enable_compile: bool,
+     enable_compiled_autograd: bool,
+ ):
+-    replicate(model, device_mesh=dp_mesh, bucket_cap_mb=100)
++    # Large frozen VLMs can spend minutes broadcasting every base parameter
++    # when composable DDP lazily initializes, even though each replica has
++    # already loaded the same immutable HF checkpoint locally.  In that
++    # explicitly opted-in case, skip DDP's redundant initial state sync; the
++    # ordinary default remains unchanged.  Trainable LoRA parameters must be
++    # initialized deterministically on every replica by the caller.
++    skip_init_sync = os.environ.get("COSMOS_DDP_SKIP_INIT_SYNC", "0") == "1"
++    replicate(
++        model,
++        device_mesh=dp_mesh,
++        bucket_cap_mb=100,
++        init_sync=not skip_init_sync,
++    )
++
++    if skip_init_sync:
++        logger.info(
++            "Applied DDP without redundant initial parameter broadcast; "
++            "replicas must load byte-identical model state locally"
++        )
+ 
+     logger.info("Applied DDP to the model")
+diff --git a/cosmos_rl/policy/model/hf_models/patch.py b/cosmos_rl/policy/model/hf_models/patch.py
+index a0a1fb2..5421503 100644
+--- a/cosmos_rl/policy/model/hf_models/patch.py
++++ b/cosmos_rl/policy/model/hf_models/patch.py
+@@ -17,6 +17,7 @@ import importlib
+ import threading
+ 
+ import torch
++import torch.nn.functional as F
+ import transformers
+ from typing import Any, Optional
+ from transformers import AutoConfig
+@@ -570,6 +571,87 @@ def visual_forward_qwen3_vl_patch(model):
+     model_module = importlib.import_module(type(model).__module__)
+     Qwen3VLModelOutputWithPast = getattr(model_module, "Qwen3VLModelOutputWithPast")
+ 
++    # Keep the block-prefix fast path inside ``self.visual(...)`` instead of
++    # executing the tail directly from Qwen3VLModel.forward.  This is
++    # important under FSDP2: calling the visual module runs its pre/post
++    # forward hooks, which unshard the deep-stack mergers owned by the visual
++    # root and install the matching backward hooks.  Bypassing the module call
++    # leaves those parameters as DTensors and mixes them with local cached
++    # activations.
++    original_visual_forward = model.visual.forward
++
++    def visual_forward_with_pas_prefix(
++        self,
++        hidden_states: torch.Tensor,
++        grid_thw: torch.Tensor,
++        **kwargs,
++    ):
++        cached_deepstack_features = kwargs.pop(
++            "_pas_cached_deepstack_features", None
++        )
++        prefix_start_block = kwargs.pop("_pas_prefix_start_block", None)
++        if cached_deepstack_features is None:
++            return original_visual_forward(hidden_states, grid_thw, **kwargs)
++        if prefix_start_block is None:
++            # Backward compatibility for the original block-24 cache.
++            prefix_start_block = len(self.blocks) - 3
++        prefix_start_block = int(prefix_start_block)
++        if not 0 <= prefix_start_block < len(self.blocks):
++            raise ValueError(
++                f"PAS visual prefix block must be in [0, {len(self.blocks)}), "
++                f"got {prefix_start_block}"
++            )
++        if self.deepstack_visual_indexes != [8, 16, 24]:
++            raise ValueError(
++                "PAS visual prefix cache requires deepstack indexes [8, 16, 24], "
++                f"got {self.deepstack_visual_indexes}"
++            )
++
++        rotary_pos_emb = self.rot_pos_emb(grid_thw)
++        seq_len = hidden_states.shape[0]
++        rotary_pos_emb = rotary_pos_emb.reshape(seq_len, -1)
++        emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
++        position_embeddings = (emb.cos(), emb.sin())
++        cu_seqlens = torch.repeat_interleave(
++            grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]
++        ).cumsum(
++            dim=0,
++            dtype=grid_thw.dtype if torch.jit.is_tracing() else torch.int32,
++        )
++        cu_seqlens = F.pad(cu_seqlens, (1, 0), value=0)
++
++        new_deepstack = []
++        for layer_num in range(prefix_start_block, len(self.blocks)):
++            hidden_states = self.blocks[layer_num](
++                hidden_states,
++                cu_seqlens=cu_seqlens,
++                position_embeddings=position_embeddings,
++                **kwargs,
++            )
++            if layer_num in self.deepstack_visual_indexes:
++                merger_index = self.deepstack_visual_indexes.index(layer_num)
++                new_deepstack.append(
++                    self.deepstack_merger_list[merger_index](hidden_states)
++                )
++        cached_count = cached_deepstack_features.shape[1]
++        if cached_count + len(new_deepstack) != len(self.deepstack_visual_indexes):
++            raise ValueError(
++                "PAS visual prefix cache deep-stack count mismatch: "
++                f"cached={cached_count}, recomputed={len(new_deepstack)}, "
++                f"expected={len(self.deepstack_visual_indexes)}"
++            )
++
++        final_embeds = self.merger(hidden_states)
++        deepstack_features = [
++            cached_deepstack_features[:, index]
++            for index in range(cached_count)
++        ] + new_deepstack
++        return final_embeds, deepstack_features
++
++    model.visual.forward = visual_forward_with_pas_prefix.__get__(
++        model.visual, type(model.visual)
++    )
++
+     # Replaces Qwen3VLModel.forward from:
+     #   transformers.models.qwen3_vl.modeling_qwen3_vl  (transformers v4.57.6)
+     def visual_forward_qwen3_vl_inner(
+@@ -601,8 +683,35 @@ def visual_forward_qwen3_vl_patch(model):
+         deepstack_image_embeds = None
+         skip_visual = False
+ 
++        cached_visual_prefix = (
++            pixel_values is not None
++            and pixel_values_videos is not None
++            and pixel_values.ndim == 2
++            and pixel_values.shape[-1] == self.visual.config.hidden_size
++            and pixel_values_videos.ndim == 3
++            and 0 <= pixel_values_videos.shape[1]
++            <= len(self.visual.deepstack_visual_indexes)
++            and pixel_values_videos.shape[-1]
++            == self.visual.config.out_hidden_size
++        )
++
+         # ---- merged visual forward (follows NemotronVL: modeling_nemotron_vl_h.py:2135-2152) ----
+-        if pixel_values is None and pixel_values_videos is None:
++        if cached_visual_prefix:
++            # PAS late-vision training path. ``pixel_values`` contains the
++            # frozen output after block 23, while ``pixel_values_videos`` is a
++            # carrier for the already-merged deep-stack outputs from blocks 8
++            # and 16. Blocks 24-26 and the visual merger still execute with a
++            # normal autograd graph, so their LoRA weights remain trainable.
++            if video_grid_thw is None or video_grid_thw.numel() != 1:
++                # Legacy caches did not carry an explicit prefix block.
++                pas_prefix_start_block = len(self.visual.blocks) - 3
++            else:
++                pas_prefix_start_block = int(video_grid_thw.item())
++            final_pixel_value = None
++            final_thw = image_grid_thw
++            num_image = image_grid_thw.shape[0]
++            video_grid_thw = None
++        elif pixel_values is None and pixel_values_videos is None:
+             skip_visual = True
+         elif pixel_values is None:
+             final_pixel_value = pixel_values_videos
+@@ -617,7 +726,31 @@ def visual_forward_qwen3_vl_patch(model):
+             final_thw = torch.cat([image_grid_thw, video_grid_thw], dim=0)
+             num_image = image_grid_thw.shape[0]
+ 
+-        if not skip_visual:
++        if cached_visual_prefix:
++            grid_thw = image_grid_thw
++            final_embeds, deepstack_image_embeds = self.visual(
++                pixel_values,
++                grid_thw=grid_thw,
++                _pas_cached_deepstack_features=pixel_values_videos,
++                _pas_prefix_start_block=pas_prefix_start_block,
++                **kwargs,
++            )
++            merge_size = self.visual.config.spatial_merge_size
++            token_counts = (
++                grid_thw.prod(dim=-1) // (merge_size * merge_size)
++            ).tolist()
++            image_embeds = list(
++                final_embeds.split([int(value) for value in token_counts], dim=0)
++            )
++            # Keep the differentiable, post-merger image representation alive
++            # until the custom PAS loss callback runs.  The callback clears
++            # these attributes immediately after consuming them.  This makes
++            # it possible to add an image-attribute auxiliary objective to the
++            # same forward pass without recomputing the vision tower.
++            self._pas_last_visual_embeds = final_embeds
++            self._pas_last_visual_grid_thw = grid_thw
++            video_embeds = []
++        elif not skip_visual:
+             # Qwen3VLModel.get_image_features: ViT → merger → torch.split per image/video
+             # Returns (tuple_of_per_item_embeds, list_of_deepstack_layer_tensors)
+             all_embeds, deepstack_image_embeds = self.get_image_features(
+diff --git a/cosmos_rl/policy/trainer/llm_trainer/llm_trainer.py b/cosmos_rl/policy/trainer/llm_trainer/llm_trainer.py
+index 9ea057c..4a05fa8 100644
+--- a/cosmos_rl/policy/trainer/llm_trainer/llm_trainer.py
++++ b/cosmos_rl/policy/trainer/llm_trainer/llm_trainer.py
+@@ -329,6 +329,28 @@ class LLMTrainer(Trainer):
+         Returns:
+             len_params (int): The number of parameters synced.
+         """
++        # A few VLM projection weights are hundreds of millions of elements.
++        # Broadcasting one such tensor in a single NCCL work item is fragile on
++        # multi-node IB fabrics (and can trip retry-exceeded errors even though
++        # the model and optimizer state are otherwise healthy).  Keep the
++        # default behavior unchanged, but allow affected jobs to bound each
++        # collective through a job-local environment variable.  Sender and
++        # receivers traverse the identical contiguous slices, so this preserves
++        # the exact state and collective ordering.
++        sync_chunk_numel = int(os.environ.get("COSMOS_SYNC_CHUNK_NUMEL", "0"))
++
++        def transfer(tensor: torch.Tensor, hook: callable) -> None:
++            if (
++                sync_chunk_numel > 0
++                and tensor.numel() > sync_chunk_numel
++                and tensor.is_contiguous()
++            ):
++                flat = tensor.view(-1)
++                for begin in range(0, flat.numel(), sync_chunk_numel):
++                    hook(flat.narrow(0, begin, min(sync_chunk_numel, flat.numel() - begin)))
++            else:
++                hook(tensor)
++
+         len_params = 0
+         if self.parallel_dims.pp_enabled:
+             state_dict = {}
+@@ -363,9 +385,9 @@ class LLMTrainer(Trainer):
+                     self.device, dest_name, obj, in_place=obj.is_cuda
+                 )
+                 if is_send:
+-                    send_hook(local_view)
++                    transfer(local_view, send_hook)
+                 else:
+-                    recv_hook(local_view)
++                    transfer(local_view, recv_hook)
+                     if isinstance(obj, torch.distributed.tensor.DTensor):
+                         to_write = obj.to_local()
+                     else:
+@@ -386,10 +408,10 @@ class LLMTrainer(Trainer):
+                 continue
+             if is_send:
+                 # nccl send
+-                send_hook(local_view)
++                transfer(local_view, send_hook)
+             else:
+                 # nccl recv
+-                recv_hook(local_view)
++                transfer(local_view, recv_hook)
+                 optimizer_state[dest_name] = extract_from_cuda_tensor(
+                     self.device,
+                     dest_name,
+@@ -409,10 +431,10 @@ class LLMTrainer(Trainer):
+                 local_view = wrap_to_cuda_tensor(self.device, dest_name, obj)
+                 if is_send:
+                     # nccl send
+-                    send_hook(local_view)
++                    transfer(local_view, send_hook)
+                 else:
+                     # nccl recv
+-                    recv_hook(local_view)
++                    transfer(local_view, recv_hook)
+                     lr_sheduler_state[dest_name] = extract_from_cuda_tensor(
+                         self.device,
+                         dest_name,
+@@ -430,10 +452,10 @@ class LLMTrainer(Trainer):
+             local_view = wrap_to_cuda_tensor(self.device, dest_name, obj)
+             if is_send:
+                 # nccl send
+-                send_hook(local_view)
++                transfer(local_view, send_hook)
+             else:
+                 # nccl recv
+-                recv_hook(local_view)
++                transfer(local_view, recv_hook)
+                 rng_state[dest_name] = extract_from_cuda_tensor(
+                     self.device, dest_name, obj, local_view
+                 )
+diff --git a/cosmos_rl/policy/trainer/llm_trainer/sft_trainer.py b/cosmos_rl/policy/trainer/llm_trainer/sft_trainer.py
+index 834d504..e8dc6c7 100644
+--- a/cosmos_rl/policy/trainer/llm_trainer/sft_trainer.py
++++ b/cosmos_rl/policy/trainer/llm_trainer/sft_trainer.py
+@@ -717,9 +717,20 @@ class SFTTrainer(LLMTrainer):
+         ckpt_total_steps = 0
+         train_step = 0
+         ckpt_extra_vars = {}
++        # For non-resume LoRA/SFT jobs every DP replica can load the same HF
++        # base and adapter directly from shared storage.  This opt-in path
++        # avoids broadcasting the entire frozen VLM state across nodes, which
++        # is both redundant and fragile on large DP meshes.  Resume still uses
++        # the canonical rank-0 load+broadcast path because optimizer state must
++        # be restored from one authoritative checkpoint.
++        local_hf_load = (
++            os.environ.get("COSMOS_DP_LOCAL_HF_LOAD", "0") == "1"
++            and self.parallel_dims.dp_replicate_enabled
++            and not self.config.train.resume
++        )
+         if (
+             not self.parallel_dims.dp_replicate_enabled
+-        ) or self.parallel_dims.dp_replicate_coord[0] == 0:
++        ) or self.parallel_dims.dp_replicate_coord[0] == 0 or local_hf_load:
+             if self.config.train.resume:
+                 try:
+                     # early init the lr_schedulers to avoid it is not initialized when loading the checkpoint
+@@ -736,7 +747,7 @@ class SFTTrainer(LLMTrainer):
+             else:
+                 self.model_load_from_hf()
+ 
+-        if self.parallel_dims.dp_replicate_enabled:
++        if self.parallel_dims.dp_replicate_enabled and not local_hf_load:
+             if self.config.train.resume:
+                 ckpt_total_steps = dist_util.broadcast_object_cpu(
+                     ckpt_total_steps,
+@@ -776,6 +787,14 @@ class SFTTrainer(LLMTrainer):
+             logger.info(
+                 f"Synchronized {len_params} parameters across data parallel replicas."
+             )
++        elif local_hf_load:
++            # The shared checkpoint is immutable for the lifetime of a job;
++            # once every replica has loaded it, a cheap barrier is sufficient.
++            dist.barrier(group=self.parallel_dims.mesh["dp_replicate"].get_group())
++            logger.info(
++                "Loaded identical HuggingFace model state independently on every "
++                "data-parallel replica; skipped full-state broadcast."
++            )
+ 
+         self.set_model_train()
+         return ckpt_total_steps, train_step, ckpt_extra_vars
+diff --git a/cosmos_rl/policy/worker/multi_replica_sft_worker.py b/cosmos_rl/policy/worker/multi_replica_sft_worker.py
+index 0481424..33758c6 100644
+--- a/cosmos_rl/policy/worker/multi_replica_sft_worker.py
++++ b/cosmos_rl/policy/worker/multi_replica_sft_worker.py
+@@ -530,6 +530,7 @@ class MultiReplicaSFTPolicyWorker(RLPolicyWorker):
+                     self.train_step % self.config.train.ckpt.save_freq == 0
+                     and self.train_step > 0
+                 )
++            do_save = do_save or self.train_step in self.config.train.ckpt.save_steps
+             self.do_save = do_save
+             val_avg_loss = self.validate(is_last_step=False)
+ 
+diff --git a/cosmos_rl/policy/worker/sft_worker.py b/cosmos_rl/policy/worker/sft_worker.py
+index 48fcb7c..b395397 100644
+--- a/cosmos_rl/policy/worker/sft_worker.py
++++ b/cosmos_rl/policy/worker/sft_worker.py
+@@ -47,6 +47,7 @@ from cosmos_rl.policy.config import (
+ )
+ 
+ from cosmos_rl.policy.trainer.sampler import SkippingSampler
++from cosmos_rl.policy.trainer.optm import build_lr_schedulers
+ import cosmos_rl.utils.cache as cache
+ from cosmos_rl.policy.trainer.llm_trainer.sft_trainer import SFTTrainer
+ from cosmos_rl.policy.worker.base import PolicyWorkerBase
+@@ -578,6 +579,7 @@ class SFTPolicyWorker(PolicyWorkerBase):
+                 )
+             return data_loader
+ 
++        unskipped_steps_per_epoch = None
+         if self.config.train.resume and self.train_step > 0:
+             """
+             Note: Here both shuffle and no shuffle samplers are supported for deterministic resuming.
+@@ -612,6 +614,7 @@ class SFTPolicyWorker(PolicyWorkerBase):
+                 total_steps_per_epoch = len(
+                     get_train_data_loader(self.train_sampler, self.train_batch_sampler)
+                 )
++                unskipped_steps_per_epoch = total_steps_per_epoch
+                 data_loader_bias = self.train_step % total_steps_per_epoch
+                 data_loader_bias *= self.config.train.train_batch_per_replica
+                 logger.info(
+@@ -720,8 +723,8 @@ class SFTPolicyWorker(PolicyWorkerBase):
+             )
+ 
+         steps_by_dataset = (
+-            self.ckpt_total_steps
+-            if self.ckpt_total_steps > 0
++            unskipped_steps_per_epoch * self.epoch
++            if unskipped_steps_per_epoch is not None
+             else len(self.train_data_loader) * self.epoch
+         )
+ 
+@@ -735,6 +738,52 @@ class SFTPolicyWorker(PolicyWorkerBase):
+         else:
+             self.total_steps = steps_by_dataset
+ 
++        if self.config.train.resume and self.train_step > 0:
++            if (
++                getattr(self.trainer, "lr_schedulers", None) is not None
++                and self.ckpt_total_steps > 0
++                and self.ckpt_total_steps != steps_by_dataset
++            ):
++                # LambdaLR does not serialize its lambda, so a checkpoint saved
++                # at a temporary max_num_steps boundary would otherwise rebuild
++                # a scheduler whose decay horizon ends at that boundary. Rebind
++                # the loaded scheduler state to the actual dataset horizon while
++                # preserving the optimizer LR used by the next exact-resume
++                # update.
++                scheduler_state = self.trainer.lr_schedulers.state_dict()
++                loaded_lrs = [
++                    scheduler.get_last_lr()
++                    for scheduler in self.trainer.lr_schedulers
++                ]
++                self.trainer.lr_schedulers = build_lr_schedulers(
++                    self.trainer.optimizers,
++                    self.config,
++                    steps_by_dataset,
++                )
++                self.trainer.lr_schedulers.load_state_dict(scheduler_state)
++                for scheduler, scheduler_lrs in zip(
++                    self.trainer.lr_schedulers, loaded_lrs, strict=True
++                ):
++                    for param_group, lr in zip(
++                        scheduler.optimizer.param_groups,
++                        scheduler_lrs,
++                        strict=True,
++                    ):
++                        param_group["lr"] = lr
++                logger.info(
++                    "Rebound resumed LR scheduler horizon from %s to %s",
++                    self.ckpt_total_steps,
++                    steps_by_dataset,
++                )
++            logger.info(
++                "Resume horizon resolved to step %s/%s "
++                "(checkpoint horizon=%s, dataset horizon=%s)",
++                self.train_step,
++                self.total_steps,
++                self.ckpt_total_steps,
++                steps_by_dataset,
++            )
++
+         # Calculate the step interval to save the checkpoint
+         if self.config.train.ckpt.save_freq_in_epoch > 0:
+             # Use save_freq_in_epoch to calculate the save frequency in priority
+@@ -1034,10 +1083,6 @@ class SFTPolicyWorker(PolicyWorkerBase):
+                                 f"[SFT] Error calling custom logger function: {e}"
+                             )
+ 
+-                if self.train_step >= self.total_steps:
+-                    stop_training = True
+-                    break  # break outer epoch loop
+-
+                 val_avg_loss = self.validate(
+                     current_epoch=cur_epoch, is_last_step=False
+                 )
+@@ -1049,6 +1094,7 @@ class SFTPolicyWorker(PolicyWorkerBase):
+                     pp_last_stage=False,
+                     is_last_step=False,
+                     val_score=val_avg_loss,
++                    do_save=self.train_step in self.config.train.ckpt.save_steps,
+                 )
+ 
+                 self.profiler.step()
+@@ -1063,20 +1109,35 @@ class SFTPolicyWorker(PolicyWorkerBase):
+                     self.signal_handler.release()
+                     break
+ 
++                if self.train_step >= self.total_steps:
++                    stop_training = True
++                    break  # break outer epoch loop
++
+             if stop_training:
+                 break
+             cur_epoch += 1
+ 
+         # Finally: validation and save checkpoint
+         val_avg_loss = self.validate(current_epoch=cur_epoch, is_last_step=True)
+-        self.trainer.checkpointing(
+-            total_steps=self.total_steps,
+-            train_step=self.train_step,
+-            save_freq=self._save_freq,
+-            is_last_step=True,
+-            pp_last_stage=pp_last_stage,
+-            val_score=val_avg_loss,
++        # A downstream evaluator may already be reading this complete export.
++        already_exported = (
++            self.config.train.ckpt.enable_checkpoint
++            and self.config.train.ckpt.export_safetensors
++            and self.train_step > 0
++            and (
++                (self._save_freq > 0 and self.train_step % self._save_freq == 0)
++                or self.train_step in self.config.train.ckpt.save_steps
++            )
+         )
++        if not already_exported:
++            self.trainer.checkpointing(
++                total_steps=self.total_steps,
++                train_step=self.train_step,
++                save_freq=self._save_freq,
++                is_last_step=True,
++                pp_last_stage=pp_last_stage,
++                val_score=val_avg_loss,
++            )
+ 
+     def handle_shutdown(self):
+         # handle the ckpt saving
+diff --git a/cosmos_rl/utils/diffusers_utils.py b/cosmos_rl/utils/diffusers_utils.py
+index 3c0e31e..0ad28dc 100644
+--- a/cosmos_rl/utils/diffusers_utils.py
++++ b/cosmos_rl/utils/diffusers_utils.py
+@@ -1,5 +1,6 @@
+ import importlib
+ from functools import wraps
++from typing import Any
+ 
+ from cosmos_rl.utils.logging import logger
+ 
+@@ -18,8 +19,26 @@ if importlib.util.find_spec("xformers") is not None:
+     importlib.util.find_spec = blocked_find_spec
+     logger.warning("xformers is not compatible with Cosmos-RL now, please uninstall it")
+ 
+-from diffusers import DiffusionPipeline
++def _diffusion_pipeline():
++    """Import optional diffusion dependencies only for diffusion workloads.
+ 
+-diffusers_config_fn = DiffusionPipeline.load_config
++    Text/VLM policy training does not use diffusers.  Eagerly importing it can
++    nevertheless pull in optional torchao kernels whose version requirements
++    differ from the CUDA-compatible PyTorch installed for the policy worker.
++    """
++
++    from diffusers import DiffusionPipeline as pipeline
++
++    return pipeline
++
++
++def diffusers_config_fn(*args: Any, **kwargs: Any):
++    return _diffusion_pipeline().load_config(*args, **kwargs)
++
++
++def __getattr__(name: str):
++    if name == "DiffusionPipeline":
++        return _diffusion_pipeline()
++    raise AttributeError(name)
+ 
+ __all__ = ["diffusers_config_fn", "DiffusionPipeline"]
+diff --git a/cosmos_rl/utils/util.py b/cosmos_rl/utils/util.py
+index db812de..7bcbe8a 100644
+--- a/cosmos_rl/utils/util.py
++++ b/cosmos_rl/utils/util.py
+@@ -61,6 +61,12 @@ import numpy as np
+ from torch.utils.data import Dataset
+ 
+ 
++def _fused_ce_lora_lm_head_identity_forward(module, hidden_states):
++    """Return hidden states while retaining a LoRA LM head for custom projection losses."""
++    del module
++    return hidden_states
++
++
+ def create_cached_dir_if_needed():
+     """
+     Creates the local cached dir if it doesn't exist.
+@@ -1264,15 +1270,43 @@ def replace_with_liger_equivalents(root: torch.nn.Module, config: CosmosConfig)
+                     config.policy.enable_liger_cross_entropy = True
+                     config.policy.enable_liger_fused_cross_entropy = False
+                 else:
+-                    logger.info(
+-                        "Replace lm_head with Identity layer for fused_cross_entropy"
++                    preserve_lora_head = bool(
++                        config.custom.get(
++                            "preserve_lora_lm_head_for_selected_projection", False
++                        )
+                     )
+-                    # If fused CE enabled, replace lm_head with IndentityLayer and keep its weight
+-                    new_lm_head = IdentityLayer()
+-                    new_lm_head.register_parameter("weight", child.weight)
+-                    if hasattr(child, "bias") and child.bias is not None:
+-                        new_lm_head.register_parameter("bias", child.bias)
+-                    replace_child(name, child, new_lm_head, root)
++                    if preserve_lora_head:
++                        from cosmos_rl.policy.lora.plugin import LoraInjectedLinear
++
++                        if not isinstance(child, LoraInjectedLinear):
++                            raise ValueError(
++                                "preserve_lora_lm_head_for_selected_projection "
++                                "requires lm_head to be a LoraInjectedLinear"
++                            )
++                        # Fused CE needs final hidden states, while the custom PAS
++                        # loss consumes just the selected yes/no rows (including
++                        # their LoRA update). Keep the module and its parameters so
++                        # optimizer/export state remains complete, but bypass the
++                        # full-vocabulary projection in the model forward.
++                        child.forward = (
++                            _fused_ce_lora_lm_head_identity_forward.__get__(
++                                child, type(child)
++                            )
++                        )
++                        logger.info(
++                            "Bypass full-vocabulary lm_head projection while "
++                            "preserving trainable LoRA parameters"
++                        )
++                    else:
++                        logger.info(
++                            "Replace lm_head with Identity layer for fused_cross_entropy"
++                        )
++                        # If fused CE enabled, replace lm_head with IndentityLayer and keep its weight
++                        new_lm_head = IdentityLayer()
++                        new_lm_head.register_parameter("weight", child.weight)
++                        if hasattr(child, "bias") and child.bias is not None:
++                            new_lm_head.register_parameter("bias", child.bias)
++                        replace_child(name, child, new_lm_head, root)
+ 
+ 
+ # Custom tokenizer-loader registry.  Each entry is a (predicate, loader)

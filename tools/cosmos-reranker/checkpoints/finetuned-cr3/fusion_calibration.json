@@ -1,0 +1,14 @@
+{
+  "selection_metric": "validation overall mAP",
+  "validation_score_statistics": {
+    "stage1": {
+      "mean": 0.10392954179665653,
+      "std": 0.036888489541104574
+    },
+    "cr3": {
+      "mean": -4.3130755742203615,
+      "std": 4.758062762663309
+    }
+  },
+  "frozen_alpha": 0.3178799999999988
+}
