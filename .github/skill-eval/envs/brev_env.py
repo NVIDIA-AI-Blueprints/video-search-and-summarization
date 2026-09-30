@@ -388,7 +388,7 @@ class BrevEnvironment(BaseEnvironment):
             ("RTSP_SAMPLE_URL", _resolve_rtsp_sample_url()),
         ]
         for key in (
-            "NGC_CLI_API_KEY", "NGC_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
+            "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
             # The Build Vision AI provisioning task owns host-side NemoClaw
@@ -577,9 +577,30 @@ class BrevEnvironment(BaseEnvironment):
             local.write_text(json.dumps(plan))
             local.chmod(0o600)
             await self.upload_file(local, remote + ".json")
+            # NGC_API_KEY is for NIM provisioning only. Do not persist it in
+            # the evaluated agent's ~/.eval_env alongside VSS inputs.
+            ngc_key = os.environ.get("NGC_API_KEY")
+            if ngc_key:
+                key_file = Path(directory) / "ngc-key"
+                key_file.write_text(f"NGC_API_KEY={shlex.quote(ngc_key)}\n")
+                key_file.chmod(0o600)
+                prepared = await _run_brev_exec(
+                    self._instance_name,
+                    f"umask 077; : > {remote}.key; chmod 600 {remote}.key",
+                    timeout=30,
+                )
+                if prepared.return_code:
+                    raise RuntimeError("Could not prepare private NIM credential file")
+                await self.upload_file(key_file, remote + ".key")
+        key_setup = (
+            f"chmod 600 {remote}.key && "
+            f"set -a && . {remote}.key && set +a && rm -f {remote}.key && "
+            if os.environ.get("NGC_API_KEY") else ""
+        )
         result = await _run_brev_exec(
             self._instance_name,
-            f"chmod 600 {remote}.json && python3 {remote}.py start --plan {remote}.json",
+            f"{key_setup}chmod 600 {remote}.json && "
+            f"python3 {remote}.py start --plan {remote}.json",
             timeout=5500,
         )
         if result.return_code:

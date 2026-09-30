@@ -201,7 +201,7 @@ def test_two_roles_deploy_one_nim_and_one_adapter(monkeypatch, tmp_path):
     nim.start(plan())
 
 
-def test_nemoclaw_uses_private_direct_nim_route(monkeypatch, tmp_path):
+def test_nemoclaw_uses_authenticated_private_proxy_and_loopback_nim(monkeypatch, tmp_path):
     registry(monkeypatch)
     monkeypatch.setenv("NGC_API_KEY", "ngc-secret")
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -222,7 +222,7 @@ def test_nemoclaw_uses_private_direct_nim_route(monkeypatch, tmp_path):
         if url.endswith("/models"):
             return {"data": [{"id": "nvidia/nemotron-3.5-lightning-30b-a3b"}]}, {}
         if url.startswith(("http://127.0.0.1:", "http://10.229.20.2:")):
-            probes.append(url)
+            probes.append((url, headers))
             return {}, {}
         return original_request(url, headers, payload)
 
@@ -246,14 +246,46 @@ def test_nemoclaw_uses_private_direct_nim_route(monkeypatch, tmp_path):
     nim.start(local_plan)
 
     launch = next(c for c in commands if c[0] == "run" and "--gpus" in c)
-    assert "10.229.20.2:18410:8000" in launch
+    assert "127.0.0.1:18410:8000" in launch
     assert launch[-2:] == (
         "--served-model-name", "nvidia/nemotron-3.5-lightning-30b-a3b"
     )
-    assert "http://10.229.20.2:18410/v1/health/ready" in ready_urls
-    assert "http://10.229.20.2:18410/v1/chat/completions" in probes
+    assert "http://127.0.0.1:18410/v1/health/ready" in ready_urls
+    assert (
+        "http://10.229.20.2:18400/v1/chat/completions",
+        {
+            "Authorization": "Bearer sk-test-local",
+            "x-api-key": "sk-test-local",
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        },
+    ) in probes
     ready = json.loads((nim.owner_paths(local_plan["owner"]) / "ready.json").read_text())
-    assert ready["nemoclaw_endpoint"] == "http://10.229.20.2:18410/v1"
+    assert ready["nemoclaw_endpoint"] == "http://10.229.20.2:18400/v1"
+    proxy = json.loads((nim.owner_paths(local_plan["owner"]) / "proxy.json").read_text())
+    assert proxy["general_settings"]["master_key"] == local_plan["token"]
+
+
+def test_reuse_rechecks_nim_inference_before_the_agent_runs(monkeypatch, tmp_path):
+    local_plan = plan()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    root = nim.owner_paths(local_plan["owner"])
+    (root / "ready.json").write_text(json.dumps({
+        "roles": local_plan["routes"],
+        "models": [{"model": "qwen/qwen3-32b", "served_model": "Qwen/Qwen3-32B"}],
+    }))
+    (root / "proxy.json").write_text(json.dumps({
+        "general_settings": {"master_key": local_plan["token"]},
+    }))
+    monkeypatch.setattr(nim, "docker", lambda *a, **kw: subprocess.CompletedProcess(
+        a, 0, "c1\nc2\n", "",
+    ))
+    def unhealthy(url, *args, **kwargs):
+        if ":18410/" in url:
+            raise nim.NimError("Local NIM readiness timed out")
+    monkeypatch.setattr(nim, "wait_ready", unhealthy)
+    with pytest.raises(nim.NimError, match="readiness timed out"):
+        nim.start(local_plan)
 
 
 def test_alias_provider_deduplicates():

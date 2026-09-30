@@ -310,15 +310,30 @@ def start(plan: dict):
             previous.get("roles") == plan["routes"] and previous_key == plan["token"]
         )
         if same_plan and len(containers) == len(unique_models(plan["routes"])) + 1:
+            for i, model in enumerate(unique_models(plan["routes"])):
+                base = f"http://127.0.0.1:{PROXY_PORT + 10 + i}/v1"
+                wait_ready(
+                    f"{base}/health/ready", "", 30,
+                    container=f"skill-eval-nim-{plan['owner']}-{i}",
+                )
+                served, _ = request_json(f"{base}/models")
+                if [entry.get("id") for entry in served.get("data", [])] != [
+                    item["served_model"] for item in previous["models"]
+                    if item["model"] == model
+                ]:
+                    raise NimError(f"Reused local NIM changed served model: {model}")
             wait_ready(
                 f"http://127.0.0.1:{PROXY_PORT}/health/liveliness", plan["token"], 30
             )
+            smoke_routes(plan, worker_host() if any(
+                route["runtime"] == "nemoclaw" for route in plan["routes"]
+            ) else None)
             publish(root)
             configure_nemoclaw(json.loads(marker.read_text()))
             return
     marker.unlink(missing_ok=True)
     (root / "deployment.json").unlink(missing_ok=True)
-    key = os.environ.get("NGC_CLI_API_KEY") or os.environ.get("NGC_API_KEY")
+    key = os.environ.get("NGC_API_KEY") or os.environ.get("NGC_CLI_API_KEY")
     if not key:
         raise NimError(
             "Local NIM requires NGC_CLI_API_KEY or NGC_API_KEY on the worker"
@@ -364,7 +379,6 @@ def start(plan: dict):
         validate_model_id(nemoclaw_route["model"]) if nemoclaw_route else None
     )
     host = worker_host() if nemoclaw_route else None
-    nemoclaw_port = None
     for i, item in enumerate(resolved):
         port = PROXY_PORT + 10 + i
         direct_nemoclaw = item["model"] == nemoclaw_model
@@ -403,18 +417,17 @@ def start(plan: dict):
             nim_args.extend(("-e", f"NIM_PASSTHROUGH_ARGS={parser_args}"))
         nim_args.extend((
             "-p",
-            f"{host if direct_nemoclaw else '127.0.0.1'}:{port}:8000",
+            f"127.0.0.1:{port}:8000",
             "-v",
             f"{cache}:/opt/nim/.cache",
             item["image"],
         ))
         if direct_nemoclaw:
-            # NemoClaw uses chat completions directly. NIM can advertise the
-            # selected ID, so this route needs neither aliasing nor proxy auth.
+            # Keep the selected ID on NIM for discovery. NemoClaw reaches it
+            # through the authenticated proxy, never this loopback port.
             nim_args.extend(("--served-model-name", nemoclaw_route["model"]))
-            nemoclaw_port = port
         docker(*nim_args)
-        base = f"http://{host if direct_nemoclaw else '127.0.0.1'}:{port}/v1"
+        base = f"http://127.0.0.1:{port}/v1"
         wait_ready(f"{base}/health/ready", "", 4800, container=name)
         served, _ = request_json(f"{base}/models")
         names = [m["id"] for m in served.get("data", [])]
@@ -471,6 +484,17 @@ def start(plan: dict):
     wait_ready(f"http://127.0.0.1:{PROXY_PORT}/health/liveliness", plan["token"], 300)
     # Exercise each harness protocol, so a healthy server with an incompatible
     # API cannot produce an apparently successful deployment.
+    smoke_routes(plan, host)
+    evidence = {"models": resolved, "roles": plan["routes"], "architecture": arch}
+    if nemoclaw_route:
+        evidence["nemoclaw_endpoint"] = f"http://{host}:{PROXY_PORT}/v1"
+    marker.write_text(json.dumps(evidence, indent=2))
+    configure_nemoclaw(evidence)
+    publish(root)
+
+
+def smoke_routes(plan: dict, host: str | None):
+    """Check the same authenticated endpoints the evaluated harnesses use."""
     for route in plan["routes"]:
         runtime = route["runtime"]
         schema = {"type": "object", "properties": {}}
@@ -525,7 +549,7 @@ def start(plan: dict):
             )
         try:
             smoke_base = (
-                f"http://{host}:{nemoclaw_port}/v1"
+                f"http://{host}:{PROXY_PORT}/v1"
                 if runtime == "nemoclaw"
                 else f"http://127.0.0.1:{PROXY_PORT}/v1"
             )
@@ -548,12 +572,6 @@ def start(plan: dict):
                 f"Local NIM {runtime} protocol smoke failed for {route['model']}: "
                 f"HTTP {exc.code}: {detail}"
             ) from None
-    evidence = {"models": resolved, "roles": plan["routes"], "architecture": arch}
-    if nemoclaw_route:
-        evidence["nemoclaw_endpoint"] = f"http://{host}:{nemoclaw_port}/v1"
-    marker.write_text(json.dumps(evidence, indent=2))
-    configure_nemoclaw(evidence)
-    publish(root)
 
 
 def configure_nemoclaw(evidence: dict):
@@ -639,6 +657,7 @@ def main():
                         time.sleep(0.5)
                     if expected in proc.read_bytes():
                         os.kill(pid, signal.SIGKILL)
+        Path(f"/tmp/skill-eval-nim-{args.owner}.key").unlink(missing_ok=True)
         cleanup(args.owner)
         Path(f"/tmp/skill-eval-nim-{args.owner}.json").unlink(missing_ok=True)
         return
