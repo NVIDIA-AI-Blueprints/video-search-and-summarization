@@ -16,25 +16,76 @@ video.
 
 ## Required behavior
 
-1. Use the sensor supplied by the task, normally `$VSS_SENSOR_ID`.
-2. Inspect the complete sensor recording. Do not add start or end bounds unless
-   the task explicitly supplies them.
-3. Pass the benchmark question to exactly one `vss vlm run` call.
+1. Use the video URL supplied by the task with `--media-url`. If no URL is
+   supplied, use its supplied sensor, normally `$VSS_SENSOR_ID`, with `--sensor`.
+   If the task explicitly requires a sensor, follow that requirement instead.
+   Choose one source for the single call; do not try both.
+2. Inspect the complete supplied video or sensor recording. Do not add start or
+   end bounds unless the task explicitly supplies them.
+3. Pass the original question AND every supplied labeled answer choice,
+   unchanged and in their original order, to exactly one `vss vlm run` call.
+   Include choices even when the task lists them separately from the question.
+   For a multiple-choice task, also tell the VLM to return only the selected
+   option letter, without an explanation.
 4. Use the first VLM response to select the answer.
 5. Write the answer in the format required by the task.
 6. Finish immediately.
 
-The call should have this form:
+## Inference prompt
+
+For a multiple-choice task, assemble the prompt before making the single call:
+
+```bash
+VLM_PROMPT=$(cat <<'PROMPT'
+<exact benchmark question>
+
+<every original labeled answer choice, in its original order>
+
+Answer with only the selected option letter. Do not include an explanation.
+PROMPT
+)
+```
+
+Replace the placeholders with the task's actual question and all of its labeled
+choices. Preserve the labels and wording; do not add hints, a proposed answer,
+or a reasoning checklist. For a task without choices, use its exact question
+and requested response format instead; do not invent options or require a letter.
+
+## Video source
+
+Execute exactly one of the following calls, not both.
+
+### Supplied video URL
+
+When the task says `The video is at <URL>`, set `VIDEO_URL` to that exact URL.
+This includes a supplied HTTP(S) RustFS/S3 object URL; do not reconstruct it
+from a video ID, bucket name, or endpoint, and do not substitute an `s3://` path.
+
+```bash
+vss vlm run \
+  --media-url "$VIDEO_URL" \
+  --prompt "$VLM_PROMPT"
+```
+
+The media URL identifies the video, not the VSS deployment. Keep using the
+configured backend at `$VSS_GATEWAY_ORIGIN`; do not reconfigure VSS to the
+object-store URL. The VLM backend fetches the supplied URL, so it must be
+reachable from that backend. An internal hostname such as
+`rustfs.media.svc.cluster.local` requires backend access to Kubernetes DNS and
+networking; a supplied URL alone does not establish that access. Do not download,
+upload, ingest, or convert the video yourself, or switch sources after a failure.
+
+### Supplied sensor
+
+When no URL is supplied, or the task explicitly requires its sensor, use:
 
 ```bash
 vss vlm run \
   --sensor "$VSS_SENSOR_ID" \
-  --prompt "<exact benchmark question>"
+  --prompt "$VLM_PROMPT"
 ```
 
-Use the exact question from the task as the prompt. Do not expand it into a
-checklist, add hints, or include the answer choices unless they are part of the
-question supplied to the model.
+Do not derive a sensor ID from a video ID or filename.
 
 ## Hard constraints
 
