@@ -27,7 +27,7 @@
         "`curl -sf --max-time 15 http://localhost:38111/models | jq -e '.data | length > 0'` returns exit 0",
         "`curl -sf --max-time 15 -X POST http://localhost:38111/recommended_config -H 'Content-Type: application/json' -d '{\"video_length\":300,\"target_response_time\":60,\"usecase_event_duration\":5}' | jq -e '(.text // .chunk_size) != null'` returns exit 0",
         "`curl -sf --max-time 15 http://localhost:38111/metrics | grep -q .` returns exit 0",
-        "The agent trajectory contains API calls to `/v1/ready`, `/models`, `/recommended_config`, and `/metrics` on port 38111.",
+        "The agent trajectory contains API calls to `/v1/ready`, `/models`, `/recommended_config`, and `/metrics` under the LVS base URL `vss configure show` recorded (`services.lvs.url`, the ingress `/lvs` mount such as `http://<host>:7777/lvs`), not a base assembled from `HOST_IP` or port 38111.",
         "The POST `/recommended_config` request body contains exactly the requested numeric values: video_length=300, target_response_time=60, and usecase_event_duration=5.",
         "The agent does not call `/v1/summarize`, `/summarize`, or any VLM `/v1/chat/completions` endpoint for this query.",
         "The final response reports video summarization readiness, at least one model id, the recommended chunk size or text returned by `/recommended_config`, and that metrics were reachable."
