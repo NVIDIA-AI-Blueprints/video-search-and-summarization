@@ -1,6 +1,3 @@
-SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-SPDX-License-Identifier: LicenseRef-NvidiaProprietary
-
 Portions of libnvjpeg are derived from libjpeg-8b, provided under the 
 following terms:
 
