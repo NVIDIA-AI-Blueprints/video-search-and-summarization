@@ -68,8 +68,13 @@ _READINESS_MARKERS = (
     "NEMOCLAW_ROUTING: True; bind=0.0.0.0",
     "NEMOCLAW_ROUTING_READY:",
     "ROUTER_POLICY_LIFECYCLE:",
-    "ROUTER_TEARDOWN: done",
 )
+
+
+def _teardown_marker() -> str:
+    """The teardown line the run must print for the ROUTER_TEARDOWN it was given."""
+    torn = os.environ.get("ROUTER_TEARDOWN", "true").strip().lower() in ("1", "true", "yes", "on")
+    return "ROUTER_TEARDOWN: done" if torn else "ROUTER_TEARDOWN: skipped"
 
 
 def _repo_root() -> Path:
@@ -333,14 +338,15 @@ def run_notebook(*, root: Path) -> None:
     if not path.is_file():
         raise FileNotFoundError(f"Missing notebook: {path}")
     output = execute_notebook(path, cwd=root)
-    missing = [marker for marker in _READINESS_MARKERS if marker not in output]
+    markers = _READINESS_MARKERS + (_teardown_marker(),)
+    missing = [marker for marker in markers if marker not in output]
     if missing:
         raise RuntimeError(
             f"{path.name} completed without readiness marker(s): "
             + ", ".join(missing)
         )
     for line in output.splitlines():
-        if any(marker in line for marker in _READINESS_MARKERS):
+        if any(marker in line for marker in markers):
             print(line)
 
 
