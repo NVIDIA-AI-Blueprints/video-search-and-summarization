@@ -15,6 +15,8 @@
 
 enabled: false
 global: {}
+# File-upload sensor admission limit. Keep this aligned with vios-sensor.
+maxSensorsSupported: 100
 image:
   repository: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-streamprocessing
   tag: "develop-latest"
