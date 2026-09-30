@@ -19,9 +19,11 @@ File-level exceptions:
     libnvjpeg redistribution and is retained verbatim per the IJG license's
     notice-preservation requirement; the file's embedded text governs.
 
-  - Container-only NVIDIA license text artifacts packaged into GHCR images at
-    build time (not licensing claims over repository files) — the following
-    are included in the repo for build/packaging purposes only:
+  - The following NVIDIA proprietary license text documents are retained in
+    the repository so they can be packaged into the container images built
+    from this repository. Each is provided under LicenseRef-NvidiaProprietary,
+    and the terms of use for the artifacts they describe are stated within
+    each document itself:
       - LICENSE.DATA
       - assets/NVIDIA-Software-License-Agreement.pdf
       - services/rtvi/rt-embed/docker/NVIDIA-Software-License-Agreement.pdf
