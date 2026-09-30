@@ -144,9 +144,6 @@ services:
       rtvi-vlm:
         condition: service_healthy
         required: false
-    extra_hosts:
-      # NemoClaw's vss CLI mints clip URLs on this alias; resolve it to haproxy on the host.
-      - "host.openshell.internal:host-gateway"
 
     # Network mode: bridge (default) to enable port mapping
     # To use host network instead (ignores port mapping), uncomment:
