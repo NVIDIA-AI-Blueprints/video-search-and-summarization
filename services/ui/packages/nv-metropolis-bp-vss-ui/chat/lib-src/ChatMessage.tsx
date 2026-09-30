@@ -18,6 +18,7 @@ import remarkMath from 'remark-math';
 
 import { ChatSteps } from './ChatSteps';
 import { getMarkdownComponents, VssUiArtifact } from './markdown/components';
+import { normalizeOpenShellMediaUrls } from './markdown/mediaUrls';
 import { fixMalformedHtml } from './markdown/streaming';
 import type { ChatFeatureFlags, ChatMessage as ChatMessageType } from './types';
 
@@ -391,7 +392,7 @@ export const ChatMessageView: React.FC<ChatMessageProps> = memo(
     const isAssistant = message.role === 'assistant';
     const isStreaming = Boolean(message.streaming);
     const content = isAssistant
-      ? fixMalformedHtml(message.content).trim()
+      ? normalizeOpenShellMediaUrls(fixMalformedHtml(message.content).trim(), mediaProxyUrl)
       : message.content.trim();
 
     // Hidden messages (upload auto-prompts) are sent but never shown, and an
