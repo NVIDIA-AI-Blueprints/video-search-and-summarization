@@ -57,6 +57,37 @@ describe('useChatSidebarMainTabBridge', () => {
     expect(result.current.searchTabChatSidebarBusy).toBe(true);
   });
 
+  it.each(['alerts', 'search', 'dashboard', 'map', 'video-management'])(
+    'notifies Alerts once after a sidebar answer from %s',
+    (activeTab) => {
+      const { result } = renderHook(() =>
+        useChatSidebarMainTabBridge({ activeTab, sidebarCollapsed: true }),
+      );
+      const handler = jest.fn();
+      result.current.registerAlertsTabSidebarChatEvents(handler);
+      act(() => result.current.handleSidebarMessageSubmitted());
+      handler.mockClear();
+      act(() => result.current.handleSidebarAnswerComplete());
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith({ type: 'answerComplete' });
+    },
+  );
+
+  it('notifies Alerts for full-page Chat answers without artifacts', () => {
+    const { result } = renderHook(() =>
+      useChatSidebarMainTabBridge({ activeTab: 'chat', sidebarCollapsed: true }),
+    );
+    const handler = jest.fn();
+    result.current.registerAlertsTabSidebarChatEvents(handler);
+    act(() => {
+      result.current.handleMainChatAnswerCompleteWithContent('Alert rule created.');
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith({ type: 'answerComplete' });
+    expect(result.current.chatSidebarQueryExecuting).toBe(false);
+    expect(result.current.chatSidebarHighlight).toBe(false);
+  });
+
   it('highlightSidebarWhenCollapsed sets highlight only when sidebar is collapsed', () => {
     const { result, rerender } = renderHook(
       ({ sidebarCollapsed }) =>

@@ -8,6 +8,8 @@ import {
 
 interface UseCvAlertsVerificationConfigsOptions {
   alertsApiUrl?: string;
+  /** Refetch persisted rules without resetting editor state. */
+  refreshVersion?: number;
 }
 
 export interface CreateCvAlertsVerificationConfigInput {
@@ -51,6 +53,7 @@ const parseError = async (response: Response): Promise<string> => {
 
 export const useCvAlertsVerificationConfigs = ({
   alertsApiUrl,
+  refreshVersion = 0,
 }: UseCvAlertsVerificationConfigsOptions) => {
   const [configs, setConfigs] = useState<VerificationAlertConfig[]>([]);
   const [loading, setLoading] = useState(false);
@@ -162,7 +165,7 @@ export const useCvAlertsVerificationConfigs = ({
     const controller = new AbortController();
     fetchConfigs(controller.signal);
     return () => controller.abort();
-  }, [fetchConfigs]);
+  }, [fetchConfigs, refreshVersion]);
 
   return {
     configs,
