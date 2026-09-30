@@ -10,8 +10,8 @@ metadata:
   # What a live deployment must expose for this skill to be usable, as the vss CLI
   # names it: a command group (search, summarize, vlm, vios, memory), "alerts"
   # (Alert Bridge), or "always" for a skill every VSS deployment gets. The
-  # OpenClaw harness image ships and activates skills by it.
-  vss-requires: "vlm"
+  # OpenClaw harness image ships and activates skills by it. `a|b` = either one.
+  vss-requires: "summarize|vlm"
 ---
 
 # VSS Summarize Video
