@@ -75,8 +75,8 @@ no fallback to a different model, a model-free container, or hosted inference.
 A missing image, incompatible architecture, registry access failure, and
 startup failure are distinct errors. This checks architecture only; it does
 not estimate GPU capacity, memory, disk, or combined VSS/inference demand.
-When set, `NGC_API_KEY` is staged in a private worker file for NIM startup and
-removed before the trial begins; it is not forwarded into `~/.eval_env`.
+When set, `NGC_API_KEY` is sent over the provisioning command's stdin; it is
+not written to a worker key file or forwarded into `~/.eval_env`.
 The existing VSS deploy path still forwards `NGC_CLI_API_KEY` to the evaluated
 agent because that agent performs the VSS deployment.
 

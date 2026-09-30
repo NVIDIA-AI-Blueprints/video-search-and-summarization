@@ -14,6 +14,7 @@ Or directly:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -44,6 +45,35 @@ ENVS_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENVS_DIR))
 
 import brev_env  # noqa: E402
+
+
+class LocalNimCredentialDelivery(unittest.IsolatedAsyncioTestCase):
+    async def test_ngc_key_is_sent_on_stdin_without_worker_key_file(self):
+        env = brev_env.BrevEnvironment()
+        env._instance_name = "SPARK"
+        owner = "a" * 24
+        plan = {"owner": owner, "token": "leg-token", "routes": []}
+        uploads = []
+        calls = []
+
+        async def upload(source, target):
+            uploads.append(target)
+
+        async def execute(instance, command, timeout=0, input_data=None):
+            calls.append((command, input_data))
+            return brev_env.ExecResult(return_code=0)
+
+        with mock.patch.dict(os.environ, {
+            "SKILL_EVAL_LOCAL_NIM_PLAN": json.dumps(plan),
+            "NGC_API_KEY": "private-registry-key",
+        }), mock.patch.object(env, "upload_file", side_effect=upload), \
+             mock.patch.object(brev_env, "_run_brev_exec", side_effect=execute):
+            await env._start_local_nims()
+
+        self.assertEqual(len(uploads), 2)
+        self.assertFalse(any(path.endswith(".key") for path in uploads))
+        self.assertEqual(calls[0][1], b"private-registry-key\n")
+        self.assertNotIn("private-registry-key", calls[0][0])
 
 
 class RtspSampleUrlResolution(unittest.TestCase):

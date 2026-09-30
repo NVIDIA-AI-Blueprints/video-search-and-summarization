@@ -657,7 +657,6 @@ def main():
                         time.sleep(0.5)
                     if expected in proc.read_bytes():
                         os.kill(pid, signal.SIGKILL)
-        Path(f"/tmp/skill-eval-nim-{args.owner}.key").unlink(missing_ok=True)
         cleanup(args.owner)
         Path(f"/tmp/skill-eval-nim-{args.owner}.json").unlink(missing_ok=True)
         return

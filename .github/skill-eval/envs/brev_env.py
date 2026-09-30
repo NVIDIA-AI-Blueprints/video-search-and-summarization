@@ -577,31 +577,22 @@ class BrevEnvironment(BaseEnvironment):
             local.write_text(json.dumps(plan))
             local.chmod(0o600)
             await self.upload_file(local, remote + ".json")
-            # NGC_API_KEY is for NIM provisioning only. Do not persist it in
-            # the evaluated agent's ~/.eval_env alongside VSS inputs.
-            ngc_key = os.environ.get("NGC_API_KEY")
-            if ngc_key:
-                key_file = Path(directory) / "ngc-key"
-                key_file.write_text(f"NGC_API_KEY={shlex.quote(ngc_key)}\n")
-                key_file.chmod(0o600)
-                prepared = await _run_brev_exec(
-                    self._instance_name,
-                    f"umask 077; : > {remote}.key; chmod 600 {remote}.key",
-                    timeout=30,
-                )
-                if prepared.return_code:
-                    raise RuntimeError("Could not prepare private NIM credential file")
-                await self.upload_file(key_file, remote + ".key")
+        # Send NGC_API_KEY on command stdin. A staged worker file could
+        # survive if the coordinator died before the startup shell ran.
+        ngc_key = os.environ.get("NGC_API_KEY")
+        if ngc_key and ("\n" in ngc_key or "\r" in ngc_key):
+            raise ValueError("NGC_API_KEY must be a single line")
         key_setup = (
-            f"chmod 600 {remote}.key && "
-            f"set -a && . {remote}.key && set +a && rm -f {remote}.key && "
-            if os.environ.get("NGC_API_KEY") else ""
+            'IFS= read -r NGC_API_KEY && test -n "$NGC_API_KEY" && '
+            'export NGC_API_KEY && '
+            if ngc_key else ""
         )
         result = await _run_brev_exec(
             self._instance_name,
             f"{key_setup}chmod 600 {remote}.json && "
             f"python3 {remote}.py start --plan {remote}.json",
             timeout=5500,
+            input_data=(ngc_key + "\n").encode() if ngc_key else None,
         )
         if result.return_code:
             raise RuntimeError(f"Local NIM deployment failed: {(result.stderr or result.stdout or '')[-2000:]}")
@@ -1759,6 +1750,7 @@ async def _run_ssh_exec(
     alias: str,
     command: str,
     timeout: int = BREV_EXEC_TIMEOUT,
+    input_data: bytes | None = None,
 ) -> ExecResult:
     """Run `ssh <alias> <command>` — for registered nodes."""
     cmd = [
@@ -1781,7 +1773,7 @@ async def _run_ssh_exec(
     try:
         stdout, stderr = await _communicate_with_cancellation_cleanup(
             proc,
-            input_data=b"",
+            input_data=input_data if input_data is not None else b"",
             timeout=timeout,
         )
     except asyncio.TimeoutError:
@@ -1848,6 +1840,7 @@ async def _run_brev_exec(
     instance: str,
     command: str,
     timeout: int = BREV_EXEC_TIMEOUT,
+    input_data: bytes | None = None,
 ) -> ExecResult:
     """Run ``brev exec <instance> <command>`` and return result.
 
@@ -1855,15 +1848,17 @@ async def _run_brev_exec(
     falls back to direct ``ssh <alias>`` since brev exec can't reach them.
 
     Uses ``bash -c`` wrapping via a shell so that ``brev exec`` receives
-    a single command string.  Stdin is piped with empty input so the
-    brev CLI doesn't enter interactive mode.
+    a single command string. Stdin is piped explicitly so the brev CLI
+    doesn't enter interactive mode.
     """
     if await _is_registered_node(instance):
         # ssh command-execs run NON-LOGIN shells: ~/.profile (and thus the
         # forwarded ~/.eval_env) is never sourced, silently dropping
         # PR_HEAD_SHA/NGC keys/etc from every exec. Source it inline.
         command = f". ~/.eval_env 2>/dev/null || true; {command}"
-        return await _run_ssh_exec(_ssh_alias_for(instance), command, timeout)
+        return await _run_ssh_exec(
+            _ssh_alias_for(instance), command, timeout, input_data=input_data,
+        )
     # brev exec also spawns a NON-LOGIN shell — ~/.profile is never sourced,
     # so the forwarded env vars in ~/.eval_env (PR_HEAD_SHA, NGC keys, etc.)
     # are invisible to every command. Source it inline, same as SSH nodes.
@@ -1884,7 +1879,7 @@ async def _run_brev_exec(
     try:
         stdout, stderr = await _communicate_with_cancellation_cleanup(
             proc,
-            input_data=b"\n",
+            input_data=input_data if input_data is not None else b"\n",
             timeout=timeout,
         )
     except asyncio.TimeoutError:
