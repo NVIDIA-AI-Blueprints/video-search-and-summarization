@@ -18,8 +18,9 @@ and compacts against the wrong model's limits. This script closes it -- the
 Dockerfile declares the ARGs, and this applies them to the inherited config at
 build, before the config hash is recomputed.
 
-controlUi.allowedOrigins is always a wildcard: the gateway binds loopback and
-the token is the boundary, and an origin derived from CHAT_UI_URL could miss
+controlUi.allowedOrigins is always a wildcard: the gateway binds loopback, the
+gates are the token and (for a loopback UI host) device auth rather than the
+origin, and an origin derived from CHAT_UI_URL could miss
 the one the browser sends (onboard rewrites its port). CHAT_UI_URL only sets the
 auth flags: allowInsecureAuth is scheme == http; device auth is disabled for a
 non-loopback UI host. `config set` refuses gateway.*, so this is the only place
