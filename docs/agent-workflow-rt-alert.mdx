@@ -902,7 +902,7 @@ The Jaeger UI is present only when the `jaeger` Compose profile is enabled; see 
 
 ### Known Issues
 
-* Deleting a real-time alert rule for a camera that has multiple rules also deletes all other rules for that camera.
+* Deleting a real-time alert rule for a camera that has multiple rules causes all other rules for that camera to stop producing alerts, even though they remain listed as active.
 
 * It is recommended to clear chat and refresh the VSS UI page after deployment to clear any data from a previous deployment.
 
