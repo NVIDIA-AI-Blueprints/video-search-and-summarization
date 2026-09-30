@@ -706,9 +706,7 @@ def validate_media_name(filename: str) -> None:
         )
 
 
-async def _get_json(
-    url: str, timeout_seconds: float, what: str, *, not_found_message: str | None = None
-) -> object:
+async def _get_json(url: str, timeout_seconds: float, what: str, *, not_found_message: str | None = None) -> object:
     """GET returning parsed JSON, with the module's retry and error policy.
 
     `not_found_message`, when given, turns a 404 into `VIOSNotFoundError`
@@ -758,9 +756,7 @@ async def _sensor_streams(
 ) -> list[dict[str, object]]:
     """`GET /sensor/{sensorId}/streams`, addressed by the id VIOS reported."""
     url = f"{vst_internal_url.rstrip('/')}/vst/api/v1/sensor/{quote_path_segment(sensor_id)}/streams"
-    payload = await _get_json(
-        url, timeout_seconds, f"streams for {sensor_id}", not_found_message=not_found_message
-    )
+    payload = await _get_json(url, timeout_seconds, f"streams for {sensor_id}", not_found_message=not_found_message)
     if isinstance(payload, dict):
         return [payload]
     if not isinstance(payload, list):
@@ -790,6 +786,18 @@ def _pick_stream(streams: list[dict[str, object]], sensor_name: str) -> tuple[di
     )
 
 
+def _is_removed(sensor: dict[str, object]) -> bool:
+    """True for a `/sensor/list` row VIOS itself marks as gone.
+
+    VIOS deliberately keeps a row for a sensor removed from its live registry
+    but still holding recordings, flagged `state: "removed"`. Its `/streams`
+    call is a guaranteed 404 -- checking this first skips that round trip and,
+    unlike catching the 404 itself, cannot be confused with an unrelated
+    backend problem that also 404s.
+    """
+    return sensor.get("state") == "removed"
+
+
 async def resolve_sensor(
     vst_internal_url: str,
     handle: str,
@@ -808,7 +816,7 @@ async def resolve_sensor(
     """
     sensors = await list_sensors(vst_internal_url, timeout_seconds)
 
-    by_name = [s for s in sensors if s.get("name") == handle]
+    by_name = [s for s in sensors if s.get("name") == handle and not _is_removed(s)]
     if len(by_name) > 1:
         ids = ", ".join(str(s.get("sensorId", "?")) for s in by_name)
         raise VIOSInvalidInputError(f"{len(by_name)} sensors are named {handle!r}; re-run addressing one by id: {ids}")
@@ -822,7 +830,7 @@ async def resolve_sensor(
         scan_failure: VSTError | None = None
         for sensor in sensors:
             candidate = str(sensor.get("sensorId") or "")
-            if not candidate:
+            if not candidate or _is_removed(sensor):
                 continue
             try:
                 entries = await _sensor_streams(
@@ -872,9 +880,7 @@ async def resolve_sensor(
             raise VIOSNotFoundError(f"stream {wanted_stream!r} is no longer listed under {name!r}")
         stream, assumed = found, False
     else:
-        # `sensors` (and thus `match`) came from a `/sensor/list` snapshot that
-        # can include sensors VIOS has since deleted -- it does not prune stale
-        # entries. A 404 here means exactly that, not that VIOS is unreachable.
+        # A sensor deleted after the listing above 404s here: gone, not unreachable.
         entries = await _sensor_streams(
             vst_internal_url,
             sensor_id,
@@ -908,6 +914,13 @@ async def list_media(
     """
     rows: list[dict[str, object]] = []
     for sensor in await list_sensors(vst_internal_url, timeout_seconds):
+        if _is_removed(sensor):
+            # VIOS marked this row gone itself; no /streams call can answer
+            # anything but 404 for it. Skip the guaranteed-404 round trip
+            # rather than reactively catching it, so an unrelated 404 (a
+            # route or version mismatch) still surfaces as a backend error
+            # instead of silently reading as "removed" too.
+            continue
         sensor_id = str(sensor.get("sensorId") or "")
         name = str(sensor.get("name") or "")
         if not sensor_id:
@@ -926,22 +939,14 @@ async def list_media(
                 }
             )
             continue
-        # A genuine VIOS outage (VSTError) is deliberately not caught: `list`
-        # must fail with exit 3 rather than return a short list that reads as
-        # "these are all of them". A 404 (VIOSNotFoundError) is different --
-        # `/sensor/list` does not prune sensors VIOS has since deleted, so this
-        # sensor is stale metadata, not a sign VIOS itself is unreachable. Drop
-        # it rather than row it: it no longer exists, so an "error" row would
-        # read as something the caller can act on when there is nothing to fix.
-        try:
-            streams = await _sensor_streams(
-                vst_internal_url,
-                sensor_id,
-                timeout_seconds,
-                not_found_message=f"sensor {name!r} was deleted from VIOS after being listed",
-            )
-        except VIOSNotFoundError:
-            continue
+        # Deliberately not caught: if VIOS cannot answer, `list` must fail with
+        # exit 3, never return a short list that reads as "these are all of
+        # them". A sensor VIOS has genuinely removed was already filtered
+        # above by its `state`; a 404 reaching this call despite that is
+        # unexplained -- a route or version mismatch, not a removal -- and
+        # must surface as the backend problem it is, not read as one more
+        # gone sensor.
+        streams = await _sensor_streams(vst_internal_url, sensor_id, timeout_seconds)
         if not streams:
             # A registered sensor with no stream rows still exists. Dropping it
             # from a successful listing reads as "not registered", and the
@@ -1527,7 +1532,9 @@ async def confirm_absent(
     passes while VIOS still lists the source under its canonical name -- and
     a delete that answered non-200 then reports success.
     """
-    remaining = [s for s in await list_sensors(vst_internal_url, timeout_seconds) if s.get("name") == name]
+    remaining = [
+        s for s in await list_sensors(vst_internal_url, timeout_seconds) if s.get("name") == name and not _is_removed(s)
+    ]
     if remaining:
         ids = ", ".join(str(s.get("sensorId", "?")) for s in remaining)
         raise VSTError(f"VIOS still lists {name!r} after delete (sensorId: {ids})")
@@ -1649,7 +1656,7 @@ async def delete_media(
     # all, and the confirmation below would fail on a sensor we never tried to
     # remove. Deregister whatever is still listed before confirming.
     if "sensor" not in steps and any(
-        s.get("name") == ref.name for s in await list_sensors(vst_internal_url, timeout_seconds)
+        s.get("name") == ref.name and not _is_removed(s) for s in await list_sensors(vst_internal_url, timeout_seconds)
     ):
         await _delete(sensor_url, timeout_seconds, "sensor delete")
         steps.append("sensor")
