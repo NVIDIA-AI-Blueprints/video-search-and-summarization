@@ -13,6 +13,7 @@ that harness loads skills.
 | Path | What it is |
 |---|---|
 | `Dockerfile` | The sandbox image: NemoClaw's managed Hermes runtime (digest-pinned) + the `vss` CLI + the VSS operation skills (activated per deployment, see below) + the workspace docs |
+| `experiments/<arm>/Dockerfile` | Eval arms: the published harness image with one rule appended to `/sandbox/AGENTS.md`. `vlm-one-query-with-candidates` sends one VLM query carrying the question and every candidate answer; `vlm-original-question-only` sends the VLM only the original question |
 
 Hermes has no plugin or tool layer to add: it drives the deployment through the
 `vss` CLI on `PATH`, loads skills from `$HERMES_HOME/skills`
