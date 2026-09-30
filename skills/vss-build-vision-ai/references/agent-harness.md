@@ -487,12 +487,12 @@ export NEMOCLAW_ENDPOINT_URL="${NEMOCLAW_ENDPOINT_URL:-https://inference-api.nvi
 : "${COMPATIBLE_API_KEY:?bearer token for NEMOCLAW_ENDPOINT_URL is required}"
 export COMPATIBLE_API_KEY
 
-# Against the build's own unauthenticated LLM NIM, replace the endpoint and
-# model outright. Keep a caller-supplied key for an authenticated proxy;
-# use EMPTY only when the endpoint ignores bearer tokens:
+# Against the build's own unauthenticated LLM NIM, replace the endpoint, model,
+# and key outright. A different endpoint that requires authentication (such
+# as the skill eval's local NIM proxy) must use that endpoint's supplied key:
 #   export NEMOCLAW_ENDPOINT_URL="http://host.openshell.internal:<LLM_PORT>/v1"
 #   export NEMOCLAW_MODEL="<NIM_SERVED_MODEL_NAME from resolved.yml>"
-#   export COMPATIBLE_API_KEY="${COMPATIBLE_API_KEY:-EMPTY}"
+#   export COMPATIBLE_API_KEY=EMPTY
 #   export NEMOCLAW_INFERENCE_PROXY=0
 
 uv run --isolated --no-project --python 3.12 \
