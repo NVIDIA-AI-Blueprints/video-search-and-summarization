@@ -70,7 +70,8 @@ fi
 ### Prepare the video through VIOS
 
 Use the `vss` CLI for every step; no VIOS REST calls and no `docker exec` /
-`kubectl exec` probe. Replace `SOURCE_FILE` with the exact requested file.
+`kubectl exec` probe. Replace `SOURCE_FILE` with the exact requested file; for
+a named sensor, set `SENSOR_NAME` to it and start at `TIMELINE=`.
 
 ```bash
 SOURCE_FILE=/path/to/video.mp4

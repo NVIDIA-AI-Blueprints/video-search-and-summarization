@@ -17,6 +17,8 @@ Mode A routes by clip duration, not by LVS readiness. Step 1 measures the clip:
 under 120 s, run Steps 1–3 (direct VLM). At 120 s or longer (the Long-video
 rule), run `/vss-summarize-video`, which uses LVS when ready and `vss vlm run`
 otherwise, then paste its output into the Step 4 template and skip Steps 2–3.
+A base64 input is decoded to a file first (`base64 -d "$VIDEO_B64_FILE" >
+<file>`) and handed off by that path.
 That hand-off has no Step 3 prompt-approval loop: when HITL resolved `false` (or the caller asked for autonomous execution) invoke `/vss-summarize-video` with its explicit autonomous instruction and defaults (`scenario="activity monitoring"`, `events=["notable activity"]`) and state those defaults in the chat response; when HITL resolved `true`, its settings dialogue replaces the Step 3 approval.
 
 ### Step 1 — Resolve Mode A input (A1 clip URL or A2 local-file/base64)

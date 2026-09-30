@@ -11,7 +11,7 @@ metadata:
   # names it: a command group (search, summarize, vlm, vios, memory), "alerts"
   # (Alert Bridge), or "always" for a skill every VSS deployment gets. The
   # OpenClaw harness image ships and activates skills by it.
-  vss-requires: "summarize"
+  vss-requires: "vlm"
 ---
 
 # VSS Summarize Video
@@ -210,8 +210,9 @@ stdout must not trigger fallback.
 Use the `vss` CLI for every step; no VIOS REST calls, and do not invoke a
 separate skill.
 
-1. `vss vios list --sensor <stem>`; reuse the recording when present. VIOS
-   names an uploaded sensor by its filename stem.
+1. A named sensor goes straight to step 3. For a file, `vss vios list --sensor
+   <stem>`; reuse the recording when present. VIOS names an uploaded sensor by
+   its filename stem.
 2. If absent and the exact local file is available, `vss vios add <file>`. It
    waits for the timeline; its default timestamp is `2025-01-01T00:00:00.000Z`.
 3. `vss vios timeline --sensor <name>`, then for each segment `vss vios clip
