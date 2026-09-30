@@ -47,10 +47,12 @@ describe('useCvAlertsVerificationConfigs', () => {
     async (mutation) => {
       let finishRefresh: (value: Response) => void;
       const updated = { ...sample, prompt: 'Updated prompt' };
+      const chatConfig = { ...sample, alert_type: 'Chat-created' };
       global.fetch = jest.fn()
         .mockImplementationOnce(() => response({ configs: mutation === 'create' ? [] : [sample] }))
         .mockImplementationOnce(() => new Promise<Response>((resolve) => { finishRefresh = resolve; }))
-        .mockImplementationOnce(() => response(mutation === 'update' ? updated : sample));
+        .mockImplementationOnce(() => response(mutation === 'update' ? updated : sample))
+        .mockImplementationOnce(() => response({ configs: mutation === 'delete' ? [chatConfig] : [mutation === 'update' ? updated : sample, chatConfig] }));
       const { result } = renderHook(() =>
         useCvAlertsVerificationConfigs({ alertsApiUrl: 'http://alerts.test/api/v1' }),
       );
@@ -63,10 +65,10 @@ describe('useCvAlertsVerificationConfigs', () => {
         if (mutation === 'delete') await result.current.deleteConfig(sample.alert_type);
       });
       await act(async () => {
-        finishRefresh(await response({ configs: mutation === 'create' ? [] : [sample] }));
+        finishRefresh(await response({ configs: mutation === 'create' ? [chatConfig] : [sample, chatConfig] }));
         await refresh;
       });
-      expect(result.current.configs).toEqual(mutation === 'delete' ? [] : [mutation === 'update' ? updated : sample]);
+      expect(result.current.configs).toEqual(mutation === 'delete' ? [chatConfig] : [mutation === 'update' ? updated : sample, chatConfig]);
       expect(result.current.loading).toBe(false);
     },
   );
@@ -92,8 +94,11 @@ describe('useCvAlertsVerificationConfigs', () => {
       .fn()
       .mockImplementationOnce(() => response({ configs: [], count: 0 }))
       .mockImplementationOnce(() => response(sample, true, 201, 'Created'))
+      .mockImplementationOnce(() => response({ configs: [sample] }))
       .mockImplementationOnce(() => response(updated))
-      .mockImplementationOnce(() => response({ status: 'success', message: 'deleted' }));
+      .mockImplementationOnce(() => response({ configs: [updated] }))
+      .mockImplementationOnce(() => response({ status: 'success', message: 'deleted' }))
+      .mockImplementationOnce(() => response({ configs: [] }));
 
     const { result } = renderHook(() =>
       useCvAlertsVerificationConfigs({ alertsApiUrl: 'http://alerts.test/api/v1' }),
@@ -114,7 +119,7 @@ describe('useCvAlertsVerificationConfigs', () => {
       await result.current.updateConfig(sample.alert_type, { prompt: updated.prompt });
     });
     expect(global.fetch).toHaveBeenNthCalledWith(
-      3,
+      4,
       'http://alerts.test/api/v1/verification/config/FOV%20Count%20Violation',
       expect.objectContaining({
         method: 'PUT',
@@ -127,7 +132,7 @@ describe('useCvAlertsVerificationConfigs', () => {
       await result.current.deleteConfig(sample.alert_type);
     });
     expect(global.fetch).toHaveBeenNthCalledWith(
-      4,
+      6,
       'http://alerts.test/api/v1/verification/config/FOV%20Count%20Violation',
       { method: 'DELETE' },
     );

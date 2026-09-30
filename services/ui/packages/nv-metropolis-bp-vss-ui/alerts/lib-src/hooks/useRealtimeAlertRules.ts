@@ -180,8 +180,10 @@ export const useRealtimeAlertRules = ({
       requestVersionRef.current += 1;
       setLoading(false);
       setRules((prev) => prev.filter((rule) => rule.id !== id));
+      // Reload after the mutation so unrelated chat-created rules are retained.
+      await fetchRules();
     },
-    [alertsApiUrl],
+    [alertsApiUrl, fetchRules],
   );
 
   useEffect(() => {
