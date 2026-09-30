@@ -9,7 +9,8 @@ superset: one item per capability per event, every item carrying an id, so a
 build resolves its fan-out by setting `enabled` alone. This checks the item
 inventory and the stock enable vector -- what a build that inherits the config
 actually gets -- against the expectations in
-skills/vss-build-vision-ai/references/services/vios.md.
+skills/vss-build-vision-ai/references/services/vios.md, and checks that the Helm
+copy of each superset carries the same items and flags.
 
 Usage: check_notification_supersets.py <deploy/docker>
 """
@@ -31,8 +32,19 @@ EXPECTED = {
         "es-raw-camera-remove": True,
         "es-behavior-camera-remove": True,
         "es-embed-filtered-camera-remove": True,
+        "es-vlm-tags-camera-remove": True,
         "dummy-camera-add": False,
     },
+}
+
+# Helm copies of a Docker superset, path relative to deploy/helm. The delete flow
+# must match Compose, so ids and enable flags must match, minus the Docker-only
+# items Helm does not ship.
+HELM_MIRRORS = {
+    "developer-profiles/dev-profile-search/configs/vios/notification_config.json": (
+        "developer-profiles/dev-profile-search/vios/configs/notification_config.json",
+        {"alert-bridge-camera-streaming", "alert-bridge-camera-remove", "dummy-camera-add"},
+    ),
 }
 
 # The MODE-selected files a stock alerts deploy mounts carry one capability
@@ -78,6 +90,12 @@ def check(root: Path) -> list[str]:
         found_ids = {item.get("id", "") for item in items(root / relative)}
         if found_ids != expected_ids:
             errors.append(f"{relative}: item ids are {sorted(found_ids)}, expected {sorted(expected_ids)}")
+    helm_root = root.parent / "helm"
+    for relative, (docker_relative, docker_only) in HELM_MIRRORS.items():
+        expected = {k: v for k, v in EXPECTED[docker_relative].items() if k not in docker_only}
+        found = {item.get("id", ""): item.get("enabled") for item in items(helm_root / relative)}
+        if found != expected:
+            errors.append(f"helm/{relative}: enable vector is {found}, expected {expected} (mirror of {docker_relative})")
     return errors
 
 
