@@ -199,7 +199,8 @@ routing diagnosis. Reject credentials in the URL and never rewrite the URL or
 add a `streamId` routing header. Discard the response body; availability is not
 visual evidence.
 
-2. Read every hit's `verification` object:
+2. Read every hit's `verification` object (`critic_result`, when present, is a
+   copy kept for the VSS UI):
 
    - `confirmed`: the critic found all requested visual criteria in that clip.
    - `rejected`: the critic found a visual criterion was not met.

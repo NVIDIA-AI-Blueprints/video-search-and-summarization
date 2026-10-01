@@ -659,6 +659,7 @@ class SearchGroup(CommandGroup):
             )
         # Preserve the library stdout contract — never mutate SearchOutput for persistence.
         body = output.model_dump() if hasattr(output, "model_dump") else output
+        _add_ui_critic_alias(body)
 
         persist_meta: dict[str, Any] | None = None
         if memory is not None:
@@ -816,6 +817,24 @@ def _search_terminal_bundle(
         results=rows,
         ext=ext,
     )
+
+
+def _add_ui_critic_alias(body: Any) -> None:
+    """Copy each evaluated hit's ``verification`` to ``critic_result`` in place.
+
+    The VSS UI renders the critic badge from ``critic_result``, the vss-agent
+    search field. ``criteria_met`` is a dict exactly when the critic evaluated
+    the hit, so unevaluated hits get no alias, matching the agent flow.
+    """
+    if not isinstance(body, dict):
+        return
+    for row in body.get("data") or []:
+        verification = row.get("verification") if isinstance(row, dict) else None
+        if isinstance(verification, dict) and verification.get("criteria_met") is not None:
+            row["critic_result"] = {
+                "result": verification["result"],
+                "criteria_met": dict(verification["criteria_met"]),
+            }
 
 
 SEARCH = SearchGroup()
