@@ -18,6 +18,7 @@ import importlib.util
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -199,6 +200,27 @@ class EvalScope(unittest.TestCase):
         self.assertEqual(
             plan_matrix.skill_for_file("skills/vss-build-vision-ai/SKILL.md", skills),
             "vss-build-vision-ai")
+
+    def test_vision_pipeline_specs_are_discovered_and_dispatchable(self):
+        skill = "vss-build-vision-pipeline"
+        path = f"skills/{skill}/SKILL.md"
+        self.assertIn(skill, plan_matrix.discover_skills())
+        expected = {
+            "yolo26_object_detection",
+            "peoplenet_transformer_four_streams",
+            "rf_detr_instance_segmentation",
+        }
+        with patch.object(plan_matrix, "adapter_exists", return_value=False):
+            legs = plan_matrix.build_matrix([path])
+        self.assertEqual(len(legs), 1)
+        self.assertEqual(legs[0]["kind"], "missing_adapter")
+        with patch.object(plan_matrix, "adapter_exists", return_value=True):
+            legs = plan_matrix.build_matrix([path])
+        self.assertEqual({leg["spec_stem"] for leg in legs}, expected)
+        self.assertEqual(len(legs), 3)
+        for leg in legs:
+            self.assertEqual(leg["kind"], "eval")
+            self.assertEqual(leg["platform"], "L40S")
 
     def test_uncovered_categories_attribute_to_nothing(self):
         skills = plan_matrix.discover_skills()
