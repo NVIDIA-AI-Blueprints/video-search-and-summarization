@@ -45,7 +45,10 @@ global:
 
 
   # Global prompts
-  prompt: "Write a concise and clear dense caption for the provided warehouse video, focusing on irregular or hazardous events such as boxes falling, workers not wearing PPE, workers falling, workers taking photographs, workers chitchatting, forklift stuck, etc. Start and end each sentence with a time stamp."
+  prompt: >-
+    Write a concise and clear dense caption for the provided warehouse video, focusing on irregular or hazardous
+    events such as boxes falling, workers not wearing PPE, workers falling, workers taking photographs, workers
+    chitchatting, forklift stuck, etc. Start and end each sentence with a time stamp.
 
 # Test scenarios - each scenario defines a set of tests to run
 test_scenarios:

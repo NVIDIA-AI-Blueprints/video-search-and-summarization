@@ -122,7 +122,9 @@ test_scenarios:
           max_tokens: 1
           use_fps_for_chunking: false  # fixed frames per chunk (see global generate_captions_params)
           num_frames_per_second_or_fixed_frames_chunk: 30  # 372×372×30 ≈ 2K vision tokens
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+        prompt: >-
+          You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property
+          being damaged, or for anyone entering a restricted area. Answer Yes or No only.
 
 
   max_live_streams_test_100_token:
@@ -148,7 +150,10 @@ test_scenarios:
           max_tokens: 100
           use_fps_for_chunking: false  # fixed frames per chunk (see global generate_captions_params)
           num_frames_per_second_or_fixed_frames_chunk: 30  # 372×372×30 ≈ 2K vision tokens
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
+        prompt: >-
+          You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property
+          being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description
+          if Yes
 
   # 448x448 Max Live Streams — lower resolution, higher stream density
   max_live_streams_test_1_token_448:
@@ -174,7 +179,9 @@ test_scenarios:
           max_tokens: 1
           use_fps_for_chunking: false  # fixed frames per chunk (see global generate_captions_params)
           num_frames_per_second_or_fixed_frames_chunk: 80
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+        prompt: >-
+          You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property
+          being damaged, or for anyone entering a restricted area. Answer Yes or No only.
 
   max_live_streams_test_100_token_448:
     description: "Maximum concurrent live streams at 448x448 resolution, 100-token generation"
@@ -199,7 +206,10 @@ test_scenarios:
           max_tokens: 100
           use_fps_for_chunking: false  # fixed frames per chunk (see global generate_captions_params)
           num_frames_per_second_or_fixed_frames_chunk: 80
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
+        prompt: >-
+          You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property
+          being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description
+          if Yes
 
   # Concurrency tests at 448x448 using VST live streams.
   # Uses concurrent_live_streams mode: starts all N streams simultaneously and
@@ -223,7 +233,9 @@ test_scenarios:
         stream_count: [1, 10, 20]
         duration_seconds: 120
         chunk_overlap_duration: 0
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+        prompt: >-
+          You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property
+          being damaged, or for anyone entering a restricted area. Answer Yes or No only.
 
   concurrency_test_100_token:
     description: "Concurrent VST live streams at 448x448 resolution, 100-token generation"
@@ -243,7 +255,10 @@ test_scenarios:
         stream_count: [1, 10, 20]
         duration_seconds: 120
         chunk_overlap_duration: 0
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
+        prompt: >-
+          You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property
+          being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description
+          if Yes
 
   # ──────────────────────────────────────────────────────────────────────────────
   # BCD metric: Request Throughput [Non-Streaming]
@@ -279,7 +294,9 @@ test_scenarios:
         concurrency_levels: [1, 2, 4, 8, 16, 32]
         target_latency_seconds: 0          # set to 0 to disable optimal-concurrency binary search
         target_latency_tolerance: 1.0    # Accept within ±1 s of target
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+        prompt: >-
+          You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property
+          being damaged, or for anyone entering a restricted area. Answer Yes or No only.
 
   file_burst_100_token:
     description: "Non-streaming request throughput (RPS), 100-token OSL, 10 s video"
@@ -299,7 +316,10 @@ test_scenarios:
         concurrency_levels: [1, 2, 4, 8, 16, 32]
         target_latency_seconds: 0          # set to 0 to disable optimal-concurrency binary search
         target_latency_tolerance: 1.0    # Accept within ±1 s of target
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
+        prompt: >-
+          You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property
+          being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description
+          if Yes
 
   # ──────────────────────────────────────────────────────────────────────────────
   # BCD metric: VLM E2E Request Latency [Non-Streaming]
@@ -335,21 +355,27 @@ test_scenarios:
         concurrency_levels: [1, 2, 4, 8, 16, 32]
         target_latency_seconds: 0          # set to 0 to disable optimal-concurrency binary search
         target_latency_tolerance: 1.0    # Accept within ±1 s of target
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+        prompt: >-
+          You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property
+          being damaged, or for anyone entering a restricted area. Answer Yes or No only.
       # 600 s (10 min): 60 chunks per request
       - name: "warehouse_10min"
         filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10m.mp4"
         chunk_sizes: [10]
         concurrency_levels: [1]
         request_timeout_seconds: 1800  # 30 min — 60 chunks can take ~13 min per request
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+        prompt: >-
+          You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property
+          being damaged, or for anyone entering a restricted area. Answer Yes or No only.
       # 3600 s (60 min): 360 chunks per request
       - name: "warehouse_60min"
         filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_60m.mp4"
         chunk_sizes: [10]
         concurrency_levels: [1]
         request_timeout_seconds: 7200  # 2 h — 360 chunks can take ~80 min per request
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+        prompt: >-
+          You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property
+          being damaged, or for anyone entering a restricted area. Answer Yes or No only.
 
   e2e_latency_100_token:
     description: "VLM E2E request latency at 10 s/600 s/3600 s video durations, 100-token OSL"
@@ -370,18 +396,27 @@ test_scenarios:
         concurrency_levels: [1, 2, 4, 8, 16, 32]
         target_latency_seconds: 0          # set to 0 to disable optimal-concurrency binary search
         target_latency_tolerance: 1.0    # Accept within ±1 s of target
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
+        prompt: >-
+          You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property
+          being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description
+          if Yes
       # 600 s (10 min): 60 chunks per request
       - name: "warehouse_10min"
         filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10m.mp4"
         chunk_sizes: [10]
         concurrency_levels: [1]
         request_timeout_seconds: 1800  # 30 min — 60 chunks can take ~13 min per request
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
+        prompt: >-
+          You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property
+          being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description
+          if Yes
       # 3600 s (60 min): 360 chunks per request
       - name: "warehouse_60min"
         filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_60m.mp4"
         chunk_sizes: [10]
         concurrency_levels: [1]
         request_timeout_seconds: 7200  # 2 h — 360 chunks can take ~80 min per request
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
+        prompt: >-
+          You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property
+          being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description
+          if Yes

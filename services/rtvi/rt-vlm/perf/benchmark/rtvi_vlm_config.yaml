@@ -69,7 +69,13 @@ test_scenarios:
       vlm_input_height: 448  # 4K VLM input height
       temperature: 0.5
       max_tokens: 1
-      prompt: "You are an advanced intelligent traffic monitoring system. You must monitor and take note of all traffic related events like collision, unsafe maneuver, traffic violation, normal traffic flow, obstructed traffic flow etc. with relevant details. Note down all vehicles details in video like vehicle type. Make sure to capture details of emergency responder vehicles like police, ambulance, fire-truck, etc. Don't add vehicle license plate details. Don't add any details which are not present in the video frames. Just answer Yes for anomaly or No if there is none"
+      prompt: >-
+        You are an advanced intelligent traffic monitoring system. You must monitor and take note of all traffic
+        related events like collision, unsafe maneuver, traffic violation, normal traffic flow, obstructed traffic
+        flow etc. with relevant details. Note down all vehicles details in video like vehicle type. Make sure to
+        capture details of emergency responder vehicles like police, ambulance, fire-truck, etc. Don't add vehicle
+        license plate details. Don't add any details which are not present in the video frames. Just answer Yes for
+        anomaly or No if there is none
     # Duration in seconds to monitor the stream
     duration_seconds: 100
 
@@ -133,7 +139,13 @@ test_scenarios:
       # Traffic monitoring video
       - filepath: "/opt/nvidia/rtvi/streams/its.mp4"
         chunk_sizes: [10]
-        prompt: "You are an advanced intelligent traffic monitoring system. You must monitor and take note of all traffic related events like collision, unsafe maneuver, traffic violation, normal traffic flow, obstructed traffic flow etc. with relevant details. Note down all vehicles details in video like vehicle type. Make sure to capture details of emergency responder vehicles like police, ambulance, fire-truck, etc. Don't add vehicle license plate details. Don't add any details which are not present in the video frames. Start each event description with a start and end time stamp of the event."
+        prompt: >-
+          You are an advanced intelligent traffic monitoring system. You must monitor and take note of all traffic
+          related events like collision, unsafe maneuver, traffic violation, normal traffic flow, obstructed traffic
+          flow etc. with relevant details. Note down all vehicles details in video like vehicle type. Make sure to
+          capture details of emergency responder vehicles like police, ambulance, fire-truck, etc. Don't add vehicle
+          license plate details. Don't add any details which are not present in the video frames. Start each event
+          description with a start and end time stamp of the event.
 
       # Bridge inspection video
       - filepath: "/opt/nvidia/rtvi/streams/bridge.mp4"
