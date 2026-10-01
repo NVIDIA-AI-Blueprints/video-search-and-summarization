@@ -297,6 +297,10 @@ with no way to drive it.
   `VSS_REPO_DIR`; for OpenClaw, onboard builds the sandbox image from that
   Dockerfile (`--from`), so the skills and docs arrive baked rather than
   installed. Do not build a sandbox image of your own for this.
+- **`NEMOCLAW_DASHBOARD_PORT` (`18789`) and `NEMOCLAW_DASHBOARD_RELAY_PORT`
+  (`18790`) free, or held by this build's own sandbox.** See [Ports the harness
+  claims](#ports-the-harness-claims) — the one prerequisite whose remedy is the
+  user's to run, because clearing it destroys someone else's sandbox.
 
 Preflight the selected provider's row below and no other — a credential check
 that fires for every build rejects the supported paths that need no key:
@@ -329,6 +333,48 @@ the inference endpoint it was onboarded with. A `403 CONNECT tunnel failed` on
 the harness's first turn is that missing entry rather than a deployment fault —
 report it naming the port, and do not fall back to a remote provider to get a
 working chat.
+
+### Ports the harness claims
+
+The gateway forward binds `NEMOCLAW_DASHBOARD_PORT` (`18789`) and the section
+3.5 relay binds `NEMOCLAW_DASHBOARD_RELAY_PORT` (`18790`). Neither is ever
+taken from its holder — onboarding times out with ["did not receive the
+required baseline
+scopes"](#troubleshooting-did-not-receive-the-required-baseline-scopes) on
+`18789`, and the relay cell stops on a foreign listener on `18790` — and both
+default per *sandbox*, so any sandbox still running on this host holds them.
+
+Probe both at Q3, with the rest of the prerequisites:
+
+```bash
+openshell sandbox list                              # compare against NEMOCLAW_SANDBOX_NAME
+lsof -nP -iTCP:18789 -sTCP:LISTEN
+lsof -nP -iTCP:18790 -sTCP:LISTEN
+pgrep -af 'dashboard-(relay|forward-watchdog)\.py'  # --sandbox names the owner
+```
+
+A holder this build owns is not a conflict: `NEMOCLAW_RECREATE_SANDBOX=1`
+replaces the sandbox named `NEMOCLAW_SANDBOX_NAME`, and the relay cell replaces
+that name's relay from this checkout. Do not assume that case — the name is
+`${NEMOCLAW_SANDBOX_NAME:-vss-harness-sandbox}`, so a deployment that named
+itself leaves a sandbox and a relay foreign to the next run, as does a
+same-name relay from another checkout.
+
+**Anything else is a hard blocker.** Report what holds which port, hand the
+block below over, and **do not proceed until both ports are free** — destroy
+nothing and kill nothing on the user's behalf. Stopping here costs nothing: Q3
+precedes every build artifact.
+
+```bash
+# Watchdog first: it answers a dying forward with `nemoclaw recover`. Relay
+# last: `destroy` releases the forward, never the relay. Drop the `destroy`
+# when `openshell sandbox list` no longer shows <other>.
+pkill -f -- 'dashboard-forward-watchdog\.py --sandbox <other>( |$)'
+nemoclaw <other> destroy --yes --cleanup-gateway
+pkill -f -- 'dashboard-relay\.py --sandbox <other>( |$)'
+```
+
+Re-probe both ports and resume only once they are free.
 
 ## Default provider
 

@@ -89,6 +89,16 @@ Compose project and the sandbox carries no project label, so neither the build
 directory nor the `vss-harness-sandbox` default identifies the sandbox this
 build owns.
 
+So a sandbox no build recorded — one a user onboarded by running
+`deploy_nemoclaw.ipynb` themselves, or one left by a build directory since
+deleted — survives every teardown here, along with its watchdog and relay.
+Nothing above goes looking for it, and the next deploy will not take its ports
+from it either: onboarding times out when it holds `18789`, and the relay cell
+stops on a foreign listener on `18790`. The next harness bring-up is where that
+gets settled, under [Ports the harness
+claims](agent-harness.md#ports-the-harness-claims); never destroy a sandbox
+this build does not own.
+
 A harness built from a [harness source
 ref](agent-harness.md#harness-source-ref) also left a detached worktree under
 the build directory. Remove it here: deleting `_builds/<name>/` alone leaves
