@@ -50,9 +50,12 @@ def _run_entrypoint_defaults(
     cudagraph_mode: str | None = None,
     gemm_backend: str | None = None,
     video_pruning_rate: str | None = None,
+    script_path: Path = START_SCRIPT,
+    soc_id: str = "",
+    decoder_warmup_override: str | None = None,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    prefix = START_SCRIPT.read_text(encoding="utf-8").split(
+    prefix = script_path.read_text(encoding="utf-8").split(
         "mkdir -p /tmp/rtvi-logs/", 1
     )[0]
     stubs = r"""
@@ -72,7 +75,14 @@ nvidia-smi() {
         *name*) echo "__GPU_NAME__" ;;
     esac
 }
-""".replace("__GPU_NAME__", gpu_name).replace(
+cat() {
+    if [ "$1" = "/sys/devices/soc0/soc_id" ]; then
+        printf "%s\n" "__SOC_ID__"
+    else
+        command cat "$@"
+    fi
+}
+""".replace("__GPU_NAME__", gpu_name).replace("__SOC_ID__", soc_id).replace(
         "__VALIDATOR_PATH__", str(REPO_ROOT / "src/utils/env_validation.py")
     )
     env = os.environ.copy()
@@ -83,6 +93,11 @@ nvidia-smi() {
             "NUM_GPUS": "1",
         }
     )
+    env.pop("SKIP_PIPELINE_WARMUP", None)
+    if decoder_warmup_override is None:
+        env.pop("SKIP_DECODER_WARMUP", None)
+    else:
+        env["SKIP_DECODER_WARMUP"] = decoder_warmup_override
     if attention_backend is None:
         env.pop("VLLM_ATTENTION_BACKEND", None)
     else:
@@ -100,7 +115,9 @@ nvidia-smi() {
     else:
         env["VLM_VIDEO_PRUNING_RATE"] = video_pruning_rate
     probe = (
-        '\nprintf "%s:%s|%s:%s|%s" '
+        '\nprintf "decoder_warmup=%s;pipeline_warmup=%s\n" '
+        '"${SKIP_DECODER_WARMUP-}" "${SKIP_PIPELINE_WARMUP-}"\n'
+        'printf "%s:%s|%s:%s|%s" '
         '"${VLLM_CUDAGRAPH_MODE+x}" "${VLLM_CUDAGRAPH_MODE-}" '
         '"${VLLM_NVFP4_GEMM_BACKEND+x}" "${VLLM_NVFP4_GEMM_BACKEND-}" '
         '"$VLLM_ATTENTION_BACKEND"\n'
@@ -117,6 +134,23 @@ nvidia-smi() {
         env=env,
         text=True,
     )
+
+
+@pytest.mark.parametrize("script_path", [START_SCRIPT, SRC_START_SCRIPT])
+@pytest.mark.parametrize(
+    "soc_id, override, expected",
+    [("35", None, "true"), ("36", None, ""), ("35", "false", "false")],
+)
+def test_decoder_warmup_startup_is_orin_only(
+    script_path: Path, soc_id: str, override: str | None, expected: str
+) -> None:
+    output = _run_entrypoint_defaults(
+        script_path=script_path,
+        soc_id=soc_id,
+        decoder_warmup_override=override,
+    ).stdout
+
+    assert f"decoder_warmup={expected};pipeline_warmup=" in output
 
 
 def test_cr3_super_nvfp4_gb300_defaults_to_triton_attention() -> None:
