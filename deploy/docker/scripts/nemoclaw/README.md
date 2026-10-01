@@ -138,6 +138,11 @@ if [ -n "${BREV_ENV_ID:-}" ]; then BIND=0.0.0.0;   # the secure-link edge arrive
 else BIND=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}'); fi
 setsid -f python3 "$REPO/deploy/docker/scripts/nemoclaw/dashboard-relay.py" \
   --sandbox "$SB" --listen "$BIND" --port 18790 --upstream 127.0.0.1:18789
+#    Optional: repair a forward that holds 18789 but stops carrying HTTP (the
+#    notebook starts this by default; stop this sandbox's alone with
+#    `pkill -f "dashboard-forward-watchdog.py --sandbox $SB( |$)"`).
+setsid -f python3 "$REPO/deploy/docker/scripts/nemoclaw/dashboard-forward-watchdog.py" \
+  --sandbox "$SB" --port 18789 >>/tmp/nemoclaw-dashboard-watchdog.log 2>&1
 nemoclaw "$SB" gateway-token
 #    vss-agent-ui then reaches the gateway at ws://host.docker.internal:18790.
 ```

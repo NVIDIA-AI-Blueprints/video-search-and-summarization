@@ -461,6 +461,7 @@ Set the environment, then run the notebook:
 | `NEMOCLAW_DASHBOARD_PORT` | selected port; default `18789` | NemoClaw's own forward, loopback only |
 | `NEMOCLAW_DASHBOARD_RELAY_PORT` | selected port; default `18790` | the section 3.5 relay the UI adapter backend URL must use (`ws://host.docker.internal:<relay-port>`); the Brev secure link and `CHAT_UI_URL` publish this port |
 | `VSS_AGENT_ADAPTER_ENABLED` | `true` when connecting `vss-ui` to OpenClaw | the relay is what makes the gateway reachable from the container; this flag turns the UI's adapter on |
+| `NEMOCLAW_DASHBOARD_WATCHDOG` | leave unset (on) | section 3.5 starts a host watchdog that repairs a dashboard forward holding its port without carrying HTTP; the gateway token is unchanged by a repair |
 | `NEMOCLAW_PROVIDER`, model settings, and the selected provider's credential | the Q3a answers, per [Default provider](#default-provider) | remote Claude Opus 5 when the user accepts the default; otherwise the exact notebook provider and settings selected in Q3a. The block below spells out the default remote route alone; every other route **replaces** these values rather than defaulting through them |
 | `NEMOCLAW_INFERENCE_PROXY` | unset, or `0` against a local endpoint | `0` is required when (a) points at the build's own LLM NIM, or at any plain-HTTP server: the default rewrites such an endpoint to an `https` upstream on 443 |
 | `ORCHESTRATOR_ENABLE_HTTPS` | `false` | leave at the default; the HTTPS MCP path is a separate opt-in |
@@ -726,8 +727,9 @@ The harness and the build are independent lifecycles: nothing in Compose
 reaches the sandbox. Tearing down a build therefore starts with
 [`teardown.md`](teardown.md) →
 [NemoClaw harness](teardown.md#nemoclaw-harness--before-compose), which
-destroys the sandbox, stops the dashboard relay the destroy leaves behind, and
-removes the `harness-src` worktree when the build has one.
+stops the dashboard-forward watchdog, destroys the sandbox, stops the dashboard
+relay the destroy leaves behind, and removes the `harness-src` worktree when the
+build has one.
 
 Destroy the sandbox **before** the Compose project when doing both, so the
 harness is not left pointed at an origin that has stopped answering. Removing
