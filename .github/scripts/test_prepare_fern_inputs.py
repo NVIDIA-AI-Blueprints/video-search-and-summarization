@@ -28,12 +28,10 @@ def make_repo(root: Path, mdx: str, openapi: str = "{}\n") -> None:
         encoding="utf-8",
     )
     (root / "fern/assets").symlink_to("../docs/assets")
-    specification = (
-        root
-        / "services/analytics/video-analytics-api/src/app/specification"
-    )
-    specification.mkdir(parents=True)
-    (specification / "openapi.json").write_text(openapi, encoding="utf-8")
+    for openapi_path in PREPARE.OPENAPI_PATHS:
+        specification = root / openapi_path
+        specification.parent.mkdir(parents=True, exist_ok=True)
+        specification.write_text(openapi, encoding="utf-8")
 
 
 def test_prepares_literals_and_preserves_allowlisted_substitutions() -> None:
@@ -52,13 +50,14 @@ def test_prepares_literals_and_preserves_allowlisted_substitutions() -> None:
             frozenset({"VSS_DOCS_GIT_REF"}),
         )
 
-        assert changed == 2
+        assert changed == 3
         assert (output / "docs/example.mdx").read_text(encoding="utf-8") == (
             'Run "\\$\\{VSS_DATA_DIR\\}/videos" and show '
             "${VSS_DOCS_GIT_REF}.\n"
         )
-        openapi = json.loads((output / PREPARE.OPENAPI_PATH).read_text())
-        assert openapi["description"] == r"\$\{FERN_TOKEN\}"
+        for openapi_path in PREPARE.OPENAPI_PATHS:
+            openapi = json.loads((output / openapi_path).read_text())
+            assert openapi["description"] == r"\$\{FERN_TOKEN\}"
         assert (output / "fern/assets").is_symlink()
 
 

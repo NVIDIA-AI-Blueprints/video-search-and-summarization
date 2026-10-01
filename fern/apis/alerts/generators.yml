@@ -2,5 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 api:
+  environments:
+    local: http://localhost:9080
   specs:
-    - openapi: ../services/analytics/video-analytics-api/src/app/specification/openapi.json
+    - openapi: ../../../services/alert/openapi.json

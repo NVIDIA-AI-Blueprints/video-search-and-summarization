@@ -75,6 +75,22 @@ When deployed behind an API Gateway, authentication may be enforced at the gatew
 
 The machine-readable OpenAPI specification is `services/alert/openapi.json` in this repository. For the complete create-rule payload, defaults, response, and a working port `9080` example, see [Create a Rule with the REST API](/vss/vision-agent/agent-workflows/real-time-alerts#create-a-rule-with-the-rest-api).
 
+## Create a real-time alert rule
+
+Use `POST /api/v1/realtime` to monitor one RTSP stream for one alert type. The [API reference](api:alerts:POST/api/v1/realtime) lists the complete request schema and responses.
+
+The following request uses only the required fields. Replace `<host>` with the host running the Alerts Microservice and update the RTSP URL for your stream.
+
+```bash
+curl -X POST "http://<host>:9080/api/v1/realtime" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "live_stream_url": "rtsp://localhost:8554/media/video1",
+    "alert_type": "collision",
+    "prompt": "Detect vehicle collisions or near-miss events in this traffic camera feed."
+  }'
+```
+
 ## Realtime incident consolidation
 
 The Real-Time VLM (RT-VLM) microservice evaluates a live stream chunk by chunk. While one physical event stays visible, every chunk can produce a confirmed incident, so a single intrusion that lasts a few minutes is stored as several incident documents. Consolidation groups consecutive confirmed chunks from the same camera and alert category into one event at the time the incidents are read.

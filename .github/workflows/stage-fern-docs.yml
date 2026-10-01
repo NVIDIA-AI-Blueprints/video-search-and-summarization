@@ -39,6 +39,7 @@ on:
     paths:
       - 'docs/**'
       - 'fern/**'
+      - 'services/alert/openapi.json'
       - 'services/analytics/video-analytics-api/src/app/specification/openapi.json'
       - '.github/scripts/check_fern_substitutions.py'
       - '.github/scripts/prepare_fern_inputs.py'
