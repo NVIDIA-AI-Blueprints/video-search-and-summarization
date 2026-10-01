@@ -3,7 +3,7 @@
 - [Model](#model)
 - [Select the foundation](#select-the-foundation)
 - [Compute the delta](#compute-the-delta)
-- [UI subtitle](#ui-subtitle)
+- [UI configuration](#ui-configuration)
 - [Clarification gate](#clarification-gate)
 - [Artifact contract](#artifact-contract)
 - [Resolve](#resolve)
@@ -110,7 +110,14 @@ keys track it; read them before merging configs.
 
 Service activation alone is never a Compose-definition change.
 
-## UI subtitle
+## UI configuration
+
+For stock and delta builds with `vss-ui`, default
+`NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_ENABLE=false` unless explicitly
+requested otherwise. Write it to `override.env` when it differs from the
+inherited value, and verify it in `resolved.yml`.
+
+### UI subtitle
 
 When `vss-ui` is enabled, derive `NEXT_PUBLIC_APP_SUBTITLE` from the final
 `COMPOSE_PROFILES`. In order, include `Alerts - CV` or `Alerts - VLM` for
