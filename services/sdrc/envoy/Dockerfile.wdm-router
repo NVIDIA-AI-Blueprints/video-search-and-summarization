@@ -44,8 +44,10 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv via PyPI (avoid ghcr.io — Blossom CI often TLS-timeouts on GitHub Container Registry).
-RUN curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3 - && \
-    pip3 install --no-cache-dir --timeout 120 "setuptools==78.1.1" "wheel>=0.46.2" "uv==0.11.26"
+RUN curl -fsSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py && \
+    python3 get-pip.py && \
+    rm get-pip.py && \
+    pip3 install --no-cache-dir --timeout 120 --only-binary :all: "setuptools==78.1.1" "wheel==0.46.2" "uv==0.11.26"
 
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends gawk bison gcc make && \
@@ -62,7 +64,7 @@ COPY ./3rdParty_Licenses.md /wdm/3rdParty_Licenses.md
 
 
 # Install runtime + dev (pyinstaller) deps from the lock file via uv into /wdm/.venv.
-RUN uv sync --frozen --no-install-project && \
+RUN uv sync --frozen --no-install-project --no-build && \
     rm -rf /root/.cache/uv /root/.cache/pip
 
 COPY app.py /wdm/app.py

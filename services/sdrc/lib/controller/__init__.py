@@ -185,8 +185,7 @@ def test():
             yaml.dump(agents_data, f, default_flow_style=False)
     finally:
         file_write_lock.release()
-    return request.get_json()
-
+    return jsonify({"status": "ok"})
 
 '''
 agents-data.yaml:
