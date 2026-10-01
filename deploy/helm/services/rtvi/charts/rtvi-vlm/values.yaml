@@ -129,7 +129,7 @@ env:
   - name: KAFKA_INCIDENT_TOPIC
     value: "mdx-vlm-incidents"
   - name: ERROR_MESSAGE_TOPIC
-    value: "vision-llm-errors"
+    value: "mdx-vlm-errors"
 
   - name: MESSAGE_BUS
     value: "kafka"

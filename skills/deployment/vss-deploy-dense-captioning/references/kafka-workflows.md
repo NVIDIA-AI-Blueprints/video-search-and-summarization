@@ -47,7 +47,7 @@ response to the caller and Kafka records for downstream message-bus consumers.
   and `info["incidentDetected"] = "true"|"false"`.
 - Alert-positive chunks → **also** published to **`KAFKA_INCIDENT_TOPIC`**
   with header `message_type: incident`.
-- Any upstream/VLM error → **`ERROR_MESSAGE_TOPIC`** (default `vision-llm-errors`)
+- Any upstream/VLM error → **`ERROR_MESSAGE_TOPIC`** (default `mdx-vlm-errors`)
   with header `message_type: error`.
 - **Partition key:** `<request_id>:<chunk_idx>` — all messages for one (request, chunk)
   pair land on the same partition so a consumer can join the caption and the incident.
@@ -59,10 +59,10 @@ Source-backed topic sets:
 
 | Deployment source | Caption topic | Incident topic | Error topic |
 | --- | --- | --- | --- |
-| Checked-in `deploy/docker/services/rtvi/rtvi-vlm/.env` | `mdx-vlm` | `mdx-vlm-incidents` | `vision-llm-errors` |
-| VSS alerts / real-time Helm profiles | `mdx-vlm` | `mdx-vlm-incidents` | `vision-llm-errors` |
-| LVS Helm override | `mdx-vlm-captions` | `mdx-vlm-incidents` | `vision-llm-errors` |
-| Bare copied `rtvi-vlm-docker-compose.yml` without env overrides | `vision-llm-messages` | `vision-llm-events-incidents` | `vision-llm-errors` |
+| Checked-in `deploy/docker/services/rtvi/rtvi-vlm/.env` | `mdx-vlm` | `mdx-vlm-incidents` | `mdx-vlm-errors` |
+| VSS alerts / real-time Helm profiles | `mdx-vlm` | `mdx-vlm-incidents` | `mdx-vlm-errors` |
+| LVS Helm override | `mdx-vlm-captions` | `mdx-vlm-incidents` | `mdx-vlm-errors` |
+| Bare copied `rtvi-vlm-docker-compose.yml` without env overrides | `vision-llm-messages` | `vision-llm-events-incidents` | `mdx-vlm-errors` |
 
 Always confirm the live container before validating Kafka, because these env vars
 are fixed at RT-VLM container start. In a full VSS alerts real-time profile, the
@@ -86,7 +86,7 @@ INCIDENT_TOPIC="${INCIDENT_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_INCI
 ERROR_TOPIC="${ERROR_TOPIC:-$(docker exec vss-rtvi-vlm printenv ERROR_MESSAGE_TOPIC 2>/dev/null || true)}"
 CAPTION_TOPIC="${CAPTION_TOPIC:-mdx-vlm}"
 INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
-ERROR_TOPIC="${ERROR_TOPIC:-vision-llm-errors}"
+ERROR_TOPIC="${ERROR_TOPIC:-mdx-vlm-errors}"
 
 kafka_cli() {
   docker exec "$KAFKA_CONTAINER" sh -lc '
@@ -339,7 +339,7 @@ Typical proof of an HTTP + Kafka alert pass:
 ```text
 mdx-vlm:0:8
 mdx-vlm-incidents:0:1
-vision-llm-errors:0:0
+mdx-vlm-errors:0:0
 
 CreateTime:<ms> message_type:vision_llm <request_id>:5
 CreateTime:<ms> message_type:incident   <request_id>:5

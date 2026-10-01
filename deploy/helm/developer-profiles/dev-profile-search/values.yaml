@@ -482,7 +482,7 @@ rtvi:
       - name: KAFKA_ENABLED
         value: "false"
       - name: ERROR_MESSAGE_TOPIC
-        value: "vision-llm-errors"
+        value: "mdx-vlm-errors"
       # Generated-output and error buses (compose defaults from rtvi-vlm-docker-compose.yml).
       - name: MESSAGE_BUS
         value: "kafka"

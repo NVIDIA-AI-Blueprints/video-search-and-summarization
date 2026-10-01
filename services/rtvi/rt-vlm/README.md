@@ -404,7 +404,7 @@ REDIS_HOST=redis.example.com
 REDIS_PORT=6379
 REDIS_DB=0
 REDIS_PASSWORD=your_password  # Optional, only if Redis requires authentication
-ERROR_MESSAGE_TOPIC=vision-llm-errors  # Redis channel name for error messages
+ERROR_MESSAGE_TOPIC=mdx-vlm-errors  # Redis channel name for error messages
 ```
 
 Error messages will be published to the Redis channel specified in `ERROR_MESSAGE_TOPIC`. The message format remains the same as Kafka (JSON with streamId, timestamp, type, source, event fields).
@@ -468,7 +468,7 @@ pip install redis
 
 # Subscribe to Redis error channel
 python3 test_redis_consumer.py \
-    --channel vision-llm-errors \
+    --channel mdx-vlm-errors \
     --host <redis_host> \
     --port 6379 \
     --verbose
@@ -483,7 +483,7 @@ Download [test_redis_publisher.py](tests/redis/test_redis_publisher.py)
 ```bash
 # Send a test error message
 python3 test_redis_publisher.py \
-    --channel vision-llm-errors \
+    --channel mdx-vlm-errors \
     --host <redis_host> \
     --port 6379 \
     --message "Test error message" \
