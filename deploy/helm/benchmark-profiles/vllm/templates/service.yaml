@@ -17,9 +17,9 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "qwen-vllm.fullname" . }}
+  name: {{ include "vllm.fullname" . }}
   labels:
-    {{- include "qwen-vllm.labels" . | nindent 4 }}
+    {{- include "vllm.labels" . | nindent 4 }}
   {{- with .Values.service.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -32,5 +32,5 @@ spec:
       protocol: TCP
       targetPort: http
   selector:
-    {{- include "qwen-vllm.selectorLabels" . | nindent 4 }}
+    {{- include "vllm.selectorLabels" . | nindent 4 }}
 {{- end }}

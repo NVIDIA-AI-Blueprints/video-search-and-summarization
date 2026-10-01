@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-{{- define "qwen-vllm.name" -}}
+{{- define "vllm.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "qwen-vllm.fullname" -}}
+{{- define "vllm.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -32,33 +32,33 @@
 {{- end }}
 {{- end }}
 
-{{- define "qwen-vllm.chart" -}}
+{{- define "vllm.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "qwen-vllm.labels" -}}
-helm.sh/chart: {{ include "qwen-vllm.chart" . }}
-{{ include "qwen-vllm.selectorLabels" . }}
+{{- define "vllm.labels" -}}
+helm.sh/chart: {{ include "vllm.chart" . }}
+{{ include "vllm.selectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: metropolis-baseapp
-app.kubernetes.io/component: qwen-vllm
+app.kubernetes.io/component: vllm
 {{- end }}
 
-{{- define "qwen-vllm.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "qwen-vllm.name" . }}
+{{- define "vllm.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "vllm.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/component: qwen-vllm
+app.kubernetes.io/component: vllm
 {{- end }}
 
-{{- define "qwen-vllm.serviceAccountName" -}}
+{{- define "vllm.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "qwen-vllm.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "vllm.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
 
-{{- define "qwen-vllm.pvcName" -}}
-{{- default (include "qwen-vllm.fullname" .) .Values.persistence.existingClaim }}
+{{- define "vllm.pvcName" -}}
+{{- default (include "vllm.fullname" .) .Values.persistence.existingClaim }}
 {{- end }}

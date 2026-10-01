@@ -13,16 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-{{- if and .Values.enabled .Values.serviceAccount.create }}
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: {{ include "qwen-vllm.serviceAccountName" . }}
-  labels:
-    {{- include "qwen-vllm.labels" . | nindent 4 }}
-  {{- with .Values.serviceAccount.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
-{{- end }}
+apiVersion: v2
+name: vllm
+description: Deploy configurable models with vLLM's OpenAI-compatible API
+type: application
+version: 3.4.0
+appVersion: "0.28.0"
+kubeVersion: ">=1.25.0-0"
+maintainers:
+  - name: NVIDIA

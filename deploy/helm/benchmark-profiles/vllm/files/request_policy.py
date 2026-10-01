@@ -30,7 +30,7 @@ POLICY_SHA256 = hashlib.sha256(
 ).hexdigest()
 
 
-class QwenRequestPolicy:
+class RequestPolicy:
     def __init__(self, app):
         self.app = app
 
@@ -61,7 +61,7 @@ class QwenRequestPolicy:
                 raw = json.dumps(payload, separators=(",", ":")).encode()
                 applied = True
                 print(
-                    "QWEN_EFFECTIVE_POLICY "
+                    "VLLM_EFFECTIVE_POLICY "
                     + json.dumps({"sha256": POLICY_SHA256, **POLICY}, sort_keys=True),
                     flush=True,
                 )
@@ -91,7 +91,7 @@ class QwenRequestPolicy:
             if applied and event["type"] == "http.response.start":
                 event = dict(event)
                 event["headers"] = list(event.get("headers", [])) + [
-                    (b"x-qwen-policy-sha256", POLICY_SHA256.encode())
+                    (b"x-vllm-policy-sha256", POLICY_SHA256.encode())
                 ]
             await send(event)
 

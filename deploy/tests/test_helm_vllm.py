@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Keep the Qwen vLLM chart's locked policy and runtime defaults aligned."""
+"""Keep the generic vLLM chart and Qwen benchmark profile aligned."""
 
 from __future__ import annotations
 
@@ -16,7 +16,8 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELM_ROOT = REPO_ROOT / "helm"
-CHART = HELM_ROOT / "benchmark-profiles" / "qwen-vllm"
+CHART = HELM_ROOT / "benchmark-profiles" / "vllm"
+QWEN_VALUES = CHART / "values-qwen.yaml"
 
 helm_required = unittest.skipUnless(
     shutil.which("helm"), "helm is not installed; chart rendering cannot be checked"
@@ -24,16 +25,24 @@ helm_required = unittest.skipUnless(
 
 
 @cache
-def _values() -> dict:
+def _base_values() -> dict:
     return yaml.safe_load((CHART / "values.yaml").read_text())
 
 
 @cache
-def _docs() -> list[dict]:
+def _qwen_values() -> dict:
+    return yaml.safe_load(QWEN_VALUES.read_text())
+
+
+@cache
+def _docs(profile: str = "base") -> list[dict]:
     env = os.environ.copy()
     env["HELM_REPOSITORY_CONFIG"] = os.devnull
+    command = ["helm", "template", "test", str(CHART)]
+    if profile == "qwen":
+        command.extend(["-f", str(QWEN_VALUES)])
     result = subprocess.run(
-        ["helm", "template", "test", str(CHART)],
+        command,
         cwd=HELM_ROOT,
         env=env,
         capture_output=True,
@@ -45,16 +54,47 @@ def _docs() -> list[dict]:
     return [document for document in yaml.safe_load_all(result.stdout) if document]
 
 
-def _kind(kind: str) -> dict:
-    matches = [document for document in _docs() if document.get("kind") == kind]
+def _kind(kind: str, profile: str = "base") -> dict:
+    matches = [document for document in _docs(profile) if document.get("kind") == kind]
     if len(matches) != 1:
         raise AssertionError(f"expected one {kind}, found {len(matches)}")
     return matches[0]
 
 
+class GenericVllmValuesTests(unittest.TestCase):
+    def test_base_values_are_model_agnostic(self):
+        values = _base_values()
+
+        self.assertFalse(values["requestPolicy"]["enabled"])
+        self.assertEqual(values["vllm"]["mmProcessorKwargs"], {})
+        self.assertEqual(values["vllm"]["mediaIoKwargs"], {})
+        self.assertEqual(values["vllm"]["overrideGenerationConfig"], {})
+        self.assertEqual(values["vllm"]["defaultChatTemplateKwargs"], {})
+        self.assertIsNone(values["vllm"]["maxModelLen"])
+        self.assertIsNone(values["vllm"]["maxNumSeqs"])
+
+    @helm_required
+    def test_base_render_omits_model_specific_flags_and_policy(self):
+        deployment = _kind("Deployment")
+        args = deployment["spec"]["template"]["spec"]["containers"][0]["args"]
+
+        for flag in (
+            "--max-model-len",
+            "--max-num-seqs",
+            "--mm-processor-cache-gb",
+            "--mm-processor-kwargs",
+            "--media-io-kwargs",
+            "--override-generation-config",
+            "--default-chat-template-kwargs",
+            "--middleware",
+        ):
+            self.assertNotIn(flag, args)
+        self.assertFalse(any(doc.get("kind") == "ConfigMap" for doc in _docs()))
+
+
 class QwenVllmValuesTests(unittest.TestCase):
     def test_long_video_runtime_defaults(self):
-        values = _values()
+        values = _qwen_values()
         video = values["vllm"]["mediaIoKwargs"]["video"]
 
         self.assertEqual(values["vllm"]["maxNumSeqs"], 4)
@@ -65,7 +105,7 @@ class QwenVllmValuesTests(unittest.TestCase):
         self.assertEqual(values["resources"]["limits"]["memory"], "256Gi")
 
     def test_request_policy_matches_vllm_generation_defaults(self):
-        values = _values()
+        values = _qwen_values()
         policy = values["requestPolicy"]["payload"]
         generation = values["vllm"]["overrideGenerationConfig"]
 
@@ -88,8 +128,8 @@ class QwenVllmValuesTests(unittest.TestCase):
 @helm_required
 class QwenVllmRenderTests(unittest.TestCase):
     def test_runtime_contract_reaches_deployment_and_policy_configmap(self):
-        deployment = _kind("Deployment")
-        configmap = _kind("ConfigMap")
+        deployment = _kind("Deployment", "qwen")
+        configmap = _kind("ConfigMap", "qwen")
         container = deployment["spec"]["template"]["spec"]["containers"][0]
         args = container["args"]
 
@@ -105,7 +145,9 @@ class QwenVllmRenderTests(unittest.TestCase):
             json.loads(arg_after("--override-generation-config"))["max_new_tokens"],
             16384,
         )
+        self.assertEqual(arg_after("--middleware"), "request_policy.RequestPolicy")
         self.assertEqual(container["resources"]["limits"]["memory"], "256Gi")
+        self.assertIn("request_policy.py", configmap["data"])
         self.assertEqual(
             json.loads(configmap["data"]["request-policy.json"])["max_tokens"],
             16384,

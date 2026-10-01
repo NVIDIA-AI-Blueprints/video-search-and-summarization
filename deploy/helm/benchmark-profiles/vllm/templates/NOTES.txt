@@ -13,16 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-{{- if and .Values.enabled .Values.requestPolicy.enabled }}
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "qwen-vllm.fullname" . }}-policy
-  labels:
-    {{- include "qwen-vllm.labels" . | nindent 4 }}
-data:
-  request-policy.json: |-
-    {{- .Values.requestPolicy.payload | toPrettyJson | nindent 4 }}
-  qwen_request_policy.py: |-
-    {{- .Files.Get "files/qwen_request_policy.py" | nindent 4 }}
+{{- if .Values.enabled }}
+1. Wait for the model to become ready:
+
+   kubectl rollout status deployment/{{ include "vllm.fullname" . }} -n {{ .Release.Namespace }} --timeout=30m
+
+2. Forward the OpenAI-compatible API locally:
+
+   kubectl port-forward -n {{ .Release.Namespace }} service/{{ include "vllm.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+3. Verify the served model:
+
+   curl http://127.0.0.1:{{ .Values.service.port }}/v1/models
+
+The request-policy middleware is {{ ternary "enabled" "disabled" .Values.requestPolicy.enabled }}.
 {{- end }}

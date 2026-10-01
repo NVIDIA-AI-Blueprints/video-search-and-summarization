@@ -17,9 +17,9 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "qwen-vllm.fullname" . }}
+  name: {{ include "vllm.fullname" . }}
   labels:
-    {{- include "qwen-vllm.labels" . | nindent 4 }}
+    {{- include "vllm.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   revisionHistoryLimit: 2
@@ -27,7 +27,7 @@ spec:
     {{- toYaml .Values.strategy | nindent 4 }}
   selector:
     matchLabels:
-      {{- include "qwen-vllm.selectorLabels" . | nindent 6 }}
+      {{- include "vllm.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       {{- if or .Values.requestPolicy.enabled .Values.podAnnotations }}
@@ -40,12 +40,12 @@ spec:
         {{- end }}
       {{- end }}
       labels:
-        {{- include "qwen-vllm.selectorLabels" . | nindent 8 }}
+        {{- include "vllm.selectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      serviceAccountName: {{ include "qwen-vllm.serviceAccountName" . }}
+      serviceAccountName: {{ include "vllm.serviceAccountName" . }}
       automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- $global := .Values.global | default dict }}
@@ -80,22 +80,38 @@ spec:
             - {{ .Values.vllm.dtype | quote }}
             - --gpu-memory-utilization
             - {{ .Values.vllm.gpuMemoryUtilization | quote }}
+            {{- if ne .Values.vllm.maxModelLen nil }}
             - --max-model-len
             - {{ .Values.vllm.maxModelLen | quote }}
+            {{- end }}
+            {{- if ne .Values.vllm.maxNumSeqs nil }}
             - --max-num-seqs
             - {{ .Values.vllm.maxNumSeqs | quote }}
+            {{- end }}
+            {{- if ne .Values.vllm.mmProcessorCacheGiB nil }}
             - --mm-processor-cache-gb
             - {{ .Values.vllm.mmProcessorCacheGiB | quote }}
+            {{- end }}
+            {{- if ne .Values.vllm.seed nil }}
             - --seed
             - {{ .Values.vllm.seed | quote }}
+            {{- end }}
+            {{- with .Values.vllm.mmProcessorKwargs }}
             - --mm-processor-kwargs
-            - {{ .Values.vllm.mmProcessorKwargs | toJson | quote }}
+            - {{ . | toJson | quote }}
+            {{- end }}
+            {{- with .Values.vllm.mediaIoKwargs }}
             - --media-io-kwargs
-            - {{ .Values.vllm.mediaIoKwargs | toJson | quote }}
+            - {{ . | toJson | quote }}
+            {{- end }}
+            {{- with .Values.vllm.overrideGenerationConfig }}
             - --override-generation-config
-            - {{ .Values.vllm.overrideGenerationConfig | toJson | quote }}
+            - {{ . | toJson | quote }}
+            {{- end }}
+            {{- with .Values.vllm.defaultChatTemplateKwargs }}
             - --default-chat-template-kwargs
-            - {{ .Values.vllm.defaultChatTemplateKwargs | toJson | quote }}
+            - {{ . | toJson | quote }}
+            {{- end }}
             {{- if .Values.vllm.servedModelName }}
             - --served-model-name
             - {{ .Values.vllm.servedModelName | quote }}
@@ -108,7 +124,7 @@ spec:
             {{- end }}
             {{- if .Values.requestPolicy.enabled }}
             - --middleware
-            - qwen_request_policy.QwenRequestPolicy
+            - request_policy.RequestPolicy
             {{- end }}
             {{- range .Values.vllm.extraArgs }}
             - {{ . | quote }}
@@ -124,7 +140,7 @@ spec:
               value: spawn
             {{- if .Values.requestPolicy.enabled }}
             - name: PYTHONPATH
-              value: /opt/qwen-policy
+              value: /opt/vllm-policy
             {{- end }}
             {{- if .Values.huggingFace.existingSecret }}
             - name: HF_TOKEN
@@ -149,7 +165,7 @@ spec:
             {{- end }}
             {{- if .Values.requestPolicy.enabled }}
             - name: request-policy
-              mountPath: /opt/qwen-policy
+              mountPath: /opt/vllm-policy
               readOnly: true
             {{- end }}
             {{- with .Values.extraVolumeMounts }}
@@ -190,12 +206,12 @@ spec:
         {{- if .Values.persistence.enabled }}
         - name: cache
           persistentVolumeClaim:
-            claimName: {{ include "qwen-vllm.pvcName" . }}
+            claimName: {{ include "vllm.pvcName" . }}
         {{- end }}
         {{- if .Values.requestPolicy.enabled }}
         - name: request-policy
           configMap:
-            name: {{ include "qwen-vllm.fullname" . }}-policy
+            name: {{ include "vllm.fullname" . }}-policy
         {{- end }}
         {{- with .Values.extraVolumes }}
         {{- toYaml . | nindent 8 }}

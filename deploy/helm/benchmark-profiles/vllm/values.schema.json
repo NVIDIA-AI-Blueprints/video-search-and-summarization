@@ -67,9 +67,7 @@
         "model",
         "port",
         "tensorParallelSize",
-        "gpuMemoryUtilization",
-        "maxModelLen",
-        "maxNumSeqs"
+        "gpuMemoryUtilization"
       ],
       "properties": {
         "model": {
@@ -94,16 +92,43 @@
           "maximum": 1
         },
         "maxModelLen": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "maxNumSeqs": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "mmProcessorCacheGiB": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "minimum": 0
+        },
+        "seed": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mmProcessorKwargs": {
+          "type": "object"
+        },
+        "mediaIoKwargs": {
+          "type": "object"
+        },
+        "overrideGenerationConfig": {
+          "type": "object"
+        },
+        "defaultChatTemplateKwargs": {
+          "type": "object"
         },
         "extraArgs": {
           "type": "array",
@@ -128,13 +153,6 @@
         },
         "payload": {
           "type": "object",
-          "required": [
-            "temperature",
-            "max_tokens",
-            "seed",
-            "chat_template_kwargs",
-            "mm_processor_kwargs"
-          ],
           "properties": {
             "temperature": {
               "type": "number"
