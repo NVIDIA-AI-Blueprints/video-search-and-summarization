@@ -59,14 +59,7 @@ interface RecordedSegment {
   endTime: string;
 }
 
-const fetchPreviewTime = async (baseUrl: string, sensorId: string): Promise<string> => {
-  const response = await fetch(
-    `${baseUrl}/v1/storage/${encodeURIComponent(sensorId)}/timelines`,
-  );
-  if (!response.ok) {
-    throw new Error(`VST timelines returned ${response.status}`);
-  }
-  const data: unknown = await response.json();
+const latestRecordedSegment = (data: unknown): { start: number; end: number } | undefined => {
   let latest: { start: number; end: number } | undefined;
   if (Array.isArray(data)) {
     for (const segment of data as RecordedSegment[]) {
@@ -81,18 +74,45 @@ const fetchPreviewTime = async (baseUrl: string, sensorId: string): Promise<stri
       }
     }
   }
-  if (!latest) {
-    throw new Error('No recorded timeline available');
+  return latest;
+};
+
+const fetchPreview = async (
+  baseUrl: string,
+  sensorId: string,
+): Promise<{ streamId: string; startTime: string }> => {
+  const response = await fetch(`${baseUrl}/v1/sensor/${encodeURIComponent(sensorId)}/streams`);
+  if (!response.ok) throw new Error(`VST streams returned ${response.status}`);
+  const streams: unknown = await response.json();
+  if (!Array.isArray(streams)) throw new Error('No streams available');
+  const streamIds = [...new Set(streams.map((stream) => stream?.streamId)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0))];
+  const results = await Promise.allSettled(streamIds.map(async (streamId) => {
+    const timelineResponse = await fetch(
+      `${baseUrl}/v1/storage/${encodeURIComponent(streamId)}/timelines`,
+    );
+    if (!timelineResponse.ok) throw new Error(`VST timelines returned ${timelineResponse.status}`);
+    return { streamId, segment: latestRecordedSegment(await timelineResponse.json()) };
+  }));
+  let latest: { streamId: string; segment: { start: number; end: number } } | undefined;
+  for (const result of results) {
+    if (result.status !== 'fulfilled' || !result.value.segment) continue;
+    if (!latest || result.value.segment.end > latest.segment.end) {
+      latest = { streamId: result.value.streamId, segment: result.value.segment };
+    }
   }
-  const lookback = Math.min(THUMBNAIL_LOOKBACK_MS, (latest.end - latest.start) / 2);
-  return new Date(latest.end - lookback).toISOString();
+  if (!latest) throw new Error('No recorded timeline available');
+  const { start, end } = latest.segment;
+  const lookback = Math.min(THUMBNAIL_LOOKBACK_MS, (end - start) / 2);
+  return { streamId: latest.streamId, startTime: new Date(end - lookback).toISOString() };
 };
 
 const Placeholder: React.FC<{
   isDark: boolean;
   state: 'idle' | 'loading' | 'unavailable' | 'no-name';
   label?: string;
-}> = ({ isDark, state, label }) => {
+  onRetry?: () => void;
+}> = ({ isDark, state, label, onRetry }) => {
   const baseClass = `flex flex-col items-center justify-center rounded border text-xs gap-1 ${
     isDark
       ? 'border-neutral-700 bg-neutral-900 text-neutral-500'
@@ -122,6 +142,7 @@ const Placeholder: React.FC<{
     <div data-testid="vst-stream-thumbnail-placeholder" style={THUMBNAIL_BOX_STYLE} className={baseClass}>
       {renderIcon()}
       {text && <span className="px-1 truncate max-w-full">{text}</span>}
+      {onRetry && <button type="button" className="underline" onClick={onRetry}>Retry thumbnail</button>}
     </div>
   );
 };
@@ -161,6 +182,14 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
   /** URL that failed to load; cleared implicitly when `pictureUrl` changes. */
   const [brokenPictureUrl, setBrokenPictureUrl] = useState<string | null>(null);
 
+  const [retryCount, setRetryCount] = useState(0);
+  const retryThumbnail = () => {
+    clearVstStreamThumbnailCache(vstApiUrl, sensorName);
+    setBrokenPictureUrl(null);
+    setState({ kind: 'loading' });
+    setRetryCount((count) => count + 1);
+  };
+
   useEffect(() => {
     if (!sensorName) {
       setState({ kind: 'idle' });
@@ -181,7 +210,7 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
 
     let cancelled = false;
 
-    fetchSensorMap(vstApiUrl)
+    fetchSensorMap(vstApiUrl, { forceRefresh: retryCount > 0 })
       .then(async (map) => {
         if (cancelled) return;
         const sensorId = map.get(sensorName);
@@ -195,10 +224,10 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
         }
         let baseUrl = vstApiUrl;
         while (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
-        const startTime = await fetchPreviewTime(baseUrl, sensorId);
+        const { streamId, startTime } = await fetchPreview(baseUrl, sensorId);
         if (cancelled) return;
         const pictureUrl = `${baseUrl}/v1/replay/stream/${encodeURIComponent(
-          sensorId,
+          streamId,
         )}/picture?startTime=${encodeURIComponent(startTime)}`;
         pictureUrlCache.set(cacheKey, pictureUrl);
         setState({ kind: 'ready', pictureUrl });
@@ -215,7 +244,7 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [vstApiUrl, sensorName]);
+  }, [vstApiUrl, sensorName, retryCount]);
 
   if (state.kind === 'idle') {
     return <Placeholder isDark={isDark} state="no-name" label={fallbackLabel} />;
@@ -224,11 +253,11 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
     return <Placeholder isDark={isDark} state="loading" label="Loading thumbnail…" />;
   }
   if (state.kind === 'unavailable') {
-    return <Placeholder isDark={isDark} state="unavailable" label={fallbackLabel} />;
+    return <Placeholder isDark={isDark} state="unavailable" label={fallbackLabel} onRetry={retryThumbnail} />;
   }
 
   if (brokenPictureUrl === state.pictureUrl) {
-    return <Placeholder isDark={isDark} state="unavailable" label="Frame unavailable" />;
+    return <Placeholder isDark={isDark} state="unavailable" label="Frame unavailable" onRetry={retryThumbnail} />;
   }
 
   return (

@@ -11,9 +11,14 @@ import * as vstSensorList from '../../lib-src/utils/vstSensorList';
 
 const segments = [{ startTime: '2025-01-01T00:00:00.000Z', endTime: '2025-01-01T00:00:25.000Z' }];
 
+const streamResponse = (url: string) => {
+  const match = /\/sensor\/([^/]+)\/streams$/.exec(url);
+  return match ? [{ streamId: decodeURIComponent(match[1]) }] : undefined;
+};
+
 const mockVstFetch = (sensors: unknown, timelines: unknown = segments) =>
   jest.fn().mockImplementation((url: string) =>
-    jsonResponse(url.endsWith('/sensor/list') ? sensors : timelines),
+    jsonResponse(url.endsWith('/sensor/list') ? sensors : streamResponse(url) ?? timelines),
   );
 
 const jsonResponse = (body: unknown) =>
@@ -135,11 +140,68 @@ describe('VstStreamThumbnail picture URL', () => {
     global.fetch = jest.fn().mockImplementation((url: string) =>
       url.endsWith('/sensor/list')
         ? jsonResponse([{ name: 'cam', sensorId: 'id-1', state: 'online' }])
-        : Promise.resolve({ ok: false, status: 503 } as Response),
+        : streamResponse(url) ? jsonResponse(streamResponse(url)) : Promise.resolve({ ok: false, status: 503 } as Response),
     );
     render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
     await screen.findByText('No thumbnail');
     expect(screen.queryByTestId('vst-stream-thumbnail')).not.toBeInTheDocument();
+  });
+
+
+  it('uses the latest recording stream when a sensor has multiple uploaded videos', async () => {
+    global.fetch = jest.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/sensor/list')) return jsonResponse([{ name: 'cam', sensorId: 'sensor-1', state: 'online' }]);
+      if (url.endsWith('/streams')) return jsonResponse([{ streamId: 'old-stream' }, { streamId: 'new-stream' }]);
+      return jsonResponse(url.includes('/new-stream/')
+        ? [{ startTime: '2025-02-01T00:00:00Z', endTime: '2025-02-01T00:00:30Z' }]
+        : segments);
+    });
+    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
+    const img = await screen.findByTestId('vst-stream-thumbnail');
+    const url = new URL(img.getAttribute('src')!);
+    expect(url.pathname).toBe('/v1/replay/stream/new-stream/picture');
+    expect(url.searchParams.get('startTime')).toBe('2025-02-01T00:00:25.000Z');
+    expect(global.fetch).not.toHaveBeenCalledWith('http://vst.test/v1/storage/sensor-1/timelines');
+  });
+
+  it('uses another recorded stream if one stream timeline request fails', async () => {
+    global.fetch = jest.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/sensor/list')) return jsonResponse([{ name: 'cam', sensorId: 'sensor-1', state: 'online' }]);
+      if (url.endsWith('/streams')) return jsonResponse([{ streamId: 'failed-stream' }, { streamId: 'good-stream' }]);
+      return url.includes('/failed-stream/') ? Promise.resolve({ ok: false, status: 503 } as Response) : jsonResponse(segments);
+    });
+    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
+    const img = await screen.findByTestId('vst-stream-thumbnail');
+    expect(img.getAttribute('src')).toContain('/good-stream/picture');
+  });
+
+  it.each(['empty', 'failed'])('recovers from a %s timeline without reopening the editor', async (failure) => {
+    let recovered = false;
+    global.fetch = jest.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/sensor/list')) return jsonResponse([{ name: 'cam', sensorId: 'id-1', state: 'online' }]);
+      const streams = streamResponse(url);
+      if (streams) return jsonResponse(streams);
+      if (recovered) return jsonResponse(segments);
+      return failure === 'empty' ? jsonResponse([]) : Promise.resolve({ ok: false, status: 503 } as Response);
+    });
+    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
+    await screen.findByText('No thumbnail');
+    recovered = true;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry thumbnail' }));
+    const img = await screen.findByTestId('vst-stream-thumbnail');
+    expect(img.getAttribute('src')).toContain('/id-1/picture');
+    expect(jest.mocked(global.fetch).mock.calls.filter(([url]) => String(url).endsWith('/sensor/list'))).toHaveLength(2);
+  });
+
+  it('allows retrying a picture that failed to load', async () => {
+    global.fetch = mockVstFetch([{ name: 'cam', sensorId: 'id-1', state: 'online' }]);
+    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
+    fireEvent.error(await screen.findByTestId('vst-stream-thumbnail'));
+    expect(screen.getByText('Frame unavailable')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry thumbnail' }));
+    const img = await screen.findByTestId('vst-stream-thumbnail');
+    fireEvent.load(img);
+    expect(screen.queryByText('Frame unavailable')).not.toBeInTheDocument();
   });
 
 });
@@ -237,7 +299,7 @@ describe('VstStreamThumbnail broken frame recovery', () => {
       resolvePrevious = resolve;
     });
     global.fetch = jest.fn().mockImplementation((url: string) =>
-      url.includes('/id-a/') ? previousTimeline : jsonResponse(segments),
+      url.includes('/storage/id-a/') ? previousTimeline : jsonResponse(streamResponse(url) ?? segments),
     );
     const { rerender } = render(
       <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorA} />,
