@@ -180,9 +180,10 @@ which some profiles set to one frame per chunk. `vss configure` prints the
 effective values and their source (environment variable or config file) and
 names any that are unset.
 
-RT-VLM reads `fps` ahead of `num_frames`, so on RT-VLM `max_frames` applies
-only when `fps` is unset; with `fps`, RT-VLM's deployment-wide frame cap
-applies instead.
+RT-VLM and the Cosmos NIM accept `fps` or `num_frames`, not both (HTTP 400).
+With both set, the CLI sends them `fps` alone, logs a warning, and their
+deployment-wide frame cap applies; `max_frames` applies there only when `fps`
+is unset. vLLM receives both.
 
 ## The surface
 

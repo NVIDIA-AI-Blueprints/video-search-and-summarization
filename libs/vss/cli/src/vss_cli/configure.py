@@ -186,10 +186,12 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
         vlm=_configured_vlm_or_none(),
         written_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
+    # Resolved before saving so a malformed VSS_VLM_* variable fails without writing.
+    effective_vlm = _effective_vlm_or_exit(deployment) if "rt_vlm" in services else None
     path = config_mod.save(deployment)
     click.echo(f"wrote {path} ({len(services)}/{len(config_mod.INGRESS_SERVICES)} services)", err=True)
     if "rt_vlm" in services:
-        _report_vlm_sampling(deployment, path)
+        _report_vlm_sampling(deployment, effective_vlm, path)
 
     # What this file records about Elasticsearch is a snapshot, and indices are
     # created by ingestion rather than by deployment. Configuring a freshly
@@ -208,19 +210,25 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
         )
 
 
-def _report_vlm_sampling(deployment: config_mod.Deployment, path: Path) -> None:
+def _effective_vlm_or_exit(deployment: config_mod.Deployment) -> config_mod.VlmConfig | None:
+    try:
+        return config_mod.effective_vlm_config(deployment.vlm)
+    except config_mod.ConfigError as error:
+        click.echo(f"vss configure: VLM configuration error: {error}", err=True)
+        raise SystemExit(int(Exit.CONFIGURATION)) from error
+
+
+def _report_vlm_sampling(
+    deployment: config_mod.Deployment,
+    effective: config_mod.VlmConfig | None,
+    path: Path,
+) -> None:
     """Say which frame-sampling values `vss vlm run` will send, and where each came from.
 
     Unset values are not filled in: the VLM server's own sampling applies. That
     default can be as little as one frame per chunk, so an unset value is named
     rather than left for a caller to discover from a thin answer.
     """
-    try:
-        effective = config_mod.effective_vlm_config(deployment.vlm)
-    except config_mod.ConfigError as error:
-        click.echo(f"vss configure: VLM configuration error: {error}", err=True)
-        raise SystemExit(int(Exit.CONFIGURATION)) from error
-
     click.echo("vlm sampling for `vss vlm run`:", err=True)
     unset: list[str] = []
     for name in config_mod.VLM_SAMPLING_FIELDS:

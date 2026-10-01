@@ -298,6 +298,8 @@ def test_configure_rejects_malformed_sampling_environment(
 
     assert result.exit_code == int(Exit.CONFIGURATION), result.output
     assert "VSS_VLM_MAX_FRAMES must be an integer" in result.output
+    assert "wrote" not in result.output
+    assert config_mod.load().base_url == "http://example"
 
 
 def test_configure_without_vlm_route_skips_sampling_report(

@@ -369,15 +369,25 @@ def _video_io(inputs: VlmInput, *, qwen3_loader_cap: bool = False) -> dict[str, 
 
     ``num_frames`` is the cap for vLLM's uniform loader and the fixed count for
     RT-VLM and NIM. vLLM's ``qwen3_vl`` loader ignores ``num_frames`` and caps
-    with ``max_frames`` instead, so vLLM gets both.
+    with ``max_frames`` instead, so vLLM gets both. RT-VLM and NIM reject
+    ``fps`` with ``num_frames`` (HTTP 400), so with ``fps`` set they get ``fps``
+    alone and their deployment-wide frame cap applies.
     """
     video: dict[str, Any] = {}
     if inputs.fps is not None:
         video["fps"] = inputs.fps
     if inputs.max_frames is not None:
-        video["num_frames"] = inputs.max_frames
         if qwen3_loader_cap:
+            video["num_frames"] = inputs.max_frames
             video["max_frames"] = inputs.max_frames
+        elif inputs.fps is None:
+            video["num_frames"] = inputs.max_frames
+        else:
+            _LOG.warning(
+                "max_frames %s not sent: this backend takes fps or a frame count, not both; "
+                "its deployment frame cap applies",
+                inputs.max_frames,
+            )
     return video
 
 

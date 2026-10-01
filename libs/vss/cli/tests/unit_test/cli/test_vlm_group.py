@@ -98,25 +98,32 @@ def _in_memory(deployment: config_mod.Deployment) -> memory_mod.Memory:
 def _simulate_vllm_video_boundary(
     request: dict[str, Any],
     *,
+    loader_kind: str = "uniform",
     total_frames: int = 600,
     source_fps: float = 30,
 ) -> tuple[int, bool, bool]:
-    """Apply vLLM v0.28's uniform loader limits and the Qwen sampling handoff contract.
+    """Apply vLLM v0.28's video loader limits and the Qwen sampling handoff contract.
 
-    ``num_frames`` caps and ``fps`` rate-limits, whichever yields fewer frames
-    (vllm/multimodal/video.py, uniform backend ``compute_frames_index_to_sample``).
+    vllm/multimodal/video.py ``compute_frames_index_to_sample``: the uniform
+    loader caps with ``num_frames`` and rate-limits with ``fps``; the
+    ``qwen3_vl`` loader ignores ``num_frames``, samples at ``fps`` (default 2)
+    and clamps to ``[min_frames=4, max_frames=768]``.
     """
     loader = request.get("media_io_kwargs", {}).get("video", {})
     duration = total_frames / source_fps
     selected_frames = total_frames
 
-    num_frames = loader.get("num_frames", -1)
-    if num_frames > 0:
-        selected_frames = min(selected_frames, num_frames)
+    if loader_kind == "qwen3_vl":
+        wanted = int(duration * loader.get("fps", 2))
+        selected_frames = min(max(wanted, 4), loader.get("max_frames", 768), total_frames)
+    else:
+        num_frames = loader.get("num_frames", -1)
+        if num_frames > 0:
+            selected_frames = min(selected_frames, num_frames)
 
-    fps = loader.get("fps", -1)
-    if fps > 0:
-        selected_frames = min(selected_frames, max(1, int(duration * fps)))
+        fps = loader.get("fps", -1)
+        if fps > 0:
+            selected_frames = min(selected_frames, max(1, int(duration * fps)))
 
     loader_do_sample_frames = selected_frames == total_frames
     processor_do_sample_frames = request.get("mm_processor_kwargs", {}).get(
@@ -604,7 +611,7 @@ def test_run_request_carries_vlm_controls(
     assert captured["json"]["seed"] == 1
     assert captured["json"]["enable_reasoning"] is False
     assert captured["json"]["chunk_duration"] == 0
-    assert captured["json"]["media_io_kwargs"] == {"video": {"fps": 4, "num_frames": 64}}
+    assert captured["json"]["media_io_kwargs"] == {"video": {"fps": 4}}
     assert captured["json"]["mm_processor_kwargs"] == {
         "size": {
             "shortest_edge": 131072,
@@ -782,7 +789,7 @@ def test_configured_vlm_policy_applies_all_defaults(monkeypatch: pytest.MonkeyPa
     assert captured["json"]["seed"] == 1
     assert captured["json"]["enable_reasoning"] is False
     assert captured["json"]["chunk_duration"] == 0
-    assert captured["json"]["media_io_kwargs"] == {"video": {"fps": 4, "num_frames": 64}}
+    assert captured["json"]["media_io_kwargs"] == {"video": {"fps": 4}}
     assert captured["json"]["mm_processor_kwargs"] == {
         "size": {
             "shortest_edge": 131072,
@@ -929,7 +936,7 @@ def test_environment_policy_applies_without_persisted_policy(monkeypatch: pytest
     assert captured["json"]["seed"] == 1
     assert captured["json"]["enable_reasoning"] is False
     assert captured["json"]["chunk_duration"] == 0
-    assert captured["json"]["media_io_kwargs"] == {"video": {"fps": 4.0, "num_frames": 64}}
+    assert captured["json"]["media_io_kwargs"] == {"video": {"fps": 4.0}}
     assert captured["json"]["mm_processor_kwargs"] == {
         "size": {
             "shortest_edge": 131072,
@@ -1021,7 +1028,10 @@ def test_unlocked_vlm_policy_allows_override(monkeypatch: pytest.MonkeyPatch) ->
     assert captured["json"]["temperature"] == 0.5
 
 
-def test_locked_fps_policy_combines_with_call_max_frames(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rt_vlm_with_fps_drops_max_frames_and_says_so(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     captured: dict[str, Any] = {}
 
     def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
@@ -1036,9 +1046,12 @@ def test_locked_fps_policy_combines_with_call_max_frames(monkeypatch: pytest.Mon
     deployment = _deployment(vlm=config_mod.VlmConfig(fps=4, locked=True))
     ctx = Context(deployment=deployment)
     ctx.extra = {"no_persist": True}
-    VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", max_frames=16), ctx)
+    with caplog.at_level("WARNING", logger="vss_cli.vlm.group"):
+        VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", max_frames=16), ctx)
 
-    assert captured["json"]["media_io_kwargs"] == {"video": {"fps": 4, "num_frames": 16}}
+    # RT-VLM answers HTTP 400 to fps together with num_frames.
+    assert captured["json"]["media_io_kwargs"] == {"video": {"fps": 4}}
+    assert "max_frames 16 not sent" in caplog.text
 
 
 def test_run_request_preserves_fps_on_long_sensor_window(
@@ -1228,6 +1241,7 @@ def test_standalone_vllm_base64_uses_backend_translation(
     assert "use_fps_for_chunking" not in captured["json"]
 
 
+@pytest.mark.parametrize("loader_kind", ["uniform", "qwen3_vl"])
 @pytest.mark.parametrize("source_kind", ["url", "base64"])
 @pytest.mark.parametrize(
     ("sampling", "expected_frames"),
@@ -1241,10 +1255,11 @@ def test_standalone_vllm_loader_owns_sampling_before_qwen(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     source_kind: str,
+    loader_kind: str,
     sampling: dict[str, Any],
     expected_frames: int,
 ) -> None:
-    """vLLM must select frames and Qwen must consume that selection unchanged."""
+    """Either vLLM loader must honour the cap, and Qwen must consume its selection unchanged."""
     captured: dict[str, Any] = {}
     json_loads = json.loads
 
@@ -1275,7 +1290,9 @@ def test_standalone_vllm_loader_owns_sampling_before_qwen(
     ctx.extra = {"no_persist": True}
     VlmGroup().run("", VlmInput(prompt="What?", **source, **sampling), ctx)
 
-    selected, loader_resamples, processor_resamples = _simulate_vllm_video_boundary(captured["json"])
+    selected, loader_resamples, processor_resamples = _simulate_vllm_video_boundary(
+        captured["json"], loader_kind=loader_kind
+    )
     assert selected == expected_frames
     assert loader_resamples is False
     assert processor_resamples is False
