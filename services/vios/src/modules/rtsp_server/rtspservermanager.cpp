@@ -488,6 +488,48 @@ void RtspServerManager::handleRESTAPIs()
         return handleProxyConfiguration(req_info, in, response);
     };
 
+    m_func["/api/v1/proxy/version"] = [](const Json::Value& req_info, const Json::Value &,
+                                Json::Value &response, struct mg_connection *) -> VmsErrorCode
+    {
+        const string requestMethod = req_info.get("method", UNKNOWN_STRING).asString();
+        if (!iequals(requestMethod, "get"))
+        {
+            SET_VMS_ERROR(VmsErrorCode::MethodNotAllowedError, response)
+            return VmsErrorCode::MethodNotAllowedError;
+        }
+
+        std::shared_ptr<DeviceManager> deviceManager =
+            ModuleLoader::getInstance()->getDeviceManagerObject();
+        if (!deviceManager)
+        {
+            SET_VMS_ERROR2(VmsErrorCode::VMSInternalError, response,
+                           "Device manager is not available")
+            return VmsErrorCode::VMSInternalError;
+        }
+
+        const string deviceType = deviceManager->getDeviceType();
+        response["type"] = deviceType;
+        if (deviceType == TYPE_VST)
+        {
+            response["version"] = VST_VERSION;
+        }
+        else if (deviceType == TYPE_MMS)
+        {
+            response["version"] = MMS_VERSION;
+        }
+        else if (deviceType == TYPE_STREAMER)
+        {
+            response["version"] = STREAMER_VERSION;
+        }
+        else
+        {
+            SET_VMS_ERROR2(VmsErrorCode::VMSInternalError, response,
+                           "Unsupported device type")
+            return VmsErrorCode::VMSInternalError;
+        }
+        return VmsErrorCode::NoError;
+    };
+
     m_func["/v1/live"] = [this](const Json::Value& req_info, const Json::Value &in,
                                 Json::Value &response, struct mg_connection *conn) -> VmsErrorCode
     {

@@ -368,23 +368,21 @@ def request_network_info(context: UnitTestContext, api_config: dict, unit_test_p
     )
 
 
-@then("the network response status is not 500")
-def assert_network_status_not_500(context: UnitTestContext) -> None:
-    assert context.response.status_code != 500, (
-        "GET /sensor/{id}/network returned 500 for an RTSP sensor; an unsupported "
-        f"sensor type must be reported with a clear non-500 response. Body: {context.response.text[:500]}"
+@then("the network response status is 501")
+def assert_network_status_501(context: UnitTestContext) -> None:
+    assert context.response.status_code == 501, (
+        f"Expected 501 for a local RTSP sensor, got {context.response.status_code}: "
+        f"{context.response.text[:500]}"
     )
 
 
-@then("the network response error_code is not VMSInternalError")
-def assert_network_error_code_not_internal(context: UnitTestContext) -> None:
+@then("the network response contains a structured unsupported error")
+def assert_network_unsupported_error(context: UnitTestContext) -> None:
     body = context.response_json
-    if isinstance(body, dict):
-        error_code = body.get("error_code") or body.get("errorCode")
-        assert error_code != "VMSInternalError", (
-            "GET /sensor/{id}/network reported VMSInternalError for an RTSP sensor; the "
-            f"unsupported case must use a distinct structured error code. Body: {context.response.text[:500]}"
-        )
+    assert isinstance(body, dict), f"Expected an error object, got {body!r}"
+    assert body.get("error_code") == "VMSNotSupportedError", body
+    message = body.get("error_message")
+    assert isinstance(message, str) and "not supported" in message.lower(), body
 
 
 @then("I clean up the network-info test sensor")
