@@ -162,7 +162,7 @@ An example dataset can be found in the [Warehouse_014](https://huggingface.co/da
 A projected 3D cuboid encloses all eight corners and can be larger than the object's tight image-space box. A geometry-only **loose-to-tight (LTT)** MLP learns to correct this difference from paired 3D boxes and tight, amodal 2D boxes in labeled data. During Sparse4D fine-tuning, the MLP is frozen and its predicted correction factors are detached; gradients flow through the corrected box projection into Sparse4D. Per-camera matching then compares these boxes with real-world 2D detections, such as offline RT-DETR predictions, to supervise box geometry and classification.
 
 <Note>
-Use a TAO PyTorch build that includes `model.head.loose_to_tight`. The data preparation commands below also require a TAO Data Services build with `annotations sparse4d_prepare`; use the [shipped preparation spec](https://github.com/NVIDIA-TAO/tao-data-services/blob/main/nvidia_tao_ds/annotations/experiment_specs/sparse4d_prepare.yaml). LTT fitting and native artifact commands are documented in the [TAO PyTorch tools guide](https://github.com/NVIDIA-TAO/tao-pytorch/blob/main/nvidia_tao_pytorch/cv/sparse4d/tools/README.md). Check the specs shipped with your build; the optional LTT training losses are disabled by default.
+Use a TAO PyTorch build that includes `model.head.loose_to_tight`. The data preparation commands below also require a TAO Data Services build with `annotations sparse4d_prepare` and the [annotation-free scene converter](https://github.com/NVIDIA-TAO/tao-data-services/pull/55); use the [shipped preparation spec](https://github.com/NVIDIA-TAO/tao-data-services/blob/main/nvidia_tao_ds/annotations/experiment_specs/sparse4d_prepare.yaml). LTT fitting and native artifact commands are documented in the [TAO PyTorch tools guide](https://github.com/NVIDIA-TAO/tao-pytorch/blob/main/nvidia_tao_pytorch/cv/sparse4d/tools/README.md). Check the specs shipped with your build; the optional LTT training losses are disabled by default.
 </Note>
 
 #### Choose the supervision route
@@ -177,22 +177,30 @@ Keep 3D-labeled data in the training mix to retain metric geometry supervision.
 #### Prepare the data and geometric correction model
 
 1. **Fit the LTT model on labeled data.** Use `annotations sparse4d_prepare` with `operation=ltt_data` to extract paired cuboid projections and tight amodal 2D boxes. Fit the MLP in the TAO PyTorch environment with `python -m nvidia_tao_pytorch.cv.sparse4d.tools.ltt_train --data /data/ltt_training.npz --out /data/loose_to_tight_mlp.pth --epochs 60 --device cuda`. Check its held-out per-class GIoU against the uncorrected projection baseline.
-2. **Prepare 2D supervision.** Use `operation=ltt_2dgt` for visible-2D sidecars on 3D-labeled scenes. For calibrated real scenes, run the 2D teacher offline, then use `operation=rtdetr_2d` to convert its per-camera KITTI `labels.tar.gz` archives to `<scene>__rtdetr2d.npz`. This operation converts detections; it does not run RT-DETR. Before building the mixed split, supply matching image/calibration info PKLs that meet the [calibrated real-scene input requirements](#prepare-calibrated-real-scene-inputs) below.
+2. **Prepare 2D supervision.** Use `operation=ltt_2dgt` for visible-2D sidecars on 3D-labeled scenes. For calibrated real scenes, run the 2D teacher offline, then use `operation=rtdetr_2d` to convert its per-camera KITTI `labels.tar.gz` archives to `<scene>__rtdetr2d.npz`. This operation converts detections; it does not run RT-DETR. Before building the mixed split, create matching image/calibration info PKLs with the [calibrated real-scene conversion command](#prepare-calibrated-real-scene-inputs) below.
 3. **Build the mixed training split.** List the converted 3D-labeled and calibrated real info PKLs once each. Mark genuinely unlabeled 3D samples with `gt_boxes=None`, rather than treating them as annotated empty scenes. Run `operation=lazy_index` after finalizing this split if using `dataset.lazy_load: true`.
 
 Use the same ordered taxonomy for data preparation `class_names`, training `dataset.classes`, the LTT checkpoint, and all caches. For the released seven-class warehouse models, the training names are `person`, `gr1_t2`, `agility_digit`, `nova_carter`, `transporter`, `forklift`, and `pallet_truck`. Map teacher labels explicitly to this taxonomy; a matching class count alone is insufficient. Camera names, source frame IDs, image dimensions, and coordinate conventions must agree between the info PKLs and their caches.
 
 #### Prepare calibrated real-scene inputs
 
-This training workflow starts from prepared Sparse4D info PKLs for the calibrated real scenes. Each PKL must contain synchronized image paths, camera intrinsics and world-to-camera extrinsics, BEV-group membership, sequence identifiers, source frame IDs, and capture timestamps in seconds. Mark frames without 3D annotations with `gt_boxes=None`. Use container-visible image paths and keep the calibration consistent with the image dimensions and metric world frame.
+Use `annotations convert` in TAO Data Services with the [unlabeled-scene spec](https://github.com/NVIDIA-TAO/tao-data-services/blob/dbf26c3a4ba80f63e3460e3dcf06f59ecf184cde/nvidia_tao_ds/annotations/experiment_specs/aicity2ovpkl_unlabeled.yaml). Copy the spec to `/specs/aicity2ovpkl_unlabeled.yaml` and set its ordered `aicity.class_config.CLASS_LIST` to match your model and teacher caches. This requires a build that exposes `aicity.load_annotations` and `aicity.fps`.
 
-<Note>
-The [TAO Data Services AICity-to-OVPKL converter](https://github.com/NVIDIA-TAO/tao-data-services/blob/main/nvidia_tao_ds/annotations/conversion/aicity_to_ovpkl.py) contains the scene-conversion implementation. Its current public `annotations convert` path loads 3D ground truth; it does not expose the internal annotation-free mode. The `rtdetr_2d` operation produces detection caches only, and TAO PyTorch consumes the scene PKLs. Starting from raw footage without 3D annotations therefore requires annotation-free PKL preparation support in Data Services before following this workflow. The commands here do not provide that missing conversion step.
-</Note>
+Arrange each scene as `/data/real/train/<scene>/calibration.json` plus `<camera>/rgb/000000000.jpg`, `000000001.jpg`, and so on. NVSchema calibration must provide camera intrinsics and world-to-camera poses with IDs matching the image directories. The `rgb_00000.jpg` image naming convention also works. Use synchronized, constant-rate frames, contiguous from zero, and provide the actual capture rate:
 
-Use one info PKL per BEV group, with camera names and source frame IDs matching the teacher cache. For example, a PKL scene named `RealWarehouse+bev0` uses `/data/rtdetr/RealWarehouse__rtdetr2d.npz`: the loader strips the BEV-group suffix when locating the cache. Include each PKL once in `/data/mixed_train_split.txt` alongside the 3D-labeled PKLs, then run `operation=lazy_index` using the final split.
+```bash
+annotations convert -e /specs/aicity2ovpkl_unlabeled.yaml \
+  aicity.root=/data/real aicity.split=train aicity.fps=30 \
+  results_dir=/data/real_infos
+```
 
-Inspect projections and cache joins before training. Preserve actual timestamps when sampling irregularly or dropping frames. Reuse the base model's anchors or anchors derived from 3D-labeled data; unlabeled real frames cannot supply 3D anchor initialization.
+The spec sets `aicity.load_annotations=false`, keeps the world frame without recentering, and uses all calibrated cameras as one group per scene. It writes `/data/real_infos/train/<scene>_infos_train.pkl` with synchronized image paths, camera geometry, sequence/frame identifiers, timestamps in seconds, and `gt_boxes=None`. Ground truth and depth files are not required, and anchor initialization is skipped. Reuse the pretrained model's anchors and keep image paths visible at the same location inside the training environment.
+
+For HDF5 image arrays, set `aicity.rgb_format=h5` and provide `<camera>.h5` files with HWC arrays at `rgb/rgb_00000.jpg`, `rgb/rgb_00001.jpg`, and so on. Set `dataset.use_h5_file_for_rgb: true` for these inputs during training.
+
+The converter rejects empty, gapped, or unequal camera sequences. Synchronize irregular or dropped-frame inputs before conversion and run the 2D teacher on those same frames. Inspect projections and cache joins before training; keep calibration consistent with image dimensions and the metric world frame.
+
+The existing camera-grouping options can generate multiple BEV groups. Use one info PKL per group, with camera names and source frame IDs matching the teacher cache. For example, a PKL scene named `RealWarehouse+bev0` uses `/data/rtdetr/RealWarehouse__rtdetr2d.npz`: the loader strips the BEV-group suffix when locating the cache. Include each PKL once in `/data/mixed_train_split.txt` alongside the 3D-labeled PKLs, then run `operation=lazy_index` using the final split.
 
 #### Configure mixed 3D and real-world training
 
