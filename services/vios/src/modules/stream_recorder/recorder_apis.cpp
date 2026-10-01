@@ -20,6 +20,7 @@
 #include "health_probes.h"
 
 using namespace std;
+using namespace nv_vms;
 
 static const string gRecorderApiList = R"([
         {"method": "GET - Get streams list", "endpoint": "api/v1/record/streams"},

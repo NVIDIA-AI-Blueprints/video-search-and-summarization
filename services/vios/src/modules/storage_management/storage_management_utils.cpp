@@ -40,6 +40,9 @@
 #include <cerrno>
 #include <mutex>
 
+using namespace std;
+using namespace nv_vms;
+
 constexpr int64_t DEFAULT_START_TIME_EPOCH = 1735689600000; // 2025-01-01T00:00:00.000Z
 
 // Temp video storage path constants are now defined in storage_management.h
@@ -303,8 +306,6 @@ private:
 extern "C" {
 #include <libavutil/avutil.h>
 }
-
-using namespace std;
 
 // Single helper function to extract and process all common video file logic
 nv_vms::VmsErrorCode prepareVideoFileProcessing(

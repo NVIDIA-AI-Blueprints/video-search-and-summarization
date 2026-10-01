@@ -3,6 +3,7 @@
 - [Model](#model)
 - [Select the foundation](#select-the-foundation)
 - [Compute the delta](#compute-the-delta)
+- [UI configuration](#ui-configuration)
 - [Clarification gate](#clarification-gate)
 - [Artifact contract](#artifact-contract)
 - [Resolve](#resolve)
@@ -108,6 +109,25 @@ state which owners are singletons, what output each fixes, and which consumer
 keys track it; read them before merging configs.
 
 Service activation alone is never a Compose-definition change.
+
+## UI configuration
+
+For stock and delta builds with `vss-ui`, default
+`NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_ENABLE=false` unless explicitly
+requested otherwise. Write it to `override.env` when it differs from the
+inherited value, and verify it in `resolved.yml`.
+
+### UI subtitle
+
+When `vss-ui` is enabled, derive `NEXT_PUBLIC_APP_SUBTITLE` from the final
+`COMPOSE_PROFILES`. In order, include `Alerts - CV` or `Alerts - VLM` for
+`alert-bridge` according to `MODE`, `LVS` for `lvs-server`, and `Search` for
+`vss-search-analytics-2d-fusion`. Join enabled labels with ` + ` inside
+`Vision (...)`: real-time VLM alerts plus summarization becomes
+`"Vision (Alerts - VLM + LVS)"`. With none of those owners, use `Vision (Base)`
+if `rtvi-vlm` remains, otherwise `Vision`. Write the result to `override.env`
+only when it differs from the inherited subtitle; honor an explicit user
+choice. Check that `resolved.yml` gives `vss-ui` the resulting value.
 
 ## Clarification gate
 

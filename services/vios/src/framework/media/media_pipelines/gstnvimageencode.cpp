@@ -17,7 +17,9 @@
 
 #include "gstnvimageencode.h"
 
-#define MAX_BUFFER_WAIT_TIMEOUT 10s
+using namespace std;
+
+constexpr auto MAX_BUFFER_WAIT_TIMEOUT = 10s;
 
 NvImageEncode::NvImageEncode()
 {

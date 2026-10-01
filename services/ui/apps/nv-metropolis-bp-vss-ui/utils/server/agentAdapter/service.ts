@@ -32,11 +32,15 @@ export class AgentAdapterService {
   readonly store: RunStore;
   private readonly connector: Connector;
 
-  constructor(readonly config: AgentAdapterConfig) {
+  constructor(
+    readonly config: AgentAdapterConfig,
+    sharedStore?: RunStore,
+    readonly ownerFingerprint?: string
+  ) {
     this.connector = buildConnector(config);
     // Reserve the thread-state ceiling up front so the independently managed
     // connector cache and run store cannot exceed the process-wide limit.
-    this.store = new RunStore(
+    this.store = sharedStore ?? new RunStore(
       config.runRetentionMs,
       config.maxRuns,
       config.maxEventsPerRun,
@@ -102,7 +106,7 @@ export class AgentAdapterService {
     request: CreateRunRequest,
     idempotencyKey?: string
   ): { record: RunRecord; replayed: boolean } {
-    const created = this.store.create(request, idempotencyKey);
+    const created = this.store.create(request, idempotencyKey, this.ownerFingerprint);
     if (created.replayed) return created;
     created.record.append("run.started", {
       surface: request.surface,
@@ -233,7 +237,7 @@ export class AgentAdapterService {
   }
 
   async cancelRun(runId: string): Promise<RunRecord> {
-    const record = this.store.get(runId);
+    const record = this.store.get(runId, this.ownerFingerprint);
     if (!record.terminal) {
       record.abortController.abort(new Error("client cancelled"));
       try {

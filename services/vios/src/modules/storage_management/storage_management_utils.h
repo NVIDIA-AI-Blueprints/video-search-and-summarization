@@ -27,7 +27,6 @@
 #include "database.h"
 #include "unified_storage_types.h"
 
-using namespace std;
 
 // Forward declaration
 namespace nv_vms {
@@ -38,12 +37,12 @@ namespace nv_vms {
 struct VideoFileProcessingParams {
     int64_t epoch_user_start_time = 0;
     int64_t epoch_user_end_time = 0;
-    std::vector<VideoFileInfo> fileNameArray;
+    std::vector<nv_vms::VideoFileInfo> fileNameArray;
     size_t max_download_size = 0;
     bool get_accurate = false;
     std::vector<std::pair<std::string, std::string>> remoteLocalPairs;
     // Additional processed parameters
-    string input_file_path;
+    std::string input_file_path;
     int64_t file_start_time = 0;
     int64_t relative_start_sec = 0;
     int64_t relative_end_sec = 0;
@@ -64,14 +63,14 @@ struct VideoFileProcessingParams {
  * "mergedExisting"=true flag plus "id" / "streamId" of the merged stream so
  * the caller can roll back just the new stream on a later failure. Callers
  * that surface response over a public API should removeMember("mergedExisting"). */
-VmsErrorCode addFile(std::shared_ptr<DeviceManager> deviceMngr, const Json::Value &req_info, const Json::Value &data, Json::Value &response);
-VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr, const struct mg_request_info *req_info, struct mg_connection *conn, Json::Value &out, bool isPutUpload = false, const std::string& filename = "", const std::string& timestamp = "", const std::string& sensorId = "", bool isLegacyUpload = false);
-VmsErrorCode deleteFile(std::shared_ptr<DeviceManager> deviceMngr, const Json::Value &req_info, const Json::Value &in, Json::Value &out);
-VmsErrorCode checkMaxSensorsLimit(std::shared_ptr<DeviceManager> deviceMngr, Json::Value& response);
+nv_vms::VmsErrorCode addFile(std::shared_ptr<nv_vms::DeviceManager> deviceMngr, const Json::Value &req_info, const Json::Value &data, Json::Value &response);
+nv_vms::VmsErrorCode handleFileUpload(std::shared_ptr<nv_vms::DeviceManager> deviceMngr, const struct mg_request_info *req_info, struct mg_connection *conn, Json::Value &out, bool isPutUpload = false, const std::string& filename = "", const std::string& timestamp = "", const std::string& sensorId = "", bool isLegacyUpload = false);
+nv_vms::VmsErrorCode deleteFile(std::shared_ptr<nv_vms::DeviceManager> deviceMngr, const Json::Value &req_info, const Json::Value &in, Json::Value &out);
+nv_vms::VmsErrorCode checkMaxSensorsLimit(std::shared_ptr<nv_vms::DeviceManager> deviceMngr, Json::Value& response);
 int field_stored(const char *path, long long file_size, FileData *data);
 int field_get(const char *key, const char *value, size_t valuelen, void *user_data);
 int field_found(const char *key, const char *filename, char *path, size_t pathlen, void *user_data);
-void addOrRemoveInProtectList(std::vector<VideoFileInfo>& files, bool removeOrAdd);
+void addOrRemoveInProtectList(std::vector<nv_vms::VideoFileInfo>& files, bool removeOrAdd);
 
 nv_vms::VmsErrorCode makeVideoFile (std::string start_time, std::string end_time,
                                     std::string sensor_id, std::string id, std::string device_name,
@@ -87,7 +86,7 @@ nv_vms::VmsErrorCode makeVideoFile (std::string start_time, std::string end_time
 void  cleanupDownloadedFiles(const std::vector<std::pair<std::string, std::string>>& remoteLocalPairs, bool enable_minio);
 
 std::string generateTempVideoFilePath(const std::string& webRootPath, const std::string& baseFileName, const std::string& startTime);
-VmsErrorCode recordTempFileForCleanup(const std::string& filePath, const std::string& streamId, 
+nv_vms::VmsErrorCode recordTempFileForCleanup(const std::string& filePath, const std::string& streamId,
                                      const std::string& deviceId, int64_t expiryTimestamp);
 
 /**

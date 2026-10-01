@@ -188,8 +188,6 @@ supported.
 
 ##### Add an Alert Rule
 
-**Add an alert rule**
-
 ```text title="Add an alert rule"
 Detect anyone entering without personal protective equipment on sensor warehouse_sample.
 Send me alerts for fallen boxes in camera warehouse_sample.
@@ -204,8 +202,6 @@ What the agent does:
 
 ##### List Active Alert Rules
 
-**List active alert rules**
-
 ```text title="List active alert rules"
 What alert rules are currently active?
 ```
@@ -217,8 +213,6 @@ What the agent does:
 3. Applies any sensor or alert-type filter from your prompt and returns the current rule IDs.
 
 ##### Show Alert Notifications
-
-**Show alert notifications**
 
 ```text title="Show alert notifications"
 List any alerts for alert ID <alert ID>.
@@ -232,8 +226,6 @@ What the agent does:
 
 ##### Replace an Alert Rule
 
-**Replace an alert rule**
-
 ```text title="Replace an alert rule"
 Replace alert rule ID <alert ID> with a rule that watches warehouse_sample for fallen boxes.
 ```
@@ -245,8 +237,6 @@ What the agent does:
 3. Creates the replacement rule through Alert Bridge, then asks for confirmation before deleting the superseded rule.
 
 ##### Delete an Alert Rule
-
-**Delete an alert rule**
 
 ```text title="Delete an alert rule"
 Delete alert rule ID <alert ID>.
@@ -289,33 +279,6 @@ the connection carries the gateway token and alert contents. Use `ws://` only fo
 
 ### Manually
 
-#### Direct Docker Compose Overrides
-
-When invoking Docker Compose directly, apply all of the following settings in
-`developer-profiles/dev-profile-alerts/user-overrides.env`:
-
-```ini
-MODE=2d_vlm
-ALERT_AGENT_ALWAYS_ON=true
-COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
-RTVI_VLM_MESSAGE_BUS=kafka
-RTVI_VLM_KAFKA_ENABLED=true
-NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS=true
-NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION=false
-```
-
-In RT-VLM 26.08.2, `MESSAGE_BUS` is the startup source of truth for
-generated-message publishing. The packaged Compose variable
-`RTVI_VLM_MESSAGE_BUS=kafka` sets it explicitly.
-`RTVI_VLM_KAFKA_ENABLED=true` is retained only as the legacy compatibility
-field while Compose still forwards it. Later `--env-file` arguments take
-precedence over earlier arguments; therefore, changes to `overrides.env` made
-after it has been copied do not affect a command that reads
-`user-overrides.env`.
-`VSS_CONTAINER_REGISTRY` (default `ghcr.io/nvidia-ai-blueprints/vss`) and
-`VSS_CONTAINER_TAG` (default `develop-latest`) are defined in
-`deploy/docker/containers.env`.
-
 #### Step 1: Deploy with Docker Compose
 
 <Note>
@@ -329,6 +292,10 @@ after it has been copied do not affect a command that reads
 # Set NGC CLI API key
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
+# Authenticate Docker for gated NIM and other nvcr.io images. The managed VSS
+# images on ghcr.io are public and do not require a registry login.
+printf '%s' "$NGC_CLI_API_KEY" | \
+  docker login nvcr.io --username '$oauthtoken' --password-stdin
 ```
 
 See [Configuration](/vss/system-components/configuration) for common variables,
@@ -336,7 +303,13 @@ valid values, defaults, and env-file precedence. The complete profile-specific
 template is
 `deploy/docker/developer-profiles/dev-profile-alerts/overrides.env`.
 
-`overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
+From the repository checkout root, enter the Compose deployment directory:
+
+```bash
+cd deploy/docker
+```
+
+`overrides.env` is the checked-in template. Copy it to any
 filename matching `*-overrides.env` before selecting a layout. Files matching
 that pattern are ignored by Git so local settings and credentials are not
 committed. The commands below use `user-overrides.env` as a concrete example;
@@ -813,7 +786,7 @@ docker compose -f compose.yml \
   --env-file containers.env \
   --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
   --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
-  up -d
+  up --detach --pull always --force-recreate --build
 ```
 
 On the first bring-up, Docker Compose pulls the required containers from the
@@ -929,12 +902,16 @@ The Jaeger UI is present only when the `jaeger` Compose profile is enabled; see 
 
 ### Known Issues
 
+* Removing a camera from VIOS with always-on alerts enabled can leave an orphaned RT-VLM stream record even though the `camera_remove` webhook reports success. Alert Bridge stops caption generation and deletes the stream concurrently; RT-VLM can reject the delete with HTTP 409 while shutdown is in progress. Alert Bridge removes the in-memory rule despite the delete failure, so subsequent VIOS retries return HTTP 200 without cleaning up the stale record. The camera UUID can remain in `GET /v1/streams/get-stream-info` after the pipeline stops. **Workaround:** Wait for caption shutdown to complete, then retry the RT-VLM stream delete for that camera UUID. This issue affects automatic camera removal teardown.
+
+* Deleting a real-time alert rule for a camera that has multiple rules causes all other rules for that camera to stop producing alerts, even though they remain listed as active.
+
 * It is recommended to clear chat and refresh the VSS UI page after deployment to clear any data from a previous deployment.
 
 * VSS-RTVI-VLM logs may repeatedly show a "Generated text is empty" warning and result in incomplete/unreliable alert verdicts
 
 * VLM verdict verification can fail in the UI even when VLM requests are processed successfully. Alert Bridge response parsing accepts only raw verdicts such as `A/B` or `Yes/No` before serializing them to `confirmed` or `rejected`. As a result, a semantically valid `rejected` verdict from Cosmos Reason can fail schema validation and be persisted as `verification-failed`.
 
-* Report generation may produce inaccurate results. As a potential workaround, remove the `use_base64: true` line under `video_understanding_iso` in `developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml`.
+* Report generation may produce inaccurate results.
 
 * The VST UI is externally accessible on both port 30000 and 30888 because both ports are exposed on the host network. For security hardening, consider using a firewall to allowlist only the required VST ingress port.

@@ -32,6 +32,7 @@
 #include <ctime>
 
 using namespace nv_vms;
+using namespace std;
 
 constexpr const char* DEFAULT_CAMERA_NAME = "Camera";
 

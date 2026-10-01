@@ -35,14 +35,13 @@
 #include "syncobject.h"
 #include "media_producer.h"
 
-using namespace std;
 
 namespace nv_vms
 {
 typedef
 struct StreamEncParam
 {
-    string codec;
+    std::string codec;
     int width;
     int height;
     StreamEncParam() : width(0)
@@ -55,8 +54,8 @@ struct CurlEasyHandle;
 class IStreamStatusEvent
 {
 public:
-    virtual void onStreamStatusChange(const string &url, const StreamStatus newStatus, StreamEncParam& details) = 0;
-    virtual void onDecoderPlayingStatus(const string &url) { /* Optional hook: listeners that do not care about decoder start keep this no-op. */ }
+    virtual void onStreamStatusChange(const std::string &url, const StreamStatus newStatus, StreamEncParam& details) = 0;
+    virtual void onDecoderPlayingStatus(const std::string &url) { /* Optional hook: listeners that do not care about decoder start keep this no-op. */ }
 };
 
 class StreamMonitor : public IMediaDataProducer
@@ -106,35 +105,35 @@ public:
     void distributeToConsumers(FrameParams& frameParams) override;
     
     // Legacy methods for backward compatibility
-    void registerDataCallback(std::string& url, shared_ptr<IMediaDataConsumer> consumer);
-    void deregisterDataCallback(shared_ptr<IMediaDataConsumer> consumer, std::string& url, bool doNotRemoveClient = false);
+    void registerDataCallback(std::string& url, std::shared_ptr<IMediaDataConsumer> consumer);
+    void deregisterDataCallback(std::shared_ptr<IMediaDataConsumer> consumer, std::string& url, bool doNotRemoveClient = false);
     bool checkIfStreamAlive(const std::string& inUrl);
     std::vector<std::string> getListofAliveStreams();
     void addUriListForLivenessMonitor(const std::vector<std::string>& inList);
     void removeUriListFromLivenessMonitor(const std::vector<std::string>& inList);
 
-    void sendStatusEvent(const string &url, StreamStatus status, StreamEncParam& details);
+    void sendStatusEvent(const std::string &url, StreamStatus status, StreamEncParam& details);
     void removeStream(std::shared_ptr<StreamInfo> stream);
-    void removeStream(const string& stream_id);
+    void removeStream(const std::string& stream_id);
     void addStream(std::shared_ptr<StreamInfo> stream);
-    void addStream(vector<std::shared_ptr<StreamInfo>> streams);
-    void enableTcpStreaming(const string& uri);
-    std::vector<shared_ptr<IMediaDataConsumer>> getConsumers(const string& url);
+    void addStream(std::vector<std::shared_ptr<StreamInfo>> streams);
+    void enableTcpStreaming(const std::string& uri);
+    std::vector<std::shared_ptr<IMediaDataConsumer>> getConsumers(const std::string& url);
     void getQosInfo(Json::Value &response);
     std::string getUriName(const std::string &url);
     std::shared_ptr<StreamInfo> getStreamInfoForUrl(const std::string &url);
-    std::map<string, media_info, std::less<>> getSupportedSubSessions(const std::string& url);
-    shared_ptr<StreamInfo> getStreamInfo(const std::string &url, bool isProxyUrl);
+    std::map<std::string, media_info, std::less<>> getSupportedSubSessions(const std::string& url);
+    std::shared_ptr<StreamInfo> getStreamInfo(const std::string &url, bool isProxyUrl);
 
     class UrlInfo
     {
         public:
-            string m_url;
-            string m_devName;
-            string m_streamId;
+            std::string m_url;
+            std::string m_devName;
+            std::string m_streamId;
             unsigned m_frameRate;
             bool m_isMainStream;
-            string m_livenessUrl;
+            std::string m_livenessUrl;
             bool m_rtspUrlReachable;
     };
 
@@ -155,7 +154,7 @@ private:
 
     bool m_enableQoS = false;
     SyncObject m_qosThreadSync = {};
-    std::map<std::string, std::vector<shared_ptr<IMediaDataConsumer>>, std::less<>> m_streamConsumers;
+    std::map<std::string, std::vector<std::shared_ptr<IMediaDataConsumer>>, std::less<>> m_streamConsumers;
     mutable std::mutex  m_streamConsumerLock;
 
     // Private member functions declarations
@@ -172,8 +171,8 @@ private:
     void qosMeasurementTask();
     void cleanupQoSThread();
     void restartQoSMonitoringTask();
-    bool isRtspSourceDestroyed(const string& url);
-    void waitForCompleteRemoval(const string& url);
+    bool isRtspSourceDestroyed(const std::string& url);
+    void waitForCompleteRemoval(const std::string& url);
 
     std::vector<StreamMonitor::UrlInfo> m_qosMonitorList;
     std::mutex  m_qosMonitorListMutex;

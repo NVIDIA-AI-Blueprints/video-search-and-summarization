@@ -257,6 +257,8 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+      # Alias the mc ready local healthcheck needs, or reid-milvus never starts.
+      MC_HOST_local: http://localhost:9000
     command: ["server", "/data", "--console-address", ":9001", "--address", ":9000"]
     volumes:
       - reid-minio-data:/data
@@ -298,7 +300,7 @@ services:
       start_period: 90s
 
   reid-embed:
-    image: ${REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${REID_EMBED_TAG:-3.3.0-26.09.2}
+    image: ${REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${REID_EMBED_TAG:-3.3.0-26.09.3}
     container_name: vss-reid-embed-rtcv
     profiles: ["reid"]
     network_mode: host

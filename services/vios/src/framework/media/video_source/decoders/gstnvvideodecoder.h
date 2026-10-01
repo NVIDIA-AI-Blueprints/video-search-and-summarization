@@ -136,8 +136,8 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         void setDecoderStride(int stride_y, int stride_u, int stride_v) override;
 
         bool play();
-        void registerDecoderPlayingStatusListener(IStreamStatusEvent *listener);
-        void deregisterDecoderPlayingStatusListener(IStreamStatusEvent *listener);
+        void registerDecoderPlayingStatusListener(nv_vms::IStreamStatusEvent *listener);
+        void deregisterDecoderPlayingStatusListener(nv_vms::IStreamStatusEvent *listener);
         int createSwDecodePipeline ();
         void setQuality(const std::string&, const std::string& quality);
         void setQuality(const std::string&, const std::string& quality, int width, int height);
@@ -154,8 +154,8 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         unsigned int getPort() { return m_port; }
 
         void getStats(const std::string& peerid, LatencyStats& stats);
-        VmsErrorCode controlStream (const std::string& action, const std::string& speed);
-        VmsErrorCode update (std::string action = "", std::string speed = "", bool eos = 0);
+        nv_vms::VmsErrorCode controlStream (const std::string& action, const std::string& speed);
+        nv_vms::VmsErrorCode update (std::string action = "", std::string speed = "", bool eos = 0);
         bool setFileAndUpdatePipelineState (bool first_time = false);
         gint64 getNextFile ();
         GstFlowReturn processNewSampleFromSink(GstElement * appsink);
@@ -201,7 +201,7 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         ** pipeline seek (which does not apply to a live RTSP/appsrc source), flush
         ** the appsrc and re-PLAY the same RTSP session at the new absolute time
         ** (RTSP Range) via the producer. */
-        VmsErrorCode seekMmsVodPlayback(const std::string& action, const std::string& seek_value);
+        nv_vms::VmsErrorCode seekMmsVodPlayback(const std::string& action, const std::string& seek_value);
         uint64_t getLastTS();
         int64_t getFileStartTime();
         uint32_t getDurationStream();
@@ -235,11 +235,11 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
             std::lock_guard<std::mutex> lock(m_videoSinkLock);
             return m_videoSinkList.size();
         }
-        std::vector<VideoFileInfo> getActiveFileList() { return m_fileNameArray; }
+        std::vector<nv_vms::VideoFileInfo> getActiveFileList() { return m_fileNameArray; }
 #ifdef UNIT_TEST
         void setPeerid(const string& peer_id);
         uint32_t getCurrentFileNumber();
-        std::vector<VideoFileInfo> getFileInfo();
+        std::vector<nv_vms::VideoFileInfo> getFileInfo();
 #endif
 
         //IVideoDataConsumer virtual function
@@ -274,9 +274,9 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         bool isCloudStorageEnabled() const { return m_cloudStorageEnabled && m_unifiedStorageReader != nullptr; }
 
         // Cloud storage configuration getters
-        std::string getCloudType() const { return m_storageConfig.getParameter(StorageConstants::CLOUD_TYPE_KEY, ""); }
-        std::string getCloudEndpoint() const { return m_storageConfig.getParameter(StorageConstants::ENDPOINT_KEY, ""); }
-        std::string getCloudBucket() const { return m_storageConfig.getParameter(StorageConstants::BUCKET_NAME_KEY, ""); }
+        std::string getCloudType() const { return m_storageConfig.getParameter(nv_vms::StorageConstants::CLOUD_TYPE_KEY, ""); }
+        std::string getCloudEndpoint() const { return m_storageConfig.getParameter(nv_vms::StorageConstants::ENDPOINT_KEY, ""); }
+        std::string getCloudBucket() const { return m_storageConfig.getParameter(nv_vms::StorageConstants::BUCKET_NAME_KEY, ""); }
     private:
         std::map<std::string, std::shared_ptr<VideoSinkInfo>, std::less<>> m_videoSinkList;
         std::string             m_uri;
@@ -324,7 +324,7 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         int                     m_playBackSpeed;
         gint64                  m_position_forward;
         gint64                  m_position_rewind;
-        std::vector<VideoFileInfo> m_fileNameArray;
+        std::vector<nv_vms::VideoFileInfo> m_fileNameArray;
         std::string              m_startTime;
         std::string              m_endTime;
         gint64                   m_position;
@@ -399,7 +399,7 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         int64_t                 m_fileStartTime{0};
         bool                    m_continuosPlayback = false;
         std::time_t             m_lastDRCTime {0};
-        std::set<IStreamStatusEvent*> m_listeners;
+        std::set<nv_vms::IStreamStatusEvent*> m_listeners;
         std::mutex                    m_listenerMutex;
         bool                    m_isOverlay = false;
         GstPad*                 m_teeSrcAppsink = nullptr;
@@ -438,7 +438,7 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
         
         // Unified storage reader for cloud storage access
         std::shared_ptr<nv_vms::UnifiedStorageReader> m_unifiedStorageReader = nullptr;
-        StorageConfig m_storageConfig;
+        nv_vms::StorageConfig m_storageConfig;
         std::string m_asyncDownloadSessionId; // Store async download session ID
 
         // Producer reference for data source

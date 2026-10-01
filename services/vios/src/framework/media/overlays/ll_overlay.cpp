@@ -22,6 +22,9 @@
 #include "LiveMetadataStore.h"
 #include "ElasticMetadataStore.h"
 
+using namespace std;
+using namespace nv_vms;
+
 
 NvLLOverlay::NvLLOverlay (const std::string& consumer_name, const std::string& uri, const std::map<std::string, std::string, std::less<>> &opts) : IMediaDataConsumer(consumer_name)
 {

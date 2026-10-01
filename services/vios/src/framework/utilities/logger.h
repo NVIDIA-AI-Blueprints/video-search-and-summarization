@@ -51,7 +51,6 @@ const std::string magenta("\033[0;35m");
 const std::string reset("\033[0m");
 const std::string none("");
 
-using namespace std;
 
 namespace nv_logger {
 
@@ -73,6 +72,11 @@ struct CoutToString
     {
         std::cout.rdbuf( old );
     }
+
+    CoutToString(const CoutToString&) = delete;
+    CoutToString& operator=(const CoutToString&) = delete;
+    CoutToString(CoutToString&&) = delete;
+    CoutToString& operator=(CoutToString&&) = delete;
 
 private:
     std::streambuf * old;
@@ -220,7 +224,7 @@ class Logger {
             return *this;
         }
 
-        Logger& log(Level n, const string functionName, const string fileName, const int lineNumber )
+        Logger& log(Level n, const std::string functionName, const std::string fileName, const int lineNumber )
         {
 #ifdef ENABLE_LOG
             m_debugLevel = n;
@@ -261,14 +265,14 @@ class Logger {
             return m_logStream.str();
         }
 #endif
-        void log_qos(string text)
+        void log_qos(std::string text)
         {
             m_qosStream << text;
             m_qosStream.flush();
         }
 
         template <typename... Args>
-        void log_qos(string format, Args... args)
+        void log_qos(std::string format, Args... args)
         {
             const int max_len = VA_ARG_MAX_BUFFER_LENGTH;
             char buffer[max_len] = { 0 };
@@ -284,7 +288,7 @@ class Logger {
             else if (written < 0)
             {
                 buffer[0] = '\0';  // Handle encoding error
-                LOG(error) << "Error in snprintf" << endl;
+                LOG(error) << "Error in snprintf" << std::endl;
             }
 
             m_qosStream << buffer;
@@ -292,7 +296,7 @@ class Logger {
         }
 
         template <typename... Args>
-        void log_color(string color, string format, Args... args)
+        void log_color(std::string color, std::string format, Args... args)
         {
             const int max_len = VA_ARG_MAX_BUFFER_LENGTH;
             char buffer[max_len] = { 0 };
@@ -316,7 +320,7 @@ class Logger {
             else if (written < 0)
             {
                 buffer[0] = '\0';  // Handle encoding error
-                LOG(error) << "Error in vsnprintf" << endl;
+                LOG(error) << "Error in vsnprintf" << std::endl;
             }
 
             if (m_enableFileLog)
@@ -328,11 +332,11 @@ class Logger {
             {
                 if (GET_CONFIG().enable_highlighting_logs)
                 {
-                    std::cout << color << buffer << reset << endl;
+                    std::cout << color << buffer << reset << std::endl;
                 }
                 else
                 {
-                    std::cout << buffer << endl;
+                    std::cout << buffer << std::endl;
                 }
             }
         }

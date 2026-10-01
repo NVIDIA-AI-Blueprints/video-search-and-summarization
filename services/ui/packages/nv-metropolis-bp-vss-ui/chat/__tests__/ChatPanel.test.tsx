@@ -8,10 +8,16 @@
  * point here is the panel, not the persistence (covered in conversations.test).
  */
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { copyToClipboard } from 'common';
 import React from 'react';
 
 import { ChatPanel } from '../lib-src/ChatPanel';
 import { VssUiArtifact } from '../lib-src/markdown/components';
+
+jest.mock('common', () => ({
+  ...jest.requireActual('common'),
+  copyToClipboard: jest.fn().mockResolvedValue(true),
+}));
 
 jest.mock('../lib-src/storage', () => ({
   initConversationSessionLifecycle: jest.fn(),
@@ -103,6 +109,95 @@ describe('ChatPanel', () => {
     // Rendered as markdown, not as literal asterisks.
     expect(screen.getByText('bold').tagName).toBe('STRONG');
     expect(screen.getByTestId('chat-message-user')).toHaveTextContent('what happened?');
+  });
+
+  it.each([
+    { mediaProxyUrl: '/api/proxy', mediaPrefix: '/api/proxy' },
+    { mediaProxyUrl: '/api/proxy///', mediaPrefix: '/api/proxy' },
+    { mediaProxyUrl: undefined, mediaPrefix: '' },
+  ])('opens NemoClaw Search media links with proxy $mediaProxyUrl', async ({ mediaProxyUrl, mediaPrefix }) => {
+    const internal = 'http://host.openshell.internal:7777';
+    const mediaPath = '/vst/api/v1/replay/stream/stream-1/picture?startTime=2026-09-29T12%3A00%3A00Z';
+    const answer = [
+      `[Media](${internal}${mediaPath})`,
+      `[Frame](${internal}/vst/storage/frame.jpg?token=one)`,
+      `Frame URL: ${internal}${mediaPath}`,
+      '[Docs](https://example.com/vst/help)',
+    ].join('\n\n');
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          run_id: 'run_1',
+          events_url: '/api/agent/runs/run_1/events',
+          cancel_url: '/api/agent/runs/run_1/cancel',
+        }),
+      })
+      .mockResolvedValueOnce(sseResponse([
+        agentApiFrame('run.started', {}, 1),
+        agentApiFrame('message.delta', { delta: answer }, 2),
+        agentApiFrame('run.completed', {}, 3),
+      ]));
+    global.fetch = fetchMock as any;
+
+    render(
+      <ChatPanel
+        endpoint={{
+          url: '/api/agent',
+          transport: 'agent-api',
+          conversationId: 'thread_1',
+          mediaProxyUrl,
+        }}
+        features={noHeader}
+      />,
+    );
+    await act(async () => typeAndSend('Find forklifts'));
+
+    const media = await screen.findByRole('link', { name: 'Media' });
+    expect(media).toHaveAttribute('href', `${mediaPrefix}${mediaPath}`);
+    expect(screen.getByRole('link', { name: 'Frame' })).toHaveAttribute(
+      'href', `${mediaPrefix}/vst/storage/frame.jpg?token=one`,
+    );
+    expect(screen.getByRole('link', { name: 'Docs' })).toHaveAttribute(
+      'href', 'https://example.com/vst/help',
+    );
+    expect(screen.getByRole('link', { name: `${mediaPrefix}${mediaPath}` })).toHaveAttribute(
+      'href', `${mediaPrefix}${mediaPath}`,
+    );
+    expect(screen.getByTestId('chat-message-assistant')).not.toHaveTextContent('host.openshell.internal');
+  });
+
+  it('preserves literal OpenShell URLs in code while rebasing rendered media', async () => {
+    const mediaPath = '/vst/api/v1/replay/stream/stream-1/picture?startTime=2026-09-29T12%3A00%3A00Z';
+    const url = `http://host.openshell.internal:7777${mediaPath}`;
+    const command = `curl '${url}'`;
+    const answer = [
+      `Inline command URL: \`${url}\``,
+      `\`\`\`bash\n${command}\n\`\`\``,
+      `[Media](${url})`,
+      `<a href="${url}">HTML media</a>`,
+      `<img src="${url}" srcset="${url} 1x, ${url}&scale=2 2x, https://example.com/frame.jpg 3x" alt="Forklift frame" title="${url}" />`,
+    ].join('\n\n');
+    global.fetch = jest.fn().mockResolvedValue(sseResponse([
+      `data: ${JSON.stringify({ choices: [{ delta: { content: answer } }] })}\n\n`,
+      'data: [DONE]\n\n',
+    ])) as any;
+
+    render(<ChatPanel endpoint={{ ...endpoint, mediaProxyUrl: '/api/proxy' }} features={noHeader} />);
+    await act(async () => typeAndSend('Show the frame and a command to fetch it'));
+
+    expect(await screen.findByText(url, { selector: 'code' })).toBeInTheDocument();
+    expect(screen.getByText(command, { selector: 'code' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Media' })).toHaveAttribute('href', `/api/proxy${mediaPath}`);
+    expect(screen.getByRole('link', { name: 'HTML media' })).toHaveAttribute('href', `/api/proxy${mediaPath}`);
+    expect(screen.getByRole('img', { name: 'Forklift frame' })).toHaveAttribute('src', `/api/proxy${mediaPath}`);
+    expect(screen.getByRole('img', { name: 'Forklift frame' })).toHaveAttribute(
+      'srcset', `/api/proxy${mediaPath} 1x, /api/proxy${mediaPath}&scale=2 2x, https://example.com/frame.jpg 3x`,
+    );
+    expect(screen.getByRole('img', { name: 'Forklift frame' })).toHaveAttribute('title', `/api/proxy${mediaPath}`);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalledWith(command));
   });
 
   it('keeps earlier conversations visible and selectable after starting a new chat', async () => {

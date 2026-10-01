@@ -149,6 +149,13 @@ source to prove the stack works is not a readiness check.
 
 ## Stop
 
+A harnessed build starts with
+[`teardown.md`](teardown.md#nemoclaw-harness--before-compose) instead — the
+harness is outside the Compose project, and stopping the build first leaves it
+pointed at a dead origin. That covers a build holding a `sandbox` file and an
+older one that carries only `nemoclaw-setup.log`; that section resolves the
+name from either.
+
 Clean the complete Compose project (`COMPOSE_PROJECT_NAME`, default `vss`) and its named volumes by default:
 
 ```bash

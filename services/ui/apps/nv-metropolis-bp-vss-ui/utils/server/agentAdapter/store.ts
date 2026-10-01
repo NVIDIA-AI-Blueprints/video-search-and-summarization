@@ -59,7 +59,8 @@ export class RunRecord {
     private readonly onRetainedCharsChanged: (
       record: RunRecord,
       delta: number
-    ) => void
+    ) => void,
+    readonly ownerFingerprint?: string
   ) {}
 
   get terminal(): boolean {
@@ -180,13 +181,24 @@ export class RunStore {
     private readonly maxRetainedChars: number
   ) {}
 
+  hasActiveRunsForOwner(ownerFingerprint: string): boolean {
+    return [...this.runs.values()].some(
+      (record) => record.ownerFingerprint === ownerFingerprint && !record.terminal
+    );
+  }
+
+  private scopedKey(ownerFingerprint: string | undefined, key: string): string {
+    return ownerFingerprint ? `${ownerFingerprint}\0${key}` : key;
+  }
+
   private remove(runId: string): void {
     const run = this.runs.get(runId);
     if (!run) return;
     this.runs.delete(runId);
     this.retainedChars -= run.retainedChars;
-    if (this.activeThreads.get(run.request.threadId) === runId) {
-      this.activeThreads.delete(run.request.threadId);
+    const threadKey = this.scopedKey(run.ownerFingerprint, run.request.threadId);
+    if (this.activeThreads.get(threadKey) === runId) {
+      this.activeThreads.delete(threadKey);
     }
     for (const [key, record] of this.idempotency) {
       if (record.runId === runId) this.idempotency.delete(key);
@@ -220,13 +232,16 @@ export class RunStore {
 
   create(
     request: CreateRunRequest,
-    idempotencyKey?: string
+    idempotencyKey?: string,
+    ownerFingerprint?: string
   ): { record: RunRecord; replayed: boolean } {
     const key = validateIdempotencyKey(idempotencyKey);
+    const scopedIdempotencyKey = key ? this.scopedKey(ownerFingerprint, key) : undefined;
+    const threadKey = this.scopedKey(ownerFingerprint, request.threadId);
     const digest = requestDigest(request);
     this.cleanup();
-    if (key) {
-      const existing = this.idempotency.get(key);
+    if (scopedIdempotencyKey) {
+      const existing = this.idempotency.get(scopedIdempotencyKey);
       if (existing) {
         if (existing.digest !== digest) {
           throw new IdempotencyConflictError(
@@ -237,7 +252,7 @@ export class RunStore {
         if (record) return { record, replayed: true };
       }
     }
-    const activeRunId = this.activeThreads.get(request.threadId);
+    const activeRunId = this.activeThreads.get(threadKey);
     if (activeRunId) throw new ThreadBusyError(activeRunId);
     const runId = `run_${randomBytes(18).toString("base64url")}`;
     const requestRetainedChars = JSON.stringify({
@@ -253,12 +268,16 @@ export class RunStore {
       requestRetainedChars,
       this.maxEventsPerRun,
       this.maxEventCharsPerRun,
-      (changedRecord, delta) => this.updateRetainedChars(changedRecord, delta)
+      (changedRecord, delta) => this.updateRetainedChars(changedRecord, delta),
+      ownerFingerprint
     );
     while (
       this.runs.size >= this.maxRuns ||
       this.retainedChars + record.retainedChars > this.maxRetainedChars
     ) {
+      // Replay retention is best effort under the global capacity limit.
+      // Evict only completed runs so a valid token can start new work without
+      // interrupting any active run.
       const terminal = this.oldestTerminal();
       if (!terminal) {
         throw new StoreCapacityError(
@@ -271,15 +290,15 @@ export class RunStore {
     }
     this.runs.set(runId, record);
     this.retainedChars += record.retainedChars;
-    this.activeThreads.set(request.threadId, runId);
-    if (key) this.idempotency.set(key, { digest, runId });
+    this.activeThreads.set(threadKey, runId);
+    if (scopedIdempotencyKey) this.idempotency.set(scopedIdempotencyKey, { digest, runId });
     return { record, replayed: false };
   }
 
-  get(runId: string): RunRecord {
+  get(runId: string, ownerFingerprint?: string): RunRecord {
     this.cleanup();
     const record = this.runs.get(runId);
-    if (!record) throw new RunNotFoundError(runId);
+    if (!record || record.ownerFingerprint !== ownerFingerprint) throw new RunNotFoundError(runId);
     return record;
   }
 
@@ -294,8 +313,9 @@ export class RunStore {
       if (terminal) return terminal;
     }
     const event = record.append(type, data);
-    if (this.activeThreads.get(record.request.threadId) === record.runId) {
-      this.activeThreads.delete(record.request.threadId);
+    const threadKey = this.scopedKey(record.ownerFingerprint, record.request.threadId);
+    if (this.activeThreads.get(threadKey) === record.runId) {
+      this.activeThreads.delete(threadKey);
     }
     return event;
   }

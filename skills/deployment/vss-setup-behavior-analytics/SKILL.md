@@ -4,7 +4,7 @@ description: Use this skill to deploy the vss-behavior-analytics service standal
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
-  version: "3.3.0"
+  version: "3.3.0-rc0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational deployment behavior-analytics"
 ---

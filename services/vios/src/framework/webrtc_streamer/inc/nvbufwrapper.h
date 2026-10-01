@@ -38,7 +38,7 @@
 
 #define DL_ERROR_EXIT  { char *dlsym_error = dlerror(); \
                             if (dlsym_error) { \
-                            LOG(error) << "Cannot load symbol " <<  dlsym_error << endl; \
+                            LOG(error) << "Cannot load symbol " <<  dlsym_error << std::endl; \
                             goto close_dl; } }
 
 typedef int (*NvBufSurfaceCopy_t) (NvBufSurface *, NvBufSurface *);
@@ -107,17 +107,17 @@ class NvBufWrapper
             , NvBufSurfaceSyncForCpu(nullptr)
             , NvBufSurfaceUnMap(nullptr)
         {
-            LOG(info) << __func__ << endl;
+            LOG(info) << __func__ << std::endl;
             // Calling getInstance first, for correct prints
             NvHwDetection::getInstance();
             LOG (info) << "m_useNvV4l2Enc:" << NvHwDetection::getInstance()->m_useNvV4l2Enc <<
-                        ", m_useNvV4l2Dec:" << NvHwDetection::getInstance()->m_useNvV4l2Dec << endl;
+                        ", m_useNvV4l2Dec:" << NvHwDetection::getInstance()->m_useNvV4l2Dec << std::endl;
 
             if (NvHwDetection::getInstance()->m_useNvV4l2Enc == false &&
                 NvHwDetection::getInstance()->m_useNvV4l2Dec == false)
             {
                 m_nvBufferMode = NvBufferModeSoftware;
-                LOG(info) << "Nv Buffer format: " << m_nvBufferMode << endl;
+                LOG(info) << "Nv Buffer format: " << m_nvBufferMode << std::endl;
                 return;
             }
 
@@ -179,11 +179,11 @@ class NvBufWrapper
             {
                 goto close_dl;
             }
-            LOG(info) << "Nv Buffer format: " << m_nvBufferMode << endl;
+            LOG(info) << "Nv Buffer format: " << m_nvBufferMode << std::endl;
             return;
 
         close_dl:
-                LOG(error) << "Error loading the plugins, default buffer format: " << m_nvBufferMode << endl;
+                LOG(error) << "Error loading the plugins, default buffer format: " << m_nvBufferMode << std::endl;
                 if (handle_nvbufsurface_utils)  dlCloseLibrary(handle_nvbufsurface_utils);
                 if (handle_nvbufsurfacetransform_utils)  dlCloseLibrary(handle_nvbufsurfacetransform_utils);
                 throw std::runtime_error("An exception occurred, error loading the NvBuf libraries");
@@ -191,10 +191,15 @@ class NvBufWrapper
 
         ~NvBufWrapper()
         {
-            LOG(info) << "Destructor NvBufWrapper::~NvBufWrapper" << endl;
+            LOG(info) << "Destructor NvBufWrapper::~NvBufWrapper" << std::endl;
             if (handle_nvbufsurface_utils)  dlCloseLibrary(handle_nvbufsurface_utils);
             if (handle_nvbufsurfacetransform_utils)  dlCloseLibrary(handle_nvbufsurfacetransform_utils);
         }
+
+        NvBufWrapper(const NvBufWrapper&) = delete;
+        NvBufWrapper& operator=(const NvBufWrapper&) = delete;
+        NvBufWrapper(NvBufWrapper&&) = delete;
+        NvBufWrapper& operator=(NvBufWrapper&&) = delete;
 
         int getFDAndDoTransformIfNeeded(InputBufferType &buffer_type, uint32_t sourceWidth, uint32_t sourceHeight,
                                 uint32_t targetWidth, uint32_t targetHeight,
@@ -269,19 +274,19 @@ class NvBufWrapper
                 input_params.params.colorFormat = NVBUF_COLOR_FORMAT_YUV420;
                 if (isJetsonPlatform() && isCudaDeviceMemoryEnabled())
                 {
-                    LOG(info) << "Using CUDA Device memory" << endl;
+                    LOG(info) << "Using CUDA Device memory" << std::endl;
                     input_params.params.memType     = NVBUF_MEM_CUDA_DEVICE;
                 }
                 else
                 {
-                    LOG(info) << "Using Default memory" << endl;
+                    LOG(info) << "Using Default memory" << std::endl;
                     input_params.params.memType     = NVBUF_MEM_DEFAULT;
                 }
                 input_params.memtag             = NvBufSurfaceTag_VIDEO_CONVERT;
                 int ret = NvBufSurfaceAllocate(&hw_surf, 1, &input_params);
                 if (ret != 0)
                 {
-                    LOG(error) << "NvBufSurfaceAllocate failed" << endl;
+                    LOG(error) << "NvBufSurfaceAllocate failed" << std::endl;
                     ret = -1;
                     return ret;
                 }
@@ -290,7 +295,7 @@ class NvBufWrapper
                 if (ret != 0)
                 {
                     NvBufSurfaceDestroy(hw_surf);
-                    LOG(error) << "NvBufSurfaceCopy failed" << endl;
+                    LOG(error) << "NvBufSurfaceCopy failed" << std::endl;
                     ret = -1;
                     return ret;
                 }
@@ -308,12 +313,12 @@ class NvBufWrapper
                     input_params.params.colorFormat = NVBUF_COLOR_FORMAT_NV12;
                     if (isJetsonPlatform() && isCudaDeviceMemoryEnabled())
                     {
-                        LOG(info) << "Using CUDA Device memory" << endl;
+                        LOG(info) << "Using CUDA Device memory" << std::endl;
                         input_params.params.memType     = NVBUF_MEM_CUDA_DEVICE;
                     }
                     else
                     {
-                        LOG(info) << "Using Default memory" << endl;
+                        LOG(info) << "Using Default memory" << std::endl;
                         input_params.params.memType     = NVBUF_MEM_DEFAULT;
                     }
                     input_params.memtag             = NvBufSurfaceTag_VIDEO_CONVERT;
@@ -321,7 +326,7 @@ class NvBufWrapper
                     if (ret != 0)
                     {
                         NvBufSurfaceDestroy(hw_surf);
-                        LOG(error) << "NvBufSurfaceAllocate1 failed" << endl;
+                        LOG(error) << "NvBufSurfaceAllocate1 failed" << std::endl;
                         ret = -1;
                         return ret;
                     }
@@ -335,7 +340,7 @@ class NvBufWrapper
                         status = NvBufSurfaceFromFd (*fd, &op_surf);
                         if (status < 0)
                         {
-                            LOG(error) << "Failed to get surface from fd =" << *fd << endl;
+                            LOG(error) << "Failed to get surface from fd =" << *fd << std::endl;
                             NvBufSurfaceDestroy(hw_surf);
                             NvBufSurfaceDestroy(op_surf);
                             ret = -1;
@@ -369,7 +374,7 @@ class NvBufWrapper
                 NvBufSurfTransform_Error transform_error = NvBufSurfTransform (hw_surf, op_surf, &transform_params);
                 if (transform_error != NvBufSurfTransformError_Success)
                 {
-                    LOG(error) << "Failed to Transform" << endl;
+                    LOG(error) << "Failed to Transform" << std::endl;
                     NvBufSurfaceDestroy(hw_surf);
                     NvBufSurfaceDestroy(op_surf);
                     ret = -1;
@@ -453,12 +458,12 @@ class NvBufWrapper
                         buf_params.height      = targetHeight;
                         if (isJetsonPlatform() && isCudaDeviceMemoryEnabled())
                         {
-                            LOG(info) << "Using CUDA Device memory" << endl;
+                            LOG(info) << "Using CUDA Device memory" << std::endl;
                             buf_params.memType     = NVBUF_MEM_CUDA_DEVICE;
                         }
                         else
                         {
-                            LOG(info) << "Using Default memory" << endl;
+                            LOG(info) << "Using Default memory" << std::endl;
                             buf_params.memType     = NVBUF_MEM_DEFAULT;
                         }
                         buf_params.colorFormat = NVBUF_COLOR_FORMAT_NV12;
@@ -466,7 +471,7 @@ class NvBufWrapper
                         int status = NvBufSurfaceCreate(&op_surf, 1, &buf_params);
                         if (status < 0)
                         {
-                            LOG(error) << "Failed to create surface" << endl;
+                            LOG(error) << "Failed to create surface" << std::endl;
                             ret = -1;
                             return ret;
                         }
@@ -478,7 +483,7 @@ class NvBufWrapper
                         int status = NvBufSurfaceFromFd (buffer_type.m_inputFD, &ip_surf);
                         if (status < 0)
                         {
-                            LOG(error) << "Failed to get surface from fd =" << *fd << endl;
+                            LOG(error) << "Failed to get surface from fd =" << *fd << std::endl;
                             ret = -1;
                             return ret;
                         }
@@ -487,7 +492,7 @@ class NvBufWrapper
                             status = NvBufSurfaceFromFd (*fd, &op_surf);
                             if (status < 0)
                             {
-                                LOG(error) << "Failed to get surface from fd =" << *fd << endl;
+                                LOG(error) << "Failed to get surface from fd =" << *fd << std::endl;
                                 ret = -1;
                                 return ret;
                             }
@@ -501,7 +506,7 @@ class NvBufWrapper
                             status = NvBufSurfaceFromFd (*fd, &op_surf);
                             if (status < 0)
                             {
-                                LOG(error) << "Failed to get surface from fd =" << *fd << endl;
+                                LOG(error) << "Failed to get surface from fd =" << *fd << std::endl;
                                 ret = -1;
                                 return ret;
                             }
@@ -527,11 +532,11 @@ class NvBufWrapper
                     NvBufSurfTransform_Error transform_error = NvBufSurfTransform ((NvBufSurface*)ip_surf, op_surf, &transform_params);
                     if (transform_error != NvBufSurfTransformError_Success)
                     {
-                        LOG(error) << "Failed to Transform" << endl;
+                        LOG(error) << "Failed to Transform" << std::endl;
                         int status = NvBufSurfaceDestroy(op_surf);
                         if (status < 0)
                         {
-                            LOG(error) << "Failed to destroy surface" << endl;
+                            LOG(error) << "Failed to destroy surface" << std::endl;
                         }
                         ret = -1;
                         return ret;
@@ -559,7 +564,7 @@ class NvBufWrapper
             }
             else
             {
-                LOG(error) << "Wrong buffer format" << endl;
+                LOG(error) << "Wrong buffer format" << std::endl;
                 ret = -1;
             }
             return ret;
@@ -579,7 +584,7 @@ class NvBufWrapper
         {
             if (!NvBufSurfaceFromFd || !NvBufSurfaceDestroy)
             {
-                LOG(error) << "NvBufSurface functions not loaded" << endl;
+                LOG(error) << "NvBufSurface functions not loaded" << std::endl;
                 return;
             }
             NvBufSurface *nvbuf_surf = nullptr;
@@ -587,14 +592,14 @@ class NvBufWrapper
             status = NvBufSurfaceFromFd (fd, &nvbuf_surf);
             if (status < 0)
             {
-                LOG(error) << "Failed to get surface from fd =" << fd << endl;
+                LOG(error) << "Failed to get surface from fd =" << fd << std::endl;
             }
             else
             {
                 status = NvBufSurfaceDestroy(nvbuf_surf);
                 if (status < 0)
                 {
-                    LOG(error) << "Failed to destroy surface" << endl;
+                    LOG(error) << "Failed to destroy surface" << std::endl;
                 }
             }
         }
@@ -603,7 +608,7 @@ class NvBufWrapper
         {
             if (!NvBufSurfaceFromFd || !NvBufSurfaceUnMap)
             {
-                LOG(error) << "NvBufSurface functions not loaded" << endl;
+                LOG(error) << "NvBufSurface functions not loaded" << std::endl;
                 return -1;
             }
             NvBufSurface *nvbuf_surf = nullptr;
@@ -613,7 +618,7 @@ class NvBufWrapper
             status = NvBufSurfaceFromFd(fd, &nvbuf_surf);
             if (status < 0)
             {
-                LOG(error) << "Failed to fetch surface from fd =" << fd << endl;
+                LOG(error) << "Failed to fetch surface from fd =" << fd << std::endl;
                 return -1;
             }
             if (nvbuf_surf->memType != NVBUF_MEM_CUDA_DEVICE)
@@ -623,7 +628,7 @@ class NvBufWrapper
                     status = NvBufSurfaceUnMap(nvbuf_surf, 0, i);
                     if (status < 0)
                     {
-                        LOG(error) << "Failed to unmap surface" << endl;
+                        LOG(error) << "Failed to unmap surface" << std::endl;
                         return -1;
                     }
                 }
@@ -635,7 +640,7 @@ class NvBufWrapper
         {
             if (!NvBufSurfaceFromFd || !NvBufSurfaceMap)
             {
-                LOG(error) << "NvBufSurface functions not loaded" << endl;
+                LOG(error) << "NvBufSurface functions not loaded" << std::endl;
                 return -1;
             }
             NvBufSurface *nvbuf_surf = nullptr;
@@ -645,7 +650,7 @@ class NvBufWrapper
             status = NvBufSurfaceFromFd(fd, &nvbuf_surf);
             if (status < 0)
             {
-                LOG(error) << "Failed to fetch surface from fd =" << fd << endl;
+                LOG(error) << "Failed to fetch surface from fd =" << fd << std::endl;
                 return -1;
             }
             if (nvbuf_surf->memType != NVBUF_MEM_CUDA_DEVICE)
@@ -655,7 +660,7 @@ class NvBufWrapper
                     status = NvBufSurfaceMap(nvbuf_surf, 0, i, flags);
                     if (status < 0)
                     {
-                        LOG(error) << "Failed to map surface" << endl;
+                        LOG(error) << "Failed to map surface" << std::endl;
                         return -1;
                     }
                 }
@@ -667,7 +672,7 @@ class NvBufWrapper
         {
             if (!NvBufSurfaceFromFd)
             {
-                LOG(error) << "NvBufSurfaceFromFd not loaded" << endl;
+                LOG(error) << "NvBufSurfaceFromFd not loaded" << std::endl;
                 return nullptr;
             }
             NvBufSurface *nvbuf_surf = nullptr;
@@ -675,7 +680,7 @@ class NvBufWrapper
             status = NvBufSurfaceFromFd(fd, &nvbuf_surf);
             if (status < 0)
             {
-                LOG(error) << "Failed to get surface from fd =" << fd << endl;
+                LOG(error) << "Failed to get surface from fd =" << fd << std::endl;
                 return nullptr;
             }
             return static_cast<unsigned char *>(nvbuf_surf->surfaceList[0].mappedAddr.addr[plane]);
@@ -685,7 +690,7 @@ class NvBufWrapper
         {
             if (!NvBufSurfaceFromFd)
             {
-                LOG(error) << "NvBufSurfaceFromFd not loaded" << endl;
+                LOG(error) << "NvBufSurfaceFromFd not loaded" << std::endl;
                 return nullptr;
             }
             NvBufSurface *nvbuf_surf = nullptr;
@@ -693,7 +698,7 @@ class NvBufWrapper
             status = NvBufSurfaceFromFd (fd, &nvbuf_surf);
             if (status < 0)
             {
-                LOG(error) << "Failed to get surface from fd =" << fd << endl;
+                LOG(error) << "Failed to get surface from fd =" << fd << std::endl;
                 return nullptr;
             }
             else
@@ -706,7 +711,7 @@ class NvBufWrapper
         {
             if (!NvBufSurfaceFromFd)
             {
-                LOG(error) << "NvBufSurfaceFromFd not loaded" << endl;
+                LOG(error) << "NvBufSurfaceFromFd not loaded" << std::endl;
                 return nullptr;
             }
             NvBufSurface *nvbuf_surf = nullptr;
@@ -714,7 +719,7 @@ class NvBufWrapper
             status = NvBufSurfaceFromFd (fd, &nvbuf_surf);
             if (status < 0)
             {
-                LOG(error) << "Failed to get surface from fd =" << fd << endl;
+                LOG(error) << "Failed to get surface from fd =" << fd << std::endl;
                 return nullptr;
             }
             else
@@ -727,13 +732,13 @@ class NvBufWrapper
         {
             if (!NvBufSurfaceCreate)
             {
-                LOG(error) << "NvBufSurfaceCreate not loaded" << endl;
+                LOG(error) << "NvBufSurfaceCreate not loaded" << std::endl;
                 return -1;
             }
             int status = NvBufSurfaceCreate(surf, 1, params);
             if (status < 0)
             {
-                LOG(error) << "Failed to create surface" << endl;
+                LOG(error) << "Failed to create surface" << std::endl;
                 return -1;
             }
             return 0;
@@ -775,7 +780,7 @@ class NvBufWrapper
             int status = NvBufWrapper::getInstance()->createSurface(&blk_surface, 1, &buf_params);
             if (status < 0)
             {
-                LOG(error) << "Failed to create surface" << endl;
+                LOG(error) << "Failed to create surface" << std::endl;
             }
             blk_surface_fd = blk_surface->surfaceList->bufferDesc;                
             blk_surface->numFilled = 1;
@@ -788,7 +793,7 @@ class NvBufWrapper
             status = NvBufSurfaceFromFd (*op_fd, &op_surf);
             if (status < 0)
             {
-                LOG(error) << "Failed to get surface from fd =" << *op_fd << endl;
+                LOG(error) << "Failed to get surface from fd =" << *op_fd << std::endl;
                 *op_fd = -1;
             }
             NvBufSurfaceCopy ( blk_surface, op_surf);
@@ -1158,7 +1163,7 @@ class NvBufWrapper
             if (alloc_size > src_size)
             {
                 LOG(error) << "Buffer overflow prevented: alloc_size(" << alloc_size
-                          << ") > src_size(" << src_size << ")" << endl;
+                          << ") > src_size(" << src_size << ")" << std::endl;
                 return;  // Early return from void function
             }
             memmove(compositeParam.dst_comp_rect, &dstCompRect[0], alloc_size);
@@ -1252,13 +1257,13 @@ class NvBufWrapper
         {
             if (!sw_surf || !sw_surf->surfaceList)
             {
-                LOG(error) << "SW surface not allocated" << endl;
+                LOG(error) << "SW surface not allocated" << std::endl;
                 return -1;
             }
 
             if (!buffer)
             {
-                LOG(error) << "Webrtc I420 buffer not allocated" << endl;
+                LOG(error) << "Webrtc I420 buffer not allocated" << std::endl;
                 return -1;
             }
 

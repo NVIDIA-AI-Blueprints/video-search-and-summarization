@@ -547,11 +547,76 @@ branch name otherwise; omit `--set global.gitRef=...` to default to `develop`.
 `calibration/sample-data/` those same three links point at. Default is
 `warehouse-4cams-20mx20m-synthetic`.
 
-**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** (default
-`http://vss-video-analytics-api:8081/config/calibration`) makes behavior-analytics
-fetch calibration.json from that endpoint via an initContainer, retrying until
-it returns real data and validating it before the main container starts. Clear
-it to fall back to the bundled `files/behavior-analytics/calibration.json`.
+**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** and
+**`resourceFiles.calibration.enabled`** (both default to a live API URL /
+`true`) together control calibration:
+
+- **Default** — fetches `calibration.json` from `apiUrl` via an initContainer
+  before the app starts.
+- **Clear `apiUrl`** — skips the fetch, falls back to the bundled
+  `files/behavior-analytics/calibration.json`.
+- **Set `enabled: false`** — skips calibration entirely (no initContainer, no
+  fallback). Not viable for MV3DT: the multi-view tracker needs real camera
+  matrices to localize objects across views.
+
+#### Using a custom dataset
+
+Video source — pick one; they're mutually exclusive, don't configure both:
+
+1. **Recorded video files**, not live cameras: point
+   **`vios.vss-vios-nvstreamer.persistence.streamerVideos.hostPath`** (or an
+   equivalent PVC binding) at the video files, and set
+   **`vios.vss-vios-nvstreamer.ngcVideoSeed.enabled=false`** so the chart
+   doesn't also seed sample videos into that volume. bp-configurator's default
+   **`SENSOR_INFO_SOURCE=nvstreamer`** auto-discovers sensors from what
+   NVStreamer is serving — leave `global.cameraInfo` unset for this path. Set
+   **`vios.vss-vios-nvstreamer.syncFileCount`** to the effective stream count
+   from **Stream count** below, not the raw file count — set higher than the
+   stream cap, sync stalls instead of serving media.
+
+2. **Live RTSP streams**: set **`global.cameraInfo.enabled=true`**, which
+   flips bp-configurator to `SENSOR_INFO_SOURCE=file`. Add each camera under
+   **`global.cameraInfo.sensors`** — required: `camera_name`, `rtsp_url`;
+   optional: `group_id`, `region`. For more than a handful, use
+   **`global.cameraInfo.sensorsFile`** instead (raw JSON, takes priority over
+   `sensors` — copy `../camera_configs/camera_info.example.json` outside the
+   repo, fill in real cameras, and pass it with `--set-file`). Each
+   `rtsp_url` must be reachable from the cluster — VIOS connects to it
+   directly; test with VLC or `ffplay` from the deployment machine before
+   deploying.
+
+Calibration data has to be supplied either way:
+
+| Setting | Set | Effect |
+|---|---|---|
+| `calibration-import.calibrationFileSource` | your `calibration.json` URL | Replaces the bundled sample calibration. |
+| `calibration-import.imageMetadataFileSource` | your `imageMetadata.json` URL | Must resolve to a file with an `images[]` array, each entry carrying a `fileName`. |
+| `calibration-import.imageBaseSource` | base URL for your floor-plan images | Base URL each `fileName` above is fetched from. |
+| `calibration-import.requireCalibration` / `requireImages` | keep default `true` | A broken URL fails the Job instead of deploying with no calibration. |
+
+Each `camera_name` registered above must match the corresponding sensor name
+in `calibration.json` — the importer doesn't check this for you. This
+repoints what's uploaded to the video analytics API only — bp-configurator
+seeds its own copy from
+`deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/files/behavior-analytics/calibration.json`;
+replace that file too so it matches.
+
+Also configure, outside `global`:
+
+- **Stream count** — set `<N>` to the number of cameras/streams for whichever
+  video source you picked above (sensors under `global.cameraInfo.sensors`/
+  `sensorsFile` for RTSP, or the number of video files for the recorded-video
+  path), by running
+  `python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py --mode mv3dt --num-streams <N>`
+  (see [Scaling: NUM_STREAMS by GPU](#scaling-num_streams-by-gpu)), and set
+  `rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.batchSize`, `maxBatchSize`, and
+  `fusion.maxExpectedSensors` to match — the stream-cap script doesn't touch
+  them. Left at the default 4, sensors past the 4th are dropped silently.
+
+`global.gitRef`, `global.sampleVideoDataset`, and (by default)
+`vios.vss-vios-nvstreamer.ngcVideoSeed.dataset` only matter for the bundled
+sample dataset — irrelevant once the video and calibration sources above are
+overridden.
 
 ### 4. Post-install validation
 

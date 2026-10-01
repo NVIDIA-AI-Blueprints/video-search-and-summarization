@@ -16,9 +16,10 @@ INDUSTRY_AGENT_CONFIGS = (
     ROOT / "deploy/docker/industry-profiles/smartcities/vss-agent/configs/config.yml",
 )
 
-# The chart's top-level `version:` is the one declared release line: Helm reads
-# it, and build-dev-images.yml bakes it into every image as the version
-# GET /api/v1/version reports.
+# The chart's top-level `version:` is what Helm reads as the chart version. It
+# is not what GET /api/v1/version reports (that comes from the nearest v* git
+# tag, baked into the image), but it is published alongside, so it must still
+# be a version the contract accepts.
 AGENT_CHART = ROOT / "deploy/helm/services/agent/Chart.yaml"
 # vss_core.version.SEMVER_PATTERN, the contract the endpoint enforces. Spelled
 # out because these script tests run on a bare python3 with no VSS installed.

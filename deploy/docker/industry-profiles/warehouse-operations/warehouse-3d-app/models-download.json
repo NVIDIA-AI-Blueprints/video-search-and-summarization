@@ -1,15 +1,15 @@
 {
   "downloads": [
     {
-      "model": "nvstaging/tao/sparse4d_rn50:deployable_v3.0",
-      "org": "nvstaging",
+      "model": "nvidia/tao/sparse4d_rn50:deployable_v3.0",
+      "org": "nvidia",
       "artifact": "model",
       "sourcePath": "sparse4d_warehouse_v3.0_r50.onnx",
       "destPath": "sparse4d/sparse4d_warehouse_v3.0.onnx"
     },
     {
-      "model": "nvstaging/tao/sparse4d_rn50:deployable_v3.0",
-      "org": "nvstaging",
+      "model": "nvidia/tao/sparse4d_rn50:deployable_v3.0",
+      "org": "nvidia",
       "artifact": "anchor",
       "sourcePath": "_ov_kmeans900_v3.0_r50.npy",
       "destPath": "sparse4d/_ov_kmeans900_v3.0_r50.npy"

@@ -26,7 +26,6 @@
 #include "sensor_discovery_adaptor.h"
 #include "vms_media_interface.h"
 
-using namespace std;
 
 namespace nv_vms {
 
@@ -37,13 +36,13 @@ public:
     ~AdaptorLoader();
     std::shared_ptr<DeviceManager> loadAdaptor(ModuleId module_id = ModuleAll);
 private:
-    int loadControlAdaptorLibrary(const string& path, ISensorControlInterface** object, destroyControlObject_t* delObject);
-    int loadDiscoveryAdaptorLibrary(const string& path, ISensorDiscoveryInterface** object,
+    int loadControlAdaptorLibrary(const std::string& path, ISensorControlInterface** object, destroyControlObject_t* delObject);
+    int loadDiscoveryAdaptorLibrary(const std::string& path, ISensorDiscoveryInterface** object,
                                     destroyDiscoveryObject_t* delObject);
-    int loadSensorControlAdaptorLibrary(const string& path, ISensorControlInterface** object, void** delObject);
+    int loadSensorControlAdaptorLibrary(const std::string& path, ISensorControlInterface** object, destroyControlObject_t* delObject);
 private:
-    vector <destroyControlObject_t> m_adaptorDistructorList;
-    vector <void*> m_libs;
+    std::vector <destroyControlObject_t> m_adaptorDistructorList;
+    std::vector <void*> m_libs;
 };
 
 } //nv_vms

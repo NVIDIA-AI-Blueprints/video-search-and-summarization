@@ -772,10 +772,10 @@ antlr4-python3-runtime,4.9.3,BSD-3-Clause,services/rtvi/rt-embed,python,lockfile
 antlr4-python3-runtime,4.9.3,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 any-promise,1.3.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 anyio,4.10.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
-anyio,4.12.1,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 anyio,4.14.2,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 anyio,4.14.2,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 anyio,4.15.1,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
+anyio,4.15.1,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 anyio,UNKNOWN,MIT,.github,python,usage,.github/skills-review/review_agent.py,runtime,no,no,no,imported-only,None
 anymatch,3.1.3,ISC,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 anymatch,3.1.3,ISC,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -845,7 +845,7 @@ av,UNKNOWN,BSD-3-Clause,services/rtvi/rt-embed,python,usage,services/rtvi/rt-emb
 av,UNKNOWN,BSD-3-Clause,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/src/models/openai_compat/openai_compat_model.py,runtime,no,no,no,imported-only,None
 aws,UNKNOWN,Apache-2.0;GPL-2.0-only OR BSD-3-Clause,services/vios,c,usage;vendored,services/vios/include/3rdparty/aws;services/vios/src/framework/unified_storage/common/aws_sdk_manager.cpp,runtime,yes,UNKNOWN,no,imported-only;vendored-source,High
 aws4,1.13.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-axios,1.19.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+axios,1.20.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 b4a,1.8.1,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 babel-jest,30.4.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 babel-plugin-istanbul,7.0.1,BSD-3-Clause,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1117,7 +1117,7 @@ confluent-kafka,2.6.1,Apache Software License,services/alert,python,manifest,ser
 confluent-kafka,2.6.1,Apache-2.0,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,python,lockfile;manifest,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Pipfile.lock;services/rtvi/rt-cv-3d/rt-cv-bev-fusion/tests/requirements.txt,runtime,no,no,no,declared-manifest,None
 confluent-kafka,2.6.1,Apache-2.0,tools/message-broker-consumers,python,manifest,tools/message-broker-consumers/requirements.txt,runtime,no,no,no,declared-manifest,None
 confluentinc/cp-kafka,7.5.0,UNKNOWN,services/alert,container,compose,services/alert/test/e2e/kafka_incident/docker-compose-blueprint-test.yaml,runtime,no,no,yes,container-image,Unknown
-confluentinc/cp-kafka,8.1.1,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,container,compose,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/tests/integration/compose.fusion-test.yml,runtime,no,no,yes,container-image,Unknown
+confluentinc/cp-kafka,8.2.0,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,container,compose,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/tests/integration/compose.fusion-test.yml,runtime,no,no,yes,container-image,Unknown
 confluentinc/cp-kafka,8.2.0,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-mv3dt,container,compose,services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml,runtime,no,no,yes,container-image,Unknown
 confluentinc/cp-kafka,8.3.0,UNKNOWN,deploy,container,compose;container,deploy/docker/services/infra/Dockerfiles/kafka-health-check.Dockerfile;deploy/docker/services/infra/compose.yml,runtime,no,no,yes,container-base;container-image,Unknown
 content-disposition,0.5.4,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -2542,7 +2542,7 @@ nise,6.1.5,BSD-3-Clause,services/analytics/video-analytics-api,node,lockfile,ser
 nixl,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/docker/rtvi_vlm/patches/evs_vllm_public_files/distributed/ec_transfer/ec_connector/nixl_connector.py,runtime,no,no,no,imported-only,Unknown
 nltk,3.10.3,Apache Software License,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 node,22.23.2,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
-node,22.23.2-trixie,UNKNOWN,services/analytics/video-analytics-api,container,container,services/analytics/video-analytics-api/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
+node,22.23.3-trixie,UNKNOWN,services/analytics/video-analytics-api,container,container,services/analytics/video-analytics-api/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 node,24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc,UNKNOWN,.hermes,container,container,.hermes/Dockerfile,runtime,no,no,yes,container-base,Unknown
 node,24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc,UNKNOWN,.openclaw,container,container,.openclaw/Dockerfile,runtime,no,no,yes,container-base,Unknown
 node-abi,4.33.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -2608,14 +2608,14 @@ nvcr.io/nvidia/deepstream,rtvi_ds9.1.1-sbsa-262,UNKNOWN,services/rtvi/rt-cv,cont
 nvcr.io/nvidia/deepstream,rtvi_ds9.1.1-triton-dev111,UNKNOWN,services/rtvi/rt-embed,container,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/deepstream,rtvi_ds9.1.1-triton-dev111@sha256:de434d6dc97158b64bb6ee04fcc79796b0321932548742d0299c2b61541f063f,UNKNOWN,services/rtvi/rt-vlm,container,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/deepstream,rtvi_ds9.1.1-triton-dev135,UNKNOWN,services/rtvi/rt-cv,container,container,services/rtvi/rt-cv/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
-nvcr.io/nvidia/distroless/node,22-v4.1.4,UNKNOWN,services/analytics/video-analytics-api,container,container,services/analytics/video-analytics-api/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/node,22-v4.1.4,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/node,22-v4.1.4-dev,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
+nvcr.io/nvidia/distroless/node,22-v4.1.5,UNKNOWN,services/analytics/video-analytics-api,container,container,services/analytics/video-analytics-api/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.5,UNKNOWN,services/configurators/vss-rt-config-adaptor,container,container,services/configurators/vss-rt-config-adaptor/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
-nvcr.io/nvidia/distroless/python,3.13-v4.0.5,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,container,container,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Dockerfiles/measurement-fusion.Dockerfile,runtime,no,no,yes,container-base,Unknown
-nvcr.io/nvidia/distroless/python,3.13-v4.0.5,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-config-init,container,container,services/rtvi/rt-cv-3d/rt-cv-config-init/Dockerfiles/mv3dt-config-init.Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.6,UNKNOWN,libs/analytics/spatialai-data-utils,container,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.8,UNKNOWN,services/video-summarization,container,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
+nvcr.io/nvidia/distroless/python,3.13-v4.0.9,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,container,container,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Dockerfiles/measurement-fusion.Dockerfile,runtime,no,no,yes,container-base,Unknown
+nvcr.io/nvidia/distroless/python,3.13-v4.0.9,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-config-init,container,container,services/rtvi/rt-cv-3d/rt-cv-config-init/Dockerfiles/mv3dt-config-init.Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.1.2,UNKNOWN,services/agent,container,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.1.4,UNKNOWN,services/alert,container,container,services/alert/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.1.4,UNKNOWN,services/analytics/behavior-analytics,container,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
@@ -3940,6 +3940,7 @@ vllm,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/dock
 vllm_cosmos3,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,python,usage,services/rtvi/rt-embed/src/models/vllm_compatible/vllm_compatible_model.py,runtime,no,no,no,imported-only,Unknown
 vss-ctx-rag,3.1.0,UNKNOWN,services/video-summarization,python,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-pip,Unknown
 vss-ctx-rag-arango,3.1.0,UNKNOWN,services/video-summarization,python,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-pip,Unknown
+vss_core,UNKNOWN,UNKNOWN,.github,python,usage,.github/scripts/stamp_versions.py,runtime,no,no,no,imported-only,Unknown
 vss_core,UNKNOWN,UNKNOWN,services/agent,python,usage,services/agent/packages/vss_agents/src/vss_agents/api/version.py,runtime,no,no,no,imported-only,Unknown
 vss_ctx_rag,UNKNOWN,UNKNOWN,services/video-summarization,python,usage,services/video-summarization/src/via_stream_handler.py,runtime,no,no,no,imported-only,Unknown
 w3c-xmlserializer,5.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None

@@ -39,6 +39,7 @@
 #include "health_probes.h"
 
 using namespace std;
+using namespace nv_vms;
 
 // Implementation of StorageManagement::computeConfigHash (declared in
 // storage_management.h). Defined here rather than in storage_management.cpp

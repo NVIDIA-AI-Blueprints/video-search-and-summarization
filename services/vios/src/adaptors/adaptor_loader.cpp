@@ -34,6 +34,7 @@ struct SharedLibrary;
 }
 
 using namespace nv_vms;
+using namespace std;
 
 static void writeToFile(const string data)
 {
@@ -424,7 +425,7 @@ int AdaptorLoader::loadDiscoveryAdaptorLibrary(const string& path, ISensorDiscov
 }
 
 int AdaptorLoader::loadSensorControlAdaptorLibrary(const string& path, ISensorControlInterface** object,
-                                                   void** delObject)
+                                                   destroyControlObject_t* delObject)
 {
     createControlObject_t createObject_ = nullptr;
     destroyControlObject_t destroyObject_ = nullptr;
@@ -454,7 +455,7 @@ int AdaptorLoader::loadSensorControlAdaptorLibrary(const string& path, ISensorCo
         goto handle_error;
     }
 
-    *delObject = (void *)destroyObject_;
+    *delObject = destroyObject_;
     m_libs.push_back(lib_handle);
     return 0;
 

@@ -213,9 +213,9 @@ Recorded videos and live RTSP streams must be encoded without B-frames and have 
 
 To check for and remove B-frames, see [the FAQ guidance](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq#my-videos-produce-incorrect-timestamps-for-messages-or-are-processed-over-an-extended-duration).
 
-For custom video inputs, provide time-synchronized MP4 videos encoded without B-frames that are at least 60 seconds long and all videos should have the same duration.
+For Auto Calibration with custom recorded videos, provide time-synchronized MP4 files encoded without B-frames. Each video must be at least 60 seconds long, and all videos must have the same duration.
 
-The tracklet-based AMC method relies heavily on moving people in the input videos. Ensure that the videos contain a sufficient number of clearly visible moving people.
+If using the tracklet-based AMC method, ensure that the videos contain a sufficient number of clearly visible moving people.
 </Info>
 
 #### Step 1: Prepare video sources

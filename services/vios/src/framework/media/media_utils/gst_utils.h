@@ -33,7 +33,6 @@ inline constexpr int DEFAUL_KEY_FRAME_INTERVAL = 30;
 inline constexpr int MAX_KEYFRAME_INTERVAL_SEC = 5;
 inline constexpr int UDP_BUFFER_SIZE = 1000000;
 
-using namespace std;
 
 typedef struct _gstElements {
     _gstElements() : m_pipeline(nullptr), m_source(nullptr), m_typefind(nullptr), m_depay(nullptr)
@@ -93,7 +92,7 @@ typedef struct _gstElements {
     int64_t         m_lastFrameTimestamp;
     int64_t         m_seekStartPos;
     int64_t         m_seekEndPos;
-    string          m_videoCodec;
+    std::string          m_videoCodec;
     Json::Value     m_capsJson; // holds profile/level/tier and other caps fields
     bool            m_isQtMux = false;
     bool            m_isAudio = true;
@@ -113,9 +112,9 @@ typedef struct _StreamParam
                     , m_inCodec      ("")
     {
     }
-    string m_inFilePath;
-    string m_inContainer;
-    string m_inCodec;
+    std::string m_inFilePath;
+    std::string m_inContainer;
+    std::string m_inCodec;
 } StreamParam;
 
 class GstNvElements
@@ -141,7 +140,7 @@ class GstkeyframeParser : public GstNvElements
 public:
     typedef struct _VideoEncodeParams
     {
-        string  m_codec;
+        std::string  m_codec;
         int     m_keyFrameInterval = 0;
         bool    m_isBframesPresent = false;
         bool    m_isLargeIdrPresent = false;
@@ -211,9 +210,9 @@ class GstTranscode : public GstNvElements
                           , m_inAudioCaps ("")
         {
         }
-        string m_outFilePath;
-        string m_outContainer;
-        string m_outCodec;
+        std::string m_outFilePath;
+        std::string m_outContainer;
+        std::string m_outCodec;
         bool m_isUserFrameRate;
         int m_outframeRate;
         uint m_framerateNum;
@@ -225,22 +224,22 @@ class GstTranscode : public GstNvElements
         int    m_outKeyFrameInterval;
         bool   m_noBframes;
         bool   m_allIframes;
-        string m_inCtrCaps;
-        string m_inVideoCaps;
-        string m_inAudioCaps;
+        std::string m_inCtrCaps;
+        std::string m_inVideoCaps;
+        std::string m_inAudioCaps;
     } TranscodeParam;
 
     GstTranscode() = default;
 
     ~GstTranscode()
     {
-        LOG(info) << "Destroying GstTranscode" << endl;
+        LOG(info) << "Destroying GstTranscode" << std::endl;
     }
 
     GstTranscode(const GstTranscode&) = delete;
     GstTranscode& operator=(const GstTranscode&) = delete;
-    GstTranscode(GstTranscode&&) = default;
-    GstTranscode& operator=(GstTranscode&&) = default;
+    GstTranscode(GstTranscode&&) = delete;
+    GstTranscode& operator=(GstTranscode&&) = delete;
 
     bool transcode (TranscodeParam params);
 
@@ -295,22 +294,22 @@ class TranscodeTaskManager
     private:
         std::vector<async::task<bool>> m_transcodeTaskList;
 };
-double getAvgFPSForFile (string& file_path, const string& codec);
-int getFrameCountForFile  (std::string& file_path, const string& codec);
+double getAvgFPSForFile (std::string& file_path, const std::string& codec);
+int getFrameCountForFile  (std::string& file_path, const std::string& codec);
 GstClockTime getMediaFileDuration (const std::string& file_path);
 GstClockTime fixMediaFileAndGetDuration (const std::string& file_path);
-bool isRecordedFileExist(const string& sensorId, const int64_t& epochStartTime, const int64_t& epochEndTime);
+bool isRecordedFileExist(const std::string& sensorId, const int64_t& epochStartTime, const int64_t& epochEndTime);
 // timeoutSec: bus wait in seconds; 0 keeps the built-in 10s default
-Json::Value getRTSPStreamDetails (const string &url, std::string& codec,  std::vector<std::vector<uint8_t>> sps_pps_idr_frames,
+Json::Value getRTSPStreamDetails (const std::string &url, std::string& codec,  std::vector<std::vector<uint8_t>> sps_pps_idr_frames,
                                   int timeoutSec = 0);
 
 // Container format detection and demuxer/muxer selection utilities
-string detectContainerFormatFromFile(const string& filePath);
-string detectContainerFormatFromExtension(const string& filePath);
-GstElement* createDemuxerForContainer(const string& containerFormat);
-GstElement* createDemuxerForFile(const string& filePath, const string& containerFormat = "");
-GstElement* createMuxerForContainer(const string& containerFormat);
-GstElement* createMuxerForFile(const string& filePath, const string& containerFormat = "");
+std::string detectContainerFormatFromFile(const std::string& filePath);
+std::string detectContainerFormatFromExtension(const std::string& filePath);
+GstElement* createDemuxerForContainer(const std::string& containerFormat);
+GstElement* createDemuxerForFile(const std::string& filePath, const std::string& containerFormat = "");
+GstElement* createMuxerForContainer(const std::string& containerFormat);
+GstElement* createMuxerForFile(const std::string& filePath, const std::string& containerFormat = "");
 
 // Mux elementary stream into container format
 bool muxElementaryStream(const std::string& elementaryFilePath, const std::string& codec,
@@ -323,8 +322,8 @@ public:
     ~GstDummyUdpPipeline();
     static GstDummyUdpPipeline* getInstance();
     static void deleteInstance();
-    int startUdpPipeline(string id, int32_t audio_port, int32_t video_port, bool loop = false);
-    int stopUdpPipeline(string id);
+    int startUdpPipeline(std::string id, int32_t audio_port, int32_t video_port, bool loop = false);
+    int stopUdpPipeline(std::string id);
     void stopAllUdpPipelines();
 
 private:
@@ -332,9 +331,9 @@ private:
     std::mutex                                                      m_pipelineMapMutex;
     std::unordered_map<std::string, std::shared_ptr<gstElements> >  m_udpPipelines;
 
-    std::shared_ptr<gstElements> getPipeline(string id);
-    void insertPipeline(string id, std::shared_ptr<gstElements>);
-    void erasePipeline(string id);
+    std::shared_ptr<gstElements> getPipeline(std::string id);
+    void insertPipeline(std::string id, std::shared_ptr<gstElements>);
+    void erasePipeline(std::string id);
 };
-int createAndRunUdpPipeline(shared_ptr<gstElements> elements, int32_t audio_port, int32_t video_port, bool loop = false);
-int destroyUdpPipeline(shared_ptr<gstElements> elements);
+int createAndRunUdpPipeline(std::shared_ptr<gstElements> elements, int32_t audio_port, int32_t video_port, bool loop = false);
+int destroyUdpPipeline(std::shared_ptr<gstElements> elements);

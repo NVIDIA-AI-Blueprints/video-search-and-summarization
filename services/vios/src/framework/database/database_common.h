@@ -19,8 +19,8 @@
 
 #include "database_schema.h"
 
-void videoRecordHelper(VideoRecordDBColumns &row, unordered_map<string, string> &entries);
-void sensorStreamHelper(SensorStreamsDBColumns &row, unordered_map<string, string> &entries);
+void videoRecordHelper(nv_vms::VideoRecordDBColumns &row, std::unordered_map<std::string, std::string> &entries);
+void sensorStreamHelper(nv_vms::SensorStreamsDBColumns &row, std::unordered_map<std::string, std::string> &entries);
 
 // Helper function to validate sensor streams table property names and prevent SQL injection
 std::string validateSensorStreamTableProperty(const std::string& property);

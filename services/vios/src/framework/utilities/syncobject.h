@@ -21,7 +21,6 @@
 #include <condition_variable>
 #include <atomic>
 
-using namespace std;
 
 class SyncObject
 {
@@ -48,5 +47,5 @@ class SyncObject
     private:
         std::mutex               m_Lock;
         std::condition_variable  m_cond;
-        atomic<bool>             m_flag {false};
+        std::atomic<bool>             m_flag {false};
 };

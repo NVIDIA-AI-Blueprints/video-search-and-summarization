@@ -373,8 +373,8 @@ does not remove the GPU required by the profile services.
 
 RTX PRO 4500 Blackwell is supported only for the alerts profile with a remote
 LLM. Set `HARDWARE_PROFILE=RTXPRO4500BW` explicitly when automatic detection
-does not identify the GPU; the alerts quickstarts recommend NVIDIA driver
-580.126.09 or later.
+does not identify the GPU. On x86 hosts with Ubuntu 24.04, use NVIDIA driver
+595.58.03 or later.
 
 | **Profile** | **Remote LLM** |
 | --- | --- |
@@ -435,8 +435,9 @@ with both the LLM and VLM remote.
 The checked-in base and alerts configurations provide a co-located local LLM and
 RT-VLM on DGX Spark, IGX Thor, and AGX Thor. These local layouts have not yet
 been measured on the target hardware, so a remote LLM is recommended for
-latency and as the fallback if local model loading fails. Search is supported
-on DGX Spark and AGX Thor only and requires both the LLM and VLM to be remote;
+latency and as the fallback if local model loading fails. In the Remote LLM
+layout, RT-VLM runs locally. Search is supported on DGX Spark and AGX Thor only
+and requires both the LLM and VLM to be remote;
 IGX Thor does not support the search profile. The LVS profile is not supported
 on these edge platforms.
 </Note>

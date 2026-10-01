@@ -23,6 +23,9 @@
 #include "modules_apis.h"
 #include <cmath>
 
+using namespace std;
+using namespace nv_vms;
+
 extern "C" ISensorControlInterface* createObject()
 {
     return new LocalStreams;

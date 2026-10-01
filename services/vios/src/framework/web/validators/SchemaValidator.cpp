@@ -24,6 +24,8 @@
 #include "utils.h"
 #include "profiler.h"
 
+using namespace std;
+
 // Macro to check if API path matches streaming endpoints that need validation bypass
 #define IS_STREAM_BYPASS_PATH(path) \
     ((path) == "/api/v1/live/stream/add" || (path) == "/api/v1/live/stream/" || \

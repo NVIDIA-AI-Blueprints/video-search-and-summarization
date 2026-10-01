@@ -22,6 +22,9 @@
 #include "nvbufwrapper.h"
 #include "nvvideoencoder.h"
 
+using namespace std;
+using namespace nv_vms;
+
 constexpr int MAX_BUFFERS = 4;
 
 NvLLTransform::NvLLTransform (const std::string& consumer_name) : IMediaDataConsumer(consumer_name)
