@@ -451,13 +451,13 @@ rtvi:
     ngcAppDataOrg: nvstaging
     ngcAppDataResourceVersion: nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026
     ngcModelsToDownload:
-      - model: nvstaging/tao/sparse4d_rn50:deployable_v2.3
-        org: nvstaging
+      - model: nvidia/tao/sparse4d_rn50:deployable_v2.3
+        org: nvidia
         artifact: model
         sourcePath: sparse4d_warehouse_v2.3_r50.onnx
         destPath: sparse4d/sparse4d_warehouse_v2.3.onnx
-      - model: nvstaging/tao/sparse4d_rn50:deployable_v2.3
-        org: nvstaging
+      - model: nvidia/tao/sparse4d_rn50:deployable_v2.3
+        org: nvidia
         artifact: anchor
         sourcePath: _ov_kmeans900_v2.3_r50.npy
         destPath: sparse4d/_ov_kmeans900_v2.3_r50.npy

@@ -1179,10 +1179,24 @@ fi
 
 if ! jq -e '
   (.downloads | length) == 2
-  and any(.downloads[]; .artifact == "model" and .model == "nvstaging/tao/sparse4d_rn50:deployable_v3.0" and .org == "nvstaging" and .sourcePath == "sparse4d_warehouse_v3.0_r50.onnx" and .destPath == "sparse4d/sparse4d_warehouse_v3.0.onnx")
-  and any(.downloads[]; .artifact == "anchor" and .model == "nvstaging/tao/sparse4d_rn50:deployable_v3.0" and .org == "nvstaging" and .sourcePath == "_ov_kmeans900_v3.0_r50.npy" and .destPath == "sparse4d/_ov_kmeans900_v3.0_r50.npy")
+  and any(.downloads[]; .artifact == "model" and .model == "nvidia/tao/sparse4d_rn50:deployable_v3.0" and .org == "nvidia" and .sourcePath == "sparse4d_warehouse_v3.0_r50.onnx" and .destPath == "sparse4d/sparse4d_warehouse_v3.0.onnx")
+  and any(.downloads[]; .artifact == "anchor" and .model == "nvidia/tao/sparse4d_rn50:deployable_v3.0" and .org == "nvidia" and .sourcePath == "_ov_kmeans900_v3.0_r50.npy" and .destPath == "sparse4d/_ov_kmeans900_v3.0_r50.npy")
 ' "${_warehouse_3d_manifest}" >/dev/null; then
   echo "FAIL: warehouse 3D manifest should download Sparse4D model and anchor artifacts to the flattened model root"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+_warehouse_blueprint_config="${_warehouse_root}/blueprint-configurator/blueprint_config.yml"
+if ! grep -q 'sparse4d_model: .*"nvidia/tao/sparse4d_rn50:deployable_v2.3" if .*else "nvidia/tao/sparse4d_rn50:deployable_v3.0"' "${_warehouse_blueprint_config}" \
+  || grep -q 'nvstaging/tao/sparse4d_rn50' "${_warehouse_blueprint_config}"; then
+  echo "FAIL: warehouse blueprint configurator should resolve Sparse4D v2.3 and v3.0 from the nvidia org"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+_helm_3d_values="${REPO_ROOT}/deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app/values.yaml"
+if [[ "$(grep -c 'model: nvidia/tao/sparse4d_rn50:deployable_v2.3$' "${_helm_3d_values}")" != "2" ]] \
+  || grep -q 'nvstaging/tao/sparse4d_rn50' "${_helm_3d_values}"; then
+  echo "FAIL: warehouse 3D Helm values should download Sparse4D v2.3 model and anchor from the nvidia org"
   ((_warehouse_model_config_failed++)) || true
 fi
 
