@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -273,7 +274,7 @@ def test_11_rejects_result_exceeding_task_allocation() -> None:
         )
 
 
-def test_12_enforces_global_five_call_cap() -> None:
+def test_12_enforces_global_six_call_cap() -> None:
     ledger = initialized(claim(), claim("claim-count"))
     tasks = create_tasks(ledger)
     ledger = ledger_mod.merge_round_results(
@@ -296,7 +297,27 @@ def test_12_enforces_global_five_call_cap() -> None:
     )
     assert ledger["vlm_calls_used"] == 4
     second = create_tasks(ledger, ["claim-color"])
-    overallocated = copy.deepcopy(second)
+    ledger = ledger_mod.merge_round_results(
+        ledger,
+        second,
+        [
+            result(
+                second[0],
+                (
+                    observation(
+                        relation="context",
+                        text="A second window remains partial.",
+                        job_id="vlm-2",
+                    ),
+                ),
+                calls=1,
+                coverage="partial",
+            )
+        ],
+    )
+    assert ledger["vlm_calls_used"] == 5
+    third = create_tasks(ledger, ["claim-color"])
+    overallocated = copy.deepcopy(third)
     overallocated[0]["max_vlm_calls"] = 2
     with pytest.raises(ledger_mod.LedgerValidationError, match="global"):
         ledger_mod.merge_round_results(
@@ -338,6 +359,16 @@ def test_14_preserves_supporting_and_contradicting_observations() -> None:
         "supports",
         "contradicts",
     }
+
+
+def test_memory_merge_repairs_malformed_observation_id() -> None:
+    item = observation(source_type="memory")
+    item["observation_id"] = "agent-invented-id"
+    merged = ledger_mod.merge_memory(
+        initialized(),
+        [memory_update("claim-color", item)],
+    )
+    assert merged["observations"][0]["observation_id"] == ledger_mod.observation_id(item)
 
 
 def test_15_conflicting_support_and_contradiction_remain_unresolved() -> None:
@@ -478,8 +509,28 @@ def test_20_detects_budget_exhaustion_across_rounds() -> None:
             )
         ],
     )
-    assert ledger["round"] == 2
-    assert ledger["vlm_calls_used"] == 5
+    assert ledger["status"] == "in_progress"
+    third = create_tasks(ledger, ["claim-color"])
+    ledger = ledger_mod.merge_round_results(
+        ledger,
+        third,
+        [
+            result(
+                third[0],
+                (
+                    observation(
+                        relation="context",
+                        text="A third bounded window remains inconclusive.",
+                        job_id="vlm-3",
+                    ),
+                ),
+                coverage="partial",
+                calls=1,
+            )
+        ],
+    )
+    assert ledger["round"] == 3
+    assert ledger["vlm_calls_used"] == 6
     assert ledger["stop_reason"] == "budget_exhausted"
 
 
@@ -564,10 +615,10 @@ def test_budget_config_is_single_stdlib_readable_source() -> None:
         "max_initial_claims": 2,
         "max_expansions": 1,
         "max_total_claims": 3,
-        "max_inspection_rounds": 2,
+        "max_inspection_rounds": 3,
         "max_parallel_subagents": 2,
         "max_vlm_calls_per_subagent": 2,
-        "max_total_vlm_calls": 5,
+        "max_total_vlm_calls": 6,
     }
     assert json.loads(ledger_mod.BUDGET_PATH.read_text()) == expected
     assert ledger_mod.BUDGETS == expected
@@ -797,7 +848,7 @@ def test_exhausted_partial_ledger_terminates_and_writes_final_result(tmp_path: P
         [result(tasks[0], (observation(),), coverage="partial", calls=1)],
     )
     second = create_tasks(partial)
-    exhausted = ledger_mod.merge_round_results(
+    second_partial = ledger_mod.merge_round_results(
         partial,
         second,
         [
@@ -814,9 +865,28 @@ def test_exhausted_partial_ledger_terminates_and_writes_final_result(tmp_path: P
             )
         ],
     )
+    assert second_partial["status"] == "in_progress"
+    third = create_tasks(second_partial)
+    exhausted = ledger_mod.merge_round_results(
+        second_partial,
+        third,
+        [
+            result(
+                third[0],
+                (
+                    observation(
+                        text="A third window still leaves the clothing partially covered.",
+                        job_id="vlm-3",
+                    ),
+                ),
+                coverage="partial",
+                calls=1,
+            )
+        ],
+    )
     assert exhausted["status"] == "unresolved"
     assert exhausted["stop_reason"] == "budget_exhausted"
-    assert exhausted["round"] == 2
+    assert exhausted["round"] == 3
     ledger_path = tmp_path / "ledger.json"
     ledger_path.write_text(json.dumps(exhausted), encoding="utf-8")
     assert ledger_mod.main(
@@ -944,6 +1014,177 @@ def test_tool_failure_merge_writes_final_result(tmp_path: Path) -> None:
     assert final["unresolved_gaps"][0]["reason"] == "tool_failure"
 
 
+def test_collects_persisted_results_in_task_order(tmp_path: Path) -> None:
+    ledger = initialized(claim(), claim("claim-count", "count", "whole_video"))
+    tasks = create_tasks(ledger)
+    for task in reversed(tasks):
+        claim_id = task["claim"]["claim_id"]
+        payload = result(
+            task,
+            (
+                observation(
+                    claim_id,
+                    text=f"Visible evidence for {claim_id}.",
+                    job_id=f"vlm-{claim_id}",
+                ),
+            ),
+        )
+        (tmp_path / f"result-{claim_id}.json").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+    collected = ledger_mod.collect_inspection_results(tasks, tmp_path)
+    assert [item["task_id"] for item in collected] == sorted(
+        task["task_id"] for task in tasks
+    )
+
+
+def test_collect_repairs_malformed_observation_id_atomically(tmp_path: Path) -> None:
+    tasks = create_tasks(initialized())
+    payload = result(tasks[0], (observation(),))
+    payload["observations"][0]["observation_id"] = "obs-not-canonical"
+    path = tmp_path / "result-claim-color.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    collected = ledger_mod.collect_inspection_results(tasks, tmp_path)
+
+    expected = ledger_mod.observation_id(payload["observations"][0])
+    assert collected[0]["observations"][0]["observation_id"] == expected
+    assert json.loads(path.read_text())["observations"][0]["observation_id"] == expected
+    merged = ledger_mod.merge_round_results(initialized(), tasks, collected)
+    assert merged["observations"][0]["observation_id"] == expected
+
+
+def test_collect_results_reports_missing_task(tmp_path: Path) -> None:
+    tasks = create_tasks(initialized())
+    with pytest.raises(ledger_mod.LedgerValidationError, match="missing results"):
+        ledger_mod.collect_inspection_results(tasks, tmp_path)
+
+
+def test_resumed_round_merge_is_idempotent() -> None:
+    base = initialized()
+    tasks = create_tasks(base)
+    results = [result(tasks[0], (observation(),))]
+    merged = ledger_mod.resume_round_merge(base, base, tasks, results)
+    resumed = ledger_mod.resume_round_merge(base, merged, tasks, results)
+    assert resumed == merged
+    assert resumed["revision"] == 1
+    assert resumed["round"] == 1
+    assert resumed["vlm_calls_used"] == 1
+
+
+def test_resumed_round_rejects_unrelated_current_ledger() -> None:
+    base = initialized()
+    tasks = create_tasks(base)
+    results = [result(tasks[0], (observation(),))]
+    unrelated = copy.deepcopy(base)
+    unrelated["revision"] = 2
+    with pytest.raises(ledger_mod.LedgerValidationError, match="neither"):
+        ledger_mod.resume_round_merge(base, unrelated, tasks, results)
+
+
+def test_terminal_commit_publishes_revision_matched_marker(tmp_path: Path) -> None:
+    ledger = initialized()
+    tasks = create_tasks(ledger)
+    answered = ledger_mod.merge_round_results(
+        ledger, tasks, [result(tasks[0], (observation(),))]
+    )
+    final = ledger_mod.final_result(answered, str(tmp_path), "A — visible result")
+    ledger_mod.atomic_commit_terminal(
+        tmp_path / "ledger.json",
+        answered,
+        tmp_path / "final-result.json",
+        final,
+    )
+    marker = json.loads((tmp_path / "terminal-commit.json").read_text())
+    assert marker["revision"] == answered["revision"] == final["revision"]
+    assert marker["status"] == "answered"
+    assert marker["ledger_sha256"] == ledger_mod._digest(answered)
+    assert marker["final_result_sha256"] == ledger_mod._digest(final)
+
+
+def test_terminal_commit_binds_attempt_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger = initialized()
+    tasks = create_tasks(ledger)
+    answered = ledger_mod.merge_round_results(
+        ledger, tasks, [result(tasks[0], (observation(),))]
+    )
+    final = ledger_mod.final_result(answered, str(tmp_path), "A")
+    context = {
+        "schema_version": 1,
+        "case_id": "dataset-case-1",
+        "attempt_id": "attempt-3",
+        "question_sha256": hashlib.sha256(
+            answered["plan"]["question_text"].encode("utf-8")
+        ).hexdigest(),
+        "video_id": answered["plan"]["asset_id"],
+        "sensor_id": "canonical-sensor-uuid",
+    }
+    context_path = tmp_path / "attempt-context.json"
+    context_path.write_text(json.dumps(context), encoding="utf-8")
+    monkeypatch.setenv(ledger_mod.ATTEMPT_CONTEXT_ENV, str(context_path))
+
+    ledger_mod.atomic_commit_terminal(
+        tmp_path / "ledger.json",
+        answered,
+        tmp_path / "final-result.json",
+        final,
+    )
+
+    marker = json.loads((tmp_path / "terminal-commit.json").read_text())
+    assert marker["attempt_context"] == context
+
+
+def test_terminal_commit_rejects_context_for_wrong_video(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger = initialized()
+    tasks = create_tasks(ledger)
+    answered = ledger_mod.merge_round_results(
+        ledger, tasks, [result(tasks[0], (observation(),))]
+    )
+    final = ledger_mod.final_result(answered, str(tmp_path), "A")
+    context = {
+        "schema_version": 1,
+        "case_id": "dataset-case-1",
+        "attempt_id": "attempt-3",
+        "question_sha256": hashlib.sha256(
+            answered["plan"]["question_text"].encode("utf-8")
+        ).hexdigest(),
+        "video_id": "wrong-video",
+        "sensor_id": "canonical-sensor-uuid",
+    }
+    context_path = tmp_path / "attempt-context.json"
+    context_path.write_text(json.dumps(context), encoding="utf-8")
+    monkeypatch.setenv(ledger_mod.ATTEMPT_CONTEXT_ENV, str(context_path))
+
+    with pytest.raises(ledger_mod.LedgerValidationError, match="video_id"):
+        ledger_mod.atomic_commit_terminal(
+            tmp_path / "ledger.json",
+            answered,
+            tmp_path / "final-result.json",
+            final,
+        )
+
+
+def test_terminal_commit_rejects_revision_mismatch(tmp_path: Path) -> None:
+    ledger = initialized()
+    tasks = create_tasks(ledger)
+    answered = ledger_mod.merge_round_results(
+        ledger, tasks, [result(tasks[0], (observation(),))]
+    )
+    final = ledger_mod.final_result(answered, str(tmp_path), "A")
+    final["revision"] += 1
+    with pytest.raises(ledger_mod.LedgerValidationError, match="revision"):
+        ledger_mod.atomic_commit_terminal(
+            tmp_path / "ledger.json",
+            answered,
+            tmp_path / "final-result.json",
+            final,
+        )
+
+
 def test_categories_and_budgets_stay_at_the_base_contract() -> None:
     assert ledger_mod.EVIDENCE_TYPES == (
         "attribute",
@@ -973,8 +1214,8 @@ def test_categories_and_budgets_stay_at_the_base_contract() -> None:
         "max_initial_claims": 2,
         "max_expansions": 1,
         "max_total_claims": 3,
-        "max_inspection_rounds": 2,
+        "max_inspection_rounds": 3,
         "max_parallel_subagents": 2,
         "max_vlm_calls_per_subagent": 2,
-        "max_total_vlm_calls": 5,
+        "max_total_vlm_calls": 6,
     }

@@ -20,6 +20,10 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 BUDGET_PATH = ROOT / "config" / "ledger-budgets.json"
+ATTEMPT_CONTEXT_ENV = "VSS_INTROSPECTION_ATTEMPT_CONTEXT"
+DEFAULT_ATTEMPT_CONTEXT_PATH = Path(
+    "/sandbox/.openclaw/workspace/.vss/introspection-attempt.json"
+)
 
 EVIDENCE_TYPES = (
     "attribute",
@@ -278,6 +282,31 @@ def observation_id(observation: Mapping[str, Any]) -> str:
         {**material, "observation_id": "obs-" + "0" * 24}, check_id=False
     )
     return "obs-" + _digest(_observation_material(material))[:24]
+
+
+def canonicalize_result_observation_ids(result: Any) -> Any:
+    """Repair only externally supplied observation IDs from canonical content."""
+    if not isinstance(result, dict) or not isinstance(result.get("observations"), list):
+        return copy.deepcopy(result)
+    repaired = copy.deepcopy(result)
+    for item in repaired["observations"]:
+        if isinstance(item, dict):
+            item["observation_id"] = observation_id(item)
+    return repaired
+
+
+def canonicalize_memory_update_observation_ids(updates: Any) -> Any:
+    """Repair only observation IDs in externally supplied memory updates."""
+    if not isinstance(updates, Sequence) or isinstance(updates, (str, bytes)):
+        return copy.deepcopy(updates)
+    repaired = copy.deepcopy(list(updates))
+    for update in repaired:
+        if not isinstance(update, dict) or not isinstance(update.get("observations"), list):
+            continue
+        for item in update["observations"]:
+            if isinstance(item, dict):
+                item["observation_id"] = observation_id(item)
+    return repaired
 
 
 def _validate_media_url(value: Any, path: str) -> None:
@@ -791,6 +820,7 @@ def merge_memory(
         or not updates
     ):
         _fail("updates", "must contain at least one claim update")
+    updates = canonicalize_memory_update_observation_ids(updates)
     allowed = {"claim_id", "observations", "coverage", "gap"}
     prepared: list[Mapping[str, Any]] = []
     for index, update in enumerate(updates):
@@ -888,8 +918,11 @@ def merge_round_results(
         _fail("results", "must be an array")
     if len(results) != len(tasks):
         _fail("results", "must contain exactly one result per assigned task")
+    normalized_results = [
+        canonicalize_result_observation_ids(result) for result in results
+    ]
     result_map: dict[str, Mapping[str, Any]] = {}
-    for index, result in enumerate(results):
+    for index, result in enumerate(normalized_results):
         task = task_map.get(result.get("task_id") if isinstance(result, dict) else None)
         if task is None:
             _fail(f"results[{index}].task_id", "unknown task")
@@ -899,7 +932,7 @@ def merge_round_results(
         result_map[result["task_id"]] = result
     if set(result_map) != set(task_map):
         _fail("results", "missing assigned task result")
-    calls = sum(result["vlm_calls_used"] for result in results)
+    calls = sum(result["vlm_calls_used"] for result in normalized_results)
     if ledger["vlm_calls_used"] + calls > BUDGETS["max_total_vlm_calls"]:
         _fail("results", "global VLM-call cap exceeded")
 
@@ -918,7 +951,7 @@ def merge_round_results(
     updated["round"] += 1
     updated["revision"] += 1
 
-    all_failed = all(result["error"] is not None for result in results)
+    all_failed = all(result["error"] is not None for result in normalized_results)
     if _is_sufficient(updated):
         updated["status"] = "answered"
         updated["stop_reason"] = "resolved"
@@ -933,6 +966,64 @@ def merge_round_results(
         updated["stop_reason"] = "budget_exhausted"
     validate_ledger(updated)
     return updated
+
+
+def collect_inspection_results(
+    tasks: Sequence[Mapping[str, Any]],
+    results_dir: str | os.PathLike[str],
+) -> list[dict[str, Any]]:
+    """Collect one persisted result per task in deterministic task-ID order."""
+    directory = Path(results_dir)
+    if not directory.is_dir():
+        _fail("results_dir", "must be an existing directory")
+    task_map: dict[str, Mapping[str, Any]] = {}
+    for index, task in enumerate(tasks):
+        validate_inspection_task(task)
+        task_id = task["task_id"]
+        if task_id in task_map:
+            _fail(f"tasks[{index}].task_id", "duplicate task")
+        task_map[task_id] = task
+    collected: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for task_id in sorted(task_map):
+        claim_id = task_map[task_id]["claim"]["claim_id"]
+        exact = directory / f"result-{claim_id}.json"
+        candidates = [exact] if exact.is_file() else sorted(
+            directory.glob(f"*-result-{claim_id}.json")
+        )
+        if not candidates:
+            missing.append(task_id)
+            continue
+        if len(candidates) > 1:
+            _fail("results_dir", f"multiple result files found for {task_id}")
+        value = canonicalize_result_observation_ids(_read(candidates[0]))
+        validate_inspection_result(value, task_map[task_id])
+        if value != _read(candidates[0]):
+            atomic_write(candidates[0], value)
+        collected.append(value)
+    if missing:
+        _fail("results_dir", f"missing results for: {', '.join(missing)}")
+    return collected
+
+
+def resume_round_merge(
+    base_ledger: Mapping[str, Any],
+    current_ledger: Mapping[str, Any],
+    tasks: Sequence[Mapping[str, Any]],
+    results: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Merge from a frozen base, or return an already-applied merge unchanged."""
+    validate_ledger(base_ledger)
+    validate_ledger(current_ledger)
+    expected = merge_round_results(base_ledger, tasks, results)
+    if current_ledger == base_ledger:
+        return expected
+    if current_ledger == expected:
+        return copy.deepcopy(current_ledger)
+    _fail(
+        "ledger",
+        "current ledger is neither the frozen base nor its deterministic merged revision",
+    )
 
 
 def expand_ledger(
@@ -1112,6 +1203,76 @@ def atomic_write(path: str | os.PathLike[str], value: Any) -> None:
         raise
 
 
+def validate_terminal_pair(
+    ledger: Mapping[str, Any], terminal_result: Mapping[str, Any]
+) -> None:
+    """Validate a revision-matched terminal ledger and final-result pair."""
+    validate_ledger(ledger)
+    if ledger["status"] not in ("answered", "unresolved"):
+        _fail("ledger.status", "terminal commit requires a terminal ledger")
+    if terminal_result.get("status") != ledger["status"]:
+        _fail("final_result.status", "must match terminal ledger status")
+    if terminal_result.get("revision") != ledger["revision"]:
+        _fail("final_result.revision", "must match terminal ledger revision")
+    expected_answer = ledger["status"] == "answered"
+    answer = terminal_result.get("answer")
+    if expected_answer and (not isinstance(answer, str) or not answer.strip()):
+        _fail("final_result.answer", "answered terminal result requires an answer")
+    if not expected_answer and answer is not None:
+        _fail("final_result.answer", "unresolved terminal result requires null answer")
+
+
+def atomic_commit_terminal(
+    ledger_path: str | os.PathLike[str],
+    ledger: Mapping[str, Any],
+    final_path: str | os.PathLike[str],
+    terminal_result: Mapping[str, Any],
+) -> None:
+    """Commit a terminal pair and publish a revision/hash marker last."""
+    validate_terminal_pair(ledger, terminal_result)
+    ledger_destination = Path(ledger_path)
+    final_destination = Path(final_path)
+    if ledger_destination.resolve().parent != final_destination.resolve().parent:
+        _fail("final_result", "ledger and final result must share an artifact directory")
+    atomic_write(ledger_destination, ledger)
+    atomic_write(final_destination, terminal_result)
+    marker = {
+        "status": ledger["status"],
+        "revision": ledger["revision"],
+        "ledger": ledger_destination.name,
+        "ledger_sha256": _digest(ledger),
+        "final_result": final_destination.name,
+        "final_result_sha256": _digest(terminal_result),
+    }
+    context_path = Path(
+        os.environ.get(ATTEMPT_CONTEXT_ENV, str(DEFAULT_ATTEMPT_CONTEXT_PATH))
+    )
+    if context_path.is_file():
+        context = _read(context_path)
+        required = {
+            "schema_version",
+            "case_id",
+            "attempt_id",
+            "question_sha256",
+            "video_id",
+            "sensor_id",
+        }
+        context = _strict(context, required, "attempt_context")
+        if context["schema_version"] != 1:
+            _fail("attempt_context.schema_version", "must be 1")
+        for field in required - {"schema_version"}:
+            _nonempty(context[field], f"attempt_context.{field}")
+        question_sha256 = hashlib.sha256(
+            ledger["plan"]["question_text"].encode("utf-8")
+        ).hexdigest()
+        if question_sha256 != context["question_sha256"]:
+            _fail("attempt_context.question_sha256", "does not match the ledger plan")
+        if ledger["plan"]["asset_id"] != context["video_id"]:
+            _fail("attempt_context.video_id", "does not match the ledger plan asset")
+        marker["attempt_context"] = dict(context)
+    atomic_write(ledger_destination.parent / "terminal-commit.json", marker)
+
+
 def _read(path: str | os.PathLike[str]) -> Any:
     with open(path, encoding="utf-8") as stream:
         return json.load(stream)
@@ -1122,20 +1283,6 @@ def _emit(value: Any, output: str | None) -> None:
         atomic_write(output, value)
     else:
         print(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True))
-
-
-def _write_unresolved_final(ledger: Mapping[str, Any], ledger_output: str | None) -> None:
-    """Write final-result.json beside a ledger that just became unresolved.
-
-    Resolved runs still need the caller's answer, so this does not invent one.
-    """
-    if not ledger_output or ledger.get("status") != "unresolved":
-        return
-    artifact_dir = str(Path(ledger_output).resolve().parent)
-    atomic_write(
-        Path(artifact_dir) / "final-result.json",
-        final_result(ledger, artifact_dir, None),
-    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -1160,8 +1307,11 @@ def _parser() -> argparse.ArgumentParser:
     memory.add_argument("--output")
     merge = commands.add_parser("merge-round")
     merge.add_argument("--ledger", required=True)
+    merge.add_argument("--base-ledger")
     merge.add_argument("--tasks", required=True)
-    merge.add_argument("--results", required=True)
+    merge_results = merge.add_mutually_exclusive_group(required=True)
+    merge_results.add_argument("--results")
+    merge_results.add_argument("--results-dir")
     merge.add_argument("--output")
     expand = commands.add_parser("expand")
     expand.add_argument("--ledger", required=True)
@@ -1203,11 +1353,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.command == "merge-memory":
         _emit(merge_memory(_read(args.ledger), _read(args.updates)), args.output)
     elif args.command == "merge-round":
-        merged = merge_round_results(
-            _read(args.ledger), _read(args.tasks), _read(args.results)
+        current = _read(args.ledger)
+        base = _read(args.base_ledger) if args.base_ledger else current
+        tasks = _read(args.tasks)
+        results = (
+            _read(args.results)
+            if args.results
+            else collect_inspection_results(tasks, args.results_dir)
         )
-        _emit(merged, args.output)
-        _write_unresolved_final(merged, args.output)
+        merged = resume_round_merge(base, current, tasks, results)
+        if args.output and merged["status"] == "unresolved":
+            artifact_dir = str(Path(args.output).resolve().parent)
+            terminal = final_result(merged, artifact_dir, None)
+            atomic_commit_terminal(
+                args.output,
+                merged,
+                Path(artifact_dir) / "final-result.json",
+                terminal,
+            )
+        else:
+            _emit(merged, args.output)
     elif args.command == "expand":
         _emit(expand_ledger(_read(args.ledger), _read(args.plan)), args.output)
     elif args.command == "assess":
@@ -1218,8 +1383,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     elif args.command == "final-result":
         prepared = prepare_for_final_result(_read(args.ledger))
-        atomic_write(args.ledger, prepared)
-        _emit(final_result(prepared, args.artifact_dir, args.answer), args.output)
+        terminal = final_result(prepared, args.artifact_dir, args.answer)
+        if args.output:
+            atomic_commit_terminal(args.ledger, prepared, args.output, terminal)
+        else:
+            atomic_write(args.ledger, prepared)
+            _emit(terminal, None)
     else:
         print(observation_id(_read(args.observation)))
     return 0
