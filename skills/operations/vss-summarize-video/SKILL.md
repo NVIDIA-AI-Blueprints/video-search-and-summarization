@@ -22,10 +22,13 @@ metadata:
   stream (RTSP/RTSPS URL or registered camera), including recorded time windows:
   **Live-stream summarization / report generation isn't supported.** Then stop;
   do not ingest, extract clips, invoke inference/fallback, or deploy captioning.
-  For a named source, first check its current type with only
+  Reject an explicitly identified stream/camera even if its URL is absent.
+  For a registered sensor name/id (not a local file path, uploaded file, or
+  direct recorded-video URL), first check its current type with only
   `vss vios list --sensor <name>`; never reuse an earlier file classification.
   Reject a `stream`; if the type is unclear or the lookup fails, report that
-  limitation and stop. Uploaded video files remain supported.
+  limitation and stop. Local/uploaded files follow the recorded-video workflow,
+  including Stage 2 registration when absent; do not classify their paths as sensors.
 - Execute the five workflow stages below in order.
 - Run API commands yourself; do not tell the user to run them.
 - Use the required references at their named decision points.

@@ -38,14 +38,18 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 
 ## Instructions
 
-Before selecting a video-report workflow or running its probes, reject reports
-for any stream (RTSP/RTSPS URL or registered camera), including recorded time
-windows: **Live-stream summarization / report generation isn't supported.**
-Then stop; do not ingest, extract clips, or invoke inference. For a named video
-source, first check its current type with only `vss vios list --sensor <name>`;
-never reuse an earlier file classification. Reject a `stream`; if the type is
-unclear or the lookup fails, report that limitation and stop. Uploaded videos
-and incident/SOP reports over stored records remain supported.
+Select the report mode by request intent before any probes. Modes B/C report
+over stored incident/SOP records and bypass this video-source check, even when
+their sensor is a camera. For Mode A, before timeline resolution or inference
+(including the workspace's short-report route), reject any stream (RTSP/RTSPS
+URL or registered camera), including recorded time windows, with:
+**Live-stream summarization / report generation isn't supported.** Then stop;
+do not ingest, extract clips, or invoke inference. Reject an explicitly identified
+stream/camera even if its URL is absent. For a registered sensor name/id only,
+check its current type with `vss vios list --sensor <name>`; never reuse an earlier
+file classification. Reject a `stream`; if the type is unclear or the lookup
+fails, report that limitation and stop. Local/uploaded files, direct recorded-video
+URLs, and Mode A2 local/base64 inputs are not sensor handles; use their file workflow.
 
 0. **Set `SKILL_DIR`** to the "Base directory for this skill" path announced when this skill loads. All skill-relative reads (e.g. the default VLM prompt) resolve under `$SKILL_DIR` — never via cwd-relative paths. If no base directory was announced (this file was opened directly), `SKILL_DIR` is the directory containing this `SKILL.md`. Each fenced block is its own shell and nothing survives it, so the skill hands state over explicitly: the blocks that resolve shared values end by printing shell-quoted `NAME=value` lines (*Endpoint resolution* → `DEPLOYMENT_KIND`, `VSS_PUBLIC_URL`, `HOST_IP`, `VST_API_BASE`, `VA_MCP_URL`, `VLM_ENDPOINT`; Mode A Step 1 → `VIDEO_URL`, `CLIP_START`, `CLIP_END`, `CLIP_SECONDS`; Mode A Step 2 → `VLM_BACKEND`, `VLM_ENDPOINT`, `VLM_MODEL`; the clip-URL rewrite blocks (Kubernetes / Docker) take `RAW_URL` in and print `BROWSER_CLIP_URL`). Paste those lines as printed, plus `SKILL_DIR='<that path>'` (single-quoted — paths may contain spaces) and any gate result (`HITL_RESOLVED` / `HITL_PROMPT_FILE`, *HITL prompt mode*; `REASONING=true` only when the user asked for reasoning), at the top of the next block you run, with any caller-supplied value (e.g. `VLM_ENDPOINT` / `VLM_MODEL`) pasted **after** them so it wins; consuming blocks refuse to run (`${VAR:?}`) when a required value is missing.
 1. **Pick the mode** — Mode A for a single recorded clip/sensor video (path `A1` VST clip URL or `A2` local file / base64 — the *Mode-by-mode checklist* rows), Mode B when the request is about incidents / alerts (usually with a time range, including “report on the last/latest/most recent incident”), Mode C when the request asks for an SOP / compliance report (match against *Examples*).
