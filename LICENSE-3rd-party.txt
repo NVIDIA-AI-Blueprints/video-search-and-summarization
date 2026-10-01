@@ -14,6 +14,7 @@ See below files for the licenses:
 - services/rtvi/rt-cv-3d/rt-cv-mv3dt/3rdParty_Licenses.md
 - services/rtvi/rt-cv-3d/rt-cv-bev-fusion/3rdParty_Licenses.md
 - deploy/docker/scripts/LICENSE-3rd-party-dev-profile.txt
+- deploy/docker/scripts/LICENSE-3rd-party.txt
 - deploy/docker/services/infra/3rdParty_Licenses
 - deploy/LICENSE-3rd-party.txt
 - libs/analytics/spatialai-data-utils/3rdParty_Licenses.md
