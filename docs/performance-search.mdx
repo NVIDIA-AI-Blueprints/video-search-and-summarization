@@ -19,7 +19,7 @@ latency and throughput measurements use the vad-r1-v2 / benchmark query set (121
 over 17 indexed clips) at concurrent query levels 1, 10, 20, and 50, issued through
 `vss search run` with the critic agent verifying every returned hit. Each run reports
 client-side end-to-end (E2E) average and P90 latency, successful query throughput (QPS),
-and per-stage latency. A separate
+and per-stage latency on NVIDIA RTX PRO 6000 Blackwell SE and H100 SXM. A separate
 section reports video upload latency and chunk counts on both platforms for files ranging from short clips to 2-hour sources. Use these numbers to size GPU choice and
 expected query latency under concurrent search load on VSS 3.3.
 
@@ -30,7 +30,7 @@ expected query latency under concurrent search load on VSS 3.3.
 | Parameter | Value |
 | --- | --- |
 | VSS release | 3.3 |
-| Platforms tested | H100 SXM (NVIDIA RTX PRO 6000 Blackwell SE pending) |
+| Platforms tested | NVIDIA RTX PRO 6000 Blackwell SE, H100 SXM |
 | Dataset | vad-r1-v2 / benchmark |
 | Benchmark queries | 121 natural-language queries over 17 indexed videos |
 | Indexed videos | 17 vad-r1-v2 clips (72.28 MB total corpus) |
@@ -75,14 +75,22 @@ additional concurrency only adds queue time — see [Reading these numbers](#rea
 </Tab>
 <Tab title="NVIDIA RTX PRO 6000 SE">
 
-Pending re-measurement on VSS 3.3. The previously published figures for this platform were
-captured against the agent chat endpoint rather than the `vss search run` path measured
-above, so they are not comparable and have been withdrawn rather than shown alongside.
+| Concurrent queries | E2E Avg (s) | E2E P90 (s) | Successful QPS |
+| --- | --- | --- | --- |
+| 1 | 2.575 | 2.886 | 0.345 |
+| 10 | 9.642 | 10.848 | 0.970 |
+| 20 | 19.131 | 21.324 | 0.955 |
+| 50 | 42.731 | 56.742 | 0.942 |
 
 </Tab>
 </Tabs>
 
 ### Reading these numbers
+
+The two platforms were measured on separate deployments whose RTVI-VLM GPU allocation was
+not held constant, so read each tab on its own rather than as a platform comparison.
+
+#### H100
 
 Successful QPS is flat from 10 concurrent queries onward (0.454, 0.460, 0.454), because the
 deployment is already at its VLM inference ceiling by that point. Latency, by contrast,
@@ -96,6 +104,17 @@ deployment for concurrency therefore means sizing RTVI-VLM: give it a dedicated 
 than sharing one with RTVI-CV, raise `RTVI_VLLM_MAX_NUM_SEQS` and `RTVI_VLM_BATCH_SIZE`
 within the available GPU memory, or scale it out. Lowering `num_videos_to_evaluate` reduces
 the per-query fan-out at the cost of leaving lower-ranked hits unverified.
+
+#### NVIDIA RTX PRO 6000 SE
+
+The same knee appears: successful QPS is flat from 10 concurrent queries onward (0.970,
+0.955, 0.942) while latency scales roughly linearly — 2.6s, 9.6s, 19.1s, 42.7s.
+
+Critic verification dominates up to 20 concurrent queries, so the RTVI-VLM sizing advice
+above applies here too. At 50, however, a second ceiling appears: text embedding for the
+attribute path climbs from 1.8s at 20 concurrent queries to 7.8s (P90 16.2s), which is what
+lifts the attribute-search row to 11.0s. Past roughly 20 concurrent queries, sizing
+RTVI-VLM alone stops being sufficient on this platform — RTVI-Embed needs headroom as well.
 
 ## Latency Stage Breakdown
 
@@ -164,8 +183,58 @@ preparation — are omitted.
 </Tab>
 <Tab title="NVIDIA RTX PRO 6000 SE">
 
-Pending re-measurement on VSS 3.3, for the same reason given under
-[E2E Performance](#e2e-performance).
+Every query on this set retrieves hits and reaches the critic, so all rows but the two
+retrieval ones cover the full 121. Attribute and embed search are path-specific — live
+decomposition routed roughly 56 of these queries to attribute search, 50 to fusion and 15 to
+embed search — and each of those rows averages only over the queries that took that path.
+
+**Latency Stage Breakdown — 1 Concurrent Query**
+
+| Stage | Avg (s) | P90 (s) | Calls/query |
+| --- | --- | --- | --- |
+| End-to-End (client) | 2.575 | 2.886 | 1 |
+| Search (CLI internal) | 2.138 | 2.441 | 1 |
+| Critic verification — VLM inference | 1.540 | 1.691 | 5 |
+| Attribute search | 0.508 | 0.552 | 1 |
+| Query decomposition (LLM) | 0.320 | 0.580 | 1 |
+| Embed search | 0.029 | 0.030 | 1 |
+| VST clip resolution | 0.027 | 0.030 | 5 |
+
+**Latency Stage Breakdown — 10 Concurrent Queries**
+
+| Stage | Avg (s) | P90 (s) | Calls/query |
+| --- | --- | --- | --- |
+| End-to-End (client) | 9.642 | 10.848 | 1 |
+| Search (CLI internal) | 9.109 | 10.384 | 1 |
+| Critic verification — VLM inference | 7.653 | 8.441 | 5 |
+| Attribute search | 0.586 | 0.655 | 1 |
+| Query decomposition (LLM) | 0.373 | 0.530 | 1 |
+| Embed search | 0.033 | 0.037 | 1 |
+| VST clip resolution | 0.034 | 0.044 | 5 |
+
+**Latency Stage Breakdown — 20 Concurrent Queries**
+
+| Stage | Avg (s) | P90 (s) | Calls/query |
+| --- | --- | --- | --- |
+| End-to-End (client) | 19.131 | 21.324 | 1 |
+| Search (CLI internal) | 18.564 | 20.801 | 1 |
+| Critic verification — VLM inference | 17.001 | 19.058 | 5 |
+| Attribute search | 0.712 | 1.086 | 1 |
+| Query decomposition (LLM) | 0.538 | 1.222 | 1 |
+| Embed search | 0.034 | 0.046 | 1 |
+| VST clip resolution | 0.032 | 0.042 | 5 |
+
+**Latency Stage Breakdown — 50 Concurrent Queries**
+
+| Stage | Avg (s) | P90 (s) | Calls/query |
+| --- | --- | --- | --- |
+| End-to-End (client) | 42.731 | 56.742 | 1 |
+| Search (CLI internal) | 42.058 | 56.012 | 1 |
+| Critic verification — VLM inference | 35.624 | 48.396 | 5 |
+| Attribute search | 10.950 | 16.949 | 1 |
+| Query decomposition (LLM) | 1.680 | 5.286 | 1 |
+| Embed search | 0.033 | 0.038 | 1 |
+| VST clip resolution | 0.037 | 0.047 | 5 |
 
 </Tab>
 </Tabs>
