@@ -2681,6 +2681,12 @@ elif [[ ${exit_code} -ne 0 ]]; then
 elif ! grep -q "\[DRY-RUN\] docker compose -p vss down -v --remove-orphans" "${out_file}"; then
   echo "FAIL: down dry-run (stdout missing '[DRY-RUN] docker compose -p vss down -v --remove-orphans')"
   ((TESTS_FAILED++)) || true
+elif ! grep -q "\[WARNING\] Full reset: named volumes and the configured VSS_DATA_DIR will be deleted" "${out_file}"; then
+  echo "FAIL: down dry-run (stdout missing destructive reset warning)"
+  ((TESTS_FAILED++)) || true
+elif ! grep -q "docker compose -p vss down --remove-orphans" "${out_file}"; then
+  echo "FAIL: down dry-run (stdout missing data-preserving alternative)"
+  ((TESTS_FAILED++)) || true
 elif ! grep -q "State down completed" "${out_file}"; then
   echo "FAIL: down dry-run (stdout missing 'State down completed')"
   ((TESTS_FAILED++)) || true
