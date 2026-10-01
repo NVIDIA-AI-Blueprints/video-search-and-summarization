@@ -56,11 +56,13 @@ These variables control validation, derived values, and profile-time file change
 | Broker values | `STREAM_TYPE` | DS broker fields, notification consumer, analytics source and sink |
 | Model and threshold values | `DATASET_TYPE` or `SAMPLE_VIDEO_DATASET` | Sparse4D paths or `2d` detector thresholds |
 
+## Files Changed Operation
+
 ### File Operation Types
 
 The profile manager dispatches `yaml_update`, `json_update`, `text_config_update`, `text_replace`, `file_management`, and `recompute_bev_groups` operations in blueprint order. Warehouse `keep_count` is currently disabled.
 
-## Files Changed
+### Files Changed
 
 Common rows apply across modes unless the mode column says otherwise. Paths are repository-relative.
 
@@ -73,7 +75,7 @@ Common rows apply across modes unless the mode column says otherwise. Paths are 
 | All | `deploy/docker/industry-profiles/warehouse-operations/warehouse-<mode>-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` | `json_update` | app `sourceType` and `sinkType` |
 | All | `deploy/docker/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json` | `json_update` | `kafka.brokers` |
 
-### Mode Specific Differences
+#### Mode Specific Differences
 
 | Mode | File | Attributes | Driven By |
 | --- | --- | --- | --- |
@@ -86,11 +88,11 @@ Common rows apply across modes unless the mode column says otherwise. Paths are 
 | `3d`, `mv3dt` | `${CALIBRATION_DIR_MOUNT_PATH}/${CALIBRATION_FILE_NAME}` | BEV group metadata and selected sensors, updated by the profile-time `recompute_bev_groups` operation | `RECOMPUTE_BEV_CENTERS_ENABLED`; `CALIBRATION_MODE=mount`; camera names from the sensor file or videos; `NUM_STREAMS` |
 | `2d` `3d` `mv3dt` | `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}` | Declared `keep_count` target | Disabled in current blueprint; no deletion |
 
-### Hardware Overrides
+#### Hardware Overrides
 
 Hardware profiles define `max_streams_supported` for each configured mode. Common operations use this ceiling to compute `final_stream_count` and update the files listed above. `IGX-THOR` and `DGX-SPARK` also append hardware-specific file operations after the common operations.
 
-#### Stream Ceilings by Hardware Profile
+##### Stream Ceilings by Hardware Profile
 
 | Hardware Profile | `2d` Maximum Streams | `3d` Maximum Streams | `mv3dt` Maximum Streams |
 | --- | --- | --- | --- |
@@ -107,7 +109,7 @@ Hardware profiles define `max_streams_supported` for each configured mode. Commo
 For `2d`, validation rejects `IGX-THOR` and `DGX-SPARK` when `BP_PROFILE=bp_wh`, even though both hardware blocks contain `2d` settings. In `3d`, their `interval: "1"` override runs Sparse4D at an effective 15 FPS; the profile comments specify 30 FPS otherwise.
 </Info>
 
-#### Hardware Specific File Changes
+##### Hardware Specific File Changes
 
 DeepStream filenames below resolve under `${DS_CONFIG_DIR}`. VST filenames resolve under `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-<mode>-app/vst/configs/`, using the row's mode. Values are applied after the common file operations; rows that repeat a common setting still show the explicit hardware operation.
 

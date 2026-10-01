@@ -229,6 +229,9 @@ navigation:
                       - page: "Behavior Analytics"
                         slug: behavior-analytics
                         path: ../docs/warehouse-docs/Behavior-Analytics.mdx
+                      - page: "VSS Configurator"
+                        slug: vss-configurator
+                        path: ../docs/warehouse-docs/VSS-Configurator.mdx
                       - page: "Alerting Service"
                         slug: alerting-service
                         path: ../docs/warehouse-docs/alerting-service.mdx
@@ -238,9 +241,6 @@ navigation:
                       - page: "Reference Agentic UI"
                         slug: reference-agentic-ui
                         path: ../docs/warehouse-docs/vss-warehouse-ui.mdx
-                      - page: "VSS Configurator"
-                        slug: vss-configurator
-                        path: ../docs/warehouse-docs/VSS-Configurator.mdx
                   - section: "Operations (Monitoring, Troubleshooting, FAQ, Known Limitations)"
                     slug: operations-monitoring-troubleshooting-faq-known-limitations
                     path: ../docs/warehouse-docs/Appendix-toc.mdx

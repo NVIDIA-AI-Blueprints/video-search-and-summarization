@@ -81,6 +81,10 @@ The tracklet-based AMC method calibrates cameras from detected person movements 
 
 This requirement does not apply to VGGT. For multi-camera calibration with VGGT support installed, users can choose whether to run AMC or VGGT first; VGGT does not require a successful AMC run.
 
+### Tripwires Limited to Two Points
+
+The Auto Calibration Results UI supports only a two-point tripwire: a start point and an end point. Users cannot add intermediate vertices to create a polyline. UI annotations represent a single line segment, and the raw exported calibration stores only `wire.p1` and `wire.p2`. Polyline tripwire authoring and export are currently unsupported.
+
 ### Empty Calibration Template
 
 When no calibration is stored, the Video Analytics API's calibration service returns an empty template by default (`emptyIfNotFound=true`). The template below matches `getEmptyCalibrationTemplate` in `services/analytics/video-analytics-api/src/web-api-core/Services/Calibration.js`.
