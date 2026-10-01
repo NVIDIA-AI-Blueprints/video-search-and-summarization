@@ -112,12 +112,10 @@ Service activation alone is never a Compose-definition change.
 
 ## UI configuration
 
-When `vss-ui` is enabled, default
-`NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_ENABLE=false` to disable file uploads
-in the sidebar chat. Honor an explicit user choice; otherwise write the value
-to the build's `override.env` when the inherited value differs. Apply this to
-both stock and delta builds. Check that `resolved.yml` gives `vss-ui` the
-resulting value.
+For stock and delta builds with `vss-ui`, default
+`NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_ENABLE=false` unless explicitly
+requested otherwise. Write it to `override.env` when it differs from the
+inherited value, and verify it in `resolved.yml`.
 
 ### UI subtitle
 
