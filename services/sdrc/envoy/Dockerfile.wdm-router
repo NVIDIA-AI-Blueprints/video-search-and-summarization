@@ -45,6 +45,7 @@ RUN apt-get update && \
 
 # Install uv via PyPI (avoid ghcr.io — Blossom CI often TLS-timeouts on GitHub Container Registry).
 RUN curl -fsSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py && \
+    python3 -Im py_compile get-pip.py && \
     python3 get-pip.py && \
     rm get-pip.py && \
     pip3 install --no-cache-dir --timeout 120 --only-binary :all: "setuptools==78.1.1" "wheel==0.46.2" "uv==0.11.26"
