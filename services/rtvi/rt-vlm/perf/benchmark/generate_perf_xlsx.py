@@ -1735,26 +1735,29 @@ def write_machine_config_tab(
         ws.cell(row=row, column=col_idx, value=h).font = HEADER_FONT
     row += 1
 
-    # Use the first available config to enumerate scenarios, then show each platform's values.
-    sample_config = next((c for c in configs.values() if c), None)
-    if sample_config and "test_scenarios" in sample_config:
-        for scenario_name in sample_config["test_scenarios"]:
-            for platform in platforms:
-                config = configs.get(platform)
-                if not config or scenario_name not in config.get("test_scenarios", {}):
-                    continue
-                scenario = config["test_scenarios"][scenario_name]
-                p = get_scenario_params(config, scenario_name)
-                w, h, nf = p["vlm_input_width"], p["vlm_input_height"], p["num_frames"]
-                vt = calc_vision_tokens(w, h, nf, config.get("global", {}).get("model_preset", ""))
+    scenario_names = dict.fromkeys(
+        name
+        for config in configs.values()
+        if config
+        for name in config.get("test_scenarios", {})
+    )
+    for scenario_name in scenario_names:
+        for platform in platforms:
+            config = configs.get(platform)
+            if not config or scenario_name not in config.get("test_scenarios", {}):
+                continue
+            scenario = config["test_scenarios"][scenario_name]
+            p = get_scenario_params(config, scenario_name)
+            w, h, nf = p["vlm_input_width"], p["vlm_input_height"], p["num_frames"]
+            vt = calc_vision_tokens(w, h, nf, config.get("global", {}).get("model_preset", ""))
 
-                for col, value in enumerate((
-                    scenario_name, platform, f"{w}x{h}", nf,
-                    f"{vt} ({vision_tokens_label(vt)})", p["max_tokens"],
-                    scenario.get("benchmark_mode", ""),
-                ), 1):
-                    ws.cell(row=row, column=col, value=value)
-                row += 1
+            for col, value in enumerate((
+                scenario_name, platform, f"{w}x{h}", nf,
+                f"{vt} ({vision_tokens_label(vt)})", p["max_tokens"],
+                scenario.get("benchmark_mode", ""),
+            ), 1):
+                ws.cell(row=row, column=col, value=value)
+            row += 1
 
     ws.freeze_panes = "A2"
     auto_fit_columns(ws)

@@ -626,10 +626,9 @@ def plot_max_streams_2k(
         labels = []
         for name in data:
             label = platform_display(name)
-            if name in configs:
-                frames = get_scenario_vision_info(
-                    configs[name], "max_live_streams_test_1_token_2k"
-                )["num_frames"]
+            scenario = data[name]["scenario"]
+            if scenario in configs.get(name, {}).get("test_scenarios", {}):
+                frames = get_scenario_vision_info(configs[name], scenario)["num_frames"]
                 label += f"\n{frames} frames"
             labels.append(label)
         values = [d["max_streams"] for d in data.values()]
@@ -697,10 +696,9 @@ def plot_max_streams_8k(
         labels = []
         for name in data:
             label = platform_display(name)
-            if name in configs:
-                frames = get_scenario_vision_info(
-                    configs[name], "max_live_streams_test_1_token_8k"
-                )["num_frames"]
+            scenario = data[name]["scenario"]
+            if scenario in configs.get(name, {}).get("test_scenarios", {}):
+                frames = get_scenario_vision_info(configs[name], scenario)["num_frames"]
                 label += f"\n{frames} frames"
             labels.append(label)
         values = [d["max_streams"] for d in data.values()]
@@ -826,14 +824,15 @@ def plot_max_streams_2k_vs_8k(
         for platform in plats:
             label = platform_display(platform)
             if platform in configs:
-                frames = [
-                    str(
-                        get_scenario_vision_info(
-                            configs[platform], f"max_live_streams_test_1_token_{tier.lower()}"
-                        )["num_frames"]
-                    )
-                    for tier in active_tiers
-                ]
+                frames = []
+                for tier in active_tiers:
+                    result = all_data[platform].get(tier, {}).get(token_tier)
+                    if result and result["scenario"] in configs[platform].get("test_scenarios", {}):
+                        frames.append(str(get_scenario_vision_info(
+                            configs[platform], result["scenario"]
+                        )["num_frames"]))
+                    else:
+                        frames.append("–")
                 label += f"\n{'/'.join(active_tiers)}: {'/'.join(frames)} frames"
             labels.append(label)
         ax.set_xticklabels(labels)
