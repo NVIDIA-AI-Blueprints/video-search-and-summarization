@@ -1,13 +1,20 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   VstStreamThumbnail,
   clearSensorListCache,
   clearVstStreamThumbnailCache,
 } from '../../lib-src/components/VstStreamThumbnail';
 import * as vstSensorList from '../../lib-src/utils/vstSensorList';
+
+const segments = [{ startTime: '2025-01-01T00:00:00.000Z', endTime: '2025-01-01T00:00:25.000Z' }];
+
+const mockVstFetch = (sensors: unknown, timelines: unknown = segments) =>
+  jest.fn().mockImplementation((url: string) =>
+    jsonResponse(url.endsWith('/sensor/list') ? sensors : timelines),
+  );
 
 const jsonResponse = (body: unknown) =>
   Promise.resolve({
@@ -30,14 +37,12 @@ describe('VstStreamThumbnail picture URL', () => {
     clearVstStreamThumbnailCache();
   });
 
-  it('builds /v1/replay/stream/{id}/picture with startTime 5s before now, URL-encoded', async () => {
+  it('uses the uploaded recording timeline even when the wall clock is a year later', async () => {
     // Pin Date.now so the computed startTime is deterministic.
     const fixedNow = Date.UTC(2026, 0, 15, 12, 0, 0); // 2026-01-15T12:00:00.000Z
     jest.spyOn(Date, 'now').mockReturnValue(fixedNow);
 
-    global.fetch = jest.fn().mockResolvedValue(
-      jsonResponse([{ name: 'sample.mp4', sensorId: 'id-1', state: 'online' }]),
-    );
+    global.fetch = mockVstFetch([{ name: 'sample.mp4', sensorId: 'id-1', state: 'online' }]);
 
     render(
       <VstStreamThumbnail
@@ -54,19 +59,15 @@ describe('VstStreamThumbnail picture URL', () => {
     // Endpoint change introduced by this PR: replay (not live).
     expect(url.pathname).toBe('/v1/replay/stream/id-1/picture');
 
-    // Decoded value is exactly 5s before the pinned now.
-    expect(url.searchParams.get('startTime')).toBe('2026-01-15T11:59:55.000Z');
+    // The upload timeline, not the wall clock, determines the frame.
+    expect(url.searchParams.get('startTime')).toBe('2025-01-01T00:00:20.000Z');
 
     // Raw query string is percent-encoded (colons must be %3A).
-    expect(url.search).toBe('?startTime=2026-01-15T11%3A59%3A55.000Z');
+    expect(url.search).toBe('?startTime=2025-01-01T00%3A00%3A20.000Z');
   });
 
   it('percent-encodes the sensorId path segment', async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      jsonResponse([
-        { name: 'cam', sensorId: 'id with space/slash', state: 'online' },
-      ]),
-    );
+    global.fetch = mockVstFetch([{ name: 'cam', sensorId: 'id with space/slash', state: 'online' }]);
 
     render(
       <VstStreamThumbnail
@@ -83,9 +84,7 @@ describe('VstStreamThumbnail picture URL', () => {
   });
 
   it('strips trailing slashes from vstApiUrl before assembling the URL', async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      jsonResponse([{ name: 'cam', sensorId: 'id-1', state: 'online' }]),
-    );
+    global.fetch = mockVstFetch([{ name: 'cam', sensorId: 'id-1', state: 'online' }]);
 
     render(
       <VstStreamThumbnail
@@ -100,6 +99,49 @@ describe('VstStreamThumbnail picture URL', () => {
     expect(src.startsWith('http://vst.test/v1/replay/stream/id-1/picture?')).toBe(true);
     expect(src).not.toContain('vst.test//v1');
   });
+
+  it('selects the latest valid segment even if timelines are out of order', async () => {
+    global.fetch = mockVstFetch([{ name: 'cam', sensorId: 'id-1', state: 'online' }], [
+      { startTime: '2025-01-02T00:00:00Z', endTime: '2025-01-02T00:00:30Z' },
+      ...segments,
+      { startTime: 'invalid', endTime: '2027-01-01T00:00:00Z' },
+    ]);
+    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
+    const img = await screen.findByTestId('vst-stream-thumbnail');
+    expect(new URL(img.getAttribute('src')!).searchParams.get('startTime')).toBe('2025-01-02T00:00:25.000Z');
+  });
+
+  it('keeps a short recording preview inside its timeline', async () => {
+    global.fetch = mockVstFetch([{ name: 'cam', sensorId: 'id-1', state: 'online' }], [
+      { startTime: '2025-01-01T00:00:00Z', endTime: '2025-01-01T00:00:02Z' },
+    ]);
+    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
+    const img = await screen.findByTestId('vst-stream-thumbnail');
+    expect(new URL(img.getAttribute('src')!).searchParams.get('startTime')).toBe('2025-01-01T00:00:01.000Z');
+  });
+
+  it.each([
+    [],
+    [{ startTime: 'invalid', endTime: 'invalid' }],
+    [{ startTime: '2025-01-01T00:00:02Z', endTime: '2025-01-01T00:00:00Z' }],
+  ].map((timeline) => ({ timeline })))('shows a placeholder when there is no valid recording: %j', async ({ timeline }) => {
+    global.fetch = mockVstFetch([{ name: 'cam', sensorId: 'id-1', state: 'online' }], timeline);
+    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
+    await screen.findByText('No thumbnail');
+    expect(screen.queryByTestId('vst-stream-thumbnail')).not.toBeInTheDocument();
+  });
+
+  it('shows a placeholder when the timeline service fails', async () => {
+    global.fetch = jest.fn().mockImplementation((url: string) =>
+      url.endsWith('/sensor/list')
+        ? jsonResponse([{ name: 'cam', sensorId: 'id-1', state: 'online' }])
+        : Promise.resolve({ ok: false, status: 503 } as Response),
+    );
+    render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
+    await screen.findByText('No thumbnail');
+    expect(screen.queryByTestId('vst-stream-thumbnail')).not.toBeInTheDocument();
+  });
+
 });
 
 describe('VstStreamThumbnail remount cache', () => {
@@ -108,6 +150,7 @@ describe('VstStreamThumbnail remount cache', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    global.fetch = mockVstFetch([]);
     clearVstStreamThumbnailCache();
     jest
       .spyOn(vstSensorList, 'fetchSensorMap')
@@ -130,9 +173,11 @@ describe('VstStreamThumbnail remount cache', () => {
     unmount();
     jest.mocked(vstSensorList.fetchSensorMap).mockClear();
 
-    render(
-      <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorName} />,
-    );
+    await act(async () => {
+      render(
+        <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorName} />,
+      );
+    });
 
     expect(screen.getByTestId('vst-stream-thumbnail')).toBeInTheDocument();
     expect(screen.queryByText('Loading thumbnail…')).not.toBeInTheDocument();
@@ -147,6 +192,7 @@ describe('VstStreamThumbnail broken frame recovery', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    global.fetch = mockVstFetch([]);
     clearVstStreamThumbnailCache();
     jest.spyOn(vstSensorList, 'fetchSensorMap').mockImplementation(async (url) => {
       if (url !== vstApiUrl) {
@@ -180,6 +226,32 @@ describe('VstStreamThumbnail broken frame recovery', () => {
       expect(screen.getByTestId('vst-stream-thumbnail')).toBeInTheDocument();
     });
     expect(screen.queryByText('Frame unavailable')).not.toBeInTheDocument();
+    expect(screen.getByTestId('vst-stream-thumbnail').getAttribute('src')).toContain(
+      '/v1/replay/stream/id-b/picture',
+    );
+  });
+
+  it('ignores the previous sensor timeline when it resolves after switching sensors', async () => {
+    let resolvePrevious!: (value: Response) => void;
+    const previousTimeline = new Promise<Response>((resolve) => {
+      resolvePrevious = resolve;
+    });
+    global.fetch = jest.fn().mockImplementation((url: string) =>
+      url.includes('/id-a/') ? previousTimeline : jsonResponse(segments),
+    );
+    const { rerender } = render(
+      <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorA} />,
+    );
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(
+      `${vstApiUrl}/v1/storage/id-a/timelines`,
+    ));
+    rerender(
+      <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorB} />,
+    );
+    await screen.findByTestId('vst-stream-thumbnail');
+    await act(async () => {
+      resolvePrevious(await jsonResponse(segments));
+    });
     expect(screen.getByTestId('vst-stream-thumbnail').getAttribute('src')).toContain(
       '/v1/replay/stream/id-b/picture',
     );

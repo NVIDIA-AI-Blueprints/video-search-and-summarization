@@ -3,7 +3,7 @@
 /**
  * Recent still frame for a registered VST sensor. Resolves `sensorName` to a
  * VST stream id via `/v1/sensor/list` (cached per `vstApiUrl`), then renders
- * `/v1/replay/stream/{id}/picture` with a short lookback as an `<img>`. The
+ * `/v1/replay/stream/{id}/picture` within its latest recorded segment as an `<img>`. The
  * replay endpoint is used instead of `/v1/live/...` to avoid hitting the live
  * pipeline for what is effectively a preview.
  */
@@ -14,7 +14,7 @@ import { fetchSensorMap } from '../utils/vstSensorList';
 
 export { clearSensorListCache } from '../utils/vstSensorList';
 
-/** Resolved live-picture URLs per VST base + sensor name (survives remounts). */
+/** Resolved replay-picture URLs per VST base + sensor name (survives remounts). */
 const pictureUrlCache = new Map<string, string>();
 
 const pictureCacheKey = (vstApiUrl: string, sensorName: string) =>
@@ -49,13 +49,44 @@ interface VstStreamThumbnailProps {
 
 const THUMBNAIL_BOX_STYLE: React.CSSProperties = { width: '128px', height: '72px' };
 
-// Short lookback for the replay snapshot. Far enough back that the segment is
-// reliably written to storage, short enough that the preview still looks fresh.
-// NOTE: startTime is computed once per effect invocation (i.e., per prop change).
-// The thumbnail does not auto-refresh; it always shows the frame from ~5 s
-// before the sensor-list fetch resolved. Re-mount or a prop change is required
-// to get a newer frame.
+// Look back from the recorded segment end, rather than the wall clock: uploaded
+// files and disconnected cameras can have historical timelines. Short segments
+// use their midpoint so the snapshot stays inside the recording.
 const THUMBNAIL_LOOKBACK_MS = 5_000;
+
+interface RecordedSegment {
+  startTime: string;
+  endTime: string;
+}
+
+const fetchPreviewTime = async (baseUrl: string, sensorId: string): Promise<string> => {
+  const response = await fetch(
+    `${baseUrl}/v1/storage/${encodeURIComponent(sensorId)}/timelines`,
+  );
+  if (!response.ok) {
+    throw new Error(`VST timelines returned ${response.status}`);
+  }
+  const data: unknown = await response.json();
+  let latest: { start: number; end: number } | undefined;
+  if (Array.isArray(data)) {
+    for (const segment of data as RecordedSegment[]) {
+      if (typeof segment?.startTime !== 'string' || typeof segment?.endTime !== 'string') {
+        continue;
+      }
+      const start = Date.parse(segment.startTime);
+      const end = Date.parse(segment.endTime);
+      if (Number.isFinite(start) && Number.isFinite(end) && end > start &&
+          (!latest || end > latest.end)) {
+        latest = { start, end };
+      }
+    }
+  }
+  if (!latest) {
+    throw new Error('No recorded timeline available');
+  }
+  const lookback = Math.min(THUMBNAIL_LOOKBACK_MS, (latest.end - latest.start) / 2);
+  return new Date(latest.end - lookback).toISOString();
+};
 
 const Placeholder: React.FC<{
   isDark: boolean;
@@ -151,7 +182,7 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
     let cancelled = false;
 
     fetchSensorMap(vstApiUrl)
-      .then((map) => {
+      .then(async (map) => {
         if (cancelled) return;
         const sensorId = map.get(sensorName);
         if (!sensorId) {
@@ -162,9 +193,10 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
           });
           return;
         }
-        const startTime = new Date(Date.now() - THUMBNAIL_LOOKBACK_MS).toISOString();
         let baseUrl = vstApiUrl;
         while (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+        const startTime = await fetchPreviewTime(baseUrl, sensorId);
+        if (cancelled) return;
         const pictureUrl = `${baseUrl}/v1/replay/stream/${encodeURIComponent(
           sensorId,
         )}/picture?startTime=${encodeURIComponent(startTime)}`;
