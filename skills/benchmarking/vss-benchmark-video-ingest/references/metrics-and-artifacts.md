@@ -262,7 +262,9 @@ Before reporting a run, confirm:
 
 ### Interrupted-run ownership ledger
 
-`raw/upload_ledger.jsonl` persists returned upload identities before ES polling,
-including warmups and failed CLI responses that return a handle. It supports
+`raw/upload_ledger.jsonl` persists upload intents before CLI submission and
+returned upload identities before ES polling, including warmups. A CLI timeout
+without a returned handle retains the exact UUID name for inventory-based recovery.
+Resolved handles are saved before deletion; recovery never changes ingest metrics. It supports
 [interrupted-run cleanup](security-guidelines.md#interrupted-run-recovery); it does
 not establish successful ingestion or replace the final metrics/artifacts.

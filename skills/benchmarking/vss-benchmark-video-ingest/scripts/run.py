@@ -36,6 +36,7 @@ from pathlib import Path
 import sys
 import time
 import uuid
+from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -67,6 +68,8 @@ from httpio import redact_url  # noqa: E402
 from recover_cleanup import UploadLedger  # noqa: E402
 from upload import UploadRecord  # noqa: E402
 from upload import delete_asset  # noqa: E402
+from upload import pending_sensor_id  # noqa: E402
+from upload import video_inventory  # noqa: E402
 from upload import upload_one  # noqa: E402
 from validate import PROFILES  # noqa: E402
 from validate import resolve_matrix  # noqa: E402
@@ -313,17 +316,49 @@ def run_sweep_point(
     return records, wall_clock_sec
 
 
-def cleanup_records(cli: VssCli, records: list[UploadRecord], policy: str) -> dict[str, int]:
-    """Delete returned VIOS handles through the CLI, outside measured windows."""
+def cleanup_records(
+    cli: VssCli, records: list[UploadRecord], policy: str, *, record_identity: Callable[..., None] | None = None
+) -> dict[str, int]:
+    """Resolve pending upload intents and delete handles outside measured windows."""
     stats = {"attempted": 0, "deleted": 0, "failed": 0, "no_handle": 0}
     if policy == "never":
         return stats
+    inventory = None
+    inventory_error = ""
     for record in records:
-        if not record.sensor_id:
-            stats["no_handle"] += 1
-            record.cleanup_detail = "No returned handle; media may remain if CLI failed after upload"
-            continue
         if policy == "on-success" and record.outcome != "confirmed":
+            continue
+        if not record.sensor_id:
+            try:
+                if not record.cleanup_intent_recorded or record_identity is None:
+                    raise ValueError("No durable upload intent available for identity recovery")
+                # A single public listing per cleanup batch; no upload retries or
+                # extra reads inside CLI/ES latency or sweep throughput windows.
+                if inventory is None and not inventory_error:
+                    try:
+                        inventory = video_inventory(cli)
+                    except (OSError, ValueError) as exc:
+                        inventory_error = str(exc)
+                if inventory_error:
+                    raise ValueError(inventory_error)
+                sensor_id = pending_sensor_id(record.upload_filename, inventory)
+                if not sensor_id:
+                    raise ValueError("Pending upload not listed yet; preserve the ledger for later recovery")
+                record_identity(sensor_id=sensor_id, upload_filename=record.upload_filename,
+                                camera_name=record.upload_filename.rsplit(".", 1)[0],
+                                request_sent_at=record.request_sent_at, cli_exit_code=record.cli_exit_code)
+                record.sensor_id = sensor_id
+                record.cleanup_identity_recorded = True
+            except (OSError, ValueError) as exc:
+                stats["no_handle"] += 1
+                record.cleanup_detail = f"Cannot resolve cleanup identity: {exc}"
+                continue
+        if record.cleanup_intent_recorded and not record.cleanup_identity_recorded:
+            # A failed append may have written a complete or partial row before
+            # fsync failed. Retain the media for recovery; do not append blindly
+            # or delete while the durable ledger may still describe an intent.
+            stats["failed"] += 1
+            record.cleanup_detail = "Cleanup identity persistence failed; media retained for recovery"
             continue
         stats["attempted"] += 1
         ok, detail = delete_asset(cli, record.sensor_id)
@@ -521,6 +556,7 @@ def main(argv: list[str] | None = None) -> int:
             args.cli,
             warmup_records,
             args.cleanup,
+            record_identity=args.record_identity,
         )
         (raw_dir / "warmup_details.jsonl").write_text(
             "\n".join(
@@ -577,7 +613,7 @@ def main(argv: list[str] | None = None) -> int:
             if row["cli_exit_statuses"]:
                 log(f"     CLI exit histogram: {row['cli_exit_statuses']}")
 
-            stats = cleanup_records(args.cli, records, args.cleanup)
+            stats = cleanup_records(args.cli, records, args.cleanup, record_identity=args.record_identity)
             for key in cleanup_totals:
                 cleanup_totals[key] += stats[key]
             if stats["attempted"]:
@@ -585,7 +621,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.cleanup != "never" and (stats["failed"] or stats["no_handle"]):
                 stop_reason = (
                     f"Cleanup incomplete at {video_class}@c{concurrency}: "
-                    f"{stats['failed']} deletion(s) failed, {stats['no_handle']} missing handle(s); "
+                    f"{stats['failed']} cleanup operation(s) failed, {stats['no_handle']} missing handle(s); "
                     "remaining sweep points were not started."
                 )
                 log(f"     Stopping: {stop_reason}")

@@ -18,8 +18,11 @@ scans for the current `VSS_AUTH_TOKEN` value (including its JSON-escaped form) w
 printing it. That check does not identify unknown secrets or establish that every
 server diagnostic is safe to share; review the recorded diagnostics.
 
-Cleanup defaults to `always` and deletes returned run-owned handles after each
-point, including failed/unconfirmed uploads. `on-success` retains failed uploads;
+Cleanup defaults to `always` and deletes run-owned handles after each point,
+including failed/unconfirmed uploads. When the CLI returns no sensor ID, cleanup
+reads the public VIOS listing once and resolves the exact generated UUID name
+from the persisted upload intent. Only one matching video with a valid, unique
+sensor ID can be deleted; matching a prefix is never sufficient. `on-success` retains failed uploads;
 `never` retains all uploads. With cleanup enabled, a failed deletion or missing
 handle stops subsequent sweep points and records the reason in metadata and the
 summary. Collected point artifacts are still written. These options do not delete
@@ -37,12 +40,19 @@ configured confirmation ceiling for large workloads.
 
 ## Interrupted-run recovery
 
-The runner writes `raw/upload_ledger.jsonl` immediately after each CLI response
-returns a sensor ID, before waiting for ES. Each append is flushed and synced to
-disk, so identities remain available when the process is killed during readiness.
-This small local write is included in end-to-end latency, after CLI timing ends.
-The ledger contains the run ID, public VIOS URL, generated filename and returned
-sensor ID; it is ownership evidence, not a completed benchmark result.
+The runner writes a pending intent to `raw/upload_ledger.jsonl` **before** starting
+each CLI upload, including warmups. It records the exact generated UUID filename,
+camera name, run ID and public VIOS URL. An intent write failure prevents that
+upload. Returned sensor IDs are appended before waiting for ES. Each append is
+flushed and synced to disk, so a timeout or interruption before CLI JSON output
+still leaves a recoverable intent. The v2 ledger supports both intents and resolved
+identities; recovery also accepts older v1 ledgers containing returned IDs.
+
+The intent write precedes upload latency timing. Saving a returned ID remains
+included in end-to-end latency after CLI timing ends. Missing-ID lookup and
+cleanup occur outside the measured sweep window. Finding a cleanup handle never
+changes a failed/timed-out upload into a confirmed ingestion.
+The ledger is ownership evidence, not a completed benchmark result.
 
 Stop the interrupted run before recovery. Use the same CLI executable and CLI
 configuration as that run, then preview:
@@ -53,16 +63,24 @@ python scripts/recover_cleanup.py --ledger /path/to/results/raw/upload_ledger.js
 ```
 
 After reviewing the exact targets, add `--apply` to delete them. The helper checks
-the original VIOS URL and requires an exact sensor ID, generated name and video
-type match in the current public VIOS listing before it deletes anything. Missing
-IDs are reported as `already_absent`; unrelated sensors are untouched. A malformed
-ledger or mismatched identity stops all deletions. The helper does not retry a
-failed deletion, inspect internal services, or delete ES records.
+the original VIOS URL and validates all targets before deletion. A recorded ID
+requires an exact ID, generated name and video type match. An ID absent from the
+listing is `already_absent`; recovery never substitutes a same-name replacement.
+A pending intent requires one exact generated-name match with a valid, unique
+video ID. The helper durably saves all newly resolved IDs before deleting, so
+subsequent recovery uses those IDs. Preview mode makes no ledger changes.
 
-Keep this trusted local ledger with the run's other artifacts. An interruption
-before the CLI returns an ID, or before its ledger append completes, can leave an
-unrecorded asset; never guess its ownership or bulk-delete by prefix. Ask the
-operator to reconcile that case against upload evidence. A partial/corrupt ledger
-requires inspection, not automatic recovery. Recovery confirms only VIOS deletion;
+An intent with no current match is `unresolved`, and recovery exits nonzero;
+media may become visible later. Ambiguous names, invalid target identities or a
+malformed ledger stop all deletions. Unrelated diagnostic rows in the VIOS listing
+do not establish ownership and are left alone. The helper does not retry an
+upload or failed deletion, inspect internal services, or delete ES records.
+
+Keep this trusted local ledger with the run's other artifacts. If a returned-ID
+append fails, normal cleanup retains the media instead of deleting while the
+ledger might still contain only an intent. A partial/corrupt ledger requires
+inspection, not automatic recovery. Old v1 runs interrupted before recording an ID
+still require operator reconciliation; never guess ownership or bulk-delete by
+prefix. Recovery confirms only VIOS deletion;
 CV/Embed/ES cleanup remains asynchronous. Use a fresh results directory for the
 next attempt and managed background execution to avoid foreground tool deadlines.

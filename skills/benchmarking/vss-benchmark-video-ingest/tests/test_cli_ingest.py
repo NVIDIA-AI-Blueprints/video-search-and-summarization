@@ -383,7 +383,7 @@ class SweepTests(unittest.TestCase):
                     ["--no-config", "--corpus", d, "--profile", "smoke", "--warmup", "1", "--results-dir", d]
                 )
             self.assertEqual(code, 1)
-            cli.call.assert_called_once()
+            self.assertEqual([call.args[1] for call in cli.call.call_args_list], ["add", "list"])
             detail = json.loads((Path(d) / "raw/warmup_details.jsonl").read_text())
             self.assertEqual(detail["outcome"], "timed_out")
             self.assertFalse((Path(d) / "csv/ingest_summary.csv").exists())

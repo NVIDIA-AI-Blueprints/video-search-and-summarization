@@ -10,7 +10,7 @@
 | ES is discovered, but `/_cluster/health` returns 403 | Discovery does not prove the ingress permits health checks. Use an operator-provided public ES route to the same cluster that allows health and search reads, or ask the operator for one. Do not disable the ingress guard or skip readiness. |
 | Legacy `--set` rejected | Use the dedicated flag or YAML key, such as `--concurrency 5` or `sweep.concurrencies: [5]`. The old generic option did not apply its values. |
 | CLI nonzero | Keep the actual exit and diagnostic; no HTTP-status inference or automatic retry |
-| CLI exit 7 | CLI bounded wait expired; upload may already exist, inspect listings before cleanup |
+| CLI exit 7 | CLI bounded wait expired; cleanup resolves a missing ID from the persisted UUID name and public listing; use ledger recovery if still unresolved |
 | CLI exit 0, ES unconfirmed | Check raw/embed identities and counts, configured indices/chunk duration, then deployed webhooks |
 | No sensor_id | Cannot correlate Embed; report unconfirmed rather than guessing an ID |
 | Raw coverage low | Could be frame drops or sparse detections; not proof of any one bottleneck |

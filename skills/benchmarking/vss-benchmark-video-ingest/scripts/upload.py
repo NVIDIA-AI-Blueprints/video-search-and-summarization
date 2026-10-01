@@ -13,6 +13,7 @@ from dataclasses import field
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+import re
 import time
 from typing import Any
 from typing import Callable
@@ -25,6 +26,7 @@ from vss_cli import VssCli
 
 #: Terminal outcomes recorded in ``ingest_requests.csv``.
 OUTCOMES = ("confirmed", "unconfirmed", "failed", "timed_out")
+UPLOAD_NAME = re.compile(r"[0-9a-f]{32}-[0-9]{5,}\.[a-z0-9]+\Z")
 
 
 def utc_now() -> str:
@@ -63,6 +65,8 @@ class UploadRecord:
     outcome: str
     #: Not a CSV column -- carried so cleanup can delete what the run created.
     sensor_id: str = field(default="", repr=False)
+    cleanup_intent_recorded: bool = field(default=False, repr=False)
+    cleanup_identity_recorded: bool = field(default=False, repr=False)
     cli_exit_code: int | str = ""
     cli_duration_sec: float = 0.0
     cli_response: dict[str, Any] = field(default_factory=dict, repr=False)
@@ -145,6 +149,40 @@ def _sensor_id_from(body: dict[str, Any]) -> str:
     return ""
 
 
+def video_inventory(cli: VssCli) -> list[dict[str, Any]]:
+    """Read concrete VIOS handles once; a failed listing is not an empty one."""
+    result = cli.call("vios", "list", "--type", "video")
+    sensors = result.body.get("sensors")
+    if result.exit_code or not isinstance(sensors, list):
+        raise ValueError(f"Cannot verify VIOS inventory: CLI exit {result.exit_code}")
+    # The CLI includes unclassifiable/error rows even with --type video.
+    # Keep those rows so an unresolved target cannot look absent.
+    for sensor in sensors:
+        if (not isinstance(sensor, dict)
+                or not isinstance(sensor.get("sensor_id"), str)
+                or not isinstance(sensor.get("name"), str)):
+            raise ValueError("Invalid VIOS video inventory")
+    return sensors
+
+
+def pending_sensor_id(upload_filename: str, sensors: list[dict[str, Any]]) -> str:
+    """Resolve a persisted UUID upload intent, never a prefix or an invented ID."""
+    if not UPLOAD_NAME.fullmatch(upload_filename):
+        raise ValueError("Invalid pending upload filename")
+    camera_name = upload_filename.rsplit(".", 1)[0]
+    matches = [sensor for sensor in sensors if sensor["name"] == camera_name]
+    if not matches:
+        return ""
+    if len(matches) != 1:
+        raise ValueError("Ambiguous pending upload name; refusing cleanup")
+    sensor_id = matches[0]["sensor_id"]
+    if not sensor_id or sensor_id != sensor_id.strip() or matches[0].get("type") != "video":
+        raise ValueError("Pending upload has no valid video identity; refusing cleanup")
+    if sum(sensor["sensor_id"] == sensor_id for sensor in sensors) != 1:
+        raise ValueError("Ambiguous pending upload sensor ID; refusing cleanup")
+    return sensor_id
+
+
 def upload_one(
     item: VideoItem,
     *,
@@ -169,7 +207,6 @@ def upload_one(
     camera_name = upload_filename.rsplit(".", 1)[0]
 
     request_sent_at = utc_now()
-    started = time.monotonic()
     body: dict[str, Any] = {}
     transmitted = 0
     detail = ""
@@ -179,25 +216,41 @@ def upload_one(
 
     cli_exit_code: int | str = ""
     cli_duration_sec = 0.0
-    try:
-        response = cli.call(
-            "vios", "add", "--type", "video", str(Path(item.source_path).resolve()), "--name", upload_filename
-        )
-        cli_duration_sec = round(time.monotonic() - started, 3)
-        cli_exit_code = response.exit_code
-        body = response.body
-        if response.exit_code:
-            outcome = "timed_out" if response.exit_code == 7 else "failed"
-            detail = f"CLI exit {response.exit_code}: {response.detail}"
-        elif body.get("added") is not True or body.get("type") != "video":
-            outcome, detail = "failed", response.detail or "CLI exit 0 returned no video upload acknowledgement"
-        else:
-            # Successful payload bytes, not a wire counter. Partial failed transfers
-            # and HTTP overhead are not observable through the CLI.
-            transmitted = item.bytes
-    except Exception as exc:  # noqa: BLE001 -- preserve a result for a client failure
-        cli_duration_sec = round(time.monotonic() - started, 3)
-        outcome, detail = "failed", f"{type(exc).__name__}: {exc}"
+    intent_recorded = False
+    identity_recorded = False
+    # Persist the exact UUID name before the mutation: the CLI may be killed or
+    # time out after VIOS accepted the media but before returning its sensor ID.
+    if record_identity is not None:
+        try:
+            record_identity(sensor_id="", upload_filename=upload_filename, camera_name=camera_name,
+                            request_sent_at=request_sent_at, cli_exit_code="")
+            intent_recorded = True
+        except (OSError, ValueError) as exc:
+            outcome, detail = "failed", f"Cannot persist upload intent; upload not started: {exc}"
+
+    # Intent persistence is preparation, outside CLI/upload latency timing.
+    request_sent_at = utc_now()
+    started = time.monotonic()
+    if not outcome:
+        try:
+            response = cli.call(
+                "vios", "add", "--type", "video", str(Path(item.source_path).resolve()), "--name", upload_filename
+            )
+            cli_duration_sec = round(time.monotonic() - started, 3)
+            cli_exit_code = response.exit_code
+            body = response.body
+            if response.exit_code:
+                outcome = "timed_out" if response.exit_code == 7 else "failed"
+                detail = f"CLI exit {response.exit_code}: {response.detail}"
+            elif body.get("added") is not True or body.get("type") != "video":
+                outcome, detail = "failed", response.detail or "CLI exit 0 returned no video upload acknowledgement"
+            else:
+                # Successful payload bytes, not a wire counter. Partial failed transfers
+                # and HTTP overhead are not observable through the CLI.
+                transmitted = item.bytes
+        except Exception as exc:  # noqa: BLE001 -- preserve a result for a client failure
+            cli_duration_sec = round(time.monotonic() - started, 3)
+            outcome, detail = "failed", detail or f"{type(exc).__name__}: {exc}"
 
     sensor_id = _sensor_id_from(body)
     # Persist ownership before the potentially long ES wait. An interrupted
@@ -211,6 +264,7 @@ def upload_one(
                 request_sent_at=request_sent_at,
                 cli_exit_code=cli_exit_code,
             )
+            identity_recorded = True
         except (OSError, ValueError) as exc:
             outcome = outcome or "unconfirmed"
             detail = f"Cannot persist cleanup identity: {exc}"
@@ -290,6 +344,8 @@ def upload_one(
         cli_response=body,
         outcome=outcome,
         sensor_id=sensor_id,
+        cleanup_intent_recorded=intent_recorded,
+        cleanup_identity_recorded=identity_recorded,
         error_detail=detail,
         transmitted_bytes=transmitted,
         readiness_polls=polls,
@@ -298,7 +354,7 @@ def upload_one(
 
 
 def delete_asset(cli: VssCli, sensor_id: str) -> tuple[bool, str]:
-    """Delete only a returned VIOS handle; downstream cleanup is webhook-owned.
+    """Delete only a returned or inventory-verified VIOS handle; downstream cleanup is webhook-owned.
 
     Exit 0 confirms VIOS deletion. It does not prove the asynchronous ES removal
     webhooks completed. Never delete ES records directly to conceal that gap.

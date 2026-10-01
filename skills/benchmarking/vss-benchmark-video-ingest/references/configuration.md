@@ -37,6 +37,13 @@ values would be appended to it and `--concurrency 20` against `concurrencies: [1
 would run *four* points. The loader applies these list keys only when the flag is absent,
 so it runs one point at 20.
 
+**`--video` alone selects only the named videos.** Without an explicit
+`--video-class`, it replaces both profile classes and configured `sweep.video_classes`;
+no corpus root is required. Configured concurrencies remain effective, including with
+`--profile custom`. Supply `--video-class` as well to compare against corpus classes.
+When neither selection flag is given, the configuration can intentionally combine
+`sweep.videos` and `sweep.video_classes`.
+
 **An explicit named `--profile` replaces config matrix lists.** With no CLI profile,
 the lists in `config.yml` define the configured profile.
 
@@ -91,7 +98,7 @@ probe. It does not skip the version gate. See [version compatibility](version-co
 |---|---|---|
 | `sweep.profile` | `smoke` | `smoke`, `standard`, `stress`, or `custom`. `custom` requires both lists below. |
 | `sweep.video_classes` | from profile | Overrides the profile's classes. A predefined size (`50MB`, `500MB`, `2GB`, `10GB`) or the name of any folder under `corpus`. |
-| `sweep.videos` | `[]` | **Your own video.** A list of files or directories, benchmarked without a corpus layout. On its own it replaces `sweep.video_classes`; alongside an explicit one it is swept as an extra class. |
+| `sweep.videos` | `[]` | **Your own video.** A list of files or directories, benchmarked without a corpus layout. Without `sweep.video_classes`, it replaces the profile classes; with configured classes, it is swept as an extra class. |
 | `sweep.video_class_name` | `custom` | The class label `sweep.videos` files carry in the CSVs, the summary, and the chart legends. 1–32 characters of `A-Z a-z 0-9 . - _`. |
 | `sweep.concurrencies` | from profile | Unique integers from 1 through 200; one sweep point and x-axis value per entry. |
 | `sweep.limit` | `null` | Use only the first N videos of each class. |

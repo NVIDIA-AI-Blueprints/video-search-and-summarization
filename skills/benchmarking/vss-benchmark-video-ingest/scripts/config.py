@@ -222,8 +222,15 @@ def apply_lists(args, lists: dict[str, list]) -> None:
 
     argparse appends to a list default rather than replacing it, so these
     cannot go through ``set_defaults``. ``None`` means the flag was absent.
+    An explicit ``--video`` without ``--video-class`` selects only those videos,
+    so configured corpus classes must not be added to that selection.
     """
+    # Capture CLI provenance before any config lists are applied. Config-only
+    # selections may deliberately combine videos and corpus classes.
+    cli_video_only = getattr(args, "videos", None) is not None and getattr(args, "classes", None) is None
     for dest, value in lists.items():
+        if dest == "classes" and cli_video_only:
+            continue
         if getattr(args, dest, None) is None:
             setattr(args, dest, list(value))
 

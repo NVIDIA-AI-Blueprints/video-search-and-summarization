@@ -198,18 +198,23 @@ python scripts/run.py --config config.local.yml --vss-repo "$VSS_REPO_ROOT" --pr
 
 ### 7. Clean up and write artifacts
 
-`cleanup.policy` defaults to `always`: delete all run-owned returned VIOS handles,
+`cleanup.policy` defaults to `always`: delete all run-owned VIOS handles,
 including failed or unconfirmed uploads, through
 `vss vios delete --type video --sensor RETURNED_ID` after each point, outside its
 measurement window. Choose `on-success` to retain failed uploads for investigation,
 or `never` to retain all media. Exit 0 confirms VIOS removal only; asynchronous
-`camera_remove` webhooks own downstream cleanup. Missing returned IDs are recorded
-as `no_handle`. A failed deletion or missing handle stops subsequent sweep points;
+`camera_remove` webhooks own downstream cleanup. Missing returned IDs are resolved
+from one public listing using the persisted UUID name. An unresolved or ambiguous
+identity counts as `no_handle`. Failed cleanup stops subsequent sweep points;
 the runner retains collected artifacts and exits nonzero. `never` skips cleanup
 and this stop condition.
 
-The runner persists each returned identity in `raw/upload_ledger.jsonl` before ES
-polling. A killed process cannot run normal cleanup. After stopping that run, use
+The runner fsyncs each UUID upload intent in `raw/upload_ledger.jsonl` before
+launching the CLI, then records returned IDs before ES polling. Missing IDs can
+be recovered from a unique exact-name video match in the public VIOS listing;
+resolved IDs are persisted before deletion. Failed intent writes prevent uploads,
+and failed identity writes retain media for recovery. A killed process cannot run
+normal cleanup. After stopping that run, use
 [safe recovery](references/security-guidelines.md#interrupted-run-recovery) to
 preview and remove only its recorded assets before rerunning. Do not assume a CLI
 delete proves CV capacity or ES cleanup has finished; have the deployment operator
