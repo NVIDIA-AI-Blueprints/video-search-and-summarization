@@ -321,6 +321,11 @@ For instructions on downloading the deployment package, see [Download the Deploy
   ```bash
   # Set NGC CLI API key
   export NGC_CLI_API_KEY='your_ngc_api_key'
+
+  # Authenticate Docker for gated NIM and other nvcr.io images. The managed VSS
+  # images on ghcr.io are public and do not require a registry login.
+  printf '%s' "$NGC_CLI_API_KEY" | \
+    docker login nvcr.io --username '$oauthtoken' --password-stdin
   ```
 
 - Refer to [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
@@ -358,7 +363,13 @@ Offloading a model to a remote endpoint frees capacity on a shared GPU without c
 
 Single-GPU hosts are the exception. On GB300, DGX Spark and AGX Thor the profile collapses every local service onto the one GPU. The two edge boards go further and require both models to be remote, since their GPU is already carrying the perception pipeline.
 
-`overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
+From the repository checkout root, enter the Compose deployment directory:
+
+```bash
+cd deploy/docker
+```
+
+`overrides.env` is the checked-in template. Copy it to any
 filename matching `*-overrides.env` before selecting a layout. Files matching
 that pattern are ignored by Git so local settings and credentials are not
 committed. The commands below use `user-overrides.env` as a concrete example;
