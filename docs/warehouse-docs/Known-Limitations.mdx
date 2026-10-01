@@ -23,7 +23,7 @@ More advanced techniques will be included in future releases to address similar 
 
 The [MV3DT Vision AI Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile) may exhibit the following detection and tracking issues:
 
-- **Tracker ID switches:** A tracker ID may become associated with a different object, including across camera views.
+- **Tracker ID switches:** When people move close together, a tracker ID may switch from one person to another. IDs may also become associated with different objects across camera views.
 - **Tracking loss:** Previously tracked objects may lose their tracks while still visible.
 - **False detections:** Bounding boxes may appear on background structures or empty areas where no target object is present.
 - **Detached or oversized bounding boxes:** Boxes may be offset from their objects, float above them, or extend substantially beyond their dimensions.
@@ -80,6 +80,10 @@ In future releases, Auto Calibration will remove the requirement to provide both
 The tracklet-based AMC method calibrates cameras from detected person movements in input videos. It requires sufficient people moving through different areas of each camera's view; footage without enough person movement is unsuitable for AMC.
 
 This requirement does not apply to VGGT. For multi-camera calibration with VGGT support installed, users can choose whether to run AMC or VGGT first; VGGT does not require a successful AMC run.
+
+### Image-Coordinate Calibration
+
+Auto Calibration does not support image-coordinate calibration. Image-coordinate deployments do not require camera intrinsics, extrinsics, or homography because they do not transform coordinates. Define tripwires and ROIs manually in pixel coordinates and set `"calibrationType": "image"` in `calibration.json`.
 
 ## Brev Launchable
 
