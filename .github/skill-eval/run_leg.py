@@ -1634,8 +1634,8 @@ def run_invocations(
     from local_nim import PROXY_PORT
     from model_config import (
         SWITCHYARD_FRONTIER_MODEL,
-        SWITCHYARD_LOCAL_MODEL,
-        SWITCHYARD_PROVIDER,
+        SWITCHYARD_ROUTE,
+        switchyard_enabled,
     )
 
     routes = [
@@ -1643,17 +1643,8 @@ def run_invocations(
         for r in (model_routes.coding, model_routes.operational)
         if r.provider == "local-nim"
     ]
-    switchyard = model_routes.operational.provider == SWITCHYARD_PROVIDER
-    if switchyard:
-        routes.append(
-            dataclasses.replace(
-                model_routes.operational,
-                role="switchyard-local",
-                provider="local-nim",
-                model=SWITCHYARD_LOCAL_MODEL,
-            )
-        )
-    if not routes:
+    switchyard = switchyard_enabled(os.environ)
+    if not routes and not switchyard:
         return _run_invocations(
             invocations,
             instance,
@@ -1679,7 +1670,9 @@ def run_invocations(
             "frontier_model": os.environ.get(
                 "SKILLS_EVAL_SWITCHYARD_FRONTIER_MODEL", SWITCHYARD_FRONTIER_MODEL
             ),
-            "route": model_routes.operational.model,
+            "operational_model": model_routes.operational.model,
+            "operational_deployment": model_routes.operational.provider,
+            "route": SWITCHYARD_ROUTE,
         }
 
     def local_route(route):
@@ -1687,13 +1680,22 @@ def run_invocations(
             dataclasses.replace(
                 route, api_key=token, endpoint_url=f"http://127.0.0.1:{PROXY_PORT}/v1"
             )
-            if route.provider in {"local-nim", SWITCHYARD_PROVIDER}
+            if route.provider == "local-nim"
             else route
         )
 
     resolved = SkillEvalModelRoutes(
         coding=local_route(model_routes.coding),
-        operational=local_route(model_routes.operational),
+        operational=(
+            dataclasses.replace(
+                model_routes.operational,
+                provider="switchyard",
+                model=SWITCHYARD_ROUTE,
+                api_key=token,
+                endpoint_url=f"http://127.0.0.1:{PROXY_PORT}/v1",
+            )
+            if switchyard else local_route(model_routes.operational)
+        ),
     )
     results_root.mkdir(parents=True, exist_ok=True)
     (results_root / "model-deployments.json").write_text(

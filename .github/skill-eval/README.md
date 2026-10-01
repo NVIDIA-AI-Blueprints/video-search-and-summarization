@@ -57,7 +57,8 @@ queues one leg at a time on the registered Spark worker.
 | `operational_harness` | Operational runtime: `claude-code`, `codex`, or `nemoclaw` |
 | `operational_model` | Independent operational model from [`inference.nvidia.com`](https://inference.nvidia.com/); a blank value preserves its configured default |
 | `coding_deployment` | `nvidia-inference` (default) or `local-nim` for coding/setup |
-| `operational_deployment` | Independent `nvidia-inference` (default), `local-nim`, or `switchyard` for NemoClaw operational tasks |
+| `operational_deployment` | Independent `nvidia-inference` (default) or `local-nim` for operational tasks |
+| `enable_switchyard` | Route NemoClaw through Switchyard; default false |
 | `switchyard_frontier_model` | Hosted capable target for Switchyard; defaults to `azure/anthropic/claude-opus-5` |
 | `spark_runner` | Run on Brev external node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`); default false |
 
@@ -109,15 +110,17 @@ role choices and the actual worker at the leg results root.
 
 ### Switchyard for operational NemoClaw
 
-For an operational skill, select `operational_harness=nemoclaw` and
-`operational_deployment=switchyard`; leave `operational_model` blank. The
-runner deploys `nvidia/nemotron-3.5-lightning-30b-a3b` as a NIM on the VSS
-worker and builds the pinned Switchyard source used by
+For an operational skill, select `operational_harness=nemoclaw`, set
+`enable_switchyard=true`, and choose an `operational_model` and its
+`operational_deployment`. With `local-nim`, the runner deploys that selected
+model as a NIM on the VSS worker; with `nvidia-inference`, it uses the hosted
+model. The runner builds the pinned Switchyard source used by
 `deploy/docker/scripts/deploy_vss_switchyard.ipynb`. Switchyard serves
-`switchyard/stage`: its `efficient_first` stage recipe starts with local
-Lightning and can hand off to the hosted Opus 5 capable target. The
-`switchyard_frontier_model` input selects the hosted model ID. The same NGC
-credential and architecture checks as `local-nim` apply; the hosted key comes
+`switchyard/stage`: its `efficient_first` stage recipe starts with the
+selected operational model and can hand off to the hosted frontier target.
+The `switchyard_frontier_model` input selects that hosted model ID. NGC
+credential and architecture checks apply when the operational model uses
+`local-nim`; the hosted key comes
 from `SKILLS_EVAL_SWITCHYARD_FRONTIER_API_KEY`,
 `SKILLS_EVAL_OPERATIONAL_API_KEY`, or `ANTHROPIC_API_KEY`, in that order.
 

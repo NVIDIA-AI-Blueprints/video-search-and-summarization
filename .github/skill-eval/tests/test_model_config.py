@@ -35,31 +35,30 @@ def test_catalog_source_is_distinct_from_fixed_inference_api() -> None:
     )
 
 
-def test_switchyard_selects_operational_route_without_a_default_nemoclaw_model() -> None:
+def test_switchyard_keeps_selected_hosted_operational_model() -> None:
     route = model_config.resolve_model_config({
-        "SKILLS_EVAL_OPERATIONAL_DEPLOYMENT": "switchyard",
+        "SKILLS_EVAL_SWITCHYARD": "true",
         "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
-        "NGC_API_KEY": "registry-secret",
+        "SKILLS_EVAL_OPERATIONAL_MODEL": "nvidia/selected-hosted",
         "ANTHROPIC_API_KEY": "hosted-secret",
     })
-    assert route.model == model_config.SWITCHYARD_ROUTE
-    assert route.provider == "switchyard"
-    assert route.endpoint_url == "http://127.0.0.1:18400/v1"
-    assert route.api_key == "switchyard"
+    assert route.model == "nvidia/selected-hosted"
+    assert route.provider == "nvidia-inference"
+    assert route.endpoint_url == model_config.NVIDIA_INFERENCE_API_BASE_URL
 
 
-def test_switchyard_rejects_non_nemoclaw_or_non_inference_frontier() -> None:
+def test_switchyard_rejects_non_nemoclaw_or_invalid_frontier_id() -> None:
     base = {
-        "SKILLS_EVAL_OPERATIONAL_DEPLOYMENT": "switchyard",
-        "NGC_API_KEY": "registry-secret",
+        "SKILLS_EVAL_SWITCHYARD": "true",
+        "SKILLS_EVAL_OPERATIONAL_MODEL": "nvidia/selected-hosted",
         "ANTHROPIC_API_KEY": "hosted-secret",
     }
-    with pytest.raises(ValueError, match="requires nemoclaw"):
+    with pytest.raises(ValueError, match="NemoClaw"):
         model_config.resolve_model_config({**base, "SKILLS_EVAL_OPERATIONAL_HARNESS": "codex",
                                            "CODEX_MODEL": "example/codex"})
-    with pytest.raises(ValueError, match="NVIDIA Inference Anthropic"):
+    with pytest.raises(ValueError, match="valid NVIDIA Inference model ID"):
         model_config.resolve_model_config({**base, "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
-                                           "SKILLS_EVAL_SWITCHYARD_FRONTIER_MODEL": "other/model"})
+                                           "SKILLS_EVAL_SWITCHYARD_FRONTIER_MODEL": "bad model;"})
 
 
 def test_default_routes_preserve_claude_runner_configuration() -> None:
@@ -78,26 +77,28 @@ def test_default_routes_preserve_claude_runner_configuration() -> None:
     )
 
 
-def test_switchyard_requires_nemoclaw_and_local_and_hosted_credentials() -> None:
+def test_switchyard_requires_selected_model_and_frontier_key() -> None:
     env = {
         **DEFAULT_ENV,
         "NGC_API_KEY": "ngc-secret",
         "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
-        "SKILLS_EVAL_OPERATIONAL_DEPLOYMENT": "switchyard",
+        "SKILLS_EVAL_OPERATIONAL_DEPLOYMENT": "local-nim",
+        "SKILLS_EVAL_OPERATIONAL_MODEL": "nvidia/selected-local",
+        "SKILLS_EVAL_SWITCHYARD": "true",
     }
     route = model_config.resolve_model_config(env)
-    assert route.provider == "switchyard"
-    assert route.model == "switchyard/stage"
-    assert route.api_key == "switchyard"
+    assert route.provider == "local-nim"
+    assert route.model == "nvidia/selected-local"
+    assert route.api_key == "local-nim"
     assert route.endpoint_url == "http://127.0.0.1:18400/v1"
-    with pytest.raises(ValueError, match="requires nemoclaw"):
+    with pytest.raises(ValueError, match="NemoClaw"):
         model_config.resolve_model_config({**env, "SKILLS_EVAL_OPERATIONAL_HARNESS": "codex"})
     with pytest.raises(ValueError, match="NGC"):
         model_config.resolve_model_config({**env, "NGC_API_KEY": ""})
     with pytest.raises(ValueError, match="frontier API key"):
         model_config.resolve_model_config({**env, "ANTHROPIC_API_KEY": ""})
-    with pytest.raises(ValueError, match="leave operational_model blank"):
-        model_config.resolve_model_config({**env, "SKILLS_EVAL_OPERATIONAL_MODEL": "nvidia/local"})
+    with pytest.raises(ValueError, match="requires SKILLS_EVAL_OPERATIONAL_MODEL"):
+        model_config.resolve_model_config({**env, "SKILLS_EVAL_OPERATIONAL_MODEL": ""})
 
 
 def test_coding_and_operational_overrides_are_independent() -> None:

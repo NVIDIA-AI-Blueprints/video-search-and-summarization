@@ -327,9 +327,10 @@ working chat.
 
 ## Default provider
 
-In skill-eval automation, `operational_deployment=switchyard` is a
-preconfigured provider. The worker-side `local_nim.py` script deploys the
-local Nemotron 3.5 Lightning NIM and Switchyard before Build Vision AI runs,
+In skill-eval automation, `enable_switchyard=true` is a preconfigured
+NemoClaw route. The worker-side `local_nim.py` script deploys Switchyard and,
+when the selected operational deployment is `local-nim`, the selected NIM
+before Build Vision AI runs,
 then supplies `NEMOCLAW_ENDPOINT_URL`, `NEMOCLAW_MODEL=switchyard/stage`, and
 the per-leg `COMPATIBLE_API_KEY`. Use those values unchanged when onboarding
 NemoClaw. The router listens only on worker loopback and the authenticated

@@ -342,11 +342,10 @@ def start(plan: dict):
     marker.unlink(missing_ok=True)
     (root / "deployment.json").unlink(missing_ok=True)
     key = os.environ.get("NGC_API_KEY") or os.environ.get("NGC_CLI_API_KEY")
-    if not key:
-        raise NimError(
-            "Local NIM requires NGC_CLI_API_KEY or NGC_API_KEY on the worker"
-        )
-    os.environ["NGC_API_KEY"] = key
+    if plan["routes"] and not key:
+        raise NimError("Local NIM requires NGC_CLI_API_KEY or NGC_API_KEY on the worker")
+    if key:
+        os.environ["NGC_API_KEY"] = key
     arch = architecture(platform.machine())
     resolved = [
         resolve_image(model, arch, key) for model in unique_models(plan["routes"])
@@ -363,14 +362,11 @@ def start(plan: dict):
         old = os.environ.get("DOCKER_CONFIG")
         os.environ["DOCKER_CONFIG"] = config
         try:
-            docker(
-                "login",
-                "nvcr.io",
-                "-u",
-                "$oauthtoken",
-                "--password-stdin",
-                input_text=key,
-            )
+            if resolved:
+                docker(
+                    "login", "nvcr.io", "-u", "$oauthtoken", "--password-stdin",
+                    input_text=key,
+                )
             for item in resolved:
                 docker("pull", item["image"], timeout=1500)
         finally:
@@ -386,7 +382,7 @@ def start(plan: dict):
     nemoclaw_model = (
         validate_model_id(nemoclaw_route["model"]) if nemoclaw_route else None
     )
-    host = worker_host() if nemoclaw_route else None
+    host = worker_host() if nemoclaw_route or plan.get("switchyard") else None
     for i, item in enumerate(resolved):
         port = PROXY_PORT + 10 + i
         direct_nemoclaw = item["model"] == nemoclaw_model
@@ -508,25 +504,37 @@ def start(plan: dict):
     evidence = {"models": resolved, "roles": plan["routes"], "architecture": arch}
     if plan.get("switchyard"):
         evidence["switchyard"] = plan["switchyard"]
-    if nemoclaw_route:
+    if nemoclaw_route or plan.get("switchyard"):
         evidence["nemoclaw_endpoint"] = f"http://{host}:{PROXY_PORT}/v1"
     marker.write_text(json.dumps(evidence, indent=2))
     configure_nemoclaw(evidence)
     publish(root)
 
 
-def switchyard_config(frontier_model: str, local_model: str, local_port: int, route: str) -> str:
-    """Keep each upstream's credential on its own Switchyard client."""
-    for model in (frontier_model, local_model, route):
+def switchyard_config(
+    frontier_model: str,
+    operational_model: str,
+    operational_deployment: str,
+    local_port: int | None,
+    route: str,
+) -> str:
+    """Route the selected operational model from its selected deployment."""
+    for model in (frontier_model, operational_model, route):
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/-]*", model):
             raise NimError(f"Invalid Switchyard model or route ID: {model!r}")
+    if operational_deployment not in {"local-nim", "nvidia-inference"}:
+        raise NimError(f"Unsupported Switchyard operational deployment: {operational_deployment}")
+    if operational_deployment == "local-nim" and local_port is None:
+        raise NimError("Switchyard local NIM port is missing")
+    local_client = (
+        f'[llm_clients.local]\nformat = "openai_chat"\n'
+        f'base_url = "http://127.0.0.1:{local_port}/v1"\n\n'
+        if operational_deployment == "local-nim" else ""
+    )
+    efficient_client = "local" if operational_deployment == "local-nim" else "frontier"
     return f'''schema_version = 1
 
-[llm_clients.local]
-format = "openai_chat"
-base_url = "http://127.0.0.1:{local_port}/v1"
-
-[llm_clients.frontier]
+{local_client}[llm_clients.frontier]
 format = "openai_chat"
 base_url = "https://inference-api.nvidia.com/v1"
 api_key_env = "SWITCHYARD_FRONTIER_API_KEY"
@@ -536,8 +544,8 @@ id = {json.dumps(frontier_model)}
 llm_client = "frontier"
 
 [targets.efficient]
-id = {json.dumps(local_model)}
-llm_client = "local"
+id = {json.dumps(operational_model)}
+llm_client = {json.dumps(efficient_client)}
 
 [routes.stage]
 id = {json.dumps(route)}
@@ -547,8 +555,8 @@ efficient_target = "efficient"
 picker = "efficient_first"
 confidence_threshold = 0.5
 
-[routes.probe_local]
-id = "switchyard/probe-local"
+[routes.probe_efficient]
+id = "switchyard/probe-efficient"
 type = "passthrough"
 target = "efficient"
 
@@ -564,13 +572,15 @@ def start_switchyard(plan: dict, root: Path, resolved: list[dict]) -> None:
     key = os.environ.get("SKILL_EVAL_ROUTER_UPSTREAM_API_KEY")
     if not key or "\n" in key or "\r" in key:
         raise NimError("Switchyard requires a single-line frontier API key")
+    deployment = settings["operational_deployment"]
     local_model = next(
-        (item for item in resolved if item["model"] == "nvidia/nemotron-3.5-lightning-30b-a3b"),
+        (item for item in resolved if item["model"] == validate_model_id(settings["operational_model"])),
         None,
-    )
-    if local_model is None:
-        raise NimError("Switchyard requires local Nemotron 3.5 Lightning")
-    local_port = PROXY_PORT + 10 + resolved.index(local_model)
+    ) if deployment == "local-nim" else None
+    if deployment == "local-nim" and local_model is None:
+        raise NimError("Switchyard selected local NIM was not deployed")
+    local_port = PROXY_PORT + 10 + resolved.index(local_model) if local_model else None
+    served_model = local_model["served_model"] if local_model else settings["operational_model"]
     image = f"skill-eval-switchyard:{SWITCHYARD_REF[:12]}"
     if docker("image", "inspect", image, check=False).returncode:
         source = Path.home() / ".cache" / "skill-eval-switchyard-source"
@@ -594,7 +604,7 @@ def start_switchyard(plan: dict, root: Path, resolved: list[dict]) -> None:
         docker("build", "-t", image, str(source), timeout=1800)
     config_file = root / "switchyard.toml"
     config_file.write_text(switchyard_config(
-        settings["frontier_model"], local_model["served_model"], local_port, settings["route"]
+        settings["frontier_model"], served_model, deployment, local_port, settings["route"]
     ))
     key_file = root / "frontier.key"
     key_file.write_text(key)
@@ -626,7 +636,7 @@ def start_switchyard(plan: dict, root: Path, resolved: list[dict]) -> None:
 
 
 def smoke_switchyard(plan: dict) -> None:
-    for route in ("switchyard/probe-local", "switchyard/probe-frontier", plan["switchyard"]["route"]):
+    for route in ("switchyard/probe-efficient", "switchyard/probe-frontier", plan["switchyard"]["route"]):
         try:
             request_json(
                 f"http://127.0.0.1:{ROUTER_PORT}/v1/chat/completions",

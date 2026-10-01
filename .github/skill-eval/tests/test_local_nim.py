@@ -6,7 +6,6 @@ import json
 import subprocess
 import sys
 import tomllib
-import tomllib
 import urllib.error
 from pathlib import Path
 from unittest.mock import Mock
@@ -25,6 +24,7 @@ def test_switchyard_stage_recipe_separates_local_and_hosted_credentials():
     config = tomllib.loads(nim.switchyard_config(
         "azure/anthropic/claude-opus-5",
         "nvidia/nemotron-3.5-lightning-30b-a3b",
+        "local-nim",
         18410,
         "switchyard/stage",
     ))
@@ -37,15 +37,21 @@ def test_switchyard_stage_recipe_separates_local_and_hosted_credentials():
     assert config["routes"]["stage"]["picker"] == "efficient_first"
 
 
-def test_switchyard_plan_deploys_lightning_once_and_keeps_opus_hosted(monkeypatch, tmp_path):
+@pytest.mark.parametrize("deployment,model", [
+    ("local-nim", "nvidia/selected-local"),
+    ("nvidia-inference", "nvidia/selected-hosted"),
+])
+def test_switchyard_plan_uses_selected_operational_deployment(monkeypatch, tmp_path, deployment, model):
     monkeypatch.setenv("SKILLS_EVAL_SWITCHYARD_FRONTIER_API_KEY", "hosted-secret")
+    monkeypatch.setenv("SKILLS_EVAL_SWITCHYARD", "true")
     coding = model_config.SkillEvalModelConfig(
         "coding", "codex", "nvidia-inference", "openai/codex",
         "https://inference-api.nvidia.com/v1", "coding-secret",
     )
     operational = model_config.SkillEvalModelConfig(
-        "operational", "nemoclaw", "switchyard", "switchyard/stage",
-        "http://127.0.0.1:18400/v1", "switchyard",
+        "operational", "nemoclaw", deployment, model,
+        "http://127.0.0.1:18400/v1" if deployment == "local-nim" else
+        "https://inference-api.nvidia.com/v1", "operational-key",
     )
     captured = {}
 
@@ -61,11 +67,13 @@ def test_switchyard_plan_deploys_lightning_once_and_keeps_opus_hosted(monkeypatc
         100, model_config.SkillEvalModelRoutes(coding, operational),
     )
     assert result == 0
-    assert captured["nim_plan"]["routes"] == [{
-        "role": "switchyard-local", "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
-        "runtime": "nemoclaw",
-    }]
+    expected_routes = ([{"role": "operational", "model": model, "runtime": "nemoclaw"}]
+                       if deployment == "local-nim" else [])
+    assert captured["nim_plan"]["routes"] == expected_routes
     assert captured["nim_plan"]["switchyard"]["frontier_model"] == "azure/anthropic/claude-opus-5"
+    assert captured["nim_plan"]["switchyard"]["operational_model"] == model
+    assert captured["nim_plan"]["switchyard"]["operational_deployment"] == deployment
+    assert captured["routes"].operational.model == "switchyard/stage"
     assert captured["routes"].operational.api_key == captured["nim_plan"]["token"]
     assert captured["router_upstream_key"] == "hosted-secret"
     assert "hosted-secret" not in json.dumps(captured["nim_plan"])
@@ -74,13 +82,54 @@ def test_switchyard_plan_deploys_lightning_once_and_keeps_opus_hosted(monkeypatc
 def test_switchyard_recipe_keeps_local_and_frontier_credentials_separate():
     config = tomllib.loads(nim.switchyard_config(
         "azure/anthropic/claude-opus-5", "nvidia/nemotron-3.5-lightning-30b-a3b",
-        18410, "switchyard/stage",
+        "local-nim", 18410, "switchyard/stage",
     ))
     assert config["llm_clients"]["local"]["base_url"] == "http://127.0.0.1:18410/v1"
     assert "api_key_env" not in config["llm_clients"]["local"]
     assert config["llm_clients"]["frontier"]["api_key_env"] == "SWITCHYARD_FRONTIER_API_KEY"
     assert config["routes"]["stage"]["type"] == "stage_router"
     assert config["routes"]["probe_frontier"]["target"] == "capable"
+
+
+def test_switchyard_hosted_operational_target_uses_inference_client():
+    config = tomllib.loads(nim.switchyard_config(
+        "azure/anthropic/claude-opus-5", "nvidia/selected-hosted",
+        "nvidia-inference", None, "switchyard/stage",
+    ))
+    assert "local" not in config["llm_clients"]
+    assert config["targets"]["efficient"]["id"] == "nvidia/selected-hosted"
+    assert config["targets"]["efficient"]["llm_client"] == "frontier"
+
+
+def test_switchyard_hosted_operational_target_starts_without_ngc(monkeypatch, tmp_path):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("NGC_API_KEY", raising=False)
+    monkeypatch.delenv("NGC_CLI_API_KEY", raising=False)
+    commands = []
+    monkeypatch.setattr(nim, "docker", lambda *args, **kwargs: (
+        commands.append(args) or subprocess.CompletedProcess(args, 0, "", "")
+    ))
+    monkeypatch.setattr(nim, "worker_host", lambda: "10.0.0.1")
+    monkeypatch.setattr(nim, "start_switchyard", lambda *args: None)
+    monkeypatch.setattr(nim, "wait_ready", lambda *args, **kwargs: None)
+    monkeypatch.setattr(nim, "smoke_switchyard", lambda *args: None)
+    monkeypatch.setattr(nim, "publish", lambda *args: None)
+    plan = {
+        "owner": "a" * 24,
+        "token": "sk-test",
+        "routes": [],
+        "switchyard": {
+            "operational_model": "nvidia/selected-hosted",
+            "operational_deployment": "nvidia-inference",
+            "frontier_model": "azure/anthropic/claude-opus-5",
+            "route": "switchyard/stage",
+        },
+    }
+    nim.start(plan)
+    assert not any(command[0] in {"login", "pull"} for command in commands)
+    assert sum(command[0] == "run" for command in commands) == 1  # authenticated proxy
+    ready = json.loads((nim.owner_paths(plan["owner"]) / "ready.json").read_text())
+    assert ready["nemoclaw_endpoint"] == "http://10.0.0.1:18400/v1"
 
 
 def registry(monkeypatch, *, arch="arm64", tags=None, fail=None):

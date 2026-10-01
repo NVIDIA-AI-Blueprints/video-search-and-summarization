@@ -604,8 +604,10 @@ checks architecture, starts it after Docker reset, and shares one deployment
 when both roles select the same model. Do not deploy these inference models
 in an adapter or ask the evaluated agent to deploy them. The harness manages
 their endpoints, temporary credentials, readiness, logs, and cleanup.
-For an operational NemoClaw `switchyard` deployment, the harness also starts
-one local Nemotron 3.5 Lightning NIM and a loopback-only Switchyard router.
+For an operational NemoClaw run with `enable_switchyard=true`, the harness
+routes the selected operational model from its selected deployment through a
+loopback-only Switchyard router, with a separately selected hosted frontier.
+It starts a local NIM only when `operational_deployment=local-nim`.
 Build Vision AI consumes the provided `NEMOCLAW_*` endpoint and route; do not
 run the interactive Switchyard notebook in the eval task or replace its
 per-leg proxy key with a hosted key.

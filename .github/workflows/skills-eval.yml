@@ -66,21 +66,25 @@ on:
           - codex
           - nemoclaw
       operational_model:
-        description: "OPERATIONAL · Model ID from https://inference.nvidia.com/; leave blank for Switchyard."
+        description: "OPERATIONAL · Model ID from https://inference.nvidia.com/. Required when Switchyard is enabled."
         required: false
         default: ""
         type: string
       operational_deployment:
-        description: "OPERATIONAL · Hosted inference, local NIM, or Switchyard (NemoClaw only: local Lightning + hosted Opus 5)."
+        description: "OPERATIONAL · Hosted NVIDIA Inference or a NIM on the VSS worker."
         type: choice
         default: nvidia-inference
-        options: [nvidia-inference, local-nim, switchyard]
+        options: [nvidia-inference, local-nim]
+      enable_switchyard:
+        description: "Enable Switchyard (NemoClaw only)"
+        type: boolean
+        default: false
       switchyard_frontier_model:
-        description: "Switchyard capable target on NVIDIA Inference. Used only with the switchyard deployment."
+        description: "Switchyard frontier model on NVIDIA Inference. Used only with the switchyard deployment."
         type: string
         default: azure/anthropic/claude-opus-5
       spark_runner:
-        description: "Run on the registered Brev Spark-ba-WiFi worker."
+        description: "Run on Spark"
         type: boolean
         default: false
 
@@ -259,6 +263,7 @@ jobs:
           CODING_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_harness || 'claude-code' }}
           CODING_DEPLOYMENT_INPUT: ${{ inputs.coding_deployment || 'nvidia-inference' }}
           OPERATIONAL_DEPLOYMENT_INPUT: ${{ inputs.operational_deployment || 'nvidia-inference' }}
+          ENABLE_SWITCHYARD_INPUT: ${{ github.event.inputs.enable_switchyard || 'false' }}
           # workflow_dispatch exposes checkbox values as strings in event.inputs.
           # Use that exact value; a manual `gh workflow run -f ...=true` must
           # not silently fall back to the platform pool.
@@ -290,6 +295,7 @@ jobs:
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
           coding_deployment="$CODING_DEPLOYMENT_INPUT"
           operational_deployment="$OPERATIONAL_DEPLOYMENT_INPUT"
+          enable_switchyard="$ENABLE_SWITCHYARD_INPUT"
           spark_runner="$SPARK_RUNNER_INPUT"
           coding_harness="$CODING_HARNESS_INPUT"
           coding_model="$CODING_MODEL_INPUT"
@@ -308,6 +314,7 @@ jobs:
           export PATH="$skill_eval_venv_dir/bin:$PATH"
           export SKILLS_EVAL_CODING_DEPLOYMENT="$coding_deployment"
           export SKILLS_EVAL_OPERATIONAL_DEPLOYMENT="$operational_deployment"
+          export SKILLS_EVAL_SWITCHYARD="$enable_switchyard"
           export SKILLS_EVAL_SWITCHYARD_FRONTIER_MODEL="$switchyard_frontier_model"
           export SKILLS_EVAL_SPARK_RUNNER="$spark_runner"
           export EVAL_AGENT="$operational_harness"
