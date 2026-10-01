@@ -746,7 +746,6 @@ GB300:
   2d:
     max_streams_supported: 161
   3d:
-    # Conservative limit: Sparse4D v2.3 supports 74 and v3.0 supports 71.
     max_streams_supported: 71
 
 L40S:
