@@ -362,14 +362,16 @@ to update `NUM_STREAMS` (both default to 4).
 Select before the first install: changing this value does not replace videos
 already staged in the video volume.
 
-**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** (default
-`http://vss-video-analytics-api:8081/config/calibration`) makes behavior-analytics
-fetch calibration.json from that endpoint via an initContainer, retrying until
-it returns real data and validating it before the main container starts — only
-when **`resourceFiles.calibration.enabled`** is also `true` (default). Clear
-`apiUrl` to fall back to the bundled `files/behavior-analytics/calibration.json`,
-or set `resourceFiles.calibration.enabled=false` to skip both the initContainer
-and that fallback.
+**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** and
+**`resourceFiles.calibration.enabled`** (both default to a live API URL /
+`true`) together control calibration:
+
+- **Default** — fetches `calibration.json` from `apiUrl` via an initContainer
+  before the app starts.
+- **Clear `apiUrl`** — skips the fetch, falls back to the bundled
+  `files/behavior-analytics/calibration.json`.
+- **Set `enabled: false`** — skips calibration entirely (no initContainer, no
+  fallback); 2D runs on raw image coordinates.
 
 #### Using a custom dataset
 
@@ -397,35 +399,32 @@ Video source — pick one; they're mutually exclusive, don't configure both:
    directly; test with VLC or `ffplay` from the deployment machine before
    deploying.
 
-Unlike 3D/MV3DT, calibration is optional here: 2D detection/tracking runs
-directly on the camera stream in image (pixel) coordinates, with no
-calibration required. Calibration is only needed for ROI/tripwire events in
-behavior-analytics; neither is off by default. If you don't need those:
+**Calibration is optional for 2D** (unlike 3D/MV3DT):
 
-- **`calibration-import.enabled=false`** — `--set calibration-import.enabled=false`.
-  Skips the upload Job.
-- **`analytics.vss-behavior-analytics.resourceFiles.calibration.enabled=false`**
-  — `--set analytics.vss-behavior-analytics.resourceFiles.calibration.enabled=false`.
-  Skips both the `fetch-calibration` initContainer (so nothing polls the API
-  the disabled Job never uploads to) and the bundled sample `calibration.json`
-  fallback mount.
-- **`analytics.vss-behavior-analytics.command`** — drop
-  `--calibration`/`/resources/calibration.json` from the array so the app
-  isn't launched pointing at a path nothing mounts. Either
-  `--set 'analytics.vss-behavior-analytics.command={python3,apps/analytics/main_analytics_2d_app.py,--config,/resources/vss-behavior-analytics-config.json}'`
-  (arrays are always replaced whole, never merged, so this is safe), or the
-  same 4 lines restated as a list in a `-f` values file.
+- 2D detection/tracking runs directly on the camera stream in image (pixel)
+  coordinates — no calibration required.
+- Calibration is only needed for ROI/tripwire events in behavior-analytics.
+- Neither is disabled by default.
 
-If you do need ROI/tripwire, override **`calibration-import.calibrationFileSource`**,
-**`imageMetadataFileSource`**, and **`imageBaseSource`** to point at your own
-`calibration.json`, `imageMetadata.json`, and floor-plan images instead of the
-bundled sample set. `imageMetadataFileSource` must resolve to a file with an
-`images[]` array, each entry carrying a `fileName`; `imageBaseSource` is the
-base URL each `fileName` is fetched from. Keep **`calibration-import.requireCalibration`**
-and **`requireImages`** at their default `true` once real sources are set, so a
-broken URL fails the Job instead of deploying with no calibration. Each
-`camera_name` registered above must match the corresponding sensor name in
-`calibration.json` — the importer doesn't check this for you.
+If you don't need ROI/tripwire, skip calibration entirely with these 3 changes:
+
+| Setting | Set | Effect |
+|---|---|---|
+| `calibration-import.enabled` | `false` (`--set calibration-import.enabled=false`) | Skips the calibration upload Job. |
+| `analytics.vss-behavior-analytics.resourceFiles.calibration.enabled` | `false` (`--set analytics.vss-behavior-analytics.resourceFiles.calibration.enabled=false`) | Skips the `fetch-calibration` initContainer and the bundled sample `calibration.json` fallback mount. |
+| `analytics.vss-behavior-analytics.command` | remove `--calibration`/`/resources/calibration.json` | Final command: `--set 'analytics.vss-behavior-analytics.command={python3,apps/analytics/main_analytics_2d_app.py,--config,/resources/vss-behavior-analytics-config.json}'` (arrays are always replaced whole, never merged, so this is safe) — or restate as a list in a `-f` values file. |
+
+If you do need ROI/tripwire:
+
+| Setting | Set | Effect |
+|---|---|---|
+| `calibration-import.calibrationFileSource` | your `calibration.json` URL | Replaces the bundled sample calibration. |
+| `calibration-import.imageMetadataFileSource` | your `imageMetadata.json` URL | Must resolve to a file with an `images[]` array, each entry carrying a `fileName`. |
+| `calibration-import.imageBaseSource` | base URL for your floor-plan images | Base URL each `fileName` above is fetched from. |
+| `calibration-import.requireCalibration` / `requireImages` | keep default `true` | A broken URL fails the Job instead of deploying with no calibration. |
+
+Each `camera_name` registered above must match the corresponding sensor name
+in `calibration.json` — the importer doesn't check this for you.
 
 Also configure, outside `global`:
 

@@ -547,14 +547,17 @@ branch name otherwise; omit `--set global.gitRef=...` to default to `develop`.
 `calibration/sample-data/` those same three links point at. Default is
 `warehouse-4cams-20mx20m-synthetic`.
 
-**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** (default
-`http://vss-video-analytics-api:8081/config/calibration`) makes behavior-analytics
-fetch calibration.json from that endpoint via an initContainer, retrying until
-it returns real data and validating it before the main container starts — only
-when **`resourceFiles.calibration.enabled`** is also `true` (default). Clear
-`apiUrl` to fall back to the bundled `files/behavior-analytics/calibration.json`,
-or set `resourceFiles.calibration.enabled=false` to skip both the initContainer
-and that fallback.
+**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** and
+**`resourceFiles.calibration.enabled`** (both default to a live API URL /
+`true`) together control calibration:
+
+- **Default** — fetches `calibration.json` from `apiUrl` via an initContainer
+  before the app starts.
+- **Clear `apiUrl`** — skips the fetch, falls back to the bundled
+  `files/behavior-analytics/calibration.json`.
+- **Set `enabled: false`** — skips calibration entirely (no initContainer, no
+  fallback). Not viable for MV3DT: the multi-view tracker needs real camera
+  matrices to localize objects across views.
 
 #### Using a custom dataset
 
@@ -582,18 +585,19 @@ Video source — pick one; they're mutually exclusive, don't configure both:
    directly; test with VLC or `ffplay` from the deployment machine before
    deploying.
 
-Calibration data has to be supplied either way — override **`calibration-import.calibrationFileSource`**,
-**`imageMetadataFileSource`**, and **`imageBaseSource`** to point at your own
-`calibration.json`, `imageMetadata.json`, and floor-plan images instead of the
-bundled sample set. `imageMetadataFileSource` must resolve to a file with an
-`images[]` array, each entry carrying a `fileName`; `imageBaseSource` is the
-base URL each `fileName` is fetched from. Keep **`calibration-import.requireCalibration`**
-and **`requireImages`** at their default `true` once real sources are set, so a
-broken URL fails the Job instead of deploying with no calibration. Each
-`camera_name` registered above must match the corresponding sensor name in
-`calibration.json` — the importer doesn't check this for you. This repoints
-what's uploaded to the video analytics API only — bp-configurator seeds its
-own copy from
+Calibration data has to be supplied either way:
+
+| Setting | Set | Effect |
+|---|---|---|
+| `calibration-import.calibrationFileSource` | your `calibration.json` URL | Replaces the bundled sample calibration. |
+| `calibration-import.imageMetadataFileSource` | your `imageMetadata.json` URL | Must resolve to a file with an `images[]` array, each entry carrying a `fileName`. |
+| `calibration-import.imageBaseSource` | base URL for your floor-plan images | Base URL each `fileName` above is fetched from. |
+| `calibration-import.requireCalibration` / `requireImages` | keep default `true` | A broken URL fails the Job instead of deploying with no calibration. |
+
+Each `camera_name` registered above must match the corresponding sensor name
+in `calibration.json` — the importer doesn't check this for you. This
+repoints what's uploaded to the video analytics API only — bp-configurator
+seeds its own copy from
 `deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/files/behavior-analytics/calibration.json`;
 replace that file too so it matches.
 
