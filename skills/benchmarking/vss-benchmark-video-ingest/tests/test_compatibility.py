@@ -121,8 +121,8 @@ class CompatibilityTests(unittest.TestCase):
             for text in (
                 "[]",
                 "skill-name: other",
-                "skill-name: vss-ingest-benchmark\nskill-version: v3.3.0\nrequires-vss: '*'",
-                "skill-name: vss-ingest-benchmark\nskill-version: v3.3.0\nrequires-vss: '>=3.3.0,'",
+                "skill-name: vss-benchmark-video-ingest\nskill-version: v3.3.0\nrequires-vss: '*'",
+                "skill-name: vss-benchmark-video-ingest\nskill-version: v3.3.0\nrequires-vss: '>=3.3.0,'",
             ):
                 with self.subTest(text=text), patch("check_compatibility.urlopen") as request:
                     metadata.write_text(text)

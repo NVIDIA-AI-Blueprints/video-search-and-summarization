@@ -1,4 +1,4 @@
-# ACES Evaluation — `vss-ingest-benchmark`
+# ACES Evaluation — `vss-benchmark-video-ingest`
 
 NV-ACES eval dataset and run guidance for this skill. The point of these evals is to
 measure whether an agent behaves *better* with the skill than without it — not whether

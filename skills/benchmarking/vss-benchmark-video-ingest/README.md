@@ -4,7 +4,7 @@
 
 ## Overview
 
-`vss-ingest-benchmark` is an agent skill that measures video ingestion for an already
+`vss-benchmark-video-ingest` is an agent skill that measures video ingestion for an already
 deployed NVIDIA **VSS Search** profile — how much video the deployed path accepts per
 unit time, and how long a single upload takes to become searchable at that load.
 
@@ -201,9 +201,8 @@ benchmark-results/vss/ingest/
 ## Repository integration
 
 The source directory is `skills/benchmarking/vss-benchmark-video-ingest/` in this
-repository. Its frontmatter and installed skill name remain `vss-ingest-benchmark`.
-Use the source path for repository commands and the installed name when invoking
-the skill. See the [skill catalog](../../README.md).
+repository. Its frontmatter, installed name, and invocation name are all
+`vss-benchmark-video-ingest`. See the [skill catalog](../../README.md).
 
 ## Installing the skill
 
@@ -214,7 +213,7 @@ preserves any existing installation:
 ```bash
 SKILL_REPO="$(git rev-parse --show-toplevel)" || exit 1
 SKILL_SRC="$SKILL_REPO/skills/benchmarking/vss-benchmark-video-ingest"
-SKILL_DEST="${CODEX_HOME:-$HOME/.codex}/skills/vss-ingest-benchmark"
+SKILL_DEST="${CODEX_HOME:-$HOME/.codex}/skills/vss-benchmark-video-ingest"
 test -f "$SKILL_SRC/SKILL.md" || exit 1
 if [ -e "$SKILL_DEST" ] || [ -L "$SKILL_DEST" ]; then
   echo "Already exists: $SKILL_DEST; inspect it before any manual migration."
@@ -224,8 +223,8 @@ else
 fi
 ```
 
-For another host, set `SKILL_DEST` to `~/.claude/skills/vss-ingest-benchmark`,
-`~/.cursor/skills/vss-ingest-benchmark`, or `~/.agents/skills/vss-ingest-benchmark`
+For another host, set `SKILL_DEST` to `~/.claude/skills/vss-benchmark-video-ingest`,
+`~/.cursor/skills/vss-benchmark-video-ingest`, or `~/.agents/skills/vss-benchmark-video-ingest`
 using an expanded `$HOME` path. If an installation already exists, verify where it
 points and preserve or migrate it explicitly before rerunning; do not force-replace it.
 
@@ -233,13 +232,13 @@ Verify the installed target, then restart the agent session to load it:
 
 ```bash
 readlink "$SKILL_DEST"
-head -4 "$SKILL_DEST/SKILL.md"   # name: vss-ingest-benchmark
+head -4 "$SKILL_DEST/SKILL.md"   # name: vss-benchmark-video-ingest
 ```
 
 ## Prompt template
 
 ```text
-Use the vss-ingest-benchmark skill to benchmark ingest on our deployed VSS Search
+Use the vss-benchmark-video-ingest skill to benchmark ingest on our deployed VSS Search
 profile.
 
 Deployment origin: https://vss-search.<ip>.nip.io

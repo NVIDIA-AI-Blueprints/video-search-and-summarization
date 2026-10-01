@@ -56,8 +56,8 @@ def read_metadata(path: Path = METADATA_PATH) -> tuple[str, str, list]:
         metadata = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, yaml.YAMLError) as exc:
         raise CompatibilityError("Cannot read the skill's metadata.yml") from exc
-    if not isinstance(metadata, dict) or metadata.get("skill-name") != "vss-ingest-benchmark":
-        raise CompatibilityError("metadata.yml must identify vss-ingest-benchmark")
+    if not isinstance(metadata, dict) or metadata.get("skill-name") != "vss-benchmark-video-ingest":
+        raise CompatibilityError("metadata.yml must identify vss-benchmark-video-ingest")
     version = metadata.get("skill-version")
     requirement = metadata.get("requires-vss")
     if not isinstance(version, str) or not isinstance(requirement, str):

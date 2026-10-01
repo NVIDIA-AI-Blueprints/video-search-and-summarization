@@ -108,7 +108,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Deploy behavior analytics on its own | [`vss-setup-behavior-analytics`](deployment/vss-setup-behavior-analytics/SKILL.md) |
 | Deploy the video-analytics REST API on its own | [`vss-setup-video-analytics-api`](deployment/vss-setup-video-analytics-api/SKILL.md) |
 | Benchmark VLM video Q&A accuracy and latency (`vss vlm`) | [`vss-benchmark-vlm-qa`](benchmarking/vss-benchmark-vlm-qa/SKILL.md) |
-| Benchmark Search video-ingest throughput and latency | [`vss-ingest-benchmark`](benchmarking/vss-benchmark-video-ingest/SKILL.md) |
+| Benchmark Search video-ingest throughput and latency | [`vss-benchmark-video-ingest`](benchmarking/vss-benchmark-video-ingest/SKILL.md) |
 | Benchmark LVS summarization latency and burst throughput | [`vss-benchmark-video-summarization`](benchmarking/vss-benchmark-video-summarization/SKILL.md) |
 | Check an RT-VLM config change for a caption-accuracy regression | [`vss-evaluate-caption-accuracy`](benchmarking/vss-evaluate-caption-accuracy/SKILL.md) |
 
@@ -130,11 +130,9 @@ carries the pipeline position from [Orientation](#orientation-how-vss-fits-toget
 so the conceptual map survives the regrouping — a skill's directory says *when*
 you reach for it, its layer says *where it sits in the video path*.
 
-A skill's invocable name normally matches its directory's leaf name. The category
-is repository organisation only and never appears in the installed path or in
-the `/slash-command`. The ingest benchmark is an exception: source directory
-`benchmarking/vss-benchmark-video-ingest/`, frontmatter and installed name
-`vss-ingest-benchmark`.
+A skill's invocable name matches its directory's leaf name. The category is
+repository organisation only and never appears in the installed path or in
+the `/slash-command`.
 
 ### Start here
 
@@ -179,7 +177,7 @@ the `/slash-command`. The ingest benchmark is an exception: source directory
 | Skill | Layer | Description |
 |---|---|---|
 | [vss-benchmark-vlm-qa](benchmarking/vss-benchmark-vlm-qa/SKILL.md) | — | E2E video Q&A accuracy + latency on `vss-devx-base` through `vss vlm run` (CR3 RT-VLM). Replaces `nat eval` QA. Not tool-calling / trajectory. |
-| [vss-ingest-benchmark](benchmarking/vss-benchmark-video-ingest/SKILL.md) | — | Search video-ingest throughput and latency using CLI uploads and public Elasticsearch readiness reads; requires both raw frames and Embed chunks. |
+| [vss-benchmark-video-ingest](benchmarking/vss-benchmark-video-ingest/SKILL.md) | — | Search video-ingest throughput and latency using CLI uploads and public Elasticsearch readiness reads; requires both raw frames and Embed chunks. |
 | [vss-benchmark-video-summarization](benchmarking/vss-benchmark-video-summarization/SKILL.md) | — | LVS latency and burst-throughput on a deployed summarization instance. |
 | [vss-evaluate-caption-accuracy](benchmarking/vss-evaluate-caption-accuracy/SKILL.md) | — | Check whether an RT-VLM configuration change moved caption quality: capture paired baseline and candidate captions, score both against a ground truth with an LLM judge, and emit an accuracy and processing-time table. |
 
@@ -208,8 +206,7 @@ The VSS 3.2 GA skill names replaced the pre-GA slash-command names:
 
 Skills install **flat, by skill name** — the category is repository organisation and
 never appears in the installed path or in the `/slash-command`. Names match the
-source leaf directory except `vss-benchmark-video-ingest`, installed as
-`vss-ingest-benchmark` (see its [installation example](benchmarking/vss-benchmark-video-ingest/README.md#installing-the-skill)):
+source leaf directory:
 
 | Host | Skills directory |
 |---|---|

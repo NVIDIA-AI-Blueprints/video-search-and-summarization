@@ -1,5 +1,5 @@
 ---
-name: vss-ingest-benchmark
+name: vss-benchmark-video-ingest
 description: |
   Benchmark video ingestion for an already deployed NVIDIA VSS Search profile, from the
   caller's machine, using VSS CLI uploads and public Elasticsearch reads. Use when the user wants ingest

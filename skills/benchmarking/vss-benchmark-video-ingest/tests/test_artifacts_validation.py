@@ -138,7 +138,7 @@ class ArtifactValidationTests(unittest.TestCase):
         self.assertTrue(any("measurement_scope does not match" in error for error in errors))
 
     def test_token_scans_all_files_and_crosses_read_boundaries(self):
-        token = "private-fixture-token-321"
+        token = "dummy-fixture-token-321"
         (self.root / "extra.bin").write_bytes(b"x" * (64 * 1024 - 3) + token.encode() + b"end")
         with patch.dict("os.environ", {"VSS_AUTH_TOKEN": token}):
             errors = validate_artifacts(self.root)

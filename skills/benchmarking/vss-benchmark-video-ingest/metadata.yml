@@ -1,4 +1,4 @@
-skill-name: vss-ingest-benchmark
+skill-name: vss-benchmark-video-ingest
 skill-version: "v3.3.0"
 description: Benchmark VSS video ingest throughput and readiness latency.
 license: Apache-2.0
