@@ -399,13 +399,12 @@ def test_vlm_environment_accepts_cosmos_reason_nim_backend(monkeypatch: pytest.M
 @pytest.mark.parametrize(
     ("field_name", "value", "message"),
     [
-        ("timeout", "", "VSS_VLM_TIMEOUT is set but empty"),
         ("max_tokens", "8.5", "VSS_VLM_MAX_TOKENS must be an integer"),
         ("temperature", "cold", "VSS_VLM_TEMPERATURE must be a number"),
         (
             "backend",
             "rt-vlm",
-            "VSS_VLM_BACKEND must be 'rt_vlm', 'vllm', or 'cosmos_reason_nim'",
+            "VSS_VLM_BACKEND must be 'rt_vlm', 'vllm', 'cosmos_reason_nim', or 'openai'",
         ),
     ],
 )
@@ -419,3 +418,199 @@ def test_vlm_environment_rejects_malformed_values(
 
     with pytest.raises(config_mod.ConfigError, match=message):
         config_mod.effective_vlm_config(None)
+
+
+def test_empty_vlm_environment_variables_count_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An image built with an unset `ARG VSS_VLM_FPS` -> `ENV VSS_VLM_FPS=$VSS_VLM_FPS`.
+    for environment_name in config_mod.VLM_ENV.values():
+        monkeypatch.setenv(environment_name, "  ")
+
+    assert config_mod.effective_vlm_config(None) is None
+
+
+def test_vlm_environment_supplies_model_and_openai_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["backend"], "openai")
+    monkeypatch.setenv(config_mod.VLM_ENV["model"], "nvdev/qwen/qwen3-vl")
+
+    assert config_mod.effective_vlm_config(None) == config_mod.VlmConfig(backend="openai", model="nvdev/qwen/qwen3-vl")
+
+
+def test_configure_vlm_writes_model_and_openai_backend(config_home: Path) -> None:
+    result = _invoke("--backend", "openai", "--model", "nvdev/qwen/qwen3-vl")
+
+    assert result.exit_code == 0, result.output
+    assert config_mod.load().vlm == config_mod.VlmConfig(backend="openai", model="nvdev/qwen/qwen3-vl")
+
+
+def test_openai_backend_rejects_positive_chunk_duration(config_home: Path) -> None:
+    result = _invoke("--backend", "openai", "--chunk-duration", "5")
+
+    assert result.exit_code == int(Exit.CONFIGURATION), result.output
+    assert "positive chunk_duration is supported only by RT-VLM" in result.output
+
+
+# --------------------------------------------------------------------------
+# `vss configure --base-url` on a bare VLM endpoint
+# --------------------------------------------------------------------------
+
+
+def _bare_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    status: int = 200,
+    models: list[dict[str, str]] | None = None,
+    headers: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """No ingress route answers; ``<root>/v1/models`` answers as given. Returns the requests seen."""
+    import httpx
+
+    seen: list[dict[str, Any]] = []
+    monkeypatch.setattr(configure_mod, "_probe", lambda *_args, **_kwargs: (False, "HTTP 404"))
+    body = {"object": "list", "data": models if models is not None else [{"id": "Qwen/Qwen3-VL", "owned_by": "vllm"}]}
+
+    def _get(url: str, **kwargs: Any) -> httpx.Response:
+        seen.append({"url": url, "headers": kwargs.get("headers") or {}})
+        if not url.endswith("/v1/models"):
+            return httpx.Response(404)
+        return httpx.Response(status, json=body if status == 200 else {"error": "denied"}, headers=headers or {})
+
+    monkeypatch.setattr(httpx, "get", _get)
+    return seen
+
+
+def _configure(base_url: str) -> Any:
+    return CliRunner().invoke(configure_mod.configure, ["--base-url", base_url])
+
+
+@pytest.mark.parametrize(
+    "given",
+    ["http://vllm:8000", "http://vllm:8000/v1", "http://vllm:8000/v1/", "http://vllm:8000/v1/chat/completions"],
+)
+def test_configure_records_a_bare_vlm_endpoint_at_its_root(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    given: str,
+) -> None:
+    seen = _bare_endpoint(monkeypatch)
+
+    result = _configure(given)
+
+    assert result.exit_code == 0, result.output
+    deployment = config_mod.load()
+    assert deployment.base_url == "http://vllm:8000"
+    assert deployment.services == {
+        "rt_vlm": config_mod.Service(url="http://vllm:8000", models=["Qwen/Qwen3-VL"]),
+    }
+    assert deployment.is_direct_vlm
+    assert seen[-1]["url"] == "http://vllm:8000/v1/models"
+    assert "direct VLM endpoint, 1 models" in result.output
+    assert "Qwen/Qwen3-VL (the endpoint's only model)" in result.output
+
+
+def test_bare_vllm_endpoint_is_reported_not_switched(config_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # RT-VLM can front a vLLM engine and answer the same way, and it rejects
+    # vLLM's request shape, so owned_by=vllm is a hint, never a switch.
+    _bare_endpoint(monkeypatch)
+
+    result = _configure("http://vllm:8000")
+
+    assert result.exit_code == 0, result.output
+    assert config_mod.load().vlm is None
+    assert "the endpoint reports vLLM" in result.output
+    assert "vss configure vlm --backend vllm" in result.output
+
+
+def test_inference_hub_endpoint_selects_openai_backend_and_sends_the_key(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(config_mod.VLM_API_KEY_ENV, "sk-test")
+    seen = _bare_endpoint(
+        monkeypatch,
+        models=[{"id": "nvdev/a", "owned_by": "openai"}, {"id": "nvdev/b"}, {"id": "nvdev/c"}],
+        headers={"x-litellm-version": "1.84.10"},
+    )
+
+    result = _configure("https://inference-api.nvidia.com/v1/chat/completions")
+
+    assert result.exit_code == 0, result.output
+    deployment = config_mod.load()
+    assert deployment.base_url == "https://inference-api.nvidia.com"
+    assert deployment.vlm == config_mod.VlmConfig(backend="openai")
+    assert seen[-1]["headers"] == {"Authorization": "Bearer sk-test"}
+    assert "identified by the endpoint" in result.output
+    assert "the endpoint lists 3 models" in result.output
+    assert "vss configure vlm --model <id>" in result.output
+    assert "not sent -- the openai backend sends a plain chat completion" in result.output
+    assert "sk-test" not in config_home.joinpath("config.json").read_text()
+
+
+def test_backend_environment_overrides_endpoint_identification(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["backend"], "cosmos_reason_nim")
+    _bare_endpoint(monkeypatch, headers={"x-litellm-version": "1.84.10"})
+
+    result = _configure("http://hub")
+
+    assert result.exit_code == 0, result.output
+    assert config_mod.load().vlm is None
+    assert _report_line(result.output, "backend").split()[1:] == ["cosmos_reason_nim", "VSS_VLM_BACKEND"]
+
+
+def test_endpoint_needing_a_key_asks_for_it_and_writes_nothing(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(config_mod.VLM_API_KEY_ENV, raising=False)
+    _bare_endpoint(monkeypatch, status=401)
+
+    result = _configure("https://inference-api.nvidia.com/v1")
+
+    assert result.exit_code != 0
+    assert "needs an API key. Export VSS_VLM_API_KEY" in result.output
+    assert config_mod.load().base_url == "http://example"
+
+
+def test_endpoint_rejecting_the_key_says_so(config_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_API_KEY_ENV, "sk-wrong")
+    _bare_endpoint(monkeypatch, status=401)
+
+    result = _configure("https://inference-api.nvidia.com/v1")
+
+    assert result.exit_code != 0
+    assert "rejected VSS_VLM_API_KEY (HTTP 401)" in result.output
+
+
+def test_origin_that_is_neither_ingress_nor_vlm_endpoint_fails(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _bare_endpoint(monkeypatch, status=404)
+
+    result = _configure("http://nothing")
+
+    assert result.exit_code != 0
+    assert "is not an OpenAI-compatible VLM endpoint (/v1/models: HTTP 404)" in result.output
+    assert config_mod.load().base_url == "http://example"
+
+
+def test_check_reprobes_a_bare_vlm_endpoint(config_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_mod.save(
+        config_mod.Deployment(
+            base_url="http://vllm:8000",
+            services={"rt_vlm": config_mod.Service(url="http://vllm:8000", models=["m"])},
+        )
+    )
+    _bare_endpoint(monkeypatch)
+
+    result = CliRunner().invoke(configure_mod.configure, ["check"])
+
+    assert result.exit_code == 0, result.output
+    assert "rt_vlm" in result.output
+    assert "ok" in result.output
+
+
+def test_ingress_deployment_is_not_a_direct_vlm_endpoint(config_home: Path) -> None:
+    assert not config_mod.load().is_direct_vlm

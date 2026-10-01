@@ -19,10 +19,12 @@ error inside a search.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 from typing import Any
 from typing import NoReturn
@@ -127,8 +129,75 @@ def _describe(base_url: str, route: config_mod.ServiceRoute, timeout: float) -> 
     return []
 
 
+_CHAT_COMPLETIONS_SUFFIX = "/chat/completions"
+_OPENAI_VERSION_SUFFIX = "/v1"
+
+
+def _vlm_root(url: str) -> str:
+    """Reduce an OpenAI-style URL to the root ``vss vlm run`` appends ``/v1/...`` to.
+
+    Endpoints are published as a bare host, an OpenAI ``base_url`` ending in
+    ``/v1``, or the full ``/v1/chat/completions`` URL (Inference Hub's own
+    sample); all three name the same server.
+    """
+    root = url.rstrip("/")
+    root = root.removesuffix(_CHAT_COMPLETIONS_SUFFIX)
+    return root.removesuffix(_OPENAI_VERSION_SUFFIX)
+
+
+def _vlm_auth_headers() -> dict[str, str]:
+    key = config_mod.vlm_api_key()
+    return {"Authorization": f"Bearer {key}"} if key else {}
+
+
+@dataclass(frozen=True)
+class _VlmEndpointProbe:
+    """What ``<root>/v1/models`` said about a bare VLM endpoint."""
+
+    status: int | None
+    detail: str
+    models: list[str]
+    #: The endpoint answered with an OpenAI model list.
+    ok: bool = False
+    #: Backend the response identifies, or None when it does not.
+    detected_backend: config_mod.VlmBackend | None = None
+    #: The model list reports vLLM. Not acted on: RT-VLM may front a vLLM
+    #: engine and answer the same way, and it rejects vLLM's request shape.
+    reports_vllm: bool = False
+
+
+def _probe_vlm_endpoint(root: str, timeout: float) -> _VlmEndpointProbe:
+    """Ask a bare OpenAI-compatible server which models it serves."""
+    import httpx
+
+    try:
+        response = httpx.get(f"{root}/v1/models", headers=_vlm_auth_headers(), timeout=timeout, follow_redirects=True)
+    except httpx.HTTPError as exc:
+        return _VlmEndpointProbe(None, f"{type(exc).__name__}: {exc}", [])
+    detail = f"HTTP {response.status_code}"
+    if response.status_code != 200:
+        return _VlmEndpointProbe(response.status_code, detail, [])
+    try:
+        payload = response.json()
+    except ValueError:
+        return _VlmEndpointProbe(response.status_code, "not JSON", [])
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        return _VlmEndpointProbe(response.status_code, "not an OpenAI model list", [])
+    entries = [item for item in payload["data"] if isinstance(item, dict) and item.get("id")]
+    # Inference Hub is a LiteLLM proxy and stamps every response with x-litellm-*.
+    is_litellm = any(name.lower().startswith("x-litellm") for name in response.headers)
+    return _VlmEndpointProbe(
+        status=response.status_code,
+        detail=detail,
+        models=[str(item["id"]) for item in entries],
+        ok=True,
+        detected_backend="openai" if is_litellm else None,
+        reports_vllm=any(item.get("owned_by") == "vllm" for item in entries),
+    )
+
+
 @click.group(name="configure", invoke_without_command=True)
-@click.option("--base-url", help="Deployment origin, e.g. http://10.0.0.1:7777")
+@click.option("--base-url", help="Deployment origin or VLM endpoint, e.g. http://10.0.0.1:7777")
 @click.option(
     "--timeout",
     type=click.FloatRange(0.1, 120.0),
@@ -172,24 +241,50 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
             err=True,
         )
 
-    if not services:
-        raise click.ClickException(
-            f"{base_url} exposed none of the expected routes "
-            f"({', '.join(r.mount for r in config_mod.INGRESS_SERVICES.values())}). "
-            f"Check the origin and that the ingress is up."
-        )
+    vlm = _configured_vlm_or_none()
+    endpoint_probe: _VlmEndpointProbe | None = None
+    if services:
+        base_url = base_url.rstrip("/")
+    else:
+        # No ingress here. A bare OpenAI-compatible VLM server (vLLM, NIM,
+        # RT-VLM's own port, Inference Hub) is the other thing an origin can be.
+        base_url = _vlm_root(base_url)
+        endpoint_probe = _probe_vlm_endpoint(base_url, timeout)
+        click.echo(f"  {'vlm endpoint':<14} {'/v1/models':<16} {endpoint_probe.detail}", err=True)
+        if endpoint_probe.status in (401, 403):
+            if config_mod.vlm_api_key() is None:
+                raise click.ClickException(
+                    f"{base_url}/v1/models answered {endpoint_probe.detail}: the endpoint needs an API key. "
+                    f"Export {config_mod.VLM_API_KEY_ENV} and re-run."
+                )
+            raise click.ClickException(
+                f"{base_url}/v1/models rejected {config_mod.VLM_API_KEY_ENV} ({endpoint_probe.detail})."
+            )
+        if not endpoint_probe.ok:
+            raise click.ClickException(
+                f"{base_url} exposed none of the expected routes "
+                f"({', '.join(r.mount for r in config_mod.INGRESS_SERVICES.values())}) "
+                f"and is not an OpenAI-compatible VLM endpoint (/v1/models: {endpoint_probe.detail}). "
+                f"Check the origin and that the ingress or model server is up."
+            )
+        services["rt_vlm"] = config_mod.Service(url=base_url, models=endpoint_probe.models)
+        vlm = _apply_detected_backend(vlm, endpoint_probe.detected_backend)
 
     deployment = config_mod.Deployment(
-        base_url=base_url.rstrip("/"),
+        base_url=base_url,
         services=services,
         memory=_configured_memory_or_none(),
-        vlm=_configured_vlm_or_none(),
+        vlm=vlm,
         written_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
     # Resolved before saving so a malformed VSS_VLM_* variable fails without writing.
     effective_vlm = _effective_vlm_or_exit(deployment)
     path = config_mod.save(deployment)
-    click.echo(f"wrote {path} ({len(services)}/{len(config_mod.INGRESS_SERVICES)} services)", err=True)
+    if deployment.is_direct_vlm:
+        click.echo(f"wrote {path} (direct VLM endpoint, {len(services['rt_vlm'].models)} models)", err=True)
+        _report_vlm_endpoint(deployment, effective_vlm, endpoint_probe)
+    else:
+        click.echo(f"wrote {path} ({len(services)}/{len(config_mod.INGRESS_SERVICES)} services)", err=True)
     if "rt_vlm" in services:
         _report_vlm_sampling(deployment, effective_vlm, path)
 
@@ -208,6 +303,74 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
             "video and before searching, or the recorded index list stays empty.",
             err=True,
         )
+
+
+def _apply_detected_backend(
+    vlm: config_mod.VlmConfig | None,
+    detected: config_mod.VlmBackend | None,
+) -> config_mod.VlmConfig | None:
+    """Record a backend the endpoint identified, unless the caller chose one.
+
+    ``VSS_VLM_BACKEND`` and a saved non-default backend both win. A saved
+    ``rt_vlm`` is the default and is replaced: an endpoint that identifies as
+    something else is not RT-VLM.
+    """
+    if detected is None or os.environ.get(config_mod.VLM_ENV["backend"], "").strip():
+        return vlm
+    if vlm is None:
+        return config_mod.VlmConfig(backend=detected)
+    if vlm.backend == "rt_vlm":
+        return replace(vlm, backend=detected)
+    return vlm
+
+
+def _report_vlm_endpoint(
+    deployment: config_mod.Deployment,
+    effective: config_mod.VlmConfig | None,
+    endpoint_probe: _VlmEndpointProbe | None,
+) -> None:
+    """Say which backend, model and credential `vss vlm run` will use on a bare endpoint."""
+    backend = effective.backend if effective is not None else "rt_vlm"
+    detected = endpoint_probe.detected_backend if endpoint_probe else None
+    if os.environ.get(config_mod.VLM_ENV["backend"], "").strip():
+        source = config_mod.VLM_ENV["backend"]
+    elif detected == backend:
+        source = "identified by the endpoint"
+    elif deployment.vlm is not None:
+        source = "vss configure vlm"
+    else:
+        source = "default"
+    click.echo(f"  {'backend':<14} {backend:<12} {source}", err=True)
+    if endpoint_probe is not None and endpoint_probe.reports_vllm and backend != "vllm":
+        click.echo(
+            "note: the endpoint reports vLLM. If it is a standalone vLLM server rather than RT-VLM, "
+            f"run `vss configure vlm --backend vllm` or export {config_mod.VLM_ENV['backend']}=vllm.",
+            err=True,
+        )
+    elif source == "default":
+        click.echo(
+            f"note: backend {backend} is the default. If this endpoint is vLLM, a Cosmos Reason NIM or "
+            "Inference Hub, run `vss configure vlm --backend vllm|cosmos-reason-nim|openai`.",
+            err=True,
+        )
+
+    models = deployment.services["rt_vlm"].models
+    chosen = effective.model if effective is not None else None
+    if chosen:
+        listed = "" if not models or chosen in models else " (not listed by the endpoint)"
+        click.echo(f"  {'model':<14} {chosen}{listed}", err=True)
+    elif len(models) == 1:
+        click.echo(f"  {'model':<14} {models[0]} (the endpoint's only model)", err=True)
+    else:
+        shown = ", ".join(models[:10]) + (", ..." if len(models) > 10 else "")
+        click.echo(
+            f"note: the endpoint lists {len(models)} models, so `vss vlm run` needs one chosen: "
+            f"run `vss configure vlm --model <id>` or export {config_mod.VLM_ENV['model']}."
+            + (f" Listed: {shown}" if models else ""),
+            err=True,
+        )
+    key_state = "set" if config_mod.vlm_api_key() else "unset"
+    click.echo(f"  {'api key':<14} {config_mod.VLM_API_KEY_ENV} {key_state}", err=True)
 
 
 def _effective_vlm_or_exit(deployment: config_mod.Deployment) -> config_mod.VlmConfig | None:
@@ -229,6 +392,15 @@ def _report_vlm_sampling(
     default can be as little as one frame per chunk, so an unset value is named
     rather than left for a caller to discover from a thin answer.
     """
+    if effective is not None and effective.backend == "openai":
+        configured = [name for name in config_mod.VLM_SAMPLING_FIELDS if getattr(effective, name) is not None]
+        ignored = f" ({', '.join(configured)} configured but ignored)" if configured else ""
+        click.echo(
+            "vlm sampling for `vss vlm run`: not sent -- the openai backend sends a plain chat "
+            f"completion, so the endpoint's own sampling applies{ignored}.",
+            err=True,
+        )
+        return
     click.echo("vlm sampling for `vss vlm run`:", err=True)
     unset: list[str] = []
     for name in config_mod.VLM_SAMPLING_FIELDS:
@@ -754,9 +926,10 @@ def _vlm_config_error(message: str) -> NoReturn:
 @configure.command("vlm")
 @click.option(
     "--backend",
-    type=click.Choice(["rt-vlm", "vllm", "cosmos-reason-nim"]),
-    help="VLM request backend.",
+    type=click.Choice(["rt-vlm", "vllm", "cosmos-reason-nim", "openai"]),
+    help="VLM request backend; openai is a plain chat completion (Inference Hub).",
 )
+@click.option("--model", help="Model id to request; required when the endpoint lists several.")
 @click.option("--timeout", type=click.IntRange(1, 3600), help="VLM HTTP timeout in seconds.")
 @click.option("--temperature", type=click.FloatRange(0, 1), help="VLM sampling temperature.")
 @click.option("--max-tokens", type=click.IntRange(1, 1_000_000), help="Maximum generated tokens.")
@@ -791,6 +964,7 @@ def _vlm_config_error(message: str) -> NoReturn:
 @click.option("--reset", is_flag=True, help="Remove the VLM policy and restore CLI/backend defaults.")
 def configure_vlm(
     backend: str | None,
+    model: str | None,
     timeout: int | None,
     temperature: float | None,
     max_tokens: int | None,
@@ -814,6 +988,7 @@ def configure_vlm(
         value is not None
         for value in (
             backend,
+            model,
             timeout,
             temperature,
             max_tokens,
@@ -845,6 +1020,7 @@ def configure_vlm(
         )
         policy = config_mod.VlmConfig(
             backend=resolved_backend,
+            model=current.model if model is None else model,
             timeout=current.timeout if timeout is None else timeout,
             temperature=current.temperature if temperature is None else temperature,
             max_tokens=current.max_tokens if max_tokens is None else max_tokens,
@@ -922,6 +1098,13 @@ def check() -> None:
         raise click.ClickException(str(exc)) from exc
 
     click.echo(f"configured {deployment.written_at or 'unknown'} against {deployment.base_url}", err=True)
+    if deployment.is_direct_vlm:
+        endpoint_probe = _probe_vlm_endpoint(deployment.base_url, _PROBE_TIMEOUT_SECONDS)
+        state = "ok" if endpoint_probe.ok else "UNREACHABLE"
+        click.echo(f"  {'rt_vlm':<14} {state:<12} {deployment.base_url}  {endpoint_probe.detail}")
+        if not endpoint_probe.ok:
+            raise SystemExit(int(Exit.BACKEND_UNREACHABLE))
+        return
     stale = False
     for name, service in sorted(deployment.services.items()):
         route = config_mod.INGRESS_SERVICES.get(name)

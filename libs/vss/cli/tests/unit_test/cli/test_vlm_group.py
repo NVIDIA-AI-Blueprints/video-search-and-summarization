@@ -2072,3 +2072,139 @@ def test_sensor_without_vst_persists_despite_malformed_window(
     jobs = store.service.list_jobs()
     assert jobs, "expected a terminal record despite the malformed --start-time"
     assert result.extra["marker"]["persisted"] is True
+
+
+# --------------------------------------------------------------------------
+# bare VLM endpoints (vLLM, NIM, Inference Hub) configured without an ingress
+# --------------------------------------------------------------------------
+
+DIRECT_URL = "https://inference-api.nvidia.com"
+
+
+def _direct_deployment(
+    *,
+    models: list[str] | None = None,
+    vlm: config_mod.VlmConfig | None = None,
+) -> config_mod.Deployment:
+    return config_mod.Deployment(
+        base_url=DIRECT_URL,
+        services={"rt_vlm": config_mod.Service(url=DIRECT_URL, models=models if models is not None else ["m"])},
+        vlm=vlm,
+    )
+
+
+def _run_direct(
+    monkeypatch: pytest.MonkeyPatch,
+    deployment: config_mod.Deployment,
+    inputs: VlmInput,
+) -> tuple[Any, dict[str, Any]]:
+    captured: dict[str, Any] = {}
+
+    def _capture(url: str, *, json: Any, headers: dict[str, str], **_kw: Any) -> httpx.Response:
+        captured.update(url=url, json=json, headers=headers)
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+    return VlmGroup().run("", inputs, ctx), captured
+
+
+def test_direct_endpoint_sends_the_api_key_as_a_bearer_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_API_KEY_ENV, "sk-test")
+
+    result, captured = _run_direct(
+        monkeypatch, _direct_deployment(), VlmInput(prompt="What?", media_url="http://h/clip.mp4")
+    )
+
+    assert result.exit == Exit.SUCCESS
+    assert captured["url"] == f"{DIRECT_URL}/v1/chat/completions"
+    assert captured["headers"]["Authorization"] == "Bearer sk-test"
+
+
+def test_no_authorization_header_without_an_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(config_mod.VLM_API_KEY_ENV, raising=False)
+
+    _, captured = _run_direct(
+        monkeypatch, _direct_deployment(), VlmInput(prompt="What?", media_url="http://h/clip.mp4")
+    )
+
+    assert "Authorization" not in captured["headers"]
+
+
+def test_endpoint_listing_several_models_requires_a_choice(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(config_mod.ConfigError, match=r"lists 2 models .*vss configure vlm --model"):
+        _run_direct(
+            monkeypatch,
+            _direct_deployment(models=["nvdev/a", "nvdev/b"]),
+            VlmInput(prompt="What?", media_url="http://h/clip.mp4"),
+        )
+
+
+def test_configured_model_is_requested(monkeypatch: pytest.MonkeyPatch) -> None:
+    _, captured = _run_direct(
+        monkeypatch,
+        _direct_deployment(models=["nvdev/a", "nvdev/b"], vlm=config_mod.VlmConfig(model="nvdev/b")),
+        VlmInput(prompt="What?", media_url="http://h/clip.mp4"),
+    )
+
+    assert captured["json"]["model"] == "nvdev/b"
+
+
+def test_model_environment_variable_is_requested(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["model"], "nvdev/a")
+
+    _, captured = _run_direct(
+        monkeypatch,
+        _direct_deployment(models=["nvdev/a", "nvdev/b"]),
+        VlmInput(prompt="What?", media_url="http://h/clip.mp4"),
+    )
+
+    assert captured["json"]["model"] == "nvdev/a"
+
+
+def test_openai_backend_sends_a_plain_chat_completion(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    inputs = VlmInput(
+        prompt="What?",
+        media_url="http://h/clip.mp4",
+        fps=2,
+        max_frames=8,
+        total_pixels=16777216,
+        enable_reasoning=False,
+        max_tokens=64,
+    )
+
+    _, captured = _run_direct(monkeypatch, _direct_deployment(vlm=config_mod.VlmConfig(backend="openai")), inputs)
+
+    request = captured["json"]
+    assert set(request) == {"model", "messages", "max_tokens"}
+    assert request["messages"][0]["content"][0] == {"type": "video_url", "video_url": {"url": "http://h/clip.mp4"}}
+    assert "fps, max_frames, total_pixels, enable_reasoning not sent" in caplog.text
+
+
+def test_openai_backend_rejects_positive_chunk_duration(monkeypatch: pytest.MonkeyPatch) -> None:
+    result, captured = _run_direct(
+        monkeypatch,
+        _direct_deployment(vlm=config_mod.VlmConfig(backend="openai")),
+        VlmInput(prompt="What?", media_url="http://h/clip.mp4", chunk_duration=5),
+    )
+
+    assert result.exit == Exit.INVALID_INPUT
+    assert "not supported by the openai backend" in result.body["error"]
+    assert captured == {}
+
+
+def test_sensor_on_a_bare_endpoint_fails_and_names_the_alternatives(monkeypatch: pytest.MonkeyPatch) -> None:
+    result, captured = _run_direct(monkeypatch, _direct_deployment(), VlmInput(prompt="What?", sensor="cam-1"))
+
+    assert result.exit == Exit.CONFIGURATION
+    assert "is a bare VLM endpoint with no VIOS" in result.body["error"]
+    assert "--use-base64" in result.body["error"]
+    assert captured == {}

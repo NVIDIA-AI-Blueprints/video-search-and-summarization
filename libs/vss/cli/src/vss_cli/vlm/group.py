@@ -21,7 +21,11 @@ Media reaches the VLM one of two ways (VLM-1 / VLM-2):
 
 The VLM endpoint is the deployment's ``rt_vlm`` service (discovered by
 ``vss configure``), called via the OpenAI-compatible ``/v1/chat/completions``
-API. The model defaults to whatever ``vss configure`` recorded for ``rt_vlm``.
+API. ``vss configure --base-url`` accepts a VSS ingress or a bare VLM endpoint
+(vLLM, NIM, RT-VLM, Inference Hub); a bare endpoint has no VIOS, so
+``--sensor`` is unavailable there. ``VSS_VLM_API_KEY``, when set, is sent as a
+Bearer token. The model is ``--model``, else the configured one, else the
+endpoint's only listed model.
 
 Intent (VLM-6) classifies what this call is for: ``qa`` (default), ``critic``,
 ``report``, or ``introspection``. Stored in ``output.ext.intent`` and available
@@ -85,14 +89,34 @@ def _mint_job_id() -> str:
 
 
 def _default_model(deployment: config_mod.Deployment) -> str:
-    """The model the deployment's RT-VLM reports serving, or a ConfigError."""
+    """The one model the VLM endpoint reports serving, or a ConfigError.
+
+    An endpoint listing several (Inference Hub lists its whole catalog) has no
+    defensible default, so the caller chooses rather than getting the first.
+    """
     service = deployment.services.get("rt_vlm")
-    if service and service.models:
-        return service.models[0]
+    models = service.models if service else []
+    choose = f"Pass --model, run `vss configure vlm --model <id>`, or export {config_mod.VLM_ENV['model']}."
+    if len(models) == 1:
+        return models[0]
+    if models:
+        shown = ", ".join(models[:10]) + (", ..." if len(models) > 10 else "")
+        raise config_mod.ConfigError(
+            f"the VLM endpoint at {deployment.base_url} lists {len(models)} models ({shown}). {choose}"
+        )
     raise config_mod.ConfigError(
-        f"deployment at {deployment.base_url} reports no RT-VLM model, so --model cannot be defaulted. "
-        f"Pass --model explicitly, or re-run `vss configure --base-url {deployment.base_url}`."
+        f"deployment at {deployment.base_url} reports no VLM model, so --model cannot be defaulted. "
+        f"{choose} Or re-run `vss configure --base-url {deployment.base_url}`."
     )
+
+
+def _vlm_headers() -> dict[str, str]:
+    """Request headers, with ``VSS_VLM_API_KEY`` as a Bearer token when set."""
+    headers = {"Content-Type": "application/json"}
+    key = config_mod.vlm_api_key()
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
 
 
 def _is_loopback_url(url: str) -> bool:
@@ -179,7 +203,7 @@ class VlmInput(BaseModel):
     model: str | None = Field(
         None,
         max_length=1024,
-        description="VLM model name. Defaults to whatever the deployment's RT-VLM reports.",
+        description="VLM model id. Defaults to the configured model, else the endpoint's only listed model.",
     )
     timeout: int = Field(
         30,
@@ -263,6 +287,7 @@ class VlmOptions(BaseModel):
 
 
 _VLM_POLICY_FIELDS = (
+    "model",
     "timeout",
     "temperature",
     "max_tokens",
@@ -478,6 +503,27 @@ def _build_cosmos_reason_nim_request(
     )
 
 
+def _build_openai_request(
+    *,
+    prompt: str,
+    media_url: str,
+    model: str,
+    inputs: VlmInput,
+) -> dict[str, Any]:
+    """A plain OpenAI chat completion: no engine-specific fields (Inference Hub)."""
+    if inputs.chunk_duration is not None and inputs.chunk_duration != 0:
+        raise InvalidInput("positive --chunk-duration is not supported by the openai backend")
+    ignored = [
+        name for name in (*config_mod.VLM_SAMPLING_FIELDS, "enable_reasoning") if getattr(inputs, name) is not None
+    ]
+    if ignored:
+        _LOG.warning(
+            "%s not sent: the openai backend sends a plain chat completion, so the endpoint's defaults apply",
+            ", ".join(ignored),
+        )
+    return _base_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
+
+
 def _build_vlm_request(
     *,
     backend: str,
@@ -498,6 +544,8 @@ def _build_vlm_request(
             model=model,
             inputs=inputs,
         )
+    if backend == "openai":
+        return _build_openai_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
     raise config_mod.ConfigError(f"unsupported VLM backend: {backend}")
 
 
@@ -611,9 +659,16 @@ class VlmGroup(CommandGroup):
             if "vst" not in (deployment.services or {}):
                 # Post-mint: the job id is already public, so this must write its
                 # terminal record and report through a Result (body + marker).
-                detail = (
-                    "--sensor requires the `vst` service in the deployment. Re-run `vss configure --base-url <URL>`."
-                )
+                if deployment.is_direct_vlm:
+                    detail = (
+                        f"--sensor needs a VSS deployment, but {deployment.base_url} is a bare VLM endpoint "
+                        "with no VIOS. Use --media-url <url> or --media-url <path> --use-base64."
+                    )
+                else:
+                    detail = (
+                        "--sensor requires the `vst` service in the deployment. "
+                        "Re-run `vss configure --base-url <URL>`."
+                    )
                 _vst_persisted = _persist_failure(
                     memory,
                     adapter,
@@ -794,7 +849,7 @@ class VlmGroup(CommandGroup):
                         model=model,
                         inputs=inputs,
                     ),
-                    headers={"Content-Type": "application/json"},
+                    headers=_vlm_headers(),
                     timeout=float(inputs.timeout),
                 )
             else:
@@ -807,6 +862,7 @@ class VlmGroup(CommandGroup):
                         model=model,
                         inputs=inputs,
                     ),
+                    headers=_vlm_headers(),
                     timeout=float(inputs.timeout),
                 )
         except InvalidInput as exc:
@@ -860,7 +916,7 @@ class VlmGroup(CommandGroup):
                 status="failed",
                 message=detail,
             )
-            click.echo(f"vss: RT-VLM unreachable at {vlm_url}: {exc}", err=True)
+            click.echo(f"vss: VLM unreachable at {vlm_url}: {exc}", err=True)
             return Result(
                 body={"job_id": job_id, "status": "failed", "error": detail},
                 extra={"marker": {"status": "failed", "persisted": _persisted}},

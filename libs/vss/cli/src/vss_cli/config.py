@@ -43,6 +43,7 @@ CONFIG_HOME_ENV = "VSS_CONFIG_HOME"
 #: without reconstructing the complete policy written by ``vss configure vlm``.
 VLM_ENV = {
     "backend": "VSS_VLM_BACKEND",
+    "model": "VSS_VLM_MODEL",
     "timeout": "VSS_VLM_TIMEOUT",
     "temperature": "VSS_VLM_TEMPERATURE",
     "max_tokens": "VSS_VLM_MAX_TOKENS",
@@ -58,6 +59,20 @@ VLM_ENV = {
 #: The frame-sampling subset of the VLM policy. Left unset, the VLM server's
 #: own sampling defaults apply.
 VLM_SAMPLING_FIELDS = ("fps", "max_frames", "total_pixels", "max_pixels_per_frame")
+
+#: Bearer token for the VLM endpoint (Inference Hub keys). Read at request time
+#: and never written to config.json, like every other credential here.
+VLM_API_KEY_ENV = "VSS_VLM_API_KEY"
+
+#: Request shapes ``vss vlm run`` can build. ``openai`` is a plain OpenAI
+#: chat completion with no engine-specific fields (Inference Hub).
+VLM_BACKENDS = ("rt_vlm", "vllm", "cosmos_reason_nim", "openai")
+
+
+def vlm_api_key() -> str | None:
+    """The VLM bearer token from the environment, or None when unset or empty."""
+    return os.environ.get(VLM_API_KEY_ENV, "").strip() or None
+
 
 #: Bumped when the on-disk shape changes incompatibly. A file written by a
 #: newer CLI is refused rather than half-read.
@@ -618,7 +633,8 @@ class MemoryConfig:
         ).validate()
 
 
-VlmBackend = Literal["rt_vlm", "vllm", "cosmos_reason_nim"]
+VlmBackend = Literal["rt_vlm", "vllm", "cosmos_reason_nim", "openai"]
+_VLM_BACKEND_CHOICES = "'rt_vlm', 'vllm', 'cosmos_reason_nim', or 'openai'"
 
 
 @dataclass(frozen=True)
@@ -626,6 +642,8 @@ class VlmConfig:
     """Client-side defaults and optional lock for direct VLM requests."""
 
     backend: VlmBackend = "rt_vlm"
+    #: Model id to request. Unset: the endpoint's only listed model.
+    model: str | None = None
     timeout: int | None = None
     temperature: float | None = None
     max_tokens: int | None = None
@@ -639,9 +657,11 @@ class VlmConfig:
     locked: bool = False
 
     def validate(self) -> VlmConfig:
-        if self.backend not in {"rt_vlm", "vllm", "cosmos_reason_nim"}:
-            raise ConfigError("VLM backend must be 'rt_vlm', 'vllm', or 'cosmos_reason_nim'")
-        if self.backend == "vllm" and self.chunk_duration not in (None, 0):
+        if self.backend not in VLM_BACKENDS:
+            raise ConfigError(f"VLM backend must be {_VLM_BACKEND_CHOICES}")
+        if self.model is not None and (not isinstance(self.model, str) or not self.model.strip()):
+            raise ConfigError("VLM model must be a non-empty string")
+        if self.backend in {"vllm", "openai"} and self.chunk_duration not in (None, 0):
             raise ConfigError("positive chunk_duration is supported only by RT-VLM")
         for name, value, low, high in (
             ("timeout", self.timeout, 1, 3600),
@@ -673,6 +693,7 @@ class VlmConfig:
         if self.locked and not any(
             value is not None
             for value in (
+                self.model,
                 self.timeout,
                 self.temperature,
                 self.max_tokens,
@@ -692,6 +713,7 @@ class VlmConfig:
         self.validate()
         values = {
             "backend": self.backend,
+            "model": self.model,
             "timeout": self.timeout,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
@@ -711,6 +733,7 @@ class VlmConfig:
             raise ConfigError("config 'vlm' must be a JSON object")
         expected = {
             "backend",
+            "model",
             "timeout",
             "temperature",
             "max_tokens",
@@ -750,13 +773,13 @@ _VLM_BOOLEAN_ENV_FIELDS = frozenset({"enable_reasoning"})
 
 
 def _parse_vlm_environment_value(field_name: str, environment_name: str, raw: str) -> object:
-    """Parse one explicitly defined VLM environment override."""
+    """Parse one non-empty VLM environment override."""
     value = raw.strip()
-    if not value:
-        raise ConfigError(f"{environment_name} is set but empty")
     if field_name == "backend":
-        if value not in {"rt_vlm", "vllm", "cosmos_reason_nim"}:
-            raise ConfigError(f"{environment_name} must be 'rt_vlm', 'vllm', or 'cosmos_reason_nim'")
+        if value not in VLM_BACKENDS:
+            raise ConfigError(f"{environment_name} must be {_VLM_BACKEND_CHOICES}")
+        return value
+    if field_name == "model":
         return value
     if field_name in _VLM_INTEGER_ENV_FIELDS:
         try:
@@ -787,11 +810,14 @@ def effective_vlm_config(configured: VlmConfig | None) -> VlmConfig | None:
 
     Explicit ``vss vlm run`` arguments are applied afterward. They override
     the effective policy only when that policy is unlocked.
+
+    An empty variable counts as unset, so an image built with an unset
+    ``ARG VSS_VLM_FPS`` -> ``ENV VSS_VLM_FPS=$VSS_VLM_FPS`` leaves the server default.
     """
     environment_defaults = {
         field_name: _parse_vlm_environment_value(field_name, environment_name, os.environ[environment_name])
         for field_name, environment_name in VLM_ENV.items()
-        if environment_name in os.environ
+        if os.environ.get(environment_name, "").strip()
     }
     if configured is None and not environment_defaults:
         return None
@@ -819,6 +845,16 @@ class Deployment:
     #: ISO-8601. Purely informational, but the thing to quote when a stale
     #: config sends someone chasing a connection error.
     written_at: str = ""
+
+    @property
+    def is_direct_vlm(self) -> bool:
+        """True when the origin is a bare VLM endpoint rather than a VSS ingress.
+
+        ``vss configure`` records such an origin as its one ``rt_vlm`` service
+        at the origin itself, with no mount path -- which no ingress produces.
+        """
+        service = self.services.get("rt_vlm")
+        return set(self.services) == {"rt_vlm"} and service is not None and service.url == self.base_url
 
     def has(self, name: str) -> bool:
         """Whether the deployment exposes a usable URL for ``name``."""
