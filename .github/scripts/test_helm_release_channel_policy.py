@@ -194,13 +194,23 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
             for image in inventory["images"]
             if image.get("ghcr_build") is True and image.get("tag_suffix")
         ]
+        # A variant rides its parent's repository: another GitHub-built entry
+        # without a suffix. Helm serves the parent only when it is a compose
+        # service; the harness images are consumed by `onboard --from` instead.
+        parents = {
+            image["name"]: image
+            for image in inventory["images"]
+            if image.get("ghcr_build") is True and not image.get("tag_suffix")
+        }
         self.assertTrue(variants)
         for variant in variants:
             self.assertEqual(variant.get("compose_image_names"), [])
             self.assertEqual(variant.get("tag_variables"), [])
             repository = variant.get("repository")
             self.assertTrue(repository)
-            self.assertIn(repository, HELM_VALUES)
+            self.assertIn(repository, parents)
+            if parents[repository].get("compose_image_names"):
+                self.assertIn(repository, HELM_VALUES)
 
     def test_helm_defaults_to_managed_ghcr_channel(self):
         for name, relative_paths in HELM_VALUES.items():
