@@ -70,9 +70,11 @@ A common root cause is Elasticsearch disk pressure. In Kibana Discover, this can
 
 If Docker marks Elasticsearch, Kibana, or Logstash as `unhealthy` during startup, that is a separate Docker health check timeout. Check the service logs first; if the service is only starting slowly, increase the affected service's `healthcheck.retries` value in `video-search-and-summarization/deploy/docker/services/infra/compose.yml` (or `deploy/docker/services/infra/compose.yml` from the deployment repository root) and redeploy.
 
-### Why is Logstash CPU usage high?
+### Why is CPU usage high?
 
-Kafka-based deployments run four parallel analytics pipelines (`mdx-kafka`, `mdx-kafka-1`, `mdx-kafka-2`, and `mdx-kafka-3`), in addition to the separate `mdx-lvs` pipeline. This parallelism can increase CPU usage on hosts with fewer CPU cores.
+Use `docker stats` to identify which services are consuming the most CPU, then review the configuration and logs for those services.
+
+For example, Kafka-based deployments run four parallel Logstash analytics pipelines (`mdx-kafka`, `mdx-kafka-1`, `mdx-kafka-2`, and `mdx-kafka-3`), in addition to the separate `mdx-lvs` pipeline. This parallelism can increase CPU usage on hosts with fewer CPU cores.
 
 For Docker Compose deployments, reduce the analytics pipeline count in `$VSS_APPS_DIR/services/infra/elk/logstash/configs/pipelines-kafka.yml`. Comment out extra `pipeline.id` entries and their corresponding `path.config` lines, keeping at least `mdx-kafka`, then restart Logstash. Fewer pipelines can reduce CPU overhead but also reduce ingestion throughput. Leave `mdx-lvs` unchanged. Redis deployments already use one analytics pipeline.
 
@@ -151,6 +153,12 @@ Enter your NGC API key when prompted for the password, then retry the download.
 
     * Verify that the NVStreamer/VST is serving the videos by opening the RTSP streams in either `vlc` or `ffplay`. If using VLC click on “Media” and “Open Network Stream” and enter the following RTSP URL - `rtsp://<video url>`. Stream RTSP URL can be grabbed from NVStreamer/VST UI.
     * If NVStreamer/VST is not streaming the videos make sure the port 8554(NVStreamer)/8555(VST) is not blocked by a fire-wall.
+
+### How can I view VIOS video and overlays without a TURN server?
+
+If WebRTC playback cannot connect because a TURN server is unavailable, select **DASH** instead of **WebRTC** from **Streaming Protocol** in the VIOS UI.
+DASH supports live and recorded video with overlays and does not require a TURN server.
+A TURN server is still required for WebRTC when the browser cannot connect directly to VIOS.
 
 ### When I run reference application in playback mode could I loop through the playback data more than once?
 
