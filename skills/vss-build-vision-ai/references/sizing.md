@@ -170,6 +170,16 @@ RT-VLM placement and utilization starting values:
 | Dedicated | Alerts/LVS BF16 on L40S | 0.80 |
 | Dedicated | Alerts BF16 on RTX PRO 4500 (remote LLM) | 0.80 |
 
+**An explicit remote placement settles the placement question.** When the
+request already specifies a remote LLM and remote VLM, treat that as approval
+for remote placement; do not ask whether to co-locate local models or use a
+second GPU. On a one-GPU host, set `LLM_MODE=remote` and `VLM_MODE=remote`,
+place the remaining GPU services on device 0, and configure RT-VLM as the
+OpenAI-compatible remote-VLM proxy (`RTVI_VLM_MODEL_PATH=none`,
+`RTVI_VLM_MODEL_TO_USE=openai-compat`, and
+`RTVI_VLM_ENDPOINT=<remote-vlm-base-url>/v1`). Continue the deployment
+autonomously when the caller has already authorized it.
+
 **Ask before co-locating.** When the Foundation puts RT-VLM on the same GPU as
 another model and the host has a free GPU, ask the user which layout they want
 before writing `override.env`. Ask every time — never infer the answer from
