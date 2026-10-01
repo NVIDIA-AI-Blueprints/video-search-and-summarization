@@ -17,6 +17,7 @@ import sys
 import threading
 import types
 from types import SimpleNamespace
+from unittest.mock import mock_open
 
 import pytest
 import torch
@@ -180,6 +181,7 @@ def test_decoder_warmup_decodes_locally_without_forwarding_frames(monkeypatch):
     decoder._output_queue = CaptureQueue()
 
     monkeypatch.setattr(vlm_pipeline_module.os.path, "exists", lambda path: True)
+    monkeypatch.setattr(vlm_pipeline_module, "_is_orin_platform", lambda: True)
 
     decoder._warmup()
 
@@ -210,11 +212,52 @@ def test_decoder_warmup_releases_pipeline_when_decode_raises(monkeypatch):
     getter = FailingFrameGetter()
     decoder._fgetters = [getter]
     monkeypatch.setattr(vlm_pipeline_module.os.path, "exists", lambda path: True)
+    monkeypatch.setattr(vlm_pipeline_module, "_is_orin_platform", lambda: True)
 
     with pytest.raises(RuntimeError, match="warmup decode failed"):
         decoder._warmup()
 
     assert getter.destroyed == 1
+
+
+@pytest.mark.no_gpu
+def test_decoder_warmup_preserves_pipeline_off_orin(monkeypatch):
+    class WarmupFrameGetter:
+        def __init__(self):
+            self.files = []
+            self.destroyed = 0
+
+        def get_frames(self, chunk):
+            self.files.append(chunk.file)
+
+        def destroy_pipeline(self):
+            self.destroyed += 1
+
+    decoder = _make_decoder()
+    getter = WarmupFrameGetter()
+    decoder._fgetters = [getter]
+    monkeypatch.setattr(vlm_pipeline_module.os.path, "exists", lambda path: True)
+    monkeypatch.setattr(vlm_pipeline_module, "_is_orin_platform", lambda: False)
+
+    decoder._warmup()
+
+    assert len(getter.files) == 2
+    assert getter.destroyed == 0
+
+
+@pytest.mark.no_gpu
+@pytest.mark.parametrize("soc_id, expected", [("35\n", True), ("36\n", False)])
+def test_orin_platform_detection_uses_soc_id(monkeypatch, soc_id, expected):
+    monkeypatch.setattr(vlm_pipeline_module, "open", mock_open(read_data=soc_id), raising=False)
+    assert vlm_pipeline_module._is_orin_platform() is expected
+
+
+@pytest.mark.no_gpu
+def test_orin_platform_detection_defaults_false_without_soc_id(monkeypatch):
+    missing_soc_id = mock_open()
+    missing_soc_id.side_effect = FileNotFoundError
+    monkeypatch.setattr(vlm_pipeline_module, "open", missing_soc_id, raising=False)
+    assert vlm_pipeline_module._is_orin_platform() is False
 
 
 @pytest.mark.no_gpu

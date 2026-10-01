@@ -97,6 +97,14 @@ def _reuse_file_decoder_pipeline() -> bool:
     )
 
 
+def _is_orin_platform() -> bool:
+    try:
+        with open("/sys/devices/soc0/soc_id", encoding="ascii") as soc_id:
+            return soc_id.read().strip() == "35"  # Tegra234
+    except OSError:
+        return False
+
+
 def _strict_fixed_frame_chunk_decode_enabled() -> bool:
     return os.environ.get(STRICT_FIXED_FRAME_CHUNK_DECODE_ENV, "false").strip().lower() in (
         "1",
@@ -581,6 +589,7 @@ class DecoderProcess(ProcessBase):
     def _warmup(self):
         chunk = ChunkInfo()
         chunk.end_pts = 5000000000
+        release_warmup_pipeline = _is_orin_platform()
         for warmup_file in (
             "/opt/nvidia/rtvi/warmup_streams/its_264.mp4",
             "/opt/nvidia/rtvi/warmup_streams/its_265.mp4",
@@ -591,8 +600,9 @@ class DecoderProcess(ProcessBase):
                     try:
                         fgetter.get_frames(chunk)
                     finally:
-                        # Warmup's decoder must not be reused for a real file.
-                        fgetter.destroy_pipeline()
+                        if release_warmup_pipeline:
+                            # Orin warmup's decoder must not be reused for a real file.
+                            fgetter.destroy_pipeline()
 
         # Decoder warmup is local to this process. Do not forward the decoded
         # warmup frames to VLM: they have no prompt/request_params and may still
