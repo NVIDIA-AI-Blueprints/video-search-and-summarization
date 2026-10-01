@@ -24,6 +24,7 @@ the reservation one atomic step.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 import contextlib
 import dataclasses
 import errno
@@ -1589,6 +1590,15 @@ def spark_instance() -> str:
     return matches[0]["name"]
 
 
+def spark_requested(environment: Mapping[str, str] | None = None) -> bool:
+    """Honor the job's Spark choice even if the coordinator agent changes its hint."""
+    env = environment if environment is not None else os.environ
+    return (
+        env.get("EVAL_SPARK_RUNNER_REQUESTED") == "true"
+        or env.get("SKILLS_EVAL_SPARK_RUNNER") == "true"
+    )
+
+
 def cleanup_local_nims(instance: str, owner: str) -> None:
     # Use the same transport as Harbor (registered nodes use SSH). The file
     # is uploaded before start, so cleanup also covers interrupted readiness.
@@ -2111,7 +2121,7 @@ def main(argv: list[str] | None = None) -> int:
         effective_lock_timeout = min(args.lock_timeout_sec, max_lock_wait)
         # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
         # > task.toml brev_instance > pool selection.
-        if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
+        if spark_requested():
             pinned = spark_instance()
             if args.instance and args.instance.casefold() != pinned.casefold():
                 raise ValueError("--instance conflicts with the selected Spark worker")

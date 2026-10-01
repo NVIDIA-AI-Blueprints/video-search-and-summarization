@@ -317,6 +317,9 @@ jobs:
           export SKILLS_EVAL_SWITCHYARD="$enable_switchyard"
           export SKILLS_EVAL_SWITCHYARD_FRONTIER_MODEL="$switchyard_frontier_model"
           export SKILLS_EVAL_SPARK_RUNNER="$spark_runner"
+          # Preserve the operator's choice if the coordinator agent unsets its
+          # normal routing variable while reasoning about a spec platform.
+          export EVAL_SPARK_RUNNER_REQUESTED="$spark_runner"
           export EVAL_AGENT="$operational_harness"
           export SKILLS_EVAL_CODING_HARNESS="$coding_harness"
           if [ -n "$coding_model" ]; then

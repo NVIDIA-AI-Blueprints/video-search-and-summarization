@@ -460,6 +460,17 @@ def test_spark_resolves_registered_node_id_even_if_renamed(monkeypatch):
     assert run_leg.spark_instance() == "Spark-renamed"
 
 
+def test_spark_job_choice_survives_removed_agent_hint():
+    assert run_leg.spark_requested({
+        "EVAL_SPARK_RUNNER_REQUESTED": "true",
+        "SKILLS_EVAL_SPARK_RUNNER": "false",
+    })
+    assert not run_leg.spark_requested({
+        "EVAL_SPARK_RUNNER_REQUESTED": "false",
+        "SKILLS_EVAL_SPARK_RUNNER": "false",
+    })
+
+
 @pytest.mark.parametrize(
     "nodes",
     [

@@ -621,6 +621,9 @@ pool worker, or change the GitHub coordinator. This explicit override checks
 ARM64 only and skips existing GPU/memory/disk resource checks. Report the
 actual machine from the wrapper's output; spec platform labels describe the
 requested scenario, not the selected hardware.
+The workflow also exports `EVAL_SPARK_RUNNER_REQUESTED` from the operator's
+checkbox. `run_leg.py` honors either flag, so removing the ordinary hint
+cannot silently move a Spark-selected trial to a pool worker.
 
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`
