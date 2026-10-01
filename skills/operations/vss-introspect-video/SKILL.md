@@ -139,8 +139,9 @@ python3 "${LEDGER_TOOL}" create-tasks \
 
 python3 "${LEDGER_TOOL}" merge-round \
   --ledger "${RUN_DIR}/ledger.json" \
+  --base-ledger "${ROUND_DIR}/base-ledger.json" \
   --tasks "${ROUND_DIR}/tasks.json" \
-  --results "${ROUND_DIR}/results.json" \
+  --results-dir "${ROUND_DIR}" \
   --output "${RUN_DIR}/ledger.json"
 
 python3 "${LEDGER_TOOL}" assess --ledger "${RUN_DIR}/ledger.json"
@@ -164,6 +165,7 @@ ${VSS_WORKSPACE:-$HOME/.vss}/runs/vss-introspection/<question-id>/
 ├── plan.json
 ├── ledger.json
 ├── final-result.json
+├── terminal-commit.json
 └── rounds/
     ├── round-1/
     │   ├── base-ledger.json
@@ -172,11 +174,13 @@ ${VSS_WORKSPACE:-$HOME/.vss}/runs/vss-introspection/<question-id>/
     │   ├── task-<claim-id>.json
     │   ├── results.json
     │   └── result-<claim-id>.json
-    └── round-2/
+    ├── round-2/
+    └── round-3/
 ```
 
 Freeze `base-ledger.json` before dispatch. Atomically replace `ledger.json` and
-`final-result.json`. Never write the ledger to `MEMORY.md`, VSS memory,
+`final-result.json`; publish `terminal-commit.json` last with the committed
+revision and hashes. Never write the ledger to `MEMORY.md`, VSS memory,
 Elasticsearch, or Git.
 
 ## Workflow
@@ -327,6 +331,22 @@ request. Report partial coverage unless the accepted windows defensibly cover
 the complete grounded interval, and keep uncovered intervals as explicit gaps.
 These are ordinary `vss vios` lookups, not an orchestration service.
 
+Before dispatching a sensor inspection, use the deterministic window planner:
+
+```bash
+VLM_HELPER="skills/operations/vss-introspect-video/scripts/vlm_inspection.py"
+
+python3 "${VLM_HELPER}" plan-windows \
+  --start "${START_TIME}" \
+  --end "${END_TIME}" \
+  --fps "${VLM_FPS}" \
+  --output "${ROUND_DIR}/vlm-windows-${CLAIM_ID}.json"
+```
+
+The helper splits the assigned scope so every request remains within RT-VLM's
+frame-delivery cap. If the allocated call budget cannot cover every planned
+window, coverage remains partial and uninspected windows stay in the gap.
+
 ### 5. Dispatch bounded parallel subagents
 
 Spawn no more subagents than the loaded parallelism limit. Give each one task
@@ -337,7 +357,8 @@ it to:
   coverage;
 - inspect only the missing visible fact in the assigned media scope;
 - use targeted `vss vlm run` calls within its allocation; never search memory,
-  summarize broadly, include answer choices, or spawn agents;
+  summarize broadly, include answer choices, or spawn agents; for sensor work,
+  invoke VLM only through the guarded helper below, never directly;
 - report visible facts against the support and falsification tests, leaving
   missing visibility, ambiguity, occlusion, failure, and incomplete coverage
   unresolved;
@@ -348,10 +369,50 @@ it to:
 - return exactly one contract-valid result without changing claims, canonical
   state, or the final answer.
 
-For a sensor scope, every returned VLM observation must use the assigned sensor
-and remain within the assigned window. The utility rejects mismatches.
+For sensor work, use the helper instead of one unbounded VLM invocation:
 
-Example command shape:
+```bash
+python3 "${VLM_HELPER}" inspect \
+  --vss-project "${VSS_REPO_ROOT}/libs/vss" \
+  --task "${ROUND_DIR}/tasks.json" \
+  --task-id "${TASK_ID}" \
+  --sensor "${SENSOR_NAME}" \
+  --start "${START_TIME}" \
+  --end "${END_TIME}" \
+  --fps "${VLM_FPS}" \
+  --prompt "${OPTION_BLIND_CLAIM_PROMPT}" \
+  --calls-budget "${TASK_MAX_VLM_CALLS}" \
+  --history "${PRIOR_INSPECTION_PATH}" \
+  --output "${ROUND_DIR}/inspection-${CLAIM_ID}.json"
+```
+
+Omit `--history` when no prior inspection artifact exists; repeat it for every
+prior round that targeted the claim. The helper rejects an exact duplicate
+sensor/window/FPS/prompt call before inference, records it in
+`rejected_duplicates`, and charges no VLM call. A higher-density refinement or
+materially different evidence prompt is not a duplicate.
+
+The helper records every attempted subwindow, detects empty, reasoning-only,
+repetitive-template, and reverse-chronology output. It attempts each affordable
+planned window once before spending remaining allocation on at most one quality
+retry per unusable window. This prevents a degenerate early window from starving
+later windows. Every inference attempt, including a quality retry, counts toward
+`vlm_calls_used`. The retry uses an explicit repair prompt, so it is not rejected
+as a duplicate. Unusable output is retained for diagnostics but never becomes
+an observation or increases coverage. Convert only usable attempts into claim
+observations with the returned job ID and exact subwindow provenance.
+
+For a sensor scope, `--task` is mandatory. The helper reads the immutable sensor
+UUID from that task and rejects a mismatched `--sensor` before launching VLM.
+When the evaluation harness supplies `.vss/introspection-attempt.json`, the
+helper also requires both the task sensor and requested sensor to match that
+case's canonical video ID or sensor UUID. An internally consistent task for a
+different video is therefore rejected before inference.
+Every returned observation must also use the assigned sensor and remain within
+the assigned window; merge validation rejects mismatches.
+
+The direct command below illustrates the subprocess shape used by the helper;
+do not invoke it directly for sensor tasks:
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
@@ -375,8 +436,13 @@ return, write a result for its assigned task with no observations, retained
 coverage/gap, zero consumed calls when known, and a timeout error. Preserve
 successful sibling results.
 
-Validate every result against its task, then batch-merge the complete result
-set once. The utility rejects stale, unknown, duplicate, cross-claim,
+Each subagent persists `result-<claim-id>.json` independently. On restart,
+rediscover those files, resume only missing tasks, and create explicit timeout
+results for tasks that remain missing at the round deadline. Validate every
+result against its task, then batch-merge the complete result set from the
+frozen `base-ledger.json`. Re-running the same complete batch is idempotent and
+returns the already committed revision without incrementing round or call
+counts. The utility rejects stale, unknown, duplicate, cross-claim,
 over-budget, or malformed results; deterministically deduplicates observations;
 updates only assigned claim states; preserves support and contradiction; and
 increments the call count, `round`, and `revision` exactly once.
@@ -439,3 +505,9 @@ as answers. Report whether each cited source is memory or VLM and preserve VSS
 job, record, and assigned media provenance. `final-result.json` must be
 self-contained: include the final ledger revision, run artifact directory, and
 full provenance for every cited observation.
+
+Terminal finalization commits the revision-matched `ledger.json` and
+`final-result.json`, then publishes `terminal-commit.json` last. Consumers trust
+a terminal result only when the marker's revision and hashes match both files.
+If finalization is interrupted, rerun the same command to repair the pair
+without advancing the ledger or consuming additional calls.
