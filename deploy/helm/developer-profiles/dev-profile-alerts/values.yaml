@@ -173,7 +173,7 @@ infra:
       - name: mdx-embed-filtered
       - name: vision-llm-messages
       - name: vision-llm-events-incidents
-      - name: vision-llm-errors
+      - name: mdx-vlm-errors
   logstash:
     enabled: true
   vss-broker-health-check:

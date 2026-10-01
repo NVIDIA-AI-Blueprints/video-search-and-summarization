@@ -289,7 +289,7 @@ use the pre-release `${VSS_DOCS_IMAGE_TAG:-develop-latest}` image described in
    KAFKA_BOOTSTRAP_SERVERS=kafka:9092
    KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents
    ERROR_BUS=kafka
-   ERROR_MESSAGE_TOPIC=vision-llm-errors
+   ERROR_MESSAGE_TOPIC=mdx-vlm-errors
    EOF
    ```
 
@@ -1105,9 +1105,8 @@ repository's developer-profile Compose deployment, set their prefixed aliases:
   is detected. This topic is independent of `MESSAGE_BUS_TOPIC`.
 * **ERROR_BUS**: Error-message output bus. Set to `kafka` (default),
   `redis`, or empty to disable error-message output.
-* **ERROR_MESSAGE_TOPIC**: Topic/channel for error messages. Default:
-  `vision-llm-errors` in the standard Docker Compose deployment. The bare
-  service fallback, when this variable is not set, is `mdx-vlm-errors`.
+* **ERROR_MESSAGE_TOPIC**: Topic/channel for error messages. The default is
+  `mdx-vlm-errors`.
 
 ### Generated-Message Bus Startup Selection
 
@@ -1494,7 +1493,7 @@ standalone Helm override.
 | `KAFKA_INCIDENT_TOPIC` (developer-profile Compose: `RTVI_VLM_KAFKA_INCIDENT_TOPIC`) | Kafka-only topic for incident messages; independent of `MESSAGE_BUS_TOPIC` | `mdx-vlm-incidents` |
 | `RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE` (Helm env: `KAFKA_ASYNC_SEND_QUEUE_MAXSIZE`) | Bounded queue size for async Kafka sends | `1024` |
 | `ERROR_BUS` (developer-profile Compose: `RTVI_VLM_ERROR_BUS`) | Error-message output bus (`kafka`, `redis`, or empty to disable) | Docker Compose: `kafka` |
-| `ERROR_MESSAGE_TOPIC` (developer-profile Compose: `RTVI_VLM_ERROR_MESSAGE_TOPIC`) | Kafka topic or Redis channel for error messages | `vision-llm-errors` |
+| `ERROR_MESSAGE_TOPIC` (developer-profile Compose: `RTVI_VLM_ERROR_MESSAGE_TOPIC`) | Kafka topic or Redis channel for error messages | `mdx-vlm-errors` |
 | `ENABLE_REDIS_ERROR_MESSAGES` | Legacy alias for `ERROR_BUS=redis` when `ERROR_BUS` is unset | `false` |
 | `REDIS_HOST` | Redis host | Compose: `redis`; Helm: `127.0.0.1` |
 | `REDIS_PORT` | Redis application port | `6379` |
