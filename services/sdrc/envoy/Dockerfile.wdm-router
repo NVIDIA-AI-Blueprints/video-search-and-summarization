@@ -85,7 +85,10 @@ RUN ls -la /sdr /sdr-mw
 # Drop the build venv and project tree; PyInstaller binaries are self-contained.
 RUN rm -rf /wdm
 # jinja2 + ruamel.yaml are required at container start by
-# generate_envoy_config_xds_mw.py (run via system python3, not the venv).
+# generate_envoy_config_xds_mw.py. The entrypoint runs that script with
+# /opt/bootstrap/bin/python3, which stays on PATH after /wdm is removed.
+# These packages are installed into that environment. /usr/bin/python3
+# does not have them.
 RUN python3 -m pip install --no-cache-dir jinja2==3.1.4 "ruamel.yaml==0.18.6" && \
     python3 -m pip uninstall -y uv setuptools wheel pip && \
     rm -rf /root/.cache/uv /root/.cache/pip /usr/local/bin/uv /usr/local/bin/uvx
