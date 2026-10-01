@@ -794,6 +794,12 @@ class GPUModelRunner(
         stale embeddings computed with old weights are not reused.
         """
         self.encoder_cache.clear()
+        # Delivered discards will not be sent again after reset. Drop their
+        # pins before forgetting the pending frees so repopulated entries
+        # remain eligible for ordinary scheduler eviction.
+        self._pinned_encoder_mm_hashes.difference_update(
+            self._pending_free_evs_mm_hashes
+        )
         self._pending_free_evs_mm_hashes.clear()
 
     @torch.inference_mode()

@@ -152,6 +152,12 @@ class TestEvsEncoderCacheLifetime(unittest.TestCase):
         self.runner.reset_encoder_cache()
         self.assertFalse(self.runner.encoder_cache)
         self.assertFalse(self.runner._pending_free_evs_mm_hashes)
+        self.assertNotIn("merged", self.runner._pinned_encoder_mm_hashes)
+        self.assertIn("clip", self.runner._pinned_encoder_mm_hashes)
+        # A repopulated discarded hash must be eligible for normal eviction.
+        self.runner.encoder_cache["merged"] = object()
+        self.step(finished=["generate"], evict=["merged"])
+        self.assertNotIn("merged", self.runner.encoder_cache)
 
 
 if __name__ == "__main__":
