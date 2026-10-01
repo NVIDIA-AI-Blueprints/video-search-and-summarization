@@ -82,12 +82,28 @@ def align_ts_to_segment(start: datetime, end: datetime) -> list[tuple[datetime, 
 
 
 def video_name_matches(api_name: str, gt_name: str) -> bool:
-    """Prefix match, because VST renames uploads.
+    """Match a retrieved video name against a ground-truth stem.
 
-    Ground truth says ``warehouse_sample``; search returns
+    Prefix match, because VST renames uploads: ground truth says
+    ``warehouse_sample``; search returns
     ``warehouse_sample_20250101_000000_e0482.mp4``.
+
+    The prefix is **anchored on the rename separator** (``_``), so the stem has
+    to end at a name boundary rather than anywhere inside a longer sibling's
+    name. A bare ``startswith`` credits one clip for another whenever one stem
+    is a textual prefix of the next, which is not hypothetical: in
+    ``physicalAI-event-videos-test`` the gallery holds both
+    ``CHAD_2_082_1_1`` and ``CHAD_2_082_1_10``/``_12``/``_14``/``_15``/``_16``,
+    so 374 of its 6,040 queries (142 event, 232 pas) could be scored a hit for
+    retrieving a clip their ground truth does not list. Clip-level datasets are
+    the exposed case -- there the video name is the *entire* relevance decision,
+    with no timestamp overlap left to disambiguate it.
+
+    Segment datasets are unaffected: VST's suffix always starts with ``_``, so
+    every name that matched before still matches.
     """
-    return api_name.replace(".mp4", "").startswith(gt_name)
+    stripped = api_name.replace(".mp4", "")
+    return stripped == gt_name or stripped.startswith(f"{gt_name}_")
 
 
 def match_segment(api_result: dict, gt_segments: list[dict]) -> tuple[int, dict | None]:

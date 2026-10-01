@@ -107,7 +107,7 @@ leg re-ranks by appearance. A decomposition missing `has_action` routes to
 
 ## Clip-level retrieval (schema_version 3, `task: "clip"`)
 
-Some datasets (e.g. `physicalAI-event-videos-test`) are **clip-level**: the gallery is a set of short clips and a query is relevant to whole clips, not time-bounded segments within a long video. The scorer matches by `video_name` (no overlap, no 5-second grid), so the ground truth is a list of clip **stems** (no `.mp4`): the search core returns `<stem>_<timestamp>_<hash>.mp4`, and `video_name_matches` strips `.mp4` from the retrieved name and prefix-matches the GT string -- a GT string with `.mp4` would never match.
+Some datasets (e.g. `physicalAI-event-videos-test`) are **clip-level**: the gallery is a set of short clips and a query is relevant to whole clips, not time-bounded segments within a long video. The scorer matches by `video_name` (no overlap, no 5-second grid), so the ground truth is a list of clip **stems** (no `.mp4`): the search core returns `<stem>_<timestamp>_<hash>.mp4`, and `video_name_matches` strips `.mp4` from the retrieved name and prefix-matches the GT string **anchored on the `_` rename separator** -- a GT string with `.mp4` would never match, and a stem that is a textual prefix of a longer sibling (`CHAD_2_082_1_1` vs `CHAD_2_082_1_10`) no longer credits that sibling.
 
 ```json
 {"schema_version": 3, "task": "clip",

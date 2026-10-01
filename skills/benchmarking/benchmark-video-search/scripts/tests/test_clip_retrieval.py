@@ -26,6 +26,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 # scripts/tests -> scripts
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -170,6 +172,56 @@ def test_datasets_registry_keeps_subset_map_shape() -> None:
     assert flows.DATASETS["physicalAI-event-videos-test"]["pas"].endswith(
         "dataset_pas.json"
     )
+
+
+def test_dataset_meta_offline_twin_is_local_segment() -> None:
+    """The offline twin is legacy-shape, so it must score as `segment` (which
+    also keeps the 2025-01-01 anchor check), and it is not on DSS."""
+    off = flows.dataset_meta("physicalAI-event-videos-test-offline")
+    assert off.task == "segment"
+    assert off.local_only is True
+    assert flows.dataset_meta("warehouse").local_only is False
+    assert flows.DATASETS["physicalAI-event-videos-test-offline"][""] == (
+        "physicalAI-event-videos-test-offline/dataset.json"
+    )
+    assert set(flows.DATASETS["physicalAI-event-videos-test-offline"]) == {"", "event", "pas"}
+
+
+def test_download_refuses_local_only_dataset(capsys) -> None:
+    """A local-only dataset exits with "build it locally", not the generic
+    "No files found" after filtering DSS to a prefix that does not exist."""
+    with pytest.raises(SystemExit) as exc:
+        flows.download_from_dss(Path("/nonexistent"), "physicalAI-event-videos-test-offline")
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "--skip-download" in err
+    assert "not published to" in err
+
+
+def test_video_name_matches_anchors_on_rename_separator() -> None:
+    """A GT stem must end at a name boundary. `CHAD_2_082_1_1` and
+    `CHAD_2_082_1_10` both exist in the physicalAI gallery, and an unanchored
+    prefix match credits the first for retrieving the second -- 374 of 6,040
+    queries are exposed. Clip scoring has no timestamp left to disambiguate."""
+    # Still matches: VST's rename suffix always starts with `_`.
+    assert flows.video_name_matches("CHAD_2_082_1_1_20250101_000000_e048.mp4", "CHAD_2_082_1_1")
+    assert flows.video_name_matches("CHAD_2_082_1_1.mp4", "CHAD_2_082_1_1")
+    assert flows.video_name_matches("CHAD_2_082_1_1", "CHAD_2_082_1_1")
+    assert flows.video_name_matches("warehouse_sample_20250101_000000_e0482.mp4", "warehouse_sample")
+    # No longer matches: a longer sibling clip is a different clip.
+    assert not flows.video_name_matches("CHAD_2_082_1_10.mp4", "CHAD_2_082_1_1")
+    assert not flows.video_name_matches("CHAD_2_082_1_16_20250101_000000_e048.mp4", "CHAD_2_082_1_1")
+
+
+def test_clip_scorer_does_not_credit_sibling_clip() -> None:
+    """End to end through the clip scorer: retrieving only `_10` scores zero
+    against a `_1` ground truth."""
+    res = flows.evaluate_clip_query(
+        "q", [{"video_name": "CHAD_2_082_1_10_20250101_000000_e048.mp4"}],
+        ["CHAD_2_082_1_1"], 0.1, hit_ks=(1, 5, 10),
+    )
+    assert res["true_positives"] == 0
+    assert res["recall"] == 0.0
 
 
 # -- _summarize task-aware k-set (F5) + favg ABSENT exclusion (P1 #7) ---------
