@@ -72,7 +72,9 @@ If Docker marks Elasticsearch, Kibana, or Logstash as `unhealthy` during startup
 
 ### Why is CPU usage high?
 
-Use `docker stats` to identify which services are consuming the most CPU, then review the configuration and logs for those services.
+For Docker Compose, use `docker stats` to identify which services are consuming the most CPU.
+For Helm deployments, use `kubectl top pods -n <namespace>`; this command requires the Kubernetes Metrics API.
+Then review the configuration and logs for the affected services or pods.
 
 For example, Kafka-based deployments run four parallel Logstash analytics pipelines (`mdx-kafka`, `mdx-kafka-1`, `mdx-kafka-2`, and `mdx-kafka-3`), in addition to the separate `mdx-lvs` pipeline. This parallelism can increase CPU usage on hosts with fewer CPU cores.
 
