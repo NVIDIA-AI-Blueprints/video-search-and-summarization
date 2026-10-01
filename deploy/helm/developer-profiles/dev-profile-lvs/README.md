@@ -154,7 +154,7 @@ Remote VLM + RTVI: RTVI-VLM also supports remote VLM endpoints when `global.vlmB
 
 - **Helm** 3.x
 - **Kubectl**
-- **GPUs**: see [GPU requirements](#gpu-requirements) (4 with defaults).
+- **GPUs**: see [GPU requirements](#gpu-requirements) (3 with defaults).
 - **NVIDIA NIM** (if using NIM subcharts): NIM Operator on the cluster (see [Prerequisites](#prerequisites) above).
 - **NGC**: API key for NIM, image pull / chart secret creation (see below).
 - **StorageClass** for PVCs: set **`global.storageClass`** to a class that exists on the cluster (see [Prerequisites](#prerequisites) above—**Volume provisioner**).

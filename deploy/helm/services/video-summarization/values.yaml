@@ -29,11 +29,6 @@ service:
 # reads as a backend failure. The CLI bounds the wait itself. Matches the
 # per-backend `timeout server` the Docker edge sets on bk_lvs_strip.
 ingressTimeoutServer: "3600s"
-# No GPU: all VLM inference is delegated to RTVI-VLM over HTTP.
-resources:
-  requests:
-    cpu: "250m"
-    memory: "64Gi"
 # In-cluster: template builds http://<release>-<slug>:8000/v1 from llmService/vlmService (NIM subchart names).
 # Remote NIM: prefer global.llmBaseUrl / global.vlmBaseUrl (same base as vss-agent). LVS deployment appends /v1 when missing.
 llmService: ""   # e.g. nemotron-35-lightning-30b-a3b — ignored when llmBaseUrl/global.llmBaseUrl resolves non-empty
