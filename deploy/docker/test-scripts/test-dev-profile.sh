@@ -1186,6 +1186,20 @@ if ! jq -e '
   ((_warehouse_model_config_failed++)) || true
 fi
 
+_warehouse_blueprint_config="${_warehouse_root}/blueprint-configurator/blueprint_config.yml"
+if ! grep -q 'sparse4d_model: .*"nvidia/tao/sparse4d_rn50:deployable_v2.3" if .*else "nvidia/tao/sparse4d_rn50:deployable_v3.0"' "${_warehouse_blueprint_config}" \
+  || grep -q 'nvstaging/tao/sparse4d_rn50' "${_warehouse_blueprint_config}"; then
+  echo "FAIL: warehouse blueprint configurator should resolve Sparse4D v2.3 and v3.0 from the nvidia org"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
+_helm_3d_values="${REPO_ROOT}/deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app/values.yaml"
+if [[ "$(grep -c 'model: nvidia/tao/sparse4d_rn50:deployable_v2.3$' "${_helm_3d_values}")" != "2" ]] \
+  || grep -q 'nvstaging/tao/sparse4d_rn50' "${_helm_3d_values}"; then
+  echo "FAIL: warehouse 3D Helm values should download Sparse4D v2.3 model and anchor from the nvidia org"
+  ((_warehouse_model_config_failed++)) || true
+fi
+
 if ! jq -e '
   (.downloads | length) == 2
   and any(.downloads[]; .model == "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2" and .destPath == "rtdetr_warehouse_v1.0.2.fp16.onnx")
