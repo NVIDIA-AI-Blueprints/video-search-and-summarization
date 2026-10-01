@@ -8,7 +8,7 @@
  * pipeline for what is effectively a preview.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { IconCamera, IconAlertTriangle, IconLoader2 } from '@tabler/icons-react';
 import { fetchSensorMap } from '../utils/vstSensorList';
 
@@ -53,6 +53,19 @@ const THUMBNAIL_BOX_STYLE: React.CSSProperties = { width: '128px', height: '72px
 // files and disconnected cameras can have historical timelines. Short segments
 // use their midpoint so the snapshot stays inside the recording.
 const THUMBNAIL_LOOKBACK_MS = 5_000;
+const PREVIEW_REQUEST_TIMEOUT_MS = 5_000;
+
+const fetchPreviewJson = async (url: string): Promise<unknown> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PREVIEW_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`VST preview request returned ${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 interface RecordedSegment {
   startTime: string;
@@ -81,18 +94,15 @@ const fetchPreview = async (
   baseUrl: string,
   sensorId: string,
 ): Promise<{ streamId: string; startTime: string }> => {
-  const response = await fetch(`${baseUrl}/v1/sensor/${encodeURIComponent(sensorId)}/streams`);
-  if (!response.ok) throw new Error(`VST streams returned ${response.status}`);
-  const streams: unknown = await response.json();
+  const streams = await fetchPreviewJson(`${baseUrl}/v1/sensor/${encodeURIComponent(sensorId)}/streams`);
   if (!Array.isArray(streams)) throw new Error('No streams available');
   const streamIds = [...new Set(streams.map((stream) => stream?.streamId)
     .filter((id): id is string => typeof id === 'string' && id.length > 0))];
   const results = await Promise.allSettled(streamIds.map(async (streamId) => {
-    const timelineResponse = await fetch(
+    const timeline = await fetchPreviewJson(
       `${baseUrl}/v1/storage/${encodeURIComponent(streamId)}/timelines`,
     );
-    if (!timelineResponse.ok) throw new Error(`VST timelines returned ${timelineResponse.status}`);
-    return { streamId, segment: latestRecordedSegment(await timelineResponse.json()) };
+    return { streamId, segment: latestRecordedSegment(timeline) };
   }));
   let latest: { streamId: string; segment: { start: number; end: number } } | undefined;
   for (const result of results) {
@@ -183,14 +193,18 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
   const [brokenPictureUrl, setBrokenPictureUrl] = useState<string | null>(null);
 
   const [retryCount, setRetryCount] = useState(0);
+  const retryRequested = useRef(false);
   const retryThumbnail = () => {
     clearVstStreamThumbnailCache(vstApiUrl, sensorName);
     setBrokenPictureUrl(null);
     setState({ kind: 'loading' });
+    retryRequested.current = true;
     setRetryCount((count) => count + 1);
   };
 
   useEffect(() => {
+    const forceRefresh = retryRequested.current;
+    retryRequested.current = false;
     if (!sensorName) {
       setState({ kind: 'idle' });
       return;
@@ -210,7 +224,7 @@ export const VstStreamThumbnail: React.FC<VstStreamThumbnailProps> = ({
 
     let cancelled = false;
 
-    fetchSensorMap(vstApiUrl, { forceRefresh: retryCount > 0 })
+    fetchSensorMap(vstApiUrl, { forceRefresh })
       .then(async (map) => {
         if (cancelled) return;
         const sensorId = map.get(sensorName);

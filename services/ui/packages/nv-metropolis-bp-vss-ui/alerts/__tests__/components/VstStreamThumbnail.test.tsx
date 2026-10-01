@@ -204,6 +204,44 @@ describe('VstStreamThumbnail picture URL', () => {
     expect(screen.queryByText('Frame unavailable')).not.toBeInTheDocument();
   });
 
+
+  it('times out a stalled timeline and still shows a recorded frame from another stream', async () => {
+    jest.useFakeTimers();
+    try {
+      global.fetch = jest.fn().mockImplementation((url: string, options?: RequestInit) => {
+        if (url.endsWith('/sensor/list')) return jsonResponse([{ name: 'cam', sensorId: 'sensor-1', state: 'online' }]);
+        if (url.endsWith('/streams')) return jsonResponse([{ streamId: 'stalled-stream' }, { streamId: 'good-stream' }]);
+        if (url.includes('/stalled-stream/')) {
+          return new Promise<Response>((_resolve, reject) => {
+            options!.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+          });
+        }
+        return jsonResponse(segments);
+      });
+      render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam" isDark={false} />);
+      await act(async () => {});
+      expect(screen.getByText('Loading thumbnail…')).toBeInTheDocument();
+      await act(async () => { await jest.advanceTimersByTimeAsync(5000); });
+      expect(screen.getByTestId('vst-stream-thumbnail').getAttribute('src')).toContain('/good-stream/picture');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('refreshes the sensor catalog only for the retry, not later sensor changes', async () => {
+    const sensorMap = new Map([['cam-a', 'id-a'], ['cam-b', 'id-b']]);
+    const sensorFetch = jest.spyOn(vstSensorList, 'fetchSensorMap').mockResolvedValue(sensorMap);
+    global.fetch = mockVstFetch([]);
+    const { rerender } = render(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam-a" isDark={false} />);
+    fireEvent.error(await screen.findByTestId('vst-stream-thumbnail'));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry thumbnail' }));
+    await screen.findByTestId('vst-stream-thumbnail');
+    expect(sensorFetch).toHaveBeenLastCalledWith('http://vst.test', { forceRefresh: true });
+    rerender(<VstStreamThumbnail vstApiUrl="http://vst.test" sensorName="cam-b" isDark={false} />);
+    await waitFor(() => expect(screen.getByTestId('vst-stream-thumbnail').getAttribute('src')).toContain('/id-b/picture'));
+    expect(sensorFetch).toHaveBeenLastCalledWith('http://vst.test', { forceRefresh: false });
+  });
+
 });
 
 describe('VstStreamThumbnail remount cache', () => {
@@ -305,7 +343,7 @@ describe('VstStreamThumbnail broken frame recovery', () => {
       <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorA} />,
     );
     await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(
-      `${vstApiUrl}/v1/storage/id-a/timelines`,
+      `${vstApiUrl}/v1/storage/id-a/timelines`, expect.objectContaining({ signal: expect.anything() }),
     ));
     rerender(
       <VstStreamThumbnail isDark={false} vstApiUrl={vstApiUrl} sensorName={sensorB} />,
