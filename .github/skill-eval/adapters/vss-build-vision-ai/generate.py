@@ -83,6 +83,14 @@ PLATFORMS: dict[str, dict] = {
         "brev_search":      "H100",
         "min_root_disk_gb": 220,
     },
+    "H200": {
+        "short_name":       "h200",
+        "gpu_type":         "H200",
+        "gpu_count":        2,
+        "min_vram_per_gpu": 141,
+        "brev_search":      "H200",
+        "min_root_disk_gb": 220,
+    },
     "L40S": {
         "short_name":       "l40s",
         "gpu_type":         "L40S",

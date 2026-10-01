@@ -37,6 +37,7 @@ from pathlib import Path
 
 PLATFORMS: dict[str, dict] = {
     "H100": {"short_name": "h100", "gpu_type": "H100", "min_vram_per_gpu": 80, "brev_search": "H100", "gpu_count": 2},
+    "H200": {"short_name": "h200", "gpu_type": "H200", "min_vram_per_gpu": 141, "brev_search": "H200", "gpu_count": 2},
     "L40S": {"short_name": "l40s", "gpu_type": "L40S", "min_vram_per_gpu": 48, "brev_search": "L40S", "gpu_count": 2},
     "RTXPRO6000BW": {
         "short_name": "rtxpro6000bw",
