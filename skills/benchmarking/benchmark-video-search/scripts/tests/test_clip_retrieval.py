@@ -26,8 +26,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 # scripts/tests -> scripts
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -174,28 +172,19 @@ def test_datasets_registry_keeps_subset_map_shape() -> None:
     )
 
 
-def test_dataset_meta_offline_twin_is_local_segment() -> None:
+def test_dataset_meta_offline_twin_is_umbrella_segment() -> None:
     """The offline twin is legacy-shape, so it must score as `segment` (which
-    also keeps the 2025-01-01 anchor check), and it is not on DSS."""
+    also keeps the 2025-01-01 anchor check). It lives under the umbrella
+    dataset at its own prefix, so the umbrella defaults are what download it --
+    NOT the standalone/clip wiring its sibling release uses."""
     off = flows.dataset_meta("physicalAI-event-videos-test-offline")
     assert off.task == "segment"
-    assert off.local_only is True
-    assert flows.dataset_meta("warehouse").local_only is False
+    assert off.dss == flows.DSS_DATASET_NAME
+    assert off.prefix_filter is True
     assert flows.DATASETS["physicalAI-event-videos-test-offline"][""] == (
         "physicalAI-event-videos-test-offline/dataset.json"
     )
     assert set(flows.DATASETS["physicalAI-event-videos-test-offline"]) == {"", "event", "pas"}
-
-
-def test_download_refuses_local_only_dataset(capsys) -> None:
-    """A local-only dataset exits with "build it locally", not the generic
-    "No files found" after filtering DSS to a prefix that does not exist."""
-    with pytest.raises(SystemExit) as exc:
-        flows.download_from_dss(Path("/nonexistent"), "physicalAI-event-videos-test-offline")
-    assert exc.value.code == 1
-    err = capsys.readouterr().err
-    assert "--skip-download" in err
-    assert "not published to" in err
 
 
 def test_video_name_matches_anchors_on_rename_separator() -> None:

@@ -102,8 +102,9 @@ DATASETS: dict[str, dict[str, str]] = {
     # (query -> [{video_name, start_time, end_time}]) instead of schema_version
     # 3. It scores correctly only because every clip in the gallery is exactly
     # 5.00s and the ground truth carries one grid-aligned [0,5) window per clip,
-    # which makes `match_segment` degenerate to a name match. It is built
-    # locally and is NOT on DSS -- see DATASET_META below.
+    # which makes `match_segment` degenerate to a name match. Published under
+    # the umbrella `vss-devx-search` at this prefix, so it downloads like every
+    # other entry -- no standalone DSS dataset and no preprocessing adapter.
     "physicalAI-event-videos-test-offline": {
         "": "physicalAI-event-videos-test-offline/dataset.json",
         "event": "physicalAI-event-videos-test-offline/dataset_event.json",
@@ -147,11 +148,6 @@ class DatasetMeta:
     #: Upload timestamp the ground-truth offsets are relative to. Ignored for
     #: ``clip`` (scoring is by video name, not time).
     upload_ts: str = DEFAULT_UPLOAD_TIMESTAMP
-    #: Built locally rather than published to DSS. There is nothing to download,
-    #: so a run that omits ``--skip-download`` is told that directly instead of
-    #: filtering the umbrella dataset to a prefix that does not exist and
-    #: reporting the generic "No files found".
-    local_only: bool = False
 
 
 DATASET_META: dict[str, DatasetMeta] = {
@@ -161,15 +157,14 @@ DATASET_META: dict[str, DatasetMeta] = {
         prefix_filter=False,
         hit_ks=(1, 5, 10),
     ),
-    # Legacy-shape offline twin: `segment` on purpose. The ground truth is a
-    # per-clip [0,5) window on the 2025-01-01 anchor, so segment scoring is what
-    # reads it -- and it keeps the anchor check (skipped for `clip`), which is
-    # the only thing standing between "VIOS ignored the upload timestamp" and a
-    # run of silent zeros.
-    "physicalAI-event-videos-test-offline": DatasetMeta(
-        task="segment",
-        local_only=True,
-    ),
+    # Legacy-shape offline twin of the release above.
+    # Equal to the default DatasetMeta, and stated anyway: `segment` on an
+    # otherwise clip-shaped release is the kind of choice a reader will assume
+    # is an oversight. It is not. The ground truth is a per-clip [0,5) window on
+    # the 2025-01-01 anchor, so segment scoring is what reads it -- and it keeps
+    # the anchor check (skipped for `clip`), the only thing standing between
+    # "VIOS ignored the upload timestamp" and a run of silent zeros.
+    "physicalAI-event-videos-test-offline": DatasetMeta(task="segment"),
 }
 
 
@@ -187,19 +182,6 @@ def download_from_dss(data_dir: Path, dataset: str | None = None) -> None:
     the benchmark's on-disk ``dataset.json`` shape by the preprocessing
     adapter, so the rest of the flow sees one layout regardless of task.
     """
-    # Before the nvdataset import: a locally built dataset never needs the DSS
-    # client, so "install nvdataset" would be the wrong diagnosis.
-    meta = dataset_meta(dataset) if dataset else DatasetMeta()
-    if meta.local_only:
-        print(
-            f"ERROR: dataset '{dataset}' is built locally and is not published to "
-            f"DSS; there is nothing to download.\n"
-            f"  Re-run with --skip-download and point --data-dir at the directory "
-            f"holding {dataset}/dataset.json and {dataset}/videos/.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
     try:
         from nvdataset import load_dataset
     except ImportError:
@@ -213,6 +195,7 @@ def download_from_dss(data_dir: Path, dataset: str | None = None) -> None:
         )
         sys.exit(1)
 
+    meta = dataset_meta(dataset) if dataset else DatasetMeta()
     print(f"Loading DSS dataset: {meta.dss}")
     ds = load_dataset(name=meta.dss)
     sc = ds.to_storage_client(read_only=True)
