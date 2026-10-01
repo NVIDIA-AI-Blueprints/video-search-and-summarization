@@ -64,7 +64,7 @@ class BCDReportLabelsTest(unittest.TestCase):
         self.assertTrue(any("VT=4000" in label for label in labels))
 
     def test_max_stream_chart_labels_each_platform_frame_budget(self):
-        from plot_perf_reports import plot_max_streams_2k
+        from plot_perf_reports import plot_max_streams_2k, plot_max_streams_2k_vs_8k
 
         configs = {
             label: yaml.safe_load(
@@ -76,11 +76,12 @@ class BCDReportLabelsTest(unittest.TestCase):
             reports = {}
             for label in configs:
                 report = Path(root) / label
-                case = report / "max_live_streams_test_100_token_2k" / "case"
-                case.mkdir(parents=True)
-                (case / "max_live_streams_results.json").write_text(
-                    json.dumps({"max_sustainable_streams": 2, "last_stable_p95": 1.0})
-                )
+                for tier in ("2k", "4k", "8k"):
+                    case = report / f"max_live_streams_test_100_token_{tier}" / "case"
+                    case.mkdir(parents=True)
+                    (case / "max_live_streams_results.json").write_text(
+                        json.dumps({"max_sustainable_streams": 2, "last_stable_p95": 1.0})
+                    )
                 reports[label] = report
             with patch("plot_perf_reports.plt.close"):
                 plot_max_streams_2k(reports, configs, Path(root))
@@ -91,6 +92,12 @@ class BCDReportLabelsTest(unittest.TestCase):
                 ]
                 self.assertIn("ORIN\n5 frames", labels)
                 self.assertIn("RTX\n10 frames", labels)
+                plot_max_streams_2k_vs_8k(reports, configs, Path(root))
+                labels = [
+                    tick.get_text() for tick in plt.gcf().axes[1].get_xticklabels()
+                ]
+                self.assertIn("ORIN\n2K/4K/8K: 5/10/20 frames", labels)
+                self.assertIn("RTX\n2K/4K/8K: 10/20/40 frames", labels)
                 plt.close("all")
 
 

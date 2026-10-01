@@ -822,7 +822,21 @@ def plot_max_streams_2k_vs_8k(
         ax.set_ylabel("Max Concurrent Streams")
         annotate_better(ax, HIGHER_BETTER)
         ax.set_xticks(x)
-        ax.set_xticklabels([platform_display(p) for p in plats])
+        labels = []
+        for platform in plats:
+            label = platform_display(platform)
+            if platform in configs:
+                frames = [
+                    str(
+                        get_scenario_vision_info(
+                            configs[platform], f"max_live_streams_test_1_token_{tier.lower()}"
+                        )["num_frames"]
+                    )
+                    for tier in active_tiers
+                ]
+                label += f"\n{'/'.join(active_tiers)}: {'/'.join(frames)} frames"
+            labels.append(label)
+        ax.set_xticklabels(labels)
         ax.set_ylim(0, max_val * 1.45 if max_val > 0 else 10)
         ax.legend(fontsize=9)
 
