@@ -1,8 +1,22 @@
 ---
 title: "Microservice Configuration"
-description: ""
+description: "Configuration and outputs of microservices used in the Warehouse Operations Blueprint."
 position: 6
 ---
-Below are deployment-time and runtime configuration options of VSS microservices for Warehouse Blueprint.
 
-For detailed information on all components, APIs, and customization options of these microservices, refer to the [warehouse-toc](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint).
+This section describes deployment-time settings, runtime configuration, and outputs of the microservices used in the **Warehouse Operations Blueprint**. Use the pages below to configure perception, behavior analytics, alerting, agents, the reference UI, and the VSS Configurator.
+
+## Configuration Guides
+
+| Component | Configuration and Outputs |
+| --- | --- |
+| [2D Single Camera Detection and Tracking (RT-DETR)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr) | DeepStream configuration for 2D object detection and tracking, including pipeline inputs and outputs. |
+| [3D Multi Camera Detection and Tracking (Sparse4D)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d) | Configuration for Sparse4D-based 3D detection and tracking across cameras. |
+| [3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt) | Configuration for multi-view 3D tracking and cross-camera association. |
+| [Behavior Analytics](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/behavior-analytics) | Application and analytics settings for processing perception metadata into behaviors, metrics, and safety events. |
+| [Alerting Service](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service) | Warehouse alert verification and real-time alert rules, prompt tuning, and alert delivery. |
+| [Agents](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/agents) | Warehouse agent architecture and customization for incident queries, reports, and video analysis. |
+| [Reference Agentic UI](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/reference-agentic-ui) | Warehouse chat, alerts, and dashboard views, with example interactions. |
+| [VSS Configurator](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/vss-configurator) | Profile and sensor configuration flow, environment inputs, stream ceilings, and hardware-specific file changes. |
+
+For blueprint architecture and deployment workflows, see the [Warehouse Operations Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint). The component guides link to the full service references where applicable.

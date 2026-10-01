@@ -238,6 +238,9 @@ navigation:
                       - page: "Reference Agentic UI"
                         slug: reference-agentic-ui
                         path: ../docs/warehouse-docs/vss-warehouse-ui.mdx
+                      - page: "VSS Configurator"
+                        slug: vss-configurator
+                        path: ../docs/warehouse-docs/VSS-Configurator.mdx
                   - section: "Operations (Monitoring, Troubleshooting, FAQ, Known Limitations)"
                     slug: operations-monitoring-troubleshooting-faq-known-limitations
                     path: ../docs/warehouse-docs/Appendix-toc.mdx

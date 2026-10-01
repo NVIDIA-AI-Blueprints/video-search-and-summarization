@@ -81,6 +81,58 @@ The tracklet-based AMC method calibrates cameras from detected person movements 
 
 This requirement does not apply to VGGT. For multi-camera calibration with VGGT support installed, users can choose whether to run AMC or VGGT first; VGGT does not require a successful AMC run.
 
+### Empty Calibration Template
+
+When no calibration is stored, the Video Analytics API's calibration service returns an empty template by default (`emptyIfNotFound=true`). The template below matches `getEmptyCalibrationTemplate` in `services/analytics/video-analytics-api/src/web-api-core/Services/Calibration.js`.
+
+Without a sensor ID, the template contains no sensors:
+
+```json
+{
+  "version": "1.0",
+  "osmURL": "",
+  "calibrationType": "",
+  "sensors": []
+}
+```
+
+When a sensor ID is supplied, the template includes a placeholder sensor with that ID. For example, for `Camera_01`:
+
+```json
+{
+  "version": "1.0",
+  "osmURL": "",
+  "calibrationType": "",
+  "sensors": [
+    {
+      "type": "",
+      "id": "Camera_01",
+      "origin": {
+        "lng": 0,
+        "lat": 0
+      },
+      "geoLocation": {
+        "lng": 0,
+        "lat": 0
+      },
+      "coordinates": {
+        "x": 0,
+        "y": 0
+      },
+      "scaleFactor": 0,
+      "attributes": [],
+      "place": [],
+      "imageCoordinates": [],
+      "globalCoordinates": [],
+      "tripwires": [],
+      "rois": []
+    }
+  ]
+}
+```
+
+The empty fields and zero values are placeholders. Set the calibration type, sensor type, and relevant sensor fields before using this as an image-mode calibration file; define ROIs and tripwires in pixel coordinates as described below. If calibration exists but the requested sensor is missing, the service preserves the existing top-level calibration fields and returns the placeholder sensor. Setting `emptyIfNotFound=false` makes missing calibration or a missing sensor return a not-found error instead.
+
 ### Image mode calibration
 
 VSS warehouse blueprint has mainly been used for use cases where the locations of objects are tracked and analyzed in a global coordinate system.
