@@ -49,6 +49,8 @@ from vss_agents.agents.data_models import AgentOutput
 
 logger = logging.getLogger(__name__)
 
+INCIDENT_REPORT_METADATA_FIELDS = ["category", "place", "objectIds", "info"]
+
 _ARTIFACT_DISPLAY_NOTE = (
     "Do not include or offer to provide report download links in your final response "
     "since they will be automatically appended to your final response to the user."
@@ -483,7 +485,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
         async def _fetch_incident_by_id(incident_id: str, vlm_verified: bool | None) -> dict | None:
             tool_call_args = {
                 "id": incident_id,
-                "includes": ["objectIds", "info"],
+                "includes": INCIDENT_REPORT_METADATA_FIELDS,
                 "vlm_verified": vlm_verified,
             }
             incident_result = await get_incident_tool.ainvoke(tool_call_args)
@@ -502,7 +504,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
 
             tool_call_args = {
                 "id": report_input.incident_id,
-                "includes": ["objectIds", "info"],
+                "includes": INCIDENT_REPORT_METADATA_FIELDS,
                 "vlm_verified": report_input.vlm_verified,
             }
             yield AgentMessageChunk(
@@ -517,7 +519,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
                 )
                 retry_args = {
                     "id": report_input.incident_id,
-                    "includes": ["objectIds", "info"],
+                    "includes": INCIDENT_REPORT_METADATA_FIELDS,
                     "vlm_verified": True,
                 }
                 yield AgentMessageChunk(
@@ -536,7 +538,7 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
         else:
             get_incidents_params = {
                 "max_count": 1,
-                "includes": ["objectIds", "info"],
+                "includes": INCIDENT_REPORT_METADATA_FIELDS,
                 "source": report_input.source,
                 "source_type": report_input.source_type,
                 "vlm_verified": report_input.vlm_verified,
