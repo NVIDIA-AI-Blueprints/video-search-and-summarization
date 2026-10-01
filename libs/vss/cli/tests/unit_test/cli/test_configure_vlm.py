@@ -194,63 +194,15 @@ def test_locked_policy_requires_at_least_one_value(config_home: Path) -> None:
     assert "must configure at least one" in result.output
 
 
-def test_saved_edge_fields_migrate_to_total_pixels() -> None:
-    policy = config_mod.VlmConfig.from_json(
-        {"fps": 4, "shortest_edge": 262144, "longest_edge": 16777216, "locked": True}
+def test_sampling_fields_combine_in_one_policy(config_home: Path) -> None:
+    result = _invoke(
+        "--fps", "2", "--max-frames", "64", "--total-pixels", "4194304", "--max-pixels-per-frame", "921600"
     )
 
-    assert policy == config_mod.VlmConfig(fps=4, total_pixels=16777216, locked=True)
-
-
-def test_saved_total_pixels_wins_over_a_stale_longest_edge() -> None:
-    policy = config_mod.VlmConfig.from_json({"longest_edge": 8, "total_pixels": 4194304})
-
-    assert policy.total_pixels == 4194304
-
-
-def test_lock_over_only_the_dropped_floor_is_released() -> None:
-    policy = config_mod.VlmConfig.from_json({"shortest_edge": 262144, "locked": True})
-
-    assert policy == config_mod.VlmConfig(locked=False)
-
-
-def test_config_file_with_edge_fields_still_loads_and_resets(config_home: Path) -> None:
-    path = config_home / "config.json"
-    raw = json.loads(path.read_text())
-    raw["vlm"] = {"backend": "rt_vlm", "shortest_edge": 262144, "longest_edge": 16777216, "locked": True}
-    path.write_text(json.dumps(raw))
-
-    assert config_mod.load().vlm == config_mod.VlmConfig(total_pixels=16777216, locked=True)
-    result = _invoke("--reset")
     assert result.exit_code == 0, result.output
-    assert config_mod.load().vlm is None
-
-
-@pytest.mark.parametrize("environment_name", ["VSS_VLM_SHORTEST_EDGE", "VSS_VLM_LONGEST_EDGE"])
-def test_retired_pixel_environment_is_rejected_not_ignored(
-    environment_name: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv(environment_name, "16777216")
-
-    with pytest.raises(
-        config_mod.ConfigError, match=f"retired VLM environment variables: {environment_name}; use VSS_VLM_TOTAL_PIXELS"
-    ):
-        config_mod.effective_vlm_config(None)
-
-
-def test_lock_environment_variable_is_retired(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VSS_VLM_LOCKED", "true")
-
-    with pytest.raises(config_mod.ConfigError, match="VSS_VLM_LOCKED; use `vss configure vlm --lock`"):
-        config_mod.effective_vlm_config(None)
-
-
-def test_sampling_fields_combine_in_one_policy(config_home: Path) -> None:
-    result = _invoke("--fps", "2", "--max-frames", "64", "--total-pixels", "4194304")
-
-    assert result.exit_code == 0, result.output
-    assert config_mod.load().vlm == config_mod.VlmConfig(fps=2, max_frames=64, total_pixels=4194304)
+    assert config_mod.load().vlm == config_mod.VlmConfig(
+        fps=2, max_frames=64, total_pixels=4194304, max_pixels_per_frame=921600
+    )
 
 
 def _configure_all_routes(monkeypatch: pytest.MonkeyPatch) -> Any:
@@ -275,9 +227,15 @@ def test_configure_reports_unset_sampling_and_asks_for_it(
     assert result.exit_code == 0, result.output
     for field_name in config_mod.VLM_SAMPLING_FIELDS:
         assert _report_line(result.output, field_name).split()[1] == "unset"
-    assert "fps, max_frames, total_pixels unset, so the VLM server's own sampling applies" in result.output
-    assert "VSS_VLM_FPS, VSS_VLM_MAX_FRAMES, VSS_VLM_TOTAL_PIXELS" in result.output
-    assert "vss configure vlm --fps <value> --max-frames <value> --total-pixels <value>" in result.output
+    assert (
+        "fps, max_frames, total_pixels, max_pixels_per_frame unset, so the VLM server's own sampling applies"
+        in result.output
+    )
+    assert "VSS_VLM_FPS, VSS_VLM_MAX_FRAMES, VSS_VLM_TOTAL_PIXELS, VSS_VLM_MAX_PIXELS_PER_FRAME" in result.output
+    assert (
+        "vss configure vlm --fps <value> --max-frames <value> --total-pixels <value> --max-pixels-per-frame <value>"
+        in result.output
+    )
 
 
 def test_configure_reports_each_sampling_value_with_its_source(
@@ -296,8 +254,11 @@ def test_configure_reports_each_sampling_value_with_its_source(
     assert max_frames.split()[1] == "128"
     assert "(vss configure vlm)" in max_frames
     assert _report_line(result.output, "total_pixels").split()[1] == "unset"
-    assert "note: total_pixels unset" in result.output
-    assert "export VSS_VLM_TOTAL_PIXELS or run `vss configure vlm --total-pixels <value>`" in result.output
+    assert "note: total_pixels, max_pixels_per_frame unset" in result.output
+    assert (
+        "export VSS_VLM_TOTAL_PIXELS, VSS_VLM_MAX_PIXELS_PER_FRAME or run "
+        "`vss configure vlm --total-pixels <value> --max-pixels-per-frame <value>`"
+    ) in result.output
 
 
 def test_configure_with_all_sampling_set_prints_no_note(
@@ -307,6 +268,7 @@ def test_configure_with_all_sampling_set_prints_no_note(
     monkeypatch.setenv(config_mod.VLM_ENV["fps"], "2")
     monkeypatch.setenv(config_mod.VLM_ENV["max_frames"], "32")
     monkeypatch.setenv(config_mod.VLM_ENV["total_pixels"], "16777216")
+    monkeypatch.setenv(config_mod.VLM_ENV["max_pixels_per_frame"], "921600")
 
     result = _configure_all_routes(monkeypatch)
 

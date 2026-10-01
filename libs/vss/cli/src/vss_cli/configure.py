@@ -782,6 +782,11 @@ def _vlm_config_error(message: str) -> NoReturn:
     type=click.IntRange(1, 2**31 - 1),
     help="Whole-clip pixel budget (Qwen3-VL family), about 2048 pixels per vision token.",
 )
+@click.option(
+    "--max-pixels-per-frame",
+    type=click.IntRange(1, 2**31 - 1),
+    help="Pixel cap for each frame, sent as mm_processor_kwargs.max_pixels.",
+)
 @click.option("--lock/--unlock", "locked", default=None, help="Reject or allow per-call overrides.")
 @click.option("--reset", is_flag=True, help="Remove the VLM policy and restore CLI/backend defaults.")
 def configure_vlm(
@@ -795,6 +800,7 @@ def configure_vlm(
     fps: float | None,
     max_frames: int | None,
     total_pixels: int | None,
+    max_pixels_per_frame: int | None,
     locked: bool | None,
     reset: bool,
 ) -> None:
@@ -817,6 +823,7 @@ def configure_vlm(
             fps,
             max_frames,
             total_pixels,
+            max_pixels_per_frame,
             locked,
         )
     )
@@ -847,6 +854,9 @@ def configure_vlm(
             fps=current.fps if fps is None else fps,
             max_frames=current.max_frames if max_frames is None else max_frames,
             total_pixels=current.total_pixels if total_pixels is None else total_pixels,
+            max_pixels_per_frame=(
+                current.max_pixels_per_frame if max_pixels_per_frame is None else max_pixels_per_frame
+            ),
             locked=current.locked if locked is None else locked,
         ).validate()
     except config_mod.ConfigError as exc:

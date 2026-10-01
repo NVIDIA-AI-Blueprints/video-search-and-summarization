@@ -227,6 +227,12 @@ class VlmInput(BaseModel):
             "mm_processor_kwargs.size.longest_edge. About 2048 pixels per vision token."
         ),
     )
+    max_pixels_per_frame: int | None = Field(
+        None,
+        ge=1,
+        le=2**31 - 1,
+        description="Pixel cap for each frame, sent as mm_processor_kwargs.max_pixels.",
+    )
 
     @model_validator(mode="after")
     def _validate_media_source(self) -> VlmInput:
@@ -266,6 +272,7 @@ _VLM_POLICY_FIELDS = (
     "fps",
     "max_frames",
     "total_pixels",
+    "max_pixels_per_frame",
 )
 
 
@@ -391,13 +398,17 @@ def _video_io(inputs: VlmInput, *, qwen3_loader_cap: bool = False) -> dict[str, 
     return video
 
 
-def _processor_size(inputs: VlmInput) -> dict[str, int]:
-    if inputs.total_pixels is None:
-        return {}
-    return {
-        "shortest_edge": min(_QWEN3_VL_MIN_CLIP_PIXELS, inputs.total_pixels),
-        "longest_edge": inputs.total_pixels,
-    }
+def _processor_kwargs(inputs: VlmInput) -> dict[str, Any]:
+    """``mm_processor_kwargs`` for the pixel budgets; empty means server default."""
+    kwargs: dict[str, Any] = {}
+    if inputs.total_pixels is not None:
+        kwargs["size"] = {
+            "shortest_edge": min(_QWEN3_VL_MIN_CLIP_PIXELS, inputs.total_pixels),
+            "longest_edge": inputs.total_pixels,
+        }
+    if inputs.max_pixels_per_frame is not None:
+        kwargs["max_pixels"] = inputs.max_pixels_per_frame
+    return kwargs
 
 
 def _build_rt_vlm_request(
@@ -416,9 +427,9 @@ def _build_rt_vlm_request(
         request["enable_reasoning"] = inputs.enable_reasoning
     if inputs.chunk_duration is not None:
         request["chunk_duration"] = inputs.chunk_duration
-    size = _processor_size(inputs)
-    if size:
-        request["mm_processor_kwargs"] = {"size": size}
+    processor = _processor_kwargs(inputs)
+    if processor:
+        request["mm_processor_kwargs"] = processor
     return request
 
 
@@ -441,9 +452,7 @@ def _build_vllm_request(
         request["media_io_kwargs"] = {"video": video}
         # Stops the processor re-sampling frames the loader already selected.
         mm_processor_kwargs["do_sample_frames"] = False
-    size = _processor_size(inputs)
-    if size:
-        mm_processor_kwargs["size"] = size
+    mm_processor_kwargs.update(_processor_kwargs(inputs))
     if mm_processor_kwargs:
         request["mm_processor_kwargs"] = mm_processor_kwargs
     return request

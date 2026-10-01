@@ -985,6 +985,71 @@ def test_locked_total_pixels_policy_rejects_conflicting_override() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("backend", "expected"),
+    [
+        ("rt_vlm", {"max_pixels": 921600}),
+        ("vllm", {"max_pixels": 921600}),
+        ("cosmos_reason_nim", {"max_pixels": 921600}),
+    ],
+)
+def test_max_pixels_per_frame_is_sent_as_processor_max_pixels(
+    monkeypatch: pytest.MonkeyPatch,
+    backend: str,
+    expected: dict[str, int],
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=_deployment(vlm=config_mod.VlmConfig(backend=backend)))
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", max_pixels_per_frame=921600), ctx)
+
+    assert captured["json"]["mm_processor_kwargs"] == expected
+    assert "media_io_kwargs" not in captured["json"]
+
+
+def test_total_pixels_and_max_pixels_per_frame_are_both_sent(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=_deployment(vlm=config_mod.VlmConfig(backend="vllm")))
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run(
+        "",
+        VlmInput(
+            prompt="What?",
+            media_url="http://h/clip.mp4",
+            max_frames=8,
+            total_pixels=16777216,
+            max_pixels_per_frame=921600,
+        ),
+        ctx,
+    )
+
+    assert captured["json"]["mm_processor_kwargs"] == {
+        "do_sample_frames": False,
+        "size": {"shortest_edge": 131072, "longest_edge": 16777216},
+        "max_pixels": 921600,
+    }
+
+
 def test_total_pixels_below_the_floor_lowers_the_floor(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
@@ -1391,7 +1456,14 @@ def test_sampling_in_model_params(
     store = _in_memory(configured)
     ctx = Context(deployment=configured, memory=store)
     group = VlmGroup()
-    inputs = VlmInput(prompt="What?", media_url="http://h/clip.mp4", fps=2, max_frames=12, total_pixels=4194304)
+    inputs = VlmInput(
+        prompt="What?",
+        media_url="http://h/clip.mp4",
+        fps=2,
+        max_frames=12,
+        total_pixels=4194304,
+        max_pixels_per_frame=921600,
+    )
     result = group.run("", inputs, ctx)
 
     assert result.exit == Exit.SUCCESS
@@ -1399,7 +1471,12 @@ def test_sampling_in_model_params(
     assert records
     params = records[0].input.params
     assert params is not None
-    assert (params["fps"], params["max_frames"], params["total_pixels"]) == (2, 12, 4194304)
+    assert (params["fps"], params["max_frames"], params["total_pixels"], params["max_pixels_per_frame"]) == (
+        2,
+        12,
+        4194304,
+        921600,
+    )
     assert "num_frames" not in params
 
 

@@ -147,6 +147,7 @@ Each field also has an independent runtime environment override:
 | `fps` | `VSS_VLM_FPS` |
 | `max_frames` | `VSS_VLM_MAX_FRAMES` |
 | `total_pixels` | `VSS_VLM_TOTAL_PIXELS` |
+| `max_pixels_per_frame` | `VSS_VLM_MAX_PIXELS_PER_FRAME` |
 
 Environment variables provide per-field defaults. Values persisted by
 `vss configure vlm` override those defaults. Explicit `vss vlm run` arguments
@@ -157,15 +158,16 @@ A policy is locked only by `vss configure vlm --lock`; there is no lock variable
 
 ### Frame sampling
 
-Three fields control what the model sees. They use the same names as
-VLMEvalKit's video dataset configs, and the CLI sends them to the backend
-rather than resolving them itself:
+Four fields control what the model sees. They follow VLMEvalKit's video
+dataset configs, with each pixel limit named for its scope, and the CLI sends
+them to the backend rather than resolving them itself:
 
 | Field | Meaning | Sent as |
 |-------|---------|---------|
 | `fps` | Frames sampled per second | `media_io_kwargs.video.fps` |
 | `max_frames` | Upper bound on frames; combines with `fps` | `media_io_kwargs.video.num_frames` (vLLM also gets `max_frames`, which its `qwen3_vl` loader reads) |
 | `total_pixels` | Pixel budget for the whole clip | `mm_processor_kwargs.size.longest_edge`, with `shortest_edge` set to the Qwen3-VL floor of 131072 or `total_pixels` if smaller |
+| `max_pixels_per_frame` | Pixel cap for each frame | `mm_processor_kwargs.max_pixels` |
 
 `total_pixels` assumes a Qwen3-VL-family processor (Qwen3-VL, Cosmos-Reason2),
 where the budget covers every frame: 16,777,216 is roughly 8,192 vision tokens
@@ -184,10 +186,6 @@ RT-VLM and the Cosmos NIM accept `fps` or `num_frames`, not both (HTTP 400).
 With both set, the CLI sends them `fps` alone, logs a warning, and their
 deployment-wide frame cap applies; `max_frames` applies there only when `fps`
 is unset. vLLM receives both.
-
-A policy saved before this change with `shortest_edge` / `longest_edge` still
-loads: `longest_edge` becomes `total_pixels` (the same request field) and
-`shortest_edge` is dropped. The old flags and `VSS_VLM_*` names are errors.
 
 ## The surface
 
