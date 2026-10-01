@@ -1,5 +1,5 @@
 ## Description: <br>
-Use when summarizing a recorded video through HITL-gated LVS, with an explicitly approved VLM fallback. Not for reports, archive search, or live RTSP captioning. <br>
+Use when summarizing a recorded video through HITL-gated LVS, falling back to `vss vlm run` when LVS is not ready. Not for reports, archive search, or live RTSP captioning. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 

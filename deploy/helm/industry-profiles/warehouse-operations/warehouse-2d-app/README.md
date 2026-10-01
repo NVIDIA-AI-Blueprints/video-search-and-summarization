@@ -85,6 +85,9 @@ hardware-accelerated video encode/decode in the stream processor.
 | `vss-vios-streamprocessing` | 1 | HW encode/decode; see below |
 | **Total** | **2** | |
 
+Enabling the in-cluster RT-VLM for [Alerts](#alerts) requests one additional
+GPU: **3 GPUs total** with hardware video processing.
+
 To run `vss-vios-streamprocessing` in software encode/decode mode (FFmpeg CPU path)
 and free that GPU for other workloads, set **`vios.vss-vios-streamprocessing.resources`**
 to an empty map in your values override:
@@ -194,7 +197,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vios.vstStorage.streamerVideos.size`** | **`20Gi`** | PVC size for the NVStreamer upload volume. |
 | **`vios.vss-vios-streamprocessing.useSoftwarePath`** | **`false`** | Set **`true`** (paired with **`resources: null`**) to use FFmpeg software encode/decode and free the second GPU. Both flags required — see [GPU requirements](#gpu-requirements). |
 | **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Pod resource requests/limits for streamprocessing. Set **`null`** (with **`useSoftwarePath: true`**) to drop the GPU claim entirely. |
-| **`vios.vss-vios-nvstreamer.syncFileCount`** | **`3`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
+| **`vios.vss-vios-nvstreamer.syncFileCount`** | **`4`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** | **`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`** | NGC resource for the NVStreamer sample video seed. Keep in step with **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`**. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.fromExistingClaim`** | **`vss-rtvi-cv-models`** | Reuses the PVC from the `vss-rtvi-cv` NGC download job so the video data is not downloaded twice. Clear this and set **`resourceVersion`** to download the video seed independently. |
 | **`vios.vss-vios-sensor.videoMetadataServerUrl`** | **`""`** (derived: `<elasticsearch-svc>:9200/mdx-raw*`) | VST overlay metadata source. Derived from the in-cluster `elasticsearch` Service; override for a non-standard endpoint. No `http://` scheme — VST rejects one. |
@@ -278,6 +281,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vss-alert-bridge.vstBaseUrl`** | **`""`** | Base URL of the VST service for alert media retrieval. Required when alerts are enabled. |
 | **`vss-alert-bridge.vlmName`** | **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** | VLM model name used by the alert bridge. Override when pointing at a different model endpoint. |
 | **`vss-alert-bridge.vlmBaseUrl`** | **`""`** | External VLM base URL. Set this and omit **`rtvi.vss-rtvi-vlm.enabled`** when using an external VLM instead of the in-cluster RT-VLM pod. |
+| **`vss-alert-bridge.waitForDependencies.vlmReadyUrl`** | **`<vlmBaseUrl>/v1/health/ready`** | Waits up to 30 minutes before starting the alert bridge. For an external VLM, set its readiness URL or clear this value if unsupported. |
 | **`agent.enabled`** | **`false`** | Enables `vss-agent` and `vss-va-mcp`. Required for the alerts stack. |
 | **`vss-agent-ui.enabled`** | **`false`** | Enables the agent UI. Required for alerts; not controlled by **`agent.enabled`**. |
 
@@ -334,9 +338,29 @@ the defaults.
 `GIT_REF` above resolves to the tag when installing from a tagged checkout, or the
 branch name otherwise; omit `--set global.gitRef=...` to default to `develop`.
 
-**`global.sampleVideoDataset`** picks the dataset directory under
-`calibration/sample-data/` those same three links point at. Default is
-`warehouse-4cams-20mx20m-synthetic`.
+#### Select one of the three sample datasets
+
+Set `global.sampleVideoDataset` in your values override to select matching
+videos and calibration:
+
+| Value | Type | Cameras |
+|---|---|---:|
+| `nv-warehouse-4cams` | Real NVIDIA warehouse | 4 |
+| `warehouse-4cams-20mx20m-synthetic` **(default)** | Synthetic warehouse | 4 |
+| `warehouse-loading-dock-3cams-synthetic` | Synthetic loading dock | 3 |
+
+```yaml
+global:
+  sampleVideoDataset: nv-warehouse-4cams
+```
+
+Leave `vios.vss-vios-nvstreamer.ngcVideoSeed.dataset` unset to inherit this selection.
+For the three-camera dataset, set `vios.vss-vios-nvstreamer.syncFileCount: 3`
+and use the [stream-count helper](#scaling-num_streams-by-gpu) with `--num-streams 3`
+to update `NUM_STREAMS` (both default to 4).
+
+Select before the first install: changing this value does not replace videos
+already staged in the video volume.
 
 **`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** (default
 `http://vss-video-analytics-api:8081/config/calibration`) makes behavior-analytics
@@ -389,12 +413,14 @@ has to change too, or the app 404s after its first redirect.
 
 ### No ingress controller: NodePort
 
-The bundled override puts the same UIs on node ports and skips the Ingress:
+The bundled override puts the same UIs on node ports and skips the Ingress.
+Pass your site values last so they take precedence:
 
 ```bash
 helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app \
   -n <namespace> --create-namespace \
-  -f deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/values-nodeport.yaml
+  -f deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/values-nodeport.yaml \
+  -f my-values.yaml
 ```
 
 | UI | URL |
@@ -404,6 +430,7 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
 | Kibana | `http://<NODE_IP>:31560/` |
 | Grafana | `http://<NODE_IP>:30300/` |
 | Prometheus | `http://<NODE_IP>:30909/` |
+| Video Analytics API | `http://<NODE_IP>:30801/` |
 
 With [Alerts](#alerts) enabled:
 
@@ -415,6 +442,27 @@ With [Alerts](#alerts) enabled:
 
 It sets **`global.vssIngress.enabled`** to false and clears
 the path prefixes, since each app then owns the root of its own port.
+
+For the Alerts UI, add explicit NodePort URLs to `my-values.yaml`:
+
+```yaml
+vss-agent-ui:
+  agentApiUrlBase: "http://<NODE_IP>:30800/api/v1"
+  vstApiUrl: "http://<NODE_IP>:30888/vst/api"
+  fillAlertBridgeUrlFromGlobal: false
+  alertsApiUrl: "http://<NODE_IP>:30980/api/v1"
+  dashboardKibanaBaseUrl: "http://<NODE_IP>:31560"
+  envOverrides:
+    # Preserve existing entries; Helm replaces lists.
+    - name: NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX
+      value: "true"
+    - name: NEXT_PUBLIC_MDX_WEB_API_URL
+      value: "http://<NODE_IP>:30801"
+```
+
+The `false` flag prevents the generated Ingress URL from overriding `alertsApiUrl`.
+Preserve existing `envOverrides`. The alerts list uses the analytics API on `30801`;
+the alert bridge on `30980` manages rules.
 
 ### Port-forward
 
@@ -513,7 +561,7 @@ kubectl port-forward -n <namespace> svc/grafana 3000:3000
 
 ## Scaling: NUM_STREAMS by GPU
 
-The chart ships a fixed `NUM_STREAMS=3` in `bp-configurator.env` with no GPU cap —
+The chart ships a fixed `NUM_STREAMS=4` in `bp-configurator.env` with no GPU cap —
 unlike Docker Compose, which caps it automatically per `HARDWARE_PROFILE`. Before an initial
 install or an upgrade where you want streams sized to your hardware, generate a values-override:
 

@@ -79,6 +79,10 @@ internalIp: ""
 rtviVlmModelToUse: ""
 # Inline YAML content for realtime-config.yml (always-on VLM alert rules). Leave "" for empty default.
 realtimeConfig: ""
+# Start the always_on_rules from realtime-config.yml when VIOS posts
+# camera_streaming to /api/v1/realtime/always-on. Off by default: only
+# profiles that wire that webhook in their sdrc config should enable it.
+alwaysOn: false
 
 # Base directory for media used during alert review (optional). Leave "" if not set.
 alertReviewMediaBaseDir: ""
@@ -118,3 +122,7 @@ waitForDependencies:
   elasticsearchPort: "9200"
   maxRetries: "90"
   retryInterval: "2"
+  # Optional HTTP readiness endpoint; empty skips the VLM startup gate.
+  # Evaluated as a Helm template. Requires waitForDependencies.enabled.
+  vlmReadyUrl: ""
+  vlmTimeoutSeconds: 1800

@@ -211,10 +211,6 @@ If the logs show `tegra-vic` job submission failures because the VIC engine coul
 
 This change forces the PGIE scaling operation to run on the GPU, which may lower FPS.
 
-### Why are streams not getting added to RTVI CV?
-
-This issue can be caused due to exhausted retry attempts to add the cameras because RTVI containers took more time for engine build and application startup.
-Increase `WDM_ADD_REMOVE_RETRY_ATTEMPTS` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-<mode>-app/sdrc/configs/config.yml.tmpl`. Update the value in the `docker-workload-rtvi-cv` section for the 2D and 3D profiles, or in `docker-workload-rtvi-cv-mv3dt` for the MV3DT profile.
 
 ## VST
 

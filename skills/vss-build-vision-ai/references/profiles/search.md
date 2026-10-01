@@ -39,10 +39,11 @@ compose tokens). Helm search keeps SDRC enabled for live multi-worker scale.
 
 ## Headless fan-out (no-agent builds)
 
-When the `vss-agent` tier is omitted, fan-out is webhook-driven: this profile
-pins `VST_NOTIFICATION_CONFIG_PATH` at a webhooks-enabled
-`notification_config.json`, so the caller registers one VIOS source and calls no
-consumer (`vss-manage-video-io-storage` `provision-vios-source.md`).
+This profile pins `VST_NOTIFICATION_CONFIG_PATH` at a webhooks-enabled
+`notification_config.json` — the pin is the profile's own, not a property of
+no-agent builds. When the `vss-agent` tier is omitted it is the whole fan-out,
+so the caller registers one VIOS source and calls no consumer
+(`vss-manage-video-io-storage` `provision-vios-source.md`).
 
 That config ships RT-CV, RT-Embed and RT-VLM tagging enabled, plus the
 Elasticsearch teardown cleanups, but the set is not inherited by default: it must

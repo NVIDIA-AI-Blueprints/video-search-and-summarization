@@ -170,6 +170,16 @@ def test_select_matches_groups_and_reports_missing():
     assert "commands available = analytics, vlm" in sel.reason
 
 
+def test_select_any_of_holds_when_one_alternative_is_available():
+    # vss-summarize-video runs on LVS or, without it, on `vss vlm run`.
+    either = [sync_skills.SkillSpec("vss-summarize-video", ["summarize|vlm"]),
+              sync_skills.SkillSpec("needs-neither", ["summarize|search"])]
+    sel = sync_skills.select(either, run=lambda cmd, timeout: completed(stdout=CHECK_OUT))
+    assert sel.active == ["vss-summarize-video"]
+    assert sel.inactive == {
+        "needs-neither": "none of vss command groups 'summarize|search' available"}
+
+
 def test_select_skips_alert_probe_when_no_skill_needs_it():
     def run(cmd, timeout):
         assert cmd[0] != "curl", "no skill declares alerts; probe must not run"
