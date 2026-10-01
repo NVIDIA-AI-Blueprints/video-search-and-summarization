@@ -592,16 +592,6 @@ def plot_max_streams_2k(
 
     Two subplots: 1-Token and 100-Token output.
     """
-    # Compute token info from first available config
-    token_info = "~2K Vision Tokens"
-    for name, cfg in configs.items():
-        info = get_scenario_vision_info(cfg, "max_live_streams_test_1_token_2k")
-        token_info = (
-            f"{info['width']}x{info['height']}, {info['num_frames']} frm, "
-            f"{info['vision_tokens_label']} Vision Tokens"
-        )
-        break
-
     data_1t = {}
     data_100t = {}
 
@@ -624,7 +614,7 @@ def plot_max_streams_2k(
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
     fig.suptitle(
-        f"Max Live Streams ({token_info})",
+        "Max Live Streams (~2K Vision Tokens)",
         fontsize=14,
         fontweight="bold",
     )
@@ -633,7 +623,15 @@ def plot_max_streams_2k(
         if not data:
             ax.set_visible(False)
             return
-        labels = [platform_display(n) for n in data]
+        labels = []
+        for name in data:
+            label = platform_display(name)
+            if name in configs:
+                frames = get_scenario_vision_info(
+                    configs[name], "max_live_streams_test_1_token_2k"
+                )["num_frames"]
+                label += f"\n{frames} frames"
+            labels.append(label)
         values = [d["max_streams"] for d in data.values()]
         p95s = [d["p95"] for d in data.values()]
         colors = [platform_color(n) for n in data]
@@ -664,15 +662,6 @@ def plot_max_streams_8k(
     output_dir: Path,
 ):
     """Bar chart of max sustainable streams at 8K vision tokens."""
-    token_info = "~8K Vision Tokens"
-    for name, cfg in configs.items():
-        info = get_scenario_vision_info(cfg, "max_live_streams_test_1_token_8k")
-        token_info = (
-            f"{info['width']}x{info['height']}, {info['num_frames']} frm, "
-            f"{info['vision_tokens_label']} Vision Tokens"
-        )
-        break
-
     data_1t = {}
     data_100t = {}
 
@@ -696,7 +685,7 @@ def plot_max_streams_8k(
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
     fig.suptitle(
-        f"Max Live Streams ({token_info})",
+        "Max Live Streams (~8K Vision Tokens)",
         fontsize=14,
         fontweight="bold",
     )
@@ -705,7 +694,15 @@ def plot_max_streams_8k(
         if not data:
             ax.set_visible(False)
             return
-        labels = [platform_display(n) for n in data]
+        labels = []
+        for name in data:
+            label = platform_display(name)
+            if name in configs:
+                frames = get_scenario_vision_info(
+                    configs[name], "max_live_streams_test_1_token_8k"
+                )["num_frames"]
+                label += f"\n{frames} frames"
+            labels.append(label)
         values = [d["max_streams"] for d in data.values()]
         p95s = [d["p95"] for d in data.values()]
         colors = [platform_color(n) for n in data]

@@ -1321,7 +1321,7 @@ def write_summary_tab(
     for platform, ms_rows in max_streams_by_platform.items():
         for r in ms_rows:
             res = f"{r['Image Resolution_w']}x{r['Image Resolution_h']}"
-            key = f"OSL={r['OSL']} / {res}"
+            key = f"VT={r['Vision Tokens']} / OSL={r['OSL']} / {res}"
             scenario_keys.add(key)
 
     for key in sorted(scenario_keys):
@@ -1330,7 +1330,7 @@ def write_summary_tab(
             ms_rows = max_streams_by_platform.get(platform, [])
             for r in ms_rows:
                 res = f"{r['Image Resolution_w']}x{r['Image Resolution_h']}"
-                rkey = f"OSL={r['OSL']} / {res}"
+                rkey = f"VT={r['Vision Tokens']} / OSL={r['OSL']} / {res}"
                 if rkey == key:
                     val = r["Max Concurrent Streams"]
                     lat = r["Chunk E2E Latency Avg (s)"]
@@ -1351,7 +1351,7 @@ def write_summary_tab(
     cell.fill = SUMMARY_HEADER_FILL
     row += 1
 
-    ws.cell(row=row, column=1, value="Streams / OSL").font = HEADER_FONT
+    ws.cell(row=row, column=1, value="Vision Tokens / Streams / OSL").font = HEADER_FONT
     for i, p in enumerate(platforms, 2):
         ws.cell(row=row, column=i, value=p).font = HEADER_FONT
     row += 1
@@ -1365,7 +1365,7 @@ def write_summary_tab(
     conc_keys = set()
     for platform, c_rows in conc_by_platform.items():
         for r in c_rows:
-            key = f"{r['Concurrent Streams']} streams / OSL={r['OSL']}"
+            key = f"VT={r['Vision Tokens']} / {r['Concurrent Streams']} streams / OSL={r['OSL']}"
             conc_keys.add(key)
 
     for key in sorted(conc_keys):
@@ -1373,7 +1373,7 @@ def write_summary_tab(
         for i, platform in enumerate(platforms, 2):
             c_rows = conc_by_platform.get(platform, [])
             for r in c_rows:
-                rkey = f"{r['Concurrent Streams']} streams / OSL={r['OSL']}"
+                rkey = f"VT={r['Vision Tokens']} / {r['Concurrent Streams']} streams / OSL={r['OSL']}"
                 if rkey == key:
                     avg = r["Chunk E2E Latency Avg (s)"]
                     p95 = r["Chunk E2E Latency p95 (s)"]
@@ -1716,7 +1716,7 @@ def write_machine_config_tab(
     row += 1
 
     # ── Per-Scenario Parameters ──────────────────────────────────────────
-    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=3 + len(platforms))
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=max(7, 3 + len(platforms)))
     cell = ws.cell(row=row, column=1, value="Per-Scenario Test Parameters")
     cell.font = SUMMARY_HEADER_FONT
     cell.fill = SECTION_FILL_2
@@ -1724,6 +1724,7 @@ def write_machine_config_tab(
 
     scenario_headers = [
         "Scenario",
+        "Platform",
         "Resolution",
         "Frames/Chunk",
         "Vision Tokens",
@@ -1734,24 +1735,26 @@ def write_machine_config_tab(
         ws.cell(row=row, column=col_idx, value=h).font = HEADER_FONT
     row += 1
 
-    # Use first available config to enumerate scenarios
+    # Use the first available config to enumerate scenarios, then show each platform's values.
     sample_config = next((c for c in configs.values() if c), None)
     if sample_config and "test_scenarios" in sample_config:
         for scenario_name in sample_config["test_scenarios"]:
-            scenario = sample_config["test_scenarios"][scenario_name]
-            p = get_scenario_params(sample_config, scenario_name)
-            w, h, nf = p["vlm_input_width"], p["vlm_input_height"], p["num_frames"]
-            vt = calc_vision_tokens(
-                w, h, nf, sample_config.get("global", {}).get("model_preset", "")
-            )
+            for platform in platforms:
+                config = configs.get(platform)
+                if not config or scenario_name not in config.get("test_scenarios", {}):
+                    continue
+                scenario = config["test_scenarios"][scenario_name]
+                p = get_scenario_params(config, scenario_name)
+                w, h, nf = p["vlm_input_width"], p["vlm_input_height"], p["num_frames"]
+                vt = calc_vision_tokens(w, h, nf, config.get("global", {}).get("model_preset", ""))
 
-            ws.cell(row=row, column=1, value=scenario_name)
-            ws.cell(row=row, column=2, value=f"{w}x{h}")
-            ws.cell(row=row, column=3, value=nf)
-            ws.cell(row=row, column=4, value=f"{vt} ({vision_tokens_label(vt)})")
-            ws.cell(row=row, column=5, value=p["max_tokens"])
-            ws.cell(row=row, column=6, value=scenario.get("benchmark_mode", ""))
-            row += 1
+                for col, value in enumerate((
+                    scenario_name, platform, f"{w}x{h}", nf,
+                    f"{vt} ({vision_tokens_label(vt)})", p["max_tokens"],
+                    scenario.get("benchmark_mode", ""),
+                ), 1):
+                    ws.cell(row=row, column=col, value=value)
+                row += 1
 
     ws.freeze_panes = "A2"
     auto_fit_columns(ws)

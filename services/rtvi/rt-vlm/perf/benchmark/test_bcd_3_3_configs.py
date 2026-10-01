@@ -3,14 +3,52 @@
 """Check BCD 3.3 platform configs remain aligned with the frozen workload."""
 
 import unittest
+from copy import deepcopy
 
 import yaml
 
 from generate_bcd_3_3_configs import HERE, PROFILES, SOURCE, render
 from perf_utils import calc_vision_tokens
 
+SETUP_BINDINGS = {
+    "rtsp_url", "rtvi_backend", "vlm_gpus", "dcgm_exporter_url", "node_exporter_url"
+}
+
+
+def without_setup_bindings(value):
+    if isinstance(value, dict):
+        return {
+            key: without_setup_bindings(item)
+            for key, item in value.items()
+            if key not in SETUP_BINDINGS
+        }
+    if isinstance(value, list):
+        return [without_setup_bindings(item) for item in value]
+    return value
+
 
 class PlatformConfigTest(unittest.TestCase):
+    def assert_frozen_profile_equal(self, actual, expected):
+        self.assertEqual(without_setup_bindings(actual), without_setup_bindings(expected))
+
+    def test_setup_bindings_do_not_change_frozen_profile(self):
+        platform = "agx_orin"
+        preset, initial, step, levels = PROFILES[platform]
+        expected = yaml.safe_load(render(SOURCE.read_text(), platform, preset, initial, step, levels))
+        configured = deepcopy(expected)
+        configured["global"]["rtvi_backend"] = "http://localhost:9000/v1"
+        configured["global"]["vlm_gpus"] = [3]
+        configured["test_scenarios"]["max_live_streams_test_100_token_2k"]["videos"][0][
+            "rtsp_url"
+        ] = "rtsp://localhost:8554/live"
+        self.assert_frozen_profile_equal(configured, expected)
+
+        configured["test_scenarios"]["max_live_streams_test_100_token_2k"]["videos"][0][
+            "initial_stream_count"
+        ] += 1
+        with self.assertRaises(AssertionError):
+            self.assert_frozen_profile_equal(configured, expected)
+
     def test_model_specific_vision_token_estimate(self):
         for frames, expected in ((5, 2000), (10, 4000), (20, 8000)):
             self.assertEqual(
@@ -60,8 +98,9 @@ class PlatformConfigTest(unittest.TestCase):
             with self.subTest(platform=platform):
                 path = HERE / f"rtvi_vlm_bcd_3_3_{platform}_config.yaml"
                 text = path.read_text()
-                self.assertEqual(
-                    text, render(SOURCE.read_text(), platform, preset, initial, step, levels)
+                self.assert_frozen_profile_equal(
+                    yaml.safe_load(text),
+                    yaml.safe_load(render(SOURCE.read_text(), platform, preset, initial, step, levels)),
                 )
                 config = yaml.safe_load(text)
                 self.assertEqual(config["global"]["model_preset"], preset)

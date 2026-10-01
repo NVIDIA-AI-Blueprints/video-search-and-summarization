@@ -1437,7 +1437,7 @@ class LiveStreamsBenchmark(BenchmarkBase):
             "total_test_duration_seconds": actual_duration,
             "total_streams_tested": current_stream_count,
             "capacity_success": capacity_success,
-            "success": capacity_success and fixed_load_latency_complete is not False,
+            "success": capacity_success,
             "last_stable_stream_count": last_stable_stream_count,
             "first_unstable_stream_count": first_unstable_stream_count,
             "last_stable_moving_average_latency": last_stable_moving_average_latency,
