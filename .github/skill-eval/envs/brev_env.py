@@ -1168,13 +1168,15 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                 # The router writes decisions throughout the query, after
                 # startup diagnostics were captured. Refresh immediately
                 # before Harbor archives this trial's artifacts.
-                await _run_brev_exec(
+                copied = await _run_brev_exec(
                     self._instance_name,
                     "mkdir -p /logs/artifacts/local-nim && "
                     f"cp ~/.cache/skill-eval-nim/{owner}/switchyard-routing.jsonl "
                     "/logs/artifacts/local-nim/switchyard-routing.jsonl",
                     timeout=20,
                 )
+                if copied.return_code:
+                    raise RuntimeError("Could not collect Switchyard routing decisions")
         # brev copy has broken directory nesting.  Use tar piped over
         # brev exec: tar on remote, base64-encode with markers, capture
         # via exec, decode+untar locally.  Use sentinel markers to isolate
