@@ -44,6 +44,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import uvicorn
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 import server.rtvi_vlm_server as rtvi_vlm_server
 from api_models.captions import VlmQuery
@@ -793,6 +794,33 @@ class TestLiveStreamEndpoints:
 
 class TestCaptionGeneration:
     """Test caption generation endpoint"""
+
+    def test_streaming_generate_captions_returns_request_id_before_events(self, rtvi_server):
+        stream_id = uuid.uuid4()
+        request_id = str(uuid.uuid4())
+        rtvi_server._process_vlm_request = AsyncMock(
+            return_value=(request_id, MagicMock(), [MagicMock()])
+        )
+        route = next(
+            route
+            for route in rtvi_server._app.routes
+            if route.path == f"{API_PREFIX}/generate_captions" and "POST" in route.methods
+        )
+        request = Request(
+            {"type": "http", "method": "POST", "path": route.path, "headers": []}
+        )
+        query = VlmQuery(
+            id=stream_id,
+            model="test-model",
+            prompt="Describe the stream.",
+            stream=True,
+        )
+
+        response = asyncio.run(route.endpoint(query, request))
+
+        assert response.status_code == 200
+        assert response.headers["x-request-id"] == request_id
+        assert response.media_type == "text/event-stream"
 
     def test_generate_captions_missing_id(self, test_client):
         """Test generating captions without file ID"""
