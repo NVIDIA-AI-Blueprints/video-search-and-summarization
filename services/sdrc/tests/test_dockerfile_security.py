@@ -23,8 +23,9 @@ def test_wdm_router_dockerfile_removes_setuptools_from_runtime():
 
     assert "setuptools==78.1.1" in dockerfile
     assert "setuptools==63.2.0" not in dockerfile
-    assert "python3 -m pip uninstall -y uv setuptools wheel" in dockerfile
-    assert "apt-get purge -y python3-pip" in dockerfile
+    assert "python3-pip" not in dockerfile
+    assert "get-pip.py" not in dockerfile
+    assert "python3 -m pip uninstall -y uv setuptools wheel pip" in dockerfile
     assert "/root/.cache/uv" in dockerfile
     assert "uv==0.11.26" in dockerfile
     assert "uv==0.11.24" not in dockerfile
