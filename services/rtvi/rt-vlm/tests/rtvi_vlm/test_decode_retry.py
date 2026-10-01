@@ -163,6 +163,29 @@ def _make_vlm_query():
 
 
 @pytest.mark.no_gpu
+def test_decoder_warmup_skip_does_not_decode(monkeypatch):
+    class WarmupFrameGetter:
+        def __init__(self):
+            self.decoded = 0
+
+        def get_frames(self, chunk):
+            self.decoded += 1
+
+        def destroy_pipeline(self):
+            pass
+
+    decoder = _make_decoder()
+    getter = WarmupFrameGetter()
+    decoder._fgetters = [getter]
+    monkeypatch.setenv("SKIP_DECODER_WARMUP", "true")
+    monkeypatch.setattr(vlm_pipeline_module.os.path, "exists", lambda path: True)
+
+    decoder._warmup()
+
+    assert getter.decoded == 0
+
+
+@pytest.mark.no_gpu
 def test_decoder_warmup_decodes_locally_without_forwarding_frames(monkeypatch):
     class WarmupFrameGetter:
         def __init__(self):
@@ -180,6 +203,7 @@ def test_decoder_warmup_decodes_locally_without_forwarding_frames(monkeypatch):
     decoder._fgetters = [WarmupFrameGetter(), WarmupFrameGetter()]
     decoder._output_queue = CaptureQueue()
 
+    monkeypatch.delenv("SKIP_DECODER_WARMUP", raising=False)
     monkeypatch.setattr(vlm_pipeline_module.os.path, "exists", lambda path: True)
     monkeypatch.setattr(vlm_pipeline_module, "_is_orin_platform", lambda: True)
 
@@ -211,6 +235,7 @@ def test_decoder_warmup_releases_pipeline_when_decode_raises(monkeypatch):
     decoder = _make_decoder()
     getter = FailingFrameGetter()
     decoder._fgetters = [getter]
+    monkeypatch.delenv("SKIP_DECODER_WARMUP", raising=False)
     monkeypatch.setattr(vlm_pipeline_module.os.path, "exists", lambda path: True)
     monkeypatch.setattr(vlm_pipeline_module, "_is_orin_platform", lambda: True)
 
@@ -236,6 +261,7 @@ def test_decoder_warmup_preserves_pipeline_off_orin(monkeypatch):
     decoder = _make_decoder()
     getter = WarmupFrameGetter()
     decoder._fgetters = [getter]
+    monkeypatch.delenv("SKIP_DECODER_WARMUP", raising=False)
     monkeypatch.setattr(vlm_pipeline_module.os.path, "exists", lambda path: True)
     monkeypatch.setattr(vlm_pipeline_module, "_is_orin_platform", lambda: False)
 
