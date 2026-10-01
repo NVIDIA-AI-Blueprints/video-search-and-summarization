@@ -1583,20 +1583,52 @@ def spark_instance() -> str:
         ]
         if any(node_id(node) and node_id(node) != SPARK_NODE_ID for node in matches):
             raise ValueError("Spark node name now belongs to a different Brev node ID")
-    if len(matches) != 1 or (matches[0].get("status") or "").lower() != "connected":
+    if len(matches) != 1:
         raise ValueError(
             f"Spark worker {SPARK_NODE_NAME} ({SPARK_NODE_ID}) is missing or disconnected"
         )
-    return matches[0]["name"]
+    name = matches[0]["name"]
+    if (matches[0].get("status") or "").lower() != "connected":
+        # Brev's node heartbeat can lag an otherwise working SSH connection.
+        # Probe only the node whose registered ID was verified above.
+        try:
+            probe = subprocess.run(
+                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
+                 "-o", "StrictHostKeyChecking=no", name.lower(), "uname -m"],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ValueError(
+                f"Spark worker {name} ({SPARK_NODE_ID}) reports disconnected "
+                f"and SSH probe failed: {exc}"
+            ) from exc
+        if probe.returncode or probe.stdout.strip() not in {"aarch64", "arm64"}:
+            raise ValueError(
+                f"Spark worker {name} ({SPARK_NODE_ID}) reports disconnected "
+                f"and SSH probe failed: {probe.stderr.strip()[:200]}"
+            )
+        print(f"[run-leg] Spark heartbeat stale; verified SSH to {name}", flush=True)
+    return name
 
 
 def spark_requested(environment: Mapping[str, str] | None = None) -> bool:
     """Honor the job's Spark choice even if the coordinator agent changes its hint."""
     env = environment if environment is not None else os.environ
-    return (
+    if (
         env.get("EVAL_SPARK_RUNNER_REQUESTED") == "true"
         or env.get("SKILLS_EVAL_SPARK_RUNNER") == "true"
-    )
+    ):
+        return True
+    # The workflow dispatch payload survives shell-level env changes by the
+    # coordinator agent. An operator-requested Spark run must never fall back.
+    event_path = env.get("GITHUB_EVENT_PATH")
+    if event_path:
+        try:
+            event = json.loads(Path(event_path).read_text())
+            return str(event.get("inputs", {}).get("spark_runner", "")).lower() == "true"
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+    return False
 
 
 def cleanup_local_nims(instance: str, owner: str) -> None:
@@ -2122,6 +2154,9 @@ def main(argv: list[str] | None = None) -> int:
         # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
         # > task.toml brev_instance > pool selection.
         if spark_requested():
+            # BrevEnv applies the Spark architecture-only check through this
+            # flag; restore it if the coordinator agent removed its hint.
+            os.environ["SKILLS_EVAL_SPARK_RUNNER"] = "true"
             pinned = spark_instance()
             if args.instance and args.instance.casefold() != pinned.casefold():
                 raise ValueError("--instance conflicts with the selected Spark worker")

@@ -624,6 +624,10 @@ requested scenario, not the selected hardware.
 The workflow also exports `EVAL_SPARK_RUNNER_REQUESTED` from the operator's
 checkbox. `run_leg.py` honors either flag, so removing the ordinary hint
 cannot silently move a Spark-selected trial to a pool worker.
+Never unset either Spark flag or route a Spark-selected job to a platform pool,
+even when the spec's platform label is L40S. If the selected Spark node is
+unreachable, report `BLOCKED: Spark worker unavailable` and stop that leg.
+Do not retry the leg on another machine.
 
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`

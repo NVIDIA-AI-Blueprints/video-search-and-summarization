@@ -471,6 +471,23 @@ def test_spark_job_choice_survives_removed_agent_hint():
     })
 
 
+def test_spark_job_choice_survives_both_removed_hints(tmp_path):
+    event = tmp_path / "event.json"
+    event.write_text('{"inputs": {"spark_runner": "true"}}')
+    assert run_leg.spark_requested({"GITHUB_EVENT_PATH": str(event)})
+
+
+def test_spark_disconnected_heartbeat_accepts_verified_ssh(monkeypatch):
+    monkeypatch.setattr(run_leg, "_list_registered_nodes", lambda: [{
+        "external_node_id": nim.SPARK_NODE_ID,
+        "name": nim.SPARK_NODE_NAME,
+        "status": "Disconnected",
+    }])
+    probe = Mock(returncode=0, stdout="aarch64\n", stderr="")
+    monkeypatch.setattr(run_leg.subprocess, "run", Mock(return_value=probe))
+    assert run_leg.spark_instance() == nim.SPARK_NODE_NAME
+
+
 @pytest.mark.parametrize(
     "nodes",
     [
@@ -487,5 +504,8 @@ def test_spark_job_choice_survives_removed_agent_hint():
 )
 def test_spark_never_falls_back_to_other_workers(monkeypatch, nodes):
     monkeypatch.setattr(run_leg, "_list_registered_nodes", lambda: nodes)
+    monkeypatch.setattr(
+        run_leg.subprocess, "run", Mock(return_value=Mock(returncode=1, stdout="", stderr="unreachable"))
+    )
     with pytest.raises(ValueError):
         run_leg.spark_instance()
