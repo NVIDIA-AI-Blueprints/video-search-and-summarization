@@ -1,0 +1,16 @@
+# Generated eval reports -- useful locally, never committed.
+**/evals/results/
+
+# Deployment-specific settings stay local; select with --config config.local.yml.
+config.local.yml
+
+# Benchmark output and corpora are never committed with the skill.
+benchmark-results/
+results/
+ingest-corpus/
+*.mp4
+*.mkv
+*.log
+.env
+.env.*
+__pycache__/

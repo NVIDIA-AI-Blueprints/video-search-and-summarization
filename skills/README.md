@@ -108,6 +108,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Deploy behavior analytics on its own | [`vss-setup-behavior-analytics`](deployment/vss-setup-behavior-analytics/SKILL.md) |
 | Deploy the video-analytics REST API on its own | [`vss-setup-video-analytics-api`](deployment/vss-setup-video-analytics-api/SKILL.md) |
 | Benchmark VLM video Q&A accuracy and latency (`vss vlm`) | [`vss-benchmark-vlm-qa`](benchmarking/vss-benchmark-vlm-qa/SKILL.md) |
+| Benchmark Search video-ingest throughput and latency | [`vss-ingest-benchmark`](benchmarking/vss-benchmark-video-ingest/SKILL.md) |
 | Benchmark LVS summarization latency and burst throughput | [`vss-benchmark-video-summarization`](benchmarking/vss-benchmark-video-summarization/SKILL.md) |
 | Check an RT-VLM config change for a caption-accuracy regression | [`vss-evaluate-caption-accuracy`](benchmarking/vss-evaluate-caption-accuracy/SKILL.md) |
 
@@ -129,9 +130,11 @@ carries the pipeline position from [Orientation](#orientation-how-vss-fits-toget
 so the conceptual map survives the regrouping — a skill's directory says *when*
 you reach for it, its layer says *where it sits in the video path*.
 
-A skill's invocable name is its directory's leaf name. The category is
-repository organisation only and never appears in the installed path or in the
-`/slash-command`.
+A skill's invocable name normally matches its directory's leaf name. The category
+is repository organisation only and never appears in the installed path or in
+the `/slash-command`. The ingest benchmark is an exception: source directory
+`benchmarking/vss-benchmark-video-ingest/`, frontmatter and installed name
+`vss-ingest-benchmark`.
 
 ### Start here
 
@@ -176,6 +179,7 @@ repository organisation only and never appears in the installed path or in the
 | Skill | Layer | Description |
 |---|---|---|
 | [vss-benchmark-vlm-qa](benchmarking/vss-benchmark-vlm-qa/SKILL.md) | — | E2E video Q&A accuracy + latency on `vss-devx-base` through `vss vlm run` (CR3 RT-VLM). Replaces `nat eval` QA. Not tool-calling / trajectory. |
+| [vss-ingest-benchmark](benchmarking/vss-benchmark-video-ingest/SKILL.md) | — | Search video-ingest throughput and latency using CLI uploads and public Elasticsearch readiness reads; requires both raw frames and Embed chunks. |
 | [vss-benchmark-video-summarization](benchmarking/vss-benchmark-video-summarization/SKILL.md) | — | LVS latency and burst-throughput on a deployed summarization instance. |
 | [vss-evaluate-caption-accuracy](benchmarking/vss-evaluate-caption-accuracy/SKILL.md) | — | Check whether an RT-VLM configuration change moved caption quality: capture paired baseline and candidate captions, score both against a ground truth with an LLM judge, and emit an accuracy and processing-time table. |
 
@@ -202,8 +206,10 @@ The VSS 3.2 GA skill names replaced the pre-GA slash-command names:
 
 ## Install
 
-Skills install **flat, by leaf name** — the category is repository organisation and
-never appears in the installed path or in the `/slash-command`:
+Skills install **flat, by skill name** — the category is repository organisation and
+never appears in the installed path or in the `/slash-command`. Names match the
+source leaf directory except `vss-benchmark-video-ingest`, installed as
+`vss-ingest-benchmark` (see its [installation example](benchmarking/vss-benchmark-video-ingest/README.md#installing-the-skill)):
 
 | Host | Skills directory |
 |---|---|
@@ -243,7 +249,7 @@ it, ask questions of it, manage its alerts, and read its analytics.
 |---|---|
 | `skills/deployment/` | You want one microservice on its own — RT-VLM, RT-CV, RT-Embed, behavior analytics, the analytics API — or Helm/Kubernetes rather than Compose. |
 | `skills/tools/` | You are calibrating multi-camera datasets directly. (3D tracking pulls this in automatically when calibration is missing, so you only need it standalone.) |
-| `skills/benchmarking/` | You are measuring VLM Q&A accuracy/latency, LVS throughput, or caption-accuracy regressions. |
+| `skills/benchmarking/` | You are measuring Search ingest throughput/latency, VLM Q&A accuracy/latency, LVS throughput, or caption-accuracy regressions. |
 
 > Also install every skill under `skills/deployment/` the same way.
 
@@ -252,7 +258,7 @@ it, ask questions of it, manage its alerts, and read its analytics.
 > Read `skills/README.md` and every `SKILL.md` file under `skills/`. For each skill
 > in the catalog, install it for this host so I can invoke it from a shell or chat
 > session, using the host's standard skills directory and naming each install after
-> the skill's own directory name rather than its category. Symlink each skill folder
+> the skill's frontmatter `name`, without its category. Symlink each skill folder
 > rather than copying it. Skip skills already installed and pointing at this
 > checkout. When you're done, list the skills you registered and which directory you
 > used.
@@ -264,7 +270,7 @@ Give the agent the path as it appears in the catalog above:
 
 > Install only `skills/<path-from-the-catalog>/` for this host the same way — for
 > example `skills/operations/vss-search-archive/` or `skills/vss-build-vision-ai/`.
-> Register it under the skill's own directory name, without any category prefix.
+> Register it under the skill's frontmatter `name`, without any category prefix.
 
 ### Update
 

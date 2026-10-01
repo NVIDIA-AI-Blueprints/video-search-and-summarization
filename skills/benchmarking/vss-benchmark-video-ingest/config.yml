@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Portable defaults. Put deployment overrides in config.local.yml and select
+# them explicitly with --config config.local.yml.
+# CLI upload + deployed VIOS webhooks. Configure the CLI before running.
+cli:
+  # Omit repo to honor VSS_REPO_ROOT, or the built-in checkout default.
+  config_home: null  # VSS_CONFIG_HOME or ~/.vss
+  uv: "uv"  # fallback for older project-based CLI setups
+  executable: null  # installed vss from PATH, or an explicit executable path
+
+compatibility:
+  version_url: ""  # CLI base_url + /api/v1/version; same deployed VSS as ingestion
+  request_timeout_sec: 10
+
+corpus: null  # Set --corpus, --video, or a path in your local config.
+results_dir: "~/vss-ingest-run"  # Use a fresh results directory for each run.
+
+sweep:
+  profile: "smoke"
+  video_classes: []  # Empty lists use the selected profile preset.
+  concurrencies: []
+  limit: null
+  warmup: 0
+
+es_readiness:
+  elasticsearch_url: ""  # Discover the public ES route from the CLI configuration.
+  request_timeout_sec: 60
+  poll_interval_sec: 5.0
+  timeout_sec: null
+  embed_index: "mdx-embed-filtered-2025-01-01"
+  raw_index: "mdx-raw-2025-01-01"
+  embed_chunk_duration_sec: 5
+  frame_processing_time_ms: 33
+  raw_drop_grace_sec: 120
+  raw_completion_ratio: 0.95
+
+upload:
+  ramp:
+    stagger_sec: 0.25
+    max_ramp_sec: 60
+
+cleanup:
+  # Delete all run-owned returned VIOS handles, including failed/unconfirmed uploads.
+  # ES removal depends on camera_remove webhooks. Hard interruptions need ledger recovery.
+  policy: "always"
+
+limits:
+  transfer_ceiling_gb: 100.0
