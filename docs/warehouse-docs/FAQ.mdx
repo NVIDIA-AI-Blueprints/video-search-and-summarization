@@ -226,6 +226,10 @@ This change forces the PGIE scaling operation to run on the GPU, which may lower
 
 This section provides answers to some of the frequently asked questions on using VST application:
 
+### Why are object IDs missing from the video overlay?
+
+In VST's **Analytics Overlay Settings**, enable **Debug Mode**. For the **2D** and **2D with Agents** profiles, also enable **Show Bounding Boxes** and **Show Object ID** under **Object ID Display**, then click **Save Settings**. For **3D** and **MV3DT**, object IDs are displayed by default with Debug Mode enabled. See [Display Object IDs in Warehouse Profiles](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#display-object-ids-in-warehouse-profiles) for the settings and screenshot.
+
 ### I bought a new camera, plugged it in, used default password but cannot access video
 
   Some cameras require that username/password is modified prior to the first use as a part of a third-party system (like - for example - VST). In such situations, you will need to connect to the web page hosted by the camera itself. Attach your camera to the network bypassing VST host machine. Take note of its IP address, and launch a web page hosted by the camera (usually https://192.168.1.xxx). The web page will prompt you to alter the default username/password combination. Use your preferred settings.

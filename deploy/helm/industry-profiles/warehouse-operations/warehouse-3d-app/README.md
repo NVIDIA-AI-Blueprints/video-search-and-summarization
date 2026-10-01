@@ -110,7 +110,10 @@ Setting only one leaves the stack misconfigured.
 `resources: {}` does **not** work — Helm deep-merges maps, so the subchart default
 keys survive an empty-map override. Use `null` to drop the block entirely.
 
-Software mode reduces video throughput; use it only when a second GPU is not available.
+Software mode reduces video throughput; use it only when an additional GPU is not
+available. Alternatively, use [NVIDIA GPU time-slicing](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html)
+to share a physical GPU between RTVI-CV and VIOS while keeping hardware video
+processing enabled.
 
 ### Required secrets
 

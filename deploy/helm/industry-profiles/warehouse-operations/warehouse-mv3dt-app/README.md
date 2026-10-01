@@ -168,7 +168,9 @@ Setting the count to `0` is the way to release a GPU. Neither `resources: {}` no
 so `nvidia.com/gpu: 1` reappears. Only overriding the value itself sticks.
 
 Software mode reduces video throughput; use it only when an additional GPU is not
-available.
+available. Alternatively, use [NVIDIA GPU time-slicing](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html)
+to share a physical GPU between RTVI-CV and VIOS while keeping hardware video
+processing enabled.
 
 ### GPU time-slicing (limited GPU environments)
 
