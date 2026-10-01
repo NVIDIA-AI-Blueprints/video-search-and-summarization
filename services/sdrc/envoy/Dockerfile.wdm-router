@@ -40,16 +40,14 @@ RUN apt-get update && \
         python3.10-dev \
         python3.10-distutils \
         python3.10-venv \
+        python3-pip \
     && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv via PyPI (avoid ghcr.io — Blossom CI often TLS-timeouts on GitHub Container Registry).
-# Digest is for https://bootstrap.pypa.io/get-pip.py as fetched 2026-10-01 (embeds pip 26.2.1).
-RUN curl -fsSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py && \
-    echo "fb24e693bab954209a063d90953621412ccad4a500905a726286e038f508ddf6  get-pip.py" | sha256sum --check --status && \
-    python3 get-pip.py && \
-    rm get-pip.py && \
-    pip3 install --no-cache-dir --timeout 120 --only-binary :all: "setuptools==78.1.1" "wheel==0.46.2" "uv==0.11.26"
+# pip comes from the signed Ubuntu python3-pip package above; no bootstrap script
+# is downloaded or executed.
+RUN pip3 install --no-cache-dir --timeout 120 --only-binary :all: "setuptools==78.1.1" "wheel==0.46.2" "uv==0.11.26"
 
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends gawk bison gcc make && \
@@ -92,7 +90,9 @@ RUN rm -rf /wdm
 # jinja2 + ruamel.yaml are required at container start by
 # generate_envoy_config_xds_mw.py (run via system python3, not the venv).
 RUN python3 -m pip install --no-cache-dir jinja2==3.1.4 "ruamel.yaml==0.18.6" && \
-    python3 -m pip uninstall -y uv setuptools wheel pip && \
+    python3 -m pip uninstall -y uv setuptools wheel && \
+    apt-get purge -y python3-pip && \
+    apt-get autoremove -y && \
     rm -rf /root/.cache/uv /root/.cache/pip /usr/local/bin/uv /usr/local/bin/uvx
 RUN apt-get remove gawk bison gcc make -y && \
     apt autoremove -y
@@ -108,8 +108,10 @@ RUN apt-get update -y \
         apt-transport-https \
     && rm -rf /var/lib/apt/lists/*
 
+# -fsSL follows redirects. Restrict the request and every redirect to HTTPS so the
+# Envoy signing key cannot be fetched over clear text.
 RUN mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://apt.envoyproxy.io/signing.key | gpg --dearmor -o /etc/apt/keyrings/envoy-keyring.gpg \
+    && curl --proto '=https' --proto-redir '=https' -fsSL https://apt.envoyproxy.io/signing.key | gpg --dearmor -o /etc/apt/keyrings/envoy-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/envoy-keyring.gpg] https://apt.envoyproxy.io jammy main" > /etc/apt/sources.list.d/envoy.list
 
 RUN apt-get update -y \
