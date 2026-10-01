@@ -772,10 +772,10 @@ antlr4-python3-runtime,4.9.3,BSD-3-Clause,services/rtvi/rt-embed,python,lockfile
 antlr4-python3-runtime,4.9.3,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 any-promise,1.3.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 anyio,4.10.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
-anyio,4.12.1,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 anyio,4.14.2,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 anyio,4.14.2,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 anyio,4.15.1,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
+anyio,4.15.1,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 anyio,UNKNOWN,MIT,.github,python,usage,.github/skills-review/review_agent.py,runtime,no,no,no,imported-only,None
 anymatch,3.1.3,ISC,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 anymatch,3.1.3,ISC,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -845,7 +845,7 @@ av,UNKNOWN,BSD-3-Clause,services/rtvi/rt-embed,python,usage,services/rtvi/rt-emb
 av,UNKNOWN,BSD-3-Clause,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/src/models/openai_compat/openai_compat_model.py,runtime,no,no,no,imported-only,None
 aws,UNKNOWN,Apache-2.0;GPL-2.0-only OR BSD-3-Clause,services/vios,c,usage;vendored,services/vios/include/3rdparty/aws;services/vios/src/framework/unified_storage/common/aws_sdk_manager.cpp,runtime,yes,UNKNOWN,no,imported-only;vendored-source,High
 aws4,1.13.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-axios,1.19.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+axios,1.20.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 b4a,1.8.1,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 babel-jest,30.4.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 babel-plugin-istanbul,7.0.1,BSD-3-Clause,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None

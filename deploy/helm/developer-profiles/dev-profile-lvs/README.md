@@ -62,15 +62,14 @@ The guard is skipped for external-VLM deployments (`rtvi.vss-rtvi-vlm.useSharedN
 
 ## GPU requirements
 
-With default **`values.yaml`** and typical LVS install (LLM NIM enabled, **`vss-summarization`**, **`vss-vios-streamprocessing`**, **`vss-rtvi-vlm`**), the stack requests **4 GPUs** (`nvidia.com/gpu: 1` each). Pod names include the Helm release name and a replica hash; the table lists the **workload** substring from `kubectl get pods`.
+With default **`values.yaml`** and typical LVS install (LLM NIM enabled, **`vss-vios-streamprocessing`**, **`vss-rtvi-vlm`**), the stack requests **3 GPUs** (`nvidia.com/gpu: 1` each). **`vss-summarization`** does not request a GPU because it delegates VLM inference to **`vss-rtvi-vlm`**. Pod names include the Helm release name and a replica hash; the table lists the **workload** substring from `kubectl get pods`.
 
 | Workload | GPU |
 |----------|-----|
-| `vss-summarization` | 1 |
 | `nemotron-3.5-lightning-30b-a3b` (NIM) | 1 |
 | `vss-vios-streamprocessing` | 1 |
 | `vss-rtvi-vlm` (integrated Cosmos checkpoint) | 1 |
-| **Total** | **4** |
+| **Total** | **3** |
 
 To run the RTVI-VLM against a shared/remote VLM endpoint instead of the integrated checkpoint, set `rtvi.vss-rtvi-vlm.useSharedNim=true` and configure the target VLM endpoint/model values.
 
@@ -155,7 +154,7 @@ Remote VLM + RTVI: RTVI-VLM also supports remote VLM endpoints when `global.vlmB
 
 - **Helm** 3.x
 - **Kubectl**
-- **GPUs**: see [GPU requirements](#gpu-requirements) (4 with defaults).
+- **GPUs**: see [GPU requirements](#gpu-requirements) (3 with defaults).
 - **NVIDIA NIM** (if using NIM subcharts): NIM Operator on the cluster (see [Prerequisites](#prerequisites) above).
 - **NGC**: API key for NIM, image pull / chart secret creation (see below).
 - **StorageClass** for PVCs: set **`global.storageClass`** to a class that exists on the cluster (see [Prerequisites](#prerequisites) above—**Volume provisioner**).

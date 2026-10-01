@@ -1149,9 +1149,21 @@ class Scheduler(SchedulerInterface):
         self.finished_req_ids = set()
 
     def _drain_free_ec_connector_hashes(self) -> list[str]:
-        hashes = self._pending_free_ec_connector_hashes
-        self._pending_free_ec_connector_hashes = []
-        return hashes
+        if not self._pending_free_ec_connector_hashes:
+            return []
+        # A session can close while its merged embedding is still referenced
+        # by a waiting or running request. The worker cannot see unscheduled
+        # requests, so keep their frees here until those owners finish.
+        referenced = {
+            feature.identifier
+            for request in self.requests.values()
+            for feature in (request.mm_features or ())
+        }
+        pending = dict.fromkeys(self._pending_free_ec_connector_hashes)
+        self._pending_free_ec_connector_hashes = [
+            mm_hash for mm_hash in pending if mm_hash in referenced
+        ]
+        return [mm_hash for mm_hash in pending if mm_hash not in referenced]
 
     def _update_request_as_session(
         self, session: Request, update: StreamingUpdate

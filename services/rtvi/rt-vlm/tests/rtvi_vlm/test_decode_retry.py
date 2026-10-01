@@ -162,21 +162,45 @@ def _make_vlm_query():
 
 
 @pytest.mark.no_gpu
+def test_decoder_warmup_skip_does_not_decode(monkeypatch):
+    class WarmupFrameGetter:
+        def __init__(self):
+            self.decoded = 0
+
+        def get_frames(self, chunk):
+            self.decoded += 1
+
+    decoder = _make_decoder()
+    getter = WarmupFrameGetter()
+    decoder._fgetters = [getter]
+    monkeypatch.setenv("SKIP_DECODER_WARMUP", "true")
+    monkeypatch.setattr(vlm_pipeline_module.os.path, "exists", lambda path: True)
+
+    decoder._warmup()
+
+    assert getter.decoded == 0
+
+
+@pytest.mark.no_gpu
 def test_decoder_warmup_decodes_locally_without_forwarding_frames(monkeypatch):
     class WarmupFrameGetter:
         def __init__(self):
             self.files = []
+            self.destroyed = []
 
         def get_frames(self, chunk):
             self.files.append(chunk.file)
             return ["cuda-frame"], [0.0], [], None
 
+        def destroy_pipeline(self):
+            self.destroyed.append(self.files[-1])
+
     decoder = _make_decoder()
     decoder._fgetters = [WarmupFrameGetter(), WarmupFrameGetter()]
     decoder._output_queue = CaptureQueue()
 
+    monkeypatch.delenv("SKIP_DECODER_WARMUP", raising=False)
     monkeypatch.setattr(vlm_pipeline_module.os.path, "exists", lambda path: True)
-
     decoder._warmup()
 
     expected_files = [
@@ -185,6 +209,8 @@ def test_decoder_warmup_decodes_locally_without_forwarding_frames(monkeypatch):
     ]
     assert decoder._fgetters[0].files == expected_files
     assert decoder._fgetters[1].files == expected_files
+    assert decoder._fgetters[0].destroyed == []
+    assert decoder._fgetters[1].destroyed == []
     assert decoder._output_queue.items == []
 
 

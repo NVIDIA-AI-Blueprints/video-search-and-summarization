@@ -100,6 +100,13 @@ if [ "$DISABLE_DECODER_REUSE" == "true" ]; then
     echo "Disabling decoder reuse"
 fi
 
+if [ "$(cat /sys/devices/soc0/soc_id 2>/dev/null)" = "35" ]; then
+    export SKIP_DECODER_WARMUP="${SKIP_DECODER_WARMUP:-true}"
+    if [ "$SKIP_DECODER_WARMUP" = "true" ]; then
+        echo "Skipping decoder warmup on Orin"
+    fi
+fi
+
 if [ -f /etc/nv_tegra_release ]; then
     if grep -q "R38 (release), REVISION: 2.0" /etc/nv_tegra_release; then
         export LD_LIBRARY_PATH="/opt/nvidia/via/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
