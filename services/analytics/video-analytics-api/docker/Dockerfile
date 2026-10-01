@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-FROM node:22.23.2-trixie AS builder
+FROM node:22.23.3-trixie AS builder
 
 # Container builds use pinned lockfiles; npm's audit API is unrelated and can
 # hang for minutes when registry.npmjs.org/-/npm/v1/security/audits/quick
