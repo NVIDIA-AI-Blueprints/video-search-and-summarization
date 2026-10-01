@@ -66,15 +66,19 @@ on:
           - codex
           - nemoclaw
       operational_model:
-        description: "OPERATIONAL · Model ID from https://inference.nvidia.com/ (for example, azure/openai/gpt-6-astra). Blank preserves the configured default."
+        description: "OPERATIONAL · Model ID from https://inference.nvidia.com/; leave blank for Switchyard."
         required: false
         default: ""
         type: string
       operational_deployment:
-        description: "OPERATIONAL · Hosted NVIDIA Inference or a NIM on the VSS worker."
+        description: "OPERATIONAL · Hosted inference, local NIM, or Switchyard (NemoClaw only: local Lightning + hosted Opus 5)."
         type: choice
         default: nvidia-inference
-        options: [nvidia-inference, local-nim]
+        options: [nvidia-inference, local-nim, switchyard]
+      switchyard_frontier_model:
+        description: "Switchyard capable target on NVIDIA Inference. Used only with the switchyard deployment."
+        type: string
+        default: azure/anthropic/claude-opus-5
       spark_runner:
         description: "Run on the registered Brev Spark-ba-WiFi worker."
         type: boolean
@@ -259,6 +263,7 @@ jobs:
           CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || '' }}
           OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
           OPERATIONAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_model || '' }}
+          SWITCHYARD_FRONTIER_MODEL_INPUT: ${{ inputs.switchyard_frontier_model || 'azure/anthropic/claude-opus-5' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
@@ -287,6 +292,7 @@ jobs:
           coding_model="$CODING_MODEL_INPUT"
           operational_harness="$OPERATIONAL_HARNESS_INPUT"
           operational_model="$OPERATIONAL_MODEL_INPUT"
+          switchyard_frontier_model="$SWITCHYARD_FRONTIER_MODEL_INPUT"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
@@ -299,6 +305,7 @@ jobs:
           export PATH="$skill_eval_venv_dir/bin:$PATH"
           export SKILLS_EVAL_CODING_DEPLOYMENT="$coding_deployment"
           export SKILLS_EVAL_OPERATIONAL_DEPLOYMENT="$operational_deployment"
+          export SKILLS_EVAL_SWITCHYARD_FRONTIER_MODEL="$switchyard_frontier_model"
           export SKILLS_EVAL_SPARK_RUNNER="$spark_runner"
           export EVAL_AGENT="$operational_harness"
           export SKILLS_EVAL_CODING_HARNESS="$coding_harness"

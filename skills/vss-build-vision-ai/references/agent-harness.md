@@ -327,6 +327,16 @@ working chat.
 
 ## Default provider
 
+In skill-eval automation, `operational_deployment=switchyard` is a
+preconfigured provider. The worker-side `local_nim.py` script deploys the
+local Nemotron 3.5 Lightning NIM and Switchyard before Build Vision AI runs,
+then supplies `NEMOCLAW_ENDPOINT_URL`, `NEMOCLAW_MODEL=switchyard/stage`, and
+the per-leg `COMPATIBLE_API_KEY`. Use those values unchanged when onboarding
+NemoClaw. The router listens only on worker loopback and the authenticated
+proxy serves NemoClaw; do not run `deploy_vss_switchyard.ipynb` or forward the
+hosted Opus credential into the sandbox. This is a script-driven eval path;
+the notebook remains a separate interactive example.
+
 **Default to notebook option (a) — the remote OpenAI-compatible endpoint —
 serving Claude Opus 5 through the NVIDIA Inference Hub.** First ask the user
 which model the sandbox runs on, per [Harness model —

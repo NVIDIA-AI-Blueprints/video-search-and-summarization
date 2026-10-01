@@ -1632,12 +1632,27 @@ def run_invocations(
     work_deadline: float | None = None,
 ) -> int:
     from local_nim import PROXY_PORT
+    from model_config import (
+        SWITCHYARD_FRONTIER_MODEL,
+        SWITCHYARD_LOCAL_MODEL,
+        SWITCHYARD_PROVIDER,
+    )
 
     routes = [
         r
         for r in (model_routes.coding, model_routes.operational)
         if r.provider == "local-nim"
     ]
+    switchyard = model_routes.operational.provider == SWITCHYARD_PROVIDER
+    if switchyard:
+        routes.append(
+            dataclasses.replace(
+                model_routes.operational,
+                role="switchyard-local",
+                provider="local-nim",
+                model=SWITCHYARD_LOCAL_MODEL,
+            )
+        )
     if not routes:
         return _run_invocations(
             invocations,
@@ -1659,13 +1674,20 @@ def run_invocations(
             {"role": r.role, "model": r.model, "runtime": r.runtime} for r in routes
         ],
     }
+    if switchyard:
+        plan["switchyard"] = {
+            "frontier_model": os.environ.get(
+                "SKILLS_EVAL_SWITCHYARD_FRONTIER_MODEL", SWITCHYARD_FRONTIER_MODEL
+            ),
+            "route": model_routes.operational.model,
+        }
 
     def local_route(route):
         return (
             dataclasses.replace(
                 route, api_key=token, endpoint_url=f"http://127.0.0.1:{PROXY_PORT}/v1"
             )
-            if route.provider == "local-nim"
+            if route.provider in {"local-nim", SWITCHYARD_PROVIDER}
             else route
         )
 
@@ -1698,6 +1720,12 @@ def run_invocations(
             resolved,
             work_deadline,
             nim_plan=plan,
+            router_upstream_key=(
+                os.environ.get("SKILLS_EVAL_SWITCHYARD_FRONTIER_API_KEY")
+                or os.environ.get("SKILLS_EVAL_OPERATIONAL_API_KEY")
+                or os.environ.get("ANTHROPIC_API_KEY")
+                if switchyard else None
+            ),
         )
     finally:
         try:
@@ -1720,10 +1748,13 @@ def _run_invocations(
     model_routes: SkillEvalModelRoutes,
     work_deadline: float | None = None,
     nim_plan: dict | None = None,
+    router_upstream_key: str | None = None,
 ) -> int:
     env = harbor_env(instance)
     if nim_plan is not None:
         env["SKILL_EVAL_LOCAL_NIM_PLAN"] = json.dumps(nim_plan)
+    if router_upstream_key is not None:
+        env["SKILL_EVAL_ROUTER_UPSTREAM_API_KEY"] = router_upstream_key
 
     results_root.mkdir(parents=True, exist_ok=True)
     # skills-eval.yml passes --results-root as <...>/results/<slug>/<run_id>;
@@ -1779,7 +1810,7 @@ def _run_invocations(
             }
         )
         env["COMPATIBLE_API_KEY"] = operational_config.api_key
-        if operational_config.provider == "local-nim":
+        if operational_config.provider in {"local-nim", "switchyard"}:
             # Keep the per-leg proxy credential separate from the generic
             # provider setting, which setup recipes may replace with EMPTY.
             env["SKILL_EVAL_LOCAL_NIM_API_KEY"] = operational_config.api_key

@@ -53,7 +53,8 @@ Manual runs configure both routes without changing the coordinator or judge:
 | `operational_harness` | Operational runtime: `claude-code`, `codex`, or `nemoclaw` |
 | `operational_model` | Independent operational model from [`inference.nvidia.com`](https://inference.nvidia.com/); a blank value preserves its configured default |
 | `coding_deployment` | `nvidia-inference` (default) or `local-nim` for coding/setup |
-| `operational_deployment` | Independent `nvidia-inference` (default) or `local-nim` for operational tasks |
+| `operational_deployment` | Independent `nvidia-inference` (default), `local-nim`, or `switchyard` for NemoClaw operational tasks |
+| `switchyard_frontier_model` | Hosted capable target for Switchyard; defaults to `azure/anthropic/claude-opus-5` |
 | `spark_runner` | Run on Brev external node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`); default false |
 
 
@@ -101,6 +102,28 @@ Sanitized image/tag/digest, model, architecture, startup errors, and bounded
 container logs appear in each trial's `artifacts/local-nim` directory (under
 Harbor's collected `/logs/artifacts` tree). `model-deployments.json` records
 role choices and the actual worker at the leg results root.
+
+### Switchyard for operational NemoClaw
+
+For an operational skill, select `operational_harness=nemoclaw` and
+`operational_deployment=switchyard`; leave `operational_model` blank. The
+runner deploys `nvidia/nemotron-3.5-lightning-30b-a3b` as a NIM on the VSS
+worker and builds the pinned Switchyard source used by
+`deploy/docker/scripts/deploy_vss_switchyard.ipynb`. Switchyard serves
+`switchyard/stage`: its `efficient_first` stage recipe starts with local
+Lightning and can hand off to the hosted Opus 5 capable target. The
+`switchyard_frontier_model` input selects the hosted model ID. The same NGC
+credential and architecture checks as `local-nim` apply; the hosted key comes
+from `SKILLS_EVAL_SWITCHYARD_FRONTIER_API_KEY`,
+`SKILLS_EVAL_OPERATIONAL_API_KEY`, or `ANTHROPIC_API_KEY`, in that order.
+
+Switchyard binds to worker loopback and has separate upstream clients, so the
+hosted key never goes to the local NIM. NemoClaw uses the per-leg authenticated
+LiteLLM proxy at port 18400. The runner checks both direct targets and the
+authenticated route before queries run, records router container logs under
+`artifacts/local-nim`, and tears down the router with the NIM. Build Vision AI
+consumes the selected NemoClaw endpoint from the environment; the notebook is
+not executed in the skill-eval path.
 
 ### Spark selection
 

@@ -35,6 +35,33 @@ def test_catalog_source_is_distinct_from_fixed_inference_api() -> None:
     )
 
 
+def test_switchyard_selects_operational_route_without_a_default_nemoclaw_model() -> None:
+    route = model_config.resolve_model_config({
+        "SKILLS_EVAL_OPERATIONAL_DEPLOYMENT": "switchyard",
+        "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
+        "NGC_API_KEY": "registry-secret",
+        "ANTHROPIC_API_KEY": "hosted-secret",
+    })
+    assert route.model == model_config.SWITCHYARD_ROUTE
+    assert route.provider == "switchyard"
+    assert route.endpoint_url == "http://127.0.0.1:18400/v1"
+    assert route.api_key == "switchyard"
+
+
+def test_switchyard_rejects_non_nemoclaw_or_non_inference_frontier() -> None:
+    base = {
+        "SKILLS_EVAL_OPERATIONAL_DEPLOYMENT": "switchyard",
+        "NGC_API_KEY": "registry-secret",
+        "ANTHROPIC_API_KEY": "hosted-secret",
+    }
+    with pytest.raises(ValueError, match="requires nemoclaw"):
+        model_config.resolve_model_config({**base, "SKILLS_EVAL_OPERATIONAL_HARNESS": "codex",
+                                           "CODEX_MODEL": "example/codex"})
+    with pytest.raises(ValueError, match="NVIDIA Inference Anthropic"):
+        model_config.resolve_model_config({**base, "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
+                                           "SKILLS_EVAL_SWITCHYARD_FRONTIER_MODEL": "other/model"})
+
+
 def test_default_routes_preserve_claude_runner_configuration() -> None:
     routes = model_config.resolve_model_routes(DEFAULT_ENV)
 
@@ -49,6 +76,28 @@ def test_default_routes_preserve_claude_runner_configuration() -> None:
         routes.operational.endpoint_url
         == model_config.NVIDIA_INFERENCE_API_BASE_URL
     )
+
+
+def test_switchyard_requires_nemoclaw_and_local_and_hosted_credentials() -> None:
+    env = {
+        **DEFAULT_ENV,
+        "NGC_API_KEY": "ngc-secret",
+        "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
+        "SKILLS_EVAL_OPERATIONAL_DEPLOYMENT": "switchyard",
+    }
+    route = model_config.resolve_model_config(env)
+    assert route.provider == "switchyard"
+    assert route.model == "switchyard/stage"
+    assert route.api_key == "switchyard"
+    assert route.endpoint_url == "http://127.0.0.1:18400/v1"
+    with pytest.raises(ValueError, match="requires nemoclaw"):
+        model_config.resolve_model_config({**env, "SKILLS_EVAL_OPERATIONAL_HARNESS": "codex"})
+    with pytest.raises(ValueError, match="NGC"):
+        model_config.resolve_model_config({**env, "NGC_API_KEY": ""})
+    with pytest.raises(ValueError, match="frontier API key"):
+        model_config.resolve_model_config({**env, "ANTHROPIC_API_KEY": ""})
+    with pytest.raises(ValueError, match="leave operational_model blank"):
+        model_config.resolve_model_config({**env, "SKILLS_EVAL_OPERATIONAL_MODEL": "nvidia/local"})
 
 
 def test_coding_and_operational_overrides_are_independent() -> None:

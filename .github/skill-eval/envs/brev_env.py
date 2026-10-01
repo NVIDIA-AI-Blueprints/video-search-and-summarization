@@ -583,17 +583,29 @@ class BrevEnvironment(BaseEnvironment):
         ngc_key = os.environ.get("NGC_API_KEY")
         if ngc_key and ("\n" in ngc_key or "\r" in ngc_key):
             raise ValueError("NGC_API_KEY must be a single line")
+        router_key = os.environ.get("SKILL_EVAL_ROUTER_UPSTREAM_API_KEY") if plan.get("switchyard") else None
+        if plan.get("switchyard") and not router_key:
+            raise ValueError("Switchyard requires a hosted frontier API key")
+        if router_key and ("\n" in router_key or "\r" in router_key):
+            raise ValueError("Switchyard API key must be a single line")
         key_setup = (
             'IFS= read -r NGC_API_KEY && test -n "$NGC_API_KEY" && '
             'export NGC_API_KEY && '
             if ngc_key else ""
         )
+        if router_key:
+            key_setup += ('IFS= read -r SKILL_EVAL_ROUTER_UPSTREAM_API_KEY && '
+                          'test -n "$SKILL_EVAL_ROUTER_UPSTREAM_API_KEY" && '
+                          'export SKILL_EVAL_ROUTER_UPSTREAM_API_KEY && ')
         result = await _run_brev_exec(
             self._instance_name,
             f"{key_setup}chmod 600 {remote}.json && "
             f"python3 {remote}.py start --plan {remote}.json",
             timeout=5500,
-            input_data=(ngc_key + "\n").encode() if ngc_key else None,
+            input_data=(
+                ((ngc_key + "\n") if ngc_key else "")
+                + ((router_key + "\n") if router_key else "")
+            ).encode() if ngc_key or router_key else None,
         )
         if result.return_code:
             raise RuntimeError(f"Local NIM deployment failed: {(result.stderr or result.stdout or '')[-2000:]}")
@@ -1146,6 +1158,23 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 
     async def _download_dir_once(self, source_dir: str, target_dir: Path | str) -> None:
         assert self._instance_name
+        if source_dir.rstrip("/") == "/logs/artifacts" and os.environ.get("SKILL_EVAL_LOCAL_NIM_PLAN"):
+            plan = json.loads(os.environ["SKILL_EVAL_LOCAL_NIM_PLAN"])
+            if plan.get("switchyard"):
+                import re
+                owner = plan["owner"]
+                if not re.fullmatch(r"[a-f0-9]{24}", owner):
+                    raise ValueError("Invalid local NIM owner")
+                # The router writes decisions throughout the query, after
+                # startup diagnostics were captured. Refresh immediately
+                # before Harbor archives this trial's artifacts.
+                await _run_brev_exec(
+                    self._instance_name,
+                    "mkdir -p /logs/artifacts/local-nim && "
+                    f"cp ~/.cache/skill-eval-nim/{owner}/switchyard-routing.jsonl "
+                    "/logs/artifacts/local-nim/switchyard-routing.jsonl",
+                    timeout=20,
+                )
         # brev copy has broken directory nesting.  Use tar piped over
         # brev exec: tar on remote, base64-encode with markers, capture
         # via exec, decode+untar locally.  Use sentinel markers to isolate
