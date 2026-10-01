@@ -162,7 +162,7 @@ An example dataset can be found in the [Warehouse_014](https://huggingface.co/da
 A projected 3D cuboid encloses all eight corners and can be larger than the object's tight image-space box. A geometry-only **loose-to-tight (LTT)** MLP learns to correct this difference from paired 3D boxes and tight, amodal 2D boxes in labeled data. During Sparse4D fine-tuning, the MLP is frozen and its predicted correction factors are detached; gradients flow through the corrected box projection into Sparse4D. Per-camera matching then compares these boxes with real-world 2D detections, such as offline RT-DETR predictions, to supervise box geometry and classification.
 
 <Note>
-Use a TAO PyTorch build that includes `model.head.loose_to_tight`. The data preparation commands below also require a TAO Data Services build with `annotations sparse4d_prepare`. Check the experiment specs shipped with your build; the optional LTT training losses are disabled by default.
+Use a TAO PyTorch build that includes `model.head.loose_to_tight`. The data preparation commands below also require a TAO Data Services build with `annotations sparse4d_prepare`; use the [shipped preparation spec](https://github.com/NVIDIA-TAO/tao-data-services/blob/main/nvidia_tao_ds/annotations/experiment_specs/sparse4d_prepare.yaml). LTT fitting and native artifact commands are documented in the [TAO PyTorch tools guide](https://github.com/NVIDIA-TAO/tao-pytorch/blob/main/nvidia_tao_pytorch/cv/sparse4d/tools/README.md). Check the specs shipped with your build; the optional LTT training losses are disabled by default.
 </Note>
 
 #### Choose the supervision route
@@ -177,113 +177,22 @@ Keep 3D-labeled data in the training mix to retain metric geometry supervision.
 #### Prepare the data and geometric correction model
 
 1. **Fit the LTT model on labeled data.** Use `annotations sparse4d_prepare` with `operation=ltt_data` to extract paired cuboid projections and tight amodal 2D boxes. Fit the MLP in the TAO PyTorch environment with `python -m nvidia_tao_pytorch.cv.sparse4d.tools.ltt_train --data /data/ltt_training.npz --out /data/loose_to_tight_mlp.pth --epochs 60 --device cuda`. Check its held-out per-class GIoU against the uncorrected projection baseline.
-2. **Prepare 2D supervision.** Use `operation=ltt_2dgt` for visible-2D sidecars on 3D-labeled scenes. For calibrated real scenes, run the 2D teacher offline, then use `operation=rtdetr_2d` to convert its per-camera KITTI `labels.tar.gz` archives to `<scene>__rtdetr2d.npz`. This operation converts detections; it does not run RT-DETR. Create the matching image/calibration info PKL with the [calibrated real-scene preparation recipe](#convert-calibrated-real-scenes-to-sparse4d-info-pkls) below before building the mixed split.
+2. **Prepare 2D supervision.** Use `operation=ltt_2dgt` for visible-2D sidecars on 3D-labeled scenes. For calibrated real scenes, run the 2D teacher offline, then use `operation=rtdetr_2d` to convert its per-camera KITTI `labels.tar.gz` archives to `<scene>__rtdetr2d.npz`. This operation converts detections; it does not run RT-DETR. Before building the mixed split, supply matching image/calibration info PKLs that meet the [calibrated real-scene input requirements](#prepare-calibrated-real-scene-inputs) below.
 3. **Build the mixed training split.** List the converted 3D-labeled and calibrated real info PKLs once each. Mark genuinely unlabeled 3D samples with `gt_boxes=None`, rather than treating them as annotated empty scenes. Run `operation=lazy_index` after finalizing this split if using `dataset.lazy_load: true`.
 
 Use the same ordered taxonomy for data preparation `class_names`, training `dataset.classes`, the LTT checkpoint, and all caches. For the released seven-class warehouse models, the training names are `person`, `gr1_t2`, `agility_digit`, `nova_carter`, `transporter`, `forklift`, and `pallet_truck`. Map teacher labels explicitly to this taxonomy; a matching class count alone is insufficient. Camera names, source frame IDs, image dimensions, and coordinate conventions must agree between the info PKLs and their caches.
 
-#### Convert calibrated real scenes to Sparse4D info PKLs
+#### Prepare calibrated real-scene inputs
 
-For real footage without 3D annotations, create the image/calibration PKL separately from the teacher cache. The AICity-to-OVPKL `annotations convert` workflow expects ground-truth annotations; it is not an annotation-free preparation command.
+This training workflow starts from prepared Sparse4D info PKLs for the calibrated real scenes. Each PKL must contain synchronized image paths, camera intrinsics and world-to-camera extrinsics, BEV-group membership, sequence identifiers, source frame IDs, and capture timestamps in seconds. Mark frames without 3D annotations with `gt_boxes=None`. Use container-visible image paths and keep the calibration consistent with the image dimensions and metric world frame.
 
-The following recipe uses `spatialai-data-utils==2.0.1`, installed as described in [Camera Grouping for Model Fine-tuning](#camera-grouping-for-model-fine-tuning). Provide an NVSchema `calibration.json` with each camera's `id`, `intrinsicMatrix` (3 × 3), `extrinsicMatrix` (3 × 4 world-to-camera transform), and `frameWidth`/`frameHeight` attributes. Use a shared metric world frame and undistorted images with matching intrinsics. Select cameras from one BEV group with overlapping fields of view.
+<Note>
+The [TAO Data Services AICity-to-OVPKL converter](https://github.com/NVIDIA-TAO/tao-data-services/blob/main/nvidia_tao_ds/annotations/conversion/aicity_to_ovpkl.py) contains the scene-conversion implementation. Its current public `annotations convert` path loads 3D ground truth; it does not expose the internal annotation-free mode. The `rtdetr_2d` operation produces detection caches only, and TAO PyTorch consumes the scene PKLs. Starting from raw footage without 3D annotations therefore requires annotation-free PKL preparation support in Data Services before following this workflow. The commands here do not provide that missing conversion step.
+</Note>
 
-Arrange synchronized, constant-rate frames as follows. Every selected camera must have the same contiguous, zero-based frame IDs. Run the teacher on these same images, preserving the camera names and frame IDs in its labels.
+Use one info PKL per BEV group, with camera names and source frame IDs matching the teacher cache. For example, a PKL scene named `RealWarehouse+bev0` uses `/data/rtdetr/RealWarehouse__rtdetr2d.npz`: the loader strips the BEV-group suffix when locating the cache. Include each PKL once in `/data/mixed_train_split.txt` alongside the 3D-labeled PKLs, then run `operation=lazy_index` using the final split.
 
-```text
-/data/RealWarehouse/
-  calibration.json
-  Camera1/rgb/000000000.jpg
-  Camera1/rgb/000000001.jpg
-  Camera2/rgb/000000000.jpg
-  Camera2/rgb/000000001.jpg
-```
-
-Save this script as `/specs/prepare_real_sparse4d.py` and run it in the environment where the images will also be mounted during training. It writes absolute image paths and marks every frame as lacking 3D ground truth.
-
-```python
-import argparse
-import pickle
-from pathlib import Path
-
-import numpy as np
-from PIL import Image
-from spatialai_data_utils.loaders.calibration import load_calib_into_dict
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--scene-dir", type=Path, required=True)
-parser.add_argument("--output", type=Path, required=True)
-parser.add_argument("--fps", type=float, required=True)
-parser.add_argument("--group", required=True)
-parser.add_argument("--cameras", nargs="+", required=True)
-args = parser.parse_args()
-if not np.isfinite(args.fps) or args.fps <= 0:
-    raise ValueError("--fps must be finite and positive")
-if len(set(args.cameras)) != len(args.cameras):
-    raise ValueError("Each camera must appear only once in a BEV group")
-
-scene = args.scene_dir.resolve()
-calib = load_calib_into_dict(str(scene / "calibration.json"), recentering=False)
-images = {}
-for camera in args.cameras:
-    paths = sorted((scene / camera / "rgb").glob("*.jpg"))
-    expected = [f"{i:09d}.jpg" for i in range(len(paths))]
-    if not paths or [p.name for p in paths] != expected:
-        raise ValueError(f"{camera}: expected contiguous frames starting at 000000000.jpg")
-    camera_calib = calib[camera]
-    intrinsic = np.asarray(camera_calib["intrinsic_matrix"], dtype=np.float32)
-    world_to_camera = np.asarray(camera_calib["w2c_matrix"], dtype=np.float32)
-    if (intrinsic.shape != (3, 3) or world_to_camera.shape != (4, 4)
-            or not np.isfinite(intrinsic).all() or not np.isfinite(world_to_camera).all()):
-        raise ValueError(f"{camera}: invalid calibration matrices")
-    for path in paths:
-        with Image.open(path) as image:
-            if image.size != tuple(camera_calib["image_size"]):
-                raise ValueError(f"{path}: image dimensions do not match calibration")
-    images[camera] = paths
-if len({len(paths) for paths in images.values()}) != 1:
-    raise ValueError("All cameras must contain the same synchronized frames")
-
-scene_name = f"{scene.name}+{args.group}"
-infos = []
-for frame_id in range(len(images[args.cameras[0]])):
-    token = f"{scene_name}__{frame_id:09d}"
-    cams = {}
-    for camera in args.cameras:
-        cams[camera] = {
-            "data_path": str(images[camera][frame_id]),
-            "cam_intrinsic": np.asarray(calib[camera]["intrinsic_matrix"], dtype=np.float32),
-            # Legacy field name: Sparse4D expects world-to-camera here.
-            "sensor2world_transform": np.asarray(calib[camera]["w2c_matrix"], dtype=np.float32),
-            "sample_data_token": f"{token}+{camera}",
-        }
-    infos.append({
-        "token": token,
-        "scene_name": scene_name,
-        "group_name": args.group,
-        "frame_idx": frame_id,
-        "timestamp": frame_id / args.fps,
-        "cams": cams,
-        "gt_boxes": None,
-    })
-args.output.parent.mkdir(parents=True, exist_ok=True)
-with args.output.open("xb") as stream:
-    pickle.dump({"infos": infos, "metadata": {"version": "real_2d_only"}}, stream)
-print(f"Wrote {len(infos)} frames to {args.output}")
-```
-
-For example, replace the camera list with your BEV group's cameras and `30` with the actual capture rate:
-
-```bash
-python /specs/prepare_real_sparse4d.py \
-  --scene-dir /data/RealWarehouse \
-  --output /data/infos/RealWarehouse_bev0.pkl \
-  --fps 30 --group bev0 --cameras Camera1 Camera2
-```
-
-Repeat for each BEV group with a unique group name and output path, and list each output PKL once in `/data/mixed_train_split.txt` alongside the 3D-labeled PKLs. Then build the lazy index from that final split. The loader strips the `+bev0` suffix when locating `/data/rtdetr/RealWarehouse__rtdetr2d.npz`, so groups from the same physical scene share its teacher cache.
-
-The recipe preserves the calibration world frame. Despite its legacy name, `sensor2world_transform` must contain the world-to-camera matrix: Sparse4D projects with `K @ world_to_camera`. Inspect these projections before training. For irregular sampling or dropped frames, adapt the recipe to use actual capture timestamps in seconds and preserve the source frame IDs in each token for cache joins. Keep sequence-local `frame_idx` contiguous from zero. Reuse the base model's anchors or anchors derived from 3D-labeled data; unlabeled real frames cannot supply 3D anchor initialization.
+Inspect projections and cache joins before training. Preserve actual timestamps when sampling irregularly or dropping frames. Reuse the base model's anchors or anchors derived from 3D-labeled data; unlabeled real frames cannot supply 3D anchor initialization.
 
 #### Configure mixed 3D and real-world training
 
