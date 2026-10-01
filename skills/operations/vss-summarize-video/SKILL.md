@@ -18,6 +18,14 @@ metadata:
 
 ## Instructions
 
+- Before readiness checks or video preparation, reject summarization of any
+  stream (RTSP/RTSPS URL or registered camera), including recorded time windows:
+  **Live-stream summarization / report generation isn't supported.** Then stop;
+  do not ingest, extract clips, invoke inference/fallback, or deploy captioning.
+  For a named source, first check its current type with only
+  `vss vios list --sensor <name>`; never reuse an earlier file classification.
+  Reject a `stream`; if the type is unclear or the lookup fails, report that
+  limitation and stop. Uploaded video files remain supported.
 - Execute the five workflow stages below in order.
 - Run API commands yourself; do not tell the user to run them.
 - Use the required references at their named decision points.
