@@ -3,7 +3,7 @@
 - [Model](#model)
 - [Select the foundation](#select-the-foundation)
 - [Compute the delta](#compute-the-delta)
-- [UI subtitle](#ui-subtitle)
+- [UI configuration](#ui-configuration)
 - [Clarification gate](#clarification-gate)
 - [Artifact contract](#artifact-contract)
 - [Resolve](#resolve)
@@ -110,7 +110,16 @@ keys track it; read them before merging configs.
 
 Service activation alone is never a Compose-definition change.
 
-## UI subtitle
+## UI configuration
+
+When `vss-ui` is enabled, default
+`NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_ENABLE=false` to disable file uploads
+in the sidebar chat. Honor an explicit user choice; otherwise write the value
+to the build's `override.env` when the inherited value differs. Apply this to
+both stock and delta builds. Check that `resolved.yml` gives `vss-ui` the
+resulting value.
+
+### UI subtitle
 
 When `vss-ui` is enabled, derive `NEXT_PUBLIC_APP_SUBTITLE` from the final
 `COMPOSE_PROFILES`. In order, include `Alerts - CV` or `Alerts - VLM` for
