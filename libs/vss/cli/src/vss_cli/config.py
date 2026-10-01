@@ -52,15 +52,14 @@ VLM_ENV = {
     "fps": "VSS_VLM_FPS",
     "max_frames": "VSS_VLM_MAX_FRAMES",
     "total_pixels": "VSS_VLM_TOTAL_PIXELS",
-    "locked": "VSS_VLM_LOCKED",
 }
 
 #: The frame-sampling subset of the VLM policy. Left unset, the VLM server's
 #: own sampling defaults apply.
 VLM_SAMPLING_FIELDS = ("fps", "max_frames", "total_pixels")
 
-#: Pre-release names replaced by ``total_pixels``. Rejected rather than
-#: ignored, so a locked policy cannot silently lose its pixel budget.
+#: Pre-release names, rejected rather than ignored so a deployment that still
+#: sets them learns the replacement instead of silently losing the setting.
 _RETIRED_VLM_FIELDS = {
     "shortest_edge": "total_pixels",
     "longest_edge": "total_pixels",
@@ -68,6 +67,7 @@ _RETIRED_VLM_FIELDS = {
 _RETIRED_VLM_ENV = {
     "VSS_VLM_SHORTEST_EDGE": "VSS_VLM_TOTAL_PIXELS",
     "VSS_VLM_LONGEST_EDGE": "VSS_VLM_TOTAL_PIXELS",
+    "VSS_VLM_LOCKED": "`vss configure vlm --lock`",
 }
 
 #: Bumped when the on-disk shape changes incompatibly. A file written by a
@@ -758,7 +758,7 @@ _VLM_INTEGER_ENV_FIELDS = frozenset(
     }
 )
 _VLM_FLOAT_ENV_FIELDS = frozenset({"temperature", "fps"})
-_VLM_BOOLEAN_ENV_FIELDS = frozenset({"enable_reasoning", "locked"})
+_VLM_BOOLEAN_ENV_FIELDS = frozenset({"enable_reasoning"})
 
 
 def _parse_vlm_environment_value(field_name: str, environment_name: str, raw: str) -> object:

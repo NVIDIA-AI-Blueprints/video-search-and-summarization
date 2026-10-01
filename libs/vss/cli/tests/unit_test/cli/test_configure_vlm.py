@@ -213,6 +213,13 @@ def test_retired_pixel_environment_is_rejected_not_ignored(
         config_mod.effective_vlm_config(None)
 
 
+def test_lock_environment_variable_is_retired(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VSS_VLM_LOCKED", "true")
+
+    with pytest.raises(config_mod.ConfigError, match="VSS_VLM_LOCKED; use `vss configure vlm --lock`"):
+        config_mod.effective_vlm_config(None)
+
+
 def test_sampling_fields_combine_in_one_policy(config_home: Path) -> None:
     result = _invoke("--fps", "2", "--max-frames", "64", "--total-pixels", "4194304")
 
@@ -347,7 +354,6 @@ def test_persisted_policy_overrides_every_environment_default(monkeypatch: pytes
         "fps": "4",
         "max_frames": "256",
         "total_pixels": "16777216",
-        "locked": "true",
     }
     for field_name, value in values.items():
         monkeypatch.setenv(config_mod.VLM_ENV[field_name], value)
@@ -387,7 +393,6 @@ def test_vlm_environment_accepts_cosmos_reason_nim_backend(monkeypatch: pytest.M
         ("timeout", "", "VSS_VLM_TIMEOUT is set but empty"),
         ("max_tokens", "8.5", "VSS_VLM_MAX_TOKENS must be an integer"),
         ("temperature", "cold", "VSS_VLM_TEMPERATURE must be a number"),
-        ("locked", "yes", "VSS_VLM_LOCKED must be true or false"),
         (
             "backend",
             "rt-vlm",

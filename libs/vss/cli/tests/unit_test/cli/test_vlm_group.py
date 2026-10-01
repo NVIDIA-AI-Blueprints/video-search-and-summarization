@@ -915,7 +915,6 @@ def test_environment_policy_applies_without_persisted_policy(monkeypatch: pytest
     monkeypatch.setenv("VSS_VLM_FPS", "4")
     monkeypatch.setenv("VSS_VLM_MAX_FRAMES", "64")
     monkeypatch.setenv("VSS_VLM_TOTAL_PIXELS", "16777216")
-    monkeypatch.setenv("VSS_VLM_LOCKED", "true")
 
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup

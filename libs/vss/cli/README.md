@@ -147,13 +147,13 @@ Each field also has an independent runtime environment override:
 | `fps` | `VSS_VLM_FPS` |
 | `max_frames` | `VSS_VLM_MAX_FRAMES` |
 | `total_pixels` | `VSS_VLM_TOTAL_PIXELS` |
-| `locked` | `VSS_VLM_LOCKED` (`true` or `false`) |
 
 Environment variables provide per-field defaults. Values persisted by
 `vss configure vlm` override those defaults. Explicit `vss vlm run` arguments
 override the resulting policy when it is unlocked; conflicting arguments are
 rejected when it is locked. If neither source defines a field, its built-in
 request default applies. Empty or malformed environment variables are errors.
+A policy is locked only by `vss configure vlm --lock`; there is no lock variable.
 
 ### Frame sampling
 
