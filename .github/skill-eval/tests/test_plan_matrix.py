@@ -510,6 +510,19 @@ class ListChangedFiles(unittest.TestCase):
             if orig_changed is not None:
                 os.environ["CHANGED_FILES"] = orig_changed
 
+    def test_manual_operations_filter_excludes_build_skill(self):
+        original = os.environ.pop("CHANGED_FILES", None)
+        os.environ["MANUAL_SKILLS_FILTER"] = "operations"
+        try:
+            files = plan_matrix.list_changed_files()
+        finally:
+            os.environ.pop("MANUAL_SKILLS_FILTER", None)
+            if original is not None:
+                os.environ["CHANGED_FILES"] = original
+        self.assertTrue(files)
+        self.assertTrue(all(path.startswith("skills/operations/") for path in files))
+        self.assertTrue(any("vss-ask-video" in path for path in files))
+
 
 class EmitSlugSafety(unittest.TestCase):
     def test_emit_rejects_unsafe_slug(self):

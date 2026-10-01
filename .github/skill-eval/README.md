@@ -46,6 +46,10 @@ the coding route throughout.
 
 Manual runs configure both routes without changing the coordinator or judge:
 
+Set the workflow's `skills` input to `operations` to sweep every operational
+skill without the Build Vision AI specs. When `spark_runner=true`, the matrix
+queues one leg at a time on the registered Spark worker.
+
 | Workflow input | Meaning |
 |---|---|
 | `coding_harness` | Build Vision AI/setup runtime: `claude-code` or `codex` |

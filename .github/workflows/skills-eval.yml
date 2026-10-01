@@ -34,7 +34,7 @@ on:
         # `type: string` rather than `type: choice` because the skills/
         # tree has more than 10 entries — GitHub caps `choice` at 10.
         # plan_matrix.py validates the value (skill-dir name or `*`).
-        description: "Which skill to eval: `*` or a bare skill-directory name."
+        description: "Which skill to eval: `*`, `operations`, or a bare skill-directory name."
         required: false
         default: "*"
         type: string
@@ -198,9 +198,9 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Allow up to eight matrix legs. Unavailable runner slots queue in
-      # Actions; run_leg.py still caps execution at one leg per GPU box.
-      max-parallel: 8
+      # A Spark sweep shares one registered worker. Queue those legs in Actions
+      # instead of spending their 5.8 h lock budget waiting on each other.
+      max-parallel: ${{ github.event.inputs.spark_runner == 'true' && 1 || 8 }}
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1.5 h agent ceiling
@@ -259,7 +259,10 @@ jobs:
           CODING_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_harness || 'claude-code' }}
           CODING_DEPLOYMENT_INPUT: ${{ inputs.coding_deployment || 'nvidia-inference' }}
           OPERATIONAL_DEPLOYMENT_INPUT: ${{ inputs.operational_deployment || 'nvidia-inference' }}
-          SPARK_RUNNER_INPUT: ${{ inputs.spark_runner && 'true' || 'false' }}
+          # workflow_dispatch exposes checkbox values as strings in event.inputs.
+          # Use that exact value; a manual `gh workflow run -f ...=true` must
+          # not silently fall back to the platform pool.
+          SPARK_RUNNER_INPUT: ${{ github.event.inputs.spark_runner || 'false' }}
           CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || '' }}
           OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
           OPERATIONAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_model || '' }}
