@@ -226,8 +226,8 @@ Development-checkout instructions in a skill do not apply to this image.
 The CLI operates whatever deployment it has recorded. If `VSS_PUBLIC_URL` is
 empty, follow `ENV.md` "Empty VSS_PUBLIC_URL" first. Otherwise record the
 operator's origin once per session, before the first VSS operation, without a
-`configure show` first (if nothing answers, keep an existing recording and
-report it):
+`configure show` first (if nothing answers, keep an existing recording only
+when `configure show` names that same origin; otherwise report and stop):
 
 ```bash
 vss configure --base-url "${VSS_PUBLIC_URL}"
