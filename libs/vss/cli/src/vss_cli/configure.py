@@ -187,7 +187,7 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
         written_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
     # Resolved before saving so a malformed VSS_VLM_* variable fails without writing.
-    effective_vlm = _effective_vlm_or_exit(deployment) if "rt_vlm" in services else None
+    effective_vlm = _effective_vlm_or_exit(deployment)
     path = config_mod.save(deployment)
     click.echo(f"wrote {path} ({len(services)}/{len(config_mod.INGRESS_SERVICES)} services)", err=True)
     if "rt_vlm" in services:

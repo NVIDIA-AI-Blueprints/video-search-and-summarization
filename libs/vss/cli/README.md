@@ -185,6 +185,10 @@ With both set, the CLI sends them `fps` alone, logs a warning, and their
 deployment-wide frame cap applies; `max_frames` applies there only when `fps`
 is unset. vLLM receives both.
 
+A policy saved before this change with `shortest_edge` / `longest_edge` still
+loads: `longest_edge` becomes `total_pixels` (the same request field) and
+`shortest_edge` is dropped. The old flags and `VSS_VLM_*` names are errors.
+
 ## The surface
 
 | Group | What it is | Verbs |

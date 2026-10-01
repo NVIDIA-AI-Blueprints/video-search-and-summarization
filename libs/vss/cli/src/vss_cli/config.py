@@ -60,10 +60,6 @@ VLM_SAMPLING_FIELDS = ("fps", "max_frames", "total_pixels")
 
 #: Pre-release names, rejected rather than ignored so a deployment that still
 #: sets them learns the replacement instead of silently losing the setting.
-_RETIRED_VLM_FIELDS = {
-    "shortest_edge": "total_pixels",
-    "longest_edge": "total_pixels",
-}
 _RETIRED_VLM_ENV = {
     "VSS_VLM_SHORTEST_EDGE": "VSS_VLM_TOTAL_PIXELS",
     "VSS_VLM_LONGEST_EDGE": "VSS_VLM_TOTAL_PIXELS",
@@ -729,13 +725,7 @@ class VlmConfig:
             "total_pixels",
             "locked",
         }
-        retired = sorted(set(raw) & set(_RETIRED_VLM_FIELDS))
-        if retired:
-            raise ConfigError(
-                f"config 'vlm' uses retired fields: {', '.join(retired)}; they were replaced by total_pixels. "
-                f"Delete them from the 'vlm' object in {config_path()}, "
-                "then run `vss configure vlm --total-pixels <N>`."
-            )
+        raw = _migrate_pixel_fields(raw)
         unknown = sorted(set(raw) - expected)
         if unknown:
             raise ConfigError(f"config 'vlm' contains unknown fields: {', '.join(unknown)}")
@@ -745,6 +735,25 @@ class VlmConfig:
             **values,
             locked=raw.get("locked", False),
         ).validate()
+
+
+def _migrate_pixel_fields(raw: dict[str, Any]) -> dict[str, Any]:
+    """Read a policy saved before ``total_pixels`` replaced the edge fields.
+
+    ``longest_edge`` was sent as the same ``size.longest_edge`` field that
+    ``total_pixels`` now fills, so it carries over unchanged; ``shortest_edge``
+    is dropped because the floor is now derived. Rejecting the old keys instead
+    would make the whole config file unloadable, ``--reset`` included.
+    """
+    if "shortest_edge" not in raw and "longest_edge" not in raw:
+        return raw
+    migrated = {name: value for name, value in raw.items() if name not in {"shortest_edge", "longest_edge"}}
+    if raw.get("longest_edge") is not None and migrated.get("total_pixels") is None:
+        migrated["total_pixels"] = raw["longest_edge"]
+    if migrated.get("locked") and all(migrated.get(name) is None for name in VLM_ENV if name != "backend"):
+        # A lock over nothing is not a valid policy; it locked only the dropped floor.
+        migrated["locked"] = False
+    return migrated
 
 
 _VLM_INTEGER_ENV_FIELDS = frozenset(

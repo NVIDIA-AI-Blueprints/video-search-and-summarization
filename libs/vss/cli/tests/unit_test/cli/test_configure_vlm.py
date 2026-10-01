@@ -194,10 +194,36 @@ def test_locked_policy_requires_at_least_one_value(config_home: Path) -> None:
     assert "must configure at least one" in result.output
 
 
-@pytest.mark.parametrize("field_name", ["shortest_edge", "longest_edge"])
-def test_persisted_retired_pixel_field_is_rejected_with_its_replacement(field_name: str) -> None:
-    with pytest.raises(config_mod.ConfigError, match=r"retired fields.*replaced by total_pixels"):
-        config_mod.VlmConfig.from_json({field_name: 16777216, "locked": True})
+def test_saved_edge_fields_migrate_to_total_pixels() -> None:
+    policy = config_mod.VlmConfig.from_json(
+        {"fps": 4, "shortest_edge": 262144, "longest_edge": 16777216, "locked": True}
+    )
+
+    assert policy == config_mod.VlmConfig(fps=4, total_pixels=16777216, locked=True)
+
+
+def test_saved_total_pixels_wins_over_a_stale_longest_edge() -> None:
+    policy = config_mod.VlmConfig.from_json({"longest_edge": 8, "total_pixels": 4194304})
+
+    assert policy.total_pixels == 4194304
+
+
+def test_lock_over_only_the_dropped_floor_is_released() -> None:
+    policy = config_mod.VlmConfig.from_json({"shortest_edge": 262144, "locked": True})
+
+    assert policy == config_mod.VlmConfig(locked=False)
+
+
+def test_config_file_with_edge_fields_still_loads_and_resets(config_home: Path) -> None:
+    path = config_home / "config.json"
+    raw = json.loads(path.read_text())
+    raw["vlm"] = {"backend": "rt_vlm", "shortest_edge": 262144, "longest_edge": 16777216, "locked": True}
+    path.write_text(json.dumps(raw))
+
+    assert config_mod.load().vlm == config_mod.VlmConfig(total_pixels=16777216, locked=True)
+    result = _invoke("--reset")
+    assert result.exit_code == 0, result.output
+    assert config_mod.load().vlm is None
 
 
 @pytest.mark.parametrize("environment_name", ["VSS_VLM_SHORTEST_EDGE", "VSS_VLM_LONGEST_EDGE"])
@@ -299,6 +325,25 @@ def test_configure_rejects_malformed_sampling_environment(
     assert result.exit_code == int(Exit.CONFIGURATION), result.output
     assert "VSS_VLM_MAX_FRAMES must be an integer" in result.output
     assert "wrote" not in result.output
+    assert config_mod.load().base_url == "http://example"
+
+
+def test_configure_without_vlm_route_still_rejects_bad_vlm_environment(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["fps"], "fast")
+    monkeypatch.setattr(
+        configure_mod,
+        "_probe",
+        lambda _base_url, probe_path, _timeout: (probe_path.startswith("/vst"), "HTTP 200"),
+    )
+    monkeypatch.setattr(configure_mod, "_describe", lambda *_args, **_kwargs: [])
+
+    result = CliRunner().invoke(configure_mod.configure, ["--base-url", "http://new"])
+
+    assert result.exit_code == int(Exit.CONFIGURATION), result.output
+    assert "VSS_VLM_FPS must be a number" in result.output
     assert config_mod.load().base_url == "http://example"
 
 
