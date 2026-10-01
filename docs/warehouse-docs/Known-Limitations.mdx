@@ -60,7 +60,11 @@ vios:
 
 RTVI-CV retains its own GPU allocation. If only one physical GPU is available for RTVI-CV and VIOS, configure time-slicing before deploying both workloads.
 
-For the ConfigMap and deployment example, see [GPU time-slicing in the Warehouse 2D Helm README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/README.md#share-one-gpu-with-time-slicing).
+[Multi-Instance GPU (MIG)](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-operator-mig.html) partitions supported GPUs into instances with hardware memory and fault isolation, while [GPU time-slicing](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html) shares GPU access without that isolation, including on GPUs that do not support MIG. Choose based on your GPU hardware, workload compatibility, memory needs, and isolation requirements.
+
+GPU time-slicing can be used with the Warehouse Blueprint’s [2D](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-profile), [3D](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile), [MV3DT](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile) and [2D with Agents](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile) profiles.
+
+For the ConfigMap and device-plugin configuration example, see [GPU time-slicing in the Warehouse MV3DT Helm README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/README.md#gpu-time-slicing-limited-gpu-environments). Two shared allocations allow RTVI-CV and VIOS alone to share one physical GPU. Additional GPU workloads, such as ReID or in-cluster RT-VLM, require additional shared allocations and sufficient GPU memory.
 
 ## VLM Verification of Incidents
 

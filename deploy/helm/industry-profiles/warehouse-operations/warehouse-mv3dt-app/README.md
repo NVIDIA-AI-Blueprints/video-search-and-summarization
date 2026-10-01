@@ -175,8 +175,9 @@ processing enabled.
 ### GPU time-slicing (limited GPU environments)
 
 Time-slicing lets several pods share one physical GPU, which is how this profile
-fits its 3 claims onto 2 cards. For setup instructions, refer to
-[Time-Slicing GPUs in Kubernetes](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html).
+fits its 3 claims onto 2 cards.
+
+[Multi-Instance GPU (MIG)](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-operator-mig.html) partitions supported GPUs into instances with hardware memory and fault isolation, while [GPU time-slicing](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html) shares GPU access without that isolation, including on GPUs that do not support MIG. Choose based on your GPU hardware, workload compatibility, memory needs, and isolation requirements.
 
 A 2-replica configuration is enough here — a 2-GPU node then advertises 4
 `nvidia.com/gpu`, absorbing the 3 steady-state claims plus the staging Job:
