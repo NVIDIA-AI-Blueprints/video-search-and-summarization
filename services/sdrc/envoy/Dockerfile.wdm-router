@@ -40,14 +40,16 @@ RUN apt-get update && \
         python3.10-dev \
         python3.10-distutils \
         python3.10-venv \
-        python3-pip \
     && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv via PyPI (avoid ghcr.io — Blossom CI often TLS-timeouts on GitHub Container Registry).
-# pip comes from the signed Ubuntu python3-pip package above; no bootstrap script
-# is downloaded or executed.
-RUN pip3 install --no-cache-dir --timeout 120 --only-binary :all: "setuptools==78.1.1" "wheel==0.46.2" "uv==0.11.26"
+# python3.10-venv's ensurepip supplies pip from wheels already in that package.
+# No bootstrap script is downloaded.
+RUN python3 -m venv /opt/bootstrap && \
+    /opt/bootstrap/bin/pip install --no-cache-dir --timeout 120 --only-binary :all: \
+        "setuptools==78.1.1" "wheel==0.46.2" "uv==0.11.26"
+ENV PATH="/opt/bootstrap/bin:${PATH}"
 
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends gawk bison gcc make && \
@@ -64,11 +66,6 @@ COPY ./3rdParty_Licenses.md /wdm/3rdParty_Licenses.md
 
 
 # Install runtime + dev (pyinstaller) deps from the lock file via uv into /wdm/.venv.
-# stringcase==1.2.0 is the only locked package without a wheel. Its setup.py is a
-# plain distutils setup() that reads README.rst and runs no other commands, so
-# omitting --no-build does not execute any other package's setup script. Every
-# other package, including pyinstaller, installs from a wheel. pywin32 is
-# win32-only and is not installed on this image.
 RUN uv sync --frozen --no-install-project && \
     rm -rf /root/.cache/uv /root/.cache/pip
 
@@ -90,9 +87,7 @@ RUN rm -rf /wdm
 # jinja2 + ruamel.yaml are required at container start by
 # generate_envoy_config_xds_mw.py (run via system python3, not the venv).
 RUN python3 -m pip install --no-cache-dir jinja2==3.1.4 "ruamel.yaml==0.18.6" && \
-    python3 -m pip uninstall -y uv setuptools wheel && \
-    apt-get purge -y python3-pip && \
-    apt-get autoremove -y && \
+    python3 -m pip uninstall -y uv setuptools wheel pip && \
     rm -rf /root/.cache/uv /root/.cache/pip /usr/local/bin/uv /usr/local/bin/uvx
 RUN apt-get remove gawk bison gcc make -y && \
     apt autoremove -y
