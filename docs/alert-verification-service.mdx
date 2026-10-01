@@ -379,7 +379,7 @@ The path is the dotted module name relative to `/app/` — `parsers.ppe_classifi
 
 **Step 6 — Recreate the container**
 
-Run the `docker compose ... up -d` command from the
+Run the `docker compose ... up --detach --pull always --force-recreate --build` command from the
 [Alert Verification deployment workflow](/vss/vision-agent/agent-workflows/alert-verification#step-1-deploy-the-agent)
 again. Docker Compose recreates Alert Bridge to apply the new volume mount; a
 `docker compose restart` does not apply Compose configuration changes.
@@ -961,7 +961,7 @@ In `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`, the
 
 1. Set `ALERT_ENABLE_OTEL_MONITORING=true`.
 2. Append `otel-collector,jaeger` to both `COMPOSE_PROFILES_CV` and `COMPOSE_PROFILES_VLM`.
-3. Run the `docker compose ... up -d` command from the workflow page again.
+3. Run the `docker compose ... up --detach --pull always --force-recreate --build` command from the workflow page again.
 
 Add the two profiles to the list definitions rather than to `COMPOSE_PROFILES`, which is derived from them. Then open the Jaeger UI and select the `vss-alert-ms` service.
 

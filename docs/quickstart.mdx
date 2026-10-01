@@ -370,8 +370,8 @@ as documented in [Development Profile GPU Requirements](/vss/getting-started/pre
 4. Generates and validates the base deployment plan, then shows a review
    summary (services, model placement, and key endpoints).
 5. Waits for your confirmation before starting containers.
-6. Deploys with `up -d` and waits for readiness gates (container state and
-   core health checks).
+6. Deploys with `up --detach --pull always --force-recreate --build` and waits for
+   readiness gates (container state and core health checks).
 7. Returns a browser-reachable ingress URL (for example
    `http://<HOST_IP>:7777/`) for opening the UI.
 
@@ -1052,11 +1052,11 @@ docker compose -f compose.yml \
   --env-file containers.env \
   --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
   --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
-  up -d
+  up --detach --pull always --force-recreate --build
 ```
 
 Review every unset-variable warning from `config --quiet` against the selected
-profile before running `up -d`. A zero exit code confirms that Compose could
+profile before running `up --detach --pull always --force-recreate --build`. A zero exit code confirms that Compose could
 render the model; it does not prove that every operationally required value is
 set. Variables used only by inactive profiles can also produce warnings.
 
