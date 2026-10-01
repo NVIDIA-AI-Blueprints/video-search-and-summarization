@@ -195,6 +195,29 @@ def test_decoder_warmup_decodes_locally_without_forwarding_frames(monkeypatch):
 
 
 @pytest.mark.no_gpu
+def test_decoder_warmup_releases_pipeline_when_decode_raises(monkeypatch):
+    class FailingFrameGetter:
+        def __init__(self):
+            self.destroyed = 0
+
+        def get_frames(self, chunk):
+            raise RuntimeError("warmup decode failed")
+
+        def destroy_pipeline(self):
+            self.destroyed += 1
+
+    decoder = _make_decoder()
+    getter = FailingFrameGetter()
+    decoder._fgetters = [getter]
+    monkeypatch.setattr(vlm_pipeline_module.os.path, "exists", lambda path: True)
+
+    with pytest.raises(RuntimeError, match="warmup decode failed"):
+        decoder._warmup()
+
+    assert getter.destroyed == 1
+
+
+@pytest.mark.no_gpu
 def test_decode_chunk_retries_frame_extraction_error_and_resets_pipeline(monkeypatch):
     _install_fake_frame_selector(monkeypatch)
     monkeypatch.setattr(vlm_pipeline_module.nvtx, "start_range", lambda *args, **kwargs: object())
