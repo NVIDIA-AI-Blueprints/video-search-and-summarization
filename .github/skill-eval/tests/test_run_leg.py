@@ -37,6 +37,47 @@ import leg_timing  # noqa: E402 - must follow the sys.path insert above
 import model_config  # noqa: E402 - must follow the sys.path insert above
 
 
+class SparkReachability(unittest.TestCase):
+    def node(self, status):
+        import local_nim
+        return {"id": local_nim.SPARK_NODE_ID,
+                "name": local_nim.SPARK_NODE_NAME, "status": status}
+
+    def test_connected_worker_needs_no_fallback(self):
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Connected")]), \
+             mock.patch.object(run_leg.subprocess, "run") as probe:
+            self.assertEqual(run_leg.spark_instance(), "Spark-ba-WiFi")
+        probe.assert_not_called()
+
+    def test_disconnected_worker_with_working_ssh_is_selected(self):
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Disconnected")]), \
+             mock.patch.object(run_leg.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as probe:
+            self.assertEqual(run_leg.spark_instance(), "Spark-ba-WiFi")
+        self.assertEqual(probe.call_args.args[0][-2:], ["spark-ba-wifi", "true"])
+        self.assertEqual(probe.call_args.kwargs["timeout"], 20)
+
+    def test_failed_ssh_probe_blocks_selection(self):
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Disconnected")]), \
+             mock.patch.object(run_leg.subprocess, "run", return_value=subprocess.CompletedProcess([], 255)):
+            with self.assertRaisesRegex(ValueError, "SSH probe failed"):
+                run_leg.spark_instance()
+
+    def test_timed_out_probe_blocks_selection(self):
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Disconnected")]), \
+             mock.patch.object(run_leg.subprocess, "run", side_effect=subprocess.TimeoutExpired("ssh", 20)):
+            with self.assertRaisesRegex(ValueError, "TimeoutExpired"):
+                run_leg.spark_instance()
+
+    def test_wrong_node_identity_never_uses_ssh_fallback(self):
+        node = self.node("Disconnected")
+        node["id"] = "different-node"
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[node]), \
+             mock.patch.object(run_leg.subprocess, "run") as probe:
+            with self.assertRaisesRegex(ValueError, "different Brev node ID"):
+                run_leg.spark_instance()
+        probe.assert_not_called()
+
+
 class DiscoverInvocations(unittest.TestCase):
     def test_discover_single_step_invocation(self):
         with tempfile.TemporaryDirectory() as td:

@@ -1582,11 +1582,41 @@ def spark_instance() -> str:
         ]
         if any(node_id(node) and node_id(node) != SPARK_NODE_ID for node in matches):
             raise ValueError("Spark node name now belongs to a different Brev node ID")
-    if len(matches) != 1 or (matches[0].get("status") or "").lower() != "connected":
+    if len(matches) != 1:
         raise ValueError(
-            f"Spark worker {SPARK_NODE_NAME} ({SPARK_NODE_ID}) is missing or disconnected"
+            f"Spark worker {SPARK_NODE_NAME} ({SPARK_NODE_ID}) is missing or ambiguous"
         )
-    return matches[0]["name"]
+    node = matches[0]
+    name = node["name"]
+    if (node.get("status") or "").lower() != "connected":
+        # Registered-node status can lag a working Brev SSH connection.
+        # Only the explicitly selected, identity-checked Spark may use this
+        # fallback; automatic pool selection still requires Connected.
+        print(
+            f"[run-leg] Spark registry status: {node.get('status')!r}; "
+            "checking SSH reachability before rejecting worker",
+            flush=True,
+        )
+        try:
+            probe = subprocess.run(
+                ["ssh", "-T", "-o", "BatchMode=yes", "-o",
+                 "ConnectTimeout=10", "-o", "ConnectionAttempts=1",
+                 name.lower(), "true"],
+                capture_output=True, text=True, timeout=20,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            raise ValueError(
+                f"Spark worker {name} reports {node.get('status')!r} "
+                f"and its SSH probe failed ({type(exc).__name__})"
+            ) from exc
+        if probe.returncode != 0:
+            raise ValueError(
+                f"Spark worker {name} reports {node.get('status')!r} "
+                f"and its SSH probe failed (exit {probe.returncode}); "
+                "verify the coordinator's Brev SSH alias and connection"
+            )
+        print("[run-leg] Spark SSH probe succeeded despite registry status", flush=True)
+    return name
 
 
 def cleanup_local_nims(instance: str, owner: str) -> None:
