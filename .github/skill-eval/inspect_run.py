@@ -41,6 +41,16 @@ def summarize_log(path):
         "sandbox not found": "sandbox_missing",
         "apply_patch: command not found": "patch_command_missing",
         "Connection refused": "connection_refused",
+        "SUPERVISOR_UNAVAILABLE": "supervisor_unavailable",
+        "gateway is down after webhook config": "webhook_restart_failed",
+        "policy add failed": "policy_apply_failed",
+        "allowed_ips": "policy_address_pins",
+        "notebook failed": "notebook_failed",
+        "AssertionError": "assertion_failed",
+        "still not answering from a forward": "dashboard_forward_failed",
+        "config set failed": "config_set_failed",
+        "scope upgrade": "scope_upgrade",
+        "gateway startup timed out": "gateway_startup_timeout",
         "timed out": "timeout",
     }
     with path.open() as stream:
@@ -133,6 +143,19 @@ def worker(run_id):
                 report["sandbox_phase"] = phase if phase in {"Ready", "Running", "Pending", "Stopped", "Creating", "Provisioning"} else "other"
                 code = '''
 import json, pathlib, socket
+from collections import Counter
+processes=Counter()
+for proc in pathlib.Path('/proc').iterdir():
+    if not proc.name.isdigit():
+        continue
+    try:
+        command=(proc/'cmdline').read_bytes().replace(b'\x00',b' ')
+        for marker,label in [(b'openclaw-gateway','gateway'), (b'gateway run','gateway'), (b'nemoclaw-start','launcher'), (b'nemoclaw-auto-pair','pair_watcher'), (b'nemoclaw-supervisor','supervisor')]:
+            if marker in command:
+                processes[label]+=1
+                break
+    except OSError:
+        pass
 def read(path):
     try:
         return json.loads(pathlib.Path(path).read_text())
@@ -150,6 +173,7 @@ status = read('/tmp/nemoclaw-auto-pair-status.json').get('state')
 print(json.dumps({
     'gateway_port': gateway.get('port') if type(gateway.get('port')) is int else None,
     'gateway_listeners': listeners,
+    'process_kinds':dict(processes),
     'pending_devices': len(read('/sandbox/.openclaw/devices/pending.json')),
     'paired_devices': len(read('/sandbox/.openclaw/devices/paired.json')),
     'pair_watcher_state': status if status in ['running', 'stopped', 'failed', 'ready'] else 'other',
