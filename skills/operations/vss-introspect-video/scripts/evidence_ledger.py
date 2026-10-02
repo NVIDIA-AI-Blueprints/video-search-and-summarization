@@ -119,6 +119,7 @@ FILE_SCOPE_KEYS = {"type", "path"}
 CLAIM_ID_RE = re.compile(r"^claim-[a-z0-9]+(?:-[a-z0-9]+)*$")
 TASK_ID_RE = re.compile(r"^inspect-claim-[a-z0-9]+(?:-[a-z0-9]+)*-r[1-9][0-9]*$")
 OBSERVATION_ID_RE = re.compile(r"^obs-[a-f0-9]{24}$")
+ANSWER_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
 
 
 class LedgerValidationError(ValueError):
@@ -127,6 +128,22 @@ class LedgerValidationError(ValueError):
 
 def _fail(path: str, message: str) -> None:
     raise LedgerValidationError(f"{path}: {message}")
+
+
+def _choice_label(value: Any, path: str, *, required: bool) -> str | None:
+    """Normalize a question's own choice label, or accept none for an open question."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        if required:
+            _fail(path, "must name one of the question's choices")
+        return None
+    if not isinstance(value, str) or not ANSWER_LABEL_RE.fullmatch(value.strip()):
+        _fail(path, "must be one short choice label, not the explanation")
+    label = value.strip()
+    return label.upper() if re.fullmatch(r"[A-Za-z]", label) else label
+
+
+def _render_answer(label: str | None, explanation: str) -> str:
+    return f"{label}. {explanation}" if label else explanation
 
 
 def _strict(value: Any, keys: set[str], path: str) -> Mapping[str, Any]:
@@ -1121,7 +1138,8 @@ def prepare_for_final_result(ledger: Mapping[str, Any]) -> dict[str, Any]:
 def final_result(
     ledger: Mapping[str, Any],
     artifact_dir: str,
-    answer: str | None = None,
+    answer_label: str | None = None,
+    answer_explanation: str | None = None,
 ) -> dict[str, Any]:
     """Build an answered or unresolved handoff with self-contained provenance."""
     ledger = prepare_for_final_result(ledger)
@@ -1130,7 +1148,8 @@ def final_result(
     artifact_dir = _nonempty(artifact_dir, "artifact_dir")
     observation_map = {item["observation_id"]: item for item in ledger["observations"]}
     if ledger["status"] == "answered":
-        answer = _nonempty(answer, "answer")
+        answer_label = _choice_label(answer_label, "answer_label", required=False)
+        answer_explanation = _nonempty(answer_explanation, "answer_explanation")
         evidence = sorted(
             {
                 item_id
@@ -1140,7 +1159,11 @@ def final_result(
         )
         return {
             "status": "answered",
-            "answer": answer,
+            "evidence_status": "resolved",
+            "answer_label": answer_label,
+            "answer_explanation": answer_explanation,
+            "answer": _render_answer(answer_label, answer_explanation),
+            "decision_source": "introspection",
             "evidence": evidence,
             "evidence_details": [
                 copy.deepcopy(observation_map[item_id]) for item_id in evidence
@@ -1149,8 +1172,9 @@ def final_result(
             "revision": ledger["revision"],
             "artifact_dir": artifact_dir,
         }
-    if answer is not None:
-        _fail("answer", "must be null for an unresolved ledger")
+    if answer_label is not None or answer_explanation is not None:
+        answer_label = _choice_label(answer_label, "answer_label", required=True)
+        answer_explanation = _nonempty(answer_explanation, "answer_explanation")
     gaps = []
     for state in ledger["claims"]:
         if (
@@ -1176,9 +1200,30 @@ def final_result(
                 "reason": reason,
             }
         )
+    if answer_label is not None:
+        evidence = sorted(observation_map)
+        return {
+            "status": "answered",
+            "evidence_status": "unresolved",
+            "answer_label": answer_label,
+            "answer_explanation": answer_explanation,
+            "answer": _render_answer(answer_label, answer_explanation),
+            "decision_source": "best_available_choice",
+            "evidence": evidence,
+            "evidence_details": [
+                copy.deepcopy(observation_map[item_id]) for item_id in evidence
+            ],
+            "unresolved_gaps": gaps,
+            "revision": ledger["revision"],
+            "artifact_dir": artifact_dir,
+        }
     return {
         "status": "unresolved",
+        "evidence_status": "unresolved",
+        "answer_label": None,
+        "answer_explanation": None,
         "answer": None,
+        "decision_source": "abstention",
         "evidence": [],
         "evidence_details": [],
         "unresolved_gaps": gaps,
@@ -1216,16 +1261,39 @@ def validate_terminal_pair(
     validate_ledger(ledger)
     if ledger["status"] not in ("answered", "unresolved"):
         _fail("ledger.status", "terminal commit requires a terminal ledger")
-    if terminal_result.get("status") != ledger["status"]:
-        _fail("final_result.status", "must match terminal ledger status")
     if terminal_result.get("revision") != ledger["revision"]:
         _fail("final_result.revision", "must match terminal ledger revision")
-    expected_answer = ledger["status"] == "answered"
-    answer = terminal_result.get("answer")
-    if expected_answer and (not isinstance(answer, str) or not answer.strip()):
-        _fail("final_result.answer", "answered terminal result requires an answer")
-    if not expected_answer and answer is not None:
-        _fail("final_result.answer", "unresolved terminal result requires null answer")
+    expected_evidence_status = (
+        "resolved" if ledger["status"] == "answered" else "unresolved"
+    )
+    if terminal_result.get("evidence_status") != expected_evidence_status:
+        _fail(
+            "final_result.evidence_status",
+            "must reflect the terminal ledger evidence status",
+        )
+    status = terminal_result.get("status")
+    label = terminal_result.get("answer_label")
+    explanation = terminal_result.get("answer_explanation")
+    if status == "answered":
+        if label is not None:
+            _choice_label(label, "final_result.answer_label", required=True)
+        _nonempty(explanation, "final_result.answer_explanation")
+        if ledger["status"] == "unresolved":
+            if terminal_result.get("decision_source") != "best_available_choice":
+                _fail(
+                    "final_result.decision_source",
+                    "an unresolved ledger may answer only as a best-available choice",
+                )
+    elif status == "unresolved":
+        if ledger["status"] != "unresolved":
+            _fail("final_result.status", "a resolved ledger must produce an answer")
+        if label is not None or explanation is not None:
+            _fail(
+                "final_result.answer_label",
+                "an unresolved result cannot contain an answer",
+            )
+    else:
+        _fail("final_result.status", "must be answered or unresolved")
 
 
 def atomic_commit_terminal(
@@ -1243,7 +1311,9 @@ def atomic_commit_terminal(
     atomic_write(ledger_destination, ledger)
     atomic_write(final_destination, terminal_result)
     marker = {
-        "status": ledger["status"],
+        "status": terminal_result["status"],
+        "evidence_status": terminal_result["evidence_status"],
+        "ledger_status": ledger["status"],
         "revision": ledger["revision"],
         "ledger": ledger_destination.name,
         "ledger_sha256": _digest(ledger),
@@ -1328,7 +1398,8 @@ def _parser() -> argparse.ArgumentParser:
     finish = commands.add_parser("final-result")
     finish.add_argument("--ledger", required=True)
     finish.add_argument("--artifact-dir", required=True)
-    finish.add_argument("--answer")
+    finish.add_argument("--answer-label")
+    finish.add_argument("--answer-explanation")
     finish.add_argument("--output")
     identifier = commands.add_parser("observation-id")
     identifier.add_argument("--observation", required=True)
@@ -1389,7 +1460,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     elif args.command == "final-result":
         prepared = prepare_for_final_result(_read(args.ledger))
-        terminal = final_result(prepared, args.artifact_dir, args.answer)
+        terminal = final_result(
+            prepared,
+            args.artifact_dir,
+            args.answer_label,
+            args.answer_explanation,
+        )
         if args.output:
             atomic_commit_terminal(args.ledger, prepared, args.output, terminal)
         else:
