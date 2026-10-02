@@ -6,6 +6,12 @@
   ],
   "resources": {
     "platforms": {
+      "DGX-SPARK": {
+        "modes": [
+          "remote-all"
+        ],
+        "gpu_count": 1
+      },
       "L40S": {
         "modes": [
           "remote-all"

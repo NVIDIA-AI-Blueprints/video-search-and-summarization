@@ -6,6 +6,9 @@
   ],
   "resources": {
     "platforms": {
+      "DGX-SPARK": {
+        "gpu_count": 1
+      },
       "L40S": {
         "gpu_count": 1
       }
