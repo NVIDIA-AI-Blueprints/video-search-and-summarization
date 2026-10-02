@@ -112,13 +112,16 @@ role choices and the actual worker at the leg results root.
 The checkbox selects the **Brev execution worker**, not the GitHub Actions
 coordinator. `run_leg.py` resolves the registered node by external node ID
 (or the supplied name on older Brev versions), then holds the existing
-per-worker lock across all tasks and NIM cleanup. Missing/disconnected nodes
-or conflicting explicit instance overrides fail; no other worker is selected.
+per-worker lock across all tasks and NIM cleanup. Missing nodes or conflicting
+explicit instance overrides fail; no other worker is selected. If Brev reports
+the selected node disconnected, a bounded SSH probe from the coordinator must
+succeed before proceeding. This handles stale registry status without accepting
+an unreachable worker.
 The coordinator needs its Brev SSH alias configured, just as for other
 registered workers. Spark must report ARM64. Existing GPU/memory/disk guards
 are bypassed for this explicit Spark override; normal pool runs retain their
-existing VSS resource checks. The spec's platform label remains the requested
-scenario, while `machine.txt` records where it actually ran. Selecting Spark
+existing VSS resource checks. The manual plan selects only declared `DGX-SPARK`
+specs and fails if none exist; `machine.txt` records the actual worker. Selecting Spark
 does not rewrite a spec's deployment instructions or guarantee that all VSS
 images in that scenario support ARM64.
 
