@@ -53,11 +53,11 @@ queues one leg at a time on the registered Spark worker.
 | Workflow input | Meaning |
 |---|---|
 | `coding_harness` | Build Vision AI/setup runtime: `claude-code` or `codex` |
-| `coding_model` | Independent coding model from [`inference.nvidia.com`](https://inference.nvidia.com/); a blank value preserves its configured default |
+| `coding_deployment` | `hosted-nvidia-inference` (default) or `local-nim` for coding/setup |
+| `coding_model` | Hosted: [Inference Hub](https://inference.nvidia.com/) model ID, such as `nvidia/nvidia/nemotron-3.5-lightning`. Local NIM: self-hosted NIM image ID from [build.nvidia.com](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b?nim=self-hosted), such as `nvidia/nemotron-3.5-lightning-30b-a3b`. A blank value uses the configured default, which must be a NIM image ID for `local-nim` |
 | `operational_harness` | Operational runtime: `claude-code`, `codex`, or `nemoclaw` |
-| `operational_model` | Independent operational model from [`inference.nvidia.com`](https://inference.nvidia.com/); a blank value preserves its configured default |
-| `coding_deployment` | `nvidia-inference` (default) or `local-nim` for coding/setup |
-| `operational_deployment` | Independent `nvidia-inference` (default) or `local-nim` for operational tasks |
+| `operational_deployment` | Independent `hosted-nvidia-inference` (default) or `local-nim` for operational tasks |
+| `operational_model` | Same ID rules as `coding_model`, independently selected for operational tasks |
 | `enable_switchyard` | Route NemoClaw through Switchyard; default false |
 | `switchyard_frontier_model` | Hosted capable target for Switchyard; defaults to `azure/anthropic/claude-opus-5` |
 | `spark_runner` | Run on Brev external node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`); default false |
@@ -73,9 +73,14 @@ input is exposed. Coordinator and judge routing stays unchanged.
 Select `local-nim` independently for either role. Provide a model-specific NIM
 ID (`publisher/model`, optionally prefixed by `nvidia_nim/`) and configure
 `NGC_CLI_API_KEY` or `NGC_API_KEY` on the coordinator. Proprietary hosted-only
-models cannot run locally. The worker authenticates to `nvcr.io`, discovers
-released model-specific NIM tags, selects the newest release with a Linux image
-matching the worker CPU architecture, and pins its digest. Qwen3-32B on ARM64
+models cannot run locally. For Nemotron 3.5 Lightning, enter
+`nvidia/nemotron-3.5-lightning-30b-a3b`, the ID of its
+[self-hosted NIM image](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b?nim=self-hosted),
+instead of the hosted Inference Hub ID `nvidia/nvidia/nemotron-3.5-lightning`.
+The workflow validates this format before selecting a GPU worker. The worker
+authenticates to `nvcr.io`, discovers released model-specific NIM tags, selects
+the newest release with a Linux image matching the worker CPU architecture,
+and pins its digest. Qwen3-32B on ARM64
 also resolves its documented `qwen3-32b-dgx-spark` packaging variant. There is
 no fallback to a different model, a model-free container, or hosted inference.
 A missing image, incompatible architecture, registry access failure, and
@@ -137,13 +142,16 @@ not executed in the skill-eval path.
 The checkbox selects the **Brev execution worker**, not the GitHub Actions
 coordinator. `run_leg.py` resolves the registered node by external node ID
 (or the supplied name on older Brev versions), then holds the existing
-per-worker lock across all tasks and NIM cleanup. Missing/disconnected nodes
-or conflicting explicit instance overrides fail; no other worker is selected.
+per-worker lock across all tasks and NIM cleanup. Missing nodes or conflicting
+explicit instance overrides fail; no other worker is selected. If Brev reports
+the selected node disconnected, a bounded SSH probe from the coordinator must
+succeed before proceeding. This handles stale registry status without accepting
+an unreachable worker.
 The coordinator needs its Brev SSH alias configured, just as for other
 registered workers. Spark must report ARM64. Existing GPU/memory/disk guards
 are bypassed for this explicit Spark override; normal pool runs retain their
-existing VSS resource checks. The spec's platform label remains the requested
-scenario, while `machine.txt` records where it actually ran. Selecting Spark
+existing VSS resource checks. The manual plan selects only declared `DGX-SPARK`
+specs and fails if none exist; `machine.txt` records the actual worker. Selecting Spark
 does not rewrite a spec's deployment instructions or guarantee that all VSS
 images in that scenario support ARM64.
 

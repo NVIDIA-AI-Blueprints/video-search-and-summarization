@@ -39,6 +39,7 @@ def test_switchyard_stage_recipe_separates_local_and_hosted_credentials():
 
 @pytest.mark.parametrize("deployment,model", [
     ("local-nim", "nvidia/selected-local"),
+    ("hosted-nvidia-inference", "nvidia/selected-hosted"),
     ("nvidia-inference", "nvidia/selected-hosted"),
 ])
 def test_switchyard_plan_uses_selected_operational_deployment(monkeypatch, tmp_path, deployment, model):
@@ -91,10 +92,11 @@ def test_switchyard_recipe_keeps_local_and_frontier_credentials_separate():
     assert config["routes"]["probe_frontier"]["target"] == "capable"
 
 
-def test_switchyard_hosted_operational_target_uses_inference_client():
+@pytest.mark.parametrize("deployment", ["hosted-nvidia-inference", "nvidia-inference"])
+def test_switchyard_hosted_operational_target_uses_inference_client(deployment):
     config = tomllib.loads(nim.switchyard_config(
         "azure/anthropic/claude-opus-5", "nvidia/selected-hosted",
-        "nvidia-inference", None, "switchyard/stage",
+        deployment, None, "switchyard/stage",
     ))
     assert "local" not in config["llm_clients"]
     assert config["targets"]["efficient"]["id"] == "nvidia/selected-hosted"
@@ -227,18 +229,41 @@ def test_registry_errors_are_distinct(monkeypatch, code, message):
 
 @pytest.mark.parametrize(
     "model",
-    ["azure/openai/gpt-6-astra", "../model", "nvidia/model;id", "nvidia/model:latest"],
+    [
+        "azure/openai/gpt-6-astra",
+        "nvidia/nvidia/nemotron-3.5-lightning",
+        "../model",
+        "nvidia/model;id",
+        "nvidia/model:latest",
+    ],
 )
-def test_unsupported_model_id_fails_before_worker(model):
-    with pytest.raises(ValueError, match="No model-specific NIM"):
+@pytest.mark.parametrize("role", ["coding", "operational"])
+def test_unsupported_model_id_fails_before_worker(model, role):
+    prefix = f"SKILLS_EVAL_{role.upper()}"
+    with pytest.raises(
+        ValueError,
+        match=rf"{prefix}_MODEL: Invalid local NIM image ID .*expected publisher/model",
+    ):
         model_config.resolve_model_config(
             {
-                "SKILLS_EVAL_CODING_MODEL": model,
-                "SKILLS_EVAL_CODING_DEPLOYMENT": "local-nim",
+                f"{prefix}_MODEL": model,
+                f"{prefix}_DEPLOYMENT": "local-nim",
                 "NGC_API_KEY": "secret",
             },
-            role="coding",
+            role=role,
         )
+
+
+def test_nim_image_id_is_accepted_for_operational_model():
+    route = model_config.resolve_model_config(
+        {
+            "SKILLS_EVAL_OPERATIONAL_MODEL": "nvidia/nemotron-3.5-lightning-30b-a3b",
+            "SKILLS_EVAL_OPERATIONAL_DEPLOYMENT": "local-nim",
+            "NGC_API_KEY": "secret",
+        },
+        role="operational",
+    )
+    assert route.model == "nvidia/nemotron-3.5-lightning-30b-a3b"
 
 
 def test_independent_deployment_and_no_hosted_key_leak():
@@ -253,7 +278,7 @@ def test_independent_deployment_and_no_hosted_key_leak():
     )
     assert routes.coding.provider == "local-nim"
     assert routes.coding.api_key != "hosted-secret"
-    assert routes.operational.provider == "nvidia-inference"
+    assert routes.operational.provider == "hosted-nvidia-inference"
     assert routes.operational.api_key == "hosted-secret"
 
 

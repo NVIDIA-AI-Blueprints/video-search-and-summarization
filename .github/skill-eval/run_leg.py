@@ -1593,29 +1593,38 @@ def spark_instance() -> str:
             raise ValueError("Spark node name now belongs to a different Brev node ID")
     if len(matches) != 1:
         raise ValueError(
-            f"Spark worker {SPARK_NODE_NAME} ({SPARK_NODE_ID}) is missing or disconnected"
+            f"Spark worker {SPARK_NODE_NAME} ({SPARK_NODE_ID}) is missing or ambiguous"
         )
-    name = matches[0]["name"]
-    if (matches[0].get("status") or "").lower() != "connected":
-        # Brev's node heartbeat can lag an otherwise working SSH connection.
-        # Probe only the node whose registered ID was verified above.
+    node = matches[0]
+    name = node["name"]
+    if (node.get("status") or "").lower() != "connected":
+        # Registered-node status can lag a working Brev SSH connection.
+        # Only the explicitly selected, identity-checked Spark may use this
+        # fallback; automatic pool selection still requires Connected.
+        print(
+            f"[run-leg] Spark registry status: {node.get('status')!r}; "
+            "checking SSH reachability before rejecting worker",
+            flush=True,
+        )
         try:
             probe = subprocess.run(
-                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
-                 "-o", "StrictHostKeyChecking=no", name.lower(), "uname -m"],
-                capture_output=True, text=True, timeout=30, check=False,
+                ["ssh", "-T", "-o", "BatchMode=yes", "-o",
+                 "ConnectTimeout=10", "-o", "ConnectionAttempts=1",
+                 name.lower(), "true"],
+                capture_output=True, text=True, timeout=20,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except (subprocess.TimeoutExpired, OSError) as exc:
             raise ValueError(
-                f"Spark worker {name} ({SPARK_NODE_ID}) reports disconnected "
-                f"and SSH probe failed: {exc}"
+                f"Spark worker {name} reports {node.get('status')!r} "
+                f"and its SSH probe failed ({type(exc).__name__})"
             ) from exc
-        if probe.returncode or probe.stdout.strip() not in {"aarch64", "arm64"}:
+        if probe.returncode != 0:
             raise ValueError(
-                f"Spark worker {name} ({SPARK_NODE_ID}) reports disconnected "
-                f"and SSH probe failed: {probe.stderr.strip()[:200]}"
+                f"Spark worker {name} reports {node.get('status')!r} "
+                f"and its SSH probe failed (exit {probe.returncode}); "
+                "verify the coordinator's Brev SSH alias and connection"
             )
-        print(f"[run-leg] Spark heartbeat stale; verified SSH to {name}", flush=True)
+        print("[run-leg] Spark SSH probe succeeded despite registry status", flush=True)
     return name
 
 

@@ -528,7 +528,12 @@ def main() -> int:
     print(f"changed files ({len(changed)}):", file=sys.stderr)
     for f in changed:
         print(f"  {f}", file=sys.stderr)
-    emit(build_matrix(changed))
+    matrix = build_matrix(changed)
+    if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
+        matrix = [row for row in matrix if row.get("platform") == "DGX-SPARK"]
+        if not matrix:
+            raise ValueError("Spark worker selected, but no DGX-SPARK eval specs are declared")
+    emit(matrix)
     return 0
 
 

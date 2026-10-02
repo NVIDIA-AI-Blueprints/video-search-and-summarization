@@ -43,7 +43,7 @@ def test_switchyard_keeps_selected_hosted_operational_model() -> None:
         "ANTHROPIC_API_KEY": "hosted-secret",
     })
     assert route.model == "nvidia/selected-hosted"
-    assert route.provider == "nvidia-inference"
+    assert route.provider == model_config.NVIDIA_INFERENCE_PROVIDER
     assert route.endpoint_url == model_config.NVIDIA_INFERENCE_API_BASE_URL
 
 
@@ -99,6 +99,15 @@ def test_switchyard_requires_selected_model_and_frontier_key() -> None:
         model_config.resolve_model_config({**env, "ANTHROPIC_API_KEY": ""})
     with pytest.raises(ValueError, match="requires SKILLS_EVAL_OPERATIONAL_MODEL"):
         model_config.resolve_model_config({**env, "SKILLS_EVAL_OPERATIONAL_MODEL": ""})
+
+
+def test_legacy_hosted_deployment_name_resolves_to_new_choice() -> None:
+    route = model_config.resolve_model_config(
+        {**DEFAULT_ENV, "SKILLS_EVAL_CODING_DEPLOYMENT": "nvidia-inference"},
+        role="coding",
+    )
+
+    assert route.provider == "hosted-nvidia-inference"
 
 
 def test_coding_and_operational_overrides_are_independent() -> None:

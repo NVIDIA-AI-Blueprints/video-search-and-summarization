@@ -57,7 +57,10 @@ def validate_model_id(model: str) -> str:
     canonical = model.removeprefix("nvidia_nim/")
     if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]*/[a-z0-9][a-z0-9_.-]*", canonical):
         raise ValueError(
-            f"No model-specific NIM available for model ID {model!r}; expected publisher/model"
+            f"Invalid local NIM image ID {model!r}; expected publisher/model "
+            "(optionally prefixed by nvidia_nim/), for example "
+            "nvidia/nemotron-3.5-lightning-30b-a3b. Use the model-specific "
+            "NIM image ID, not a hosted Inference Hub model ID."
         )
     return canonical
 
@@ -522,7 +525,7 @@ def switchyard_config(
     for model in (frontier_model, operational_model, route):
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/-]*", model):
             raise NimError(f"Invalid Switchyard model or route ID: {model!r}")
-    if operational_deployment not in {"local-nim", "nvidia-inference"}:
+    if operational_deployment not in {"local-nim", "hosted-nvidia-inference", "nvidia-inference"}:
         raise NimError(f"Unsupported Switchyard operational deployment: {operational_deployment}")
     if operational_deployment == "local-nim" and local_port is None:
         raise NimError("Switchyard local NIM port is missing")

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 RUNTIMES = ("claude-code", "codex", "nemoclaw")
 CODING_RUNTIMES = ("claude-code", "codex")
-NVIDIA_INFERENCE_PROVIDER = "nvidia-inference"
+NVIDIA_INFERENCE_PROVIDER = "hosted-nvidia-inference"
 NVIDIA_INFERENCE_SOURCE_URL = "https://inference.nvidia.com/"
 NVIDIA_INFERENCE_API_BASE_URL = "https://inference-api.nvidia.com/v1"
 LOCAL_NIM_PROVIDER = "local-nim"
@@ -70,6 +70,9 @@ def resolve_model_config(
     runtime = _first(env.get(f"{prefix}_HARNESS"), runtime_default)
     requested_model = _first(env.get(f"{prefix}_MODEL"))
     deployment = _first(env.get(f"{prefix}_DEPLOYMENT"), NVIDIA_INFERENCE_PROVIDER)
+    if deployment == "nvidia-inference":
+        # Preserve older direct run_leg callers after the workflow choice rename.
+        deployment = NVIDIA_INFERENCE_PROVIDER
     if deployment not in {NVIDIA_INFERENCE_PROVIDER, LOCAL_NIM_PROVIDER}:
         raise ValueError(f"unsupported {role} deployment {deployment!r}")
     route_api_key = _first(env.get(f"{prefix}_API_KEY"))
@@ -123,7 +126,10 @@ def resolve_model_config(
         )
     if deployment == LOCAL_NIM_PROVIDER:
         from local_nim import validate_model_id
-        validate_model_id(model)
+        try:
+            validate_model_id(model)
+        except ValueError as exc:
+            raise ValueError(f"{prefix}_MODEL: {exc}") from exc
         if not _first(env.get("NGC_CLI_API_KEY"), env.get("NGC_API_KEY")):
             raise ValueError("local-nim requires NGC_CLI_API_KEY or NGC_API_KEY")
         # Filled with a per-leg credential by run_leg; never send a hosted key.
