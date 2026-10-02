@@ -10,6 +10,8 @@ import re
 import shlex
 import subprocess
 import sys
+from urllib.parse import quote, urlsplit
+from urllib.request import urlopen
 
 
 def tool_kind(command):
@@ -311,12 +313,31 @@ def coordinator(run_id):
             "finished": bool(data.get("finished_at")),
             "exception": exception if isinstance(exception, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,100}", exception) else None,
         })
+    trace_metadata = []
+    for path in Path('/tmp/skill-eval/results').glob(f'*/{run_id}/trace-urls.tsv'):
+        for line in path.read_text().splitlines():
+            parts = line.split('\t')
+            if len(parts) != 3:
+                continue
+            parsed = urlsplit(parts[2])
+            route = parsed.path.split('/')
+            if parsed.scheme != 'https' or parsed.hostname != 'harbor-b742km29r.brevlab.com' or parsed.query or parsed.fragment or len(route) < 5 or route[1] != 'jobs' or route[3] != 'tasks' or run_id not in route[2]:
+                continue
+            row = {'step':parts[0],'url':parts[2]}
+            try:
+                with urlopen('http://127.0.0.1:8080/api/jobs/'+quote(route[2],safe='')+'/tasks',timeout=5) as response:
+                    data = json.load(response)
+                    row['viewer_http_status'] = response.status
+                    row['viewer_task_count'] = len(data) if isinstance(data,list) else len(data.get('tasks') or []) if isinstance(data,dict) else None
+            except Exception:
+                row['viewer_available'] = False
+            trace_metadata.append(row)
     command = shlex.join(["python3", "-", "--worker", run_id])
     result = subprocess.run(
         ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2", "spark-ba-wifi", command],
         input=Path(__file__).read_text(), capture_output=True, text=True, timeout=45,
     )
-    report = {"run_id": run_id, "completed_trial_metadata": trials, "worker_probe_exit_code": result.returncode}
+    report = {"run_id": run_id, "completed_trial_metadata": trials, "trace_metadata":trace_metadata, "worker_probe_exit_code": result.returncode}
     if result.returncode == 0:
         report["worker"] = json.loads(result.stdout)
     else:
