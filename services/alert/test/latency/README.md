@@ -173,6 +173,48 @@ When `--sensor-id` is combined with `--es-host`, the ES section is skipped (Elas
 | `2` | Invalid `<duration>` format |
 | `3` | One or more query endpoints unreachable or returned an error (report may be incomplete) |
 
+## Real-time VLM Alerts (RT-VLM streaming) Latency
+
+For `MODE=2d_vlm`, alerts come from RT-VLM directly rather than the
+verification flow, so the steps above do not apply. `vlm_streaming_latency.py`
+tails `mdx-vlm-captions` and `mdx-vlm-incidents` on a running pipeline and
+records one row per RT-VLM chunk:
+
+| Metric | Description |
+|--------|-------------|
+| Frame -> Kafka | Sampled frame time (`frames[].timestamp`) → caption Kafka CreateTime |
+| RT-VLM decode / model step / chunk total | RT-VLM's own `info.decodeLatencyMs` / `vlmLatencyMs` / `chunkLatencyMs` |
+| Frame wait + publish | Frame → Kafka minus RT-VLM chunk total |
+| Kafka -> consumer | Kafka CreateTime → received by the script |
+| Frame -> Kafka (incidents) | Frame → incident Kafka CreateTime |
+| Kafka / Frame -> ES indexed | Incidents only; needs `--es-host` and Step 1 (`info.indexedAt`) |
+
+Requires `confluent-kafka` and `protobuf` (see `requirements.txt`) and the
+RT-VLM protos at `services/rtvi/rt-vlm/src` (override with `--proto-path`).
+
+```bash
+python3 vlm_streaming_latency.py --duration 10m
+python3 vlm_streaming_latency.py --duration 1h --es-host localhost --csv-file run1.csv
+python3 vlm_streaming_latency.py --bootstrap <KAFKA_HOST>:9092 --sensor-id <sensorId>
+```
+
+It runs until `--duration` elapses or Ctrl+C, prints a progress line every
+`--report-interval` seconds, then prints Count/Avg/Min/p50/p90/p95/p99/Max per
+metric and writes the per-chunk CSV.
+
+Chunks RT-VLM drops or fails (for example `Live decoder backlog exceeded` when
+inference can't keep up with the chunk rate) are still published, with an
+empty response and `info.error`. The script keeps them in the CSV (`error`
+column), excludes them from the latency statistics, and reports their count
+along with any chunk indices that were never published. A nonzero count means
+the pipeline is overloaded and the latency figures cover only the chunks that
+were answered.
+
+> **Note:** Frame times come from RT-VLM's stream clock and CreateTime from the
+> RT-VLM host. Run on synchronized clocks when components span hosts; negative
+> values are reported as clock-skew warnings. Use the frame time, not the
+> incident `end` field, which is the nominal chunk end and lies in the future.
+
 ## Cleanup (optional)
 
 Remove the `info.indexedAt` pipeline:

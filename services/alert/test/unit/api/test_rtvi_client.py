@@ -387,6 +387,38 @@ class TestGenerateCaptions:
         assert payload["use_fps_for_chunking"] is False
 
     @pytest.mark.asyncio
+    async def test_streaming_vlm_options_are_forwarded(self, client):
+        client._client.post.return_value = make_response()
+
+        await client.generate_captions(
+            "s-1", "p", "m",
+            inference_mode="streaming_vlm",
+            streaming_frame_policy="ordered",
+            streaming_window_frames=8,
+            streaming_question_on_decode=True,
+        )
+
+        payload = client._client.post.call_args.kwargs["json"]
+        assert payload["streaming_question_on_decode"] is True
+        assert payload["inference_mode"] == "streaming_vlm"
+        assert payload["streaming_frame_policy"] == "ordered"
+        assert payload["streaming_window_frames"] == 8
+
+    @pytest.mark.asyncio
+    async def test_unset_streaming_vlm_options_are_omitted(self, client):
+        """Stock RTVI builds must keep receiving the pre-streaming payload."""
+        client._client.post.return_value = make_response()
+
+        await client.generate_captions("s-1", "p", "m")
+
+        payload = client._client.post.call_args.kwargs["json"]
+        for field in (
+            "inference_mode", "streaming_frame_policy", "streaming_window_frames",
+            "streaming_question_on_decode",
+        ):
+            assert field not in payload
+
+    @pytest.mark.asyncio
     async def test_timeout_is_raised_to_at_least_two_minutes(self, client):
         client._client.post.return_value = make_response()
 

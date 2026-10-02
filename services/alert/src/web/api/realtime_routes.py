@@ -440,6 +440,10 @@ async def create_realtime_alert(
         media_info=body.media_info,
         enable_audio=body.enable_audio,
         mm_processor_kwargs=body.mm_processor_kwargs,
+        inference_mode=body.inference_mode,
+        streaming_frame_policy=body.streaming_frame_policy,
+        streaming_window_frames=body.streaming_window_frames,
+        streaming_question_on_decode=body.streaming_question_on_decode,
     )
     response_data, status_code = await service.start_alert(config)
     return JSONResponse(status_code=status_code, content=response_data)
