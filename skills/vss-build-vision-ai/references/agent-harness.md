@@ -364,12 +364,14 @@ for port in "${NEMOCLAW_DASHBOARD_PORT:-18789}" "${NEMOCLAW_DASHBOARD_RELAY_PORT
   echo "$port held by:"
   for pid in $(lsof -tnP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null \
     || ss -Hltnp "sport = :$port" 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2); do
-    printf '  %s: ' "$pid"; tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null; echo
+    printf '  %s: ' "$pid"; tr '\0' ' ' 2>/dev/null <"/proc/$pid/cmdline"; echo
   done
 done
 # stderr first: a process that exits mid-scan makes the shell's own open fail.
 for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' 2>/dev/null <"$f"; echo; done \
   | grep -E '[d]ashboard-(relay|forward-watchdog)\.py'  # --sandbox names the owner
+# A relay must carry this path to count as ours, not just the sandbox name.
+echo "this checkout's relay: $(cd "${VSS_REPO_DIR:-.}" && pwd)/deploy/docker/scripts/nemoclaw/dashboard-relay.py"
 ```
 
 **No `openshell` on the host is a pass, not a failed probe.** Cell 3.1 installs
@@ -380,9 +382,17 @@ held port still blocks even when nothing can name its holder.
 
 **Read ownership off the holder's command line, never off the port.** The
 forward prints `forward service <name>`, the relay and watchdog print
-`--sandbox <name>`; a name equal to `${NEMOCLAW_SANDBOX_NAME:-vss-harness-sandbox}`
-is this build's and anything else is foreign. With several sandboxes on the
+`--sandbox <name>`, and the name to match is
+`${NEMOCLAW_SANDBOX_NAME:-vss-harness-sandbox}`. With several sandboxes on the
 host, the listing and the PID settle nothing on their own.
+
+**The relay must match this checkout's script path as well as the name.**
+Section 3.5 keeps a relay only when its command line carries the resolved
+`deploy/docker/scripts/nemoclaw/dashboard-relay.py` of the checkout being run,
+so a same-name relay from a second clone is foreign however familiar its name
+looks. Apply that test here or the build deploys and then fails at 3.5 with
+`Port <relay-port> is held by pid …, which is not '<sandbox>'s dashboard
+relay` — the conflict Q3 exists to catch, surfacing after the cost.
 
 A holder this build owns is not a conflict: `NEMOCLAW_RECREATE_SANDBOX=1`
 replaces the sandbox named `NEMOCLAW_SANDBOX_NAME`, and the relay cell replaces
