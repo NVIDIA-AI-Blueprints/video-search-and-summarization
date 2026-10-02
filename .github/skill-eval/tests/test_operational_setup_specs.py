@@ -31,6 +31,20 @@ def test_operational_setup_is_spec_owned(spec_path, platform, tmp_path):
     assert f"install `/{skill}`" in query
     assert 'openshell sandbox get "$NEMOCLAW_SANDBOX_NAME"' in query
     assert "sandbox gateway must be ready" in query
+    checks = "\n".join(spec["expects"][0]["checks"])
+    assert "reading or invoking the bundled `/vss-build-vision-ai`" in checks
+    assert "sandbox-installed `vss configure check` succeeds" in checks
+    if "This deployment uses the in-stack agent:" in query:
+        assert "separate evaluation client" in query
+        assert "do not select it in Build Vision AI's Q3" in query
+        assert "VSS_AGENT_ADAPTER_ENABLED=false" in query
+        assert "use Build Vision AI to attach NemoClaw" not in query
+    if skill == "vss-manage-video-io-storage":
+        assert "base-profile composition" in query
+        assert "SDR controller" in query
+        for later in spec["expects"][1:]:
+            assert "Do NOT invoke `/vss-build-vision-ai`" not in later["query"]
+            assert "**Deploy VIOS" not in later["query"]
     # Preserve the alerts backend independently of the evaluated operator.
     if skill == "vss-manage-alerts" and "in-stack agent" in query:
         assert "do not replace it with the evaluation harness" in query

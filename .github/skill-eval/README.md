@@ -39,10 +39,12 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 Operational specs use two independent routes. Their first `expects[]` task
 runs with the coding route and `/vss-build-vision-ai`; its query supplies the
 deployment intent and its checks supply the readiness verdict. Remaining tasks
-run with the operational route. When that route uses NemoClaw, Build Vision AI
-also attaches NemoClaw during the first task as requested by the spec. The
-remaining entries run through the ready sandbox. Build Vision AI and other non-operational specs use
-the coding route throughout.
+run with the operational route. When that route uses NemoClaw, the first query
+also owns sandbox setup. Specs
+that require the in-stack agent bootstrap NemoClaw as a separate evaluation
+client with the checked-in notebook; they preserve the application backend
+and disable its UI adapter. Remaining entries run through the ready sandbox.
+Build Vision AI and other non-operational specs use the coding route throughout.
 
 Manual runs configure both routes without changing the coordinator or judge:
 
@@ -212,7 +214,11 @@ For stock deployments, write the query in the same terms the skill routes on, su
 
 Manual dispatch with `skills=operations` selects all runtime specs under `skills/operations/` and excludes Build Vision AI's own evals. With `spark_runner=true`, matrix legs queue one at a time on the shared Spark worker.
 
-The runner passes the selected runtime as `SKILLS_EVAL_OPERATIONAL_HARNESS` to the worker. Operational setup queries explicitly invoke `/vss-build-vision-ai` and specify conditional NemoClaw attachment, skill installation, and readiness. Adapters include the declared Build Vision AI skill when generating tasks; `run_leg.py` never rewrites generated instructions.
+The runner passes the selected runtime as `SKILLS_EVAL_OPERATIONAL_HARNESS` to the worker. Operational setup queries explicitly invoke `/vss-build-vision-ai` and specify conditional NemoClaw setup, skill installation, and readiness. Adapters include the declared Build Vision AI skill when generating tasks; `run_leg.py` never rewrites generated instructions.
+
+The setup checks require trajectory evidence of Build Vision AI use and,
+when selected, a ready NemoClaw sandbox with its VSS CLI configured. An answer
+that only mentions the skill or sandbox does not satisfy those checks.
 
 ### Worked example — `skills/operations/vss-manage-video-io-storage/evals/vios_ops.json`
 

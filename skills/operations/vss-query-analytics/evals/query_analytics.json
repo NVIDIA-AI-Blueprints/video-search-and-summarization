@@ -29,7 +29,9 @@
       "checks": [
         "The run deploys and verifies a composition containing `vss-video-analytics-api` and its required peers.",
         "The effective service set excludes `vss-agent` and `vss-va-mcp`.",
-        "The project-local `vss` CLI is configured against the deployed ingress origin and `vss configure check` succeeds."
+        "The project-local `vss` CLI is configured against the deployed ingress origin and `vss configure check` succeeds.",
+        "The setup trajectory shows the agent reading or invoking the bundled `/vss-build-vision-ai` skill and using its workflow to deploy the requested backend; mentioning the skill only in the final answer is insufficient.",
+        "When `$SKILLS_EVAL_OPERATIONAL_HARNESS` is `nemoclaw`, the setup trajectory proves the supplied sandbox exists (`openshell sandbox get \"$NEMOCLAW_SANDBOX_NAME\"` succeeds), its gateway is ready, and the sandbox-installed `vss configure check` succeeds against this deployment. For a different selected operational harness, no NemoClaw sandbox is required."
       ]
     },
     {
