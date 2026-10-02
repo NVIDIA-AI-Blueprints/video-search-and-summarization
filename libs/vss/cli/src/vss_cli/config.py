@@ -64,6 +64,12 @@ VLM_SAMPLING_FIELDS = ("fps", "max_frames", "total_pixels", "max_pixels_per_fram
 #: and never written to config.json, like every other credential here.
 VLM_API_KEY_ENV = "VSS_VLM_API_KEY"
 
+#: ``total_pixels`` and ``max_pixels_per_frame`` are alternatives, never a pair:
+#: processors that read ``max_pixels`` (Qwen2-VL's image and video processors in
+#: transformers) write it over ``size.longest_edge``, so sending both silently
+#: replaces the clip budget with the per-frame cap.
+PIXEL_LIMITS_EXCLUSIVE = "set total_pixels or max_pixels_per_frame, not both"
+
 #: Request shapes ``vss vlm run`` can build. ``openai`` is a plain OpenAI
 #: chat completion with no engine-specific fields (Inference Hub).
 VLM_BACKENDS = ("rt_vlm", "vllm", "cosmos_reason_nim", "openai")
@@ -663,6 +669,8 @@ class VlmConfig:
             raise ConfigError("VLM model must be a non-empty string")
         if self.backend in {"vllm", "openai"} and self.chunk_duration not in (None, 0):
             raise ConfigError("positive chunk_duration is supported only by RT-VLM")
+        if self.total_pixels is not None and self.max_pixels_per_frame is not None:
+            raise ConfigError(f"VLM {PIXEL_LIMITS_EXCLUSIVE}")
         for name, value, low, high in (
             ("timeout", self.timeout, 1, 3600),
             ("max_tokens", self.max_tokens, 1, 1_000_000),
@@ -814,6 +822,18 @@ def effective_vlm_config(configured: VlmConfig | None) -> VlmConfig | None:
     An empty variable counts as unset, so an image built with an unset
     ``ARG VSS_VLM_FPS`` -> ``ENV VSS_VLM_FPS=$VSS_VLM_FPS`` leaves the server default.
     """
+    # A VSS_VLM_* name the CLI does not read -- a typo, or a setting this
+    # version no longer has -- would otherwise do nothing without a word.
+    supported = {*VLM_ENV.values(), VLM_API_KEY_ENV}
+    unknown = sorted(
+        name
+        for name, value in os.environ.items()
+        if name.startswith("VSS_VLM_") and name not in supported and value.strip()
+    )
+    if unknown:
+        raise ConfigError(
+            f"unsupported VLM environment variables: {', '.join(unknown)}. Supported: {', '.join(sorted(supported))}"
+        )
     environment_defaults = {
         field_name: _parse_vlm_environment_value(field_name, environment_name, os.environ[environment_name])
         for field_name, environment_name in VLM_ENV.items()

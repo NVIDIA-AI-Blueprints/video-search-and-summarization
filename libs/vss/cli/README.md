@@ -187,8 +187,10 @@ Environment variables provide per-field defaults. Values persisted by
 `vss configure vlm` override those defaults. Explicit `vss vlm run` arguments
 override the resulting policy when it is unlocked; conflicting arguments are
 rejected when it is locked. If neither source defines a field, its built-in
-request default applies. An empty variable counts as unset, so an image built
-with an unset `ARG` keeps the default; a malformed one is an error.
+request default applies. An empty variable counts as unset, so an image that
+declares one empty keeps the default; a malformed one is an error, and so is a
+non-empty `VSS_VLM_*` name the CLI does not support (a typo, or a removed
+setting such as `VSS_VLM_LOCKED`), which would otherwise do nothing.
 A policy is locked only by `vss configure vlm --lock`; there is no lock variable.
 
 ### Frame sampling
@@ -203,6 +205,12 @@ them to the backend rather than resolving them itself:
 | `max_frames` | Upper bound on frames; combines with `fps` | `media_io_kwargs.video.num_frames` (vLLM also gets `max_frames`, which its `qwen3_vl` loader reads) |
 | `total_pixels` | Pixel budget for the whole clip | `mm_processor_kwargs.size.longest_edge`, with `shortest_edge` set to the Qwen3-VL floor of 131072 or `total_pixels` if smaller |
 | `max_pixels_per_frame` | Pixel cap for each frame | `mm_processor_kwargs.max_pixels` |
+
+`total_pixels` and `max_pixels_per_frame` are alternatives: setting both is an
+error, in the saved policy, the environment and `vss vlm run` alike. Processors
+that read `max_pixels` (transformers' Qwen2-VL image and video processors) write
+it over `size.longest_edge`, so the pair would silently replace the clip budget
+with the per-frame cap.
 
 `total_pixels` assumes a Qwen3-VL-family processor (Qwen3-VL, Cosmos-Reason2),
 where the budget covers every frame: 16,777,216 is roughly 8,192 vision tokens

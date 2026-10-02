@@ -268,6 +268,8 @@ class VlmInput(BaseModel):
             raise ValueError("exactly one of --sensor, --media-url, or --file is required")
         if not has_sensor and (self.start_time or self.end_time):
             raise ValueError("--start-time / --end-time require --sensor")
+        if self.total_pixels is not None and self.max_pixels_per_frame is not None:
+            raise ValueError(f"--total-pixels / --max-pixels-per-frame: {config_mod.PIXEL_LIMITS_EXCLUSIVE}")
         return self
 
 
