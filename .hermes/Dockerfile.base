@@ -3,7 +3,8 @@
 #
 # Hermes base image — NemoClaw's managed Hermes runtime with nothing VSS added,
 # for evaluating an agent that a user extends: no skills, no vss or NGC CLI, an
-# empty /sandbox/AGENTS.md, and only terminal, file and skills tools.
+# empty /sandbox/AGENTS.md, and only terminal, file, skills and code_execution
+# tools.
 # tags: [nemoclaw, hermes, base]
 #
 # Tools are switched off by name, never allowlisted (base-config.py), so skills,

@@ -33,12 +33,12 @@ CONFIG = Path("/sandbox/.hermes/config.yaml")
 ENV_FILE = Path("/sandbox/.hermes/.env")
 HASH_FILES = (Path("/etc/nemoclaw/hermes.config-hash"), Path("/sandbox/.hermes/.config-hash"))
 
-# Every toolset except terminal, file and skills, plus the NemoClaw plugin's
+# Every toolset except terminal, file, skills and code_execution, plus the NemoClaw plugin's
 # own (nemoclaw, audio). Toolsets that are off by default are listed too, so a
 # runtime bump that flips a default does not bring them back.
 OFF = [
     "web", "search", "x_search", "browser", "computer_use", "desktop_ui",
-    "code_execution", "vision", "video", "image_gen", "video_gen", "tts",
+    "vision", "video", "image_gen", "video_gen", "tts",
     "todo", "memory", "session_search", "clarify", "delegation", "cronjob",
     "kanban", "project", "context_engine", "homeassistant", "spotify",
     "yuanbao", "discord", "discord_admin", "feishu_doc", "feishu_drive",
@@ -48,6 +48,7 @@ KEEP = {
     "terminal", "process",                                   # terminal
     "read_file", "write_file", "patch", "search_files",      # file
     "skills_list", "skill_view", "skill_manage",             # skills
+    "execute_code",                                          # code_execution
 }
 PLATFORMS = ("cli", "api_server")
 

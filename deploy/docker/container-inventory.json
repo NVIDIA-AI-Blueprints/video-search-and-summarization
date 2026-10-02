@@ -428,7 +428,7 @@
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": [],
       "tag_variables": [],
-      "notes": "Base variant of vss-harness-hermes: NemoClaw's managed Hermes runtime with no skills or VSS CLI, an empty /sandbox/AGENTS.md, and only the terminal, file and skills toolsets, for evaluating an agent users extend with their own skills and plugins. Shares the vss-harness-hermes GHCR repository with the -base tag suffix. Builds nothing from VSS_REF, so source_path is only the files it COPYs."
+      "notes": "Base variant of vss-harness-hermes: NemoClaw's managed Hermes runtime with no skills or VSS CLI, an empty /sandbox/AGENTS.md, and only the terminal, file, skills and code_execution toolsets, for evaluating an agent users extend with their own skills and plugins. Shares the vss-harness-hermes GHCR repository with the -base tag suffix. Builds nothing from VSS_REF, so source_path is only the files it COPYs."
     }
   ]
 }

@@ -122,7 +122,7 @@ with the `-base` tag suffix (`develop-latest-base`, `develop-<sha12>-base`, …)
 
 | | |
 |---|---|
-| Tools | `terminal`, `process`, `read_file`, `write_file`, `patch`, `search_files`, `skills_list`, `skill_view`, `skill_manage` |
+| Tools | `terminal`, `process`, `read_file`, `write_file`, `patch`, `search_files`, `skills_list`, `skill_view`, `skill_manage`, `execute_code` |
 | Skills | none: Hermes' bundled library (`/opt/hermes/skills`) is emptied |
 | Instruction docs | one empty `/sandbox/AGENTS.md`; `SOUL.md` empty; `HERMES_ENVIRONMENT_HINT` cleared |
 | VSS | no `vss` or NGC CLI |
