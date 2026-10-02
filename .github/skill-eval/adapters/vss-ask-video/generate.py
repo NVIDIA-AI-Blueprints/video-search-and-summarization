@@ -192,13 +192,14 @@ def generate_task(
         # Never leak the verifier's checks[] into the instruction so the
         # agent can't write to the test rather than do the actual work.
         step_suffix = f"-step-{idx}" if len(expects) > 1 else ""
+        rendered_query = (expect.get("query") or "").replace("{{platform}}", platform)
         lines = [
             _preamble_for(spec),
             "",
             "",
             f"## Query {idx} of {len(expects)}",
             "",
-            expect.get("query", ""),
+            rendered_query,
             "",
             "Run autonomously without prompting for confirmation.",
             "",

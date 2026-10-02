@@ -58,6 +58,11 @@ def test_generated_tasks_use_routing_metadata_and_project_local_cli(
 
     task_files = sorted(tmp_path.rglob("task.toml"))
     assert len(task_files) == len(spec["expects"])
+    first_instruction = (
+        tmp_path / "base" / "l40s" / "step-1" / "instruction.md"
+    ).read_text()
+    assert "Deploy the VSS base profile on `L40S`" in first_instruction
+    assert "{{platform}}" not in first_instruction
     for task_file in task_files:
         task = task_file.read_text()
         instruction = task_file.with_name("instruction.md").read_text()
