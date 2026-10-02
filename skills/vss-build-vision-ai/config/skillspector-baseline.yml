@@ -235,6 +235,18 @@ rules:
       writable by the calibration container's UID (1000). Preferred fix: chown
       to that UID instead of 0777.
 
+  - id: "SDI-2"
+    path: "scripts/tests/test_apply_onboard_config.py"
+    reason: >-
+      Accepted risk, to revisit: the test pins the NemoClaw harness behavior in
+      .openclaw/apply-onboard-config.py, which sets the gateway control UI's
+      allowedOrigins to "*" and disables device auth for a non-loopback UI host.
+      Per that file, the gateway binds loopback and the gateway token, not the
+      origin, is the gate; an origin derived from CHAT_UI_URL can miss the one
+      the browser sends. Matched on id and path only because this LLM finding's
+      wording varies between runs. Preferred fix: an origin allowlist from the
+      resolved UI origin and device auth kept on, then drop this entry.
+
   - id: "TM2"
     path: "references/prerequisites.md"
     message: "| sh*"
