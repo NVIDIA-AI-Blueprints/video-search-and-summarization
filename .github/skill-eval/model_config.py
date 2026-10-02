@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
@@ -15,6 +16,8 @@ NVIDIA_INFERENCE_PROVIDER = "hosted-nvidia-inference"
 NVIDIA_INFERENCE_SOURCE_URL = "https://inference.nvidia.com/"
 NVIDIA_INFERENCE_API_BASE_URL = "https://inference-api.nvidia.com/v1"
 LOCAL_NIM_PROVIDER = "local-nim"
+SWITCHYARD_ROUTE = "switchyard/stage"
+SWITCHYARD_FRONTIER_MODEL = "azure/anthropic/claude-opus-5"
 ROLES = ("coding", "operational")
 
 
@@ -24,6 +27,13 @@ def _first(*values: object) -> str:
         if text:
             return text
     return ""
+
+
+def switchyard_enabled(env: Mapping[str, str]) -> bool:
+    value = _first(env.get("SKILLS_EVAL_SWITCHYARD"), "false").lower()
+    if value not in {"true", "false"}:
+        raise ValueError("SKILLS_EVAL_SWITCHYARD must be true or false")
+    return value == "true"
 
 
 @dataclass(frozen=True)
@@ -73,6 +83,17 @@ def resolve_model_config(
             f"unsupported {role} harness {runtime!r}; "
             f"expected {' | '.join(allowed_runtimes)}"
         )
+    route_switchyard = role == "operational" and switchyard_enabled(env)
+    if route_switchyard:
+        if runtime != "nemoclaw":
+            raise ValueError("Switchyard requires the NemoClaw operational harness")
+        if not requested_model:
+            raise ValueError("Switchyard requires SKILLS_EVAL_OPERATIONAL_MODEL")
+        frontier_model = _first(env.get("SKILLS_EVAL_SWITCHYARD_FRONTIER_MODEL"), SWITCHYARD_FRONTIER_MODEL)
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/-]*", frontier_model):
+            raise ValueError("Switchyard frontier model must be a valid NVIDIA Inference model ID")
+        if not _first(env.get("SKILLS_EVAL_SWITCHYARD_FRONTIER_API_KEY"), route_api_key, env.get("ANTHROPIC_API_KEY")):
+            raise ValueError("Switchyard requires a hosted frontier API key")
     if runtime in {"claude-code", "codex"}:
         if runtime == "codex":
             model = requested_model or _first(env.get("CODEX_MODEL"))

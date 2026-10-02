@@ -35,8 +35,8 @@ as runners in their own right.
 
 Env:
     PR_BASE        base branch, e.g. develop (diffed as FETCH_HEAD...HEAD)
-    MANUAL_SKILLS_FILTER  workflow_dispatch sweep: a skill-dir name or `*`
-                   (all skills) — enumerates those specs instead of diffing,
+    MANUAL_SKILLS_FILTER  workflow_dispatch sweep: a skill-dir name, `operations`
+                   (operational skills), or `*` (all skills) — enumerates those specs instead of diffing,
                    so the matrix fans per-(spec, platform) like a push
     CHANGED_FILES  optional newline-separated override (tests / local)
     GITHUB_OUTPUT  optional; when set, key=value lines are appended here
@@ -257,7 +257,8 @@ def list_changed_files() -> list[str]:
     # Manual full-sweep (workflow_dispatch): there's no diff. Enumerate the
     # chosen skill(s)' specs so build_matrix fans them per-(spec,platform)
     # exactly like a push — this replaces the legacy single-agent sweep.
-    # `*` sweeps every skill; otherwise a bare skill-dir name.
+    # `*` sweeps every skill, `operations` only the operational category;
+    # otherwise the value is a bare skill-dir name.
     manual = os.environ.get("MANUAL_SKILLS_FILTER")
     if manual:
         # workflow_dispatch input — guard against path escape before it
@@ -271,12 +272,21 @@ def list_changed_files() -> list[str]:
         # matrix that the eval job silently skips (the removed manual-sweep
         # job errored here too).
         skills_map = discover_skills()
-        if manual != "*" and manual not in skills_map:
+        if manual not in {"*", "operations"} and manual not in skills_map:
             raise ValueError(
                 f"MANUAL_SKILLS_FILTER {manual!r}: skill not found under skills/ "
                 f"on this ref — check the skill name"
             )
-        skills = sorted(skills_map) if manual == "*" else [manual]
+        if manual == "*":
+            skills = sorted(skills_map)
+        elif manual == "operations":
+            operations_root = REPO_ROOT / "skills" / "operations"
+            skills = sorted(
+                name for name, path in skills_map.items()
+                if path.is_relative_to(operations_root)
+            )
+        else:
+            skills = [manual]
         return [sp for sk in skills for sp, _, _ in specs_for_skill(sk)]
 
     base = os.environ["PR_BASE"]
@@ -519,10 +529,16 @@ def main() -> int:
     for f in changed:
         print(f"  {f}", file=sys.stderr)
     matrix = build_matrix(changed)
-    if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
+    spark_choice = os.environ.get("SKILLS_EVAL_SPARK_RUNNER")
+    if spark_choice == "true":
         matrix = [row for row in matrix if row.get("platform") == "DGX-SPARK"]
         if not matrix:
             raise ValueError("Spark worker selected, but no DGX-SPARK eval specs are declared")
+    elif spark_choice == "false":
+        regular_matrix = [row for row in matrix if row.get("platform") != "DGX-SPARK"]
+        if matrix and not regular_matrix:
+            raise ValueError("Regular worker selected, but all declared eval specs require DGX-SPARK")
+        matrix = regular_matrix
     emit(matrix)
     return 0
 

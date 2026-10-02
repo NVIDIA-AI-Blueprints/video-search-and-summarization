@@ -5,6 +5,7 @@
 import json
 import subprocess
 import sys
+import tomllib
 import urllib.error
 from pathlib import Path
 from unittest.mock import Mock
@@ -17,6 +18,120 @@ import model_config
 import run_leg
 
 DIGEST = "sha256:" + "a" * 64
+
+
+def test_switchyard_stage_recipe_separates_local_and_hosted_credentials():
+    config = tomllib.loads(nim.switchyard_config(
+        "azure/anthropic/claude-opus-5",
+        "nvidia/nemotron-3.5-lightning-30b-a3b",
+        "local-nim",
+        18410,
+        "switchyard/stage",
+    ))
+    assert config["llm_clients"]["local"]["base_url"] == "http://127.0.0.1:18410/v1"
+    assert "api_key_env" not in config["llm_clients"]["local"]
+    assert config["llm_clients"]["frontier"]["api_key_env"] == "SWITCHYARD_FRONTIER_API_KEY"
+    assert config["targets"]["capable"]["llm_client"] == "frontier"
+    assert config["targets"]["efficient"]["llm_client"] == "local"
+    assert config["routes"]["stage"]["type"] == "stage_router"
+    assert config["routes"]["stage"]["picker"] == "efficient_first"
+
+
+@pytest.mark.parametrize("deployment,model", [
+    ("local-nim", "nvidia/selected-local"),
+    ("hosted-nvidia-inference", "nvidia/selected-hosted"),
+    ("nvidia-inference", "nvidia/selected-hosted"),
+])
+def test_switchyard_plan_uses_selected_operational_deployment(monkeypatch, tmp_path, deployment, model):
+    monkeypatch.setenv("SKILLS_EVAL_SWITCHYARD_FRONTIER_API_KEY", "hosted-secret")
+    monkeypatch.setenv("SKILLS_EVAL_SWITCHYARD", "true")
+    coding = model_config.SkillEvalModelConfig(
+        "coding", "codex", "nvidia-inference", "openai/codex",
+        "https://inference-api.nvidia.com/v1", "coding-secret",
+    )
+    operational = model_config.SkillEvalModelConfig(
+        "operational", "nemoclaw", deployment, model,
+        "http://127.0.0.1:18400/v1" if deployment == "local-nim" else
+        "https://inference-api.nvidia.com/v1", "operational-key",
+    )
+    captured = {}
+
+    def run(*args, **kwargs):
+        captured.update(kwargs)
+        captured["routes"] = args[7]
+        return 0
+
+    monkeypatch.setattr(run_leg, "_run_invocations", run)
+    monkeypatch.setattr(run_leg, "cleanup_local_nims", lambda *args: None)
+    result = run_leg.run_invocations(
+        [], "Spark-ba-WiFi", tmp_path / "results", tmp_path, "test", "SPARK",
+        100, model_config.SkillEvalModelRoutes(coding, operational),
+    )
+    assert result == 0
+    expected_routes = ([{"role": "operational", "model": model, "runtime": "nemoclaw"}]
+                       if deployment == "local-nim" else [])
+    assert captured["nim_plan"]["routes"] == expected_routes
+    assert captured["nim_plan"]["switchyard"]["frontier_model"] == "azure/anthropic/claude-opus-5"
+    assert captured["nim_plan"]["switchyard"]["operational_model"] == model
+    assert captured["nim_plan"]["switchyard"]["operational_deployment"] == deployment
+    assert captured["routes"].operational.model == "switchyard/stage"
+    assert captured["routes"].operational.api_key == captured["nim_plan"]["token"]
+    assert captured["router_upstream_key"] == "hosted-secret"
+    assert "hosted-secret" not in json.dumps(captured["nim_plan"])
+
+
+def test_switchyard_recipe_keeps_local_and_frontier_credentials_separate():
+    config = tomllib.loads(nim.switchyard_config(
+        "azure/anthropic/claude-opus-5", "nvidia/nemotron-3.5-lightning-30b-a3b",
+        "local-nim", 18410, "switchyard/stage",
+    ))
+    assert config["llm_clients"]["local"]["base_url"] == "http://127.0.0.1:18410/v1"
+    assert "api_key_env" not in config["llm_clients"]["local"]
+    assert config["llm_clients"]["frontier"]["api_key_env"] == "SWITCHYARD_FRONTIER_API_KEY"
+    assert config["routes"]["stage"]["type"] == "stage_router"
+    assert config["routes"]["probe_frontier"]["target"] == "capable"
+
+
+@pytest.mark.parametrize("deployment", ["hosted-nvidia-inference", "nvidia-inference"])
+def test_switchyard_hosted_operational_target_uses_inference_client(deployment):
+    config = tomllib.loads(nim.switchyard_config(
+        "azure/anthropic/claude-opus-5", "nvidia/selected-hosted",
+        deployment, None, "switchyard/stage",
+    ))
+    assert "local" not in config["llm_clients"]
+    assert config["targets"]["efficient"]["id"] == "nvidia/selected-hosted"
+    assert config["targets"]["efficient"]["llm_client"] == "frontier"
+
+
+def test_switchyard_hosted_operational_target_starts_without_ngc(monkeypatch, tmp_path):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("NGC_API_KEY", raising=False)
+    monkeypatch.delenv("NGC_CLI_API_KEY", raising=False)
+    commands = []
+    monkeypatch.setattr(nim, "docker", lambda *args, **kwargs: (
+        commands.append(args) or subprocess.CompletedProcess(args, 0, "", "")
+    ))
+    monkeypatch.setattr(nim, "worker_host", lambda: "10.0.0.1")
+    monkeypatch.setattr(nim, "start_switchyard", lambda *args: None)
+    monkeypatch.setattr(nim, "wait_ready", lambda *args, **kwargs: None)
+    monkeypatch.setattr(nim, "smoke_switchyard", lambda *args: None)
+    monkeypatch.setattr(nim, "publish", lambda *args: None)
+    plan = {
+        "owner": "a" * 24,
+        "token": "sk-test",
+        "routes": [],
+        "switchyard": {
+            "operational_model": "nvidia/selected-hosted",
+            "operational_deployment": "nvidia-inference",
+            "frontier_model": "azure/anthropic/claude-opus-5",
+            "route": "switchyard/stage",
+        },
+    }
+    nim.start(plan)
+    assert not any(command[0] in {"login", "pull"} for command in commands)
+    assert sum(command[0] == "run" for command in commands) == 1  # authenticated proxy
+    ready = json.loads((nim.owner_paths(plan["owner"]) / "ready.json").read_text())
+    assert ready["nemoclaw_endpoint"] == "http://10.0.0.1:18400/v1"
 
 
 def registry(monkeypatch, *, arch="arm64", tags=None, fail=None):
@@ -370,6 +485,34 @@ def test_spark_resolves_registered_node_id_even_if_renamed(monkeypatch):
     assert run_leg.spark_instance() == "Spark-renamed"
 
 
+def test_spark_job_choice_survives_removed_agent_hint():
+    assert run_leg.spark_requested({
+        "EVAL_SPARK_RUNNER_REQUESTED": "true",
+        "SKILLS_EVAL_SPARK_RUNNER": "false",
+    })
+    assert not run_leg.spark_requested({
+        "EVAL_SPARK_RUNNER_REQUESTED": "false",
+        "SKILLS_EVAL_SPARK_RUNNER": "false",
+    })
+
+
+def test_spark_job_choice_survives_both_removed_hints(tmp_path):
+    event = tmp_path / "event.json"
+    event.write_text('{"inputs": {"spark_runner": "true"}}')
+    assert run_leg.spark_requested({"GITHUB_EVENT_PATH": str(event)})
+
+
+def test_spark_disconnected_heartbeat_accepts_verified_ssh(monkeypatch):
+    monkeypatch.setattr(run_leg, "_list_registered_nodes", lambda: [{
+        "external_node_id": nim.SPARK_NODE_ID,
+        "name": nim.SPARK_NODE_NAME,
+        "status": "Disconnected",
+    }])
+    probe = Mock(returncode=0, stdout="aarch64\n", stderr="")
+    monkeypatch.setattr(run_leg.subprocess, "run", Mock(return_value=probe))
+    assert run_leg.spark_instance() == nim.SPARK_NODE_NAME
+
+
 @pytest.mark.parametrize(
     "nodes",
     [
@@ -386,5 +529,8 @@ def test_spark_resolves_registered_node_id_even_if_renamed(monkeypatch):
 )
 def test_spark_never_falls_back_to_other_workers(monkeypatch, nodes):
     monkeypatch.setattr(run_leg, "_list_registered_nodes", lambda: nodes)
+    monkeypatch.setattr(
+        run_leg.subprocess, "run", Mock(return_value=Mock(returncode=1, stdout="", stderr="unreachable"))
+    )
     with pytest.raises(ValueError):
         run_leg.spark_instance()

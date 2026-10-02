@@ -511,6 +511,19 @@ class ListChangedFiles(unittest.TestCase):
             if orig_changed is not None:
                 os.environ["CHANGED_FILES"] = orig_changed
 
+    def test_manual_operations_filter_excludes_build_skill(self):
+        original = os.environ.pop("CHANGED_FILES", None)
+        os.environ["MANUAL_SKILLS_FILTER"] = "operations"
+        try:
+            files = plan_matrix.list_changed_files()
+        finally:
+            os.environ.pop("MANUAL_SKILLS_FILTER", None)
+            if original is not None:
+                os.environ["CHANGED_FILES"] = original
+        self.assertTrue(files)
+        self.assertTrue(all(path.startswith("skills/operations/") for path in files))
+        self.assertTrue(any("vss-ask-video" in path for path in files))
+
 
 class EmitSlugSafety(unittest.TestCase):
     def test_emit_rejects_unsafe_slug(self):
@@ -555,6 +568,34 @@ class EmitSlugSafety(unittest.TestCase):
 
 
 class SparkDispatch(unittest.TestCase):
+    def test_unchecked_spark_excludes_spark_for_a_real_base_profile_spec(self):
+        with patch.dict(os.environ, {
+            "MANUAL_SKILLS_FILTER": "vss-ask-video",
+            "SKILLS_EVAL_SPARK_RUNNER": "false",
+        }, clear=True), patch.object(plan_matrix, "emit") as emit:
+            self.assertEqual(plan_matrix.main(), 0)
+        rows = emit.call_args.args[0]
+        self.assertTrue(any(row["platform"] == "L40S" for row in rows))
+        self.assertFalse(any(row["platform"] == "DGX-SPARK" for row in rows))
+
+    def test_unchecked_spark_rejects_spark_only_specs(self):
+        with patch.dict(os.environ, {"SKILLS_EVAL_SPARK_RUNNER": "false"}, clear=True), \
+             patch.object(plan_matrix, "list_changed_files", return_value=[]), \
+             patch.object(plan_matrix, "build_matrix", return_value=[{"platform": "DGX-SPARK"}]), \
+             patch.object(plan_matrix, "emit") as emit:
+            with self.assertRaisesRegex(ValueError, "all declared eval specs require DGX-SPARK"):
+                plan_matrix.main()
+        emit.assert_not_called()
+
+    def test_unset_spark_choice_preserves_platforms_for_other_callers(self):
+        rows = [{"platform": "L40S"}, {"platform": "DGX-SPARK"}]
+        with patch.dict(os.environ, {}, clear=True), \
+             patch.object(plan_matrix, "list_changed_files", return_value=[]), \
+             patch.object(plan_matrix, "build_matrix", return_value=rows), \
+             patch.object(plan_matrix, "emit") as emit:
+            self.assertEqual(plan_matrix.main(), 0)
+        emit.assert_called_once_with(rows)
+
     def test_spark_selection_excludes_other_hardware(self):
         rows = [{"platform": "L40S"}, {"platform": "DGX-SPARK"}]
         with patch.dict(os.environ, {"SKILLS_EVAL_SPARK_RUNNER": "true"}, clear=True), \

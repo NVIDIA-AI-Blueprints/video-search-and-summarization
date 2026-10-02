@@ -34,7 +34,7 @@ on:
         # `type: string` rather than `type: choice` because the skills/
         # tree has more than 10 entries — GitHub caps `choice` at 10.
         # plan_matrix.py validates the value (skill-dir name or `*`).
-        description: "Which skill to eval: `*` or a bare skill-directory name."
+        description: "Which skill to eval: `*`, `operations`, or a bare skill-directory name."
         required: false
         default: "*"
         type: string
@@ -71,12 +71,20 @@ on:
         default: hosted-nvidia-inference
         options: [hosted-nvidia-inference, local-nim]
       operational_model:
-        description: "OPERATIONAL · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning). Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Blank uses the configured default."
+        description: "OPERATIONAL · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning). Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Required when Switchyard is enabled; otherwise blank uses the configured default."
         required: false
         default: ""
         type: string
+      enable_switchyard:
+        description: "Enable Switchyard (NemoClaw only)"
+        type: boolean
+        default: false
+      switchyard_frontier_model:
+        description: "Switchyard frontier model on NVIDIA Inference. Used only with the switchyard deployment."
+        type: string
+        default: azure/anthropic/claude-opus-5
       spark_runner:
-        description: "Run on the registered Brev Spark-ba-WiFi worker."
+        description: "Run on Spark"
         type: boolean
         default: false
 
@@ -195,9 +203,9 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Allow up to eight matrix legs. Unavailable runner slots queue in
-      # Actions; run_leg.py still caps execution at one leg per GPU box.
-      max-parallel: 8
+      # A Spark sweep shares one registered worker. Queue those legs in Actions
+      # instead of spending their 5.8 h lock budget waiting on each other.
+      max-parallel: ${{ github.event.inputs.spark_runner == 'true' && 1 || 8 }}
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1.5 h agent ceiling
@@ -256,10 +264,15 @@ jobs:
           CODING_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_harness || 'claude-code' }}
           CODING_DEPLOYMENT_INPUT: ${{ inputs.coding_deployment || 'hosted-nvidia-inference' }}
           OPERATIONAL_DEPLOYMENT_INPUT: ${{ inputs.operational_deployment || 'hosted-nvidia-inference' }}
-          SPARK_RUNNER_INPUT: ${{ inputs.spark_runner && 'true' || 'false' }}
+          ENABLE_SWITCHYARD_INPUT: ${{ github.event.inputs.enable_switchyard || 'false' }}
+          # workflow_dispatch exposes checkbox values as strings in event.inputs.
+          # Use that exact value; a manual `gh workflow run -f ...=true` must
+          # not silently fall back to the platform pool.
+          SPARK_RUNNER_INPUT: ${{ github.event.inputs.spark_runner || 'false' }}
           CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || '' }}
           OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
           OPERATIONAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_model || '' }}
+          SWITCHYARD_FRONTIER_MODEL_INPUT: ${{ inputs.switchyard_frontier_model || 'azure/anthropic/claude-opus-5' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
@@ -283,11 +296,13 @@ jobs:
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
           coding_deployment="$CODING_DEPLOYMENT_INPUT"
           operational_deployment="$OPERATIONAL_DEPLOYMENT_INPUT"
+          enable_switchyard="$ENABLE_SWITCHYARD_INPUT"
           spark_runner="$SPARK_RUNNER_INPUT"
           coding_harness="$CODING_HARNESS_INPUT"
           coding_model="$CODING_MODEL_INPUT"
           operational_harness="$OPERATIONAL_HARNESS_INPUT"
           operational_model="$OPERATIONAL_MODEL_INPUT"
+          switchyard_frontier_model="$SWITCHYARD_FRONTIER_MODEL_INPUT"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
@@ -300,7 +315,12 @@ jobs:
           export PATH="$skill_eval_venv_dir/bin:$PATH"
           export SKILLS_EVAL_CODING_DEPLOYMENT="$coding_deployment"
           export SKILLS_EVAL_OPERATIONAL_DEPLOYMENT="$operational_deployment"
+          export SKILLS_EVAL_SWITCHYARD="$enable_switchyard"
+          export SKILLS_EVAL_SWITCHYARD_FRONTIER_MODEL="$switchyard_frontier_model"
           export SKILLS_EVAL_SPARK_RUNNER="$spark_runner"
+          # Preserve the operator's choice if the coordinator agent unsets its
+          # normal routing variable while reasoning about a spec platform.
+          export EVAL_SPARK_RUNNER_REQUESTED="$spark_runner"
           export EVAL_AGENT="$operational_harness"
           export SKILLS_EVAL_CODING_HARNESS="$coding_harness"
           if [ -n "$coding_model" ]; then

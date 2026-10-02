@@ -558,7 +558,9 @@ Match rules enforced by `envs/brev_env.py::_check_instance_matches`
   box with **at least** the spec's `gpu_count` — a 1-GPU spec runs fine on
   a 2-GPU box (2nd GPU idles); only an *under*-provisioned box is rejected.
   `run_leg.py` prefers registered capacity first, then exact name-hinted
-  counts within the registered/managed tier. An over-provisioned box is a
+  counts within the registered/managed tier. It skips a managed box when
+  Brev reports its shell as NOT READY, even if the box is RUNNING. An
+  over-provisioned box is a
   valid fallback when no exact match is free/reachable. Because the `>=`
   check passes (rather
   than raising), `start()` runs `_reset_docker_runtime` on the fallback
@@ -604,6 +606,13 @@ checks architecture, starts it after Docker reset, and shares one deployment
 when both roles select the same model. Do not deploy these inference models
 in an adapter or ask the evaluated agent to deploy them. The harness manages
 their endpoints, temporary credentials, readiness, logs, and cleanup.
+For an operational NemoClaw run with `enable_switchyard=true`, the harness
+routes the selected operational model from its selected deployment through a
+loopback-only Switchyard router, with a separately selected hosted frontier.
+It starts a local NIM only when `operational_deployment=local-nim`.
+Build Vision AI consumes the provided `NEMOCLAW_*` endpoint and route; do not
+run the interactive Switchyard notebook in the eval task or replace its
+per-leg proxy key with a hosted key.
 Coordinator and judge routing stays runner-managed. One role must never inherit
 another role's model or deployment override. See README.md for lifecycle details.
 
@@ -614,6 +623,13 @@ pool worker, or change the GitHub coordinator. This explicit override checks
 ARM64 only and skips existing GPU/memory/disk resource checks. Report the
 actual machine from the wrapper's output; spec platform labels describe the
 requested scenario, not the selected hardware.
+The workflow also exports `EVAL_SPARK_RUNNER_REQUESTED` from the operator's
+checkbox. `run_leg.py` honors either flag, so removing the ordinary hint
+cannot silently move a Spark-selected trial to a pool worker.
+Never unset either Spark flag or route a Spark-selected job to a platform pool,
+even when the spec's platform label is L40S. If the selected Spark node is
+unreachable, report `BLOCKED: Spark worker unavailable` and stop that leg.
+Do not retry the leg on another machine.
 
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`

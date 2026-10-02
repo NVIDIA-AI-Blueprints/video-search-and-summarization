@@ -1880,6 +1880,21 @@ class PoolCandidates(unittest.TestCase):
         names = run_leg.pool_candidates({"gpu_type": "L40S", "gpu_count": 1})
         self.assertEqual(names, ["vss-eval-l40s", "vss-eval-l40s-2"])
 
+    def test_unready_exact_count_yields_to_ready_larger_box(self):
+        fleet = [
+            {"name": "vss-eval-l40s-1g", "status": "RUNNING",
+             "shell_status": "NOT READY", "gpu": "L40S",
+             "instance_type": "massedcompute_L40Sx1"},
+            {"name": "vss-eval-l40s-5", "status": "RUNNING",
+             "shell_status": "READY", "gpu": "L40S",
+             "instance_type": "massedcompute_L40Sx2"},
+        ]
+        with mock.patch.object(run_leg, "_list_pool_instances", return_value=fleet):
+            self.assertEqual(
+                run_leg.pool_candidates({"gpu_type": "L40S", "gpu_count": 1}),
+                ["vss-eval-l40s-5"],
+            )
+
     def test_gpu_count_zero_accepts_any_running_pool_box(self):
         names = run_leg.pool_candidates({"gpu_count": 0})
         self.assertEqual(len(names), 5)

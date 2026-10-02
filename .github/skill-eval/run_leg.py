@@ -24,6 +24,7 @@ the reservation one atomic step.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 import contextlib
 import dataclasses
 import errno
@@ -742,8 +743,11 @@ def pool_candidates(
 ) -> list[str]:
     """Eligible `vss-eval-*` boxes for this leg, best-first.
 
-    Hardware-hard, software-free (AGENTS.md § 5a): RUNNING + gpu_type
-    token match. Dedicated registered nodes sort before managed cloud
+    Hardware-hard, software-free (AGENTS.md § 5a): RUNNING, shell-ready
+    when Brev reports shell status, and gpu_type token match. A managed
+    instance can be RUNNING while its SSH shell is NOT READY; offering it
+    repeatedly prevents a reachable larger box from ever being tried.
+    Dedicated registered nodes sort before managed cloud
     instances; exact name-hinted gpu_count matches sort first within each
     tier. Over-provisioned boxes remain valid — brev_env validates the final
     pick with live nvidia-smi and the box is reset either way.
@@ -765,6 +769,11 @@ def pool_candidates(
         if not name.startswith("vss-eval-"):
             continue
         if (inst.get("status") or "").upper() != "RUNNING":
+            continue
+        shell_status = inst.get("shell_status") or inst.get("shellStatus")
+        if str(shell_status or "").strip().upper() in {
+            "NOT READY", "NOT_READY", "UNREADY", "DISCONNECTED", "FAILED"
+        }:
             continue
         if required_count > 0:
             # Applies to managed instances too, not just registered nodes.
@@ -1619,6 +1628,26 @@ def spark_instance() -> str:
     return name
 
 
+def spark_requested(environment: Mapping[str, str] | None = None) -> bool:
+    """Honor the job's Spark choice even if the coordinator agent changes its hint."""
+    env = environment if environment is not None else os.environ
+    if (
+        env.get("EVAL_SPARK_RUNNER_REQUESTED") == "true"
+        or env.get("SKILLS_EVAL_SPARK_RUNNER") == "true"
+    ):
+        return True
+    # The workflow dispatch payload survives shell-level env changes by the
+    # coordinator agent. An operator-requested Spark run must never fall back.
+    event_path = env.get("GITHUB_EVENT_PATH")
+    if event_path:
+        try:
+            event = json.loads(Path(event_path).read_text())
+            return str(event.get("inputs", {}).get("spark_runner", "")).lower() == "true"
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+    return False
+
+
 def cleanup_local_nims(instance: str, owner: str) -> None:
     # Use the same transport as Harbor (registered nodes use SSH). The file
     # is uploaded before start, so cleanup also covers interrupted readiness.
@@ -1662,13 +1691,19 @@ def run_invocations(
     work_deadline: float | None = None,
 ) -> int:
     from local_nim import PROXY_PORT
+    from model_config import (
+        SWITCHYARD_FRONTIER_MODEL,
+        SWITCHYARD_ROUTE,
+        switchyard_enabled,
+    )
 
     routes = [
         r
         for r in (model_routes.coding, model_routes.operational)
         if r.provider == "local-nim"
     ]
-    if not routes:
+    switchyard = switchyard_enabled(os.environ)
+    if not routes and not switchyard:
         return _run_invocations(
             invocations,
             instance,
@@ -1689,6 +1724,15 @@ def run_invocations(
             {"role": r.role, "model": r.model, "runtime": r.runtime} for r in routes
         ],
     }
+    if switchyard:
+        plan["switchyard"] = {
+            "frontier_model": os.environ.get(
+                "SKILLS_EVAL_SWITCHYARD_FRONTIER_MODEL", SWITCHYARD_FRONTIER_MODEL
+            ),
+            "operational_model": model_routes.operational.model,
+            "operational_deployment": model_routes.operational.provider,
+            "route": SWITCHYARD_ROUTE,
+        }
 
     def local_route(route):
         return (
@@ -1701,7 +1745,16 @@ def run_invocations(
 
     resolved = SkillEvalModelRoutes(
         coding=local_route(model_routes.coding),
-        operational=local_route(model_routes.operational),
+        operational=(
+            dataclasses.replace(
+                model_routes.operational,
+                provider="switchyard",
+                model=SWITCHYARD_ROUTE,
+                api_key=token,
+                endpoint_url=f"http://127.0.0.1:{PROXY_PORT}/v1",
+            )
+            if switchyard else local_route(model_routes.operational)
+        ),
     )
     results_root.mkdir(parents=True, exist_ok=True)
     (results_root / "model-deployments.json").write_text(
@@ -1728,6 +1781,12 @@ def run_invocations(
             resolved,
             work_deadline,
             nim_plan=plan,
+            router_upstream_key=(
+                os.environ.get("SKILLS_EVAL_SWITCHYARD_FRONTIER_API_KEY")
+                or os.environ.get("SKILLS_EVAL_OPERATIONAL_API_KEY")
+                or os.environ.get("ANTHROPIC_API_KEY")
+                if switchyard else None
+            ),
         )
     finally:
         try:
@@ -1750,10 +1809,13 @@ def _run_invocations(
     model_routes: SkillEvalModelRoutes,
     work_deadline: float | None = None,
     nim_plan: dict | None = None,
+    router_upstream_key: str | None = None,
 ) -> int:
     env = harbor_env(instance)
     if nim_plan is not None:
         env["SKILL_EVAL_LOCAL_NIM_PLAN"] = json.dumps(nim_plan)
+    if router_upstream_key is not None:
+        env["SKILL_EVAL_ROUTER_UPSTREAM_API_KEY"] = router_upstream_key
 
     results_root.mkdir(parents=True, exist_ok=True)
     # skills-eval.yml passes --results-root as <...>/results/<slug>/<run_id>;
@@ -1809,7 +1871,7 @@ def _run_invocations(
             }
         )
         env["COMPATIBLE_API_KEY"] = operational_config.api_key
-        if operational_config.provider == "local-nim":
+        if operational_config.provider in {"local-nim", "switchyard"}:
             # Keep the per-leg proxy credential separate from the generic
             # provider setting, which setup recipes may replace with EMPTY.
             env["SKILL_EVAL_LOCAL_NIM_API_KEY"] = operational_config.api_key
@@ -2108,7 +2170,10 @@ def main(argv: list[str] | None = None) -> int:
         effective_lock_timeout = min(args.lock_timeout_sec, max_lock_wait)
         # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
         # > task.toml brev_instance > pool selection.
-        if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
+        if spark_requested():
+            # BrevEnv applies the Spark architecture-only check through this
+            # flag; restore it if the coordinator agent removed its hint.
+            os.environ["SKILLS_EVAL_SPARK_RUNNER"] = "true"
             pinned = spark_instance()
             if args.instance and args.instance.casefold() != pinned.casefold():
                 raise ValueError("--instance conflicts with the selected Spark worker")

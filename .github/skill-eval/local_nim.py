@@ -31,6 +31,8 @@ import urllib.request
 from pathlib import Path
 
 PROXY_PORT = 18400
+SWITCHYARD_REF = "cef42319255e6d6788fd6287fedde0a0f115065e"
+ROUTER_PORT = 18430
 LITELLM_VERSION = "1.103.0"
 LABEL = "vss.skill-eval.nim-owner"
 STARTUP_BUDGET_SEC = 5400
@@ -229,7 +231,7 @@ def docker(
     if check and result.returncode:
         # Docker diagnostics are useful but never include the registry key.
         error = result.stderr[-1500:]
-        for name in ("NGC_API_KEY", "NGC_CLI_API_KEY"):
+        for name in ("NGC_API_KEY", "NGC_CLI_API_KEY", "SKILL_EVAL_ROUTER_UPSTREAM_API_KEY"):
             if os.environ.get(name):
                 error = error.replace(os.environ[name], "[REDACTED]")
         raise NimError(f"Docker {args[0]} failed: {error}")
@@ -280,7 +282,7 @@ def wait_ready(url: str, token: str, timeout: int = 900, container: str | None =
             if state.returncode or not state.stdout.startswith("true "):
                 logs = docker("logs", "--tail", "40", container, check=False)
                 detail = (logs.stderr or logs.stdout or state.stderr or "")[-2500:]
-                for name in ("NGC_API_KEY", "NGC_CLI_API_KEY"):
+                for name in ("NGC_API_KEY", "NGC_CLI_API_KEY", "SKILL_EVAL_ROUTER_UPSTREAM_API_KEY"):
                     if os.environ.get(name):
                         detail = detail.replace(os.environ[name], "[REDACTED]")
                 raise NimError(
@@ -310,9 +312,12 @@ def start(plan: dict):
             else None
         )
         same_plan = (
-            previous.get("roles") == plan["routes"] and previous_key == plan["token"]
+            previous.get("roles") == plan["routes"]
+            and previous.get("switchyard") == plan.get("switchyard")
+            and previous_key == plan["token"]
         )
-        if same_plan and len(containers) == len(unique_models(plan["routes"])) + 1:
+        expected = len(unique_models(plan["routes"])) + 1 + bool(plan.get("switchyard"))
+        if same_plan and len(containers) == expected:
             for i, model in enumerate(unique_models(plan["routes"])):
                 base = f"http://127.0.0.1:{PROXY_PORT + 10 + i}/v1"
                 wait_ready(
@@ -328,6 +333,9 @@ def start(plan: dict):
             wait_ready(
                 f"http://127.0.0.1:{PROXY_PORT}/health/liveliness", plan["token"], 30
             )
+            if plan.get("switchyard"):
+                request_json(f"http://127.0.0.1:{ROUTER_PORT}/v1/stats")
+                smoke_switchyard(plan)
             smoke_routes(plan, worker_host() if any(
                 route["runtime"] == "nemoclaw" for route in plan["routes"]
             ) else None)
@@ -337,11 +345,10 @@ def start(plan: dict):
     marker.unlink(missing_ok=True)
     (root / "deployment.json").unlink(missing_ok=True)
     key = os.environ.get("NGC_API_KEY") or os.environ.get("NGC_CLI_API_KEY")
-    if not key:
-        raise NimError(
-            "Local NIM requires NGC_CLI_API_KEY or NGC_API_KEY on the worker"
-        )
-    os.environ["NGC_API_KEY"] = key
+    if plan["routes"] and not key:
+        raise NimError("Local NIM requires NGC_CLI_API_KEY or NGC_API_KEY on the worker")
+    if key:
+        os.environ["NGC_API_KEY"] = key
     arch = architecture(platform.machine())
     resolved = [
         resolve_image(model, arch, key) for model in unique_models(plan["routes"])
@@ -358,14 +365,11 @@ def start(plan: dict):
         old = os.environ.get("DOCKER_CONFIG")
         os.environ["DOCKER_CONFIG"] = config
         try:
-            docker(
-                "login",
-                "nvcr.io",
-                "-u",
-                "$oauthtoken",
-                "--password-stdin",
-                input_text=key,
-            )
+            if resolved:
+                docker(
+                    "login", "nvcr.io", "-u", "$oauthtoken", "--password-stdin",
+                    input_text=key,
+                )
             for item in resolved:
                 docker("pull", item["image"], timeout=1500)
         finally:
@@ -381,7 +385,7 @@ def start(plan: dict):
     nemoclaw_model = (
         validate_model_id(nemoclaw_route["model"]) if nemoclaw_route else None
     )
-    host = worker_host() if nemoclaw_route else None
+    host = worker_host() if nemoclaw_route or plan.get("switchyard") else None
     for i, item in enumerate(resolved):
         port = PROXY_PORT + 10 + i
         direct_nemoclaw = item["model"] == nemoclaw_model
@@ -458,6 +462,16 @@ def start(plan: dict):
                     }
                 )
         item["served_model"] = names[0]
+    if plan.get("switchyard"):
+        start_switchyard(plan, root, resolved)
+        models.append({
+            "model_name": plan["switchyard"]["route"],
+            "litellm_params": {
+                "model": f"openai/{plan['switchyard']['route']}",
+                "api_base": f"http://127.0.0.1:{ROUTER_PORT}/v1",
+                "api_key": "local-router",
+            },
+        })
     # JSON is valid YAML; no templating of arbitrary model strings into shell.
     proxy_config = {
         "model_list": list({m["model_name"]: m for m in models}.values()),
@@ -467,6 +481,9 @@ def start(plan: dict):
     config_file = root / "proxy.json"
     config_file.write_text(json.dumps(proxy_config))
     config_file.chmod(0o600)
+    # LiteLLM's auth error handler imports Prisma even without a database.
+    # The proxy extra omits it; install the client so missing credentials
+    # return an authentication error instead of HTTP 500.
     docker(
         "run",
         "-d",
@@ -481,19 +498,168 @@ def start(plan: dict):
         "python:3.12-slim",
         "sh",
         "-c",
-        f"pip install --disable-pip-version-check 'litellm[proxy]=={LITELLM_VERSION}' && exec litellm --config /config.yaml --host 0.0.0.0 --port {PROXY_PORT}",
+        f"pip install --disable-pip-version-check 'litellm[proxy]=={LITELLM_VERSION}' 'prisma==0.15.0' && exec litellm --config /config.yaml --host 0.0.0.0 --port {PROXY_PORT}",
         timeout=300,
     )
     wait_ready(f"http://127.0.0.1:{PROXY_PORT}/health/liveliness", plan["token"], 300)
     # Exercise each harness protocol, so a healthy server with an incompatible
     # API cannot produce an apparently successful deployment.
     smoke_routes(plan, host)
+    if plan.get("switchyard"):
+        smoke_switchyard(plan)
     evidence = {"models": resolved, "roles": plan["routes"], "architecture": arch}
-    if nemoclaw_route:
+    if plan.get("switchyard"):
+        evidence["switchyard"] = plan["switchyard"]
+    if nemoclaw_route or plan.get("switchyard"):
         evidence["nemoclaw_endpoint"] = f"http://{host}:{PROXY_PORT}/v1"
     marker.write_text(json.dumps(evidence, indent=2))
     configure_nemoclaw(evidence)
     publish(root)
+
+
+def switchyard_config(
+    frontier_model: str,
+    operational_model: str,
+    operational_deployment: str,
+    local_port: int | None,
+    route: str,
+) -> str:
+    """Route the selected operational model from its selected deployment."""
+    for model in (frontier_model, operational_model, route):
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/-]*", model):
+            raise NimError(f"Invalid Switchyard model or route ID: {model!r}")
+    if operational_deployment not in {"local-nim", "hosted-nvidia-inference", "nvidia-inference"}:
+        raise NimError(f"Unsupported Switchyard operational deployment: {operational_deployment}")
+    if operational_deployment == "local-nim" and local_port is None:
+        raise NimError("Switchyard local NIM port is missing")
+    local_client = (
+        f'[llm_clients.local]\nformat = "openai_chat"\n'
+        f'base_url = "http://127.0.0.1:{local_port}/v1"\n\n'
+        if operational_deployment == "local-nim" else ""
+    )
+    efficient_client = "local" if operational_deployment == "local-nim" else "frontier"
+    return f'''schema_version = 1
+
+{local_client}[llm_clients.frontier]
+format = "openai_chat"
+base_url = "https://inference-api.nvidia.com/v1"
+api_key_env = "SWITCHYARD_FRONTIER_API_KEY"
+
+[targets.capable]
+id = {json.dumps(frontier_model)}
+llm_client = "frontier"
+
+[targets.efficient]
+id = {json.dumps(operational_model)}
+llm_client = {json.dumps(efficient_client)}
+
+[routes.stage]
+id = {json.dumps(route)}
+type = "stage_router"
+capable_target = "capable"
+efficient_target = "efficient"
+picker = "efficient_first"
+confidence_threshold = 0.5
+
+[routes.probe_efficient]
+id = "switchyard/probe-efficient"
+type = "passthrough"
+target = "efficient"
+
+[routes.probe_frontier]
+id = "switchyard/probe-frontier"
+type = "passthrough"
+target = "capable"
+'''
+
+
+def start_switchyard(plan: dict, root: Path, resolved: list[dict]) -> None:
+    settings = plan["switchyard"]
+    key = os.environ.get("SKILL_EVAL_ROUTER_UPSTREAM_API_KEY")
+    if not key or "\n" in key or "\r" in key:
+        raise NimError("Switchyard requires a single-line frontier API key")
+    deployment = settings["operational_deployment"]
+    local_model = next(
+        (item for item in resolved if item["model"] == validate_model_id(settings["operational_model"])),
+        None,
+    ) if deployment == "local-nim" else None
+    if deployment == "local-nim" and local_model is None:
+        raise NimError("Switchyard selected local NIM was not deployed")
+    local_port = PROXY_PORT + 10 + resolved.index(local_model) if local_model else None
+    served_model = local_model["served_model"] if local_model else settings["operational_model"]
+    image = f"skill-eval-switchyard:{SWITCHYARD_REF[:12]}"
+    if docker("image", "inspect", image, check=False).returncode:
+        source = Path.home() / ".cache" / "skill-eval-switchyard-source"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        if not (source / ".git").is_dir():
+            subprocess.run(
+                ["git", "clone", "--filter=blob:none", "https://github.com/NVIDIA-NeMo/Switchyard.git", str(source)],
+                check=True, capture_output=True, text=True, timeout=300,
+            )
+        for command in (["fetch", "origin", SWITCHYARD_REF], ["checkout", "-f", "--detach", SWITCHYARD_REF]):
+            subprocess.run(
+                ["git", "-C", str(source), *command],
+                check=True, capture_output=True, text=True, timeout=300,
+            )
+        actual = subprocess.run(
+            ["git", "-C", str(source), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True, timeout=30,
+        ).stdout.strip()
+        if actual != SWITCHYARD_REF:
+            raise NimError("Switchyard source pin drifted")
+        docker("build", "-t", image, str(source), timeout=1800)
+    config_file = root / "switchyard.toml"
+    config_file.write_text(switchyard_config(
+        settings["frontier_model"], served_model, deployment, local_port, settings["route"]
+    ))
+    key_file = root / "frontier.key"
+    key_file.write_text(key)
+    key_file.chmod(0o600)
+    routing_log = root / "switchyard-routing.jsonl"
+    routing_log.write_text("")
+    routing_log.chmod(0o600)
+    router = f"skill-eval-nim-{plan['owner']}-switchyard"
+    docker(
+        "run", "-d", "--name", router, "--label", f"{LABEL}={plan['owner']}",
+        "--network", "host", "--user", f"{os.getuid()}:{os.getgid()}",
+        "-v", f"{config_file}:/etc/switchyard/config.toml:ro",
+        "-v", f"{key_file}:/run/switchyard/frontier.key:ro",
+        "-v", f"{routing_log}:/var/log/switchyard/routing.jsonl",
+        "--entrypoint", "/bin/sh", image, "-c",
+        "export SWITCHYARD_FRONTIER_API_KEY=\"$(cat /run/switchyard/frontier.key)\"; "
+        f"exec switchyard-server --config /etc/switchyard/config.toml --host 127.0.0.1 --port {ROUTER_PORT} "
+        "--routing-log-file /var/log/switchyard/routing.jsonl",
+        timeout=60,
+    )
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        try:
+            request_json(f"http://127.0.0.1:{ROUTER_PORT}/v1/stats")
+            return
+        except (urllib.error.URLError, OSError):
+            time.sleep(2)
+    raise NimError("Switchyard router did not become ready")
+
+
+def smoke_switchyard(plan: dict) -> None:
+    for route in ("switchyard/probe-efficient", "switchyard/probe-frontier", plan["switchyard"]["route"]):
+        try:
+            request_json(
+                f"http://127.0.0.1:{ROUTER_PORT}/v1/chat/completions",
+                {"Content-Type": "application/json"},
+                {"model": route, "messages": [{"role": "user", "content": "Say OK"}], "max_tokens": 16},
+            )
+        except urllib.error.HTTPError as exc:
+            raise NimError(f"Switchyard {route} smoke failed: HTTP {exc.code}") from None
+    try:
+        request_json(
+            f"http://127.0.0.1:{PROXY_PORT}/v1/chat/completions",
+            {"Authorization": f"Bearer {plan['token']}", "Content-Type": "application/json"},
+            {"model": plan["switchyard"]["route"],
+             "messages": [{"role": "user", "content": "Say OK"}], "max_tokens": 16},
+        )
+    except urllib.error.HTTPError as exc:
+        raise NimError(f"Authenticated Switchyard proxy smoke failed: HTTP {exc.code}") from None
 
 
 def smoke_routes(plan: dict, host: str | None):
@@ -568,7 +734,7 @@ def smoke_routes(plan: dict, host: str | None):
             )
         except urllib.error.HTTPError as exc:
             detail = exc.read(1500).decode(errors="replace")
-            for secret in (plan["token"], os.environ.get("NGC_API_KEY"), os.environ.get("NGC_CLI_API_KEY")):
+            for secret in (plan["token"], os.environ.get("NGC_API_KEY"), os.environ.get("NGC_CLI_API_KEY"), os.environ.get("SKILL_EVAL_ROUTER_UPSTREAM_API_KEY")):
                 if secret:
                     detail = detail.replace(secret, "[REDACTED]")
             raise NimError(
@@ -601,7 +767,7 @@ def collect_logs(plan: dict):
         check=False,
     ).stdout.split()
     for name in names:
-        if not re.fullmatch(r"skill-eval-nim-[a-f0-9]{24}-(?:[0-9]+|proxy)", name):
+        if not re.fullmatch(r"skill-eval-nim-[a-f0-9]{24}-(?:[0-9]+|proxy|switchyard)", name):
             continue
         result = docker("logs", "--tail", "150", name, check=False)
         logs = result.stdout + result.stderr
@@ -609,10 +775,14 @@ def collect_logs(plan: dict):
             plan.get("token"),
             os.environ.get("NGC_API_KEY"),
             os.environ.get("NGC_CLI_API_KEY"),
+            os.environ.get("SKILL_EVAL_ROUTER_UPSTREAM_API_KEY"),
         ):
             if value:
                 logs = logs.replace(value, "[REDACTED]")
         (target / f"{name}.log").write_text(logs)
+    routing_log = root / "switchyard-routing.jsonl"
+    if routing_log.is_file():
+        (target / "switchyard-routing.jsonl").write_text(routing_log.read_text())
 
 
 def publish(root: Path):
@@ -631,7 +801,7 @@ def cleanup(owner: str, remove_files: bool = True):
     for container in result.stdout.split():
         docker("rm", "-f", container)
     if remove_files:
-        for name in ("proxy.json", "ready.json"):
+        for name in ("proxy.json", "ready.json", "frontier.key", "switchyard.toml", "switchyard-routing.jsonl"):
             (root / name).unlink(missing_ok=True)
 
 
@@ -684,6 +854,7 @@ def main():
             plan["token"],
             os.environ.get("NGC_API_KEY"),
             os.environ.get("NGC_CLI_API_KEY"),
+            os.environ.get("SKILL_EVAL_ROUTER_UPSTREAM_API_KEY"),
         ):
             if secret:
                 message = message.replace(secret, "[REDACTED]")

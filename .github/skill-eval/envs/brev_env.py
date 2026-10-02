@@ -583,17 +583,29 @@ class BrevEnvironment(BaseEnvironment):
         ngc_key = os.environ.get("NGC_API_KEY")
         if ngc_key and ("\n" in ngc_key or "\r" in ngc_key):
             raise ValueError("NGC_API_KEY must be a single line")
+        router_key = os.environ.get("SKILL_EVAL_ROUTER_UPSTREAM_API_KEY") if plan.get("switchyard") else None
+        if plan.get("switchyard") and not router_key:
+            raise ValueError("Switchyard requires a hosted frontier API key")
+        if router_key and ("\n" in router_key or "\r" in router_key):
+            raise ValueError("Switchyard API key must be a single line")
         key_setup = (
             'IFS= read -r NGC_API_KEY && test -n "$NGC_API_KEY" && '
             'export NGC_API_KEY && '
             if ngc_key else ""
         )
+        if router_key:
+            key_setup += ('IFS= read -r SKILL_EVAL_ROUTER_UPSTREAM_API_KEY && '
+                          'test -n "$SKILL_EVAL_ROUTER_UPSTREAM_API_KEY" && '
+                          'export SKILL_EVAL_ROUTER_UPSTREAM_API_KEY && ')
         result = await _run_brev_exec(
             self._instance_name,
             f"{key_setup}chmod 600 {remote}.json && "
             f"python3 {remote}.py start --plan {remote}.json",
             timeout=5500,
-            input_data=(ngc_key + "\n").encode() if ngc_key else None,
+            input_data=(
+                ((ngc_key + "\n") if ngc_key else "")
+                + ((router_key + "\n") if router_key else "")
+            ).encode() if ngc_key or router_key else None,
         )
         if result.return_code:
             raise RuntimeError(f"Local NIM deployment failed: {(result.stderr or result.stdout or '')[-2000:]}")
@@ -1146,6 +1158,25 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 
     async def _download_dir_once(self, source_dir: str, target_dir: Path | str) -> None:
         assert self._instance_name
+        if source_dir.rstrip("/") == "/logs/artifacts" and os.environ.get("SKILL_EVAL_LOCAL_NIM_PLAN"):
+            plan = json.loads(os.environ["SKILL_EVAL_LOCAL_NIM_PLAN"])
+            if plan.get("switchyard"):
+                import re
+                owner = plan["owner"]
+                if not re.fullmatch(r"[a-f0-9]{24}", owner):
+                    raise ValueError("Invalid local NIM owner")
+                # The router writes decisions throughout the query, after
+                # startup diagnostics were captured. Refresh immediately
+                # before Harbor archives this trial's artifacts.
+                copied = await _run_brev_exec(
+                    self._instance_name,
+                    "mkdir -p /logs/artifacts/local-nim && "
+                    f"cp ~/.cache/skill-eval-nim/{owner}/switchyard-routing.jsonl "
+                    "/logs/artifacts/local-nim/switchyard-routing.jsonl",
+                    timeout=20,
+                )
+                if copied.return_code:
+                    raise RuntimeError("Could not collect Switchyard routing decisions")
         # brev copy has broken directory nesting.  Use tar piped over
         # brev exec: tar on remote, base64-encode with markers, capture
         # via exec, decode+untar locally.  Use sentinel markers to isolate
@@ -1753,9 +1784,10 @@ async def _run_ssh_exec(
     timeout: int = BREV_EXEC_TIMEOUT,
     input_data: bytes | None = None,
 ) -> ExecResult:
-    """Run `ssh <alias> <command>` — for registered nodes."""
+    """Run a remote command and forward stdin through a Brev SSH alias."""
     cmd = [
         "ssh",
+        "-T",
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=15",
         "-o", "ServerAliveInterval=30",
@@ -1845,20 +1877,20 @@ async def _run_brev_exec(
 ) -> ExecResult:
     """Run ``brev exec <instance> <command>`` and return result.
 
-    For registered external nodes (e.g. DGX-Spark / IGX-Thor), transparently
-    falls back to direct ``ssh <alias>`` since brev exec can't reach them.
-
-    Uses ``bash -c`` wrapping via a shell so that ``brev exec`` receives
-    a single command string. Stdin is piped explicitly so the brev CLI
-    doesn't enter interactive mode.
+    Registered external nodes and commands with stdin use direct SSH.
+    ``brev exec`` consumes piped input as additional instance names and
+    does not attach stdin to the remote command. It must never receive
+    command input, including the local NIM startup credentials.
     """
-    if await _is_registered_node(instance):
+    registered = await _is_registered_node(instance)
+    if registered or input_data is not None:
         # ssh command-execs run NON-LOGIN shells: ~/.profile (and thus the
         # forwarded ~/.eval_env) is never sourced, silently dropping
         # PR_HEAD_SHA/NGC keys/etc from every exec. Source it inline.
         command = f". ~/.eval_env 2>/dev/null || true; {command}"
         return await _run_ssh_exec(
-            _ssh_alias_for(instance), command, timeout, input_data=input_data,
+            _ssh_alias_for(instance) if registered else instance,
+            command, timeout, input_data=input_data,
         )
     # brev exec also spawns a NON-LOGIN shell — ~/.profile is never sourced,
     # so the forwarded env vars in ~/.eval_env (PR_HEAD_SHA, NGC keys, etc.)

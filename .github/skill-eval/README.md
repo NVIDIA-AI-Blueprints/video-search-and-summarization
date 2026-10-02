@@ -46,6 +46,10 @@ the coding route throughout.
 
 Manual runs configure both routes without changing the coordinator or judge:
 
+Set the workflow's `skills` input to `operations` to sweep every operational
+skill without the Build Vision AI specs. When `spark_runner=true`, the matrix
+queues one leg at a time on the registered Spark worker.
+
 | Workflow input | Meaning |
 |---|---|
 | `coding_harness` | Build Vision AI/setup runtime: `claude-code` or `codex` |
@@ -54,7 +58,9 @@ Manual runs configure both routes without changing the coordinator or judge:
 | `operational_harness` | Operational runtime: `claude-code`, `codex`, or `nemoclaw` |
 | `operational_deployment` | Independent `hosted-nvidia-inference` (default) or `local-nim` for operational tasks |
 | `operational_model` | Same ID rules as `coding_model`, independently selected for operational tasks |
-| `spark_runner` | Run on Brev external node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`); default false |
+| `enable_switchyard` | Route NemoClaw through Switchyard; default false |
+| `switchyard_frontier_model` | Hosted capable target for Switchyard; defaults to `azure/anthropic/claude-opus-5` |
+| `spark_runner` | Run on Brev external node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`); unchecked selects regular-worker platforms and excludes `DGX-SPARK`; default false |
 
 
 The runner owns credentials. Hosted routes use the fixed
@@ -106,6 +112,30 @@ Sanitized image/tag/digest, model, architecture, startup errors, and bounded
 container logs appear in each trial's `artifacts/local-nim` directory (under
 Harbor's collected `/logs/artifacts` tree). `model-deployments.json` records
 role choices and the actual worker at the leg results root.
+
+### Switchyard for operational NemoClaw
+
+For an operational skill, select `operational_harness=nemoclaw`, set
+`enable_switchyard=true`, and choose an `operational_model` and its
+`operational_deployment`. With `local-nim`, the runner deploys that selected
+model as a NIM on the VSS worker; with `nvidia-inference`, it uses the hosted
+model. The runner builds the pinned Switchyard source used by
+`deploy/docker/scripts/deploy_vss_switchyard.ipynb`. Switchyard serves
+`switchyard/stage`: its `efficient_first` stage recipe starts with the
+selected operational model and can hand off to the hosted frontier target.
+The `switchyard_frontier_model` input selects that hosted model ID. NGC
+credential and architecture checks apply when the operational model uses
+`local-nim`; the hosted key comes
+from `SKILLS_EVAL_SWITCHYARD_FRONTIER_API_KEY`,
+`SKILLS_EVAL_OPERATIONAL_API_KEY`, or `ANTHROPIC_API_KEY`, in that order.
+
+Switchyard binds to worker loopback and has separate upstream clients, so the
+hosted key never goes to the local NIM. NemoClaw uses the per-leg authenticated
+LiteLLM proxy at port 18400. The runner checks both direct targets and the
+authenticated route before queries run, records router container logs under
+`artifacts/local-nim`, and tears down the router with the NIM. Build Vision AI
+consumes the selected NemoClaw endpoint from the environment; the notebook is
+not executed in the skill-eval path.
 
 ### Spark selection
 
