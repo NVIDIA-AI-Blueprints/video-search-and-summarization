@@ -141,7 +141,7 @@ def worker(run_id):
                 data = json.loads(state.stdout)
                 phase = data.get("phase")
                 report["sandbox_phase"] = phase if phase in {"Ready", "Running", "Pending", "Stopped", "Creating", "Provisioning"} else "other"
-                code = '''
+                code = r'''
 import json, pathlib, socket
 from collections import Counter
 processes=Counter()
