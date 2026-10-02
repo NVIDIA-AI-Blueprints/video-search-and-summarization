@@ -30,6 +30,11 @@ on:
   # use the same per-(spec, platform) matrix dispatch.
   workflow_dispatch:
     inputs:
+      inspect_run:
+        description: "Temporary read-only progress probe for an existing eval run ID."
+        type: string
+        default: ""
+        required: false
       skills:
         # `type: string` rather than `type: choice` because the skills/
         # tree has more than 10 entries — GitHub caps `choice` at 10.
@@ -118,6 +123,22 @@ env:
   VSS_VIOS_PREBAKE_PACKAGES: ${{ vars.VSS_VIOS_PREBAKE_PACKAGES }}
 
 jobs:
+  inspect:
+    name: Read-only eval progress
+    if: github.event_name == 'workflow_dispatch' && inputs.inspect_run != ''
+    runs-on: [self-hosted, vss-skill-eval-runner]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read allowlisted progress metadata
+        env:
+          INSPECT_RUN_ID: ${{ inputs.inspect_run }}
+        run: python3 .github/skill-eval/inspect_run.py "$INSPECT_RUN_ID"
+
   # ---------------------------------------------------------------------
   # plan — compute the shared dispatch matrix from the PR diff or manual input.
   # Lightweight: gh + python3, no GPU, no brev, no flock.
@@ -125,8 +146,8 @@ jobs:
   plan:
     name: Plan eval matrix
     if: >-
-      startsWith(github.ref, 'refs/heads/pull-request/') ||
-      github.event_name == 'workflow_dispatch'
+      (startsWith(github.ref, 'refs/heads/pull-request/') ||
+      github.event_name == 'workflow_dispatch') && !inputs.inspect_run
     runs-on: [self-hosted, vss-skill-eval-runner]
     timeout-minutes: 15
     outputs:
