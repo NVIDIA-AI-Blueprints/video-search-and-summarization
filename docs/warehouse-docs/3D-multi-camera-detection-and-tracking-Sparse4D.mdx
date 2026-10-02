@@ -265,7 +265,7 @@ network-input-shape=4;3;540;960 # Change the first value to match number of came
 
 The Sparse4D plugin supports model swapping, allowing you to use different Sparse4D models based on your specific use case.
 
-For adaptation to real-world datasets with 2D labels or detector pseudo-labels, follow the [3D-to-2D geometric distillation workflow](/vss/system-components/models/sparse4d-3d-multi-camera#3d-to-2d-geometric-distillation-for-real-world-datasets). The LTT correction model and 2D teacher are used during training; deploy the adapted Sparse4D model using the compatibility checks below. Real camera calibration is still required for the multi-camera 3D pipeline.
+For adaptation to real-world datasets with 2D labels or detector pseudo-labels, follow the [2D-to-3D geometric distillation workflow](/vss/system-components/models/sparse4d-3d-multi-camera#2d-to-3d-geometric-distillation-for-real-world-datasets). The LTT correction model and 2D teacher are used during training; deploy the adapted Sparse4D model using the compatibility checks below. Real camera calibration is still required for the multi-camera 3D pipeline.
 
 #### Model Compatibility Requirements
 

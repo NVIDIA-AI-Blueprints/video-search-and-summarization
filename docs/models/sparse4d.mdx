@@ -112,7 +112,7 @@ Results highlighted in the above tables are for the latest v2.3 models on the te
 
 ### Dataset Requirements
 
-  The Sparse4D model can be fine-tuned on existing MTMC Tracking 2025 scenes, your own synthetic dataset generated with Isaac Sim, or real-world imagery. For real-world data without 3D annotations, use the [3D-to-2D geometric distillation workflow](#3d-to-2d-geometric-distillation-for-real-world-datasets) to combine 2D supervision with 3D-labeled training data.
+  The Sparse4D model can be fine-tuned on existing MTMC Tracking 2025 scenes, your own synthetic dataset generated with Isaac Sim, or real-world imagery. For real-world data without 3D annotations, use the [2D-to-3D geometric distillation workflow](#2d-to-3d-geometric-distillation-for-real-world-datasets) to combine 2D supervision with 3D-labeled training data.
   Please refer to the [Simulation and Synthetic Data Generation](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation) page for more details on synthetic data generation.
 
   Performing 3D Multi-Camera Detection & Tracking in large regions such as warehouses with high-density cameras becomes computationally expensive. Therefore, we divide a region into a collection of groups called Bird's Eye View (BEV) groups. Each Bird's Eye View (BEV) group can contain multiple cameras, and these BEV groups may overlap with one another. Sparse4D is trained on such BEV groups.
@@ -155,9 +155,9 @@ Results highlighted in the above tables are for the latest v2.3 models on the te
 Refer to [Dataset Post-Processing](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation/dataset-post-processing) for the file format of the files listed above.
 An example dataset can be found in the [Warehouse_014](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main/MTMC_Tracking_2025/train/Warehouse_014) scene from the [MTMC Tracking 2025](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main/MTMC_Tracking_2025) dataset.
 
-### 3D-to-2D Geometric Distillation for Real-World Datasets
+### 2D-to-3D Geometric Distillation for Real-World Datasets
 
-3D-to-2D geometric distillation lets Sparse4D learn from calibrated multi-camera real-world images with 2D annotations or detector pseudo-labels, reducing the need to collect full 3D ground truth. Sparse4D still predicts 3D boxes and tracking IDs. The term **3D-to-2D** describes projecting its 3D predictions into the image plane, where 2D supervision can be applied.
+**2D-to-3D geometric distillation** lets Sparse4D learn from calibrated multi-camera real-world images with 2D annotations or detector pseudo-labels, reducing the need to collect full 3D ground truth. The term **2D-to-3D** describes the direction of supervision: 2D targets supervise the 3D model. During training, **3D-to-2D projection** maps Sparse4D's predicted 3D boxes into camera images, where they can be compared with the 2D targets. Sparse4D still predicts 3D boxes and tracking IDs.
 
 A projected 3D cuboid encloses all eight corners and can be larger than the object's tight image-space box. A geometry-only **loose-to-tight (LTT)** MLP learns to correct this difference from paired 3D boxes and tight, amodal 2D boxes in labeled data. During Sparse4D fine-tuning, the MLP is frozen and its predicted correction factors are detached; gradients flow through the corrected box projection into Sparse4D. Per-camera matching then compares these boxes with real-world 2D detections, such as offline RT-DETR predictions, to supervise box geometry and classification.
 
