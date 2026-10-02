@@ -90,6 +90,10 @@ def summarize_log(path):
                                     stage = label
                                     break
                             last_failed_notebook = {'stage': stage}
+                            stages = re.findall(r'\[([1-8])/8\]', clean)
+                            last_failed_notebook['onboard_last_stage'] = int(stages[-1]) if stages else None
+                            failure_lines = '\n'.join(line.lower() for line in clean.splitlines() if re.search(r'(failed|failure|error|not ready|not healthy|timeout|timed out|unavailable|pending approval)',line,re.I) and not line.lstrip().startswith(('\"', '\'', '#')))
+                            last_failed_notebook['error_terms'] = [term for term in ['gateway','sandbox','pairing','device','scope','supervisor','webhook','origin','port','provider','inference','validation','timeout','health','startup','preflight','ssrf','upload','policy','image','build','forward','watcher','unavailable','approval'] if re.search(r'\b'+term+r'\b',failure_lines)]
                             for marker, label in [('ENV.md upload failed', 'workspace_upload'), ('policy add failed', 'policy_apply'), ('onboard failed', 'onboarding'), ('gateway is down after', 'gateway_restart'), ('origin', 'origin')]:
                                 if any(marker in line for line in clean.splitlines() if re.match(r'^(AssertionError|RuntimeError):', line)):
                                     last_failed_notebook['failure_kind'] = label
