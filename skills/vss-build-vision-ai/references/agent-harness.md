@@ -392,8 +392,10 @@ same-name relay from another checkout.
 
 **Anything else is a hard blocker**, including a held port nothing could name —
 report it as held by an unidentified listener. Report what holds which port, hand the
-block below over, and **do not proceed until both ports are free** — destroy
-nothing and kill nothing on the user's behalf. Stopping here costs nothing: Q3
+block below over, and **do not proceed until no foreign holder remains** —
+destroy nothing and kill nothing on the user's behalf. A port this build's own
+sandbox still holds is not what that waits on; the rerun's
+`NEMOCLAW_RECREATE_SANDBOX=1` replaces it. Stopping here costs nothing: Q3
 precedes every build artifact.
 
 ```bash
@@ -410,7 +412,8 @@ nemoclaw "$OTHER" destroy --yes --cleanup-gateway
 pkill -f -- "dashboard-relay\.py --sandbox ${OTHER_RE}( |$)"
 ```
 
-Re-probe both ports and resume only once they are free.
+Re-probe both ports and resume once each is free or back to a holder this
+build owns.
 
 ## Default provider
 
