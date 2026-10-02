@@ -190,7 +190,7 @@ def worker(run_id):
                 phase = data.get("phase")
                 report["sandbox_phase"] = phase if phase in {"Ready", "Running", "Pending", "Stopped", "Creating", "Provisioning"} else "other"
                 code = r'''
-import json, pathlib, socket
+import json, pathlib, socket, os
 from urllib.parse import urlsplit
 from collections import Counter
 processes=Counter()
@@ -228,6 +228,21 @@ def origin(value):
     except (TypeError, ValueError):
         return {'host_kind':'unavailable'}
 service_origins={k:origin(v.get('url')) for k,v in (vss_config.get('services') or {}).items() if k in ['elasticsearch','rt_vlm','vst','agent','lvs'] and isinstance(v,dict)}
+proxy_metadata={}
+for key in ['http_proxy','HTTP_PROXY','https_proxy','HTTPS_PROXY']:
+    value=os.environ.get(key)
+    if not value:
+        continue
+    metadata=origin(value)
+    try:
+        target=urlsplit(value)
+        if target.hostname and target.port:
+            with socket.socket() as client:
+                client.settimeout(1)
+                metadata['tcp_reachable']=client.connect_ex((target.hostname,target.port))==0
+    except (OSError, ValueError):
+        metadata['tcp_reachable']=False
+    proxy_metadata[key]=metadata
 status = read('/tmp/nemoclaw-auto-pair-status.json').get('state')
 log_signals = {}
 for path, label in [('/tmp/gateway.log','gateway'),('/tmp/nemoclaw-start.log','launcher')]:
@@ -254,6 +269,8 @@ print(json.dumps({
     'startup_log_signals':log_signals,
     'vss_base_origin':origin(vss_config.get('base_url')),
     'vss_service_origins':service_origins,
+    'proxy_metadata':proxy_metadata,
+    'managed_host_in_no_proxy':any(host in (os.environ.get('no_proxy','')+os.environ.get('NO_PROXY','')) for host in ['host.openshell.internal','host.docker.internal']),
     'pending_devices': len(read('/sandbox/.openclaw/devices/pending.json')),
     'paired_devices': len(read('/sandbox/.openclaw/devices/paired.json')),
     'pair_watcher_state': status if status in ['running','stopped','request-not-produced','request-observed','request-rejected','approval-timeout','approval-failed','approval-completed','canonical-settled'] else 'other',
