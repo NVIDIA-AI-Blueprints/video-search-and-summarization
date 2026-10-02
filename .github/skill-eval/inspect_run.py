@@ -85,6 +85,7 @@ def summarize_log(path):
 
 def worker(run_id):
     matches = []
+    sandbox = None
     for process in Path("/proc").iterdir():
         if not process.name.isdigit():
             continue
@@ -92,6 +93,11 @@ def worker(run_id):
             entries = (process / "environ").read_bytes().split(b"\0")
             if f"GITHUB_RUN_ID={run_id}".encode() not in entries:
                 continue
+            for entry in entries:
+                if entry.startswith(b"NEMOCLAW_SANDBOX_NAME="):
+                    candidate = entry.split(b"=", 1)[1].decode("utf-8", "replace")
+                    if re.fullmatch(r"se-[A-Za-z0-9-]{1,100}", candidate):
+                        sandbox = candidate
             executable = (process / "exe").resolve().name
             if executable in {"node", "python3", "python3.13", "codex", "bash", "sh"}:
                 matches.append(executable)
@@ -117,6 +123,43 @@ def worker(run_id):
             state = "healthy" if "(healthy)" in row.get("Status", "") else "running"
             states[f"{group}_{state}"] += 1
         report["running_containers"] = dict(states)
+        if sandbox:
+            state = subprocess.run(["openshell", "sandbox", "get", sandbox, "-o", "json"], capture_output=True, text=True, timeout=15)
+            report["sandbox_get_exit_code"] = state.returncode
+            if state.returncode == 0:
+                data = json.loads(state.stdout)
+                phase = data.get("phase")
+                report["sandbox_phase"] = phase if phase in {"Ready", "Running", "Pending", "Stopped", "Creating", "Provisioning"} else "other"
+                code = '''
+import json, pathlib, socket
+def read(path):
+    try:
+        return json.loads(pathlib.Path(path).read_text())
+    except (OSError, ValueError):
+        return {}
+config = read('/sandbox/.openclaw/openclaw.json')
+gateway = config.get('gateway', {})
+listeners = {}
+for port in (18789, 18790):
+    with socket.socket() as client:
+        client.settimeout(1)
+        listeners[str(port)] = client.connect_ex(('127.0.0.1', port)) == 0
+memory = read(pathlib.Path.home() / '.vss/config.json').get('memory') or {}
+status = read('/tmp/nemoclaw-auto-pair-status.json').get('state')
+print(json.dumps({
+    'gateway_port': gateway.get('port') if type(gateway.get('port')) is int else None,
+    'gateway_listeners': listeners,
+    'pending_devices': len(read('/sandbox/.openclaw/devices/pending.json')),
+    'paired_devices': len(read('/sandbox/.openclaw/devices/paired.json')),
+    'pair_watcher_state': status if status in ['running', 'stopped', 'failed', 'ready'] else 'other',
+    'sandbox_memory_enabled': memory.get('enabled') is True,
+    'sandbox_introspection_enabled': (memory.get('introspection') or {}).get('enabled') is True,
+}))
+'''
+                probe = subprocess.run(["openshell", "sandbox", "exec", "-n", sandbox, "--", "python3", "-c", code], capture_output=True, text=True, timeout=20)
+                report["sandbox_metadata_exit_code"] = probe.returncode
+                if probe.returncode == 0:
+                    report["sandbox_metadata"] = json.loads(probe.stdout.strip().splitlines()[-1])
     return report
 
 
