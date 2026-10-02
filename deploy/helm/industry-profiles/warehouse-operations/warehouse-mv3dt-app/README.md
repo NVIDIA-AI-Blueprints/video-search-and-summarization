@@ -89,9 +89,9 @@ recommended configuration.
 A claim is not the same as a card. `nvidia.com/gpu: 1` is an *exclusive integer
 claim*, so unlike Compose — where the tracker and ReID both just use GPU 0 —
 two pods cannot land on one physical GPU unless the device plugin advertises it
-as shareable. Enable GPU time-slicing as described in [GPU sharing](#gpu-sharing)
-to allow workloads such as the CV pipeline and ReID service to share a card.
-Time-slicing alone does not guarantee which workloads are placed on the same GPU.
+as shareable. Enable [time-slicing](#gpu-time-slicing-limited-gpu-environments)
+and the CV pipeline and ReID service share a card, exactly as they do under
+Compose.
 
 Without sharing, the three claims need three physical GPUs. If you have only two
 and would rather not configure the device plugin, disable the ReID service's
@@ -126,32 +126,58 @@ This covers steady state, not the **first install**: the staging Job still needs
 a GPU to export the CLIP-ReID ONNX, which the tracker requires whether or not
 secondary embedding is on. With both cards held by CV and the stream processor,
 that Job has nowhere to run and the CV pod waits behind it. For the first
-install, configure GPU time-slicing as described in [GPU sharing](#gpu-sharing), or
+install either free a card briefly (the CPU path below is the easiest way), or
 stage the models out of band and set `rtvi.vss-reid-embed.init.enabled=false`.
 
 The `vss-reid-embed-init` Job makes a fourth claim **transiently on first
-install**, to export the CLIP-ReID ONNX on device. When using time-slicing,
-provide enough shared allocations and GPU memory for this Job as well as the
-running workloads. See [ReID](#appearance-reid) for first-install requirements.
+install**, to export the CLIP-ReID ONNX on device. With time-slicing enabled it
+is absorbed like the others; without it, see [ReID](#appearance-reid) for why it
+can stall on a fully-committed cluster.
 
-Keep hardware video processing enabled and allocate a GPU to VIOS streamprocessing.
-If there are not enough physical GPUs for dedicated allocations, configure GPU
-sharing before deployment as described below.
+To run `vss-vios-streamprocessing` in software encode/decode mode (FFmpeg CPU path)
+and free that GPU for other workloads, switch the path and zero its GPU claim:
 
-### GPU sharing
+```yaml
+vios:
+  vss-vios-streamprocessing:
+    useSoftwarePath: true
+    resources:
+      limits:
+        nvidia.com/gpu: 0
+      requests:
+        nvidia.com/gpu: 0
+```
 
-If there are not enough physical GPUs for dedicated allocations, use GPU
-time-slicing as shown below, or consider MIG on compatible hardware. Keep
-hardware video processing enabled for VIOS.
+Or inline at install time:
 
-#### GPU time-slicing
+```bash
+--set vios.vss-vios-streamprocessing.useSoftwarePath=true \
+--set 'vios.vss-vios-streamprocessing.resources.limits.nvidia\.com/gpu=0' \
+--set 'vios.vss-vios-streamprocessing.resources.requests.nvidia\.com/gpu=0'
+```
+
+Both parts are required together — **`useSoftwarePath`** switches the VST
+encode/decode path in the config, and the zeroed claim releases the GPU. Setting
+only one leaves the stack misconfigured.
+
+#### Dropping a GPU claim
+
+Setting the count to `0` is the way to release a GPU. Neither `resources: {}` nor
+`resources: null` works, whether passed with `-f` or `--set`: Helm coalesces the
+**subchart's own** `values.yaml` defaults back in after your override is applied,
+so `nvidia.com/gpu: 1` reappears. Only overriding the value itself sticks.
+
+Software mode reduces video throughput; use it only when an additional GPU is not
+available.
+
+### GPU time-slicing (limited GPU environments)
 
 Time-slicing lets several pods share one physical GPU, which is how this profile
-fits its 3 claims onto 2 cards.
+fits its 3 claims onto 2 cards. For setup instructions, refer to
+[Time-Slicing GPUs in Kubernetes](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html).
 
-With 2 replicas per GPU, a 2-GPU node advertises 4 `nvidia.com/gpu`
-allocations, enough for the 3 steady-state claims plus the staging Job.
-The workloads must also fit within the GPUs' memory and compute capacity:
+A 2-replica configuration is enough here — a 2-GPU node then advertises 4
+`nvidia.com/gpu`, absorbing the 3 steady-state claims plus the staging Job:
 
 ```yaml
 apiVersion: v1
@@ -173,11 +199,9 @@ data:
             replicas: 2
 ```
 
-Save this as `time-slicing-config.yaml`, apply it in the GPU Operator's namespace
-(shown as `gpu-operator`), and point the device plugin at it:
+Point the device plugin at it:
 
 ```bash
-kubectl apply -f time-slicing-config.yaml
 kubectl patch clusterpolicies.nvidia.com/cluster-policy --type=merge \
   -p '{"spec":{"devicePlugin":{"config":{"name":"time-slicing-config","default":"any"}}}}'
 ```
@@ -189,9 +213,9 @@ already ask for one each. This is the configuration to prefer.
 If your cluster sets `renameByDefault: true`, slices are advertised as
 `nvidia.com/gpu.shared` and **every** claim must be renamed — a workload left
 asking for `nvidia.com/gpu` will not schedule at all, since no such resource is
-advertised any more. Set each exclusive count to `0` and add the shared one.
-Override the count explicitly so Helm does not restore the subchart's default
-`nvidia.com/gpu: 1`:
+advertised any more. Set each exclusive count to `0` and add the shared one; see
+[dropping a GPU claim](#dropping-a-gpu-claim) for why the count goes to zero
+rather than being removed:
 
 ```yaml
 rtvi:
@@ -216,20 +240,10 @@ vios:
 ```
 
 Time-slicing does not isolate GPU memory: the pods sharing a card must fit in it
-together. Check memory usage when increasing `batchSize` or the stream count.
-Time-slicing does not guarantee which workloads are placed on the same GPU.
-
-#### Multi-Instance GPU (MIG)
-
-[Multi-Instance GPU (MIG)](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-operator-mig.html)
-is another option on supported hardware. It partitions a GPU into instances with
-dedicated memory and fault isolation, which time-slicing does not provide.
-Verify workload compatibility and available memory, including video encode/decode
-support for any instance assigned to VIOS. Configure the chart's GPU resource
-requests and limits to match the resources advertised by your MIG configuration.
-
-Choose based on your hardware and workload requirements. See the
-[MIG and time-slicing comparison](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html#comparison-time-slicing-and-multi-instance-gpu).
+together. That is the same bargain Compose makes by pointing the tracker and the
+ReID service at GPU 0, so the working set is known to fit — but it is worth
+remembering if you raise `batchSize` or the stream count. MPS is configured the
+same way and gives better isolation at the cost of a more complex setup.
 
 ### Appearance ReID
 
@@ -280,9 +294,9 @@ Two consequences worth planning for:
 - The Job needs a GPU (the ONNX export runs on device). The CV pod is scheduled
   and holding its own GPU while waiting for the Job's marker, so on a cluster
   whose GPUs are all exclusively claimed the two wait on each other until the
-  timeout. GPU time-slicing can allow the Job to run on a shared GPU if enough
-  shared allocations and GPU memory are available; see [GPU sharing](#gpu-sharing).
-  Otherwise leave one GPU free for the first install, or
+  timeout. With [time-slicing](#gpu-time-slicing-limited-gpu-environments)
+  enabled this cannot happen, since the Job's claim is satisfied by a slice of
+  an already-busy card. Otherwise leave one GPU free for the first install, or
   stage the models out of band as described below.
 
 Readiness is signalled by a marker file, `.reid-models-ready`, in the model
@@ -301,7 +315,7 @@ is missing rather than waiting for it.
 
 The ReID service claims a whole GPU by default. To co-locate it with the CV
 pipeline on one card — the Compose arrangement — see
-[GPU sharing](#gpu-sharing) for time-slicing guidance.
+[GPU time-slicing](#gpu-time-slicing-limited-gpu-environments).
 
 ### Required secrets
 
@@ -383,7 +397,8 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vios.vstStorage.vstData.size`** | **`10Gi`** | PVC size for shared VST data volume. |
 | **`vios.vstStorage.vstVideo.size`** | **`20Gi`** | PVC size for shared VST video volume. |
 | **`vios.vstStorage.streamerVideos.size`** | **`20Gi`** | PVC size for the NVStreamer upload volume. |
-| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Keep one GPU allocation for streamprocessing. See [GPU requirements](#gpu-requirements) for dedicated and shared GPU guidance. |
+| **`vios.vss-vios-streamprocessing.useSoftwarePath`** | **`false`** | Set **`true`** (paired with **`resources: null`**) to use FFmpeg software encode/decode and free the second GPU. Both flags required — see [GPU requirements](#gpu-requirements). |
+| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Pod resource requests/limits for streamprocessing. Set **`null`** (with **`useSoftwarePath: true`**) to drop the GPU claim entirely. |
 | **`vios.vss-vios-nvstreamer.syncFileCount`** | **`4`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** | **`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`** | NGC resource for the NVStreamer sample video seed. Keep in step with **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`**. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.fromExistingClaim`** | **`vss-rtvi-cv-models`** | Reuses the PVC from the `vss-rtvi-cv` NGC download job so the video data is not downloaded twice. Clear this and set **`resourceVersion`** to download the video seed independently. |
