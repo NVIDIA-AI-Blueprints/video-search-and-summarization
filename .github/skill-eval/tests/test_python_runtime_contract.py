@@ -46,3 +46,23 @@ def test_daily_agent_input_configures_both_model_routes() -> None:
     assert 'export SKILLS_EVAL_CODING_HARNESS="$daily_harness"' in workflow
     assert 'export SKILLS_EVAL_OPERATIONAL_HARNESS="$daily_harness"' in workflow
     assert "python3 .github/skill-eval/model_config.py" in workflow
+
+
+def test_direct_runner_label_dispatch_stays_default_off() -> None:
+    """PR, daily, and scheduled evals retain coordinator routing by default."""
+    gated_runs_on = (
+        "runs-on: ${{ inputs.direct_runner_dispatch && "
+        "fromJSON(toJSON(matrix.runs_on)) || "
+        "fromJSON('[\"self-hosted\",\"vss-skill-eval-runner\"]') }}"
+    )
+    for relative_path in (
+        ".github/workflows/skills-eval.yml",
+        ".github/workflows/skills-eval-daily.yml",
+    ):
+        workflow = (REPO_ROOT / relative_path).read_text()
+        marker = "      direct_runner_dispatch:\n"
+        _, separator, remainder = workflow.partition(marker)
+        assert separator, f"{relative_path} is missing the direct runner input"
+        direct_runner_input = remainder.partition("\n\n")[0]
+        assert "\n        default: false\n" in f"\n{direct_runner_input}\n"
+        assert gated_runs_on in workflow

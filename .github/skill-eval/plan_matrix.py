@@ -29,9 +29,10 @@ Each leg also carries `runs_on`: the runner label set implied by the
 spec's own `resources.platforms.<PLATFORM>` block (see runs_on_labels).
 This resolves the spec -> hardware mapping at PLAN time, where today
 run_leg.py re-derives it at LEG time from `brev ls` under a flock.
-Nothing consumes `runs_on` yet — it is emitted so the mapping can be
-reviewed against current placement before the GPU boxes are registered
-as runners in their own right.
+The eval workflows consume `runs_on` only behind their default-off
+`direct_runner_dispatch` manual input. Normal PR, manual, and scheduled
+runs remain on the coordinator until GPU boxes are registered with every
+required label and the eval leg can execute locally without a second Brev hop.
 
 Env:
     PR_BASE        base branch, e.g. develop (diffed as FETCH_HEAD...HEAD)
@@ -151,12 +152,11 @@ EXCLUDED_SPEC_NAMES = frozenset({"evals.json"})
 
 # --- Runner labels -----------------------------------------------------
 # Every leg carries a `runs_on` label set derived from the spec's own
-# hardware declaration, so the eval job *can* be placed by Actions with
-# `runs-on: ${{ matrix.runs_on }}` once the GPU boxes are registered as
-# runners in their own right. NOTHING CONSUMES THIS YET — skills-eval.yml
-# still pins the coordinator pool and run_leg.py still does fleet
-# selection + flock. This computes and publishes the mapping so it can be
-# reviewed and diffed against today's placement before any runner moves.
+# hardware declaration. The eval workflows can consume it through their
+# default-off `direct_runner_dispatch` input once GPU boxes are registered
+# with the complete label set and legs execute locally. The default path
+# still pins the coordinator pool, where run_leg.py does fleet selection
+# and flock-based reservation.
 
 # Labels the GPU boxes themselves would carry. Deliberately NOT
 # `vss-skill-eval-runner`: that label is on the coordinator's runner
@@ -501,9 +501,10 @@ def emit(include: list[dict]) -> None:
     print(f"has_targets={has_targets}")
     print(f"legs={len(include)}")
     for leg in include:
-        # runs_on is trace only and nothing consumes it yet, so a leg built
-        # without it must not fail the plan — unlike slug, which is checked
-        # strictly above because downstream paths depend on it.
+        # runs_on is consumed only by the default-off direct-runner path, so
+        # a legacy/test leg built without it must not fail the plan — unlike
+        # slug, which is checked strictly because default-path artifacts and
+        # scratch directories depend on it.
         runs_on = " ".join(leg.get("runs_on") or []) or "-"
         print(f"  - {leg['name']}  [{leg['kind']}]  runs_on={runs_on}")
     print(f"matrix={matrix}")
