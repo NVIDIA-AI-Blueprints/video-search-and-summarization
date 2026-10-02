@@ -21,6 +21,7 @@ policy fields only, never prompts or media bodies.
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 
@@ -28,11 +29,28 @@ POLICY = json.loads(Path(__file__).with_name("request-policy.json").read_text())
 POLICY_SHA256 = hashlib.sha256(
     json.dumps(POLICY, sort_keys=True, separators=(",", ":")).encode()
 ).hexdigest()
+MAX_BODY_BYTES = int(os.environ.get("VLLM_REQUEST_POLICY_MAX_BODY_BYTES", "16777216"))
+PAYLOAD_TOO_LARGE = b'{"detail":"Request body exceeds the configured limit"}'
+
+
+async def _send_payload_too_large(send):
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 413,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(PAYLOAD_TOO_LARGE)).encode()),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": PAYLOAD_TOO_LARGE})
 
 
 class RequestPolicy:
-    def __init__(self, app):
+    def __init__(self, app, max_body_bytes=MAX_BODY_BYTES):
         self.app = app
+        self.max_body_bytes = max_body_bytes
 
     async def __call__(self, scope, receive, send):
         if (
@@ -42,12 +60,24 @@ class RequestPolicy:
         ):
             return await self.app(scope, receive, send)
 
+        for key, value in scope.get("headers", []):
+            if key.lower() != b"content-length":
+                continue
+            try:
+                if int(value) > self.max_body_bytes:
+                    return await _send_payload_too_large(send)
+            except ValueError:
+                pass  # Let vLLM reject malformed content-length headers.
+
         raw = bytearray()
         while True:
             event = await receive()
             if event["type"] == "http.disconnect":
                 return
-            raw.extend(event.get("body", b""))
+            chunk = event.get("body", b"")
+            if len(raw) + len(chunk) > self.max_body_bytes:
+                return await _send_payload_too_large(send)
+            raw.extend(chunk)
             if not event.get("more_body", False):
                 break
 

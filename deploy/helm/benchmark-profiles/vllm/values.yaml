@@ -73,6 +73,7 @@ vllm:
 # OpenAI-compatible chat completion request with this payload.
 requestPolicy:
   enabled: false
+  maxBodyBytes: 16777216
   payload: {}
 
 huggingFace:

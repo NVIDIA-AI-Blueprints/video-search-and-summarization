@@ -145,11 +145,16 @@
       "type": "object",
       "required": [
         "enabled",
+        "maxBodyBytes",
         "payload"
       ],
       "properties": {
         "enabled": {
           "type": "boolean"
+        },
+        "maxBodyBytes": {
+          "type": "integer",
+          "minimum": 1
         },
         "payload": {
           "type": "object",

@@ -23,7 +23,10 @@
 {{- else }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
 {{- $global := .Values.global | default dict }}
-{{- $usePrefix := default false (coalesce .Values.useReleaseNamePrefix (index $global "useReleaseNamePrefix")) }}
+{{- $usePrefix := default false (index $global "useReleaseNamePrefix") }}
+{{- if ne .Values.useReleaseNamePrefix nil }}
+{{- $usePrefix = .Values.useReleaseNamePrefix }}
+{{- end }}
 {{- if $usePrefix }}
 {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
 {{- else }}

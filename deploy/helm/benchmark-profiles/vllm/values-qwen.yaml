@@ -40,6 +40,8 @@ vllm:
 
 requestPolicy:
   enabled: true
+  # Long video requests may be larger than ordinary text prompts, but remain bounded.
+  maxBodyBytes: 67108864
   payload:
     temperature: 1
     top_p: 0.95

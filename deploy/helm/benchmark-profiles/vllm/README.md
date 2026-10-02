@@ -32,6 +32,11 @@ helm upgrade --install vllm \
   --timeout 30m
 ```
 
+By default, resource names do not include the Helm release name. Install only
+one release per namespace, set `useReleaseNamePrefix=true` when installing
+multiple releases in one namespace, or assign each release a distinct
+`nameOverride`/`fullnameOverride`.
+
 Use `vllm.extraArgs` for flags that are not represented directly by the chart.
 For example:
 
@@ -65,7 +70,9 @@ helm upgrade --install qwen-vllm \
 
 The optional request-policy middleware replaces configured fields on
 `/v1/chat/completions` and returns `x-vllm-policy-sha256`. It is disabled in the
-base values and enabled by the Qwen profile.
+base values and enabled by the Qwen profile. `requestPolicy.maxBodyBytes` bounds
+buffered request bodies; oversized requests receive HTTP 413. The base limit is
+16 MiB, while the long-video Qwen profile raises it to 64 MiB.
 
 ## Test the API
 
