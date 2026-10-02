@@ -357,8 +357,15 @@ command -v openshell >/dev/null \
   && openshell sandbox list                         # compare against NEMOCLAW_SANDBOX_NAME
 for port in "${NEMOCLAW_DASHBOARD_PORT:-18789}" "${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"; do
   python3 -c 'import socket,sys; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(("",int(sys.argv[1])))' "$port" 2>/dev/null \
-    && echo "$port free" \
-    || { echo "$port held"; lsof -nP -iTCP:"$port" -sTCP:LISTEN || ss -ltnp "sport = :$port"; }
+    && { echo "$port free"; continue; }
+  # The holder's own command line is what names its sandbox: the forward is an
+  # `openshell ... forward service <name>` process, so no --sandbox pattern
+  # finds it, and the PID alone says nothing about ownership.
+  echo "$port held by:"
+  for pid in $(lsof -tnP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null \
+    || ss -Hltnp "sport = :$port" 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2); do
+    printf '  %s: ' "$pid"; tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null; echo
+  done
 done
 for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' <"$f" 2>/dev/null; echo; done \
   | grep -E '[d]ashboard-(relay|forward-watchdog)\.py'  # --sandbox names the owner
@@ -369,6 +376,12 @@ it, so the fresh host Q3 supports has none — and with none, no sandbox is
 running to hold either port. Both ports free and no relay or watchdog in the
 process list is the whole preflight satisfied: accept the yes and continue. A
 held port still blocks even when nothing can name its holder.
+
+**Read ownership off the holder's command line, never off the port.** The
+forward prints `forward service <name>`, the relay and watchdog print
+`--sandbox <name>`; a name equal to `${NEMOCLAW_SANDBOX_NAME:-vss-harness-sandbox}`
+is this build's and anything else is foreign. With several sandboxes on the
+host, the listing and the PID settle nothing on their own.
 
 A holder this build owns is not a conflict: `NEMOCLAW_RECREATE_SANDBOX=1`
 replaces the sandbox named `NEMOCLAW_SANDBOX_NAME`, and the relay cell replaces
