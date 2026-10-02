@@ -347,13 +347,19 @@ default per *sandbox*, so any sandbox still running on this host holds them.
 Probe both on a **yes** to Q3, before accepting it and with the rest of the
 prerequisites — a build with no harness claims neither port. Probe the values
 this build will bind: an override from the environment or the request, which
-Step 7 records, or the defaults when there is none:
+Step 7 records, or the defaults when there is none. The bind test decides
+free or held and needs only `python3`; `lsof` or `ss` only names the holder,
+and a host may lack both:
 
 ```bash
 openshell sandbox list                              # compare against NEMOCLAW_SANDBOX_NAME
-lsof -nP -iTCP:"${NEMOCLAW_DASHBOARD_PORT:-18789}" -sTCP:LISTEN
-lsof -nP -iTCP:"${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}" -sTCP:LISTEN
-pgrep -af 'dashboard-(relay|forward-watchdog)\.py'  # --sandbox names the owner
+for port in "${NEMOCLAW_DASHBOARD_PORT:-18789}" "${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"; do
+  python3 -c 'import socket,sys; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(("",int(sys.argv[1])))' "$port" 2>/dev/null \
+    && echo "$port free" \
+    || { echo "$port held"; lsof -nP -iTCP:"$port" -sTCP:LISTEN || ss -ltnp "sport = :$port"; }
+done
+for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' <"$f" 2>/dev/null; echo; done \
+  | grep -E '[d]ashboard-(relay|forward-watchdog)\.py'  # --sandbox names the owner
 ```
 
 A holder this build owns is not a conflict: `NEMOCLAW_RECREATE_SANDBOX=1`
@@ -363,7 +369,8 @@ that name's relay from this checkout. Do not assume that case — the name is
 itself leaves a sandbox and a relay foreign to the next run, as does a
 same-name relay from another checkout.
 
-**Anything else is a hard blocker.** Report what holds which port, hand the
+**Anything else is a hard blocker**, including a held port nothing could name —
+report it as held by an unidentified listener. Report what holds which port, hand the
 block below over, and **do not proceed until both ports are free** — destroy
 nothing and kill nothing on the user's behalf. Stopping here costs nothing: Q3
 precedes every build artifact.
