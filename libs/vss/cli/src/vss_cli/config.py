@@ -658,12 +658,21 @@ class VlmConfig:
     locked: bool = False
 
     def validate(self) -> VlmConfig:
+        self._validate_choices()
+        self._validate_integers()
+        self._validate_numbers()
+        self._validate_lock()
+        return self
+
+    def _validate_choices(self) -> None:
         if self.backend not in VLM_BACKENDS:
             raise ConfigError(f"VLM backend must be {_VLM_BACKEND_CHOICES}")
         if self.model is not None and (not isinstance(self.model, str) or not self.model.strip()):
             raise ConfigError("VLM model must be a non-empty string")
         if self.backend in {"vllm", "openai"} and self.chunk_duration not in (None, 0):
             raise ConfigError("positive chunk_duration is supported only by RT-VLM")
+
+    def _validate_integers(self) -> None:
         for name, value, low, high in (
             ("timeout", self.timeout, 1, 3600),
             ("max_tokens", self.max_tokens, 1, 1_000_000),
@@ -676,6 +685,8 @@ class VlmConfig:
                 isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high
             ):
                 raise ConfigError(f"VLM {name} must be an integer between {low} and {high}")
+
+    def _validate_numbers(self) -> None:
         if self.temperature is not None and (
             isinstance(self.temperature, bool)
             or not isinstance(self.temperature, int | float)
@@ -688,25 +699,24 @@ class VlmConfig:
             raise ConfigError("VLM fps must be a number greater than 0 and no greater than 256")
         if self.enable_reasoning is not None and not isinstance(self.enable_reasoning, bool):
             raise ConfigError("VLM enable_reasoning must be true, false, or null")
+
+    def _validate_lock(self) -> None:
         if not isinstance(self.locked, bool):
             raise ConfigError("VLM locked state must be true or false")
-        if self.locked and not any(
-            value is not None
-            for value in (
-                self.model,
-                self.timeout,
-                self.temperature,
-                self.max_tokens,
-                self.seed,
-                self.enable_reasoning,
-                self.chunk_duration,
-                self.fps,
-                self.max_frames,
-                self.total_pixels,
-            )
-        ):
+        request_values = (
+            self.model,
+            self.timeout,
+            self.temperature,
+            self.max_tokens,
+            self.seed,
+            self.enable_reasoning,
+            self.chunk_duration,
+            self.fps,
+            self.max_frames,
+            self.total_pixels,
+        )
+        if self.locked and all(value is None for value in request_values):
             raise ConfigError("a locked VLM policy must configure at least one request value")
-        return self
 
     def to_json(self) -> dict[str, Any]:
         self.validate()
