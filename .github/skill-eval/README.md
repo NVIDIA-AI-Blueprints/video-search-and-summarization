@@ -39,10 +39,12 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 Operational specs use two independent routes. Their first `expects[]` task
 runs with the coding route and `/vss-build-vision-ai`; its query supplies the
 deployment intent and its checks supply the readiness verdict. Remaining tasks
-run with the operational route. When that route uses NemoClaw, Build Vision AI
-also attaches NemoClaw during the first task and the remaining entries run
-through the ready sandbox. Build Vision AI and other non-operational specs use
-the coding route throughout.
+run with the operational route. When that route uses NemoClaw, the first query
+also owns sandbox setup. Specs
+that require the in-stack agent bootstrap NemoClaw as a separate evaluation
+client with the checked-in notebook; they preserve the application backend
+and disable its UI adapter. Remaining entries run through the ready sandbox.
+Build Vision AI and other non-operational specs use the coding route throughout.
 
 Manual runs configure both routes without changing the coordinator or judge:
 
@@ -91,6 +93,10 @@ one container; later tasks reuse that deployment. Different models run as
 separate containers. A pinned LiteLLM adapter provides Anthropic Messages,
 OpenAI Responses, and authenticated Chat Completions for NemoClaw. NIM ports
 bind to loopback; NemoClaw reaches the adapter on the worker's private address.
+The worker exports that exact host in
+`NEMOCLAW_TRUSTED_PRIVATE_INFERENCE_HOSTS`, so NemoClaw's private-endpoint
+preflight admits the owned inference adapter without granting a subnet or
+relaxing other URL checks. Startup and reuse both restore this declaration.
 Startup and reuse smoke requests exercise each selected protocol.
 The NIM and VSS run on the same worker.
 
@@ -140,6 +146,17 @@ images in that scenario support ARM64.
 | `GITHUB_TOKEN` | Issued to `gh pr comment` when the agent posts results |
 | `BREV_REGISTERED_POOL` | Comma/space-separated registered-node names approved for automatic pool selection |
 | `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the proven tests in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS` |
+
+Operational setup must finish successfully before later tasks reuse its
+deployment. The runner checks both the reward and Harbor's structured
+`result.json`: an agent timeout or other recorded exception stops the chain
+even if Harbor exits zero and the verifier awards full credit.
+
+Specs that require sample videos also declare fixture preparation in their
+setup query. When NemoClaw is selected, setup downloads the pinned bundle on
+the host, copies the needed MP4 files into the sandbox using NemoClaw's upload
+command, and verifies matching hashes. Later tasks use those sandbox files;
+NGC credentials stay on the host.
 
 ## Layout
 
@@ -210,34 +227,19 @@ Schema:
 
 For stock deployments, write the query in the same terms the skill routes on, such as "use the `/vss-build-vision-ai` stock Search workflow with remote LLM/VLM placement" or "use the stock Alerts workflow in verification mode (`MODE=2d_cv`)". Do not use legacy `-p` / `-m` command flags.
 
+Manual dispatch with `skills=operations` selects all runtime specs under `skills/operations/` and excludes Build Vision AI's own evals. With `spark_runner=true`, matrix legs queue one at a time on the shared Spark worker.
+
+The runner passes the selected runtime as `SKILLS_EVAL_OPERATIONAL_HARNESS` to the worker. Operational setup queries explicitly invoke `/vss-build-vision-ai` and specify conditional NemoClaw setup, skill installation, and readiness. Adapters include the declared Build Vision AI skill when generating tasks; `run_leg.py` never rewrites generated instructions.
+
+The setup checks require trajectory evidence of Build Vision AI use and,
+when selected, a ready NemoClaw sandbox with its VSS CLI configured. An answer
+that only mentions the skill or sandbox does not satisfy those checks.
+
 ### Worked example — `skills/operations/vss-manage-video-io-storage/evals/vios_ops.json`
 
-13-query thread against VIOS / VST: upload, snapshot, clip, sensor info, recorder status, timelines, etc. There is no `/vss-build-vision-ai` prerequisite — the **first query** tells the agent to stand VIOS up standalone via the skill's bundled `references/deploy-vios-service.md` runbook, and folds the environment prerequisites (required env vars, ports) into that same query. Produces 13 chained tasks on the targeted platform.
+The first query explicitly asks `/vss-build-vision-ai` to deploy VIOS in SDRC-routed mode, without uploading the evaluation video. It also describes how to attach NemoClaw when selected. Later queries exercise upload, snapshot, clip, recording, and replay APIs on the preserved deployment.
 
-```json
-{
-  "skills": ["vss-manage-video-io-storage"],
-  "resources": {"platforms": {"L40S": {"gpu_count": 1}}},
-  "expects": [
-    {
-      "query": "Upload the sample warehouse video to VIOS with timestamp 2025-01-01T00:00:00.000Z.\n\n**Environment & prerequisites:** No VSS profile is pre-deployed. Probe http://localhost:30888/vst/api/v1/sensor/version first; if it fails, stand VIOS up standalone via this skill's bundled references/deploy-vios-service.md runbook (pre-authorized via SKILL.md § Pre-authorized autonomous mode). Required env vars: NGC_CLI_API_KEY, HOST_IP, VSS_DATA_DIR, VSS_APPS_DIR, plus the Brev secure-link env vars.",
-      "checks": [
-        "The upload PUT to /vst/api/v1/storage/file/<filename>?timestamp=... either returns HTTP 2xx OR returns the VST sensor-cap error",
-        "curl -sf http://localhost:30888/vst/api/v1/sensor/list returns a JSON array containing a sensor whose name matches the uploaded video's filename stem"
-      ]
-    },
-    // ... 12 more entries ...
-  ]
-}
-```
-
-Source: [`skills/operations/vss-manage-video-io-storage/evals/vios_ops.json`](../../skills/operations/vss-manage-video-io-storage/evals/vios_ops.json)
-
-What the agent derives from this spec:
-- `profile` is absent → **no `/vss-build-vision-ai` prerequisite is injected.** The trial runs on a bare Brev instance and the agent uses the skill's bundled deploy contract (documents direct-routing and SDRC-routed modes — either acceptable) when it finds VIOS missing.
-- `resources.platforms` is `{L40S: {gpu_count: 1}}` → one dataset, one platform. No fan-out.
-- `expects[]` has 13 entries → 13 chained `vss-manage-video-io-storage` tasks, each gated on `requires_previous_passed`.
-- `checks` use a mix of curl probes and trajectory-style assertions — the generic judge routes each to the right evaluator.
+The spec declares both `vss-manage-video-io-storage` and `vss-build-vision-ai` in `skills`. Its platform matrix determines the generated datasets; each `expects[]` entry becomes one task, gated on the preceding task passing. The adapter renders the spec query and keeps verifier checks separate from the agent instruction.
 
 ## Running a trial by hand
 

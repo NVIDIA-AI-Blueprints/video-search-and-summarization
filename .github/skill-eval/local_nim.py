@@ -5,7 +5,7 @@
 
 Discover model-specific NIMs in nvcr.io, pin the resolved manifest digest,
 validate CPU architecture, then serve coding harnesses through LiteLLM and
-NemoClaw through NIM's native API. No resource sizing or hosted fallback is
+NemoClaw through authenticated Chat Completions to NIM. No resource sizing or hosted fallback is
 performed.
 """
 
@@ -579,10 +579,19 @@ def smoke_routes(plan: dict, host: str | None):
 
 def configure_nemoclaw(evidence: dict):
     if evidence.get("nemoclaw_endpoint"):
+        endpoint = evidence["nemoclaw_endpoint"]
+        host = urllib.parse.urlsplit(endpoint).hostname
+        if not host:
+            raise NimError("Worker NIM endpoint has no host")
+        # Onboard rejects private inference destinations unless the operator
+        # explicitly trusts their exact host. This is the authenticated adapter
+        # we started on this worker; do not grant a subnet or relax other URLs.
         with (Path.home() / ".eval_env").open("a") as handle:
             handle.write(
                 "\nexport NEMOCLAW_ENDPOINT_URL="
-                + shlex.quote(evidence["nemoclaw_endpoint"])
+                + shlex.quote(endpoint)
+                + "\nexport NEMOCLAW_TRUSTED_PRIVATE_INFERENCE_HOSTS="
+                + shlex.quote(host)
                 + "\n"
             )
 
