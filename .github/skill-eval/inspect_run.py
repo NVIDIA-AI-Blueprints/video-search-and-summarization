@@ -93,6 +93,13 @@ def summarize_log(path):
                             stages = re.findall(r'\[([1-8])/8\]', clean)
                             last_failed_notebook['onboard_last_stage'] = int(stages[-1]) if stages else None
                             failure_lines = '\n'.join(line.lower() for line in clean.splitlines() if re.search(r'(failed|failure|error|not ready|not healthy|timeout|timed out|unavailable|pending approval)',line,re.I) and not line.lstrip().startswith(('\"', '\'', '#')))
+                            last_failed_notebook['verification_failures'] = []
+                            for line in clean.splitlines():
+                                matched = re.search(r'[✗!]\s+(gateway|dashboard|inference|api):', line)
+                                if matched:
+                                    codes = re.findall(r'HTTP ([0-9]{3})', line)
+                                    last_failed_notebook['verification_failures'].append({'link':matched.group(1),'http_code':int(codes[0]) if codes else None,'sandbox_unreachable':'sandbox unreachable' in line})
+                            last_failed_notebook['process_recovery_incomplete'] = 'required process or secret-boundary check did not pass' in clean
                             last_failed_notebook['error_terms'] = [term for term in ['gateway','sandbox','pairing','device','scope','supervisor','webhook','origin','port','provider','inference','validation','timeout','health','startup','preflight','ssrf','upload','policy','image','build','forward','watcher','unavailable','approval'] if re.search(r'\b'+term+r'\b',failure_lines)]
                             for marker, label in [('ENV.md upload failed', 'workspace_upload'), ('policy add failed', 'policy_apply'), ('onboard failed', 'onboarding'), ('gateway is down after', 'gateway_restart'), ('origin', 'origin')]:
                                 if any(marker in line for line in clean.splitlines() if re.match(r'^(AssertionError|RuntimeError):', line)):
@@ -129,7 +136,7 @@ def worker(run_id):
                     if re.fullmatch(r"se-[A-Za-z0-9-]{1,100}", candidate):
                         sandbox = candidate
             executable = (process / "exe").resolve().name
-            if executable in {"node", "python3", "python3.13", "codex", "bash", "sh"}:
+            if executable in {"node", "python3", "python3.13", "codex", "bash", "sh", "openshell"}:
                 matches.append(executable)
         except OSError:
             continue
@@ -154,6 +161,15 @@ def worker(run_id):
             states[f"{group}_{state}"] += 1
         report["running_containers"] = dict(states)
         if sandbox:
+            try:
+                session = json.loads((Path.home()/'.nemoclaw/onboard-session.json').read_text())
+            except (OSError, ValueError):
+                session = {}
+            if session.get('sandboxName') == sandbox:
+                phases = {'init','preflight','gateway','provider_selection','inference','sandbox','agent_setup','openclaw','policies','finalizing','post_verify','completed','failed','cancelled'}
+                report['onboard_session'] = {key:session.get(key) if session.get(key) in phases else 'other' for key in ['lastStepStarted','lastCompletedStep']}
+                machine = (session.get('machine') or {}).get('state')
+                report['onboard_session']['machine_state'] = machine if machine in phases else 'other'
             openshell = str(Path.home() / ".local/bin/openshell")
             state = subprocess.run([openshell, "sandbox", "get", sandbox, "-o", "json"], capture_output=True, text=True, timeout=15)
             report["sandbox_get_exit_code"] = state.returncode
