@@ -1022,6 +1022,11 @@ def configure_vlm(
         click.echo(json.dumps(current.to_json(), indent=2))
         return
 
+    if total_pixels is not None and max_pixels_per_frame is not None:
+        _vlm_config_error(config_mod.PIXEL_LIMITS_EXCLUSIVE)
+    if total_pixels is not None or max_pixels_per_frame is not None:
+        # The two limits are one choice: setting either replaces the other.
+        current = replace(current, total_pixels=None, max_pixels_per_frame=None)
     try:
         resolved_backend = (
             current.backend if backend is None else cast("config_mod.VlmBackend", backend.replace("-", "_"))
@@ -1106,24 +1111,24 @@ def check() -> None:
         raise click.ClickException(str(exc)) from exc
 
     click.echo(f"configured {deployment.written_at or 'unknown'} against {deployment.base_url}", err=True)
+    stale = False
     if deployment.is_direct_vlm:
+        # A bare endpoint has no ingress routes and no agent to report a version.
         endpoint_probe = _probe_vlm_endpoint(deployment.base_url, _PROBE_TIMEOUT_SECONDS)
         state = "ok" if endpoint_probe.ok else "UNREACHABLE"
         click.echo(f"  {'rt_vlm':<14} {state:<12} {deployment.base_url}  {endpoint_probe.detail}")
-        if not endpoint_probe.ok:
-            raise SystemExit(int(Exit.BACKEND_UNREACHABLE))
-        return
-    stale = False
-    for name, service in sorted(deployment.services.items()):
-        route = config_mod.INGRESS_SERVICES.get(name)
-        if route is None:
-            continue
-        ok, detail = _probe(deployment.base_url, route.probe, _PROBE_TIMEOUT_SECONDS)
-        click.echo(f"  {name:<14} {'ok' if ok else 'UNREACHABLE':<12} {service.url}  {detail}")
-        stale = stale or not ok
+        stale = not endpoint_probe.ok
+    else:
+        for name, service in sorted(deployment.services.items()):
+            route = config_mod.INGRESS_SERVICES.get(name)
+            if route is None:
+                continue
+            ok, detail = _probe(deployment.base_url, route.probe, _PROBE_TIMEOUT_SECONDS)
+            click.echo(f"  {name:<14} {'ok' if ok else 'UNREACHABLE':<12} {service.url}  {detail}")
+            stale = stale or not ok
 
-    version, version_detail = _deployment_version(deployment.base_url, _PROBE_TIMEOUT_SECONDS)
-    click.echo(f"  {'version':<14} {version if version else 'not reported':<12}  {version_detail}".rstrip())
+        version, version_detail = _deployment_version(deployment.base_url, _PROBE_TIMEOUT_SECONDS)
+        click.echo(f"  {'version':<14} {version if version else 'not reported':<12}  {version_detail}".rstrip())
 
     rows = _command_availability(deployment)
     if rows:

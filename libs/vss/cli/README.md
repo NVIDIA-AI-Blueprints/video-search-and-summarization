@@ -206,8 +206,10 @@ them to the backend rather than resolving them itself:
 | `total_pixels` | Pixel budget for the whole clip | `mm_processor_kwargs.size.longest_edge`, with `shortest_edge` set to the Qwen3-VL floor of 131072 or `total_pixels` if smaller |
 | `max_pixels_per_frame` | Pixel cap for each frame | `mm_processor_kwargs.max_pixels` |
 
-`total_pixels` and `max_pixels_per_frame` are alternatives: setting both is an
-error, in the saved policy, the environment and `vss vlm run` alike. Processors
+`total_pixels` and `max_pixels_per_frame` are alternatives, one choice across
+the layers: an environment default, the saved policy or a run flag that sets
+either replaces the other from the layers beneath it (a locked policy's limit
+cannot be replaced). Setting both in one layer is an error. Processors
 that read `max_pixels` (transformers' Qwen2-VL image and video processors) write
 it over `size.longest_edge`, so the pair would silently replace the clip budget
 with the per-frame cap.

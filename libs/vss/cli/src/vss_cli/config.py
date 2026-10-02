@@ -69,6 +69,23 @@ VLM_API_KEY_ENV = "VSS_VLM_API_KEY"
 #: transformers) write it over ``size.longest_edge``, so sending both silently
 #: replaces the clip budget with the per-frame cap.
 PIXEL_LIMITS_EXCLUSIVE = "set total_pixels or max_pixels_per_frame, not both"
+PIXEL_LIMITS = ("total_pixels", "max_pixels_per_frame")
+
+
+def overlay_vlm_values(base: dict[str, Any], layer: dict[str, Any]) -> dict[str, Any]:
+    """Apply a higher-precedence layer of VLM values over a lower one.
+
+    The two pixel limits act as one choice: a layer that sets either replaces
+    the other from the layers beneath it, so an environment default or saved
+    policy for one never collides with a higher layer choosing the other.
+    """
+    merged = dict(base)
+    if any(layer.get(name) is not None for name in PIXEL_LIMITS):
+        for name in PIXEL_LIMITS:
+            merged.pop(name, None)
+    merged.update(layer)
+    return merged
+
 
 #: Request shapes ``vss vlm run`` can build. ``openai`` is a plain OpenAI
 #: chat completion with no engine-specific fields (Inference Hub).
@@ -842,10 +859,9 @@ def effective_vlm_config(configured: VlmConfig | None) -> VlmConfig | None:
     if configured is None and not environment_defaults:
         return None
 
-    effective = VlmConfig().to_json()
-    effective.update(environment_defaults)
+    effective = overlay_vlm_values(VlmConfig().to_json(), environment_defaults)
     if configured is not None:
-        effective.update(configured.to_json())
+        effective = overlay_vlm_values(effective, configured.to_json())
     return VlmConfig.from_json(effective)
 
 

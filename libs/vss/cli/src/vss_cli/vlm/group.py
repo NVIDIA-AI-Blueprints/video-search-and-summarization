@@ -314,6 +314,15 @@ def _apply_vlm_policy(inputs: VlmInput, policy: config_mod.VlmConfig | None) -> 
         configured = getattr(policy, name)
         if configured is None:
             continue
+        # The two pixel limits are one choice: a run flag for either replaces
+        # the policy's other one, unless the policy is locked.
+        alternative = next((other for other in config_mod.PIXEL_LIMITS if other != name), None)
+        if name in config_mod.PIXEL_LIMITS and alternative in explicit and getattr(inputs, alternative) is not None:
+            if policy.locked:
+                raise InvalidInput(
+                    f"{name} is locked to {configured!r}; --{alternative.replace('_', '-')} cannot replace it"
+                )
+            continue
         if name in explicit:
             requested = getattr(inputs, name)
             if policy.locked and requested != configured:

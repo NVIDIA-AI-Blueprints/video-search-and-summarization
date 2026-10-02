@@ -1025,16 +1025,38 @@ def test_total_pixels_and_max_pixels_per_frame_are_alternatives() -> None:
         VlmInput(prompt="What?", media_url="http://h/clip.mp4", total_pixels=16777216, max_pixels_per_frame=921600)
 
 
-def test_run_flag_conflicting_with_policy_pixel_limit_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_flag_for_one_pixel_limit_replaces_the_policys_other(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=_deployment(vlm=config_mod.VlmConfig(backend="vllm", total_pixels=16777216)))
+    ctx.extra = {"no_persist": True}
+    result = VlmGroup().run(
+        "", VlmInput(prompt="What?", media_url="http://h/clip.mp4", max_pixels_per_frame=921600), ctx
+    )
+
+    assert result.exit == Exit.SUCCESS
+    assert captured["json"]["mm_processor_kwargs"] == {"max_pixels": 921600}
+
+
+def test_locked_pixel_limit_cannot_be_replaced_by_the_other(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion())))
 
     from vss_cli.group import Context
     from vss_cli.group import InvalidInput
     from vss_cli.vlm.group import VlmGroup
 
-    ctx = Context(deployment=_deployment(vlm=config_mod.VlmConfig(total_pixels=16777216)))
+    ctx = Context(deployment=_deployment(vlm=config_mod.VlmConfig(total_pixels=16777216, locked=True)))
     ctx.extra = {"no_persist": True}
-    with pytest.raises(InvalidInput, match="not both"):
+    with pytest.raises(InvalidInput, match="total_pixels is locked to 16777216; --max-pixels-per-frame cannot"):
         VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", max_pixels_per_frame=921600), ctx)
 
 

@@ -218,6 +218,44 @@ def test_policy_rejects_both_pixel_limits(config_home: Path) -> None:
     assert config_mod.load().vlm is None
 
 
+def test_saved_pixel_limit_replaces_the_environments_other(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["max_pixels_per_frame"], "921600")
+
+    effective = config_mod.effective_vlm_config(config_mod.VlmConfig(total_pixels=16777216))
+
+    assert effective == config_mod.VlmConfig(total_pixels=16777216)
+
+
+def test_environment_pixel_limit_applies_when_nothing_is_saved_for_either(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["max_pixels_per_frame"], "921600")
+
+    effective = config_mod.effective_vlm_config(config_mod.VlmConfig(fps=2))
+
+    assert effective == config_mod.VlmConfig(fps=2, max_pixels_per_frame=921600)
+
+
+def test_configure_vlm_switches_between_pixel_limits(config_home: Path) -> None:
+    config_mod.save(replace(config_mod.load(), vlm=config_mod.VlmConfig(fps=2, total_pixels=16777216)))
+
+    result = _invoke("--max-pixels-per-frame", "921600")
+
+    assert result.exit_code == 0, result.output
+    assert config_mod.load().vlm == config_mod.VlmConfig(fps=2, max_pixels_per_frame=921600)
+
+
+def test_configure_with_saved_and_environment_pixel_limits_succeeds(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_mod.save(replace(config_mod.load(), vlm=config_mod.VlmConfig(total_pixels=16777216)))
+    monkeypatch.setenv(config_mod.VLM_ENV["max_pixels_per_frame"], "921600")
+
+    result = _configure_all_routes(monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert "max_pixels_per_frame not used (total_pixels is set; they are alternatives)" in result.output
+
+
 def test_environment_with_both_pixel_limits_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(config_mod.VLM_ENV["total_pixels"], "16777216")
     monkeypatch.setenv(config_mod.VLM_ENV["max_pixels_per_frame"], "921600")
@@ -658,6 +696,8 @@ def test_check_reprobes_a_bare_vlm_endpoint(config_home: Path, monkeypatch: pyte
     assert result.exit_code == 0, result.output
     assert "rt_vlm" in result.output
     assert "ok" in result.output
+    assert "commands:" in result.output
+    assert "vlm" in result.output
 
 
 def test_ingress_deployment_is_not_a_direct_vlm_endpoint(config_home: Path) -> None:
