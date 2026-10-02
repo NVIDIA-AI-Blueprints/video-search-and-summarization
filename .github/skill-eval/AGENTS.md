@@ -592,7 +592,10 @@ markers; and releases the lock when it exits.
 under `skills/operations/`, the coding route runs the first `expects[]` task as
 the deployment/readiness contract and the operational route runs the remaining
 tasks. If the operational route is NemoClaw, Build Vision AI also attaches its
-sandbox during that first task. Specs outside `skills/operations/`, including
+sandbox during that first task, as explicitly requested in the spec query.
+The runner forwards `SKILLS_EVAL_OPERATIONAL_HARNESS` and provider/lifecycle
+inputs; it does not append instructions or copy skills into generated tasks.
+Adapters must include the spec-declared Build Vision AI skill. Specs outside `skills/operations/`, including
 `vss-build-vision-ai`, use the coding route throughout. Worker selection and
 locking remain route-independent.
 

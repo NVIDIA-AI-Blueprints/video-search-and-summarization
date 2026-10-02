@@ -817,53 +817,6 @@ def nemoclaw_sandbox_name(run_id: str, leg_slug: str) -> str:
     return f"se-{safe_run_id[-6:]}-{digest}"
 
 
-def prepare_nemoclaw_setup_task(
-    invocation: HarborInvocation,
-    operational_skill: str,
-) -> None:
-    """Make the spec's first task provision VSS and NemoClaw via Build Vision AI.
-
-    The generated task remains authoritative for the deployment intent and its
-    checks.  This only supplies the orchestration skill and tells the coding
-    agent which harness the current eval requested.
-    """
-    task_dir = invocation.harbor_root / invocation.include_task_name
-    instruction_path = task_dir / "instruction.md"
-    if not instruction_path.is_file():
-        raise FileNotFoundError(f"setup instruction missing: {instruction_path}")
-    build_vision_skill = REPO_ROOT / "skills" / "vss-build-vision-ai"
-    if not (build_vision_skill / "SKILL.md").is_file():
-        raise FileNotFoundError(f"Build Vision AI skill missing: {build_vision_skill}")
-
-    original_instruction = instruction_path.read_text(encoding="utf-8")
-    harness_requirement = f"""
-
-## Selected agent harness: NemoClaw
-
-The evaluation query above is the complete deployment/setup intent. Fulfil it
-through `/vss-build-vision-ai` and attach NemoClaw to that same build before
-returning. Use the existing `$NEMOCLAW_SANDBOX_NAME` and model-provider
-environment values unchanged, install `/{operational_skill}` in that sandbox,
-and complete Build Vision AI's documented readiness verification. The task is
-not complete until `openshell sandbox get "$NEMOCLAW_SANDBOX_NAME"` succeeds
-and the sandbox gateway is ready. Include the sandbox name and Agent UI link in
-the final response. Run non-interactively with the query's choices and the
-documented defaults.
-"""
-    instruction_path.write_text(
-        original_instruction.rstrip() + harness_requirement,
-        encoding="utf-8",
-    )
-
-    skills_dir = task_dir / "skills"
-    skills_dir.mkdir(exist_ok=True)
-    shutil.copytree(
-        build_vision_skill,
-        skills_dir / "vss-build-vision-ai",
-        dirs_exist_ok=True,
-    )
-
-
 def attempt_lock_timeout(
     base: int, work_deadline: float | None, reserve: int
 ) -> int:
@@ -1781,15 +1734,9 @@ def _run_invocations(
     nemoclaw_setups: dict[str, HarborInvocation] = {}
     deferred_agent_marker: str | None = None
     operational_config = model_routes.operational
+    env["SKILLS_EVAL_OPERATIONAL_HARNESS"] = operational_config.runtime
     if operational_eval and operational_config.runtime == "nemoclaw":
         nemoclaw_setups = coding_setups
-        operational_skill = os.environ.get("EVAL_SKILL", "operational-skill")
-        try:
-            for setup in nemoclaw_setups.values():
-                prepare_nemoclaw_setup_task(setup, operational_skill)
-        except OSError as exc:
-            print(f"FATAL: could not prepare NemoClaw setup task: {exc}", file=sys.stderr)
-            return 1
 
         derived_sandbox_name = nemoclaw_sandbox_name(run_id, leg_slug)
         sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME") or derived_sandbox_name

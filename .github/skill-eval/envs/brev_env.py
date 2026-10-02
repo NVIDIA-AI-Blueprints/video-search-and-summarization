@@ -394,6 +394,7 @@ class BrevEnvironment(BaseEnvironment):
             # The Build Vision AI provisioning task owns host-side NemoClaw
             # setup. Forward its provider and lifecycle inputs exactly as
             # supplied by CI; the harness invokes the worker's NemoClaw CLI.
+            "SKILLS_EVAL_OPERATIONAL_HARNESS",
             "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_RECREATE_SANDBOX",
             "NEMOCLAW_GATEWAY_PORT",
             "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_POLICY_MODE",

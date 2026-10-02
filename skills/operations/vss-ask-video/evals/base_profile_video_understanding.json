@@ -1,6 +1,7 @@
 {
   "skills": [
-    "vss-ask-video"
+    "vss-ask-video",
+    "vss-build-vision-ai"
   ],
   "profile": "base",
   "resources": {
@@ -15,7 +16,7 @@
   },
   "expects": [
     {
-      "query": "Use `/vss-build-vision-ai` to deploy the VSS base profile on `{{platform}}` with VIOS, a video-understanding VLM, and VSS unified memory (Elasticsearch) enabled. Enable memory introspection too, with its sufficiency judge pointed at the profile's own text LLM. Then, so the following queries have a camera to work with, onboard the local file /app/warehouse_safety_0001.mp4 into VIOS as a sensor named warehouse_sample. Use the configured remote model endpoints and run autonomously.",
+      "query": "Use `/vss-build-vision-ai` to deploy the VSS base profile on `{{platform}}` with VIOS, a video-understanding VLM, and VSS unified memory (Elasticsearch) enabled. Enable memory introspection too, with its sufficiency judge pointed at the profile's own text LLM. Then, so the following queries have a camera to work with, onboard the local file /app/warehouse_safety_0001.mp4 into VIOS as a sensor named warehouse_sample. Use the configured remote model endpoints and run autonomously.\n\nThe selected operational harness is supplied in $SKILLS_EVAL_OPERATIONAL_HARNESS. If it is `nemoclaw`, use Build Vision AI to attach NemoClaw to this same deployment and install `/vss-ask-video` in that sandbox. Preserve the supplied $NEMOCLAW_SANDBOX_NAME and model-provider environment values. Complete the documented readiness verification before finishing: `openshell sandbox get \"$NEMOCLAW_SANDBOX_NAME\"` must succeed, the sandbox gateway must be ready, and the installed VSS CLI must be configured against this deployment. Include the sandbox name and Agent UI link in your response. For other operational harnesses, finish the deployment readiness checks without onboarding NemoClaw. Run non-interactively using the query's choices and documented defaults.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:30888/vst/api/v1/sensor/version` returns exit 0 (VIOS is responsive).",
         "`timeout 570s sh -c 'while :; do for url in http://localhost:30081/v1/models http://localhost:30082/v1/models http://localhost:8018/v1/models; do curl -sf --connect-timeout 2 --max-time 5 \"$url\" >/dev/null 2>&1 && exit 0; done; sleep 5; done'` returns exit 0 (at least one configured video-understanding VLM becomes ready; polls for up to 9.5 minutes to absorb model warmup).",
