@@ -613,12 +613,12 @@ def test_24_only_top_level_merge_changes_canonical_ledger(tmp_path: Path) -> Non
 def test_budget_config_is_single_stdlib_readable_source() -> None:
     expected = {
         "max_initial_claims": 2,
-        "max_expansions": 1,
-        "max_total_claims": 3,
-        "max_inspection_rounds": 3,
+        "max_expansions": 4,
+        "max_total_claims": 6,
+        "max_inspection_rounds": 4,
         "max_parallel_subagents": 2,
-        "max_vlm_calls_per_subagent": 2,
-        "max_total_vlm_calls": 6,
+        "max_vlm_calls_per_subagent": 4,
+        "max_total_vlm_calls": 12,
     }
     assert json.loads(ledger_mod.BUDGET_PATH.read_text()) == expected
     assert ledger_mod.BUDGETS == expected
@@ -1212,10 +1212,10 @@ def test_categories_and_budgets_stay_at_the_base_contract() -> None:
     )
     assert ledger_mod.BUDGETS == {
         "max_initial_claims": 2,
-        "max_expansions": 1,
-        "max_total_claims": 3,
-        "max_inspection_rounds": 3,
+        "max_expansions": 4,
+        "max_total_claims": 6,
+        "max_inspection_rounds": 4,
         "max_parallel_subagents": 2,
-        "max_vlm_calls_per_subagent": 2,
-        "max_total_vlm_calls": 6,
+        "max_vlm_calls_per_subagent": 4,
+        "max_total_vlm_calls": 12,
     }
