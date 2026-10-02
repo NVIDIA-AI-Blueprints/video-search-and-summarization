@@ -1,0 +1,92 @@
+[
+  {
+    "id": "attribute-option-blind",
+    "question": "Answer which color option matches the last ladder climber's clothing in warehouse.mp4.",
+    "expected_skill": "vss-introspect-video",
+    "ground_truth": "Plan an option-blind attribute claim before memory, then answer only after sufficient evidence.",
+    "expected_behavior": [
+      "Invokes vss-generate-evidence-plan before reading memory and hides all answer options from planning and inspection.",
+      "Uses claim-level observations and cites their IDs in the final answer."
+    ]
+  },
+  {
+    "id": "count-complete-coverage",
+    "question": "How many distinct vehicles entered dock_cam during the grounded recording interval?",
+    "expected_skill": "vss-introspect-video",
+    "ground_truth": "Use a count claim with complete scoped coverage and deduplication.",
+    "expected_behavior": [
+      "Plans before memory and binds existing records before visual inspection.",
+      "Does not report a count until accepted bounded windows cover the complete grounded interval."
+    ]
+  },
+  {
+    "id": "cross-event-order",
+    "question": "Did the cart move before or after the worker placed the box on it?",
+    "expected_skill": "vss-introspect-video",
+    "ground_truth": "Use repeated bounded observations with timestamps to establish cross-event order.",
+    "expected_behavior": [
+      "Assigns one neutral order claim to each inspection task.",
+      "Preserves ISO-8601 window and sensor or job provenance."
+    ]
+  },
+  {
+    "id": "identity-across-windows",
+    "question": "Was the person at the loading bay later the same person who entered the truck?",
+    "expected_skill": "vss-introspect-video",
+    "ground_truth": "Require linked observations or distinguishing visible features across bounded windows.",
+    "expected_behavior": [
+      "Does not infer identity from object category alone.",
+      "Returns unresolved when continuity or distinguishing features are insufficient."
+    ]
+  },
+  {
+    "id": "whole-video-bounded-windows",
+    "question": "Which person was the last to cross the aisle in the complete recording?",
+    "expected_skill": "vss-introspect-video",
+    "ground_truth": "Cover the whole grounded recording using bounded windows, retaining uncovered intervals as gaps.",
+    "expected_behavior": [
+      "Uses ordinary VIOS lookup for recording bounds and does not issue an unbounded VLM call.",
+      "Claims whole-video sufficiency only when accepted windows provide defensibly complete coverage."
+    ]
+  },
+  {
+    "id": "incomplete-evidence-unresolved",
+    "question": "The relevant face is occluded in every accepted observation. Identify the person.",
+    "expected_skill": "vss-introspect-video",
+    "ground_truth": "Report an unresolved identity gap rather than treating missing visibility as contradiction.",
+    "expected_behavior": [
+      "Preserves the occlusion as an unresolved gap.",
+      "Does not expand the plan merely because evidence is missing or ambiguous."
+    ]
+  },
+  {
+    "id": "partial-parallel-failure",
+    "question": "Two one-claim tasks share one frozen revision; one returns evidence and the other has a VLM tool error.",
+    "expected_skill": "vss-introspect-video",
+    "ground_truth": "Batch-merge once, retain the valid observation, and record the failed task as an unresolved gap.",
+    "expected_behavior": [
+      "Does not merge in completion order or turn the tool error into an observation.",
+      "Advances the ledger revision and round once for the complete batch."
+    ]
+  },
+  {
+    "id": "memory-only-completion",
+    "question": "Stored VSS records already provide sufficient support and falsification coverage for the planned claim.",
+    "expected_skill": "vss-introspect-video",
+    "ground_truth": "Answer from memory observations without dispatching visual inspection.",
+    "expected_behavior": [
+      "Creates the option-blind plan before memory binding.",
+      "Runs deterministic sufficiency and makes no vss vlm run call."
+    ]
+  },
+  {
+    "id": "ask-video-delegation",
+    "question": "Watch this scoped video and tell me which answer choice is correct.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "The direct answer request enters vss-ask-video, which delegates the introspection loop once to vss-introspect-video.",
+    "expected_behavior": [
+      "Does not invoke vss-generate-evidence-plan as the answering skill.",
+      "vss-ask-video delegates once and vss-introspect-video alone owns planning, evidence gathering, and reassessment."
+    ]
+  }
+]
