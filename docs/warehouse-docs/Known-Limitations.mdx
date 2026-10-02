@@ -41,11 +41,9 @@ The [MV3DT Vision AI Profile](/vss/vision-agent/agent-workflows/industry-specifi
 
 ### VST Software Mode Without a GPU Can Affect Overlays and the Video Wall
 
-In the Warehouse 2D, 3D, and MV3DT Helm charts, enabling `vios.vss-vios-streamprocessing.useSoftwarePath: true` and setting both GPU requests and limits to `nvidia.com/gpu: 0` can cause video bounding-box overlay (VBO) misalignment. The video wall can also fail in this configuration.
+Use a dedicated GPU for VIOS streamprocessing in the Warehouse 2D, 3D, and MV3DT Helm charts. Do not use software mode: it can cause video bounding-box overlay (VBO) misalignment and video-wall failures.
 
-Retain GPU access for VIOS streamprocessing to avoid these issues. Allocate a dedicated GPU, or use NVIDIA GPU time-slicing to share a physical GPU with RTVI-CV as described in the Helm deployment guide.
-
-For a dedicated GPU, keep hardware video processing enabled and allocate one GPU to streamprocessing:
+Keep hardware video processing enabled and allocate one GPU to streamprocessing:
 
 ```yaml
 vios:
@@ -58,13 +56,17 @@ vios:
         nvidia.com/gpu: 1
 ```
 
-RTVI-CV retains its own GPU allocation. If only one physical GPU is available for RTVI-CV and VIOS, configure time-slicing before deploying both workloads.
+RTVI-CV retains its own GPU allocation.
 
-[Multi-Instance GPU (MIG)](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-operator-mig.html) partitions supported GPUs into instances with hardware memory and fault isolation, while [GPU time-slicing](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html) shares GPU access without that isolation, including on GPUs that do not support MIG. Choose based on your GPU hardware, workload compatibility, memory needs, and isolation requirements.
+### GPU Sharing
+
+If there are not enough physical GPUs for dedicated allocations, configure GPU sharing before deployment while keeping hardware video processing enabled.
+
+[Multi-Instance GPU (MIG)](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-operator-mig.html) provides memory and fault isolation on supported hardware; [GPU time-slicing](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html) shares GPU access without that isolation. Choose based on your hardware and workload requirements, including VIOS video encode/decode support in the selected MIG profile. See the [MIG and time-slicing comparison](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html#comparison-time-slicing-and-multi-instance-gpu).
 
 GPU time-slicing can be used with the Warehouse Blueprint’s [2D](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-profile), [3D](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile), [MV3DT](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile) and [2D with Agents](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile) profiles.
 
-For the ConfigMap and device-plugin configuration example, see [GPU time-slicing in the Warehouse MV3DT Helm README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/README.md#gpu-time-slicing-limited-gpu-environments). Two shared allocations allow RTVI-CV and VIOS alone to share one physical GPU. Additional GPU workloads, such as ReID or in-cluster RT-VLM, require additional shared allocations and sufficient GPU memory.
+For ConfigMap and device-plugin configuration examples, see [NVIDIA GPU time-slicing configuration](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html#configuration). Two shared allocations allow RTVI-CV and VIOS alone to share one physical GPU. Additional GPU workloads, such as ReID or in-cluster RT-VLM, require additional shared allocations and sufficient GPU memory.
 
 ## VLM Verification of Incidents
 
@@ -118,7 +120,7 @@ The Auto Calibration Results UI supports only a two-point tripwire: a start poin
 
 VSS warehouse blueprint has mainly been used for use cases where the locations of objects are tracked and analyzed in a global coordinate system.
 It supports all functionalities in image pixel coordinate as well, which we call image mode.
-Since Auto Calibration does not support image mode at the moment, the user needs to manually find the pixel coordinates for the defined tripwires and ROIs.
+Auto Calibration currently does not support image-coordinate tripwires and ROIs. Users must manually find their pixel coordinates.
 It can be done by using image editing software or tools like Paint, IrfanView, etc.
 In addition, the user needs to set `"calibrationType": "image"` instead of `"calibrationType": "cartesian"` in the calibration file.
 
