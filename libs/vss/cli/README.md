@@ -87,8 +87,29 @@ rather than a typed-in value.
 | `rt_vlm` | `/rtvi-vlm` | URL + model ids — the default model for `vss vlm` and introspection follow-ups |
 | `lvs` | `/lvs` | URL + model ids (long-video summarization) |
 
-If the origin exposes none of them, `configure` fails rather than writing an
-empty config. Elasticsearch indices are created by ingestion, not deployment,
+If `/rtvi-vlm` is absent, `configure` also checks `/v1/models` for a standalone
+OpenAI-compatible VLM. A successful JSON response with a nonempty list of model
+IDs records the origin itself as `services.rt_vlm.url`, with the discovered
+models. Standard `/rtvi-vlm` routing takes precedence when both exist.
+`configure check` rechecks that recorded service at `/v1/models`, not at the
+absent `/rtvi-vlm/v1/models` mount. No VIOS or Elasticsearch is required for
+direct video-URL inference:
+
+```bash
+export VSS_VLM_BACKEND=vllm
+export VSS_VLM_TIMEOUT=600
+vss configure --base-url https://my-vllm.example.com
+vss configure check
+vss vlm run --media-url https://media.example.com/video.mp4 --prompt "What happens?" --no-persist
+```
+
+Discovery records endpoints and models; `VSS_VLM_BACKEND=vllm` selects the vLLM
+request schema separately. Existing persisted VLM policy still takes precedence
+over environment defaults. An auth challenge, non-JSON page, or empty/malformed
+root model list is not accepted as standalone discovery.
+
+If neither a standard route nor a standalone VLM is found, `configure` fails
+rather than writing an empty config. Elasticsearch indices are created by ingestion, not deployment,
 so configuring a fresh stack records zero `mdx-*` indices and says so — re-run
 `configure` after ingesting video and before searching.
 

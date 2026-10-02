@@ -127,6 +127,37 @@ def _describe(base_url: str, route: config_mod.ServiceRoute, timeout: float) -> 
     return []
 
 
+def _standalone_vlm(base_url: str, timeout: float) -> tuple[config_mod.Service | None, str]:
+    """Discover a bare OpenAI-compatible VLM without inventing a VSS mount.
+
+    Unlike a normal ingress probe, a root fallback must return a usable model
+    list: an HTML page, auth challenge or unrelated HTTP 200 is not a VLM.
+    The caller still chooses the request schema via its VLM backend policy.
+    """
+    import httpx
+
+    try:
+        response = httpx.get(f"{base_url.rstrip('/')}/v1/models", timeout=timeout, follow_redirects=True)
+    except httpx.HTTPError as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+    if response.status_code != 200:
+        return None, f"HTTP {response.status_code}"
+    try:
+        payload = response.json()
+    except ValueError:
+        return None, "HTTP 200 — model list is not JSON"
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if (
+        not isinstance(data, list)
+        or not data
+        or any(
+            not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"].strip() for item in data
+        )
+    ):
+        return None, "HTTP 200 — no usable OpenAI-compatible model list"
+    return config_mod.Service(url=base_url.rstrip("/"), models=[item["id"] for item in data]), "HTTP 200"
+
+
 @click.group(name="configure", invoke_without_command=True)
 @click.option("--base-url", help="Deployment origin, e.g. http://10.0.0.1:7777")
 @click.option(
@@ -172,10 +203,23 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
             err=True,
         )
 
+    # Standard VSS routing wins. A standalone vLLM deployment has no
+    # /rtvi-vlm mount; record its actual origin so vlm run appends /v1/... once.
+    if "rt_vlm" not in services:
+        standalone, detail = _standalone_vlm(base_url, timeout)
+        if standalone is not None:
+            services["rt_vlm"] = standalone
+        note = f"{len(standalone.models)} models" if standalone is not None else ""
+        click.echo(
+            f"  {'rt_vlm':<14} {'/v1/models':<16} {'routed' if standalone else 'absent':<7} {detail} {note}",
+            err=True,
+        )
+
     if not services:
         raise click.ClickException(
             f"{base_url} exposed none of the expected routes "
-            f"({', '.join(r.mount for r in config_mod.INGRESS_SERVICES.values())}). "
+            f"({', '.join(r.mount for r in config_mod.INGRESS_SERVICES.values())}), "
+            "nor a standalone OpenAI-compatible VLM at /v1/models. "
             f"Check the origin and that the ingress is up."
         )
 
@@ -869,7 +913,12 @@ def check() -> None:
         route = config_mod.INGRESS_SERVICES.get(name)
         if route is None:
             continue
-        ok, detail = _probe(deployment.base_url, route.probe, _PROBE_TIMEOUT_SECONDS)
+        if name == "rt_vlm" and service.url.rstrip("/") == deployment.base_url.rstrip("/"):
+            standalone, detail = _standalone_vlm(service.url, _PROBE_TIMEOUT_SECONDS)
+            ok = standalone is not None
+        else:
+            # Re-probe the URL actually recorded, not a reconstructed mount.
+            ok, detail = _probe(service.url, route.probe.removeprefix(route.mount), _PROBE_TIMEOUT_SECONDS)
         click.echo(f"  {name:<14} {'ok' if ok else 'UNREACHABLE':<12} {service.url}  {detail}")
         stale = stale or not ok
 
