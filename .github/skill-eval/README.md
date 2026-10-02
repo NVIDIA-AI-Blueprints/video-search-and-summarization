@@ -60,7 +60,7 @@ queues one leg at a time on the registered Spark worker.
 | `operational_model` | Same ID rules as `coding_model`, independently selected for operational tasks |
 | `enable_switchyard` | Route NemoClaw through Switchyard; default false |
 | `switchyard_frontier_model` | Hosted capable target for Switchyard; defaults to `azure/anthropic/claude-opus-5` |
-| `spark_runner` | Run on Brev external node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`); default false |
+| `spark_runner` | Run on Brev external node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`); unchecked selects regular-worker platforms and excludes `DGX-SPARK`; default false |
 
 
 The runner owns credentials. Hosted routes use the fixed

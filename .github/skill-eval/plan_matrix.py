@@ -529,10 +529,16 @@ def main() -> int:
     for f in changed:
         print(f"  {f}", file=sys.stderr)
     matrix = build_matrix(changed)
-    if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
+    spark_choice = os.environ.get("SKILLS_EVAL_SPARK_RUNNER")
+    if spark_choice == "true":
         matrix = [row for row in matrix if row.get("platform") == "DGX-SPARK"]
         if not matrix:
             raise ValueError("Spark worker selected, but no DGX-SPARK eval specs are declared")
+    elif spark_choice == "false":
+        regular_matrix = [row for row in matrix if row.get("platform") != "DGX-SPARK"]
+        if matrix and not regular_matrix:
+            raise ValueError("Regular worker selected, but all declared eval specs require DGX-SPARK")
+        matrix = regular_matrix
     emit(matrix)
     return 0
 
