@@ -490,6 +490,7 @@ jobs:
         run: |
           uvx --python 3.12 --from "pytest==9.1.1" pytest \
             .github/skill-eval/tests/test_adapter_agent_timeout.py \
+            .github/skill-eval/tests/test_detection_tracking_2d_remove.py \
             .github/skill-eval/tests/test_eval_env_forwarding.py \
             .github/skill-eval/tests/test_leg_timing.py \
             .github/skill-eval/tests/test_leg_report.py \
