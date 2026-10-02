@@ -89,6 +89,9 @@ def summarize_log(path):
                 rc = item.get("exit_code")
                 rc = rc if type(rc) is int and -255 <= rc <= 255 else None
                 recent.append({"kind": kind, "exit_code": rc})
+                if kind == 'compose':
+                    recent[-1]['actions']=[label for marker,label in [(' up ','up'), (' down','down'), (' build','build'), (' config','config'), (' pull','pull'), (' restart','restart'), (' stop','stop'), (' ps','ps')] if marker in command]
+                recent[-1]['global_container_operation'] = any(marker in command for marker in ['docker ps -aq','docker ps -q','docker system prune','docker container prune'])
                 if rc not in (0, None):
                     output = item.get("aggregated_output", "")
                     if isinstance(output, str):
@@ -174,6 +177,7 @@ def worker(run_id):
             state = "healthy" if "(healthy)" in row.get("Status", "") else "running"
             states[f"{group}_{state}"] += 1
         report["running_containers"] = dict(states)
+        report["docker_ps_exit_code"] = result.returncode
         if sandbox:
             try:
                 session = json.loads((Path.home()/'.nemoclaw/onboard-session.json').read_text())
