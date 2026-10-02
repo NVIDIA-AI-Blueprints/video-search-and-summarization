@@ -124,7 +124,8 @@ def worker(run_id):
             states[f"{group}_{state}"] += 1
         report["running_containers"] = dict(states)
         if sandbox:
-            state = subprocess.run(["openshell", "sandbox", "get", sandbox, "-o", "json"], capture_output=True, text=True, timeout=15)
+            openshell = str(Path.home() / ".local/bin/openshell")
+            state = subprocess.run([openshell, "sandbox", "get", sandbox, "-o", "json"], capture_output=True, text=True, timeout=15)
             report["sandbox_get_exit_code"] = state.returncode
             if state.returncode == 0:
                 data = json.loads(state.stdout)
@@ -156,7 +157,7 @@ print(json.dumps({
     'sandbox_introspection_enabled': (memory.get('introspection') or {}).get('enabled') is True,
 }))
 '''
-                probe = subprocess.run(["openshell", "sandbox", "exec", "-n", sandbox, "--", "python3", "-c", code], capture_output=True, text=True, timeout=20)
+                probe = subprocess.run([openshell, "sandbox", "exec", "-n", sandbox, "--", "python3", "-c", code], capture_output=True, text=True, timeout=20)
                 report["sandbox_metadata_exit_code"] = probe.returncode
                 if probe.returncode == 0:
                     report["sandbox_metadata"] = json.loads(probe.stdout.strip().splitlines()[-1])
@@ -188,6 +189,10 @@ def coordinator(run_id):
     report = {"run_id": run_id, "completed_trial_metadata": trials, "worker_probe_exit_code": result.returncode}
     if result.returncode == 0:
         report["worker"] = json.loads(result.stdout)
+    else:
+        for error_type in ("FileNotFoundError", "TimeoutExpired", "JSONDecodeError", "KeyError", "AttributeError", "TypeError", "PermissionError"):
+            if re.search(r"^" + error_type + r":", result.stderr, re.MULTILINE):
+                report["worker_error_type"] = error_type
     # Never print transport errors or raw remote output.
     return report
 
