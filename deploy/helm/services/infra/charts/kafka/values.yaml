@@ -48,7 +48,7 @@ topics:
   - name: mdx-vlm-incidents
   - name: mdx-vlm
   - name: mdx-vlm-captions
-  - name: vision-llm-errors
+  - name: mdx-vlm-errors
   - name: mdx-structured-events-summary
   - name: mdx-embed
   - name: mdx-embed-filtered

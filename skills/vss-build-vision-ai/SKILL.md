@@ -66,10 +66,6 @@ without requiring credentials, probing services, or changing files:
 | `scripts/stage_vss_src.py` | Snapshots a checkout into `.openclaw/` / `.hermes/` so the sandbox image is built from it instead of `develop`. Run only for a [harness source ref](#harness-source-ref), from that ref's worktree; never for a default build. |
 | `scripts/sync_skills.py` | Harness runtime utility used by `.openclaw/` and `.hermes/` to activate operation Skills; not part of the build workflow. |
 
-`scripts/tests/` contains CI-only contracts, `evals/` contains Skill evaluation
-specifications, and `config/skillspector-baseline.yml` is scanner-maintenance
-configuration. Agents must not load or execute those files as workflow steps.
-
 ## Routing
 
 | Request | Route |

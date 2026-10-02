@@ -97,7 +97,7 @@ rtvi:
       - name: KAFKA_ENABLED
         value: "false"
       - name: ERROR_MESSAGE_TOPIC
-        value: "vision-llm-errors"
+        value: "mdx-vlm-errors"
       - name: LOG_LEVEL
         value: "INFO"
       - name: ENABLE_OTEL_MONITORING

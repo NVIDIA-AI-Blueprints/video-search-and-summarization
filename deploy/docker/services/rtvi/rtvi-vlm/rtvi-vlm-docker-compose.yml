@@ -106,7 +106,7 @@ services:
       OTEL_METRIC_EXPORT_INTERVAL: "${RTVI_VLM_OTEL_METRIC_EXPORT_INTERVAL:-60000}"  # Metrics export interval in milliseconds
       KAFKA_ENABLED: "${RTVI_VLM_KAFKA_ENABLED:-true}"
       KAFKA_INCIDENT_TOPIC: "${RTVI_VLM_KAFKA_INCIDENT_TOPIC:-vision-llm-events-incidents}"
-      ERROR_MESSAGE_TOPIC: "${RTVI_VLM_ERROR_MESSAGE_TOPIC:-vision-llm-errors}"
+      ERROR_MESSAGE_TOPIC: "${RTVI_VLM_ERROR_MESSAGE_TOPIC:-mdx-vlm-errors}"
 
       # Generated-output and error buses (empty MESSAGE_BUS/ERROR_BUS disables that bus).
       MESSAGE_BUS: "${RTVI_VLM_MESSAGE_BUS:-kafka}"

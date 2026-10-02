@@ -592,7 +592,7 @@ rtvi:
       - name: KAFKA_INCIDENT_TOPIC
         value: "mdx-vlm-incidents"
       - name: ERROR_MESSAGE_TOPIC
-        value: "vision-llm-errors"
+        value: "mdx-vlm-errors"
       # Generated-output and error buses (empty MESSAGE_BUS/ERROR_BUS disables that bus).
       # Enable the LVS generated-output and error buses.
       - name: MESSAGE_BUS
