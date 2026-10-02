@@ -352,7 +352,9 @@ free or held and needs only `python3`; `lsof` or `ss` only names the holder,
 and a host may lack both:
 
 ```bash
-openshell sandbox list                              # compare against NEMOCLAW_SANDBOX_NAME
+# Absent until notebook cell 3.1 installs it, so do not let it fail the probe.
+command -v openshell >/dev/null \
+  && openshell sandbox list                         # compare against NEMOCLAW_SANDBOX_NAME
 for port in "${NEMOCLAW_DASHBOARD_PORT:-18789}" "${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"; do
   python3 -c 'import socket,sys; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(("",int(sys.argv[1])))' "$port" 2>/dev/null \
     && echo "$port free" \
@@ -361,6 +363,12 @@ done
 for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' <"$f" 2>/dev/null; echo; done \
   | grep -E '[d]ashboard-(relay|forward-watchdog)\.py'  # --sandbox names the owner
 ```
+
+**No `openshell` on the host is a pass, not a failed probe.** Cell 3.1 installs
+it, so the fresh host Q3 supports has none — and with none, no sandbox is
+running to hold either port. Both ports free and no relay or watchdog in the
+process list is the whole preflight satisfied: accept the yes and continue. A
+held port still blocks even when nothing can name its holder.
 
 A holder this build owns is not a conflict: `NEMOCLAW_RECREATE_SANDBOX=1`
 replaces the sandbox named `NEMOCLAW_SANDBOX_NAME`, and the relay cell replaces
