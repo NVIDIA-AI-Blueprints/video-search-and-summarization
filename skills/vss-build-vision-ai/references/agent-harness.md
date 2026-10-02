@@ -344,12 +344,15 @@ scopes"](#troubleshooting-did-not-receive-the-required-baseline-scopes) on
 `18789`, and the relay cell stops on a foreign listener on `18790` — and both
 default per *sandbox*, so any sandbox still running on this host holds them.
 
-Probe both at Q3, with the rest of the prerequisites:
+Probe both on a **yes** to Q3, before accepting it and with the rest of the
+prerequisites — a build with no harness claims neither port. Probe the values
+this build will bind: an override from the environment or the request, which
+Step 7 records, or the defaults when there is none:
 
 ```bash
 openshell sandbox list                              # compare against NEMOCLAW_SANDBOX_NAME
-lsof -nP -iTCP:18789 -sTCP:LISTEN
-lsof -nP -iTCP:18790 -sTCP:LISTEN
+lsof -nP -iTCP:"${NEMOCLAW_DASHBOARD_PORT:-18789}" -sTCP:LISTEN
+lsof -nP -iTCP:"${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}" -sTCP:LISTEN
 pgrep -af 'dashboard-(relay|forward-watchdog)\.py'  # --sandbox names the owner
 ```
 
