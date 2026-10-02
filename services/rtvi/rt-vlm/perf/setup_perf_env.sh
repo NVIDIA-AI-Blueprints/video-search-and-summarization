@@ -25,7 +25,7 @@
 #   5. Patches VST image tags and makes Redis port configurable via $REDIS_PORT
 #   6. Fetches the LVS warehouse video and derives benchmark test videos
 #   7. Detects the host IP for RTSP stream URLs
-#   8. Starts nvstreamer, waits for health at http://localhost:${NVSTREAMER_HTTP_PORT}, then starts VST
+#   8. Starts nvstreamer, waits for all BCD streams to be indexed, then starts VST
 #   9. Polls VST sensor streams API until live streams with /live/ paths appear
 #  10. Creates a Python virtual environment with benchmark dependencies
 #  11. Injects the discovered VST RTSP URL + live ports into benchmark configs
@@ -613,6 +613,31 @@ require_cmd() {
     command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not found. Please install it."
 }
 
+nvstreamer_has_bcd_streams() {
+    jq -e --arg short "${BCD_10S_VIDEO_FILENAME%.*}" \
+        --arg medium "${BCD_10M_VIDEO_FILENAME%.*}" \
+        --arg long "${BCD_60M_VIDEO_FILENAME%.*}" '
+        [ .[] | objects | .[] | arrays | .[] | objects
+          | select(.type == "Rtsp" and (.streamId | type == "string")
+                   and (.url // "" | startswith("rtsp://")))
+          | .name // empty ] as $names
+        | (($names | index($short)) != null
+           and ($names | index($medium)) != null
+           and ($names | index($long)) != null)
+        and (type == "array")
+    ' <<< "$1" >/dev/null 2>&1
+}
+
+prepare_source_mountpoints() {
+    [[ -n "${RTVI_SRC_DIR:-}" ]] || return 0
+    [[ -d "${RTVI_SRC_DIR}" ]] || die "RTVI_SRC_DIR is not a directory: ${RTVI_SRC_DIR}"
+    local subdir
+    for subdir in .rtvi/ngc_model_cache log/rtvi streams/perf; do
+        mkdir -p "${RTVI_SRC_DIR}/${subdir}" \
+            || die "Cannot prepare ${RTVI_SRC_DIR}/${subdir} for the read-only source mount"
+    done
+}
+
 validate_bcd_video() {
     local video="$1"
     local expected_duration="$2"
@@ -763,6 +788,7 @@ require_cmd tar
 require_cmd python3
 require_cmd sed
 require_cmd ffprobe
+prepare_source_mountpoints
 _needs_lvs_generation="${REFRESH_BCD_VIDEOS}"
 if [[ -z "${BCD_10S_VIDEO_SOURCE_PATH}" ]] \
     && ! validate_bcd_video "${PERF_VIDEOS_DIR}/${BCD_10S_VIDEO_FILENAME}" 10; then
@@ -1601,6 +1627,22 @@ else
         sleep 5
     done
     log "  ${_C_GREEN}nvstreamer is up.${_C_RESET}"
+
+    # Sensor-ms imports nvstreamer streams once at startup. HTTP health can
+    # precede media indexing, leaving VST with an empty stream list.
+    NVSTREAMER_STREAMS_API="http://localhost:${NVSTREAMER_HTTP_PORT}/api/v1/sensor/streams"
+    _ns_start=$SECONDS
+    log "  Waiting for all three BCD streams at ${NVSTREAMER_STREAMS_API}..."
+    until _ns_response=$(curl --connect-timeout 3 --max-time 5 -sf "${NVSTREAMER_STREAMS_API}" 2>/dev/null) \
+        && nvstreamer_has_bcd_streams "${_ns_response}"; do
+        if (( SECONDS - _ns_start >= NVSTREAMER_POLL_TIMEOUT )); then
+            warn "  nvstreamer indexed streams:"
+            jq -r '.. | objects | .name? // empty' <<< "${_ns_response:-}" >&2 || true
+            die "nvstreamer did not index all BCD streams before VST startup"
+        fi
+        sleep 5
+    done
+    log "  All three BCD streams are indexed."
 
     section "VST"
     log "  Stopping any existing VST containers..."

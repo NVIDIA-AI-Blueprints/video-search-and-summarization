@@ -15,13 +15,13 @@
 # limitations under the License.
 ######################################################################################################
 
+import json
 import os
 import subprocess
 import tarfile
 from pathlib import Path
 
 import yaml
-
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -232,6 +232,82 @@ def test_bcd_video_validation_rejects_wrong_duration(tmp_path):
     subprocess.run(["bash", "-c", command], check=True, env=env)
     env["FAKE_DURATION"] = "9"
     assert subprocess.run(["bash", "-c", command], env=env).returncode != 0
+
+
+def test_nvstreamer_readiness_requires_each_bcd_fixture():
+    setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    start = setup.index("nvstreamer_has_bcd_streams() {")
+    end = setup.index("\n}\n", start) + 3
+    checker = setup[start:end]
+    command = (
+        f"{checker}\n"
+        "BCD_10S_VIDEO_FILENAME=FPS10_Res1080p_Dur10sec_1.mp4\n"
+        "BCD_10M_VIDEO_FILENAME=warehouse_gopro_10m_10fps.mp4\n"
+        "BCD_60M_VIDEO_FILENAME=warehouse_gopro_60m_10fps.mp4\n"
+        'nvstreamer_has_bcd_streams "$STREAM_RESPONSE"'
+    )
+
+    def ready(response):
+        env = {**os.environ, "STREAM_RESPONSE": json.dumps(response)}
+        return (
+            subprocess.run(["bash", "-c", command], env=env, check=False).returncode
+            == 0
+        )
+
+    def streams(names):
+        return [
+            {
+                name + "_1": [
+                    {
+                        "name": name,
+                        "streamId": name + "_1",
+                        "type": "Rtsp",
+                        "url": f"rtsp://localhost/{name}",
+                    }
+                ]
+            }
+            for name in names
+        ]
+
+    expected = [
+        "FPS10_Res1080p_Dur10sec_1",
+        "warehouse_gopro_10m_10fps",
+        "warehouse_gopro_60m_10fps",
+    ]
+    assert not ready(streams(expected[:2]))
+    assert not ready(streams([*expected[:2], "unrelated_stream"]))
+    assert not ready(
+        [
+            {
+                "status": {"name": expected[0]},
+                "errors": [{"name": expected[1]}, {"name": expected[2]}],
+                "streams": [],
+            }
+        ]
+    )
+    assert ready(streams(expected))
+    assert setup.index('nvstreamer_has_bcd_streams "${_ns_response}"') < setup.index(
+        "bash deploy.sh up vst)"
+    )
+    assert (
+        'curl --connect-timeout 3 --max-time 5 -sf "${NVSTREAMER_STREAMS_API}"' in setup
+    )
+    assert "SECONDS - _ns_start >= NVSTREAMER_POLL_TIMEOUT" in setup
+
+
+def test_read_only_source_mountpoints_are_prepared_before_compose(tmp_path):
+    setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    start = setup.index("prepare_source_mountpoints() {")
+    end = setup.index("\n}\n", start) + 3
+    prepare = setup[start:end]
+    command = f'{prepare}\nRTVI_SRC_DIR="$SOURCE_DIR"\nprepare_source_mountpoints'
+    env = {**os.environ, "SOURCE_DIR": str(tmp_path)}
+    subprocess.run(["bash", "-c", command], env=env, check=True)
+    for relative in (".rtvi/ngc_model_cache", "log/rtvi", "streams/perf"):
+        assert (tmp_path / relative).is_dir()
+    assert setup.index("prepare_source_mountpoints\n") < setup.index(
+        'docker compose -f "${COMPOSE_PERF_YAML}" --env-file "${ENV_PERF_FILE}" up -d'
+    )
 
 
 def test_generated_env_perf_is_ignored_and_forced_private():
