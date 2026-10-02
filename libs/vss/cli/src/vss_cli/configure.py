@@ -1029,10 +1029,12 @@ def configure_vlm(
             locked,
         )
     )
-    if supplied and config_mod.vlm_environment_locked():
+    if (supplied or reset) and config_mod.vlm_environment_locked():
+        # Reset too: deleting the saved policy changes the settings the
+        # environment does not set, which the lock covers as well.
         _vlm_config_error(
-            f"{config_mod.VLM_ENV['locked']}=true: the environment fixes this policy, so saved values "
-            "would not take effect. Unset it to change the saved policy."
+            f"{config_mod.VLM_ENV['locked']}=true: the environment fixes this policy. "
+            "Unset it before changing or resetting the saved policy."
         )
     if reset:
         if supplied:

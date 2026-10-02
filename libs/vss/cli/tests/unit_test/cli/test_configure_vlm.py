@@ -678,6 +678,22 @@ def test_configure_vlm_refuses_changes_under_an_environment_lock(
     assert config_mod.load().vlm is None
 
 
+def test_configure_vlm_refuses_reset_under_an_environment_lock(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The saved max_frames is part of the locked policy; reset would drop it.
+    config_mod.save(replace(config_mod.load(), vlm=config_mod.VlmConfig(max_frames=64)))
+    monkeypatch.setenv(config_mod.VLM_ENV["locked"], "true")
+    monkeypatch.setenv(config_mod.VLM_ENV["fps"], "2")
+
+    result = _invoke("--reset")
+
+    assert result.exit_code == int(Exit.CONFIGURATION), result.output
+    assert "Unset it before changing or resetting the saved policy" in result.output
+    assert config_mod.load().vlm == config_mod.VlmConfig(max_frames=64)
+
+
 def test_configure_reports_an_environment_lock(config_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(config_mod.VLM_ENV["locked"], "true")
     monkeypatch.setenv(config_mod.VLM_ENV["fps"], "2")
