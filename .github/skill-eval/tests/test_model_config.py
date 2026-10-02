@@ -51,6 +51,15 @@ def test_default_routes_preserve_claude_runner_configuration() -> None:
     )
 
 
+def test_legacy_hosted_deployment_name_resolves_to_new_choice() -> None:
+    route = model_config.resolve_model_config(
+        {**DEFAULT_ENV, "SKILLS_EVAL_CODING_DEPLOYMENT": "nvidia-inference"},
+        role="coding",
+    )
+
+    assert route.provider == "hosted-nvidia-inference"
+
+
 def test_coding_and_operational_overrides_are_independent() -> None:
     routes = model_config.resolve_model_routes(
         {

@@ -49,11 +49,11 @@ Manual runs configure both routes without changing the coordinator or judge:
 | Workflow input | Meaning |
 |---|---|
 | `coding_harness` | Build Vision AI/setup runtime: `claude-code` or `codex` |
-| `coding_model` | Hosted: model ID from [`inference.nvidia.com`](https://inference.nvidia.com/). Local NIM: model-specific `publisher/model` image ID. A blank value uses the configured default, which must also be a NIM image ID when `coding_deployment=local-nim` |
+| `coding_deployment` | `hosted-nvidia-inference` (default) or `local-nim` for coding/setup |
+| `coding_model` | Hosted: [Inference Hub](https://inference.nvidia.com/) model ID, such as `nvidia/nvidia/nemotron-3.5-lightning`. Local NIM: self-hosted NIM image ID from [build.nvidia.com](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b?nim=self-hosted), such as `nvidia/nemotron-3.5-lightning-30b-a3b`. A blank value uses the configured default, which must be a NIM image ID for `local-nim` |
 | `operational_harness` | Operational runtime: `claude-code`, `codex`, or `nemoclaw` |
-| `operational_model` | Hosted: model ID from [`inference.nvidia.com`](https://inference.nvidia.com/). Local NIM: model-specific `publisher/model` image ID. A blank value uses the configured default, which must also be a NIM image ID when `operational_deployment=local-nim` |
-| `coding_deployment` | `nvidia-inference` (default) or `local-nim` for coding/setup; the latter requires a NIM image ID in `coding_model` |
-| `operational_deployment` | Independent `nvidia-inference` (default) or `local-nim` for operational tasks; the latter requires a NIM image ID in `operational_model` |
+| `operational_deployment` | Independent `hosted-nvidia-inference` (default) or `local-nim` for operational tasks |
+| `operational_model` | Same ID rules as `coding_model`, independently selected for operational tasks |
 | `spark_runner` | Run on Brev external node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`); default false |
 
 

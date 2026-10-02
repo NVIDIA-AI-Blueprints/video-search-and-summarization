@@ -163,7 +163,7 @@ def test_independent_deployment_and_no_hosted_key_leak():
     )
     assert routes.coding.provider == "local-nim"
     assert routes.coding.api_key != "hosted-secret"
-    assert routes.operational.provider == "nvidia-inference"
+    assert routes.operational.provider == "hosted-nvidia-inference"
     assert routes.operational.api_key == "hosted-secret"
 
 

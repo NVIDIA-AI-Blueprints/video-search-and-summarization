@@ -46,16 +46,16 @@ on:
         options:
           - claude-code
           - codex
+      coding_deployment:
+        description: "CODING · Hosted NVIDIA Inference or a local NIM deployment."
+        type: choice
+        default: hosted-nvidia-inference
+        options: [hosted-nvidia-inference, local-nim]
       coding_model:
-        description: "CODING · Hosted: Inference Hub model ID. Local NIM: publisher/model image ID (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Blank uses the configured default."
+        description: "CODING · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning). Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Blank uses the configured default."
         required: false
         default: ""
         type: string
-      coding_deployment:
-        description: "CODING · Hosted NVIDIA Inference or a local NIM image on the VSS worker; local-nim requires a NIM image ID in coding_model."
-        type: choice
-        default: nvidia-inference
-        options: [nvidia-inference, local-nim]
       operational_harness:
         description: "OPERATIONAL · Harness for operational skill queries after setup."
         required: false
@@ -65,16 +65,16 @@ on:
           - claude-code
           - codex
           - nemoclaw
+      operational_deployment:
+        description: "OPERATIONAL · Hosted NVIDIA Inference or a local NIM deployment."
+        type: choice
+        default: hosted-nvidia-inference
+        options: [hosted-nvidia-inference, local-nim]
       operational_model:
-        description: "OPERATIONAL · Hosted: Inference Hub model ID. Local NIM: publisher/model image ID (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Blank uses the configured default."
+        description: "OPERATIONAL · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning). Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Blank uses the configured default."
         required: false
         default: ""
         type: string
-      operational_deployment:
-        description: "OPERATIONAL · Hosted NVIDIA Inference or a local NIM image on the VSS worker; local-nim requires a NIM image ID in operational_model."
-        type: choice
-        default: nvidia-inference
-        options: [nvidia-inference, local-nim]
       spark_runner:
         description: "Run on the registered Brev Spark-ba-WiFi worker."
         type: boolean
@@ -253,8 +253,8 @@ jobs:
           CODEX_MODEL: ${{ vars.CODEX_MODEL }}
           EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
           CODING_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_harness || 'claude-code' }}
-          CODING_DEPLOYMENT_INPUT: ${{ inputs.coding_deployment || 'nvidia-inference' }}
-          OPERATIONAL_DEPLOYMENT_INPUT: ${{ inputs.operational_deployment || 'nvidia-inference' }}
+          CODING_DEPLOYMENT_INPUT: ${{ inputs.coding_deployment || 'hosted-nvidia-inference' }}
+          OPERATIONAL_DEPLOYMENT_INPUT: ${{ inputs.operational_deployment || 'hosted-nvidia-inference' }}
           SPARK_RUNNER_INPUT: ${{ inputs.spark_runner && 'true' || 'false' }}
           CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || '' }}
           OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
