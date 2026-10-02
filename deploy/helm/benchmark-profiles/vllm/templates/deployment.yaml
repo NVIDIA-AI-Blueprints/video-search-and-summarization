@@ -142,7 +142,7 @@ spec:
             - name: PYTHONPATH
               value: /opt/vllm-policy
             - name: VLLM_REQUEST_POLICY_MAX_BODY_BYTES
-              value: {{ printf "%.0f" .Values.requestPolicy.maxBodyBytes | quote }}
+              value: {{ .Values.requestPolicy.maxBodyBytes | int | quote }}
             {{- end }}
             {{- if .Values.huggingFace.existingSecret }}
             - name: HF_TOKEN

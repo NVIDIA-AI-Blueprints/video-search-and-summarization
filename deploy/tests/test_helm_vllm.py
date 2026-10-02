@@ -244,6 +244,17 @@ class QwenVllmValuesTests(unittest.TestCase):
 
 @helm_required
 class QwenVllmRenderTests(unittest.TestCase):
+    def test_integer_body_limit_override_renders_as_decimal(self):
+        deployment = _kind(
+            "Deployment",
+            "qwen",
+            set_values=("requestPolicy.maxBodyBytes=1048576",),
+        )
+        container = deployment["spec"]["template"]["spec"]["containers"][0]
+        env = {item["name"]: item["value"] for item in container["env"] if "value" in item}
+
+        self.assertEqual(env["VLLM_REQUEST_POLICY_MAX_BODY_BYTES"], "1048576")
+
     def test_runtime_contract_reaches_deployment_and_policy_configmap(self):
         deployment = _kind("Deployment", "qwen")
         configmap = _kind("ConfigMap", "qwen")
