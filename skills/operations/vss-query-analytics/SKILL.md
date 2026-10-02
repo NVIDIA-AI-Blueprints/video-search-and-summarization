@@ -10,6 +10,8 @@ metadata:
   tags: "nvidia blueprint operational"
 ---
 
+# Query VSS video analytics
+
 ## Purpose
 
 Answer read-only video-analytics questions with `vss analytics`, which calls the
@@ -167,4 +169,3 @@ a memory record.
 - Exit 7: report the timeout and let the caller decide whether to retry.
 - Exit 0 with empty arrays/counts: report that no matching analytics data is
   indexed.
-
