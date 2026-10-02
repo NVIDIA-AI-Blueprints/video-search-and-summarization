@@ -304,7 +304,40 @@ def coordinator(run_id):
             judge = json.loads((path.parent/'verifier/judge.json').read_text())
         except (OSError, ValueError):
             judge = {}
+        tool_metadata = {'available': False}
+        trajectory_path = path.parent / 'agent/trajectory.json'
+        try:
+            trajectory = json.loads(trajectory_path.read_text())
+            tool_metadata = {'available': True, 'tool_counts': {}, 'startup_doc_reads': 0, 'markdown_memory_reads': 0, 'vlm_calls': 0, 'introspection_calls': 0}
+            counts = Counter()
+            for entry in trajectory.get('steps') or []:
+                if not isinstance(entry,dict) or entry.get('source') != 'agent':
+                    continue
+                for call in entry.get('tool_calls') or []:
+                    if not isinstance(call,dict):
+                        continue
+                    name = call.get('function_name')
+                    arguments = call.get('arguments')
+                    if isinstance(arguments,str):
+                        try: arguments=json.loads(arguments)
+                        except ValueError: arguments={}
+                    arguments=arguments if isinstance(arguments,dict) else {}
+                    counts[name if name in ['Bash','Read','read','Skill','skill','vss_cli','memory_search','exec','tool_call'] else 'other']+=1
+                    filename=arguments.get('path') or arguments.get('file_path')
+                    if isinstance(filename,str) and name in ['Read','read']:
+                        if Path(filename).name in ['ENV.md','AGENTS.md','SKILL.md']:
+                            tool_metadata['startup_doc_reads']+=1
+                        if Path(filename).name == 'MEMORY.md' or '/memory/' in filename:
+                            tool_metadata['markdown_memory_reads']+=1
+                    args=arguments.get('args')
+                    if name == 'vss_cli' and isinstance(args,list):
+                        tool_metadata['vlm_calls']+=args[:2]==['vlm','run']
+                        tool_metadata['introspection_calls']+=args[:2]==['memory','introspect']
+            tool_metadata['tool_counts']=dict(counts)
+        except (OSError,ValueError,TypeError):
+            pass
         trials.append({
+            'trajectory_tool_metadata':tool_metadata,
             "step": step,
             "reward": reward if type(reward) in [int,float] and 0 <= reward <= 1 else None,
             "checks_passed": judge.get('passed') if type(judge.get('passed')) is int else None,
@@ -328,7 +361,10 @@ def coordinator(run_id):
                 with urlopen('http://127.0.0.1:8080/api/jobs/'+quote(route[2],safe='')+'/tasks',timeout=5) as response:
                     data = json.load(response)
                     row['viewer_http_status'] = response.status
-                    row['viewer_task_count'] = len(data) if isinstance(data,list) else len(data.get('tasks') or []) if isinstance(data,dict) else None
+                    row['viewer_response_kind'] = 'list' if isinstance(data,list) else 'dict' if isinstance(data,dict) else 'other'
+                    if isinstance(data,dict):
+                        row['viewer_collection_keys'] = [k for k in ['tasks','data','agents','models','results','groups'] if k in data]
+                    row['viewer_task_count'] = len(data) if isinstance(data,list) else len(data['tasks']) if isinstance(data,dict) and isinstance(data.get('tasks'),list) else None
             except Exception:
                 row['viewer_available'] = False
             trace_metadata.append(row)
