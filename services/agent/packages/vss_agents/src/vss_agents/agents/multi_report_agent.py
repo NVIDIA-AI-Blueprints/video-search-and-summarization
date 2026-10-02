@@ -22,6 +22,7 @@ This agent fetches and formats multiple incidents with URLs, charts, and visuali
 from collections.abc import AsyncGenerator
 import logging
 import time
+from typing import Any
 from typing import Literal
 
 from nat.builder.builder import Builder
@@ -32,6 +33,7 @@ from nat.data_models.component_ref import FunctionRef
 from nat.data_models.function import FunctionBaseConfig
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import model_validator
 
 from vss_agents.agents.data_models import AgentMessageChunk
 from vss_agents.agents.data_models import AgentMessageChunkType
@@ -73,6 +75,20 @@ class MultiReportAgentInput(BaseModel):
         default=None,
         description="Optional runtime override for VLM-verified incident lookup. If not specified, uses video_analytics config default.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_sensor_id(cls, data: Any) -> Any:
+        """Accept sensor_id as shorthand for source + source_type='sensor'."""
+        if isinstance(data, dict) and "sensor_id" in data:
+            normalized = dict(data)
+            if not normalized.get("source"):
+                normalized["source"] = normalized["sensor_id"]
+                if not normalized.get("source_type"):
+                    normalized["source_type"] = "sensor"
+            del normalized["sensor_id"]
+            return normalized
+        return data
 
 
 class MultiReportAgentConfig(FunctionBaseConfig, name="multi_report_agent"):
