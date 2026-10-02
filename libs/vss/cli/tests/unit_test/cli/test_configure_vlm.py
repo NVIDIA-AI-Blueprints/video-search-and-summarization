@@ -202,7 +202,7 @@ def test_sampling_fields_combine_in_one_policy(config_home: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "name", ["VSS_VLM_LOCKED", "VSS_VLM_LONGEST_EDGE", "VSS_VLM_MAX_PIXELS_PER_FRAME", "VSS_VLM_FPSS"]
+    "name", ["VSS_VLM_SHORTEST_EDGE", "VSS_VLM_LONGEST_EDGE", "VSS_VLM_MAX_PIXELS_PER_FRAME", "VSS_VLM_FPSS"]
 )
 def test_unsupported_vlm_environment_variable_is_an_error(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(name, "1")
@@ -215,17 +215,17 @@ def test_unsupported_vlm_environment_variable_stops_configure(
     config_home: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("VSS_VLM_LOCKED", "true")
+    monkeypatch.setenv("VSS_VLM_LONGEST_EDGE", "16777216")
 
     result = _configure_all_routes(monkeypatch)
 
     assert result.exit_code == int(Exit.CONFIGURATION), result.output
-    assert "unsupported VLM environment variables: VSS_VLM_LOCKED" in result.output
+    assert "unsupported VLM environment variables: VSS_VLM_LONGEST_EDGE" in result.output
     assert config_mod.load().base_url == "http://example"
 
 
 def test_empty_unsupported_vlm_environment_variable_is_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VSS_VLM_LOCKED", "")
+    monkeypatch.setenv("VSS_VLM_SHORTEST_EDGE", "")
 
     assert config_mod.effective_vlm_config(None) is None
 
@@ -631,3 +631,176 @@ def test_check_reprobes_a_bare_vlm_endpoint(config_home: Path, monkeypatch: pyte
 
 def test_ingress_deployment_is_not_a_direct_vlm_endpoint(config_home: Path) -> None:
     assert not config_mod.load().is_direct_vlm
+
+
+# --------------------------------------------------------------------------
+# VSS_VLM_LOCKED: an image fixes its VLM settings deterministically
+# --------------------------------------------------------------------------
+
+
+def test_environment_lock_makes_environment_values_win_over_saved(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["locked"], "true")
+    monkeypatch.setenv(config_mod.VLM_ENV["fps"], "2")
+    saved = config_mod.VlmConfig(fps=8, max_frames=64, locked=False)
+
+    effective = config_mod.effective_vlm_config(saved)
+
+    # fps from the image wins; max_frames the image does not set still applies.
+    assert effective == config_mod.VlmConfig(fps=2, max_frames=64, locked=True)
+
+
+def test_environment_lock_false_neither_locks_nor_unlocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["locked"], "false")
+
+    assert config_mod.effective_vlm_config(None) is None
+    saved = config_mod.VlmConfig(fps=4, locked=True)
+    assert config_mod.effective_vlm_config(saved) == saved
+
+
+def test_environment_lock_without_values_is_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["locked"], "true")
+
+    with pytest.raises(config_mod.ConfigError, match="must configure at least one"):
+        config_mod.effective_vlm_config(None)
+
+
+def test_configure_vlm_refuses_changes_under_an_environment_lock(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["locked"], "true")
+    monkeypatch.setenv(config_mod.VLM_ENV["fps"], "2")
+
+    result = _invoke("--unlock")
+
+    assert result.exit_code == int(Exit.CONFIGURATION), result.output
+    assert "VSS_VLM_LOCKED=true: the environment fixes this policy" in result.output
+    assert config_mod.load().vlm is None
+
+
+def test_configure_reports_an_environment_lock(config_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["locked"], "true")
+    monkeypatch.setenv(config_mod.VLM_ENV["fps"], "2")
+    config_mod.save(replace(config_mod.load(), vlm=config_mod.VlmConfig(fps=8)))
+
+    result = _configure_all_routes(monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert _report_line(result.output, "locked").split()[1:] == ["true", "VSS_VLM_LOCKED"]
+    assert _report_line(result.output, "fps").split()[1:] == ["2.0", "VSS_VLM_FPS"]
+
+
+# --------------------------------------------------------------------------
+# re-probing never drops policies it cannot read
+# --------------------------------------------------------------------------
+
+
+def test_configure_over_an_unreadable_config_writes_nothing(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A pre-release file: retired pixel fields next to a lock and a memory policy.
+    old = json.loads(config_home.joinpath("config.json").read_text())
+    old["vlm"] = {"backend": "vllm", "shortest_edge": 131072, "longest_edge": 16777216, "locked": True}
+    config_home.joinpath("config.json").write_text(json.dumps(old))
+    before = config_home.joinpath("config.json").read_text()
+
+    result = _configure_all_routes(monkeypatch)
+
+    assert result.exit_code == int(Exit.CONFIGURATION), result.output
+    assert "cannot read the existing" in result.output
+    assert "unknown fields: longest_edge, shortest_edge" in result.output
+    assert "Nothing was written" in result.output
+    assert config_home.joinpath("config.json").read_text() == before
+
+
+def test_configure_without_a_config_file_starts_fresh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "fresh"))
+
+    result = _configure_all_routes(monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert config_mod.load().base_url == "http://new"
+
+
+# --------------------------------------------------------------------------
+# partial stacks: VSS routes behind the ingress, a bare VLM at the origin root
+# --------------------------------------------------------------------------
+
+
+def _partial_stack(monkeypatch: pytest.MonkeyPatch, *, vlm_status: int) -> None:
+    """VIOS and Elasticsearch route; /rtvi-vlm does not; /v1/models answers vlm_status."""
+    import httpx
+
+    monkeypatch.setattr(
+        configure_mod,
+        "_probe",
+        lambda _base_url, probe_path, _timeout: (
+            probe_path.startswith(("/vst", "/elasticsearch")),
+            "HTTP 200",
+        ),
+    )
+    monkeypatch.setattr(configure_mod, "_describe", lambda *_args, **_kwargs: [])
+
+    def _get(url: str, **_kwargs: Any) -> httpx.Response:
+        if url.endswith("/v1/models") and vlm_status == 200:
+            return httpx.Response(200, json={"object": "list", "data": [{"id": "Qwen/Qwen3-VL", "owned_by": "vllm"}]})
+        return httpx.Response(vlm_status if url.endswith("/v1/models") else 404)
+
+    monkeypatch.setattr(httpx, "get", _get)
+
+
+def test_partial_stack_records_the_vlm_at_the_origin_root(config_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _partial_stack(monkeypatch, vlm_status=200)
+
+    result = CliRunner().invoke(configure_mod.configure, ["--base-url", "http://stack:7777"])
+
+    assert result.exit_code == 0, result.output
+    deployment = config_mod.load()
+    assert set(deployment.services) == {"vst", "elasticsearch", "rt_vlm"}
+    assert deployment.services["rt_vlm"] == config_mod.Service(url="http://stack:7777", models=["Qwen/Qwen3-VL"])
+    assert not deployment.is_direct_vlm
+    assert "the endpoint reports vLLM" in result.output
+
+
+def test_partial_stack_without_a_vlm_still_configures(config_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _partial_stack(monkeypatch, vlm_status=404)
+
+    result = CliRunner().invoke(configure_mod.configure, ["--base-url", "http://stack:7777"])
+
+    assert result.exit_code == 0, result.output
+    assert set(config_mod.load().services) == {"vst", "elasticsearch"}
+
+
+def test_partial_stack_vlm_needing_a_key_is_a_note_not_a_failure(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(config_mod.VLM_API_KEY_ENV, raising=False)
+    _partial_stack(monkeypatch, vlm_status=401)
+
+    result = CliRunner().invoke(configure_mod.configure, ["--base-url", "http://stack:7777"])
+
+    assert result.exit_code == 0, result.output
+    assert "note: no VLM recorded" in result.output
+    assert "Export VSS_VLM_API_KEY" in result.output
+
+
+def test_check_reprobes_a_root_vlm_in_a_partial_stack(config_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_mod.save(
+        config_mod.Deployment(
+            base_url="http://stack:7777",
+            services={
+                "vst": config_mod.Service(url="http://stack:7777/vst"),
+                "rt_vlm": config_mod.Service(url="http://stack:7777", models=["m"]),
+            },
+        )
+    )
+    _partial_stack(monkeypatch, vlm_status=200)
+
+    result = CliRunner().invoke(configure_mod.configure, ["check"])
+
+    assert result.exit_code == 0, result.output
+    rt_vlm = next(line for line in result.output.splitlines() if line.strip().startswith("rt_vlm"))
+    assert "ok" in rt_vlm
+    assert "HTTP 200" in rt_vlm

@@ -197,8 +197,10 @@ RUN set -eux; \
 # ── VLM request defaults for `vss vlm run` ────────────────────────────────────
 # Runtime variables, declared empty: the CLI reads empty as unset, so the VLM
 # server's own behavior applies until a sandbox sets one (`openshell sandbox
-# create --env VSS_VLM_FPS=2`, `docker run -e …`). VSS_VLM_API_KEY (the
-# endpoint's Bearer token) is set the same way and deliberately not declared.
+# create --env VSS_VLM_FPS=2`, `docker run -e …`). VSS_VLM_LOCKED=true makes
+# the values set here win and locks them against agent overrides; the default
+# false adds no lock. VSS_VLM_API_KEY (the endpoint's Bearer token) is set the
+# same way and deliberately not declared.
 # Names and meanings: libs/vss/cli/README.md ("Configure VLM requests").
 ENV VSS_VLM_BACKEND= \
     VSS_VLM_MODEL= \
@@ -210,7 +212,8 @@ ENV VSS_VLM_BACKEND= \
     VSS_VLM_CHUNK_DURATION= \
     VSS_VLM_FPS= \
     VSS_VLM_MAX_FRAMES= \
-    VSS_VLM_TOTAL_PIXELS=
+    VSS_VLM_TOTAL_PIXELS= \
+    VSS_VLM_LOCKED=false
 
 # Final USER is the non-root default OpenShell requires; WORKDIR /sandbox is the
 # OpenShell workspace. The runtime's CMD (/bin/bash) exits without a TTY, so the

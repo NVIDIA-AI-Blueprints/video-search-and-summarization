@@ -107,7 +107,9 @@ def _simulate_vllm_video_boundary(
     vllm/multimodal/video.py ``compute_frames_index_to_sample``: the uniform
     loader caps with ``num_frames`` and rate-limits with ``fps``; the
     ``qwen3_vl`` loader ignores ``num_frames``, samples at ``fps`` (default 2)
-    and clamps to ``[min_frames=4, max_frames=768]``.
+    and clamps to ``[min_frames=4, max_frames=768]``. A request without
+    ``num_frames`` gets ``VideoMediaIO``'s default of 32
+    (vllm/multimodal/media/video.py), and ``-1`` means no cap.
     """
     loader = request.get("media_io_kwargs", {}).get("video", {})
     duration = total_frames / source_fps
@@ -117,7 +119,7 @@ def _simulate_vllm_video_boundary(
         wanted = int(duration * loader.get("fps", 2))
         selected_frames = min(max(wanted, 4), loader.get("max_frames", 768), total_frames)
     else:
-        num_frames = loader.get("num_frames", -1)
+        num_frames = loader.get("num_frames", 32)
         if num_frames > 0:
             selected_frames = min(selected_frames, num_frames)
 
@@ -2137,3 +2139,52 @@ def test_sensor_on_a_bare_endpoint_fails_and_names_the_alternatives(monkeypatch:
     assert "is a bare VLM endpoint with no VIOS" in result.body["error"]
     assert "--use-base64" in result.body["error"]
     assert captured == {}
+
+
+@pytest.mark.parametrize(
+    ("backend", "sampling", "expected"),
+    [
+        # vLLM's VideoMediaIO would otherwise hand the uniform loader num_frames=32.
+        ("vllm", {"fps": 4}, {"fps": 4, "num_frames": -1}),
+        ("vllm", {"fps": 4, "max_frames": 30}, {"fps": 4, "num_frames": 30, "max_frames": 30}),
+        ("vllm", {"max_frames": 30}, {"num_frames": 30, "max_frames": 30}),
+        ("rt_vlm", {"fps": 4}, {"fps": 4}),
+        ("cosmos_reason_nim", {"fps": 4}, {"fps": 4}),
+    ],
+)
+def test_fps_alone_lifts_vllms_default_frame_cap_only_on_vllm(
+    monkeypatch: pytest.MonkeyPatch,
+    backend: str,
+    sampling: dict[str, Any],
+    expected: dict[str, Any],
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=_deployment(vlm=config_mod.VlmConfig(backend=backend)))
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", **sampling), ctx)
+
+    assert captured["json"]["media_io_kwargs"] == {"video": expected}
+
+
+def test_environment_lock_rejects_a_run_flag_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["locked"], "true")
+    monkeypatch.setenv(config_mod.VLM_ENV["fps"], "2")
+
+    from vss_cli.group import Context
+    from vss_cli.group import InvalidInput
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=_deployment(vlm=config_mod.VlmConfig(fps=8)))
+    ctx.extra = {"no_persist": True}
+    with pytest.raises(InvalidInput, match=r"--fps is locked to 2\.0"):
+        VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", fps=4), ctx)

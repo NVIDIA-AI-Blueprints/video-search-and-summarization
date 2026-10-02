@@ -241,39 +241,22 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
             err=True,
         )
 
-    vlm = _configured_vlm_or_none()
-    endpoint_probe: _VlmEndpointProbe | None = None
+    # Read before anything is written: a file this CLI cannot read stops here
+    # rather than being replaced by one without its memory and VLM policies.
+    previous = _previous_deployment_or_exit()
+    vlm = previous.vlm if previous is not None else None
     if services:
         base_url = base_url.rstrip("/")
     else:
-        # No ingress here. A bare OpenAI-compatible VLM server (vLLM, NIM,
-        # RT-VLM's own port, Inference Hub) is the other thing an origin can be.
         base_url = _vlm_root(base_url)
-        endpoint_probe = _probe_vlm_endpoint(base_url, timeout)
-        click.echo(f"  {'vlm endpoint':<14} {'/v1/models':<16} {endpoint_probe.detail}", err=True)
-        if endpoint_probe.status in (401, 403):
-            if config_mod.vlm_api_key() is None:
-                raise click.ClickException(
-                    f"{base_url}/v1/models answered {endpoint_probe.detail}: the endpoint needs an API key. "
-                    f"Export {config_mod.VLM_API_KEY_ENV} and re-run."
-                )
-            raise click.ClickException(
-                f"{base_url}/v1/models rejected {config_mod.VLM_API_KEY_ENV} ({endpoint_probe.detail})."
-            )
-        if not endpoint_probe.ok:
-            raise click.ClickException(
-                f"{base_url} exposed none of the expected routes "
-                f"({', '.join(r.mount for r in config_mod.INGRESS_SERVICES.values())}) "
-                f"and is not an OpenAI-compatible VLM endpoint (/v1/models: {endpoint_probe.detail}). "
-                f"Check the origin and that the ingress or model server is up."
-            )
-        services["rt_vlm"] = config_mod.Service(url=base_url, models=endpoint_probe.models)
+    endpoint_probe = _discover_vlm_endpoint(base_url, services, timeout)
+    if endpoint_probe is not None:
         vlm = _apply_detected_backend(vlm, endpoint_probe.detected_backend)
 
     deployment = config_mod.Deployment(
         base_url=base_url,
         services=services,
-        memory=_configured_memory_or_none(),
+        memory=previous.memory if previous is not None else None,
         vlm=vlm,
         written_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
@@ -282,9 +265,10 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
     path = config_mod.save(deployment)
     if deployment.is_direct_vlm:
         click.echo(f"wrote {path} (direct VLM endpoint, {len(services['rt_vlm'].models)} models)", err=True)
-        _report_vlm_endpoint(deployment, effective_vlm, endpoint_probe)
     else:
         click.echo(f"wrote {path} ({len(services)}/{len(config_mod.INGRESS_SERVICES)} services)", err=True)
+    if endpoint_probe is not None:
+        _report_vlm_endpoint(deployment, effective_vlm, endpoint_probe)
     if "rt_vlm" in services:
         _report_vlm_sampling(deployment, effective_vlm, path)
 
@@ -402,6 +386,9 @@ def _report_vlm_sampling(
         )
         return
     click.echo("vlm sampling for `vss vlm run`:", err=True)
+    environment_locked = config_mod.vlm_environment_locked()
+    if environment_locked:
+        click.echo(f"  {'locked':<14} {'true':<12} {config_mod.VLM_ENV['locked']}", err=True)
     unset: list[str] = []
     for name in config_mod.VLM_SAMPLING_FIELDS:
         value = getattr(effective, name) if effective is not None else None
@@ -410,7 +397,8 @@ def _report_vlm_sampling(
             click.echo(f"  {name:<14} unset", err=True)
             continue
         environment_name = config_mod.VLM_ENV[name]
-        if deployment.vlm is not None and getattr(deployment.vlm, name) is not None:
+        environment_wins = environment_locked and os.environ.get(environment_name, "").strip()
+        if deployment.vlm is not None and getattr(deployment.vlm, name) is not None and not environment_wins:
             source = f"{path} (vss configure vlm)"
         else:
             source = environment_name
@@ -426,20 +414,66 @@ def _report_vlm_sampling(
         )
 
 
-def _configured_memory_or_none() -> config_mod.MemoryConfig | None:
-    """Preserve valid static memory policy when deployment routes are refreshed."""
-    try:
-        return config_mod.load().memory
-    except config_mod.ConfigError:
+def _previous_deployment_or_exit() -> config_mod.Deployment | None:
+    """The recorded deployment whose memory and VLM policies a re-probe keeps.
+
+    None only when there is no file. A file that exists but cannot be read --
+    corrupt, from another version, or carrying settings this CLI no longer has
+    -- stops `configure` before it writes: treating it as absent would replace
+    it with one that silently drops those policies.
+    """
+    if not config_mod.config_path().is_file():
         return None
+    try:
+        return config_mod.load()
+    except config_mod.ConfigError as error:
+        click.echo(
+            f"vss configure: cannot read the existing {config_mod.config_path()}: {error}. "
+            "Nothing was written. Fix the file, or move it aside to start over.",
+            err=True,
+        )
+        raise SystemExit(int(Exit.CONFIGURATION)) from error
 
 
-def _configured_vlm_or_none() -> config_mod.VlmConfig | None:
-    """Preserve valid VLM request policy when deployment routes are refreshed."""
-    try:
-        return config_mod.load().vlm
-    except config_mod.ConfigError:
+def _discover_vlm_endpoint(
+    base_url: str,
+    services: dict[str, config_mod.Service],
+    timeout: float,
+) -> _VlmEndpointProbe | None:
+    """Look for an OpenAI-compatible VLM at the origin itself when no `/rtvi-vlm` route serves one.
+
+    A bare model server (vLLM, NIM, RT-VLM's own port, Inference Hub) is one
+    case; a partial stack -- VIOS and Elasticsearch behind the ingress, vLLM at
+    its root -- is the other. Found, it becomes the `rt_vlm` service at the
+    origin. Not found is fatal only when the origin answered nothing else.
+    """
+    if "rt_vlm" in services:
         return None
+    endpoint_probe = _probe_vlm_endpoint(base_url, timeout)
+    click.echo(f"  {'vlm endpoint':<14} {'/v1/models':<16} {endpoint_probe.detail}", err=True)
+    if endpoint_probe.ok:
+        services["rt_vlm"] = config_mod.Service(url=base_url, models=endpoint_probe.models)
+        return endpoint_probe
+    if endpoint_probe.status in (401, 403):
+        if config_mod.vlm_api_key() is None:
+            message = (
+                f"{base_url}/v1/models answered {endpoint_probe.detail}: the endpoint needs an API key. "
+                f"Export {config_mod.VLM_API_KEY_ENV} and re-run."
+            )
+        else:
+            message = f"{base_url}/v1/models rejected {config_mod.VLM_API_KEY_ENV} ({endpoint_probe.detail})."
+        if not services:
+            raise click.ClickException(message)
+        click.echo(f"note: no VLM recorded. {message}", err=True)
+        return None
+    if not services:
+        raise click.ClickException(
+            f"{base_url} exposed none of the expected routes "
+            f"({', '.join(r.mount for r in config_mod.INGRESS_SERVICES.values())}) "
+            f"and is not an OpenAI-compatible VLM endpoint (/v1/models: {endpoint_probe.detail}). "
+            f"Check the origin and that the ingress or model server is up."
+        )
+    return None
 
 
 def _memory_config_error(message: str) -> NoReturn:
@@ -995,6 +1029,11 @@ def configure_vlm(
             locked,
         )
     )
+    if supplied and config_mod.vlm_environment_locked():
+        _vlm_config_error(
+            f"{config_mod.VLM_ENV['locked']}=true: the environment fixes this policy, so saved values "
+            "would not take effect. Unset it to change the saved policy."
+        )
     if reset:
         if supplied:
             raise click.UsageError("cannot combine --reset with VLM policy options")
@@ -1074,6 +1113,18 @@ def _command_availability(deployment: config_mod.Deployment) -> list[tuple[str, 
     return sorted(rows)
 
 
+def _recheck_service(base_url: str, name: str, service: config_mod.Service) -> tuple[bool, str | None]:
+    """Re-probe one recorded service the way `configure` found it; detail None means skip it."""
+    if name == "rt_vlm" and service.url.rstrip("/") == base_url.rstrip("/"):
+        # Found at the origin's own /v1/models, not behind /rtvi-vlm.
+        endpoint_probe = _probe_vlm_endpoint(base_url, _PROBE_TIMEOUT_SECONDS)
+        return endpoint_probe.ok, endpoint_probe.detail
+    route = config_mod.INGRESS_SERVICES.get(name)
+    if route is None:
+        return True, None
+    return _probe(base_url, route.probe, _PROBE_TIMEOUT_SECONDS)
+
+
 @configure.command("check")
 def check() -> None:
     """Re-probe the recorded deployment and report drift (C3).
@@ -1089,21 +1140,15 @@ def check() -> None:
 
     click.echo(f"configured {deployment.written_at or 'unknown'} against {deployment.base_url}", err=True)
     stale = False
-    if deployment.is_direct_vlm:
-        # A bare endpoint has no ingress routes and no agent to report a version.
-        endpoint_probe = _probe_vlm_endpoint(deployment.base_url, _PROBE_TIMEOUT_SECONDS)
-        state = "ok" if endpoint_probe.ok else "UNREACHABLE"
-        click.echo(f"  {'rt_vlm':<14} {state:<12} {deployment.base_url}  {endpoint_probe.detail}")
-        stale = not endpoint_probe.ok
-    else:
-        for name, service in sorted(deployment.services.items()):
-            route = config_mod.INGRESS_SERVICES.get(name)
-            if route is None:
-                continue
-            ok, detail = _probe(deployment.base_url, route.probe, _PROBE_TIMEOUT_SECONDS)
-            click.echo(f"  {name:<14} {'ok' if ok else 'UNREACHABLE':<12} {service.url}  {detail}")
-            stale = stale or not ok
+    for name, service in sorted(deployment.services.items()):
+        ok, detail = _recheck_service(deployment.base_url, name, service)
+        if detail is None:
+            continue
+        click.echo(f"  {name:<14} {'ok' if ok else 'UNREACHABLE':<12} {service.url}  {detail}")
+        stale = stale or not ok
 
+    if not deployment.is_direct_vlm:
+        # A bare endpoint has no agent behind it to report a version.
         version, version_detail = _deployment_version(deployment.base_url, _PROBE_TIMEOUT_SECONDS)
         click.echo(f"  {'version':<14} {version if version else 'not reported':<12}  {version_detail}".rstrip())
 

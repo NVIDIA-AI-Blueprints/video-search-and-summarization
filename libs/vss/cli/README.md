@@ -87,9 +87,10 @@ rather than a typed-in value.
 | `rt_vlm` | `/rtvi-vlm` | URL + model ids — the default model for `vss vlm` and introspection follow-ups |
 | `lvs` | `/lvs` | URL + model ids (long-video summarization) |
 
-If the origin exposes none of them, `configure` tries it as a bare VLM
-endpoint (below), and fails rather than writing an empty config if that does
-not answer either. Elasticsearch indices are created by ingestion, not deployment,
+When no `/rtvi-vlm` route answers, `configure` also tries the origin as an
+OpenAI-compatible VLM (below): a bare model server, or a partial stack with
+VIOS and Elasticsearch behind the ingress and vLLM at its root. If the origin
+exposes nothing at all, `configure` fails rather than writing an empty config. Elasticsearch indices are created by ingestion, not deployment,
 so configuring a fresh stack records zero `mdx-*` indices and says so — re-run
 `configure` after ingesting video and before searching.
 
@@ -103,7 +104,10 @@ refused rather than half-read, with a message telling you to re-run `configure`.
 
 Re-running `vss configure --base-url …` refreshes routes and **preserves valid
 static memory and VLM policy**, so re-probing after a deployment change does
-not reset request, judge, embedding, or persistence settings.
+not reset request, judge, embedding, or persistence settings. An existing file
+it cannot read (corrupt, or carrying settings this version no longer has)
+stops `configure` with the reason and writes nothing, rather than being
+replaced by one without those policies.
 
 `vss configure check` prints per-service reachability and a `commands:` table
 marking each group available or unavailable (a group is available only when
@@ -113,9 +117,10 @@ answers.
 ### A VLM endpoint without VSS
 
 `--base-url` also accepts a bare OpenAI-compatible VLM server: a standalone
-vLLM, a Cosmos Reason NIM, RT-VLM's own port, or Inference Hub. When no ingress
-route answers, `configure` requests `<origin>/v1/models` and records the origin
-as the only service, `rt_vlm`. A bare host, an OpenAI `base_url` ending in `/v1`
+vLLM, a Cosmos Reason NIM, RT-VLM's own port, or Inference Hub. When no
+`/rtvi-vlm` route answers, `configure` requests `<origin>/v1/models` and, if it
+answers, records the origin as the `rt_vlm` service: the only service for a
+bare endpoint, or next to the VSS routes it found for a partial stack. A bare host, an OpenAI `base_url` ending in `/v1`
 and a full `/v1/chat/completions` URL all record the same origin.
 
 ```bash
@@ -181,6 +186,7 @@ Each field also has an independent runtime environment override:
 | `fps` | `VSS_VLM_FPS` |
 | `max_frames` | `VSS_VLM_MAX_FRAMES` |
 | `total_pixels` | `VSS_VLM_TOTAL_PIXELS` |
+| `locked` | `VSS_VLM_LOCKED` (`true` or `false`; see below) |
 
 Environment variables provide per-field defaults. Values persisted by
 `vss configure vlm` override those defaults. Explicit `vss vlm run` arguments
@@ -190,7 +196,12 @@ request default applies. An empty variable counts as unset, so an image that
 declares one empty keeps the default; a malformed one is an error, and so is a
 non-empty `VSS_VLM_*` name the CLI does not support (a typo, or a removed
 setting such as `VSS_VLM_LOCKED`), which would otherwise do nothing.
-A policy is locked only by `vss configure vlm --lock`; there is no lock variable.
+A policy is locked by `vss configure vlm --lock` or by `VSS_VLM_LOCKED=true`.
+The variable is for images that must fix their settings: under it the values
+the environment sets win over saved ones, the policy is locked whatever the
+config file says, and `vss configure vlm` refuses changes. `VSS_VLM_LOCKED=false`
+(the default the hermes and openclaw images declare) adds no lock and does not
+unlock a policy saved with `--lock`.
 
 ### Frame sampling
 
@@ -230,7 +241,9 @@ says so.
 RT-VLM and the Cosmos NIM accept `fps` or `num_frames`, not both (HTTP 400).
 With both set, the CLI sends them `fps` alone, logs a warning, and their
 deployment-wide frame cap applies; `max_frames` applies there only when `fps`
-is unset. vLLM receives both.
+is unset. vLLM receives both. With `fps` alone, vLLM also gets
+`num_frames: -1`: its `VideoMediaIO` otherwise hands the loader `num_frames=32`
+(vLLM 0.28), which would stop the default loader at 32 frames whatever the rate.
 
 ## The surface
 

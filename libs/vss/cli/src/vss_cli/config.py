@@ -53,6 +53,9 @@ VLM_ENV = {
     "fps": "VSS_VLM_FPS",
     "max_frames": "VSS_VLM_MAX_FRAMES",
     "total_pixels": "VSS_VLM_TOTAL_PIXELS",
+    # `true` locks the policy and makes the values the environment sets win
+    # over saved ones, so a sandbox image fixes them; `false` adds no lock.
+    "locked": "VSS_VLM_LOCKED",
 }
 
 #: The frame-sampling subset of the VLM policy. Left unset, the VLM server's
@@ -762,7 +765,7 @@ _VLM_INTEGER_ENV_FIELDS = frozenset(
     }
 )
 _VLM_FLOAT_ENV_FIELDS = frozenset({"temperature", "fps"})
-_VLM_BOOLEAN_ENV_FIELDS = frozenset({"enable_reasoning"})
+_VLM_BOOLEAN_ENV_FIELDS = frozenset({"enable_reasoning", "locked"})
 
 
 def _parse_vlm_environment_value(field_name: str, environment_name: str, raw: str) -> object:
@@ -804,8 +807,13 @@ def effective_vlm_config(configured: VlmConfig | None) -> VlmConfig | None:
     Explicit ``vss vlm run`` arguments are applied afterward. They override
     the effective policy only when that policy is unlocked.
 
-    An empty variable counts as unset, so an image built with an unset
-    ``ARG VSS_VLM_FPS`` -> ``ENV VSS_VLM_FPS=$VSS_VLM_FPS`` leaves the server default.
+    ``VSS_VLM_LOCKED=true`` reverses the order for the values the environment
+    sets: they win over saved ones and the policy is locked whatever the file
+    says, so an image enforces its settings deterministically. ``false`` adds
+    no lock and never unlocks a policy saved with ``--lock``.
+
+    An empty variable counts as unset, so an image that declares one empty
+    leaves the server default.
     """
     # A VSS_VLM_* name the CLI does not read -- a typo, or a setting this
     # version no longer has -- would otherwise do nothing without a word.
@@ -824,14 +832,24 @@ def effective_vlm_config(configured: VlmConfig | None) -> VlmConfig | None:
         for field_name, environment_name in VLM_ENV.items()
         if os.environ.get(environment_name, "").strip()
     }
-    if configured is None and not environment_defaults:
+    environment_lock = environment_defaults.pop("locked", False)
+    if configured is None and not environment_defaults and not environment_lock:
         return None
 
     effective = VlmConfig().to_json()
     effective.update(environment_defaults)
     if configured is not None:
         effective.update(configured.to_json())
+    if environment_lock:
+        effective.update(environment_defaults)
+        effective["locked"] = True
     return VlmConfig.from_json(effective)
+
+
+def vlm_environment_locked() -> bool:
+    """Whether ``VSS_VLM_LOCKED=true`` fixes the VLM policy from the environment."""
+    raw = os.environ.get(VLM_ENV["locked"], "").strip()
+    return bool(raw) and _parse_vlm_environment_value("locked", VLM_ENV["locked"], raw) is True
 
 
 @dataclass(frozen=True)

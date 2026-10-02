@@ -397,10 +397,17 @@ def _video_io(inputs: VlmInput, *, qwen3_loader_cap: bool = False) -> dict[str, 
     with ``max_frames`` instead, so vLLM gets both. RT-VLM and NIM reject
     ``fps`` with ``num_frames`` (HTTP 400), so with ``fps`` set they get ``fps``
     alone and their deployment-wide frame cap applies.
+
+    vLLM's ``VideoMediaIO`` hands its loader ``num_frames=32`` unless the
+    request sends one (vllm/multimodal/media/video.py, v0.28), so ``fps``
+    alone would stop at 32 frames on the uniform loader. With ``fps`` and no
+    ``max_frames``, vLLM gets ``num_frames: -1`` so the rate decides.
     """
     video: dict[str, Any] = {}
     if inputs.fps is not None:
         video["fps"] = inputs.fps
+        if qwen3_loader_cap and inputs.max_frames is None:
+            video["num_frames"] = -1
     if inputs.max_frames is not None:
         if qwen3_loader_cap:
             video["num_frames"] = inputs.max_frames

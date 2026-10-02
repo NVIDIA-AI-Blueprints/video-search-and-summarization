@@ -136,7 +136,9 @@ Pins are build args:
 `VSS_VLM_*` setting (`VSS_VLM_BACKEND`, `VSS_VLM_MODEL`, `VSS_VLM_FPS`,
 `VSS_VLM_MAX_FRAMES`, `VSS_VLM_TOTAL_PIXELS`, …;
 full list in [the CLI README](../libs/vss/cli/README.md#configure-vlm-requests))
-empty, which the CLI reads as unset. Set them on the sandbox
+empty, which the CLI reads as unset, and `VSS_VLM_LOCKED=false`. Set
+`VSS_VLM_LOCKED=true` to make the values the sandbox sets win over saved ones
+and lock them against the agent's own overrides. Set them on the sandbox
 (`openshell sandbox create --env VSS_VLM_FPS=2`, `docker run -e …`); no build
 arg is involved. `VSS_VLM_API_KEY` is set the same way and is not declared, so
 the Bearer token never appears in the image.
