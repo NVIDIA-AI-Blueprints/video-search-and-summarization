@@ -288,6 +288,28 @@ print(json.dumps({
 
 
 def coordinator(run_id):
+    process_kinds=Counter()
+    run_leg_pids=[]
+    for proc in Path('/proc').iterdir():
+        if not proc.name.isdigit(): continue
+        try:
+            entries=(proc/'environ').read_bytes().split(b'\0')
+            if f'GITHUB_RUN_ID={run_id}'.encode() not in entries: continue
+            command=(proc/'cmdline').read_bytes()
+            kind='run_leg' if b'run_leg.py' in command else 'coordinator_agent' if b'skills_eval_agent.py' in command else 'harbor' if b'harbor' in command else 'other'
+            process_kinds[kind]+=1
+            if kind=='run_leg': run_leg_pids.append(int(proc.name))
+        except OSError: pass
+    lock_rows=[]
+    for lock in Path('/tmp/brev').glob('*.lock'):
+        if lock.name not in ['Spark-ba-WiFi.lock','spark-ba-wifi.lock']: continue
+        try:
+            inode=lock.stat().st_ino
+            for line in Path('/proc/locks').read_text().splitlines():
+                parts=line.split()
+                if len(parts)>5 and parts[1]=='FLOCK' and parts[5].endswith(':'+str(inode)):
+                    lock_rows.append({'worker':'Spark-ba-WiFi','owned_by_requested_leg':int(parts[4]) in run_leg_pids})
+        except (OSError,ValueError): pass
     trials = []
     for path in Path("/tmp/skill-eval/results").glob(f"*/{run_id}/*/step-*__*/result.json"):
         step = path.parent.name.split("__")[0]
@@ -373,7 +395,7 @@ def coordinator(run_id):
         ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2", "spark-ba-wifi", command],
         input=Path(__file__).read_text(), capture_output=True, text=True, timeout=45,
     )
-    report = {"run_id": run_id, "completed_trial_metadata": trials, "trace_metadata":trace_metadata, "worker_probe_exit_code": result.returncode}
+    report = {"run_id": run_id, "coordinator_process_kinds":dict(process_kinds),"worker_lock_metadata":lock_rows, "completed_trial_metadata": trials, "trace_metadata":trace_metadata, "worker_probe_exit_code": result.returncode}
     if result.returncode == 0:
         report["worker"] = json.loads(result.stdout)
     else:
