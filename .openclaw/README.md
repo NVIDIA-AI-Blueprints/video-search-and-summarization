@@ -137,9 +137,9 @@ Pins are build args:
 `VSS_VLM_MAX_FRAMES`, `VSS_VLM_TOTAL_PIXELS`, `VSS_VLM_MAX_PIXELS_PER_FRAME`, …;
 full list in [the CLI README](../libs/vss/cli/README.md#configure-vlm-requests))
 empty, which the CLI reads as unset. Set them on the sandbox
-(`openshell sandbox create --env VSS_VLM_FPS=2`, `docker run -e …`), or bake a
-default with the same-named `--build-arg`. `VSS_VLM_API_KEY` is not declared:
-pass the Bearer token at runtime only, never as a build arg.
+(`openshell sandbox create --env VSS_VLM_FPS=2`, `docker run -e …`); no build
+arg is involved. `VSS_VLM_API_KEY` is set the same way and is not declared, so
+the Bearer token never appears in the image.
 
 Moving `BASE_IMAGE` to another NemoClaw release means moving `OPENCLAW_VERSION`
 to the OpenClaw that release pins and regenerating the plugin lockfile
