@@ -212,7 +212,16 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
     if not base_url:
         raise click.UsageError("--base-url is required (or use `vss configure show`)")
 
-    base_url = _with_scheme(base_url)
+    # Without a scheme httpx refuses to build the request, so every route comes
+    # back "absent" with an UnsupportedProtocol detail and the summary blames
+    # the ingress -- pointing at the deployment when the fault is the argument.
+    # Assume http and say so, rather than guessing silently or failing on
+    # something whose intent is unambiguous. Checked on "://" and not urlparse:
+    # urlparse reads "localhost:7777" as scheme "localhost", path "7777".
+    if "://" not in base_url:
+        base_url = f"http://{base_url}"
+        click.echo(f"no scheme given, assuming {base_url}", err=True)
+
     services = _probe_ingress(base_url, timeout)
 
     # Read before anything is written: a file this CLI cannot read stops here
@@ -246,22 +255,6 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
     if "rt_vlm" in services:
         _report_vlm_sampling(deployment, effective_vlm, path)
     _note_empty_search_indices(services)
-
-
-def _with_scheme(base_url: str) -> str:
-    """The origin with a scheme, assuming http when none is given.
-
-    Without a scheme httpx refuses to build the request, so every route comes
-    back "absent" with an UnsupportedProtocol detail and the summary blames
-    the ingress -- pointing at the deployment when the fault is the argument.
-    Assume http and say so, rather than guessing silently or failing on
-    something whose intent is unambiguous. Checked on "://" and not urlparse:
-    urlparse reads "localhost:7777" as scheme "localhost", path "7777".
-    """
-    if "://" in base_url:
-        return base_url
-    click.echo(f"no scheme given, assuming http://{base_url}", err=True)
-    return f"http://{base_url}"
 
 
 def _probe_ingress(base_url: str, timeout: float) -> dict[str, config_mod.Service]:
