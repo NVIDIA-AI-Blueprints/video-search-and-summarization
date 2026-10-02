@@ -294,6 +294,9 @@ _VLM_POLICY_FIELDS = (
 )
 
 
+_ONE_OF_FPS_OR_FRAMES_BACKENDS = frozenset({"rt_vlm", "cosmos_reason_nim"})
+
+
 def _apply_vlm_policy(inputs: VlmInput, policy: config_mod.VlmConfig | None) -> VlmInput:
     """Apply configured defaults and reject overrides when the policy is locked."""
     if policy is None:
@@ -312,6 +315,17 @@ def _apply_vlm_policy(inputs: VlmInput, policy: config_mod.VlmConfig | None) -> 
                 raise InvalidInput(f"--{flag} is locked to {configured!r}; received {requested!r}")
             continue
         updates[name] = configured
+
+    # RT-VLM and the NIM take a rate or a frame count, not both. A frame count
+    # the caller asked for (a benchmark's fixed --max-frames) replaces a rate
+    # it only inherited from the environment or saved policy; a lock keeps it.
+    if (
+        policy.backend in _ONE_OF_FPS_OR_FRAMES_BACKENDS
+        and "max_frames" in explicit
+        and "fps" not in explicit
+        and not policy.locked
+    ):
+        updates.pop("fps", None)
 
     merged = inputs.model_dump()
     merged.update(updates)

@@ -2188,3 +2188,44 @@ def test_environment_lock_rejects_a_run_flag_override(monkeypatch: pytest.Monkey
     ctx.extra = {"no_persist": True}
     with pytest.raises(InvalidInput, match=r"--fps is locked to 2\.0"):
         VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", fps=4), ctx)
+
+
+@pytest.mark.parametrize(
+    ("backend", "policy", "env_fps", "expected"),
+    [
+        # A fixed --max-frames (the QA benchmark) replaces an inherited rate on
+        # backends that take one or the other.
+        ("rt_vlm", config_mod.VlmConfig(backend="rt_vlm", fps=2), None, {"num_frames": 30}),
+        ("rt_vlm", config_mod.VlmConfig(backend="rt_vlm"), "2", {"num_frames": 30}),
+        ("cosmos_reason_nim", config_mod.VlmConfig(backend="cosmos_reason_nim", fps=2), None, {"num_frames": 30}),
+        # A locked rate wins: the count is dropped with the existing warning.
+        ("rt_vlm", config_mod.VlmConfig(backend="rt_vlm", fps=2, locked=True), None, {"fps": 2.0}),
+        # vLLM takes both, so nothing is replaced.
+        ("vllm", config_mod.VlmConfig(backend="vllm", fps=2), None, {"fps": 2.0, "num_frames": 30, "max_frames": 30}),
+    ],
+)
+def test_explicit_max_frames_replaces_an_inherited_fps_where_backends_take_one(
+    monkeypatch: pytest.MonkeyPatch,
+    backend: str,
+    policy: config_mod.VlmConfig,
+    env_fps: str | None,
+    expected: dict[str, Any],
+) -> None:
+    if env_fps is not None:
+        monkeypatch.setenv(config_mod.VLM_ENV["fps"], env_fps)
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=_deployment(vlm=policy))
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", max_frames=30), ctx)
+
+    assert captured["json"]["media_io_kwargs"] == {"video": expected}

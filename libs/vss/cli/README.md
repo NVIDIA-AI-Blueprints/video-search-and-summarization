@@ -215,11 +215,13 @@ them itself:
 | `max_frames` | Upper bound on frames; combines with `fps` | `media_io_kwargs.video.num_frames` (vLLM also gets `max_frames`, which its `qwen3_vl` loader reads) |
 | `total_pixels` | Pixel budget for the whole clip | `mm_processor_kwargs.size.longest_edge`, with `shortest_edge` set to the Qwen3-VL floor of 131072 or `total_pixels` if smaller |
 
-There is no per-frame pixel field. Neither vLLM nor RT-VLM reads
-`mm_processor_kwargs.max_pixels`, the Qwen3-VL video processor does not accept
-it, and the Qwen2-VL processors that do write it over `size.longest_edge`. On
-Qwen3-VL the frames share one budget, so `total_pixels` with `max_frames` sets
-the per-frame resolution.
+There is no separate per-frame pixel field, because `mm_processor_kwargs.max_pixels`
+is not one. Where it is read at all -- RT-VLM's patched vLLM `qwen3_vl.py`,
+transformers' Qwen2-VL processors -- it is an alias that overwrites
+`size.longest_edge`, the field `total_pixels` sets; stock vLLM and the
+Qwen3-VL video processor do not accept it. So `total_pixels` is the one pixel
+control: a whole-clip budget on Qwen3-VL, where it sets per-frame resolution
+together with `max_frames`, and a per-frame limit on Qwen2/2.5-VL.
 
 `total_pixels` assumes a Qwen3-VL-family processor (Qwen3-VL, Cosmos-Reason2),
 where the budget covers every frame: 16,777,216 is roughly 8,192 vision tokens
@@ -241,7 +243,10 @@ says so.
 RT-VLM and the Cosmos NIM accept `fps` or `num_frames`, not both (HTTP 400).
 With both set, the CLI sends them `fps` alone, logs a warning, and their
 deployment-wide frame cap applies; `max_frames` applies there only when `fps`
-is unset. vLLM receives both. With `fps` alone, vLLM also gets
+is unset, or when `--max-frames` is given on the command line and `fps` only
+came from the environment or saved policy: an explicit frame count replaces an
+inherited rate there (a fixed-count benchmark gets its count), unless the policy
+is locked. vLLM receives both. With `fps` alone, vLLM also gets
 `num_frames: -1`: its `VideoMediaIO` otherwise hands the loader `num_frames=32`
 (vLLM 0.28), which would stop the default loader at 32 frames whatever the rate.
 
