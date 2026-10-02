@@ -367,7 +367,8 @@ for port in "${NEMOCLAW_DASHBOARD_PORT:-18789}" "${NEMOCLAW_DASHBOARD_RELAY_PORT
     printf '  %s: ' "$pid"; tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null; echo
   done
 done
-for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' <"$f" 2>/dev/null; echo; done \
+# stderr first: a process that exits mid-scan makes the shell's own open fail.
+for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' 2>/dev/null <"$f"; echo; done \
   | grep -E '[d]ashboard-(relay|forward-watchdog)\.py'  # --sandbox names the owner
 ```
 
