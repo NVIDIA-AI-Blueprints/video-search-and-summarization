@@ -91,6 +91,10 @@ shmSize: "16Gi"
 # nvidia.com/mig-3g.40gb). The default remains one nvidia.com/gpu, as on develop.
 # A MIG deployment always requests one slice per pod.
 # gpuResourceName: "nvidia.com/mig-3g.40gb"
+# Leave device selection to the GPU device plugin: drops NVIDIA_VISIBLE_DEVICES
+# from the container. Implied by gpuResourceName, and settable on its own for a
+# cluster whose plugin assigns devices but whose resource is still nvidia.com/gpu.
+# pluginSelectsDevices: false
 
 resources:
   # CPU and memory resources can be added here. gpuResourceName replaces the
