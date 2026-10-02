@@ -274,7 +274,7 @@ def test_11_rejects_result_exceeding_task_allocation() -> None:
         )
 
 
-def test_12_enforces_global_six_call_cap() -> None:
+def test_12_enforces_global_twelve_call_cap() -> None:
     ledger = initialized(claim(), claim("claim-count"))
     tasks = create_tasks(ledger)
     ledger = ledger_mod.merge_round_results(
@@ -285,17 +285,17 @@ def test_12_enforces_global_six_call_cap() -> None:
                 tasks[0],
                 (observation(relation="context"),),
                 coverage="partial",
-                calls=2,
+                calls=4,
             ),
             result(
                 tasks[1],
                 (observation("claim-count", "context", "A vehicle is visible."),),
                 coverage="partial",
-                calls=2,
+                calls=4,
             ),
         ],
     )
-    assert ledger["vlm_calls_used"] == 4
+    assert ledger["vlm_calls_used"] == 8
     second = create_tasks(ledger, ["claim-color"])
     ledger = ledger_mod.merge_round_results(
         ledger,
@@ -310,12 +310,12 @@ def test_12_enforces_global_six_call_cap() -> None:
                         job_id="vlm-2",
                     ),
                 ),
-                calls=1,
+                calls=3,
                 coverage="partial",
             )
         ],
     )
-    assert ledger["vlm_calls_used"] == 5
+    assert ledger["vlm_calls_used"] == 11
     third = create_tasks(ledger, ["claim-color"])
     overallocated = copy.deepcopy(third)
     overallocated[0]["max_vlm_calls"] = 2
@@ -529,25 +529,51 @@ def test_20_detects_budget_exhaustion_across_rounds() -> None:
             )
         ],
     )
-    assert ledger["round"] == 3
-    assert ledger["vlm_calls_used"] == 6
+    assert ledger["status"] == "in_progress"
+    fourth = create_tasks(ledger, ["claim-color"])
+    ledger = ledger_mod.merge_round_results(
+        ledger,
+        fourth,
+        [
+            result(
+                fourth[0],
+                (
+                    observation(
+                        relation="context",
+                        text="A fourth bounded window remains inconclusive.",
+                        job_id="vlm-4",
+                    ),
+                ),
+                coverage="partial",
+                calls=1,
+            )
+        ],
+    )
+    assert ledger["round"] == 4
+    assert ledger["vlm_calls_used"] == 7
     assert ledger["stop_reason"] == "budget_exhausted"
 
 
-def test_21_allows_exactly_one_expansion() -> None:
+def test_21_allows_four_expansions() -> None:
     ledger = initialized()
-    expanded = ledger_mod.expand_ledger(
-        ledger,
-        plan(
-            claim("claim-order", "order", "repeated_observation"),
-            mode="expansion",
-        ),
+    names = ("claim-order", "claim-count", "claim-duration", "claim-spatial")
+    types = ("order", "count", "duration", "spatial")
+    coverages = (
+        "repeated_observation",
+        "whole_video",
+        "local_window",
+        "local_window",
     )
-    assert expanded["expansions_used"] == 1
-    with pytest.raises(ledger_mod.LedgerValidationError, match="one expansion"):
+    for name, evidence_type, coverage in zip(names, types, coverages):
+        ledger = ledger_mod.expand_ledger(
+            ledger,
+            plan(claim(name, evidence_type, coverage), mode="expansion"),
+        )
+    assert ledger["expansions_used"] == 4
+    with pytest.raises(ledger_mod.LedgerValidationError, match="4 expansions"):
         ledger_mod.expand_ledger(
-            expanded,
-            plan(claim("claim-count", "count", "whole_video"), mode="expansion"),
+            ledger,
+            plan(claim("claim-trajectory", "trajectory", "repeated_observation"), mode="expansion"),
         )
 
 
@@ -574,25 +600,34 @@ def test_22_expansion_preserves_existing_claim_ids_and_evidence() -> None:
     assert expanded["claims"][1]["claim_id"] == "claim-count"
 
 
-def test_23_rejects_more_than_three_total_poc_claims() -> None:
+def test_23_rejects_more_than_six_total_claims() -> None:
     ledger = initialized(claim(), claim("claim-count"))
-    ledger = ledger_mod.expand_ledger(
-        ledger,
-        plan(claim("claim-order", "order", "repeated_observation"), mode="expansion"),
+    names = ("claim-order", "claim-duration", "claim-spatial", "claim-trajectory")
+    types = ("order", "duration", "spatial", "trajectory")
+    coverages = (
+        "repeated_observation",
+        "local_window",
+        "local_window",
+        "repeated_observation",
     )
-    assert len(ledger["plan"]["claims"]) == 3
+    for name, evidence_type, coverage in zip(names, types, coverages):
+        ledger = ledger_mod.expand_ledger(
+            ledger,
+            plan(claim(name, evidence_type, coverage), mode="expansion"),
+        )
+    assert len(ledger["plan"]["claims"]) == 6
     overflow = copy.deepcopy(ledger)
-    overflow["plan"]["claims"].append(claim("claim-fourth"))
+    overflow["plan"]["claims"].append(claim("claim-seventh"))
     overflow["claims"].append(
         {
-            "claim_id": "claim-fourth",
+            "claim_id": "claim-seventh",
             "status": "unresolved",
             "coverage": "none",
             "observation_ids": [],
             "gap": "Missing evidence.",
         }
     )
-    with pytest.raises(ledger_mod.LedgerValidationError, match="one to three"):
+    with pytest.raises(ledger_mod.LedgerValidationError, match="one to 6"):
         ledger_mod.validate_ledger(overflow)
 
 
@@ -867,7 +902,7 @@ def test_exhausted_partial_ledger_terminates_and_writes_final_result(tmp_path: P
     )
     assert second_partial["status"] == "in_progress"
     third = create_tasks(second_partial)
-    exhausted = ledger_mod.merge_round_results(
+    third_partial = ledger_mod.merge_round_results(
         second_partial,
         third,
         [
@@ -884,9 +919,28 @@ def test_exhausted_partial_ledger_terminates_and_writes_final_result(tmp_path: P
             )
         ],
     )
+    assert third_partial["status"] == "in_progress"
+    fourth = create_tasks(third_partial)
+    exhausted = ledger_mod.merge_round_results(
+        third_partial,
+        fourth,
+        [
+            result(
+                fourth[0],
+                (
+                    observation(
+                        text="A fourth window still leaves the clothing partially covered.",
+                        job_id="vlm-4",
+                    ),
+                ),
+                coverage="partial",
+                calls=1,
+            )
+        ],
+    )
     assert exhausted["status"] == "unresolved"
     assert exhausted["stop_reason"] == "budget_exhausted"
-    assert exhausted["round"] == 3
+    assert exhausted["round"] == 4
     ledger_path = tmp_path / "ledger.json"
     ledger_path.write_text(json.dumps(exhausted), encoding="utf-8")
     assert ledger_mod.main(
