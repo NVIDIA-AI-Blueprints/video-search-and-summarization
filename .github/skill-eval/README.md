@@ -147,6 +147,17 @@ images in that scenario support ARM64.
 | `BREV_REGISTERED_POOL` | Comma/space-separated registered-node names approved for automatic pool selection |
 | `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the proven tests in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS` |
 
+Operational setup must finish successfully before later tasks reuse its
+deployment. The runner checks both the reward and Harbor's structured
+`result.json`: an agent timeout or other recorded exception stops the chain
+even if Harbor exits zero and the verifier awards full credit.
+
+Specs that require sample videos also declare fixture preparation in their
+setup query. When NemoClaw is selected, setup downloads the pinned bundle on
+the host, copies the needed MP4 files into the sandbox using NemoClaw's upload
+command, and verifies matching hashes. Later tasks use those sandbox files;
+NGC credentials stay on the host.
+
 ## Layout
 
 ```

@@ -10,6 +10,15 @@ import sys
 import pytest
 
 REPO = Path(__file__).resolve().parents[3]
+VIDEO_FIXTURES = {
+    "base_profile_video_understanding": ("warehouse_safety_0001.mp4",),
+    "base_profile_report": ("warehouse_safety_0001.mp4",),
+    "lvs_profile_summarize": ("warehouse_sample.mp4",),
+    "vios_ops": ("warehouse_sample.mp4",),
+    "nvstreamer_ops": ("warehouse_safety_0001.mp4", "warehouse_sample.mp4"),
+    "alerts_vlm_real_time": ("warehouse_sample.mp4",),
+    "search": ("warehouse_sample.mp4", "sample-warehouse-ladder.mp4"),
+}
 SPECS = []
 for path in sorted((REPO / "skills/operations").glob("*/evals/*.json")):
     document = json.loads(path.read_text())
@@ -34,6 +43,20 @@ def test_operational_setup_is_spec_owned(spec_path, platform, tmp_path):
     checks = "\n".join(spec["expects"][0]["checks"])
     assert "reading or invoking the bundled `/vss-build-vision-ai`" in checks
     assert "sandbox-installed `vss configure check` succeeds" in checks
+    for filename in VIDEO_FIXTURES.get(spec_path.stem, ()):
+        assert f'upload "$SAMPLE_DIR/{filename}" /tmp/vss-sample-data/dev-profile-sample-data/' in query
+        assert filename in checks
+        assert "sandbox `sha256sum` matches its host source" in checks
+    if spec_path.stem in VIDEO_FIXTURES:
+        assert "keep NGC credentials on the host" in query
+        assert "nvidia/vss-developer/dev-profile-sample-data:3.2.0" in query
+    if spec_path.stem == "base_profile_video_understanding":
+        assert "/app/warehouse_safety_0001.mp4" not in query
+        assert "/tmp/vss-sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4" in spec["expects"][-1]["query"]
+    if spec_path.stem == "search":
+        assert "fresh `mktemp -d` directory" in query
+        assert "do not fetch NGC from the sandbox" in spec["expects"][1]["query"]
+        assert "copied into NemoClaw during setup with matching hashes" in spec["expects"][1]["checks"][1]
     if "This deployment uses the in-stack agent:" in query:
         assert "separate evaluation client" in query
         assert "do not select it in Build Vision AI's Q3" in query

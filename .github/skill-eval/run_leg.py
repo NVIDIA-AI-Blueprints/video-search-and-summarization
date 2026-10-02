@@ -1294,6 +1294,44 @@ def latest_reward(
     return latest.read_text().strip()
 
 
+def latest_trial_exception(
+    results_root: Path,
+    include_task_name: str,
+    started_at: float,
+) -> str | None:
+    """Read this invocation's structured failure, independent of its reward.
+
+    Harbor can exit zero and run the verifier after an agent timeout. A
+    passing reward in that case does not mean setup finished successfully.
+    Ignore earlier invocations and job-level aggregate result files.
+    """
+    matches = [
+        path
+        for path in results_root.glob(f"*/{include_task_name}__*/result.json")
+        if path.stat().st_mtime >= started_at
+    ]
+    if not matches:
+        return None
+    latest = max(matches, key=lambda path: path.stat().st_mtime)
+    try:
+        payload = json.loads(latest.read_text())
+    except (OSError, ValueError):
+        return "unreadable trial result"
+    if not isinstance(payload, dict):
+        return "invalid trial result"
+    info = payload.get("exception_info")
+    if not info:
+        return None
+    # Log the exception type only; messages and tracebacks can contain secrets.
+    if isinstance(info, dict):
+        exception_type = info.get("exception_type")
+        if isinstance(exception_type, str) and re.fullmatch(
+            r"[A-Za-z][A-Za-z0-9_]{0,100}", exception_type
+        ):
+            return exception_type
+    return "Harbor trial exception"
+
+
 def _coordinator_env_id() -> str | None:
     """Brev env id of the COORDINATOR host — the box running `harbor view`.
 
@@ -1879,12 +1917,17 @@ def _run_invocations(
             publish_trace(results_root, invocation, started_at, leg_slug, run_id)
         except Exception as exc:  # noqa: BLE001
             # A trace link is reporting convenience; the verdict comes from
-            # reward.txt. Never let a viewer-publish error fail the leg.
+            # trial result and reward. A viewer-publish error does not fail the leg.
             print(f"[run-leg] trace publish failed: {exc!r}", flush=True)
         if rc != 0 and overall_rc == 0:
             overall_rc = rc
 
         reward: str | None = None
+        trial_exception = latest_trial_exception(
+            results_root, invocation.include_task_name, started_at
+        )
+        if trial_exception is not None and overall_rc == 0:
+            overall_rc = 1
         if is_coding_setup or (
             invocation.step_index is not None and invocation.step_count is not None
         ):
@@ -1892,13 +1935,17 @@ def _run_invocations(
             reward_value = _reward_value(reward)
             print(
                 f"[run-leg] {invocation.chain_key}/{invocation.include_task_name} "
-                f"rc={rc} reward={reward if reward is not None else 'missing'}",
+                f"rc={rc} reward={reward if reward is not None else 'missing'} "
+                f"exception={trial_exception or 'none'}",
                 flush=True,
             )
             if (
                 invocation.step_index is not None
                 and invocation.step_count is not None
-                and (rc == 124 or rc >= 128 or reward_value < 1.0)
+                and (
+                    rc == 124 or rc >= 128 or reward_value < 1.0
+                    or trial_exception is not None
+                )
             ):
                 write_skip_markers(
                     scratch,
@@ -1911,7 +1958,7 @@ def _run_invocations(
                 skipped_after[invocation.chain_key] = invocation.step_index
 
         if is_coding_setup:
-            if rc != 0 or _reward_value(reward) < 1.0:
+            if rc != 0 or _reward_value(reward) < 1.0 or trial_exception is not None:
                 if overall_rc == 0:
                     overall_rc = rc or 1
                 if (

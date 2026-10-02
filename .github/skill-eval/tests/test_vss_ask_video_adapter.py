@@ -101,7 +101,7 @@ def test_specs_cover_markdown_and_introspection_state_routing() -> None:
     # doing the work rather than by describing a mocked tool result.
     assert "mocked" not in contract
     assert (
-        "onboard the local file /app/warehouse_safety_0001.mp4 "
+        "onboard the local file /tmp/vss-sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4 "
         "into VIOS as a sensor named warehouse_sample" in contract
     )
     assert "VSS unified memory (Elasticsearch) enabled" in contract
