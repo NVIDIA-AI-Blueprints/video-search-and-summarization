@@ -33,6 +33,7 @@ def summarize_log(path):
     kinds, errors = Counter(), Counter()
     recent = []
     started, completed = 0, 0
+    last_failed_notebook = None
     signals = {
         "scope upgrade pending approval": "gateway_scope_approval",
         "pairing required": "gateway_pairing",
@@ -79,6 +80,20 @@ def summarize_log(path):
                 if rc not in (0, None):
                     output = item.get("aggregated_output", "")
                     if isinstance(output, str):
+                        if kind == 'setup_notebook':
+                            clean = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', output)
+                            cell = clean.rsplit('An error occurred while executing the following cell:', 1)[-1]
+                            cell = cell.split('----- stdout -----', 1)[0].split('Traceback', 1)[0]
+                            stage = 'other'
+                            for marker, label in [('AGENT_IMAGE_DOCKERFILE', 'onboarding'), ('_policy_add_cmd', 'network_policy'), ('restart_agent_gateway', 'webhook_config'), ('_forward_owned', 'dashboard'), ('workspace docs', 'workspace_verify')]:
+                                if marker in cell:
+                                    stage = label
+                                    break
+                            last_failed_notebook = {'stage': stage}
+                            for marker, label in [('ENV.md upload failed', 'workspace_upload'), ('policy add failed', 'policy_apply'), ('onboard failed', 'onboarding'), ('gateway is down after', 'gateway_restart'), ('origin', 'origin')]:
+                                if any(marker in line for line in clean.splitlines() if re.match(r'^(AssertionError|RuntimeError):', line)):
+                                    last_failed_notebook['failure_kind'] = label
+                                    break
                         for needle, signal in signals.items():
                             if needle in output:
                                 errors[signal] += 1
@@ -89,6 +104,7 @@ def summarize_log(path):
         "tools_completed": completed,
         "completed_tool_kinds": dict(kinds),
         "failed_tool_signals": dict(errors),
+        "last_failed_notebook": last_failed_notebook,
         "recent_completed_tools": recent[-12:],
     }
 
