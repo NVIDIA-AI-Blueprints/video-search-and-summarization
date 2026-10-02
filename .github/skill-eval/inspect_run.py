@@ -266,7 +266,7 @@ def coordinator(run_id):
             "reward": reward if type(reward) in [int,float] and 0 <= reward <= 1 else None,
             "checks_passed": judge.get('passed') if type(judge.get('passed')) is int else None,
             "checks_total": judge.get('total') if type(judge.get('total')) is int else None,
-            "failed_check_numbers": [n for n,row in enumerate(judge.get('checks') or [],1) if isinstance(row,dict) and row.get('passed') is False],
+            "failed_judge_rows": [n for n,row in enumerate(judge.get('checks') or [],1) if isinstance(row,dict) and row.get('pass') is False],
             "finished": bool(data.get("finished_at")),
             "exception": exception if isinstance(exception, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,100}", exception) else None,
         })
