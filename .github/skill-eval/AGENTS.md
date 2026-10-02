@@ -558,7 +558,9 @@ Match rules enforced by `envs/brev_env.py::_check_instance_matches`
   box with **at least** the spec's `gpu_count` — a 1-GPU spec runs fine on
   a 2-GPU box (2nd GPU idles); only an *under*-provisioned box is rejected.
   `run_leg.py` prefers registered capacity first, then exact name-hinted
-  counts within the registered/managed tier. An over-provisioned box is a
+  counts within the registered/managed tier. It skips a managed box when
+  Brev reports its shell as NOT READY, even if the box is RUNNING. An
+  over-provisioned box is a
   valid fallback when no exact match is free/reachable. Because the `>=`
   check passes (rather
   than raising), `start()` runs `_reset_docker_runtime` on the fallback

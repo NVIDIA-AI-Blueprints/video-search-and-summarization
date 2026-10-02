@@ -743,8 +743,11 @@ def pool_candidates(
 ) -> list[str]:
     """Eligible `vss-eval-*` boxes for this leg, best-first.
 
-    Hardware-hard, software-free (AGENTS.md § 5a): RUNNING + gpu_type
-    token match. Dedicated registered nodes sort before managed cloud
+    Hardware-hard, software-free (AGENTS.md § 5a): RUNNING, shell-ready
+    when Brev reports shell status, and gpu_type token match. A managed
+    instance can be RUNNING while its SSH shell is NOT READY; offering it
+    repeatedly prevents a reachable larger box from ever being tried.
+    Dedicated registered nodes sort before managed cloud
     instances; exact name-hinted gpu_count matches sort first within each
     tier. Over-provisioned boxes remain valid — brev_env validates the final
     pick with live nvidia-smi and the box is reset either way.
@@ -766,6 +769,11 @@ def pool_candidates(
         if not name.startswith("vss-eval-"):
             continue
         if (inst.get("status") or "").upper() != "RUNNING":
+            continue
+        shell_status = inst.get("shell_status") or inst.get("shellStatus")
+        if str(shell_status or "").strip().upper() in {
+            "NOT READY", "NOT_READY", "UNREADY", "DISCONNECTED", "FAILED"
+        }:
             continue
         if required_count > 0:
             # Applies to managed instances too, not just registered nodes.
