@@ -83,6 +83,15 @@ the source ref. To build a published or reproducible image, add
 | `VSS_REPO`, `VSS_REF` | this repo, `develop` (a `v*` tag for a published image; a commit sha still works) | skills, workspace docs and the `vss` CLI |
 | `BUILDER_IMAGE` | `node:24.18.1-trixie-slim@sha256:ac39…` | the checkout stage |
 
+`vss vlm run` request defaults are runtime variables: the image declares every
+`VSS_VLM_*` setting (`VSS_VLM_BACKEND`, `VSS_VLM_MODEL`, `VSS_VLM_FPS`,
+`VSS_VLM_MAX_FRAMES`, `VSS_VLM_TOTAL_PIXELS`, `VSS_VLM_MAX_PIXELS_PER_FRAME`, …;
+full list in [the CLI README](../libs/vss/cli/README.md#configure-vlm-requests))
+empty, which the CLI reads as unset. Set them on the sandbox
+(`openshell sandbox create --env VSS_VLM_FPS=2`, `docker run -e …`), or bake a
+default with the same-named `--build-arg`. `VSS_VLM_API_KEY` is not declared:
+pass the Bearer token at runtime only, never as a build arg.
+
 ## Trial paths and sandbox contract
 
 Identical to the OpenClaw image: `/task /output /logs /tests /solution` as real

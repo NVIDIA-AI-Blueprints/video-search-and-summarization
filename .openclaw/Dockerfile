@@ -364,6 +364,39 @@ RUN rm -f /etc/profile.d/nemoclaw-rlimits.sh \
 # (Kaniko does not support heredocs in RUN; the shim ships as a context file.)
 COPY --chown=sandbox:sandbox nvm-shim.sh /sandbox/.nvm/nvm.sh
 
+# ── VLM request defaults for `vss vlm run` ────────────────────────────────────
+# Runtime variables: set them on the sandbox (`openshell sandbox create --env
+# VSS_VLM_FPS=2`, `docker run -e …`), or bake a default with `--build-arg`.
+# Each defaults to empty, which the CLI reads as unset: the VLM server's own
+# behavior applies. Placed last so changing one rebuilds only this layer.
+# VSS_VLM_API_KEY (the endpoint's Bearer token) is deliberately absent: a
+# secret goes in at runtime only, never into an image layer.
+# Names and meanings: libs/vss/cli/README.md ("Configure VLM requests").
+ARG VSS_VLM_BACKEND=
+ARG VSS_VLM_MODEL=
+ARG VSS_VLM_TIMEOUT=
+ARG VSS_VLM_TEMPERATURE=
+ARG VSS_VLM_MAX_TOKENS=
+ARG VSS_VLM_SEED=
+ARG VSS_VLM_ENABLE_REASONING=
+ARG VSS_VLM_CHUNK_DURATION=
+ARG VSS_VLM_FPS=
+ARG VSS_VLM_MAX_FRAMES=
+ARG VSS_VLM_TOTAL_PIXELS=
+ARG VSS_VLM_MAX_PIXELS_PER_FRAME=
+ENV VSS_VLM_BACKEND=${VSS_VLM_BACKEND} \
+    VSS_VLM_MODEL=${VSS_VLM_MODEL} \
+    VSS_VLM_TIMEOUT=${VSS_VLM_TIMEOUT} \
+    VSS_VLM_TEMPERATURE=${VSS_VLM_TEMPERATURE} \
+    VSS_VLM_MAX_TOKENS=${VSS_VLM_MAX_TOKENS} \
+    VSS_VLM_SEED=${VSS_VLM_SEED} \
+    VSS_VLM_ENABLE_REASONING=${VSS_VLM_ENABLE_REASONING} \
+    VSS_VLM_CHUNK_DURATION=${VSS_VLM_CHUNK_DURATION} \
+    VSS_VLM_FPS=${VSS_VLM_FPS} \
+    VSS_VLM_MAX_FRAMES=${VSS_VLM_MAX_FRAMES} \
+    VSS_VLM_TOTAL_PIXELS=${VSS_VLM_TOTAL_PIXELS} \
+    VSS_VLM_MAX_PIXELS_PER_FRAME=${VSS_VLM_MAX_PIXELS_PER_FRAME}
+
 # Final USER is the non-root default OpenShell requires. WORKDIR /sandbox makes
 # /sandbox the OpenShell workspace (OpenShell derives it from the OCI WorkingDir).
 # Entrypoint and health check are inherited from the managed runtime — note

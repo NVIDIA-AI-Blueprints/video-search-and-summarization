@@ -132,6 +132,15 @@ Pins are build args:
 | `UV_IMAGE` | `ghcr.io/astral-sh/uv@sha256:2bb3…` (0.12.10) | uv, for the `vss` venv |
 | `NEMOCLAW_TOOL_DISCLOSURE` | `progressive` | NemoClaw tool disclosure mode |
 
+`vss vlm run` request defaults are runtime variables: the image declares every
+`VSS_VLM_*` setting (`VSS_VLM_BACKEND`, `VSS_VLM_MODEL`, `VSS_VLM_FPS`,
+`VSS_VLM_MAX_FRAMES`, `VSS_VLM_TOTAL_PIXELS`, `VSS_VLM_MAX_PIXELS_PER_FRAME`, …;
+full list in [the CLI README](../libs/vss/cli/README.md#configure-vlm-requests))
+empty, which the CLI reads as unset. Set them on the sandbox
+(`openshell sandbox create --env VSS_VLM_FPS=2`, `docker run -e …`), or bake a
+default with the same-named `--build-arg`. `VSS_VLM_API_KEY` is not declared:
+pass the Bearer token at runtime only, never as a build arg.
+
 Moving `BASE_IMAGE` to another NemoClaw release means moving `OPENCLAW_VERSION`
 to the OpenClaw that release pins and regenerating the plugin lockfile
 (`npm install --package-lock-only` in `plugin/` after editing its
