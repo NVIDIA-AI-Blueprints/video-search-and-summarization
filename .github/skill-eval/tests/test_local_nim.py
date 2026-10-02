@@ -288,6 +288,32 @@ def test_nemoclaw_uses_authenticated_private_proxy_and_loopback_nim(monkeypatch,
     proxy = json.loads((nim.owner_paths(local_plan["owner"]) / "proxy.json").read_text())
     assert proxy["general_settings"]["master_key"] == local_plan["token"]
 
+    def onboard_inputs():
+        # Read the inputs as the notebook will: source the worker env in a
+        # fresh shell. A reachable private URL alone still fails SSRF preflight.
+        return subprocess.run(
+            [
+                "bash", "-c",
+                'source "$1"; printf "%s\\n%s\\n" '
+                '"$NEMOCLAW_ENDPOINT_URL" "$NEMOCLAW_TRUSTED_PRIVATE_INFERENCE_HOSTS"',
+                "nim-test", str(tmp_path / ".eval_env"),
+            ],
+            capture_output=True, text=True, check=True,
+        ).stdout.splitlines()
+
+    assert onboard_inputs() == ["http://10.229.20.2:18400/v1", "10.229.20.2"]
+    # Later tasks rewrite ~/.eval_env during bootstrap before reusing NIM.
+    # Reuse must restore the exact host declaration as well as the URL.
+    (tmp_path / ".eval_env").write_text("")
+    monkeypatch.setattr(
+        nim, "docker", lambda *a, **kw: subprocess.CompletedProcess(a, 0, "c1\nc2\n", "")
+    )
+    monkeypatch.setattr(
+        nim, "resolve_image", Mock(side_effect=AssertionError("must reuse"))
+    )
+    nim.start(local_plan)
+    assert onboard_inputs() == ["http://10.229.20.2:18400/v1", "10.229.20.2"]
+
 
 def test_reuse_rechecks_nim_inference_before_the_agent_runs(monkeypatch, tmp_path):
     local_plan = plan()

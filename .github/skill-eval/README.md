@@ -93,6 +93,10 @@ one container; later tasks reuse that deployment. Different models run as
 separate containers. A pinned LiteLLM adapter provides Anthropic Messages,
 OpenAI Responses, and authenticated Chat Completions for NemoClaw. NIM ports
 bind to loopback; NemoClaw reaches the adapter on the worker's private address.
+The worker exports that exact host in
+`NEMOCLAW_TRUSTED_PRIVATE_INFERENCE_HOSTS`, so NemoClaw's private-endpoint
+preflight admits the owned inference adapter without granting a subnet or
+relaxing other URL checks. Startup and reuse both restore this declaration.
 Startup and reuse smoke requests exercise each selected protocol.
 The NIM and VSS run on the same worker.
 
