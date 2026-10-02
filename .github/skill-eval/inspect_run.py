@@ -191,6 +191,7 @@ def worker(run_id):
                 report["sandbox_phase"] = phase if phase in {"Ready", "Running", "Pending", "Stopped", "Creating", "Provisioning"} else "other"
                 code = r'''
 import json, pathlib, socket
+from urllib.parse import urlsplit
 from collections import Counter
 processes=Counter()
 for proc in pathlib.Path('/proc').iterdir():
@@ -216,7 +217,17 @@ for port in (18789, 18790):
     with socket.socket() as client:
         client.settimeout(1)
         listeners[str(port)] = client.connect_ex(('127.0.0.1', port)) == 0
-memory = read(pathlib.Path.home() / '.vss/config.json').get('memory') or {}
+vss_config = read(pathlib.Path.home() / '.vss/config.json')
+memory = vss_config.get('memory') or {}
+def origin(value):
+    try:
+        parsed = urlsplit(value)
+        host = parsed.hostname
+        kind = 'loopback' if host in ['localhost','127.0.0.1','::1'] else 'managed_host' if host in ['host.openshell.internal','host.docker.internal'] else 'other'
+        return {'host_kind':kind,'port':parsed.port,'https':parsed.scheme=='https'}
+    except (TypeError, ValueError):
+        return {'host_kind':'unavailable'}
+service_origins={k:origin(v.get('url')) for k,v in (vss_config.get('services') or {}).items() if k in ['elasticsearch','rt_vlm','vst','agent','lvs'] and isinstance(v,dict)}
 status = read('/tmp/nemoclaw-auto-pair-status.json').get('state')
 log_signals = {}
 for path, label in [('/tmp/gateway.log','gateway'),('/tmp/nemoclaw-start.log','launcher')]:
@@ -241,6 +252,8 @@ print(json.dumps({
     'gateway_listeners': listeners,
     'process_kinds':dict(processes),
     'startup_log_signals':log_signals,
+    'vss_base_origin':origin(vss_config.get('base_url')),
+    'vss_service_origins':service_origins,
     'pending_devices': len(read('/sandbox/.openclaw/devices/pending.json')),
     'paired_devices': len(read('/sandbox/.openclaw/devices/paired.json')),
     'pair_watcher_state': status if status in ['running','stopped','request-not-produced','request-observed','request-rejected','approval-timeout','approval-failed','approval-completed','canonical-settled'] else 'other',
