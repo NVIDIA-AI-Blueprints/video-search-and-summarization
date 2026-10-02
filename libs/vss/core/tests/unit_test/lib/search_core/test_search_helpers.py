@@ -29,11 +29,13 @@ def test_resolve_sources_video_file_maps_names_to_uuids():
     assert resolved == ["uuid-1", "unknown"]
 
 
-def test_resolve_sources_rtsp_keeps_names_and_maps_uuid_back():
+def test_resolve_sources_rtsp_maps_names_to_uuids_like_video_file():
     name_to_uuid = {"warehouse": "uuid-1"}
-    # A known name stays a name; a known uuid is converted back to its name.
+    # RTSP documents are keyed by the VST sensor UUID under ``sensor.id``, so a
+    # known name resolves to its uuid, an already-resolved uuid is left alone,
+    # and an unknown source falls through to wildcard matching.
     resolved = sh._resolve_video_sources_for_search(["warehouse", "uuid-1", "other"], name_to_uuid, "rtsp")
-    assert resolved == ["warehouse", "warehouse", "other"]
+    assert resolved == ["uuid-1", "uuid-1", "other"]
 
 
 # ----------------------------------------------- attribute_result_to_search_result
