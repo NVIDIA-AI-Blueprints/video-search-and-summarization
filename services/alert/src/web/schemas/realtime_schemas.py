@@ -299,6 +299,33 @@ class RealtimeAlertRequest(BaseModel):
         default=None,
         description="RTVI: additional multimodal processor kwargs",
     )
+    # Native StreamingVLM options — require an RTVI build with streaming
+    # session support; stock RTVI builds reject unknown values.
+    inference_mode: Optional[Literal["chunked", "streaming_vlm"]] = Field(
+        default=None,
+        description=(
+            "RTVI: inference strategy. 'chunked' sends independent per-chunk "
+            "requests; 'streaming_vlm' keeps one persistent VLM session per "
+            "live stream"
+        ),
+    )
+    streaming_frame_policy: Optional[str] = Field(
+        default=None,
+        description="RTVI: StreamingVLM frame policy (e.g. 'ordered')",
+    )
+    streaming_window_frames: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=256,
+        description="RTVI: decoded frames retained by the StreamingVLM session",
+    )
+    streaming_question_on_decode: Optional[bool] = Field(
+        default=None,
+        description=(
+            "RTVI: repeat the prompt on every StreamingVLM decode step instead "
+            "of only at session start"
+        ),
+    )
 
 
 class RealtimeAlertResponse(BaseModel):
@@ -400,6 +427,10 @@ class RealtimeAlertRule(BaseModel):
     media_info: Optional[Dict[str, Any]] = None
     enable_audio: Optional[bool] = None
     mm_processor_kwargs: Optional[Dict[str, Any]] = None
+    inference_mode: Optional[str] = None
+    streaming_frame_policy: Optional[str] = None
+    streaming_window_frames: Optional[int] = None
+    streaming_question_on_decode: Optional[bool] = None
 
 
 class RealtimeAlertListResponse(BaseModel):

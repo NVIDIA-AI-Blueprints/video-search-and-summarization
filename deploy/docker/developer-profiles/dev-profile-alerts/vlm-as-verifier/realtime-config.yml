@@ -8,6 +8,25 @@ always_on_rules:
     description: "Detect missing PPE for workers using ladders"
     alert_type: "Ladder PPE Violation"
     always_on_params:
-      system_prompt: "You are a helpful assistant."
+      # The native streaming session pins the system prompt for its whole
+      # lifetime; later steps are frame-only, so the task lives here.
+      system_prompt: "You are monitoring a warehouse camera. For every new frame, answer yes if anyone on the ladder is not wearing both a hardhat and a safety vest; otherwise answer no."
       prompt: "Is anyone on the ladder without a hardhat or safety vest? Answer yes or no."
       model: "${VLM_NAME}"
+      # Native StreamingVLM; requires the native streaming RT-VLM image.
+      inference_mode: "streaming_vlm"
+      streaming_frame_policy: "ordered"
+      # Ask the question once at session start (native streaming usage) and
+      # constrain every step's answer to yes/no with guided choice, as the
+      # capsule's validated runs did. Set true to repeat the prompt on every
+      # step instead (requires the RT-VLM -qod overlay image).
+      streaming_question_on_decode: false
+      response_format:
+        type: "choice"
+        choices: ["yes", "no"]
+      # Capsule-validated streaming cadence: one new frame per one-second step,
+      # eight retained frames (matches RTVI_STREAMING_VLM_MAX_VIDEO_SEGMENTS=8).
+      streaming_window_frames: 8
+      chunk_duration: 1
+      chunk_overlap_duration: 0
+      num_frames_per_second_or_fixed_frames_chunk: 1

@@ -201,6 +201,10 @@ class RTVIVLMClient:
         media_info: Optional[Dict[str, Any]] = None,
         enable_audio: Optional[bool] = None,
         mm_processor_kwargs: Optional[Dict[str, Any]] = None,
+        inference_mode: Optional[str] = None,
+        streaming_frame_policy: Optional[str] = None,
+        streaming_window_frames: Optional[int] = None,
+        streaming_question_on_decode: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """POST to /generate_captions with stream=true to trigger VLM analysis.
 
