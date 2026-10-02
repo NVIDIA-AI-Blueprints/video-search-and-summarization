@@ -379,9 +379,14 @@ precedes every build artifact.
 # Watchdog first: it answers a dying forward with `nemoclaw recover`. Relay
 # last: `destroy` releases the forward, never the relay. Drop the `destroy`
 # when `openshell sandbox list` no longer shows <other>.
-pkill -f -- 'dashboard-forward-watchdog\.py --sandbox <other>( |$)'
-nemoclaw <other> destroy --yes --cleanup-gateway
-pkill -f -- 'dashboard-relay\.py --sandbox <other>( |$)'
+OTHER='<other>'
+# pkill -f compiles an extended regex, so escape every metacharacter in the
+# name: an unescaped one matches other sandboxes' processes too, and these
+# scripts are shared by every sandbox on the host.
+OTHER_RE="$(printf '%s' "$OTHER" | sed 's/[][(){}.*+?^$|\\]/\\&/g')"
+pkill -f -- "dashboard-forward-watchdog\.py --sandbox ${OTHER_RE}( |$)"
+nemoclaw "$OTHER" destroy --yes --cleanup-gateway
+pkill -f -- "dashboard-relay\.py --sandbox ${OTHER_RE}( |$)"
 ```
 
 Re-probe both ports and resume only once they are free.
