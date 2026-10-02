@@ -481,6 +481,9 @@ def start(plan: dict):
     config_file = root / "proxy.json"
     config_file.write_text(json.dumps(proxy_config))
     config_file.chmod(0o600)
+    # LiteLLM's auth error handler imports Prisma even without a database.
+    # The proxy extra omits it; install the client so missing credentials
+    # return an authentication error instead of HTTP 500.
     docker(
         "run",
         "-d",
@@ -495,7 +498,7 @@ def start(plan: dict):
         "python:3.12-slim",
         "sh",
         "-c",
-        f"pip install --disable-pip-version-check 'litellm[proxy]=={LITELLM_VERSION}' && exec litellm --config /config.yaml --host 0.0.0.0 --port {PROXY_PORT}",
+        f"pip install --disable-pip-version-check 'litellm[proxy]=={LITELLM_VERSION}' 'prisma==0.15.0' && exec litellm --config /config.yaml --host 0.0.0.0 --port {PROXY_PORT}",
         timeout=300,
     )
     wait_ready(f"http://127.0.0.1:{PROXY_PORT}/health/liveliness", plan["token"], 300)
