@@ -57,6 +57,10 @@ def test_operational_setup_is_spec_owned(spec_path, platform, tmp_path):
         assert "fresh `mktemp -d` directory" in query
         assert "do not fetch NGC from the sandbox" in spec["expects"][1]["query"]
         assert "copied into NemoClaw during setup with matching hashes" in spec["expects"][1]["checks"][1]
+        assert "no sample bundle was downloaded" not in checks
+        assert "When NemoClaw is selected, the fresh sample bundle may be downloaded" in checks
+    if spec_path.stem == "lvs_profile_summarize":
+        assert "Run on ONE `{{platform}}` host" in query
     if "This deployment uses the in-stack agent:" in query:
         assert "separate evaluation client" in query
         assert "do not select it in Build Vision AI's Q3" in query
@@ -91,6 +95,13 @@ def test_operational_setup_is_spec_owned(spec_path, platform, tmp_path):
         build_skill = instruction_path.parent / "skills/vss-build-vision-ai"
         assert (build_skill / "SKILL.md").read_bytes() == (REPO / "skills/vss-build-vision-ai/SKILL.md").read_bytes()
         assert "## Selected agent harness: NemoClaw" not in instruction
+        if spec_path.stem == "search":
+            # Both deployment and ingestion must use the spec's conditional
+            # fixture policy, without conflicting adapter-only instructions.
+            for step in (1, 2):
+                content = (instruction_path.parent.parent / f"step-{step}/instruction.md").read_text()
+                assert "do not download or ingest sample media" not in content
+                assert "download the exact pinned NGC bundle into a fresh directory" not in content
         # Setup directives must not be injected into operational queries.
         for later in instruction_path.parent.parent.glob("step-*/instruction.md"):
             if later != instruction_path:
