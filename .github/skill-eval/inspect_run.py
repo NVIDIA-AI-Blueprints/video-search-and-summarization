@@ -17,6 +17,9 @@ def tool_kind(command):
         ("run_setup_notebook.py", "setup_notebook"),
         ("vss-build-vision-ai/SKILL.md", "build_skill_reference"),
         ("docker compose", "compose"),
+        ("vss configure memory check", "memory_check"),
+        ("vss configure check", "configuration_check"),
+        ("vss vlm run", "vlm_probe"),
         ("openshell", "openshell"),
         ("nemoclaw", "nemoclaw"),
         ("vss configure", "vss_configuration"),
@@ -53,6 +56,13 @@ def summarize_log(path):
         "scope upgrade": "scope_upgrade",
         "gateway startup timed out": "gateway_startup_timeout",
         "timed out": "timeout",
+        "unreachable": "unreachable",
+        "unhealthy": "unhealthy",
+        "CONNECT tunnel failed": "egress_tunnel_failed",
+        "configuration error": "configuration_error",
+        "not configured": "not_configured",
+        "403": "http_403",
+        "502": "http_502",
     }
     with path.open() as stream:
         for line in stream:
@@ -106,6 +116,7 @@ def summarize_log(path):
                                 if any(marker in line for line in clean.splitlines() if re.match(r'^(AssertionError|RuntimeError):', line)):
                                     last_failed_notebook['failure_kind'] = label
                                     break
+                        recent[-1]['failure_signals'] = [signal for needle,signal in signals.items() if needle in output]
                         for needle, signal in signals.items():
                             if needle in output:
                                 errors[signal] += 1
