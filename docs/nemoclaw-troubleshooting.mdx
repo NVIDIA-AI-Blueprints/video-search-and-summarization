@@ -116,7 +116,9 @@ when its script path is the one under `VSS_REPO_DIR` too, so a same-name relay
 from a second clone is foreign and must be stopped like any other. If you
 deployed from a harness source ref, that path is the `_builds/<name>/harness-src`
 worktree rather than the checkout — compare against the worktree, or the
-checkout's own relay will look like yours when Section 3.5 will reject it.
+checkout's own relay will look like yours when Section 3.5 will reject it. With
+`VSS_REPO_DIR` unset the notebook uses `$HOME/video-search-and-summarization`,
+so export it when your checkout lives elsewhere.
 
 ```bash
 # Watchdog first: it answers a dying forward with `nemoclaw recover`. Relay

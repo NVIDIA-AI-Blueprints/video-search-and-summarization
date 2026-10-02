@@ -405,6 +405,11 @@ unset variable at Q3 would adopt it as this build's and approve its port.
 A re-onboard of the same build is the one case a worktree relay is owned,
 because that worktree survives for exactly that purpose.
 
+The unset case is not the checkout either: the notebook defaults
+`VSS_REPO_DIR` to `$HOME/video-search-and-summarization`, so a checkout
+anywhere else must export it — the [Bring-up](#bring-up) block does — or
+bring-up reads its assets and its relay from a path the probe never looked at.
+
 A holder this build owns is not a conflict: `NEMOCLAW_RECREATE_SANDBOX=1`
 replaces the sandbox named `NEMOCLAW_SANDBOX_NAME`, and the relay cell replaces
 that name's relay from this checkout. Do not assume that case — the name is
