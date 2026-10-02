@@ -306,3 +306,19 @@ def test_hermes_sync_targets_hermes_home_skills(tmp_path, hermes_home):
     assert log.read_text().split() == [
         "/opt/vss-skills/sync_skills.py", "--skills-dir", "/opt/vss-skills/skills",
         "--active-dir", active, "--all"]
+
+
+def test_hermes_workspace_routes_through_standalone_vss():
+    repo = Path(__file__).resolve().parents[4]
+    dockerfile = (repo / ".hermes" / "Dockerfile").read_text()
+    routing = (
+        repo / ".openclaw" / "workspace" / "_hermes" / "VSS_ROUTING.md"
+    ).read_text()
+
+    assert "vss_cli" not in routing
+    assert "vss vlm run" in routing
+    assert "_hermes/VSS_ROUTING.md" in dockerfile
+    assert "sed -n '/^## First Run$/,$p'" in dockerfile
+    assert "! grep -q 'vss_cli'" in dockerfile
+    assert dockerfile.count("ARG NEMOCLAW_TOOL_DISCLOSURE=progressive") == 1
+    assert "ENV NEMOCLAW_TOOL_DISCLOSURE=${NEMOCLAW_TOOL_DISCLOSURE}" in dockerfile
