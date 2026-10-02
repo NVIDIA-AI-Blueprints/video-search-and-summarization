@@ -102,7 +102,8 @@ done
 for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' 2>/dev/null <"$f"; echo; done \
   | grep -E '[d]ashboard-(relay|forward-watchdog)\.py'  # --sandbox names the owner
 # A relay must carry this path to count as yours, not just the sandbox name.
-echo "this checkout's relay: $(cd "${VSS_REPO_DIR:-.}" && pwd)/deploy/docker/scripts/nemoclaw/dashboard-relay.py"
+HARNESS_SRC="$(git rev-parse --show-toplevel)"      # harness source ref: <that>/_builds/<name>/harness-src
+echo "your relay: $HARNESS_SRC/deploy/docker/scripts/nemoclaw/dashboard-relay.py"
 ```
 
 The bind test decides free or held on its own, so a host without `lsof` or `ss`
@@ -111,8 +112,11 @@ deployment actually uses: the loop reads `NEMOCLAW_DASHBOARD_PORT` and
 `NEMOCLAW_DASHBOARD_RELAY_PORT` when you have overridden either default.
 
 A matching sandbox name is not enough for the relay: Section 3.5 keeps one only
-when its script path is this checkout's too, so a same-name relay from a second
-clone is foreign and must be stopped like any other.
+when its script path is the one under `VSS_REPO_DIR` too, so a same-name relay
+from a second clone is foreign and must be stopped like any other. If you
+deployed from a harness source ref, that path is the `_builds/<name>/harness-src`
+worktree rather than the checkout — compare against the worktree, or the
+checkout's own relay will look like yours when Section 3.5 will reject it.
 
 ```bash
 # Watchdog first: it answers a dying forward with `nemoclaw recover`. Relay

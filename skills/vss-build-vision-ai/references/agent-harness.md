@@ -370,8 +370,11 @@ done
 # stderr first: a process that exits mid-scan makes the shell's own open fail.
 for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' 2>/dev/null <"$f"; echo; done \
   | grep -E '[d]ashboard-(relay|forward-watchdog)\.py'  # --sandbox names the owner
-# A relay must carry this path to count as ours, not just the sandbox name.
-echo "this checkout's relay: $(cd "${VSS_REPO_DIR:-.}" && pwd)/deploy/docker/scripts/nemoclaw/dashboard-relay.py"
+# A relay must carry this path to count as ours, not just the sandbox name. Set
+# it from the ref decision: VSS_REPO_DIR is not exported until bring-up, so
+# reading it here silently names the wrong checkout.
+HARNESS_SRC="$(git rev-parse --show-toplevel)"      # ref build: <that>/_builds/<name>/harness-src
+echo "this build's relay: $HARNESS_SRC/deploy/docker/scripts/nemoclaw/dashboard-relay.py"
 ```
 
 **No `openshell` on the host is a pass, not a failed probe.** Cell 3.1 installs
@@ -386,13 +389,21 @@ forward prints `forward service <name>`, the relay and watchdog print
 `${NEMOCLAW_SANDBOX_NAME:-vss-harness-sandbox}`. With several sandboxes on the
 host, the listing and the PID settle nothing on their own.
 
-**The relay must match this checkout's script path as well as the name.**
+**The relay must match the bring-up's own script path as well as the name.**
 Section 3.5 keeps a relay only when its command line carries the resolved
-`deploy/docker/scripts/nemoclaw/dashboard-relay.py` of the checkout being run,
-so a same-name relay from a second clone is foreign however familiar its name
-looks. Apply that test here or the build deploys and then fails at 3.5 with
-`Port <relay-port> is held by pid …, which is not '<sandbox>'s dashboard
-relay` — the conflict Q3 exists to catch, surfacing after the cost.
+`deploy/docker/scripts/nemoclaw/dashboard-relay.py` under `VSS_REPO_DIR`, so a
+same-name relay from a second clone is foreign however familiar its name looks.
+Apply that test here or the build deploys and then fails at 3.5 with `Port
+<relay-port> is held by pid …, which is not '<sandbox>'s dashboard relay` — the
+conflict Q3 exists to catch, surfacing after the cost.
+
+**Take that path from the ref decision, never from `VSS_REPO_DIR`.** The export
+does not exist until bring-up, and a [harness source ref](#harness-source-ref)
+points it at the `_builds/<name>/harness-src` worktree rather than the
+checkout. So on a ref build the checkout's own relay is foreign — reading the
+unset variable at Q3 would adopt it as this build's and approve its port.
+A re-onboard of the same build is the one case a worktree relay is owned,
+because that worktree survives for exactly that purpose.
 
 A holder this build owns is not a conflict: `NEMOCLAW_RECREATE_SANDBOX=1`
 replaces the sandbox named `NEMOCLAW_SANDBOX_NAME`, and the relay cell replaces
