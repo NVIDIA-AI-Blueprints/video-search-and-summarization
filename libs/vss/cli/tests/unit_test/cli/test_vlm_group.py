@@ -16,7 +16,6 @@ from typing import Any
 
 from click.testing import CliRunner
 import httpx
-from pydantic import ValidationError
 import pytest
 
 from vss_cli import config as config_mod
@@ -986,80 +985,6 @@ def test_locked_total_pixels_policy_rejects_conflicting_override() -> None:
         )
 
 
-@pytest.mark.parametrize(
-    ("backend", "expected"),
-    [
-        ("rt_vlm", {"max_pixels": 921600}),
-        ("vllm", {"max_pixels": 921600}),
-        ("cosmos_reason_nim", {"max_pixels": 921600}),
-    ],
-)
-def test_max_pixels_per_frame_is_sent_as_processor_max_pixels(
-    monkeypatch: pytest.MonkeyPatch,
-    backend: str,
-    expected: dict[str, int],
-) -> None:
-    captured: dict[str, Any] = {}
-
-    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
-        captured["json"] = json
-        return httpx.Response(200, json=_completion())
-
-    monkeypatch.setattr(httpx, "post", _capture)
-
-    from vss_cli.group import Context
-    from vss_cli.vlm.group import VlmGroup
-
-    ctx = Context(deployment=_deployment(vlm=config_mod.VlmConfig(backend=backend)))
-    ctx.extra = {"no_persist": True}
-    VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", max_pixels_per_frame=921600), ctx)
-
-    assert captured["json"]["mm_processor_kwargs"] == expected
-    assert "media_io_kwargs" not in captured["json"]
-
-
-def test_total_pixels_and_max_pixels_per_frame_are_alternatives() -> None:
-    # Processors that read max_pixels write it over size.longest_edge, so the
-    # pair would silently replace the clip budget with the per-frame cap.
-    with pytest.raises(ValidationError, match="set total_pixels or max_pixels_per_frame, not both"):
-        VlmInput(prompt="What?", media_url="http://h/clip.mp4", total_pixels=16777216, max_pixels_per_frame=921600)
-
-
-def test_run_flag_for_one_pixel_limit_replaces_the_policys_other(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, Any] = {}
-
-    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
-        captured["json"] = json
-        return httpx.Response(200, json=_completion())
-
-    monkeypatch.setattr(httpx, "post", _capture)
-
-    from vss_cli.group import Context
-    from vss_cli.vlm.group import VlmGroup
-
-    ctx = Context(deployment=_deployment(vlm=config_mod.VlmConfig(backend="vllm", total_pixels=16777216)))
-    ctx.extra = {"no_persist": True}
-    result = VlmGroup().run(
-        "", VlmInput(prompt="What?", media_url="http://h/clip.mp4", max_pixels_per_frame=921600), ctx
-    )
-
-    assert result.exit == Exit.SUCCESS
-    assert captured["json"]["mm_processor_kwargs"] == {"max_pixels": 921600}
-
-
-def test_locked_pixel_limit_cannot_be_replaced_by_the_other(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion())))
-
-    from vss_cli.group import Context
-    from vss_cli.group import InvalidInput
-    from vss_cli.vlm.group import VlmGroup
-
-    ctx = Context(deployment=_deployment(vlm=config_mod.VlmConfig(total_pixels=16777216, locked=True)))
-    ctx.extra = {"no_persist": True}
-    with pytest.raises(InvalidInput, match="total_pixels is locked to 16777216; --max-pixels-per-frame cannot"):
-        VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", max_pixels_per_frame=921600), ctx)
-
-
 def test_total_pixels_below_the_floor_lowers_the_floor(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
@@ -1481,7 +1406,6 @@ def test_sampling_in_model_params(
     params = records[0].input.params
     assert params is not None
     assert (params["fps"], params["max_frames"], params["total_pixels"]) == (2, 12, 4194304)
-    assert "max_pixels_per_frame" not in params
     assert "num_frames" not in params
 
 

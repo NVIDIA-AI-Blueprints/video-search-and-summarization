@@ -53,39 +53,15 @@ VLM_ENV = {
     "fps": "VSS_VLM_FPS",
     "max_frames": "VSS_VLM_MAX_FRAMES",
     "total_pixels": "VSS_VLM_TOTAL_PIXELS",
-    "max_pixels_per_frame": "VSS_VLM_MAX_PIXELS_PER_FRAME",
 }
 
 #: The frame-sampling subset of the VLM policy. Left unset, the VLM server's
 #: own sampling defaults apply.
-VLM_SAMPLING_FIELDS = ("fps", "max_frames", "total_pixels", "max_pixels_per_frame")
+VLM_SAMPLING_FIELDS = ("fps", "max_frames", "total_pixels")
 
 #: Bearer token for the VLM endpoint (Inference Hub keys). Read at request time
 #: and never written to config.json, like every other credential here.
 VLM_API_KEY_ENV = "VSS_VLM_API_KEY"
-
-#: ``total_pixels`` and ``max_pixels_per_frame`` are alternatives, never a pair:
-#: processors that read ``max_pixels`` (Qwen2-VL's image and video processors in
-#: transformers) write it over ``size.longest_edge``, so sending both silently
-#: replaces the clip budget with the per-frame cap.
-PIXEL_LIMITS_EXCLUSIVE = "set total_pixels or max_pixels_per_frame, not both"
-PIXEL_LIMITS = ("total_pixels", "max_pixels_per_frame")
-
-
-def overlay_vlm_values(base: dict[str, Any], layer: dict[str, Any]) -> dict[str, Any]:
-    """Apply a higher-precedence layer of VLM values over a lower one.
-
-    The two pixel limits act as one choice: a layer that sets either replaces
-    the other from the layers beneath it, so an environment default or saved
-    policy for one never collides with a higher layer choosing the other.
-    """
-    merged = dict(base)
-    if any(layer.get(name) is not None for name in PIXEL_LIMITS):
-        for name in PIXEL_LIMITS:
-            merged.pop(name, None)
-    merged.update(layer)
-    return merged
-
 
 #: Request shapes ``vss vlm run`` can build. ``openai`` is a plain OpenAI
 #: chat completion with no engine-specific fields (Inference Hub).
@@ -676,7 +652,6 @@ class VlmConfig:
     fps: float | None = None
     max_frames: int | None = None
     total_pixels: int | None = None
-    max_pixels_per_frame: int | None = None
     locked: bool = False
 
     def validate(self) -> VlmConfig:
@@ -686,8 +661,6 @@ class VlmConfig:
             raise ConfigError("VLM model must be a non-empty string")
         if self.backend in {"vllm", "openai"} and self.chunk_duration not in (None, 0):
             raise ConfigError("positive chunk_duration is supported only by RT-VLM")
-        if self.total_pixels is not None and self.max_pixels_per_frame is not None:
-            raise ConfigError(f"VLM {PIXEL_LIMITS_EXCLUSIVE}")
         for name, value, low, high in (
             ("timeout", self.timeout, 1, 3600),
             ("max_tokens", self.max_tokens, 1, 1_000_000),
@@ -695,7 +668,6 @@ class VlmConfig:
             ("chunk_duration", self.chunk_duration, 0, 3600),
             ("max_frames", self.max_frames, 1, 2**31 - 1),
             ("total_pixels", self.total_pixels, 1, 2**31 - 1),
-            ("max_pixels_per_frame", self.max_pixels_per_frame, 1, 2**31 - 1),
         ):
             if value is not None and (
                 isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high
@@ -728,7 +700,6 @@ class VlmConfig:
                 self.fps,
                 self.max_frames,
                 self.total_pixels,
-                self.max_pixels_per_frame,
             )
         ):
             raise ConfigError("a locked VLM policy must configure at least one request value")
@@ -748,7 +719,6 @@ class VlmConfig:
             "fps": self.fps,
             "max_frames": self.max_frames,
             "total_pixels": self.total_pixels,
-            "max_pixels_per_frame": self.max_pixels_per_frame,
         }
         return {name: value for name, value in values.items() if value is not None} | {"locked": self.locked}
 
@@ -768,7 +738,6 @@ class VlmConfig:
             "fps",
             "max_frames",
             "total_pixels",
-            "max_pixels_per_frame",
             "locked",
         }
         unknown = sorted(set(raw) - expected)
@@ -790,7 +759,6 @@ _VLM_INTEGER_ENV_FIELDS = frozenset(
         "chunk_duration",
         "max_frames",
         "total_pixels",
-        "max_pixels_per_frame",
     }
 )
 _VLM_FLOAT_ENV_FIELDS = frozenset({"temperature", "fps"})
@@ -859,9 +827,10 @@ def effective_vlm_config(configured: VlmConfig | None) -> VlmConfig | None:
     if configured is None and not environment_defaults:
         return None
 
-    effective = overlay_vlm_values(VlmConfig().to_json(), environment_defaults)
+    effective = VlmConfig().to_json()
+    effective.update(environment_defaults)
     if configured is not None:
-        effective = overlay_vlm_values(effective, configured.to_json())
+        effective.update(configured.to_json())
     return VlmConfig.from_json(effective)
 
 

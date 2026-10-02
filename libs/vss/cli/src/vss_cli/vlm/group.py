@@ -251,12 +251,6 @@ class VlmInput(BaseModel):
             "mm_processor_kwargs.size.longest_edge. About 2048 pixels per vision token."
         ),
     )
-    max_pixels_per_frame: int | None = Field(
-        None,
-        ge=1,
-        le=2**31 - 1,
-        description="Pixel cap for each frame, sent as mm_processor_kwargs.max_pixels.",
-    )
 
     @model_validator(mode="after")
     def _validate_media_source(self) -> VlmInput:
@@ -268,8 +262,6 @@ class VlmInput(BaseModel):
             raise ValueError("exactly one of --sensor, --media-url, or --file is required")
         if not has_sensor and (self.start_time or self.end_time):
             raise ValueError("--start-time / --end-time require --sensor")
-        if self.total_pixels is not None and self.max_pixels_per_frame is not None:
-            raise ValueError(f"--total-pixels / --max-pixels-per-frame: {config_mod.PIXEL_LIMITS_EXCLUSIVE}")
         return self
 
 
@@ -299,7 +291,6 @@ _VLM_POLICY_FIELDS = (
     "fps",
     "max_frames",
     "total_pixels",
-    "max_pixels_per_frame",
 )
 
 
@@ -313,15 +304,6 @@ def _apply_vlm_policy(inputs: VlmInput, policy: config_mod.VlmConfig | None) -> 
     for name in _VLM_POLICY_FIELDS:
         configured = getattr(policy, name)
         if configured is None:
-            continue
-        # The two pixel limits are one choice: a run flag for either replaces
-        # the policy's other one, unless the policy is locked.
-        alternative = next((other for other in config_mod.PIXEL_LIMITS if other != name), None)
-        if name in config_mod.PIXEL_LIMITS and alternative in explicit and getattr(inputs, alternative) is not None:
-            if policy.locked:
-                raise InvalidInput(
-                    f"{name} is locked to {configured!r}; --{alternative.replace('_', '-')} cannot replace it"
-                )
             continue
         if name in explicit:
             requested = getattr(inputs, name)
@@ -435,16 +417,15 @@ def _video_io(inputs: VlmInput, *, qwen3_loader_cap: bool = False) -> dict[str, 
 
 
 def _processor_kwargs(inputs: VlmInput) -> dict[str, Any]:
-    """``mm_processor_kwargs`` for the pixel budgets; empty means server default."""
-    kwargs: dict[str, Any] = {}
-    if inputs.total_pixels is not None:
-        kwargs["size"] = {
+    """``mm_processor_kwargs`` for the pixel budget; empty means server default."""
+    if inputs.total_pixels is None:
+        return {}
+    return {
+        "size": {
             "shortest_edge": min(_QWEN3_VL_MIN_CLIP_PIXELS, inputs.total_pixels),
             "longest_edge": inputs.total_pixels,
         }
-    if inputs.max_pixels_per_frame is not None:
-        kwargs["max_pixels"] = inputs.max_pixels_per_frame
-    return kwargs
+    }
 
 
 def _build_rt_vlm_request(

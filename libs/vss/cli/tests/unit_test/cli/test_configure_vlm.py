@@ -201,70 +201,9 @@ def test_sampling_fields_combine_in_one_policy(config_home: Path) -> None:
     assert config_mod.load().vlm == config_mod.VlmConfig(fps=2, max_frames=64, total_pixels=4194304)
 
 
-def test_max_pixels_per_frame_alone_is_saved(config_home: Path) -> None:
-    result = _invoke("--max-frames", "64", "--max-pixels-per-frame", "921600")
-
-    assert result.exit_code == 0, result.output
-    assert config_mod.load().vlm == config_mod.VlmConfig(max_frames=64, max_pixels_per_frame=921600)
-
-
-def test_policy_rejects_both_pixel_limits(config_home: Path) -> None:
-    # Processors that read max_pixels write it over size.longest_edge, so the
-    # pair would silently replace the clip budget with the per-frame cap.
-    result = _invoke("--total-pixels", "4194304", "--max-pixels-per-frame", "921600")
-
-    assert result.exit_code == int(Exit.CONFIGURATION), result.output
-    assert "set total_pixels or max_pixels_per_frame, not both" in result.output
-    assert config_mod.load().vlm is None
-
-
-def test_saved_pixel_limit_replaces_the_environments_other(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(config_mod.VLM_ENV["max_pixels_per_frame"], "921600")
-
-    effective = config_mod.effective_vlm_config(config_mod.VlmConfig(total_pixels=16777216))
-
-    assert effective == config_mod.VlmConfig(total_pixels=16777216)
-
-
-def test_environment_pixel_limit_applies_when_nothing_is_saved_for_either(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(config_mod.VLM_ENV["max_pixels_per_frame"], "921600")
-
-    effective = config_mod.effective_vlm_config(config_mod.VlmConfig(fps=2))
-
-    assert effective == config_mod.VlmConfig(fps=2, max_pixels_per_frame=921600)
-
-
-def test_configure_vlm_switches_between_pixel_limits(config_home: Path) -> None:
-    config_mod.save(replace(config_mod.load(), vlm=config_mod.VlmConfig(fps=2, total_pixels=16777216)))
-
-    result = _invoke("--max-pixels-per-frame", "921600")
-
-    assert result.exit_code == 0, result.output
-    assert config_mod.load().vlm == config_mod.VlmConfig(fps=2, max_pixels_per_frame=921600)
-
-
-def test_configure_with_saved_and_environment_pixel_limits_succeeds(
-    config_home: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config_mod.save(replace(config_mod.load(), vlm=config_mod.VlmConfig(total_pixels=16777216)))
-    monkeypatch.setenv(config_mod.VLM_ENV["max_pixels_per_frame"], "921600")
-
-    result = _configure_all_routes(monkeypatch)
-
-    assert result.exit_code == 0, result.output
-    assert "max_pixels_per_frame not used (total_pixels is set; they are alternatives)" in result.output
-
-
-def test_environment_with_both_pixel_limits_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(config_mod.VLM_ENV["total_pixels"], "16777216")
-    monkeypatch.setenv(config_mod.VLM_ENV["max_pixels_per_frame"], "921600")
-
-    with pytest.raises(config_mod.ConfigError, match="not both"):
-        config_mod.effective_vlm_config(None)
-
-
-@pytest.mark.parametrize("name", ["VSS_VLM_LOCKED", "VSS_VLM_LONGEST_EDGE", "VSS_VLM_FPSS"])
+@pytest.mark.parametrize(
+    "name", ["VSS_VLM_LOCKED", "VSS_VLM_LONGEST_EDGE", "VSS_VLM_MAX_PIXELS_PER_FRAME", "VSS_VLM_FPSS"]
+)
 def test_unsupported_vlm_environment_variable_is_an_error(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(name, "1")
 
@@ -313,15 +252,9 @@ def test_configure_reports_unset_sampling_and_asks_for_it(
     assert result.exit_code == 0, result.output
     for field_name in config_mod.VLM_SAMPLING_FIELDS:
         assert _report_line(result.output, field_name).split()[1] == "unset"
-    assert (
-        "fps, max_frames, total_pixels, max_pixels_per_frame unset, so the VLM server's own sampling applies"
-        in result.output
-    )
-    assert "VSS_VLM_FPS, VSS_VLM_MAX_FRAMES, VSS_VLM_TOTAL_PIXELS, VSS_VLM_MAX_PIXELS_PER_FRAME" in result.output
-    assert (
-        "vss configure vlm --fps <value> --max-frames <value> --total-pixels <value> "
-        "(or --max-pixels-per-frame <value>)" in result.output
-    )
+    assert "fps, max_frames, total_pixels unset, so the VLM server's own sampling applies" in result.output
+    assert "VSS_VLM_FPS, VSS_VLM_MAX_FRAMES, VSS_VLM_TOTAL_PIXELS" in result.output
+    assert "vss configure vlm --fps <value> --max-frames <value> --total-pixels <value>`" in result.output
 
 
 def test_configure_reports_each_sampling_value_with_its_source(
@@ -340,11 +273,8 @@ def test_configure_reports_each_sampling_value_with_its_source(
     assert max_frames.split()[1] == "128"
     assert "(vss configure vlm)" in max_frames
     assert _report_line(result.output, "total_pixels").split()[1] == "unset"
-    assert "note: total_pixels, max_pixels_per_frame unset" in result.output
-    assert (
-        "export VSS_VLM_TOTAL_PIXELS, VSS_VLM_MAX_PIXELS_PER_FRAME or run "
-        "`vss configure vlm --total-pixels <value> (or --max-pixels-per-frame <value>)`"
-    ) in result.output
+    assert "note: total_pixels unset" in result.output
+    assert "export VSS_VLM_TOTAL_PIXELS or run `vss configure vlm --total-pixels <value>`" in result.output
 
 
 def test_configure_with_all_sampling_set_prints_no_note(
@@ -359,7 +289,6 @@ def test_configure_with_all_sampling_set_prints_no_note(
 
     assert result.exit_code == 0, result.output
     assert "own sampling applies" not in result.output
-    assert "max_pixels_per_frame not used (total_pixels is set; they are alternatives)" in result.output
 
 
 def test_configure_rejects_malformed_sampling_environment(

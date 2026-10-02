@@ -380,8 +380,7 @@ ENV VSS_VLM_BACKEND= \
     VSS_VLM_CHUNK_DURATION= \
     VSS_VLM_FPS= \
     VSS_VLM_MAX_FRAMES= \
-    VSS_VLM_TOTAL_PIXELS= \
-    VSS_VLM_MAX_PIXELS_PER_FRAME=
+    VSS_VLM_TOTAL_PIXELS=
 
 # Final USER is the non-root default OpenShell requires. WORKDIR /sandbox makes
 # /sandbox the OpenShell workspace (OpenShell derives it from the OCI WorkingDir).

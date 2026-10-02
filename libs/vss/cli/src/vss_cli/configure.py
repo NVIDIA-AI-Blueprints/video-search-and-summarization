@@ -403,14 +403,9 @@ def _report_vlm_sampling(
         return
     click.echo("vlm sampling for `vss vlm run`:", err=True)
     unset: list[str] = []
-    pixel_limits = ("total_pixels", "max_pixels_per_frame")
     for name in config_mod.VLM_SAMPLING_FIELDS:
         value = getattr(effective, name) if effective is not None else None
         if value is None:
-            alternative = next((other for other in pixel_limits if other != name), "") if name in pixel_limits else ""
-            if alternative and effective is not None and getattr(effective, alternative) is not None:
-                click.echo(f"  {name:<14} not used ({alternative} is set; they are alternatives)", err=True)
-                continue
             unset.append(name)
             click.echo(f"  {name:<14} unset", err=True)
             continue
@@ -422,10 +417,7 @@ def _report_vlm_sampling(
         click.echo(f"  {name:<14} {value!s:<12} {source}", err=True)
     if unset:
         variables = ", ".join(config_mod.VLM_ENV[name] for name in unset)
-        flags = " ".join(f"--{name.replace('_', '-')} <value>" for name in unset if name != "max_pixels_per_frame")
-        if "max_pixels_per_frame" in unset:
-            alternative = "--max-pixels-per-frame <value>"
-            flags = f"{flags} (or {alternative})" if "total_pixels" in unset else f"{flags} {alternative}".strip()
+        flags = " ".join(f"--{name.replace('_', '-')} <value>" for name in unset)
         click.echo(
             f"note: {', '.join(unset)} unset, so the VLM server's own sampling applies "
             "(RT-VLM deployments may default to one frame per chunk). "
@@ -963,11 +955,6 @@ def _vlm_config_error(message: str) -> NoReturn:
     type=click.IntRange(1, 2**31 - 1),
     help="Whole-clip pixel budget (Qwen3-VL family), about 2048 pixels per vision token.",
 )
-@click.option(
-    "--max-pixels-per-frame",
-    type=click.IntRange(1, 2**31 - 1),
-    help="Pixel cap for each frame, sent as mm_processor_kwargs.max_pixels.",
-)
 @click.option("--lock/--unlock", "locked", default=None, help="Reject or allow per-call overrides.")
 @click.option("--reset", is_flag=True, help="Remove the VLM policy and restore CLI/backend defaults.")
 def configure_vlm(
@@ -982,7 +969,6 @@ def configure_vlm(
     fps: float | None,
     max_frames: int | None,
     total_pixels: int | None,
-    max_pixels_per_frame: int | None,
     locked: bool | None,
     reset: bool,
 ) -> None:
@@ -1006,7 +992,6 @@ def configure_vlm(
             fps,
             max_frames,
             total_pixels,
-            max_pixels_per_frame,
             locked,
         )
     )
@@ -1022,11 +1007,6 @@ def configure_vlm(
         click.echo(json.dumps(current.to_json(), indent=2))
         return
 
-    if total_pixels is not None and max_pixels_per_frame is not None:
-        _vlm_config_error(config_mod.PIXEL_LIMITS_EXCLUSIVE)
-    if total_pixels is not None or max_pixels_per_frame is not None:
-        # The two limits are one choice: setting either replaces the other.
-        current = replace(current, total_pixels=None, max_pixels_per_frame=None)
     try:
         resolved_backend = (
             current.backend if backend is None else cast("config_mod.VlmBackend", backend.replace("-", "_"))
@@ -1043,9 +1023,6 @@ def configure_vlm(
             fps=current.fps if fps is None else fps,
             max_frames=current.max_frames if max_frames is None else max_frames,
             total_pixels=current.total_pixels if total_pixels is None else total_pixels,
-            max_pixels_per_frame=(
-                current.max_pixels_per_frame if max_pixels_per_frame is None else max_pixels_per_frame
-            ),
             locked=current.locked if locked is None else locked,
         ).validate()
     except config_mod.ConfigError as exc:

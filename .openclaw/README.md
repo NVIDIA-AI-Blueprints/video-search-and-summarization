@@ -134,7 +134,7 @@ Pins are build args:
 
 `vss vlm run` request defaults are runtime variables: the image declares every
 `VSS_VLM_*` setting (`VSS_VLM_BACKEND`, `VSS_VLM_MODEL`, `VSS_VLM_FPS`,
-`VSS_VLM_MAX_FRAMES`, `VSS_VLM_TOTAL_PIXELS`, `VSS_VLM_MAX_PIXELS_PER_FRAME`, …;
+`VSS_VLM_MAX_FRAMES`, `VSS_VLM_TOTAL_PIXELS`, …;
 full list in [the CLI README](../libs/vss/cli/README.md#configure-vlm-requests))
 empty, which the CLI reads as unset. Set them on the sandbox
 (`openshell sandbox create --env VSS_VLM_FPS=2`, `docker run -e …`); no build

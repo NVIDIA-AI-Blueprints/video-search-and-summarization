@@ -181,7 +181,6 @@ Each field also has an independent runtime environment override:
 | `fps` | `VSS_VLM_FPS` |
 | `max_frames` | `VSS_VLM_MAX_FRAMES` |
 | `total_pixels` | `VSS_VLM_TOTAL_PIXELS` |
-| `max_pixels_per_frame` | `VSS_VLM_MAX_PIXELS_PER_FRAME` |
 
 Environment variables provide per-field defaults. Values persisted by
 `vss configure vlm` override those defaults. Explicit `vss vlm run` arguments
@@ -195,24 +194,21 @@ A policy is locked only by `vss configure vlm --lock`; there is no lock variable
 
 ### Frame sampling
 
-Four fields control what the model sees. They follow VLMEvalKit's video
-dataset configs, with each pixel limit named for its scope, and the CLI sends
-them to the backend rather than resolving them itself:
+Three fields control what the model sees. They follow VLMEvalKit's video
+dataset configs, and the CLI sends them to the backend rather than resolving
+them itself:
 
 | Field | Meaning | Sent as |
 |-------|---------|---------|
 | `fps` | Frames sampled per second | `media_io_kwargs.video.fps` |
 | `max_frames` | Upper bound on frames; combines with `fps` | `media_io_kwargs.video.num_frames` (vLLM also gets `max_frames`, which its `qwen3_vl` loader reads) |
 | `total_pixels` | Pixel budget for the whole clip | `mm_processor_kwargs.size.longest_edge`, with `shortest_edge` set to the Qwen3-VL floor of 131072 or `total_pixels` if smaller |
-| `max_pixels_per_frame` | Pixel cap for each frame | `mm_processor_kwargs.max_pixels` |
 
-`total_pixels` and `max_pixels_per_frame` are alternatives, one choice across
-the layers: an environment default, the saved policy or a run flag that sets
-either replaces the other from the layers beneath it (a locked policy's limit
-cannot be replaced). Setting both in one layer is an error. Processors
-that read `max_pixels` (transformers' Qwen2-VL image and video processors) write
-it over `size.longest_edge`, so the pair would silently replace the clip budget
-with the per-frame cap.
+There is no per-frame pixel field. Neither vLLM nor RT-VLM reads
+`mm_processor_kwargs.max_pixels`, the Qwen3-VL video processor does not accept
+it, and the Qwen2-VL processors that do write it over `size.longest_edge`. On
+Qwen3-VL the frames share one budget, so `total_pixels` with `max_frames` sets
+the per-frame resolution.
 
 `total_pixels` assumes a Qwen3-VL-family processor (Qwen3-VL, Cosmos-Reason2),
 where the budget covers every frame: 16,777,216 is roughly 8,192 vision tokens
