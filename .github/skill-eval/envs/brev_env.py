@@ -779,6 +779,15 @@ chattr -R -i . 2>/dev/null || sudo chattr -R -i . 2>/dev/null || true
 # root-owned files in bind-mounted dirs (e.g. deploy/docker/data-dir/) that
 # a non-root git clean cannot remove ("Permission denied").
 git clean -fdx -e data/ -e .env 2>/dev/null || sudo git clean -fdx -e data/ -e .env
+# The vss CLI is a uv tool, so it outlives the checkout: adapters install it
+# only when `vss` is missing, and a box kept from an earlier run went on
+# serving that run's CLI (PR #2467: it rejected the PR's own --max-frames).
+# Reinstall from the synced tree so trials exercise the CLI under test.
+export PATH="$HOME/.local/bin:$PATH"
+if command -v uv >/dev/null 2>&1; then
+  uv tool install --force --reinstall --quiet "$REPO/libs/vss/cli"
+  echo "vss CLI: $(vss --version)"
+fi
 echo "synced $REPO to $(git rev-parse --short HEAD)"
 """
         logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)

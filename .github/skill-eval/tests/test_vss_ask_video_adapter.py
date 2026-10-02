@@ -114,7 +114,7 @@ def test_specs_cover_markdown_and_introspection_state_routing() -> None:
     assert "vss vlm run --file" in contract
     assert "vss configure check" in contract
     assert "--fps chosen from the skim/locate/inspect policy" in contract
-    assert "--fps rather than a fixed --num-frames" in contract
+    assert "--fps rather than a fixed --max-frames" in contract
 
 
 def test_skill_examples_are_fresh_shell_safe_and_child_identity_is_complete() -> None:
@@ -143,4 +143,4 @@ def test_skill_examples_are_fresh_shell_safe_and_child_identity_is_complete() ->
     for block in visual_blocks:
         assert "--fps" in block
         assert "VLM_FPS=" in block
-        assert "--num-frames" not in block
+        assert "--max-frames" not in block
