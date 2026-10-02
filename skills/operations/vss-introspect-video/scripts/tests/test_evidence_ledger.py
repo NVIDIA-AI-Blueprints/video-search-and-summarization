@@ -447,14 +447,41 @@ def test_18_detects_sufficient_completion_and_builds_traceable_result() -> None:
     final = ledger_mod.final_result(
         ledger,
         "runs/question-1",
+        "A",
         "The worker wore a yellow vest.",
     )
     assert final["status"] == "answered"
+    assert final["answer_label"] == "A"
+    assert final["answer_explanation"] == "The worker wore a yellow vest."
+    assert final["answer"] == "A. The worker wore a yellow vest."
     assert final["evidence"] == ledger["claims"][0]["observation_ids"]
     assert final["evidence_details"] == ledger["observations"]
     assert final["revision"] == ledger["revision"]
     assert final["artifact_dir"] == "runs/question-1"
     assert final["unresolved_gaps"] == []
+
+
+def test_open_question_answers_without_a_choice_label() -> None:
+    ledger = ledger_mod.merge_memory(
+        initialized(),
+        [memory_update("claim-color", observation(source_type="memory"))],
+    )
+    final = ledger_mod.final_result(
+        ledger,
+        "runs/question-1",
+        None,
+        "The worker wore a yellow vest.",
+    )
+    assert final["answer_label"] is None
+    assert final["answer"] == "The worker wore a yellow vest."
+    worded = ledger_mod.final_result(
+        ledger,
+        "runs/question-1",
+        "yellow",
+        "The vest is yellow.",
+    )
+    assert worded["answer_label"] == "yellow"
+    assert worded["answer"] == "yellow. The vest is yellow."
 
 
 def test_19_detects_no_progress() -> None:
@@ -687,6 +714,32 @@ def test_final_unresolved_result_uses_allowed_reason() -> None:
     assert final["unresolved_gaps"][0]["reason"] == "not_visible"
 
 
+def test_unresolved_options_question_records_best_available_choice() -> None:
+    ledger = initialized()
+    tasks = create_tasks(ledger)
+    ledger = ledger_mod.merge_round_results(
+        ledger,
+        tasks,
+        [result(tasks[0], coverage="none", gap="The person is not visible.")],
+    )
+    final = ledger_mod.final_result(
+        ledger,
+        "runs/question-1",
+        "c",
+        "C is the closest option; the vest color was not directly visible.",
+    )
+    assert final["status"] == "answered"
+    assert final["evidence_status"] == "unresolved"
+    assert final["answer_label"] == "C"
+    assert final["decision_source"] == "best_available_choice"
+    assert final["unresolved_gaps"][0]["reason"] == "not_visible"
+    ledger_mod.validate_terminal_pair(
+        ledger_mod.prepare_for_final_result(ledger), final
+    )
+    with pytest.raises(ledger_mod.LedgerValidationError, match="answer_explanation"):
+        ledger_mod.final_result(ledger, "runs/question-1", "C", None)
+
+
 def test_task_records_and_enforces_assigned_media_scope() -> None:
     ledger = initialized(claim(), claim("claim-count", "count", "whole_video"))
     scopes = {
@@ -849,7 +902,7 @@ def test_final_result_contains_audit_provenance() -> None:
         initialized(),
         [memory_update("claim-color", observation(source_type="memory"))],
     )
-    final = ledger_mod.final_result(ledger, "runs/question-1", "Visible result.")
+    final = ledger_mod.final_result(ledger, "runs/question-1", "A", "Visible result.")
     assert final["evidence_details"] == ledger["observations"]
     assert final["revision"] == ledger["revision"]
     assert final["artifact_dir"] == "runs/question-1"
@@ -871,7 +924,7 @@ def test_supported_partial_claim_stays_eligible_while_budget_remains() -> None:
     assert again[0]["claim"]["claim_id"] == "claim-color"
     assert again[0]["task_id"].endswith("-r2")
     with pytest.raises(ledger_mod.LedgerValidationError, match="budget remains"):
-        ledger_mod.final_result(partial, "runs/question-1", "Too early.")
+        ledger_mod.final_result(partial, "runs/question-1", "A", "Too early.")
 
 
 def test_exhausted_partial_ledger_terminates_and_writes_final_result(tmp_path: Path) -> None:
@@ -994,7 +1047,9 @@ def test_sufficient_supported_claim_resolves() -> None:
     )
     assert resolved["status"] == "answered"
     assert resolved["stop_reason"] == "resolved"
-    final = ledger_mod.final_result(resolved, "runs/question-1", "The claim holds.")
+    final = ledger_mod.final_result(
+        resolved, "runs/question-1", "A", "The claim holds."
+    )
     assert final["status"] == "answered"
     assert final["unresolved_gaps"] == []
 
@@ -1142,7 +1197,7 @@ def test_terminal_commit_publishes_revision_matched_marker(tmp_path: Path) -> No
     answered = ledger_mod.merge_round_results(
         ledger, tasks, [result(tasks[0], (observation(),))]
     )
-    final = ledger_mod.final_result(answered, str(tmp_path), "A — visible result")
+    final = ledger_mod.final_result(answered, str(tmp_path), "A", "Visible result")
     ledger_mod.atomic_commit_terminal(
         tmp_path / "ledger.json",
         answered,
@@ -1164,7 +1219,7 @@ def test_terminal_commit_binds_attempt_context(
     answered = ledger_mod.merge_round_results(
         ledger, tasks, [result(tasks[0], (observation(),))]
     )
-    final = ledger_mod.final_result(answered, str(tmp_path), "A")
+    final = ledger_mod.final_result(answered, str(tmp_path), "A", "Visible result")
     context = {
         "schema_version": 1,
         "case_id": "dataset-case-1",
@@ -1198,7 +1253,7 @@ def test_terminal_commit_rejects_context_for_wrong_video(
     answered = ledger_mod.merge_round_results(
         ledger, tasks, [result(tasks[0], (observation(),))]
     )
-    final = ledger_mod.final_result(answered, str(tmp_path), "A")
+    final = ledger_mod.final_result(answered, str(tmp_path), "A", "Visible result")
     context = {
         "schema_version": 1,
         "case_id": "dataset-case-1",
@@ -1228,7 +1283,7 @@ def test_terminal_commit_rejects_revision_mismatch(tmp_path: Path) -> None:
     answered = ledger_mod.merge_round_results(
         ledger, tasks, [result(tasks[0], (observation(),))]
     )
-    final = ledger_mod.final_result(answered, str(tmp_path), "A")
+    final = ledger_mod.final_result(answered, str(tmp_path), "A", "Visible result")
     final["revision"] += 1
     with pytest.raises(ledger_mod.LedgerValidationError, match="revision"):
         ledger_mod.atomic_commit_terminal(

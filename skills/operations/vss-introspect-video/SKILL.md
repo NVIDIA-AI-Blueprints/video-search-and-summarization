@@ -110,13 +110,19 @@ the assigned selector exactly. Errors are strings or null and never evidence.
 
 ### Final result
 
-The final result has exactly `status`, `answer`, `evidence`,
+The final result keeps decision and evidence state separate. It includes
+`status`, `evidence_status`, validated `answer_label`, `answer_explanation`,
+the backward-compatible rendered `answer`, `decision_source`, `evidence`,
 `evidence_details`, `unresolved_gaps`, `revision`, and `artifact_dir`.
-`evidence_details` contains the complete accepted observations named by
-`evidence`. An answered result has a non-empty answer and no unresolved gaps.
-An unresolved result has a null answer and empty evidence arrays; every gap has
-`claim_id`, `gap`, and one reason: `insufficient_coverage`, `not_visible`,
-`tool_failure`, or `budget_exhausted`.
+`answer_label` is one of the choices the question itself gives, or null when
+the question does not ask for a choice. The explanation carries the reason or
+the open answer; it does not replace a required choice.
+
+An answered result may have unresolved introspection evidence only when
+`decision_source` is `best_available_choice`, because the question requires a
+choice. An unresolved result has null answer fields.
+Every gap has `claim_id`, `gap`, and one reason: `insufficient_coverage`,
+`not_visible`, `tool_failure`, or `budget_exhausted`.
 
 Use the utility for canonical state transitions:
 
@@ -149,7 +155,8 @@ python3 "${LEDGER_TOOL}" assess --ledger "${RUN_DIR}/ledger.json"
 python3 "${LEDGER_TOOL}" final-result \
   --ledger "${RUN_DIR}/ledger.json" \
   --artifact-dir "${RUN_DIR}" \
-  --answer "${ANSWER}" \
+  --answer-label "${ANSWER_LABEL}" \
+  --answer-explanation "${ANSWER_EXPLANATION}" \
   --output "${RUN_DIR}/final-result.json"
 ```
 
@@ -158,7 +165,8 @@ Subagents write only their assigned result artifact.
 
 ## Run artifacts
 
-Use the harness per-run artifact directory when it provides one. Otherwise use:
+Use the caller-provided per-run artifact directory when it provides one.
+Otherwise use:
 
 ```text
 ${VSS_WORKSPACE:-$HOME/.vss}/runs/vss-introspection/<question-id>/
@@ -188,8 +196,8 @@ Elasticsearch, or Git.
 ### 1. Freeze the question and grounded media scope
 
 Retain the verbatim question, stable question ID, optional asset ID, allowed
-visual modalities, and grounded media selectors. Keep answer choices only for
-final synthesis.
+visual modalities, and grounded media selectors. Keep answer choices out of
+planning, retrieval, subagent prompts, and VLM prompts. The top-level agent may use them only during final synthesis.
 
 Do not invent timestamps from “recently”, “this morning”, or similar relative
 phrases. A named sensor remains a sensor. For a local file, resolve the
@@ -273,7 +281,7 @@ Validate the plan, save it as `plan.json`, and initialize `ledger.json`.
 
 Only after planning, search:
 
-1. OpenClaw or harness-native Markdown memory, when available;
+1. local Markdown memory, when available;
 2. structured VSS memory, when configured and needed.
 
 Use exact identity for a known record and the complete project-local CLI
@@ -302,7 +310,8 @@ For each claim, the top-level agent interprets accepted facts against its
 support test, falsification test, and coverage requirement, then supplies one
 memory update with observations, coverage, and the current gap. Merge all
 memory updates in one canonical revision and reassess. If the deterministic
-gate passes, skip visual inspection.
+gate passes, skip visual inspection. Never expose answer choices to an
+inspection subagent or VLM prompt.
 
 ### 4. Select bounded inspection work
 
@@ -404,10 +413,10 @@ observations with the returned job ID and exact subwindow provenance.
 
 For a sensor scope, `--task` is mandatory. The helper reads the immutable sensor
 UUID from that task and rejects a mismatched `--sensor` before launching VLM.
-When the evaluation harness supplies `.vss/introspection-attempt.json`, the
-helper also requires both the task sensor and requested sensor to match that
-case's canonical video ID or sensor UUID. An internally consistent task for a
-different video is therefore rejected before inference.
+When the caller supplies `.vss/introspection-attempt.json`, the helper also
+requires both the task sensor and requested sensor to match that attempt's
+video ID or sensor UUID. An internally consistent task for a different video
+is therefore rejected before inference.
 Every returned observation must also use the assigned sensor and remain within
 the assigned window; merge validation rejects mismatches.
 
@@ -431,7 +440,7 @@ For non-sensor input, replace the sensor and time flags with exactly one of
 
 ### 6. Collect and merge one complete round
 
-Wait for every assigned subagent or the harness timeout. If a subagent does not
+Wait for every assigned subagent or the caller timeout. If a subagent does not
 return, write a result for its assigned task with no observations, retained
 coverage/gap, zero consumed calls when known, and a timeout error. Preserve
 successful sibling results.
@@ -477,14 +486,24 @@ must preserve every existing claim ID and all evidence. Accept no more than the
 loaded expansion and total-claim budgets. Bind memory and reassess the new
 claim before inspecting it.
 
-If the run remains in progress, perform the next bounded round. Otherwise stop;
-do not infer through an unresolved gap.
+If the run remains in progress, perform the next bounded round. Otherwise stop.
+Do not turn an unresolved gap into an observation.
 
 ### 8. Synthesize and write the final result
 
-Only the top-level agent synthesizes the user answer. Answer choices may be
-considered now, after sufficient option-blind evidence exists. Every
-answer-bearing statement must cite accepted observation IDs.
+Only the top-level agent synthesizes the user answer. Every answer-bearing
+statement must cite accepted observation IDs. Pass `--answer-label` and
+`--answer-explanation` separately. Use the label only for the choice the
+question asks for, and put the reason in the explanation.
+
+When the question asks for one of its choices, choose one. Do not leave that
+question unanswered. If the evidence is incomplete, choose the choice best
+supported by what is known, pass it with `--answer-label`, and say in
+`--answer-explanation` what it rests on and what remains uncertain. The result
+records `decision_source: best_available_choice` and keeps the unresolved gaps.
+When the question does not ask for a choice, answer from the accepted evidence
+if it is sufficient. Otherwise leave the answer unset and say the evidence is
+insufficient.
 
 Write `final-result.json` with `scripts/evidence_ledger.py final-result` before
 any user-facing answer. Do this for every outcome: resolved, partial coverage
@@ -492,16 +511,17 @@ stopped by `budget_exhausted`, `no_progress`, and `tool_failure`. The command
 persists a budget stop when no inspection budget remains, then writes the
 file. It refuses an in-progress ledger that still has budget; create the next
 task instead of writing a synthesis note. `merge-round` also writes
-`final-result.json` when the merged ledger is unresolved. For an unresolved
-run, set `answer` to null and report each claim gap using only:
+`final-result.json` when the merged ledger is unresolved. When the question
+asks for a choice, rerun `final-result` with the best-supported choice.
+Without that choice, an unresolved run keeps all answer fields null. Every unresolved run reports each claim gap using only:
 
 - `insufficient_coverage`;
 - `not_visible`;
 - `tool_failure`;
 - `budget_exhausted`.
 
-Do not suppress gaps, fill them with inference, or present context observations
-as answers. Report whether each cited source is memory or VLM and preserve VSS
+Do not suppress gaps, present inference as observed evidence, or present
+context observations as answers. Report whether each cited source is memory or VLM and preserve VSS
 job, record, and assigned media provenance. `final-result.json` must be
 self-contained: include the final ledger revision, run artifact directory, and
 full provenance for every cited observation.
