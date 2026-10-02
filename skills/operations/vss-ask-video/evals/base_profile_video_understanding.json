@@ -31,7 +31,7 @@
       "query": "Was the worker wearing a safety helmet on warehouse_sample? Check the video itself, not anything already stored.",
       "checks": [
         "It uses exactly one vss vlm run against warehouse_sample, with --fps rather than a fixed --num-frames, and returns the answer.",
-        "It does not search Markdown or call memory introspect first, because the request already names its own scope."
+        "It does not search stored agent Markdown memory (for example MEMORY.md, memory/*.md, or the harness-native memory_search tool) or call vss memory introspect before the fresh inspection, because the request already names its own scope. Reading startup/deployment instructions such as ENV.md, AGENTS.md, or SKILL.md is not memory recall and does not violate this check."
       ]
     },
     {
@@ -109,7 +109,7 @@
       "query": "Freshly inspect the local video file `/tmp/vss-sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4` using the canonical vss-ask-video skill. Do not use VST/VIOS or raw HTTP: is the worker wearing PPE?",
       "checks": [
         "It uses vss vlm run --file through the installed CLI when available, in one shell call, and returns its answer. Only a development checkout without an installed CLI uses the project-local fallback.",
-        "It does not search Markdown, introspect, access VIOS, call RT-VLM directly, or POST to the VSS Agent."
+        "It does not search stored agent Markdown memory (for example MEMORY.md, memory/*.md, or the harness-native memory_search tool), introspect, access VIOS, call RT-VLM directly, or POST to the VSS Agent. Reading startup/deployment instructions such as ENV.md, AGENTS.md, or SKILL.md is not memory recall and does not violate this check."
       ]
     }
   ]
