@@ -83,11 +83,30 @@ Launching Cursor from a terminal where `node -v` reports `v22.x` makes the kerne
 **Solution**: Identify the owner, then clear it yourself — neither the Skill nor the notebook will destroy a sandbox it does not own:
 
 ```bash
-openshell sandbox list                              # compare against NEMOCLAW_SANDBOX_NAME
-lsof -nP -iTCP:18789 -sTCP:LISTEN
-lsof -nP -iTCP:18790 -sTCP:LISTEN
-pgrep -af 'dashboard-(relay|forward-watchdog)\.py'  # --sandbox names the owner
+# Absent until notebook Section 3.1 installs it, so do not let it fail the probe.
+command -v openshell >/dev/null \
+  && openshell sandbox list                         # compare against NEMOCLAW_SANDBOX_NAME
+for port in "${NEMOCLAW_DASHBOARD_PORT:-18789}" "${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"; do
+  python3 -c 'import socket,sys; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(("",int(sys.argv[1])))' "$port" 2>/dev/null \
+    && { echo "$port free"; continue; }
+  # The holder's own command line is what names its sandbox: the forward is an
+  # `openshell ... forward service <name>` process, so no --sandbox pattern
+  # finds it, and the PID alone says nothing about ownership.
+  echo "$port held by:"
+  for pid in $(lsof -tnP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null \
+    || ss -Hltnp "sport = :$port" 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2); do
+    printf '  %s: ' "$pid"; tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null; echo
+  done
+done
+# stderr first: a process that exits mid-scan makes the shell's own open fail.
+for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' 2>/dev/null <"$f"; echo; done \
+  | grep -E '[d]ashboard-(relay|forward-watchdog)\.py'  # --sandbox names the owner
 ```
+
+The bind test decides free or held on its own, so a host without `lsof` or `ss`
+still sees the conflict — it just cannot name the holder. Probe the ports your
+deployment actually uses: the loop reads `NEMOCLAW_DASHBOARD_PORT` and
+`NEMOCLAW_DASHBOARD_RELAY_PORT` when you have overridden either default.
 
 ```bash
 # Watchdog first: it answers a dying forward with `nemoclaw recover`. Relay
@@ -103,7 +122,7 @@ nemoclaw "$OTHER" destroy --yes --cleanup-gateway
 pkill -f -- "dashboard-relay\.py --sandbox ${OTHER_RE}( |$)"
 ```
 
-Both ports must be free before you continue — ask your coding agent to resume the Skill, or re-run Section 3 after a manual notebook run.
+Each port must be free, or held by your own sandbox name — which Section 3.1 reclaims with `NEMOCLAW_RECREATE_SANDBOX` — before you continue. Then ask your coding agent to resume the Skill, or re-run Section 3 after a manual notebook run.
 
 ## MCP Tools Not Visible or Not Reachable
 
