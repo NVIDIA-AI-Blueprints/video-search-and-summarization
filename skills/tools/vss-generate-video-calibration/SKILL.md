@@ -1,6 +1,6 @@
 ---
 name: vss-generate-video-calibration
-description: Use this skill when running AutoMagicCalib on local MP4s, RTSP, or the bundled sample dataset, or when deploying vss-auto-calibration. Do not use for non-AMC calibration or runtime analytics.
+description: Use this skill when running or tuning AutoMagicCalib on local MP4s, RTSP, or the bundled sample dataset, or when deploying vss-auto-calibration. Do not use for non-AMC calibration or runtime analytics.
 license: Apache-2.0
 metadata:
   author: "Harshal Nishar <hnishar@nvidia.com>"
@@ -8,15 +8,19 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
+# VSS Generate Video Calibration
+
+Run AutoMagicCalib over one of three input sources and drive the calibration through the microservice REST API. For normal single-run calibration, input-resolution work differs per source and shared work from `verify_project` onward lives in this file. Pair selected input-mode reference with [Shared Calibration Tail](#shared-calibration-tail); explicit tuning uses its own routed workflow below.
+
 ## When to Use This Skill
 
-Run AutoMagicCalib end-to-end on local files, RTSP streams, or the bundled sample dataset and (when needed) deploy the AMC microservice.
+Run or tune AutoMagicCalib end-to-end on local files, RTSP streams, or the bundled sample dataset and (when needed) deploy the AMC microservice.
 
 Do not use for non-AMC camera calibration or runtime analytics.
 
 ## Workflow
 
-Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/`; load only the reference needed for the selected input mode.
+Resolve tuning intent before input mode, then follow the applicable routing table and workflow below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/`; load only the references needed for the selected intent and input mode.
 
 ## Examples
 
@@ -28,19 +32,16 @@ Worked end-to-end examples are kept under `evals/` (each `*.json` manifest conta
 - NGC-hosted models and NIMs may be subject to rate-limits, GPU memory requirements, and license restrictions.
 - Concurrency, GPU memory, and storage limits depend on the host hardware and the profile's compose file.
 
-## Troubleshooting
-
-- **Error**: REST call returns connection refused. **Cause**: target microservice not running. **Solution**: probe `/docs` or `/health`; redeploy via `vss-build-vision-ai` or the matching `vss-deploy-*` skill.
-- **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
-- **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
-
-# VSS Generate Video Calibration
-
-Run AutoMagicCalib over one of three input sources and drive the calibration through the microservice REST API. The input-resolution work differs per source; everything from `verify_project` onward is identical and lives in this file. Pick the right input-mode reference and pair it with the [Shared Calibration Tail](#shared-calibration-tail) below.
-
 Shared helper references are loaded only when needed:
 - Read [`references/common-steps.md`](references/common-steps.md) when a mode reference needs the shared `create_project`, video-upload, or handoff snippets.
 - Read [`references/calibration-tail.md`](references/calibration-tail.md) when you need the reusable Python implementation of the stage-linear-media → verify → VGGT/post-process → AMC/post-process → compare-results tail.
+- Read [`references/tuning.md`](references/tuning.md) first when the user explicitly asks to tune, optimize, or find AMC settings. It owns tuning project names and the multi-attempt lifecycle; do not run the ordinary shared calibration tail for that request.
+- Read [`references/calibration-parameters.md`](references/calibration-parameters.md) only when tuning evidence requires a numeric AMC configuration change.
+
+## Intent Routing
+
+- **Normal calibration** — follow the existing input-mode workflow and shared calibration tail. Run one AMC configuration, then offer bounded tuning after reporting a completed or tunable failed result. Do not start repeated attempts without an explicit tuning request or acceptance of that offer.
+- **Explicit tuning** — read [`references/tuning.md`](references/tuning.md) before the relevant input-mode reference. Use the input-mode reference only for source discovery, ordering, capture, and upload semantics; the tuning reference replaces its project-naming and shared-tail handoff instructions.
 
 ## Input Routing
 
@@ -57,10 +58,10 @@ Match the user's request to a mode, then load that mode's reference for input co
 
 ## Prerequisites (shared across calibration modes)
 
-- Platform preflight from [`references/deploy-auto-calibration-service.md` Step 0](references/deploy-auto-calibration-service.md#step-0--platform-preflight) passes before any AMC deploy or calibration API work. The calibration host needs Ubuntu 24.04 on `x86_64`, NVIDIA Driver 590 or newer, NVIDIA GPU access, and NVENC hardware encoder support. If the preflight fails, stop immediately, tell the user which requirement was not met, and ask them to provide an existing `calibration.json`, run calibration on a supported `x86_64` dGPU host, or transfer generated calibration artifacts. Do not continue AMC setup, VIOS probing, capture, upload, or calibration automatically. DGX Spark is `aarch64`, so use existing/generated artifacts for this flow.
+- Platform preflight from [`references/deploy-auto-calibration-service.md` Step 0](references/deploy-auto-calibration-service.md#step-0-platform-preflight) passes before any AMC deploy or calibration API work. The calibration host needs Ubuntu 24.04 on `x86_64`, NVIDIA Driver 590 or newer, NVIDIA GPU access, and NVENC hardware encoder support. If the preflight fails, stop immediately, tell the user which requirement was not met, and ask them to provide an existing `calibration.json`, run calibration on a supported `x86_64` dGPU host, or transfer generated calibration artifacts. Do not continue AMC setup, VIOS probing, capture, upload, or calibration automatically. DGX Spark is `aarch64`, so use existing/generated artifacts for this flow.
 - AMC microservice + UI running. If not, walk [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) first.
 - Microservice reachable at `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_HOST_PORT:-8010}/v1/ready` → `{"code":0,...}`.
-- Projects directory writable by the container user. If you didn't just deploy (so Step 5 of the deploy reference hasn't run), confirm the write test in [`references/deploy-auto-calibration-service.md` § Step 5](references/deploy-auto-calibration-service.md#step-5--confirm-the-projects-directory-is-writable) — otherwise the first `create_project` returns `[Errno 13] Permission denied`.
+- Projects directory writable by the container user. If you didn't just deploy (so Step 5 of the deploy reference hasn't run), confirm the write test in [`references/deploy-auto-calibration-service.md` § Step 5](references/deploy-auto-calibration-service.md#step-5-confirm-the-projects-directory-is-writable) — otherwise the first `create_project` returns `[Errno 13] Permission denied`.
 - Python 3 with `requests` installed (each input-mode reference includes a self-healing venv fallback for direct runs).
 
 Mode-specific prerequisites (VIOS for `rtsp`, sample zip for `sample-dataset`) live in the respective references. The platform preflight applies even when an AMC service is already running.
@@ -71,7 +72,7 @@ The shared sequence is stage-linear-media → verify → VGGT (when ready) → p
 
 AMC UI sequence: Step 1 Project Setup, Step 2 Video Configuration, Step 3 Parameters, Step 4 Rectification, Step 5 Manual Alignment, Step 6 Execute, Step 7 Results.
 
-### Step A — Stage Linear Media
+### Step A: Stage Linear Media
 
 AMC v3.3.0 cannot calibrate raw media. After the mode-specific workflow has uploaded videos or completed RTSP ingest, explicitly choose one path before verification:
 
@@ -86,7 +87,7 @@ For REST-only rectification, use the running AMC service contract exposed by `<M
 
 Rectification produces `rectified.mp4` and `rectified.jpg`. External alignment files normally use `coord_space=original`; use `rectified` only for points created on AMC rectified media. Never call `/v1/calibrate/<project_id>` before the linear-media or rectification state is complete.
 
-### Step B — Verify Project
+### Step B: Verify Project
 
 ```
 POST /v1/verify_project/<project_id>
@@ -94,7 +95,7 @@ POST /v1/verify_project/<project_id>
 
 Response: `{"project_state": "READY"}` — must be `READY` before calibrating. If not READY, re-check that videos + alignment + layout are present (either via API or via UI manual alignment).
 
-### Step C — Independent VGGT Calibration
+### Step C: Independent VGGT Calibration
 
 After verification and before AMC, inspect `vggt_state`. Start VGGT by default from `READY`, resume and wait from `RUNNING`, and always post-process a `COMPLETED` multi-camera result, including one completed before the current invocation. `MODEL_MISSING` or `ERROR` is reported as an AMC-only fallback. Check `amc_state`, `vggt_state`, and `postprocess_state` independently.
 
@@ -106,7 +107,7 @@ GET  /v1/get_project_info/<project_id>                    # require postprocess_
 GET  /v1/vggt_results/<project_id>/evaluation_statistics  # VGGT metrics when GT exists
 ```
 
-### Step D — Start AMC Calibration
+### Step D: Start AMC Calibration
 
 **Confirm the plan before calibrating.** Whether the settings file and detector were auto-detected or asked, present a short summary and confirm via `AskUserQuestion` before the `POST /calibrate`. The resolved values are the defaults, so confirming is one click — but the user can switch the detector or skip an auto-detected settings file. Summarize:
 
@@ -130,16 +131,16 @@ Content-Type: application/json
 
 UI Step 3 (Parameters) does NOT cover detector choice; never assume the user picked one in the UI.
 
-**Also when there's no settings file, ask whether to tune the calibration parameters first** (`AskUserQuestion`):
+**Also when there's no settings file, ask whether to review the calibration parameters before this single run** (`AskUserQuestion`):
 
 - **Proceed with the default parameters** — well-suited to typical warehouse scenes; recommended unless the user has specific tuning in mind.
-- **Adjust parameters in the UI first** — open the project, go to Step 3: Parameters, change values, and click Save; then continue.
+- **Review or adjust parameters in the UI first** — open the project, go to Step 3: Parameters, change values, and click Save; then continue.
 
 In Step 3, set `layout_px_per_m` directly or measure a known two-point distance. Re-run post-processing after a scale or alignment change.
 
 Wait for the user's choice — and, if they choose to tune, for them to confirm they've Saved — before calling `/calibrate`.
 
-### Step E — Poll for AMC Completion
+### Step E: Poll for AMC Completion
 
 ```
 GET /v1/get_project_info/<project_id>
@@ -157,7 +158,7 @@ When calibration starts, surface the project ID, the UI URL (`http://<HOST_IP>:$
 
 Typical time: **10–60 min** (your-own videos), **10–30 min** (bundled sample). A six-camera transformer run can exceed one hour; keep polling and inspect logs/UI instead of treating 60 minutes as failure.
 
-### Step F — AMC Post-process and Results
+### Step F: AMC Post-process and Results
 
 For multi-camera projects, run layout post-processing after AMC calibration. VGGT, when available, runs first and is post-processed before AMC.
 
@@ -183,7 +184,13 @@ After `COMPLETED`, always give the user a way to review the result for that exac
 - **Overlay image on disk** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/output/multi_view_results/BA_output/results_ba_scaled_world/overlay_img_*.png` (single-camera projects use `output/single_view_results/cam_00/verification_map_overlay.png`).
 - **Project files** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/`.
 
-## Settings File + Detector Pattern
+### Optional Tuning Handoff
+
+After reporting a normal run, offer bounded tuning when the user wants further optimization or the failure logs identify a potentially tunable AMC stage. Do not offer numeric tuning for missing or invalid inputs, synchronization, alignment, layout scale, rectification, service, GPU, or storage failures.
+
+If the user accepts, read [`references/tuning.md`](references/tuning.md). Reuse the normal project as attempt 1 when its inputs and baseline are valid, preserve its existing AMC and VGGT results, and do not rename it.
+
+## Settings File and Detector Pattern
 
 Optional across all three modes. Before using a JSON settings file, retrieve `GET /v1/config/defaults` and inspect `<MS_URL>/openapi.yaml` (or `<MS_URL>/docs`) from the running AMC version. Parse the file, reject known-invalid legacy `skip` rather than silently translating it to `skip_frame`, then submit the JSON unchanged in meaning. Do not treat `/config/defaults` as a complete allow-list: the running API is the authoritative schema validator.
 
@@ -246,7 +253,7 @@ project_<project_id>/
 └── calibration.log
 ```
 
-## Cross-cutting Troubleshooting
+## Troubleshooting
 
 Mode-specific issues live in each reference's own troubleshooting table.
 
@@ -260,8 +267,11 @@ Mode-specific issues live in each reference's own troubleshooting table.
 | VGGT `INIT`, never `READY` | VGGT model not loaded — see [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) Step 2. |
 | Upload timeout | Large videos — bump `timeout=300` to e.g. `600` in the per-mode Python script. |
 | Port scan finds no backend | Backend not running — walk [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) first. |
+| REST call returns connection refused | Target microservice is not running. Probe `/docs` or `/health`; deploy or repair it with `vss-build-vision-ai` or the applicable `vss-deploy-*` skill. |
+| NGC pull returns HTTP 401/403 | `NGC_CLI_API_KEY` is missing or expired. Re-authenticate with `docker login nvcr.io`, then retry without printing the key. |
+| Container OOM or model load failure | GPU memory is insufficient for selected profile. Choose smaller variant or free GPU memory before retrying. |
 
-## For Downstream Skills — MV3DT Export
+## For Downstream Skills: MV3DT Export
 
 Downstream consumers (e.g. a Multi-View 3D Tracking skill owned by another team) fetch the MV3DT-format calibration output directly from the microservice. This skill returns the `project_id`; the downstream skill calls:
 
@@ -288,5 +298,3 @@ Downstream skill flow:
 - [`vss-manage-video-io-storage`](../../operations/vss-manage-video-io-storage/SKILL.md) — VIOS API skill; only the `rtsp` calibration mode depends on VIOS being reachable.
 
 Root `README.md` "Custom Dataset" and "Calibration Workflow (UI)" sections document input-video guidelines and the UI-driven alternative to this API flow.
-
-bump:1
