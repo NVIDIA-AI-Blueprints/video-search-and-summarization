@@ -452,7 +452,7 @@ def validate_ledger(ledger: Any) -> None:
         _fail("ledger.stop_reason", "invalid stop reason")
 
     plan = ledger["plan"]
-    # A ledger plan can contain the initial claims plus one accepted expansion.
+    # A ledger plan can contain the initial claims plus accepted expansions.
     _strict(plan, PLAN_KEYS, "ledger.plan")
     if plan["plan_version"] != "2.0" or plan["mode"] != "initial":
         _fail("ledger.plan", "must retain the initial evidence-plan identity")
@@ -464,7 +464,10 @@ def validate_ledger(ledger: Any) -> None:
         not isinstance(plan_claims, list)
         or not 1 <= len(plan_claims) <= BUDGETS["max_total_claims"]
     ):
-        _fail("ledger.plan.claims", "must contain one to three claims")
+        _fail(
+            "ledger.plan.claims",
+            f"must contain one to {BUDGETS['max_total_claims']} claims",
+        )
     for index, claim in enumerate(plan_claims):
         _validate_claim(claim, f"ledger.plan.claims[{index}]")
     plan_ids = [claim["claim_id"] for claim in plan_claims]
@@ -1035,7 +1038,10 @@ def expand_ledger(
         _fail("ledger.status", "cannot expand a terminal ledger")
     validate_plan(expansion_plan, "expansion")
     if ledger["expansions_used"] >= BUDGETS["max_expansions"]:
-        _fail("ledger.expansions_used", "at most one expansion is permitted")
+        _fail(
+            "ledger.expansions_used",
+            f"at most {BUDGETS['max_expansions']} expansions are permitted",
+        )
     if len(ledger["plan"]["claims"]) >= BUDGETS["max_total_claims"]:
         _fail("ledger.plan.claims", "configured total claim limit reached")
     for field in ("question_id", "question_text", "asset_id"):
