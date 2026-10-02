@@ -232,7 +232,7 @@ print(json.dumps({
     'startup_log_signals':log_signals,
     'pending_devices': len(read('/sandbox/.openclaw/devices/pending.json')),
     'paired_devices': len(read('/sandbox/.openclaw/devices/paired.json')),
-    'pair_watcher_state': status if status in ['running', 'stopped', 'failed', 'ready'] else 'other',
+    'pair_watcher_state': status if status in ['running','stopped','request-not-produced','request-observed','request-rejected','approval-timeout','approval-failed','approval-completed','canonical-settled'] else 'other',
     'sandbox_memory_enabled': memory.get('enabled') is True,
     'sandbox_introspection_enabled': (memory.get('introspection') or {}).get('enabled') is True,
 }))
@@ -256,8 +256,17 @@ def coordinator(run_id):
             continue
         info = data.get("exception_info") or {}
         exception = info.get("exception_type") if isinstance(info, dict) else None
+        reward = ((data.get('verifier_result') or {}).get('rewards') or {}).get('reward')
+        try:
+            judge = json.loads((path.parent/'verifier/judge.json').read_text())
+        except (OSError, ValueError):
+            judge = {}
         trials.append({
             "step": step,
+            "reward": reward if type(reward) in [int,float] and 0 <= reward <= 1 else None,
+            "checks_passed": judge.get('passed') if type(judge.get('passed')) is int else None,
+            "checks_total": judge.get('total') if type(judge.get('total')) is int else None,
+            "failed_check_numbers": [n for n,row in enumerate(judge.get('checks') or [],1) if isinstance(row,dict) and row.get('passed') is False],
             "finished": bool(data.get("finished_at")),
             "exception": exception if isinstance(exception, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,100}", exception) else None,
         })
