@@ -207,10 +207,29 @@ for port in (18789, 18790):
         listeners[str(port)] = client.connect_ex(('127.0.0.1', port)) == 0
 memory = read(pathlib.Path.home() / '.vss/config.json').get('memory') or {}
 status = read('/tmp/nemoclaw-auto-pair-status.json').get('state')
+log_signals = {}
+for path, label in [('/tmp/gateway.log','gateway'),('/tmp/nemoclaw-start.log','launcher')]:
+    try:
+        data = pathlib.Path(path).read_text(errors='replace')[-200000:]
+    except OSError:
+        continue
+    needles = {
+        'Invalid config':'invalid_config', 'Config validation failed':'invalid_config',
+        'Cannot find module':'module_missing', 'Cannot find package':'module_missing',
+        'EADDRINUSE':'port_in_use', 'Permission denied':'permission_denied',
+        'scope upgrade':'scope_upgrade', 'pairing required':'pairing_required',
+        'Unknown config':'unknown_config', 'timed out':'timeout',
+        'Error loading plugin':'plugin_load', 'plugin failed':'plugin_load',
+        'config hash':'config_hash', 'SANDBOX_CONFIG_HASH_MISMATCH':'config_hash',
+        'OpenClaw child OOM-score':'oom_score', 'OOM':'oom',
+        'OPENCLAW_DEVICE_AUTH':'device_auth', 'SIGTERM':'sigterm',
+    }
+    log_signals[label] = sorted(set(value for needle,value in needles.items() if needle in data))
 print(json.dumps({
     'gateway_port': gateway.get('port') if type(gateway.get('port')) is int else None,
     'gateway_listeners': listeners,
     'process_kinds':dict(processes),
+    'startup_log_signals':log_signals,
     'pending_devices': len(read('/sandbox/.openclaw/devices/pending.json')),
     'paired_devices': len(read('/sandbox/.openclaw/devices/paired.json')),
     'pair_watcher_state': status if status in ['running', 'stopped', 'failed', 'ready'] else 'other',
