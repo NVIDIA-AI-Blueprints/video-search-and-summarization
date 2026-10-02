@@ -34,7 +34,7 @@ on:
         # `type: string` rather than `type: choice` because the skills/
         # tree has more than 10 entries — GitHub caps `choice` at 10.
         # plan_matrix.py validates the value (skill-dir name or `*`).
-        description: "Which skill to eval: `*` or a bare skill-directory name."
+        description: "Which skills to eval: `operations`, `*`, or a bare skill-directory name."
         required: false
         default: "*"
         type: string
@@ -195,9 +195,10 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Allow up to eight matrix legs. Unavailable runner slots queue in
+      # Queue Spark legs one at a time; they share one registered worker.
+      # Allow up to eight other matrix legs. Unavailable runner slots queue in
       # Actions; run_leg.py still caps execution at one leg per GPU box.
-      max-parallel: 8
+      max-parallel: ${{ inputs.spark_runner && 1 || 8 }}
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1.5 h agent ceiling

@@ -210,6 +210,8 @@ Schema:
 
 For stock deployments, write the query in the same terms the skill routes on, such as "use the `/vss-build-vision-ai` stock Search workflow with remote LLM/VLM placement" or "use the stock Alerts workflow in verification mode (`MODE=2d_cv`)". Do not use legacy `-p` / `-m` command flags.
 
+Manual dispatch with `skills=operations` selects all runtime specs under `skills/operations/` and excludes Build Vision AI's own evals. With `spark_runner=true`, matrix legs queue one at a time on the shared Spark worker.
+
 The runner passes the selected runtime as `SKILLS_EVAL_OPERATIONAL_HARNESS` to the worker. Operational setup queries explicitly invoke `/vss-build-vision-ai` and specify conditional NemoClaw attachment, skill installation, and readiness. Adapters include the declared Build Vision AI skill when generating tasks; `run_leg.py` never rewrites generated instructions.
 
 ### Worked example — `skills/operations/vss-manage-video-io-storage/evals/vios_ops.json`
