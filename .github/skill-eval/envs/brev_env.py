@@ -1784,9 +1784,10 @@ async def _run_ssh_exec(
     timeout: int = BREV_EXEC_TIMEOUT,
     input_data: bytes | None = None,
 ) -> ExecResult:
-    """Run `ssh <alias> <command>` — for registered nodes."""
+    """Run a remote command and forward stdin through a Brev SSH alias."""
     cmd = [
         "ssh",
+        "-T",
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=15",
         "-o", "ServerAliveInterval=30",
@@ -1876,20 +1877,20 @@ async def _run_brev_exec(
 ) -> ExecResult:
     """Run ``brev exec <instance> <command>`` and return result.
 
-    For registered external nodes (e.g. DGX-Spark / IGX-Thor), transparently
-    falls back to direct ``ssh <alias>`` since brev exec can't reach them.
-
-    Uses ``bash -c`` wrapping via a shell so that ``brev exec`` receives
-    a single command string. Stdin is piped explicitly so the brev CLI
-    doesn't enter interactive mode.
+    Registered external nodes and commands with stdin use direct SSH.
+    ``brev exec`` consumes piped input as additional instance names and
+    does not attach stdin to the remote command. It must never receive
+    command input, including the local NIM startup credentials.
     """
-    if await _is_registered_node(instance):
+    registered = await _is_registered_node(instance)
+    if registered or input_data is not None:
         # ssh command-execs run NON-LOGIN shells: ~/.profile (and thus the
         # forwarded ~/.eval_env) is never sourced, silently dropping
         # PR_HEAD_SHA/NGC keys/etc from every exec. Source it inline.
         command = f". ~/.eval_env 2>/dev/null || true; {command}"
         return await _run_ssh_exec(
-            _ssh_alias_for(instance), command, timeout, input_data=input_data,
+            _ssh_alias_for(instance) if registered else instance,
+            command, timeout, input_data=input_data,
         )
     # brev exec also spawns a NON-LOGIN shell — ~/.profile is never sourced,
     # so the forwarded env vars in ~/.eval_env (PR_HEAD_SHA, NGC keys, etc.)

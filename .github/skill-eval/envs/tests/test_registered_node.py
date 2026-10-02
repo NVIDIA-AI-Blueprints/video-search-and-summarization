@@ -48,6 +48,49 @@ import brev_env  # noqa: E402
 
 
 class LocalNimCredentialDelivery(unittest.IsolatedAsyncioTestCase):
+    async def test_managed_worker_receives_startup_credentials_on_remote_stdin(self):
+        # Exercise the real subprocess/pipe path. Brev's exec consumes stdin
+        # as instance names, whereas SSH forwards it to the remote shell.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ssh = root / "ssh"
+            ssh.write_text(
+                '#!/bin/sh\nfor remote_arg do :; done\n'
+                'exec /bin/bash -c "$remote_arg"\n'
+            )
+            ssh.chmod(0o700)
+            brev = root / "brev"
+            brev.write_text('#!/bin/sh\necho "Unexpected brev stdin" >&2\nexit 97\n')
+            brev.chmod(0o700)
+            command = (
+                'IFS= read -r ngc && IFS= read -r frontier && '
+                'test "$ngc" = registry-test-key && '
+                'test "$frontier" = frontier-test-key && printf transport-ok'
+            )
+            with (
+                mock.patch.dict(os.environ, {"PATH": directory + os.pathsep + os.environ["PATH"]}),
+                mock.patch.object(brev_env, "_is_registered_node", new=mock.AsyncMock(return_value=False)),
+            ):
+                result = await brev_env._run_brev_exec(
+                    "vss-eval-test", command, timeout=10,
+                    input_data=b"registry-test-key\nfrontier-test-key\n",
+                )
+            self.assertEqual(result.return_code, 0, result.stderr)
+            self.assertEqual(result.stdout, "transport-ok")
+
+    async def test_managed_commands_without_input_keep_brev_transport(self):
+        process = mock.Mock(pid=1234, returncode=0)
+        process.communicate = mock.AsyncMock(return_value=(b"ready", b""))
+        with (
+            mock.patch.object(brev_env, "_is_registered_node", new=mock.AsyncMock(return_value=False)),
+            mock.patch.object(brev_env.asyncio, "create_subprocess_exec", new=mock.AsyncMock(return_value=process)) as create,
+            mock.patch.object(brev_env, "_register_transport_process"),
+        ):
+            result = await brev_env._run_brev_exec("vss-eval-test", "true", timeout=10)
+        self.assertEqual(create.call_args.args[:3], ("brev", "exec", "vss-eval-test"))
+        process.communicate.assert_awaited_once_with(input=b"\n")
+        self.assertEqual(result.stdout, "ready")
+
     async def test_ngc_key_is_sent_on_stdin_without_worker_key_file(self):
         env = brev_env.BrevEnvironment()
         env._instance_name = "SPARK"
