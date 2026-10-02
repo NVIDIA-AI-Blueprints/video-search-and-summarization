@@ -49,11 +49,11 @@ Manual runs configure both routes without changing the coordinator or judge:
 | Workflow input | Meaning |
 |---|---|
 | `coding_harness` | Build Vision AI/setup runtime: `claude-code` or `codex` |
-| `coding_model` | Independent coding model from [`inference.nvidia.com`](https://inference.nvidia.com/); a blank value preserves its configured default |
+| `coding_model` | Hosted: model ID from [`inference.nvidia.com`](https://inference.nvidia.com/). Local NIM: model-specific `publisher/model` image ID. A blank value uses the configured default, which must also be a NIM image ID when `coding_deployment=local-nim` |
 | `operational_harness` | Operational runtime: `claude-code`, `codex`, or `nemoclaw` |
-| `operational_model` | Independent operational model from [`inference.nvidia.com`](https://inference.nvidia.com/); a blank value preserves its configured default |
-| `coding_deployment` | `nvidia-inference` (default) or `local-nim` for coding/setup |
-| `operational_deployment` | Independent `nvidia-inference` (default) or `local-nim` for operational tasks |
+| `operational_model` | Hosted: model ID from [`inference.nvidia.com`](https://inference.nvidia.com/). Local NIM: model-specific `publisher/model` image ID. A blank value uses the configured default, which must also be a NIM image ID when `operational_deployment=local-nim` |
+| `coding_deployment` | `nvidia-inference` (default) or `local-nim` for coding/setup; the latter requires a NIM image ID in `coding_model` |
+| `operational_deployment` | Independent `nvidia-inference` (default) or `local-nim` for operational tasks; the latter requires a NIM image ID in `operational_model` |
 | `spark_runner` | Run on Brev external node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`); default false |
 
 
@@ -67,9 +67,14 @@ input is exposed. Coordinator and judge routing stays unchanged.
 Select `local-nim` independently for either role. Provide a model-specific NIM
 ID (`publisher/model`, optionally prefixed by `nvidia_nim/`) and configure
 `NGC_CLI_API_KEY` or `NGC_API_KEY` on the coordinator. Proprietary hosted-only
-models cannot run locally. The worker authenticates to `nvcr.io`, discovers
-released model-specific NIM tags, selects the newest release with a Linux image
-matching the worker CPU architecture, and pins its digest. Qwen3-32B on ARM64
+models cannot run locally. For Nemotron 3.5 Lightning, enter
+`nvidia/nemotron-3.5-lightning-30b-a3b`, the ID of its
+[self-hosted NIM image](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b?nim=self-hosted),
+instead of the hosted Inference Hub ID `nvidia/nvidia/nemotron-3.5-lightning`.
+The workflow validates this format before selecting a GPU worker. The worker
+authenticates to `nvcr.io`, discovers released model-specific NIM tags, selects
+the newest release with a Linux image matching the worker CPU architecture,
+and pins its digest. Qwen3-32B on ARM64
 also resolves its documented `qwen3-32b-dgx-spark` packaging variant. There is
 no fallback to a different model, a model-free container, or hosted inference.
 A missing image, incompatible architecture, registry access failure, and

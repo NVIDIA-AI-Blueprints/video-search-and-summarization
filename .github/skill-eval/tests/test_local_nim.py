@@ -114,18 +114,41 @@ def test_registry_errors_are_distinct(monkeypatch, code, message):
 
 @pytest.mark.parametrize(
     "model",
-    ["azure/openai/gpt-6-astra", "../model", "nvidia/model;id", "nvidia/model:latest"],
+    [
+        "azure/openai/gpt-6-astra",
+        "nvidia/nvidia/nemotron-3.5-lightning",
+        "../model",
+        "nvidia/model;id",
+        "nvidia/model:latest",
+    ],
 )
-def test_unsupported_model_id_fails_before_worker(model):
-    with pytest.raises(ValueError, match="No model-specific NIM"):
+@pytest.mark.parametrize("role", ["coding", "operational"])
+def test_unsupported_model_id_fails_before_worker(model, role):
+    prefix = f"SKILLS_EVAL_{role.upper()}"
+    with pytest.raises(
+        ValueError,
+        match=rf"{prefix}_MODEL: Invalid local NIM image ID .*expected publisher/model",
+    ):
         model_config.resolve_model_config(
             {
-                "SKILLS_EVAL_CODING_MODEL": model,
-                "SKILLS_EVAL_CODING_DEPLOYMENT": "local-nim",
+                f"{prefix}_MODEL": model,
+                f"{prefix}_DEPLOYMENT": "local-nim",
                 "NGC_API_KEY": "secret",
             },
-            role="coding",
+            role=role,
         )
+
+
+def test_nim_image_id_is_accepted_for_operational_model():
+    route = model_config.resolve_model_config(
+        {
+            "SKILLS_EVAL_OPERATIONAL_MODEL": "nvidia/nemotron-3.5-lightning-30b-a3b",
+            "SKILLS_EVAL_OPERATIONAL_DEPLOYMENT": "local-nim",
+            "NGC_API_KEY": "secret",
+        },
+        role="operational",
+    )
+    assert route.model == "nvidia/nemotron-3.5-lightning-30b-a3b"
 
 
 def test_independent_deployment_and_no_hosted_key_leak():

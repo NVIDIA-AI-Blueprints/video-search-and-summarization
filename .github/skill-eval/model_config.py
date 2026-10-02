@@ -102,7 +102,10 @@ def resolve_model_config(
         )
     if deployment == LOCAL_NIM_PROVIDER:
         from local_nim import validate_model_id
-        validate_model_id(model)
+        try:
+            validate_model_id(model)
+        except ValueError as exc:
+            raise ValueError(f"{prefix}_MODEL: {exc}") from exc
         if not _first(env.get("NGC_CLI_API_KEY"), env.get("NGC_API_KEY")):
             raise ValueError("local-nim requires NGC_CLI_API_KEY or NGC_API_KEY")
         # Filled with a per-leg credential by run_leg; never send a hosted key.

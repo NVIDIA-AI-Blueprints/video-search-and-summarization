@@ -55,7 +55,10 @@ def validate_model_id(model: str) -> str:
     canonical = model.removeprefix("nvidia_nim/")
     if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]*/[a-z0-9][a-z0-9_.-]*", canonical):
         raise ValueError(
-            f"No model-specific NIM available for model ID {model!r}; expected publisher/model"
+            f"Invalid local NIM image ID {model!r}; expected publisher/model "
+            "(optionally prefixed by nvidia_nim/), for example "
+            "nvidia/nemotron-3.5-lightning-30b-a3b. Use the model-specific "
+            "NIM image ID, not a hosted Inference Hub model ID."
         )
     return canonical
 

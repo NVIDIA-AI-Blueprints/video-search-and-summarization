@@ -47,12 +47,12 @@ on:
           - claude-code
           - codex
       coding_model:
-        description: "CODING · Model ID from https://inference.nvidia.com/ (for example, azure/openai/gpt-6-astra). Blank preserves the configured default."
+        description: "CODING · Hosted: Inference Hub model ID. Local NIM: publisher/model image ID (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Blank uses the configured default."
         required: false
         default: ""
         type: string
       coding_deployment:
-        description: "CODING · Hosted NVIDIA Inference or a NIM on the VSS worker."
+        description: "CODING · Hosted NVIDIA Inference or a local NIM image on the VSS worker; local-nim requires a NIM image ID in coding_model."
         type: choice
         default: nvidia-inference
         options: [nvidia-inference, local-nim]
@@ -66,12 +66,12 @@ on:
           - codex
           - nemoclaw
       operational_model:
-        description: "OPERATIONAL · Model ID from https://inference.nvidia.com/ (for example, azure/openai/gpt-6-astra). Blank preserves the configured default."
+        description: "OPERATIONAL · Hosted: Inference Hub model ID. Local NIM: publisher/model image ID (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Blank uses the configured default."
         required: false
         default: ""
         type: string
       operational_deployment:
-        description: "OPERATIONAL · Hosted NVIDIA Inference or a NIM on the VSS worker."
+        description: "OPERATIONAL · Hosted NVIDIA Inference or a local NIM image on the VSS worker; local-nim requires a NIM image ID in operational_model."
         type: choice
         default: nvidia-inference
         options: [nvidia-inference, local-nim]
