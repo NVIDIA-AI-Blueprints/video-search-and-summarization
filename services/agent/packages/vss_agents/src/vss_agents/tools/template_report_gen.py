@@ -51,6 +51,24 @@ from vss_agents.utils.reasoning_utils import get_thinking_tag
 
 logger = logging.getLogger(__name__)
 
+_REPORT_VLM_GROUNDING_INSTRUCTION = """
+Grounding requirements:
+- Report only facts directly visible in the supplied video.
+- Do not infer causes, contributing factors, severity, injuries, impact, outcomes, or responses.
+- Do not invent identities, roles, actions, people, vehicles, or object IDs.
+- If a requested detail is not directly visible, state that it is Unknown or N/A.
+""".strip()
+
+_REPORT_LLM_GROUNDING_INSTRUCTION = """
+Grounding requirements (these override any conflicting template instruction):
+- The authoritative incident facts supplied by the user are the only source of incident metadata.
+- Copy authoritative values exactly into corresponding report fields; do not replace or reinterpret them.
+- Treat video-understanding results only as evidence of directly visible observations.
+- Do not infer causes, contributing factors, severity, injuries, impact, outcomes, or responses.
+- Do not invent identities, roles, actions, people, vehicles, object IDs, or counts.
+- Use "Unknown" or "N/A" whenever the supplied evidence does not support a field.
+""".strip()
+
 
 def _get_object_store_url(object_store: Any, filename: str, config: "TemplateReportGenConfig") -> str:
     """
@@ -620,6 +638,27 @@ def _extract_object_ids_from_incident(alert_metadata: dict) -> list[str]:
     return result
 
 
+def _build_authoritative_incident_facts(
+    alert_metadata: dict[str, Any],
+    alert_sensor_id: str,
+    alert_from_timestamp: str,
+    alert_to_timestamp: str,
+) -> dict[str, Any]:
+    """Select incident fields that must not be inferred or rewritten by the report LLM."""
+    info = alert_metadata.get("info")
+    place = alert_metadata.get("place")
+    facts = {
+        "category": alert_metadata.get("category"),
+        "timestamp": alert_metadata.get("timestamp") or alert_from_timestamp,
+        "end": alert_metadata.get("end") or alert_to_timestamp,
+        "sensorId": alert_metadata.get("sensorId") or alert_sensor_id,
+        "objectIds": alert_metadata.get("objectIds"),
+        "primaryObjectId": info.get("primaryObjectId") if isinstance(info, dict) else None,
+        "place.name": place.get("name") if isinstance(place, dict) else None,
+    }
+    return {key: value for key, value in facts.items() if value is not None}
+
+
 async def _run_vlm_analysis(
     report_input: TemplateReportGenInput,
     vlm_tool: Any,
@@ -631,11 +670,12 @@ async def _run_vlm_analysis(
     for vlm_prompt in config.vlm_prompts:
         logger.info(f"Running VLM task for prompt: {vlm_prompt}")
 
-        # Format prompt with object_ids if the placeholder exists
+        # Format prompt with object_ids if the placeholder exists.
         enhanced_prompt = vlm_prompt
-        if "{object_ids}" in vlm_prompt and object_ids:
-            object_ids_str = ", ".join(object_ids)
+        if "{object_ids}" in vlm_prompt:
+            object_ids_str = ", ".join(object_ids) if object_ids else "none provided"
             enhanced_prompt = vlm_prompt.replace("{object_ids}", object_ids_str)
+        enhanced_prompt = f"{enhanced_prompt}\n\n{_REPORT_VLM_GROUNDING_INSTRUCTION}"
 
         vlm_input: dict[str, Any] = {
             "sensor_id": report_input.alert_sensor_id,
@@ -946,6 +986,13 @@ async def _format_custom_report(
         # so they don't get treated as prompt variables
         escaped_template = template_content.replace("{", "{{").replace("}", "}}")
         formatted_system_prompt = report_prompt.format(template=escaped_template, agent_version=agent_version)
+        formatted_system_prompt = f"{formatted_system_prompt}\n\n{_REPORT_LLM_GROUNDING_INSTRUCTION}"
+        authoritative_incident_facts = _build_authoritative_incident_facts(
+            alert_metadata,
+            alert_sensor_id,
+            alert_from_timestamp,
+            alert_to_timestamp,
+        )
 
         # Append thinking tag to system prompt if applicable
         thinking_tag = get_thinking_tag(llm, llm_reasoning)
@@ -957,7 +1004,11 @@ async def _format_custom_report(
                 ("system", formatted_system_prompt),
                 (
                     "user",
-                    "Video understanding results:\n\n{vlm_results}, alert metadata:\n\n{alert_metadata}, alert sensor ID:\n\n{alert_sensor_id}, alert from timestamp:\n\n{alert_from_timestamp}, alert to timestamp:\n\n{alert_to_timestamp}",
+                    "Authoritative incident facts (copy these values exactly):\n\n"
+                    "{authoritative_incident_facts}\n\n"
+                    "Video understanding results (use only for directly visible observations):\n\n"
+                    "{vlm_results}\n\n"
+                    "Full alert metadata:\n\n{alert_metadata}",
                 ),
             ],
         )
@@ -972,9 +1023,7 @@ async def _format_custom_report(
             {
                 "vlm_results": vlm_results,
                 "alert_metadata": alert_metadata,
-                "alert_sensor_id": alert_sensor_id,
-                "alert_from_timestamp": alert_from_timestamp,
-                "alert_to_timestamp": alert_to_timestamp,
+                "authoritative_incident_facts": json.dumps(authoritative_incident_facts, sort_keys=True),
             }
         )
 

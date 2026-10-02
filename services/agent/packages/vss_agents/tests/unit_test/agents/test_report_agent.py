@@ -20,6 +20,7 @@ from types import SimpleNamespace
 from pydantic import ValidationError
 import pytest
 
+from vss_agents.agents.report_agent import INCIDENT_REPORT_METADATA_FIELDS
 from vss_agents.agents.report_agent import ReportAgentInput
 from vss_agents.agents.report_agent import VideoReportAgentInput
 from vss_agents.agents.report_agent import _build_report_side_effects
@@ -69,6 +70,9 @@ class TestReportAgentInput:
     def test_vlm_reasoning_disabled(self):
         input_data = ReportAgentInput(vlm_reasoning=False)
         assert input_data.vlm_reasoning is False
+
+    def test_report_fetches_authoritative_metadata(self):
+        assert INCIDENT_REPORT_METADATA_FIELDS == ["category", "place", "objectIds", "info"]
 
 
 class TestVideoReportAgentInput:
