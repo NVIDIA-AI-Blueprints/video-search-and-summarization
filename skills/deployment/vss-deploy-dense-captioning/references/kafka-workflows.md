@@ -59,10 +59,10 @@ Source-backed topic sets:
 
 | Deployment source | Caption topic | Incident topic | Error topic |
 | --- | --- | --- | --- |
-| Checked-in `deploy/docker/services/rtvi/rtvi-vlm/.env` | `mdx-vlm` | `mdx-vlm-incidents` | `mdx-vlm-errors` |
-| VSS alerts / real-time Helm profiles | `mdx-vlm` | `mdx-vlm-incidents` | `mdx-vlm-errors` |
+| Checked-in `deploy/docker/services/rtvi/rtvi-vlm/.env` | `mdx-vlm-captions` | `mdx-vlm-incidents` | `mdx-vlm-errors` |
+| VSS alerts / real-time Helm profiles | `mdx-vlm-captions` | `mdx-vlm-incidents` | `mdx-vlm-errors` |
 | LVS Helm override | `mdx-vlm-captions` | `mdx-vlm-incidents` | `mdx-vlm-errors` |
-| Bare copied `rtvi-vlm-docker-compose.yml` without env overrides | `vision-llm-messages` | `vision-llm-events-incidents` | `mdx-vlm-errors` |
+| Bare copied `rtvi-vlm-docker-compose.yml` without env overrides | `mdx-vlm-captions` | `vision-llm-events-incidents` | `mdx-vlm-errors` |
 
 Always confirm the live container before validating Kafka, because these env vars
 are fixed at RT-VLM container start. In a full VSS alerts real-time profile, the
@@ -84,7 +84,7 @@ fi
 CAPTION_TOPIC="${CAPTION_TOPIC:-$(docker exec vss-rtvi-vlm printenv MESSAGE_BUS_TOPIC 2>/dev/null || true)}"
 INCIDENT_TOPIC="${INCIDENT_TOPIC:-$(docker exec vss-rtvi-vlm printenv KAFKA_INCIDENT_TOPIC 2>/dev/null || true)}"
 ERROR_TOPIC="${ERROR_TOPIC:-$(docker exec vss-rtvi-vlm printenv ERROR_MESSAGE_TOPIC 2>/dev/null || true)}"
-CAPTION_TOPIC="${CAPTION_TOPIC:-mdx-vlm}"
+CAPTION_TOPIC="${CAPTION_TOPIC:-mdx-vlm-captions}"
 INCIDENT_TOPIC="${INCIDENT_TOPIC:-mdx-vlm-incidents}"
 ERROR_TOPIC="${ERROR_TOPIC:-mdx-vlm-errors}"
 
@@ -337,7 +337,7 @@ docker exec kafka kafka-console-consumer \
 
 Typical proof of an HTTP + Kafka alert pass:
 ```text
-mdx-vlm:0:8
+mdx-vlm-captions:0:8
 mdx-vlm-incidents:0:1
 mdx-vlm-errors:0:0
 

@@ -64,7 +64,7 @@ waitForKafka:
   imagePullPolicy: IfNotPresent
   timeoutSeconds: 1200
   topics:
-    - mdx-vlm
+    - mdx-vlm-captions
     - mdx-vlm-incidents
 redisHost: ""
 redisPort: "6379"

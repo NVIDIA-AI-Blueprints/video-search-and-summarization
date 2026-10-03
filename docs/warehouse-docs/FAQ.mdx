@@ -80,7 +80,7 @@ For example, Kafka-based deployments run four parallel Logstash analytics pipeli
 
 For Docker Compose deployments, reduce the analytics pipeline count in `$VSS_APPS_DIR/services/infra/elk/logstash/configs/pipelines-kafka.yml`. Comment out extra `pipeline.id` entries and their corresponding `path.config` lines, keeping at least `mdx-kafka`, then restart Logstash. Fewer pipelines can reduce CPU overhead but also reduce ingestion throughput. Leave `mdx-lvs` unchanged. Redis deployments already use one analytics pipeline.
 
-Another example is DeepStream running Sparse4D (`MODE=3d`): setting `num_torch_threads: 0` leaves PyTorch's default CPU thread count unchanged, which can cause excessive CPU usage and lower FPS. Check `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/config.yaml` and set `num_torch_threads: 8`, then restart `vss-rtvi-cv`. The current Warehouse configuration already uses `8`; check this setting when using older or customized configurations.
+Another example is high CPU usage from PyTorch thread oversubscription when running Sparse4D. See **PyTorch thread oversubscription (Sparse4D)** under [Performance Notes](/vss/system-components/vision-microservices/object-detection-and-tracking#performance-notes) for tuning guidance.
 
 ### Why does Elasticsearch stop accepting writes or mark indices read-only when disk usage is high?
 

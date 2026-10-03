@@ -28,7 +28,6 @@ Additional information regarding Kafka can be found in the [Quickstart Guide](ht
 | `mdx-vlm-alerts` | Protobuf | `nv.Behavior` | Used for sending Vision Language Model (VLM) verified alerts. |
 | `mdx-incidents` | Protobuf | `nv.Incident` | Used for sending incident data from the analytics pipeline. |
 | `mdx-vlm-incidents` | Protobuf | `nv.Incident` | Used for sending Vision Language Model (VLM) verified incident data. |
-| `mdx-vlm` | Protobuf | `nv.VisionLLM` | Legacy VLM output topic retained in topic initialization. Current RTVI-VLM deployments publish captions to `mdx-vlm-captions` by default. |
 | `mdx-vlm-errors` | JSON | N/A | Used by RTVI-VLM to publish error events when Kafka error reporting is enabled. |
 | `mdx-embed` | Protobuf | `nv.VisionLLM` | Used for sending embedding data for vector similarity searches. |
 | `mdx-embed-errors` | JSON | N/A | Used by RTVI-Embed to publish error events when Kafka error reporting is enabled. |

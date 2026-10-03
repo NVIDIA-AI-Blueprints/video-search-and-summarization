@@ -329,9 +329,9 @@ Choose one calibration workflow:
 
 ##### Image coordinate calibration
 
-Auto Calibration currently does not support image mode. Camera intrinsics, extrinsics, and homography are not required because there is no image-to-global coordinate transformation.
+Image-coordinate calibration does not require an image-to-global coordinate transformation, so camera intrinsics, extrinsics, and homography are not needed.
 
-ROIs and tripwires are optional and only needed for analytics that use them. When required, manually measure their camera pixel coordinates using an image editing tool and enter them in the calibration file, following the workflow below.
+ROIs and tripwires are optional and only needed for analytics that use them. Auto Calibration currently does not support defining them in image coordinates. When required, manually measure their camera pixel coordinates using an image editing tool and enter them in the calibration file, following the workflow below.
 
 **1. Start with the empty calibration template**
 
@@ -443,7 +443,7 @@ After filling in the values, an image-mode calibration for a 1920 × 1080 camera
 
 **4. Save and apply the calibration**
 
-Save the completed file as `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`, then proceed to Step 4 to redeploy with the new calibration. For image-mode limitations, see [Image mode calibration](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/known-limitations#image-mode-calibration).
+Save the completed file as `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`, then proceed to Step 4 to redeploy with the new calibration.
 
 ##### Cartesian coordinate calibration
 
