@@ -120,6 +120,7 @@ describe("Home tab lifecycle", () => {
 
   beforeEach(() => {
     sessionStorage.clear();
+    window.history.replaceState({}, '', '/');
     process.env.NEXT_PUBLIC_ENABLE_CHAT_TAB = "true";
     process.env.NEXT_PUBLIC_ENABLE_SEARCH_TAB = "true";
     process.env.NEXT_PUBLIC_ENABLE_ALERTS_TAB = "false";
@@ -237,6 +238,83 @@ describe("Home tab lifecycle", () => {
     expect(global.fetch).toHaveBeenLastCalledWith('/api/agent/connection', expect.objectContaining({
       headers: { 'X-VSS-Gateway-Token': 'browser-token' },
     }));
+  });
+
+  it('connects from a shared token URL and overrides a saved token', async () => {
+    process.env.NEXT_PUBLIC_AGENT_ADAPTER_ENABLED = 'true';
+    sessionStorage.setItem('vss-nemoclaw-gateway-token', 'stale-token');
+    window.history.replaceState({}, '', '/#token=linked%2Btoken');
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ state: 'connected' }) }) as unknown as typeof fetch;
+
+    render(<Home />);
+
+    expect(await screen.findByTestId('deliver-search-artifact')).toHaveAttribute('data-gateway-token', 'linked+token');
+    expect(sessionStorage.getItem('vss-nemoclaw-gateway-token')).toBe('linked+token');
+    expect(window.location.hash).toBe('#token=linked%2Btoken');
+    expect(global.fetch).toHaveBeenCalledWith('/api/agent/connection', expect.objectContaining({
+      headers: { 'X-VSS-Gateway-Token': 'linked+token' },
+    }));
+  });
+
+  it.each(['#token=', '#token=bad%0Atoken', `#token=${'x'.repeat(4097)}`])(
+    'keeps a saved token when the initial fragment is invalid: %s',
+    async (fragment) => {
+      process.env.NEXT_PUBLIC_AGENT_ADAPTER_ENABLED = 'true';
+      sessionStorage.setItem('vss-nemoclaw-gateway-token', 'working-token');
+      window.history.replaceState({}, '', `/${fragment}`);
+      global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ state: 'connected' }) }) as unknown as typeof fetch;
+
+      render(<Home />);
+
+      expect(await screen.findByTestId('deliver-search-artifact')).toHaveAttribute('data-gateway-token', 'working-token');
+      expect(sessionStorage.getItem('vss-nemoclaw-gateway-token')).toBe('working-token');
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(global.fetch).toHaveBeenCalledWith('/api/agent/connection', expect.objectContaining({
+        headers: { 'X-VSS-Gateway-Token': 'working-token' },
+      }));
+    },
+  );
+
+  it('ignores an invalid fragment added after chat connects', async () => {
+    process.env.NEXT_PUBLIC_AGENT_ADAPTER_ENABLED = 'true';
+    sessionStorage.setItem('vss-nemoclaw-gateway-token', 'working-token');
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ state: 'connected' }) }) as unknown as typeof fetch;
+
+    render(<Home />);
+    expect(await screen.findByTestId('deliver-search-artifact')).toHaveAttribute('data-gateway-token', 'working-token');
+
+    await act(async () => {
+      window.history.replaceState({}, '', '/#token=');
+      window.dispatchEvent(new Event('hashchange'));
+    });
+
+    expect(screen.getByTestId('deliver-search-artifact')).toHaveAttribute('data-gateway-token', 'working-token');
+    expect(sessionStorage.getItem('vss-nemoclaw-gateway-token')).toBe('working-token');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a new token fragment in an open tab and clears it when changing tokens', async () => {
+    process.env.NEXT_PUBLIC_AGENT_ADAPTER_ENABLED = 'true';
+    sessionStorage.setItem('vss-nemoclaw-gateway-token', 'first-token');
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ state: 'connected' }) }) as unknown as typeof fetch;
+
+    render(<Home />);
+    expect(await screen.findByTestId('deliver-search-artifact')).toHaveAttribute('data-gateway-token', 'first-token');
+
+    await act(async () => {
+      window.history.replaceState({}, '', '/#token=second-token');
+      window.dispatchEvent(new Event('hashchange'));
+    });
+    expect(screen.getByTestId('deliver-search-artifact')).toHaveAttribute('data-gateway-token', 'second-token');
+    expect(sessionStorage.getItem('vss-nemoclaw-gateway-token')).toBe('second-token');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change token' }));
+    expect(window.location.hash).toBe('');
+    const field = await screen.findByLabelText('Gateway token');
+    fireEvent.change(field, { target: { value: 'manual-token' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
+    expect(await screen.findByTestId('deliver-search-artifact')).toHaveAttribute('data-gateway-token', 'manual-token');
+    expect(sessionStorage.getItem('vss-nemoclaw-gateway-token')).toBe('manual-token');
   });
 
   it('keeps chat mounted during a connection recheck and after a gateway failure', async () => {
