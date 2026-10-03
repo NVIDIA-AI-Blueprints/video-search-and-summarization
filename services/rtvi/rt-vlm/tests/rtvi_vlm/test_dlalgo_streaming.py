@@ -11,7 +11,7 @@ import time
 import types
 from dataclasses import dataclass
 from threading import Event, Thread
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import numpy as np
@@ -19,8 +19,9 @@ import pytest
 import torch
 from PIL import Image
 
+from common.chunk_info import ChunkInfo
 from api_models.captions import StreamingFramePolicy, VlmInferenceMode, VlmQuery
-from models.base_vlm_model import BaseVlmModel, VlmGenerationConfig
+from models.base_vlm_model import BaseVlmModel, VlmGenerationConfig, VlmModelOutput
 from models.vllm_compatible.dlalgo_streaming import (
     DlalgoSessionConfig,
     DlalgoStreamingSessionManager,
@@ -470,8 +471,17 @@ def test_worker_session_close_does_not_block_lifecycle_commands():
     model.end_streaming_vlm_session.side_effect = blocking_close
     process = object.__new__(VlmProcess)
     process._model = model
-    process._streaming_vlm_sessions = {"stream-a": "session-a"}
+    process._streaming_vlm_sessions = {
+        ("stream-a", "request-1"): "session-a",
+        ("stream-a", "request-2"): "session-b",
+    }
     process._closed_streaming_vlm_streams = {}
+
+    process._handle_command(
+        "close-streaming-vlm-session", stream_id="stream-a", request_id="request-1"
+    )
+    assert set(process._streaming_vlm_sessions) == {("stream-a", "request-2")}
+    assert "stream-a" not in process._closed_streaming_vlm_streams
 
     started = time.monotonic()
     process._handle_command("close-streaming-vlm-session", stream_id="stream-a")
@@ -479,9 +489,49 @@ def test_worker_session_close_does_not_block_lifecycle_commands():
 
     assert elapsed < 0.2
     assert close_started.wait(timeout=1)
-    assert "stream-a" not in process._streaming_vlm_sessions
+    assert not process._streaming_vlm_sessions
     assert "stream-a" in process._closed_streaming_vlm_streams
     release_close.set()
+    process._handle_command("open-streaming-vlm-session", stream_id="stream-a")
+    assert "stream-a" not in process._closed_streaming_vlm_streams
+
+
+def test_live_queries_on_one_stream_keep_separate_native_sessions():
+    process = object.__new__(VlmProcess)
+    process._model = MagicMock()
+    process._model.supports_streaming_vlm.return_value = True
+    process._model.start_streaming_vlm_session.side_effect = lambda **_kwargs: object()
+    process._model.generate_streaming_vlm_step.return_value = [VlmModelOutput(output="ok")]
+    process._refresh_model_health = MagicMock(return_value=True)
+    process._num_gpus = 1
+    process._streaming_vlm_sessions = {}
+    process._closed_streaming_vlm_streams = {}
+    chunk = ChunkInfo()
+    chunk.streamId = "stream-a"
+    frame = np.zeros((2, 2, 3), dtype=np.uint8)
+
+    with patch("vlm_pipeline.vlm_pipeline.nvtx"):
+        for request_id, prompt in (("request-1", "Describe vehicles"), ("request-2", "Describe people")):
+            params = VlmRequestParams(
+                vlm_prompt=prompt,
+                vlm_generation_config=VlmGenerationConfig(),
+                inference_mode="streaming_vlm",
+            )
+            process._process(
+                [chunk], [params], frames=[[frame]], frame_times=[[0.0]],
+                is_live_stream=[True], request_id=[request_id], decode_only=[False],
+            )
+
+    assert set(process._streaming_vlm_sessions) == {
+        ("stream-a", "request-1"),
+        ("stream-a", "request-2"),
+    }
+    assert process._streaming_vlm_sessions[("stream-a", "request-1")] is not (
+        process._streaming_vlm_sessions[("stream-a", "request-2")]
+    )
+    assert [call.kwargs["query"] for call in process._model.start_streaming_vlm_session.call_args_list] == [
+        "Describe vehicles", "Describe people"
+    ]
 
 
 def test_manager_enforces_aggregate_video_segment_budget():

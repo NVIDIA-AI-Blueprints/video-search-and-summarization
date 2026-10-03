@@ -424,6 +424,13 @@ caption requests then select `inference_mode=streaming_vlm` and
 the question at each decode turn when the alert prompt requires it. All of
 these native settings remain disabled by default.
 
+To use a remote Cosmos streaming NIM instead, set
+`VLM_MODEL_TO_USE=openai-compat`, point `VIA_VLM_ENDPOINT` at its `/v1` URL,
+and set `VIA_VLM_STREAMING_NIM_ENABLED=true`. Select
+`inference_mode=streaming_vlm` with one frame per update. This REST adapter
+is distinct from the in-process native port and does not support
+`streaming_question_on_decode` or non-text `response_format`.
+
 ## Usage Examples
 
 ### Required Packages
@@ -1404,6 +1411,7 @@ standalone Helm override.
 | `AZURE_OPENAI_API_VERSION` | Azure OpenAI API version for `openai-compat` | Empty |
 | `VIA_VLM_API_KEY` | OpenAI-compatible VLM API key | Compose: Empty; Helm: `ngc-api/NGC_API_KEY` secret |
 | `VIA_VLM_ENDPOINT` | OpenAI-compatible VLM endpoint URL | Empty |
+| `VIA_VLM_STREAMING_NIM_ENABLED` | Enable remote Cosmos streaming NIM sessions for `openai-compat` | `false` |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` | OpenAI-compatible VLM model or deployment name | Empty |
 | `VIA_VLM_OPENAI_TOKEN_PARAM` | Token-limit field for `openai-compat`: `max_tokens` or `max_completion_tokens` | `max_tokens` |
 | `NV_LLMG_CLIENT_ID` | NVIDIA LLM Gateway OAuth client ID for `openai-compat` | Empty |
