@@ -355,6 +355,8 @@ and a host may lack both:
 # Absent until notebook cell 3.1 installs it, so do not let it fail the probe.
 command -v openshell >/dev/null \
   && openshell sandbox list                         # compare against NEMOCLAW_SANDBOX_NAME
+# A name is not a claim: only a sandbox some build recorded is a build's.
+cat "$(git rev-parse --show-toplevel)"/_builds/*/sandbox 2>/dev/null
 for port in "${NEMOCLAW_DASHBOARD_PORT:-18789}" "${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"; do
   python3 -c 'import socket,sys; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(("",int(sys.argv[1])))' "$port" 2>/dev/null \
     && { echo "$port free"; continue; }
@@ -389,6 +391,13 @@ forward prints `forward service <name>`, the relay and watchdog print
 `${NEMOCLAW_SANDBOX_NAME:-vss-harness-sandbox}`. With several sandboxes on the
 host, the listing and the PID settle nothing on their own.
 
+**A matching name is not ownership; a `_builds/*/sandbox` record is.** Every
+sandbox a build onboarded is named in one, written before bring-up runs, so
+the records are the whole set this checkout may take. The default name proves
+nothing on its own: `deploy_nemoclaw.ipynb` run by hand names its sandbox
+`vss-harness-sandbox` too, and [Teardown](#teardown) leaves exactly that one
+standing as unowned. A holder no record names is foreign.
+
 **The relay must match the bring-up's own script path as well as the name.**
 Section 3.5 keeps a relay only when its command line carries the resolved
 `deploy/docker/scripts/nemoclaw/dashboard-relay.py` under `VSS_REPO_DIR`, so a
@@ -412,18 +421,29 @@ bring-up reads its assets and its relay from a path the probe never looked at.
 
 A holder this build owns is not a conflict: `NEMOCLAW_RECREATE_SANDBOX=1`
 replaces the sandbox named `NEMOCLAW_SANDBOX_NAME`, and the relay cell replaces
-that name's relay from this checkout. Do not assume that case — the name is
-`${NEMOCLAW_SANDBOX_NAME:-vss-harness-sandbox}`, so a deployment that named
-itself leaves a sandbox and a relay foreign to the next run, as does a
-same-name relay from another checkout.
+that name's relay from this checkout. Do not assume that case — ownership is a
+`_builds/*/sandbox` record naming the holder, and for a relay the resolved
+script path as well, so a deployment that named itself leaves a sandbox and a
+relay foreign to the next run, as does a same-name relay from another checkout.
+
+**An unrecorded holder of the name this build will bind is the one case to ask
+about rather than hand over.** The notebook takes the name regardless: section
+3.1 adds `--recreate-sandbox` for it and discards that sandbox's agent
+sessions. So put the choice before the deploy, not in the final summary — say
+which name is held, that no build recorded it, and whose sessions a yes
+discards. Take either a yes to recreate it, or another `NEMOCLAW_SANDBOX_NAME`
+with a free port pair to go with it, which leaves that sandbox running and
+onboards beside it. A fresh checkout on a host that has built before — an eval
+box — reaches this every time until someone clears the old sandbox; that is the
+question doing its job, not a false positive to wave through.
 
 **Anything else is a hard blocker**, including a held port nothing could name —
 report it as held by an unidentified listener. Report what holds which port, hand the
 block below over, and **do not proceed until no foreign holder remains** —
-destroy nothing and kill nothing on the user's behalf. A port this build's own
-sandbox still holds is not what that waits on; the rerun's
-`NEMOCLAW_RECREATE_SANDBOX=1` replaces it. Stopping here costs nothing: Q3
-precedes every build artifact.
+destroy nothing and kill nothing on the user's behalf. A port a recorded
+sandbox of this name still holds is not what that waits on, nor is one the user
+has just agreed to recreate; `NEMOCLAW_RECREATE_SANDBOX=1` replaces either.
+Stopping here costs nothing: Q3 precedes every build artifact.
 
 ```bash
 # Watchdog first: it answers a dying forward with `nemoclaw recover`. Relay
@@ -567,7 +587,7 @@ Set the environment, then run the notebook:
 |---|---|---|
 | `VSS_REPO_DIR` | the checkout root | resolves the policy, skills, and workspace docs |
 | `VSS_PUBLIC_URL` | **leave unset** for a Compose build | the deployment origin `vss configure` records; empty means this host's Compose deployment and 3.2 fills it in — see [`VSS_PUBLIC_URL` is the deployment origin](#vss_public_url-is-the-deployment-origin---leave-it-empty-on-compose) below |
-| `NEMOCLAW_SANDBOX_NAME` | `vss-harness-sandbox` unless already set | a new build replaces the sandbox of the same name |
+| `NEMOCLAW_SANDBOX_NAME` | `vss-harness-sandbox` unless already set | a new build replaces the sandbox of the same name, which is why Q3 settles first whether that name is this build's to take |
 | `NEMOCLAW_RECREATE_SANDBOX` | `1` | onboard is the only step that applies the provider, endpoint, model and key, so a reused sandbox would run on whatever it was onboarded with. Section 3.1 adds `--recreate-sandbox` when a sandbox of that name exists, discarding it and its agent sessions |
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
 | `NEMOCLAW_DASHBOARD_PORT` | selected port; default `18789` | NemoClaw's own forward, loopback only |
@@ -615,8 +635,8 @@ export COMPATIBLE_API_KEY
 
 # Record the name BEFORE the run, not on success: 3.1 onboards and 3.2-3.5 keep
 # configuring, so a failure in between leaves a live sandbox that teardown
-# reaches only through this file. NEMOCLAW_RECREATE_SANDBOX=1 makes the name this
-# build's either way.
+# reaches only through this file. It is also the claim the next build's Q3 probe
+# reads: a sandbox no record names is foreign there, whatever it is called.
 printf '%s\n' "$NEMOCLAW_SANDBOX_NAME" \
   > "$REPO/_builds/${BUILD_NAME}/sandbox"
 
@@ -803,7 +823,8 @@ name replaces it.
 
 Say with it whether the bring-up **rebuilt** an existing sandbox of that name.
 `NEMOCLAW_RECREATE_SANDBOX=1` discards the previous sandbox and its agent
-sessions, and nothing else in the run tells the user that happened.
+sessions, and nothing else in the run tells the user that happened — Q3 asks
+first only about a sandbox no build recorded, never about this build's own.
 
 ### Troubleshooting: "did not receive the required baseline scopes"
 
