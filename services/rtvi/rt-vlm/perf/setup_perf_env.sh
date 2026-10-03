@@ -1839,9 +1839,9 @@ else
     else
         _compose_services=(rtvi-server node-exporter)
         require_cmd tegrastats
-        python3 -c 'import sys, yaml; c = yaml.safe_load(open(sys.argv[1])); p = c.get("global", {}).get("gpu_monitoring", {}).get("prometheus", {}); sys.exit(0 if p.get("enabled") is False and p.get("node_exporter_enabled") is True else 1)' "${BENCHMARK_CONFIG}" \
-            || die "tegrastats fallback requires prometheus.enabled=false and node_exporter_enabled=true in ${BENCHMARK_CONFIG}"
-        log "  Jetson telemetry selected: start a run-owned tegrastats sampler and disable DCGM collection in the run config."
+        python3 -c 'import sys, yaml; c = yaml.safe_load(open(sys.argv[1])); g = c.get("global", {}).get("gpu_monitoring", {}); p = g.get("prometheus", {}); sys.exit(0 if g.get("enabled") is False and p.get("enabled") is False and p.get("node_exporter_enabled") is True else 1)' "${BENCHMARK_CONFIG}" \
+            || die "tegrastats fallback requires gpu_monitoring.enabled=false, prometheus.enabled=false, and node_exporter_enabled=true in ${BENCHMARK_CONFIG}"
+        log "  Jetson telemetry selected: use run-owned tegrastats; disable NVML and DCGM collectors, retain Node Exporter."
     fi
     # Stop any containers from a previous run before checking ports or starting new ones.
     # This is idempotent — a no-op if nothing is running.  Uses the existing .env.perf

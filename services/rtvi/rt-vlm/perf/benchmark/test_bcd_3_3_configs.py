@@ -2,8 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Check BCD 3.3 platform configs remain aligned with the frozen workload."""
 
+import re
+import subprocess
+import sys
+import tempfile
 import unittest
 from copy import deepcopy
+from pathlib import Path
 
 import yaml
 
@@ -28,6 +33,31 @@ def without_setup_bindings(value):
 
 
 class PlatformConfigTest(unittest.TestCase):
+    def test_tegrastats_fallback_disables_nvml_and_dcgm_but_keeps_node_exporter(self):
+        setup = (HERE.parent / "setup_perf_env.sh").read_text()
+        validator = re.search(r"python3 -c '([^']+)' \"\$\{BENCHMARK_CONFIG\}\"", setup)
+        self.assertIsNotNone(validator)
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "benchmark.yaml"
+            for legacy, dcgm, node, expected in (
+                (False, False, True, 0),
+                (True, False, True, 1),
+                (False, True, True, 1),
+                (False, False, False, 1),
+            ):
+                config_path.write_text(yaml.safe_dump({"global": {"gpu_monitoring": {
+                    "enabled": legacy,
+                    "prometheus": {"enabled": dcgm, "node_exporter_enabled": node},
+                }}}))
+                result = subprocess.run(
+                    [sys.executable, "-c", validator.group(1), str(config_path)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                with self.subTest(legacy=legacy, dcgm=dcgm, node=node):
+                    self.assertEqual(result.returncode, expected, result.stderr)
+
     def assert_frozen_profile_equal(self, actual, expected):
         self.assertEqual(without_setup_bindings(actual), without_setup_bindings(expected))
 
