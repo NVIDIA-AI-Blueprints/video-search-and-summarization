@@ -14,6 +14,8 @@ metadata:
   vss-requires: "search"
 ---
 
+# VSS Search Archive
+
 ## Purpose
 
 Operate archive search from the caller's host. Compose and Kubernetes use the

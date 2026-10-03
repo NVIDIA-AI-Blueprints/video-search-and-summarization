@@ -14,28 +14,22 @@ NvStreamer is the same `launch_vst` binary as VIOS, launched with `ADAPTOR=strea
 http://<NVSTREAMER_ENDPOINT>/api/v1
 ```
 
-Resolve the endpoints before using this reference. NvStreamer and VIOS are
-separate origins; the VIOS handoff in the canonical workflow below needs both:
+NvStreamer is not behind the VSS gateway, so `vss configure` does not record
+it. The caller supplies its origin:
 
 ```bash
-if [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  : "${VSS_STREAMER_URL:?Provide the public NvStreamer Ingress origin for Kubernetes}"
-  NVSTREAMER_ENDPOINT="${VSS_STREAMER_URL%/}"
-  VSS_VIOS_URL="${VSS_PUBLIC_URL%/}/vst"
-else
-  NVSTREAMER_ENDPOINT="http://${HOST_IP}:${NVSTREAMER_HTTP_PORT:-31000}"
-  VSS_VIOS_URL="http://${HOST_IP}:${VST_INGRESS_HOST_PORT:-30888}/vst"
-fi
+: "${VSS_STREAMER_URL:?Ask for the NvStreamer origin; do not derive it}"
+NVSTREAMER_ENDPOINT="${VSS_STREAMER_URL%/}"
 ```
 
 Every `http://<NVSTREAMER_ENDPOINT>` placeholder below means
-`${NVSTREAMER_ENDPOINT}`. NvStreamer uses a separate Ingress host, so do not
-derive it from `VSS_PUBLIC_URL`, use an in-cluster Service, or start a
-`kubectl port-forward`. A Compose deployment may run multiple instances on
-adjacent ports (`31000`, `31001`, …); always confirm from deployment context.
-Each instance has its own sensor list — a file uploaded to `nvstreamer-1` is
-not visible on `nvstreamer-2`. Resolve `${VSS_VIOS_URL}` as above before the
-VIOS handoff in the canonical workflow.
+`${NVSTREAMER_ENDPOINT}`. Do not derive it from `VSS_PUBLIC_URL` or `HOST_IP`,
+use an in-cluster Service, or start a `kubectl port-forward`. Helm profiles
+publish it on a separate Ingress host; Compose has no streamer route, and a
+Compose deployment may run several instances on adjacent ports, so the caller
+must say which one. Each instance has its own sensor list — a file uploaded to
+`nvstreamer-1` is not visible on `nvstreamer-2`. The VIOS side of the handoff
+below goes through `vss vios` and takes no endpoint.
 
 ---
 
@@ -312,7 +306,7 @@ curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/list" | jq '.[] | {sensorId,
 
 The reason this reference exists in the VIOS skill: the load-bearing pattern that uses NvStreamer is **upload to NvStreamer, get RTSP URL, register with VIOS**.
 
-> **Precondition for step 4.** The handoff requires the VIOS stream-processor to be part of the active deployment. Most VSS profiles ship both (`dev-profile-alerts`, `dev-profile-lvs`, `dev-profile-search`, all warehouse profiles), but custom or NvStreamer-only setups may not include VIOS. **Probe `curl -sf --max-time 5 "${VSS_VIOS_URL}/api/v1/sensor/version"` and confirm `type == "vst"` before attempting `POST /sensor/add`.** If VIOS is not present, stop at step 3 — NvStreamer's RTSP URL is already serving and can be consumed directly by any RTSP client (ffmpeg, VLC, mediamtx, custom analytic).
+> **Precondition for step 4.** The handoff requires the VIOS stream-processor to be part of the active deployment. Most VSS profiles ship both (`dev-profile-alerts`, `dev-profile-lvs`, `dev-profile-search`, all warehouse profiles), but custom or NvStreamer-only setups may not include VIOS. **Run `vss vios list` first: exit 4 means the recorded deployment has no VIOS.** If VIOS is not present, stop at step 3 — NvStreamer's RTSP URL is already serving and can be consumed directly by any RTSP client (ffmpeg, VLC, mediamtx, custom analytic).
 
 1. Verify NvStreamer is reachable and is a streamer (not a VIOS gateway):
    ```bash
@@ -333,16 +327,16 @@ The reason this reference exists in the VIOS skill: the load-bearing pattern tha
    sleep 5
    URL=$(curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/$SID/streams" | jq -r '.[0].url')
    ```
-4. **(Only if VIOS stream-processor is part of the deployment — see precondition above.)** Register that RTSP URL with VIOS via VIOS's `POST /api/v1/sensor/add` on `${VSS_VIOS_URL}` (see `api-reference.md § 6`):
+4. **(Only if VIOS stream-processor is part of the deployment — see precondition above.)** Register that RTSP URL with VIOS through the CLI, which takes no endpoint:
    ```bash
-   # Confirm VIOS is up before attempting registration.
-   curl -sf --max-time 5 "${VSS_VIOS_URL}/api/v1/sensor/version" | jq -e '.type == "vst"' \
-     || { echo "VIOS stream-processor not deployed — skipping /sensor/add"; exit 0; }
-
-   curl -s -X POST "${VSS_VIOS_URL}/api/v1/sensor/add" \
-     -H "Content-Type: application/json" \
-     -d "{\"sensorUrl\": \"$URL\"}" | jq .
+   vss vios list >/dev/null; rc=$?
+   case $rc in
+     0) vss vios add --type stream "$URL" --name "$SID" ;;
+     4) echo "VIOS not in the recorded deployment — stop at step 3" ;;
+     *) exit $rc ;;
+   esac
    ```
+   Report a non-zero `vss vios add` exit as the failure; do not fall back to `POST /sensor/add`.
    VIOS treats the URL as an upstream RTSP camera; from this point on, the file goes through the recorder, WebRTC live/replay, snapshot, and clip-download codepaths exactly like any other RTSP sensor.
 
 This is the canonical pattern for synthetic test streams, regression bring-up, and demos. NvStreamer is the file → RTSP boundary; VIOS owns everything downstream — but step 4 is **conditional** on VIOS being present.

@@ -98,16 +98,16 @@ component_services:
   # Step 6.5 Patch 1 adds the invented profile flag to each. The render-config init
   # container additionally requires the build-output to materialize config.yml.tmpl
   # + docker_cluster_config-streamprocessing.json.tmpl under SDR_CONTROLLER_CONFIG_PATH/configs
-  # (model: developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/ — single-workload
-  # form); see SKILL.md § Step 6.5 Patch 3 > "SDRC config templates" for the
-  # materialization directive (templates are not compose services, so they are not in
+  # (model: developer-profiles/dev-profile-lvs/sdrc/2d/configs/ — single-workload
+  # form); see deploy-vios-service.md § Known Deployment Issues ("no *.tmpl files
+  # found") for the materialization directive (templates are not compose services, so they are not in
   # component_services — but they are a hard requirement for the SDRC chain to boot).
   - key: init-dirs
     file: services/infra/sdrc/docker-compose.yaml
     role: One-shot — chmod 0777 ./log + ./.wdm-env so the host user can clean up later. Direct depends_on of sdr-controller (and of wdm-env-from-config).
   - key: render-config
     file: services/infra/sdrc/docker-compose.yaml
-    role: One-shot — renders every *.tmpl under SDR_CONTROLLER_CONFIG_PATH/configs in place, substituting ${HOST_IP} / ${NUM_STREAMS} / ${NUM_SENSORS}. Transitive prereq for sdr-controller (direct depends_on of wdm-env-from-config).
+    role: One-shot — renders every *.tmpl under SDR_CONTROLLER_CONFIG_PATH/configs in place, substituting ${HOST_IP} / ${NUM_STREAMS} / ${NUM_SENSORS} / ${VST_USE_SDRC_ENABLE}. Transitive prereq for sdr-controller (direct depends_on of wdm-env-from-config).
   - key: wdm-env-from-config
     file: services/infra/sdrc/docker-compose.yaml
     role: One-shot — writes ./.wdm-env from the rendered config.yml. Direct depends_on of sdr-controller (compose waits for it) and of wait-for-*; sdr-controller does not mount .wdm-env for its own env.
@@ -317,7 +317,7 @@ The IN-1-relevant subset (full list in `deploy/docker/services/vios/vst.env`):
 | `VST_INGRESS_IMAGE_TAG` | Tag for `vss-vios-ingress` image | (no default) | **Yes** |
 | `BP_CONFIGURATOR_READYZ_URL` | Optional readiness URL the configurator-wait poller hits | `http://127.0.0.1:5001/readyz` | optional |
 | `SENSOR_BP_WAIT_BP_CONFIGURATOR_MAX_SEC` / `SENSOR_BP_WAIT_STORAGE_MAX_SEC` | Wait-loop timeouts | `300` | optional |
-| `SDR_CONTROLLER_CONFIG_PATH` | Host path containing `configs/*.tmpl` for SDRC (`config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl`); the `render-config` init container renders them in place. Mount source for the `sdr-controller` `/configs` bind. | per-profile (e.g. `${VSS_APPS_DIR}/developer-profiles/dev-profile-alerts/sdrc/${MODE}`) | **Yes (SDRC)** |
+| `SDR_CONTROLLER_CONFIG_PATH` | Host path containing `configs/*.tmpl` for SDRC (`config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl`); the `render-config` init container renders them in place. Mount source for the `sdr-controller` `/configs` bind. | per-profile (e.g. `${VSS_APPS_DIR}/developer-profiles/dev-profile-lvs/sdrc/${MODE}`) | **Yes (SDRC)** |
 | `NUM_STREAMS` / `NUM_SENSORS` | Substituted into SDRC `*.tmpl` by `render-config`. | `1` each | optional |
 | `WDM_CONTROLLER_PORT` | SDRC WDM controller listen port. **Hardcoded** at [`sdrc/docker-compose.yaml:147`](../../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) — not `${VAR:-default}`, so consumer `.env` cannot override; patch the compose to change. | `5003` | not env-controllable |
 | `WDM_SDRC_DIRECT_LISTENER_PORT` | SDRC direct listener port. **Hardcoded** at `sdrc/docker-compose.yaml:149`. | `8011` | not env-controllable |
@@ -360,7 +360,7 @@ The IN-1-relevant subset (full list in `deploy/docker/services/vios/vst.env`):
 - **Startup ordering.** `sensor-bp-wait-bp-configurator` and `sensor-bp-wait-storage` are explicit wait-poller containers used INSTEAD OF `depends_on` so VIOS can come up alongside profile composes that don't define the configurator/storage workloads. Don't add `depends_on` to those external services.
 - **Sample-data bundle and friendly names.** `references/api-reference.md` § "Sample data bootstrap" documents 8 NGC-shipped sample mp4s (warehouse, warehouse-ladder, warehouse-safety-1/2, sim-traffic, sim-jaywalking, sim-box-conveyor, drone-bridge). When the user asks for "the sample warehouse video," map to `warehouse_sample.mp4` (etc.); do not invent paths for unknown friendly names.
 - **When `VST_USE_SDRC=true`, the VIOS + SDRC service set must be enabled together.** Enable `sensor-ms*`, `streamprocessing-ms*`, AND every service in [`services/infra/sdrc/docker-compose.yaml`](../../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) — the `profiles:` lists at lines 24, 47, 76, 100, 117, and 137 covering `init-dirs`, `render-config`, `wdm-env-from-config`, `wait-for-redis`, `wait-for-docker-workloads`, and `sdr-controller`. Patching only `streamprocessing-ms` leaves sensor-ms unable to reach the Envoy listener on `:10000` and `POST /sensor/add` fails with `Invalid Parameters` with no useful diagnostic. Direct mode (`VST_USE_SDRC=false`) skips the SDRC stack. The legacy `sdr-streamprocessing` + `envoy-streamprocessing` pair is deprecated in 3.2 — do not reproduce it.
-- **SDRC requires workload-definition templates.** The SDRC `render-config` init container reads `*.tmpl` files from `${SDR_CONTROLLER_CONFIG_PATH}/configs/` and renders each in place. A deployment must provide a `config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl` pair at whatever path becomes `SDR_CONTROLLER_CONFIG_PATH`. Use [`developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/`](../../../../deploy/docker/developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/) as the reference single-workload template (no rtvi-cv variant for a VIOS-only deployment). If the `*.tmpl` files are absent, `sdrc-render-config` exits with `render-config: no *.tmpl files found in /tmpl`, the rest of the SDRC chain never runs, and downstream `sdr-controller` never boots — leaving sensor-ms's `sdr-controller:10000` call unanswered. The legacy `./envoy.yaml` + `./sdr-config/` bind-mount sources from the deprecated `services/vios/sdr/streamprocessing/` tree no longer apply.
+- **SDRC requires workload-definition templates.** The SDRC `render-config` init container reads `*.tmpl` files from `${SDR_CONTROLLER_CONFIG_PATH}/configs/` and renders each in place. A deployment must provide a `config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl` pair at whatever path becomes `SDR_CONTROLLER_CONFIG_PATH`. Use [`developer-profiles/dev-profile-lvs/sdrc/2d/configs/`](../../../../deploy/docker/developer-profiles/dev-profile-lvs/sdrc/2d/configs/) as the reference single-workload template (no rtvi-cv variant for a VIOS-only deployment). If the `*.tmpl` files are absent, `sdrc-render-config` exits with `render-config: no *.tmpl files found in /tmpl`, the rest of the SDRC chain never runs, and downstream `sdr-controller` never boots — leaving sensor-ms's `sdr-controller:10000` call unanswered. The legacy `./envoy.yaml` + `./sdr-config/` bind-mount sources from the deprecated `services/vios/sdr/streamprocessing/` tree no longer apply.
 - **VOD URL is 404 until first segment rolls.** `rtsp://<host>:30564/vod/<id>` returns `404 Stream Not Found` until at least one recording segment exists on disk. This is normal; do not interpret as a wiring failure. Either wait the segment-rotation interval (default 5 min) or explicitly trigger a roll-over before testing VOD playback.
 - **The OpenAPI YAML inside the sensor-ms container is out of date.** `${VST_CONTAINER_ROOT}/webroot/doc/sensor_management_ms.yaml` documents `url` as the RTSP-mode field name; the actual binary requires `sensorUrl`. Always cross-check against `services/agent/src/agent/tools/vst/utils.py` — that's the authoritative usage example shipped alongside the binary.
 - **`/url` JSON envelope variants return double-`http://` URLs (Finding 8, 2026-05-25).** The four `/url` storage / replay endpoints (`/storage/file/{streamId}/url`, `/replay/stream/{streamId}/picture/url`, `/storage/stream/{streamId}/picture/url`, and the bulk-timeline `/url` variant) construct their `videoUrl` / `imageUrl` fields by prepending `http://` to a value that already contains the scheme — producing `http://http://localhost:30888/storage/temp_files/<file>`. The underlying file IS served correctly at the (single-`http://`) location; the defect is purely in response-body URL construction.
@@ -429,8 +429,8 @@ services:
     network_mode: host
     volumes:
       # the deployment must materialize a config.yml.tmpl + docker_cluster_config-*.json.tmpl pair
-      # here, modeled after developer-profiles/dev-profile-alerts/sdrc/2d_vlm/configs/.
-      - "${SDR_CONTROLLER_CONFIG_PATH}/configs:/configs/:ro"   # trailing slash matches compose line 157
+      # here, modeled after developer-profiles/dev-profile-lvs/sdrc/2d/configs/.
+      - "${SDR_CONTROLLER_CONFIG_PATH}/configs:/configs/:ro"   # trailing slash matches the sdr-controller mount in sdrc/docker-compose.yaml
       - ./log:/logs
       - /var/run/docker.sock:/var/run/docker.sock
 ```

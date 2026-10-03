@@ -63,8 +63,8 @@ Load these files only as directed:
 - [`references/video-summarization-api.md`](references/video-summarization-api.md):
   load before constructing a live LVS operation **by hand** — a direct API
   question. Follow its **Runtime OpenAPI
-  Discovery** procedure on Docker. On Kubernetes, follow the K8s note there —
-  stock LVS Ingress does not publish LVS `/openapi.json`. The ordered
+  Discovery** procedure: the LVS schema is `/openapi.json` under
+  `services.lvs.url`; the origin's own `/openapi.json` is the Agent's. The ordered
   workflow does not build a summarize payload; the CLI owns that.
 - [`references/hitl-prompts.md`](references/hitl-prompts.md): load when
   collecting LVS scenario, events, and optional objects of interest.
@@ -76,7 +76,8 @@ Load these files only as directed:
   and `assets/video-summarization.env.example`: use when configuring the
   service environment.
 - [`../vss-build-vision-ai/references/deployment_resolution.md`](../../vss-build-vision-ai/references/deployment_resolution.md):
-  Kubernetes `VSS_PUBLIC_URL` contract and the `/lvs` mount.
+  Kubernetes `VSS_PUBLIC_URL` contract and the `/lvs` mount, for deployment
+  questions. The workflow itself reads its service URLs from `vss configure show`.
 - [`references/deploy-lvs-service.md`](references/deploy-lvs-service.md): load
   when asked about LVS's own container image, GPU/CPU/storage sizing, or
   deployment contract as a peer service (heavier than
@@ -108,24 +109,27 @@ Load these files only as directed:
 
 ## Prerequisites
 
-- VSS `lvs` profile reachable either on Docker (`$HOST_IP:38111`) or through
-  the public Ingress at `${VSS_PUBLIC_URL}/lvs`.
-- `curl` and `jq` on the agent host.
+- The `lvs` profile, reachable through the origin recorded by `vss configure`.
+- `curl` for the readiness probe only, and `jq` for reading CLI JSON. Capture
+  stdout before piping it, or use `set -o pipefail`. Exit codes and the common
+  CLI rules live in the repository root [`AGENTS.md`](../../../AGENTS.md).
 - Network reachability from the LVS service to the final VIOS clip URL (Docker:
   from `vss-lvs`; Kubernetes: deploy must mint a URL the LVS pod can fetch).
 - The `vss` CLI on `PATH`. The OpenClaw and Hermes harness images ship it; anywhere else, install it from the same checkout as this skill so the CLI and the skill match: `uv tool install <checkout>/libs/vss/cli`.
-- One recorded deployment origin. Configure it once, before Stage 4:
+- One recorded deployment origin:
 
 ```bash
 vss summarize run --help >/dev/null || exit 1
-# Compose publishes the ingress on :7777; Kubernetes uses VSS_PUBLIC_URL.
-VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"
-vss configure --base-url "${VSS_ORIGIN%/}" || exit 1
+vss configure show
 ```
 
-Configure against the
-ingress origin, never `:38111` — that LVS container port exposes no
-Elasticsearch, so a deployment recorded from it cannot persist.
+`vss configure show` fails when nothing is recorded. Then the only setup is
+`vss configure --base-url "${VSS_PUBLIC_URL}"`, with the ingress origin the
+operator gave you. If `VSS_PUBLIC_URL` is unset, stop and ask for that origin;
+do not substitute `HOST_IP`, `localhost`, or a port.
+
+Configure against the ingress origin, never `:38111` — that LVS container port
+exposes no Elasticsearch, so a deployment recorded from it cannot persist.
 
 The `vss-build-vision-ai` skill can deploy the profile.
 
@@ -140,58 +144,36 @@ The `vss-build-vision-ai` skill can deploy the profile.
 - Both edges are configured to wait an hour, matching the CLI's own default, so
   a long summarization is not cut short by a 504 that would be recorded as a
   failed job. An Ingress the deployment overrides shorter still caps the wait.
-- Stock LVS Helm Ingress does not publish LVS `/models`, LVS `/openapi.json`,
-  `/recommended_config`, or `/metrics` — those remain Docker `:38111` only.
 
-## Endpoint resolution (Kubernetes vs Docker)
+## Recorded services
 
-Resolve endpoints once before probing. Follow
-[`../vss-build-vision-ai/references/deployment_resolution.md`](../../vss-build-vision-ai/references/deployment_resolution.md).
+Every URL the recorded-video workflow and a direct API question touch is one
+`vss configure` recorded. Read it from `vss configure show`; never assemble it
+from `VSS_PUBLIC_URL`, `HOST_IP`, or a port (the one exception is the Stage 2
+rewrite of a loopback `media_url` host to the host's routable IP), and ignore leftover `LVS_BACKEND_URL` / `VLM_BASE_URL` /
+`RTVI_VLM_BASE_URL`. Do not use `kubectl port-forward`, Service DNS, NodePorts,
+`docker exec`, or `docker inspect`, and do not scan ports or configuration
+files for an endpoint.
 
-```bash
-# Prefer VSS_PUBLIC_URL; accept legacy VSS_ENDPOINT as the same public origin.
-if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
-  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
-fi
+| Service | Recorded as | Called by the workflow |
+|---|---|---|
+| LVS | `services.lvs.url` (the `/lvs` mount) | only `GET …/v1/ready`, the readiness probe; `vss summarize run` resolves the rest |
+| VLM / RT-VLM | `services.rt_vlm.url` (the `/rtvi-vlm` mount) | only `GET …/v1/models`, a reachability check in the same probe; `vss vlm run` resolves the rest |
 
-if [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  DEPLOYMENT_KIND="kubernetes"
-  VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
-  # Force public origin — ignore leftover Docker LVS_BACKEND_URL / VLM_* env.
-  # The /lvs mount, not the origin — skill appends /v1/ready and /v1/summarize,
-  # and the gateway strips /lvs before the backend sees them.
-  LVS_BACKEND_URL="${VSS_PUBLIC_URL}/lvs"
-  VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
-  # RT-VLM is at its own mount; /v1/models and /v1/chat/completions hang off it.
-  VLM="${VSS_PUBLIC_URL}/rtvi-vlm"
-else
-  DEPLOYMENT_KIND="docker"
-  LVS_BACKEND_URL="${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}"
-  VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
-  VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
-  VLM="${VLM%/v1}"
-fi
-```
+The readiness probe is the only direct HTTP the workflow makes, and it exists because the CLI
+has no readiness verb: `vss configure` records LVS on liveness (`/lvs/v1/live`),
+while routing needs HTTP 200 from `/v1/ready`. It is not a fallback. When a
+`vss` command fails, report that failure; never repeat the work with curl
+against `/v1/summarize` or `/v1/chat/completions`.
 
-On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts,
-`docker exec`, or `docker inspect`. Do not append `/v1` to `LVS_BACKEND_URL`.
-Ignore Docker-derived `LVS_BACKEND_URL` / `VLM_BASE_URL` / `RTVI_VLM_BASE_URL`
-when `VSS_PUBLIC_URL` is set. Do not treat public `/openapi.json` as the LVS
-schema (that path is Agent on stock Ingress).
+Do not treat the origin's `/openapi.json` as the LVS schema; on stock Ingress
+that path is the Agent's.
 
 ## Routing
 
-| Service | Base URL |
-|---|---|
-| LVS | `${VIDEO_SUMMARIZATION_URL}` (K8s: `${VSS_PUBLIC_URL}`; Docker: `http://${HOST_IP}:38111`) |
-| VLM / RT-VLM | `${VLM}` then append `/v1/...` (K8s: the `/rtvi-vlm` mount; Docker: `:8018`) |
-
-Strip a trailing `/v1` from the VLM base because this skill appends it. Do not
-scan ports or inspect configuration files to guess endpoints.
-
 Probe LVS `/v1/ready` using the loop in the end-to-end reference. Readiness is
 the HTTP status only: retry 503 warmup responses for about 30 seconds, and do
-not inspect the body.
+not inspect the body. No recorded `lvs` service counts as not ready.
 
 | LVS result | Action |
 |---|---|
@@ -389,7 +371,7 @@ re-voice either backend's content.
 | Run exits 7 | Timed out. `vss summarize get --job-id <id>`; do not re-run. |
 | VLM returns `<think>` | Remove reasoning through `</think>` when rendering. |
 | K8s `/openapi.json` looks like Agent | Expected — do not use it as LVS schema. |
-| K8s `/models` 404 / HTML | Probing the bare origin — use `${LVS_BACKEND_URL}/models` or `${VLM}/v1/models`. |
+| `/models` 404 / HTML | Probing the bare origin — use `services.lvs.url` + `/models` or `services.rt_vlm.url` + `/v1/models` from `vss configure show`. |
 
 Use the debugging reference for deeper diagnostics and the deployment
 reference for logs or configuration. The LVS image is a multi-arch manifest, so
@@ -399,12 +381,13 @@ reference for logs or configuration. The LVS image is a multi-arch manifest, so
 
 For direct API questions such as models, readiness, recommended configuration,
 metrics, schemas, or 422 responses, use the API reference instead of the
-recorded-video workflow. `/lvs` is a Prefix mount, so everything LVS serves is
-public under it on Kubernetes — `/lvs/v1/ready`, `/lvs/v1/summarize`,
-`/lvs/models`, `/lvs/metrics` — where the previous Exact-path Ingress published
-only readiness and summarize. For deployment, restart, teardown, backend
-selection, or service logs, prefer `vss-build-vision-ai` and use the deployment
-reference.
+recorded-video workflow, with `services.lvs.url` from `vss configure show` as
+the base. `/lvs` is a Prefix mount, so everything LVS serves is public under it
+— `/v1/ready`, `/v1/summarize`, `/models`, `/metrics` — where the previous
+Exact-path Ingress published only readiness and summarize. A direct API
+question is never a substitute for a failed `vss` command. For deployment,
+restart, teardown, backend selection, or service logs, prefer
+`vss-build-vision-ai` and use the deployment reference.
 
 ## Cross-reference
 

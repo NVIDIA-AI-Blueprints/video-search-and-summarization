@@ -10,6 +10,8 @@ metadata:
   tags: "nvidia blueprint operational"
 ---
 
+# VSS Query Analytics
+
 ## Purpose
 
 Answer read-only video-analytics questions with `vss analytics`, which calls the
