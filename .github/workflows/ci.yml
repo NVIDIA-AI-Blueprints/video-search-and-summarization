@@ -476,6 +476,7 @@ jobs:
             deploy/docker/scripts/tests/test_dashboard_relay.py \
             deploy/docker/scripts/tests/test_dashboard_forward_watchdog.py \
             .openclaw/tests/test_runtime_instructions.py \
+            .openclaw/tests/test_seed_videomme_memory.py \
             skills/vss-build-vision-ai/scripts/tests/test_sync_skills.py \
             skills/vss-build-vision-ai/scripts/tests/test_stage_vss_src.py \
             skills/vss-build-vision-ai/scripts/tests/test_apply_onboard_config.py \
