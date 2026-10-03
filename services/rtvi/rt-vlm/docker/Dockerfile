@@ -434,6 +434,12 @@ RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     && python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_evs_protocol_patch.py \
     && python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_tensor_ipc_patch.py
 
+ARG RTVI_ENABLE_NATIVE_STREAMING_VLM=false
+RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
+    if [ "$RTVI_ENABLE_NATIVE_STREAMING_VLM" = "true" ]; then \
+        python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_dlalgo_streaming_patch.py; \
+    fi
+
 # Patch FlashInfer CUDA runtime discovery for the non-eager compile path.
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_flashinfer_cudart_patch.py

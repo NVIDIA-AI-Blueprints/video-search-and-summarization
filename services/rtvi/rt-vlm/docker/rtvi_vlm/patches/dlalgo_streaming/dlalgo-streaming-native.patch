@@ -1,0 +1,3109 @@
+diff --git a/vllm/entrypoints/openai/streaming/chunking.py b/vllm/entrypoints/openai/streaming/chunking.py
+new file mode 100644
+index 0000000..6b67ad8
+--- /dev/null
++++ b/vllm/entrypoints/openai/streaming/chunking.py
+@@ -0,0 +1,157 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Per-frame prompt construction for the streaming server (model-independent).
++
++A frame is rendered through the model's own chat template (via the engine's
++renderer), so the per-model vision tokens come from the template — no hardcoded
++markers. Each frame is one chat turn carrying an image: frame 1 opens the
++conversation (system + question + image); later frames are image-only (the task
++lives in the pinned system prompt). Per-chunk prompts are incremental — the
++engine appends each to the running request.
++"""
++
++from io import BytesIO
++from typing import TYPE_CHECKING, cast
++from uuid import uuid4
++
++import numpy as np
++from PIL import Image
++
++from vllm.engine.protocol import StreamingInput
++from vllm.renderers.params import ChatParams
++from vllm.sampling_params import SamplingParams
++
++if TYPE_CHECKING:
++    from vllm.entrypoints.chat_utils import ChatCompletionMessageParam
++    from vllm.renderers import BaseRenderer
++
++
++# Cap decoded frame size well below PIL's ~179 MP decompression-bomb error:
++# a crafted ~80 MP JPEG otherwise decodes to ~240 MB of RGB per frame.
++_MAX_FRAME_PIXELS = 4 * 1024 * 1024  # 4 MP; a 720p frame is ~0.9 MP
++
++
++def decode_frame(data: bytes) -> Image.Image:
++    """Decode encoded image bytes (PNG/JPEG/...) to a PIL RGB image."""
++    img = Image.open(BytesIO(data))  # lazy: parses the header only
++    w, h = img.size
++    if w * h > _MAX_FRAME_PIXELS:
++        raise ValueError(
++            f"frame is {w}x{h} ({w * h} pixels); the per-frame limit is "
++            f"{_MAX_FRAME_PIXELS} pixels"
++        )
++    return img.convert("RGB")
++
++
++def build_messages(
++    video_uuids: list[str],
++    system_prompt: str,
++    question: str,
++    is_first: bool,
++    previous_text: str,
++    start_time_s: float,
++    end_time_s: float,
++) -> list[dict]:
++    """OpenAI-style messages for one temporal-video batch's incremental turn.
++
++    UUID-only video placeholders let the renderer insert the model-specific
++    video tokens. ``build_frames_chunk`` replaces their empty payloads with
++    decoded in-memory tensors before vLLM preprocessing.
++    """
++    video_parts = [
++        {"type": "video_url", "video_url": None, "uuid": video_uuid}
++        for video_uuid in video_uuids
++    ]
++    step_context = {
++        "type": "text",
++        "text": f"Time={start_time_s:.1f}-{end_time_s:.1f}s",
++    }
++    if not is_first:
++        return [{"role": "user", "content": [step_context, *video_parts]}]
++    user_content: list[dict] = [step_context, *video_parts]
++    if question:
++        user_content.append({"type": "text", "text": question})
++    return [
++        {"role": "system", "content": system_prompt},
++        {"role": "previous text", "content": previous_text},
++        {"role": "user", "content": user_content},
++    ]
++
++
++def build_temporal_video_items(
++    frames: list[Image.Image],
++    fps: float,
++) -> list[tuple[np.ndarray, dict]]:
++    """Pack decoded frames into native two-frame temporal video items."""
++    if not frames:
++        raise ValueError("streaming frame batch cannot be empty")
++    if fps <= 0:
++        raise ValueError("streaming video fps must be positive")
++
++    items = []
++    for start in range(0, len(frames), 2):
++        pair = frames[start : start + 2]
++        video = np.stack(
++            [np.asarray(frame.convert("RGB"), dtype=np.uint8) for frame in pair]
++        )
++        duration = (len(pair) - 1) / fps
++        metadata = {
++            "total_num_frames": len(pair),
++            "frames_indices": list(range(len(pair))),
++            "fps": fps,
++            "duration": duration,
++        }
++        items.append((video, metadata))
++    return items
++
++
++async def build_frames_chunk(
++    renderer: "BaseRenderer",
++    frames: list[Image.Image],
++    is_first: bool,
++    question: str,
++    system_prompt: str,
++    sp: SamplingParams,
++    fps: float,
++    previous_text: str,
++    start_time_s: float,
++    end_time_s: float,
++    generate: bool = True,
++) -> StreamingInput:
++    """Render one decoded frame batch into native temporal video inputs.
++
++    The renderer contributes the model's video placeholder tokens; decoded
++    frames replace UUID-only placeholders in-memory without codec or HTTP work.
++    """
++    video_items = build_temporal_video_items(frames, fps)
++    video_uuids = [str(uuid4()) for _ in video_items]
++    messages = cast(
++        "list[ChatCompletionMessageParam]",
++        build_messages(
++            video_uuids,
++            system_prompt,
++            question,
++            is_first,
++            previous_text,
++            start_time_s,
++            end_time_s,
++        ),
++    )
++    params = ChatParams(
++        chat_template_content_format="auto",
++        chat_template_kwargs={"add_generation_prompt": True},
++    )
++    _, engine_prompts = await renderer.render_chat_async(
++        [messages],
++        params,
++        prompt_extras={
++            "multi_modal_data": {"video": video_items},
++            "multi_modal_uuids": {"video": video_uuids},
++        },
++    )
++    chunk_sp = sp
++    if not generate:
++        chunk_sp = sp.clone()
++        chunk_sp.extra_args = dict(sp.extra_args or {})
++        chunk_sp.extra_args["streaming_prefill_only"] = True
++    return StreamingInput(prompt=engine_prompts[0], sampling_params=chunk_sp)
+diff --git a/vllm/entrypoints/openai/streaming/protocol.py b/vllm/entrypoints/openai/streaming/protocol.py
+new file mode 100644
+index 0000000..7239f20
+--- /dev/null
++++ b/vllm/entrypoints/openai/streaming/protocol.py
+@@ -0,0 +1,94 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Request/response models for the REST streaming API."""
++
++from typing import Any
++
++from pydantic import BaseModel, Field, model_validator
++
++from vllm.v1.streaming.retention import StreamingRetentionParams
++
++
++class SamplingConfig(BaseModel):
++    """Per-reply sampling settings for a session (applied to every frame).
++
++    ``max_tokens`` bounds each frame's reply, not the session. At most one of
++    the ``guided_*`` fields may be set; it constrains every reply's output
++    (JSON schema, choice list, or regex).
++    """
++
++    max_tokens: int = 24
++    temperature: float = 0.3
++    top_p: float = 0.9
++    repetition_penalty: float = 1.1
++    frequency_penalty: float = 0.0
++    guided_json: Any | None = None
++    guided_choice: list[str] | None = None
++    guided_regex: str | None = None
++
++    @model_validator(mode="after")
++    def _at_most_one_guided(self) -> "SamplingConfig":
++        n = sum(
++            x is not None
++            for x in (self.guided_json, self.guided_choice, self.guided_regex)
++        )
++        if n > 1:
++            raise ValueError(
++                "at most one of guided_json / guided_choice / guided_regex "
++                "may be set"
++            )
++        return self
++
++
++class SessionRequest(BaseModel):
++    """Client-supplied inputs for a streaming session."""
++
++    system_prompt: str
++    question: str = ""
++    fps: float = 1.0
++    model: str | None = None
++    retention: StreamingRetentionParams = Field(
++        default_factory=StreamingRetentionParams
++    )
++    sampling: SamplingConfig = Field(default_factory=SamplingConfig)
++
++
++class SessionResponse(BaseModel):
++    session_id: str
++    model: str
++    fps: float
++    retention: StreamingRetentionParams
++
++
++class ConfigResponse(BaseModel):
++    """Reply to ``GET /v1/streaming/config``: the server's model and the
++    DEFAULT retention/sampling config (sessions may override per-create)."""
++
++    model: str
++    retention: StreamingRetentionParams
++    sampling: SamplingConfig
++
++
++class FrameResponse(BaseModel):
++    """Reply to ``POST /v1/streaming/sessions/{id}/frame``: the model's text
++    for that frame plus per-frame timing/token accounting.
++
++    ``ttft_s`` (submit -> first output text) and ``latency_s`` (submit ->
++    finish) are None when no timing was captured for the frame.
++    """
++
++    frame_index: int
++    text: str
++    finish_reason: str | None = None
++    token_count: int = 0
++    ttft_s: float | None = None
++    latency_s: float | None = None
++
++
++class CloseResponse(BaseModel):
++    """Reply to ``DELETE /v1/streaming/sessions/{id}``: how many frames the
++    session answered before closing."""
++
++    session_id: str
++    frames: int
++    closed: bool = True
+diff --git a/vllm/entrypoints/openai/streaming/session.py b/vllm/entrypoints/openai/streaming/session.py
+new file mode 100644
+index 0000000..82d4a34
+--- /dev/null
++++ b/vllm/entrypoints/openai/streaming/session.py
+@@ -0,0 +1,302 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""A single streaming session: one long-lived ``engine.generate()`` call."""
++
++import asyncio
++import contextlib
++import time
++from collections import deque
++from typing import TYPE_CHECKING
++from uuid import uuid4
++
++from vllm.engine.protocol import EngineClient
++from vllm.logger import init_logger
++from vllm.sampling_params import SamplingParams
++
++from .chunking import build_frames_chunk
++from .protocol import FrameResponse
++
++if TYPE_CHECKING:
++    from vllm.renderers import BaseRenderer
++
++logger = init_logger(__name__)
++
++_DONE = ("stop", "length")
++
++# push_frame enforces one frame in flight per session; a depth-1 queue means a
++# bug elsewhere can never pipeline frames into the engine.
++_MAX_INPUT_BACKLOG = 1
++
++# Per-frame deadline for enqueueing a frame / receiving its reply; generous
++# enough for a cold first-frame prefill or a streaming re-prefill, but bounded
++# so a wedged engine fails the session instead of hanging the client forever.
++_FRAME_TIMEOUT_S = 120.0
++
++
++class SessionBusyError(RuntimeError):
++    """A frame was pushed while the previous frame's reply is still pending."""
++
++
++class StreamingSession:
++    """One streaming session backed by a single long-lived generate() call."""
++
++    def __init__(
++        self,
++        session_id: str,
++        engine_client: EngineClient,
++        sampling_params: SamplingParams,
++        renderer: "BaseRenderer",
++        *,
++        system_prompt: str,
++        question: str,
++        fps: float,
++        previous_text: str = "",
++        time_offset_s: float = 0.0,
++    ) -> None:
++        self.session_id = session_id
++        self.request_id = f"stream-{session_id}-{uuid4()}"
++        self.engine = engine_client
++        self.sp = sampling_params
++        self.renderer = renderer
++        self.system_prompt = system_prompt
++        self.question = question
++        self.fps = fps
++        self.previous_text = previous_text
++        self.time_offset_s = time_offset_s
++        self._in: asyncio.Queue = asyncio.Queue(maxsize=_MAX_INPUT_BACKLOG)
++        self._out: asyncio.Queue = asyncio.Queue()
++        self._submit_times: deque[float] = deque()
++        self._generated_frame_indices: deque[int] = deque()
++        self._frames_yielded = 0
++        self.frames_done = 0
++        self._task: asyncio.Task | None = None
++        self._closed = False
++        self._inflight = False
++        self.last_active = time.monotonic()
++
++    # -- lifecycle -------------------------------------------------------------
++
++    def start(self) -> None:
++        """Launch the background engine-driving task."""
++        self._task = asyncio.create_task(self._run())
++
++    async def push_frame(
++        self, frame, *, generate: bool = True
++    ) -> FrameResponse | None:
++        """Compatibility wrapper for a one-frame append."""
++        return await self.push_frames([frame], generate=generate)
++
++    async def push_frames(
++        self,
++        frames,
++        *,
++        generate: bool = True,
++    ) -> FrameResponse | None:
++        """Append one frame batch and optionally await its decoded response."""
++        if self._closed:
++            raise RuntimeError(f"session {self.session_id} is closed")
++        if not frames:
++            raise ValueError("streaming frame batch cannot be empty")
++        if self._inflight:
++            raise SessionBusyError(
++                f"session {self.session_id} already has a frame batch in flight"
++            )
++        self._inflight = True
++        try:
++            self.last_active = time.monotonic()
++            try:
++                await asyncio.wait_for(
++                    self._in.put((list(frames), time.monotonic(), generate)),
++                    timeout=_FRAME_TIMEOUT_S,
++                )
++            except asyncio.TimeoutError as e:
++                await self._fail_closed()
++                raise RuntimeError(
++                    f"session {self.session_id} timed out after "
++                    f"{_FRAME_TIMEOUT_S:.0f}s waiting to enqueue a frame batch"
++                ) from e
++            if not generate:
++                return None
++            try:
++                item = await asyncio.wait_for(
++                    self._out.get(), timeout=_FRAME_TIMEOUT_S
++                )
++            except asyncio.TimeoutError as e:
++                await self._fail_closed()
++                raise RuntimeError(
++                    f"session {self.session_id} timed out after "
++                    f"{_FRAME_TIMEOUT_S:.0f}s waiting for a reply"
++                ) from e
++            if isinstance(item, BaseException):
++                raise item
++            if item is None:
++                raise RuntimeError(
++                    f"session {self.session_id} ended before a reply"
++                )
++            self.frames_done += 1
++            self.last_active = time.monotonic()
++            return item
++        finally:
++            self._inflight = False
++
++    async def _fail_closed(self) -> None:
++        """Permanently close the session after a per-frame timeout."""
++        self._closed = True
++        if self._task is not None:
++            self._task.cancel()
++            await asyncio.gather(self._task, return_exceptions=True)
++        with contextlib.suppress(Exception):
++            await self.engine.abort(self.request_id)
++        while True:
++            try:
++                self._out.get_nowait()
++            except asyncio.QueueEmpty:
++                break
++
++    async def close(self) -> None:
++        """Close the session: end the generate() call and free engine state."""
++        if self._closed:
++            return
++        self._closed = True
++        with contextlib.suppress(asyncio.QueueFull):
++            # producer returns -> generate() finishes; on QueueFull the
++            # engine.abort backstop below still ends the request.
++            self._in.put_nowait(None)
++        if self._task is not None:
++            try:
++                await asyncio.wait_for(asyncio.shield(self._task), timeout=10.0)
++            except (asyncio.CancelledError, Exception):
++                # CancelledError is a BaseException, so it needs its own entry.
++                self._task.cancel()
++        with contextlib.suppress(Exception):
++            await self.engine.abort(self.request_id)  # backstop
++
++    # -- engine driving --------------------------------------------------------
++
++    async def _producer(self):
++        """Yield one prompt chunk per pushed frame until the end sentinel."""
++        while True:
++            item = await self._in.get()
++            if item is None:
++                return
++            frames, submit_t, generate = item
++            is_first = self._frames_yielded == 0
++            if is_first and len(frames) > 2:
++                # Keep only the first temporal pair in the pinned attention
++                # sink. The remainder stays batched but becomes independently
++                # evictable two-frame video features.
++                sink_frames, frames = frames[:2], frames[2:]
++                start_time_s = self.time_offset_s
++                end_time_s = start_time_s + (len(sink_frames) - 1) / self.fps
++                self._frames_yielded += len(sink_frames)
++                yield await build_frames_chunk(
++                    self.renderer,
++                    sink_frames,
++                    is_first=True,
++                    question=self.question,
++                    system_prompt=self.system_prompt,
++                    sp=self.sp,
++                    fps=self.fps,
++                    previous_text=self.previous_text,
++                    start_time_s=start_time_s,
++                    end_time_s=end_time_s,
++                    generate=False,
++                )
++                is_first = False
++            start_time_s = self.time_offset_s + self._frames_yielded / self.fps
++            end_time_s = start_time_s + (len(frames) - 1) / self.fps
++            if generate:
++                self._submit_times.append(submit_t)
++                self._generated_frame_indices.append(
++                    self._frames_yielded + len(frames) - 1
++                )
++            self._frames_yielded += len(frames)
++            yield await build_frames_chunk(
++                self.renderer,
++                frames,
++                is_first=is_first,
++                question=self.question,
++                system_prompt=self.system_prompt,
++                sp=self.sp,
++                fps=self.fps,
++                previous_text=self.previous_text,
++                start_time_s=start_time_s,
++                end_time_s=end_time_s,
++                generate=generate,
++            )
++
++    async def _run(self) -> None:
++        """Drive generate() and segment the DELTA stream into one reply per frame."""
++        buf = ""
++        tok = 0
++        ttft: float | None = None
++        frame_idx = 0
++        try:
++            async for output in self.engine.generate(
++                prompt=self._producer(),
++                sampling_params=self.sp,
++                request_id=self.request_id,
++            ):
++                for completion in output.outputs:
++                    submit_t = self._submit_times[0] if self._submit_times else None
++                    if completion.token_ids:
++                        tok += len(completion.token_ids)
++                    if completion.text:
++                        if ttft is None and submit_t is not None:
++                            ttft = time.monotonic() - submit_t
++                        buf += completion.text
++                    fr = completion.finish_reason
++                    # Emit one reply per outstanding frame: frame_idx counts
++                    # emitted replies, _frames_yielded counts submitted frames.
++                    # This also emits for single-output turns (e.g.
++                    # max_tokens=1 or a first-token EOS) while dropping a
++                    # spurious duplicate finish with no frame outstanding.
++                    if fr in _DONE and frame_idx < self._frames_yielded:
++                        latency = (
++                            time.monotonic() - submit_t
++                            if submit_t is not None
++                            else None
++                        )
++                        if self._submit_times:
++                            self._submit_times.popleft()
++                        source_frame_idx = (
++                            self._generated_frame_indices.popleft()
++                            if self._generated_frame_indices
++                            else frame_idx
++                        )
++                        self._out.put_nowait(
++                            FrameResponse(
++                                frame_index=source_frame_idx,
++                                text=buf.strip(),
++                                finish_reason=fr,
++                                token_count=tok,
++                                ttft_s=ttft,
++                                latency_s=latency,
++                            )
++                        )
++                        frame_idx += 1
++                        buf, tok, ttft = "", 0, None
++                if output.finished:
++                    if frame_idx < self._frames_yielded:
++                        # Engine-initiated finish (abort/error/shutdown) with
++                        # a frame outstanding is session-fatal; unblock the
++                        # waiting push_frame instead of letting it time out.
++                        self._out.put_nowait(
++                            RuntimeError(
++                                f"session {self.session_id} ended by engine "
++                                "before replying to an outstanding frame"
++                            )
++                        )
++                    break
++        except asyncio.CancelledError:
++            raise
++        except Exception as e:  # surface to the awaiting push_frame
++            logger.exception("streaming session %s failed", self.session_id)
++            self._out.put_nowait(e)
++        finally:
++            # Mark closed so retry pushes fail fast instead of enqueueing into
++            # a queue with no consumer. Safe w.r.t. close()'s early return on
++            # _closed (which skips its abort backstop): every path reaching
++            # here has already ended the engine request.
++            self._closed = True
++            self._out.put_nowait(None)  # end sentinel for any waiter
+diff --git a/vllm/multimodal/encoder_budget.py b/vllm/multimodal/encoder_budget.py
+index c1ff600..b071852 100644
+--- a/vllm/multimodal/encoder_budget.py
++++ b/vllm/multimodal/encoder_budget.py
+@@ -113,10 +113,10 @@ class MultiModalBudget:
+         }
+ 
+         # Encoder budget is computed from all active modalities (including
+-        # embedding-only ones that need encoder cache space).
+         encoder_compute_budget, encoder_cache_size = compute_mm_encoder_budget(
+             scheduler_config,
+             active_mm_max_toks_per_item,
++            mm_limits,
+         )
+ 
+         self.encoder_compute_budget = encoder_compute_budget
+diff --git a/vllm/v1/core/encoder_cache_manager.py b/vllm/v1/core/encoder_cache_manager.py
+index 6f1a256..0ec9d35 100644
+--- a/vllm/v1/core/encoder_cache_manager.py
++++ b/vllm/v1/core/encoder_cache_manager.py
+@@ -252,6 +252,38 @@ class EncoderCacheManager:
+         for input_id in input_ids:
+             self.free_encoder_input(request, input_id)
+ 
++    def evict_unreferenced(self, mm_hash: str) -> bool:
++        """Physically evict an entry whose reference set is empty.
++
++        Entries in `freeable` are by construction unreferenced. Popping one
++        here appends its mm_hash to `freed`, so the next SchedulerOutput
++        (via `get_freed_mm_hashes`) tells the model runner to drop the GPU
++        tensor. Without this, an unreferenced entry stays GPU-resident until
++        `can_allocate` runs out of `num_free_slots` — which, with the
++        streaming-inflated cache size, can exceed physical GPU headroom.
++
++        Returns True if the entry existed and was evicted.
++        """
++        num_embeds = self.freeable.pop(mm_hash, None)
++        if num_embeds is None:
++            return False
++        del self.cached[mm_hash]
++        self.freed.append(mm_hash)
++        self.num_free_slots += num_embeds
++        return True
++
++    def free_and_evict(self, request: Request) -> None:
++        """`free()` plus immediate physical eviction of zero-ref entries.
++
++        Used when a streaming session (persistent encoder cache) finishes or
++        is aborted: its per-frame entries are content-unique and skipped by
++        the per-step free path, so parking them in `freeable` retains
++        ~one vision embedding per pushed frame of GPU memory across sessions
++        """
++        for input_id in self.get_cached_input_ids(request):
++            self.free_encoder_input(request, input_id)
++            self.evict_unreferenced(request.mm_features[input_id].identifier)
++
+     def get_freed_mm_hashes(self) -> list[str]:
+         """Get and clear the list of recently freed encoder cache entries.
+ 
+@@ -269,6 +301,7 @@ class EncoderCacheManager:
+ def compute_mm_encoder_budget(
+     scheduler_config: "SchedulerConfig",
+     mm_max_toks_per_item: Mapping[str, int],
++    mm_max_items_per_prompt: Mapping[str, int] | None = None,
+ ) -> tuple[int, int]:
+     """Compute the encoder cache budget based on the model and scheduler
+     configurations for a multimodal model.
+@@ -277,6 +310,11 @@ def compute_mm_encoder_budget(
+         scheduler_config: Scheduler configuration.
+         mm_max_toks_per_item: The maximum number of tokens per item for each
+             non-text modality.
++        mm_max_items_per_prompt: Optional per-modality concurrent-items cap
++            (from `limit_mm_per_prompt`). When set, the cache is floored to
++            hold all of them at once plus 30% headroom — required by streaming
++            sessions whose persistent encoder cache must keep every retained
++            frame's embeddings across re-prefill events.
+ 
+     Returns:
+         - Compute budget for encoder execution, measured in number of tokens
+@@ -313,6 +351,27 @@ def compute_mm_encoder_budget(
+         scheduler_config.encoder_cache_size, max_tokens_per_mm_item
+     )
+ 
++    # Streaming-aware floor: size the cache to hold all concurrent items at
++    # once plus 30% headroom
++    if mm_max_items_per_prompt:
++        streaming_floor = sum(
++            mm_max_items_per_prompt.get(m, 0) * tok
++            for m, tok in mm_max_toks_per_item.items()
++        )
++        streaming_floor = (streaming_floor * 13) // 10  # 30% headroom
++        if streaming_floor > encoder_cache_size:
++            logger.info(
++                "Raising encoder_cache_size from %d to %d to accommodate "
++                "limit_mm_per_prompt working set (mm_max_items_per_prompt=%s, "
++                "mm_max_toks_per_item=%s). Required by streaming sessions "
++                "with persistent encoder cache.",
++                encoder_cache_size,
++                streaming_floor,
++                dict(mm_max_items_per_prompt),
++                dict(mm_max_toks_per_item),
++            )
++            encoder_cache_size = streaming_floor
++
+     return encoder_compute_budget, encoder_cache_size
+ 
+ 
+diff --git a/vllm/v1/core/kv_cache_coordinator.py b/vllm/v1/core/kv_cache_coordinator.py
+index eaa95df..c96e9b9 100644
+--- a/vllm/v1/core/kv_cache_coordinator.py
++++ b/vllm/v1/core/kv_cache_coordinator.py
+@@ -198,6 +198,18 @@ class KVCacheCoordinator(ABC):
+         for manager in self.single_type_managers:
+             manager.free(request_id)
+ 
++    def evict_blocks_for_request(
++        self, request_id: str, block_ids: list[int]
++    ) -> int:
++        """Free a subset of the request's blocks; request stays alive.
++
++        Used by streaming-video intra-session eviction.
++        """
++        total_freed = 0
++        for manager in self.single_type_managers:
++            total_freed += manager.evict_blocks_for_request(request_id, block_ids)
++        return total_freed
++
+     def get_num_common_prefix_blocks(self, running_request_id: str) -> list[int]:
+         """
+         Get the number of common prefix blocks for all requests with allocated
+diff --git a/vllm/v1/core/kv_cache_manager.py b/vllm/v1/core/kv_cache_manager.py
+index 0eb0e03..7369482 100644
+--- a/vllm/v1/core/kv_cache_manager.py
++++ b/vllm/v1/core/kv_cache_manager.py
+@@ -406,6 +406,54 @@ class KVCacheManager:
+         """
+         self.block_pool.evict_blocks(block_ids)
+ 
++    def evict_token_range_for_request(
++        self, request_id: str, token_start: int, token_end: int
++    ) -> tuple[int, int, int]:
++        """Convenience wrapper: evict the block-aligned span overlapping
++        the token range `[token_start, token_end)` on the first kv-cache
++        group, then free those blocks via the coordinator.
++
++        Uses **inward** block alignment: only whole blocks fully within
++        `[token_start, token_end)` are freed. Block-aligned edges are
++        important so the caller can slice `_all_token_ids` (and the
++        worker's `mrope_positions`) by the SAME range that was freed
++        from the block table — otherwise the two go out of sync and the
++        request's prompt grows past the worker's
++        `max_model_len`-sized buffers.
++
++        Returns `(aligned_start, aligned_end, num_blocks_freed)` where
++        `aligned_start` and `aligned_end` describe the token range that
++        was actually evicted (block-aligned, possibly narrower than
++        `[token_start, token_end)`). Callers MUST use this returned
++        range — not the original — when compacting their own per-token
++        arrays in lockstep with the KV cache.
++        """
++        assert len(self.coordinator.single_type_managers) == 1, (
++            "evict_token_range_for_request derives block ids from kv-cache "
++            "group 0 only; fanning them to multiple groups is unsound "
++            "(hybrid models are already rejected at streaming admission)."
++        )
++        if token_end <= token_start:
++            return token_start, token_start, 0
++        first = self.coordinator.single_type_managers[0]
++        block_size = first.block_size
++        block_idx_start = (token_start + block_size - 1) // block_size
++        block_idx_end = token_end // block_size
++        if block_idx_end <= block_idx_start:
++            return token_start, token_start, 0
++        req_blocks = first.req_to_blocks.get(request_id)
++        if not req_blocks:
++            return token_start, token_start, 0
++        aligned_start = block_idx_start * block_size
++        aligned_end = block_idx_end * block_size
++        block_ids = [
++            req_blocks[i].block_id
++            for i in range(block_idx_start, min(block_idx_end, len(req_blocks)))
++            if not req_blocks[i].is_null
++        ]
++        num_freed = self.coordinator.evict_blocks_for_request(request_id, block_ids)
++        return aligned_start, aligned_end, num_freed
++
+     def reset_prefix_cache(self) -> bool:
+         """Reset prefix cache. This function may be used in RLHF
+         flows to invalidate prefix caching after the weights are updated,
+diff --git a/vllm/v1/core/kv_cache_utils.py b/vllm/v1/core/kv_cache_utils.py
+index cfaa370..fa6d0e1 100644
+--- a/vllm/v1/core/kv_cache_utils.py
++++ b/vllm/v1/core/kv_cache_utils.py
+@@ -2,6 +2,7 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ """KV-Cache Utilities."""
+ 
++import bisect
+ import copy
+ import hashlib
+ import os
+@@ -576,12 +577,17 @@ def get_request_block_hasher(
+             return []
+ 
+         curr_mm_idx = 0
+-        if start_token_idx > 0:
+-            # Set curr_mm_idx = -1 to indicate the last mm input.
+-            # Note that since we reach to this branch only when the block is
+-            # completed with generated tokens, we only need to consider the
+-            # last mm input.
+-            curr_mm_idx = -1
++        if start_token_idx > 0 and request.mm_features:
++            # Streaming extends mm_features past the prompt, so the feature
++            # overlapping a freshly-completed block isn't necessarily the last
++            # one. Bisect (features are sorted by offset) to the first feature
++            # whose span still reaches past start_token_idx.
++            mm_end_positions = [
++                f.mm_position.offset + f.mm_position.length
++                for f in request.mm_features
++            ]
++            curr_mm_idx = bisect.bisect_right(mm_end_positions, start_token_idx)
++            curr_mm_idx = min(curr_mm_idx, len(request.mm_features))
+ 
+         prev_block_hash_value = (
+             request.block_hashes[-1] if request.block_hashes else None
+diff --git a/vllm/v1/core/sched/output.py b/vllm/v1/core/sched/output.py
+index bdb97de..18ecc38 100644
+--- a/vllm/v1/core/sched/output.py
++++ b/vllm/v1/core/sched/output.py
+@@ -42,6 +42,13 @@ class NewRequestData:
+     # Only used for v2 model runner.
+     prefill_token_ids: list[int] | None = None
+ 
++    # Streaming: token ranges evicted this step; the worker replays them to
++    # slice its mrope_positions in lockstep with the scheduler.
++    evicted_token_ranges: list[tuple[int, int]] | None = None
++    # Streaming: True on a re-prefill reset (worker drops mRoPE state and
++    # recomputes positions from 0).
++    is_reprefill: bool = False
++
+     @classmethod
+     def from_request(
+         cls,
+@@ -49,6 +56,15 @@ class NewRequestData:
+         block_ids: tuple[list[int], ...],
+         prefill_token_ids: list[int] | None = None,
+     ) -> "NewRequestData":
++        # Drain the streaming side-channels the scheduler set on the request.
++        evicted_token_ranges: list[tuple[int, int]] | None = None
++        pending = getattr(request, "pending_evicted_token_ranges", None)
++        if pending:
++            evicted_token_ranges = list(pending)
++            pending.clear()
++        is_reprefill = bool(getattr(request, "pending_reprefill", False))
++        if is_reprefill:
++            request.pending_reprefill = False
+         return cls(
+             req_id=request.request_id,
+             prompt_token_ids=request.prompt_token_ids,
+@@ -60,6 +76,8 @@ class NewRequestData:
+             lora_request=request.lora_request,
+             prompt_embeds=request.prompt_embeds,
+             prefill_token_ids=prefill_token_ids,
++            evicted_token_ranges=evicted_token_ranges,
++            is_reprefill=is_reprefill,
+         )
+ 
+     def __repr__(self) -> str:
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index 618875c..bc09707 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -2,7 +2,7 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ import itertools
+ import time
+-from collections import defaultdict, deque
++from collections import OrderedDict, defaultdict, deque
+ from collections.abc import Iterable
+ from dataclasses import replace
+ from typing import Any
+@@ -54,11 +54,18 @@ from vllm.v1.metrics.stats import PrefixCacheStats, SchedulerStats
+ from vllm.v1.outputs import DraftTokenIds, KVConnectorOutput, ModelRunnerOutput
+ from vllm.v1.request import Request, RequestStatus, StreamingUpdate
+ from vllm.v1.spec_decode.metrics import SpecDecodingStats
++from vllm.v1.streaming.eviction import maybe_evict_old_segments
++from vllm.v1.streaming.reprefill import should_trigger_reprefill
++from vllm.v1.streaming.retention import HistorySegment, SegmentType
+ from vllm.v1.structured_output import StructuredOutputManager
+ from vllm.v1.utils import record_function_or_nullcontext
+ 
+ logger = init_logger(__name__)
+ 
++# How many recently-finished streaming (resumable) request ids to remember so
++# a chunk ADD racing behind an abort cannot resurrect its session as a zombie.
++_STREAMING_TOMBSTONE_CAP = 1024
++
+ 
+ class Scheduler(SchedulerInterface):
+     def __init__(
+@@ -105,6 +112,15 @@ class Scheduler(SchedulerInterface):
+             else self.scheduler_config.max_num_batched_tokens
+         )
+         self.max_model_len = vllm_config.model_config.max_model_len
++        # Model's trained position range; streaming re-prefill compares
++        # request.max_cached_position against a fraction of this.
++        self._model_max_position = int(
++            getattr(
++                vllm_config.model_config.hf_text_config,
++                "max_position_embeddings",
++                self.max_model_len,
++            )
++        )
+         self.enable_kv_cache_events = (
+             self.kv_events_config is not None
+             and self.kv_events_config.enable_kv_cache_events
+@@ -172,6 +188,11 @@ class Scheduler(SchedulerInterface):
+         # number of unfinished requests
+         self.num_waiting_for_streaming_input: int = 0
+ 
++        # Tombstones of recently-finished streaming (resumable) request ids,
++        # insertion-ordered; add_request drops stale post-abort chunks for
++        # these ids instead of resurrecting the session.
++        self._finished_streaming_req_ids: OrderedDict[str, None] = OrderedDict()
++
+         # KV Connector: requests in process of async KV loading or recving
+         self.finished_recving_kv_req_ids: set[str] = set()
+         self.failed_recving_kv_req_ids: set[str] = set()
+@@ -205,7 +226,6 @@ class Scheduler(SchedulerInterface):
+             if self.is_encoder_decoder
+             else EncoderCacheManager(cache_size=encoder_cache_size)
+         )
+-
+         speculative_config = vllm_config.speculative_config
+         self.use_eagle = False
+         self.num_spec_tokens = self.num_lookahead_tokens = 0
+@@ -732,10 +752,20 @@ class Scheduler(SchedulerInterface):
+                 if new_blocks is None:
+                     # The request cannot be scheduled.
+ 
+-                    # NOTE: we need to untouch the request from the encode cache
+-                    # manager
+-                    if request.has_encoder_inputs:
++                    # Free the request's encoder-cache entries on a failed
++                    # alloc. Skip persistent-encoder-cache streaming sessions:
++                    # their retained frame embeddings must survive a transient
++                    # allocate-fail to avoid a full vision re-encode at re-prefill.
++                    if (
++                        request.has_encoder_inputs
++                        and not request.uses_persistent_encoder_cache()
++                    ):
+                         self.encoder_cache_manager.free(request)
++
++                    if request.resumable:
++                        request_queue.pop_request()
++                        step_skipped_waiting.prepend_request(request)
++                        continue
+                     break
+ 
+                 # KVTransfer: the connector uses this info to determine
+@@ -911,6 +941,14 @@ class Scheduler(SchedulerInterface):
+             self._update_after_schedule(scheduler_output)
+         return scheduler_output
+ 
++    def _reset_streaming_position_state(self, request: Request) -> None:
++        """Reset the scheduler-side mRoPE / position-watermark state shared
++        by re-prefill and preemption-resume.
++        """
++        request._mrope_positions = []
++        request.max_cached_position = -1
++        request.pending_evicted_token_ranges.clear()
++
+     def _preempt_request(self, request: Request, timestamp: float) -> None:
+         """Preempt a request and put it back to the waiting queue.
+ 
+@@ -921,18 +959,73 @@ class Scheduler(SchedulerInterface):
+             "Only running requests can be preempted"
+         )
+         self.kv_cache_manager.free(request)
+-        self.encoder_cache_manager.free(request)
++
++        if not request.uses_persistent_encoder_cache():
++            self.encoder_cache_manager.free(request)
+         request.status = RequestStatus.PREEMPTED
+         request.num_computed_tokens = 0
+         if request.spec_token_ids:
+             request.spec_token_ids = []
+         request.num_preemptions += 1
++
++        if request.streaming_retention is not None:
++            self._reset_streaming_position_state(request)
+         if self.log_stats:
+             request.record_event(EngineCoreEventType.PREEMPTED, timestamp)
+ 
+         # Put the request back to the waiting queue.
+         self.waiting.prepend_request(request)
+ 
++    def _reprefill_streaming_session(
++        self, request: Request, discard_next_sample: bool
++    ) -> None:
++        """Self-preempt for re-prefill: free the KV cache + reset position
++        state, prepend to waiting, and let the next step re-prefill the
++        surviving `_all_token_ids` at fresh dense-from-0 positions.
++
++        `discard_next_sample` must be True only when the re-prefilled prompt
++        ends with already-answered content (idle trigger), so the one forced
++        sample is a phantom. When a queued chunk was just folded, the prompt
++        ends with that unanswered chunk and the first sample is a genuine
++        caption token that must be kept.
++        """
++        prior_max_position = request.max_cached_position  # for the log line
++        prior_num_tokens = request.num_tokens
++
++        # Gather block IDs BEFORE freeing, then evict their prefix-cache
++        # entries
++        reprefill_block_ids: set[int] = set()
++        for per_group_ids in self.kv_cache_manager.get_block_ids(request.request_id):
++            reprefill_block_ids.update(per_group_ids)
++
++        self.kv_cache_manager.free(request)
++        if reprefill_block_ids:
++            self.kv_cache_manager.evict_blocks(reprefill_block_ids)
++
++        request.num_computed_tokens = 0
++        self._reset_streaming_position_state(request)
++        if request.spec_token_ids:
++            request.spec_token_ids = []
++
++        request.status = RequestStatus.WAITING
++
++        self.prev_step_scheduled_req_ids.discard(request.request_id)
++        request.reprefill_count += 1
++
++        request.reprefill_discard_next_sample = discard_next_sample
++
++        request.pending_reprefill = True
++        logger.info(
++            "streaming re-prefill triggered: req=%s "
++            "prior_max_position=%d surviving_tokens=%d count=%d",
++            request.request_id,
++            prior_max_position,
++            prior_num_tokens,
++            request.reprefill_count,
++        )
++
++        self.waiting.prepend_request(request)
++
+     def _update_after_schedule(self, scheduler_output: SchedulerOutput) -> None:
+         # Advance the number of computed tokens for the request AFTER
+         # the request is scheduled.
+@@ -970,12 +1063,10 @@ class Scheduler(SchedulerInterface):
+     def _update_request_as_session(
+         self, session: Request, update: StreamingUpdate
+     ) -> None:
+         """
+         Updates the waiting session with the next streaming update.
+ 
+-        Discards the last sampled output token from the prior input chunk.
++        Folds a complete, explicitly terminated assistant turn into the prompt.
+         """
+ 
+-        # Current streaming input behaviour: Keep only computed output tokens
+-        # (discard final sampled output token).
+         num_computed_tokens = session.num_computed_tokens
+@@ -982,12 +1073,34 @@ class Scheduler(SchedulerInterface):
+-        kept_output_tokens = session._all_token_ids[
+-            session.num_prompt_tokens : num_computed_tokens
+-        ]
++        # Retain the complete sampled assistant turn, including the final
++        # token whose KV is computed on the next prefill. The paper runner
++        # force-closes a length-capped response with the model EOS token.
++        folded_output_tokens = list(
++            session._all_token_ids[session.num_prompt_tokens :]
++        )
++        eos_token_id = (
++            session.sampling_params.eos_token_id
++            if session.sampling_params is not None
++            else None
++        )
++        if (
++            folded_output_tokens
++            and eos_token_id is not None
++            and folded_output_tokens[-1] != eos_token_id
++        ):
++            folded_output_tokens.append(eos_token_id)
++
++        prior_response_start = session.num_prompt_tokens
++
+-        del session._all_token_ids[num_computed_tokens:]
++        del session._all_token_ids[session.num_prompt_tokens :]
++        session._all_token_ids.extend(folded_output_tokens)
+         session._output_token_ids.clear()
+         assert session.prompt_token_ids is not None
++
+-        # Extend prompt with kept output tokens.
+-        session.prompt_token_ids.extend(kept_output_tokens)
++        # The uncached tail (last sample + optional EOS) is prefilled together
++        # with the next streaming update.
++        session.prompt_token_ids.extend(folded_output_tokens)
+ 
++        segment_start_idx = prior_response_start + len(folded_output_tokens)
++
+         if update.mm_features:
+             base = session.num_tokens
+             for mm_feature in update.mm_features:
+@@ -998,6 +1097,17 @@ class Scheduler(SchedulerInterface):
+ 
+         session._all_token_ids.extend(update.prompt_token_ids or ())
+         session.prompt_token_ids.extend(update.prompt_token_ids or ())
++
++        # Drop hashes covering the discarded sampled token (if it completed a
++        # block) so the chain is rebuilt from the new content; a stale hash
++        # would publish the block under the wrong prefix-cache key. Must run
++        # for retention-less sessions too, and at the HASH block granularity
++        # (single_type_managers[0].block_size need not match it on hybrid
++        # models, which non-retention resumable sessions may run on).
++        if session.block_hashes:
++            hash_block_size = self.kv_cache_manager.block_pool.hash_block_size
++            del session.block_hashes[num_computed_tokens // hash_block_size :]
++
+         # Update block hashes for the new tokens.
+         session.update_block_hashes()
+         session.num_prompt_tokens = len(session.prompt_token_ids)
+@@ -1007,9 +1117,199 @@ class Scheduler(SchedulerInterface):
+             self.num_waiting_for_streaming_input -= 1
+         session.status = RequestStatus.WAITING
+ 
++        if (
++            session.structured_output_request is not None
++            and session.structured_output_request.grammar is not None
++        ):
++            session.structured_output_request.grammar.reset()
++
++        if session.streaming_retention is not None:
++            self._record_streaming_segment(
++                session, update, prior_response_start, segment_start_idx
++            )
++            maybe_evict_old_segments(
++                session,
++                session.streaming_retention,
++                self.kv_cache_manager,
++                self.encoder_cache_manager,
++            )
++
++        if session.num_tokens >= self.max_model_len:
++            # Cumulative context-length guard: even after eviction the
++            # session prompt no longer fits the context window. Worker
++            # per-request buffers are max_model_len-sized, so scheduling it
++            # would crash the engine. Finish the session cleanly instead.
++            logger.error(
++                "Streaming session %s reached max_model_len (%d tokens >= "
++                "%d) after chunk append; finishing session.",
++                session.request_id,
++                session.num_tokens,
++                self.max_model_len,
++            )
++            self.finish_requests(
++                session.request_id, RequestStatus.FINISHED_LENGTH_CAPPED
++            )
++            return
++
+         if self.log_stats:
+             session.record_event(EngineCoreEventType.QUEUED)
+ 
++    def _fold_kept_output(self, session: Request) -> None:
++        """Fold a complete, explicitly terminated assistant turn."""
++        num_computed_tokens = session.num_computed_tokens
++        folded_output_tokens = list(
++            session._all_token_ids[session.num_prompt_tokens :]
++        )
++        eos_token_id = (
++            session.sampling_params.eos_token_id
++            if session.sampling_params is not None
++            else None
++        )
++        if (
++            folded_output_tokens
++            and eos_token_id is not None
++            and folded_output_tokens[-1] != eos_token_id
++        ):
++            folded_output_tokens.append(eos_token_id)
++        del session._all_token_ids[session.num_prompt_tokens :]
++        session._all_token_ids.extend(folded_output_tokens)
++        session._output_token_ids.clear()
++        assert session.prompt_token_ids is not None
++        session.prompt_token_ids.extend(folded_output_tokens)
++
++        # See _update_request_as_session: trim stale hashes unconditionally,
++        # at the hash block granularity.
++        if session.block_hashes:
++            hash_block_size = self.kv_cache_manager.block_pool.hash_block_size
++            del session.block_hashes[num_computed_tokens // hash_block_size :]
++        session.update_block_hashes()
++        session.num_prompt_tokens = len(session.prompt_token_ids)
++
++    def _record_folded_output_segment(
++        self, session: Request, prior_response_start: int
++    ) -> None:
++        """Record the just-folded last caption as an evictable assistant_text
++        segment.
++        """
++        end = session.num_prompt_tokens
++        if end <= prior_response_start:
++            return  # the folded chunk generated no kept output.
++        session.session_history.append(
++            HistorySegment(
++                segment_type="assistant_text",
++                token_range=(prior_response_start, end),
++                age_chunks=0,
++            )
++        )
++
++    def _record_streaming_segment(
++        self,
++        session: Request,
++        update: StreamingUpdate,
++        prior_response_start: int,
++        segment_start_idx: int,
++    ) -> None:
++        """Append HistorySegment(s) for the just-appended chunk and age
++        all prior segments by one chunk.
++
++        This function creates an anchor, optional prior response, and one
++        segment per multimodal feature in the appended chunk:
++
++          1. **Pinned anchor** — on the very first call only (when
++             `session_history` is empty). Covers `[0, prior_response_start)`,
++             i.e., chunk 1's prompt only. `chunk 1`'s caption is split out
++             as a separate unpinned `assistant_text` segment. The
++             anchor is pinned and represents the attention sink (system
++             prompt + first user turn + first video).
++
++          2. **Assistant_text for prior chunk's response** — if
++             `segment_start_idx > prior_response_start`. Unpinned, evictable
++             by retention phase 2, so captions are retained independently of
++             the video they describe.
++
++          3. **New chunk content segments** — one `"video"` segment per
++             multimodal feature, or one `"user_text"` segment when no
++             multimodal feature was appended. This makes a two-frame temporal
++             video item the literal retention unit instead of treating the
++             entire update batch as one segment.
++
++        Aging order: synthesize the anchor first (so it gets aged like
++        any existing segment), then age all existing segments, then
++        append the two new segments (which start at age 0).
++        """
++        # 1. Synthesize the pinned anchor on the very first call.
++        if not session.session_history and prior_response_start > 0:
++            anchor_features = sorted(
++                (
++                    feature
++                    for feature in session.mm_features
++                    if feature.mm_position.offset < prior_response_start
++                ),
++                key=lambda feature: feature.mm_position.offset,
++            )
++            anchor_feature = anchor_features[0] if anchor_features else None
++            session.session_history.append(
++                HistorySegment(
++                    segment_type="video" if anchor_feature is not None else "user_text",
++                    token_range=(0, prior_response_start),
++                    mm_item_id=(
++                        anchor_feature.identifier if anchor_feature is not None else None
++                    ),
++                    pinned=True,
++                )
++            )
++
++        # Age existing segments by one chunk boundary. Anything we
++        # append below will start at age 0.
++        for seg in session.session_history:
++            seg.age_chunks += 1
++
++        # 2. Assistant_text segment for the prior chunk's response.
++        if segment_start_idx > prior_response_start:
++            session.session_history.append(
++                HistorySegment(
++                    segment_type="assistant_text",
++                    token_range=(prior_response_start, segment_start_idx),
++                )
++            )
++
++        # 3. New chunk's content segment(s).
++        new_num_tokens = session.num_tokens
++        if new_num_tokens <= segment_start_idx:
++            return  # chunk added no new tokens.
++        if update.mm_features:
++            features = sorted(
++                update.mm_features,
++                key=lambda feature: feature.mm_position.offset,
++            )
++            for index, feature in enumerate(features):
++                start = (
++                    segment_start_idx
++                    if index == 0
++                    else max(segment_start_idx, feature.mm_position.offset)
++                )
++                end = (
++                    features[index + 1].mm_position.offset
++                    if index + 1 < len(features)
++                    else new_num_tokens
++                )
++                if end <= start:
++                    continue
++                session.session_history.append(
++                    HistorySegment(
++                        segment_type="video",
++                        token_range=(start, end),
++                        mm_item_id=feature.identifier,
++                    )
++                )
++            return
++        session.session_history.append(
++            HistorySegment(
++                segment_type="user_text",
++                token_range=(segment_start_idx, new_num_tokens),
++            )
++        )
++
+     def _make_cached_request_data(
+         self,
+         running_reqs: list[Request],
+@@ -1271,6 +1561,11 @@ class Scheduler(SchedulerInterface):
+         kv_connector_output = model_runner_output.kv_connector_output
+         cudagraph_stats = model_runner_output.cudagraph_stats
+ 
++        for req_id, pos in model_runner_output.max_cached_positions.items():
++            req = self.requests.get(req_id)
++            if req is not None and pos > req.max_cached_position:
++                req.max_cached_position = pos
++
+         perf_stats: PerfStats | None = None
+         if self.perf_metrics and self.perf_metrics.is_enabled():
+             perf_stats = self.perf_metrics.get_step_perf_stats_per_gpu(scheduler_output)
+@@ -1353,6 +1648,48 @@ class Scheduler(SchedulerInterface):
+             kv_transfer_params = None
+             status_before_stop = request.status
+ 
++            if request.reprefill_discard_next_sample and new_token_ids:
++                request.reprefill_discard_next_sample = False
++                finished = self._handle_stopped_request(request)
++                if finished:
++                    # The finish sentinel was popped without check_stop ever
++                    # setting a finished status (the request is still
++                    # RUNNING); set one before _free_request, which asserts
++                    # is_finished().
++                    request.status = RequestStatus.FINISHED_ABORTED
++                    self._free_request(request)
++                if status_before_stop == RequestStatus.RUNNING:
++                    stopped_running_reqs.add(request)
++                else:
++                    stopped_preempted_reqs.add(request)
++                continue
++
++            sampling_extra_args = (
++                request.sampling_params.extra_args
++                if request.sampling_params is not None
++                else None
++            )
++            streaming_prefill_only = bool(
++                sampling_extra_args
++                and sampling_extra_args.get("streaming_prefill_only", False)
++            )
++            if (
++                request.resumable
++                and streaming_prefill_only
++                and request.num_computed_tokens >= request.num_tokens
++            ):
++                # The final prompt-token forward may have sampled one token.
++                # Suppress it and advance the resumable request without
++                # exposing a decode boundary to the caller.
++                finished = self._handle_stopped_request(request)
++                if finished:
++                    self._free_request(request)
++                if status_before_stop == RequestStatus.RUNNING:
++                    stopped_running_reqs.add(request)
++                else:
++                    stopped_preempted_reqs.add(request)
++                continue
++
+             # Check for stop and update request status.
+             if new_token_ids:
+                 new_token_ids, stopped = self._update_request_with_output(
+@@ -1363,6 +1700,36 @@ class Scheduler(SchedulerInterface):
+                 request.status = RequestStatus.FINISHED_STOPPED
+                 stopped = True
+ 
++            if new_token_ids and self.structured_output_manager.should_advance(request):
++                struct_output_request = request.structured_output_request
++                assert struct_output_request is not None
++                assert struct_output_request.grammar is not None
++                if not struct_output_request.grammar.accept_tokens(
++                    req_id, new_token_ids
++                ):
++                    # A grammar rejection ends only this streaming update. The
++                    # session remains resumable and resets its FSM on the next
++                    # update.
++                    if request.resumable:
++                        logger.warning(
++                            "Grammar rejected tokens %s for streaming request "
++                            "%s; cutting chunk short, session continues.",
++                            new_token_ids,
++                            req_id,
++                        )
++                        request.status = RequestStatus.FINISHED_STOPPED
++                        stopped = True
++                    else:
++                        logger.error(
++                            "Unexpected: grammar rejected tokens %s for "
++                            "request %s. Terminating request.",
++                            new_token_ids,
++                            req_id,
++                        )
++                        request.status = RequestStatus.FINISHED_ERROR
++                        request.resumable = False
++                        stopped = True
++
+             routed_experts = None
+             finish_reason = None
+             if stopped:
+@@ -1388,18 +1755,6 @@ class Scheduler(SchedulerInterface):
+             ):
+                 new_logprobs = logprobs.slice_request(req_index, len(new_token_ids))
+ 
+-            if new_token_ids and self.structured_output_manager.should_advance(request):
+-                struct_output_request = request.structured_output_request
+-                assert struct_output_request is not None
+-                assert struct_output_request.grammar is not None
+-                ok = struct_output_request.grammar.accept_tokens(req_id, new_token_ids)
+-                if not ok:
+-                    logger.warning(
+-                        "Unexpected: grammar rejected tokens %s for request %s.",
+-                        new_token_ids,
+-                        req_id,
+-                    )
+-
+             if num_nans_in_logits is not None and req_id in num_nans_in_logits:
+                 request.num_nans_in_logits = num_nans_in_logits[req_id]
+ 
+@@ -1517,16 +1872,55 @@ class Scheduler(SchedulerInterface):
+         if not request.resumable:
+             return True
+ 
++        if (
++            request.streaming_retention is None
++            and request.status == RequestStatus.FINISHED_LENGTH_CAPPED
++        ):
++            # Without retention nothing bounds the session prompt; keeping
++            # the session alive would let the next chunk push num_tokens past
++            # max_model_len and overflow max_model_len-sized worker buffers.
++            return True
++
++        output_folded = False
+         if request.streaming_queue:
+             update = request.streaming_queue.popleft()
+             if update is None:
+                 # Streaming request finished.
+                 return True
+             self._update_request_as_session(request, update)
++            if request.is_finished():
++                # The fold hit the cumulative context-length guard and the
++                # session was finished (and freed) inside
++                # _update_request_as_session. Return False so the caller
++                # does not free it a second time.
++                return False
++            output_folded = True
+         else:
+             request.status = RequestStatus.WAITING_FOR_STREAMING_REQ
+             self.num_waiting_for_streaming_input += 1
+ 
++        # Streaming re-prefill: if the session's mRoPE positions have
++        # approached the model's trained range, self-preempt and re-queue
++        # for a fresh full prefill at positions starting from 0.
++        if request.streaming_retention is not None and should_trigger_reprefill(
++            request,
++            request.streaming_retention,
++            self._model_max_position,
++        ):
++            if not output_folded:
++                prior_response_start = request.num_prompt_tokens
++                self._fold_kept_output(request)
++                if request.streaming_retention is not None:
++                    self._record_folded_output_segment(request, prior_response_start)
++
++            if request.status == RequestStatus.WAITING_FOR_STREAMING_REQ:
++                self.num_waiting_for_streaming_input -= 1
++            self._reprefill_streaming_session(
++                request, discard_next_sample=not output_folded
++            )
++            # The helper already prepended to the waiting queue.
++            return False
++
+         self.waiting.add_request(request)
+         return False
+ 
+@@ -1573,6 +1967,8 @@ class Scheduler(SchedulerInterface):
+         return new_token_ids, stopped
+ 
+     def _free_encoder_inputs(self, request: Request) -> None:
++        if request.uses_persistent_encoder_cache():
++            return
+         cached_encoder_input_ids = self.encoder_cache_manager.get_cached_input_ids(
+             request
+         )
+@@ -1675,7 +2071,66 @@ class Scheduler(SchedulerInterface):
+                 # Streaming-input session finished.
+                 self.finish_requests(request.request_id, RequestStatus.FINISHED_ABORTED)
+         else:
++            if request.request_id in self._finished_streaming_req_ids:
++                # Stale chunk (or finish sentinel) racing behind an abort of
++                # an already-finished streaming session. Admitting it would
++                # resurrect the session as an unreachable
++                # WAITING_FOR_STREAMING_REQ zombie that pins its KV blocks
++                # and persistent encoder-cache entries until server restart.
++                # A brand-new session's first chunk carries a fresh id, so it
++                # is never tombstoned.
++                logger.warning(
++                    "Dropping streaming request %s: its session already "
++                    "finished (stale post-abort chunk).",
++                    request.request_id,
++                )
++                return
++            if request.streaming_retention is not None:
++                if len(self.kv_cache_config.kv_cache_groups) != 1:
++                    raise ValueError(
++                        "Streaming retention (intra-session KV eviction) "
++                        "requires exactly one KV cache group, but this model "
++                        f"has {len(self.kv_cache_config.kv_cache_groups)}. "
++                        "Hybrid / attention-free models are not supported."
++                    )
++                retention = request.streaming_retention
++                if (
++                    retention.max_session_tokens
++                    >= retention.reprefill_threshold * self._model_max_position
++                ):
++                    raise ValueError(
++                        "Streaming retention max_session_tokens "
++                        f"({retention.max_session_tokens}) must stay below "
++                        "reprefill_threshold * model_max_position "
++                        f"({retention.reprefill_threshold} * "
++                        f"{self._model_max_position}); otherwise a re-prefill "
++                        "would re-trigger immediately and loop."
++                    )
++
++                if self.scheduler_config.async_scheduling:
++                    raise ValueError(
++                        "Streaming retention is incompatible with async "
++                        "scheduling. Launch with --no-async-scheduling."
++                    )
++                if self.use_pp:
++                    raise ValueError(
++                        "Streaming retention is incompatible with pipeline "
++                        "parallelism (step overlap). Use pipeline_parallel_"
++                        "size=1."
++                    )
++                if not self.vllm_config.model_config.uses_mrope:
++                    raise ValueError(
++                        "Streaming retention (intra-session KV eviction) is "
++                        "only supported for mRoPE models; this model does not "
++                        "use mRoPE."
++                    )
+             if request.resumable:
++                if self.vllm_config.parallel_config.data_parallel_size > 1:
++                    raise ValueError(
++                        "Streaming input sessions require data_parallel_size "
++                        "== 1 (per-chunk DP routing would split the session "
++                        "across engines)."
++                    )
+                 request.streaming_queue = deque()
+             self.waiting.add_request(request)
+             self.requests[request.request_id] = request
+@@ -1750,11 +2205,20 @@ class Scheduler(SchedulerInterface):
+         assert request.is_finished()
+ 
+         connector_delay_free_blocks, kv_xfer_params = self._connector_finished(request)
+-        self.encoder_cache_manager.free(request)
++        if request.uses_persistent_encoder_cache():
++            self.encoder_cache_manager.free_and_evict(request)
++        else:
++            self.encoder_cache_manager.free(request)
+         request_id = request.request_id
+         self.finished_req_ids.add(request_id)
+         if self.finished_req_ids_dict is not None:
+             self.finished_req_ids_dict[request.client_index].add(request_id)
++        if request.resumable:
++            # Tombstone the session id so a stale post-abort chunk ADD
++            # cannot resurrect it (see add_request).
++            self._finished_streaming_req_ids[request_id] = None
++            while len(self._finished_streaming_req_ids) > _STREAMING_TOMBSTONE_CAP:
++                self._finished_streaming_req_ids.popitem(last=False)
+ 
+         delay_free_blocks |= connector_delay_free_blocks
+         if not delay_free_blocks:
+diff --git a/vllm/v1/core/single_type_kv_cache_manager.py b/vllm/v1/core/single_type_kv_cache_manager.py
+index 8f2c6be..262063d 100644
+--- a/vllm/v1/core/single_type_kv_cache_manager.py
++++ b/vllm/v1/core/single_type_kv_cache_manager.py
+@@ -290,6 +290,63 @@ class SingleTypeKVCacheManager(ABC):
+         self.block_pool.free_blocks(ordered_blocks)
+         self.num_cached_block.pop(request_id, None)
+ 
++    def evict_blocks_for_request(
++        self, request_id: str, block_ids: list[int]
++    ) -> int:
++        """Free a subset of the request's blocks while the request stays alive.
++
++        Used by streaming-video intra-session eviction.
++
++        `num_cached_block` is decremented by the count of evicted blocks
++        that had a hash (i.e., were prefix-cacheable).
++
++        Args:
++            request_id: The request to evict from.
++            block_ids: Physical block IDs to free. Need not be in any
++                particular order; the function looks them up in
++                `req_to_blocks`. Caller is responsible for selecting a
++                contiguous range that corresponds to a session segment.
++
++        Returns:
++            Number of blocks whose memory was actually reclaimed, i.e.
++            blocks that reached `ref_cnt == 0` and were returned to the
++            free queue. Blocks still shared with another request
++            (`ref_cnt > 0` after the dereference) are dropped from this
++            request's table but NOT counted, since their memory is not
++            reclaimed.
++        """
++        req_blocks = self.req_to_blocks.get(request_id)
++        if not req_blocks or not block_ids:
++            return 0
++        block_id_set = set(block_ids)
++        surviving: list[KVCacheBlock] = []
++        blocks_to_free: list[KVCacheBlock] = []
++        for block in req_blocks:
++            if block.block_id in block_id_set and not block.is_null:
++                blocks_to_free.append(block)
++            else:
++                surviving.append(block)
++        if not blocks_to_free:
++            return 0
++        self.req_to_blocks[request_id] = surviving
++        # Free in reverse order so the tail blocks (most recently allocated)
++        # are evicted first — matches the LRU convention in `free`.
++        self.block_pool.free_blocks(reversed(blocks_to_free))
++        if self.enable_caching:
++            # Count cached blocks BEFORE evict_blocks clears their hashes.
++            cached_freed = sum(
++                1 for b in blocks_to_free if b.block_hash is not None
++            )
++            self.block_pool.evict_blocks(
++                {b.block_id for b in blocks_to_free}
++            )
++            if cached_freed and request_id in self.num_cached_block:
++                self.num_cached_block[request_id] = max(
++                    0, self.num_cached_block[request_id] - cached_freed
++                )
++
++        return sum(1 for b in blocks_to_free if b.ref_cnt == 0)
++
+     @abstractmethod
+     def get_num_common_prefix_blocks(self, running_request_id: str) -> int:
+         """
+diff --git a/vllm/v1/engine/async_llm.py b/vllm/v1/engine/async_llm.py
+index 6be0a07..9c553c6 100644
+--- a/vllm/v1/engine/async_llm.py
++++ b/vllm/v1/engine/async_llm.py
+@@ -463,6 +463,8 @@ class AsyncLLM(EngineClient):
+ 
+         async def handle_inputs():
+             cancelled = False
++            errored = False
++            any_added = False
+             try:
+                 async for input_chunk in input_stream:
+                     sp = input_chunk.sampling_params
+@@ -479,6 +481,11 @@ class AsyncLLM(EngineClient):
+                         **inputs,  # type: ignore[arg-type]
+                     )
+                     req.external_req_id = request_id
++                    # Salt the session's prefix-cache hash chain: streaming
++                    # eviction/re-prefill change the KV content without
++                    # changing the content-chain hashes, so the session's
++                    # blocks must never be shareable with other requests.
++                    req.cache_salt = internal_req_id
+                     if req.prompt_embeds is not None:
+                         raise ValueError(
+                             "prompt_embeds not supported for streaming inputs"
+@@ -487,18 +494,29 @@ class AsyncLLM(EngineClient):
+                         self.model_config, input_chunk.prompt
+                     )
+                     await self._add_request(req, prompt_text, None, 0, queue)
++                    any_added = True
+             except (asyncio.CancelledError, GeneratorExit):
+                 cancelled = True
+             except Exception as error:
+                 # Wrap in InputStreamError so generate() can propagate it
+                 # without wrapping in EngineGenerateError.
+                 queue.put(InputStreamError(error))
++                errored = True
+             finally:
+                 queue._input_stream_task = None
+                 if not cancelled:
+-                    # Send empty final request to indicate that inputs have
+-                    # finished. Don't send if cancelled (session was aborted).
+-                    await self._add_request(final_req, None, None, 0, queue)
++                    if any_added:
++                        # Send empty final request to indicate that inputs have
++                        # finished. Don't send if cancelled (session was
++                        # aborted).
++                        await self._add_request(final_req, None, None, 0, queue)
++                    elif not errored:
++                        # Zero-chunk stream: no engine-side request was ever
++                        # created, so there is nothing to finish - just
++                        # unblock the generate() consumer. (If an error was
++                        # queued, generate()'s InputStreamError handler takes
++                        # over instead.)
++                        queue.put(STREAM_FINISHED)
+ 
+         # Ensure output handler is running.
+         self._run_output_handler()
+@@ -522,6 +540,21 @@ class AsyncLLM(EngineClient):
+                 "or with stop strings."
+             )
+ 
++    @staticmethod
++    async def _stop_input_stream(q: RequestOutputCollector) -> None:
++        """Cancel AND await the input-stream task (if any).
++
++        Must run before aborting the request: q.close() only cancels without
++        awaiting, leaving a window where an already-started chunk add
++        completes its send AFTER the abort - a post-abort resumable ADD
++        would resurrect the session engine-side as an unabortable request
++        pinning KV blocks and encoder-cache entries.
++        """
++        if (task := q._input_stream_task) is not None:
++            task.cancel()
++            await asyncio.gather(task, return_exceptions=True)
++            q._input_stream_task = None
++
+     # TODO: we should support multiple prompts in one call, as you
+     # can do with LLM.generate. So that for multi-prompt completion
+     # requests we don't need to send multiple messages to core proc,
+@@ -594,6 +627,7 @@ class AsyncLLM(EngineClient):
+         # we abort the request if we end up here.
+         except (asyncio.CancelledError, GeneratorExit):
+             if q is not None:
++                await self._stop_input_stream(q)
+                 await self.abort(q.request_id, internal=True)
+             if self.log_requests:
+                 logger.info("Request %s aborted.", request_id)
+@@ -614,6 +648,7 @@ class AsyncLLM(EngineClient):
+         # Error from input stream generator - propagate directly.
+         except InputStreamError as e:
+             if q is not None:
++                await self._stop_input_stream(q)
+                 await self.abort(q.request_id, internal=True)
+             if self.log_requests:
+                 logger.info("Request %s failed (input error): %s.", request_id, e)
+@@ -622,6 +657,7 @@ class AsyncLLM(EngineClient):
+         # Unexpected error in the generate() task (possibly recoverable).
+         except Exception as e:
+             if q is not None:
++                await self._stop_input_stream(q)
+                 await self.abort(q.request_id, internal=True)
+             if self.log_requests:
+                 try:
+diff --git a/vllm/v1/engine/core_client.py b/vllm/v1/engine/core_client.py
+index 7e1f1cf..199b24c 100644
+--- a/vllm/v1/engine/core_client.py
++++ b/vllm/v1/engine/core_client.py
+@@ -1359,6 +1359,10 @@ class DPLBAsyncMPClient(DPAsyncMPClient):
+         ) // client_count
+ 
+     def get_core_engine_for_request(self, request: EngineCoreRequest) -> EngineIdentity:
++        # Keep every append, sentinel, and abort on the engine that owns the
++        # request's streaming state.
++        if (engine := self.reqs_in_flight.get(request.request_id)) is not None:
++            return engine
+         # Engines are in rank order.
+         if (eng_index := request.data_parallel_rank) is None:
+             current_counts = self.lb_engines
+diff --git a/vllm/v1/engine/output_processor.py b/vllm/v1/engine/output_processor.py
+index f9e9650..5c280d8 100644
+--- a/vllm/v1/engine/output_processor.py
++++ b/vllm/v1/engine/output_processor.py
+@@ -54,42 +54,65 @@ class RequestOutputCollector:
+     def __init__(self, output_kind: RequestOutputKind, request_id: str):
+         self.aggregate = output_kind == RequestOutputKind.DELTA
+         self.request_id = request_id
+-        self.output: RequestOutput | PoolingRequestOutput | Exception | None = None
++        # Pending outputs, oldest first. New outputs merge into the newest
++        # entry, EXCEPT into one that is finished or carries a finish_reason:
++        # for streaming-input sessions such outputs are per-chunk boundary
++        # markers and merging would erase them. For non-streaming requests a
++        # finish_reason output is always the last one put, so the gate never
++        # changes their behavior.
++        self.outputs: deque[RequestOutput | PoolingRequestOutput | Exception] = deque()
+         self.ready = asyncio.Event()
+ 
+         self._input_stream_task: asyncio.Task | None = None
+ 
++    @property
++    def output(self) -> RequestOutput | PoolingRequestOutput | Exception | None:
++        """Newest pending output, or None if drained (for introspection)."""
++        return self.outputs[-1] if self.outputs else None
++
+     def put(self, output: RequestOutput | PoolingRequestOutput | Exception) -> None:
+         """Non-blocking put operation."""
+-        if self.output is None or isinstance(output, Exception):
+-            self.output = output
++        if isinstance(output, Exception):
++            # Exceptions preempt any pending outputs.
++            self.outputs.clear()
++            self.outputs.append(output)
+             self.ready.set()
+-        elif isinstance(self.output, RequestOutput) and isinstance(
+-            output, RequestOutput
++            return
++        tail = self.outputs[-1] if self.outputs else None
++        if (
++            isinstance(tail, RequestOutput)
++            and isinstance(output, RequestOutput)
++            and not tail.finished
++            and all(c.finish_reason is None for c in tail.outputs)
+         ):
+             # This ensures that request outputs with different request indexes
+             # (if n > 1) do not override each other.
+-            self.output.add(output, aggregate=self.aggregate)
+-        elif isinstance(self.output, PoolingRequestOutput) and isinstance(
++            tail.add(output, aggregate=self.aggregate)
++        elif isinstance(tail, PoolingRequestOutput) and isinstance(
+             output, PoolingRequestOutput
+         ):
+-            self.output = output
++            self.outputs[-1] = output
++        else:
++            self.outputs.append(output)
++            self.ready.set()
+ 
+     async def get(self) -> RequestOutput | PoolingRequestOutput:
+         """Get operation blocks on put event."""
+-        while (output := self.output) is None:
++        while not self.outputs:
+             await self.ready.wait()
+-        self.output = None
+-        self.ready.clear()
++        output = self.outputs.popleft()
++        if not self.outputs:
++            self.ready.clear()
+         if isinstance(output, Exception):
+             raise output
+         return output
+ 
+     def get_nowait(self) -> RequestOutput | PoolingRequestOutput | None:
+         """Non-blocking get operation."""
+-        output = self.output
+-        if output is not None:
+-            self.output = None
++        if not self.outputs:
++            return None
++        output = self.outputs.popleft()
++        if not self.outputs:
+             self.ready.clear()
+         if isinstance(output, Exception):
+             raise output
+@@ -635,6 +658,14 @@ class OutputProcessor:
+                 # if required.
+                 req_state.logprobs_processor.update_from_output(engine_core_output)
+ 
++            # An engine-initiated ABORT/ERROR of a streaming-input session is
++            # terminal for the session; it must not be masked as a per-chunk
++            # boundary (which would wedge the session driver and desync the
++            # frontend/scheduler chunk queues).
++            streaming_chunk_boundary = req_state.streaming_input and (
++                finish_reason not in (FinishReason.ABORT, FinishReason.ERROR)
++            )
++
+             # 4) Create and handle RequestOutput objects.
+             if request_output := req_state.make_request_output(
+                 new_token_ids,
+@@ -644,7 +675,7 @@ class OutputProcessor:
+                 kv_transfer_params,
+                 routed_experts,
+             ):
+-                if req_state.streaming_input:
++                if streaming_chunk_boundary:
+                     request_output.finished = False
+ 
+                 if req_state.queue is not None:
+@@ -656,7 +687,7 @@ class OutputProcessor:
+ 
+             # Free completed requests.
+             if finish_reason is not None:
+-                if req_state.streaming_input:
++                if streaming_chunk_boundary:
+                     if req_state.input_chunk_queue:
+                         update = req_state.input_chunk_queue.popleft()
+                         req_state.apply_streaming_update(update)
+@@ -664,9 +695,13 @@ class OutputProcessor:
+                         req_state.input_chunk_queue = None
+                 else:
+                     self._finish_request(req_state)
+-                    if not engine_core_output.finished:
++                    if req_state.streaming_input or not engine_core_output.finished:
+                         # If req not finished in EngineCore, but Detokenizer
+                         # detected stop string, abort needed in EngineCore.
++                        # For an aborted/errored streaming session, the
++                        # scheduler-side request may still be live (e.g. a
++                        # per-chunk preprocess error); abort is idempotent,
++                        # so always route one.
+                         reqs_to_abort.append(req_id)
+ 
+                     # Track per-request stats
+diff --git a/vllm/v1/outputs.py b/vllm/v1/outputs.py
+index 22b06f0..211e395 100644
+--- a/vllm/v1/outputs.py
++++ b/vllm/v1/outputs.py
+@@ -247,6 +247,10 @@ class ModelRunnerOutput:
+     # information related to cudagraph execution
+     cudagraph_stats: CUDAGraphStat | None = None
+ 
++    # Streaming: worker-assigned `max_cached_position` per request whose mRoPE
++    # state was (re)initialized or extended this step.
++    max_cached_positions: dict[str, int] = field(default_factory=dict)
++
+ 
+ # ModelRunnerOutput wrapper for async scheduling.
+ class AsyncModelRunnerOutput(ABC):
+diff --git a/vllm/v1/request.py b/vllm/v1/request.py
+index 85ca90d..ec2b854 100644
+--- a/vllm/v1/request.py
++++ b/vllm/v1/request.py
+@@ -21,6 +21,7 @@ from vllm.v1.engine import (
+     EngineCoreRequest,
+     FinishReason,
+ )
++from vllm.v1.streaming.retention import HistorySegment, StreamingRetentionParams
+ from vllm.v1.structured_output.request import StructuredOutputRequest
+ from vllm.v1.utils import ConstantList
+ 
+@@ -39,7 +40,6 @@ class StreamingUpdate:
+ 
+     mm_features: list[MultiModalFeatureSpec] | None
+     prompt_token_ids: list[int] | None
+-    max_tokens: int
+     arrival_time: float
+     sampling_params: SamplingParams | None
+ 
+@@ -50,7 +50,6 @@ class StreamingUpdate:
+         return cls(
+             mm_features=request.mm_features,
+             prompt_token_ids=request.prompt_token_ids,
+-            max_tokens=request.max_tokens,
+             arrival_time=request.arrival_time,
+             sampling_params=request.sampling_params,
+         )
+@@ -94,6 +93,10 @@ class Request:
+ 
+         # P/D: Connector-specific KV transfer parameters.
+         self.kv_transfer_params: dict[str, Any] | None = None
++        # Per-session retention config (read from
++        # `sampling_params.extra_args["streaming_retention"]` below);
++        # preserved across chunks by `_update_request_as_session`.
++        self.streaming_retention: StreamingRetentionParams | None = None
+ 
+         if pooling_params is not None:
+             # Pooling models.
+@@ -109,6 +112,12 @@ class Request:
+                 self.kv_transfer_params = sampling_params.extra_args.get(
+                     "kv_transfer_params"
+                 )
++                _retention = sampling_params.extra_args.get("streaming_retention")
++                if isinstance(_retention, StreamingRetentionParams):
++                    self.streaming_retention = _retention  # in-process API
++                elif isinstance(_retention, dict):
++                    # Cross-process IPC: arrives as a plain dict.
++                    self.streaming_retention = StreamingRetentionParams(**_retention)
+         else:
+             raise ValueError("sampling_params and pooling_params can't both be unset")
+ 
+@@ -127,6 +136,14 @@ class Request:
+             else [0] * self.num_prompt_tokens
+         )
+ 
++        # Per-token mRoPE positions, in lockstep with `_all_token_ids`.
++        # Populated lazily by the model runner on first prefill; extended per
++        # streaming chunk. `max_cached_position` is the highest position number
++        # in the KV cache; eviction never decrements it, so positions may have
++        # gaps after eviction.
++        self._mrope_positions: list[tuple[int, int, int]] = []
++        self.max_cached_position: int = -1
++
+         # Used in async scheduling.
+         self.num_output_placeholders = 0
+         # Used in forced preemption (reset_prefix_cache) with async scheduling.
+@@ -177,6 +194,27 @@ class Request:
+         # None entry in the queue means finished.
+         self.streaming_queue: deque[StreamingUpdate | None] | None = None
+ 
++        # Per-session segment bookkeeping: filled by the scheduler as chunks
++        # arrive, consumed by `streaming.eviction` when over budget.
++        self.session_history: list[HistorySegment] = []
++        # Token ranges evicted scheduler-side since the last worker update,
++        # each in the _all_token_ids index space at eviction time. Drained
++        # into `NewRequestData.evicted_token_ranges` and replayed on the
++        # worker to slice its mrope_positions in lockstep.
++        self.pending_evicted_token_ranges: list[tuple[int, int]] = []
++
++        # Re-prefill bookkeeping. `reprefill_count` is observability only.
++        # `pending_reprefill` is set by `_reprefill_streaming_session` and
++        # drained into `NewRequestData.is_reprefill`, telling the worker to
++        # reset mRoPE to 0 (vs. eviction, which only slices it).
++        self.reprefill_count: int = 0
++        self.pending_reprefill: bool = False
++        # A re-prefill must sample >=1 token to complete. When the trigger
++        # found the session idle between frames, that token is a phantom
++        # caption and this tells `update_from_output` to discard it. When a
++        # queued chunk was folded first, the first sample is genuine output.
++        self.reprefill_discard_next_sample: bool = False
++
+     @property
+     @deprecated(
+         "Request.eos_token_id will be removed in v0.18. "
+@@ -277,6 +315,20 @@ class Request:
+         assert input_id < len(self.mm_features)
+         return self.mm_features[input_id].mm_position.get_num_embeds()
+ 
++    def uses_persistent_encoder_cache(self) -> bool:
++        """True if encoder cache entries should live until their segment is
++        evicted, rather than be freed after each chunk's forward pass.
++
++        Re-prefill-enabled sessions need the surviving embeddings available at
++        the next re-prefill so the encoder need not re-run on every retained
++        frame. A `reprefill_threshold >= 1.0` (disabled) falls back to
++        per-chunk freeing.
++        """
++        return (
++            self.streaming_retention is not None
++            and self.streaming_retention.reprefill_threshold < 1.0
++        )
++
+     def record_event(
+         self,
+         event_type: EngineCoreEventType,
+diff --git a/vllm/v1/streaming/__init__.py b/vllm/v1/streaming/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/vllm/v1/streaming/eviction.py b/vllm/v1/streaming/eviction.py
+new file mode 100644
+index 0000000..d0d5f67
+--- /dev/null
++++ b/vllm/v1/streaming/eviction.py
+@@ -0,0 +1,443 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++"""Intra-session KV eviction for streaming sessions.
++
++A sliding-window policy drops the oldest video segments from a live
++session once the segment count exceeds the retention budget, keeping
++long-running captioning within its KV budget.
++
++`evict_segment` is the unit step: it frees the segment's KV blocks,
++drops its encoder cache entry, and removes the segment's tokens and
++mRoPE positions from the request's lockstep arrays. Surviving segments'
++`token_range` fields shift down by the evicted length so they stay valid
++against the compacted arrays.
++
++mRoPE position VALUES are NOT shifted: surviving tokens keep their
++original coordinates, so the position space develops gaps. That is what
++keeps cached K/V rotationally consistent — each surviving token's K was
++rotated under its original position, which is still what RoPE pairs with
++the new chunk's queries.
++"""
++
++from __future__ import annotations
++
++import contextlib
++from dataclasses import replace
++from typing import TYPE_CHECKING
++
++from vllm.v1.streaming.retention import HistorySegment, StreamingRetentionParams
++
++if TYPE_CHECKING:
++    from vllm.v1.core.encoder_cache_manager import EncoderCacheManager
++    from vllm.v1.core.kv_cache_manager import KVCacheManager
++    from vllm.v1.request import Request
++
++
++def evict_segment(
++    request: Request,
++    segment: HistorySegment,
++    kv_cache_manager: KVCacheManager,
++    encoder_cache_manager: EncoderCacheManager,
++) -> None:
++    """Drop one history segment from a live session.
++
++    `segment` may be a single segment OR a packed blob from
++    `_pack_oldest_run_to_free_block`; the logic keys off the token range, so
++    it handles either. All effects run in lockstep, so the caller must have
++    validated the victim already:
++
++      1. Free the segment's KV blocks (back to the free pool).
++      2. Release the encoder entry and drop the `MultiModalFeatureSpec` for
++         every mm item in the range (one per video, several per blob, none
++         for text).
++      3. Delete the segment's slice of `_all_token_ids` / `_mrope_positions`.
++      4. Shift later features' `mm_position.offset` down.
++      5. Shift later segments' `token_range` down.
++      6. Decrement `num_prompt_tokens` and `num_computed_tokens`.
++      7. Remove the segment from `session_history`.
++    """
++    if segment.pinned:
++        raise ValueError(
++            f"refusing to evict pinned segment {segment.segment_type} "
++            f"at {segment.token_range}"
++        )
++    raw_start, raw_end = segment.token_range
++    if raw_end <= raw_start:
++        # Zombie: neighbour-clipping shrank it to nothing; just retire it.
++        with contextlib.suppress(ValueError):
++            request.session_history.remove(segment)
++        return
++
++    # Clamp to the computed frontier before freeing (see Invariants); must
++    # precede `evict_token_range_for_request`, which frees blocks eagerly.
++    raw_end = min(raw_end, request.num_computed_tokens)
++    if raw_end <= raw_start:
++        return  # nothing below the frontier is evictable
++
++    # 1. Free KV blocks; the manager returns the block-aligned range freed.
++    start, end, _ = kv_cache_manager.evict_token_range_for_request(
++        request.request_id, raw_start, raw_end
++    )
++    evicted_len = end - start
++    if evicted_len <= 0:
++        return  # freed no whole block; leave it (the caller pre-filters)
++
++    # Worker replays these ranges to slice mrope_positions, in arrival order.
++    request.pending_evicted_token_ranges.append((start, end))
++
++    # 2. Free encoder entries + drop mm_features overlapping the freed range
++    # (one per video, several per blob). Reverse + in-place: the worker shares
++    # this list, and front-to-back deletion would shift unvisited indices.
++    for input_id in range(len(request.mm_features) - 1, -1, -1):
++        feature = request.mm_features[input_id]
++        f_offset = feature.mm_position.offset
++        f_end = f_offset + feature.mm_position.length
++        if not (f_offset < end and f_end > start):
++            continue
++        encoder_cache_manager.free_encoder_input(request, input_id)
++        encoder_cache_manager.evict_unreferenced(feature.identifier)
++        del request.mm_features[input_id]
++        # Engine receiver cache is left alone (streaming forces mm cache off).
++
++    # 3. Compact the lockstep token arrays by the block-aligned range.
++    del request._all_token_ids[start:end]
++    if len(request._mrope_positions) >= end:
++        del request._mrope_positions[start:end]
++
++    # 4. Shift later mm_features' offsets down by the evicted length.
++    for feature in request.mm_features:
++        if feature.mm_position.offset >= end:
++            feature.mm_position = replace(
++                feature.mm_position,
++                offset=feature.mm_position.offset - evicted_len,
++            )
++
++    # 5. Shift later segments down, trim neighbours the freed range cut into,
++    # and absorb the edge orphans into a neighbour (forward normally, backward
++    # if the victim was the last segment).
++    zombies_to_drop: list[HistorySegment] = []
++    next_after_evicted: HistorySegment | None = None
++    prev_before_evicted: HistorySegment | None = None
++    for other in request.session_history:
++        if other is segment:
++            continue
++        o_start, o_end = other.token_range
++        if o_start >= end and (
++            next_after_evicted is None or o_start < next_after_evicted.token_range[0]
++        ):
++            next_after_evicted = other
++        if (
++            not other.pinned
++            and o_end <= start
++            and (
++                prev_before_evicted is None
++                or o_end > prev_before_evicted.token_range[1]
++            )
++        ):
++            prev_before_evicted = other
++
++    for other in request.session_history:
++        if other is segment:
++            continue
++        o_start, o_end = other.token_range
++        if o_start >= end:
++            new_start = o_start - evicted_len
++            if other is next_after_evicted:
++                new_start = raw_start  # absorb the orphans against the victim
++            other.token_range = (new_start, o_end - evicted_len)
++        elif o_end > start:
++            # Freed range cut into this neighbour; trim it (drop if empty).
++            new_start = min(o_start, start)
++            new_end_calc = o_end - evicted_len
++            if new_end_calc <= new_start:
++                zombies_to_drop.append(other)
++            else:
++                other.token_range = (new_start, new_end_calc)
++
++    # Backward absorption: no following segment, so extend the preceding one
++    # over the residue tail (ends at start + (raw_end - end)).
++    if next_after_evicted is None and prev_before_evicted is not None:
++        residue_end = start + (raw_end - end)
++        p_start, p_end = prev_before_evicted.token_range
++        if residue_end > p_end:
++            prev_before_evicted.token_range = (p_start, residue_end)
++
++    for z in zombies_to_drop:
++        with contextlib.suppress(ValueError):
++            request.session_history.remove(z)
++
++    # 6. Decrement counters.
++    request.num_prompt_tokens = max(0, request.num_prompt_tokens - evicted_len)
++    request.num_computed_tokens = max(0, request.num_computed_tokens - evicted_len)
++    # `all_token_ids` is a view onto `_all_token_ids`, so it tracks already.
++    if request.prompt_token_ids is not None:
++        del request.prompt_token_ids[start : min(end, len(request.prompt_token_ids))]
++
++    # Trim block_hashes to match the compacted block table. NOTE: this only
++    # splices the list; the surviving hash VALUES still chain over the evicted
++    # content. Streaming sessions therefore set cache_salt (async_llm.py) so
++    # these blocks are never shareable with other requests.
++    bs = kv_cache_manager.coordinator.single_type_managers[0].block_size
++    del request.block_hashes[start // bs : end // bs]
++
++    # 7. Remove the segment from history.
++    request.session_history.remove(segment)
++
++
++_TEXT_SEGMENT_TYPES = ("user_text", "assistant_text")
++
++
++def _block_size(kv_cache_manager: KVCacheManager) -> int:
++    """Smallest block size across kv-cache groups. The eviction primitive
++    rounds INWARD to whole blocks, so a segment shorter than this can't
++    free any KV — phase 2 uses this to filter unevictable text segments."""
++    managers = kv_cache_manager.coordinator.single_type_managers
++    return min(m.block_size for m in managers)
++
++
++def _frees_block(token_range: tuple[int, int], block_size: int) -> bool:
++    """True if inward block-rounding of `[start, end)` frees at least one
++    WHOLE block."""
++    start, end = token_range
++    return (end // block_size) > ((start + block_size - 1) // block_size)
++
++
++def _coalesce_adjacent_text(request: Request, block_size: int) -> int:
++    """Merge runs of adjacent, contiguous, same-type, unpinned text
++    segments so a stack of short captions becomes one segment big enough
++    for inward-rounded eviction to free a block. Returns segments removed.
++    """
++
++    hist = request.session_history
++    n = len(hist)
++    new_hist: list[HistorySegment] = []
++    merges = 0
++    i = 0
++    while i < n:
++        seg = hist[i]
++        if seg.pinned or seg.segment_type not in _TEXT_SEGMENT_TYPES:
++            new_hist.append(seg)
++            i += 1
++            continue
++        # Collect a maximal contiguous, same-type, unpinned text run.
++        run = [seg]
++        j = i + 1
++        while j < n:
++            nxt = hist[j]
++            if (
++                nxt.pinned
++                or nxt.segment_type != seg.segment_type
++                or nxt.token_range[0] != run[-1].token_range[1]
++            ):
++                break
++            run.append(nxt)
++            j += 1
++        # Group consecutive members until each group's span frees a block.
++        group_start = 0
++        k = 0
++        while k < len(run):
++            group = run[group_start : k + 1]
++            span = (group[0].token_range[0], group[-1].token_range[1])
++            at_run_end = k == len(run) - 1
++            if _frees_block(span, block_size) or at_run_end:
++                if len(group) == 1:
++                    new_hist.append(group[0])
++                else:
++                    new_hist.append(
++                        HistorySegment(
++                            segment_type=seg.segment_type,
++                            token_range=span,
++                            mm_item_id=None,
++                            pinned=False,
++                            age_chunks=min(g.age_chunks for g in group),
++                        )
++                    )
++                    merges += len(group) - 1
++                group_start = k + 1
++            k += 1
++        i = j
++    if merges:
++        hist[:] = new_hist
++    return merges
++
++
++def _pack_oldest_run_to_free_block(
++    request: Request, block_size: int
++) -> HistorySegment | None:
++    """Last-resort packing: glue the OLDEST run of adjacent unpinned
++    segments — regardless of type — into one block-freeing blob, swap it
++    into `session_history`, and return it for the caller to evict. Returns
++    None if even the maximally-extended oldest run can't free a block.
++    """
++    hist = request.session_history
++    n = len(hist)
++    # Oldest unpinned segment (the run's anchor).
++    i = 0
++    while i < n and hist[i].pinned:
++        i += 1
++    if i >= n:
++        return None
++    # Extend a contiguous, unpinned run from i until its span frees a block.
++    j = i
++    while True:
++        span = (hist[i].token_range[0], hist[j].token_range[1])
++        if _frees_block(span, block_size):
++            break
++        nxt = j + 1
++        if (
++            nxt >= n
++            or hist[nxt].pinned
++            or hist[nxt].token_range[0] != hist[j].token_range[1]
++            # Never pack past the computed frontier: the just-appended
++            # chunk's segments have no KV yet, so `evict_segment` would
++            # clamp to `num_computed_tokens` and no-op AFTER the run was
++            # already destructively merged in `session_history`.
++            or hist[nxt].token_range[1] > request.num_computed_tokens
++        ):
++            # Maximally-extended oldest run still can't free a block.
++            return None
++        j = nxt
++    if j == i:
++        return None  # a single freeable segment; the caller already handles it
++    run = hist[i : j + 1]
++    merged = HistorySegment(
++        segment_type=run[0].segment_type,
++        token_range=(run[0].token_range[0], run[-1].token_range[1]),
++        mm_item_id=None,
++        pinned=False,
++        age_chunks=min(s.age_chunks for s in run),
++    )
++    hist[i : j + 1] = [merged]
++    return merged
++
++
++def maybe_evict_old_segments(
++    request: Request,
++    retention: StreamingRetentionParams,
++    kv_cache_manager: KVCacheManager,
++    encoder_cache_manager: EncoderCacheManager,
++) -> int:
++    """Run the sliding-window retention policy; return segments evicted.
++
++    Called after a chunk is appended, so `session_history` already includes
++    the new chunk's segments. Three sequential phases:
++
++      1. Video budget. Drop oldest unpinned `video` segments until
++         `len(videos) <= max_video_segments`. Vision tokens cost the most,
++         so this fires first.
++      2. Text budget (if `max_text_tokens` set). Drop oldest unpinned text
++         segments until non-pinned text tokens <= `max_text_tokens`.
++      3. Safety net (if `max_session_tokens` set). Drop the oldest unpinned
++         segment while `num_prompt_tokens > max_session_tokens` — the hard
++         guarantee against drift past `max_model_len`.
++    """
++    if retention.eviction_policy != "sliding_window":
++        raise NotImplementedError(
++            f"eviction policy {retention.eviction_policy!r} is not yet supported"
++        )
++
++    evicted = 0
++    block_size = _block_size(kv_cache_manager)
++
++    # Phase 1: video budget (oldest freeable video first).
++    while True:
++        all_video_segments = [
++            s
++            for s in request.session_history
++            if s.segment_type == "video"
++        ]
++        if len(all_video_segments) <= retention.max_video_segments:
++            break
++        video_segments = [s for s in all_video_segments if not s.pinned]
++        # age_chunks > 0 skips the new chunk (its tokens have no KV yet).
++        victim = next(
++            (
++                s
++                for s in video_segments
++                if s.age_chunks > 0 and _frees_block(s.token_range, block_size)
++            ),
++            None,
++        )
++        if victim is None:
++            break
++        evict_segment(
++            request,
++            victim,
++            kv_cache_manager,
++            encoder_cache_manager,
++        )
++        evicted += 1
++
++    # Coalesce captions made adjacent by phase-1 eviction (see helper).
++    _coalesce_adjacent_text(request, block_size)
++
++    # Phase 2: text budget.
++    if retention.max_text_tokens is not None:
++        while True:
++            non_pinned_text = [
++                s
++                for s in request.session_history
++                if s.segment_type in _TEXT_SEGMENT_TYPES and not s.pinned
++            ]
++            text_token_count = sum(
++                s.token_range[1] - s.token_range[0] for s in non_pinned_text
++            )
++            if text_token_count <= retention.max_text_tokens:
++                break
++            # `age_chunks > 0` skips the new chunk's own segment — see Phase 1.
++            evictable = [
++                s
++                for s in non_pinned_text
++                if s.age_chunks > 0 and _frees_block(s.token_range, block_size)
++            ]
++            if not evictable:
++                break
++            oldest = evictable[0]
++            evict_segment(
++                request,
++                oldest,
++                kv_cache_manager,
++                encoder_cache_manager,
++            )
++            evicted += 1
++
++    # Phase 3: total-size backstop.
++    if retention.max_session_tokens is not None:
++        while request.num_prompt_tokens > retention.max_session_tokens:
++            unpinned = [s for s in request.session_history if not s.pinned]
++            if not unpinned:
++                break
++            # `age_chunks > 0` skips the new chunk's own segment — see Phase 1.
++            victim = next(
++                (
++                    s
++                    for s in unpinned
++                    if s.age_chunks > 0 and _frees_block(s.token_range, block_size)
++                ),
++                None,
++            )
++            if victim is None and _coalesce_adjacent_text(request, block_size):
++                victim = next(
++                    (
++                        s
++                        for s in request.session_history
++                        if not s.pinned
++                        and s.age_chunks > 0
++                        and _frees_block(s.token_range, block_size)
++                    ),
++                    None,
++                )
++            if victim is None:
++                victim = _pack_oldest_run_to_free_block(request, block_size)
++            if victim is None:
++                break
++            evict_segment(
++                request,
++                victim,
++                kv_cache_manager,
++                encoder_cache_manager,
++            )
++            evicted += 1
++
++    return evicted
+diff --git a/vllm/v1/streaming/mrope.py b/vllm/v1/streaming/mrope.py
+new file mode 100644
+index 0000000..dffb3ee
+--- /dev/null
++++ b/vllm/v1/streaming/mrope.py
+@@ -0,0 +1,79 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++"""mRoPE position helpers for streaming sessions.
++
++A streaming session is one long-lived request that grows by one chunk per
++frame. For each new chunk we compute mRoPE positions for the new tokens only,
++starting just past the highest position already in the KV cache, and append
++them to the session's position tensor. Positions for cached tokens are never
++recomputed, so RoPE on surviving tokens stays consistent with their cached K/V
++even after eviction leaves gaps in the position space.
++"""
++
++from dataclasses import replace
++from typing import TYPE_CHECKING
++
++import torch
++
++from vllm.model_executor.models.interfaces import SupportsMRoPE
++
++if TYPE_CHECKING:
++    from vllm.multimodal.inputs import MultiModalFeatureSpec
++
++
++def compute_chunk_mrope_positions(
++    model: SupportsMRoPE,
++    chunk_tokens: list[int],
++    chunk_mm_features: list["MultiModalFeatureSpec"],
++    base_position: int,
++) -> tuple[torch.Tensor, int]:
++    """Compute mRoPE positions for one chunk's new tokens.
++
++    `chunk_tokens` and `chunk_mm_features` must cover the new chunk only, with
++    feature offsets relative to the chunk start (offset 0 == first chunk token).
++    Positions are shifted to begin at `base_position`; pass
++    `request.max_cached_position + 1` so the chunk's first position is strictly
++    greater than any position already in the KV cache.
++
++    Returns the (3, len(chunk_tokens)) position tensor and the largest position
++    assigned (use it to update `max_cached_position`).
++    """
++    if not chunk_tokens:
++        return torch.empty((3, 0), dtype=torch.long), base_position - 1
++
++    chunk_positions, _ = model.get_mrope_input_positions(
++        chunk_tokens, chunk_mm_features
++    )
++    # The model numbers positions from 0 within the slice it sees; shift them
++    # uniformly so the lowest equals `base_position`.
++    chunk_positions = chunk_positions + base_position
++    new_max_position = int(chunk_positions.max().item())
++    return chunk_positions, new_max_position
++
++
++def make_chunk_relative_mm_features(
++    cumulative_mm_features: list["MultiModalFeatureSpec"],
++    prev_num_tokens: int,
++) -> list["MultiModalFeatureSpec"]:
++    """Extract the latest chunk's mm-features with chunk-relative offsets.
++
++    `cumulative_mm_features` is `req_state.mm_features` after the scheduler has
++    shifted offsets to be session-absolute. Features at offset >=
++    `prev_num_tokens` belong to the new chunk; they are copied with offset
++    reduced by `prev_num_tokens` so the model's mRoPE function sees chunk-local
++    indices.
++    """
++    chunk_features: list[MultiModalFeatureSpec] = []
++    for feature in cumulative_mm_features:
++        if feature.mm_position.offset >= prev_num_tokens:
++            chunk_features.append(
++                replace(
++                    feature,
++                    mm_position=replace(
++                        feature.mm_position,
++                        offset=feature.mm_position.offset - prev_num_tokens,
++                    ),
++                )
++            )
++    return chunk_features
+diff --git a/vllm/v1/streaming/reprefill.py b/vllm/v1/streaming/reprefill.py
+new file mode 100644
+index 0000000..2d0f913
+--- /dev/null
++++ b/vllm/v1/streaming/reprefill.py
+@@ -0,0 +1,37 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++"""Self-preempting re-prefill at the position-range threshold.
++
++A streaming session's mRoPE positions grow monotonically and eventually
++exceed the model's trained range (`max_position_embeddings`), degrading
++behaviour. To keep sessions effectively unbounded, the session self-preempts
++once positions cross a configurable fraction of that range: the scheduler
++frees the KV cache and re-queues the request for a fresh full prefill of its
++surviving tokens, recomputing all mRoPE positions from 0.
++"""
++
++from __future__ import annotations
++
++from typing import TYPE_CHECKING
++
++if TYPE_CHECKING:
++    from vllm.v1.request import Request
++    from vllm.v1.streaming.retention import StreamingRetentionParams
++
++
++def should_trigger_reprefill(
++    request: Request,
++    retention: StreamingRetentionParams,
++    model_max_position: int,
++) -> bool:
++    """Return True once the session's highest cached mRoPE position exceeds
++    ``reprefill_threshold * model_max_position``.
++
++    A threshold >= 1.0 disables re-prefill entirely (the caller warned at
++    admission; see ``StreamingRetentionParams.__post_init__``).
++    """
++    if retention.reprefill_threshold >= 1.0:
++        return False
++    threshold = retention.reprefill_threshold * model_max_position
++    return request.max_cached_position > threshold
+diff --git a/vllm/v1/streaming/retention.py b/vllm/v1/streaming/retention.py
+new file mode 100644
+index 0000000..b6a778e
+--- /dev/null
++++ b/vllm/v1/streaming/retention.py
+@@ -0,0 +1,150 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++
++"""Configuration and bookkeeping for streaming-session retention.
++
++A streaming session runs indefinitely; without eviction its KV cache grows
++unbounded. `StreamingRetentionParams` configures how much to keep, and
++`HistorySegment` tracks per-segment token ranges so the eviction code (in
++`eviction.py`) can drop the oldest segments first. This module just holds the
++data structures the scheduler maintains as chunks arrive.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Literal
++
++from vllm.logger import init_logger
++
++logger = init_logger(__name__)
++
++# Minimum total-token budget: must hold the pinned attention sink plus
++# headroom for the next chunk's prefill.
++_MIN_SESSION_TOKENS = 1024
++
++
++@dataclass
++class StreamingRetentionParams:
++    """How long to keep streaming-session context in the KV cache."""
++
++    max_video_segments: int = 30
++    """Hard cap on retained video segments; oldest above the cap are evicted
++    at chunk boundaries."""
++
++    max_text_tokens: int | None = None
++    """Soft cap on non-pinned text tokens (`user_text` + `assistant_text`);
++    None disables the text budget."""
++
++    max_session_tokens: int | None = 7000
++    """Hard cap on total prompt length post-eviction; the safety net that
++    keeps an unbounded session below `max_model_len`. Required (must not be
++    None; see `__post_init__`)."""
++
++    eviction_policy: Literal["sliding_window"] = "sliding_window"
++    """Currently only sliding-window is implemented."""
++
++    reprefill_threshold: float = 0.7
++    """Fraction of the model's trained position range above which the session
++    self-preempts and re-prefills its surviving tokens at fresh positions from
++    0 (see `reprefill.py`). Keeps mRoPE positions bounded over very long
++    sessions."""
++
++    def __post_init__(self) -> None:
++        """Validate the budget on every construction (in-process and
++        IPC-deserialized) so a bad config fails loudly at admission."""
++        # < 1 would evict every chunk's video before the encoder runs.
++        if self.max_video_segments < 1:
++            raise ValueError(
++                "max_video_segments must be >= 1 "
++                f"(got {self.max_video_segments}); a value < 1 evicts "
++                "every chunk's video before it is computed."
++            )
++
++        # Required: the load-bearing safety net against block-alignment drift.
++        if self.max_session_tokens is None:
++            raise ValueError(
++                "max_session_tokens must be set: it is the hard token "
++                "safety net that keeps an unbounded streaming session "
++                "below max_model_len."
++            )
++        if self.max_session_tokens < _MIN_SESSION_TOKENS:
++            raise ValueError(
++                f"max_session_tokens ({self.max_session_tokens}) must be "
++                f">= {_MIN_SESSION_TOKENS} to hold the pinned sink plus a "
++                "chunk's prefill headroom."
++            )
++
++        # Optional, but if set must be positive and within the session budget.
++        if self.max_text_tokens is not None:
++            if self.max_text_tokens <= 0:
++                raise ValueError(
++                    f"max_text_tokens must be > 0 when set (got "
++                    f"{self.max_text_tokens})."
++                )
++            if self.max_text_tokens > self.max_session_tokens:
++                raise ValueError(
++                    f"max_text_tokens ({self.max_text_tokens}) must not "
++                    f"exceed max_session_tokens ({self.max_session_tokens})."
++                )
++
++        # A non-positive threshold would re-trigger a full re-prefill at
++        # every chunk boundary (unbounded GPU-burn livelock). Written as
++        # `not (0 < x)` so NaN — which fails every comparison and would
++        # silently disable re-prefill, letting positions grow unbounded —
++        # is rejected too.
++        if not (self.reprefill_threshold > 0):
++            raise ValueError(
++                f"reprefill_threshold ({self.reprefill_threshold}) must be "
++                "> 0; a non-positive value re-triggers re-prefill at every "
++                "chunk boundary."
++            )
++
++        # Disabling re-prefill is supported, but nothing else bounds mRoPE
++        # position growth, so a long session eventually exceeds the trained
++        # range (rotary cache out-of-bounds). Warn once.
++        if self.reprefill_threshold >= 1.0:
++            logger.warning_once(
++                "StreamingRetentionParams.reprefill_threshold=%s disables "
++                "re-prefill; mRoPE positions will grow without bound and a "
++                "long-running session will eventually exceed the model's "
++                "trained position range (rotary-cache out-of-bounds). Use a "
++                "value < 1.0 (default 0.7) to keep positions bounded.",
++                self.reprefill_threshold,
++            )
++
++
++SegmentType = Literal[
++    "system_prompt",
++    "video",
++    "user_text",
++    "assistant_text",
++]
++
++
++@dataclass
++class HistorySegment:
++    """One contiguous range of tokens in the streaming session prompt.
++
++    Eviction keys purely off `token_range` (see eviction.py). After an
++    eviction, surviving segments' `token_range` is shifted down to stay
++    consistent with the compacted token arrays, but `_mrope_positions` values
++    are not — so the position space has gaps, preserving cached-K/V rotation.
++    """
++
++    segment_type: SegmentType
++    token_range: tuple[int, int]
++    """`[start, end)` into `_all_token_ids`. Shifts down as other segments are
++    evicted, so always read it fresh from the segment — never cache it."""
++
++    mm_item_id: str | None = None
++    """`MultiModalFeatureSpec` identifier (video segments only), used to free
++    the encoder cache entry."""
++
++    pinned: bool = False
++    """If True, eviction skips this segment. Set on the chunk-1 anchor."""
++
++    age_chunks: int = 0
++    """Chunk boundaries elapsed since this segment was added; 0 means it
++    arrived with the current chunk (its KV may not be computed yet, so
++    eviction skips it)."""
+diff --git a/vllm/v1/structured_output/backend_xgrammar.py b/vllm/v1/structured_output/backend_xgrammar.py
+index 6a0b65c..c73a130 100644
+--- a/vllm/v1/structured_output/backend_xgrammar.py
++++ b/vllm/v1/structured_output/backend_xgrammar.py
+@@ -197,6 +197,7 @@ class XgrammarGrammar(StructuredOutputGrammar):
+     def reset(self):
+         self.num_processed_tokens = 0
+         self.matcher.reset()
++        self._is_terminated = self.matcher.is_terminated()
+ 
+ 
+ # cf https://github.com/mlc-ai/xgrammar/blob/a32ac892676d2eedc0327416105b9b06edfb94b2/cpp/json_schema_converter.cc
+diff --git a/vllm/v1/worker/gpu_input_batch.py b/vllm/v1/worker/gpu_input_batch.py
+index c70970f..52cc5ea 100644
+--- a/vllm/v1/worker/gpu_input_batch.py
++++ b/vllm/v1/worker/gpu_input_batch.py
+@@ -41,6 +41,9 @@ class CachedRequestState:
+     mrope_positions: torch.Tensor | None = None
+     mrope_position_delta: int | None = None
+ 
++    # Highest mRoPE position number currently in this request's KV cache.
++    max_cached_position: int | None = None
++
+     xdrope_positions: torch.Tensor | None = None
+ 
+     lora_request: LoRARequest | None = None
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+index 07486e3..a2e7a06 100644
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -163,6 +163,10 @@ from vllm.v1.spec_decode.extract_hidden_states import ExtractHiddenStatesPropose
+ from vllm.v1.spec_decode.medusa import MedusaProposer
+ from vllm.v1.spec_decode.metadata import SpecDecodeMetadata
+ from vllm.v1.spec_decode.suffix_decoding import SuffixDecodingProposer
++from vllm.v1.streaming.mrope import (
++    compute_chunk_mrope_positions,
++    make_chunk_relative_mm_features,
++)
+ from vllm.v1.structured_output.utils import apply_grammar_bitmask
+ from vllm.v1.utils import CpuGpuBuffer, record_function_or_nullcontext
+ from vllm.v1.worker import mamba_utils
+@@ -447,6 +451,24 @@ class GPUModelRunner(
+         self.supports_mm_inputs = self.mm_registry.supports_multimodal_inputs(
+             model_config
+         )
++        # Multimodal placeholder ids (image + video) used to neutralize
++        # orphan markers left by streaming eviction; None if the model
++        # defines neither. Precomputed once (int32 matches input_ids).
++        _mm_placeholder_ids = sorted(
++            {
++                t
++                for t in (
++                    getattr(model_config.hf_config, "image_token_id", None),
++                    getattr(model_config.hf_config, "video_token_id", None),
++                )
++                if t is not None
++            }
++        )
++        self.mm_placeholder_ids_cpu: torch.Tensor | None = (
++            torch.tensor(_mm_placeholder_ids, dtype=torch.int32, device="cpu")
++            if _mm_placeholder_ids
++            else None
++        )
+ 
+         if self.model_config.is_encoder_decoder:
+             # Maximum length of the encoder input, only for encoder-decoder
+@@ -1154,15 +1176,35 @@ class GPUModelRunner(
+                 # The request is resumed from preemption.
+                 # Replace the existing block IDs with the new ones.
+                 req_state.block_ids = new_block_ids
++                # A re-prefill resumes here at num_computed_tokens==0 with its
++                # outputs folded into the prompt; reset the stale mRoPE/prompt
++                # state (else the discard mask uses wrong values). Gated on
++                # num_output_tokens==0 so a mid-decode resume (outputs kept) is
++                # left to the restore path below.
++                if num_computed_tokens == 0 and num_output_tokens == 0:
++                    req_state.output_token_ids.clear()
++                    req_state.num_prompt_tokens = (
++                        length_from_prompt_token_ids_or_embeds(
++                            req_state.prompt_token_ids,
++                            req_state.prompt_embeds,
++                        )
++                    )
++                    if self.uses_mrope:
++                        req_state.mrope_positions = None
++                        req_state.max_cached_position = None
++                        self._init_mrope_positions(req_state)
+ 
+             if req_index is None:
+                 # The request is not in the persistent batch.
+                 # The request was either preempted and resumed later, or was not
+                 # scheduled in the previous step and needs to be added again.
+ 
+-                if self.use_async_scheduling and num_output_tokens > 0:
+-                    # We must recover the output token ids for resumed requests in the
+-                    # async scheduling case, so that correct input_ids are obtained.
++                if num_output_tokens > 0 and (
++                    self.use_async_scheduling or resumed_from_preemption
++                ):
++                    # Rebuild output_token_ids from the scheduler's authoritative
++                    # all_token_ids — the worker's copy is stale under async
++                    # scheduling and untrusted for a preempt-resumed request.
+                     resumed_token_ids = req_data.all_token_ids[req_id]
+                     req_state.output_token_ids = resumed_token_ids[-num_output_tokens:]
+ 
+@@ -1270,6 +1312,12 @@ class GPUModelRunner(
+         self.input_batch.remove_request(req_id)
+         req_state = self.requests[req_id]
+ 
++        # Re-prefill: the scheduler's explicit signal to recompute mRoPE from
++        # 0.
++        if new_req_data.is_reprefill and self.uses_mrope:
++            req_state.mrope_positions = None
++            req_state.max_cached_position = None
++
+         req_state.prompt_token_ids = new_req_data.prompt_token_ids
+         req_state.mm_features = new_req_data.mm_features
+         req_state.prompt_embeds = new_req_data.prompt_embeds
+@@ -1286,10 +1334,49 @@ class GPUModelRunner(
+         req_state.output_token_ids.clear()
+ 
+         if self.uses_mrope:
+-            self._init_mrope_positions(req_state)
++            if new_req_data.evicted_token_ranges:
++                self._slice_mrope_positions_for_evicted_ranges(
++                    req_state, new_req_data.evicted_token_ranges
++                )
++            self._extend_mrope_positions_for_streaming_chunk(req_state)
+ 
+         return req_state
+ 
++    @staticmethod
++    def _slice_mrope_positions_for_evicted_ranges(
++        req_state: CachedRequestState,
++        evicted_ranges: list[tuple[int, int]],
++    ) -> None:
++        """Drop the columns for evicted token ranges from
++        `req_state.mrope_positions`, mirroring the scheduler-side compaction.
++
++        Ranges apply in order, each in the tensor's index space at its own
++        eviction time (later ranges already reflect earlier shrinks); ranges
++        past the current width are clipped. Surviving positions keep their
++        values and `max_cached_position` is untouched, so the position space
++        has gaps but cached K/V rotation stays consistent.
++        """
++        if req_state.mrope_positions is None:
++            return
++        positions = req_state.mrope_positions
++        for start, end in evicted_ranges:
++            width = positions.shape[1]
++            end_clipped = min(end, width)
++            if start >= end_clipped:
++                continue
++            if start == 0 and end_clipped >= width:
++                positions = positions[:, :0]
++            elif start == 0:
++                positions = positions[:, end_clipped:]
++            elif end_clipped >= width:
++                positions = positions[:, :start]
++            else:
++                positions = torch.cat(
++                    [positions[:, :start], positions[:, end_clipped:]],
++                    dim=1,
++                )
++        req_state.mrope_positions = positions
++
+     def _init_mrope_positions(self, req_state: CachedRequestState):
+         model = self.get_model()
+         assert supports_mrope(model), "M-RoPE support is not implemented."
+@@ -1304,6 +1391,58 @@ class GPUModelRunner(
+                 req_state.mm_features,
+             )
+         )
++        # Track the highest mRoPE position number for streaming continuation.
++        # Empty prompts (only possible with prompt_embeds) leave it at -1.
++        if req_state.mrope_positions.numel() > 0:
++            req_state.max_cached_position = int(req_state.mrope_positions.max().item())
++        else:
++            req_state.max_cached_position = -1
++
++    def _extend_mrope_positions_for_streaming_chunk(
++        self, req_state: CachedRequestState
++    ) -> None:
++        """Append mRoPE positions for the new chunk only (tokens past the
++        prior chunk's end), starting at `max_cached_position + 1` so they sit
++        strictly above any cached position — preserving cached K/V's rotation.
++        """
++        assert req_state.prompt_token_ids is not None
++        if req_state.mrope_positions is None or req_state.max_cached_position is None:
++            self._init_mrope_positions(req_state)
++            return
++
++        prev_num_tokens = req_state.mrope_positions.shape[1]
++        new_num_tokens = req_state.num_prompt_tokens
++        if new_num_tokens == prev_num_tokens:
++            return
++        assert new_num_tokens > prev_num_tokens, (
++            f"streaming chunk shrank prompt from {prev_num_tokens} to "
++            f"{new_num_tokens}; eviction must use the slice path, not this one."
++        )
++
++        chunk_tokens = req_state.prompt_token_ids[prev_num_tokens:new_num_tokens]
++        cumulative_features = [
++            f for f in req_state.mm_features if f.modality != "prompt_embeds"
++        ]
++        chunk_features = make_chunk_relative_mm_features(
++            cumulative_features, prev_num_tokens
++        )
++
++        model = self.get_model()
++        mrope_model = cast(SupportsMRoPE, model)
++        chunk_positions, new_max_position = compute_chunk_mrope_positions(
++            mrope_model,
++            chunk_tokens,
++            chunk_features,
++            base_position=req_state.max_cached_position + 1,
++        )
++
++        req_state.mrope_positions = torch.cat(
++            [req_state.mrope_positions, chunk_positions.to(req_state.mrope_positions)],
++            dim=1,
++        )
++        req_state.max_cached_position = new_max_position
++        # Decode-time positions: linear continuation from new max.
++        req_state.mrope_position_delta = new_max_position + 1 - new_num_tokens
+ 
+     def _init_xdrope_positions(self, req_state: CachedRequestState):
+         model = self.get_model()
+@@ -2647,6 +2786,84 @@ class GPUModelRunner(
+ 
+         return mm_embeds, is_mm_embed
+ 
++    @staticmethod
++    def _req_uses_streaming_retention(req_state: CachedRequestState) -> bool:
++        """Worker-side mirror of `Request.uses_persistent_encoder_cache()`,
++        re-derived from `sampling_params` (which `CachedRequestState` carries,
++        unlike `streaming_retention`). True iff a `streaming_retention` in
++        `extra_args` (dataclass or dict) has `reprefill_threshold < 1.0`.
++        """
++        sampling_params = req_state.sampling_params
++        if sampling_params is None:
++            return False
++        extra_args = sampling_params.extra_args
++        if not extra_args:
++            return False
++        retention = extra_args.get("streaming_retention")
++        if retention is None:
++            return False
++        if isinstance(retention, dict):
++            threshold = retention.get("reprefill_threshold", 1.0)
++        else:
++            threshold = getattr(retention, "reprefill_threshold", 1.0)
++        try:
++            return float(threshold) < 1.0
++        except (TypeError, ValueError):
++            return False
++
++    def _neutralize_orphan_mm_placeholders(
++        self,
++        scheduler_output: "SchedulerOutput",
++        inputs_embeds: torch.Tensor,
++        is_mm_embed: torch.Tensor,
++        num_scheduled_tokens: int,
++    ) -> None:
++        """Zero orphan image/video placeholder embeddings after eviction.
++
++        Eviction frees a video feature at its raw range but compacts tokens at
++        the narrower block-aligned range, so up to `block_size - 1` markers
++        survive with no `mm_feature`; at re-prefill they miss
++        `_gather_mm_embeddings` and would get their raw (OOD) text embedding.
++        Quality-only — touches no KV-feeding state. No-op unless the model has
++        `video_token_id` and a streaming request has such an orphan.
++        """
++
++        placeholder_ids = self.mm_placeholder_ids_cpu
++        if placeholder_ids is None:
++            return
++
++        eligible = torch.zeros(num_scheduled_tokens, dtype=torch.bool, device="cpu")
++        any_streaming = False
++        req_start_idx = 0
++        for req_id in self.input_batch.req_ids:
++            n = scheduler_output.num_scheduled_tokens[req_id]
++            if self._req_uses_streaming_retention(self.requests[req_id]):
++                eligible[req_start_idx : req_start_idx + n] = True
++                any_streaming = True
++            req_start_idx += n
++        if not any_streaming:
++            return
++
++        # Orphan mask (host-side): placeholder id, no backing feature,
++        # streaming.
++        token_ids_cpu = self.input_ids.gpu[:num_scheduled_tokens].to(
++            "cpu", non_blocking=False
++        )
++        is_mm_embed_cpu = is_mm_embed.to("cpu", non_blocking=False)
++        orphan_mask = (
++            torch.isin(token_ids_cpu, placeholder_ids)
++            & (~is_mm_embed_cpu)
++            & eligible
++        )
++        if not bool(orphan_mask.any()):
++            return
++
++        orphan_idx = orphan_mask.nonzero(as_tuple=False).squeeze(1).to(
++            inputs_embeds.device, non_blocking=True
++        )
++        # Zero only the orphan rows, removing their OOD text-embedding signal.
++        inputs_embeds[orphan_idx] = 0
++
+     def get_model(self) -> nn.Module:
+         if not hasattr(self, "model"):
+             raise ValueError("Cannot get model before model has been initialized")
+@@ -2876,6 +3093,16 @@ class GPUModelRunner(
+                 is_multimodal=is_mm_embed,
+             )
+ 
++            # Neutralize orphan image/video placeholder markers left by
++            # streaming eviction (see method); no-op for non-mm /
++            # non-streaming.
++            self._neutralize_orphan_mm_placeholders(
++                scheduler_output,
++                inputs_embeds_scheduled,
++                is_mm_embed,
++                num_scheduled_tokens,
++            )
++
+             # TODO(woosuk): Avoid the copy. Optimize.
+             self.inputs_embeds.gpu[:num_scheduled_tokens].copy_(inputs_embeds_scheduled)
+ 
+@@ -3887,6 +4114,19 @@ class GPUModelRunner(
+                 else:
+                     logger.error("RoutedExpertsCapturer not initialized.")
+ 
++            # Streaming: report each req's `max_cached_position` back to the
++            # scheduler so the re-prefill trigger sees the true watermark (else
++            # it stays -1 and never fires). Skip mRoPE-less / unset (-1).
++            max_cached_positions: dict[str, int] = {}
++            if self.uses_mrope:
++                for req_id in self.input_batch.req_ids:
++                    req_state = self.requests.get(req_id)
++                    if req_state is None:
++                        continue
++                    pos = getattr(req_state, "max_cached_position", None)
++                    if pos is not None and pos >= 0:
++                        max_cached_positions[req_id] = pos
++
+             output = ModelRunnerOutput(
+                 req_ids=req_ids_output_copy,
+                 req_id_to_index=req_id_to_index_output_copy,
+@@ -3899,6 +4139,7 @@ class GPUModelRunner(
+                 else None,
+                 num_nans_in_logits=num_nans_in_logits,
+                 cudagraph_stats=cudagraph_stats,
++                max_cached_positions=max_cached_positions,
+             )
+ 
+         if not self.use_async_scheduling:

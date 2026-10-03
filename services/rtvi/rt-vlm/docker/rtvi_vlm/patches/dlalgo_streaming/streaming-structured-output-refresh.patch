@@ -1,0 +1,52 @@
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index 6ac1ba1..b49882c 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -63,6 +63,7 @@ from vllm.v1.streaming.eviction import (
+ from vllm.v1.streaming.reprefill import should_trigger_reprefill
+ from vllm.v1.streaming.retention import HistorySegment, SegmentType
+ from vllm.v1.structured_output import StructuredOutputManager
++from vllm.v1.structured_output.request import StructuredOutputRequest
+ from vllm.v1.utils import record_function_or_nullcontext
+ 
+ logger = init_logger(__name__)
+@@ -1246,6 +1247,18 @@ class Scheduler(SchedulerInterface):
+         self._pending_free_ec_connector_hashes = []
+         return hashes
+ 
++    def _refresh_streaming_structured_output(
++        self, session: Request, update: StreamingUpdate
++    ) -> None:
++        session.structured_output_request = StructuredOutputRequest.from_sampling_params(
++            update.sampling_params
++        )
++        if session.structured_output_request is None:
++            return
++
++        self.structured_output_manager.grammar_init(session)
++        session.status = RequestStatus.WAITING_FOR_FSM
++
+     def _update_request_as_nightly_session(
+         self, session: Request, update: StreamingUpdate
+     ) -> None:
+@@ -1295,6 +1308,7 @@ class Scheduler(SchedulerInterface):
+         if session.status == RequestStatus.WAITING_FOR_STREAMING_REQ:
+             self.num_waiting_for_streaming_input -= 1
+         session.status = RequestStatus.WAITING
++        self._refresh_streaming_structured_output(session, update)
+ 
+         if self.log_stats:
+             session.record_event(EngineCoreEventType.QUEUED)
+@@ -1459,11 +1473,7 @@ class Scheduler(SchedulerInterface):
+             self.num_waiting_for_streaming_input -= 1
+         session.status = RequestStatus.WAITING
+ 
+-        if (
+-            session.structured_output_request is not None
+-            and session.structured_output_request.grammar is not None
+-        ):
+-            session.structured_output_request.grammar.reset()
++        self._refresh_streaming_structured_output(session, update)
+ 
+         if (
+             session.streaming_retention is not None

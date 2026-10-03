@@ -413,6 +413,17 @@ docker buildx build --platform linux/arm64 \
   --load .
 ```
 
+The native in-process StreamingVLM port is separate from the remote Cosmos
+NIM session adapter. To include its vLLM delta in a custom x86 image, add
+`--build-arg RTVI_ENABLE_NATIVE_STREAMING_VLM=true` to the build command. The
+build fails if the installed vLLM source does not match the pinned delta. Set
+`RTVI_STREAMING_VLM_ENABLED=true` in the selected VSS Docker developer-profile
+`overrides.env` only when deploying an image built with that delta. Live
+caption requests then select `inference_mode=streaming_vlm` and
+`streaming_frame_policy=ordered`; `streaming_question_on_decode=true` repeats
+the question at each decode turn when the alert prompt requires it. All of
+these native settings remain disabled by default.
+
 ## Usage Examples
 
 ### Required Packages

@@ -1,0 +1,101 @@
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -1026,6 +1026,7 @@ class GPUModelRunner:
+             self.input_batch.remove_request(req_id)
+ 
+         reqs_to_add: list[CachedRequestState] = []
++        streaming_kv_relocated = False
+         # Add new requests to the cached states.
+         for new_req_data in scheduler_output.scheduled_new_reqs:
+             req_id = new_req_data.req_id
+@@ -1038,6 +1039,10 @@ class GPUModelRunner:
+                 self._apply_streaming_kv_slot_relocations(
+                     new_req_data, req_state, old_mrope_positions
+                 )
++                streaming_kv_relocated = (
++                    streaming_kv_relocated
++                    or bool(new_req_data.kv_slot_relocations)
++                )
+                 reqs_to_add.append(req_state)
+                 continue
+ 
+@@ -1094,6 +1099,9 @@ class GPUModelRunner:
+ 
+             reqs_to_add.append(req_state)
+ 
++        if streaming_kv_relocated:
++            self._compact_streaming_raw_key_shadows()
++
+         # Update the states of the running/resumed requests.
+         is_last_rank = get_pp_group().is_last_rank
+         req_data = scheduler_output.scheduled_cached_reqs
+@@ -1383,7 +1391,6 @@ class GPUModelRunner:
+             self._paper_streaming_rotary_cache = rotary_cache
+         model_modules = None
+         applied = 0
+-        live_slots = self._streaming_live_kv_slots(0, block_size)
+         for layer_name, layer in (
+             self.compilation_config.static_forward_context.items()
+         ):
+@@ -1409,7 +1416,6 @@ class GPUModelRunner:
+                 old_mrope_positions,
+                 req_state.mrope_positions,
+                 rotary_emb,
+-                live_slots,
+             )
+             applied += 1
+         if applied == 0:
+@@ -1417,6 +1423,17 @@ class GPUModelRunner:
+                 "paper KV relocation could not find mRoPE attention caches"
+             )
+ 
++    def _compact_streaming_raw_key_shadows(self) -> None:
++        """Compact shared raw-key shadows after all relocated requests update."""
++        block_size = int(
++            self.kv_cache_config.kv_cache_groups[0].kv_cache_spec.block_size
++        )
++        live_slots = self._streaming_live_kv_slots(0, block_size)
++        for layer in self.compilation_config.static_forward_context.values():
++            raw_key_shadow = getattr(layer, "_streaming_vlm_raw_key_shadow", None)
++            if raw_key_shadow is not None:
++                raw_key_shadow.compact(live_slots)
++
+     def _streaming_live_kv_slots(
+         self, group_index: int, block_size: int
+     ) -> set[int]:
+@@ -1425,17 +1442,9 @@ class GPUModelRunner:
+         for request in self.requests.values():
+             if group_index >= len(request.block_ids):
+                 continue
+-            remaining = min(
+-                max(0, int(request.num_computed_tokens)),
+-                len(request.block_ids[group_index]) * block_size,
+-            )
+             for block_id in request.block_ids[group_index]:
+-                if remaining <= 0:
+-                    break
+-                count = min(block_size, remaining)
+                 block_start = int(block_id) * block_size
+-                live_slots.update(range(block_start, block_start + count))
+-                remaining -= count
++                live_slots.update(range(block_start, block_start + block_size))
+         return live_slots
+ 
+     @staticmethod
+@@ -1448,7 +1457,6 @@ class GPUModelRunner:
+         old_mrope_positions: torch.Tensor,
+         new_mrope_positions: torch.Tensor,
+         rotary_emb: object,
+-        live_slots: set[int],
+     ) -> None:
+         """Gather K/V, rerotate retained K, then scatter to compacted slots."""
+         if not isinstance(cache, torch.Tensor):
+@@ -1536,7 +1544,6 @@ class GPUModelRunner:
+         key_cache[tuple(destination_index)] = retained_keys
+         value_cache[tuple(destination_index)] = retained_values
+         raw_key_shadow.write_tensor_rows(destination_slots, retained_raw_keys)
+-        raw_key_shadow.compact(live_slots)
+ 
+     @staticmethod
+     def _rotate_streaming_mrope_raw_keys(

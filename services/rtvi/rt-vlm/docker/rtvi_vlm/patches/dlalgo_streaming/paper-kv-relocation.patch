@@ -1,0 +1,761 @@
+diff --git a/vllm/v1/core/sched/output.py b/vllm/v1/core/sched/output.py
+index 18ecc38..b7b70d8 100644
+--- a/vllm/v1/core/sched/output.py
++++ b/vllm/v1/core/sched/output.py
+@@ -48,6 +48,12 @@ class NewRequestData:
+     # Streaming: True on a re-prefill reset (worker drops mRoPE state and
+     # recomputes positions from 0).
+     is_reprefill: bool = False
++    # Physical and logical KV positions to gather/scatter after paper text
++    # relocation. The outer list is the KV-cache group index.
++    kv_slot_relocations: list[list[tuple[int, int, int, int]]] | None = None
++    # Old logical prompt columns retained in their new order. The worker uses
++    # this signal to rebuild compact mRoPE positions before rerotating keys.
++    mrope_relocation_order: list[int] | None = None
+ 
+     @classmethod
+     def from_request(
+@@ -65,6 +71,20 @@ class NewRequestData:
+         is_reprefill = bool(getattr(request, "pending_reprefill", False))
+         if is_reprefill:
+             request.pending_reprefill = False
++        kv_slot_relocations = None
++        pending_kv_relocations = getattr(
++            request, "pending_kv_slot_relocations", None
++        )
++        if pending_kv_relocations:
++            kv_slot_relocations = [list(group) for group in pending_kv_relocations]
++            pending_kv_relocations.clear()
++        mrope_relocation_order = None
++        pending_mrope_order = getattr(
++            request, "pending_mrope_relocation_order", None
++        )
++        if pending_mrope_order:
++            mrope_relocation_order = list(pending_mrope_order)
++            pending_mrope_order.clear()
+         return cls(
+             req_id=request.request_id,
+             prompt_token_ids=request.prompt_token_ids,
+@@ -78,6 +98,8 @@ class NewRequestData:
+             prefill_token_ids=prefill_token_ids,
+             evicted_token_ranges=evicted_token_ranges,
+             is_reprefill=is_reprefill,
++            kv_slot_relocations=kv_slot_relocations,
++            mrope_relocation_order=mrope_relocation_order,
+         )
+ 
+     def __repr__(self) -> str:
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index d625961..615cd1a 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -1141,12 +1141,29 @@ class Scheduler(SchedulerInterface):
+             self._record_streaming_segment(
+                 session, update, prior_response_start, segment_start_idx
+             )
++            initial_compaction = maybe_compact_initial_previous_text(
++                session,
++                session.streaming_retention,
++            )
++            if initial_compaction is not None:
++                order, prior_prompt_tokens = initial_compaction
++                self._prepare_text_kv_relocation(
++                    session,
++                    order,
++                    prior_prompt_tokens,
++                    session.num_computed_tokens,
++                )
+             maybe_evict_old_segments(
+                 session,
+                 session.streaming_retention,
+                 self.kv_cache_manager,
+                 self.encoder_cache_manager,
+             )
+-            relocated_text = maybe_relocate_assistant_text(
++            relocation = maybe_relocate_assistant_text(
+                 session,
+                 session.streaming_retention,
+                 session.streaming_eos_token_id,
+@@ -1155,7 +1155,14 @@ class Scheduler(SchedulerInterface):
+                 session.streaming_user_role_start_token_ids,
+                 session.streaming_vision_start_token_id,
+             )
+-            if relocated_text:
++            if relocation is not None:
++                order, prior_prompt_tokens = relocation
++                self._prepare_text_kv_relocation(
++                    session,
++                    order,
++                    prior_prompt_tokens,
++                    session.num_computed_tokens,
++                )
+                 logger.info(
+                     "paper text relocation triggered: req=%s round=%d count=%d",
+                     session.request_id,
+@@ -1183,6 +1190,64 @@ class Scheduler(SchedulerInterface):
+         if self.log_stats:
+             session.record_event(EngineCoreEventType.QUEUED)
+ 
++    def _prepare_text_kv_relocation(
++        self,
++        request: Request,
++        order: list[int],
++        prior_prompt_tokens: int,
++        prior_computed_tokens: int,
++    ) -> None:
++        """Map the paper token move onto the request's physical KV slots."""
++        computed_order = [index for index in order if index < prior_computed_tokens]
++        if order[: len(computed_order)] != computed_order:
++            raise RuntimeError(
++                "Streaming VLM relocation placed uncached tokens before cached tokens"
++            )
++
++        prompt_order = [index for index in order if index < prior_prompt_tokens]
++        if order[: len(prompt_order)] != prompt_order:
++            raise RuntimeError(
++                "Streaming VLM relocation placed new chunk tokens inside cached prompt"
++            )
++
++        block_ids_by_group = self.kv_cache_manager.get_block_ids(request.request_id)
++        cache_groups = self.kv_cache_config.kv_cache_groups
++        if len(cache_groups) != 1:
++            raise RuntimeError(
++                "paper KV relocation currently requires one KV-cache group"
++            )
++        if len(block_ids_by_group) != len(cache_groups):
++            raise RuntimeError(
++                "Streaming VLM KV relocation group count does not match cache config"
++            )
++
++        relocations: list[list[tuple[int, int, int, int]]] = []
++        for block_ids, group in zip(block_ids_by_group, cache_groups):
++            block_size = int(group.kv_cache_spec.block_size)
++
++            def physical_slot(logical_position: int) -> int:
++                block_index, block_offset = divmod(logical_position, block_size)
++                if block_index >= len(block_ids):
++                    raise RuntimeError(
++                        "Streaming VLM KV relocation exceeds allocated block table: "
++                        f"logical={logical_position}, blocks={len(block_ids)}, "
++                        f"block_size={block_size}"
++                    )
++                return int(block_ids[block_index]) * block_size + block_offset
++
++            group_relocations = []
++            for destination, source in enumerate(computed_order):
++                source_slot = physical_slot(source)
++                destination_slot = physical_slot(destination)
++                group_relocations.append(
++                    (source_slot, destination_slot, source, destination)
++                )
++            relocations.append(group_relocations)
++
++        request.pending_kv_slot_relocations[:] = relocations
++        request.pending_mrope_relocation_order[:] = prompt_order
++        request.num_computed_tokens = len(computed_order)
++
+     def _fold_kept_output(self, session: Request) -> None:
+         """Fold a complete, explicitly terminated assistant turn."""
+         num_computed_tokens = session.num_computed_tokens
+@@ -1967,18 +2032,6 @@ class Scheduler(SchedulerInterface):
+             request.status = RequestStatus.WAITING_FOR_STREAMING_REQ
+             self.num_waiting_for_streaming_input += 1
+ 
+-        # Paper text relocation changes token order. Rebuild KV immediately;
+-        # the newly appended video turn remains unanswered, so the first
+-        # sampled token after re-prefill is genuine output.
+-        if request.pending_text_relocation:
+-            request.pending_text_relocation = False
+-            if request.status == RequestStatus.WAITING_FOR_STREAMING_REQ:
+-                self.num_waiting_for_streaming_input -= 1
+-            self._reprefill_streaming_session(
+-                request, discard_next_sample=not output_folded
+-            )
+-            return False
+-
+         # Streaming re-prefill: if the session's mRoPE positions have
+         # approached the model's trained range, self-preempt and re-queue
+         # for a fresh full prefill at positions starting from 0.
+diff --git a/vllm/v1/request.py b/vllm/v1/request.py
+index 08192d1..702b0f6 100644
+--- a/vllm/v1/request.py
++++ b/vllm/v1/request.py
+@@ -258,7 +258,10 @@ class Request:
+         # caption and this tells `update_from_output` to discard it. When a
+         # queued chunk was folded first, the first sample is genuine output.
+         self.reprefill_discard_next_sample: bool = False
+-        self.pending_text_relocation: bool = False
++        self.pending_kv_slot_relocations: list[
++            list[tuple[int, int, int, int]]
++        ] = []
++        self.pending_mrope_relocation_order: list[int] = []
+         self.text_relocation_count: int = 0
+ 
+     @property
+diff --git a/vllm/v1/streaming/eviction.py b/vllm/v1/streaming/eviction.py
+index 3a72a3a..8f577d1 100644
+--- a/vllm/v1/streaming/eviction.py
++++ b/vllm/v1/streaming/eviction.py
+@@ -172,15 +172,15 @@ def maybe_relocate_assistant_text(
+     role_end_token_ids: tuple[int, ...],
+     user_role_start_token_ids: tuple[int, ...],
+     vision_start_token_id: int | None,
+-) -> bool:
++) -> tuple[list[int], int] | None:
+     """Move one aged assistant body into ``previous text``.
+ 
+-    The transformation operates on token indices only. The scheduler must
+-    immediately re-prefill after a successful relocation; cached KV still
+-    describes the old ordering until then.
++    The transformation operates on token indices and returns the old-index
++    order. The scheduler maps that order to physical slots so the worker can
++    move values and rerotate retained keys into the compacted position space.
+     """
+     if retention.text_round <= 0:
+-        return False
++        return None
+ 
+     previous = next(
+         (s for s in request.session_history if s.segment_type == "previous_text"),
+@@ -196,7 +196,9 @@ def maybe_relocate_assistant_text(
+         None,
+     )
+     if previous is None or source is None:
+-        return False
++        return None
++
++    prior_prompt_tokens = request.num_prompt_tokens
+ 
+     prev_start, prev_end = previous.token_range
+     src_start, src_end = source.token_range
+@@ -282,9 +284,8 @@ def maybe_relocate_assistant_text(
+     request.session_history[:] = updated_history
+ 
+     request.block_hashes.clear()
+-    request.pending_text_relocation = True
+     request.text_relocation_count += 1
+-    return True
++    return order, prior_prompt_tokens
+ 
+ 
+ def evict_segment(
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+index a2e7a06..2985ccb 100644
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -1031,7 +1031,13 @@ class GPUModelRunner(
+             req_id = new_req_data.req_id
+             if req_id in self.requests:
+                 # For streaming case only.
++                old_mrope_positions = self.requests[req_id].mrope_positions
++                if old_mrope_positions is not None:
++                    old_mrope_positions = old_mrope_positions.clone()
+                 req_state = self._update_streaming_request(req_id, new_req_data)
++                self._apply_streaming_kv_slot_relocations(
++                    new_req_data, req_state, old_mrope_positions
++                )
+                 reqs_to_add.append(req_state)
+                 continue
+ 
+@@ -1338,10 +1344,315 @@ class GPUModelRunner(
+                 self._slice_mrope_positions_for_evicted_ranges(
+                     req_state, new_req_data.evicted_token_ranges
+                 )
+-            self._extend_mrope_positions_for_streaming_chunk(req_state)
++            if new_req_data.mrope_relocation_order:
++                # The paper's shrink mode recomputes the complete compacted
++                # position space before retained keys are written back.
++                self._init_mrope_positions(req_state)
++            else:
++                self._extend_mrope_positions_for_streaming_chunk(req_state)
+ 
+         return req_state
+ 
++    def _apply_streaming_kv_slot_relocations(
++        self,
++        new_req_data: NewRequestData,
++        req_state: CachedRequestState,
++        old_mrope_positions: torch.Tensor | None,
++    ) -> None:
++        relocations_by_group = new_req_data.kv_slot_relocations
++        if not relocations_by_group:
++            return
++        if len(relocations_by_group) != 1:
++            raise RuntimeError(
++                "paper KV relocation currently requires one KV-cache group"
++            )
++        relocations = relocations_by_group[0]
++        if not relocations:
++            return
++        if old_mrope_positions is None or req_state.mrope_positions is None:
++            raise RuntimeError(
++                "paper KV relocation requires old and new mRoPE positions"
++            )
++        block_size = int(
++            self.kv_cache_config.kv_cache_groups[0].kv_cache_spec.block_size
++        )
++        num_blocks = int(self.kv_cache_config.num_blocks)
++        rotary_cache = getattr(self, "_paper_streaming_rotary_cache", None)
++        if rotary_cache is None:
++            rotary_cache = {}
++            self._paper_streaming_rotary_cache = rotary_cache
++        model_modules = None
++        applied = 0
++        live_slots = self._streaming_live_kv_slots(0, block_size)
++        for layer_name, layer in (
++            self.compilation_config.static_forward_context.items()
++        ):
++            cache_list = getattr(layer, "kv_cache", None)
++            if not cache_list:
++                continue
++            rotary_emb = rotary_cache.get(layer_name)
++            if rotary_emb is None:
++                if model_modules is None:
++                    model_modules = dict(self.get_model().named_modules())
++                parent_name = layer_name.rsplit(".attn", 1)[0]
++                parent = model_modules.get(parent_name)
++                rotary_emb = getattr(parent, "rotary_emb", None)
++                rotary_cache[layer_name] = rotary_emb
++            if rotary_emb is None:
++                continue
++            self._rerotate_streaming_attention_kv_slots(
++                layer,
++                cache_list[0],
++                relocations,
++                block_size,
++                num_blocks,
++                old_mrope_positions,
++                req_state.mrope_positions,
++                rotary_emb,
++                live_slots,
++            )
++            applied += 1
++        if applied == 0:
++            raise RuntimeError(
++                "paper KV relocation could not find mRoPE attention caches"
++            )
++
++    def _streaming_live_kv_slots(
++        self, group_index: int, block_size: int
++    ) -> set[int]:
++        """Return slots still owned by every active request in one KV group."""
++        live_slots: set[int] = set()
++        for request in self.requests.values():
++            if group_index >= len(request.block_ids):
++                continue
++            remaining = min(
++                max(0, int(request.num_computed_tokens)),
++                len(request.block_ids[group_index]) * block_size,
++            )
++            for block_id in request.block_ids[group_index]:
++                if remaining <= 0:
++                    break
++                count = min(block_size, remaining)
++                block_start = int(block_id) * block_size
++                live_slots.update(range(block_start, block_start + count))
++                remaining -= count
++        return live_slots
++
++    @staticmethod
++    def _rerotate_streaming_attention_kv_slots(
++        layer: object,
++        cache: torch.Tensor,
++        relocations: list[tuple[int, int, int, int]],
++        block_size: int,
++        num_blocks: int,
++        old_mrope_positions: torch.Tensor,
++        new_mrope_positions: torch.Tensor,
++        rotary_emb: object,
++        live_slots: set[int],
++    ) -> None:
++        """Gather K/V, rerotate retained K, then scatter to compacted slots."""
++        if not isinstance(cache, torch.Tensor):
++            raise RuntimeError("paper KV relocation requires attention KV tensors")
++        if cache.ndim >= 5 and int(cache.shape[0]) == 2:
++            key_cache, value_cache = cache[0], cache[1]
++        elif cache.ndim >= 5 and int(cache.shape[1]) == 2:
++            key_cache, value_cache = cache[:, 0], cache[:, 1]
++        else:
++            raise RuntimeError(
++                "paper KV relocation requires an unpacked BF16 attention cache: "
++                f"shape={tuple(cache.shape)}"
++            )
++        source_slots = torch.tensor(
++            [source for source, _, _, _ in relocations],
++            dtype=torch.long,
++            device=cache.device,
++        )
++        destination_slots = torch.tensor(
++            [destination for _, destination, _, _ in relocations],
++            dtype=torch.long,
++            device=cache.device,
++        )
++        destination_positions = torch.tensor(
++            [destination for _, _, _, destination in relocations],
++            dtype=torch.long,
++            device=new_mrope_positions.device,
++        )
++        max_block = int(
++            torch.maximum(source_slots, destination_slots).max().item()
++        ) // block_size
++        block_axes = [
++            axis
++            for axis, size in enumerate(key_cache.shape)
++            if int(size) == num_blocks
++        ]
++        if len(block_axes) != 1:
++            block_axes = [
++                axis
++                for axis, size in enumerate(key_cache.shape)
++                if int(size) > max_block
++            ]
++        if len(block_axes) != 1:
++            raise RuntimeError(
++                "could not identify paper KV relocation block axis: "
++                f"shape={tuple(key_cache.shape)}, num_blocks={num_blocks}"
++            )
++        block_axis = block_axes[0]
++        slot_axes = [
++            axis
++            for axis, size in enumerate(key_cache.shape)
++            if axis != block_axis and int(size) == block_size
++        ]
++        if not slot_axes:
++            raise RuntimeError(
++                "could not identify paper KV relocation slot axis: "
++                f"shape={tuple(key_cache.shape)}, block_size={block_size}"
++            )
++        slot_axis = min(slot_axes, key=lambda axis: abs(axis - block_axis))
++
++        source_index = [slice(None)] * key_cache.ndim
++        source_index[block_axis] = torch.div(
++            source_slots, block_size, rounding_mode="floor"
++        )
++        source_index[slot_axis] = torch.remainder(source_slots, block_size)
++        raw_key_shadow = getattr(layer, "_streaming_vlm_raw_key_shadow", None)
++        if raw_key_shadow is None:
++            raise RuntimeError(
++                "paper KV relocation requires pre-mRoPE raw-key shadow rows"
++            )
++        retained_raw_keys = raw_key_shadow.read_slot_indices(source_slots)
++        retained_values = value_cache[tuple(source_index)].clone()
++        new_positions = new_mrope_positions.index_select(-1, destination_positions)
++        retained_keys = GPUModelRunner._rotate_streaming_mrope_raw_keys(
++            retained_raw_keys, new_positions, rotary_emb
++        )
++
++        destination_index = [slice(None)] * key_cache.ndim
++        destination_index[block_axis] = torch.div(
++            destination_slots, block_size, rounding_mode="floor"
++        )
++        destination_index[slot_axis] = torch.remainder(
++            destination_slots, block_size
++        )
++        key_cache[tuple(destination_index)] = retained_keys
++        value_cache[tuple(destination_index)] = retained_values
++        raw_key_shadow.write_tensor_rows(destination_slots, retained_raw_keys)
++        raw_key_shadow.compact(live_slots)
++
++    @staticmethod
++    def _rotate_streaming_mrope_raw_keys(
++        raw_keys: torch.Tensor,
++        new_positions: torch.Tensor,
++        rotary_emb: object,
++    ) -> torch.Tensor:
++        rotary_dim = int(getattr(rotary_emb, "rotary_dim"))
++        is_neox_style = bool(getattr(rotary_emb, "is_neox_style", True))
++        original_dtype = raw_keys.dtype
++        rotated = raw_keys[..., :rotary_dim].to(torch.float32)
++        passthrough = raw_keys[..., rotary_dim:]
++        new_cos, new_sin = GPUModelRunner._streaming_mrope_cos_sin(
++            rotary_emb, new_positions, rotated
++        )
++        result = GPUModelRunner._apply_streaming_rotary(
++            rotated, new_cos, new_sin, is_neox_style
++        ).to(original_dtype)
++        if passthrough.shape[-1] == 0:
++            return result
++        return torch.cat((result, passthrough), dim=-1)
++
++    @staticmethod
++    def _rerotate_streaming_mrope_keys(
++        keys: torch.Tensor,
++        old_positions: torch.Tensor,
++        new_positions: torch.Tensor,
++        rotary_emb: object,
++    ) -> torch.Tensor:
++        rotary_dim = int(getattr(rotary_emb, "rotary_dim"))
++        is_neox_style = bool(getattr(rotary_emb, "is_neox_style", True))
++        original_dtype = keys.dtype
++        rotated = keys[..., :rotary_dim].to(torch.float32)
++        passthrough = keys[..., rotary_dim:]
++        old_cos, old_sin = GPUModelRunner._streaming_mrope_cos_sin(
++            rotary_emb, old_positions, rotated
++        )
++        raw = GPUModelRunner._apply_streaming_rotary(
++            rotated, old_cos, -old_sin, is_neox_style
++        )
++        new_cos, new_sin = GPUModelRunner._streaming_mrope_cos_sin(
++            rotary_emb, new_positions, rotated
++        )
++        result = GPUModelRunner._apply_streaming_rotary(
++            raw, new_cos, new_sin, is_neox_style
++        ).to(original_dtype)
++        if passthrough.shape[-1] == 0:
++            return result
++        return torch.cat((result, passthrough), dim=-1)
++
++    @staticmethod
++    def _streaming_mrope_cos_sin(
++        rotary_emb: object,
++        positions: torch.Tensor,
++        reference: torch.Tensor,
++    ) -> tuple[torch.Tensor, torch.Tensor]:
++        cos_sin_cache = rotary_emb._match_cos_sin_cache_dtype(reference)
++        positions = positions.to(device=reference.device, dtype=torch.long)
++        cos_sin = cos_sin_cache[positions]
++        cos, sin = cos_sin.chunk(2, dim=-1)
++        if positions.ndim == 2:
++            sections = getattr(rotary_emb, "mrope_section", None)
++            if not sections:
++                raise RuntimeError("paper KV relocation requires mRoPE sections")
++            if getattr(rotary_emb, "mrope_interleaved", False):
++                merged_cos = cos[0].clone()
++                merged_sin = sin[0].clone()
++                merged_cos[..., 1 : sections[1] * 3 : 3] = cos[
++                    1, ..., 1 : sections[1] * 3 : 3
++                ]
++                merged_sin[..., 1 : sections[1] * 3 : 3] = sin[
++                    1, ..., 1 : sections[1] * 3 : 3
++                ]
++                merged_cos[..., 2 : sections[2] * 3 : 3] = cos[
++                    2, ..., 2 : sections[2] * 3 : 3
++                ]
++                merged_sin[..., 2 : sections[2] * 3 : 3] = sin[
++                    2, ..., 2 : sections[2] * 3 : 3
++                ]
++                cos, sin = merged_cos, merged_sin
++            else:
++                cos = torch.cat(
++                    [
++                        part[index]
++                        for index, part in enumerate(cos.split(sections, -1))
++                    ],
++                    dim=-1,
++                )
++                sin = torch.cat(
++                    [
++                        part[index]
++                        for index, part in enumerate(sin.split(sections, -1))
++                    ],
++                    dim=-1,
++                )
++        return cos, sin
++
++    @staticmethod
++    def _apply_streaming_rotary(
++        values: torch.Tensor,
++        cos: torch.Tensor,
++        sin: torch.Tensor,
++        is_neox_style: bool,
++    ) -> torch.Tensor:
++        cos = cos.unsqueeze(-2).to(values.dtype)
++        sin = sin.unsqueeze(-2).to(values.dtype)
++        if is_neox_style:
++            first, second = values.chunk(2, dim=-1)
++            return torch.cat(
++                (first * cos - second * sin, second * cos + first * sin), dim=-1
++            )
++        first, second = values[..., ::2], values[..., 1::2]
++        return torch.stack(
++            (first * cos - second * sin, second * cos + first * sin), dim=-1
++        ).flatten(-2)
++
+     @staticmethod
+     def _slice_mrope_positions_for_evicted_ranges(
+         req_state: CachedRequestState,
+diff --git a/vllm/model_executor/layers/attention/attention.py b/vllm/model_executor/layers/attention/attention.py
+index 38f1099..56e7ad8 100644
+--- a/vllm/model_executor/layers/attention/attention.py
++++ b/vllm/model_executor/layers/attention/attention.py
+@@ -1,6 +1,7 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
++import os
+ from typing import TYPE_CHECKING, Any
+ 
+ import torch
+@@ -612,6 +613,154 @@ def get_attention_context(
+     return attn_metadata, attn_layer, kv_cache, layer_slot_mapping
+ 
+ 
++class StreamingVLMRawKeyShadow:
++    """Sparse pre-mRoPE key rows keyed by physical KV-cache slot."""
++
++    def __init__(self) -> None:
++        self._chunks: list[tuple[torch.Tensor, torch.Tensor]] = []
++        self._slot_lists: list[list[int] | None] = []
++
++    def write_tensor_rows(
++        self, slot_mapping: torch.Tensor, rows: torch.Tensor
++    ) -> None:
++        row_count = min(int(slot_mapping.shape[0]), int(rows.shape[0]))
++        if row_count <= 0:
++            return
++        self._chunks.append(
++            (
++                slot_mapping.detach()[:row_count].clone(),
++                rows.detach()[:row_count].clone(),
++            )
++        )
++        self._slot_lists.append(None)
++
++    def _slot_list(self, chunk_index: int) -> list[int]:
++        cached = self._slot_lists[chunk_index]
++        if cached is None:
++            cached = (
++                self._chunks[chunk_index][0]
++                .detach()
++                .to(device="cpu", dtype=torch.long)
++                .tolist()
++            )
++            self._slot_lists[chunk_index] = cached
++        return cached
++
++    def _latest_index(self) -> dict[int, tuple[int, int]]:
++        result: dict[int, tuple[int, int]] = {}
++        for chunk_index in range(len(self._chunks) - 1, -1, -1):
++            for row_index, slot in enumerate(self._slot_list(chunk_index)):
++                slot = int(slot)
++                if slot >= 0 and slot not in result:
++                    result[slot] = (chunk_index, row_index)
++        return result
++
++    def read_slot_indices(self, slots: torch.Tensor) -> torch.Tensor:
++        wanted = slots.detach().to(device="cpu", dtype=torch.long).tolist()
++        latest = self._latest_index()
++        grouped: dict[int, list[tuple[int, int]]] = {}
++        for output_index, slot in enumerate(wanted):
++            entry = latest.get(int(slot))
++            if entry is None:
++                raise RuntimeError(
++                    "Streaming VLM raw-key shadow is missing physical slot "
++                    f"{slot}"
++                )
++            grouped.setdefault(entry[0], []).append((entry[1], output_index))
++
++        output = None
++        for chunk_index, pairs in grouped.items():
++            rows = self._chunks[chunk_index][1]
++            if output is None:
++                output = rows.new_empty((len(wanted), *tuple(rows.shape[1:])))
++            source = torch.tensor(
++                [row for row, _ in pairs], dtype=torch.long, device=rows.device
++            )
++            destination = torch.tensor(
++                [row for _, row in pairs], dtype=torch.long, device=rows.device
++            )
++            output.index_copy_(0, destination, rows.index_select(0, source))
++        if output is None:
++            raise RuntimeError("Streaming VLM raw-key shadow read was empty")
++        return output
++
++    def compact(self, retain_slots: set[int] | None = None) -> None:
++        latest = self._latest_index()
++        if retain_slots is not None:
++            latest = {
++                slot: entry for slot, entry in latest.items() if slot in retain_slots
++            }
++        if not latest:
++            self._chunks.clear()
++            self._slot_lists.clear()
++            return
++        ordered = sorted(latest.items())
++        slots = self._chunks[0][0].new_tensor([slot for slot, _ in ordered])
++        grouped: dict[int, list[tuple[int, int]]] = {}
++        for output_index, (_slot, (chunk_index, row_index)) in enumerate(ordered):
++            grouped.setdefault(chunk_index, []).append((row_index, output_index))
++        output = None
++        for chunk_index, pairs in grouped.items():
++            rows = self._chunks[chunk_index][1]
++            if output is None:
++                output = rows.new_empty((len(ordered), *tuple(rows.shape[1:])))
++            source = torch.tensor(
++                [row for row, _ in pairs], dtype=torch.long, device=rows.device
++            )
++            destination = torch.tensor(
++                [row for _, row in pairs], dtype=torch.long, device=rows.device
++            )
++            output.index_copy_(0, destination, rows.index_select(0, source))
++        assert output is not None
++        self._chunks = [(slots, output)]
++        self._slot_lists = [[slot for slot, _ in ordered]]
++
++
++def unified_streaming_vlm_raw_key_cache_update(
++    raw_key: torch.Tensor,
++    layer_name: str,
++) -> torch.Tensor:
++    """Capture pre-mRoPE keys only for the paper-faithful streaming path."""
++    if os.environ.get("VLLM_STREAMING_VLM_RAW_KEY_SHADOW", "").lower() not in {
++        "1",
++        "true",
++        "yes",
++        "on",
++    }:
++        return raw_key.new_zeros(())
++    attn_metadata, attn_layer, _kv_cache, slot_mapping = get_attention_context(
++        layer_name
++    )
++    if slot_mapping is None:
++        return raw_key.new_zeros(())
++    row_count = min(int(slot_mapping.shape[0]), int(raw_key.shape[0]))
++    num_actual_tokens = getattr(attn_metadata, "num_actual_tokens", None)
++    if num_actual_tokens is not None:
++        row_count = min(row_count, max(0, int(num_actual_tokens)))
++    shadow = getattr(attn_layer, "_streaming_vlm_raw_key_shadow", None)
++    if shadow is None:
++        shadow = StreamingVLMRawKeyShadow()
++        attn_layer._streaming_vlm_raw_key_shadow = shadow
++    shadow.write_tensor_rows(slot_mapping[:row_count], raw_key[:row_count])
++    return raw_key.new_zeros(())
++
++
++def unified_streaming_vlm_raw_key_cache_update_fake(
++    raw_key: torch.Tensor,
++    layer_name: str,
++) -> torch.Tensor:
++    return raw_key.new_zeros(())
++
++
++direct_register_custom_op(
++    op_name="unified_streaming_vlm_raw_key_cache_update",
++    op_func=unified_streaming_vlm_raw_key_cache_update,
++    fake_impl=unified_streaming_vlm_raw_key_cache_update_fake,
++    mutates_args=[],
++    tags=(torch._C.Tag.cudagraph_unsafe,),
++)
++
++
+ @maybe_transfer_kv_layer
+ def unified_attention(
+     query: torch.Tensor,
+diff --git a/vllm/model_executor/models/qwen2.py b/vllm/model_executor/models/qwen2.py
+index ccddc6e..e89705f 100644
+--- a/vllm/model_executor/models/qwen2.py
++++ b/vllm/model_executor/models/qwen2.py
+@@ -224,6 +224,13 @@ class Qwen2Attention(nn.Module):
+             q = q.view(total_tokens, self.q_size)
+             k = k.view(total_tokens, self.kv_size)
+ 
++        streaming_vlm_raw_key_shadow_dep = (
++            torch.ops.vllm.unified_streaming_vlm_raw_key_cache_update(
++                k.view(-1, self.num_kv_heads, self.head_dim),
++                self.attn.layer_name,
++            )
++        )
++        q = q + streaming_vlm_raw_key_shadow_dep.to(q.dtype)
+         q, k = self.rotary_emb(positions, q, k)
+         attn_output = self.attn(q, k, v)
+         output, _ = self.o_proj(attn_output)
