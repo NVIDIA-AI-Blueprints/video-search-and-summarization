@@ -10,7 +10,7 @@ import sys
 import time
 import types
 from dataclasses import dataclass
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -476,6 +476,7 @@ def test_worker_session_close_does_not_block_lifecycle_commands():
         ("stream-a", "request-2"): "session-b",
     }
     process._closed_streaming_vlm_streams = {}
+    process._streaming_vlm_lock = Lock()
 
     process._handle_command(
         "close-streaming-vlm-session", stream_id="stream-a", request_id="request-1"
@@ -506,6 +507,7 @@ def test_live_queries_on_one_stream_keep_separate_native_sessions():
     process._num_gpus = 1
     process._streaming_vlm_sessions = {}
     process._closed_streaming_vlm_streams = {}
+    process._streaming_vlm_lock = Lock()
     chunk = ChunkInfo()
     chunk.streamId = "stream-a"
     frame = np.zeros((2, 2, 3), dtype=np.uint8)
@@ -547,6 +549,58 @@ def test_live_queries_on_one_stream_keep_separate_native_sessions():
             [chunk], [params], frames=[[frame]], frame_times=[[1.0]],
             is_live_stream=[True], request_id=["request-1"], decode_only=[False],
         ) == {}
+
+
+def test_unsubscribe_during_native_session_creation_does_not_leak_session():
+    creation_started = Event()
+    release_creation = Event()
+    session_closed = Event()
+    process = object.__new__(VlmProcess)
+    process._model = MagicMock()
+    process._model.supports_streaming_vlm.return_value = True
+
+    def start_session(**_kwargs):
+        creation_started.set()
+        release_creation.wait(timeout=2)
+        return object()
+
+    process._model.start_streaming_vlm_session.side_effect = start_session
+    process._model.end_streaming_vlm_session.side_effect = lambda *_args: session_closed.set()
+    process._refresh_model_health = MagicMock(return_value=True)
+    process._num_gpus = 1
+    process._streaming_vlm_sessions = {}
+    process._closed_streaming_vlm_streams = {}
+    process._streaming_vlm_lock = Lock()
+    chunk = ChunkInfo(streamId="stream-a")
+    params = VlmRequestParams(
+        vlm_prompt="Describe vehicles",
+        vlm_generation_config=VlmGenerationConfig(),
+        inference_mode="streaming_vlm",
+    )
+    result = {}
+
+    def run_inference():
+        result["output"] = process._process(
+            [chunk], [params], frames=[[np.zeros((2, 2, 3), dtype=np.uint8)]],
+            frame_times=[[0.0]], is_live_stream=[True], request_id=["request-1"],
+            decode_only=[False],
+        )
+
+    with patch("vlm_pipeline.vlm_pipeline.nvtx"):
+        worker = Thread(target=run_inference)
+        worker.start()
+        assert creation_started.wait(timeout=1)
+        process._handle_command(
+            "close-streaming-vlm-session", stream_id="stream-a", request_id="request-1"
+        )
+        release_creation.set()
+        worker.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert result["output"] == {}
+    assert not process._streaming_vlm_sessions
+    assert session_closed.wait(timeout=1)
+    process._model.generate_streaming_vlm_step.assert_not_called()
 
 
 def test_manager_enforces_aggregate_video_segment_budget():

@@ -1280,6 +1280,7 @@ class VlmProcess(ProcessBase):
         self._next_model_health_check_at = 0.0
         self._streaming_vlm_sessions = {}
         self._closed_streaming_vlm_streams = {}
+        self._streaming_vlm_lock = Lock()
 
     def _initialize(self):
         # Determine the class path to use
@@ -1335,16 +1336,17 @@ class VlmProcess(ProcessBase):
             stream_id = kwargs["stream_id"]
             request_id = kwargs.get("request_id")
             tombstone = (stream_id, request_id) if request_id is not None else stream_id
-            self._closed_streaming_vlm_streams[tombstone] = None
-            if len(self._closed_streaming_vlm_streams) > 4096:
-                self._closed_streaming_vlm_streams.pop(
-                    next(iter(self._closed_streaming_vlm_streams))
-                )
-            sessions = [
-                (key, self._streaming_vlm_sessions.pop(key))
-                for key in tuple(self._streaming_vlm_sessions)
-                if key[0] == stream_id and (request_id is None or key[1] == request_id)
-            ]
+            with self._streaming_vlm_lock:
+                self._closed_streaming_vlm_streams[tombstone] = None
+                if len(self._closed_streaming_vlm_streams) > 4096:
+                    self._closed_streaming_vlm_streams.pop(
+                        next(iter(self._closed_streaming_vlm_streams))
+                    )
+                sessions = [
+                    (key, self._streaming_vlm_sessions.pop(key))
+                    for key in tuple(self._streaming_vlm_sessions)
+                    if key[0] == stream_id and (request_id is None or key[1] == request_id)
+                ]
             for _key, session in sessions:
                 Thread(
                     target=self._close_streaming_vlm_session,
@@ -1354,9 +1356,10 @@ class VlmProcess(ProcessBase):
             return None
         if command == "open-streaming-vlm-session":
             stream_id = kwargs["stream_id"]
-            self._closed_streaming_vlm_streams.pop(stream_id, None)
-            if kwargs.get("request_id") is not None:
-                self._closed_streaming_vlm_streams.pop((stream_id, kwargs["request_id"]), None)
+            with self._streaming_vlm_lock:
+                self._closed_streaming_vlm_streams.pop(stream_id, None)
+                if kwargs.get("request_id") is not None:
+                    self._closed_streaming_vlm_streams.pop((stream_id, kwargs["request_id"]), None)
             return None
 
     def _close_streaming_vlm_session(self, stream_id, session):
@@ -1541,17 +1544,19 @@ class VlmProcess(ProcessBase):
                 raise ValueError("native Streaming VLM currently supports ordered frames only")
 
             stream_id = chunk[0].streamId
-            if stream_id in self._closed_streaming_vlm_streams:
-                return {}
             request_id = kwargs.get("request_id")
             if isinstance(request_id, (list, tuple)):
                 request_id = request_id[0] if request_id else None
             session_key = (stream_id, request_id or stream_id)
-            if session_key in self._closed_streaming_vlm_streams:
-                return {}
-            session = self._streaming_vlm_sessions.get(session_key)
+            with self._streaming_vlm_lock:
+                if (
+                    stream_id in self._closed_streaming_vlm_streams
+                    or session_key in self._closed_streaming_vlm_streams
+                ):
+                    return {}
+                session = self._streaming_vlm_sessions.get(session_key)
             if session is None:
-                session = ctx.start_streaming_vlm_session(
+                candidate = ctx.start_streaming_vlm_session(
                     stream_id=stream_id,
                     request_id=request_id,
                     query=request_params[0].vlm_prompt,
@@ -1573,17 +1578,22 @@ class VlmProcess(ProcessBase):
                         ),
                     },
                 )
-                if (
-                    stream_id in self._closed_streaming_vlm_streams
-                    or session_key in self._closed_streaming_vlm_streams
-                ):
+                with self._streaming_vlm_lock:
+                    closed = (
+                        stream_id in self._closed_streaming_vlm_streams
+                        or session_key in self._closed_streaming_vlm_streams
+                    )
+                    session = None if closed else self._streaming_vlm_sessions.setdefault(
+                        session_key, candidate
+                    )
+                if session is not candidate:
                     Thread(
                         target=self._close_streaming_vlm_session,
-                        args=(stream_id, session),
+                        args=(stream_id, candidate),
                         daemon=True,
                     ).start()
-                    return {}
-                self._streaming_vlm_sessions[session_key] = session
+                    if closed:
+                        return {}
             vlm_output_batch = ctx.generate_streaming_vlm_step(
                 session=session,
                 query=request_params[0].vlm_prompt,
