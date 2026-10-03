@@ -93,12 +93,13 @@ So a sandbox no build recorded — one a user onboarded by running
 `deploy_nemoclaw.ipynb` themselves, or one left by a build directory since
 deleted — survives every teardown here, along with its watchdog and relay.
 Nothing above goes looking for it, and the next deploy takes nothing from it
-unasked: onboarding times out when it holds `18789`, and the relay cell stops
-on a foreign listener on `18790`. The next harness bring-up is where that gets
+unasked: onboard stops or moves the sandbox elsewhere when it holds `18789`,
+and the relay cell stops on a foreign listener on `18790`. The next harness bring-up is where that gets
 settled, under [Ports the harness
 claims](agent-harness.md#ports-the-harness-claims) — which reads ownership off
-the same records this section does, so a sandbox named `vss-harness-sandbox`
-that no build recorded is one it reports and asks about rather than recreates.
+this same per-build record, so a sandbox named `vss-harness-sandbox` that the
+next build's own record does not name is one it reports and asks about rather
+than recreates.
 Never destroy a sandbox this build does not own.
 
 A harness built from a [harness source

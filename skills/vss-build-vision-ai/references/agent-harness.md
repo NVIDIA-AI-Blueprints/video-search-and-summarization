@@ -354,8 +354,9 @@ and a host may lack both:
 # Absent until notebook cell 3.1 installs it, so do not let it fail the probe.
 command -v openshell >/dev/null \
   && openshell sandbox list                         # compare against NEMOCLAW_SANDBOX_NAME
-# A name is not a claim: only a sandbox some build recorded is a build's.
-cat "$(git rev-parse --show-toplevel)"/_builds/*/sandbox 2>/dev/null
+# A name is not a claim. Print which build claimed which name: a sibling build
+# holding the default name is as foreign here as a stranger's sandbox.
+grep -H . "$(git rev-parse --show-toplevel)"/_builds/*/sandbox 2>/dev/null
 for port in "${NEMOCLAW_DASHBOARD_PORT:-18789}" "${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"; do
   python3 -c 'import socket,sys; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(("",int(sys.argv[1])))' "$port" 2>/dev/null \
     && { echo "$port free"; continue; }
@@ -392,12 +393,19 @@ forward prints `forward service <name>`, the relay and watchdog print
 `${NEMOCLAW_SANDBOX_NAME:-vss-harness-sandbox}`. With several sandboxes on the
 host, the listing and the PID settle nothing on their own.
 
-**A matching name is not ownership; a `_builds/*/sandbox` record is.** Every
-sandbox a build onboarded is named in one, written before bring-up runs, so
-the records are the whole set this checkout may take. The default name proves
-nothing on its own: `deploy_nemoclaw.ipynb` run by hand names its sandbox
+**A matching name is not ownership; this build's own `_builds/<name>/sandbox`
+record is.** Written before bring-up runs, it is the only thing that says
+which sandbox this build may replace. The default name proves nothing on its
+own: `deploy_nemoclaw.ipynb` run by hand names its sandbox
 `vss-harness-sandbox` too, and [Teardown](#teardown) leaves exactly that one
-standing as unowned. A holder no record names is foreign.
+standing as unowned. **A sibling build's record is not this build's claim
+either** — several builds in one checkout take the same default, and the
+notebook recreates by name without reading any record, so accepting another
+`_builds/*/sandbox` here is how a build discards a sandbox and sessions
+someone is still using. Read every record to learn who holds the name; own
+only the one written under the build being deployed. A build on its first
+deploy has no record and so owns nothing, which is right — it has onboarded
+nothing yet. A re-onboard of that same build is what the record makes owned.
 
 **The relay must match the bring-up's own script path as well as the name.**
 Section 3.5 keeps a relay only when its command line carries the resolved
@@ -422,29 +430,31 @@ bring-up reads its assets and its relay from a path the probe never looked at.
 
 A holder this build owns is not a conflict: `NEMOCLAW_RECREATE_SANDBOX=1`
 replaces the sandbox named `NEMOCLAW_SANDBOX_NAME`, and the relay cell replaces
-that name's relay from this checkout. Do not assume that case — ownership is a
-`_builds/*/sandbox` record naming the holder, and for a relay the resolved
-script path as well, so a deployment that named itself leaves a sandbox and a
-relay foreign to the next run, as does a same-name relay from another checkout.
+that name's relay from this checkout. Do not assume that case — ownership is
+this build's own record naming the holder, and for a relay the resolved script
+path as well, so a deployment that named itself leaves a sandbox and a relay
+foreign to the next run, as do a sibling build's sandbox and a same-name relay
+from another checkout.
 
-**An unrecorded holder of the name this build will bind is the one case to ask
-about rather than hand over.** The notebook takes the name regardless: section
-3.1 adds `--recreate-sandbox` for it and discards that sandbox's agent
-sessions. So put the choice before the deploy, not in the final summary — say
-which name is held, that no build recorded it, and whose sessions a yes
+**A holder this build's own record does not name is the one case to ask about
+rather than hand over.** The notebook takes the name regardless: section 3.1
+adds `--recreate-sandbox` for it and discards that sandbox's agent sessions.
+So put the choice before the deploy, not in the final summary — say which name
+is held, which build recorded it or that none did, and whose sessions a yes
 discards. Take either a yes to recreate it, or another `NEMOCLAW_SANDBOX_NAME`
 with a free port pair to go with it, which leaves that sandbox running and
-onboards beside it. A fresh checkout on a host that has built before — an eval
-box — reaches this every time until someone clears the old sandbox; that is the
-question doing its job, not a false positive to wave through.
+onboards beside it. Two ordinary situations land here: a fresh checkout on a
+host that has built before — an eval box — and a second build beside one whose
+harness is still up. Both are the question doing its job, not a false positive
+to wave through.
 
 **Anything else is a hard blocker**, including a held port nothing could name —
 report it as held by an unidentified listener. Report what holds which port, hand the
 block below over, and **do not proceed until no foreign holder remains** —
-destroy nothing and kill nothing on the user's behalf. A port a recorded
-sandbox of this name still holds is not what that waits on, nor is one the user
-has just agreed to recreate; `NEMOCLAW_RECREATE_SANDBOX=1` replaces either.
-Stopping here costs nothing: Q3 precedes every build artifact.
+destroy nothing and kill nothing on the user's behalf. A port the sandbox in
+this build's own record still holds is not what that waits on, nor is one the
+user has just agreed to recreate; `NEMOCLAW_RECREATE_SANDBOX=1` replaces
+either. Stopping here costs nothing: Q3 precedes every build artifact.
 
 ```bash
 # Watchdog first: it answers a dying forward with `nemoclaw recover`. Relay
@@ -636,8 +646,8 @@ export COMPATIBLE_API_KEY
 
 # Record the name BEFORE the run, not on success: 3.1 onboards and 3.2-3.5 keep
 # configuring, so a failure in between leaves a live sandbox that teardown
-# reaches only through this file. It is also the claim the next build's Q3 probe
-# reads: a sandbox no record names is foreign there, whatever it is called.
+# reaches only through this file. It is also this build's claim on the name at
+# the next Q3 probe, which owns no other build's record, whatever it is called.
 printf '%s\n' "$NEMOCLAW_SANDBOX_NAME" \
   > "$REPO/_builds/${BUILD_NAME}/sandbox"
 
@@ -825,7 +835,7 @@ name replaces it.
 Say with it whether the bring-up **rebuilt** an existing sandbox of that name.
 `NEMOCLAW_RECREATE_SANDBOX=1` discards the previous sandbox and its agent
 sessions, and nothing else in the run tells the user that happened — Q3 asks
-first only about a sandbox no build recorded, never about this build's own.
+first about every sandbox except the one this build's own record names.
 
 ### Troubleshooting: "Port 18789 is not available."
 
