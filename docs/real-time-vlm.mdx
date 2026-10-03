@@ -1605,9 +1605,11 @@ NIM image-count limits. Set `REMOTE_VIDEO_INPUT=false` to restore
 image-per-frame payloads. If MP4 encoding fails, the service falls back to up
 to 10 uniformly sampled base64 JPEG images and logs a warning.
 
-**Persistent Cosmos streaming sessions (opt-in):** With an RT-VLM image that
-supports NIM streaming sessions, point `RTVI_VLM_ENDPOINT` at the NIM's `/v1`
-URL, set `VLM_NAME` to its `/v1/models` ID, set
+**VSS Docker developer profiles only: persistent Cosmos streaming sessions
+(opt-in).** With an RT-VLM image that supports NIM streaming sessions, set
+these values in `deploy/docker/services/rtvi/rtvi-vlm/.env`. Point
+`RTVI_VLM_ENDPOINT` at the NIM's `/v1` URL, set `VLM_NAME` to its
+`/v1/models` ID, set
 `RTVI_VLM_MODEL_TO_USE=openai-compat`, and set
 `RTVI_VLM_STREAMING_NIM_ENABLED=true`. Start the NIM with
 `NIM_ENABLE_STREAMING=true`, then request `inference_mode=streaming_vlm` on a
@@ -1617,6 +1619,8 @@ live stream with one sampled frame per step. This mode uses the NIM's separate
 streaming-session image, so use a separately deployed compatible NIM. Do not
 enable this flag with the default RT-VLM image until it includes the session
 adapter.
+
+The standalone Compose and Helm deployments do not forward this flag.
 
 **GPT-4o:**
 
