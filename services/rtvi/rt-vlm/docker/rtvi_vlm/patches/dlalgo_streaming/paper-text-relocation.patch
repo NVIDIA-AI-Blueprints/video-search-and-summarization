@@ -1,0 +1,925 @@
+diff --git a/vllm/entrypoints/openai/streaming/chunking.py b/vllm/entrypoints/openai/streaming/chunking.py
+index e3e2e47..cd0d373 100644
+--- a/vllm/entrypoints/openai/streaming/chunking.py
++++ b/vllm/entrypoints/openai/streaming/chunking.py
+@@ -31,6 +31,63 @@ if TYPE_CHECKING:
+ _MAX_FRAME_PIXELS = 4 * 1024 * 1024  # 4 MP; a 720p frame is ~0.9 MP
+ 
+ 
++def marker_token_ids(renderer: "BaseRenderer", marker: str) -> list[int]:
++    token_ids = renderer.get_tokenizer().encode(marker, add_special_tokens=False)
++    if not token_ids:
++        raise ValueError(f"streaming marker {marker!r} produced no token IDs")
++    return token_ids
++
++
++def previous_text_token_range(
++    prompt: dict, renderer: "BaseRenderer", eos_token_id: int | None
++) -> tuple[int, int]:
++    """Locate the content body of the dedicated ``previous text`` role."""
++    token_ids = prompt.get("prompt_token_ids")
++    if token_ids is None:
++        raise ValueError("rendered streaming prompt does not contain token IDs")
++    if eos_token_id is None:
++        raise ValueError("paper text relocation requires a model EOS token")
++    prefix = marker_token_ids(renderer, "<|im_start|>previous text\n")
++    starts = [
++        index
++        for index in range(len(token_ids) - len(prefix) + 1)
++        if token_ids[index : index + len(prefix)] == prefix
++    ]
++    if len(starts) != 1:
++        raise ValueError(f"expected one previous-text role, found {len(starts)}")
++    content_start = starts[0] + len(prefix)
++    try:
++        content_end = token_ids.index(eos_token_id, content_start)
++    except ValueError as exc:
++        raise ValueError("previous-text role has no end token") from exc
++    return content_start, content_end
++
++
++def assistant_continuation_token_ids(renderer: "BaseRenderer") -> list[int]:
++    """Tokenize the paper checkpoint's trailing continuation marker."""
++    return renderer.get_tokenizer().encode(" ...", add_special_tokens=False)
++
++
++def role_end_token_ids(renderer: "BaseRenderer") -> list[int]:
++    """Tokenize the role terminator retained after previous-text insertion."""
++    return renderer.get_tokenizer().encode(
++        "<|im_end|>\n", add_special_tokens=False
++    )
++
++
++def user_role_start_token_ids(renderer: "BaseRenderer") -> list[int]:
++    return marker_token_ids(renderer, "<|im_start|>user\n")
++
++
++def vision_start_token_id(renderer: "BaseRenderer") -> int:
++    token_ids = marker_token_ids(renderer, "<|vision_start|>")
++    if len(token_ids) != 1:
++        raise ValueError("vision-start marker must encode to exactly one token")
++    return token_ids[0]
++
++
+ def decode_frame(data: bytes) -> Image.Image:
+     """Decode encoded image bytes (PNG/JPEG/...) to a PIL RGB image."""
+     img = Image.open(BytesIO(data))  # lazy: parses the header only
+@@ -71,11 +128,13 @@ def build_messages(
+     user_content: list[dict] = [step_context, *video_parts]
+     if question:
+         user_content.append({"type": "text", "text": question})
+-    return [
+-        {"role": "system", "content": system_prompt},
++    messages = [
+         {"role": "previous text", "content": previous_text},
+         {"role": "user", "content": user_content},
+     ]
++    if system_prompt:
++        messages.insert(0, {"role": "system", "content": system_prompt})
++    return messages
+ 
+ 
+ def build_temporal_video_items(
+@@ -149,9 +208,28 @@ async def build_frames_chunk(
+             "multi_modal_uuids": {"video": video_uuids},
+         },
+     )
+-    chunk_sp = sp
+-    if not generate:
+-        chunk_sp = sp.clone()
++    chunk_sp = sp.clone() if is_first or not generate else sp
++    if is_first:
+         chunk_sp.extra_args = dict(sp.extra_args or {})
++        chunk_sp.extra_args["streaming_eos_token_id"] = renderer.get_eos_token_id()
++        chunk_sp.extra_args["streaming_assistant_continuation_token_ids"] = (
++            assistant_continuation_token_ids(renderer)
++        )
++        chunk_sp.extra_args["streaming_role_end_token_ids"] = (
++            role_end_token_ids(renderer)
++        )
++        chunk_sp.extra_args["streaming_user_role_start_token_ids"] = (
++            user_role_start_token_ids(renderer)
++        )
++        chunk_sp.extra_args["streaming_vision_start_token_id"] = (
++            vision_start_token_id(renderer)
++        )
++        previous_start, previous_end = previous_text_token_range(
++            engine_prompts[0], renderer, renderer.get_eos_token_id()
++        )
++        chunk_sp.extra_args["streaming_previous_text_start_token"] = previous_start
++        chunk_sp.extra_args["streaming_previous_text_end_token"] = previous_end
++    if not generate:
++        chunk_sp.extra_args = dict(chunk_sp.extra_args or {})
+         chunk_sp.extra_args["streaming_prefill_only"] = True
+     return StreamingInput(prompt=engine_prompts[0], sampling_params=chunk_sp)
+diff --git a/vllm/entrypoints/openai/streaming/protocol.py b/vllm/entrypoints/openai/streaming/protocol.py
+index 7239f20..01480c2 100644
+--- a/vllm/entrypoints/openai/streaming/protocol.py
++++ b/vllm/entrypoints/openai/streaming/protocol.py
+@@ -83,6 +83,9 @@ class FrameResponse(BaseModel):
+     token_count: int = 0
+     ttft_s: float | None = None
+     latency_s: float | None = None
++    prompt_token_count: int = 0
++    vision_token_count: int = 0
++    frame_count: int = 0
+ 
+ 
+ class CloseResponse(BaseModel):
+diff --git a/vllm/entrypoints/openai/streaming/session.py b/vllm/entrypoints/openai/streaming/session.py
+index 785842f..6d86de4 100644
+--- a/vllm/entrypoints/openai/streaming/session.py
++++ b/vllm/entrypoints/openai/streaming/session.py
+@@ -67,6 +67,7 @@ class StreamingSession:
+         self._out: asyncio.Queue = asyncio.Queue()
+         self._submit_times: deque[float] = deque()
+         self._generated_frame_indices: deque[int] = deque()
++        self._generated_input_accounting: deque[tuple[int, int, int]] = deque()
+         self._frames_yielded = 0
+         self.frames_done = 0
+         self._task: asyncio.Task | None = None
+@@ -211,7 +212,7 @@ class StreamingSession:
+                     self._frames_yielded + len(frames) - 1
+                 )
+             self._frames_yielded += len(frames)
+-            yield await build_frames_chunk(
++            chunk = await build_frames_chunk(
+                 self.renderer,
+                 frames,
+                 is_first=is_first,
+@@ -224,6 +225,18 @@ class StreamingSession:
+                 end_time_s=end_time_s,
+                 generate=generate,
+             )
++            if generate:
++                prompt = chunk.prompt
++                prompt_token_count = len(prompt.get("prompt_token_ids") or ())
++                vision_token_count = sum(
++                    placeholder.length
++                    for placeholders in (prompt.get("mm_placeholders") or {}).values()
++                    for placeholder in placeholders
++                )
++                self._generated_input_accounting.append(
++                    (prompt_token_count, vision_token_count, len(frames))
++                )
++            yield chunk
+ 
+     async def _run(self) -> None:
+         """Drive generate() and segment the DELTA stream into one reply per frame."""
+@@ -264,6 +277,11 @@ class StreamingSession:
+                             if self._generated_frame_indices
+                             else frame_idx
+                         )
++                        prompt_tokens, vision_tokens, frame_count = (
++                            self._generated_input_accounting.popleft()
++                            if self._generated_input_accounting
++                            else (0, 0, 0)
++                        )
+                         self._out.put_nowait(
+                             FrameResponse(
+                                 frame_index=source_frame_idx,
+@@ -272,6 +290,9 @@ class StreamingSession:
+                                 token_count=tok,
+                                 ttft_s=ttft,
+                                 latency_s=latency,
++                                prompt_token_count=prompt_tokens,
++                                vision_token_count=vision_tokens,
++                                frame_count=frame_count,
+                             )
+                         )
+                         frame_idx += 1
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+index b4f519f..d625961 100644
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -54,7 +54,10 @@ from vllm.v1.metrics.stats import PrefixCacheStats, SchedulerStats
+ from vllm.v1.outputs import DraftTokenIds, KVConnectorOutput, ModelRunnerOutput
+ from vllm.v1.request import Request, RequestStatus, StreamingUpdate
+ from vllm.v1.spec_decode.metrics import SpecDecodingStats
+-from vllm.v1.streaming.eviction import maybe_evict_old_segments
++from vllm.v1.streaming.eviction import (
++    maybe_compact_initial_previous_text,
++    maybe_evict_old_segments,
++    maybe_relocate_assistant_text,
++)
+ from vllm.v1.streaming.reprefill import should_trigger_reprefill
+ from vllm.v1.streaming.retention import HistorySegment, SegmentType
+ from vllm.v1.structured_output import StructuredOutputManager
+@@ -1073,14 +1076,10 @@ class Scheduler(SchedulerInterface):
+         # Retain the complete sampled assistant turn, including the final
+         # token whose KV is computed on the next prefill. The paper runner
+         # force-closes a length-capped response with the model EOS token.
+-        folded_output_tokens = list(
+-            session._all_token_ids[session.num_prompt_tokens :]
+-        )
+-        eos_token_id = (
+-            session.sampling_params.eos_token_id
+-            if session.sampling_params is not None
+-            else None
+-        )
++        folded_output_tokens = list(session._all_token_ids[session.num_prompt_tokens :])
++        eos_token_id = session.streaming_eos_token_id
++        if eos_token_id is None and session.sampling_params is not None:
++            eos_token_id = session.sampling_params.eos_token_id
+         if (
+             folded_output_tokens
+             and eos_token_id is not None
+@@ -1147,6 +1146,22 @@ class Scheduler(SchedulerInterface):
+                 self.kv_cache_manager,
+                 self.encoder_cache_manager,
+             )
++            relocated_text = maybe_relocate_assistant_text(
++                session,
++                session.streaming_retention,
++                session.streaming_eos_token_id,
++                session.streaming_assistant_continuation_token_ids,
++                session.streaming_role_end_token_ids,
++                session.streaming_user_role_start_token_ids,
++                session.streaming_vision_start_token_id,
++            )
++            if relocated_text:
++                logger.info(
++                    "paper text relocation triggered: req=%s round=%d count=%d",
++                    session.request_id,
++                    session.streaming_retention.text_round,
++                    session.text_relocation_count,
++                )
+ 
+         if session.num_tokens >= self.max_model_len:
+             # Cumulative context-length guard: even after eviction the
+@@ -1171,14 +1186,10 @@ class Scheduler(SchedulerInterface):
+     def _fold_kept_output(self, session: Request) -> None:
+         """Fold a complete, explicitly terminated assistant turn."""
+         num_computed_tokens = session.num_computed_tokens
+-        folded_output_tokens = list(
+-            session._all_token_ids[session.num_prompt_tokens :]
+-        )
+-        eos_token_id = (
+-            session.sampling_params.eos_token_id
+-            if session.sampling_params is not None
+-            else None
+-        )
++        folded_output_tokens = list(session._all_token_ids[session.num_prompt_tokens :])
++        eos_token_id = session.streaming_eos_token_id
++        if eos_token_id is None and session.sampling_params is not None:
++            eos_token_id = session.sampling_params.eos_token_id
+         if (
+             folded_output_tokens
+             and eos_token_id is not None
+@@ -1262,16 +1273,49 @@ class Scheduler(SchedulerInterface):
+                 key=lambda feature: feature.mm_position.offset,
+             )
+             anchor_feature = anchor_features[0] if anchor_features else None
+-            session.session_history.append(
+-                HistorySegment(
+-                    segment_type="video" if anchor_feature is not None else "user_text",
+-                    token_range=(0, prior_response_start),
+-                    mm_item_id=(
+-                        anchor_feature.identifier if anchor_feature is not None else None
+-                    ),
+-                    pinned=True,
++            previous_start = session.streaming_previous_text_start_token
++            previous_end = session.streaming_previous_text_end_token
++            if (
++                previous_start is not None
++                and previous_end is not None
++                and 0 <= previous_start <= previous_end <= prior_response_start
++            ):
++                session.session_history.extend(
++                    [
++                        HistorySegment(
++                            segment_type="system_prompt",
++                            token_range=(0, previous_start),
++                            pinned=True,
++                        ),
++                        HistorySegment(
++                            segment_type="previous_text",
++                            token_range=(previous_start, previous_end),
++                            pinned=True,
++                        ),
++                        HistorySegment(
++                            segment_type=(
++                                "video" if anchor_feature is not None else "user_text"
++                            ),
++                            token_range=(previous_end, prior_response_start),
++                            mm_item_id=(
++                                anchor_feature.identifier
++                                if anchor_feature is not None
++                                else None
++                            ),
++                            pinned=True,
++                        ),
++                    ]
++                )
++            else:
++                session.session_history.append(
++                    HistorySegment(
++                        segment_type=(
++                            "video" if anchor_feature is not None else "user_text"
++                        ),
++                        token_range=(0, prior_response_start),
++                        mm_item_id=(
++                            anchor_feature.identifier
++                            if anchor_feature is not None
++                            else None
++                        ),
++                        pinned=True,
++                    )
+                 )
+-            )
+ 
+         # Age existing segments by one chunk boundary. Anything we
+         # append below will start at age 0.
+@@ -1923,6 +1967,18 @@ class Scheduler(SchedulerInterface):
+             request.status = RequestStatus.WAITING_FOR_STREAMING_REQ
+             self.num_waiting_for_streaming_input += 1
+ 
++        # Paper text relocation changes token order. Rebuild KV immediately;
++        # the newly appended video turn remains unanswered, so the first
++        # sampled token after re-prefill is genuine output.
++        if request.pending_text_relocation:
++            request.pending_text_relocation = False
++            if request.status == RequestStatus.WAITING_FOR_STREAMING_REQ:
++                self.num_waiting_for_streaming_input -= 1
++            self._reprefill_streaming_session(
++                request, discard_next_sample=not output_folded
++            )
++            return False
++
+         # Streaming re-prefill: if the session's mRoPE positions have
+         # approached the model's trained range, self-preempt and re-queue
+         # for a fresh full prefill at positions starting from 0.
+diff --git a/vllm/v1/request.py b/vllm/v1/request.py
+index ec2b854..08192d1 100644
+--- a/vllm/v1/request.py
++++ b/vllm/v1/request.py
+@@ -97,6 +97,12 @@ class Request:
+         # `sampling_params.extra_args["streaming_retention"]` below);
+         # preserved across chunks by `_update_request_as_session`.
+         self.streaming_retention: StreamingRetentionParams | None = None
++        self.streaming_previous_text_start_token: int | None = None
++        self.streaming_previous_text_end_token: int | None = None
++        self.streaming_eos_token_id: int | None = None
++        self.streaming_assistant_continuation_token_ids: tuple[int, ...] = ()
++        self.streaming_role_end_token_ids: tuple[int, ...] = ()
++        self.streaming_user_role_start_token_ids: tuple[int, ...] = ()
++        self.streaming_vision_start_token_id: int | None = None
+ 
+         if pooling_params is not None:
+             # Pooling models.
+@@ -118,6 +124,44 @@ class Request:
+                 elif isinstance(_retention, dict):
+                     # Cross-process IPC: arrives as a plain dict.
+                     self.streaming_retention = StreamingRetentionParams(**_retention)
++                _previous_text_start = sampling_params.extra_args.get(
++                    "streaming_previous_text_start_token"
++                )
++                if _previous_text_start is not None:
++                    self.streaming_previous_text_start_token = int(
++                        _previous_text_start
++                    )
++                _previous_text_end = sampling_params.extra_args.get(
++                    "streaming_previous_text_end_token"
++                )
++                if _previous_text_end is not None:
++                    self.streaming_previous_text_end_token = int(_previous_text_end)
++                _streaming_eos = sampling_params.extra_args.get(
++                    "streaming_eos_token_id"
++                )
++                if _streaming_eos is not None:
++                    self.streaming_eos_token_id = int(_streaming_eos)
++                _streaming_continuation = sampling_params.extra_args.get(
++                    "streaming_assistant_continuation_token_ids"
++                )
++                if _streaming_continuation is not None:
++                    self.streaming_assistant_continuation_token_ids = tuple(
++                        int(token_id) for token_id in _streaming_continuation
++                    )
++                _streaming_role_end = sampling_params.extra_args.get(
++                    "streaming_role_end_token_ids"
++                )
++                if _streaming_role_end is not None:
++                    self.streaming_role_end_token_ids = tuple(
++                        int(token_id) for token_id in _streaming_role_end
++                    )
++                _streaming_user_start = sampling_params.extra_args.get(
++                    "streaming_user_role_start_token_ids"
++                )
++                if _streaming_user_start is not None:
++                    self.streaming_user_role_start_token_ids = tuple(
++                        int(token_id) for token_id in _streaming_user_start
++                    )
++                _streaming_vision_start = sampling_params.extra_args.get(
++                    "streaming_vision_start_token_id"
++                )
++                if _streaming_vision_start is not None:
++                    self.streaming_vision_start_token_id = int(
++                        _streaming_vision_start
++                    )
+         else:
+             raise ValueError("sampling_params and pooling_params can't both be unset")
+ 
+@@ -214,6 +258,8 @@ class Request:
+         # caption and this tells `update_from_output` to discard it. When a
+         # queued chunk was folded first, the first sample is genuine output.
+         self.reprefill_discard_next_sample: bool = False
++        self.pending_text_relocation: bool = False
++        self.text_relocation_count: int = 0
+ 
+     @property
+     @deprecated(
+diff --git a/vllm/v1/streaming/eviction.py b/vllm/v1/streaming/eviction.py
+index d0d5f67..3a72a3a 100644
+--- a/vllm/v1/streaming/eviction.py
++++ b/vllm/v1/streaming/eviction.py
+@@ -34,6 +34,259 @@ if TYPE_CHECKING:
+     from vllm.v1.request import Request
+ 
+ 
++def _bounded_previous_text(
++    old_indices: list[int],
++    new_indices: list[int],
++    *,
++    sink_tokens: int,
++    window_tokens: int,
++) -> list[int]:
++    combined = old_indices + new_indices
++    if len(combined) <= sink_tokens + window_tokens:
++        return combined
++    head = combined[:sink_tokens]
++    tail = combined[-window_tokens:] if window_tokens else []
++    return head + tail
++
++
++def maybe_compact_initial_previous_text(
++    request: Request,
++    retention: StreamingRetentionParams,
++) -> tuple[list[int], int] | None:
++    """Apply the paper's sink-plus-tail bound before the second update."""
++    if retention.text_round <= 0:
++        return None
++    previous = next(
++        (s for s in request.session_history if s.segment_type == "previous_text"),
++        None,
++    )
++    if previous is None or previous.age_chunks != 1:
++        return None
++
++    prev_start, prev_end = previous.token_range
++    retained = _bounded_previous_text(
++        list(range(prev_start, prev_end)),
++        [],
++        sink_tokens=retention.text_sink_tokens,
++        # The role EOS is outside the body but counts toward the paper window.
++        window_tokens=max(0, retention.text_sliding_window_tokens - 1),
++    )
++    if len(retained) == prev_end - prev_start:
++        return None
++
++    prior_prompt_tokens = request.num_prompt_tokens
++    order = list(range(prev_start)) + retained + list(
++        range(prev_end, request.num_tokens)
++    )
++    old_to_new = {old: new for new, old in enumerate(order)}
++    original_tokens = list(request._all_token_ids)
++    request._all_token_ids[:] = [original_tokens[index] for index in order]
++    assert request.prompt_token_ids is not None
++    request.prompt_token_ids[:] = list(request._all_token_ids)
++    request._output_token_ids.clear()
++    request.num_prompt_tokens = len(request.prompt_token_ids)
++
++    for feature in request.mm_features:
++        old_start = feature.mm_position.offset
++        old_positions = range(old_start, old_start + feature.mm_position.length)
++        new_positions = [old_to_new[index] for index in old_positions]
++        if new_positions != list(range(new_positions[0], new_positions[-1] + 1)):
++            raise RuntimeError(
++                "initial previous-text compaction split a multimodal feature"
++            )
++        feature.mm_position = replace(feature.mm_position, offset=new_positions[0])
++
++    previous.token_range = (prev_start, prev_start + len(retained))
++    updated_history: list[HistorySegment] = []
++    for segment in request.session_history:
++        if segment is previous:
++            updated_history.append(segment)
++            continue
++        start, end = segment.token_range
++        mapped = [
++            old_to_new[index] for index in range(start, end) if index in old_to_new
++        ]
++        if not mapped:
++            continue
++        segment.token_range = (min(mapped), max(mapped) + 1)
++        updated_history.append(segment)
++    updated_history.sort(key=lambda segment: segment.token_range)
++    request.session_history[:] = updated_history
++
++    request.streaming_previous_text_end_token = previous.token_range[1]
++    request.block_hashes.clear()
++    return order, prior_prompt_tokens
++
++
++def _assistant_content_end(
++    token_ids: list[int],
++    start: int,
++    end: int,
++    *,
++    eos_token_id: int | None,
++    continuation_token_ids: tuple[int, ...],
++) -> int:
++    """Exclude the paper checkpoint's `` ...<|im_end|>`` turn suffix."""
++    content_end = end
++    if eos_token_id is not None and token_ids[content_end - 1] == eos_token_id:
++        content_end -= 1
++    suffix_start = content_end - len(continuation_token_ids)
++    if (
++        continuation_token_ids
++        and suffix_start >= start
++        and tuple(token_ids[suffix_start:content_end]) == continuation_token_ids
++    ):
++        content_end = suffix_start
++    return content_end
++
++
++def _previous_role_suffix(
++    token_ids: list[int],
++    content_end: int,
++    *,
++    role_end_token_ids: tuple[int, ...],
++) -> list[int]:
++    """Retain the renderer-derived terminator after inserted previous text."""
++    suffix_end = content_end + len(role_end_token_ids)
++    if (
++        not role_end_token_ids
++        or suffix_end > len(token_ids)
++        or tuple(token_ids[content_end:suffix_end]) != role_end_token_ids
++    ):
++        context_end = min(len(token_ids), suffix_end + 8)
++        raise RuntimeError(
++            "Streaming VLM text relocation could not locate the previous-role end: "
++            f"content_end={content_end}, expected={role_end_token_ids}, "
++            f"following={token_ids[content_end:context_end]}"
++        )
++    return list(range(content_end, suffix_end))
++
++
++def _find_sequences(
++    token_ids: list[int], pattern: tuple[int, ...], start: int, end: int
++) -> list[int]:
++    if not pattern:
++        return []
++    return [
++        index
++        for index in range(start, end - len(pattern) + 1)
++        if tuple(token_ids[index : index + len(pattern)]) == pattern
++    ]
++
++
++def _wrapped_visual_context_indices(
++    request: Request,
++    start: int,
++    end: int,
++    *,
++    user_role_start_token_ids: tuple[int, ...],
++    vision_start_token_id: int | None,
++    role_end_token_ids: tuple[int, ...],
++) -> list[int]:
++    """Drop each aged timestamp while retaining the complete visual turn.
++
++    This mirrors the paper runner: keep the user-role prefix, everything from
++    the first vision marker through the role end (including the first-turn
++    query), and all multimodal feature tokens in between.
++    """
++    if not user_role_start_token_ids or vision_start_token_id is None:
++        raise RuntimeError("Streaming VLM visual-wrapper markers are unavailable")
++    token_ids = request._all_token_ids
++    user_starts = _find_sequences(
++        token_ids, user_role_start_token_ids, start, end
++    )
++    indices: list[int] = []
++    for user_start in user_starts:
++        next_user = next(
++            (value for value in user_starts if value > user_start), end
++        )
++        vision_start = next(
++            (
++                index
++                for index in range(user_start + len(user_role_start_token_ids), next_user)
++                if token_ids[index] == vision_start_token_id
++            ),
++            None,
++        )
++        role_ends = _find_sequences(token_ids, role_end_token_ids, user_start, next_user)
++        if vision_start is None or len(role_ends) != 1:
++            raise RuntimeError(
++                "Streaming VLM could not preserve an aged wrapped visual turn: "
++                f"user_start={user_start}, vision_start={vision_start}, "
++                f"role_ends={role_ends}"
++            )
++        role_end = role_ends[0]
++        indices.extend(range(user_start, user_start + len(user_role_start_token_ids)))
++        indices.extend(range(vision_start, role_end + len(role_end_token_ids)))
++
++    retained = set(indices)
++    for feature in request.mm_features:
++        feature_start = feature.mm_position.offset
++        feature_end = feature_start + feature.mm_position.length
++        if feature_end <= start or feature_start >= end:
++            continue
++        if any(index not in retained for index in range(feature_start, feature_end)):
++            raise RuntimeError(
++                "Streaming VLM text relocation split a multimodal feature: "
++                f"feature=({feature_start}, {feature_end}), context=({start}, {end})"
++            )
++    return indices
++
++
++def maybe_relocate_assistant_text(
++    request: Request,
++    retention: StreamingRetentionParams,
++    eos_token_id: int | None,
++    continuation_token_ids: tuple[int, ...],
++    role_end_token_ids: tuple[int, ...],
++    user_role_start_token_ids: tuple[int, ...],
++    vision_start_token_id: int | None,
++) -> bool:
++    """Move one aged assistant body into ``previous text``.
++
++    The transformation operates on token indices only. The scheduler must
++    immediately re-prefill after a successful relocation; cached KV still
++    describes the old ordering until then.
++    """
++    if retention.text_round <= 0:
++        return False
++
++    previous = next(
++        (s for s in request.session_history if s.segment_type == "previous_text"),
++        None,
++    )
++    source = next(
++        (
++            s
++            for s in request.session_history
++            if s.segment_type == "assistant_text"
++            and s.age_chunks >= retention.text_round
++        ),
++        None,
++    )
++    if previous is None or source is None:
++        return False
++
++    prev_start, prev_end = previous.token_range
++    src_start, src_end = source.token_range
++    if not (0 <= prev_start <= prev_end <= src_start < src_end <= request.num_tokens):
++        raise RuntimeError(
++            "invalid Streaming VLM text-relocation ranges: "
++            f"previous={previous.token_range}, assistant={source.token_range}, "
++            f"tokens={request.num_tokens}"
++        )
++
++    source_content_end = _assistant_content_end(
++        request._all_token_ids,
++        src_start,
++        src_end,
++        eos_token_id=eos_token_id,
++        continuation_token_ids=continuation_token_ids,
++    )
++    previous_role_suffix = _previous_role_suffix(
++        request._all_token_ids,
++        prev_end,
++        role_end_token_ids=role_end_token_ids,
++    )
++    if previous_role_suffix[-1] >= src_start:
++        raise RuntimeError(
++            "Streaming VLM previous-role end overlaps the assistant source"
++        )
++    visual_context = _wrapped_visual_context_indices(
++        request,
++        previous_role_suffix[-1] + 1,
++        src_start,
++        user_role_start_token_ids=user_role_start_token_ids,
++        vision_start_token_id=vision_start_token_id,
++        role_end_token_ids=role_end_token_ids,
++    )
++    source_content = list(range(src_start, source_content_end))
++    retained_previous = _bounded_previous_text(
++        list(range(prev_start, prev_end)),
++        source_content,
++        sink_tokens=retention.text_sink_tokens,
++        window_tokens=retention.text_sliding_window_tokens,
++    )
++
++    order = (
++        list(range(0, prev_start))
++        + retained_previous
++        + previous_role_suffix
++        + visual_context
++        + list(range(src_end, request.num_tokens))
++    )
++    old_to_new = {old: new for new, old in enumerate(order)}
++    original_tokens = list(request._all_token_ids)
++    request._all_token_ids[:] = [original_tokens[index] for index in order]
++    assert request.prompt_token_ids is not None
++    request.prompt_token_ids[:] = list(request._all_token_ids)
++    request._output_token_ids.clear()
++    request.num_prompt_tokens = len(request.prompt_token_ids)
++
++    for feature in request.mm_features:
++        start = feature.mm_position.offset
++        old_positions = range(start, start + feature.mm_position.length)
++        new_positions = [old_to_new[index] for index in old_positions]
++        if new_positions != list(range(new_positions[0], new_positions[-1] + 1)):
++            raise RuntimeError("text relocation split a multimodal feature")
++        feature.mm_position = replace(feature.mm_position, offset=new_positions[0])
++
++    previous.token_range = (prev_start, prev_start + len(retained_previous))
++    updated_history: list[HistorySegment] = []
++    for segment in request.session_history:
++        if segment is source:
++            continue
++        if segment is previous:
++            updated_history.append(segment)
++            continue
++        start, end = segment.token_range
++        mapped = [
++            old_to_new[index] for index in range(start, end) if index in old_to_new
++        ]
++        if not mapped:
++            continue
++        segment.token_range = (min(mapped), max(mapped) + 1)
++        updated_history.append(segment)
++    updated_history.sort(key=lambda segment: segment.token_range)
++    request.session_history[:] = updated_history
++
++    request.block_hashes.clear()
++    request.pending_text_relocation = True
++    request.text_relocation_count += 1
++    return True
++
++
+ def evict_segment(
+     request: Request,
+     segment: HistorySegment,
+@@ -203,7 +456,12 @@ def _frees_block(token_range: tuple[int, int], block_size: int) -> bool:
+     return (end // block_size) > ((start + block_size - 1) // block_size)
+ 
+ 
+-def _coalesce_adjacent_text(request: Request, block_size: int) -> int:
++def _coalesce_adjacent_text(
++    request: Request,
++    block_size: int,
++    *,
++    preserve_assistant_turns: bool = False,
++) -> int:
+     """Merge runs of adjacent, contiguous, same-type, unpinned text
+     segments so a stack of short captions becomes one segment big enough
+     for inward-rounded eviction to free a block. Returns segments removed.
+@@ -216,7 +474,11 @@ def _coalesce_adjacent_text(request: Request, block_size: int) -> int:
+     i = 0
+     while i < n:
+         seg = hist[i]
+-        if seg.pinned or seg.segment_type not in _TEXT_SEGMENT_TYPES:
++        if (
++            seg.pinned
++            or seg.segment_type not in _TEXT_SEGMENT_TYPES
++            or (preserve_assistant_turns and seg.segment_type == "assistant_text")
++        ):
+             new_hist.append(seg)
+             i += 1
+             continue
+@@ -343,9 +605,7 @@ def maybe_evict_old_segments(
+     # Phase 1: video budget (oldest freeable video first).
+     while True:
+         all_video_segments = [
+-            s
+-            for s in request.session_history
+-            if s.segment_type == "video"
++            s for s in request.session_history if s.segment_type == "video"
+         ]
+         if len(all_video_segments) <= retention.max_video_segments:
+             break
+@@ -370,7 +630,12 @@ def maybe_evict_old_segments(
+         evicted += 1
+ 
+     # Coalesce captions made adjacent by phase-1 eviction (see helper).
+-    _coalesce_adjacent_text(request, block_size)
++    preserve_assistant_turns = retention.text_round > 0
++    _coalesce_adjacent_text(
++        request,
++        block_size,
++        preserve_assistant_turns=preserve_assistant_turns,
++    )
+ 
+     # Phase 2: text budget.
+     if retention.max_text_tokens is not None:
+@@ -379,6 +644,10 @@ def maybe_evict_old_segments(
+                 s
+                 for s in request.session_history
+                 if s.segment_type in _TEXT_SEGMENT_TYPES and not s.pinned
++                and not (
++                    preserve_assistant_turns
++                    and s.segment_type == "assistant_text"
++                )
+             ]
+             text_token_count = sum(
+                 s.token_range[1] - s.token_range[0] for s in non_pinned_text
+@@ -405,7 +674,15 @@ def maybe_evict_old_segments(
+     # Phase 3: total-size backstop.
+     if retention.max_session_tokens is not None:
+         while request.num_prompt_tokens > retention.max_session_tokens:
+-            unpinned = [s for s in request.session_history if not s.pinned]
++            unpinned = [
++                s
++                for s in request.session_history
++                if not s.pinned
++                and not (
++                    preserve_assistant_turns
++                    and s.segment_type == "assistant_text"
++                )
++            ]
+             if not unpinned:
+                 break
+             # `age_chunks > 0` skips the new chunk's own segment — see Phase 1.
+@@ -417,18 +694,26 @@ def maybe_evict_old_segments(
+                 ),
+                 None,
+             )
+-            if victim is None and _coalesce_adjacent_text(request, block_size):
++            if victim is None and _coalesce_adjacent_text(
++                request,
++                block_size,
++                preserve_assistant_turns=preserve_assistant_turns,
++            ):
+                 victim = next(
+                     (
+                         s
+                         for s in request.session_history
+                         if not s.pinned
++                        and not (
++                            preserve_assistant_turns
++                            and s.segment_type == "assistant_text"
++                        )
+                         and s.age_chunks > 0
+                         and _frees_block(s.token_range, block_size)
+                     ),
+                     None,
+                 )
+-            if victim is None:
++            if victim is None and not preserve_assistant_turns:
+                 victim = _pack_oldest_run_to_free_block(request, block_size)
+             if victim is None:
+                 break
+diff --git a/vllm/v1/streaming/retention.py b/vllm/v1/streaming/retention.py
+index b6a778e..8ac1644 100644
+--- a/vllm/v1/streaming/retention.py
++++ b/vllm/v1/streaming/retention.py
+@@ -50,6 +50,16 @@ class StreamingRetentionParams:
+     0 (see `reprefill.py`). Keeps mRoPE positions bounded over very long
+     sessions."""
+ 
++    text_round: int = 0
++    """Move assistant text older than this many updates into the dedicated
++    ``previous text`` role. Zero disables paper-style text relocation."""
++
++    text_sink_tokens: int = 512
++    """Oldest relocated assistant tokens retained in ``previous text``."""
++
++    text_sliding_window_tokens: int = 512
++    """Most recent relocated assistant tokens retained in ``previous text``."""
++
+     def __post_init__(self) -> None:
+         """Validate the budget on every construction (in-process and
+         IPC-deserialized) so a bad config fails loudly at admission."""
+@@ -88,6 +98,23 @@ class StreamingRetentionParams:
+                     f"exceed max_session_tokens ({self.max_session_tokens})."
+                 )
+ 
++        if self.text_round < 0:
++            raise ValueError(f"text_round must be >= 0 (got {self.text_round}).")
++        if self.text_sink_tokens < 0:
++            raise ValueError(
++                "text_sink_tokens must be >= 0 " f"(got {self.text_sink_tokens})."
++            )
++        if self.text_sliding_window_tokens < 0:
++            raise ValueError(
++                "text_sliding_window_tokens must be >= 0 "
++                f"(got {self.text_sliding_window_tokens})."
++            )
++        if self.text_round > 0 and (
++            self.text_sink_tokens + self.text_sliding_window_tokens <= 0
++        ):
++            raise ValueError(
++                "paper text relocation requires a positive text sink or window"
++            )
+         # A non-positive threshold would re-trigger a full re-prefill at
+         # every chunk boundary (unbounded GPU-burn livelock). Written as
+         # `not (0 < x)` so NaN — which fails every comparison and would
+@@ -116,6 +143,7 @@ class StreamingRetentionParams:
+ 
+ SegmentType = Literal[
+     "system_prompt",
++    "previous_text",
+     "video",
+     "user_text",
+     "assistant_text",

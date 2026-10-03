@@ -1,0 +1,42 @@
+diff --git a/vllm/entrypoints/openai/streaming/chunking.py b/vllm/entrypoints/openai/streaming/chunking.py
+--- a/vllm/entrypoints/openai/streaming/chunking.py
++++ b/vllm/entrypoints/openai/streaming/chunking.py
+@@ -31,6 +31,38 @@ if TYPE_CHECKING:
+ _MAX_FRAME_PIXELS = 4 * 1024 * 1024  # 4 MP; a 720p frame is ~0.9 MP
+ 
+ 
++_STREAMING_CHAT_TEMPLATE = r"""
++{%- for message in messages %}
++    {{- '<|im_start|>' + message.role + '\n' }}
++    {%- if message.content is string %}
++        {{- message.content }}
++    {%- else %}
++        {%- for content in message.content %}
++            {%- if content.type == 'image' or 'image' in content or 'image_url' in content %}
++                <|vision_start|><|image_pad|><|vision_end|>
++            {%- elif content.type == 'video' or 'video' in content %}
++                <|vision_start|><|video_pad|><|vision_end|>
++            {%- elif 'text' in content %}
++                {{- content.text }}
++            {%- endif %}
++        {%- endfor %}
++    {%- endif %}
++    {{- '<|im_end|>\n' }}
++{%- endfor %}
++{%- if add_generation_prompt %}
++    {{- '<|im_start|>assistant\n' }}
++{%- endif %}
++"""
++
++
+ def marker_token_ids(renderer: "BaseRenderer", marker: str) -> list[int]:
+     token_ids = renderer.get_tokenizer().encode(marker, add_special_tokens=False)
+     if not token_ids:
+@@ -195,6 +227,7 @@ async def build_frames_chunk(
+         ),
+     )
+     params = ChatParams(
++        chat_template=_STREAMING_CHAT_TEMPLATE,
+         chat_template_content_format="auto",
+         chat_template_kwargs={"add_generation_prompt": True},
+     )

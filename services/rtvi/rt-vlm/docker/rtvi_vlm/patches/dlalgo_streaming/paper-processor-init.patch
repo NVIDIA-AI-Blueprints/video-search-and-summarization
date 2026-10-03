@@ -1,0 +1,88 @@
+diff --git a/vllm/entrypoints/openai/streaming/chunking.py b/vllm/entrypoints/openai/streaming/chunking.py
+index 6f5dd64..0b11282 100644
+--- a/vllm/entrypoints/openai/streaming/chunking.py
++++ b/vllm/entrypoints/openai/streaming/chunking.py
+@@ -176,4 +176,5 @@ async def build_frames_chunk(
+     start_time_s: float,
+     end_time_s: float,
+     generate: bool = True,
++    mm_processor_kwargs: dict[str, object] | None = None,
+ ) -> StreamingInput:
+@@ -200,11 +201,14 @@ async def build_frames_chunk(
+         chat_template_content_format="auto",
+         chat_template_kwargs={"add_generation_prompt": True},
+     )
++    prompt_extras = {
++        "multi_modal_data": {"video": video_items},
++        "multi_modal_uuids": {"video": video_uuids},
++    }
++    if mm_processor_kwargs:
++        prompt_extras["mm_processor_kwargs"] = dict(mm_processor_kwargs)
+     _, engine_prompts = await renderer.render_chat_async(
+         [messages],
+         params,
+-        prompt_extras={
+-            "multi_modal_data": {"video": video_items},
+-            "multi_modal_uuids": {"video": video_uuids},
+-        },
++        prompt_extras=prompt_extras,
+     )
+diff --git a/vllm/entrypoints/openai/streaming/session.py b/vllm/entrypoints/openai/streaming/session.py
+index 28f0d90..432ef58 100644
+--- a/vllm/entrypoints/openai/streaming/session.py
++++ b/vllm/entrypoints/openai/streaming/session.py
+@@ -7,4 +7,4 @@ import contextlib
+ import time
+ from collections import deque
+-from typing import TYPE_CHECKING
++from typing import TYPE_CHECKING, Any
+ from uuid import uuid4
+@@ -52,4 +52,5 @@ class StreamingSession:
+         fps: float,
+         previous_text: str = "",
+         time_offset_s: float = 0.0,
++        mm_processor_kwargs: dict[str, Any] | None = None,
+     ) -> None:
+@@ -64,3 +65,4 @@ class StreamingSession:
+         self.previous_text = previous_text
+         self.time_offset_s = time_offset_s
++        self.mm_processor_kwargs = dict(mm_processor_kwargs or {})
+         self._in: asyncio.Queue = asyncio.Queue(maxsize=_MAX_INPUT_BACKLOG)
+@@ -203,3 +205,4 @@ class StreamingSession:
+                     end_time_s=end_time_s,
+                     generate=False,
++                    mm_processor_kwargs=self.mm_processor_kwargs,
+                 )
+@@ -224,3 +227,4 @@ class StreamingSession:
+                 end_time_s=end_time_s,
+                 generate=generate,
++                mm_processor_kwargs=self.mm_processor_kwargs,
+             )
+diff --git a/vllm/multimodal/processing/context.py b/vllm/multimodal/processing/context.py
+index 5ecaf9a..c2c44ae 100644
+--- a/vllm/multimodal/processing/context.py
++++ b/vllm/multimodal/processing/context.py
+@@ -255,10 +255,21 @@ class InputProcessingContext:
+         assert callable(hf_processor)
+ 
+         merged_kwargs = self.get_merged_mm_kwargs(kwargs)
++        processor_call_kwargs = dict(merged_kwargs)
++        # Processor implementation selection is an initialization-only option.
++        requested_use_fast = processor_call_kwargs.pop("use_fast", None)
++        if requested_use_fast is not None:
++            image_processor = getattr(hf_processor, "image_processor", None)
++            logger.info_once(
++                "Multimodal processor implementation: processor=%s "
++                "image_processor=%s use_fast=%s",
++                type(hf_processor).__name__,
++                type(image_processor).__name__,
++                requested_use_fast,
++            )
+ 
+         allowed_kwargs = get_allowed_kwarg_only_overrides(
+             hf_processor,
+-            merged_kwargs,
++            processor_call_kwargs,
+             requires_kw_only=False,
+             allow_var_kwargs=True,
+         )

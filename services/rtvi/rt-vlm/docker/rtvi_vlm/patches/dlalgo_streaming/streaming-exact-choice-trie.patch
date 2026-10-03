@@ -1,0 +1,104 @@
+--- a/vllm/v1/structured_output/backend_xgrammar.py
++++ b/vllm/v1/structured_output/backend_xgrammar.py
+@@ -77,6 +77,17 @@
+     def compile_grammar(
+         self, request_type: StructuredOutputOptions, grammar_spec: str
+     ) -> StructuredOutputGrammar:
++        if request_type == StructuredOutputOptions.CHOICE:
++            choices = json.loads(grammar_spec)
++            eos_token_id = self.tokenizer.eos_token_id
++            if eos_token_id is None:
++                raise ValueError("Choice constraints require an EOS token")
++            sequences = tuple(
++                tuple(self.tokenizer.encode(choice, add_special_tokens=False))
++                + (eos_token_id,)
++                for choice in choices
++            )
++            return TokenTrieChoiceGrammar(sequences=sequences)
+         if request_type == StructuredOutputOptions.JSON:
+             ctx = self.compiler.compile_json_schema(
+                 grammar_spec, any_whitespace=not self.disable_any_whitespace
+@@ -200,6 +211,74 @@
+         self._is_terminated = self.matcher.is_terminated()
+ 
+ 
++@dataclass
++class TokenTrieChoiceGrammar(StructuredOutputGrammar):
++    """Exact tokenizer-level enforcement for finite choice constraints."""
++
++    sequences: tuple[tuple[int, ...], ...]
++    prefix: list[int] = field(default_factory=list, repr=False)
++    num_processed_tokens: int = field(default=0, repr=False)
++
++    def _accepts_prefix(self, prefix: list[int]) -> bool:
++        candidate = tuple(prefix)
++        return any(sequence[: len(candidate)] == candidate for sequence in self.sequences)
++
++    def accept_tokens(self, request_id: str, tokens: list[int]) -> bool:
++        for token in tokens:
++            candidate = [*self.prefix, token]
++            if not self._accepts_prefix(candidate):
++                logger.error(
++                    "Failed to advance exact choice grammar for request %s "
++                    "at token %s.",
++                    request_id,
++                    token,
++                )
++                return False
++            self.prefix.append(token)
++            self.num_processed_tokens += 1
++        return True
++
++    def validate_tokens(self, tokens: list[int]) -> list[int]:
++        candidate = list(self.prefix)
++        accepted: list[int] = []
++        for token in tokens:
++            candidate.append(token)
++            if not self._accepts_prefix(candidate):
++                break
++            accepted.append(token)
++        return accepted
++
++    def rollback(self, num_tokens: int) -> None:
++        if num_tokens < 0 or num_tokens > len(self.prefix):
++            raise ValueError(f"Cannot roll back {num_tokens} exact-choice tokens")
++        if num_tokens:
++            del self.prefix[-num_tokens:]
++            self.num_processed_tokens -= num_tokens
++
++    def fill_bitmask(self, bitmask: torch.Tensor, batch_index: int) -> None:
++        row = bitmask[batch_index]
++        row.zero_()
++        prefix = tuple(self.prefix)
++        allowed = {
++            sequence[len(prefix)]
++            for sequence in self.sequences
++            if len(sequence) > len(prefix) and sequence[: len(prefix)] == prefix
++        }
++        for token_id in allowed:
++            word, bit = divmod(token_id, 32)
++            token_mask = 1 << bit
++            if token_mask >= 1 << 31:
++                token_mask -= 1 << 32
++            row[word] = int(row[word].item()) | token_mask
++
++    def is_terminated(self) -> bool:
++        return tuple(self.prefix) in self.sequences
++
++    def reset(self):
++        self.prefix.clear()
++        self.num_processed_tokens = 0
++
++
+ # cf https://github.com/mlc-ai/xgrammar/blob/a32ac892676d2eedc0327416105b9b06edfb94b2/cpp/json_schema_converter.cc
+ STRING_SUPPORTED_FORMATS = {
+     "email",
+@@ -292,8 +371,6 @@
+             raise ValueError(
+                 "Failed to transform choices into a grammar: {err}"
+             ) from err
+-        so_params.choice = None
+-        so_params.grammar = choice_grammar
+         return
+ 
+     if so_params.json:

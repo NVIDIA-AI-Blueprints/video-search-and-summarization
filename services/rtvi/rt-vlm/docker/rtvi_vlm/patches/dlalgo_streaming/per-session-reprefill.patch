@@ -1,0 +1,94 @@
+diff --git a/vllm/v1/core/sched/scheduler.py b/vllm/v1/core/sched/scheduler.py
+--- a/vllm/v1/core/sched/scheduler.py
++++ b/vllm/v1/core/sched/scheduler.py
+@@ -2050,22 +2050,42 @@ class Scheduler(SchedulerInterface):
+             request.status = RequestStatus.WAITING_FOR_STREAMING_REQ
+             self.num_waiting_for_streaming_input += 1
+ 
+-        # Streaming re-prefill: if the session's mRoPE positions have
+-        # approached the model's trained range, self-preempt and re-queue
+-        # for a fresh full prefill at positions starting from 0.
+-        if request.streaming_retention is not None and should_trigger_reprefill(
++        # Streaming re-prefill: bound both mRoPE position growth and the
++        # number of generated-text KV relocations accumulated by this request.
++        retention = request.streaming_retention
++        position_reprefill = retention is not None and should_trigger_reprefill(
+             request,
+-            request.streaming_retention,
++            retention,
+             self._model_max_position,
+-        ):
++        )
++        relocation_interval = (
++            retention.reprefill_relocation_interval if retention is not None else 0
++        )
++        periodic_reprefill = (
++            relocation_interval > 0
++            and request.text_relocation_count
++            - request.last_reprefill_text_relocation_count
++            >= relocation_interval
++        )
++        if position_reprefill or periodic_reprefill:
+             if not output_folded:
+                 prior_response_start = request.num_prompt_tokens
+                 self._fold_kept_output(request)
+-                if request.streaming_retention is not None:
++                if retention is not None:
+                     self._record_folded_output_segment(request, prior_response_start)
+ 
+             if request.status == RequestStatus.WAITING_FOR_STREAMING_REQ:
+                 self.num_waiting_for_streaming_input -= 1
++            request.last_reprefill_text_relocation_count = (
++                request.text_relocation_count
++            )
++            if periodic_reprefill:
++                logger.info(
++                    "Periodic streaming re-prefill for request %s after %d "
++                    "generated-text relocations",
++                    request.request_id,
++                    request.text_relocation_count,
++                )
+             self._reprefill_streaming_session(
+                 request, discard_next_sample=not output_folded
+             )
+diff --git a/vllm/v1/request.py b/vllm/v1/request.py
+--- a/vllm/v1/request.py
++++ b/vllm/v1/request.py
+@@ -271,6 +271,7 @@ class Request:
+         ] = []
+         self.pending_mrope_relocation_order: list[int] = []
+         self.text_relocation_count: int = 0
++        self.last_reprefill_text_relocation_count: int = 0
+ 
+     @property
+     @deprecated(
+diff --git a/vllm/v1/streaming/retention.py b/vllm/v1/streaming/retention.py
+--- a/vllm/v1/streaming/retention.py
++++ b/vllm/v1/streaming/retention.py
+@@ -50,6 +50,10 @@ class StreamingRetentionParams:
+     0 (see `reprefill.py`). Keeps mRoPE positions bounded over very long
+     sessions."""
+ 
++    reprefill_relocation_interval: int = 0
++    """Re-prefill after this many generated-text relocations. Zero disables
++    the periodic trigger. The counter is maintained per streaming request."""
++
+     text_round: int = 0
+     """Move assistant text older than this many updates into the dedicated
+     ``previous text`` role. Zero disables paper-style text relocation."""
+@@ -100,6 +104,15 @@ class StreamingRetentionParams:
+ 
+         if self.text_round < 0:
+             raise ValueError(f"text_round must be >= 0 (got {self.text_round}).")
++        if self.reprefill_relocation_interval < 0:
++            raise ValueError(
++                "reprefill_relocation_interval must be >= 0 "
++                f"(got {self.reprefill_relocation_interval})."
++            )
++        if self.reprefill_relocation_interval > 0 and self.text_round <= 0:
++            raise ValueError(
++                "reprefill_relocation_interval requires text_round > 0"
++            )
+         if self.text_sink_tokens < 0:
+             raise ValueError(
+                 "text_sink_tokens must be >= 0 " f"(got {self.text_sink_tokens})."

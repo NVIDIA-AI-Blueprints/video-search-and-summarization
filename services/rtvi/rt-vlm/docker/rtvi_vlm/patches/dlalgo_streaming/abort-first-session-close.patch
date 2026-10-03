@@ -1,0 +1,54 @@
+diff --git a/vllm/entrypoints/openai/streaming/session.py b/vllm/entrypoints/openai/streaming/session.py
+index 51dc2c517..eed70fdaa 100644
+--- a/vllm/entrypoints/openai/streaming/session.py
++++ b/vllm/entrypoints/openai/streaming/session.py
+@@ -84,6 +84,8 @@ class StreamingSession:
+         self._task: asyncio.Task | None = None
+         self._closed = False
+         self._inflight = False
++        self._idle = asyncio.Event()
++        self._idle.set()
+         self.last_active = time.monotonic()
+ 
+     # -- lifecycle -------------------------------------------------------------
+@@ -112,6 +114,7 @@ class StreamingSession:
+                 f"session {self.session_id} already has a frame batch in flight"
+             )
+         self._inflight = True
++        self._idle.clear()
+         try:
+             self.last_active = time.monotonic()
+             try:
+@@ -144,6 +147,7 @@ class StreamingSession:
+             return item
+         finally:
+             self._inflight = False
++            self._idle.set()
+ 
+     async def _fail_closed(self) -> None:
+         """Permanently close the session after a per-frame timeout."""
+@@ -169,14 +173,24 @@ class StreamingSession:
+             # producer returns -> generate() finishes; on QueueFull the
+             # engine.abort backstop below still ends the request.
+             self._in.put_nowait(None)
++        if self._inflight:
++            try:
++                # Preserve an already accepted update, but do not wait for a
++                # paused engine when the session is otherwise idle.
++                await asyncio.wait_for(self._idle.wait(), timeout=10.0)
++            except asyncio.TimeoutError:
++                pass
++        with contextlib.suppress(Exception):
++            await self.engine.abort(self.request_id)
+         if self._task is not None:
+             try:
+                 await asyncio.wait_for(asyncio.shield(self._task), timeout=10.0)
+             except (asyncio.CancelledError, Exception):
+                 # CancelledError is a BaseException, so it needs its own entry.
+                 self._task.cancel()
+-        with contextlib.suppress(Exception):
+-            await self.engine.abort(self.request_id)  # backstop
++                await asyncio.gather(self._task, return_exceptions=True)
+ 
+     # -- engine driving --------------------------------------------------------
+ 

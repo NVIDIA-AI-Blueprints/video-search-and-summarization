@@ -62,6 +62,7 @@ _RTVI_VLLM_ENV_ALIASES = {
     "VLLM_DISABLE_MM_PREPROCESSOR_CACHE": "RTVI_VLLM_DISABLE_MM_PREPROCESSOR_CACHE",
     "VLLM_MM_PROCESSOR_CACHE_GB": "RTVI_VLLM_MM_PROCESSOR_CACHE_GB",
     "VLLM_MM_PROCESSOR_CACHE_TYPE": "RTVI_VLLM_MM_PROCESSOR_CACHE_TYPE",
+    "VLLM_PROCESSOR_USE_FAST": "RTVI_VLLM_PROCESSOR_USE_FAST",
     "VLLM_MM_ENCODER_ATTN_BACKEND": "RTVI_VLLM_MM_ENCODER_ATTN_BACKEND",
     "VLLM_MM_TENSOR_IPC": "RTVI_VLLM_MM_TENSOR_IPC",
     "VLLM_MULTIMODAL_TENSOR_IPC": "RTVI_VLLM_MULTIMODAL_TENSOR_IPC",
@@ -240,9 +241,13 @@ def _parse_optional_int_env(name: str) -> int | None:
     try:
         parsed = int(value)
     except ValueError as exc:
-        raise ValueError(f"Invalid value for {name}: '{value}' is not a valid integer") from exc
+        raise ValueError(
+            f"Invalid value for {name}: '{value}' is not a valid integer"
+        ) from exc
     if parsed < 0:
-        raise ValueError(f"Invalid value for {name}: '{value}' must be greater than or equal to 0")
+        raise ValueError(
+            f"Invalid value for {name}: '{value}' must be greater than or equal to 0"
+        )
     return parsed
 
 
@@ -371,6 +376,21 @@ def _get_adaptive_preprocess_config() -> AdaptivePreprocessConfig:
     )
 
 
+def _apply_speculative_config_override(engine_args_kwargs: dict, supported_params: set) -> None:
+    raw = os.environ.get("RTVI_VLLM_SPECULATIVE_CONFIG", "").strip()
+    if not raw:
+        return
+    try:
+        config = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("RTVI_VLLM_SPECULATIVE_CONFIG must be a JSON object") from exc
+    if not isinstance(config, dict) or not config:
+        raise ValueError("RTVI_VLLM_SPECULATIVE_CONFIG must be a nonempty JSON object")
+    if "speculative_config" not in supported_params:
+        raise ValueError("This vLLM runtime does not support speculative_config")
+    engine_args_kwargs["speculative_config"] = config
+
+
 def _apply_kv_cache_dtype_override(
     engine_args_kwargs: dict[str, object],
     supported_params: set[str],
@@ -380,7 +400,8 @@ def _apply_kv_cache_dtype_override(
         return False
     if "kv_cache_dtype" not in supported_params:
         logger.warning(
-            "VLLM_KV_CACHE_DTYPE=%s ignored; installed vLLM does not support " "kv_cache_dtype",
+            "VLLM_KV_CACHE_DTYPE=%s ignored; installed vLLM does not support "
+            "kv_cache_dtype",
             kv_cache_dtype,
         )
         return False
@@ -414,11 +435,66 @@ def _apply_attention_backend_override(
     return True
 
 
+def _apply_compile_mm_encoder_override(
+    engine_args_kwargs: dict[str, object],
+    supported_params: set[str],
+) -> bool:
+    value = _get_rtvi_vllm_env("VLLM_COMPILE_MM_ENCODER")
+    if value is None or not value.strip():
+        return False
+    if "compilation_config" not in supported_params:
+        logger.warning(
+            "VLLM_COMPILE_MM_ENCODER=%s ignored; installed vLLM does not support "
+            "compilation_config",
+            value,
+        )
+        return False
+
+    compilation_config = dict(engine_args_kwargs.get("compilation_config") or {})
+    compilation_config["compile_mm_encoder"] = _parse_bool_env(
+        "VLLM_COMPILE_MM_ENCODER",
+        default=False,
+    )
+    engine_args_kwargs["compilation_config"] = compilation_config
+    logger.info(
+        "VLLM multimodal encoder compilation: %s",
+        compilation_config["compile_mm_encoder"],
+    )
+    return True
+
+
 def _parse_bool_env(name: str, default: bool) -> bool:
     value = _get_rtvi_vllm_env(name)
     if value is None:
         return default
     return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _forward_supported_engine_arg(
+    engine_args: dict[str, object],
+    supported_params: set[str],
+    source: dict[str, object],
+    name: str,
+) -> bool:
+    value = source.get(name)
+    if value is None or name not in supported_params:
+        return False
+    engine_args[name] = value
+    return True
+
+
+def _get_processor_use_fast_override() -> bool | None:
+    value = _get_rtvi_vllm_env("VLLM_PROCESSOR_USE_FAST")
+    if value is None or not value.strip():
+        return None
+    normalized = value.strip().lower()
+    if normalized in ("1", "true", "yes", "on"):
+        return True
+    if normalized in ("0", "false", "no", "off"):
+        return False
+    raise ValueError(
+        f"Invalid value for VLLM_PROCESSOR_USE_FAST: '{value}' must be a boolean"
+    )
 
 
 def _parse_float_env(name: str, default: float) -> float:
@@ -428,9 +504,13 @@ def _parse_float_env(name: str, default: float) -> float:
     try:
         parsed = float(value)
     except ValueError as exc:
-        raise ValueError(f"Invalid value for {name}: '{value}' is not a valid float") from exc
+        raise ValueError(
+            f"Invalid value for {name}: '{value}' is not a valid float"
+        ) from exc
     if parsed < 0:
-        raise ValueError(f"Invalid value for {name}: '{value}' must be greater than or equal to 0")
+        raise ValueError(
+            f"Invalid value for {name}: '{value}' must be greater than or equal to 0"
+        )
     return parsed
 
 
@@ -597,9 +677,13 @@ def _merge_mm_processor_kwargs(base: dict, requested: dict | None) -> dict:
     if isinstance(size, dict):
         base_size = base.get("size") if isinstance(base.get("size"), dict) else {}
         if "shortest_edge" in size and "longest_edge" not in size:
-            size["longest_edge"] = base_size.get("longest_edge", _NIM_DEFAULT_LONGEST_EDGE)
+            size["longest_edge"] = base_size.get(
+                "longest_edge", _NIM_DEFAULT_LONGEST_EDGE
+            )
         elif "longest_edge" in size and "shortest_edge" not in size:
-            size["shortest_edge"] = base_size.get("shortest_edge", _NIM_DEFAULT_SHORTEST_EDGE)
+            size["shortest_edge"] = base_size.get(
+                "shortest_edge", _NIM_DEFAULT_SHORTEST_EDGE
+            )
 
     merged.update(requested)
     return merged
@@ -629,7 +713,9 @@ def _evs_session_cache_stream_id(cache_key):
 # Both the EA checkpoint (NemotronH_Nano_VL_V2) and the GA checkpoint
 # (NemotronH_Nano_Omni_Reasoning_V3) share the same model executor and
 # require identical special-casing throughout the inference path.
-_NEMOTRON_OMNI_ARCHS = frozenset({"NemotronH_Nano_VL_V2", "NemotronH_Nano_Omni_Reasoning_V3"})
+_NEMOTRON_OMNI_ARCHS = frozenset(
+    {"NemotronH_Nano_VL_V2", "NemotronH_Nano_Omni_Reasoning_V3"}
+)
 
 
 def _use_raw_image_tensor_input(model_architecture: str | None) -> bool:
@@ -814,7 +900,9 @@ ADD_TIMESTAMP_TO_PROMPT = (
 # Separate vars for file and RTSP sources. When unset, the legacy
 # "These are images sampled from the same video at times ..." format is used.
 # Applied to any vllm-compatible model (no per-model guard).
-_TIMESTAMP_PROMPT_ALLOWED_PLACEHOLDERS = frozenset({"timestamps", "query", "first_ts", "last_ts"})
+_TIMESTAMP_PROMPT_ALLOWED_PLACEHOLDERS = frozenset(
+    {"timestamps", "query", "first_ts", "last_ts"}
+)
 
 
 def _validate_timestamp_prompt_template(env_var: str, template: str) -> str:
@@ -834,12 +922,15 @@ def _validate_timestamp_prompt_template(env_var: str, template: str) -> str:
             if field_name is not None
         ]
     except ValueError as exc:
-        logger.warning("Ignoring %s: malformed prompt template %r (%s)", env_var, template, exc)
+        logger.warning(
+            "Ignoring %s: malformed prompt template %r (%s)", env_var, template, exc
+        )
         return ""
     unknown = [
         f
         for f in fields
-        if (f.split(".")[0].split("[")[0] or "") not in _TIMESTAMP_PROMPT_ALLOWED_PLACEHOLDERS
+        if (f.split(".")[0].split("[")[0] or "")
+        not in _TIMESTAMP_PROMPT_ALLOWED_PLACEHOLDERS
     ]
     if unknown:
         logger.warning(
@@ -883,8 +974,12 @@ _DEFAULT_EVS_TIMESTAMP_INSTRUCTION = (
 
 
 def _get_timestamp_prompt_templates(is_rtsp: bool, use_evs_default: bool = False):
-    prefix_tpl = _TIMESTAMP_PROMPT_PREFIX_RTSP if is_rtsp else _TIMESTAMP_PROMPT_PREFIX_FILE
-    suffix_tpl = _TIMESTAMP_PROMPT_SUFFIX_RTSP if is_rtsp else _TIMESTAMP_PROMPT_SUFFIX_FILE
+    prefix_tpl = (
+        _TIMESTAMP_PROMPT_PREFIX_RTSP if is_rtsp else _TIMESTAMP_PROMPT_PREFIX_FILE
+    )
+    suffix_tpl = (
+        _TIMESTAMP_PROMPT_SUFFIX_RTSP if is_rtsp else _TIMESTAMP_PROMPT_SUFFIX_FILE
+    )
 
     used_evs_default = False
     if use_evs_default and not prefix_tpl and not suffix_tpl:
@@ -1342,7 +1437,9 @@ def _normalize_qwen3vl_tokenizer_config(model_path: str) -> None:
         if not isinstance(cur, list):
             return
         present = set(cur)
-        mapped = {k: v for k, v in _QWEN3VL_EXTRA_SPECIAL_TOKENS.items() if v in present}
+        mapped = {
+            k: v for k, v in _QWEN3VL_EXTRA_SPECIAL_TOKENS.items() if v in present
+        }
         cfg["extra_special_tokens"] = mapped
         with open(cfg_path, "w") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
@@ -1457,7 +1554,9 @@ class VllmCompatible(BaseVlmModel):
             _prepare_cosmos3_edge_weight_layout(self.model_path, self._model_architecture)
             _patch_cosmos3_edge_modeling_file(self.model_path, self._model_architecture)
             logger.info("Initializing VllmCompatible model from: %s", self.model_path)
-            gpu_memory_utilization_env = _get_rtvi_vllm_env("VLLM_GPU_MEMORY_UTILIZATION", "0.7")
+            gpu_memory_utilization_env = _get_rtvi_vllm_env(
+                "VLLM_GPU_MEMORY_UTILIZATION", "0.7"
+            )
             if not gpu_memory_utilization_env.strip():
                 gpu_memory_utilization_env = "0.7"
             try:
@@ -1472,7 +1571,9 @@ class VllmCompatible(BaseVlmModel):
                 "VLLM GPU memory utilization requirement set to: %s%%",
                 gpu_memory_utilization * 100,
             )
-            max_num_batched_tokens_env = _get_rtvi_vllm_env("VLLM_MAX_NUM_BATCHED_TOKENS", "")
+            max_num_batched_tokens_env = _get_rtvi_vllm_env(
+                "VLLM_MAX_NUM_BATCHED_TOKENS", ""
+            )
             max_num_batched_tokens = None
             if max_num_batched_tokens_env.strip():
                 try:
@@ -1485,15 +1586,37 @@ class VllmCompatible(BaseVlmModel):
             try:
                 # Check if model supports audio via environment variable
                 vlm_supports_audio = (
-                    os.environ.get("VLM_MODEL_SUPPORTS_AUDIO", "false").lower() == "true"
+                    os.environ.get("VLM_MODEL_SUPPORTS_AUDIO", "false").lower()
+                    == "true"
                 )
 
                 limit_mm_per_prompt = _get_limit_mm_per_prompt(vlm_supports_audio)
+                if _parse_bool_env("RTVI_STREAMING_VLM_ENABLED", default=False):
+                    max_video_segments = _parse_int_env(
+                        "RTVI_STREAMING_VLM_MAX_VIDEO_SEGMENTS",
+                        16,
+                    )
+                    if max_video_segments < 1:
+                        raise ValueError(
+                            "RTVI_STREAMING_VLM_MAX_VIDEO_SEGMENTS must be at least 1"
+                        )
+                    limit_mm_per_prompt["image"] = max_video_segments * 2
+                    limit_mm_per_prompt["video"] = max_video_segments
+                    logger.info(
+                        "DL Algo Streaming VLM multimodal budget: %d images, %d videos",
+                        limit_mm_per_prompt["image"],
+                        limit_mm_per_prompt["video"],
+                    )
+
 
                 import inspect
 
                 _engine_supported_params = set(
                     inspect.signature(AsyncEngineArgs.__init__).parameters
+                )
+                native_streaming_enabled = _parse_bool_env(
+                    "RTVI_STREAMING_VLM_ENABLED",
+                    default=False,
                 )
 
                 # Build engine args, only including params supported by the installed vLLM version
@@ -1505,11 +1628,37 @@ class VllmCompatible(BaseVlmModel):
                     "max_num_seqs": self._max_batch_size,
                     "tensor_parallel_size": torch.cuda.device_count(),
                 }
+                _forward_supported_engine_arg(
+                    engine_args_kwargs,
+                    _engine_supported_params,
+                    kwargs,
+                    "profiler_config",
+                )
+                if native_streaming_enabled:
+                    from models.vllm_compatible.dlalgo_streaming import (
+                        apply_native_streaming_engine_args,
+                    )
 
-                kv_cache_memory_bytes = _parse_optional_int_env("VLLM_KV_CACHE_MEMORY_BYTES")
+                    apply_native_streaming_engine_args(
+                        engine_args_kwargs,
+                        _engine_supported_params,
+                        async_scheduling=_parse_bool_env(
+                            "VLLM_STREAMING_VLM_ASYNC_SCHEDULING", False
+                        ),
+                    )
+                    logger.info(
+                        "DL Algo Streaming VLM vLLM async scheduling: %s",
+                        engine_args_kwargs["async_scheduling"],
+                    )
+
+                kv_cache_memory_bytes = _parse_optional_int_env(
+                    "VLLM_KV_CACHE_MEMORY_BYTES"
+                )
                 if kv_cache_memory_bytes is not None:
                     if "kv_cache_memory_bytes" in _engine_supported_params:
-                        engine_args_kwargs["kv_cache_memory_bytes"] = kv_cache_memory_bytes
+                        engine_args_kwargs["kv_cache_memory_bytes"] = (
+                            kv_cache_memory_bytes
+                        )
                         logger.info(
                             "VLLM KV cache memory bytes override: %s",
                             kv_cache_memory_bytes,
@@ -1531,8 +1680,15 @@ class VllmCompatible(BaseVlmModel):
                     self._model_architecture,
                 )
                 _configure_structured_outputs(engine_args_kwargs, _engine_supported_params)
+                _apply_compile_mm_encoder_override(
+                    engine_args_kwargs,
+                    _engine_supported_params,
+                )
 
-                if "enable_prefix_caching" in _engine_supported_params:
+                if (
+                    not native_streaming_enabled
+                    and "enable_prefix_caching" in _engine_supported_params
+                ):
                     prefix_caching_env = _get_rtvi_vllm_env(
                         "VLLM_ENABLE_PREFIX_CACHING",
                         "true",
@@ -1544,8 +1700,26 @@ class VllmCompatible(BaseVlmModel):
                     engine_args_kwargs,
                     _engine_supported_params,
                 )
+                processor_use_fast = _get_processor_use_fast_override()
+                if processor_use_fast is not None:
+                    if "mm_processor_kwargs" in _engine_supported_params:
+                        engine_args_kwargs["mm_processor_kwargs"] = {
+                            "use_fast": processor_use_fast
+                        }
+                        logger.info(
+                            "VLLM multimodal processor use_fast override: %s",
+                            processor_use_fast,
+                        )
+                    else:
+                        logger.warning(
+                            "VLLM_PROCESSOR_USE_FAST=%s ignored by the engine; installed "
+                            "vLLM does not support mm_processor_kwargs",
+                            processor_use_fast,
+                        )
 
-                mm_tensor_ipc = (_get_rtvi_vllm_env("VLLM_MM_TENSOR_IPC", "") or "").strip()
+                mm_tensor_ipc = (
+                    _get_rtvi_vllm_env("VLLM_MM_TENSOR_IPC", "") or ""
+                ).strip()
                 if mm_tensor_ipc:
                     if "mm_tensor_ipc" in _engine_supported_params:
                         engine_args_kwargs["mm_tensor_ipc"] = mm_tensor_ipc
@@ -1587,7 +1761,9 @@ class VllmCompatible(BaseVlmModel):
                 ).strip()
                 if mm_encoder_attn_backend:
                     if "mm_encoder_attn_backend" in _engine_supported_params:
-                        engine_args_kwargs["mm_encoder_attn_backend"] = mm_encoder_attn_backend
+                        engine_args_kwargs["mm_encoder_attn_backend"] = (
+                            mm_encoder_attn_backend
+                        )
                         logger.info(
                             "VLLM MM encoder attention backend override: %s",
                             mm_encoder_attn_backend,
@@ -1605,7 +1781,8 @@ class VllmCompatible(BaseVlmModel):
                 enforce_eager = False
                 if "enforce_eager" in _engine_supported_params:
                     enforce_eager = (
-                        _get_rtvi_vllm_env("VLLM_ENFORCE_EAGER", "false").lower() == "true"
+                        _get_rtvi_vllm_env("VLLM_ENFORCE_EAGER", "false").lower()
+                        == "true"
                     )
                     engine_args_kwargs["enforce_eager"] = enforce_eager
                     if enforce_eager:
@@ -1634,12 +1811,16 @@ class VllmCompatible(BaseVlmModel):
                             compilation_config,
                         )
 
-                vlm_trust_remote_code = _get_vlm_trust_remote_code(self._model_architecture)
+                vlm_trust_remote_code = _get_vlm_trust_remote_code(
+                    self._model_architecture
+                )
                 if "trust_remote_code" in _engine_supported_params:
                     engine_args_kwargs["trust_remote_code"] = vlm_trust_remote_code
 
                 if max_num_batched_tokens is not None:
-                    engine_args_kwargs["max_num_batched_tokens"] = max_num_batched_tokens
+                    engine_args_kwargs["max_num_batched_tokens"] = (
+                        max_num_batched_tokens
+                    )
                 else:
                     engine_args_kwargs["max_num_batched_tokens"] = engine_args_kwargs[
                         "max_model_len"
@@ -1649,7 +1830,8 @@ class VllmCompatible(BaseVlmModel):
                 moe_backend_source = "override"
                 if not moe_backend and self._model_architecture in _QWEN35_ARCHS:
                     gpu_names = [
-                        torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
+                        torch.cuda.get_device_name(i)
+                        for i in range(torch.cuda.device_count())
                     ]
                     if any("B200" in name for name in gpu_names):
                         moe_backend = "triton"
@@ -1660,7 +1842,9 @@ class VllmCompatible(BaseVlmModel):
                         )
                 if moe_backend and "moe_backend" in _engine_supported_params:
                     engine_args_kwargs["moe_backend"] = moe_backend
-                    logger.info("Using vLLM MoE backend %s: %s", moe_backend_source, moe_backend)
+                    logger.info(
+                        "Using vLLM MoE backend %s: %s", moe_backend_source, moe_backend
+                    )
 
                 # EVS (Efficient Video Sampling): prune redundant video tokens.
                 # Invalid configured values are fatal rather than silently disabling EVS.
@@ -1696,17 +1880,28 @@ class VllmCompatible(BaseVlmModel):
                     raise ValueError(
                         "EVS session mode is not supported for NemotronH_Nano_Omni_Reasoning_V3"
                     )
-                if "evs_similarity_threshold" in _engine_supported_params and _evs_session_on:
-                    engine_args_kwargs["evs_similarity_threshold"] = _get_evs_similarity_threshold()
+                if (
+                    "evs_similarity_threshold" in _engine_supported_params
+                    and _evs_session_on
+                ):
+                    engine_args_kwargs["evs_similarity_threshold"] = (
+                        _get_evs_similarity_threshold()
+                    )
                 if "enable_mm_embeds" in _engine_supported_params:
                     engine_args_kwargs["enable_mm_embeds"] = True
                 if "num_preprocess_workers" in _engine_supported_params:
-                    engine_args_kwargs["num_preprocess_workers"] = _get_num_preprocess_workers()
+                    engine_args_kwargs["num_preprocess_workers"] = (
+                        _get_num_preprocess_workers()
+                    )
 
+                _apply_speculative_config_override(engine_args_kwargs, _engine_supported_params)
                 engine_args = AsyncEngineArgs(**engine_args_kwargs)
                 self._llm = AsyncLLMEngine.from_engine_args(engine_args)
+                processor_kwargs = {"trust_remote_code": vlm_trust_remote_code}
+                if processor_use_fast is not None:
+                    processor_kwargs["use_fast"] = processor_use_fast
                 self._processor = AutoProcessor.from_pretrained(
-                    self.model_path, trust_remote_code=vlm_trust_remote_code
+                    self.model_path, **processor_kwargs
                 )
             except Exception as e:
                 logger.error("Error initializing VLLM model: %s", e)
@@ -1719,11 +1914,50 @@ class VllmCompatible(BaseVlmModel):
 
             self._event_loop = asyncio.new_event_loop()
             logger.debug("Event loop created")
-            self._event_loop_thread = threading.Thread(target=start_loop, args=(self._event_loop,))
+            self._event_loop_thread = threading.Thread(
+                target=start_loop, args=(self._event_loop,)
+            )
             logger.debug("Starting event loop thread")
             self._event_loop_thread.start()
             logger.debug("Event loop thread started")
             logger.info("VllmCompatible VLLM model initialized successfully")
+
+            self._dlalgo_streaming_manager = None
+            self._dlalgo_last_frame_time_by_stream: dict[str, float] = {}
+            if _parse_bool_env("RTVI_STREAMING_VLM_ENABLED", default=False):
+                from models.vllm_compatible.dlalgo_streaming import (
+                    DlalgoStreamingSessionManager,
+                    VllmDlalgoSessionFactory,
+                )
+
+                max_sessions = _parse_int_env(
+                    "RTVI_STREAMING_VLM_MAX_SESSIONS",
+                    self._max_batch_size,
+                )
+                if max_sessions > self._max_batch_size:
+                    raise ValueError(
+                        "RTVI_STREAMING_VLM_MAX_SESSIONS cannot exceed vlm_batch_size "
+                        f"({self._max_batch_size})"
+                    )
+                max_video_segments = _parse_int_env(
+                    "RTVI_STREAMING_VLM_MAX_VIDEO_SEGMENTS",
+                    16,
+                )
+                max_total_video_segments = _parse_int_env(
+                    "RTVI_STREAMING_VLM_MAX_TOTAL_VIDEO_SEGMENTS",
+                    max_sessions * max_video_segments,
+                )
+                self._dlalgo_streaming_manager = DlalgoStreamingSessionManager(
+                    VllmDlalgoSessionFactory(self._llm),
+                    max_sessions=max_sessions,
+                    max_total_video_segments=max_total_video_segments,
+                )
+                logger.info(
+                    "DL Algo Streaming VLM enabled for up to %d native session(s) "
+                    "and %d retained video segment(s)",
+                    max_sessions,
+                    max_total_video_segments,
+                )
 
             # EVS session handler — uses vLLM's serving layer directly (no HTTP)
             self._evs_handler = None  # OpenAIServingVideoSessions, created lazily
@@ -1770,6 +2004,265 @@ class VllmCompatible(BaseVlmModel):
     @property
     def model_name(self):
         return self._model_name
+
+    def supports_streaming_vlm(self) -> bool:
+        return self._dlalgo_streaming_manager is not None
+
+    def start_streaming_vlm_session(
+        self,
+        stream_id,
+        query,
+        generation_config=None,
+        streaming_config=None,
+        **kwargs,
+    ):
+        manager = self._dlalgo_streaming_manager
+        if manager is None:
+            raise NotImplementedError("DL Algo Streaming VLM is not enabled")
+
+        from models.vllm_compatible.dlalgo_streaming import (
+            DlalgoSessionConfig,
+            temporal_video_segment_count,
+        )
+
+        generation = generation_config or VlmGenerationConfig()
+        options = streaming_config or {}
+        text_round = int(options.get("text_round", 0))
+        exact_video_compaction = bool(
+            options.get(
+                "exact_video_compaction",
+                _parse_bool_env("RTVI_STREAMING_VLM_EXACT_VIDEO_COMPACTION", False),
+            )
+        )
+        if (
+            _parse_bool_env("VLLM_STREAMING_VLM_RAW_KEY_SHADOW", False)
+            and text_round <= 0
+            and not exact_video_compaction
+        ):
+            raise ValueError(
+                "VLLM_STREAMING_VLM_RAW_KEY_SHADOW requires text_round > 0 "
+                "or exact video compaction; otherwise pre-mRoPE key rows grow "
+                "without a relocation compaction point"
+            )
+        max_text_tokens = options.get("max_text_tokens")
+        if max_text_tokens is not None:
+            max_text_tokens = int(max_text_tokens)
+        mm_processor_kwargs = dict(generation.mm_processor_kwargs or {})
+        processor_use_fast = _get_processor_use_fast_override()
+        if processor_use_fast is not None:
+            mm_processor_kwargs.setdefault("use_fast", processor_use_fast)
+        session_config = DlalgoSessionConfig(
+            system_prompt=(
+                generation.system_prompt
+                if generation.system_prompt is not None
+                else self._system_prompt
+            ),
+            question=query,
+            fps=float(options.get("fps", 1.0)),
+            max_tokens=generation.max_new_tokens,
+            min_tokens=generation.min_tokens,
+            ignore_eos=(
+                _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
+                or bool(generation.ignore_eos)
+            ),
+            temperature=generation.temperature,
+            top_p=generation.top_p,
+            top_k=int(generation.top_k),
+            repetition_penalty=generation.repetition_penalty,
+            seed=generation.seed,
+            max_video_segments=temporal_video_segment_count(
+                int(
+                    options.get(
+                        "window_frames",
+                        _parse_int_env("RTVI_STREAMING_VLM_MAX_VIDEO_SEGMENTS", 16),
+                    )
+                )
+            ),
+            max_text_tokens=max_text_tokens,
+            max_session_tokens=int(
+                options.get(
+                    "max_session_tokens",
+                    _parse_int_env("RTVI_STREAMING_VLM_MAX_SESSION_TOKENS", 7000),
+                )
+            ),
+            reprefill_threshold=float(
+                options.get(
+                    "reprefill_threshold",
+                    _get_rtvi_vllm_env("RTVI_STREAMING_VLM_REPREFILL_THRESHOLD", "0.7"),
+                )
+            ),
+            exact_video_compaction=exact_video_compaction,
+            text_round=text_round,
+            reprefill_relocation_interval=int(
+                options.get(
+                    "reprefill_relocation_interval",
+                    _parse_int_env(
+                        "RTVI_STREAMING_VLM_REPREFILL_RELOCATION_INTERVAL", 0
+                    ),
+                )
+            ),
+            text_sink_tokens=int(options.get("text_sink_tokens", 512)),
+            text_sliding_window_tokens=int(
+                options.get("text_sliding_window_tokens", 512)
+            ),
+            previous_text=str(options.get("previous_text") or ""),
+            time_offset_s=float(options.get("time_offset_s") or 0.0),
+            mm_processor_kwargs=mm_processor_kwargs,
+            structured_outputs=_build_vllm_sampling_kwargs(generation).get(
+                "structured_outputs"
+            ),
+            decode_interval_steps=max(
+                1,
+                int(options.get("decode_interval_steps") or 1),
+            ),
+            question_on_decode=bool(options.get("question_on_decode", False)),
+            absolute_segment_timestamps=bool(
+                options.get("absolute_segment_timestamps", False)
+            ),
+            retain_generated_text=bool(
+                options.get(
+                    "retain_generated_text",
+                    _parse_bool_env(
+                        "RTVI_STREAMING_VLM_RETAIN_GENERATED_TEXT", True
+                    ),
+                )
+            ),
+        )
+        request_id = kwargs.get("request_id")
+        native_id = f"{stream_id}:{request_id or stream_id}:{uuid.uuid4().hex}"
+        future = asyncio.run_coroutine_threadsafe(
+            manager.ensure_session(native_id, session_config),
+            self._event_loop,
+        )
+        future.result(timeout=30.0)
+        return str(stream_id), native_id
+
+    def generate_streaming_vlm_step(
+        self,
+        session,
+        query,
+        chunks,
+        video_frames=None,
+        video_frames_times=None,
+        generation_config=None,
+        audio_frames=None,
+        **kwargs,
+    ):
+        manager = self._dlalgo_streaming_manager
+        if manager is None:
+            raise NotImplementedError("DL Algo Streaming VLM is not enabled")
+        if len(chunks) != 1 or not chunks[0].streamId:
+            raise ValueError(
+                "native Streaming VLM requires exactly one identified stream"
+            )
+
+        stream_id, native_id = session if isinstance(session, tuple) else (str(session), str(session))
+        if chunks[0].streamId != stream_id:
+            raise ValueError(
+                f"Streaming VLM session {stream_id!r} cannot process "
+                f"stream {chunks[0].streamId!r}"
+            )
+        if not video_frames or len(video_frames) != 1:
+            raise ValueError("native Streaming VLM requires one frame batch")
+        frames = video_frames[0]
+        if len(frames) < 1:
+            raise ValueError(
+                "native Streaming VLM step requires at least one decoded frame"
+            )
+
+        from models.vllm_compatible.dlalgo_streaming import to_pil_rgb_frame
+
+        frames_received = len(frames)
+        accepted_frame_times = None
+        if (
+            video_frames_times
+            and len(video_frames_times) == 1
+            and len(video_frames_times[0]) == frames_received
+        ):
+            try:
+                frame_times = [
+                    float(frame_time) for frame_time in video_frames_times[0]
+                ]
+            except (TypeError, ValueError):
+                frame_times = []
+            if frame_times and all(
+                math.isfinite(frame_time) for frame_time in frame_times
+            ):
+                last_frame_time = self._dlalgo_last_frame_time_by_stream.get(native_id)
+                accepted = [
+                    (frame, frame_time)
+                    for frame, frame_time in zip(frames, frame_times)
+                    if last_frame_time is None or frame_time > last_frame_time + 1e-6
+                ]
+                if not accepted:
+                    raise ValueError(
+                        f"native Streaming VLM update for {stream_id!r} contains no new frames"
+                    )
+                frames, accepted_frame_times = map(list, zip(*accepted))
+
+        decoded_frames = [to_pil_rgb_frame(frame) for frame in frames]
+
+        async def generate_decoded_frames():
+            response = await manager.push_frames(
+                native_id,
+                decoded_frames,
+                generate=None,
+            )
+            if accepted_frame_times is not None:
+                self._dlalgo_last_frame_time_by_stream[native_id] = max(
+                    accepted_frame_times
+                )
+            if response is None:
+                return []
+            return [
+                VlmModelOutput(
+                    output=response.text,
+                    input_tokens=int(getattr(response, "prompt_token_count", 0) or 0),
+                    output_tokens=response.token_count,
+                    streaming_metrics={
+                        "frame_index": response.frame_index,
+                        "frames_received": frames_received,
+                        "frames_processed": len(decoded_frames),
+                        "processed_frames": int(
+                            getattr(response, "frame_count", 0) or len(decoded_frames)
+                        ),
+                        "prompt_tokens": int(
+                            getattr(response, "prompt_token_count", 0) or 0
+                        ),
+                        "vision_tokens": int(
+                            getattr(response, "vision_token_count", 0) or 0
+                        ),
+                        "native_new_vision_tokens": int(
+                            getattr(response, "vision_token_count", 0) or 0
+                        ),
+                        "finish_reason": response.finish_reason,
+                        "ttft_s": response.ttft_s,
+                        "latency_s": response.latency_s,
+                    },
+                )
+            ]
+
+        return asyncio.run_coroutine_threadsafe(
+            generate_decoded_frames(), self._event_loop
+        )
+
+    def end_streaming_vlm_session(self, stream_id, session):
+        manager = self._dlalgo_streaming_manager
+        if manager is None:
+            return None
+        physical_id, native_id = session if isinstance(session, tuple) else (str(session), str(session))
+        if str(stream_id) != physical_id:
+            raise ValueError(
+                f"Streaming VLM session {session!r} does not belong to stream {stream_id!r}"
+            )
+        future = asyncio.run_coroutine_threadsafe(
+            manager.close_session(native_id),
+            self._event_loop,
+        )
+        try:
+            return future.result(timeout=30.0)
+        finally:
+            self._dlalgo_last_frame_time_by_stream.pop(native_id, None)
 
     def get_conv(self):
         # Initialize _conv if not already done
@@ -1942,7 +2435,9 @@ class VllmCompatible(BaseVlmModel):
                 reasoning_description = ""
             else:
                 # Step 1: Strip leading/trailing whitespace
-                cleaned_text = generated_text.strip() if not ignore_eos else generated_text
+                cleaned_text = (
+                    generated_text.strip() if not ignore_eos else generated_text
+                )
                 # Step 2: Extract reasoning description
                 reasoning_description = re.search(
                     r"<think>(.*?)</think>", cleaned_text, flags=re.DOTALL
@@ -1953,10 +2448,14 @@ class VllmCompatible(BaseVlmModel):
                     reasoning_description = ""
                 # Step 3: Remove complete <think>...</think> block if found, otherwise handle orphan tags
                 if reasoning_description:
-                    cleaned_text = re.sub(r"<think>.*?</think>", "", cleaned_text, flags=re.DOTALL)
+                    cleaned_text = re.sub(
+                        r"<think>.*?</think>", "", cleaned_text, flags=re.DOTALL
+                    )
                 else:
-                    cleaned_text, reasoning_description = self._remove_orphan_think_tags(
-                        cleaned_text, reasoning_description
+                    cleaned_text, reasoning_description = (
+                        self._remove_orphan_think_tags(
+                            cleaned_text, reasoning_description
+                        )
                     )
                 if not enable_reasoning:
                     reasoning_description = ""
@@ -1965,12 +2464,16 @@ class VllmCompatible(BaseVlmModel):
                 for tag in ["<answer>", "</answer>", "<summary>", "</summary>"]:
                     cleaned_text = cleaned_text.replace(tag, "")
                 # Step 4: Final cleanup (strip whitespace)
-                final_response = cleaned_text.strip() if not ignore_eos else cleaned_text
+                final_response = (
+                    cleaned_text.strip() if not ignore_eos else cleaned_text
+                )
             logger.debug("VLLM cleaned text output: %s", final_response)
 
             try:
                 input_tokens = (
-                    len(output[0].prompt_token_ids) if hasattr(output[0], "prompt_token_ids") else 0
+                    len(output[0].prompt_token_ids)
+                    if hasattr(output[0], "prompt_token_ids")
+                    else 0
                 )
                 output_tokens = (
                     len(output[0].outputs[0].token_ids)
@@ -2008,7 +2511,9 @@ class VllmCompatible(BaseVlmModel):
         updated_text = re.sub(
             r"<([0-9]+(?:\.[0-9]+)?)>",
             lambda m: (
-                "<" + chunk.get_timestamp(float(video_frames_times[0]) + float(m.group(1))) + ">"
+                "<"
+                + chunk.get_timestamp(float(video_frames_times[0]) + float(m.group(1)))
+                + ">"
             ),
             text,
         )
@@ -2841,7 +3346,9 @@ class VllmCompatible(BaseVlmModel):
                 pruning_rate=get_video_pruning_rate() or 0.5,
                 similarity_threshold=_get_evs_similarity_threshold(),
                 pd_server_url=os.environ.get("VIA_PD_SERVER_URL") or None,
-                pd_server_timeout_s=float(os.environ.get("VIA_PD_SERVER_TIMEOUT_S") or "120.0"),
+                pd_server_timeout_s=float(
+                    os.environ.get("VIA_PD_SERVER_TIMEOUT_S") or "120.0"
+                ),
             )
             if os.environ.get("VIA_EVS_STREAMING_PREFILL", "").lower() in ("true", "1"):
                 self._evs_handler.streaming_prefill = True
@@ -2872,7 +3379,9 @@ class VllmCompatible(BaseVlmModel):
         event_ema_memory_s = float(os.environ.get("VIA_EVS_EMA_MEMORY_S") or "0")
         event_spike_std_k = float(os.environ.get("VIA_EVS_SPIKE_STD_K") or "2.0")
         event_settling_std_k = float(os.environ.get("VIA_EVS_SETTLING_STD_K") or "1.5")
-        event_std_floor_ratio = float(os.environ.get("VIA_EVS_STD_FLOOR_RATIO") or "0.1")
+        event_std_floor_ratio = float(
+            os.environ.get("VIA_EVS_STD_FLOOR_RATIO") or "0.1"
+        )
         event_min_clips = int(os.environ.get("VIA_EVS_MIN_CLIPS") or "3")
         # Later chunks a present chunk waits for before its decision (and idle
         # discard) commits. Buys slack for out-of-order arrivals; 1 suits
@@ -2888,7 +3397,9 @@ class VllmCompatible(BaseVlmModel):
         event_chunk_duration_s_config = (
             event_chunk_duration_s if event_chunk_duration_s > 0 else None
         )
-        event_ema_memory_s_config = event_ema_memory_s if event_ema_memory_s > 0 else None
+        event_ema_memory_s_config = (
+            event_ema_memory_s if event_ema_memory_s > 0 else None
+        )
 
         # Default sampling policy for this session's event-gated generations.
         # The detector triggers generation server-side with no per-call request
@@ -2903,7 +3414,9 @@ class VllmCompatible(BaseVlmModel):
         #     affected by the process-global RNG reseed the non-EVS path does.
         #   - ignore_eos / min_tokens are forwarded (see _build_evs_sampling_kwargs)
         #     so VLLM_IGNORE_EOS reaches event-gated generations for OSL/perf runs.
-        session_sampling_kwargs = _build_evs_sampling_kwargs(max_tokens, generation_config)
+        session_sampling_kwargs = _build_evs_sampling_kwargs(
+            max_tokens, generation_config
+        )
         # The key holds only what can actually differ between two requests on the
         # same stream. A session bakes these in at creation and keeps them for
         # its life, so reusing a session across a change here would answer with
@@ -2970,7 +3483,9 @@ class VllmCompatible(BaseVlmModel):
             return await handler.create_session(request)
 
         try:
-            resp = asyncio.run_coroutine_threadsafe(_create(), self._event_loop).result()
+            resp = asyncio.run_coroutine_threadsafe(
+                _create(), self._event_loop
+            ).result()
         except ServiceException:
             # Already classified (code + status_code) by the layer that raised
             # it; re-wrapping would flatten a 400 into a 500.
@@ -2994,7 +3509,11 @@ class VllmCompatible(BaseVlmModel):
                 e,
                 traceback.format_exc(),
             )
-            hint = " Raise VIA_EVS_MAX_SESSIONS, Default value is 256." if is_at_capacity else ""
+            hint = (
+                " Raise VIA_EVS_MAX_SESSIONS, Default value is 256."
+                if is_at_capacity
+                else ""
+            )
             raise ServiceException(
                 f"EVS session creation failed for stream {stream_id}: {e}.{hint}",
                 "EVSSessionCreateError",
@@ -3019,7 +3538,9 @@ class VllmCompatible(BaseVlmModel):
             async def _delete_duplicate():
                 await handler.delete_session(duplicate_session_id)
 
-            asyncio.run_coroutine_threadsafe(_delete_duplicate(), self._event_loop).result()
+            asyncio.run_coroutine_threadsafe(
+                _delete_duplicate(), self._event_loop
+            ).result()
             return session_id
         logger.info(
             "EVS session created: %s for stream %s (budget=%d, "
@@ -3042,7 +3563,8 @@ class VllmCompatible(BaseVlmModel):
             event_decision_lag,
         )
         logger.info(
-            "EVS session %s sampling: temp=%.2f top_p=%.2f top_k=%d " "rep_pen=%.2f seed=%s",
+            "EVS session %s sampling: temp=%.2f top_p=%.2f top_k=%d "
+            "rep_pen=%.2f seed=%s",
             session_id,
             session_sampling_params.temperature,
             session_sampling_params.top_p,
@@ -3135,10 +3657,16 @@ class VllmCompatible(BaseVlmModel):
         # VlmGenerationConfig dataclass (rtvi convention). Support both.
         if isinstance(generation_config, dict):
             requested_mm_kwargs = generation_config.get("mm_processor_kwargs")
-            preserve_reasoning_tags = generation_config.get("preserve_reasoning_tags", False)
+            preserve_reasoning_tags = generation_config.get(
+                "preserve_reasoning_tags", False
+            )
         else:
-            requested_mm_kwargs = getattr(generation_config, "mm_processor_kwargs", None)
-            preserve_reasoning_tags = getattr(generation_config, "preserve_reasoning_tags", False)
+            requested_mm_kwargs = getattr(
+                generation_config, "mm_processor_kwargs", None
+            )
+            preserve_reasoning_tags = getattr(
+                generation_config, "preserve_reasoning_tags", False
+            )
         mm_processor_kwargs = _merge_mm_processor_kwargs(
             _EVS_MM_PROCESSOR_DEFAULTS, requested_mm_kwargs
         )
@@ -3170,7 +3698,9 @@ class VllmCompatible(BaseVlmModel):
         )
         handler = self._evs_handler
         placeholder = [
-            VlmModelOutput(output="", input_tokens=0, output_tokens=0, reasoning_description="")
+            VlmModelOutput(
+                output="", input_tokens=0, output_tokens=0, reasoning_description=""
+            )
         ]
 
         # Prepare images (same transforms as regular path)
@@ -3195,7 +3725,9 @@ class VllmCompatible(BaseVlmModel):
         # the frames so the per-frame list handed to the session stays aligned.
         max_frames = _get_max_video_frames()
         original_frame_count = len(images)
-        images, video_frames_times = _cap_video_frames(images, video_frames_times, max_frames)
+        images, video_frames_times = _cap_video_frames(
+            images, video_frames_times, max_frames
+        )
         if len(images) != original_frame_count:
             logger.debug(
                 "EVS clip: subsampled %d frames to %d (VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES)",
@@ -3215,7 +3747,9 @@ class VllmCompatible(BaseVlmModel):
         # an answer; the duplicate is exactly what EVS similarity pruning
         # collapses.
         if 0 < len(images) < _EVS_MIN_CLIP_FRAMES:
-            has_aligned_times = bool(video_frames_times) and len(video_frames_times) == len(images)
+            has_aligned_times = bool(video_frames_times) and len(
+                video_frames_times
+            ) == len(images)
             repeat_index = list(range(len(images)))
             repeat_index += [len(images) - 1] * (_EVS_MIN_CLIP_FRAMES - len(images))
             logger.debug(
@@ -3237,7 +3771,9 @@ class VllmCompatible(BaseVlmModel):
         # leaves frames_indices unset, and Qwen3-VL only recomputes it when
         # do_sample_frames is on -- which EVS pins off -- so the clip dies in
         # the processor with "'NoneType' object has no attribute 'tolist'".
-        has_frame_times = bool(video_frames_times) and len(video_frames_times) == len(images)
+        has_frame_times = bool(video_frames_times) and len(video_frames_times) == len(
+            images
+        )
         duration = 0.0
         if has_frame_times and len(video_frames_times) > 1:
             duration = video_frames_times[-1] - video_frames_times[0]
@@ -3316,7 +3852,9 @@ class VllmCompatible(BaseVlmModel):
                 )
 
             try:
-                clip_resp = asyncio.run_coroutine_threadsafe(_add(), self._event_loop).result()
+                clip_resp = asyncio.run_coroutine_threadsafe(
+                    _add(), self._event_loop
+                ).result()
             except ServiceException:
                 # Already classified (code + status_code) by the layer that
                 # raised it; re-wrapping would flatten a 400 into a 500.
@@ -3384,7 +3922,8 @@ class VllmCompatible(BaseVlmModel):
                 if clip_resp.round_timestamps:
                     ts = clip_resp.round_timestamps
                     logger.debug(
-                        "EVS response covers timestamps: %.2f-%.2f " "(%d entries), response: %s",
+                        "EVS response covers timestamps: %.2f-%.2f "
+                        "(%d entries), response: %s",
                         ts[0],
                         ts[-1],
                         len(ts),
@@ -3411,13 +3950,28 @@ class VllmCompatible(BaseVlmModel):
             self.close_evs_session()
         except Exception:
             logger.debug("Error closing EVS sessions during shutdown", exc_info=True)
+        if self._dlalgo_streaming_manager is not None:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._dlalgo_streaming_manager.close_all(),
+                    self._event_loop,
+                ).result(timeout=30.0)
+            except Exception:
+                logger.warning(
+                    "Error closing DL Algo Streaming VLM sessions during shutdown",
+                    exc_info=True,
+                )
+            finally:
+                self._dlalgo_last_frame_time_by_stream.clear()
         logger.info("Shutting down VllmCompatibleModel...")
 
         # Shutdown the AsyncLLMEngine
         async def shutdown_engine():
             self._llm.shutdown()
 
-        asyncio.run_coroutine_threadsafe(shutdown_engine(), self._event_loop).result(timeout=5.0)
+        asyncio.run_coroutine_threadsafe(shutdown_engine(), self._event_loop).result(
+            timeout=5.0
+        )
 
         # Stop the event loop gracefully
         logger.debug("Stopping event loop")
@@ -3482,7 +4036,9 @@ class VllmCompatible(BaseVlmModel):
 
         return images
 
-    def _build_absolute_timestamp_video_metadata(self, images, video_frames_times, duration):
+    def _build_absolute_timestamp_video_metadata(
+        self, images, video_frames_times, duration
+    ):
         """Build video metadata with absolute timestamps encoded in frames_indices.
 
         Uses a synthetic fps=1000 so frame_index/fps recovers the real timestamp
@@ -3492,7 +4048,8 @@ class VllmCompatible(BaseVlmModel):
         return {
             "total_num_frames": len(images),
             "frames_indices": [
-                int(round(float(t) * _ABSOLUTE_TIMESTAMP_SOURCE_FPS)) for t in video_frames_times
+                int(round(float(t) * _ABSOLUTE_TIMESTAMP_SOURCE_FPS))
+                for t in video_frames_times
             ],
             "fps": _ABSOLUTE_TIMESTAMP_SOURCE_FPS,
             "duration": duration,
@@ -3554,14 +4111,20 @@ class VllmCompatible(BaseVlmModel):
             return query_text
 
         is_rtsp = chunk.file.startswith("rtsp://")
-        prefix_tpl = _TIMESTAMP_PROMPT_PREFIX_RTSP if is_rtsp else _TIMESTAMP_PROMPT_PREFIX_FILE
-        suffix_tpl = _TIMESTAMP_PROMPT_SUFFIX_RTSP if is_rtsp else _TIMESTAMP_PROMPT_SUFFIX_FILE
+        prefix_tpl = (
+            _TIMESTAMP_PROMPT_PREFIX_RTSP if is_rtsp else _TIMESTAMP_PROMPT_PREFIX_FILE
+        )
+        suffix_tpl = (
+            _TIMESTAMP_PROMPT_SUFFIX_RTSP if is_rtsp else _TIMESTAMP_PROMPT_SUFFIX_FILE
+        )
 
         first_ts = chunk.get_timestamp(video_frames_times[0])
         last_ts = chunk.get_timestamp(video_frames_times[-1])
 
         if prefix_tpl or suffix_tpl:
-            string_of_times = " ".join(chunk.get_timestamp(t) for t in video_frames_times)
+            string_of_times = " ".join(
+                chunk.get_timestamp(t) for t in video_frames_times
+            )
             fmt_kwargs = dict(
                 timestamps=string_of_times,
                 query=query_text,
@@ -3635,13 +4198,17 @@ class VllmCompatible(BaseVlmModel):
             # unfilled. vLLM fills timestamps from the complete merged event
             # range. With no prefix/suffix override, EVS uses the dev/aa/evs
             # timestamp instruction while non-EVS profiles keep their defaults.
-            want_ts = self._vlm_model_type != "cosmos-reason1" and ADD_TIMESTAMP_TO_PROMPT
+            want_ts = (
+                self._vlm_model_type != "cosmos-reason1" and ADD_TIMESTAMP_TO_PROMPT
+            )
             ts_template = None
             if want_ts and chunk:
                 is_rtsp = chunk.file.startswith("rtsp://")
-                prefix_tpl, suffix_tpl, used_evs_default = _get_timestamp_prompt_templates(
-                    is_rtsp,
-                    use_evs_default=True,
+                prefix_tpl, suffix_tpl, used_evs_default = (
+                    _get_timestamp_prompt_templates(
+                        is_rtsp,
+                        use_evs_default=True,
+                    )
                 )
                 if prefix_tpl or suffix_tpl:
                     if used_evs_default:
@@ -3650,7 +4217,9 @@ class VllmCompatible(BaseVlmModel):
                         template_fields = {
                             field_name.split(".")[0].split("[")[0]
                             for template in (prefix_tpl, suffix_tpl)
-                            for _, field_name, _, _ in string.Formatter().parse(template)
+                            for _, field_name, _, _ in string.Formatter().parse(
+                                template
+                            )
                             if field_name is not None
                         }
                         template_parts = []
@@ -3702,13 +4271,17 @@ class VllmCompatible(BaseVlmModel):
         system_prompt = self._resolve_system_prompt(config)
 
         # Override system prompt in environment variable with reasoning prompt if enable_reasoning is True
-        query_text, system_prompt = self._apply_reasoning_prompts(query_text, system_prompt, config)
+        query_text, system_prompt = self._apply_reasoning_prompts(
+            query_text, system_prompt, config
+        )
 
         if self._vlm_model_type == "cosmos-reason1":
             cr1_frames = video_frames[0]
             if isinstance(cr1_frames, torch.Tensor) and not cr1_frames.is_cuda:
                 cr1_frames = cr1_frames.cuda(non_blocking=True)
-            images = self.overlay_frame_number_cr1(cr1_frames, video_frames_times).half()
+            images = self.overlay_frame_number_cr1(
+                cr1_frames, video_frames_times
+            ).half()
 
             # convert PIL Images to tensors
             images = self.smart_resize_tensor(images)
@@ -3720,7 +4293,9 @@ class VllmCompatible(BaseVlmModel):
         # uniformly subsample to the configured limit before sending to the engine.
         max_frames = _get_max_video_frames()
         original_frame_count = len(images)
-        images, video_frames_times = _cap_video_frames(images, video_frames_times, max_frames)
+        images, video_frames_times = _cap_video_frames(
+            images, video_frames_times, max_frames
+        )
         if len(images) != original_frame_count:
             logger.info(
                 "VLM generate: subsampled %d frames to %d (VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES)",
@@ -3730,7 +4305,9 @@ class VllmCompatible(BaseVlmModel):
 
         # Audio is processed natively by the VLM when VLM_MODEL_SUPPORTS_AUDIO=true.
         # RIVA ASR is not yet supported; process_audio_in_vlm is true only for Omni models.
-        process_audio_in_vlm = os.environ.get("VLM_MODEL_SUPPORTS_AUDIO", "false").lower() == "true"
+        process_audio_in_vlm = (
+            os.environ.get("VLM_MODEL_SUPPORTS_AUDIO", "false").lower() == "true"
+        )
 
         # Handle nested list structure: audio_frames is [[dict, ...]]
         # Only check for audio data if VLM should process it
@@ -3853,7 +4430,9 @@ class VllmCompatible(BaseVlmModel):
             if is_single_image and "<image>" not in prompt:
                 image_placeholder = f"{query_text}\n<image>"
                 fallback_messages = (
-                    [{"role": "system", "content": system_prompt}] if system_prompt else []
+                    [{"role": "system", "content": system_prompt}]
+                    if system_prompt
+                    else []
                 ) + [{"role": "user", "content": image_placeholder}]
                 prompt = self._processor.apply_chat_template(
                     fallback_messages,
@@ -3864,7 +4443,9 @@ class VllmCompatible(BaseVlmModel):
             elif not is_single_image and "<video>" not in prompt:
                 video_placeholder = f"{query_text}\n<video>"
                 fallback_messages = (
-                    [{"role": "system", "content": system_prompt}] if system_prompt else []
+                    [{"role": "system", "content": system_prompt}]
+                    if system_prompt
+                    else []
                 ) + [{"role": "user", "content": video_placeholder}]
                 prompt = self._processor.apply_chat_template(
                     fallback_messages,
@@ -3889,7 +4470,9 @@ class VllmCompatible(BaseVlmModel):
                 prompt = prompt.replace("<image>", "<image><so_embedding>", 1)
 
         # Tokenize the prompt to get token IDs
-        prompt_token_ids = self._processor.tokenizer.encode(prompt, add_special_tokens=False)
+        prompt_token_ids = self._processor.tokenizer.encode(
+            prompt, add_special_tokens=False
+        )
 
         # Prepare multimodal data
         if is_single_image:
@@ -3909,7 +4492,9 @@ class VllmCompatible(BaseVlmModel):
             if audio_data is not None:
                 mm_data["audio"] = audio_data
             else:
-                logger.warning("Audio processing returned None — audio will NOT be sent to model")
+                logger.warning(
+                    "Audio processing returned None — audio will NOT be sent to model"
+                )
 
         # Prepare LLM inputs
         base_mm_processor_kwargs = _default_mm_processor_kwargs(
@@ -4042,7 +4627,9 @@ class VllmCompatible(BaseVlmModel):
                 self._release_live_request(locals().get("stream_id"), request_id)
             logger.error("Error during VLLM async generation: %s", e)
             return [
-                VlmModelOutput(output="Error: Generation failed", input_tokens=0, output_tokens=0)
+                VlmModelOutput(
+                    output="Error: Generation failed", input_tokens=0, output_tokens=0
+                )
             ]
 
     def generate_text_only(
@@ -4113,10 +4700,14 @@ class VllmCompatible(BaseVlmModel):
             logger.debug("Preserving vLLM reasoning tags in text-only output")
         else:
             # Extract reasoning if present
-            reasoning_match = re.search(r"<think>(.*?)</think>", generated_text, flags=re.DOTALL)
+            reasoning_match = re.search(
+                r"<think>(.*?)</think>", generated_text, flags=re.DOTALL
+            )
             if reasoning_match:
                 reasoning_description = reasoning_match.group(1)
-                generated_text = re.sub(r"<think>.*?</think>", "", generated_text, flags=re.DOTALL)
+                generated_text = re.sub(
+                    r"<think>.*?</think>", "", generated_text, flags=re.DOTALL
+                )
             else:
                 generated_text, reasoning_description = self._remove_orphan_think_tags(
                     generated_text, reasoning_description
@@ -4286,7 +4877,9 @@ class VllmCompatible(BaseVlmModel):
         new_height = height + border_height
 
         # Try to use DejaVu Sans Mono font for better readability
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", font_size)
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", font_size
+        )
 
         batch_images = images.permute(0, 3, 1, 2).float()
         batch_with_borders = torch.zeros(
@@ -4347,7 +4940,8 @@ class VllmCompatible(BaseVlmModel):
             "internal",
             (
                 "NVIDIA"
-                if vlm_model_type in ["cosmos-reason1", "cosmos-reason2", "cosmos-reason3"]
+                if vlm_model_type
+                in ["cosmos-reason1", "cosmos-reason2", "cosmos-reason3"]
                 else "custom"
             ),
         )
@@ -4362,11 +4956,17 @@ class VllmCompatible(BaseVlmModel):
                 model_config = json.load(f)
             num_frames = model_config.get("num_video_frames", 20)
         except Exception as e:
-            logger.warning(f"Could not load VllmCompatible input config from {model_path}: {e}")
+            logger.warning(
+                f"Could not load VllmCompatible input config from {model_path}: {e}"
+            )
 
         return InputConfig(
             num_frames=num_frames,
             use_jpeg_encoding=False,
-            width=608 if vlm_model_type in ["cosmos-reason2", "cosmos-reason3"] else 532,
-            height=320 if vlm_model_type in ["cosmos-reason2", "cosmos-reason3"] else 280,
+            width=608
+            if vlm_model_type in ["cosmos-reason2", "cosmos-reason3"]
+            else 532,
+            height=320
+            if vlm_model_type in ["cosmos-reason2", "cosmos-reason3"]
+            else 280,
         )

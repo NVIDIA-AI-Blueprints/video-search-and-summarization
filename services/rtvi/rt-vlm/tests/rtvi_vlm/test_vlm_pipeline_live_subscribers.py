@@ -34,6 +34,7 @@ def _make_pipeline():
     pipeline = object.__new__(VlmPipeline)
     pipeline._args = SimpleNamespace(num_gpus=1)
     pipeline._decoder_procs = [MagicMock()]
+    pipeline._vlm_procs = [MagicMock()]
     pipeline._live_stream_id_map = {}
     pipeline._live_stream_lock = Lock()
     return pipeline
@@ -179,6 +180,11 @@ def test_remove_live_stream_subscriber_removes_only_target():
     pipeline._decoder_procs[0].send_command.assert_called_once_with(
         "remove-live-stream-subscriber",
         live_stream_id=stream_id,
+        request_id="request-1",
+    )
+    pipeline._vlm_procs[0].send_command.assert_called_once_with(
+        "close-streaming-vlm-session",
+        stream_id=stream_id,
         request_id="request-1",
     )
 

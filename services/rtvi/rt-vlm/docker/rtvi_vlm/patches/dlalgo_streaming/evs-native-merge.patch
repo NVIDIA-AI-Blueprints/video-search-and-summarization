@@ -1,0 +1,2152 @@
+diff --git a/tmp/vllm-evs-original-20261003/vllm/v1/core/encoder_cache_manager.py b/tmp/vllm-evs-merged-20261003/vllm/v1/core/encoder_cache_manager.py
+index 0f6fad635..08c1d65f1 100644
+--- a/tmp/vllm-evs-original-20261003/vllm/v1/core/encoder_cache_manager.py
++++ b/tmp/vllm-evs-merged-20261003/vllm/v1/core/encoder_cache_manager.py
+@@ -261,6 +261,10 @@ class EncoderCacheManager:
+             self.freeable[mm_hash] = num_encoder_embeds
+             self.num_freeable_slots += num_encoder_embeds
+ 
++    def remove_encoder_input(self, request: Request, input_id: int) -> None:
++        """Release an input before compaction; this runtime indexes by hash."""
++        self.free_encoder_input(request, input_id)
++
+     def free(self, request: Request) -> None:
+         """Free all encoder input cache reference held by *request*.
+ 
+@@ -274,6 +278,17 @@ class EncoderCacheManager:
+         for input_id in input_ids:
+             self.free_encoder_input(request, input_id)
+ 
++    def evict_unreferenced(self, mm_hash: str) -> bool:
++        if mm_hash not in self.freeable:
++            return False
++        self.force_evict([mm_hash])
++        return True
++
++    def free_and_evict(self, request: Request) -> None:
++        for input_id in self.get_cached_input_ids(request):
++            self.free_encoder_input(request, input_id)
++            self.evict_unreferenced(request.mm_features[input_id].identifier)
++
+     def force_evict(self, mm_hashes: list[str]) -> None:
+         """Immediately evict specific mm_hashes that are in ``freeable``."""
+         for mm_hash in mm_hashes:
+@@ -305,6 +320,7 @@ class EncoderCacheManager:
+ def compute_mm_encoder_budget(
+     scheduler_config: "SchedulerConfig",
+     mm_max_toks_per_item: Mapping[str, int],
++    mm_max_items_per_prompt: Mapping[str, int] | None = None,
+ ) -> tuple[int, int]:
+     """Compute the encoder cache budget based on the model and scheduler
+     configurations for a multimodal model.
+@@ -313,6 +329,11 @@ def compute_mm_encoder_budget(
+         scheduler_config: Scheduler configuration.
+         mm_max_toks_per_item: The maximum number of tokens per item for each
+             non-text modality.
++        mm_max_items_per_prompt: Optional per-modality concurrent-items cap
++            (from `limit_mm_per_prompt`). When set, the cache is floored to
++            hold all of them at once plus 30% headroom — required by streaming
++            sessions whose persistent encoder cache must keep every retained
++            frame's embeddings across re-prefill events.
+ 
+     Returns:
+         - Compute budget for encoder execution, measured in number of tokens
+@@ -349,6 +370,27 @@ def compute_mm_encoder_budget(
+         scheduler_config.encoder_cache_size, max_tokens_per_mm_item
+     )
+ 
++    # Streaming-aware floor: size the cache to hold all concurrent items at
++    # once plus 30% headroom
++    if mm_max_items_per_prompt:
++        streaming_floor = sum(
++            mm_max_items_per_prompt.get(m, 0) * tok
++            for m, tok in mm_max_toks_per_item.items()
++        )
++        streaming_floor = (streaming_floor * 13) // 10  # 30% headroom
++        if streaming_floor > encoder_cache_size:
++            logger.info(
++                "Raising encoder_cache_size from %d to %d to accommodate "
++                "limit_mm_per_prompt working set (mm_max_items_per_prompt=%s, "
++                "mm_max_toks_per_item=%s). Required by streaming sessions "
++                "with persistent encoder cache.",
++                encoder_cache_size,
++                streaming_floor,
++                dict(mm_max_items_per_prompt),
++                dict(mm_max_toks_per_item),
++            )
++            encoder_cache_size = streaming_floor
++
+     return encoder_compute_budget, encoder_cache_size
+ 
+ 
+diff --git a/tmp/vllm-evs-original-20261003/vllm/v1/core/sched/scheduler.py b/tmp/vllm-evs-merged-20261003/vllm/v1/core/sched/scheduler.py
+index 9c361c01b..66050ffe1 100644
+--- a/tmp/vllm-evs-original-20261003/vllm/v1/core/sched/scheduler.py
++++ b/tmp/vllm-evs-merged-20261003/vllm/v1/core/sched/scheduler.py
+@@ -2,7 +2,7 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ import itertools
+ import time
+-from collections import defaultdict, deque
++from collections import OrderedDict, defaultdict, deque
+ from collections.abc import Iterable
+ from dataclasses import replace
+ from typing import Any
+@@ -54,11 +54,22 @@ from vllm.v1.metrics.stats import PrefixCacheStats, SchedulerStats
+ from vllm.v1.outputs import DraftTokenIds, KVConnectorOutput, ModelRunnerOutput
+ from vllm.v1.request import Request, RequestStatus, StreamingUpdate
+ from vllm.v1.spec_decode.metrics import SpecDecodingStats
++from vllm.v1.streaming.eviction import (
++    compact_old_video_segments_exact,
++    maybe_compact_initial_previous_text,
++    maybe_evict_old_segments,
++    maybe_relocate_assistant_text,
++)
++from vllm.v1.streaming.reprefill import should_trigger_reprefill
++from vllm.v1.streaming.retention import HistorySegment, SegmentType
+ from vllm.v1.structured_output import StructuredOutputManager
++from vllm.v1.structured_output.request import StructuredOutputRequest
+ from vllm.v1.utils import record_function_or_nullcontext
+ 
+ logger = init_logger(__name__)
+ 
++_STREAMING_TOMBSTONE_CAP = 1024
++
+ 
+ def _req_kind(req: Request) -> str:
+     """Classify a request as ``pooling`` or ``sampling``.
+@@ -117,6 +128,15 @@ class Scheduler(SchedulerInterface):
+             else self.scheduler_config.max_num_batched_tokens
+         )
+         self.max_model_len = vllm_config.model_config.max_model_len
++        # Model's trained position range; streaming re-prefill compares
++        # request.max_cached_position against a fraction of this.
++        self._model_max_position = int(
++            getattr(
++                vllm_config.model_config.hf_text_config,
++                "max_position_embeddings",
++                self.max_model_len,
++            )
++        )
+         self.enable_kv_cache_events = (
+             self.kv_events_config is not None
+             and self.kv_events_config.enable_kv_cache_events
+@@ -184,6 +204,11 @@ class Scheduler(SchedulerInterface):
+         # number of unfinished requests
+         self.num_waiting_for_streaming_input: int = 0
+ 
++        # Tombstones of recently-finished streaming (resumable) request ids,
++        # insertion-ordered; add_request drops stale post-abort chunks for
++        # these ids instead of resurrecting the session.
++        self._finished_streaming_req_ids: OrderedDict[str, None] = OrderedDict()
++
+         # KV Connector: requests in process of async KV loading or recving
+         self.finished_recving_kv_req_ids: set[str] = set()
+         self.failed_recving_kv_req_ids: set[str] = set()
+@@ -893,8 +918,12 @@ class Scheduler(SchedulerInterface):
+ 
+                     # NOTE: we need to untouch the request from the encode cache
+                     # manager
+-                    if request.has_encoder_inputs:
++                    if request.has_encoder_inputs and not request.uses_persistent_encoder_cache():
+                         self.encoder_cache_manager.free(request)
++                    if request.resumable:
++                        request_queue.pop_request()
++                        step_skipped_waiting.prepend_request(request)
++                        continue
+                     break
+ 
+                 # KVTransfer: the connector uses this info to determine
+@@ -1092,6 +1121,16 @@ class Scheduler(SchedulerInterface):
+             self._update_after_schedule(scheduler_output)
+         return scheduler_output
+ 
++    def _reset_streaming_position_state(self, request: Request) -> None:
++        """Reset the scheduler-side mRoPE / position-watermark state shared
++        by re-prefill and preemption-resume.
++        """
++        request._mrope_positions = []
++        request.max_cached_position = -1
++        request.pending_evicted_token_ranges.clear()
++        request.pending_kv_slot_relocations.clear()
++        request.pending_mrope_relocation_order.clear()
++
+     def _preempt_request(self, request: Request, timestamp: float) -> None:
+         """Preempt a request and put it back to the waiting queue.
+ 
+@@ -1102,18 +1141,73 @@ class Scheduler(SchedulerInterface):
+             "Only running requests can be preempted"
+         )
+         self.kv_cache_manager.free(request)
+-        self.encoder_cache_manager.free(request)
++
++        if not request.uses_persistent_encoder_cache():
++            self.encoder_cache_manager.free(request)
+         request.status = RequestStatus.PREEMPTED
+         request.num_computed_tokens = 0
+         if request.spec_token_ids:
+             request.spec_token_ids = []
+         request.num_preemptions += 1
++
++        if request.streaming_retention is not None:
++            self._reset_streaming_position_state(request)
+         if self.log_stats:
+             request.record_event(EngineCoreEventType.PREEMPTED, timestamp)
+ 
+         # Put the request back to the waiting queue.
+         self.waiting.prepend_request(request)
+ 
++    def _reprefill_streaming_session(
++        self, request: Request, discard_next_sample: bool
++    ) -> None:
++        """Self-preempt for re-prefill: free the KV cache + reset position
++        state, prepend to waiting, and let the next step re-prefill the
++        surviving `_all_token_ids` at fresh dense-from-0 positions.
++
++        `discard_next_sample` must be True only when the re-prefilled prompt
++        ends with already-answered content (idle trigger), so the one forced
++        sample is a phantom. When a queued chunk was just folded, the prompt
++        ends with that unanswered chunk and the first sample is a genuine
++        caption token that must be kept.
++        """
++        prior_max_position = request.max_cached_position  # for the log line
++        prior_num_tokens = request.num_tokens
++
++        # Gather block IDs BEFORE freeing, then evict their prefix-cache
++        # entries
++        reprefill_block_ids: set[int] = set()
++        for per_group_ids in self.kv_cache_manager.get_block_ids(request.request_id):
++            reprefill_block_ids.update(per_group_ids)
++
++        self.kv_cache_manager.free(request)
++        if reprefill_block_ids:
++            self.kv_cache_manager.evict_blocks(reprefill_block_ids)
++
++        request.num_computed_tokens = 0
++        self._reset_streaming_position_state(request)
++        if request.spec_token_ids:
++            request.spec_token_ids = []
++
++        request.status = RequestStatus.WAITING
++
++        self.prev_step_scheduled_req_ids.discard(request.request_id)
++        request.reprefill_count += 1
++
++        request.reprefill_discard_next_sample = discard_next_sample
++
++        request.pending_reprefill = True
++        logger.info(
++            "streaming re-prefill triggered: req=%s "
++            "prior_max_position=%d surviving_tokens=%d count=%d",
++            request.request_id,
++            prior_max_position,
++            prior_num_tokens,
++            request.reprefill_count,
++        )
++
++        self.waiting.prepend_request(request)
++
+     def _update_after_schedule(self, scheduler_output: SchedulerOutput) -> None:
+         # Advance the number of computed tokens for the request AFTER
+         # the request is scheduled.
+@@ -1165,7 +1259,19 @@ class Scheduler(SchedulerInterface):
+         ]
+         return [mm_hash for mm_hash in pending if mm_hash not in referenced]
+ 
+-    def _update_request_as_session(
++    def _refresh_streaming_structured_output(
++        self, session: Request, update: StreamingUpdate
++    ) -> None:
++        session.structured_output_request = StructuredOutputRequest.from_sampling_params(
++            update.sampling_params
++        )
++        if session.structured_output_request is None:
++            return
++
++        self.structured_output_manager.grammar_init(session)
++        session.status = RequestStatus.WAITING_FOR_FSM
++
++    def _update_request_as_nightly_session(
+         self, session: Request, update: StreamingUpdate
+     ) -> None:
+         """
+@@ -1214,10 +1320,586 @@ class Scheduler(SchedulerInterface):
+         if session.status == RequestStatus.WAITING_FOR_STREAMING_REQ:
+             self.num_waiting_for_streaming_input -= 1
+         session.status = RequestStatus.WAITING
++        self._refresh_streaming_structured_output(session, update)
+ 
+         if self.log_stats:
+             session.record_event(EngineCoreEventType.QUEUED)
+ 
++
++    def _update_request_as_session(
++        self, session: Request, update: StreamingUpdate
++    ) -> None:
++        """
++        Updates the waiting session with the next streaming update.
++
++        Folds a complete, explicitly terminated assistant turn into the prompt.
++        """
++
++        if session.streaming_retention is None:
++            return self._update_request_as_nightly_session(session, update)
++
++        num_computed_tokens = session.num_computed_tokens
++
++        prior_response_start = session.num_prompt_tokens
++        assert session.prompt_token_ids is not None
++        retain_generated_text = (
++            session.streaming_retention is None
++            or session.streaming_retention.retain_generated_text
++        )
++        if retain_generated_text:
++            folded_output_tokens = list(
++                session._all_token_ids[session.num_prompt_tokens :]
++            )
++            eos_token_id = session.streaming_eos_token_id
++            if eos_token_id is None and session.sampling_params is not None:
++                eos_token_id = session.sampling_params.eos_token_id
++            if (
++                folded_output_tokens
++                and eos_token_id is not None
++                and folded_output_tokens[-1] != eos_token_id
++            ):
++                folded_output_tokens.append(eos_token_id)
++            del session._all_token_ids[session.num_prompt_tokens :]
++            session._all_token_ids.extend(folded_output_tokens)
++            session.prompt_token_ids.extend(folded_output_tokens)
++        else:
++            del session._all_token_ids[prior_response_start:]
++            session.num_computed_tokens = prior_response_start
++            if num_computed_tokens > prior_response_start:
++                session.pending_evicted_token_ranges.append(
++                    (prior_response_start, num_computed_tokens)
++                )
++            if len(session._mrope_positions) >= num_computed_tokens:
++                del session._mrope_positions[
++                    prior_response_start:num_computed_tokens
++                ]
++        session._output_token_ids.clear()
++        segment_start_idx = len(session.prompt_token_ids)
++
++        if session.streaming_retention is not None:
++            Scheduler._record_prior_streaming_segments(
++                session, prior_response_start, segment_start_idx
++            )
++            initial_compaction = maybe_compact_initial_previous_text(
++                session, session.streaming_retention
++            )
++            if initial_compaction is not None:
++                order, prior_prompt_tokens = initial_compaction
++                self._prepare_text_kv_relocation(
++                    session,
++                    order,
++                    prior_prompt_tokens,
++                    num_computed_tokens,
++                )
++            relocation = maybe_relocate_assistant_text(
++                session,
++                session.streaming_retention,
++                session.streaming_eos_token_id,
++                session.streaming_assistant_continuation_token_ids,
++                session.streaming_role_end_token_ids,
++                session.streaming_user_role_start_token_ids,
++                session.streaming_vision_start_token_id,
++            )
++            if relocation is not None:
++                order, prior_prompt_tokens = relocation
++                self._prepare_text_kv_relocation(
++                    session,
++                    order,
++                    prior_prompt_tokens,
++                    session.num_computed_tokens,
++                )
++                logger.info(
++                    "paper text relocation triggered: req=%s round=%d count=%d",
++                    session.request_id,
++                    session.streaming_retention.text_round,
++                    session.text_relocation_count,
++                )
++            if session.streaming_retention.exact_video_compaction:
++                exact_video_compaction = compact_old_video_segments_exact(
++                    session,
++                    session.streaming_retention,
++                    self.encoder_cache_manager,
++                    incoming_video_segments=len(update.mm_features or ()),
++                )
++                if exact_video_compaction is not None:
++                    order, prior_prompt_tokens, prior_computed_tokens, count = (
++                        exact_video_compaction
++                    )
++                    self._prepare_text_kv_relocation(
++                        session,
++                        order,
++                        prior_prompt_tokens,
++                        prior_computed_tokens,
++                    )
++                    logger.info(
++                        "exact video compaction triggered: req=%s segments=%d "
++                        "prior_prompt=%d prior_computed=%d retained_computed=%d "
++                        "incoming_prompt=%d",
++                        session.request_id,
++                        count,
++                        prior_prompt_tokens,
++                        prior_computed_tokens,
++                        session.num_computed_tokens,
++                        len(update.prompt_token_ids or ()),
++                    )
++
++        update_segment_start = session.num_tokens
++        if update.mm_features:
++            base = update_segment_start
++            for mm_feature in update.mm_features:
++                mm_feature.mm_position = replace(
++                    mm_feature.mm_position, offset=mm_feature.mm_position.offset + base
++                )
++            session.mm_features.extend(update.mm_features)
++
++        session._all_token_ids.extend(update.prompt_token_ids or ())
++        session.prompt_token_ids.extend(update.prompt_token_ids or ())
++        if session.streaming_retention is not None:
++            Scheduler._record_streaming_update_segments(
++                session, update, update_segment_start
++            )
++
++        # Drop hashes covering the discarded sampled token (if it completed a
++        # block) so the chain is rebuilt from the new content; a stale hash
++        # would publish the block under the wrong prefix-cache key. Must run
++        # for retention-less sessions too, and at the HASH block granularity
++        # (single_type_managers[0].block_size need not match it on hybrid
++        # models, which non-retention resumable sessions may run on).
++        if session.block_hashes:
++            hash_block_size = self.kv_cache_manager.block_pool.hash_block_size
++            hash_frontier = (
++                num_computed_tokens
++                if retain_generated_text
++                else prior_response_start
++            )
++            del session.block_hashes[hash_frontier // hash_block_size :]
++
++        # Update block hashes for the new tokens.
++        session.update_block_hashes()
++        session.num_prompt_tokens = len(session.prompt_token_ids)
++        session.arrival_time = update.arrival_time
++        session.sampling_params = update.sampling_params
++        if update.sampling_params and update.sampling_params.max_tokens is not None:
++            session.max_tokens = update.sampling_params.max_tokens
++        if session.status == RequestStatus.WAITING_FOR_STREAMING_REQ:
++            self.num_waiting_for_streaming_input -= 1
++        session.status = RequestStatus.WAITING
++
++        self._refresh_streaming_structured_output(session, update)
++
++        if (
++            session.streaming_retention is not None
++            and not session.streaming_retention.exact_video_compaction
++        ):
++            maybe_evict_old_segments(
++                session,
++                session.streaming_retention,
++                self.kv_cache_manager,
++                self.encoder_cache_manager,
++            )
++
++        if session.num_tokens >= self.max_model_len:
++            # Cumulative context-length guard: even after eviction the
++            # session prompt no longer fits the context window. Worker
++            # per-request buffers are max_model_len-sized, so scheduling it
++            # would crash the engine. Finish the session cleanly instead.
++            logger.error(
++                "Streaming session %s reached max_model_len (%d tokens >= "
++                "%d) after chunk append; finishing session.",
++                session.request_id,
++                session.num_tokens,
++                self.max_model_len,
++            )
++            self.finish_requests(
++                session.request_id, RequestStatus.FINISHED_LENGTH_CAPPED
++            )
++            return
++
++        if self.log_stats:
++            session.record_event(EngineCoreEventType.QUEUED)
++
++    def _prepare_text_kv_relocation(
++        self,
++        request: Request,
++        order: list[int],
++        prior_prompt_tokens: int,
++        prior_computed_tokens: int,
++    ) -> None:
++        """Map the paper token move onto the request's physical KV slots."""
++        computed_order = [index for index in order if index < prior_computed_tokens]
++        if order[: len(computed_order)] != computed_order:
++            raise RuntimeError(
++                "Streaming VLM relocation placed uncached tokens before cached tokens"
++            )
++
++        prompt_order = [index for index in order if index < prior_prompt_tokens]
++        if order[: len(prompt_order)] != prompt_order:
++            raise RuntimeError(
++                "Streaming VLM relocation placed new chunk tokens inside cached prompt"
++            )
++
++        block_ids_by_group = self.kv_cache_manager.get_block_ids(request.request_id)
++        cache_groups = self.kv_cache_config.kv_cache_groups
++        if len(cache_groups) != 1:
++            raise RuntimeError(
++                "paper KV relocation currently requires one KV-cache group"
++            )
++        if len(block_ids_by_group) != len(cache_groups):
++            raise RuntimeError(
++                "Streaming VLM KV relocation group count does not match cache config"
++            )
++
++        relocations: list[list[tuple[int, int, int, int]]] = []
++        prior_logical_order = request.pending_mrope_relocation_order
++        if prior_logical_order:
++            try:
++                computed_order = [prior_logical_order[index] for index in computed_order]
++            except IndexError as exc:
++                raise RuntimeError("Streaming relocation exceeds prior computed mapping") from exc
++        for block_ids, group in zip(block_ids_by_group, cache_groups):
++            block_size = int(group.kv_cache_spec.block_size)
++
++            def physical_slot(logical_position: int) -> int:
++                block_index, block_offset = divmod(logical_position, block_size)
++                if block_index >= len(block_ids):
++                    raise RuntimeError(
++                        "Streaming VLM KV relocation exceeds allocated block table: "
++                        f"logical={logical_position}, blocks={len(block_ids)}, "
++                        f"block_size={block_size}"
++                    )
++                return int(block_ids[block_index]) * block_size + block_offset
++
++            group_relocations = []
++            for destination, source in enumerate(computed_order):
++                source_slot = physical_slot(source)
++                destination_slot = physical_slot(destination)
++                group_relocations.append(
++                    (source_slot, destination_slot, source, destination)
++                )
++            relocations.append(group_relocations)
++
++        request.pending_kv_slot_relocations[:] = relocations
++        request.pending_mrope_relocation_order[:] = computed_order
++        request.num_computed_tokens = len(computed_order)
++
++    def _fold_kept_output(self, session: Request) -> None:
++        """Fold a complete, explicitly terminated assistant turn."""
++        num_computed_tokens = session.num_computed_tokens
++        prior_response_start = session.num_prompt_tokens
++        retain_generated_text = (
++            session.streaming_retention is None
++            or session.streaming_retention.retain_generated_text
++        )
++        if not retain_generated_text:
++            del session._all_token_ids[prior_response_start:]
++            session._output_token_ids.clear()
++            session.num_computed_tokens = prior_response_start
++            if num_computed_tokens > prior_response_start:
++                session.pending_evicted_token_ranges.append(
++                    (prior_response_start, num_computed_tokens)
++                )
++            if len(session._mrope_positions) >= num_computed_tokens:
++                del session._mrope_positions[
++                    prior_response_start:num_computed_tokens
++                ]
++            if session.block_hashes:
++                hash_block_size = self.kv_cache_manager.block_pool.hash_block_size
++                del session.block_hashes[
++                    prior_response_start // hash_block_size :
++                ]
++            session.update_block_hashes()
++            return
++
++        folded_output_tokens = list(session._all_token_ids[session.num_prompt_tokens :])
++        eos_token_id = session.streaming_eos_token_id
++        if eos_token_id is None and session.sampling_params is not None:
++            eos_token_id = session.sampling_params.eos_token_id
++        if (
++            folded_output_tokens
++            and eos_token_id is not None
++            and folded_output_tokens[-1] != eos_token_id
++        ):
++            folded_output_tokens.append(eos_token_id)
++        del session._all_token_ids[session.num_prompt_tokens :]
++        session._all_token_ids.extend(folded_output_tokens)
++        session._output_token_ids.clear()
++        assert session.prompt_token_ids is not None
++        session.prompt_token_ids.extend(folded_output_tokens)
++
++        # See _update_request_as_session: trim stale hashes unconditionally,
++        # at the hash block granularity.
++        if session.block_hashes:
++            hash_block_size = self.kv_cache_manager.block_pool.hash_block_size
++            del session.block_hashes[num_computed_tokens // hash_block_size :]
++        session.update_block_hashes()
++        session.num_prompt_tokens = len(session.prompt_token_ids)
++
++    def _record_folded_output_segment(
++        self, session: Request, prior_response_start: int
++    ) -> None:
++        """Record the just-folded last caption as an evictable assistant_text
++        segment.
++        """
++        end = session.num_prompt_tokens
++        if end <= prior_response_start:
++            return  # the folded chunk generated no kept output.
++        session.session_history.append(
++            HistorySegment(
++                segment_type="assistant_text",
++                token_range=(prior_response_start, end),
++                age_chunks=0,
++            )
++        )
++
++    def _record_streaming_segment(
++        self,
++        session: Request,
++        update: StreamingUpdate,
++        prior_response_start: int,
++        segment_start_idx: int,
++    ) -> None:
++        """Append HistorySegment(s) for the just-appended chunk and age
++        all prior segments by one chunk.
++
++        This function creates an anchor, optional prior response, and one
++        segment per multimodal feature in the appended chunk:
++
++          1. **Pinned anchor** — on the very first call only (when
++             `session_history` is empty). Covers `[0, prior_response_start)`,
++             i.e., chunk 1's prompt only. `chunk 1`'s caption is split out
++             as a separate unpinned `assistant_text` segment. The
++             anchor is pinned and represents the attention sink (system
++             prompt + first user turn + first video).
++
++          2. **Assistant_text for prior chunk's response** — if
++             `segment_start_idx > prior_response_start`. Unpinned, evictable
++             by retention phase 2, so captions are retained independently of
++             the video they describe.
++
++          3. **New chunk content segments** — one `"video"` segment per
++             multimodal feature, or one `"user_text"` segment when no
++             multimodal feature was appended. This makes a two-frame temporal
++             video item the literal retention unit instead of treating the
++             entire update batch as one segment.
++
++        Aging order: synthesize the anchor first (so it gets aged like
++        any existing segment), then age all existing segments, then
++        append the two new segments (which start at age 0).
++        """
++        Scheduler._record_prior_streaming_segments(
++            session, prior_response_start, segment_start_idx
++        )
++        Scheduler._record_streaming_update_segments(session, update, segment_start_idx)
++
++    @staticmethod
++    def _record_prior_streaming_segments(
++        session: Request,
++        prior_response_start: int,
++        segment_start_idx: int,
++    ) -> None:
++        """Age the prior session and record its completed assistant turn."""
++        # 1. Synthesize the pinned anchor on the very first call.
++        if not session.session_history and prior_response_start > 0:
++            anchor_features = sorted(
++                (
++                    feature
++                    for feature in session.mm_features
++                    if feature.mm_position.offset < prior_response_start
++                ),
++                key=lambda feature: feature.mm_position.offset,
++            )
++            anchor_feature = anchor_features[0] if anchor_features else None
++            previous_start = session.streaming_previous_text_start_token
++            previous_end = session.streaming_previous_text_end_token
++            if (
++                previous_start is not None
++                and previous_end is not None
++                and 0 <= previous_start <= previous_end <= prior_response_start
++            ):
++                session.session_history.extend(
++                    [
++                        HistorySegment(
++                            segment_type="system_prompt",
++                            token_range=(0, previous_start),
++                            pinned=True,
++                        ),
++                        HistorySegment(
++                            segment_type="previous_text",
++                            token_range=(previous_start, previous_end),
++                            pinned=True,
++                        ),
++                    ]
++                )
++                if (
++                    anchor_feature is not None
++                    and session.streaming_retention.exact_video_compaction
++                ):
++                    feature_start = anchor_feature.mm_position.offset
++                    feature_end = feature_start + anchor_feature.mm_position.length
++                    role_end = previous_end + len(session.streaming_role_end_token_ids)
++                    if (
++                        role_end > feature_start
++                        or tuple(session._all_token_ids[previous_end:role_end])
++                        != session.streaming_role_end_token_ids
++                    ):
++                        raise RuntimeError(
++                            "Streaming VLM previous-text role terminator is "
++                            "missing before the first visual feature"
++                        )
++                    session.session_history.append(
++                        HistorySegment(
++                            segment_type="system_prompt",
++                            token_range=(previous_end, role_end),
++                            pinned=True,
++                        )
++                    )
++                    if role_end < feature_start:
++                        session.session_history.append(
++                            HistorySegment(
++                                segment_type="user_text",
++                                token_range=(role_end, feature_start),
++                                mm_item_id=anchor_feature.identifier,
++                            )
++                        )
++                    session.session_history.append(
++                        HistorySegment(
++                            segment_type="video",
++                            token_range=(feature_start, feature_end),
++                            mm_item_id=anchor_feature.identifier,
++                        )
++                    )
++                    if feature_end < prior_response_start:
++                        session.session_history.append(
++                            HistorySegment(
++                                segment_type="user_text",
++                                token_range=(feature_end, prior_response_start),
++                                mm_item_id=anchor_feature.identifier,
++                            )
++                        )
++                else:
++                    session.session_history.append(
++                        HistorySegment(
++                            segment_type=(
++                                "video" if anchor_feature is not None else "user_text"
++                            ),
++                            token_range=(previous_end, prior_response_start),
++                            mm_item_id=(
++                                anchor_feature.identifier
++                                if anchor_feature is not None
++                                else None
++                            ),
++                            pinned=True,
++                        )
++                    )
++            else:
++                if (
++                    anchor_feature is not None
++                    and session.streaming_retention is not None
++                    and session.streaming_retention.exact_video_compaction
++                ):
++                    feature_start = anchor_feature.mm_position.offset
++                    feature_end = feature_start + anchor_feature.mm_position.length
++                    if feature_start:
++                        session.session_history.append(
++                            HistorySegment(
++                                segment_type="user_text",
++                                token_range=(0, feature_start),
++                                mm_item_id=anchor_feature.identifier,
++                            )
++                        )
++                    session.session_history.append(
++                        HistorySegment(
++                            segment_type="video",
++                            token_range=(feature_start, feature_end),
++                            mm_item_id=anchor_feature.identifier,
++                        )
++                    )
++                    if feature_end < prior_response_start:
++                        session.session_history.append(
++                            HistorySegment(
++                                segment_type="user_text",
++                                token_range=(feature_end, prior_response_start),
++                                mm_item_id=anchor_feature.identifier,
++                            )
++                        )
++                else:
++                    session.session_history.append(
++                        HistorySegment(
++                            segment_type=(
++                                "video" if anchor_feature is not None else "user_text"
++                            ),
++                            token_range=(0, prior_response_start),
++                            mm_item_id=(
++                                anchor_feature.identifier
++                                if anchor_feature is not None
++                                else None
++                            ),
++                            pinned=True,
++                        )
++                    )
++
++        # Age existing segments by one chunk boundary. Anything we
++        # append below will start at age 0.
++        for seg in session.session_history:
++            seg.age_chunks += 1
++
++        # 2. Assistant_text segment for the prior chunk's response.
++        if segment_start_idx > prior_response_start:
++            session.session_history.append(
++                HistorySegment(
++                    segment_type="assistant_text",
++                    token_range=(prior_response_start, segment_start_idx),
++                    # This caption belongs to the prior turn, whose video was
++                    # aged above. Start at one so text and visual retention
++                    # cross their boundary in the same scheduler update.
++                    age_chunks=1,
++                )
++            )
++
++    @staticmethod
++    def _record_streaming_update_segments(
++        session: Request,
++        update: StreamingUpdate,
++        segment_start_idx: int,
++    ) -> None:
++        """Record only the newly appended streaming update."""
++        # 3. New chunk's content segment(s).
++        new_num_tokens = session.num_tokens
++        if new_num_tokens <= segment_start_idx:
++            return  # chunk added no new tokens.
++        if update.mm_features:
++            features = sorted(
++                update.mm_features,
++                key=lambda feature: feature.mm_position.offset,
++            )
++            for index, feature in enumerate(features):
++                start = (
++                    segment_start_idx
++                    if index == 0
++                    else max(segment_start_idx, feature.mm_position.offset)
++                )
++                end = (
++                    features[index + 1].mm_position.offset
++                    if index + 1 < len(features)
++                    else new_num_tokens
++                )
++                if end <= start:
++                    continue
++                session.session_history.append(
++                    HistorySegment(
++                        segment_type="video",
++                        token_range=(start, end),
++                        mm_item_id=feature.identifier,
++                    )
++                )
++            return
++        session.session_history.append(
++            HistorySegment(
++                segment_type="user_text",
++                token_range=(segment_start_idx, new_num_tokens),
++            )
++        )
++
+     def _make_cached_request_data(
+         self,
+         running_reqs: list[Request],
+@@ -1521,6 +2203,11 @@ class Scheduler(SchedulerInterface):
+         kv_connector_output = model_runner_output.kv_connector_output
+         cudagraph_stats = model_runner_output.cudagraph_stats
+ 
++        for req_id, pos in model_runner_output.max_cached_positions.items():
++            req = self.requests.get(req_id)
++            if req is not None and pos > req.max_cached_position:
++                req.max_cached_position = pos
++
+         perf_stats: PerfStats | None = None
+         if self.perf_metrics and self.perf_metrics.is_enabled():
+             perf_stats = self.perf_metrics.get_step_perf_stats_per_gpu(scheduler_output)
+@@ -1603,6 +2290,48 @@ class Scheduler(SchedulerInterface):
+             kv_transfer_params = None
+             status_before_stop = request.status
+ 
++            if request.reprefill_discard_next_sample and new_token_ids:
++                request.reprefill_discard_next_sample = False
++                finished = self._handle_stopped_request(request)
++                if finished:
++                    # The finish sentinel was popped without check_stop ever
++                    # setting a finished status (the request is still
++                    # RUNNING); set one before _free_request, which asserts
++                    # is_finished().
++                    request.status = RequestStatus.FINISHED_ABORTED
++                    self._free_request(request)
++                if status_before_stop == RequestStatus.RUNNING:
++                    stopped_running_reqs.add(request)
++                else:
++                    stopped_preempted_reqs.add(request)
++                continue
++
++            sampling_extra_args = (
++                request.sampling_params.extra_args
++                if request.sampling_params is not None
++                else None
++            )
++            streaming_prefill_only = bool(
++                sampling_extra_args
++                and sampling_extra_args.get("streaming_prefill_only", False)
++            )
++            if (
++                request.resumable
++                and streaming_prefill_only
++                and request.num_computed_tokens >= request.num_tokens
++            ):
++                # The final prompt-token forward may have sampled one token.
++                # Suppress it and advance the resumable request without
++                # exposing a decode boundary to the caller.
++                finished = self._handle_stopped_request(request)
++                if finished:
++                    self._free_request(request)
++                if status_before_stop == RequestStatus.RUNNING:
++                    stopped_running_reqs.add(request)
++                else:
++                    stopped_preempted_reqs.add(request)
++                continue
++
+             # Check for stop and update request status.
+             # Pooling requests (including EVS encode) must never enter
+             # _update_request_with_output which asserts `not pooling_params`.
+@@ -1621,6 +2350,36 @@ class Scheduler(SchedulerInterface):
+                     request, new_token_ids
+                 )
+ 
++            if new_token_ids and self.structured_output_manager.should_advance(request):
++                struct_output_request = request.structured_output_request
++                assert struct_output_request is not None
++                assert struct_output_request.grammar is not None
++                if not struct_output_request.grammar.accept_tokens(
++                    req_id, new_token_ids
++                ):
++                    # A grammar rejection ends only this streaming update. The
++                    # session remains resumable and resets its FSM on the next
++                    # update.
++                    if request.resumable:
++                        logger.warning(
++                            "Grammar rejected tokens %s for streaming request "
++                            "%s; cutting chunk short, session continues.",
++                            new_token_ids,
++                            req_id,
++                        )
++                        request.status = RequestStatus.FINISHED_STOPPED
++                        stopped = True
++                    else:
++                        logger.error(
++                            "Unexpected: grammar rejected tokens %s for "
++                            "request %s. Terminating request.",
++                            new_token_ids,
++                            req_id,
++                        )
++                        request.status = RequestStatus.FINISHED_ERROR
++                        request.resumable = False
++                        stopped = True
++
+             routed_experts = None
+             finish_reason = None
+             if stopped:
+@@ -1646,18 +2405,6 @@ class Scheduler(SchedulerInterface):
+             ):
+                 new_logprobs = logprobs.slice_request(req_index, len(new_token_ids))
+ 
+-            if new_token_ids and self.structured_output_manager.should_advance(request):
+-                struct_output_request = request.structured_output_request
+-                assert struct_output_request is not None
+-                assert struct_output_request.grammar is not None
+-                ok = struct_output_request.grammar.accept_tokens(req_id, new_token_ids)
+-                if not ok:
+-                    logger.warning(
+-                        "Unexpected: grammar rejected tokens %s for request %s.",
+-                        new_token_ids,
+-                        req_id,
+-                    )
+-
+             if num_nans_in_logits is not None and req_id in num_nans_in_logits:
+                 request.num_nans_in_logits = num_nans_in_logits[req_id]
+ 
+@@ -1775,16 +2522,75 @@ class Scheduler(SchedulerInterface):
+         if not request.resumable:
+             return True
+ 
++        if (
++            request.streaming_retention is None
++            and request.status == RequestStatus.FINISHED_LENGTH_CAPPED
++        ):
++            # Without retention nothing bounds the session prompt; keeping
++            # the session alive would let the next chunk push num_tokens past
++            # max_model_len and overflow max_model_len-sized worker buffers.
++            return True
++
++        output_folded = False
+         if request.streaming_queue:
+             update = request.streaming_queue.popleft()
+             if update is None:
+                 # Streaming request finished.
+                 return True
+             self._update_request_as_session(request, update)
++            if request.is_finished():
++                # The fold hit the cumulative context-length guard and the
++                # session was finished (and freed) inside
++                # _update_request_as_session. Return False so the caller
++                # does not free it a second time.
++                return False
++            output_folded = True
+         else:
+             request.status = RequestStatus.WAITING_FOR_STREAMING_REQ
+             self.num_waiting_for_streaming_input += 1
+ 
++        # Streaming re-prefill: bound both mRoPE position growth and the
++        # number of generated-text KV relocations accumulated by this request.
++        retention = request.streaming_retention
++        position_reprefill = retention is not None and should_trigger_reprefill(
++            request,
++            retention,
++            self._model_max_position,
++        )
++        relocation_interval = (
++            retention.reprefill_relocation_interval if retention is not None else 0
++        )
++        periodic_reprefill = (
++            relocation_interval > 0
++            and request.text_relocation_count
++            - request.last_reprefill_text_relocation_count
++            >= relocation_interval
++        )
++        if position_reprefill or periodic_reprefill:
++            if not output_folded:
++                prior_response_start = request.num_prompt_tokens
++                self._fold_kept_output(request)
++                if retention is not None:
++                    self._record_folded_output_segment(request, prior_response_start)
++
++            if request.status == RequestStatus.WAITING_FOR_STREAMING_REQ:
++                self.num_waiting_for_streaming_input -= 1
++            request.last_reprefill_text_relocation_count = (
++                request.text_relocation_count
++            )
++            if periodic_reprefill:
++                logger.info(
++                    "Periodic streaming re-prefill for request %s after %d "
++                    "generated-text relocations",
++                    request.request_id,
++                    request.text_relocation_count,
++                )
++            self._reprefill_streaming_session(
++                request, discard_next_sample=not output_folded
++            )
++            # The helper already prepended to the waiting queue.
++            return False
++
+         self.waiting.add_request(request)
+         return False
+ 
+@@ -1821,6 +2627,8 @@ class Scheduler(SchedulerInterface):
+         stopped = False
+         for num_new, output_token_id in enumerate(new_token_ids, 1):
+             request.append_output_token_ids(output_token_id)
++            if request.streaming_retention is not None:
++                request.streaming_sampling_cursor += 1
+ 
+             # Check for stop and update request state.
+             # This must be called before we make the EngineCoreOutput.
+@@ -1831,6 +2639,8 @@ class Scheduler(SchedulerInterface):
+         return new_token_ids, stopped
+ 
+     def _free_encoder_inputs(self, request: Request) -> None:
++        if request.uses_persistent_encoder_cache():
++            return
+         cached_encoder_input_ids = self.encoder_cache_manager.get_cached_input_ids(
+             request
+         )
+@@ -1933,7 +2743,63 @@ class Scheduler(SchedulerInterface):
+                 # Streaming-input session finished.
+                 self.finish_requests(request.request_id, RequestStatus.FINISHED_ABORTED)
+         else:
++            if request.request_id in self._finished_streaming_req_ids:
++                # Stale chunk (or finish sentinel) racing behind an abort of
++                # an already-finished streaming session. Admitting it would
++                # resurrect the session as an unreachable
++                # WAITING_FOR_STREAMING_REQ zombie that pins its KV blocks
++                # and persistent encoder-cache entries until server restart.
++                # A brand-new session's first chunk carries a fresh id, so it
++                # is never tombstoned.
++                logger.warning(
++                    "Dropping streaming request %s: its session already "
++                    "finished (stale post-abort chunk).",
++                    request.request_id,
++                )
++                return
++            if request.streaming_retention is not None:
++                if len(self.kv_cache_config.kv_cache_groups) != 1:
++                    raise ValueError(
++                        "Streaming retention (intra-session KV eviction) "
++                        "requires exactly one KV cache group, but this model "
++                        f"has {len(self.kv_cache_config.kv_cache_groups)}. "
++                        "Hybrid / attention-free models are not supported."
++                    )
++                if self.use_v2_model_runner:
++                    raise ValueError("Nightly StreamingVLM requires VLLM_USE_V2_MODEL_RUNNER=0")
++                retention = request.streaming_retention
++                if (
++                    retention.max_session_tokens
++                    >= retention.reprefill_threshold * self._model_max_position
++                ):
++                    raise ValueError(
++                        "Streaming retention max_session_tokens "
++                        f"({retention.max_session_tokens}) must stay below "
++                        "reprefill_threshold * model_max_position "
++                        f"({retention.reprefill_threshold} * "
++                        f"{self._model_max_position}); otherwise a re-prefill "
++                        "would re-trigger immediately and loop."
++                    )
++
++                if self.use_pp:
++                    raise ValueError(
++                        "Streaming retention is incompatible with pipeline "
++                        "parallelism (step overlap). Use pipeline_parallel_"
++                        "size=1."
++                    )
++                if not self.vllm_config.model_config.uses_mrope:
++                    raise ValueError(
++                        "Streaming retention (intra-session KV eviction) is "
++                        "only supported for mRoPE models; this model does not "
++                        "use mRoPE."
++                    )
+             if request.resumable:
++                if self.vllm_config.parallel_config.data_parallel_size > 1:
++                    raise ValueError(
++                        "Streaming input sessions require data_parallel_size "
++                        "== 1 (per-chunk DP routing would split the session "
++                        "across engines)."
++                    )
+                 request.streaming_queue = deque()
+             self.waiting.add_request(request)
+             self.requests[request.request_id] = request
+@@ -2045,11 +2911,20 @@ class Scheduler(SchedulerInterface):
+         assert request.is_finished()
+ 
+         connector_delay_free_blocks, kv_xfer_params = self._connector_finished(request)
+-        self.encoder_cache_manager.free(request)
++        if request.uses_persistent_encoder_cache():
++            self.encoder_cache_manager.free_and_evict(request)
++        else:
++            self.encoder_cache_manager.free(request)
+         request_id = request.request_id
+         self.finished_req_ids.add(request_id)
+         if self.finished_req_ids_dict is not None:
+             self.finished_req_ids_dict[request.client_index].add(request_id)
++        if request.resumable:
++            # Tombstone the session id so a stale post-abort chunk ADD
++            # cannot resurrect it (see add_request).
++            self._finished_streaming_req_ids[request_id] = None
++            while len(self._finished_streaming_req_ids) > _STREAMING_TOMBSTONE_CAP:
++                self._finished_streaming_req_ids.popitem(last=False)
+ 
+         delay_free_blocks |= connector_delay_free_blocks
+         if not delay_free_blocks:
+diff --git a/tmp/vllm-evs-original-20261003/vllm/v1/request.py b/tmp/vllm-evs-merged-20261003/vllm/v1/request.py
+index c7c09046f..b51c7f8ec 100644
+--- a/tmp/vllm-evs-original-20261003/vllm/v1/request.py
++++ b/tmp/vllm-evs-merged-20261003/vllm/v1/request.py
+@@ -21,6 +21,7 @@ from vllm.v1.engine import (
+     EngineCoreRequest,
+     FinishReason,
+ )
++from vllm.v1.streaming.retention import HistorySegment, StreamingRetentionParams
+ from vllm.v1.structured_output.request import StructuredOutputRequest
+ from vllm.v1.utils import ConstantList
+ 
+@@ -39,7 +40,6 @@ class StreamingUpdate:
+ 
+     mm_features: list[MultiModalFeatureSpec] | None
+     prompt_token_ids: list[int] | None
+-    max_tokens: int
+     arrival_time: float
+     sampling_params: SamplingParams | None
+     discard_prior_output: bool = False
+@@ -51,7 +51,6 @@ class StreamingUpdate:
+         return cls(
+             mm_features=request.mm_features,
+             prompt_token_ids=request.prompt_token_ids,
+-            max_tokens=request.max_tokens,
+             arrival_time=request.arrival_time,
+             sampling_params=request.sampling_params,
+             discard_prior_output=request.discard_prior_output,
+@@ -97,6 +96,21 @@ class Request:
+ 
+         # P/D: Connector-specific KV transfer parameters.
+         self.kv_transfer_params: dict[str, Any] | None = None
++        # Per-session retention config (read from
++        # `sampling_params.extra_args["streaming_retention"]` below);
++        # preserved across chunks by `_update_request_as_session`.
++        self.streaming_retention: StreamingRetentionParams | None = None
++        self.streaming_previous_text_start_token: int | None = None
++        self.streaming_previous_text_end_token: int | None = None
++        self.streaming_eos_token_id: int | None = None
++        self.streaming_assistant_continuation_token_ids: tuple[int, ...] = ()
++        self.streaming_role_end_token_ids: tuple[int, ...] = ()
++        self.streaming_user_role_start_token_ids: tuple[int, ...] = ()
++        self.streaming_vision_start_token_id: int | None = None
++        # Seeded V2 sampling normally derives its random draw from the token
++        # position. Streaming compaction reuses dense token positions, so keep
++        # a monotonic per-session draw cursor independent of the KV layout.
++        self.streaming_sampling_cursor: int = 0
+ 
+         if pooling_params is not None:
+             # Pooling models.
+@@ -112,6 +126,57 @@ class Request:
+                 self.kv_transfer_params = sampling_params.extra_args.get(
+                     "kv_transfer_params"
+                 )
++                _retention = sampling_params.extra_args.get("streaming_retention")
++                if isinstance(_retention, StreamingRetentionParams):
++                    self.streaming_retention = _retention  # in-process API
++                elif isinstance(_retention, dict):
++                    # Cross-process IPC: arrives as a plain dict.
++                    self.streaming_retention = StreamingRetentionParams(**_retention)
++                _previous_text_start = sampling_params.extra_args.get(
++                    "streaming_previous_text_start_token"
++                )
++                if _previous_text_start is not None:
++                    self.streaming_previous_text_start_token = int(
++                        _previous_text_start
++                    )
++                _previous_text_end = sampling_params.extra_args.get(
++                    "streaming_previous_text_end_token"
++                )
++                if _previous_text_end is not None:
++                    self.streaming_previous_text_end_token = int(_previous_text_end)
++                _streaming_eos = sampling_params.extra_args.get(
++                    "streaming_eos_token_id"
++                )
++                if _streaming_eos is not None:
++                    self.streaming_eos_token_id = int(_streaming_eos)
++                _streaming_continuation = sampling_params.extra_args.get(
++                    "streaming_assistant_continuation_token_ids"
++                )
++                if _streaming_continuation is not None:
++                    self.streaming_assistant_continuation_token_ids = tuple(
++                        int(token_id) for token_id in _streaming_continuation
++                    )
++                _streaming_role_end = sampling_params.extra_args.get(
++                    "streaming_role_end_token_ids"
++                )
++                if _streaming_role_end is not None:
++                    self.streaming_role_end_token_ids = tuple(
++                        int(token_id) for token_id in _streaming_role_end
++                    )
++                _streaming_user_start = sampling_params.extra_args.get(
++                    "streaming_user_role_start_token_ids"
++                )
++                if _streaming_user_start is not None:
++                    self.streaming_user_role_start_token_ids = tuple(
++                        int(token_id) for token_id in _streaming_user_start
++                    )
++                _streaming_vision_start = sampling_params.extra_args.get(
++                    "streaming_vision_start_token_id"
++                )
++                if _streaming_vision_start is not None:
++                    self.streaming_vision_start_token_id = int(
++                        _streaming_vision_start
++                    )
+         else:
+             raise ValueError("sampling_params and pooling_params can't both be unset")
+ 
+@@ -130,6 +195,14 @@ class Request:
+             else [0] * self.num_prompt_tokens
+         )
+ 
++        # Per-token mRoPE positions, in lockstep with `_all_token_ids`.
++        # Populated lazily by the model runner on first prefill; extended per
++        # streaming chunk. `max_cached_position` is the highest position number
++        # in the KV cache; eviction never decrements it, so positions may have
++        # gaps after eviction.
++        self._mrope_positions: list[tuple[int, int, int]] = []
++        self.max_cached_position: int = -1
++
+         # Used in async scheduling.
+         self.num_output_placeholders = 0
+         # Used in forced preemption (reset_prefix_cache) with async scheduling.
+@@ -181,6 +254,33 @@ class Request:
+         # None entry in the queue means finished.
+         self.streaming_queue: deque[StreamingUpdate | None] | None = None
+ 
++        # Per-session segment bookkeeping: filled by the scheduler as chunks
++        # arrive, consumed by `streaming.eviction` when over budget.
++        self.session_history: list[HistorySegment] = []
++        # Token ranges evicted scheduler-side since the last worker update,
++        # each in the _all_token_ids index space at eviction time. Drained
++        # into `NewRequestData.evicted_token_ranges` and replayed on the
++        # worker to slice its mrope_positions in lockstep.
++        self.pending_evicted_token_ranges: list[tuple[int, int]] = []
++
++        # Re-prefill bookkeeping. `reprefill_count` is observability only.
++        # `pending_reprefill` is set by `_reprefill_streaming_session` and
++        # drained into `NewRequestData.is_reprefill`, telling the worker to
++        # reset mRoPE to 0 (vs. eviction, which only slices it).
++        self.reprefill_count: int = 0
++        self.pending_reprefill: bool = False
++        # A re-prefill must sample >=1 token to complete. When the trigger
++        # found the session idle between frames, that token is a phantom
++        # caption and this tells `update_from_output` to discard it. When a
++        # queued chunk was folded first, the first sample is genuine output.
++        self.reprefill_discard_next_sample: bool = False
++        self.pending_kv_slot_relocations: list[
++            list[tuple[int, int, int, int]]
++        ] = []
++        self.pending_mrope_relocation_order: list[int] = []
++        self.text_relocation_count: int = 0
++        self.last_reprefill_text_relocation_count: int = 0
++
+     @property
+     @deprecated(
+         "Request.eos_token_id will be removed in v0.18. "
+@@ -286,6 +386,20 @@ class Request:
+         assert input_id < len(self.mm_features)
+         return self.mm_features[input_id].mm_position.get_encoder_compute_size()
+ 
++    def uses_persistent_encoder_cache(self) -> bool:
++        """True if encoder cache entries should live until their segment is
++        evicted, rather than be freed after each chunk's forward pass.
++
++        Re-prefill-enabled sessions need the surviving embeddings available at
++        the next re-prefill so the encoder need not re-run on every retained
++        frame. A `reprefill_threshold >= 1.0` (disabled) falls back to
++        per-chunk freeing.
++        """
++        return (
++            self.streaming_retention is not None
++            and self.streaming_retention.reprefill_threshold < 1.0
++        )
++
+     def record_event(
+         self,
+         event_type: EngineCoreEventType,
+diff --git a/tmp/vllm-evs-original-20261003/vllm/v1/worker/gpu_model_runner.py b/tmp/vllm-evs-merged-20261003/vllm/v1/worker/gpu_model_runner.py
+index c945311c9..3c0cc1c13 100644
+--- a/tmp/vllm-evs-original-20261003/vllm/v1/worker/gpu_model_runner.py
++++ b/tmp/vllm-evs-merged-20261003/vllm/v1/worker/gpu_model_runner.py
+@@ -4,6 +4,7 @@
+ import functools
+ import gc
+ import itertools
++import os
+ import threading
+ import time
+ from collections import defaultdict
+@@ -21,6 +22,7 @@ import torch.nn as nn
+ from tqdm import tqdm
+ 
+ import vllm.envs as envs
++from vllm._custom_ops import convert_fp8
+ from vllm.compilation.counter import compilation_counter
+ from vllm.compilation.cuda_graph import CUDAGraphStat, CUDAGraphWrapper
+ from vllm.compilation.monitor import set_cudagraph_capturing_enabled
+@@ -165,6 +167,10 @@ from vllm.v1.spec_decode.extract_hidden_states import ExtractHiddenStatesPropose
+ from vllm.v1.spec_decode.medusa import MedusaProposer
+ from vllm.v1.spec_decode.metadata import SpecDecodeMetadata
+ from vllm.v1.spec_decode.suffix_decoding import SuffixDecodingProposer
++from vllm.v1.streaming.mrope import (
++    compute_chunk_mrope_positions,
++    make_chunk_relative_mm_features,
++)
+ from vllm.v1.structured_output.utils import apply_grammar_bitmask
+ from vllm.v1.utils import CpuGpuBuffer, record_function_or_nullcontext
+ from vllm.v1.worker import mamba_utils
+@@ -457,6 +463,24 @@ class GPUModelRunner(
+         self.supports_mm_inputs = self.mm_registry.supports_multimodal_inputs(
+             model_config
+         )
++        # Multimodal placeholder ids (image + video) used to neutralize
++        # orphan markers left by streaming eviction; None if the model
++        # defines neither. Precomputed once (int32 matches input_ids).
++        _mm_placeholder_ids = sorted(
++            {
++                t
++                for t in (
++                    getattr(model_config.hf_config, "image_token_id", None),
++                    getattr(model_config.hf_config, "video_token_id", None),
++                )
++                if t is not None
++            }
++        )
++        self.mm_placeholder_ids_cpu: torch.Tensor | None = (
++            torch.tensor(_mm_placeholder_ids, dtype=torch.int32, device="cpu")
++            if _mm_placeholder_ids
++            else None
++        )
+ 
+         if self.model_config.is_encoder_decoder:
+             # Maximum length of the encoder input, only for encoder-decoder
+@@ -1024,6 +1048,8 @@ class GPUModelRunner(
+         # and handling the second as a new request.
+         for req_id in scheduler_output.finished_req_ids:
+             self.input_batch.remove_request(req_id)
++        if scheduler_output.finished_req_ids:
++            self._compact_streaming_raw_key_shadows()
+ 
+         # Zero GPU memory for freshly allocated cache blocks to prevent
+         # stale NaN/data from corrupting attention or SSM computation.
+@@ -1067,12 +1093,25 @@ class GPUModelRunner(
+             self.input_batch.remove_request(req_id)
+ 
+         reqs_to_add: list[CachedRequestState] = []
++        streaming_kv_relocated = False
+         # Add new requests to the cached states.
+         for new_req_data in scheduler_output.scheduled_new_reqs:
+             req_id = new_req_data.req_id
+             if req_id in self.requests:
+                 # For streaming case only.
+-                req_state = self._update_streaming_request(req_id, new_req_data)
++                old_mrope_positions = self.requests[req_id].mrope_positions
++                if old_mrope_positions is not None:
++                    old_mrope_positions = old_mrope_positions.clone()
++                req_state = self._update_streaming_request(
++                    req_id, new_req_data, old_mrope_positions
++                )
++                self._apply_streaming_kv_slot_relocations(
++                    new_req_data, req_state, old_mrope_positions
++                )
++                streaming_kv_relocated = (
++                    streaming_kv_relocated
++                    or bool(new_req_data.kv_slot_relocations)
++                )
+                 reqs_to_add.append(req_state)
+                 continue
+ 
+@@ -1134,6 +1173,9 @@ class GPUModelRunner(
+ 
+             reqs_to_add.append(req_state)
+ 
++        if streaming_kv_relocated:
++            self._compact_streaming_raw_key_shadows()
++
+         # Update the states of the running/resumed requests.
+         is_last_rank = get_pp_group().is_last_rank
+         req_data = scheduler_output.scheduled_cached_reqs
+@@ -1222,15 +1264,35 @@ class GPUModelRunner(
+                 # The request is resumed from preemption.
+                 # Replace the existing block IDs with the new ones.
+                 req_state.block_ids = new_block_ids
++                # A re-prefill resumes here at num_computed_tokens==0 with its
++                # outputs folded into the prompt; reset the stale mRoPE/prompt
++                # state (else the discard mask uses wrong values). Gated on
++                # num_output_tokens==0 so a mid-decode resume (outputs kept) is
++                # left to the restore path below.
++                if num_computed_tokens == 0 and num_output_tokens == 0:
++                    req_state.output_token_ids.clear()
++                    req_state.num_prompt_tokens = (
++                        length_from_prompt_token_ids_or_embeds(
++                            req_state.prompt_token_ids,
++                            req_state.prompt_embeds,
++                        )
++                    )
++                    if self.uses_mrope:
++                        req_state.mrope_positions = None
++                        req_state.max_cached_position = None
++                        self._init_mrope_positions(req_state)
+ 
+             if req_index is None:
+                 # The request is not in the persistent batch.
+                 # The request was either preempted and resumed later, or was not
+                 # scheduled in the previous step and needs to be added again.
+ 
+-                if self.use_async_scheduling and num_output_tokens > 0:
+-                    # We must recover the output token ids for resumed requests in the
+-                    # async scheduling case, so that correct input_ids are obtained.
++                if num_output_tokens > 0 and (
++                    self.use_async_scheduling or resumed_from_preemption
++                ):
++                    # Rebuild output_token_ids from the scheduler's authoritative
++                    # all_token_ids — the worker's copy is stale under async
++                    # scheduling and untrusted for a preempt-resumed request.
+                     resumed_token_ids = req_data.all_token_ids[req_id]
+                     req_state.output_token_ids = resumed_token_ids[-num_output_tokens:]
+ 
+@@ -1325,7 +1387,8 @@ class GPUModelRunner(
+             )
+ 
+     def _update_streaming_request(
+-        self, req_id: str, new_req_data: NewRequestData
++        self, req_id: str, new_req_data: NewRequestData,
++        old_mrope_positions: torch.Tensor | None = None,
+     ) -> CachedRequestState:
+         """Updates streaming session request from `scheduled_new_reqs`.
+ 
+@@ -1338,6 +1401,12 @@ class GPUModelRunner(
+         self.input_batch.remove_request(req_id)
+         req_state = self.requests[req_id]
+ 
++        # Re-prefill: the scheduler's explicit signal to recompute mRoPE from
++        # 0.
++        if new_req_data.is_reprefill and self.uses_mrope:
++            req_state.mrope_positions = None
++            req_state.max_cached_position = None
++
+         req_state.prompt_token_ids = new_req_data.prompt_token_ids
+         req_state.mm_features = new_req_data.mm_features
+         req_state.prompt_embeds = new_req_data.prompt_embeds
+@@ -1354,10 +1423,463 @@ class GPUModelRunner(
+         req_state.output_token_ids.clear()
+ 
+         if self.uses_mrope:
+-            self._init_mrope_positions(req_state)
++            if new_req_data.evicted_token_ranges:
++                self._slice_mrope_positions_for_evicted_ranges(
++                    req_state, new_req_data.evicted_token_ranges
++                )
++            if new_req_data.mrope_relocation_order:
++                # The paper's shrink mode recomputes the complete compacted
++                # position space before retained keys are written back.
++                self._init_mrope_positions(req_state)
++            else:
++                self._extend_mrope_positions_for_streaming_chunk(req_state)
+ 
+         return req_state
+ 
++    def _apply_streaming_kv_slot_relocations(
++        self,
++        new_req_data: NewRequestData,
++        req_state: CachedRequestState,
++        old_mrope_positions: torch.Tensor | None,
++    ) -> None:
++        relocations_by_group = new_req_data.kv_slot_relocations
++        if not relocations_by_group:
++            return
++        if len(relocations_by_group) != 1:
++            raise RuntimeError(
++                "paper KV relocation currently requires one KV-cache group"
++            )
++        relocations = relocations_by_group[0]
++        if not relocations:
++            return
++        if old_mrope_positions is None or req_state.mrope_positions is None:
++            raise RuntimeError(
++                "paper KV relocation requires old and new mRoPE positions"
++            )
++        block_size = int(
++            self.kv_cache_config.kv_cache_groups[0].kv_cache_spec.block_size
++        )
++        num_blocks = int(self.kv_cache_config.num_blocks)
++        rotary_cache = getattr(self, "_paper_streaming_rotary_cache", None)
++        if rotary_cache is None:
++            rotary_cache = {}
++            self._paper_streaming_rotary_cache = rotary_cache
++        model_modules = None
++        applied = 0
++        for layer_name, layer in (
++            self.compilation_config.static_forward_context.items()
++        ):
++            cache_list = getattr(layer, "kv_cache", None)
++            if not cache_list:
++                continue
++            rotary_emb = rotary_cache.get(layer_name)
++            if rotary_emb is None:
++                if model_modules is None:
++                    model_modules = dict(self.get_model().named_modules())
++                parent_name = layer_name.rsplit(".attn", 1)[0]
++                parent = model_modules.get(parent_name)
++                rotary_emb = getattr(parent, "rotary_emb", None)
++                rotary_cache[layer_name] = rotary_emb
++            if rotary_emb is None:
++                continue
++            self._rerotate_streaming_attention_kv_slots(
++                layer,
++                cache_list[0],
++                relocations,
++                block_size,
++                num_blocks,
++                old_mrope_positions,
++                req_state.mrope_positions,
++                rotary_emb,
++            )
++            applied += 1
++        if applied == 0:
++            raise RuntimeError(
++                "paper KV relocation could not find mRoPE attention caches"
++            )
++
++    def _compact_streaming_raw_key_shadows(self) -> None:
++        """Compact shared raw-key shadows after all relocated requests update."""
++        block_size = int(
++            self.kv_cache_config.kv_cache_groups[0].kv_cache_spec.block_size
++        )
++        live_slots = self._streaming_live_kv_slots(0, block_size)
++        for layer in self.compilation_config.static_forward_context.values():
++            raw_key_shadow = getattr(layer, "_streaming_vlm_raw_key_shadow", None)
++            if raw_key_shadow is not None:
++                raw_key_shadow.compact(live_slots)
++
++    def _streaming_live_kv_slots(
++        self, group_index: int, block_size: int
++    ) -> set[int]:
++        """Return slots still owned by every active request in one KV group."""
++        live_slots: set[int] = set()
++        for request in self.requests.values():
++            if group_index >= len(request.block_ids):
++                continue
++            for block_id in request.block_ids[group_index]:
++                block_start = int(block_id) * block_size
++                live_slots.update(range(block_start, block_start + block_size))
++        return live_slots
++
++    @staticmethod
++    def _rerotate_streaming_attention_kv_slots(
++        layer: object,
++        cache: torch.Tensor,
++        relocations: list[tuple[int, int, int, int]],
++        block_size: int,
++        num_blocks: int,
++        old_mrope_positions: torch.Tensor,
++        new_mrope_positions: torch.Tensor,
++        rotary_emb: object,
++    ) -> None:
++        """Gather K/V, rerotate retained K, then scatter to compacted slots."""
++        if not isinstance(cache, torch.Tensor):
++            raise RuntimeError("paper KV relocation requires attention KV tensors")
++        if cache.ndim >= 5 and int(cache.shape[0]) == 2:
++            key_cache, value_cache = cache[0], cache[1]
++        elif cache.ndim >= 5 and int(cache.shape[1]) == 2:
++            key_cache, value_cache = cache[:, 0], cache[:, 1]
++        elif cache.ndim == 4 and int(cache.shape[-1]) % 2 == 0:
++            # FlashInfer/FlashAttention pack K and V in the final content
++            # dimension: (blocks, heads, block_size, 2 * head_size) for HND,
++            # or (blocks, block_size, heads, 2 * head_size) for NHD.
++            key_cache, value_cache = cache.split(int(cache.shape[-1]) // 2, dim=-1)
++        else:
++            raise RuntimeError(
++                "paper KV relocation requires a supported attention cache: "
++                f"shape={tuple(cache.shape)}"
++            )
++        source_slots = torch.tensor(
++            [source for source, _, _, _ in relocations],
++            dtype=torch.long,
++            device=cache.device,
++        )
++        destination_slots = torch.tensor(
++            [destination for _, destination, _, _ in relocations],
++            dtype=torch.long,
++            device=cache.device,
++        )
++        destination_positions = torch.tensor(
++            [destination for _, _, _, destination in relocations],
++            dtype=torch.long,
++            device=new_mrope_positions.device,
++        )
++        max_block = int(
++            torch.maximum(source_slots, destination_slots).max().item()
++        ) // block_size
++        block_axes = [
++            axis
++            for axis, size in enumerate(key_cache.shape)
++            if int(size) == num_blocks
++        ]
++        if len(block_axes) != 1:
++            block_axes = [
++                axis
++                for axis, size in enumerate(key_cache.shape)
++                if int(size) > max_block
++            ]
++        if len(block_axes) != 1:
++            raise RuntimeError(
++                "could not identify paper KV relocation block axis: "
++                f"shape={tuple(key_cache.shape)}, num_blocks={num_blocks}"
++            )
++        block_axis = block_axes[0]
++        slot_axes = [
++            axis
++            for axis, size in enumerate(key_cache.shape)
++            if axis != block_axis and int(size) == block_size
++        ]
++        if not slot_axes:
++            raise RuntimeError(
++                "could not identify paper KV relocation slot axis: "
++                f"shape={tuple(key_cache.shape)}, block_size={block_size}"
++            )
++        slot_axis = min(slot_axes, key=lambda axis: abs(axis - block_axis))
++
++        source_index = [slice(None)] * key_cache.ndim
++        source_index[block_axis] = torch.div(
++            source_slots, block_size, rounding_mode="floor"
++        )
++        source_index[slot_axis] = torch.remainder(source_slots, block_size)
++        raw_key_shadow = getattr(layer, "_streaming_vlm_raw_key_shadow", None)
++        if raw_key_shadow is None:
++            raise RuntimeError(
++                "paper KV relocation requires pre-mRoPE raw-key shadow rows"
++            )
++        retained_raw_keys = raw_key_shadow.read_slot_indices(source_slots)
++        byte_cache = key_cache.dtype == torch.uint8
++        kv_dtype = getattr(layer, "kv_cache_dtype", "auto")
++        if byte_cache and kv_dtype not in {"fp8", "fp8_e4m3", "fp8_e5m2"}:
++            raise RuntimeError(f"Unsupported streaming byte KV cache: {kv_dtype}")
++        key_scale = float(layer._k_scale.item()) if byte_cache else 1.0
++        if os.environ.get("VLLM_STREAMING_VLM_VALIDATE_RAW_KEY_SHADOW", "").lower() in {
++            "1",
++            "true",
++            "yes",
++            "on",
++        }:
++            source_positions = torch.tensor(
++                [source for _, _, source, _ in relocations],
++                dtype=torch.long,
++                device=old_mrope_positions.device,
++            )
++            expected_source_keys = GPUModelRunner._rotate_streaming_mrope_raw_keys(
++                retained_raw_keys,
++                old_mrope_positions.index_select(-1, source_positions),
++                rotary_emb,
++            )
++            live_source_keys = key_cache[tuple(source_index)].clone()
++            if byte_cache:
++                decoded_keys = torch.empty_like(expected_source_keys)
++                convert_fp8(decoded_keys, live_source_keys.contiguous(), key_scale, kv_dtype)
++                live_source_keys = decoded_keys
++            # Normal model forward and relocation use equivalent mRoPE math
++            # through different BF16 kernel paths. Keep validation strict to
++            # four machine-epsilon units while still catching wrong slots,
++            # positions, or stale raw-shadow rows by a wide margin.
++            dtype_epsilon = torch.finfo(live_source_keys.dtype).eps
++            if byte_cache:
++                dtype_epsilon = torch.finfo(
++                    torch.float8_e5m2 if kv_dtype == "fp8_e5m2" else torch.float8_e4m3fn
++                ).eps
++            close_mask = torch.isclose(
++                expected_source_keys,
++                live_source_keys,
++                rtol=4 * dtype_epsilon,
++                atol=4 * dtype_epsilon,
++            )
++            if not bool(close_mask.all()):
++                absolute_diff = (
++                    expected_source_keys.float() - live_source_keys.float()
++                ).abs()
++                per_row_max = absolute_diff.flatten(1).max(dim=1).values
++                mismatched_rows = torch.nonzero(
++                    (~close_mask).flatten(1).any(dim=1), as_tuple=False
++                ).flatten()
++                sample_rows = mismatched_rows[:8]
++                sample_logical_sources = [
++                    relocations[int(row)][2]
++                    for row in sample_rows.detach().cpu().tolist()
++                ]
++                sample_physical_slots = (
++                    source_slots.index_select(0, sample_rows).detach().cpu().tolist()
++                )
++                sample_positions = (
++                    old_mrope_positions.index_select(
++                        -1,
++                        torch.tensor(
++                            sample_logical_sources,
++                            dtype=torch.long,
++                            device=old_mrope_positions.device,
++                        ),
++                    )
++                    .detach()
++                    .cpu()
++                    .tolist()
++                )
++                sample_row_max = (
++                    per_row_max.index_select(0, sample_rows).detach().cpu().tolist()
++                )
++                raise RuntimeError(
++                    "Streaming VLM raw-key shadow does not reconstruct live "
++                    "cache rows before relocation "
++                    f"(max_abs_diff={float(per_row_max.max().item())}, "
++                    f"mismatched_rows={int(mismatched_rows.numel())}/"
++                    f"{int(per_row_max.numel())}, "
++                    f"sample_indices={sample_rows.detach().cpu().tolist()}, "
++                    f"sample_logical_sources={sample_logical_sources}, "
++                    f"sample_physical_slots={sample_physical_slots}, "
++                    f"sample_positions={sample_positions}, "
++                    f"sample_row_max={sample_row_max}, "
++                    f"outside_tolerance={int((~close_mask).sum().item())}/"
++                    f"{int(close_mask.numel())})"
++                )
++        retained_values = value_cache[tuple(source_index)].clone()
++        new_positions = new_mrope_positions.index_select(-1, destination_positions)
++        retained_keys = GPUModelRunner._rotate_streaming_mrope_raw_keys(
++            retained_raw_keys, new_positions, rotary_emb
++        )
++        if byte_cache:
++            # The nightly exposes FP8 cache storage as bytes, not float8 tensors.
++            encoded_keys = torch.empty_like(retained_keys, dtype=torch.uint8)
++            convert_fp8(encoded_keys, retained_keys.contiguous(), key_scale, kv_dtype)
++            retained_keys = encoded_keys
++
++        destination_index = [slice(None)] * key_cache.ndim
++        destination_index[block_axis] = torch.div(
++            destination_slots, block_size, rounding_mode="floor"
++        )
++        destination_index[slot_axis] = torch.remainder(
++            destination_slots, block_size
++        )
++        key_cache[tuple(destination_index)] = retained_keys
++        value_cache[tuple(destination_index)] = retained_values
++        raw_key_shadow.write_tensor_rows(destination_slots, retained_raw_keys)
++        if os.environ.get("VLLM_STREAMING_VLM_VALIDATE_KV_RELOCATION", "").lower() in {
++            "1",
++            "true",
++            "yes",
++            "on",
++        }:
++            if not torch.equal(key_cache[tuple(destination_index)], retained_keys):
++                raise RuntimeError("Streaming VLM rerotated key relocation failed")
++            if not torch.equal(value_cache[tuple(destination_index)], retained_values):
++                raise RuntimeError("Streaming VLM rerotated value relocation failed")
++            if not torch.equal(
++                raw_key_shadow.read_slot_indices(destination_slots), retained_raw_keys
++            ):
++                raise RuntimeError("Streaming VLM rerotated raw-key relocation failed")
++
++    @staticmethod
++    def _rotate_streaming_mrope_raw_keys(
++        raw_keys: torch.Tensor,
++        new_positions: torch.Tensor,
++        rotary_emb: object,
++    ) -> torch.Tensor:
++        rotary_dim = int(getattr(rotary_emb, "rotary_dim"))
++        is_neox_style = bool(getattr(rotary_emb, "is_neox_style", True))
++        rotated = raw_keys[..., :rotary_dim]
++        passthrough = raw_keys[..., rotary_dim:]
++        new_cos, new_sin = GPUModelRunner._streaming_mrope_cos_sin(
++            rotary_emb, new_positions, rotated
++        )
++        result = GPUModelRunner._apply_streaming_rotary(
++            rotated, new_cos, new_sin, is_neox_style
++        )
++        if passthrough.shape[-1] == 0:
++            return result
++        return torch.cat((result, passthrough), dim=-1)
++
++    @staticmethod
++    def _rerotate_streaming_mrope_keys(
++        keys: torch.Tensor,
++        old_positions: torch.Tensor,
++        new_positions: torch.Tensor,
++        rotary_emb: object,
++    ) -> torch.Tensor:
++        rotary_dim = int(getattr(rotary_emb, "rotary_dim"))
++        is_neox_style = bool(getattr(rotary_emb, "is_neox_style", True))
++        original_dtype = keys.dtype
++        rotated = keys[..., :rotary_dim].to(torch.float32)
++        passthrough = keys[..., rotary_dim:]
++        old_cos, old_sin = GPUModelRunner._streaming_mrope_cos_sin(
++            rotary_emb, old_positions, rotated
++        )
++        raw = GPUModelRunner._apply_streaming_rotary(
++            rotated, old_cos, -old_sin, is_neox_style
++        )
++        new_cos, new_sin = GPUModelRunner._streaming_mrope_cos_sin(
++            rotary_emb, new_positions, rotated
++        )
++        result = GPUModelRunner._apply_streaming_rotary(
++            raw, new_cos, new_sin, is_neox_style
++        ).to(original_dtype)
++        if passthrough.shape[-1] == 0:
++            return result
++        return torch.cat((result, passthrough), dim=-1)
++
++    @staticmethod
++    def _streaming_mrope_cos_sin(
++        rotary_emb: object,
++        positions: torch.Tensor,
++        reference: torch.Tensor,
++    ) -> tuple[torch.Tensor, torch.Tensor]:
++        cos_sin_cache = rotary_emb._match_cos_sin_cache_dtype(reference)
++        positions = positions.to(device=reference.device, dtype=torch.long)
++        cos_sin = cos_sin_cache[positions]
++        cos, sin = cos_sin.chunk(2, dim=-1)
++        if positions.ndim == 2:
++            sections = getattr(rotary_emb, "mrope_section", None)
++            if not sections:
++                raise RuntimeError("paper KV relocation requires mRoPE sections")
++            if getattr(rotary_emb, "mrope_interleaved", False):
++                merged_cos = cos[0].clone()
++                merged_sin = sin[0].clone()
++                merged_cos[..., 1 : sections[1] * 3 : 3] = cos[
++                    1, ..., 1 : sections[1] * 3 : 3
++                ]
++                merged_sin[..., 1 : sections[1] * 3 : 3] = sin[
++                    1, ..., 1 : sections[1] * 3 : 3
++                ]
++                merged_cos[..., 2 : sections[2] * 3 : 3] = cos[
++                    2, ..., 2 : sections[2] * 3 : 3
++                ]
++                merged_sin[..., 2 : sections[2] * 3 : 3] = sin[
++                    2, ..., 2 : sections[2] * 3 : 3
++                ]
++                cos, sin = merged_cos, merged_sin
++            else:
++                cos = torch.cat(
++                    [
++                        part[index]
++                        for index, part in enumerate(cos.split(sections, -1))
++                    ],
++                    dim=-1,
++                )
++                sin = torch.cat(
++                    [
++                        part[index]
++                        for index, part in enumerate(sin.split(sections, -1))
++                    ],
++                    dim=-1,
++                )
++        return cos, sin
++
++    @staticmethod
++    def _apply_streaming_rotary(
++        values: torch.Tensor,
++        cos: torch.Tensor,
++        sin: torch.Tensor,
++        is_neox_style: bool,
++    ) -> torch.Tensor:
++        cos = cos.unsqueeze(-2).to(values.dtype)
++        sin = sin.unsqueeze(-2).to(values.dtype)
++        if is_neox_style:
++            first, second = values.chunk(2, dim=-1)
++            return torch.cat(
++                (first * cos - second * sin, second * cos + first * sin), dim=-1
++            )
++        first, second = values[..., ::2], values[..., 1::2]
++        return torch.stack(
++            (first * cos - second * sin, second * cos + first * sin), dim=-1
++        ).flatten(-2)
++
++    @staticmethod
++    def _slice_mrope_positions_for_evicted_ranges(
++        req_state: CachedRequestState,
++        evicted_ranges: list[tuple[int, int]],
++    ) -> None:
++        """Drop the columns for evicted token ranges from
++        `req_state.mrope_positions`, mirroring the scheduler-side compaction.
++
++        Ranges apply in order, each in the tensor's index space at its own
++        eviction time (later ranges already reflect earlier shrinks); ranges
++        past the current width are clipped. Surviving positions keep their
++        values and `max_cached_position` is untouched, so the position space
++        has gaps but cached K/V rotation stays consistent.
++        """
++        if req_state.mrope_positions is None:
++            return
++        positions = req_state.mrope_positions
++        for start, end in evicted_ranges:
++            width = positions.shape[1]
++            end_clipped = min(end, width)
++            if start >= end_clipped:
++                continue
++            if start == 0 and end_clipped >= width:
++                positions = positions[:, :0]
++            elif start == 0:
++                positions = positions[:, end_clipped:]
++            elif end_clipped >= width:
++                positions = positions[:, :start]
++            else:
++                positions = torch.cat(
++                    [positions[:, :start], positions[:, end_clipped:]],
++                    dim=1,
++                )
++        req_state.mrope_positions = positions
++
+     def _init_mrope_positions(self, req_state: CachedRequestState):
+         model = self.get_model()
+         assert supports_mrope(model), "M-RoPE support is not implemented."
+@@ -1372,6 +1894,58 @@ class GPUModelRunner(
+                 req_state.mm_features,
+             )
+         )
++        # Track the highest mRoPE position number for streaming continuation.
++        # Empty prompts (only possible with prompt_embeds) leave it at -1.
++        if req_state.mrope_positions.numel() > 0:
++            req_state.max_cached_position = int(req_state.mrope_positions.max().item())
++        else:
++            req_state.max_cached_position = -1
++
++    def _extend_mrope_positions_for_streaming_chunk(
++        self, req_state: CachedRequestState
++    ) -> None:
++        """Append mRoPE positions for the new chunk only (tokens past the
++        prior chunk's end), starting at `max_cached_position + 1` so they sit
++        strictly above any cached position — preserving cached K/V's rotation.
++        """
++        assert req_state.prompt_token_ids is not None
++        if req_state.mrope_positions is None or req_state.max_cached_position is None:
++            self._init_mrope_positions(req_state)
++            return
++
++        prev_num_tokens = req_state.mrope_positions.shape[1]
++        new_num_tokens = req_state.num_prompt_tokens
++        if new_num_tokens == prev_num_tokens:
++            return
++        assert new_num_tokens > prev_num_tokens, (
++            f"streaming chunk shrank prompt from {prev_num_tokens} to "
++            f"{new_num_tokens}; eviction must use the slice path, not this one."
++        )
++
++        chunk_tokens = req_state.prompt_token_ids[prev_num_tokens:new_num_tokens]
++        cumulative_features = [
++            f for f in req_state.mm_features if f.modality != "prompt_embeds"
++        ]
++        chunk_features = make_chunk_relative_mm_features(
++            cumulative_features, prev_num_tokens
++        )
++
++        model = self.get_model()
++        mrope_model = cast(SupportsMRoPE, model)
++        chunk_positions, new_max_position = compute_chunk_mrope_positions(
++            mrope_model,
++            chunk_tokens,
++            chunk_features,
++            base_position=req_state.max_cached_position + 1,
++        )
++
++        req_state.mrope_positions = torch.cat(
++            [req_state.mrope_positions, chunk_positions.to(req_state.mrope_positions)],
++            dim=1,
++        )
++        req_state.max_cached_position = new_max_position
++        # Decode-time positions: linear continuation from new max.
++        req_state.mrope_position_delta = new_max_position + 1 - new_num_tokens
+ 
+     def _init_xdrope_positions(self, req_state: CachedRequestState):
+         model = self.get_model()
+@@ -3131,6 +3705,84 @@ class GPUModelRunner(
+             return sliced.to(dtype=torch.long, device="cpu")
+         return torch.tensor(sliced, dtype=torch.long)
+ 
++    @staticmethod
++    def _req_uses_streaming_retention(req_state: CachedRequestState) -> bool:
++        """Worker-side mirror of `Request.uses_persistent_encoder_cache()`,
++        re-derived from `sampling_params` (which `CachedRequestState` carries,
++        unlike `streaming_retention`). True iff a `streaming_retention` in
++        `extra_args` (dataclass or dict) has `reprefill_threshold < 1.0`.
++        """
++        sampling_params = req_state.sampling_params
++        if sampling_params is None:
++            return False
++        extra_args = sampling_params.extra_args
++        if not extra_args:
++            return False
++        retention = extra_args.get("streaming_retention")
++        if retention is None:
++            return False
++        if isinstance(retention, dict):
++            threshold = retention.get("reprefill_threshold", 1.0)
++        else:
++            threshold = getattr(retention, "reprefill_threshold", 1.0)
++        try:
++            return float(threshold) < 1.0
++        except (TypeError, ValueError):
++            return False
++
++    def _neutralize_orphan_mm_placeholders(
++        self,
++        scheduler_output: "SchedulerOutput",
++        inputs_embeds: torch.Tensor,
++        is_mm_embed: torch.Tensor,
++        num_scheduled_tokens: int,
++    ) -> None:
++        """Zero orphan image/video placeholder embeddings after eviction.
++
++        Eviction frees a video feature at its raw range but compacts tokens at
++        the narrower block-aligned range, so up to `block_size - 1` markers
++        survive with no `mm_feature`; at re-prefill they miss
++        `_gather_mm_embeddings` and would get their raw (OOD) text embedding.
++        Quality-only — touches no KV-feeding state. No-op unless the model has
++        `video_token_id` and a streaming request has such an orphan.
++        """
++
++        placeholder_ids = self.mm_placeholder_ids_cpu
++        if placeholder_ids is None:
++            return
++
++        eligible = torch.zeros(num_scheduled_tokens, dtype=torch.bool, device="cpu")
++        any_streaming = False
++        req_start_idx = 0
++        for req_id in self.input_batch.req_ids:
++            n = scheduler_output.num_scheduled_tokens[req_id]
++            if self._req_uses_streaming_retention(self.requests[req_id]):
++                eligible[req_start_idx : req_start_idx + n] = True
++                any_streaming = True
++            req_start_idx += n
++        if not any_streaming:
++            return
++
++        # Orphan mask (host-side): placeholder id, no backing feature,
++        # streaming.
++        token_ids_cpu = self.input_ids.gpu[:num_scheduled_tokens].to(
++            "cpu", non_blocking=False
++        )
++        is_mm_embed_cpu = is_mm_embed.to("cpu", non_blocking=False)
++        orphan_mask = (
++            torch.isin(token_ids_cpu, placeholder_ids)
++            & (~is_mm_embed_cpu)
++            & eligible
++        )
++        if not bool(orphan_mask.any()):
++            return
++
++        orphan_idx = orphan_mask.nonzero(as_tuple=False).squeeze(1).to(
++            inputs_embeds.device, non_blocking=True
++        )
++        # Zero only the orphan rows, removing their OOD text-embedding signal.
++        inputs_embeds[orphan_idx] = 0
++
+     def get_model(self) -> nn.Module:
+         if not hasattr(self, "model"):
+             raise ValueError("Cannot get model before model has been initialized")
+@@ -3360,6 +4012,16 @@ class GPUModelRunner(
+                 is_multimodal=is_mm_embed,
+             )
+ 
++            # Neutralize orphan image/video placeholder markers left by
++            # streaming eviction (see method); no-op for non-mm /
++            # non-streaming.
++            self._neutralize_orphan_mm_placeholders(
++                scheduler_output,
++                inputs_embeds_scheduled,
++                is_mm_embed,
++                num_scheduled_tokens,
++            )
++
+             # TODO(woosuk): Avoid the copy. Optimize.
+             self.inputs_embeds.gpu[:num_scheduled_tokens].copy_(inputs_embeds_scheduled)
+ 
+@@ -4407,6 +5069,19 @@ class GPUModelRunner(
+                 else:
+                     logger.error("RoutedExpertsCapturer not initialized.")
+ 
++            # Streaming: report each req's `max_cached_position` back to the
++            # scheduler so the re-prefill trigger sees the true watermark (else
++            # it stays -1 and never fires). Skip mRoPE-less / unset (-1).
++            max_cached_positions: dict[str, int] = {}
++            if self.uses_mrope:
++                for req_id in self.input_batch.req_ids:
++                    req_state = self.requests.get(req_id)
++                    if req_state is None:
++                        continue
++                    pos = getattr(req_state, "max_cached_position", None)
++                    if pos is not None and pos >= 0:
++                        max_cached_positions[req_id] = pos
++
+             output = ModelRunnerOutput(
+                 req_ids=req_ids_output_copy,
+                 req_id_to_index=req_id_to_index_output_copy,
+@@ -4419,6 +5094,7 @@ class GPUModelRunner(
+                 else None,
+                 num_nans_in_logits=num_nans_in_logits,
+                 cudagraph_stats=cudagraph_stats,
++                max_cached_positions=max_cached_positions,
+             )
+ 
+         evs_sidecar_output = self._evs_sidecar_output

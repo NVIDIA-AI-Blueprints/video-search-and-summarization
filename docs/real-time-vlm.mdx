@@ -413,6 +413,25 @@ docker buildx build --platform linux/arm64 \
   --load .
 ```
 
+The native in-process StreamingVLM port is separate from the remote Cosmos
+NIM session adapter. To include its vLLM delta in a custom x86 image, add
+`--build-arg RTVI_ENABLE_NATIVE_STREAMING_VLM=true` to the build command. The
+build fails if the installed vLLM source does not match the pinned delta. Set
+`RTVI_STREAMING_VLM_ENABLED=true` in the selected VSS Docker developer-profile
+`overrides.env` only when deploying an image built with that delta. Live
+caption requests then select `inference_mode=streaming_vlm` and
+`streaming_frame_policy=ordered`; `streaming_question_on_decode=true` repeats
+the question at each decode turn when the alert prompt requires it. All of
+these native settings remain disabled by default.
+
+To use a remote Cosmos streaming NIM instead, set
+`VLM_MODEL_TO_USE=openai-compat`, point `VIA_VLM_ENDPOINT` at its `/v1` URL,
+and set `VIA_VLM_STREAMING_NIM_ENABLED=true`. Select
+`inference_mode=streaming_vlm` with one frame per update. This REST adapter
+posts encoded JPEG/PNG bytes to the NIM frame endpoint. It is distinct from
+the in-process native port and does not support
+`streaming_question_on_decode` or non-text `response_format`.
+
 ## Usage Examples
 
 ### Required Packages
@@ -1393,6 +1412,7 @@ standalone Helm override.
 | `AZURE_OPENAI_API_VERSION` | Azure OpenAI API version for `openai-compat` | Empty |
 | `VIA_VLM_API_KEY` | OpenAI-compatible VLM API key | Compose: Empty; Helm: `ngc-api/NGC_API_KEY` secret |
 | `VIA_VLM_ENDPOINT` | OpenAI-compatible VLM endpoint URL | Empty |
+| `VIA_VLM_STREAMING_NIM_ENABLED` | Enable remote Cosmos streaming NIM sessions for `openai-compat` | `false` |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` | OpenAI-compatible VLM model or deployment name | Empty |
 | `VIA_VLM_OPENAI_TOKEN_PARAM` | Token-limit field for `openai-compat`: `max_tokens` or `max_completion_tokens` | `max_tokens` |
 | `NV_LLMG_CLIENT_ID` | NVIDIA LLM Gateway OAuth client ID for `openai-compat` | Empty |
@@ -1604,6 +1624,27 @@ single MP4 video payload instead of individual JPEG images. This avoids remote
 NIM image-count limits. Set `REMOTE_VIDEO_INPUT=false` to restore
 image-per-frame payloads. If MP4 encoding fails, the service falls back to up
 to 10 uniformly sampled base64 JPEG images and logs a warning.
+
+**VSS Docker developer profiles only: persistent Cosmos streaming sessions
+(opt-in).** Use a separately deployed NIM started with
+`NIM_ENABLE_STREAMING=true` and an RT-VLM image that includes the NIM session
+adapter. In the selected `deploy/docker/developer-profiles/dev-profile-<profile>/overrides.env`, set:
+
+```bash
+VSS_RT_VLM_IMAGE=<registry>/<streaming-capable-rt-vlm-image>
+VSS_RT_VLM_TAG=<tag>
+RTVI_VLM_STREAMING_NIM_ENABLED=true
+```
+
+Launch the profile with `VLM_ENDPOINT_URL` set to the NIM's base URL (without
+`/v1`), `--use-remote-vlm`, and `--vlm <id-from-nim-v1-models>`. The launcher
+sets `RTVI_VLM_ENDPOINT` and `RTVI_VLM_MODEL_TO_USE=openai-compat` in its
+generated environment. Request `inference_mode=streaming_vlm` on a live stream
+with one sampled frame per step. This mode uses the NIM's separate
+`/v1/streaming/sessions` API; ordinary chunked requests continue to use
+`/v1/chat/completions`. The bundled Cosmos Reasoner NIM 1.7 image and the
+default RT-VLM image do not provide this combination. The standalone Compose
+and Helm deployments do not forward this flag.
 
 **GPT-4o:**
 

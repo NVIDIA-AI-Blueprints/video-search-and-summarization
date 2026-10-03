@@ -110,6 +110,84 @@ def _fake_jpeg_bytes():
     return np.asarray([0xFF, 0xD8, 0xFF, 0xD9], dtype=np.uint8)
 
 
+def test_nim_streaming_session_preserves_openai_mode_and_frame_contract():
+    model = _make_model()
+    model._endpoint = "http://localhost:9999/v1/"
+    calls = []
+
+    def request(method, path, payload=None):
+        calls.append((method, path, payload))
+        if path == "sessions":
+            return {"session_id": "sess-test"}
+        if path.endswith("/frame"):
+            return {"text": "clear", "token_count": 1, "frame_index": len(calls) - 2}
+        return {"closed": True}
+
+    model._nim_streaming_request = request
+    with patch.dict(os.environ, {"VIA_VLM_STREAMING_NIM_ENABLED": "true"}):
+        assert model.supports_streaming_vlm()
+        session = model.start_streaming_vlm_session(
+            "stream-1", "What is visible?", VlmGenerationConfig(max_new_tokens=8),
+            {"window_frames": 8},
+        )
+        assert "model" not in calls[0][2]
+        raw = np.zeros((2, 3, 3), dtype=np.uint8)
+        output = model.generate_streaming_vlm_step(
+            session, "What is visible?", [_make_chunk()], video_frames=[[raw]]
+        ).result(timeout=2)
+        assert output[0].output == "clear"
+        assert calls[1][2].startswith(b"\xff\xd8")
+        jpeg = _fake_jpeg_bytes()
+        model.generate_streaming_vlm_step(
+            session, "What is visible?", [_make_chunk()], video_frames=[[jpeg]]
+        ).result(timeout=2)
+        assert calls[2][2] == b"\xff\xd8\xff\xd9"
+        model.end_streaming_vlm_session("stream-1", session)
+        assert calls[-1][:2] == ("DELETE", "sessions/sess-test")
+        with pytest.raises(RuntimeError, match="closed"):
+            model.generate_streaming_vlm_step(
+                session, "What is visible?", [_make_chunk()], video_frames=[[jpeg]]
+            ).result(timeout=2)
+        with pytest.raises(ValueError, match="first frame"):
+            model.start_streaming_vlm_session(
+                "stream-2", "Question", streaming_config={"question_on_decode": True}
+            )
+        with pytest.raises(ValueError, match="response_format"):
+            model.start_streaming_vlm_session(
+                "stream-2", "Question",
+                generation_config=VlmGenerationConfig(response_format={"type": "json_object"}),
+            )
+    assert not model.supports_streaming_vlm()
+    model._output_tpool.shutdown(wait=True)
+
+
+def test_nim_streaming_http_request_uses_openai_endpoint():
+    model = _make_model()
+    model._endpoint = "http://localhost:9999/v1/"
+    response = MagicMock()
+    response.__enter__.return_value = response
+    response.read.return_value = b'{"session_id":"sess-test"}'
+    with patch.dict(os.environ, {"VIA_VLM_API_KEY": "test-key"}), patch(
+        "models.openai_compat.openai_compat_model.urlrequest.urlopen", return_value=response
+    ) as urlopen:
+        assert model._nim_streaming_request("POST", "sessions", {"question": "test"})[
+            "session_id"
+        ] == "sess-test"
+    request = urlopen.call_args.args[0]
+    assert request.full_url == "http://localhost:9999/v1/streaming/sessions"
+    assert request.get_header("Authorization") == "Bearer test-key"
+    assert request.data == b'{"question": "test"}'
+    assert request.get_header("Content-type") == "application/json"
+    assert urlopen.call_args.kwargs["timeout"] == 30
+    with patch("models.openai_compat.openai_compat_model.urlrequest.urlopen", return_value=response) as frame_urlopen:
+        model._nim_streaming_request("POST", "sessions/sess-test/frame", b"\xff\xd8\xff\xd9")
+    frame_request = frame_urlopen.call_args.args[0]
+    assert frame_request.data == b"\xff\xd8\xff\xd9"
+    assert frame_request.get_header("Content-type") == "image/jpeg"
+    assert frame_urlopen.call_args.kwargs["timeout"] == 1800
+    model._output_tpool.shutdown(wait=True)
+
+
 # ---------------------------------------------------------------------------
 # strip_thinking_tags tests
 # ---------------------------------------------------------------------------
