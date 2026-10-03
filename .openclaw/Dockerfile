@@ -104,12 +104,6 @@ COPY --from=uv /uv /usr/local/bin/uv
 # stage_vss_src.py) wins over the pinned fetch, so a local skill or CLI edit
 # reaches the image without a push. The Dockerfil[e] glob keeps this COPY
 # valid when nothing is staged — the Dockerfile itself always matches.
-# --chown=root:root: docker's COPY gives the files to root by default, kaniko
-# keeps the build context's owner. Built by the eval harness (kaniko, context
-# staged by a uid-10001 service) the directory arrived owned by 10001 while RUN
-# executes as root, and `git init` refused it: "detected dubious ownership in
-# repository at '/opt/vss-src'" (exit 128). Pinning the owner makes both
-# engines agree and keeps git's safe.directory check intact.
 COPY --chown=root:root Dockerfil[e] .vss-sr[c] /opt/vss-src/
 RUN rm -f /opt/vss-src/Dockerfile \
     && if [ -f /opt/vss-src/STAGED ]; then \
@@ -358,8 +352,9 @@ RUN rm -f /etc/profile.d/nemoclaw-rlimits.sh \
 
 # nvm shim. Harbor's openclaw adapter bootstraps node with nvm (`. ~/.nvm/nvm.sh
 # && nvm use 22 && node -v`); this image pins node, so the shim answers `use`
-# and `install` for the pinned major and refuses any other, exactly as the
-# openshell-community image did. Without it every trial fails at agent setup
+# and `install` for the pinned major. It also accepts Harbor's hardcoded
+# `nvm use 22` as a no-op against the pinned node 24; installing 22 remains
+# refused. Without it every trial fails at agent setup
 # with "/sandbox/.nvm/nvm.sh: No such file or directory".
 # (Kaniko does not support heredocs in RUN; the shim ships as a context file.)
 COPY --chown=sandbox:sandbox nvm-shim.sh /sandbox/.nvm/nvm.sh

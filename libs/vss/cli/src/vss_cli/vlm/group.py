@@ -222,6 +222,13 @@ class VlmInput(BaseModel):
         le=256,
         description="Frames sampled per second across the clip. Mutually exclusive with --num-frames.",
     )
+    server_video_sampling: bool = Field(
+        False,
+        description=(
+            "Let a standalone vLLM server choose its configured video frames. "
+            "Mutually exclusive with --fps and --num-frames."
+        ),
+    )
     shortest_edge: int | None = Field(
         None,
         ge=1,
@@ -247,6 +254,8 @@ class VlmInput(BaseModel):
             raise ValueError("--start-time / --end-time require --sensor")
         if self.num_frames is not None and self.fps is not None:
             raise ValueError("--num-frames and --fps are mutually exclusive")
+        if self.server_video_sampling and (self.num_frames is not None or self.fps is not None):
+            raise ValueError("--server-video-sampling cannot be combined with --fps or --num-frames")
         if self.shortest_edge is not None and self.longest_edge is not None and self.shortest_edge > self.longest_edge:
             raise ValueError("--shortest-edge must be no greater than --longest-edge")
         return self
@@ -428,35 +437,38 @@ def _build_vllm_request(
     model: str,
     inputs: VlmInput,
 ) -> dict[str, Any]:
-    """Translate one request using a single, loader-owned sampling contract.
+    """Translate a request with client-owned or deployed-server video sampling.
 
-    vLLM's video loader selects either the requested fixed frame count or the
-    FPS-derived frames. Qwen then consumes that selection unchanged instead of
-    sampling a second time from metadata describing the original video.
+    For explicit frame controls, vLLM's loader selects frames and Qwen consumes
+    them unchanged. Server-owned mode sends no frame controls so the deployment's
+    loader and processor policy applies as configured.
     """
     request = _base_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
     if inputs.chunk_duration is not None and inputs.chunk_duration != 0:
         raise InvalidInput("positive --chunk-duration is not supported by the standalone vLLM backend")
     if inputs.enable_reasoning is not None:
         request["chat_template_kwargs"] = {"enable_thinking": inputs.enable_reasoning}
-    mm_processor_kwargs: dict[str, Any] = {"do_sample_frames": False}
-    if inputs.fps is not None:
-        request["media_io_kwargs"] = {
-            "video": {
-                "num_frames": -1,
-                "fps": inputs.fps,
+    mm_processor_kwargs: dict[str, Any] = {}
+    if not inputs.server_video_sampling:
+        if inputs.fps is not None:
+            request["media_io_kwargs"] = {
+                "video": {
+                    "num_frames": -1,
+                    "fps": inputs.fps,
+                }
             }
-        }
-    else:
-        request["media_io_kwargs"] = {
-            "video": {
-                "num_frames": inputs.num_frames or _DEFAULT_FIXED_FRAME_BUDGET,
+        else:
+            request["media_io_kwargs"] = {
+                "video": {
+                    "num_frames": inputs.num_frames or _DEFAULT_FIXED_FRAME_BUDGET,
+                }
             }
-        }
+        mm_processor_kwargs["do_sample_frames"] = False
     size = _processor_size(inputs)
     if size:
         mm_processor_kwargs["size"] = size
-    request["mm_processor_kwargs"] = mm_processor_kwargs
+    if mm_processor_kwargs:
+        request["mm_processor_kwargs"] = mm_processor_kwargs
     return request
 
 
@@ -562,6 +574,8 @@ class VlmGroup(CommandGroup):
         policy = config_mod.effective_vlm_config(deployment.vlm)
         inputs = _apply_vlm_policy(inputs, policy)
         backend = policy.backend if policy is not None else "rt_vlm"
+        if inputs.server_video_sampling and backend != "vllm":
+            raise InvalidInput("--server-video-sampling requires the standalone vLLM backend")
         options = VlmOptions(**{k: v for k, v in ctx.extra.items() if k in VlmOptions.model_fields})
 
         if options.use_base64 and inputs.sensor:
@@ -578,7 +592,9 @@ class VlmGroup(CommandGroup):
         created_at = utc_now_iso()
 
         model_params: dict[str, Any] = {"model": model, "timeout": inputs.timeout}
-        if inputs.fps is not None:
+        if inputs.server_video_sampling:
+            model_params["video_sampling"] = "server"
+        elif inputs.fps is not None:
             model_params["fps"] = inputs.fps
         else:
             model_params["num_frames"] = inputs.num_frames or _DEFAULT_FIXED_FRAME_BUDGET

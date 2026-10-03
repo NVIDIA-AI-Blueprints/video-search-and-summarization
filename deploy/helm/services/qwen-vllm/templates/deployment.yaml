@@ -1,0 +1,219 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "qwen-vllm.fullname" . }}
+  labels:
+    {{- include "qwen-vllm.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: 2
+  strategy:
+    {{- toYaml .Values.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "qwen-vllm.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- if or .Values.requestPolicy.enabled .Values.podAnnotations }}
+      annotations:
+        {{- if .Values.requestPolicy.enabled }}
+        checksum/request-policy: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      labels:
+        {{- include "qwen-vllm.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "qwen-vllm.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- $global := .Values.global | default dict }}
+      {{- $imagePullSecrets := .Values.imagePullSecrets | default (index $global "imagePullSecrets") }}
+      {{- with $imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.runtimeClassName }}
+      runtimeClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: vllm
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          args:
+            - --model
+            - {{ .Values.vllm.model | quote }}
+            - --host
+            - "0.0.0.0"
+            - --port
+            - {{ .Values.vllm.port | quote }}
+            - --tensor-parallel-size
+            - {{ .Values.vllm.tensorParallelSize | quote }}
+            - --dtype
+            - {{ .Values.vllm.dtype | quote }}
+            - --gpu-memory-utilization
+            - {{ .Values.vllm.gpuMemoryUtilization | quote }}
+            - --max-model-len
+            - {{ .Values.vllm.maxModelLen | quote }}
+            - --max-num-seqs
+            - {{ .Values.vllm.maxNumSeqs | quote }}
+            - --mm-processor-cache-gb
+            - {{ .Values.vllm.mmProcessorCacheGiB | quote }}
+            - --seed
+            - {{ .Values.vllm.seed | quote }}
+            - --mm-processor-kwargs
+            - {{ .Values.vllm.mmProcessorKwargs | toJson | quote }}
+            - --media-io-kwargs
+            - {{ .Values.vllm.mediaIoKwargs | toJson | quote }}
+            - --override-generation-config
+            - {{ .Values.vllm.overrideGenerationConfig | toJson | quote }}
+            - --default-chat-template-kwargs
+            - {{ .Values.vllm.defaultChatTemplateKwargs | toJson | quote }}
+            {{- if .Values.vllm.servedModelName }}
+            - --served-model-name
+            - {{ .Values.vllm.servedModelName | quote }}
+            {{- end }}
+            {{- if .Values.vllm.enableChunkedPrefill }}
+            - --enable-chunked-prefill
+            {{- end }}
+            {{- if .Values.vllm.skipMmProfiling }}
+            - --skip-mm-profiling
+            {{- end }}
+            {{- if .Values.requestPolicy.enabled }}
+            - --middleware
+            - qwen_request_policy.QwenRequestPolicy
+            {{- end }}
+            {{- range .Values.vllm.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.vllm.port }}
+              protocol: TCP
+          env:
+            - name: HF_HOME
+              value: {{ printf "%s/huggingface" .Values.persistence.mountPath | quote }}
+            - name: VLLM_WORKER_MULTIPROC_METHOD
+              value: spawn
+            {{- if .Values.requestPolicy.enabled }}
+            - name: PYTHONPATH
+              value: /opt/qwen-policy
+            {{- end }}
+            {{- if .Values.huggingFace.existingSecret }}
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.huggingFace.existingSecret }}
+                  key: {{ .Values.huggingFace.tokenKey }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            {{- if .Values.persistence.enabled }}
+            - name: cache
+              mountPath: {{ .Values.persistence.mountPath }}
+            {{- end }}
+            {{- if .Values.requestPolicy.enabled }}
+            - name: request-policy
+              mountPath: /opt/qwen-policy
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- if .Values.startupProbe.enabled }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.shm.sizeLimit }}
+        {{- if .Values.persistence.enabled }}
+        - name: cache
+          persistentVolumeClaim:
+            claimName: {{ include "qwen-vllm.pvcName" . }}
+        {{- end }}
+        {{- if .Values.requestPolicy.enabled }}
+        - name: request-policy
+          configMap:
+            name: {{ include "qwen-vllm.fullname" . }}-policy
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
