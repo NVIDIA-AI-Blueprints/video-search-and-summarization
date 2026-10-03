@@ -141,6 +141,18 @@ Please note: At this point the web-based application is only available for Chrom
 
 ![VIOS UI](/assets/images/analytics-blueprints/2D-analytics-blueprint-vios.png)
 
+#### Show Object IDs
+
+To display object IDs in VST for the 2D profile, open **Analytics Overlay Settings** and:
+
+1. Enable **Show Bounding Boxes** under **Bounding Box Configuration**.
+2. Enable **Show Object ID** under **Object ID Display**.
+3. Click **Save Settings**.
+
+**Debug Mode** is optional and adds diagnostic overlays; it is not required to display object IDs.
+
+![VST Analytics Overlay Settings with Show Bounding Boxes and Show Object ID enabled for the 2D profile](/assets/images/analytics-blueprints/2d-vst-object-id-overlay-settings.png)
+
 ### Reference Agentic UI
 
 The browser-based interface supports Chat, Alerts, and Dashboard modes.
@@ -335,6 +347,135 @@ Refer to [RT-DETR Real-Time Performance](/vss/system-components/models/rt-detr-2
 
 #### Step 3: Deploy and generate new calibration
 
+The 2D with Agents profile supports two calibration types:
+
+Choose one calibration workflow:
+
+- **Image coordinates** (`"calibrationType": "image"`): Prepare the file manually using camera pixel coordinates. Follow **Image coordinate calibration** below.
+- **Cartesian coordinates** (`"calibrationType": "cartesian"`): Generate image-to-global calibration using Auto Calibration's AMC method. Follow **Cartesian coordinate calibration** below.
+
+##### Image coordinate calibration
+
+Image-coordinate calibration does not require an image-to-global coordinate transformation, so camera intrinsics, extrinsics, and homography are not needed.
+
+ROIs and tripwires are optional and only needed for analytics that use them. Auto Calibration currently does not support defining them in image coordinates. When required, manually measure their camera pixel coordinates using an image editing tool and enter them in the calibration file, following the workflow below.
+
+**1. Start with the empty calibration template**
+
+This template contains a placeholder sensor named `Camera_01`. Fill the blank fields and replace the placeholder values before using it:
+
+```text
+{
+  "version": "1.0",
+  "osmURL": "",
+  "calibrationType": "",
+  "sensors": [
+    {
+      "type": "",
+      "id": "Camera_01",
+      "origin": {
+        "lng": 0,
+        "lat": 0
+      },
+      "geoLocation": {
+        "lng": 0,
+        "lat": 0
+      },
+      "coordinates": {
+        "x": 0,
+        "y": 0
+      },
+      "scaleFactor": 0,
+      "attributes": [],
+      "place": [],
+      "imageCoordinates": [],
+      "globalCoordinates": [],
+      "tripwires": [],
+      "rois": []
+    },
+    ...
+  ]
+}
+```
+
+**2. Measure pixel coordinates and fill the template**
+
+Open a frame from your camera at its original resolution in an image editing tool, such as Paint or IrfanView. Read the pixel coordinates for the ROIs and tripwires your analytics require, then update the template:
+
+- Set `calibrationType` to `image` and the sensor `type` to `camera`.
+- Replace `Camera_01` with the matching camera name in `camera_info.json` or your video name.
+- Set `scaleFactor` to `1` for the image-mode example and add the frame width and height to `attributes`.
+- Enter ROI vertices and tripwire endpoints in pixel coordinates. Leave `rois` and `tripwires` empty if your analytics do not require them.
+- Leave `imageCoordinates` and `globalCoordinates` empty.
+
+**3. Review the completed calibration**
+
+After filling in the values, an image-mode calibration for a 1920 × 1080 camera frame could look like this. The ROI and tripwire coordinates below are examples; replace them with the pixel coordinates measured from your own camera frame:
+
+```json
+{
+  "version": "1.0",
+  "osmURL": "",
+  "calibrationType": "image",
+  "sensors": [
+    {
+      "type": "camera",
+      "id": "Camera_01",
+      "origin": {"lng": 0, "lat": 0},
+      "geoLocation": {"lng": 0, "lat": 0},
+      "coordinates": {"x": 0, "y": 0},
+      "scaleFactor": 1,
+      "attributes": [
+        {"name": "source", "value": "vst"},
+        {"name": "frameWidth", "value": "1920"},
+        {"name": "frameHeight", "value": "1080"}
+      ],
+      "place": [],
+      "imageCoordinates": [],
+      "globalCoordinates": [],
+      "tripwires": [
+        {
+          "id": "tripwire-id-1",
+          "wire": {
+            "p1": {"x": 943, "y": 606},
+            "p2": {"x": 1403, "y": 309}
+          },
+          "direction": {
+            "p1": {"x": 1040, "y": 395},
+            "p2": {"x": 1282, "y": 566}
+          }
+        }
+      ],
+      "rois": [
+        {
+          "id": "roi-id-1",
+          "roiCoordinates": [
+            {"x": 400, "y": 300},
+            {"x": 400, "y": 800},
+            {"x": 1200, "y": 800},
+            {"x": 1200, "y": 300}
+          ],
+          "restrictedObjectTypes": [
+            "Person"
+          ],
+          "confinedObjectTypes": [
+            "Forklift"
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+**4. Save and apply the calibration**
+
+Save the completed file as `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`, then proceed to Step 4 to redeploy with the new calibration.
+
+##### Cartesian coordinate calibration
+
+For Cartesian calibration, use Auto Calibration's AMC workflow below to map camera image coordinates to a global coordinate system.
+
 Before deploying the stack and generating a calibration, create the projects directory:
 
 ```bash
@@ -357,7 +498,7 @@ Configure `industry-profiles/warehouse-operations/overrides.env` using the **Aut
 <Note>
 - Maintain a single `calibration.json` file per deployment.
 - Each sensor name in `calibration.json` must match the corresponding `camera_name` in `camera_info.json` or the name of the corresponding video placed in `${VSS_DATA_DIR}/videos`.
-- For 2D profile use cases, ROIs and Tripwires are drawn for each camera view.
+- For 2D profile use cases that require ROIs or tripwires, draw them for each camera view.
 - Add new camera information following the schema defined in [Calibration Schema](/vss/system-components/calibration/calibration-schema).
 - The `imageMetadata` file needs to be generated manually.
 - Manually add any other attributes that are missing from the generated calibration file but are required for your use case.
@@ -495,6 +636,8 @@ vi <PATH_TO_VST_CONFIG_DIR>/vst_config.json
 #### Approach 2: Automatic Config Management using VSS Configurator
 
 The VSS Configurator provides a **declarative approach** to automatically update all required configuration files based on your hardware profile and deployment mode. This is the recommended approach for production deployments and simplifies the configuration management process.
+
+For how the configurator updates configurations in this blueprint, see [VSS Configurator for the Warehouse Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/vss-configurator). The guide describes configuration inputs, affected files, stream ceilings, and hardware-specific overrides.
 
 To enable the VSS Configurator, in VSS Configurator's environment variables you **must** set:
 

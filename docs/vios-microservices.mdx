@@ -301,10 +301,25 @@ Some options:
 
  ![VIOS Overlay Live Video](/assets/images/vios/VIOS-Overlay-Live.png)
 
+##### Display Object IDs in Warehouse Profiles
+
+Enable the video player's analytics overlay, then open **Analytics Overlay Settings**. Object ID display depends on the warehouse profile:
+
+| Warehouse Profile | Object ID Display Settings |
+| --- | --- |
+| 2D and 2D with Agents | Enable **Show Bounding Boxes** and **Show Object ID** under **Object ID Display**. Debug Mode is optional and adds diagnostic overlays. |
+| 3D and MV3DT | Object IDs are displayed by default when **Debug Mode** is enabled. |
+
+Click **Save Settings** to apply the changes. In the 2D settings, leave **Specific Object IDs** empty to show all objects, or enter a comma-separated list to filter the displayed objects.
+
+![VST Analytics Overlay Settings with Show Bounding Boxes and Show Object ID enabled for a warehouse 2D profile](/assets/images/analytics-blueprints/2d-vst-object-id-overlay-settings.png)
+
 ##### Playback overlay on Video Wall
 
 Now that you are able to enable Overlay Feature of VIOS in Live and Recorded Streams, it is time to extend the Overlay Feature of VIOS in Video Wall.
 To enable bounding boxes on the video, navigate to **Video Wall** tab and select streams from the dropdown list and enable overlay option from the video player and enable it.
+
+For warehouse object ID display settings, see [Display Object IDs in Warehouse Profiles](#display-object-ids-in-warehouse-profiles).
 
 Some options:
 

@@ -1,0 +1,192 @@
+---
+title: "VSS Configurator"
+description: "Warehouse blueprint configuration flow, profile inputs, file changes, and runtime sensor behavior."
+position: 6
+---
+
+{/* SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. */}
+{/* SPDX-License-Identifier: Apache-2.0 */}
+
+## Overview
+
+The **VSS Configurator** manages hardware profile settings and sensor configuration for the Warehouse Operations Blueprint. The Profile Configuration Manager applies deployment-time file changes for the `2d`, `3d`, and `mv3dt` modes. The Sensor Configuration Manager then discovers sensors, processes calibration when enabled, publishes configuration events, and registers cameras with VST.
+
+For the service's configuration reference and API details, see [VSS Configurator](/vss/system-components/configuration/vss-configurator). This page describes how the service is used in the warehouse blueprint.
+
+## System Flow
+
+| Step | Stage | Result |
+| --- | --- | --- |
+| 1 | Start | `entrypoint.main` reads feature flags and launches profile configuration when enabled. |
+| 2 | Select and validate | `ProfileConfigManager` selects `MODE` and `HARDWARE_PROFILE`, validates environment values, and loads the ordered plan from `blueprint_config.yml`. |
+| 3 | Compute | Derived values include the hardware ceiling and `final_stream_count = min(NUM_STREAMS, effective maximum)`. |
+| 4 | Mutate files | The manager applies YAML, JSON, key=value, and text replacement operations and, when enabled, recomputes BEV groups for mounted `3d` or `mv3dt` calibration; enabled operations normally create backups. |
+| 5 | Mark ready | Successful profile work creates `PROFILE_CONFIG_READY_FILE`. This signals profile completion only. |
+| 6 | Discover sensors | Gunicorn starts the background sensor phase. It polls NVStreamer, validates main streams, and builds an in-memory sensor map. |
+| 7 | Integrate | The sensor phase optionally reads or updates calibration, publishes configuration to SDR, and registers accepted RTSP cameras with VST. |
+
+## Profile Inputs
+
+These variables control validation, derived values, and profile-time file changes. Some inputs are also used later by the sensor phase.
+
+| Variable | Mode | Function | Files Affected |
+| --- | --- | --- | --- |
+| `ENABLE_PROFILE_CONFIGURATOR` | All | Run or skip profile mutation | No direct file |
+| `PROFILE_CONFIG_FILE` | All | Select the operation plan | `deploy/docker/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml` |
+| `MODE` | All | Select `2d`, `3d`, or `mv3dt` operations | All mode-specific targets |
+| `HARDWARE_PROFILE` | All | Select stream ceiling and hardware overrides | Batch limits and hardware-specific files |
+| `NUM_STREAMS` | All | Requested stream count | DeepStream batch fields, NVStreamer sync count, model paths |
+| `STREAM_TYPE` | All | Select Kafka or Redis settings | DeepStream, notification, behavior analytics, video analytics API |
+| `SENSOR_INFO_SOURCE`; `SENSOR_FILE_PATH` | All | Select runtime sensor source; for profile-time BEV recomputation, file-based RTSP uses camera names from the sensor file | Mounted calibration file in `3d` and `mv3dt` |
+| `SAMPLE_VIDEO_DATASET` | All | Validate dataset and derive `2d` thresholds | `2d` PGIE thresholds; disabled `keep_count` target |
+| `DATASET_TYPE` | `3d` | Select synthetic or real Sparse4D assets | `3d` `config.yaml` and `models-download.json` |
+| `REID_SERVICE_PORT` | `mv3dt` | Set ReID service port | `mv3dt` tracker YAML |
+| `VSS_APPS_DIR`; `DS_CONFIG_DIR`; `VSS_DATA_DIR` | All | Resolve mounted paths | Referenced targets; not content values |
+| `BP_PROFILE`; `HOST_IP`; `LLM_MODE`; `VLM_MODE`; `VSS_RT_CV_TAG` | All | Compatibility and required-value checks | Validation only |
+| `RECOMPUTE_BEV_CENTERS_ENABLED`; `CALIBRATION_MODE` | `3d`, `mv3dt` | Enable profile-time BEV group recomputation; requires `CALIBRATION_MODE=mount` | Mounted calibration file |
+| `CALIBRATION_DIR_MOUNT_PATH`; `CALIBRATION_FILE_NAME` | `3d`, `mv3dt` | Locate mounted calibration for profile-time BEV recomputation | `${CALIBRATION_DIR_MOUNT_PATH}/${CALIBRATION_FILE_NAME}` |
+| `PROFILE_CONFIG_READY_FILE` | All | Profile-success marker, written after enabled file operations including BEV recomputation complete successfully | `${PROFILE_CONFIG_READY_FILE}` |
+
+### Derived Values
+
+| Derived Value | Source Inputs | Used By |
+| --- | --- | --- |
+| `effective_max_streams_supported` | Hardware profile ceiling, or request where applicable | VST maximum devices |
+| `final_stream_count` | `min(NUM_STREAMS, effective maximum)` | DS batch sizes, NVStreamer sync count, model engine name and `3d` shape |
+| Broker values | `STREAM_TYPE` | DS broker fields, notification consumer, analytics source and sink |
+| Model and threshold values | `DATASET_TYPE` or `SAMPLE_VIDEO_DATASET` | Sparse4D paths or `2d` detector thresholds |
+
+## Files Changed Operation
+
+### File Operation Types
+
+The profile manager dispatches `yaml_update`, `json_update`, `text_config_update`, `text_replace`, `file_management`, and `recompute_bev_groups` operations in blueprint order. Warehouse `keep_count` is currently disabled.
+
+### Files Changed
+
+Common rows apply across modes unless the mode column says otherwise. Paths are repository-relative.
+
+| Mode | File | File Operations | Attributes |
+| --- | --- | --- | --- |
+| All | `deploy/docker/industry-profiles/warehouse-operations/warehouse-<mode>-app/deepstream/configs/ds-main-config*.txt` | `text_config_update` | Batch counts, Kafka or Redis fields; source lists in `3d` and `mv3dt`; `mv3dt` latency |
+| All | `deploy/docker/services/nvstreamer/configs/vst-config.json` | `json_update` | `data.nv_streamer_sync_file_count`; onvif maximum in `3d` and `mv3dt` |
+| All | `deploy/docker/industry-profiles/warehouse-operations/warehouse-<mode>-app/vst/configs/vst_config.json` | `json_update` | `onvif.max_devices_supported`; `data.always_recording`; optional hardware overlay |
+| All | `deploy/docker/industry-profiles/warehouse-operations/warehouse-<mode>-app/vst/configs/notification_config.json` | `json_update` | `message_broker.use_message_broker_consumer` |
+| All | `deploy/docker/industry-profiles/warehouse-operations/warehouse-<mode>-app/vss-behavior-analytics/configs/vss-behavior-analytics-config.json` | `json_update` | app `sourceType` and `sinkType` |
+| All | `deploy/docker/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json` | `json_update` | `kafka.brokers` |
+
+#### Mode Specific Differences
+
+| Mode | File | Attributes | Driven By |
+| --- | --- | --- | --- |
+| `2d` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/deepstream/configs/ds-pgie-config.yml` | `model-engine-file`; general and person detection thresholds | `NUM_STREAMS`; `SAMPLE_VIDEO_DATASET` |
+| `3d` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/config.yaml` | `num_sensors`; Sparse4D model, engine, labels, anchor; hardware interval | `NUM_STREAMS`; `DATASET_TYPE`; hardware |
+| `3d` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/models-download.json` | Sparse4D model and anchor source and destination | `DATASET_TYPE` |
+| `3d` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/ds-mtmc-preprocess-config.txt` | `network-input-shape` | `NUM_STREAMS` |
+| `mv3dt` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/ds-pgie-config.yml` | batch-specific `model-engine-file` | `NUM_STREAMS` |
+| `mv3dt` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/ds-mv3dt-tracker-config.yml` | `servicePort` | `REID_SERVICE_PORT` |
+| `3d`, `mv3dt` | `${CALIBRATION_DIR_MOUNT_PATH}/${CALIBRATION_FILE_NAME}` | BEV group metadata and selected sensors, updated by the profile-time `recompute_bev_groups` operation | `RECOMPUTE_BEV_CENTERS_ENABLED`; `CALIBRATION_MODE=mount`; camera names from the sensor file or videos; `NUM_STREAMS` |
+| `2d` `3d` `mv3dt` | `${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}` | Declared `keep_count` target | Disabled in current blueprint; no deletion |
+
+#### Hardware Overrides
+
+Hardware profiles define `max_streams_supported` for each configured mode. Common operations use this ceiling to compute `final_stream_count` and update the files listed above. `IGX-THOR` and `DGX-SPARK` also append hardware-specific file operations after the common operations.
+
+##### Stream Ceilings by Hardware Profile
+
+| Hardware Profile | `2d` Maximum Streams | `3d` Maximum Streams | `mv3dt` Maximum Streams |
+| --- | --- | --- | --- |
+| `H100` | 61 | 19 | 61 |
+| `GB300` | 161 | 71 | - |
+| `L40S` | 28 | 9 | 23 |
+| `RTXPRO6000BW` | 52 | 21 | 39 |
+| `RTXPRO6000BW-SE` | 47 | 20 | 39 |
+| `RTXPRO4500BW` | 20 | 9 | - |
+| `IGX-THOR` | 9 | 8 | 7 |
+| `DGX-SPARK` | 7 | 7 | 7 |
+
+<Info>
+For `2d`, validation rejects `IGX-THOR` and `DGX-SPARK` when `BP_PROFILE=bp_wh`, even though both hardware blocks contain `2d` settings. In `3d`, their `interval: "1"` override runs Sparse4D at an effective 15 FPS; the profile comments specify 30 FPS otherwise.
+</Info>
+
+##### Hardware Specific File Changes
+
+DeepStream filenames below resolve under `${DS_CONFIG_DIR}`. VST filenames resolve under `${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-<mode>-app/vst/configs/`, using the row's mode. Values are applied after the common file operations; rows that repeat a common setting still show the explicit hardware operation.
+
+| Hardware Profile | Mode | Target File | Operation | Attributes and Values |
+| --- | --- | --- | --- | --- |
+| `IGX-THOR` | `2d` | `ds-main-config.txt` | `text_config_update` | `drop-on-latency: "1"`; `msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so`; `compute-hw: "2"`; `low-latency-mode: "0"` |
+| `IGX-THOR` | `2d` | `ds-nvdcf-accuracy-tracker-config.yml` | `yaml_update` | `TargetManagement.maxTargetsPerStream: 50`; `VisualTracker.visualTrackerType: 2`; `VisualTracker.vpiBackend4DcfTracker: 1` |
+| `IGX-THOR` | `3d` | `ds-main-config.txt` | `text_config_update` | `batched-push-timeout: "67000"`; `low-latency-mode: "0"` |
+| `IGX-THOR` | `3d` | `config.yaml` | `yaml_update` | `interval: "1"` |
+| `IGX-THOR` | `3d` | `vst_config.json` | `json_update` | `onvif.max_devices_supported: 8` (from `${max_streams_supported}`); `overlay.enable_overlay_skip_frame: true` |
+| `IGX-THOR` | `3d` | `notification_config.json` | `json_update` | `message_broker.use_message_broker_consumer: "${STREAM_TYPE}"` |
+| `IGX-THOR` | `mv3dt` | `ds-main-config-mv3dt.txt` | `text_config_update` | `batched-push-timeout: "67000"`; `low-latency-mode: "0"` |
+| `IGX-THOR` | `mv3dt` | `vst_config.json` | `json_update` | `onvif.max_devices_supported: 7` (from `${max_streams_supported}`); `overlay.enable_overlay_skip_frame: true` |
+| `IGX-THOR` | `mv3dt` | `notification_config.json` | `json_update` | `message_broker.use_message_broker_consumer: "${STREAM_TYPE}"` |
+| `DGX-SPARK` | `2d` | `ds-main-config.txt` | `text_config_update` | `msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so` |
+| `DGX-SPARK` | `3d` | `ds-main-config.txt` | `text_config_update` | `batched-push-timeout: "67000"` |
+| `DGX-SPARK` | `3d` | `config.yaml` | `yaml_update` | `interval: "1"` |
+| `DGX-SPARK` | `3d` | `vst_config.json` | `json_update` | `onvif.max_devices_supported: 7` (from `${max_streams_supported}`); `overlay.enable_overlay_skip_frame: true` |
+| `DGX-SPARK` | `3d` | `notification_config.json` | `json_update` | `message_broker.use_message_broker_consumer: "${STREAM_TYPE}"` |
+| `DGX-SPARK` | `mv3dt` | `ds-main-config-mv3dt.txt` | `text_config_update` | `batched-push-timeout: "67000"` |
+| `DGX-SPARK` | `mv3dt` | `vst_config.json` | `json_update` | `onvif.max_devices_supported: 7` (from `${max_streams_supported}`); `overlay.enable_overlay_skip_frame: true` |
+| `DGX-SPARK` | `mv3dt` | `notification_config.json` | `json_update` | `message_broker.use_message_broker_consumer: "${STREAM_TYPE}"` |
+
+## Runtime Inputs
+
+These inputs are used by the sensor phase after profile completion. Calibration paths, `CALIBRATION_MODE`, and sensor-source inputs may also be used by profile-time BEV recomputation as listed above. Most sensor-phase inputs change runtime state or mounted data, not repository configuration files.
+
+| Variable Group | Runtime Function | Affected State or File |
+| --- | --- | --- |
+| `ENABLE_SENSOR_CONFIGURATOR` | Start or skip the sensor API process | Process state |
+| `SENSOR_INFO_SOURCE`; `SENSOR_FILE_PATH` | Choose `nvstreamer`, `msb`, file, or `not_required` | Source API or `${SENSOR_FILE_PATH}` |
+| `NUM_STREAMS` | Readiness threshold for NVStreamer list; zero uses stable-count behavior | No file |
+| `NVSTREAMER_STREAMS_ENDPOINT`; `NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT` | Poll streams; partial non-empty lists may proceed after timeout | HTTP read |
+| `NVSTREAMER_SENSOR_STATUS_ENDPOINT`; retry settings | Require each candidate to be online with `NoError` | HTTP read |
+| `ENABLE_CALIBRATION_PROCESS`; `CALIBRATION_MODE` | Enable calibration and choose fetch, upload, or mount | Mounted calibration file |
+| `CALIBRATION_DIR_MOUNT_PATH`; `CALIBRATION_FILE_NAME` | Locate active calibration | `${CALIBRATION_DIR_MOUNT_PATH}/${CALIBRATION_FILE_NAME}` |
+| `CALIBRATION_API_ENDPOINT`; delays and timeout | Fetch calibration when mode is fetch | Remote API; local save |
+| `CALL_SENSOR_ADD_API`; `VST_CAMERA_ADD_ENDPOINT` | Register accepted RTSP cameras with VST | VST API state |
+| `SEND_CONFIG_TO_SDR`; `MESSAGE_BROKER_TYPE` | Publish one config event per accepted sensor | Kafka or Redis state |
+| `WDM_REDIS_*`; `WDM_KFK_*` | Configure stream or topic, keys, fields, and connection | Broker state |
+| `ENABLE_*_VIDEO_UPLOAD`; `VIDEO_SOURCE_DIR`; upload URLs | Optionally upload source videos before discovery | Remote NVStreamer or VMS state |
+
+## Discussion Points and Confirmed Behavior
+
+### NUM_STREAMS Contract
+
+- At profile time, `final_stream_count` is the requested count capped by the selected hardware limit. It sizes DeepStream and writes NVStreamer `data.nv_streamer_sync_file_count`.
+- At runtime, the sensor manager reads the original `NUM_STREAMS` again. A non-empty NVStreamer list is considered complete when `count >= NUM_STREAMS`.
+- The `>=` test is only a readiness gate. If `NUM_STREAMS` is 4 and NVStreamer returns 6, the configurator does not take the first four; all six returned groups continue through main-stream and health validation.
+- The specific video files and their ordering are selected by NVStreamer, not by calibration order. Calibration enriches matching sensor IDs; it does not choose the first N cameras.
+- If the hardware cap is lower than `NUM_STREAMS`, profile files may be sized for the cap while runtime waits for the original request. A partial non-empty list can proceed after `NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT`.
+
+### Calibration Freshness
+
+With `ENABLE_CALIBRATION_PROCESS=true`, the sensor phase obtains calibration by fetch, upload, or mount and uses matching sensor IDs to add group and region metadata. In warehouse `3d`, the configurator, VST, DeepStream, Behavior Analytics, and the import container mount the same host calibration file at different container paths. A write becomes visible through those mounts, but an already-running service is not forced to reload it.
+
+In the warehouse `3d` and `mv3dt` profiles, `RECOMPUTE_BEV_CENTERS_ENABLED=true` enables the profile-time `recompute_bev_groups` operation. With `CALIBRATION_MODE=mount`, it validates the configured camera set, recomputes BEV groups, and updates the mounted calibration file before `PROFILE_CONFIG_READY_FILE` is written. This operation runs before Gunicorn starts the background sensor phase.
+
+Both calibration import containers depend on their configurator becoming healthy through `/readyz`, which checks profile readiness when profile configuration is enabled. The import scripts also wait for the Video Analytics API before uploading the mounted calibration. Enabled profile-time BEV recomputation therefore finishes before these imports start. Sensor discovery, calibration mapping, VST registration, and SDR publication still run separately in the background sensor phase. Later calibration edits may require a consumer reload or re-import; the startup gate does not trigger those actions automatically.
+
+### SDR Publication
+
+When `SEND_CONFIG_TO_SDR=true`, the configurator publishes one configuration event for each sensor that survived NVStreamer main-stream and health checks. `MESSAGE_BROKER_TYPE` selects Redis or Kafka; `WDM_REDIS_*` or `WDM_KFK_*` supplies the destination and key fields. The event carries camera ID, RTSP URL, region and group when available, and downstream topic metadata. This is separate from the VST camera-add HTTP request. Publish errors are logged and do not make profile readiness fail. Warehouse `2d` sets this flag to false; `3d` and `mv3dt` set it to true.
+
+### Profile Readiness and VST Startup
+
+The profile readiness marker is a Compose startup gate for dependent services. It means the enabled profile file operations completed successfully, including profile-time BEV recomputation in `3d` and `mv3dt` when enabled. It does not mean sensors were discovered, runtime calibration mapping finished, cameras were added to VST, or SDR received messages. Those actions run later in the background sensor thread.
+
+## Decisions and Actions
+
+The Current Behavior column records the implementation behavior. Use the Decision to Record and Suggested Owner columns to guide a configuration review.
+
+| Topic | Current Behavior | Decision to Record | Suggested Owner |
+| --- | --- | --- | --- |
+| Stream count | Profile files use capped `final_stream_count`; runtime discovery reads original `NUM_STREAMS`. | Use one canonical count or define mismatch behavior. | Configurator and deployment |
+| Extra streams | `count >= NUM_STREAMS` ends the wait; the returned list is not truncated. | Accept all, cap deterministically, or reject the mismatch. | NVStreamer and configurator |
+| Calibration | Enabled profile-time BEV recomputation completes before profile readiness and calibration imports; later edits do not force running consumers to reload. | Define consumer reload and re-import behavior for later calibration edits. | VST DeepStream and analytics |
+| Readiness | `PROFILE_CONFIG_READY_FILE` covers profile mutation only. | Keep profile-only readiness or add a separate sensor-ready signal. | Configurator and deployment |
+| SDR errors | Publication is separate from VST registration; errors are logged without failing readiness. | Define retry, metric, alert, and escalation policy. | SDR and configurator |
+| Worker count | Each Gunicorn worker starts its own sensor-processing thread. | Enforce one worker or add leader election and idempotency. | Configurator |
