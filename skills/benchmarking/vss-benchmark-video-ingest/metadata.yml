@@ -1,0 +1,7 @@
+skill-name: vss-benchmark-video-ingest
+skill-version: "v3.3.0"
+description: Benchmark VSS video ingest throughput and readiness latency.
+license: Apache-2.0
+# Target release in the skill design; expand only when the skill is validated for another VSS release.
+# VSS deployment prerelease/build suffixes are ignored, following its version checker.
+requires-vss: "==3.3.0"
