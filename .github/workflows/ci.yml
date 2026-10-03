@@ -877,13 +877,12 @@ jobs:
             services/configurators/vss-rt-config-adaptor/coverage.xml
 
   # ---------------------------------------------------------------------------
-  # Job 5g: RTVI vLLM-compatible model unit tests
+  # Job 5g: RTVI CPU unit tests
   #
   # rt-vlm and rt-embed each carry their own copy of vllm_compatible_model.py.
-  # Its engine-args builders are env parsing that a CPU-only torch can drive,
-  # so this lane needs no GPU and no vLLM. Because vLLM is absent, rt-vlm
-  # selects the CI-safe subset of its mixed test module by the test_in_ci
-  # marker; rt-embed's file is CI-safe throughout and is selected by path.
+  # This lane needs no GPU or vLLM. It selects the CI-safe subset of rt-vlm's
+  # mixed engine-args module by marker, then runs standalone CPU unit suites.
+  # rt-embed's engine-args file is CI-safe throughout and selected by path.
   # ---------------------------------------------------------------------------
   rtvi-vllm-compatible-test:
     name: Test (rtvi vllm-compatible)
@@ -929,12 +928,17 @@ jobs:
             torch \
             torchvision
           uv pip install --python .venv-rtvi/bin/python \
+            aiofiles \
+            boto3 \
             cloudpickle \
             filelock \
             numpy \
+            opentelemetry-api \
             pillow \
             pydantic \
-            pytest
+            pytest \
+            pytest-asyncio \
+            requests
 
       # --noconftest: tests/conftest.py imports prometheus_client,
       # sse_starlette, requests and sseclient for autouse fixtures that none
@@ -950,6 +954,32 @@ jobs:
             tests/rtvi_vlm/test_vlm_thor_runtime.py \
             tests/test_sbsa_decoder_bridge.py \
             -v
+
+      - name: Run rt-vlm CPU unit tests
+        working-directory: services/rtvi/rt-vlm
+        run: |
+          tests=(
+            tests/model/vllm_compatible/test_adaptive_preprocess_limiter.py
+            tests/model/vllm_compatible/test_evs_admission_lifecycle.py
+            tests/model/vllm_compatible/test_evs_encode_error.py
+            tests/model/vllm_compatible/test_evs_min_frames.py
+            tests/model/vllm_compatible/test_evs_protocol_compatibility.py
+            tests/model/vllm_compatible/test_evs_video_metadata.py
+            tests/rtvi_vlm/test_asset_download_metrics.py
+            tests/rtvi_vlm/test_asset_gc_concurrency.py
+            tests/rtvi_vlm/test_logger_redaction.py
+            tests/rtvi_vlm/test_media_file_info.py
+            tests/rtvi_vlm/test_stream_cv_api.py
+            tests/rtvi_vlm/test_url_download_config.py
+            tests/rtvi_vlm/test_vllm_parakeet_transformers5_patch.py
+            tests/rtvi_vlm/test_vllm_qwen3_omni_audio_patch.py
+          )
+          # PR #2483 adds this standalone regression suite.
+          if [[ -f tests/model/vllm_compatible/test_evs_encoder_cache_lifetime.py ]]; then
+            tests+=(tests/model/vllm_compatible/test_evs_encoder_cache_lifetime.py)
+          fi
+          PYTHONPATH=src "$GITHUB_WORKSPACE/.venv-rtvi/bin/pytest" \
+            -c tests/pytest.ini --noconftest "${tests[@]}" -v
 
       - name: Run rt-embed unit tests
         working-directory: services/rtvi/rt-embed
