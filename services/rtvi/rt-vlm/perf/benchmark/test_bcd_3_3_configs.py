@@ -118,6 +118,15 @@ class PlatformConfigTest(unittest.TestCase):
                         elif name.startswith("file_burst_"):
                             self.assertEqual(video["concurrency_levels"], levels)
 
+    def test_perf_compose_mounts_keep_source_and_monitoring_files_valid(self):
+        compose = (HERE.parent.parent / "docker/compose.perf.yaml").read_text()
+        setup = (HERE.parent / "setup_perf_env.sh").read_text()
+        self.assertIn("${RTVI_SRC_DIR:+/rtvi:/opt/nvidia/rtvi/rtvi:ro}", compose)
+        self.assertIn("${DCGM_METRICS_CONFIG:-../perf/dcgm/dcgm-metrics-config.csv}", compose)
+        self.assertIn("${PROMETHEUS_CONFIG:-./prometheus.perf.yml}", compose)
+        self.assertIn('[[ -f "${DCGM_METRICS_CONFIG}" ]]', setup)
+        self.assertIn('[[ -f "${PROMETHEUS_CONFIG}" ]]', setup)
+
 
 if __name__ == "__main__":
     unittest.main()

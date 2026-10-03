@@ -1512,6 +1512,11 @@ bash perf/setup_perf_env.sh
 The overridden ports are written into `.env.perf` automatically and picked up by
 `compose.perf.yaml`.
 
+If a run copies `compose.perf.yaml` outside `docker/`, use `setup_perf_env.sh` or set
+`DCGM_METRICS_CONFIG` and `PROMETHEUS_CONFIG` to the absolute paths of the two
+config files. Setup validates both as files before starting Compose; a missing
+relative bind otherwise becomes a directory and prevents the container from starting.
+
 #### Check container logs
 
 ```bash
@@ -1538,6 +1543,29 @@ curl -sf http://localhost:9090/-/healthy
 ```
 
 If you used custom ports, replace 9100 / 9400 / 9090 with your overrides.
+
+On Jetson, if DCGM Exporter cannot initialize, retry in a fresh run with this
+explicit fallback. Copy the platform benchmark YAML into the run directory and set
+`global.gpu_monitoring.prometheus.enabled: false` in that copy; leave
+`node_exporter_enabled: true`. Set `BENCHMARK_CONFIG` to that copy for setup and
+the benchmark. The fallback setup starts RTVI and Node Exporter, but not DCGM
+Exporter or Prometheus; it does not start or stop the run-owned sampler.
+
+```bash
+RUN_DIR=/path/to/this-run  # owned, writable directory; keep its raw evidence
+cp perf/benchmark/rtvi_vlm_bcd_3_3_agx_orin_config.yaml "$RUN_DIR/agx-orin.yaml"
+# In the copied YAML, set global.gpu_monitoring.prometheus.enabled: false.
+tegrastats --interval 1000 --logfile "$RUN_DIR/tegrastats.log" &
+TEGRASTATS_PID=$!
+GPU_TELEMETRY_BACKEND=tegrastats BENCHMARK_CONFIG="$RUN_DIR/agx-orin.yaml" bash perf/setup_perf_env.sh
+# Run the benchmark with the same config, then stop only this sampler:
+kill "$TEGRASTATS_PID"
+```
+
+Keep the raw log and label its provenance as Jetson-native; it is not a DCGM
+metric or directly comparable to DCGM-derived GPU summaries. Node Exporter
+remains available directly on its configured port. Do not report empty DCGM
+fields as measured zeros.
 
 #### DCGM Exporter requires SYS_ADMIN capability
 

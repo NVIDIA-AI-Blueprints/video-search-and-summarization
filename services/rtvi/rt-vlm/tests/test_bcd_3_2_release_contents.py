@@ -295,19 +295,41 @@ def test_nvstreamer_readiness_requires_each_bcd_fixture():
     assert "SECONDS - _ns_start >= NVSTREAMER_POLL_TIMEOUT" in setup
 
 
-def test_read_only_source_mountpoints_are_prepared_before_compose(tmp_path):
+def test_read_only_source_mount_uses_package_without_mutating_source(tmp_path):
     setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    compose = (SERVICE_ROOT / "docker/compose.perf.yaml").read_text()
     start = setup.index("prepare_source_mountpoints() {")
     end = setup.index("\n}\n", start) + 3
     prepare = setup[start:end]
+    (tmp_path / "rtvi").mkdir()
     command = f'{prepare}\nRTVI_SRC_DIR="$SOURCE_DIR"\nprepare_source_mountpoints'
     env = {**os.environ, "SOURCE_DIR": str(tmp_path)}
     subprocess.run(["bash", "-c", command], env=env, check=True)
-    for relative in (".rtvi/ngc_model_cache", "log/rtvi", "streams/perf"):
-        assert (tmp_path / relative).is_dir()
+    assert [path.name for path in tmp_path.iterdir()] == ["rtvi"]
+    assert "${RTVI_SRC_DIR:+/rtvi:/opt/nvidia/rtvi/rtvi:ro}" in compose
     assert setup.index("prepare_source_mountpoints\n") < setup.index(
         'docker compose -f "${COMPOSE_PERF_YAML}" --env-file "${ENV_PERF_FILE}" up -d'
     )
+
+
+def test_jetson_telemetry_fallback_omits_dcgm_at_compose_start(tmp_path):
+    setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    config = tmp_path / "benchmark.yaml"
+    config.write_text("global:\n  gpu_monitoring:\n    prometheus:\n      enabled: false\n      node_exporter_enabled: true\n")
+    start = setup.index("    _compose_services=()")
+    end = setup.index("    # Stop any containers", start)
+    selection = setup[start:end]
+    command = (
+        'GPU_TELEMETRY_BACKEND=tegrastats\n'
+        'require_cmd() { :; }\nlog() { :; }\ndie() { exit 1; }\n'
+        f'{selection}\n'
+        '[[ "${_compose_services[*]}" == "rtvi-server node-exporter" ]]'
+    )
+    env = {**os.environ, "BENCHMARK_CONFIG": str(config)}
+    subprocess.run(["bash", "-c", command], env=env, check=True)
+    config.write_text(config.read_text().replace("enabled: false", "enabled: true"))
+    assert subprocess.run(["bash", "-c", command], env=env).returncode != 0
+    assert 'up -d "${_compose_services[@]}"' in setup
 
 
 def test_generated_env_perf_is_ignored_and_forced_private():

@@ -383,6 +383,9 @@ VST_LOCAL_PACKAGE="${VST_LOCAL_PACKAGE:-${SCRIPT_DIR}/vst_package.tar.gz}"
 
 # RTVI VLM service (compose.perf.yaml)
 COMPOSE_PERF_YAML="${COMPOSE_PERF_YAML:-${REPO_ROOT}/docker/compose.perf.yaml}"
+GPU_TELEMETRY_BACKEND="${GPU_TELEMETRY_BACKEND:-dcgm}"
+DCGM_METRICS_CONFIG="${DCGM_METRICS_CONFIG:-${SCRIPT_DIR}/dcgm/dcgm-metrics-config.csv}"
+PROMETHEUS_CONFIG="${PROMETHEUS_CONFIG:-${REPO_ROOT}/docker/prometheus.perf.yml}"
 RTVI_HEALTH_TIMEOUT="${RTVI_HEALTH_TIMEOUT:-600}"  # seconds; model download can take several minutes
 
 # RTVI VLM container configuration — used to auto-generate .env.perf at Step 12.
@@ -517,6 +520,9 @@ die() {
     exit 1
 }
 
+[[ "${GPU_TELEMETRY_BACKEND}" == "dcgm" || "${GPU_TELEMETRY_BACKEND}" == "tegrastats" ]] \
+    || die "GPU_TELEMETRY_BACKEND must be dcgm or tegrastats"
+
 apply_model_preset() {
     local _preset="$1"
     local _preset_model=""
@@ -630,12 +636,7 @@ nvstreamer_has_bcd_streams() {
 
 prepare_source_mountpoints() {
     [[ -n "${RTVI_SRC_DIR:-}" ]] || return 0
-    [[ -d "${RTVI_SRC_DIR}" ]] || die "RTVI_SRC_DIR is not a directory: ${RTVI_SRC_DIR}"
-    local subdir
-    for subdir in .rtvi/ngc_model_cache log/rtvi streams/perf; do
-        mkdir -p "${RTVI_SRC_DIR}/${subdir}" \
-            || die "Cannot prepare ${RTVI_SRC_DIR}/${subdir} for the read-only source mount"
-    done
+    [[ -d "${RTVI_SRC_DIR}/rtvi" ]] || die "RTVI_SRC_DIR must contain the rtvi Python package: ${RTVI_SRC_DIR}"
 }
 
 validate_bcd_video() {
@@ -1828,6 +1829,20 @@ log "Step 12/12: Generating .env.perf and starting RTVI VLM service..."
 if [[ ! -f "${COMPOSE_PERF_YAML}" ]]; then
     warn "  compose.perf.yaml not found at ${COMPOSE_PERF_YAML} — skipping RTVI VLM start."
 else
+    _compose_services=()
+    if [[ "${GPU_TELEMETRY_BACKEND}" == "dcgm" ]]; then
+        [[ -f "${DCGM_METRICS_CONFIG}" ]] || die "DCGM metrics config is not a file: ${DCGM_METRICS_CONFIG}"
+        [[ -f "${PROMETHEUS_CONFIG}" ]] || die "Prometheus config is not a file: ${PROMETHEUS_CONFIG}"
+        DCGM_METRICS_CONFIG="$(realpath "${DCGM_METRICS_CONFIG}")"
+        PROMETHEUS_CONFIG="$(realpath "${PROMETHEUS_CONFIG}")"
+        export DCGM_METRICS_CONFIG PROMETHEUS_CONFIG
+    else
+        _compose_services=(rtvi-server node-exporter)
+        require_cmd tegrastats
+        python3 -c 'import sys, yaml; c = yaml.safe_load(open(sys.argv[1])); p = c.get("global", {}).get("gpu_monitoring", {}).get("prometheus", {}); sys.exit(0 if p.get("enabled") is False and p.get("node_exporter_enabled") is True else 1)' "${BENCHMARK_CONFIG}" \
+            || die "tegrastats fallback requires prometheus.enabled=false and node_exporter_enabled=true in ${BENCHMARK_CONFIG}"
+        log "  Jetson telemetry selected: start a run-owned tegrastats sampler and disable DCGM collection in the run config."
+    fi
     # Stop any containers from a previous run before checking ports or starting new ones.
     # This is idempotent — a no-op if nothing is running.  Uses the existing .env.perf
     # (if present) so non-default port values from the previous run are honoured.
@@ -1841,8 +1856,10 @@ else
     _port_conflicts=()
     port_in_use "${BACKEND_PORT}"       && _port_conflicts+=("BACKEND_PORT=${BACKEND_PORT}             → export BACKEND_PORT=<free_port>")
     port_in_use "${NODE_EXPORTER_PORT}" && _port_conflicts+=("NODE_EXPORTER_PORT=${NODE_EXPORTER_PORT}  → export NODE_EXPORTER_PORT=<free_port>")
-    port_in_use "${DCGM_EXPORTER_PORT}" && _port_conflicts+=("DCGM_EXPORTER_PORT=${DCGM_EXPORTER_PORT}  → export DCGM_EXPORTER_PORT=<free_port>")
-    port_in_use "${PROMETHEUS_PORT}"    && _port_conflicts+=("PROMETHEUS_PORT=${PROMETHEUS_PORT}       → export PROMETHEUS_PORT=<free_port>")
+    if [[ "${GPU_TELEMETRY_BACKEND}" == "dcgm" ]]; then
+        port_in_use "${DCGM_EXPORTER_PORT}" && _port_conflicts+=("DCGM_EXPORTER_PORT=${DCGM_EXPORTER_PORT}  → export DCGM_EXPORTER_PORT=<free_port>")
+        port_in_use "${PROMETHEUS_PORT}"    && _port_conflicts+=("PROMETHEUS_PORT=${PROMETHEUS_PORT}       → export PROMETHEUS_PORT=<free_port>")
+    fi
 
     if [[ "${#_port_conflicts[@]}" -gt 0 ]]; then
         echo "" >&2
@@ -1881,6 +1898,9 @@ PERF_VIDEOS_DIR=${PERF_VIDEOS_DIR}
 NODE_EXPORTER_PORT=${NODE_EXPORTER_PORT}
 DCGM_EXPORTER_PORT=${DCGM_EXPORTER_PORT}
 PROMETHEUS_PORT=${PROMETHEUS_PORT}
+GPU_TELEMETRY_BACKEND=${GPU_TELEMETRY_BACKEND}
+DCGM_METRICS_CONFIG=${DCGM_METRICS_CONFIG}
+PROMETHEUS_CONFIG=${PROMETHEUS_CONFIG}
 ASSET_TMPFS_SIZE=${ASSET_TMPFS_SIZE}
 MAX_ASSET_STORAGE_SIZE_GB=${MAX_ASSET_STORAGE_SIZE_GB}
 ASSET_MAX_AGE_HOURS=${ASSET_MAX_AGE_HOURS}
@@ -1945,7 +1965,7 @@ EOF
     _compose_project=$(basename "$(dirname "${COMPOSE_PERF_YAML}")" | tr '[:upper:]' '[:lower:]')
 
     log "  Launching RTVI VLM (this may take several minutes for model download/load)..."
-    docker compose -f "${COMPOSE_PERF_YAML}" --env-file "${ENV_PERF_FILE}" up -d \
+    docker compose -f "${COMPOSE_PERF_YAML}" --env-file "${ENV_PERF_FILE}" up -d "${_compose_services[@]}" \
         || die "Failed to start RTVI VLM service"
     RTVI_STARTED=true
 
