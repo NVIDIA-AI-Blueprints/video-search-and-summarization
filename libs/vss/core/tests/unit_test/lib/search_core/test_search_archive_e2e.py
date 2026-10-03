@@ -323,6 +323,13 @@ def test_search_archive_cli_e2e_returns_search_output_json(
                     "red": True,
                 },
             },
+            "critic_result": {
+                "result": "confirmed",
+                "criteria_met": {
+                    "subject:forklift": True,
+                    "red": True,
+                },
+            },
         }
     ]
     assert payload["search_messages"] == []
@@ -394,7 +401,7 @@ def test_search_archive_cli_attribute_only_uses_rtvi_cv_and_behavior_search(
     payload, marker = _result_and_marker(result.stdout)
     _assert_search_marker(marker, persisted=False)
     assert payload["data"][0]["object_ids"] == ["42"]
-    assert "critic_result" not in payload["data"][0]
+    assert payload["data"][0]["critic_result"] == payload["data"][0]["verification"]
     assert payload["data"][0]["verification"]["result"] == "confirmed"
     assert mock_services.requests_for("/v1/generate_text_embeddings") == []
     assert mock_services.requests_for("/api/v1/generate_text_embeddings")[-1].body == {
@@ -425,6 +432,7 @@ def test_search_archive_cli_without_vlm_returns_unverified_hits(
         "result": "unverified",
         "criteria_met": None,
     }
+    assert "critic_result" not in payload["data"][0]
     assert mock_services.requests_for("/v1/chat/completions") == []
 
 
@@ -447,6 +455,7 @@ def test_search_archive_cli_unreachable_vlm_probes_once_and_returns_unverified_h
     payload, marker = _result_and_marker(result.stdout)
     _assert_search_marker(marker, persisted=False)
     assert payload["data"][0]["verification"]["result"] == "unverified"
+    assert "critic_result" not in payload["data"][0]
     assert len(mock_services.requests_for("/v1/models")) == 1
     assert mock_services.requests_for("/v1/chat/completions") == []
 
