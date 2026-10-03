@@ -426,13 +426,15 @@ RUN set -eu; \
     vllm_root=/usr/local/lib/python3.12/dist-packages/vllm; \
     cp -a /tmp/evs-public-overlay/. "$vllm_root"/; \
     rm -rf /tmp/evs-public-overlay
-COPY docker/rtvi_vlm/patches/dlalgo_streaming/evs_merged_files/vllm/ /tmp/native-evs-overlay/
+COPY docker/rtvi_vlm/patches/dlalgo_streaming/evs-native-merge.patch /tmp/native-evs-merge.patch
 RUN set -eu; \
     if [ "$RTVI_ENABLE_NATIVE_STREAMING_VLM" = "true" ]; then \
         test "$TARGETARCH" = amd64; \
-        cp -a /tmp/native-evs-overlay/. /usr/local/lib/python3.12/dist-packages/vllm/; \
+        cd /usr/local/lib/python3.12/dist-packages; \
+        git apply -p3 --check /tmp/native-evs-merge.patch; \
+        git apply -p3 /tmp/native-evs-merge.patch; \
     fi; \
-    rm -rf /tmp/native-evs-overlay
+    rm -f /tmp/native-evs-merge.patch
 
 # Apply compatibility patches after the overlay so overlay-owned files cannot
 # replace their patched versions. The protected serving module imports

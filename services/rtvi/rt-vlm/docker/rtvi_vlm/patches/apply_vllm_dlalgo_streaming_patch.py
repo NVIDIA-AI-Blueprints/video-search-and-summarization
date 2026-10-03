@@ -71,12 +71,12 @@ def _load_manifest() -> dict[str, Any]:
                 f"{overlay['patch_file']}: expected {overlay_expected}, "
                 f"got {overlay_actual}"
             )
-    for rel, expected in manifest.get("evs_merged_files", {}).items():
-        actual = _sha256(PAYLOAD_ROOT / "evs_merged_files" / "vllm" / rel)
-        if actual != expected:
-            raise PatchCompatibilityError(
-                f"DL Algo EVS merge checksum mismatch for {rel}: expected {expected}, got {actual}"
-            )
+    expected_evs = manifest["evs_merged_patch_sha256"]
+    actual_evs = _sha256(PAYLOAD_ROOT / "evs-native-merge.patch")
+    if actual_evs != expected_evs:
+        raise PatchCompatibilityError(
+            f"DL Algo EVS merge checksum mismatch: expected {expected_evs}, got {actual_evs}"
+        )
     if manifest.get("rest_api_included") is not False:
         raise PatchCompatibilityError("native DL Algo payload must exclude its REST API")
     return manifest
