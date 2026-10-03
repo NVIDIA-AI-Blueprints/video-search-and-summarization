@@ -1606,21 +1606,25 @@ image-per-frame payloads. If MP4 encoding fails, the service falls back to up
 to 10 uniformly sampled base64 JPEG images and logs a warning.
 
 **VSS Docker developer profiles only: persistent Cosmos streaming sessions
-(opt-in).** With an RT-VLM image that supports NIM streaming sessions, set
-these values in `deploy/docker/services/rtvi/rtvi-vlm/.env`. Point
-`RTVI_VLM_ENDPOINT` at the NIM's `/v1` URL, set `VLM_NAME` to its
-`/v1/models` ID, set
-`RTVI_VLM_MODEL_TO_USE=openai-compat`, and set
-`RTVI_VLM_STREAMING_NIM_ENABLED=true`. Start the NIM with
-`NIM_ENABLE_STREAMING=true`, then request `inference_mode=streaming_vlm` on a
-live stream with one sampled frame per step. This mode uses the NIM's separate
-`/v1/streaming/sessions` API; ordinary chunked requests continue to use
-`/v1/chat/completions`. The bundled Cosmos Reasoner NIM 1.7 image is not a
-streaming-session image, so use a separately deployed compatible NIM. Do not
-enable this flag with the default RT-VLM image until it includes the session
-adapter.
+(opt-in).** Use a separately deployed NIM started with
+`NIM_ENABLE_STREAMING=true` and an RT-VLM image that includes the NIM session
+adapter. In the selected `deploy/docker/developer-profiles/dev-profile-<profile>/overrides.env`, set:
 
-The standalone Compose and Helm deployments do not forward this flag.
+```bash
+VSS_RT_VLM_IMAGE=<registry>/<streaming-capable-rt-vlm-image>
+VSS_RT_VLM_TAG=<tag>
+RTVI_VLM_STREAMING_NIM_ENABLED=true
+```
+
+Launch the profile with `VLM_ENDPOINT_URL` set to the NIM's base URL (without
+`/v1`), `--use-remote-vlm`, and `--vlm <id-from-nim-v1-models>`. The launcher
+sets `RTVI_VLM_ENDPOINT` and `RTVI_VLM_MODEL_TO_USE=openai-compat` in its
+generated environment. Request `inference_mode=streaming_vlm` on a live stream
+with one sampled frame per step. This mode uses the NIM's separate
+`/v1/streaming/sessions` API; ordinary chunked requests continue to use
+`/v1/chat/completions`. The bundled Cosmos Reasoner NIM 1.7 image and the
+default RT-VLM image do not provide this combination. The standalone Compose
+and Helm deployments do not forward this flag.
 
 **GPT-4o:**
 
