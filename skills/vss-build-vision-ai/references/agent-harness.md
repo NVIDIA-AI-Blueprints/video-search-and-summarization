@@ -370,8 +370,10 @@ for port in "${NEMOCLAW_DASHBOARD_PORT:-18789}" "${NEMOCLAW_DASHBOARD_RELAY_PORT
   done
 done
 # stderr first: a process that exits mid-scan makes the shell's own open fail.
+# `--sandbox` is required, not decoration: the echo below carries the relay path
+# in this block's own command line, which `[d]` does not hide from the scan.
 for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' 2>/dev/null <"$f"; echo; done \
-  | grep -E '[d]ashboard-(relay|forward-watchdog)\.py'  # --sandbox names the owner
+  | grep -E '[d]ashboard-(relay|forward-watchdog)\.py .*--sandbox '  # --sandbox names the owner
 # A relay must carry this path to count as ours, not just the sandbox name. Set
 # it from the ref decision: VSS_REPO_DIR is not exported until bring-up, so
 # reading it here silently names the wrong checkout.
