@@ -78,6 +78,8 @@ Launching Cursor from a terminal where `node -v` reports `v22.x` makes the kerne
 
 **Cause**: Every sandbox defaults to the same two ports — `NEMOCLAW_DASHBOARD_PORT` (`18789`) and `NEMOCLAW_DASHBOARD_RELAY_PORT` (`18790`) — so any sandbox left running on the host holds them. The notebook reclaims a port only from **its own** sandbox name: Section 3.1 replaces the sandbox named `NEMOCLAW_SANDBOX_NAME` when `NEMOCLAW_RECREATE_SANDBOX` is `True`, and Section 3.5 replaces that name's relay started from the same checkout. Anything else — another sandbox name, a relay from a second clone, or an unrelated listener — is left alone by design.
 
+The auto-allocation range (`18789`–`18799`) includes the relay's own default, so an onboard that reallocates because `18789` is taken can hand the sandbox dashboard `18790` and leave Section 3.5 with nowhere to bind. Export both `NEMOCLAW_DASHBOARD_PORT` and `NEMOCLAW_DASHBOARD_RELAY_PORT` to keep the two apart: that also makes the dashboard port explicit, so onboard reports a conflict instead of moving the sandbox, and the notebook's equality check only catches values you set yourself.
+
 **Limitation**: Neither the notebook nor teardown cleans up a sandbox it does not own. Teardown also leaves the relay and watchdog of any sandbox it did not destroy.
 
 **Solution**: Identify the owner, then clear it yourself — neither the Skill nor the notebook will destroy a sandbox it does not own:
