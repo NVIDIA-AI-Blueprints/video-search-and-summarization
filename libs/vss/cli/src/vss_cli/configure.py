@@ -19,14 +19,15 @@ error inside a search.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from dataclasses import replace
 from datetime import UTC
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 from typing import Any
 from typing import NoReturn
-from typing import cast
 
 import click
 
@@ -127,8 +128,75 @@ def _describe(base_url: str, route: config_mod.ServiceRoute, timeout: float) -> 
     return []
 
 
+_CHAT_COMPLETIONS_SUFFIX = "/chat/completions"
+_OPENAI_VERSION_SUFFIX = "/v1"
+
+
+def _vlm_root(url: str) -> str:
+    """Reduce an OpenAI-style URL to the root ``vss vlm run`` appends ``/v1/...`` to.
+
+    Endpoints are published as a bare host, an OpenAI ``base_url`` ending in
+    ``/v1``, or the full ``/v1/chat/completions`` URL (Inference Hub's own
+    sample); all three name the same server.
+    """
+    root = url.rstrip("/")
+    root = root.removesuffix(_CHAT_COMPLETIONS_SUFFIX)
+    return root.removesuffix(_OPENAI_VERSION_SUFFIX)
+
+
+def _vlm_auth_headers() -> dict[str, str]:
+    key = config_mod.vlm_api_key()
+    return {"Authorization": f"Bearer {key}"} if key else {}
+
+
+@dataclass(frozen=True)
+class _VlmEndpointProbe:
+    """What ``<root>/v1/models`` said about a bare VLM endpoint."""
+
+    status: int | None
+    detail: str
+    models: list[str]
+    #: The endpoint answered with an OpenAI model list.
+    ok: bool = False
+    #: Backend the response identifies, or None when it does not.
+    detected_backend: config_mod.VlmBackend | None = None
+    #: The model list reports vLLM. Not acted on: RT-VLM may front a vLLM
+    #: engine and answer the same way, and it rejects vLLM's request shape.
+    reports_vllm: bool = False
+
+
+def _probe_vlm_endpoint(root: str, timeout: float) -> _VlmEndpointProbe:
+    """Ask a bare OpenAI-compatible server which models it serves."""
+    import httpx
+
+    try:
+        response = httpx.get(f"{root}/v1/models", headers=_vlm_auth_headers(), timeout=timeout, follow_redirects=True)
+    except httpx.HTTPError as exc:
+        return _VlmEndpointProbe(None, f"{type(exc).__name__}: {exc}", [])
+    detail = f"HTTP {response.status_code}"
+    if response.status_code != 200:
+        return _VlmEndpointProbe(response.status_code, detail, [])
+    try:
+        payload = response.json()
+    except ValueError:
+        return _VlmEndpointProbe(response.status_code, "not JSON", [])
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        return _VlmEndpointProbe(response.status_code, "not an OpenAI model list", [])
+    entries = [item for item in payload["data"] if isinstance(item, dict) and item.get("id")]
+    # Inference Hub is a LiteLLM proxy and stamps every response with x-litellm-*.
+    is_litellm = any(name.lower().startswith("x-litellm") for name in response.headers)
+    return _VlmEndpointProbe(
+        status=response.status_code,
+        detail=detail,
+        models=[str(item["id"]) for item in entries],
+        ok=True,
+        detected_backend="openai" if is_litellm else None,
+        reports_vllm=any(item.get("owned_by") == "vllm" for item in entries),
+    )
+
+
 @click.group(name="configure", invoke_without_command=True)
-@click.option("--base-url", help="Deployment origin, e.g. http://10.0.0.1:7777")
+@click.option("--base-url", help="Deployment origin or VLM endpoint, e.g. http://10.0.0.1:7777")
 @click.option(
     "--timeout",
     type=click.FloatRange(0.1, 120.0),
@@ -154,13 +222,49 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
         base_url = f"http://{base_url}"
         click.echo(f"no scheme given, assuming {base_url}", err=True)
 
+    services = _probe_ingress(base_url, timeout)
+
+    # Read before anything is written: a file this CLI cannot read stops here
+    # rather than being replaced by one without its memory and VLM policies.
+    previous = _previous_deployment_or_exit()
+    vlm = previous.vlm if previous is not None else None
+    if services:
+        base_url = base_url.rstrip("/")
+    else:
+        base_url = _vlm_root(base_url)
+    endpoint_probe = _discover_vlm_endpoint(base_url, services, timeout)
+    if endpoint_probe is not None:
+        vlm = _apply_detected_backend(vlm, endpoint_probe.detected_backend)
+
+    deployment = config_mod.Deployment(
+        base_url=base_url,
+        services=services,
+        memory=previous.memory if previous is not None else None,
+        vlm=vlm,
+        written_at=datetime.now(UTC).isoformat(timespec="seconds"),
+    )
+    # Resolved before saving so a malformed VSS_VLM_* variable fails without writing.
+    effective_vlm = _effective_vlm_or_exit(deployment)
+    path = config_mod.save(deployment)
+    if deployment.is_direct_vlm:
+        click.echo(f"wrote {path} (direct VLM endpoint, {len(services['rt_vlm'].models)} models)", err=True)
+    else:
+        click.echo(f"wrote {path} ({len(services)}/{len(config_mod.INGRESS_SERVICES)} services)", err=True)
+    if endpoint_probe is not None:
+        _report_vlm_endpoint(deployment, effective_vlm, endpoint_probe)
+    if "rt_vlm" in services:
+        _report_vlm_sampling(deployment, effective_vlm, path)
+    _note_empty_search_indices(services)
+
+
+def _probe_ingress(base_url: str, timeout: float) -> dict[str, config_mod.Service]:
+    """Probe every known ingress route, report each, and return the routed services."""
     services: dict[str, config_mod.Service] = {}
     click.echo(f"probing {base_url}", err=True)
     for name, route in config_mod.INGRESS_SERVICES.items():
         ok, detail = _probe(base_url, route.probe, timeout)
-        described: list[str] = []
+        described = _describe(base_url, route, timeout) if ok else []
         if ok:
-            described = _describe(base_url, route, timeout)
             services[name] = config_mod.Service(
                 url=f"{base_url.rstrip('/')}{route.mount}",
                 models=described if route.describes == "models" else [],
@@ -171,31 +275,20 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
             f"  {name:<14} {route.mount:<16} {'routed' if ok else 'absent':<7} {detail:<10} {note}",
             err=True,
         )
+    return services
 
-    if not services:
-        raise click.ClickException(
-            f"{base_url} exposed none of the expected routes "
-            f"({', '.join(r.mount for r in config_mod.INGRESS_SERVICES.values())}). "
-            f"Check the origin and that the ingress is up."
-        )
 
-    deployment = config_mod.Deployment(
-        base_url=base_url.rstrip("/"),
-        services=services,
-        memory=_configured_memory_or_none(),
-        vlm=_configured_vlm_or_none(),
-        written_at=datetime.now(UTC).isoformat(timespec="seconds"),
-    )
-    path = config_mod.save(deployment)
-    click.echo(f"wrote {path} ({len(services)}/{len(config_mod.INGRESS_SERVICES)} services)", err=True)
+def _note_empty_search_indices(services: dict[str, config_mod.Service]) -> None:
+    """Say so when Elasticsearch is routed but holds no search indices yet.
 
-    # What this file records about Elasticsearch is a snapshot, and indices are
-    # created by ingestion rather than by deployment. Configuring a freshly
-    # deployed stack therefore records zero indices, and the record stays empty
-    # until someone re-runs this -- while search still appears to work, because
-    # the runtime falls back to its built-in index names. Say so, rather than
-    # leaving a caller to discover it when a readiness check reads no indices
-    # out of a config that looks fine.
+    What this file records about Elasticsearch is a snapshot, and indices are
+    created by ingestion rather than by deployment. Configuring a freshly
+    deployed stack therefore records zero indices, and the record stays empty
+    until someone re-runs this -- while search still appears to work, because
+    the runtime falls back to its built-in index names. Say so, rather than
+    leaving a caller to discover it when a readiness check reads no indices
+    out of a config that looks fine.
+    """
     es = services.get("elasticsearch")
     if es is not None and not [i for i in es.indices if i.startswith("mdx-")]:
         click.echo(
@@ -206,20 +299,218 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
         )
 
 
-def _configured_memory_or_none() -> config_mod.MemoryConfig | None:
-    """Preserve valid static memory policy when deployment routes are refreshed."""
-    try:
-        return config_mod.load().memory
-    except config_mod.ConfigError:
-        return None
+def _apply_detected_backend(
+    vlm: config_mod.VlmConfig | None,
+    detected: config_mod.VlmBackend | None,
+) -> config_mod.VlmConfig | None:
+    """Record a backend the endpoint identified, unless the caller chose one.
+
+    ``VSS_VLM_BACKEND`` and a saved non-default backend both win. A saved
+    ``rt_vlm`` is the default and is replaced: an endpoint that identifies as
+    something else is not RT-VLM.
+    """
+    if detected is None or os.environ.get(config_mod.VLM_ENV["backend"], "").strip():
+        return vlm
+    if vlm is None:
+        return config_mod.VlmConfig(backend=detected)
+    if vlm.backend == "rt_vlm":
+        return replace(vlm, backend=detected)
+    return vlm
 
 
-def _configured_vlm_or_none() -> config_mod.VlmConfig | None:
-    """Preserve valid VLM request policy when deployment routes are refreshed."""
+def _report_vlm_endpoint(
+    deployment: config_mod.Deployment,
+    effective: config_mod.VlmConfig | None,
+    endpoint_probe: _VlmEndpointProbe | None,
+) -> None:
+    """Say which backend, model and credential `vss vlm run` will use on a bare endpoint."""
+    _report_vlm_backend(deployment, effective, endpoint_probe)
+    _report_vlm_model(deployment.services["rt_vlm"].models, effective.model if effective is not None else None)
+    key_state = "set" if config_mod.vlm_api_key() else "unset"
+    click.echo(f"  {'api key':<14} {config_mod.VLM_API_KEY_ENV} {key_state}", err=True)
+
+
+def _vlm_backend_source(
+    deployment: config_mod.Deployment,
+    backend: str,
+    detected: config_mod.VlmBackend | None,
+) -> str:
+    if os.environ.get(config_mod.VLM_ENV["backend"], "").strip():
+        return config_mod.VLM_ENV["backend"]
+    if detected == backend:
+        return "identified by the endpoint"
+    return "vss configure vlm" if deployment.vlm is not None else "default"
+
+
+def _report_vlm_backend(
+    deployment: config_mod.Deployment,
+    effective: config_mod.VlmConfig | None,
+    endpoint_probe: _VlmEndpointProbe | None,
+) -> None:
+    backend = effective.backend if effective is not None else "rt_vlm"
+    detected = endpoint_probe.detected_backend if endpoint_probe else None
+    source = _vlm_backend_source(deployment, backend, detected)
+    click.echo(f"  {'backend':<14} {backend:<12} {source}", err=True)
+    if endpoint_probe is not None and endpoint_probe.reports_vllm and backend != "vllm":
+        click.echo(
+            "note: the endpoint reports vLLM. If it is a standalone vLLM server rather than RT-VLM, "
+            f"run `vss configure vlm --backend vllm` or export {config_mod.VLM_ENV['backend']}=vllm.",
+            err=True,
+        )
+    elif source == "default":
+        click.echo(
+            f"note: backend {backend} is the default. If this endpoint is vLLM, a Cosmos Reason NIM or "
+            "Inference Hub, run `vss configure vlm --backend vllm|cosmos-reason-nim|openai`.",
+            err=True,
+        )
+
+
+def _report_vlm_model(models: list[str], chosen: str | None) -> None:
+    if chosen:
+        listed = "" if not models or chosen in models else " (not listed by the endpoint)"
+        click.echo(f"  {'model':<14} {chosen}{listed}", err=True)
+        return
+    if len(models) == 1:
+        click.echo(f"  {'model':<14} {models[0]} (the endpoint's only model)", err=True)
+        return
+    shown = ", ".join(models[:10]) + (", ..." if len(models) > 10 else "")
+    click.echo(
+        f"note: the endpoint lists {len(models)} models, so `vss vlm run` needs one chosen: "
+        f"run `vss configure vlm --model <id>` or export {config_mod.VLM_ENV['model']}."
+        + (f" Listed: {shown}" if models else ""),
+        err=True,
+    )
+
+
+def _effective_vlm_or_exit(deployment: config_mod.Deployment) -> config_mod.VlmConfig | None:
     try:
-        return config_mod.load().vlm
-    except config_mod.ConfigError:
+        return config_mod.effective_vlm_config(deployment.vlm)
+    except config_mod.ConfigError as error:
+        click.echo(f"vss configure: VLM configuration error: {error}", err=True)
+        raise SystemExit(int(Exit.CONFIGURATION)) from error
+
+
+def _report_vlm_sampling(
+    deployment: config_mod.Deployment,
+    effective: config_mod.VlmConfig | None,
+    path: Path,
+) -> None:
+    """Say which frame-sampling values `vss vlm run` will send, and where each came from.
+
+    Unset values are not filled in: the VLM server's own sampling applies. That
+    default can be as little as one frame per chunk, so an unset value is named
+    rather than left for a caller to discover from a thin answer.
+    """
+    if effective is not None and effective.backend == "openai":
+        _report_openai_sampling(effective)
+        return
+    click.echo("vlm sampling for `vss vlm run`:", err=True)
+    environment_locked = config_mod.vlm_environment_locked()
+    if environment_locked:
+        click.echo(f"  {'locked':<14} {'true':<12} {config_mod.VLM_ENV['locked']}", err=True)
+    unset: list[str] = []
+    for name in config_mod.VLM_SAMPLING_FIELDS:
+        value = getattr(effective, name) if effective is not None else None
+        if value is None:
+            unset.append(name)
+            click.echo(f"  {name:<14} unset", err=True)
+        else:
+            source = _sampling_source(deployment, name, path, environment_locked=environment_locked)
+            click.echo(f"  {name:<14} {value!s:<12} {source}", err=True)
+    if unset:
+        _note_unset_sampling(unset)
+
+
+def _report_openai_sampling(effective: config_mod.VlmConfig) -> None:
+    configured = [name for name in config_mod.VLM_SAMPLING_FIELDS if getattr(effective, name) is not None]
+    ignored = f" ({', '.join(configured)} configured but ignored)" if configured else ""
+    click.echo(
+        "vlm sampling for `vss vlm run`: not sent -- the openai backend sends a plain chat "
+        f"completion, so the endpoint's own sampling applies{ignored}.",
+        err=True,
+    )
+
+
+def _note_unset_sampling(unset: list[str]) -> None:
+    variables = ", ".join(config_mod.VLM_ENV[name] for name in unset)
+    flags = " ".join(f"--{name.replace('_', '-')} <value>" for name in unset)
+    click.echo(
+        f"note: {', '.join(unset)} unset, so the VLM server's own sampling applies "
+        "(RT-VLM deployments may default to one frame per chunk). "
+        f"To set them, export {variables} or run `vss configure vlm {flags}`.",
+        err=True,
+    )
+
+
+def _sampling_source(deployment: config_mod.Deployment, name: str, path: Path, *, environment_locked: bool) -> str:
+    """Where a set sampling value came from: the saved policy or its environment variable."""
+    environment_name = config_mod.VLM_ENV[name]
+    # Under VSS_VLM_LOCKED=true a value the environment sets wins over the saved one.
+    environment_wins = environment_locked and bool(os.environ.get(environment_name, "").strip())
+    saved = deployment.vlm is not None and getattr(deployment.vlm, name) is not None
+    return f"{path} (vss configure vlm)" if saved and not environment_wins else environment_name
+
+
+def _previous_deployment_or_exit() -> config_mod.Deployment | None:
+    """The recorded deployment whose memory and VLM policies a re-probe keeps.
+
+    None only when there is no file. A file that exists but cannot be read --
+    corrupt, from another version, or carrying settings this CLI no longer has
+    -- stops `configure` before it writes: treating it as absent would replace
+    it with one that silently drops those policies.
+    """
+    if not config_mod.config_path().is_file():
         return None
+    try:
+        return config_mod.load()
+    except config_mod.ConfigError as error:
+        click.echo(
+            f"vss configure: cannot read the existing {config_mod.config_path()}: {error}. "
+            "Nothing was written. Fix the file, or move it aside to start over.",
+            err=True,
+        )
+        raise SystemExit(int(Exit.CONFIGURATION)) from error
+
+
+def _discover_vlm_endpoint(
+    base_url: str,
+    services: dict[str, config_mod.Service],
+    timeout: float,
+) -> _VlmEndpointProbe | None:
+    """Look for an OpenAI-compatible VLM at the origin itself when no `/rtvi-vlm` route serves one.
+
+    A bare model server (vLLM, NIM, RT-VLM's own port, Inference Hub) is one
+    case; a partial stack -- VIOS and Elasticsearch behind the ingress, vLLM at
+    its root -- is the other. Found, it becomes the `rt_vlm` service at the
+    origin. Not found is fatal only when the origin answered nothing else.
+    """
+    if "rt_vlm" in services:
+        return None
+    endpoint_probe = _probe_vlm_endpoint(base_url, timeout)
+    click.echo(f"  {'vlm endpoint':<14} {'/v1/models':<16} {endpoint_probe.detail}", err=True)
+    if endpoint_probe.ok:
+        services["rt_vlm"] = config_mod.Service(url=base_url, models=endpoint_probe.models)
+        return endpoint_probe
+    if endpoint_probe.status in (401, 403):
+        if config_mod.vlm_api_key() is None:
+            message = (
+                f"{base_url}/v1/models answered {endpoint_probe.detail}: the endpoint needs an API key. "
+                f"Export {config_mod.VLM_API_KEY_ENV} and re-run."
+            )
+        else:
+            message = f"{base_url}/v1/models rejected {config_mod.VLM_API_KEY_ENV} ({endpoint_probe.detail})."
+        if not services:
+            raise click.ClickException(message)
+        click.echo(f"note: no VLM recorded. {message}", err=True)
+        return None
+    if not services:
+        raise click.ClickException(
+            f"{base_url} exposed none of the expected routes "
+            f"({', '.join(r.mount for r in config_mod.INGRESS_SERVICES.values())}) "
+            f"and is not an OpenAI-compatible VLM endpoint (/v1/models: {endpoint_probe.detail}). "
+            f"Check the origin and that the ingress or model server is up."
+        )
+    return None
 
 
 def _memory_config_error(message: str) -> NoReturn:
@@ -706,9 +997,10 @@ def _vlm_config_error(message: str) -> NoReturn:
 @configure.command("vlm")
 @click.option(
     "--backend",
-    type=click.Choice(["rt-vlm", "vllm", "cosmos-reason-nim"]),
-    help="VLM request backend.",
+    type=click.Choice(["rt-vlm", "vllm", "cosmos-reason-nim", "openai"]),
+    help="VLM request backend; openai is a plain chat completion (Inference Hub).",
 )
+@click.option("--model", help="Model id to request; required when the endpoint lists several.")
 @click.option("--timeout", type=click.IntRange(1, 3600), help="VLM HTTP timeout in seconds.")
 @click.option("--temperature", type=click.FloatRange(0, 1), help="VLM sampling temperature.")
 @click.option("--max-tokens", type=click.IntRange(1, 1_000_000), help="Maximum generated tokens.")
@@ -725,19 +1017,20 @@ def _vlm_config_error(message: str) -> NoReturn:
 )
 @click.option("--fps", type=click.FloatRange(min=0, min_open=True, max=256), help="Frames sampled per second.")
 @click.option(
-    "--shortest-edge",
+    "--max-frames",
     type=click.IntRange(1, 2**31 - 1),
-    help="Minimum processor pixel budget passed as mm_processor_kwargs.size.shortest_edge.",
+    help="Upper bound on frames sent to the model; the backend applies it.",
 )
 @click.option(
-    "--longest-edge",
+    "--total-pixels",
     type=click.IntRange(1, 2**31 - 1),
-    help="Maximum processor pixel budget passed as mm_processor_kwargs.size.longest_edge.",
+    help="Whole-clip pixel budget (Qwen3-VL family), about 2048 pixels per vision token.",
 )
 @click.option("--lock/--unlock", "locked", default=None, help="Reject or allow per-call overrides.")
 @click.option("--reset", is_flag=True, help="Remove the VLM policy and restore CLI/backend defaults.")
 def configure_vlm(
     backend: str | None,
+    model: str | None,
     timeout: int | None,
     temperature: float | None,
     max_tokens: int | None,
@@ -745,8 +1038,8 @@ def configure_vlm(
     enable_reasoning: bool | None,
     chunk_duration: int | None,
     fps: float | None,
-    shortest_edge: int | None,
-    longest_edge: int | None,
+    max_frames: int | None,
+    total_pixels: int | None,
     locked: bool | None,
     reset: bool,
 ) -> None:
@@ -756,51 +1049,43 @@ def configure_vlm(
     except config_mod.ConfigError as exc:
         _vlm_config_error(str(exc))
 
-    supplied = any(
-        value is not None
-        for value in (
-            backend,
-            timeout,
-            temperature,
-            max_tokens,
-            seed,
-            enable_reasoning,
-            chunk_duration,
-            fps,
-            shortest_edge,
-            longest_edge,
-            locked,
+    options = {
+        "backend": backend.replace("-", "_") if backend is not None else None,
+        "model": model,
+        "timeout": timeout,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "seed": seed,
+        "enable_reasoning": enable_reasoning,
+        "chunk_duration": chunk_duration,
+        "fps": fps,
+        "max_frames": max_frames,
+        "total_pixels": total_pixels,
+        "locked": locked,
+    }
+    requested = {name: value for name, value in options.items() if value is not None}
+    if (requested or reset) and config_mod.vlm_environment_locked():
+        # Reset too: deleting the saved policy changes the settings the
+        # environment does not set, which the lock covers as well.
+        _vlm_config_error(
+            f"{config_mod.VLM_ENV['locked']}=true: the environment fixes this policy. "
+            "Unset it before changing or resetting the saved policy."
         )
-    )
     if reset:
-        if supplied:
+        if requested:
             raise click.UsageError("cannot combine --reset with VLM policy options")
         path = config_mod.save(replace(deployment, vlm=None))
         click.echo(f"removed VLM request policy from {path}", err=True)
         return
 
     current = config_mod.effective_vlm_config(deployment.vlm) or config_mod.VlmConfig()
-    if not supplied:
+    if not requested:
         click.echo(json.dumps(current.to_json(), indent=2))
         return
 
     try:
-        resolved_backend = (
-            current.backend if backend is None else cast("config_mod.VlmBackend", backend.replace("-", "_"))
-        )
-        policy = config_mod.VlmConfig(
-            backend=resolved_backend,
-            timeout=current.timeout if timeout is None else timeout,
-            temperature=current.temperature if temperature is None else temperature,
-            max_tokens=current.max_tokens if max_tokens is None else max_tokens,
-            seed=current.seed if seed is None else seed,
-            enable_reasoning=current.enable_reasoning if enable_reasoning is None else enable_reasoning,
-            chunk_duration=current.chunk_duration if chunk_duration is None else chunk_duration,
-            fps=current.fps if fps is None else fps,
-            shortest_edge=current.shortest_edge if shortest_edge is None else shortest_edge,
-            longest_edge=current.longest_edge if longest_edge is None else longest_edge,
-            locked=current.locked if locked is None else locked,
-        ).validate()
+        # Supplied options over the current policy; everything else is kept.
+        policy = config_mod.VlmConfig.from_json(current.to_json() | requested)
     except config_mod.ConfigError as exc:
         _vlm_config_error(str(exc))
     path = config_mod.save(replace(deployment, vlm=policy))
@@ -850,6 +1135,18 @@ def _command_availability(deployment: config_mod.Deployment) -> list[tuple[str, 
     return sorted(rows)
 
 
+def _recheck_service(base_url: str, name: str, service: config_mod.Service) -> tuple[bool, str | None]:
+    """Re-probe one recorded service the way `configure` found it; detail None means skip it."""
+    if name == "rt_vlm" and service.url.rstrip("/") == base_url.rstrip("/"):
+        # Found at the origin's own /v1/models, not behind /rtvi-vlm.
+        endpoint_probe = _probe_vlm_endpoint(base_url, _PROBE_TIMEOUT_SECONDS)
+        return endpoint_probe.ok, endpoint_probe.detail
+    route = config_mod.INGRESS_SERVICES.get(name)
+    if route is None:
+        return True, None
+    return _probe(base_url, route.probe, _PROBE_TIMEOUT_SECONDS)
+
+
 @configure.command("check")
 def check() -> None:
     """Re-probe the recorded deployment and report drift (C3).
@@ -864,27 +1161,36 @@ def check() -> None:
         raise click.ClickException(str(exc)) from exc
 
     click.echo(f"configured {deployment.written_at or 'unknown'} against {deployment.base_url}", err=True)
-    stale = False
-    for name, service in sorted(deployment.services.items()):
-        route = config_mod.INGRESS_SERVICES.get(name)
-        if route is None:
-            continue
-        ok, detail = _probe(deployment.base_url, route.probe, _PROBE_TIMEOUT_SECONDS)
-        click.echo(f"  {name:<14} {'ok' if ok else 'UNREACHABLE':<12} {service.url}  {detail}")
-        stale = stale or not ok
-
-    version, version_detail = _deployment_version(deployment.base_url, _PROBE_TIMEOUT_SECONDS)
-    click.echo(f"  {'version':<14} {version if version else 'not reported':<12}  {version_detail}".rstrip())
-
-    rows = _command_availability(deployment)
-    if rows:
-        click.echo("", err=True)
-        click.echo("commands:")
-        for name, ok, detail in rows:
-            click.echo(f"  {name:<14} {'available' if ok else 'unavailable':<12} {detail}")
-
+    stale = _recheck_services(deployment)
+    if not deployment.is_direct_vlm:
+        # A bare endpoint has no agent behind it to report a version.
+        version, version_detail = _deployment_version(deployment.base_url, _PROBE_TIMEOUT_SECONDS)
+        click.echo(f"  {'version':<14} {version if version else 'not reported':<12}  {version_detail}".rstrip())
+    _print_command_availability(deployment)
     if stale:
         raise SystemExit(int(Exit.BACKEND_UNREACHABLE))
+
+
+def _recheck_services(deployment: config_mod.Deployment) -> bool:
+    """Re-probe and report every recorded service; True when any no longer answers."""
+    stale = False
+    for name, service in sorted(deployment.services.items()):
+        ok, detail = _recheck_service(deployment.base_url, name, service)
+        if detail is None:
+            continue
+        click.echo(f"  {name:<14} {'ok' if ok else 'UNREACHABLE':<12} {service.url}  {detail}")
+        stale = stale or not ok
+    return stale
+
+
+def _print_command_availability(deployment: config_mod.Deployment) -> None:
+    rows = _command_availability(deployment)
+    if not rows:
+        return
+    click.echo("", err=True)
+    click.echo("commands:")
+    for name, ok, detail in rows:
+        click.echo(f"  {name:<14} {'available' if ok else 'unavailable':<12} {detail}")
 
 
 class _ConfigureGroup:
