@@ -338,11 +338,10 @@ working chat.
 
 The gateway forward binds `NEMOCLAW_DASHBOARD_PORT` (`18789`) and the section
 3.5 relay binds `NEMOCLAW_DASHBOARD_RELAY_PORT` (`18790`). Neither is ever
-taken from its holder — onboarding times out with ["did not receive the
-required baseline
-scopes"](#troubleshooting-did-not-receive-the-required-baseline-scopes) on
-`18789`, and the relay cell stops on a foreign listener on `18790` — and both
-default per *sandbox*, so any sandbox still running on this host holds them.
+taken from its holder — a held `18789` [stops onboard or moves the sandbox
+elsewhere](#troubleshooting-port-18789-is-not-available), and the relay cell
+stops on a foreign listener on `18790` — and every sandbox defaults to the
+same two ports, so any sandbox still running on this host holds them.
 
 Probe both on a **yes** to Q3, before accepting it and with the rest of the
 prerequisites — a build with no harness claims neither port. Probe the values
@@ -828,17 +827,17 @@ Say with it whether the bring-up **rebuilt** an existing sandbox of that name.
 sessions, and nothing else in the run tells the user that happened — Q3 asks
 first only about a sandbox no build recorded, never about this build's own.
 
-### Troubleshooting: "did not receive the required baseline scopes"
+### Troubleshooting: "Port 18789 is not available."
 
-`nemoclaw onboard` stops after `[8/8] Policy presets` with:
-
-> OpenClaw onboarding for '<name>' is incomplete because its canonical CLI
-> device did not receive the required baseline scopes.
-
-NemoClaw pairs the new sandbox's CLI device on the default dashboard port
-(`18789`); when another sandbox on the host already holds it, the pairing
-misses and onboarding times out. Retrying with `--fresh` reproduces it. The
-VSS stack and the inference route have nothing to do with it.
+Onboard's port preflight ends the run that way when the dashboard port is
+explicit — the bring-up exports `NEMOCLAW_DASHBOARD_PORT`, so it always is —
+and a listener NemoClaw cannot attribute to its own healthy runtime holds it.
+The report names the blocking process and offers
+`NEMOCLAW_DASHBOARD_PORT=<port> nemoclaw onboard`. When NemoClaw does
+recognize the holder as its own, the run continues and the new sandbox takes
+the next free port in `18789`-`18799` instead — quieter, and worse, because
+the notebook's later cells still address the port it was given. Neither
+outcome takes the port from its holder, which is why Q3 probes it first.
 
 A deploy recreates the sandbox, so its state is expendable: destroy the
 sandboxes this deploy owns - the failed one and any left by earlier runs -
@@ -851,6 +850,24 @@ openshell sandbox list
 nemoclaw <name> destroy             # each sandbox of this deploy
 lsof -nP -iTCP:18789 -sTCP:LISTEN   # must print nothing
 ```
+
+### Troubleshooting: "OpenClaw onboarding for '<name>' is incomplete"
+
+`nemoclaw onboard` stops after `[8/8] Policy presets` with:
+
+> OpenClaw onboarding for '<name>' is incomplete because <cause>. Resume or
+> rerun onboarding.
+
+Only that prefix is stable, so search on it and report the whole line. The
+cause is one of NemoClaw's pairing and CLI scope-settlement strings — "its
+canonical CLI device pairing did not appear", "its canonical CLI scope upgrade
+remained pending", "the sandbox scope-upgrade approval watcher was not
+running". A NemoClaw older than the pinned `NEMOCLAW_INSTALL_REF` ended the
+line "its canonical CLI device did not receive the required baseline scopes",
+which the pin no longer prints at all. The VSS stack and the inference route
+have nothing to do with any of them.
+
+The sandbox is expendable here as well: destroy it and rerun, as above.
 
 Anything beyond that — repairing a sandbox in place, NemoClaw's recreate
 guards — is NemoClaw's domain: see the
