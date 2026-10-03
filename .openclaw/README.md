@@ -13,6 +13,7 @@ that harness loads skills.
 | Path | What it is |
 |---|---|
 | `Dockerfile` | The sandbox image: NemoClaw's published managed OpenClaw runtime (digest-pinned) + the `vss` CLI + this plugin, installed with `openclaw plugins install` |
+| `Dockerfile.base`, `base-config.py` | The base image: the same runtime with no VSS plugin, skills or CLI, for evaluating an agent users extend (see [Base image](#base-image)) |
 | `plugin/` | The VSS OpenClaw plugin: `openclaw.plugin.json`, `package.json` + lockfile, `src/index.ts` (tool, workspace seeding, skill-selection shim), `stage-assets.sh` |
 | `workspace/` | The OpenClaw workspace instruction files (`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, `BOOTSTRAP.md`) and the `_nemoclaw/` overlay for the sandbox (`ENV.md`, host alias, proxy notes) |
 
@@ -155,3 +156,36 @@ The image installs exactly one agent runtime and declares it with
 unambiguously. Harbor (the eval orchestrator) runs **outside** the sandbox and
 supplies the command; the image inherits NemoClaw's `nemoclaw-start` entrypoint
 and gateway health check.
+
+## Base image
+
+`Dockerfile.base` builds NemoClaw's managed OpenClaw runtime with nothing VSS
+added, for evaluating an agent that users extend with their own skills and
+plugins. CI publishes it as `ghcr.io/nvidia-ai-blueprints/vss/vss-harness-openclaw`
+with the `-base` tag suffix (`develop-latest-base`, `develop-<sha12>-base`, …).
+
+| | |
+|---|---|
+| Tools | the `exec`, `process`, `read`, `write`, `edit` and `apply_patch` built-ins |
+| Skills | none: OpenClaw's bundled skills and its bundled plugins' skills are deleted |
+| Workspace | one empty `AGENTS.md` (`NEMOCLAW_MINIMAL_BOOTSTRAP=1` keeps NemoClaw's templates out) |
+| VSS | no plugin, no `vss` or NGC CLI |
+
+Every other built-in tool is switched off by name (`tools.deny` in
+`base-config.py`), and the bundled plugins that register tools (`browser`,
+`canvas`, `file-transfer`, `memory-core`) are disabled. The base sets no
+`tools.allow`: an allowlist would also filter the tools of every plugin
+installed later. The policy is published in `/etc/openclaw-harness/config-overlay.json`
+too, so it survives Harbor replacing `openclaw.json` at trial time.
+
+To extend it in an evaluation:
+
+- **Skills** — copy the skill directory to `/sandbox/.openclaw/skills/<name>/`
+  (or the workspace's `skills/`), owned by `sandbox`. OpenClaw lists it in the
+  prompt; no config change.
+- **Plugins** — `openclaw plugins install <path-or-spec>`, then restart the
+  gateway. Plugin tools are not denied, so they reach the agent.
+
+```
+docker build -f .openclaw/Dockerfile.base -t <registry>/vss-harness-openclaw:<tag>-base .openclaw
+```

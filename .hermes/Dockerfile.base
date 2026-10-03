@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Hermes base image — NemoClaw's managed Hermes runtime with nothing VSS added,
+# for evaluating an agent that a user extends: no skills, no vss or NGC CLI, an
+# empty /sandbox/AGENTS.md, and only terminal, file, skills and code_execution
+# tools.
+# tags: [nemoclaw, hermes, base]
+#
+# Tools are switched off by name, never allowlisted (base-config.py), so skills,
+# plugins and MCP servers a user installs later reach the agent:
+#   - skills: copy a skill directory into $HERMES_HOME/skills/<name>/; the
+#     skills tools stay on so Hermes lists it in the prompt.
+#   - plugins: `hermes plugins install …`; a plugin's toolsets are on by default.
+#
+# The sandbox contract matches ./Dockerfile (Harbor trial paths, no per-shell
+# ulimit hooks, sleep infinity, USER sandbox, WORKDIR /sandbox). Keep BASE_IMAGE
+# in lockstep with ./Dockerfile's.
+#
+#   docker build -f .hermes/Dockerfile.base -t <registry>/vss-harness-hermes:<tag>-base .hermes
+
+ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:26899bd091f7ad2d58ab7cf9fad33f1fcd065c10eb54f9cf1461a24e1c21ed1a
+
+# NemoClaw's Hermes image is ~122 filesystem layers deep, near the overlay2 limit
+# of 128: this stage adds two (one COPY, one RUN). Do not split the RUN.
+FROM ${BASE_IMAGE}
+USER root
+COPY base-config.py /usr/local/lib/vss-harness/base-config.py
+# In one layer:
+#  - Harbor trial paths, real world-writable directories (see ./Dockerfile).
+#  - No skills: empty Hermes' bundled library, which every launch copies into
+#    $HERMES_HOME/skills. The directory stays so the copy finds nothing.
+#  - Tools, memory and config hashes (base-config.py apply), then the check that
+#    the agent resolves to exactly the kept tools and seeds no skills.
+#  - Instruction docs: one empty /sandbox/AGENTS.md. SOUL.md is emptied rather
+#    than removed, because Hermes re-creates a missing one with its default.
+#  - NemoClaw's per-shell `ulimit -u 512` hooks removed (see ./Dockerfile).
+RUN set -eux; \
+    for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done; \
+    find /opt/hermes/skills -mindepth 1 -delete; \
+    /opt/hermes/.venv/bin/python3 /usr/local/lib/vss-harness/base-config.py apply; \
+    : > /sandbox/AGENTS.md; \
+    : > /sandbox/.hermes/SOUL.md; \
+    chown sandbox:sandbox /sandbox/AGENTS.md /sandbox/.hermes/SOUL.md; \
+    su -s /bin/sh sandbox -c 'cd /sandbox && HOME=/sandbox HERMES_HOME=/sandbox/.hermes /opt/hermes/.venv/bin/python3 /usr/local/lib/vss-harness/base-config.py check'; \
+    test -z "$(find /sandbox -maxdepth 1 -name '*.md' ! -name AGENTS.md)"; \
+    rm -f /etc/profile.d/nemoclaw-rlimits.sh; \
+    sed -i '/sandbox-rlimits/d; /NemoClaw sandbox resource limits/d' /etc/bash.bashrc; \
+    ! grep -rq "sandbox-rlimits" /etc/profile.d /etc/bash.bashrc
+
+# The base image's hint tells the agent it has web tools. Empty falls through to
+# config.yaml's agent.environment_hint, which is unset.
+ENV HERMES_ENVIRONMENT_HINT=
+
+USER sandbox
+WORKDIR /sandbox
+CMD ["sleep", "infinity"]
+
+LABEL harness.base="nemoclaw-hermes-sandbox" \
+      harness.contract="harbor-trial-v1" \
+      harness.agent="hermes" \
+      harness.variant="base" \
+      harness.vss-cli="false" \
+      harness.workspace-root="/sandbox"
