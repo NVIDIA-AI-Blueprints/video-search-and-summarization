@@ -23,7 +23,7 @@
 {{- $wfkImg := $wfk.image | default dict }}
 {{- $wfkRepo := $wfkImg.repository | default "docker.io/confluentinc/cp-kafka" }}
 {{- $wfkTag := $wfkImg.tag | default "8.3.0" }}
-{{- $wfkTopics := $wfk.topics | default (list "mdx-vlm-captions" "mdx-vlm-incidents") }}
+{{- $wfkTopics := $wfk.topics | default (list "mdx-vlm" "mdx-vlm-incidents") }}
 {{- $resources := deepCopy (.Values.resources | default dict) }}
 {{- $gpuResourceName := trim (.Values.gpuResourceName | default "") }}
 {{- $pluginSelectsDevices := or (.Values.pluginSelectsDevices | default false) (ne $gpuResourceName "") }}

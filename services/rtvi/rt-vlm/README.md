@@ -927,7 +927,7 @@ These Kubernetes chart values are defined by the standalone RT-VLM chart under `
 | `waitForKafka.image.tag` | Kafka wait init container image tag | `8.2.0` |
 | `waitForKafka.imagePullPolicy` | Kafka wait init container pull policy | `IfNotPresent` |
 | `waitForKafka.timeoutSeconds` | Kafka wait timeout | `1200` |
-| `waitForKafka.topics` | Kafka topics to wait for | `mdx-vlm-captions`, `mdx-vlm-incidents` |
+| `waitForKafka.topics` | Kafka topics to wait for | `mdx-vlm`, `mdx-vlm-incidents` |
 | `redisHost` | Redis host injected into the pod | Empty, resolves to `redis`; standalone override uses `127.0.0.1` |
 | `redisPort` | Redis port | `6379` |
 | `redisDb` | Redis database | `0` |

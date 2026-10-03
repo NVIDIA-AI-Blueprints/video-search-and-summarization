@@ -220,7 +220,7 @@ The `nv.VisionLLM` and `nv.Incident` protobuf schemas are the contract between R
 
 - **Health:** `curl -f http://localhost:${RTVI_VLM_PORT}/v1/health/ready` — used by the Docker healthcheck; expect HTTP 200.
 - **Loaded model ID:** `curl -s http://localhost:${RTVI_VLM_PORT}/v1/models | jq` — confirms the model resolved at warmup. Source: `real-time-vlm.rst` § Usage Examples note (lines 478–491).
-- **End-to-end caption + Kafka:** upload via `POST /v1/files`, call `POST /v1/generate_captions`, then poll `mdx-vlm-captions` topic offsets:
+- **End-to-end caption + Kafka:** upload via `POST /v1/files`, call `POST /v1/generate_captions`, then poll `mdx-vlm` topic offsets:
 
 ```bash
 docker exec kafka kafka-get-offsets --bootstrap-server 127.0.0.1:9092 --topic mdx-vlm-captions
