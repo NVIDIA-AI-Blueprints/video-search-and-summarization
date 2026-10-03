@@ -66,7 +66,7 @@ ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
 # deployment and tools categories — is attributed to no skill, so
 # changing it dispatches no eval leg.
 EVAL_SKILL_CATEGORIES = ("operations", "benchmarking")
-EVAL_SKILL_NAMES = ("vss-build-vision-ai",)
+EVAL_SKILL_NAMES = ("vss-build-vision-ai", "vss-build-vision-pipeline")
 EVAL_SKILL_ROOTS = EVAL_SKILL_CATEGORIES + EVAL_SKILL_NAMES
 # A leg's slug names its artifact (skills-eval-results-…-<slug>-…) and its
 # scratch/results paths (/tmp/skill-eval/results/<slug>/…). Skill dirs, spec
