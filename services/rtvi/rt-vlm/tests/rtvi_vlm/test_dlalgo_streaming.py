@@ -532,6 +532,21 @@ def test_live_queries_on_one_stream_keep_separate_native_sessions():
     assert [call.kwargs["query"] for call in process._model.start_streaming_vlm_session.call_args_list] == [
         "Describe vehicles", "Describe people"
     ]
+    process._handle_command(
+        "close-streaming-vlm-session", stream_id="stream-a", request_id="request-1"
+    )
+    assert ("stream-a", "request-1") in process._closed_streaming_vlm_streams
+    assert ("stream-a", "request-2") in process._streaming_vlm_sessions
+    params = VlmRequestParams(
+        vlm_prompt="Describe vehicles",
+        vlm_generation_config=VlmGenerationConfig(),
+        inference_mode="streaming_vlm",
+    )
+    with patch("vlm_pipeline.vlm_pipeline.nvtx"):
+        assert process._process(
+            [chunk], [params], frames=[[frame]], frame_times=[[1.0]],
+            is_live_stream=[True], request_id=["request-1"], decode_only=[False],
+        ) == {}
 
 
 def test_manager_enforces_aggregate_video_segment_budget():
@@ -957,7 +972,7 @@ def test_model_forwards_sampling_controls_to_native_session():
         loop_thread.join()
         loop.close()
 
-    assert captured["stream_id"] == "stream-a"
+    assert captured["stream_id"].startswith("stream-a:stream-a:")
     assert captured["config"].max_tokens == 20
     assert captured["config"].min_tokens == 20
     assert captured["config"].ignore_eos is True
@@ -971,6 +986,48 @@ def test_model_forwards_sampling_controls_to_native_session():
     assert captured["config"].text_sliding_window_tokens == 384
     assert captured["config"].retain_generated_text is False
     assert captured["config"].mm_processor_kwargs == {"use_fast": False}
+
+
+def test_model_uses_distinct_native_ids_for_live_subscribers():
+    sessions = set()
+
+    class _Manager:
+        async def ensure_session(self, session_id, _config):
+            sessions.add(session_id)
+
+        async def close_session(self, session_id):
+            sessions.remove(session_id)
+            return True
+
+    loop = asyncio.new_event_loop()
+    loop_thread = Thread(target=loop.run_forever)
+    loop_thread.start()
+    model = object.__new__(VllmCompatible)
+    model._dlalgo_streaming_manager = _Manager()
+    model._dlalgo_last_frame_time_by_stream = {}
+    model._event_loop = loop
+    model._system_prompt = ""
+
+    try:
+        first = model.start_streaming_vlm_session(
+            "stream-a", "Describe vehicles", request_id="request-1"
+        )
+        second = model.start_streaming_vlm_session(
+            "stream-a", "Describe people", request_id="request-2"
+        )
+        assert first != second
+        assert len(sessions) == 2
+        assert model.end_streaming_vlm_session("stream-a", first) is True
+        assert sessions == {second[1]}
+        reopened = model.start_streaming_vlm_session(
+            "stream-a", "Describe vehicles", request_id="request-1"
+        )
+        assert reopened != first
+        assert sessions == {second[1], reopened[1]}
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        loop_thread.join()
+        loop.close()
 
 
 def test_model_rejects_unbounded_raw_key_shadow_without_text_relocation(monkeypatch):

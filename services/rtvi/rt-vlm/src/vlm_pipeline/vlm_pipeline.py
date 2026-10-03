@@ -1334,12 +1334,12 @@ class VlmProcess(ProcessBase):
         if command == "close-streaming-vlm-session":
             stream_id = kwargs["stream_id"]
             request_id = kwargs.get("request_id")
-            if request_id is None:
-                self._closed_streaming_vlm_streams[stream_id] = None
-                if len(self._closed_streaming_vlm_streams) > 4096:
-                    self._closed_streaming_vlm_streams.pop(
-                        next(iter(self._closed_streaming_vlm_streams))
-                    )
+            tombstone = (stream_id, request_id) if request_id is not None else stream_id
+            self._closed_streaming_vlm_streams[tombstone] = None
+            if len(self._closed_streaming_vlm_streams) > 4096:
+                self._closed_streaming_vlm_streams.pop(
+                    next(iter(self._closed_streaming_vlm_streams))
+                )
             sessions = [
                 (key, self._streaming_vlm_sessions.pop(key))
                 for key in tuple(self._streaming_vlm_sessions)
@@ -1353,7 +1353,10 @@ class VlmProcess(ProcessBase):
                 ).start()
             return None
         if command == "open-streaming-vlm-session":
-            self._closed_streaming_vlm_streams.pop(kwargs["stream_id"], None)
+            stream_id = kwargs["stream_id"]
+            self._closed_streaming_vlm_streams.pop(stream_id, None)
+            if kwargs.get("request_id") is not None:
+                self._closed_streaming_vlm_streams.pop((stream_id, kwargs["request_id"]), None)
             return None
 
     def _close_streaming_vlm_session(self, stream_id, session):
@@ -1544,10 +1547,13 @@ class VlmProcess(ProcessBase):
             if isinstance(request_id, (list, tuple)):
                 request_id = request_id[0] if request_id else None
             session_key = (stream_id, request_id or stream_id)
+            if session_key in self._closed_streaming_vlm_streams:
+                return {}
             session = self._streaming_vlm_sessions.get(session_key)
             if session is None:
                 session = ctx.start_streaming_vlm_session(
                     stream_id=stream_id,
+                    request_id=request_id,
                     query=request_params[0].vlm_prompt,
                     generation_config=request_params[0].vlm_generation_config,
                     streaming_config={
@@ -1567,7 +1573,10 @@ class VlmProcess(ProcessBase):
                         ),
                     },
                 )
-                if stream_id in self._closed_streaming_vlm_streams:
+                if (
+                    stream_id in self._closed_streaming_vlm_streams
+                    or session_key in self._closed_streaming_vlm_streams
+                ):
                     Thread(
                         target=self._close_streaming_vlm_session,
                         args=(stream_id, session),
@@ -2798,7 +2807,11 @@ class VlmPipeline:
             try:
                 if should_start_decoder:
                     for proc in self._vlm_procs:
-                        proc.send_command("open-streaming-vlm-session", stream_id=asset.asset_id)
+                        proc.send_command(
+                            "open-streaming-vlm-session",
+                            stream_id=asset.asset_id,
+                            request_id=request_id,
+                        )
                     self._decoder_procs[gpu_id].send_command(
                         "start-live-stream",
                         asset=asset,
@@ -2807,6 +2820,12 @@ class VlmPipeline:
                         request_id=request_id,
                     )
                 else:
+                    for proc in self._vlm_procs:
+                        proc.send_command(
+                            "open-streaming-vlm-session",
+                            stream_id=asset.asset_id,
+                            request_id=request_id,
+                        )
                     added = self._decoder_procs[gpu_id].send_command(
                         "add-live-stream-subscriber",
                         live_stream_id=asset.asset_id,

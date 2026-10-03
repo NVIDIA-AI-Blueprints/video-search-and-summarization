@@ -8,6 +8,12 @@
   "target_vllm_version": "0.17.1+a03ca76a.nv26.03.46967107",
   "patch_file": "dlalgo-streaming-native-tot-v017-full-compat.patch",
   "patch_sha256": "d925eb284bd3e35ce0379e4e0f17ca7c3a0c1445f621b2d6e54c56745cbf0b54",
+  "evs_merged_files": {
+    "v1/core/sched/scheduler.py": "7cb92e86de97e8ccb6aedf15492642ebf249d3c86883593df2b5bbce2e105b9f",
+    "v1/request.py": "223295be4d50f9b1d732e88b4e8e1f2184ee5cca7e859486c2083c49637f6492",
+    "v1/core/encoder_cache_manager.py": "1b2fcad982503d237c44945352a61d29f65abd61592d84a616fbc5011cf5b206",
+    "v1/worker/gpu_model_runner.py": "c5e9e4e85fb22d4ff8dd7ac5405f21263d13571ecf9806a53645502deca827e7"
+  },
   "overlay_patches": [
     {
       "patch_file": "streaming-structured-output-refresh.patch",

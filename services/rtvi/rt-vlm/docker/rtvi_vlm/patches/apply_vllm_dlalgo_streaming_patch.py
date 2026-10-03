@@ -25,6 +25,18 @@ PAYLOAD_ROOT = PATCH_ROOT / "dlalgo_streaming"
 MANIFEST_PATH = PAYLOAD_ROOT / "manifest.json"
 DEFAULT_VLLM_ROOT = Path("/usr/local/lib/python3.12/dist-packages/vllm")
 MARKER_NAME = ".rtvi-dlalgo-streaming.json"
+EVS_MERGED_PATHS = (
+    "vllm/v1/core/sched/scheduler.py",
+    "vllm/v1/request.py",
+    "vllm/v1/core/encoder_cache_manager.py",
+    "vllm/v1/worker/gpu_model_runner.py",
+)
+EVS_MERGED_SYMBOLS = {
+    "v1/core/sched/scheduler.py": "def _refresh_streaming_structured_output(",
+    "v1/request.py": "self.streaming_retention: StreamingRetentionParams | None",
+    "v1/core/encoder_cache_manager.py": "def evict_unreferenced(",
+    "v1/worker/gpu_model_runner.py": "def _apply_streaming",
+}
 
 
 class PatchCompatibilityError(RuntimeError):
@@ -59,6 +71,12 @@ def _load_manifest() -> dict[str, Any]:
                 f"{overlay['patch_file']}: expected {overlay_expected}, "
                 f"got {overlay_actual}"
             )
+    for rel, expected in manifest.get("evs_merged_files", {}).items():
+        actual = _sha256(PAYLOAD_ROOT / "evs_merged_files" / "vllm" / rel)
+        if actual != expected:
+            raise PatchCompatibilityError(
+                f"DL Algo EVS merge checksum mismatch for {rel}: expected {expected}, got {actual}"
+            )
     if manifest.get("rest_api_included") is not False:
         raise PatchCompatibilityError("native DL Algo payload must exclude its REST API")
     return manifest
@@ -82,6 +100,9 @@ def _validate_vllm_root(vllm_root: Path) -> None:
         raise PatchCompatibilityError(
             "selected VLLM_ROOT is incomplete; missing " + ", ".join(missing)
         )
+    for rel, symbol in EVS_MERGED_SYMBOLS.items():
+        if symbol not in (vllm_root / rel).read_text(encoding="utf-8"):
+            raise PatchCompatibilityError(f"native EVS merge is missing from {rel}")
 
 
 def _run_patch(
@@ -92,6 +113,7 @@ def _run_patch(
     recount: bool = True,
 ) -> None:
     command = ["git", "apply", "--unsafe-paths"]
+    command.extend(f"--exclude={path}" for path in EVS_MERGED_PATHS)
     if recount:
         command.append("--recount")
     if dry_run:

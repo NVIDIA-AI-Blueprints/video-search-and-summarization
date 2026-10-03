@@ -428,7 +428,8 @@ To use a remote Cosmos streaming NIM instead, set
 `VLM_MODEL_TO_USE=openai-compat`, point `VIA_VLM_ENDPOINT` at its `/v1` URL,
 and set `VIA_VLM_STREAMING_NIM_ENABLED=true`. Select
 `inference_mode=streaming_vlm` with one frame per update. This REST adapter
-is distinct from the in-process native port and does not support
+posts encoded JPEG/PNG bytes to the NIM frame endpoint. It is distinct from
+the in-process native port and does not support
 `streaming_question_on_decode` or non-text `response_format`.
 
 ## Usage Examples

@@ -2128,12 +2128,14 @@ class VllmCompatible(BaseVlmModel):
                 )
             ),
         )
+        request_id = kwargs.get("request_id")
+        native_id = f"{stream_id}:{request_id or stream_id}:{uuid.uuid4().hex}"
         future = asyncio.run_coroutine_threadsafe(
-            manager.ensure_session(str(stream_id), session_config),
+            manager.ensure_session(native_id, session_config),
             self._event_loop,
         )
         future.result(timeout=30.0)
-        return str(stream_id)
+        return str(stream_id), native_id
 
     def generate_streaming_vlm_step(
         self,
@@ -2154,7 +2156,7 @@ class VllmCompatible(BaseVlmModel):
                 "native Streaming VLM requires exactly one identified stream"
             )
 
-        stream_id = str(session)
+        stream_id, native_id = session if isinstance(session, tuple) else (str(session), str(session))
         if chunks[0].streamId != stream_id:
             raise ValueError(
                 f"Streaming VLM session {stream_id!r} cannot process "
@@ -2186,7 +2188,7 @@ class VllmCompatible(BaseVlmModel):
             if frame_times and all(
                 math.isfinite(frame_time) for frame_time in frame_times
             ):
-                last_frame_time = self._dlalgo_last_frame_time_by_stream.get(stream_id)
+                last_frame_time = self._dlalgo_last_frame_time_by_stream.get(native_id)
                 accepted = [
                     (frame, frame_time)
                     for frame, frame_time in zip(frames, frame_times)
@@ -2202,12 +2204,12 @@ class VllmCompatible(BaseVlmModel):
 
         async def generate_decoded_frames():
             response = await manager.push_frames(
-                stream_id,
+                native_id,
                 decoded_frames,
                 generate=None,
             )
             if accepted_frame_times is not None:
-                self._dlalgo_last_frame_time_by_stream[stream_id] = max(
+                self._dlalgo_last_frame_time_by_stream[native_id] = max(
                     accepted_frame_times
                 )
             if response is None:
@@ -2248,18 +2250,19 @@ class VllmCompatible(BaseVlmModel):
         manager = self._dlalgo_streaming_manager
         if manager is None:
             return None
-        if str(stream_id) != str(session):
+        physical_id, native_id = session if isinstance(session, tuple) else (str(session), str(session))
+        if str(stream_id) != physical_id:
             raise ValueError(
                 f"Streaming VLM session {session!r} does not belong to stream {stream_id!r}"
             )
         future = asyncio.run_coroutine_threadsafe(
-            manager.close_session(str(stream_id)),
+            manager.close_session(native_id),
             self._event_loop,
         )
         try:
             return future.result(timeout=30.0)
         finally:
-            self._dlalgo_last_frame_time_by_stream.pop(str(stream_id), None)
+            self._dlalgo_last_frame_time_by_stream.pop(native_id, None)
 
     def get_conv(self):
         # Initialize _conv if not already done

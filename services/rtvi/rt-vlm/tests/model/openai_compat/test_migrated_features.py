@@ -136,12 +136,12 @@ def test_nim_streaming_session_preserves_openai_mode_and_frame_contract():
             session, "What is visible?", [_make_chunk()], video_frames=[[raw]]
         ).result(timeout=2)
         assert output[0].output == "clear"
-        assert calls[1][2]["image_b64"].startswith("/9j/")
+        assert calls[1][2].startswith(b"\xff\xd8")
         jpeg = _fake_jpeg_bytes()
         model.generate_streaming_vlm_step(
             session, "What is visible?", [_make_chunk()], video_frames=[[jpeg]]
         ).result(timeout=2)
-        assert calls[2][2]["image_b64"] == "/9j/2Q=="
+        assert calls[2][2] == b"\xff\xd8\xff\xd9"
         model.end_streaming_vlm_session("stream-1", session)
         assert calls[-1][:2] == ("DELETE", "sessions/sess-test")
         with pytest.raises(RuntimeError, match="closed"):
@@ -177,7 +177,14 @@ def test_nim_streaming_http_request_uses_openai_endpoint():
     assert request.full_url == "http://localhost:9999/v1/streaming/sessions"
     assert request.get_header("Authorization") == "Bearer test-key"
     assert request.data == b'{"question": "test"}'
+    assert request.get_header("Content-type") == "application/json"
     assert urlopen.call_args.kwargs["timeout"] == 30
+    with patch("models.openai_compat.openai_compat_model.urlrequest.urlopen", return_value=response) as frame_urlopen:
+        model._nim_streaming_request("POST", "sessions/sess-test/frame", b"\xff\xd8\xff\xd9")
+    frame_request = frame_urlopen.call_args.args[0]
+    assert frame_request.data == b"\xff\xd8\xff\xd9"
+    assert frame_request.get_header("Content-type") == "image/jpeg"
+    assert frame_urlopen.call_args.kwargs["timeout"] == 1800
     model._output_tpool.shutdown(wait=True)
 
 

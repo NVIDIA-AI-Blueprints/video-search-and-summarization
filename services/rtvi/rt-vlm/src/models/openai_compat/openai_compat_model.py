@@ -779,12 +779,19 @@ class CompOpenAIModel(BaseVlmModel):
     def supports_streaming_vlm(self) -> bool:
         return os.environ.get("VIA_VLM_STREAMING_NIM_ENABLED", "false").lower() == "true"
 
-    def _nim_streaming_request(self, method: str, path: str, payload: dict | None = None) -> dict:
+    def _nim_streaming_request(
+        self, method: str, path: str, payload: dict | bytes | None = None
+    ) -> dict:
         base = self._endpoint.rstrip("/")
         if not base.startswith(("http://", "https://")) or not base.endswith("/v1"):
             raise ValueError("VIA_VLM_ENDPOINT must be an HTTP(S) OpenAI /v1 URL")
-        body = json.dumps(payload).encode() if payload is not None else None
-        headers = {"Content-Type": "application/json"}
+        if isinstance(payload, bytes):
+            body = payload
+            content_type = "image/png" if payload.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg"
+        else:
+            body = json.dumps(payload).encode() if payload is not None else None
+            content_type = "application/json"
+        headers = {"Content-Type": content_type}
         key = os.environ.get("VIA_VLM_API_KEY") or os.environ.get("OPENAI_API_KEY")
         if key:
             headers["Authorization"] = f"Bearer {key}"
@@ -868,7 +875,7 @@ class CompOpenAIModel(BaseVlmModel):
                 reply = self._nim_streaming_request(
                     "POST",
                     f"sessions/{session.session_id}/frame",
-                    {"image_b64": base64.b64encode(encoded).decode("ascii")},
+                    encoded,
                 )
                 return [
                     VlmModelOutput(

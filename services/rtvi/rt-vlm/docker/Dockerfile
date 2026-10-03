@@ -420,11 +420,19 @@ RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
 
 # Install the public EVS++ vLLM overlay first. The eleven EVS++ libraries are
 # installed as architecture-specific extensions below.
+ARG RTVI_ENABLE_NATIVE_STREAMING_VLM=false
 COPY docker/rtvi_vlm/patches/evs_vllm_public_files/ /tmp/evs-public-overlay/
 RUN set -eu; \
     vllm_root=/usr/local/lib/python3.12/dist-packages/vllm; \
     cp -a /tmp/evs-public-overlay/. "$vllm_root"/; \
     rm -rf /tmp/evs-public-overlay
+COPY docker/rtvi_vlm/patches/dlalgo_streaming/evs_merged_files/vllm/ /tmp/native-evs-overlay/
+RUN set -eu; \
+    if [ "$RTVI_ENABLE_NATIVE_STREAMING_VLM" = "true" ]; then \
+        test "$TARGETARCH" = amd64; \
+        cp -a /tmp/native-evs-overlay/. /usr/local/lib/python3.12/dist-packages/vllm/; \
+    fi; \
+    rm -rf /tmp/native-evs-overlay
 
 # Apply compatibility patches after the overlay so overlay-owned files cannot
 # replace their patched versions. The protected serving module imports
@@ -434,7 +442,6 @@ RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     && python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_evs_protocol_patch.py \
     && python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_tensor_ipc_patch.py
 
-ARG RTVI_ENABLE_NATIVE_STREAMING_VLM=false
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     if [ "$RTVI_ENABLE_NATIVE_STREAMING_VLM" = "true" ]; then \
         python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_dlalgo_streaming_patch.py; \
