@@ -168,10 +168,8 @@ infra:
       - name: mdx-incidents
       - name: mdx-vlm-incidents
       - name: mdx-vlm-captions
-      - name: mdx-vlm
       - name: mdx-embed
       - name: mdx-embed-filtered
-      - name: vision-llm-messages
       - name: vision-llm-events-incidents
       - name: mdx-vlm-errors
   logstash:
