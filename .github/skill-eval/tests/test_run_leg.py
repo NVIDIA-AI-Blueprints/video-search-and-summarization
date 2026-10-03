@@ -37,6 +37,47 @@ import leg_timing  # noqa: E402 - must follow the sys.path insert above
 import model_config  # noqa: E402 - must follow the sys.path insert above
 
 
+class SparkReachability(unittest.TestCase):
+    def node(self, status):
+        import local_nim
+        return {"id": local_nim.SPARK_NODE_ID,
+                "name": local_nim.SPARK_NODE_NAME, "status": status}
+
+    def test_connected_worker_needs_no_fallback(self):
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Connected")]), \
+             mock.patch.object(run_leg.subprocess, "run") as probe:
+            self.assertEqual(run_leg.spark_instance(), "Spark-ba-WiFi")
+        probe.assert_not_called()
+
+    def test_disconnected_worker_with_working_ssh_is_selected(self):
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Disconnected")]), \
+             mock.patch.object(run_leg.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as probe:
+            self.assertEqual(run_leg.spark_instance(), "Spark-ba-WiFi")
+        self.assertEqual(probe.call_args.args[0][-2:], ["spark-ba-wifi", "true"])
+        self.assertEqual(probe.call_args.kwargs["timeout"], 20)
+
+    def test_failed_ssh_probe_blocks_selection(self):
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Disconnected")]), \
+             mock.patch.object(run_leg.subprocess, "run", return_value=subprocess.CompletedProcess([], 255)):
+            with self.assertRaisesRegex(ValueError, "SSH probe failed"):
+                run_leg.spark_instance()
+
+    def test_timed_out_probe_blocks_selection(self):
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Disconnected")]), \
+             mock.patch.object(run_leg.subprocess, "run", side_effect=subprocess.TimeoutExpired("ssh", 20)):
+            with self.assertRaisesRegex(ValueError, "TimeoutExpired"):
+                run_leg.spark_instance()
+
+    def test_wrong_node_identity_never_uses_ssh_fallback(self):
+        node = self.node("Disconnected")
+        node["id"] = "different-node"
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[node]), \
+             mock.patch.object(run_leg.subprocess, "run") as probe:
+            with self.assertRaisesRegex(ValueError, "different Brev node ID"):
+                run_leg.spark_instance()
+        probe.assert_not_called()
+
+
 class DiscoverInvocations(unittest.TestCase):
     def test_discover_single_step_invocation(self):
         with tempfile.TemporaryDirectory() as td:
@@ -124,7 +165,9 @@ class HarborCommand(unittest.TestCase):
         )
         self.assertIn("--include-task-name", cmd)
         self.assertEqual(cmd[cmd.index("--include-task-name") + 1], "rtxpro6000bw")
-        self.assertEqual(cmd[cmd.index("-a") + 1], "claude-code")
+        self.assertEqual(
+            cmd[cmd.index("-a") + 1], "agents.nv_claude_code:NvClaudeCode"
+        )
         self.assertEqual(cmd[cmd.index("--model") + 1], "aws/anthropic/bedrock-claude-opus-4-6")
         self.assertEqual(
             cmd[cmd.index("--ak") + 1],
@@ -149,6 +192,29 @@ class HarborCommand(unittest.TestCase):
         self.assertEqual(
             cmd[cmd.index("--verifier-timeout-multiplier") + 1],
             str(run_leg.HARBOR_VERIFIER_TIMEOUT_MULTIPLIER),
+        )
+
+    def test_local_nim_gets_cold_start_budget(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base"),
+            include_task_name="rtxpro6000bw",
+            chain_key="base_rtxpro6000bw",
+        )
+        cmd = run_leg.build_harbor_command(
+            invocation, Path("/tmp/results"), "meta/test", "http://localhost:18400/v1",
+            local_nim=True,
+        )
+        self.assertEqual(
+            cmd[cmd.index("--environment-build-timeout-multiplier") + 1],
+            str(run_leg.LOCAL_NIM_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER),
+        )
+        self.assertLess(
+            600 * run_leg.LOCAL_NIM_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
+            + run_leg.HARBOR_AGENT_SETUP_BUDGET_SEC
+            + run_leg.HARBOR_AGENT_BUDGET_SEC
+            + run_leg.HARBOR_VERIFIER_BUDGET_SEC
+            + run_leg.HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC,
+            run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
         )
 
     def test_build_command_codex_agent(self):
@@ -245,12 +311,20 @@ class PhaseBudgets(unittest.TestCase):
             + run_leg.HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC,
         )
         self.assertEqual(run_leg.MIN_HARBOR_BACKSTOP_SEC, 11880)
-        self.assertEqual(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC, 13800)
+        self.assertEqual(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC, 17400)
+        self.assertGreater(
+            run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+            600 * run_leg.LOCAL_NIM_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
+            + run_leg.HARBOR_AGENT_SETUP_BUDGET_SEC
+            + run_leg.HARBOR_AGENT_BUDGET_SEC
+            + run_leg.HARBOR_VERIFIER_BUDGET_SEC
+            + run_leg.HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC,
+        )
         self.assertEqual(run_leg.HARBOR_SIGINT_GRACE_SEC, 1380)
         self.assertEqual(run_leg.HARBOR_SHUTDOWN_GRACE_SEC, 1420)
         self.assertEqual(
             run_leg.invocation_reserve_sec(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC),
-            15280,
+            18880,
         )
         self.assertGreater(
             run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
@@ -1219,6 +1293,7 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(seen_env[0]["NEMOCLAW_PROVIDER"], "custom")
         self.assertEqual(seen_env[0]["COMPATIBLE_API_KEY"], "route-specific-key")
+        self.assertNotIn("SKILL_EVAL_LOCAL_NIM_API_KEY", seen_env[0])
         self.assertEqual(seen_env[0]["NVIDIA_API_KEY"], "runner-global-key")
 
     def test_operational_claude_uses_independent_models(self):

@@ -49,18 +49,81 @@ Manual runs configure both routes without changing the coordinator or judge:
 | Workflow input | Meaning |
 |---|---|
 | `coding_harness` | Build Vision AI/setup runtime: `claude-code` or `codex` |
-| `coding_model` | Independent coding model from [`inference.nvidia.com`](https://inference.nvidia.com/); a blank value preserves its configured default |
+| `coding_deployment` | `hosted-nvidia-inference` (default) or `local-nim` for coding/setup |
+| `coding_model` | Hosted: [Inference Hub](https://inference.nvidia.com/) model ID, such as `nvidia/nvidia/nemotron-3.5-lightning`. Local NIM: self-hosted NIM image ID from [build.nvidia.com](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b?nim=self-hosted), such as `nvidia/nemotron-3.5-lightning-30b-a3b`. A blank value uses the configured default, which must be a NIM image ID for `local-nim` |
 | `operational_harness` | Operational runtime: `claude-code`, `codex`, or `nemoclaw` |
-| `operational_model` | Independent operational model from [`inference.nvidia.com`](https://inference.nvidia.com/); a blank value preserves its configured default |
+| `operational_deployment` | Independent `hosted-nvidia-inference` (default) or `local-nim` for operational tasks |
+| `operational_model` | Same ID rules as `coding_model`, independently selected for operational tasks |
+| `spark_runner` | Run on Brev external node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`); default false |
 
-The runner owns credentials. NVIDIA inference uses the fixed public
-`https://inference.nvidia.com/` source; manual runs cannot redirect a runner
-credential to another host. A blank model preserves the configured model, and
-neither route inherits a model override from the other. For NemoClaw, the
-operational values are passed to Build Vision AI as `NEMOCLAW_MODEL` and the
-fixed `NEMOCLAW_ENDPOINT_URL`; Build Vision AI's `custom` adapter name denotes
-that OpenAI-compatible NVIDIA inference endpoint. The setup task itself uses
-the independently selected coding route.
+
+The runner owns credentials. Hosted routes use the fixed
+`https://inference-api.nvidia.com/v1` endpoint. Local routes use a temporary
+worker-local credential, never the hosted inference key. No arbitrary endpoint
+input is exposed. Coordinator and judge routing stays unchanged.
+
+### Local NIM lifecycle
+
+Select `local-nim` independently for either role. Provide a model-specific NIM
+ID (`publisher/model`, optionally prefixed by `nvidia_nim/`) and configure
+`NGC_CLI_API_KEY` or `NGC_API_KEY` on the coordinator. Proprietary hosted-only
+models cannot run locally. For Nemotron 3.5 Lightning, enter
+`nvidia/nemotron-3.5-lightning-30b-a3b`, the ID of its
+[self-hosted NIM image](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b?nim=self-hosted),
+instead of the hosted Inference Hub ID `nvidia/nvidia/nemotron-3.5-lightning`.
+The workflow validates this format before selecting a GPU worker. The worker
+authenticates to `nvcr.io`, discovers released model-specific NIM tags, selects
+the newest release with a Linux image matching the worker CPU architecture,
+and pins its digest. Qwen3-32B on ARM64
+also resolves its documented `qwen3-32b-dgx-spark` packaging variant. There is
+no fallback to a different model, a model-free container, or hosted inference.
+A missing image, incompatible architecture, registry access failure, and
+startup failure are distinct errors. This checks architecture only; it does
+not estimate GPU capacity, memory, disk, or combined VSS/inference demand.
+When set, `NGC_API_KEY` is sent over the provisioning command's stdin; it is
+not written to a worker key file or forwarded into `~/.eval_env`.
+The existing VSS deploy path still forwards `NGC_CLI_API_KEY` to the evaluated
+agent because that agent performs the VSS deployment.
+
+After the existing first-task Docker reset, the worker starts one NIM per
+unique selected local model. Identical coding and operational models share
+one container; later tasks reuse that deployment. Different models run as
+separate containers. A pinned LiteLLM adapter provides Anthropic Messages,
+OpenAI Responses, and authenticated Chat Completions for NemoClaw. NIM ports
+bind to loopback; NemoClaw reaches the adapter on the worker's private address.
+Startup and reuse smoke requests exercise each selected protocol.
+The NIM and VSS run on the same worker.
+
+Startup is bounded to 5,400 seconds within the existing environment deadline;
+cold downloads may exceed this and fail explicitly. The worker needs access
+to NGC, Docker Hub (`python:3.12-slim`), and PyPI (`litellm[proxy]==1.103.0`).
+The adapter uses authenticated port 18400 on the worker's private address.
+NIM ports 18410+ bind to loopback.
+Job-owned containers are removed when the leg ends or is cancelled. The next
+first-task Docker reset reconciles leftovers after an uncatchable SIGKILL.
+Weights persist under `~/.cache/skill-eval-nim-models/`, outside Docker volumes.
+Sanitized image/tag/digest, model, architecture, startup errors, and bounded
+container logs appear in each trial's `artifacts/local-nim` directory (under
+Harbor's collected `/logs/artifacts` tree). `model-deployments.json` records
+role choices and the actual worker at the leg results root.
+
+### Spark selection
+
+The checkbox selects the **Brev execution worker**, not the GitHub Actions
+coordinator. `run_leg.py` resolves the registered node by external node ID
+(or the supplied name on older Brev versions), then holds the existing
+per-worker lock across all tasks and NIM cleanup. Missing nodes or conflicting
+explicit instance overrides fail; no other worker is selected. If Brev reports
+the selected node disconnected, a bounded SSH probe from the coordinator must
+succeed before proceeding. This handles stale registry status without accepting
+an unreachable worker.
+The coordinator needs its Brev SSH alias configured, just as for other
+registered workers. Spark must report ARM64. Existing GPU/memory/disk guards
+are bypassed for this explicit Spark override; normal pool runs retain their
+existing VSS resource checks. The manual plan selects only declared `DGX-SPARK`
+specs and fails if none exist; `machine.txt` records the actual worker. Selecting Spark
+does not rewrite a spec's deployment instructions or guarantee that all VSS
+images in that scenario support ARM64.
 
 ### API keys (`/home/ubuntu/eval-coordinator/.env` on the runner)
 

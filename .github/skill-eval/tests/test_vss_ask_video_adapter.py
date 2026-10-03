@@ -58,6 +58,11 @@ def test_generated_tasks_use_routing_metadata_and_project_local_cli(
 
     task_files = sorted(tmp_path.rglob("task.toml"))
     assert len(task_files) == len(spec["expects"])
+    first_instruction = (
+        tmp_path / "base" / "l40s" / "step-1" / "instruction.md"
+    ).read_text()
+    assert "Use `/vss-build-vision-ai` to deploy the VSS base profile on `L40S`" in first_instruction
+    assert "{{platform}}" not in first_instruction
     for task_file in task_files:
         task = task_file.read_text()
         instruction = task_file.with_name("instruction.md").read_text()
@@ -100,6 +105,8 @@ def test_specs_cover_markdown_and_introspection_state_routing() -> None:
         "into VIOS as a sensor named warehouse_sample" in contract
     )
     assert "VSS unified memory (Elasticsearch) enabled" in contract
+    assert "Use `/vss-build-vision-ai` to deploy the VSS base profile" in contract
+    assert "--prompt 'Describe the scene.' --no-persist" in contract
 
     # Recall of what an earlier step persisted, rather than a supplied note.
     assert "answers from what VSS unified memory already holds" in contract

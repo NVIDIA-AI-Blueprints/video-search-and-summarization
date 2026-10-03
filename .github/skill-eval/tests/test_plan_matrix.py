@@ -18,6 +18,7 @@ import importlib.util
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -581,6 +582,26 @@ class EmitSlugSafety(unittest.TestCase):
         finally:
             if orig is not None:
                 os.environ["GITHUB_OUTPUT"] = orig
+
+
+class SparkDispatch(unittest.TestCase):
+    def test_spark_selection_excludes_other_hardware(self):
+        rows = [{"platform": "L40S"}, {"platform": "DGX-SPARK"}]
+        with patch.dict(os.environ, {"SKILLS_EVAL_SPARK_RUNNER": "true"}, clear=True), \
+             patch.object(plan_matrix, "list_changed_files", return_value=[]), \
+             patch.object(plan_matrix, "build_matrix", return_value=rows), \
+             patch.object(plan_matrix, "emit") as emit:
+            self.assertEqual(plan_matrix.main(), 0)
+        emit.assert_called_once_with([rows[1]])
+
+    def test_spark_selection_rejects_unsupported_specs(self):
+        with patch.dict(os.environ, {"SKILLS_EVAL_SPARK_RUNNER": "true"}, clear=True), \
+             patch.object(plan_matrix, "list_changed_files", return_value=[]), \
+             patch.object(plan_matrix, "build_matrix", return_value=[{"platform": "L40S"}]), \
+             patch.object(plan_matrix, "emit") as emit:
+            with self.assertRaisesRegex(ValueError, "no DGX-SPARK"):
+                plan_matrix.main()
+        emit.assert_not_called()
 
 
 if __name__ == "__main__":

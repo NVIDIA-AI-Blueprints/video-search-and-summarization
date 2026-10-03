@@ -12,11 +12,10 @@ attestation allowlist forbids it), so it inherits the base image's config -- and
 every ARG the custom Dockerfile does not declare is dropped by a regex
 `String.replace` that matches nothing and reports nothing.
 
-The user-visible bug that comes from that silence is the model: the sandbox keeps
-the base image's model, context window and max tokens, so the agent caps output
-and compacts against the wrong model's limits. This script closes it -- the
-Dockerfile declares the ARGs, and this applies them to the inherited config at
-build, before the config hash is recomputed.
+The user-visible bug that comes from that silence is the model and endpoint:
+the sandbox keeps the base image's model, limits, and inference URL. This script
+applies the session's ARGs to the inherited config at build, before the config
+hash is recomputed.
 
 controlUi.allowedOrigins is always a wildcard: the gateway binds loopback, the
 gates are the token and (for a loopback UI host) device auth rather than the
@@ -68,6 +67,21 @@ def apply(config: str | None = None, env: dict | None = None) -> list[str]:
     with open(config) as handle:
         cfg = json.load(handle)
     changes: list[str] = []
+
+    endpoint = (env.get("NEMOCLAW_INFERENCE_BASE_URL") or "").strip()
+    parsed_endpoint = urlparse(endpoint)
+    if (
+        parsed_endpoint.scheme in ("http", "https")
+        and parsed_endpoint.hostname
+        and not parsed_endpoint.username
+        and not parsed_endpoint.password
+        and not parsed_endpoint.query
+        and not parsed_endpoint.fragment
+    ):
+        inference = cfg.setdefault("models", {}).setdefault("providers", {}).setdefault("inference", {})
+        if inference.get("baseUrl") != endpoint:
+            inference["baseUrl"] = endpoint
+            changes.append("inference.baseUrl -> onboard endpoint")
 
     # --- model identity: onboard supplies the session's model -----------------
     model = (env.get("NEMOCLAW_PRIMARY_MODEL_REF") or env.get("NEMOCLAW_MODEL") or "").strip()

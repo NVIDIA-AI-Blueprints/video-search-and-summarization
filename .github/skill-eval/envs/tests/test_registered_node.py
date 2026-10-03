@@ -14,6 +14,7 @@ Or directly:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -44,6 +45,35 @@ ENVS_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENVS_DIR))
 
 import brev_env  # noqa: E402
+
+
+class LocalNimCredentialDelivery(unittest.IsolatedAsyncioTestCase):
+    async def test_ngc_key_is_sent_on_stdin_without_worker_key_file(self):
+        env = brev_env.BrevEnvironment()
+        env._instance_name = "SPARK"
+        owner = "a" * 24
+        plan = {"owner": owner, "token": "leg-token", "routes": []}
+        uploads = []
+        calls = []
+
+        async def upload(source, target):
+            uploads.append(target)
+
+        async def execute(instance, command, timeout=0, input_data=None):
+            calls.append((command, input_data))
+            return brev_env.ExecResult(return_code=0)
+
+        with mock.patch.dict(os.environ, {
+            "SKILL_EVAL_LOCAL_NIM_PLAN": json.dumps(plan),
+            "NGC_API_KEY": "private-registry-key",
+        }), mock.patch.object(env, "upload_file", side_effect=upload), \
+             mock.patch.object(brev_env, "_run_brev_exec", side_effect=execute):
+            await env._start_local_nims()
+
+        self.assertEqual(len(uploads), 2)
+        self.assertFalse(any(path.endswith(".key") for path in uploads))
+        self.assertEqual(calls[0][1], b"private-registry-key\n")
+        self.assertNotIn("private-registry-key", calls[0][0])
 
 
 class RtspSampleUrlResolution(unittest.TestCase):
@@ -271,3 +301,52 @@ class ClaudeTaskScratchCleanup(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class LocalNimStartupOrder(unittest.IsolatedAsyncioTestCase):
+    async def test_spark_starts_nim_after_reset_without_capacity_checks(self):
+        events = []
+
+        async def record_reset():
+            events.append("reset")
+
+        async def record_nim():
+            events.append("nim")
+
+        async def execute(instance, command, **kwargs):
+            return brev_env.ExecResult(
+                stdout="aarch64" if command == "uname -m" else "harbor-ready",
+                return_code=0,
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            env = brev_env.BrevEnvironment()
+            env.environment_dir = Path(directory) / "step-1" / "environment"
+            env.environment_dir.mkdir(parents=True)
+            with (
+                mock.patch.dict(os.environ, {
+                    "SKILLS_EVAL_SPARK_RUNNER": "true",
+                    "SKILL_EVAL_LOCAL_NIM_PLAN": "{}",
+                    "SKILL_EVAL_PRESERVE_DEPLOYMENT": "0",
+                }),
+                mock.patch.object(env, "_read_task_metadata", return_value={}),
+                mock.patch.object(env, "_resolve_instance_name", return_value="Spark-ba-WiFi"),
+                mock.patch.object(brev_env, "_find_brev_instance", new=mock.AsyncMock(return_value={"_registered": True})),
+                mock.patch.object(brev_env, "_check_instance_matches", new=mock.AsyncMock()) as matches,
+                mock.patch.object(brev_env, "_check_live_resources", new=mock.AsyncMock()) as resources,
+                mock.patch.object(brev_env, "_run_brev_exec", side_effect=execute),
+                mock.patch.object(env, "_reset_docker_runtime", side_effect=record_reset),
+                mock.patch.object(env, "_purge_host_data_dirs", new=mock.AsyncMock()),
+                mock.patch.object(env, "_probe_bind_mount", new=mock.AsyncMock()),
+                mock.patch.object(env, "_sync_repo_to_pr_head", new=mock.AsyncMock()),
+                mock.patch.object(env, "_start_local_nims", side_effect=record_nim),
+            ):
+                await env.start(False)
+                matches.assert_not_called()
+                resources.assert_not_called()
+                self.assertEqual(events, ["reset", "nim"])
+                self.assertTrue(env._started)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -193,7 +193,8 @@ class BrevEnvironment(BaseEnvironment):
                     f"Brev instance '{self._instance_name}' not found "
                     f"(is it deleted? wrong org?)"
                 )
-            await _check_instance_matches(instance, requirements)
+            if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") != "true":
+                await _check_instance_matches(instance, requirements)
         else:
             raise RuntimeError(
                 "No BREV_INSTANCE set and no `brev_instance` in task.toml "
@@ -226,7 +227,12 @@ class BrevEnvironment(BaseEnvironment):
         # the checks catch silent regressions (e.g. a driver downgrade or
         # a box where the big volume mounts on /ephemeral and / is only
         # ~100 GB — which OOMs on local NIM pulls).
-        await _check_live_resources(self._instance_name, requirements)
+        if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
+            result = await _run_brev_exec(self._instance_name, "uname -m", timeout=30)
+            if result.return_code or (result.stdout or "").strip() not in {"aarch64", "arm64"}:
+                raise RuntimeError("Selected Spark worker must have arm64 architecture")
+        else:
+            await _check_live_resources(self._instance_name, requirements)
 
         preserve_deployment = (
             os.environ.get("SKILL_EVAL_PRESERVE_DEPLOYMENT") == "1"
@@ -401,6 +407,8 @@ class BrevEnvironment(BaseEnvironment):
             "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_POLICY_MODE",
             "NEMOCLAW_PROVIDER", "NEMOCLAW_ENDPOINT_URL",
             "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
+            "SKILL_EVAL_LOCAL_NIM_API_KEY",
+            "NEMOCLAW_INFERENCE_PROXY",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
             # and resets $REPO to that SHA. Without them, the adapter's
@@ -559,8 +567,44 @@ class BrevEnvironment(BaseEnvironment):
         # env provider. The previous `_ensure_prerequisite_deployed`
         # hook + `/tmp/skill-eval/active-deploy.txt` marker are gone.
 
+        if os.environ.get("SKILL_EVAL_LOCAL_NIM_PLAN"):
+            await self._start_local_nims()
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
+
+    async def _start_local_nims(self) -> None:
+        """Start after Docker reset; reuse the same services across role changes."""
+        plan = json.loads(os.environ["SKILL_EVAL_LOCAL_NIM_PLAN"])
+        # Validate the owner without creating coordinator-side directories.
+        import re
+        if not re.fullmatch(r"[a-f0-9]{24}", plan["owner"]):
+            raise ValueError("Invalid local NIM owner")
+        remote = f"/tmp/skill-eval-nim-{plan['owner']}"
+        await self.upload_file(Path(__file__).resolve().parents[1] / "local_nim.py", remote + ".py")
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory) / "plan.json"
+            local.write_text(json.dumps(plan))
+            local.chmod(0o600)
+            await self.upload_file(local, remote + ".json")
+        # Send NGC_API_KEY on command stdin. A staged worker file could
+        # survive if the coordinator died before the startup shell ran.
+        ngc_key = os.environ.get("NGC_API_KEY")
+        if ngc_key and ("\n" in ngc_key or "\r" in ngc_key):
+            raise ValueError("NGC_API_KEY must be a single line")
+        key_setup = (
+            'IFS= read -r NGC_API_KEY && test -n "$NGC_API_KEY" && '
+            'export NGC_API_KEY && '
+            if ngc_key else ""
+        )
+        result = await _run_brev_exec(
+            self._instance_name,
+            f"{key_setup}chmod 600 {remote}.json && "
+            f"python3 {remote}.py start --plan {remote}.json",
+            timeout=5500,
+            input_data=(ngc_key + "\n").encode() if ngc_key else None,
+        )
+        if result.return_code:
+            raise RuntimeError(f"Local NIM deployment failed: {(result.stderr or result.stdout or '')[-2000:]}")
 
     async def _reset_docker_runtime(self) -> None:
         """Wipe the warm-pool box's docker runtime before the trial.
@@ -1734,6 +1778,7 @@ async def _run_ssh_exec(
     alias: str,
     command: str,
     timeout: int = BREV_EXEC_TIMEOUT,
+    input_data: bytes | None = None,
 ) -> ExecResult:
     """Run `ssh <alias> <command>` — for registered nodes."""
     cmd = [
@@ -1756,7 +1801,7 @@ async def _run_ssh_exec(
     try:
         stdout, stderr = await _communicate_with_cancellation_cleanup(
             proc,
-            input_data=b"",
+            input_data=input_data if input_data is not None else b"",
             timeout=timeout,
         )
     except asyncio.TimeoutError:
@@ -1823,6 +1868,7 @@ async def _run_brev_exec(
     instance: str,
     command: str,
     timeout: int = BREV_EXEC_TIMEOUT,
+    input_data: bytes | None = None,
 ) -> ExecResult:
     """Run ``brev exec <instance> <command>`` and return result.
 
@@ -1830,15 +1876,17 @@ async def _run_brev_exec(
     falls back to direct ``ssh <alias>`` since brev exec can't reach them.
 
     Uses ``bash -c`` wrapping via a shell so that ``brev exec`` receives
-    a single command string.  Stdin is piped with empty input so the
-    brev CLI doesn't enter interactive mode.
+    a single command string. Stdin is piped explicitly so the brev CLI
+    doesn't enter interactive mode.
     """
     if await _is_registered_node(instance):
         # ssh command-execs run NON-LOGIN shells: ~/.profile (and thus the
         # forwarded ~/.eval_env) is never sourced, silently dropping
         # PR_HEAD_SHA/NGC keys/etc from every exec. Source it inline.
         command = f". ~/.eval_env 2>/dev/null || true; {command}"
-        return await _run_ssh_exec(_ssh_alias_for(instance), command, timeout)
+        return await _run_ssh_exec(
+            _ssh_alias_for(instance), command, timeout, input_data=input_data,
+        )
     # brev exec also spawns a NON-LOGIN shell — ~/.profile is never sourced,
     # so the forwarded env vars in ~/.eval_env (PR_HEAD_SHA, NGC keys, etc.)
     # are invisible to every command. Source it inline, same as SSH nodes.
@@ -1859,7 +1907,7 @@ async def _run_brev_exec(
     try:
         stdout, stderr = await _communicate_with_cancellation_cleanup(
             proc,
-            input_data=b"\n",
+            input_data=input_data if input_data is not None else b"\n",
             timeout=timeout,
         )
     except asyncio.TimeoutError:

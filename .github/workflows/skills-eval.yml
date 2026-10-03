@@ -46,8 +46,13 @@ on:
         options:
           - claude-code
           - codex
+      coding_deployment:
+        description: "CODING · Hosted NVIDIA Inference or a local NIM deployment."
+        type: choice
+        default: hosted-nvidia-inference
+        options: [hosted-nvidia-inference, local-nim]
       coding_model:
-        description: "CODING · Model ID from https://inference.nvidia.com/ (for example, azure/openai/gpt-6-astra). Blank preserves the configured default."
+        description: "CODING · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning). Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Blank uses the configured default."
         required: false
         default: ""
         type: string
@@ -60,11 +65,20 @@ on:
           - claude-code
           - codex
           - nemoclaw
+      operational_deployment:
+        description: "OPERATIONAL · Hosted NVIDIA Inference or a local NIM deployment."
+        type: choice
+        default: hosted-nvidia-inference
+        options: [hosted-nvidia-inference, local-nim]
       operational_model:
-        description: "OPERATIONAL · Model ID from https://inference.nvidia.com/ (for example, azure/openai/gpt-6-astra). Blank preserves the configured default."
+        description: "OPERATIONAL · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning). Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Blank uses the configured default."
         required: false
         default: ""
         type: string
+      spark_runner:
+        description: "Run on the registered Brev Spark-ba-WiFi worker."
+        type: boolean
+        default: false
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment + git push of the adapter commit to the contributor's branch).
@@ -167,6 +181,7 @@ jobs:
           # the old behavior — never blank, which would fall through to the
           # diff path and silently produce an empty matrix.
           MANUAL_SKILLS_FILTER: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
+          SKILLS_EVAL_SPARK_RUNNER: ${{ inputs.spark_runner && 'true' || 'false' }}
         run: python3 .github/skill-eval/plan_matrix.py
 
   # ---------------------------------------------------------------------
@@ -239,6 +254,9 @@ jobs:
           CODEX_MODEL: ${{ vars.CODEX_MODEL }}
           EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
           CODING_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_harness || 'claude-code' }}
+          CODING_DEPLOYMENT_INPUT: ${{ inputs.coding_deployment || 'hosted-nvidia-inference' }}
+          OPERATIONAL_DEPLOYMENT_INPUT: ${{ inputs.operational_deployment || 'hosted-nvidia-inference' }}
+          SPARK_RUNNER_INPUT: ${{ inputs.spark_runner && 'true' || 'false' }}
           CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || '' }}
           OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
           OPERATIONAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_model || '' }}
@@ -263,6 +281,9 @@ jobs:
           mkdir -p "$GH_CONFIG_DIR"
           skill_eval_venv_dir="$SKILL_EVAL_VENV"
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
+          coding_deployment="$CODING_DEPLOYMENT_INPUT"
+          operational_deployment="$OPERATIONAL_DEPLOYMENT_INPUT"
+          spark_runner="$SPARK_RUNNER_INPUT"
           coding_harness="$CODING_HARNESS_INPUT"
           coding_model="$CODING_MODEL_INPUT"
           operational_harness="$OPERATIONAL_HARNESS_INPUT"
@@ -277,6 +298,9 @@ jobs:
           export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
           export VIRTUAL_ENV="$skill_eval_venv_dir"
           export PATH="$skill_eval_venv_dir/bin:$PATH"
+          export SKILLS_EVAL_CODING_DEPLOYMENT="$coding_deployment"
+          export SKILLS_EVAL_OPERATIONAL_DEPLOYMENT="$operational_deployment"
+          export SKILLS_EVAL_SPARK_RUNNER="$spark_runner"
           export EVAL_AGENT="$operational_harness"
           export SKILLS_EVAL_CODING_HARNESS="$coding_harness"
           if [ -n "$coding_model" ]; then
