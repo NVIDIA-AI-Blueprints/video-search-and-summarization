@@ -313,7 +313,7 @@ def add_sensor(sensor_info: Sensor, delay=30, timeout=None):
         try:
             logger.debug(f"Sending POST request to add sensor: {sensor_data['name']}")
             response = requests.post(CONFIG['VST_CAMERA_ADD_ENDPOINT'], json=sensor_data, headers=headers, timeout=timeout)
-            if response is not None and response.status_code == 200:
+            if response.status_code == 200:
                 logger.info(f"Successfully added sensor: {sensor_data['name']}")
                 logger.debug(f"VMS response: {response.text}")
                 return
@@ -326,9 +326,9 @@ def add_sensor(sensor_info: Sensor, delay=30, timeout=None):
             if _sensor_already_registered(response, error_message):
                 logger.info(f"Sensor {sensor_data['name']} already registered with VMS: {error_message}")
                 return
-            status_code = response.status_code if response is not None else "no response"
+            status_code = response.status_code
             logger.warning(f"Error adding sensor {sensor_data['name']}. Received status code {status_code} from VMS. Retrying in {delay} seconds...")
-            logger.debug(f"VMS error response: {response.text if response is not None else 'No response'}")
+            logger.debug(f"VMS error response: {response.text}")
             time.sleep(delay)
         except requests.exceptions.Timeout as e:
             logger.warning(
@@ -775,85 +775,155 @@ def _nvstreamer_stream_list_is_complete(current_count, last_count, expected_coun
     return last_count is not None and last_count == current_count
 
 
+def _read_nvstreamer_stream_page():
+    """Poll the streams endpoint once.
+
+    Returns (kind, json_vals, current_count). kind is transport_error,
+    http_error, parse_error, empty, or ok. The payload is set only for ok.
+    """
+    endpoint = CONFIG['NVSTREAMER_STREAMS_ENDPOINT']
+    poll_interval = NVSTREAMER_STREAMS_POLL_INTERVAL_SEC
+    logger.info("Checking Nvstreamer streams endpoint to see if it's ready")
+    try:
+        resp = requests.get(endpoint)
+    except Exception as e:
+        logger.warning(f"Error while checking Nvstreamer streams endpoint, retrying in {poll_interval} seconds")
+        logger.debug(f"Exception details: {repr(e)}")
+        return "transport_error", None, None
+
+    if not resp.status_code == 200:
+        logger.info(
+            f"Getting status code {resp.status_code} from Nvstreamer streams endpoint "
+            f"{endpoint} - retrying in {poll_interval} seconds"
+        )
+        return "http_error", None, None
+
+    try:
+        json_vals = resp.json()
+        current_count = len(json_vals) if json_vals else 0
+        if current_count == 0:
+            logger.info(
+                f"Nvstreamer streams endpoint returned empty response - retrying in {poll_interval} seconds"
+            )
+            return "empty", None, None
+    except Exception as e:
+        logger.info(
+            f"Failed to parse Nvstreamer response as JSON - retrying in {poll_interval} seconds. "
+            f"Exception: {repr(e)}"
+        )
+        return "parse_error", None, None
+
+    logger.info(
+        f"Getting status code {resp.status_code} from Nvstreamer streams endpoint "
+        f"{endpoint} with valid response"
+    )
+    logger.info(f"Successfully parsed Nvstreamer streams endpoint response: {json_vals}")
+    return "ok", json_vals, current_count
+
+
+def _nvstreamer_partial_wait(
+    partial_wait_started_at,
+    timeout,
+    expected_count,
+    current_count,
+    poll_interval,
+):
+    """Advance the partial-list timer. Returns (started_at, timed_out, retry_in)."""
+    now = time.time()
+    if partial_wait_started_at is None:
+        partial_wait_started_at = now
+    partial_elapsed = now - partial_wait_started_at
+    if partial_elapsed >= timeout:
+        expected_note = f", expected {expected_count}" if expected_count else ""
+        logger.warning(
+            f"Nvstreamer reported {current_count} stream(s) for {partial_elapsed:.1f}s "
+            f"(NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT {timeout}s{expected_note}); "
+            "proceeding with the list collected so far"
+        )
+        return partial_wait_started_at, True, None
+    retry_in = min(poll_interval, max(0.0, timeout - partial_elapsed))
+    if expected_count > 0:
+        logger.info(
+            f"Nvstreamer reported {current_count} stream(s), waiting for expected {expected_count} "
+            f"- retrying in {retry_in} seconds (timeout {timeout}s)"
+        )
+    else:
+        logger.info(
+            f"Nvstreamer reported {current_count} stream(s); waiting for the list to stabilize "
+            f"- retrying in {retry_in} seconds (timeout {timeout}s)"
+        )
+    return partial_wait_started_at, False, retry_in
+
+
+def _nvstreamer_event(curr_data):
+    return {
+        "source": "preload",
+        "event": {
+            # Quick fix till the time nvstreamer generates a correct unique id.
+            "camera_id": curr_data["name"],
+            "camera_name": curr_data["name"],
+            "camera_url": curr_data["url"],
+            "change": "camera_streaming",
+            "metadata": curr_data["metadata"],
+        },
+    }
+
+
+def _append_main_stream(nvstreamer_streams, value):
+    if len(value) < 1:
+        return
+    curr_data = value[0]
+    if not curr_data["isMain"]:
+        return
+    if not nvstreamer_stream_is_valid(curr_data["name"]):
+        logger.info(f"Stream {curr_data['name']} is not online - skipping add")
+        return
+    logger.info(f"Stream {curr_data['name']} is online - adding")
+    nvstreamer_streams.append(_nvstreamer_event(curr_data))
+
+
+def _events_from_nvstreamer_payload(json_vals):
+    nvstreamer_streams = []
+    for stream in json_vals:
+        for _key, value in stream.items():
+            _append_main_stream(nvstreamer_streams, value)
+    return nvstreamer_streams
+
+
 def fetch_all_streams_from_nvstreamer():
-    api_up = False
     timeout = CONFIG['NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT']
     expected_count = CONFIG.get('NUM_STREAMS', 0) or 0
     last_count = None
     json_vals = []
     poll_interval = NVSTREAMER_STREAMS_POLL_INTERVAL_SEC
     partial_wait_started_at = None
+    api_up = False
 
     while not api_up:
-        try:
-            logger.info("Checking Nvstreamer streams endpoint to see if it's ready")
-            resp = requests.get(CONFIG['NVSTREAMER_STREAMS_ENDPOINT'])
-        except Exception as e:
-            logger.warning(f"Error while checking Nvstreamer streams endpoint, retrying in {poll_interval} seconds")
-            logger.debug(f"Exception details: {repr(e)}")
+        kind, page, current_count = _read_nvstreamer_stream_page()
+        if kind in ("transport_error", "http_error", "parse_error"):
+            time.sleep(poll_interval)
+            continue
+        if kind == "empty":
+            last_count = None
+            partial_wait_started_at = None
             time.sleep(poll_interval)
             continue
 
-        if not resp.status_code == 200:
-            logger.info(
-                f"Getting status code {resp.status_code} from Nvstreamer streams endpoint "
-                f"{CONFIG['NVSTREAMER_STREAMS_ENDPOINT']} - retrying in {poll_interval} seconds"
-            )
-            time.sleep(poll_interval)
-            continue
-
-        try:
-            json_vals = resp.json()
-            current_count = len(json_vals) if json_vals else 0
-            if current_count == 0:
-                logger.info(
-                    f"Nvstreamer streams endpoint returned empty response - retrying in {poll_interval} seconds"
-                )
-                last_count = None
-                partial_wait_started_at = None
-                time.sleep(poll_interval)
-                continue
-        except Exception as e:
-            logger.info(
-                f"Failed to parse Nvstreamer response as JSON - retrying in {poll_interval} seconds. "
-                f"Exception: {repr(e)}"
-            )
-            time.sleep(poll_interval)
-            continue
-
-        logger.info(
-            f"Getting status code {resp.status_code} from Nvstreamer streams endpoint "
-            f"{CONFIG['NVSTREAMER_STREAMS_ENDPOINT']} with valid response"
-        )
-        logger.info(f"Successfully parsed Nvstreamer streams endpoint response: {json_vals}")
-
+        json_vals = page
         if _nvstreamer_stream_list_is_complete(current_count, last_count, expected_count):
             api_up = True
             break
 
-        now = time.time()
-        if partial_wait_started_at is None:
-            partial_wait_started_at = now
-        partial_elapsed = now - partial_wait_started_at
-        if partial_elapsed >= timeout:
-            expected_note = f", expected {expected_count}" if expected_count else ""
-            logger.warning(
-                f"Nvstreamer reported {current_count} stream(s) for {partial_elapsed:.1f}s "
-                f"(NVSTREAMER_STREAMS_ENDPOINT_TIMEOUT {timeout}s{expected_note}); "
-                "proceeding with the list collected so far"
-            )
+        partial_wait_started_at, timed_out, retry_in = _nvstreamer_partial_wait(
+            partial_wait_started_at,
+            timeout,
+            expected_count,
+            current_count,
+            poll_interval,
+        )
+        if timed_out:
             break
-        retry_in = min(poll_interval, max(0.0, timeout - partial_elapsed))
-        if expected_count > 0:
-            logger.info(
-                f"Nvstreamer reported {current_count} stream(s), waiting for expected {expected_count} "
-                f"- retrying in {retry_in} seconds (timeout {timeout}s)"
-            )
-        else:
-            logger.info(
-                f"Nvstreamer reported {current_count} stream(s); waiting for the list to stabilize "
-                f"- retrying in {retry_in} seconds (timeout {timeout}s)"
-            )
         last_count = current_count
         time.sleep(retry_in)
 
@@ -863,32 +933,7 @@ def fetch_all_streams_from_nvstreamer():
             "cameras may be missing from VST"
         )
 
-    nvstreamer_streams = []
-    for stream in json_vals:
-        for key, value in stream.items():
-            if len(value) < 1:
-                continue
-            curr_data = value[0]
-            if curr_data["isMain"]:
-                curr_dict = {}
-                curr_dict["source"] = "preload"
-                curr_dict["event"] = {}
-                # curr_dict["event"]["camera_id"] = curr_data["streamId"]
-                curr_dict["event"]["camera_id"] = curr_data["name"] # Quick fix till the time nvstreamer generates correct unique id
-                curr_dict["event"]["camera_name"] = curr_data["name"]
-                curr_dict["event"]["camera_url"] = curr_data["url"]
-                curr_dict["event"]["change"] = "camera_streaming"
-                curr_dict["event"]["metadata"] = curr_data["metadata"]
-                
-                if not nvstreamer_stream_is_valid(curr_data["name"]):
-                    logger.info(f"Stream {curr_data['name']} is not online - skipping add")
-                    continue
-                else:
-                    logger.info(f"Stream {curr_data['name']} is online - adding")
-            
-                nvstreamer_streams.append(curr_dict)
-
-    return nvstreamer_streams
+    return _events_from_nvstreamer_payload(json_vals)
 
 def get_sensor_mapping_from_nvstreamer():
     logger.info("Prefetching stream info from Nvstreamer")
