@@ -9,6 +9,7 @@ import {
   AgentApiSseParser,
   type AgentApiChatEvent,
   type AgentApiRun,
+  GATEWAY_UNREACHABLE,
 } from './agentApi';
 import { SseParser, type InteractionRequest, type SseEvent } from './sse';
 import type {
@@ -21,6 +22,33 @@ import type {
 
 let seq = 0;
 export const nextId = (): string => `m${Date.now().toString(36)}-${seq++}`;
+
+/** Delay before the one retry of a turn whose backend was unreachable. */
+export const AGENT_RETRY_DELAY_MS = 2_000;
+
+const gatewayUnreachable = async (response: Response): Promise<boolean> => {
+  if (response.status !== 503) return false;
+  try {
+    const body = (await response.json()) as { error?: { code?: unknown } };
+    return body.error?.code === GATEWAY_UNREACHABLE;
+  } catch {
+    return false;
+  }
+};
+
+const retryDelay = (signal: AbortSignal): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', abort);
+      resolve();
+    }, AGENT_RETRY_DELAY_MS);
+    if (signal.aborted) abort();
+    else signal.addEventListener('abort', abort, { once: true });
+  });
 
 export interface SendOptions {
   /** Drop this many trailing messages first — regenerate (1) and edit (n). */
@@ -194,6 +222,7 @@ export function useChatStream(
 
       let answer = '';
       let failed = '';
+      let retrySafe = false;
       let agentTerminal = false;
       const artifactEnvelopes: string[] = [];
       const steps: ChatStep[] = [];
@@ -232,6 +261,7 @@ export function useChatStream(
             }
           } else if (ev.kind === 'error') {
             failed = ev.message;
+            retrySafe = 'retrySafe' in ev && ev.retrySafe === true;
           } else {
             agentTerminal = true;
             patchReply((m) => ({ ...m, streaming: false, steps: settleSteps('complete') }));
@@ -244,76 +274,103 @@ export function useChatStream(
           const agentEndpoint = endpointRef.current;
           const baseUrl = agentEndpoint.url.replace(/\/$/, '');
           const threadId = agentEndpoint.conversationId;
-          const createResponse = await fetch(`${baseUrl}/runs`, {
-            method: 'POST',
-            signal: controller.signal,
-            headers: {
-              'Content-Type': 'application/json',
-              'Idempotency-Key': userMsg.id,
-              ...(agentEndpoint.headers ?? {}),
-            },
-            body: JSON.stringify({
-              thread_id: threadId,
-              input: [{ role: 'user', content: trimmed }],
-              history: chatHistory ? history : [],
-              surface: agentEndpoint.surface ?? 'vss-ui',
-              metadata: {
-                ...(agentEndpoint.extraParams ?? {}),
-                ...(params ?? {}),
+          // One retry when the backend was unreachable before the run reached
+          // the agent: nothing ran, so the turn cannot execute twice.
+          for (let attempt = 0; ; attempt += 1) {
+            const createResponse = await fetch(`${baseUrl}/runs`, {
+              method: 'POST',
+              signal: controller.signal,
+              headers: {
+                'Content-Type': 'application/json',
+                'Idempotency-Key': attempt ? `${userMsg.id}-retry` : userMsg.id,
+                ...(agentEndpoint.headers ?? {}),
               },
-            }),
-          });
-          if (!createResponse.ok) {
-            throw new Error(`agent API returned HTTP ${createResponse.status}`);
-          }
-          const run = (await createResponse.json()) as Partial<AgentApiRun>;
-          if (
-            typeof run.run_id !== 'string' ||
-            typeof run.events_url !== 'string' ||
-            typeof run.cancel_url !== 'string'
-          ) {
-            throw new Error('agent API returned an invalid run');
-          }
-          cancelUrlRef.current = run.cancel_url;
-          cancelHeadersRef.current = agentEndpoint.headers;
-
-          const eventsResponse = await fetch(run.events_url, {
-            signal: controller.signal,
-            headers: {
-              Accept: 'text/event-stream',
-              ...(agentEndpoint.headers ?? {}),
-            },
-          });
-          if (!eventsResponse.ok) {
-            throw new Error(`agent API returned HTTP ${eventsResponse.status}`);
-          }
-          if (!eventsResponse.body) throw new Error('agent API returned no event stream');
-
-          const reader = eventsResponse.body.getReader();
-          const decoder = new TextDecoder();
-          const parser = new AgentApiSseParser();
-          const agentState = createAgentApiChatState();
-          const mapEvents = (events: ReturnType<AgentApiSseParser['feed']>) =>
-            events.flatMap((event) => {
-              assertAgentApiEventScope(event, run.run_id!, threadId);
-              return agentApiEventToChatEvents(event, agentState, agentEndpoint.mediaProxyUrl);
+              body: JSON.stringify({
+                thread_id: threadId,
+                input: [{ role: 'user', content: trimmed }],
+                history: chatHistory ? history : [],
+                surface: agentEndpoint.surface ?? 'vss-ui',
+                metadata: {
+                  ...(agentEndpoint.extraParams ?? {}),
+                  ...(params ?? {}),
+                },
+              }),
             });
-          try {
-            for (;;) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              await consume(mapEvents(parser.feed(decoder.decode(value, { stream: true }))));
+            if (!createResponse.ok) {
+              if (attempt === 0 && (await gatewayUnreachable(createResponse))) {
+                await retryDelay(controller.signal);
+                continue;
+              }
+              throw new Error(`agent API returned HTTP ${createResponse.status}`);
             }
-            const trailing = [...parser.feed(decoder.decode()), ...parser.finish()];
-            await consume(mapEvents(trailing));
-          } finally {
-            reader.releaseLock();
+            const run = (await createResponse.json()) as Partial<AgentApiRun>;
+            if (
+              typeof run.run_id !== 'string' ||
+              typeof run.events_url !== 'string' ||
+              typeof run.cancel_url !== 'string'
+            ) {
+              throw new Error('agent API returned an invalid run');
+            }
+            cancelUrlRef.current = run.cancel_url;
+            cancelHeadersRef.current = agentEndpoint.headers;
+
+            const eventsResponse = await fetch(run.events_url, {
+              signal: controller.signal,
+              headers: {
+                Accept: 'text/event-stream',
+                ...(agentEndpoint.headers ?? {}),
+              },
+            });
+            if (!eventsResponse.ok) {
+              throw new Error(`agent API returned HTTP ${eventsResponse.status}`);
+            }
+            if (!eventsResponse.body) throw new Error('agent API returned no event stream');
+
+            const reader = eventsResponse.body.getReader();
+            const decoder = new TextDecoder();
+            const parser = new AgentApiSseParser();
+            const agentState = createAgentApiChatState();
+            const mapEvents = (events: ReturnType<AgentApiSseParser['feed']>) =>
+              events.flatMap((event) => {
+                assertAgentApiEventScope(event, run.run_id!, threadId);
+                return agentApiEventToChatEvents(event, agentState, agentEndpoint.mediaProxyUrl);
+              });
+            try {
+              for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                await consume(mapEvents(parser.feed(decoder.decode(value, { stream: true }))));
+              }
+              const trailing = [...parser.feed(decoder.decode()), ...parser.finish()];
+              await consume(mapEvents(trailing));
+            } finally {
+              reader.releaseLock();
+            }
+            if (!agentTerminal) {
+              throw new Error('agent API event stream ended before the run completed');
+            }
+            cancelUrlRef.current = null;
+            cancelHeadersRef.current = undefined;
+            // The adapter's own run-status row is the only step a run shows
+            // before the agent does anything.
+            if (
+              attempt === 0 &&
+              failed &&
+              retrySafe &&
+              !answer &&
+              !artifactEnvelopes.length &&
+              steps.every((step) => step.id.startsWith('run-status-'))
+            ) {
+              failed = '';
+              retrySafe = false;
+              agentTerminal = false;
+              steps.length = 0;
+              patchReply((m) => ({ ...m, streaming: true, steps: [] }));
+              await retryDelay(controller.signal);
+              continue;
+            }
+            break;
           }
-          if (!agentTerminal) {
-            throw new Error('agent API event stream ended before the run completed');
-          }
-          cancelUrlRef.current = null;
-          cancelHeadersRef.current = undefined;
         } else {
           const response = await fetch(endpointRef.current.url, {
             method: 'POST',

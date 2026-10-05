@@ -19,6 +19,12 @@ export interface AgentApiEvent {
   data: JsonObject;
 }
 
+/**
+ * Error code for a backend the adapter could not connect to. The adapter only
+ * raises it before a run reaches the agent, so a retry cannot repeat any work.
+ */
+export const GATEWAY_UNREACHABLE = 'backend_unreachable';
+
 export interface AgentApiRun {
   run_id: string;
   events_url: string;
@@ -29,7 +35,8 @@ export type AgentApiChatEvent =
   | { kind: 'token'; text: string }
   | { kind: 'step'; step: ChatStep }
   | { kind: 'artifact'; envelope: string }
-  | { kind: 'error'; message: string }
+  /** `retrySafe`: the backend was unreachable before the run reached the agent. */
+  | { kind: 'error'; message: string; retrySafe?: boolean }
   | { kind: 'done' };
 
 export interface AgentApiChatState {
@@ -259,12 +266,13 @@ export function agentApiEventToChatEvents(
   }
   if (event.type === 'run.failed') {
     const error = data.error;
-    const message =
-      error && typeof error === 'object' && !Array.isArray(error) ? asString((error as JsonObject).message) : undefined;
+    const fields = error && typeof error === 'object' && !Array.isArray(error) ? (error as JsonObject) : undefined;
+    const message = fields ? asString(fields.message) : undefined;
     return [
       {
         kind: 'error',
         message: message ?? 'The agent backend could not complete this request.',
+        ...(fields?.code === GATEWAY_UNREACHABLE ? { retrySafe: true } : {}),
       },
       { kind: 'done' },
     ];
