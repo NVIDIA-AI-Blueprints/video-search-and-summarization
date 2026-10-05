@@ -1787,7 +1787,7 @@ THE SOFTWARE.
 
 ---
 
-## kafka-python:2.3.0
+## kafka-python:2.3.2
 
 **License Type:** Apache-2.0
 
