@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.15.4
+    environment:
+      MTX_RTSPTRANSPORTS: tcp
+    ports:
+      - "${RTSP_PORT:-18554}:8554"
+  publisher:
+    image: jrottenberg/ffmpeg:7.1-alpine
+    depends_on:
+      - mediamtx
+    restart: on-failure
+    volumes:
+      - ${TEST_VIDEO:?Set absolute TEST_VIDEO in .env}:/input.mp4:ro
+    command: ["-re", "-stream_loop", "-1", "-i", "/input.mp4", "-an", "-c:v", "copy", "-f", "rtsp", "-rtsp_transport", "tcp", "rtsp://mediamtx:8554/smoke"]

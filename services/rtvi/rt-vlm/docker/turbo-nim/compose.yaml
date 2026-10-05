@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+services:
+  nim:
+    image: ${NIM_IMAGE:?Set NIM_IMAGE in .env}
+    gpus: all
+    ipc: host
+    ports:
+      - "${NIM_BIND_ADDRESS:-127.0.0.1}:${NIM_PORT:-18093}:8000"
+    volumes:
+      - ${MODEL_DIR:?Set absolute MODEL_DIR}:/model:ro
+      - ${NIM_CACHE_DIR:?Set writable NIM_CACHE_DIR}:/opt/nim/.cache
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-0}
+      NIM_MODEL_PATH: /model
+      NIM_DISABLE_MODEL_DOWNLOAD: "1"
+      NIM_MODEL_TYPE: reasoner
+      NIM_MODEL_VARIANT: nano
+      NIM_PRECISION: bf16
+      NIM_MODEL_PROFILE: ${NIM_MODEL_PROFILE:?Set NIM_MODEL_PROFILE}
+      NIM_USE_DFLASH: "0"
+      NIM_ENABLE_STREAMING: "1"
+      NIM_STREAMING_MAX_SESSIONS: ${NIM_STREAMING_MAX_SESSIONS:-2}
+      NIM_STREAMING_MAX_VIDEO_SEGMENTS: "8"
+      NIM_GPU_MEMORY_UTILIZATION: ${NIM_GPU_MEMORY_UTILIZATION:-0.75}
+      NIM_MAX_MODEL_LEN: "16384"

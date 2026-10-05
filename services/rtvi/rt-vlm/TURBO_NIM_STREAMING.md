@@ -1,5 +1,8 @@
 # Turbo NIM Through RTVI
 
+For independent `.env` and `docker compose up` deployments, including a
+MediaMTX RTSP test source, see [Streaming Compose Deployments](docker/STREAMING_DEPLOYMENT.md).
+
 This recipe connects RT-VLM's `openai-compat` streaming adapter to a separate
 Cosmos3 Turbo NIM. It depends on the streaming adapter in PR #2508. Native mode
 is not required; see [STREAMING_VLM.md](STREAMING_VLM.md) for native instructions
