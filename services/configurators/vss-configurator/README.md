@@ -314,7 +314,7 @@ docker build \
   -t vss-configurator .
 ```
 
-The image uses a multi-stage build: **Python 3.13** dependencies, including the in-repo SDU package, via `uv sync --frozen --no-dev`, runtime on **`nvcr.io/nvidia/distroless/python:3.13-v4.1.4`**. Python and distroless versions are `ARG`s at the top of `docker/Dockerfile` (`PYTHON_VERSION`, `DISTROLESS_IMG`, `DISTROLESS_TAG`).
+The image uses a multi-stage build: **Python 3.13** dependencies, including the in-repo SDU package, via `uv sync --frozen --no-dev`, runtime on **`nvcr.io/nvidia/distroless/python:3.13-v4.1.5`**. Python and distroless versions are `ARG`s at the top of `docker/Dockerfile` (`PYTHON_VERSION`, `DISTROLESS_IMG`, `DISTROLESS_TAG`).
 
 **Legal requirements (container distribution):**
 
@@ -638,7 +638,7 @@ Status for NVStreamer/VMS video upload (for init-container polling).
 |------|--------|
 | Build context | monorepo root (`.`) |
 | Builder | `python:3.13-trixie` + `uv sync --frozen --no-dev` |
-| Runtime base | `nvcr.io/nvidia/distroless/python:3.13-v4.1.4` (`DISTROLESS_IMG`:`DISTROLESS_TAG`) |
+| Runtime base | `nvcr.io/nvidia/distroless/python:3.13-v4.1.5` (`DISTROLESS_IMG`:`DISTROLESS_TAG`) |
 | Entrypoint | `python entrypoint.py` (no shell in image) |
 | Working directory | `/usr/src/app` |
 | Python deps | `PYTHONPATH=/usr/src/app/site-packages` |
@@ -969,7 +969,7 @@ Runtime dependencies are declared in `pyproject.toml` and locked in `uv.lock`.
 |---------|---------|------|
 | Flask | 3.1.0 | REST API |
 | gunicorn | 23.0.0 | WSGI server |
-| kafka-python | 2.3.0 | Kafka producer |
+| kafka-python | 2.3.2 | Kafka producer |
 | redis | 5.0.1 | Redis streams / duplicator |
 | requests | 2.32.3 | HTTP client (calibration, MSB, NVStreamer, VMS) |
 | ruamel.yaml | 0.18.15 | Profile YAML read/write |
