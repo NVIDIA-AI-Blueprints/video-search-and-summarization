@@ -127,6 +127,12 @@ jobs:
           for marker in "${MODEL_ROUTING_WORK_DIR:-/nonexistent}"/vss_model_router_policy.applied.*.*; do
             [ -e "$marker" ] || continue
             cli=${marker%.*}; cli=${cli##*.}; sandbox=${marker##*.}
+            # A sandbox the gateway no longer lists took its grant with it.
+            if ! openshell sandbox get "$sandbox" >/dev/null 2>&1 \
+               && listing=$(openshell sandbox list 2>/dev/null) && ! grep -qF -- "$sandbox" <<<"$listing"; then
+              rm -f "$marker"
+              continue
+            fi
             if "$cli" "$sandbox" policy-add --from-file "$MODEL_ROUTING_WORK_DIR/vss_model_router_policy_revoke.yaml" --yes; then
               rm -f "$marker"
             else
