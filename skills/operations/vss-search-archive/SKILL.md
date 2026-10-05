@@ -102,7 +102,7 @@ independent of the index inventory.
 
 1. Confirm the selected deployment is the `search` profile. If required routes
    are unavailable, ask whether to reconnect or deploy it with
-   `the`/vss-build-vision-ai`stock Search workflow`; do not target another profile.
+   the `/vss-build-vision-ai` stock Search workflow; do not target another profile.
 
 2. When the user names a file, camera, or sensor, list registered sources with
    `vss vios list` before invoking the search CLI — it reads the origin
