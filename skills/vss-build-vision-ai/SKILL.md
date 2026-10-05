@@ -447,3 +447,15 @@ After the selection, ask in one typed-values message only for that provider's st
    the deployed VSS Web UI and tell the user to enter the output of the same
    `gateway-token --quiet` command in its **Connect NemoClaw chat** panel.
    Do not add that token to `override.env` or recreate `vss-ui` after onboarding.
+
+11. Close in the response itself with a summary of what was built, and say in it
+    whether this is a **Stock deploy** or a **Delta build**, in those words. Every
+    build that reached [Q3](#harness-selection--q3) is a Delta, because either
+    answer removes the in-stack agent — so a quickstart that only removed services
+    is still a Delta, not a stock deploy. Reasoning that worked this out mid-run
+    does not satisfy it: a reader who sees only the last message has to be able to
+    tell which it was. Carry over what the earlier steps already owe the summary —
+    the Foundation and effective service set, the container image tag when one was
+    selected, and, on a NemoClaw harness, the token-free Agent UI origin, the
+    `gateway-token` recipe and the sandbox name — and still never print the
+    `#token=` fragment itself.
