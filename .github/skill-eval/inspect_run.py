@@ -38,6 +38,7 @@ def summarize_log(path):
     kinds, errors = Counter(), Counter()
     recent = []
     started, completed = 0, 0
+    inference_writes = []
     last_failed_notebook = None
     signals = {
         "scope upgrade pending approval": "gateway_scope_approval",
@@ -80,6 +81,15 @@ def summarize_log(path):
             command = item.get("command")
             if not isinstance(command, str):
                 continue
+            if event.get("type") == "item.completed" and any(marker in command for marker in ['openclaw.json', 'models.providers.inference', 'inference set']):
+                if any(marker in command for marker in ['write_text', 'json.dump', 'sed -i', 'config set', 'inference set']):
+                    inference_writes.append({
+                        'direct_adapter': bool(re.search(r'https?://[^\s\"\']+:18400', command)),
+                        'managed_route': 'inference.local' in command,
+                        'placeholder_key': bool(re.search(r'(?:apiKey|COMPATIBLE_API_KEY).{0,40}(?:unused|EMPTY)', command)),
+                        'credential_env_ref': any(k in command for k in ['SKILL_EVAL_LOCAL_NIM_API_KEY', 'COMPATIBLE_API_KEY']),
+                        'exit_code': item.get('exit_code') if type(item.get('exit_code')) is int else None,
+                    })
             kind = tool_kind(command)
             if event.get("type") == "item.started":
                 started += 1
@@ -133,6 +143,7 @@ def summarize_log(path):
         "completed_tool_kinds": dict(kinds),
         "failed_tool_signals": dict(errors),
         "last_failed_notebook": last_failed_notebook,
+        "inference_write_commands": inference_writes,
         "recent_completed_tools": recent[-12:],
     }
 
@@ -389,6 +400,12 @@ def coordinator(run_id):
             "exception": exception if isinstance(exception, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,100}", exception) else None,
         })
     trace_metadata = []
+    viewer_coding_traces = []
+    for directory in Path('/tmp/skill-eval/results/_viewer').glob(f'*__{run_id}__*'):
+        if not directory.is_dir():
+            continue
+        for path in directory.glob('step-*__*/agent/codex.txt'):
+            viewer_coding_traces.append({'job': directory.name, 'step':path.parent.parent.name.split('__')[0], 'metadata': summarize_log(path)})
     for path in Path('/tmp/skill-eval/results').glob(f'*/{run_id}/trace-urls.tsv'):
         for line in path.read_text().splitlines():
             parts = line.split('\t')
@@ -415,7 +432,7 @@ def coordinator(run_id):
         ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2", "spark-ba-wifi", command],
         input=Path(__file__).read_text(), capture_output=True, text=True, timeout=45,
     )
-    report = {"run_id": run_id, "coordinator_process_kinds":dict(process_kinds),"worker_lock_metadata":lock_rows, "completed_trial_metadata": trials, "trace_metadata":trace_metadata, "worker_probe_exit_code": result.returncode}
+    report = {"run_id": run_id, "coordinator_process_kinds":dict(process_kinds),"worker_lock_metadata":lock_rows, "completed_trial_metadata": trials, "viewer_coding_trace_metadata":viewer_coding_traces, "trace_metadata":trace_metadata, "worker_probe_exit_code": result.returncode}
     if result.returncode == 0:
         report["worker"] = json.loads(result.stdout)
     else:
