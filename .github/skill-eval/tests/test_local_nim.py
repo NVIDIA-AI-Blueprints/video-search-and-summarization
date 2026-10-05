@@ -162,7 +162,7 @@ def test_independent_deployment_and_no_hosted_key_leak():
         }
     )
     assert routes.coding.provider == "local-nim"
-    assert routes.coding.api_key != "hosted-secret"
+    assert routes.coding.api_key == "local-nim"
     assert routes.operational.provider == "hosted-nvidia-inference"
     assert routes.operational.api_key == "hosted-secret"
 
@@ -170,7 +170,6 @@ def test_independent_deployment_and_no_hosted_key_leak():
 def plan():
     return {
         "owner": "a" * 24,
-        "token": "sk-test-local",
         "routes": [
             {"role": "coding", "runtime": "claude-code", "model": "qwen/qwen3-32b"},
             {"role": "operational", "runtime": "codex", "model": "qwen/qwen3-32b"},
@@ -212,6 +211,7 @@ def test_two_roles_deploy_one_nim_and_one_adapter(monkeypatch, tmp_path):
     config = json.loads((nim.owner_paths(plan()["owner"]) / "proxy.json").read_text())
     assert len(config["model_list"]) == 1
     assert config["model_list"][0]["litellm_params"]["model"].endswith("Qwen/Qwen3-32B")
+    assert not config.get("general_settings", {}).get("master_key")
     # Next task sees the same owned containers and does not pull or run again.
     monkeypatch.setattr(
         nim,
@@ -224,7 +224,46 @@ def test_two_roles_deploy_one_nim_and_one_adapter(monkeypatch, tmp_path):
     nim.start(plan())
 
 
-def test_nemoclaw_uses_authenticated_private_proxy_and_loopback_nim(monkeypatch, tmp_path):
+def test_reuse_rebuilds_a_proxy_that_still_requires_auth(monkeypatch, tmp_path):
+    registry(monkeypatch)
+    monkeypatch.setenv("NGC_API_KEY", "ngc-secret")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(nim.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(nim, "publish", lambda root: None)
+    monkeypatch.setattr(nim, "wait_ready", lambda *args, **kwargs: {})
+    original_request = nim.request_json
+
+    def request(url, *args):
+        if url.endswith("/models"):
+            return {"data": [{"id": "Qwen/Qwen3-32B"}]}, {}
+        if url.startswith("http://127.0.0.1:"):
+            return {}, {}
+        return original_request(url, *args)
+
+    monkeypatch.setattr(nim, "request_json", request)
+    calls = []
+
+    def docker(*args, **kwargs):
+        calls.append(args)
+        output = "owned-nim\nowned-proxy\n" if args[0] == "ps" else ""
+        return subprocess.CompletedProcess(args, 0, output, "")
+
+    monkeypatch.setattr(nim, "docker", docker)
+    nim.start(plan())
+    config_file = nim.owner_paths(plan()["owner"]) / "proxy.json"
+    old_config = json.loads(config_file.read_text())
+    old_config["general_settings"] = {"master_key": "old-eval-secret"}
+    config_file.write_text(json.dumps(old_config))
+    calls.clear()
+
+    nim.start(plan())
+
+    assert ("rm", "-f", "owned-proxy") in calls
+    assert len([call for call in calls if call[0] == "run"]) == 2
+    assert not json.loads(config_file.read_text()).get("general_settings", {}).get("master_key")
+
+
+def test_nemoclaw_uses_unauthenticated_proxy_and_loopback_nim(monkeypatch, tmp_path):
     registry(monkeypatch)
     monkeypatch.setenv("NGC_API_KEY", "ngc-secret")
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -259,7 +298,6 @@ def test_nemoclaw_uses_authenticated_private_proxy_and_loopback_nim(monkeypatch,
     monkeypatch.setattr(nim, "docker", docker)
     local_plan = {
         "owner": "b" * 24,
-        "token": "sk-test-local",
         "routes": [{
             "role": "operational",
             "runtime": "nemoclaw",
@@ -277,8 +315,6 @@ def test_nemoclaw_uses_authenticated_private_proxy_and_loopback_nim(monkeypatch,
     assert (
         "http://10.229.20.2:18400/v1/chat/completions",
         {
-            "Authorization": "Bearer sk-test-local",
-            "x-api-key": "sk-test-local",
             "anthropic-version": "2023-06-01",
             "Content-Type": "application/json",
         },
@@ -286,7 +322,7 @@ def test_nemoclaw_uses_authenticated_private_proxy_and_loopback_nim(monkeypatch,
     ready = json.loads((nim.owner_paths(local_plan["owner"]) / "ready.json").read_text())
     assert ready["nemoclaw_endpoint"] == "http://10.229.20.2:18400/v1"
     proxy = json.loads((nim.owner_paths(local_plan["owner"]) / "proxy.json").read_text())
-    assert proxy["general_settings"]["master_key"] == local_plan["token"]
+    assert "master_key" not in proxy.get("general_settings", {})
 
     def onboard_inputs():
         # Read the inputs as the notebook will: source the worker env in a
@@ -324,7 +360,6 @@ def test_reuse_rechecks_nim_inference_before_the_agent_runs(monkeypatch, tmp_pat
         "models": [{"model": "qwen/qwen3-32b", "served_model": "Qwen/Qwen3-32B"}],
     }))
     (root / "proxy.json").write_text(json.dumps({
-        "general_settings": {"master_key": local_plan["token"]},
     }))
     monkeypatch.setattr(nim, "docker", lambda *a, **kw: subprocess.CompletedProcess(
         a, 0, "c1\nc2\n", "",

@@ -11,7 +11,7 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[1] / "nemoclaw" / "headless_runner.py"
 
 
-@pytest.mark.parametrize("stage", ["gateway", "inference", "agent"])
+@pytest.mark.parametrize("stage", ["gateway", "agent"])
 def test_failure_is_available_to_the_verifier(monkeypatch, tmp_path, stage):
     spec = importlib.util.spec_from_file_location("nemoclaw_headless_runner", SCRIPT)
     runner = importlib.util.module_from_spec(spec)
@@ -26,7 +26,6 @@ def test_failure_is_available_to_the_verifier(monkeypatch, tmp_path, stage):
 
     monkeypatch.setattr(runner, "_load_env_file", lambda path: None)
     monkeypatch.setattr(runner, "_ensure_gateway", fail if stage == "gateway" else lambda name: None)
-    monkeypatch.setattr(runner, "_ensure_local_nim_route", fail if stage == "inference" else lambda name: None)
     monkeypatch.setattr(runner, "_run_openclaw", fail)
     assert runner.main(["--prompt-file", str(prompt), "--agent-log-dir", str(logs)]) == 1
     assert message in (logs / "agent.log").read_text()

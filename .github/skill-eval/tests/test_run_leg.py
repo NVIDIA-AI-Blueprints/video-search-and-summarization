@@ -837,6 +837,40 @@ class RunInvocations(unittest.TestCase):
     def config(self, env=None):
         return run_leg.resolve_model_routes(env or self.ENV)
 
+    def test_local_proxy_uses_placeholder_and_preserves_hosted_route(self):
+        env = {
+            **self.ENV,
+            "NGC_API_KEY": "registry-secret",
+            "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
+            "SKILLS_EVAL_OPERATIONAL_DEPLOYMENT": "local-nim",
+            "SKILLS_EVAL_OPERATIONAL_MODEL": "nvidia/nemotron-3.5-lightning-30b-a3b",
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.object(run_leg, "_run_invocations", return_value=0) as execute,
+                mock.patch.object(run_leg, "cleanup_local_nims") as cleanup,
+            ):
+                rc = run_leg.run_invocations(
+                    [], "Spark-ba-WiFi", root / "results", root / "scratch",
+                    "base", "DGX-SPARK", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                    self.config(env),
+                )
+            routes = execute.call_args.args[7]
+            self.assertEqual(routes.coding.api_key, "test-secret")
+            self.assertEqual(routes.operational.api_key, "local-nim")
+            plan = execute.call_args.kwargs["nim_plan"]
+            self.assertNotIn("token", plan)
+            self.assertEqual(plan["routes"], [{
+                "role": "operational", "runtime": "nemoclaw",
+                "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+            }])
+            cleanup.assert_called_once_with("Spark-ba-WiFi", plan["owner"])
+            evidence = (root / "results" / "model-deployments.json").read_text()
+            self.assertNotIn("test-secret", evidence)
+            self.assertNotIn("registry-secret", evidence)
+        self.assertEqual(rc, 0)
+
     def test_timeout_stops_all_single_step_invocations(self):
         invocations = [
             run_leg.HarborInvocation(

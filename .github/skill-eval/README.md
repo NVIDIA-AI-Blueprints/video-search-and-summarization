@@ -60,8 +60,8 @@ Manual runs configure both routes without changing the coordinator or judge:
 
 
 The runner owns credentials. Hosted routes use the fixed
-`https://inference-api.nvidia.com/v1` endpoint. Local routes use a temporary
-worker-local credential, never the hosted inference key. No arbitrary endpoint
+`https://inference-api.nvidia.com/v1` endpoint. Local routes use a fixed,
+non-secret client placeholder, never the hosted inference key. No arbitrary endpoint
 input is exposed. Coordinator and judge routing stays unchanged.
 
 ### Local NIM lifecycle
@@ -91,8 +91,13 @@ After the existing first-task Docker reset, the worker starts one NIM per
 unique selected local model. Identical coding and operational models share
 one container; later tasks reuse that deployment. Different models run as
 separate containers. A pinned LiteLLM adapter provides Anthropic Messages,
-OpenAI Responses, and authenticated Chat Completions for NemoClaw. NIM ports
-bind to loopback; NemoClaw reaches the adapter on the worker's private address.
+OpenAI Responses, and Chat Completions for NemoClaw. The ephemeral, job-owned
+adapter runs without authentication: its config has no `master_key`, and
+readiness/protocol probes send no API key. Clients that require a non-empty
+key receive the fixed, non-secret `local-nim` placeholder; the proxy does not
+validate it. Hosted and NGC credentials retain their existing authentication.
+NIM ports bind to loopback; NemoClaw reaches the adapter on the worker's private
+address.
 The worker exports that exact host in
 `NEMOCLAW_TRUSTED_PRIVATE_INFERENCE_HOSTS`, so NemoClaw's private-endpoint
 preflight admits the owned inference adapter without granting a subnet or
@@ -100,17 +105,17 @@ relaxing other URL checks. Startup and reuse both restore this declaration.
 Startup and reuse smoke requests exercise each selected protocol.
 The NIM and VSS run on the same worker.
 
-Each local-NIM operational prompt also reapplies the selected route with
-`nemoclaw <sandbox> inference set`, supplying the current leg's adapter key
-through the credential environment and retaining inference verification.
-This refreshes a compatible provider recovered from warm-worker state and
-checks the OpenShell-to-NIM path, which a host smoke request does not cover.
-Failure stops the prompt and leaves the current route error in `agent.log`.
+Onboarding owns NemoClaw's provider binding; operational prompts do not rewrite
+it or refresh proxy credentials. The headless runner checks gateway health and
+collects the native OpenClaw session and token usage from the actual prompt.
+This provides evidence of inference through OpenShell, which a host smoke
+request does not cover. Failure stops the prompt and leaves its error in
+`agent.log`.
 
 Startup is bounded to 5,400 seconds within the existing environment deadline;
 cold downloads may exceed this and fail explicitly. The worker needs access
 to NGC, Docker Hub (`python:3.12-slim`), and PyPI (`litellm[proxy]==1.103.0`).
-The adapter uses authenticated port 18400 on the worker's private address.
+The adapter listens on port 18400 and is advertised on the worker's private address.
 NIM ports 18410+ bind to loopback.
 Job-owned containers are removed when the leg ends or is cancelled. The next
 first-task Docker reset reconciles leftovers after an uncatchable SIGKILL.

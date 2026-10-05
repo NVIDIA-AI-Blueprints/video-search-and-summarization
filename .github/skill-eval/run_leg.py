@@ -33,7 +33,6 @@ import json
 import os
 from pathlib import Path
 import re
-import secrets
 import shutil
 import signal
 import subprocess
@@ -1652,7 +1651,7 @@ def run_invocations(
     model_routes: SkillEvalModelRoutes,
     work_deadline: float | None = None,
 ) -> int:
-    from local_nim import PROXY_PORT
+    from local_nim import LOCAL_NIM_CLIENT_KEY, PROXY_PORT
 
     routes = [
         r
@@ -1672,10 +1671,8 @@ def run_invocations(
             work_deadline,
         )
     owner = hashlib.sha256(str(results_root).encode()).hexdigest()[:24]
-    token = "sk-" + secrets.token_hex(24)
     plan = {
         "owner": owner,
-        "token": token,
         "routes": [
             {"role": r.role, "model": r.model, "runtime": r.runtime} for r in routes
         ],
@@ -1684,7 +1681,8 @@ def run_invocations(
     def local_route(route):
         return (
             dataclasses.replace(
-                route, api_key=token, endpoint_url=f"http://127.0.0.1:{PROXY_PORT}/v1"
+                route, api_key=LOCAL_NIM_CLIENT_KEY,
+                endpoint_url=f"http://127.0.0.1:{PROXY_PORT}/v1"
             )
             if route.provider == "local-nim"
             else route
@@ -1795,8 +1793,8 @@ def _run_invocations(
         )
         env["COMPATIBLE_API_KEY"] = operational_config.api_key
         if operational_config.provider == "local-nim":
-            # Keep the per-leg proxy credential separate from the generic
-            # provider setting, which setup recipes may replace with EMPTY.
+            # Clients require a non-empty API key even though the job-owned
+            # proxy does not authenticate it. Never forward a hosted key.
             env["SKILL_EVAL_LOCAL_NIM_API_KEY"] = operational_config.api_key
             # NemoClaw's inference proxy rewrites private endpoints to HTTPS
             # on port 443. The worker NIM adapter serves plain HTTP on 18400.

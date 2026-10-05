@@ -606,7 +606,7 @@ model, and deployment inputs. Hosted routes use the fixed
 checks architecture, starts it after Docker reset, and shares one deployment
 when both roles select the same model. Do not deploy these inference models
 in an adapter or ask the evaluated agent to deploy them. The harness manages
-their endpoints, temporary credentials, readiness, logs, and cleanup.
+their endpoints, non-secret client placeholders, readiness, logs, and cleanup.
 Coordinator and judge routing stays runner-managed. One role must never inherit
 another role's model or deployment override. See README.md for lifecycle details.
 
