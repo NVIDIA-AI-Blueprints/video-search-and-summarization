@@ -117,7 +117,12 @@ role choices and the actual worker at the leg results root.
 ### Spark selection
 
 The checkbox selects the **Brev execution worker**, not the GitHub Actions
-coordinator. `run_leg.py` resolves the registered node by external node ID
+coordinator. Spark is opt-in: with the checkbox off (including automatic PR
+evals), the plan excludes `DGX-SPARK` rows even when a skill spec supports that
+platform. Specs that support only Spark produce no eval jobs until it is
+selected. The runner also rejects Spark platform, hardware, or instance hints
+without the explicit selection, before acquiring a worker lock.
+`run_leg.py` resolves the registered node by external node ID
 (or the supplied name on older Brev versions), then holds the existing
 per-worker lock across all tasks and NIM cleanup. Missing nodes or conflicting
 explicit instance overrides fail; no other worker is selected. If Brev reports

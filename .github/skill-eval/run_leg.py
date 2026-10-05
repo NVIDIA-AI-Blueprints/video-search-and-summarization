@@ -1619,6 +1619,25 @@ def spark_instance() -> str:
     return name
 
 
+def selected_instance(instance: str | None, metadata: dict, platform: str) -> str | None:
+    """Keep the Spark checkbox authoritative over platform and instance hints."""
+    from local_nim import SPARK_NODE_NAME
+
+    if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
+        pinned = spark_instance()
+        if instance and instance.casefold() != pinned.casefold():
+            raise ValueError("--instance conflicts with the selected Spark worker")
+        return pinned
+    pinned = instance or metadata.get("brev_instance") or None
+    if (
+        platform == "DGX-SPARK"
+        or (metadata.get("gpu_type") or "").upper() == "GB10"
+        or (pinned and pinned.casefold() == SPARK_NODE_NAME.casefold())
+    ):
+        raise ValueError("Spark trials require SKILLS_EVAL_SPARK_RUNNER=true (select the Spark checkbox)")
+    return pinned
+
+
 def cleanup_local_nims(instance: str, owner: str) -> None:
     # Use the same transport as Harbor (registered nodes use SSH). The file
     # is uploaded before start, so cleanup also covers interrupted readiness.
@@ -2108,12 +2127,7 @@ def main(argv: list[str] | None = None) -> int:
         effective_lock_timeout = min(args.lock_timeout_sec, max_lock_wait)
         # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
         # > task.toml brev_instance > pool selection.
-        if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
-            pinned = spark_instance()
-            if args.instance and args.instance.casefold() != pinned.casefold():
-                raise ValueError("--instance conflicts with the selected Spark worker")
-        else:
-            pinned = args.instance or metadata.get("brev_instance") or None
+        pinned = selected_instance(args.instance, metadata, args.platform)
         if pinned:
             print(f"[run-leg] pinned instance: {pinned} (pool selection skipped)",
                   flush=True)

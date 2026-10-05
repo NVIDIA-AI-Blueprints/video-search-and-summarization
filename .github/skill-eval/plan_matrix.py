@@ -523,6 +523,10 @@ def main() -> int:
         matrix = [row for row in matrix if row.get("platform") == "DGX-SPARK"]
         if not matrix:
             raise ValueError("Spark worker selected, but no DGX-SPARK eval specs are declared")
+    else:
+        # Platform support is not permission to use the operator's Spark box.
+        # Push runs and unchecked manual sweeps use only the normal fleet.
+        matrix = [row for row in matrix if row.get("platform") != "DGX-SPARK"]
     emit(matrix)
     return 0
 
