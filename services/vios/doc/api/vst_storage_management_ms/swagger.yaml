@@ -599,9 +599,14 @@ paths:
           in: header
           required: false
           description: Unique identifier for the media upload. All chunks associated with
-            a media file will have the same chunk identifier. (required for chunked upload)
+            a media file will have the same chunk identifier. Use 1-128 letters, digits,
+            hyphens or underscores. Sessions expire after 24 hours of inactivity.
+            (required for chunked upload)
           schema:
             type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[A-Za-z0-9_-]+$'
         - name: nvstreamer-file-name
           in: header
           description: Media file name (required for chunked upload)

@@ -48,6 +48,7 @@ TEST_SRCS := test_main.cpp \
              utils/system_stats_listener.cpp \
              streammonitor.cpp \
              storage.cpp \
+             chunk_upload.cpp \
              sensor.cpp \
              recorder.cpp
 

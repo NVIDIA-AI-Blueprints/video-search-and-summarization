@@ -84,7 +84,7 @@ interface Metadata {
 const VIDEO_UPLOAD_TIMEOUT = 999999999;
 
 const toolTipHelperText =
-    'If enabled the media file will be divided into small chunks and each chunk will be uploaded separately. Enable this setting if timeout is occuring during upload.';
+    'Splits files into smaller chunks to help large videos upload reliably over slow connections or through upload limits.';
 
 function hasWhiteSpace(s: string): boolean {
     return /\s/g.test(s);
@@ -133,6 +133,7 @@ const MediaUpload = () => {
         metadataTag: string;
         sensorId: string;
         checksum: string;
+        selectedSensorId: string;
     }
 
     const stateRef = useRef<UploadState>({
@@ -148,6 +149,7 @@ const MediaUpload = () => {
         metadataTag,
         sensorId,
         checksum,
+        selectedSensorId: selectedSensor?.sensorId || '',
     });
 
     // Update useEffect to include metadata fields
@@ -165,6 +167,7 @@ const MediaUpload = () => {
             metadataTag,
             sensorId,
             checksum,
+            selectedSensorId: selectedSensor?.sensorId || '',
         };
     }, [
         enableTranscode,
@@ -179,6 +182,7 @@ const MediaUpload = () => {
         metadataTag,
         sensorId,
         checksum,
+        selectedSensor,
     ]);
 
     // Add debug logging for state changes
@@ -424,8 +428,9 @@ const MediaUpload = () => {
             'nvstreamer-total-chunks': params.totalChunkCount,
             'nvstreamer-is-last-chunk': isLastChunk ? 'true' : 'false',
         };
-        if (params.metadata.sensorId) {
-            uploadHeaders.streamId = params.metadata.sensorId;
+        const sensorId = params.currentState.selectedSensorId || params.metadata.sensorId;
+        if (sensorId) {
+            uploadHeaders.streamId = sensorId;
         }
         applyTranscodeHeaders(uploadHeaders, params.currentState);
         return uploadHeaders;
@@ -442,10 +447,8 @@ const MediaUpload = () => {
         fd.append('mediaFile', file.slice(start, start + chunkSizeBytes));
         fd.append('filename', file.name);
 
-        // Add metadata to the first chunk
-        if (chunkNumber === 1) {
-            fd.append('metadata', JSON.stringify(params.metadata));
-        }
+        // The backend finalizes the file using metadata from the last request.
+        fd.append('metadata', JSON.stringify(params.metadata));
 
         try {
             const response = await nvAxios.post(`${config.storageManagementEndpoint}/api/v1/storage/file`, fd, {
@@ -540,8 +543,8 @@ const MediaUpload = () => {
                 };
 
                 // Add streamId header if sensor is selected
-                if (selectedSensor?.sensorId) {
-                    headers['streamId'] = selectedSensor.sensorId;
+                if (currentState.selectedSensorId) {
+                    headers['streamId'] = currentState.selectedSensorId;
                 }
 
                 applyTranscodeHeaders(headers, currentState);
