@@ -76,8 +76,9 @@ Behavior checks require exactly one result when `maxResultSize=1` is requested
 for the primary sensor, alternate sensor or place. Calibration checks require a
 calibration type and at least one sensor before the remaining config cases run.
 
-Incident checks validate protobuf fields against the warehouse `schemas/ext.proto`
-fixture and require camelCase keys in `info`. Under the warehouse 2D profile they
+Incident checks validate protobuf fields against the repository's
+`libs/nvschema/protobuf/ext.proto` and require camelCase keys in `info`.
+Run these tests from a full repository checkout. Under the warehouse 2D profile they
 also check VLM alert types, proximity/Near Miss ID correspondence, timestamp
 comparisons and verification coverage. Async validators can fetch additional
 pages; split windows deduplicate incidents because the API matches overlapping
