@@ -50,6 +50,11 @@ Do not infer accuracy or camera capacity from this smoke test, or substitute
 another checkpoint without recording its identity. Stop native model serving
 before using the same GPU for NIM.
 
+RTVI's `openai-compat` mode may share NIM's GPU for video decoding/preprocessing;
+it does not load the inference model locally. Reserve GPU memory for both
+processes. `NIM_GPU_MEMORY_UTILIZATION=0.75` is a starting point, not a guarantee
+that every resolution or stream count fits.
+
 ## Configure RT-VLM
 
 Configure the standalone RT-VLM `docker/.env`:

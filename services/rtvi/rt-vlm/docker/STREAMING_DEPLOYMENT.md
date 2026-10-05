@@ -3,7 +3,12 @@
 Run commands from `services/rtvi/rt-vlm/docker`. These recipes require Linux,
 Docker Compose with GPU support, NVIDIA Container Toolkit, registry access,
 and an RT-VLM image built from this branch. Build instructions are in
-../STREAMING_VLM.md. Do not run native inference and NIM on the same GPU together.
+../STREAMING_VLM.md. RTVI in OpenAI-compatible mode and NIM can use the same GPU:
+RTVI performs video decoding/preprocessing, while NIM loads the inference model.
+Set `NVIDIA_VISIBLE_DEVICES=0` in both environment files for GPU 0. Leave memory
+headroom for RTVI; NIM's default `NIM_GPU_MEMORY_UTILIZATION=0.75` is a starting
+point, not a capacity guarantee. Do not run native RTVI model inference alongside
+NIM on the same GPU with these recipes, because both load a model.
 
 ## Native RTVI
 
