@@ -53,21 +53,7 @@ This is the minimal path from bare hardware to running benchmarks.
 
 ### Step 1 — Export required variables, then run the setup script
 
-#### Artifact sources (no Artifactory credentials required)
-
-Fresh setup stages the tracked VIOS/NVStreamer deployment files from
-`services/vios/deployment/stream-processing/docker-compose/`. It uses the
-single-pod VIOS direct mode, retaining VST-issued `/live/` URLs for consumers.
-No VST package or legacy video is downloaded from Artifactory, and
-`ARTIFACTORY_USER` / `ARTIFACTORY_TOKEN` are not used.
-
-Use a fresh `VST_DIR` for each setup; repository staging refuses to overwrite an
-existing deployment. Stop the previous deployment with `teardown_perf_env.sh`
-using its original `VST_DIR` and `VST_COMPOSE_PROJECT` before starting a new one
-on the same ports. BCD media comes from NGC or local sources. NGC/model and
-container registry access are still required.
-
-The setup script patches the extracted VST package to run
+The setup script configures VST to run
 `nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:3.2.0`,
 `nvcr.io/nvidia/vss-core/vss-vios-sensor:3.2.0`,
 `nvcr.io/nvidia/vss-core/vss-vios-ingress:3.2.0`, and
