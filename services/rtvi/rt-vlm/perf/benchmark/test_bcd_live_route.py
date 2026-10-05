@@ -26,7 +26,8 @@ class BCDRouteTest(unittest.TestCase):
                 validate_bcd_live_inputs(self.config(**{field: value}), "renamed.yaml")
 
     def test_canonical_routes_accepted_and_file_inputs_unchanged(self):
-        config = self.config(rtsp_url="rtsp://host:30556/live/source-id")
+        config = self.config(unique_rtsp_url_per_stream=False,
+                             rtsp_url="rtsp://host:30556/live/source-id")
         config["test_scenarios"]["file"] = {
             "benchmark_mode": "file_burst", "videos": [{"video_path": "/frozen/video.mp4"}]}
         validate_bcd_live_inputs(config, "renamed.yaml")
@@ -78,6 +79,44 @@ class BCDRouteTest(unittest.TestCase):
             pool.write_text("")
             with self.assertRaises(ValueError):
                 validate_bcd_live_inputs(self.config(rtsp_url=live, rtsp_urls_file=str(pool)), "bcd.yaml")
+
+    def test_single_live_stream_validates_only_its_rtsp_url(self):
+        live = "rtsp://host:30556/live/id"
+        direct = "rtsp://host:32200/nvstream/video"
+        for unique in (True, False):
+            with self.subTest(unique=unique):
+                config = self.config(unique_rtsp_url_per_stream=unique, rtsp_url=direct,
+                                     rtsp_urls=[live], rtsp_urls_file="missing",
+                                     rtsp_url_template=direct)
+                config["test_scenarios"]["live"]["benchmark_mode"] = "single_live_stream"
+                video = config["test_scenarios"]["live"]["videos"][0]
+                with self.assertRaises(ValueError):
+                    validate_bcd_live_inputs(config, "bcd.yaml")
+                video.update(rtsp_url=live, rtsp_urls=[direct])
+                validate_bcd_live_inputs(config, "bcd.yaml")
+                del video["rtsp_url"]
+                with self.assertRaises(ValueError):
+                    validate_bcd_live_inputs(config, "bcd.yaml")
+
+    def test_unique_live_streams_do_not_fall_back_to_rtsp_url(self):
+        from concurrent_live_streams_benchmark import _rtsp_url_for_stream as concurrent_url
+        from live_streams_benchmark import _rtsp_url_for_stream as maximum_url
+
+        live = "rtsp://host:30556/live/id"
+        for mode, select in (("max_live_streams", maximum_url),
+                             ("concurrent_live_streams", concurrent_url)):
+            for pool in ([], None):
+                with self.subTest(mode=mode, pool=pool):
+                    config = self.config(rtsp_url=live, rtsp_urls=pool)
+                    config["test_scenarios"]["live"]["benchmark_mode"] = mode
+                    video = config["test_scenarios"]["live"]["videos"][0]
+                    with self.assertRaises(ValueError):
+                        select(video, 1)
+                    with self.assertRaises(ValueError):
+                        validate_bcd_live_inputs(config, "bcd.yaml")
+                    video["unique_rtsp_url_per_stream"] = False
+                    self.assertEqual(select(video, 1), live)
+                    validate_bcd_live_inputs(config, "bcd.yaml")
 
     def test_actual_cli_checks_selected_inputs_before_gpu_or_execution(self):
         tree = ast.parse((HERE / "rtvi_perf_benchmark.py").read_text())

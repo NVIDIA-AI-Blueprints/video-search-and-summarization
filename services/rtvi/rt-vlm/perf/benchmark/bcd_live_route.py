@@ -24,7 +24,8 @@ def validate_bcd_live_inputs(config, config_path):
             urls = []
             # Match the live benchmarks' source selection order; unused fields
             # may still contain setup placeholders or a different source mode.
-            if not video.get("unique_rtsp_url_per_stream", True):
+            if (scenario.get("benchmark_mode") == "single_live_stream"
+                    or not video.get("unique_rtsp_url_per_stream", True)):
                 if "rtsp_url" in video:
                     urls = [video["rtsp_url"]]
             elif video.get("rtsp_urls"):
@@ -36,8 +37,6 @@ def validate_bcd_live_inputs(config, config_path):
                             if line.strip())
             elif video.get("rtsp_url_template"):
                 raise ValueError("BCD live inputs require explicit VST-issued URLs, not templates")
-            elif "rtsp_url" in video:
-                urls = [video["rtsp_url"]]
             if "live" in scenario.get("benchmark_mode", "") and not urls:
                 raise ValueError(f"BCD live scenario {name} has no VST source URLs")
             for url in urls:
