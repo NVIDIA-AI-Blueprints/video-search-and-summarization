@@ -15,22 +15,25 @@ passes *vacuously* when no services started (the missing env-file pair / unset
 so keep the count guard in the same snippet as the state guard:
 
 ```bash
+set -euo pipefail
 BUILD_DIR="_builds/<name>"
 expected=$(docker compose -f "$BUILD_DIR/resolved.yml" config --services | wc -l)
-actual=$(docker compose -f "$BUILD_DIR/resolved.yml" ps -q | wc -l)
+actual=$(docker compose -f "$BUILD_DIR/resolved.yml" ps --all -q | wc -l)
 if [ "$expected" -le 0 ] || [ "$actual" -le 0 ] || [ "$actual" -lt "$expected" ]; then
   echo "FAIL: expected $expected services, got $actual — inspect resolved.yml" >&2
   exit 1
 fi
 
 # docker compose 2.21+ emits NDJSON (one bare object per line) from
-# `ps --format json`, not a JSON array — so no `.[]` here; jq's default
-# input loop already iterates each line. The filter accepts only
-# `running` and `exited 0`; everything else (restarting, unhealthy,
-# exited with non-zero code) is a failure.
+# `ps --format json`, not a JSON array. Slurp all objects so a later
+# acceptable container cannot hide an earlier failure. Running services
+# with a healthcheck must be healthy; one-shot init jobs may exit 0.
 bad=$(
-  docker compose -f "$BUILD_DIR/resolved.yml" ps --format json \
-    | jq -r 'select((.State == "running" or (.State == "exited" and .ExitCode == 0)) | not)
+  docker compose -f "$BUILD_DIR/resolved.yml" ps --all --format json \
+    | jq -sr '.[]
+             | select(((.State == "running" and
+                        ((.Health // "") == "" or .Health == "healthy")) or
+                       (.State == "exited" and .ExitCode == 0)) | not)
              | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"'
 )
 if [ -n "$bad" ]; then
@@ -42,7 +45,7 @@ fi
 
 Every container must be either `running` or cleanly `exited 0`. One-shot init
 jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is
-fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy
+fine. Anything `created`, `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy
 failure even though `up -d` returned 0.
 
 > **Warehouse needs a data-plane check, not just Gate 0.** Every container can
@@ -103,6 +106,15 @@ fi
 The `:9901` probe is therefore present only for an explicitly selected legacy
 MCP workflow. A CLI-based Alerts build probes the Video Analytics API and Alert
 Bridge instead.
+
+**Host CLI capability gate.** When the build exposes an ingress origin, run
+`vss configure --base-url <published-build-origin>` after the service probes,
+then require `vss configure check` to exit 0 and report the selected command
+groups as available (`vlm` for Base; `summarize` for an LVS build). Use the CLI
+installed from this checkout on `PATH` per `deployment_resolution.md`, without
+depending on `libs/vss/.venv`. An exit 0 with `summarize unavailable` does not
+satisfy a request to add summarization; inspect `lvs-server` and its model
+dependencies before declaring success.
 
 ## Step 3 — triage slow containers
 

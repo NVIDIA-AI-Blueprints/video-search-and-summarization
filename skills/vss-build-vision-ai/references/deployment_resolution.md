@@ -243,7 +243,10 @@ runtime `generated.env` from the profile deploy workflow.
 
 ```bash
 VSS_ORIGIN="${VSS_ORIGIN:-http://${HOST_IP:-127.0.0.1}:${HAPROXY_HOST_PORT:-7777}}"
-VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
+# Install once from the same checkout as the skill; an existing matching
+# installation (including the evaluation host's setup) can be used directly.
+uv tool install "${VSS_REPO_ROOT}/libs/vss/cli"
+VSS=(vss)
 
 "${VSS[@]}" configure --base-url "${VSS_ORIGIN}"
 DEPLOYMENT=$("${VSS[@]}" configure show)

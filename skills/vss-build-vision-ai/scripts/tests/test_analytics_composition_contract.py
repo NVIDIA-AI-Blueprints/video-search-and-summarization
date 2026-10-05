@@ -172,6 +172,22 @@ def test_llm_peer_stays_while_a_consumer_is_enabled() -> None:
     assert any(p.startswith("llm_") for p in with_lvs)
 
 
+def test_alerts_harness_delta_removes_unrequested_legacy_mcp() -> None:
+    foundation = _alerts_profiles("VLM")
+    profiles = resolve_service_profiles(foundation, host_cli=True)
+    removed = set(foundation) - set(profiles)
+
+    # Alerts has the legacy MCP peer that Base does not. Both follow the same
+    # ownership rule; the removal count is a property of the starting graph.
+    assert removed == {
+        "vss-agent",
+        "vss-va-mcp",
+        "phoenix",
+        next(p for p in foundation if p.startswith("llm_")),
+    }
+    validate_harness_only_delta(foundation, profiles)
+
+
 def test_explicitly_requested_llm_peer_is_kept() -> None:
     # A harness pointed at the build's own NIM (route (a)) names the key.
     foundation = _base_profiles()
@@ -342,6 +358,58 @@ def test_base_harness_only_compose_keeps_foundation_services(tmp_path: Path) -> 
         "streamprocessing-ms",
         "rtvi-vlm",
     } <= services
+    assert {"alert-bridge", "lvs-server", "vss-va-mcp"}.isdisjoint(services)
+
+
+@requires_docker_compose
+def test_base_extension_restores_lvs_llm_and_remains_standalone(tmp_path: Path) -> None:
+    from normalize_resolved_yml import normalize
+
+    foundation = _base_profiles()
+    initial = resolve_service_profiles(foundation, host_cli=True)
+    llm_key = next(p for p in foundation if p.startswith("llm_"))
+    assert llm_key not in initial
+
+    # Recompute peers from the requested owners, including the LLM removed in
+    # query 1. Merely adding lvs-server to the pruned list would leave no LLM.
+    added = (*_alerts_profiles("VLM"), "lvs-server", llm_key)
+    # The host CLI does not request the legacy agent keys in the Alerts list.
+    final = resolve_service_profiles(
+        initial,
+        requested_profiles=tuple(
+            p for p in added if p not in {"vss-agent", "vss-va-mcp", "phoenix"}
+        ),
+        host_cli=True,
+    )
+    assert set(initial) <= set(final)
+    assert llm_key in final
+    document = _compose_config(tmp_path, final, BASE_PROFILE)
+    assert {"lvs-server", "alert-bridge", "vss-video-analytics-api"} <= set(
+        document["services"]
+    )
+    llm_services = [
+        name
+        for name, service in document["services"].items()
+        if llm_key in service.get("profiles", ()) and "healthcheck" in service
+    ]
+    assert len(llm_services) == 1
+    assert llm_services[0] in document["services"]["lvs-server"]["depends_on"]
+    assert "rtvi-vlm" in document["services"]["lvs-server"]["depends_on"]
+
+    resolved = tmp_path / "resolved.yml"
+    resolved.write_text(json.dumps(document))
+    assert normalize(resolved) == 0
+    result = subprocess.run(
+        ["docker", "compose", "-f", str(resolved), "config", "--format", "json"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    services = json.loads(result.stdout)["services"]
+    assert set(services) == set(document["services"])
+    assert {"vss-agent", "vss-va-mcp", "phoenix"}.isdisjoint(services)
+    assert all("profiles" not in service for service in services.values())
 
 
 @requires_docker_compose
