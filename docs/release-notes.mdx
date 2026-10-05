@@ -67,9 +67,10 @@ These Release Notes describe the key features, software enhancements and improve
 
 ### Known Issues and Limitations
 
-- **Blank messages or empty structured-event results:** During file
-  summarization, CA-RAG structured-event ingestion may drop RT-VLM captions,
-  leaving empty event results even when the summarize API reports success.
+- **Empty structured-event results during file summarization:** CA-RAG may
+  fail to parse RT-VLM output that does not match the expected event schema,
+  leaving empty event results even when captions are generated and stored
+  and the summarize API reports success.
 - **Memory pressure under concurrent summarization on DGX Spark and Jetson
   Thor:** RT-VLM memory usage with Cosmos Reason 3 Super NVFP4 varies with
   request concurrency. Concurrent file-summarization workloads may exceed
