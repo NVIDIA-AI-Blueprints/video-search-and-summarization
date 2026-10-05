@@ -36,6 +36,9 @@ The RTVI VLM Microservice has been validated and tested on the following NVIDIA 
 
 ## Quick Start
 
+For persistent visual-context inference, see [StreamingVLM: native and remote NIM](STREAMING_VLM.md).
+These opt-in backends are separate from ordinary chunking and SSE text output.
+
 Clone the blueprint repository and use the deployment assets shipped with the RT-VLM service.
 
 ### Docker Compose Deployment

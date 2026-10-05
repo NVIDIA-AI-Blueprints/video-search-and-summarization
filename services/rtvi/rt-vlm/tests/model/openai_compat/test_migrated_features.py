@@ -28,7 +28,9 @@ Run with:
 """
 
 import asyncio
+import base64
 import io
+import json
 import os
 import sys
 from types import SimpleNamespace
@@ -158,6 +160,38 @@ def test_nim_streaming_session_preserves_openai_mode_and_frame_contract():
                 generation_config=VlmGenerationConfig(response_format={"type": "json_object"}),
             )
     assert not model.supports_streaming_vlm()
+    model._output_tpool.shutdown(wait=True)
+
+
+def test_nim_frame_415_falls_back_to_json_without_reencoding():
+    from urllib.error import HTTPError
+    model = _make_model()
+    model._endpoint = "http://localhost:9999/v1"
+    encoded = b"\x89PNG\r\n\x1a\nunchanged-pixels"
+    response = MagicMock()
+    response.__enter__.return_value = response
+    response.read.return_value = b'{"text":"Yes"}'
+    rejected = HTTPError("http://localhost:9999/v1", 415, "unsupported", {}, None)
+    with patch("models.openai_compat.openai_compat_model.urlrequest.urlopen",
+               side_effect=[rejected, response]) as urlopen:
+        assert model._nim_streaming_request("POST", "sessions/test/frame", encoded) == {"text": "Yes"}
+    first, second = [call.args[0] for call in urlopen.call_args_list]
+    assert first.data == encoded
+    assert second.get_header("Content-type") == "application/json"
+    assert base64.b64decode(json.loads(second.data)["image_b64"]) == encoded
+    model._output_tpool.shutdown(wait=True)
+
+
+def test_nim_frame_server_error_is_not_retried():
+    from urllib.error import HTTPError
+    model = _make_model()
+    model._endpoint = "http://localhost:9999/v1"
+    rejected = HTTPError("http://localhost:9999/v1", 500, "server error", {}, None)
+    with patch("models.openai_compat.openai_compat_model.urlrequest.urlopen",
+               side_effect=rejected) as urlopen:
+        with pytest.raises(HTTPError):
+            model._nim_streaming_request("POST", "sessions/test/frame", b"\xff\xd8\xff\xd9")
+    assert urlopen.call_count == 1
     model._output_tpool.shutdown(wait=True)
 
 

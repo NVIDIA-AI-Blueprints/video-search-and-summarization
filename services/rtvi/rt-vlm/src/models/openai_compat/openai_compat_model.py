@@ -26,6 +26,7 @@ import time as _time
 import uuid
 from dataclasses import dataclass, field
 from typing import List, Optional
+from urllib import error as urlerror
 from urllib import request as urlrequest
 
 import numpy
@@ -785,7 +786,10 @@ class CompOpenAIModel(BaseVlmModel):
         base = self._endpoint.rstrip("/")
         if not base.startswith(("http://", "https://")) or not base.endswith("/v1"):
             raise ValueError("VIA_VLM_ENDPOINT must be an HTTP(S) OpenAI /v1 URL")
-        if isinstance(payload, bytes):
+        if isinstance(payload, bytes) and getattr(self, "_nim_json_frame_transport", False):
+            body = json.dumps({"image_b64": base64.b64encode(payload).decode("ascii")}).encode()
+            content_type = "application/json"
+        elif isinstance(payload, bytes):
             body = payload
             content_type = "image/png" if payload.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg"
         else:
@@ -799,8 +803,22 @@ class CompOpenAIModel(BaseVlmModel):
             f"{base}/streaming/{path}", data=body, headers=headers, method=method
         )
         timeout = 1800 if path.endswith("/frame") else 30
-        with urlrequest.urlopen(req, timeout=timeout) as response:
-            return json.load(response)
+        try:
+            with urlrequest.urlopen(req, timeout=timeout) as response:
+                return json.load(response)
+        except urlerror.HTTPError as error:
+            if (
+                error.code == 415
+                and method == "POST"
+                and path.endswith("/frame")
+                and isinstance(payload, bytes)
+                and content_type != "application/json"
+            ):
+                # Some NIM versions apply JSON-only middleware before the binary frame route.
+                error.close()
+                self._nim_json_frame_transport = True
+                return self._nim_streaming_request(method, path, payload)
+            raise
 
     def start_streaming_vlm_session(
         self, stream_id, query, generation_config=None, streaming_config=None, **kwargs
