@@ -99,7 +99,8 @@ const MediaUpload = () => {
     const [bitrate, setBitrate] = useState('');
     const [keyframeInterval, setKeyframeInterval] = useState('');
     const [tags, setTags] = useState('');
-    const [enableChunkUpload, setEnableChunkUpload] = useState(false);
+    // Keep each request below the upload limits of proxies such as Brev secure links.
+    const [enableChunkUpload, setEnableChunkUpload] = useState(true);
     const [chunkSize, setChunkSize] = useState<number>(50);
     const [isDragging, setIsDragging] = useState(false);
     const [selectedSensor, setSelectedSensor] = useState<Sensor | null>(null);

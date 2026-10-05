@@ -34,6 +34,14 @@ To upload videos from the web UI:
 5. An RTSP stream will be automatically created with the file name.
 6. Check the [NVStreamer Dashboard](/vss/system-components/middleware/video-io-storage-vios/nvstreamer#nvstreamer-dashboard) to see the new RTSP stream.
 
+<Note>
+Multipart upload is enabled by default with a chunk size of 50 MB. Keep it enabled
+when accessing NVStreamer through a Brev secure link so each request stays below
+the proxy's upload size limit. On older builds, turn on **Enable multi-part upload**
+in the **Media Upload** tab before selecting a large video. If a slow connection
+still causes uploads to time out, reduce **Chunk size in MB** to 20.
+</Note>
+
 ![NVStreamer File Upload](/assets/images/vios/Nvstreamer-Upload.png)
 
 ## Streaming Videos from NVStreamer
