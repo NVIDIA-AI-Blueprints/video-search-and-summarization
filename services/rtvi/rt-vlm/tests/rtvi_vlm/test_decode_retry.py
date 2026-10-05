@@ -20,10 +20,10 @@ from types import SimpleNamespace
 
 import pytest
 import torch
-
 from common.chunk_info import ChunkInfo
+
 from vlm_pipeline import vlm_pipeline as vlm_pipeline_module
-from vlm_pipeline.vlm_pipeline import DecoderProcess
+from vlm_pipeline.vlm_pipeline import DecoderProcess, VlmModelType
 
 
 class ImmediateExecutor:
@@ -95,6 +95,77 @@ class EmptyFrameGetter(FlakyFrameGetter):
         return [], [], [], None
 
 
+@pytest.mark.no_gpu
+def test_remote_file_caption_recovers_from_terminal_hardware_decode_failure(monkeypatch, tmp_path):
+    _install_fake_frame_selector(monkeypatch)
+    monkeypatch.setattr(vlm_pipeline_module.nvtx, "start_range", lambda *a, **k: object())
+    monkeypatch.setattr(vlm_pipeline_module.nvtx, "end_range", lambda *a, **k: None)
+    monkeypatch.setenv("RTVI_DECODE_MAX_ATTEMPTS", "2")
+    monkeypatch.delenv("CHOOSE_FSELECT", raising=False)
+    import vlm_pipeline.software_video_decoder as software_decoder
+
+    calls = []
+
+    def recover(chunk, selector, **kwargs):
+        calls.append(chunk)
+        return ["real decoded JPEG"], [1.0]
+
+    monkeypatch.setattr(software_decoder, "decode_file_jpegs", recover)
+    decoder = _make_decoder()
+    decoder._vlm_model_type = VlmModelType.OPENAI_COMPATIBLE
+    decoder._enable_jpeg_tensors = True
+    path = tmp_path / "video.mp4"
+    path.touch()
+    chunk = ChunkInfo(file=str(path), end_pts=2_000_000_000)
+    getter = EmptyFrameGetter()
+    result = decoder._decode_chunk(
+        getter, chunk, _make_vlm_query(), video_codec="H264", request_id="recover"
+    )
+
+    assert result["error"] is None
+    assert result["frames"] == ["real decoded JPEG"]
+    assert result["frame_times"] == [1.0]
+    assert calls == [chunk]
+    assert getter.destroyed == 2  # retry reset and terminal hardware-pipeline cleanup
+
+
+@pytest.mark.no_gpu
+@pytest.mark.parametrize("unsupported", ["local_model", "audio", "motion", "non_jpeg", "oom"])
+def test_software_recovery_preserves_unsupported_decode_failures(
+    monkeypatch, tmp_path, unsupported
+):
+    _install_fake_frame_selector(monkeypatch)
+    monkeypatch.setattr(vlm_pipeline_module.nvtx, "start_range", lambda *a, **k: object())
+    monkeypatch.setattr(vlm_pipeline_module.nvtx, "end_range", lambda *a, **k: None)
+    monkeypatch.setenv("RTVI_DECODE_MAX_ATTEMPTS", "1")
+    monkeypatch.setenv("CHOOSE_FSELECT", "true" if unsupported == "motion" else "false")
+    import vlm_pipeline.software_video_decoder as software_decoder
+
+    def unexpected_recovery(*args, **kwargs):
+        pytest.fail("Software recovery must preserve this decoding contract")
+
+    monkeypatch.setattr(software_decoder, "decode_file_jpegs", unexpected_recovery)
+    decoder = _make_decoder()
+    decoder._vlm_model_type = (
+        None if unsupported == "local_model" else VlmModelType.OPENAI_COMPATIBLE
+    )
+    decoder._enable_jpeg_tensors = unsupported != "non_jpeg"
+    path = tmp_path / "video.mp4"
+    path.touch()
+    query = _make_vlm_query()
+    query.enable_audio = unsupported == "audio"
+    getter = OomFrameGetter() if unsupported == "oom" else EmptyFrameGetter()
+    result = decoder._decode_chunk(
+        getter,
+        ChunkInfo(file=str(path), end_pts=2_000_000_000),
+        query,
+        video_codec="H264",
+        request_id="unsupported",
+    )
+    assert result["error"]
+    assert "frames" not in result
+
+
 class UnderfilledFixedFrameGetter(FlakyFrameGetter):
     def get_frames(self, *args, **kwargs):
         self.calls += 1
@@ -147,6 +218,9 @@ def _make_live_decoder():
     decoder._enable_jpeg_tensors = False
     decoder._data_type_int8 = False
     decoder._enable_audio = False
+    decoder._ipc_frame_copy = False
+    decoder._ipc_socket_dir = "/tmp"
+    decoder._ipc_socket_template = "nvds_ipc_{camera_id}.sock"
     return decoder
 
 
@@ -620,6 +694,7 @@ def test_cached_decoder_restores_existing_parser_probe(monkeypatch):
     cached_decoder = SimpleNamespace(iterate_recurse=lambda: FakeIterator(parser))
     fgetter = VideoFileFrameGetter.__new__(VideoFileFrameGetter)
     fgetter._gop_decode_opt_enabled = True
+    fgetter._is_live = False
     fgetter._gst_pad_probe_ids = []
 
     fgetter._restore_cached_decoder_parser_probes(cached_decoder)
@@ -916,6 +991,8 @@ def test_live_stream_fallback_frame_selector_honors_server_fps_default(monkeypat
     decoder = _make_live_decoder()
     asset = SimpleNamespace(
         asset_id="live-stream-id",
+        camera_id="",
+        sensor_name="",
         path="rtsp://example.test/stream.mp4",
         username="",
         password="",

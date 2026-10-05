@@ -768,6 +768,36 @@ class DecoderProcess(ProcessBase):
                     chunk,
                     ex,
                 )
+        hardware_decode_failed = bool(error)
+        # Remote JPEG-input models do not need CUDA to consume a file. Once
+        # hardware decode has exhausted its bounded attempts, recover using
+        # the same frame selector on CPU instead of losing the whole summary.
+        # Do not bypass local-model preprocessing, audio, motion selection, or
+        # an explicit CUDA memory-pressure failure.
+        if (
+            error
+            and not is_cuda_oom_error(error)
+            and getattr(self, "_vlm_model_type", None) == VlmModelType.OPENAI_COMPATIBLE
+            and self._enable_jpeg_tensors
+            and not enable_audio
+            and not _parse_bool_env("CHOOSE_FSELECT")
+            and os.path.isfile(chunk.file)
+        ):
+            from .software_video_decoder import decode_file_jpegs
+
+            try:
+                frames, frame_times = decode_file_jpegs(
+                    chunk,
+                    frame_selector,
+                    frame_width=vlm_input_width or self._width,
+                    frame_height=vlm_input_height or self._height,
+                )
+                if len(frames) >= min_required_frames:
+                    logger.warning("Recovered failed hardware decode on CPU for %s", chunk)
+                    error = None
+                    audio_frames = []
+            except Exception as ex:
+                logger.warning("Software decode recovery failed for %s: %s", chunk, ex)
         frame_times = [float("%.2f" % frame_ele) for frame_ele in frame_times]
 
         nvtx.end_range(nvtx_decode_start)
@@ -780,7 +810,7 @@ class DecoderProcess(ProcessBase):
             # Destroy only on terminal failure or when reuse is globally off.
             try:
                 if (
-                    error
+                    hardware_decode_failed
                     or not _reuse_file_decoder_pipeline()
                     or not getattr(fgetter, "_file_pipeline_reusable", True)
                 ):

@@ -287,6 +287,13 @@ chart does not request a full GPU and a MIG slice together.
 
 RT-VLM supports local vLLM-compatible checkpoints, NGC model artifacts, and remote OpenAI-compatible endpoints. Use `MODEL_PATH=git:<Hugging Face URL>` for Hugging Face checkpoints, `MODEL_PATH=ngc:<org>/<team>/<model>:<version>` for NGC model artifacts, or `VLM_MODEL_TO_USE=openai-compat` with `VIA_VLM_ENDPOINT` for a remote endpoint.
 
+For file captions sent to a remote OpenAI-compatible model with JPEG input,
+RT-VLM recovers exhausted hardware decode attempts using CPU decoding. Recovery
+uses the same chunk window and frame selector, and retains only selected JPEG
+frames. Local models, audio, motion selection, all-frame selection, and CUDA
+out-of-memory failures keep their existing decode behavior. Corrupt or
+undecodable media still fails; recovery does not fabricate captions.
+
 ### Cosmos Reason2 Family
 
 | Model or checkpoint | Example selector |
