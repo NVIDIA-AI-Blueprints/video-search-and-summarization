@@ -121,6 +121,52 @@ def _ensure_gateway(sandbox: str) -> None:
     )
 
 
+def _ensure_local_nim_route(sandbox: str) -> None:
+    """Bind this leg's credential and verify inference through OpenShell.
+
+    NIM's host smoke probe does not exercise the gateway's stored credential.
+    Warm-worker onboarding/recovery can reuse an existing compatible provider,
+    while each eval leg starts its adapter with a new master key. Reapply the
+    selected route through NemoClaw, which updates the provider credential and
+    verifies inference, before sending an operational prompt.
+    """
+    token = os.environ.get("SKILL_EVAL_LOCAL_NIM_API_KEY")
+    if not token:
+        return
+    endpoint = os.environ.get("NEMOCLAW_ENDPOINT_URL")
+    model = os.environ.get("NEMOCLAW_MODEL")
+    if not endpoint or not model:
+        raise RuntimeError("Local NIM route requires its selected endpoint and model")
+    env = os.environ.copy()
+    env["COMPATIBLE_API_KEY"] = token
+    result = subprocess.run(
+        [
+            "nemoclaw", sandbox, "inference", "set",
+            "--provider", "compatible-endpoint",
+            "--model", model,
+            "--endpoint-url", endpoint,
+            "--credential-env", "COMPATIBLE_API_KEY",
+            "--inference-api", "openai-completions",
+        ],
+        env=env,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=360,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "no inference verification output")
+        for key in ("SKILL_EVAL_LOCAL_NIM_API_KEY", "COMPATIBLE_API_KEY", "NVIDIA_API_KEY"):
+            for secret in (os.environ.get(key), env.get(key)):
+                if secret:
+                    detail = detail.replace(secret, "<redacted>")
+        raise RuntimeError(
+            f"Local NIM gateway route verification failed (exit {result.returncode}): "
+            f"{detail.strip()[-1000:]}"
+        )
+
+
 def _nemoclaw_exec(
     sandbox: str,
     script: str,
@@ -313,6 +359,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         _ensure_gateway(sandbox)
+        _ensure_local_nim_route(sandbox)
         envelope, session = _run_openclaw(sandbox, prompt, args.timeout)
         (agent_log_dir / "openclaw.txt").write_text(
             json.dumps(envelope, separators=(",", ":")) + "\n",

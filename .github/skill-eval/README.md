@@ -100,6 +100,13 @@ relaxing other URL checks. Startup and reuse both restore this declaration.
 Startup and reuse smoke requests exercise each selected protocol.
 The NIM and VSS run on the same worker.
 
+Each local-NIM operational prompt also reapplies the selected route with
+`nemoclaw <sandbox> inference set`, supplying the current leg's adapter key
+through the credential environment and retaining inference verification.
+This refreshes a compatible provider recovered from warm-worker state and
+checks the OpenShell-to-NIM path, which a host smoke request does not cover.
+Failure stops the prompt and leaves the current route error in `agent.log`.
+
 Startup is bounded to 5,400 seconds within the existing environment deadline;
 cold downloads may exceed this and fail explicitly. The worker needs access
 to NGC, Docker Hub (`python:3.12-slim`), and PyPI (`litellm[proxy]==1.103.0`).
