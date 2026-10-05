@@ -25,6 +25,9 @@ export interface AgentApiEvent {
  */
 export const GATEWAY_UNREACHABLE = 'backend_unreachable';
 
+/** Error codes for a backend that rejected this browser's credentials. */
+export const CREDENTIALS_REJECTED = new Set(['backend_auth_error', 'backend_scope_error']);
+
 export interface AgentApiRun {
   run_id: string;
   events_url: string;
@@ -35,8 +38,8 @@ export type AgentApiChatEvent =
   | { kind: 'token'; text: string }
   | { kind: 'step'; step: ChatStep }
   | { kind: 'artifact'; envelope: string }
-  /** `retrySafe`: the backend was unreachable before the run reached the agent. */
-  | { kind: 'error'; message: string; retrySafe?: boolean }
+  /** `code`: the adapter's error code for a failed run, when it sent one. */
+  | { kind: 'error'; message: string; code?: string }
   | { kind: 'done' };
 
 export interface AgentApiChatState {
@@ -272,7 +275,7 @@ export function agentApiEventToChatEvents(
       {
         kind: 'error',
         message: message ?? 'The agent backend could not complete this request.',
-        ...(fields?.code === GATEWAY_UNREACHABLE ? { retrySafe: true } : {}),
+        ...(typeof fields?.code === 'string' ? { code: fields.code } : {}),
       },
       { kind: 'done' },
     ];

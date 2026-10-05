@@ -9,6 +9,7 @@ import {
   AgentApiSseParser,
   type AgentApiChatEvent,
   type AgentApiRun,
+  CREDENTIALS_REJECTED,
   GATEWAY_UNREACHABLE,
 } from './agentApi';
 import { SseParser, type InteractionRequest, type SseEvent } from './sse';
@@ -75,6 +76,8 @@ export interface UseChatStreamOptions {
   onInteraction?: (interaction: InteractionRequest) => Promise<string>;
   /** Called when the turn's conversation is no longer the selected one. */
   isConversationStale?: (uploadConversationId: string) => boolean;
+  /** Called after a turn fails because the backend rejected the credentials. */
+  onAuthFailure?: () => void;
 }
 
 export interface UseChatStreamResult {
@@ -125,6 +128,14 @@ export function useChatStream(
   const endpointRef = useRef(endpoint);
   endpointRef.current = endpoint;
   const busyRef = useRef(false);
+  const [authFailures, setAuthFailures] = useState(0);
+
+  // Reported from an effect, after the commit that puts the failure on the
+  // message: the embedder may unmount this panel to ask for new credentials,
+  // and the conversation it saves on the way out should include that failure.
+  useEffect(() => {
+    if (authFailures) optionsRef.current.onAuthFailure?.();
+  }, [authFailures]);
 
   useEffect(() => {
     optionsRef.current.onBusyChange?.(busy);
@@ -222,7 +233,8 @@ export function useChatStream(
 
       let answer = '';
       let failed = '';
-      let retrySafe = false;
+      let failedCode = '';
+      let credentialsRejected = false;
       let agentTerminal = false;
       const artifactEnvelopes: string[] = [];
       const steps: ChatStep[] = [];
@@ -261,7 +273,7 @@ export function useChatStream(
             }
           } else if (ev.kind === 'error') {
             failed = ev.message;
-            retrySafe = 'retrySafe' in ev && ev.retrySafe === true;
+            failedCode = ('code' in ev && ev.code) || '';
           } else {
             agentTerminal = true;
             patchReply((m) => ({ ...m, streaming: false, steps: settleSteps('complete') }));
@@ -297,6 +309,7 @@ export function useChatStream(
               }),
             });
             if (!createResponse.ok) {
+              credentialsRejected = createResponse.status === 401;
               if (attempt === 0 && (await gatewayUnreachable(createResponse))) {
                 await retryDelay(controller.signal);
                 continue;
@@ -322,6 +335,7 @@ export function useChatStream(
               },
             });
             if (!eventsResponse.ok) {
+              credentialsRejected = eventsResponse.status === 401;
               throw new Error(`agent API returned HTTP ${eventsResponse.status}`);
             }
             if (!eventsResponse.body) throw new Error('agent API returned no event stream');
@@ -356,19 +370,20 @@ export function useChatStream(
             if (
               attempt === 0 &&
               failed &&
-              retrySafe &&
+              failedCode === GATEWAY_UNREACHABLE &&
               !answer &&
               !artifactEnvelopes.length &&
               steps.every((step) => step.id.startsWith('run-status-'))
             ) {
               failed = '';
-              retrySafe = false;
+              failedCode = '';
               agentTerminal = false;
               steps.length = 0;
               patchReply((m) => ({ ...m, streaming: true, steps: [] }));
               await retryDelay(controller.signal);
               continue;
             }
+            credentialsRejected = !!failed && CREDENTIALS_REJECTED.has(failedCode);
             break;
           }
         } else {
@@ -444,6 +459,7 @@ export function useChatStream(
         cancelHeadersRef.current = undefined;
         abortRef.current = null;
         setBusyBoth(false);
+        if (credentialsRejected) setAuthFailures((count) => count + 1);
       }
     },
     [cancelAgentRun, chatHistory, setMessages, setBusyBoth],

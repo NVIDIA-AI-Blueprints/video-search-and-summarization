@@ -13,6 +13,7 @@ import React from 'react';
 
 import { ChatPanel } from '../lib-src/ChatPanel';
 import { VssUiArtifact } from '../lib-src/markdown/components';
+import { saveConversations } from '../lib-src/storage';
 import { AGENT_RETRY_DELAY_MS } from '../lib-src/useChatStream';
 
 jest.mock('common', () => ({
@@ -791,13 +792,116 @@ describe('ChatPanel', () => {
     it('reports the failure after a single retry', async () => {
       const fetchMock = jest.fn().mockResolvedValue(unreachable);
       global.fetch = fetchMock as any;
+      const onAuthFailure = jest.fn();
 
-      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} />);
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} onAuthFailure={onAuthFailure} />);
       await sendAndWaitOutRetry('hello');
 
       await waitFor(() => expect(screen.getByText(/HTTP 503/)).toBeInTheDocument());
       expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(onAuthFailure).not.toHaveBeenCalled();
     });
+  });
+
+  describe('agent API credentials rejected', () => {
+    const agentEndpoint = {
+      url: '/api/agent',
+      transport: 'agent-api' as const,
+      surface: 'vss-ui-main',
+      conversationId: 'thread_1',
+    };
+
+    it('reports a 401 from run creation to the embedder after showing it', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: { code: 'backend_auth_error' } }),
+      }) as any;
+      const onAuthFailure = jest.fn(() => {
+        expect(screen.getByText(/HTTP 401/)).toBeInTheDocument();
+      });
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} onAuthFailure={onAuthFailure} />);
+      await act(async () => typeAndSend('hello'));
+
+      await waitFor(() => expect(onAuthFailure).toHaveBeenCalledTimes(1));
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('saves the failed turn when the embedder unmounts the panel to ask for a token', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: { code: 'backend_auth_error' } }),
+      }) as any;
+      const save = saveConversations as jest.Mock;
+      function Embedder() {
+        const [rejected, setRejected] = React.useState(false);
+        return rejected ? (
+          <p>token prompt</p>
+        ) : (
+          <ChatPanel endpoint={agentEndpoint} features={noHeader} onAuthFailure={() => setRejected(true)} />
+        );
+      }
+
+      render(<Embedder />);
+      await act(async () => {});
+      save.mockClear();
+      await act(async () => typeAndSend('resend me later'));
+
+      expect(await screen.findByText('token prompt')).toBeInTheDocument();
+      const saved = JSON.stringify(save.mock.calls[save.mock.calls.length - 1][0]);
+      expect(saved).toContain('resend me later');
+      expect(saved).toContain('HTTP 401');
+    });
+
+    it('reports a run the gateway rejected', async () => {
+      global.fetch = jest
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          json: async () => ({
+            run_id: 'run_1',
+            events_url: '/api/agent/runs/run_1/events',
+            cancel_url: '/api/agent/runs/run_1/cancel',
+          }),
+        })
+        .mockResolvedValueOnce(
+          sseResponse([
+            agentApiFrame('run.started', {}, 1),
+            agentApiFrame(
+              'run.failed',
+              { error: { code: 'backend_auth_error', message: 'OpenClaw Gateway authentication failed' } },
+              2,
+            ),
+          ]),
+        ) as any;
+      const onAuthFailure = jest.fn();
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} onAuthFailure={onAuthFailure} />);
+      await act(async () => typeAndSend('hello'));
+
+      await waitFor(() => expect(onAuthFailure).toHaveBeenCalledTimes(1));
+      expect(screen.getByText(/OpenClaw Gateway authentication failed/)).toBeInTheDocument();
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('saves a turn that is still pending when the panel unmounts', async () => {
+    global.fetch = jest.fn(() => new Promise<Response>(() => {})) as any;
+    const save = saveConversations as jest.Mock;
+
+    const { unmount } = render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => {});
+    save.mockClear();
+    await act(async () => typeAndSend('keep this message'));
+    expect(save).not.toHaveBeenCalled();
+
+    unmount();
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(save.mock.calls[0][0])).toContain('keep this message');
   });
 
   it('folds a context chip into the request and clears it after sending', async () => {
