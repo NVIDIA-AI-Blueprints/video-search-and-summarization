@@ -222,7 +222,9 @@ class TestTriggerQueryRtviDown:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("chunks", [[], [{"chunk_responses": []}]], ids=["no-sse-data", "empty-chunks"])
+@pytest.mark.parametrize(
+    "chunks", [[], [{"chunk_responses": []}]], ids=["no-sse-data", "empty-chunks"]
+)
 def test_file_without_captions_fails_before_persistence(chunks):
     """The nightly's zero-chunk result must not become an empty successful completion."""
     handler = _make_handler()
@@ -244,3 +246,87 @@ def test_file_without_captions_fails_before_persistence(chunks):
     assert req_info.end_time is not None
     assert req_info.response == []
     handler._vlm_pipeline.generate_captions_stream.assert_called_once()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("failure", [requests.exceptions.Timeout("RTVI stream timed out"), None])
+def test_partial_rtvi_failure_does_not_write_captions_or_qa(failure):
+    """A file stream's early captions must not outlive its terminal failure."""
+    from rtvi_vlm_client import RtviError
+
+    handler = _make_handler()
+    req_info = _make_req_info()
+    req_info._ctx_mgr = MagicMock()
+    req_info._qa_ctx_mgr = MagicMock()
+    req_info.enable_qa = True
+    existing_data = ["existing caption", "existing QA", "another request's caption"]
+    req_info._ctx_mgr.add_doc.side_effect = lambda *_a, **_k: existing_data.append(
+        "partial caption"
+    )
+    req_info._qa_ctx_mgr.add_doc.side_effect = lambda *_a, **_k: existing_data.append("partial QA")
+    handler._qa_ctx_mgr_pool = []
+    handler._request_info_map[req_info.request_id] = req_info
+    handler.drop_collection_for_asset = MagicMock()
+
+    def stream(**_kwargs):
+        yield {
+            "chunk_responses": [
+                {
+                    "chunk_id": 0,
+                    "start_time": 0,
+                    "end_time": 10,
+                    "content": '{"video_summary": "Partial", "events": []}',
+                }
+            ]
+        }
+        raise failure or RtviError(503, "InternalServerError", "RTVI inference failed")
+
+    handler._vlm_pipeline.generate_captions_stream.side_effect = stream
+    with patch.dict(
+        os.environ, {"ENABLE_DENSE_CAPTION": "", "LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "false"}
+    ):
+        handler._trigger_query(req_info)
+        handler.check_status_remove_req_id(req_info.request_id)
+
+    assert req_info.status == RequestInfo.Status.FAILED
+    assert req_info.failed_stage == "caption_generation"
+    assert existing_data == ["existing caption", "existing QA", "another request's caption"]
+    req_info._ctx_mgr.add_doc.assert_not_called()
+    handler.drop_collection_for_asset.assert_not_called()
+    assert req_info._ctx_mgr in handler._ctx_mgr_pool
+    assert req_info.request_id not in handler._request_info_map
+
+
+@pytest.mark.unit
+def test_file_captions_are_ingested_in_order_after_rtvi_completes():
+    handler = _make_handler()
+    req_info = _make_req_info()
+    rtvi_complete = False
+    ingested = []
+
+    def stream(**_kwargs):
+        nonlocal rtvi_complete
+        for idx in range(2):
+            yield {
+                "chunk_responses": [
+                    {
+                        "chunk_id": idx,
+                        "start_time": idx * 10,
+                        "end_time": (idx + 1) * 10,
+                        "content": str(idx),
+                    }
+                ]
+            }
+        rtvi_complete = True
+
+    def ingest(response, _req_info):
+        assert rtvi_complete, "file captions were written before RTVI succeeded"
+        ingested.append(response.chunk.chunkIdx)
+
+    handler._vlm_pipeline.generate_captions_stream.side_effect = stream
+    handler._on_vlm_chunk_response = ingest
+    with patch.dict(os.environ, {"ENABLE_DENSE_CAPTION": ""}):
+        handler._trigger_query(req_info)
+
+    assert ingested == [0, 1]
+    assert req_info.chunk_count == 2

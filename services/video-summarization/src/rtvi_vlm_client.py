@@ -415,7 +415,11 @@ class RtviVlmClient:
                     )
                 yield chunk
 
-            logger.info("RTVI generate_captions_stream: stream ended")
+            raise RtviError(
+                502,
+                "IncompleteStream",
+                "RTVI caption stream ended without the [DONE] completion marker",
+            )
         finally:
             resp.close()
 

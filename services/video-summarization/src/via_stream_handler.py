@@ -1486,6 +1486,11 @@ class ViaStreamHandler:
 
         try:
             chunk_idx = 0
+            # File captions are provisional until RTVI finishes the stream.
+            # Ingesting them as they arrive leaves partial caption/QA writes
+            # behind when a later SSE error fails the request. Buffer only
+            # files; live streams continue publishing each chunk immediately.
+            pending_file_responses = []
             model_info = self._vlm_pipeline.get_models_info()
             rtvi_sse_start = time.time()
 
@@ -1659,8 +1664,14 @@ class ViaStreamHandler:
                         parent_context=getattr(req_info, "_vlm_pipeline_span_context", None),
                     )
 
-                    self._on_vlm_chunk_response(response, req_info)
+                    if req_info.is_live:
+                        self._on_vlm_chunk_response(response, req_info)
+                    else:
+                        pending_file_responses.append(response)
                     chunk_idx += 1
+
+            for response in pending_file_responses:
+                self._on_vlm_chunk_response(response, req_info)
 
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as ex:
             logger.error(

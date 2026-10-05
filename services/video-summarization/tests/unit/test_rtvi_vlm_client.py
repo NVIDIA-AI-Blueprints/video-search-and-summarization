@@ -75,9 +75,7 @@ class TestGenerateCaptionsStreamResponseClose:
 
     def test_close_called_after_done_marker(self):
         client = _make_client()
-        chunk = json.dumps(
-            {"id": "c1", "chunk_responses": [{"chunk_id": 0, "content": "hello"}]}
-        )
+        chunk = json.dumps({"id": "c1", "chunk_responses": [{"chunk_id": 0, "content": "hello"}]})
         resp = _make_resp(lines=[f"data: {chunk}", "data: [DONE]"])
         self._run(client, resp)
         resp.close.assert_called_once()
@@ -123,4 +121,20 @@ def test_sse_error_preserves_rtvi_failure(status, code):
     assert exc_info.value.status_code == status
     assert exc_info.value.code == code
     assert exc_info.value.message == "VLM inference failed"
+    resp.close.assert_called_once()
+
+
+@pytest.mark.parametrize("lines", [[], ['data: {"chunk_responses": [{"content": "partial"}]}']])
+def test_sse_without_done_marker_is_a_failure(lines):
+    from rtvi_vlm_client import RtviError
+
+    client = _make_client()
+    resp = _make_resp(lines=lines)
+    client._session.post.return_value = resp
+
+    with pytest.raises(RtviError) as exc_info:
+        _drain(client.generate_captions_stream(file_id="test-uuid", model="test-model"))
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.code == "IncompleteStream"
     resp.close.assert_called_once()
