@@ -91,6 +91,10 @@ _ATX_HEADING_RE = re.compile(r"^(#{1,6})[ \t]*(.*\S)[ \t]*$", re.MULTILINE)
 _SETEXT_HEADING_RE = re.compile(r"(?m)^(?P<title>[^#|\n][^\n]*)\n(?P<underline>[-=])(?P=underline){2,}[ \t]*$")
 _TRAILING_HEADING_HASHES_RE = re.compile(r"[ \t]+#+\s*$")
 _FENCED_BLOCK_RE = re.compile(r"```[\w-]*[ \t]*\n(.*?)\n[ \t]*```", re.DOTALL)
+_CHATTER_LINE_RE = re.compile(
+    r"^(?:here(?:'s| is)\b|below is\b|let me know\b|hope this\b|feel free to\b).*$",
+    re.IGNORECASE,
+)
 _SECTION_UNKNOWN_RE = re.compile(r"\b(Unknown|N/A)\b", re.IGNORECASE)
 _BLANK_RENDERED_VALUE_RE = re.compile(r"(?i)<br\s*/?>|&nbsp;")
 
@@ -736,19 +740,55 @@ def _build_authoritative_incident_facts(
     return {key: value for key, value in facts.items() if value is not None}
 
 
+def _is_chatter_line(line: str) -> bool:
+    """A preamble or closing remark, not a report heading, table, or labeled line."""
+    stripped = line.strip()
+    if not stripped or stripped.startswith("|") or "**" in stripped:
+        return False
+    if re.match(r"^#{1,6}[ \t]*\S", stripped):
+        return False
+    return _CHATTER_LINE_RE.match(stripped) is not None
+
+
+def _strip_surrounding_chatter(text: str) -> str:
+    """Drop leading and trailing conversational lines while keeping report text."""
+    lines = text.strip().splitlines()
+    start = 0
+    while start < len(lines) and (not lines[start].strip() or _is_chatter_line(lines[start])):
+        start += 1
+    end = len(lines)
+    while end > start and (not lines[end - 1].strip() or _is_chatter_line(lines[end - 1])):
+        end -= 1
+    return "\n".join(lines[start:end]).strip()
+
+
+def _unwrap_fenced_blocks(text: str) -> str:
+    """Remove fence markers and keep both fenced and surrounding report text, in order."""
+    matches = list(_FENCED_BLOCK_RE.finditer(text))
+    if not matches:
+        return text
+    parts: list[str] = []
+    cursor = 0
+    for match in matches:
+        parts.append(text[cursor : match.start()])
+        parts.append(match.group(1))
+        cursor = match.end()
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
 def _normalize_report_model_output(content: str) -> str:
-    """Drop closed thinking, then keep every complete fenced block."""
+    """Drop closed thinking and fence markers, and keep report text outside the fences."""
     normalized = content.strip()
     if think_match := _THINK_CLOSE_RE.search(normalized):
         normalized = normalized[think_match.end() :].strip()
-    fenced_blocks = [match.group(1).strip() for match in _FENCED_BLOCK_RE.finditer(normalized)]
-    fenced_blocks = [block for block in fenced_blocks if block]
-    if fenced_blocks:
-        return "\n\n".join(fenced_blocks)
-    # A lone opening fence (with an optional info string) or a leftover closing fence.
-    normalized = re.sub(r"^```[\w-]*[ \t]*\n?", "", normalized)
-    normalized = re.sub(r"\n?```\s*$", "", normalized)
-    return normalized.strip()
+    if _FENCED_BLOCK_RE.search(normalized):
+        normalized = _unwrap_fenced_blocks(normalized)
+    else:
+        # A lone opening fence (with an optional info string) or a leftover closing fence.
+        normalized = re.sub(r"^```[\w-]*[ \t]*\n?", "", normalized)
+        normalized = re.sub(r"\n?```\s*$", "", normalized)
+    return _strip_surrounding_chatter(normalized)
 
 
 def _body_without_resources(content: str) -> str:

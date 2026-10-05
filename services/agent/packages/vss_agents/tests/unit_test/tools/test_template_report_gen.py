@@ -346,6 +346,29 @@ class TestReportBodyValidation:
         assert "## People Involved" in normalized
         assert "## Vehicles Involved" in normalized
         assert "Let me know" not in normalized
+        assert "Here is the report" not in normalized
+        _validate_report_body(
+            normalized,
+            required_report_fields=["Detailed Description"],
+            required_report_sections=["People Involved", "Vehicles Involved"],
+        )
+
+    def test_normalize_keeps_unfenced_report_continuation(self):
+        raw = (
+            "Here is the populated report:\n"
+            "```markdown\n"
+            + _sample_table_report()
+            + "\n## People Involved\n\n| **Person Type** | worker\n"
+            + "\n## Vehicles Involved\n\nN/A\n"
+            + "```\n"
+            "The worker left the aisle. The forklift remained stopped.\n"
+            "Let me know if you need changes."
+        )
+        normalized = _normalize_report_model_output(raw)
+        assert "The worker left the aisle. The forklift remained stopped." in normalized
+        assert "## People Involved" in normalized
+        assert "Here is the populated report" not in normalized
+        assert "Let me know" not in normalized
         _validate_report_body(
             normalized,
             required_report_fields=["Detailed Description"],
