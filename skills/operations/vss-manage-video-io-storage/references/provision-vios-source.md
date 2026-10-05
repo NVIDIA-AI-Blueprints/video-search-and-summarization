@@ -239,9 +239,10 @@ not failures:
   flight through Kafka and Logstash land after the cleanup. Let tagging finish
   and settle before deleting, or remove the leftovers by hand.
 
-A hand-driven RT-VLM leg is torn down by its caller, before the sensor goes,
-tag documents included: they carry no `cameraId`, so the shipped cleanup
-misses them.
+A hand-driven RT-VLM leg is torn down by its caller, before the sensor goes.
+Its tag documents stay searchable afterwards: they carry no `cameraId`, so the
+shipped cleanup misses them, and the edge keeps Elasticsearch read-only. Where
+tag cleanup matters, use the tagging receiver rather than a hand-driven leg.
 
 ## Driving RT-VLM by hand
 
