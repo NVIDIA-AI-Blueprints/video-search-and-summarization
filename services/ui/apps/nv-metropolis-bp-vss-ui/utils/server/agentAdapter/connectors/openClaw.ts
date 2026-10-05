@@ -235,10 +235,12 @@ export class OpenClawConnector implements Connector {
       );
     } catch (error) {
       if (error instanceof WebSocketTransportError) {
+        // The WebSocket never opened, so no request reached the gateway.
         throw new ConnectorError(
           "OpenClaw Gateway is unreachable",
           "backend_unreachable",
-          true
+          true,
+          { delivered: false }
         );
       }
       throw error;
