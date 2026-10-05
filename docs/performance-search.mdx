@@ -71,10 +71,9 @@ so the critic verifies against what was actually asked.
 
 Reproducing the decomposition row therefore needs both the LLM call and this derivation in
 front of the CLI — running `vss search run` alone reproduces every other row but not this
-one. The **Routed actions** counts above are the actions invoked on the command line. They
-are not necessarily the retrieval that executed: a `fusion` invocation falls back to
-attribute-only inside the search library when the embedding leg scores below
-`embed_confidence_threshold`, which is 0.1 by default.
+one. The **Routed actions** counts above are the actions invoked, and on this path they are
+also the retrieval that ran: the CLI passes the action straight through to the search
+library, which executes the named mode without re-routing.
 </Note>
 
 ### Video Upload Performance
