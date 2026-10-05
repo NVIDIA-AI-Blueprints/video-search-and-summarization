@@ -8,6 +8,38 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+# ---------------------------------------------------------------------------
+# Stage 1: build the React frontend and package it into a Python wheel.
+# This replaces the Jenkins pre-build step that ran npm + setup.py before
+# invoking docker build.
+# ---------------------------------------------------------------------------
+FROM node:18-alpine AS frontend-builder
+WORKDIR /client
+COPY calibration/client/package*.json ./
+RUN npm ci --prefer-offline
+COPY calibration/client/ ./
+# Build React then run the NGC prod path post-processor (rewrites static
+# URLs in index.html so the app works when deployed at a sub-path).
+# Mirrors the steps in build_prod_yarn.sh that ran before docker build.
+RUN npm run build && node ./modify-html-in-prod.js
+
+FROM python:3.13-slim AS wheel-builder
+WORKDIR /build
+COPY . .
+# Replicate the two copy steps from build_prod_yarn.sh:
+#   cp build/index.html  → server/frontend/templates/frontend/
+#   cp -r build/static   → server/frontend/static/
+RUN mkdir -p calibration/server/frontend/templates/frontend
+COPY --from=frontend-builder /client/build/index.html \
+     calibration/server/frontend/templates/frontend/index.html
+COPY --from=frontend-builder /client/build/static \
+     calibration/server/frontend/static
+RUN pip install --no-cache-dir build && \
+    python -m build --wheel --outdir dist
+
+# ---------------------------------------------------------------------------
+# Stage 2: runtime image
+# ---------------------------------------------------------------------------
 FROM nvcr.io/nvidia/base/ubuntu:noble-20260217 AS pybase
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Check-Date=false update -y
@@ -100,7 +132,7 @@ RUN pipenv requirements --hash > requirements.txt && \
 ENV DEBUG="True"
 ENV MULTIPROCESSING_ABSTRACT_SOCKETS_SUPPORTED="False"
 
-COPY dist/calibration-1.0-py3-none-any.whl /
+COPY --from=wheel-builder /build/dist/calibration-1.0-py3-none-any.whl /
 RUN pip3 install --upgrade pip /calibration-1.0-py3-none-any.whl
 
 #COPY requirements.txt /app/server
