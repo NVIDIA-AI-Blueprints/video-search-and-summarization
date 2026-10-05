@@ -31,7 +31,6 @@ for arg in "$@"; do
   case "$arg" in
     *authn.nvidia.com*) printf '%s' "$STUB_NGC"; exit 0 ;;
     *integrate.api.nvidia.com*) printf '%s' "$STUB_NVIDIA"; exit 0 ;;
-    *huggingface.co*) printf '%s' "$STUB_HF"; exit 0 ;;
   esac
 done
 printf '000'
@@ -53,7 +52,6 @@ class Gate:
         *args: str,
         ngc: str = "200",
         nvidia: str = "200",
-        hf: str = "200",
         **credentials: str,
     ) -> subprocess.CompletedProcess[str]:
         env = {
@@ -63,7 +61,6 @@ class Gate:
             "PATH": f"{self.bin_dir}:/usr/bin:/bin",
             "STUB_NGC": ngc,
             "STUB_NVIDIA": nvidia,
-            "STUB_HF": hf,
         }
         env.update(credentials)
         return subprocess.run(
@@ -245,7 +242,25 @@ def test_every_probe_is_bounded(gate: Gate) -> None:
         NGC_CLI_API_KEY="key", NVIDIA_API_KEY="key", HF_TOKEN="token"
     )
     assert result.returncode == 0, output(result)
-    assert len(gate.curl_calls) == 3
+    assert len(gate.curl_calls) == 2
     for call in gate.curl_calls:
         assert "--connect-timeout 5" in call
         assert "--max-time 15" in call
+
+
+@pytest.mark.parametrize("args", [(), ("--require", "hf")])
+def test_set_hf_token_is_reported_unvalidated_and_never_probed(
+    gate: Gate, args: tuple[str, ...]
+) -> None:
+    """Presence is all the gate claims for HF_TOKEN.
+
+    Every candidate endpoint either answers the same for a good token, a junk
+    token and no token (the model metadata API is public), or cannot be
+    confirmed to accept an ordinary fine-grained read token. So a set token
+    must neither be called valid nor gate the build, and no request goes out.
+    """
+    result = gate.run(*args, HF_TOKEN="whatever-this-is")
+    assert result.returncode == 0, output(result)
+    assert "not validated here" in result.stdout
+    assert "HF_TOKEN ok" not in result.stdout
+    assert not [call for call in gate.curl_calls if "huggingface.co" in call]

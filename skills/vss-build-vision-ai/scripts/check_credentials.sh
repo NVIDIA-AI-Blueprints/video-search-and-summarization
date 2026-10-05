@@ -6,10 +6,11 @@
 # (NGC / NVIDIA_API_KEY / HF_TOKEN) against their services so a bad key fails in
 # seconds, not after a cold NIM start. Read-only: it reads env vars and curls —
 # it does NOT write override.env (the skill writes the resolved key per
-# credentials.md). Each probe reports the key as validated, rejected by the
-# service, not validated because the service never answered, or skipped. Which
-# of them are required depends on the deployment mode, so it comes in via
-# --require and the exit code is the verdict the caller branches on:
+# credentials.md). The NGC and NVIDIA keys are reported as validated, rejected
+# by the service, not validated because the service never answered, or skipped;
+# HF_TOKEN is presence-only for the reason given at its block. Which of them
+# are required depends on the deployment mode, so it comes in via --require and
+# the exit code is the verdict the caller branches on:
 # 0 gate passed, 1 usage error, 2 gate failed.
 set -u
 
@@ -23,8 +24,9 @@ Options:
   --require ngc         NGC key is required (any local NIM image pull:
                         LLM_MODE / VLM_MODE of local or local_shared)
   --require nvidia-api  NVIDIA_API_KEY is required (remote NIM endpoints)
-  --require hf          HF_TOKEN is required (standalone RT-VLM / RT-Embed
-                        Hugging Face checkpoints)
+  --require hf          HF_TOKEN is required (only a gated Hugging Face
+                        checkpoint, such as the Omni weights; the Cosmos-Embed
+                        defaults are public and need no token)
   -h, --help            Print this help and exit without probing
 
 Environment variables:
@@ -37,6 +39,11 @@ erroring service is a blocker only when its --require name was passed;
 otherwise it is reported and does not gate. Conflicting NGC_CLI_API_KEY /
 NGC_API_KEY values always gate. Each probe is bounded at 5s to connect and 15s
 in total, so the gate cannot hang on a host with no egress.
+
+HF_TOKEN is checked for presence only. No Hugging Face endpoint distinguishes a
+good token here, so a set token is reported unvalidated rather than claimed
+valid; access to the selected checkpoint belongs to the artifact probes in
+credentials.md.
 
 Exit codes:
   0  every required credential validated
@@ -135,11 +142,11 @@ http_status() {
 # key. Both still gate when the credential is required — an unvalidated
 # requirement is not a pass — so this changes the message, not the exit code.
 report_status() {
-  local status="$1" required="$2" label="$3" host="$4" reject_hint="${5:-}"
+  local status="$1" required="$2" label="$3" host="$4"
   case "$status" in
     2??) echo "$label ok" ;;
     000) report_failure "$required" "$label not validated — $host did not answer within the probe timeout" ;;
-    401|403) report_failure "$required" "$label rejected by $host (HTTP $status)${reject_hint:+ — $reject_hint}" ;;
+    401|403) report_failure "$required" "$label rejected by $host (HTTP $status)" ;;
     429|5??) report_failure "$required" "$label not validated — $host returned HTTP $status (rate limit or service error), which is not a verdict on the credential; retry" ;;
     *) report_failure "$required" "$label not validated — unexpected HTTP $status from $host" ;;
   esac
@@ -184,18 +191,22 @@ else
   echo "NVIDIA_API_KEY: not set — skip (required only for remote NIM)"
 fi
 
-# HF — not needed by any in-tree edge path; kept for RT-VLM / RT-Embed HF checkpoints
+# HF — not needed by any in-tree edge path; kept for the gated Omni checkpoint.
+# Presence only, deliberately unprobed: every candidate endpoint either answers
+# the same for a good token, a junk token and no token at all (the model
+# metadata API is public), or cannot be confirmed to accept an ordinary
+# fine-grained read token, which would gate a working one. Reporting a token as
+# validated on a public 200 is worse than saying nothing, so the gate enforces
+# what it can check — that the token is set — and credentials.md's artifact
+# probes own access to the selected checkpoint.
 if [[ -n "${HF_TOKEN:-}" ]]; then
-  hf_status=$(http_status -H "Authorization: Bearer ${HF_TOKEN}" \
-    "https://huggingface.co/api/models/Qwen/Qwen3-VL-8B-Instruct")
-  report_status "$hf_status" "$require_hf" "HF_TOKEN" "huggingface.co" \
-    "the token is invalid or has no access to the probed model"
+  echo "HF_TOKEN: set — not validated here; probe the selected checkpoint per credentials.md"
 elif [[ "$require_hf" == 1 ]]; then
-  hf_missing="HF_TOKEN: not set — required for the standalone RT-VLM / RT-Embed Hugging Face checkpoints"
+  hf_missing="HF_TOKEN: not set — required for a gated Hugging Face checkpoint"
   echo "$hf_missing"
   blockers+=("$hf_missing")
 else
-  echo "HF_TOKEN: not set — skip (no in-tree edge path needs it; used by RT-VLM / RT-Embed HF checkpoints)"
+  echo "HF_TOKEN: not set — skip (no in-tree edge path needs it; used by gated HF checkpoints)"
 fi
 
 if [[ "${#blockers[@]}" -gt 0 ]]; then
