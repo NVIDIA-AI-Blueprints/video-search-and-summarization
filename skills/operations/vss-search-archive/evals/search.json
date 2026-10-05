@@ -19,8 +19,17 @@
   },
   "resources": {
     "platforms": {
+      "H200": {
+        "gpu_count": 1,
+        "modes": [
+          "remote-all"
+        ]
+      },
       "L40S": {
-        "gpu_count": 2
+        "gpu_count": 2,
+        "modes": [
+          "remote-all"
+        ]
       }
     }
   },
