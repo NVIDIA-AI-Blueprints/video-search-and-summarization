@@ -30,7 +30,7 @@ export ARTIFACTORY_TOKEN=<your-api-token>
 # Optional overrides (defaults shown):
 # export REDIS_PORT=6379          # change if 6379 is already in use
 # export VST_LOCAL_PACKAGE=perf/vst_package.tar.gz
-# export VST_IMAGE_TAG=2.1.0-26.04.1
+# export VST_IMAGE_TAG=3.2.0
 # export PERF_VIDEOS_DIR=~/rtvi-perf/vst_package/videos
 # export VLM_MODEL_PRESET=cr3-nano-reasoner-fp8
 # export VLM_MODEL_PRESET=cr3-nano-reasoner-nvfp4  # Blackwell platforms

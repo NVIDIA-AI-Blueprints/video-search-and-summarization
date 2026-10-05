@@ -56,6 +56,29 @@ class BCDRouteTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_bcd_live_inputs(self.config(rtsp_urls_file=str(pool)), "bcd.yaml")
 
+    def test_only_selected_source_is_validated(self):
+        import tempfile
+        live = "rtsp://host:30556/live/id"
+        direct = "rtsp://host:32200/nvstream/video"
+        with tempfile.TemporaryDirectory() as directory:
+            pool = Path(directory) / "urls.txt"
+            pool.write_text(live + "\n")
+            for video in (
+                dict(unique_rtsp_url_per_stream=True, rtsp_url="RTSP_STREAM_URL",
+                     rtsp_urls=[live], rtsp_urls_file="missing", rtsp_url_template=direct),
+                dict(unique_rtsp_url_per_stream=True, rtsp_url=direct,
+                     rtsp_urls_file=str(pool)),
+                dict(unique_rtsp_url_per_stream=False, rtsp_url=live,
+                     rtsp_urls=[direct], rtsp_urls_file="missing", rtsp_url_template=direct),
+            ):
+                with self.subTest(video=video):
+                    validate_bcd_live_inputs(self.config(**video), "bcd.yaml")
+            with self.assertRaises(ValueError):
+                validate_bcd_live_inputs(self.config(rtsp_url=live, rtsp_urls=[direct]), "bcd.yaml")
+            pool.write_text("")
+            with self.assertRaises(ValueError):
+                validate_bcd_live_inputs(self.config(rtsp_url=live, rtsp_urls_file=str(pool)), "bcd.yaml")
+
     def test_actual_cli_checks_selected_inputs_before_gpu_or_execution(self):
         tree = ast.parse((HERE / "rtvi_perf_benchmark.py").read_text())
         calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)

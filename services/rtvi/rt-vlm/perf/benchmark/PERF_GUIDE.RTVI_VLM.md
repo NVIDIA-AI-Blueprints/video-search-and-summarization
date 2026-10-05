@@ -73,10 +73,10 @@ you do need access:
    the generated token as `ARTIFACTORY_TOKEN`.
 
 The setup script patches the extracted VST package to run
-`nvcr.io/rxczgrvsg8nx/vst-dev/vst-streamprocessing:2.1.0-26.04.1`,
-`nvcr.io/rxczgrvsg8nx/vst-dev/vst-sensor:2.1.0-26.04.1`,
-`nvcr.io/rxczgrvsg8nx/vst-dev/vst-ingress:2.1.0-26.04.1`, and
-`nvcr.io/rxczgrvsg8nx/vst-dev/nvstreamer:2.1.0-26.04.1` by default. To test a
+`nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:3.2.0`,
+`nvcr.io/nvidia/vss-core/vss-vios-sensor:3.2.0`,
+`nvcr.io/nvidia/vss-core/vss-vios-ingress:3.2.0`, and
+`nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:3.2.0` by default. To test a
 different VST build, override `VST_IMAGE_REGISTRY`, `VST_IMAGE_TAG`, or one of
 the full-image variables shown by `bash perf/setup_perf_env.sh -h`.
 

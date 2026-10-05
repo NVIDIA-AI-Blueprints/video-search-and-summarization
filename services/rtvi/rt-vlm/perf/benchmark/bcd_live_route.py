@@ -21,18 +21,23 @@ def validate_bcd_live_inputs(config, config_path):
         raise ValueError("BCD required_live_route must be vst_live")
     for name, scenario in config.get("test_scenarios", {}).items():
         for video in scenario.get("videos", []):
-            if video.get("rtsp_url_template"):
-                raise ValueError("BCD live inputs require explicit VST-issued URLs, not templates")
             urls = []
-            if "rtsp_url" in video:
-                urls.append(video["rtsp_url"])
-            if "rtsp_urls" in video:
-                if not isinstance(video["rtsp_urls"], list) or not video["rtsp_urls"]:
+            # Match the live benchmarks' source selection order; unused fields
+            # may still contain setup placeholders or a different source mode.
+            if not video.get("unique_rtsp_url_per_stream", True):
+                if "rtsp_url" in video:
+                    urls = [video["rtsp_url"]]
+            elif video.get("rtsp_urls"):
+                if not isinstance(video["rtsp_urls"], list):
                     raise ValueError("BCD rtsp_urls must be a non-empty list")
-                urls.extend(video["rtsp_urls"])
-            if "rtsp_urls_file" in video:
+                urls = video["rtsp_urls"]
+            elif video.get("rtsp_urls_file"):
                 urls.extend(line.strip() for line in Path(video["rtsp_urls_file"]).read_text().splitlines()
                             if line.strip())
+            elif video.get("rtsp_url_template"):
+                raise ValueError("BCD live inputs require explicit VST-issued URLs, not templates")
+            elif "rtsp_url" in video:
+                urls = [video["rtsp_url"]]
             if "live" in scenario.get("benchmark_mode", "") and not urls:
                 raise ValueError(f"BCD live scenario {name} has no VST source URLs")
             for url in urls:
