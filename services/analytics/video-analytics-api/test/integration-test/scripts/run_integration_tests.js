@@ -55,9 +55,10 @@ function qs(params) {
 const CONTROLLERS_REST_APIS_DIR = path.join(SCRIPT_DIR, 'controllers', 'rest-apis');
 
 /** Shared constants passed to each controller test module (mirrors app/controllers/rest-apis data). */
-function getControllerConstants() {
+function getControllerConstants(baseUrl) {
     return {
         qs,
+        request: (method, pathname) => request(baseUrl, method, pathname),
         SENSOR_ID: 'Camera',
         SENSOR_ID_ALT: 'Camera_01',
         PLACE: 'building=Warehouse/room=Room-1',
@@ -364,6 +365,38 @@ function postMultipartFile(baseUrl, docType, filePath) {
     });
 }
 
+function interpretCustomValidation(result) {
+    if (result == null) return { error: null, details: null };
+    if (typeof result === 'object' && !Array.isArray(result)) {
+        return { error: result.error || null, details: result.details || null };
+    }
+    return { error: String(result), details: null };
+}
+
+async function runControllerTest(baseUrl, test, validateOutput) {
+    const { name, path: pathname, method, expectedStatus, expectedStatuses,
+        validate, body: bodyPayload, skipOpenApiValidation } = test;
+    const allowedStatuses = expectedStatuses || (expectedStatus != null ? [expectedStatus] : []);
+    const { statusCode, body } = bodyPayload != null && method === 'POST'
+        ? await requestWithBody(baseUrl, method, pathname, bodyPayload)
+        : await request(baseUrl, method, pathname);
+    if (!allowedStatuses.includes(statusCode)) {
+        return { error: `expected ${allowedStatuses.join(' or ')}, got ${statusCode}`, statusCode };
+    }
+    let details = null;
+    if (validate && statusCode >= 200 && statusCode < 300) {
+        const validation = interpretCustomValidation(await validate(body));
+        details = validation.details;
+        if (validation.error) return { ...validation, statusCode };
+    }
+    const pathForSchema = pathname.split('?')[0];
+    const result = skipOpenApiValidation ? null : validateOutput(name, method, pathForSchema, statusCode, body);
+    if (result && !result.valid) {
+        return { error: `response invalid (OpenAPI): ${result.errors}`, details, statusCode };
+    }
+    return { error: null, details, statusCode, schemaValidated: !!(result && result.valid) };
+}
+
 async function main() {
     const baseUrl = process.argv[2] || 'http://localhost:8081';
     const fixturesDir = process.argv[3];
@@ -513,7 +546,7 @@ async function main() {
     }
 
     // Run controller tests from scripts/controllers/rest-apis/*.js (one file per app/controllers/rest-apis/*.js)
-    const constants = getControllerConstants();
+    const constants = getControllerConstants(baseUrl);
     const controllerFiles = fs.existsSync(CONTROLLERS_REST_APIS_DIR)
         ? fs.readdirSync(CONTROLLERS_REST_APIS_DIR).filter((f) => f.endsWith('.js')).sort()
         : [];
@@ -530,42 +563,37 @@ async function main() {
         if (typeof mod.getTests !== 'function') {
             continue;
         }
-        const tests = mod.getTests(constants);
+        // The paired synthetic source/VLM fixture lives after the captured dump
+        // window so verification coverage is deterministic for the local stack.
+        const controllerConstants = file === 'incidents.js'
+            ? { ...constants, FROM_TS: '2026-02-14T10:18:00.000Z', TO_TS: '2026-02-14T10:19:00.000Z' }
+            : constants;
+        const tests = mod.getTests(controllerConstants);
         if (!Array.isArray(tests) || tests.length === 0) {
             continue;
         }
         for (const test of tests) {
-            const { name, path: pathname, method, expectedStatus, expectedStatuses, validate, body: bodyPayload, skipOpenApiValidation } = test;
-            const allowedStatuses = expectedStatuses || (expectedStatus != null ? [expectedStatus] : []);
+            let testFailed = false;
             try {
-                const { statusCode, body } = bodyPayload != null && method === 'POST'
-                    ? await requestWithBody(baseUrl, method, pathname, bodyPayload)
-                    : await request(baseUrl, method, pathname, allowedStatuses[0]);
-                if (!allowedStatuses.includes(statusCode)) {
-                    console.log(`✗ ${name} -> expected ${allowedStatuses.join(' or ')}, got ${statusCode}`);
-                    if (body) console.log(`  Response: ${body.slice(0, 300)}`);
-                    failed++;
-                    continue;
-                }
-                if (validate && statusCode >= 200 && statusCode < 300) {
-                    const validationError = validate(body);
-                    if (validationError) {
-                        console.log(`✗ ${name} -> ${statusCode} but validation failed: ${validationError}`);
-                        failed++;
-                        continue;
-                    }
-                }
-                const pathForSchema = pathname.split('?')[0];
-                const result = skipOpenApiValidation ? null : validateOutput(name, method, pathForSchema, statusCode, body);
-                if (result && !result.valid) {
-                    console.log(`✗ ${name} -> ${statusCode} but response invalid (OpenAPI): ${result.errors}`);
-                    failed++;
+                const result = await runControllerTest(baseUrl, test, validateOutput);
+                if (result.error) {
+                    console.log(`✗ ${test.name} -> ${result.error}`);
+                    testFailed = true;
                 } else {
-                    console.log(`✓ ${name} -> ${statusCode}` + (result && result.valid ? ' (OpenAPI ✓)' : (skipOpenApiValidation ? '' : '')));
+                    console.log(`✓ ${test.name} -> ${result.statusCode}`
+                        + (result.schemaValidated ? ' (OpenAPI ✓)' : '')
+                        + (result.details ? ` (${result.details})` : ''));
                 }
             } catch (err) {
-                console.log(`✗ ${name} -> ${err.message}`);
+                console.log(`✗ ${test.name} -> ${err.message}`);
+                testFailed = true;
+            }
+            if (testFailed) {
                 failed++;
+                if (test.failRemainingControllerTestsOnFailure) {
+                    console.log(`✗ ${controllerName} -> ${test.failRemainingControllerTestsOnFailure}`);
+                    break;
+                }
             }
         }
     }
@@ -580,7 +608,11 @@ async function main() {
     }
 }
 
-main().catch((err) => {
-    console.error(err);
-    process.exit(1);
-});
+module.exports = { getControllerConstants, interpretCustomValidation, runControllerTest };
+
+if (require.main === module) {
+    main().catch((err) => {
+        console.error(err);
+        process.exit(1);
+    });
+}
