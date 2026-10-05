@@ -119,4 +119,11 @@ jobs:
         if: always() && steps.gate.outputs.run == 'true'
         run: |
           [ -n "${ROUTER_CONTAINER:-}" ] && docker rm -f "$ROUTER_CONTAINER" 2>/dev/null || true
+          # The router is gone, so every grant the run recorded goes too, before
+          # the markers and the revoke file disappear with the work directory.
+          for marker in "${MODEL_ROUTING_WORK_DIR:-/nonexistent}"/vss_model_router_policy.applied.*.*; do
+            [ -e "$marker" ] || continue
+            cli=${marker%.*}; cli=${cli##*.}; sandbox=${marker##*.}
+            "$cli" "$sandbox" policy-add --from-file "$MODEL_ROUTING_WORK_DIR/vss_model_router_policy_revoke.yaml" --yes || true
+          done
           [ -n "${MODEL_ROUTING_WORK_DIR:-}" ] && rm -rf "$MODEL_ROUTING_WORK_DIR" || true
