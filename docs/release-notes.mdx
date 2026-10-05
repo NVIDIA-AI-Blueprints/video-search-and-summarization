@@ -63,6 +63,99 @@ These Release Notes describe the key features, software enhancements and improve
   the [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice)
   guide.
 </Tab>
+<Tab title="Warehouse Operations">
+
+#### Features
+
+- Deployment profiles:
+
+  - Added Warehouse Helm charts for 2D, 2D with Agents, 3D, and MV3DT deployments, including alert verification and real-time alerts for Warehouse 2D.
+  - Unified the Warehouse Auto Calibration profile to deploy NvStreamer, VIOS, Auto Calibration, and VSS Configurator together.
+  - Added support for RTX PRO 4500 Blackwell, RTX PRO 6000 Blackwell Server Edition, and GB300 hardware profiles.
+
+- Launchable and Skills:
+
+  - Added Warehouse deployment support to the Build Vision AI skill, covering 2D, 3D, MV3DT, and Auto Calibration profiles, Kafka / Redis variants, and minimal / extended configurations.
+  - Added Warehouse Helm deployment skill with hardware-based stream sizing.
+  - Updated Behavior Analytics skills for the Build Vision Agent to deploy standalone and combined Search + Alerts workloads, with guidance for proximity alerts, FOV counting, ROI bounding-box overlap, object speed, and people counting.
+  - Updated the Warehouse Brev launchable notebook for the refactored Docker Compose configuration and unified Auto Calibration profile.
+
+- Microservices:
+
+  - Behavior Analytics:
+
+    - Added the configuration-driven `search_and_alerts` application and configuration to enable Search and Alerts together in one container, replacing the legacy `dev_example` application.
+    - Added `behaviorEmitOnce` to emit a final behavior when a track ends, with per-sensor event-time handling, behavior holdback, shutdown flushing, and dynamic configuration. Real-time emission remains the default, and `isComplete` identifies completed behaviors.
+    - Added configurable ROI ENTRY / EXIT detection based on bounding-box overlap.
+    - Added fractional violation thresholds and expiration windows, and enabled proximity, confined-area, and restricted-area incidents in the Warehouse 3D profile.
+
+  - Video IO & Storage (VIOS): Added DASH live-stream playback as an alternative to WebRTC.
+  - MV3DT: Integrated ReID embeddings with Kafka and Elasticsearch ingestion support.
+  - Logstash: Added the Redis Stream input plugin source, build documentation, and tests to the repository.
+
+- Models - Core AI models for perception and analytics:
+
+  - [Sparse4D - 3D Warehouse Models v2.3 and v3.0](/vss/system-components/models/sparse4d-3d-multi-camera) - Updated models for synthetic and real-world Warehouse datasets, respectively. `DATASET_TYPE` selects the matching model, anchor, labels, and TensorRT engine configuration.
+  - Added perception model downloads from the NGC TAO registry, separate from the Warehouse app-data archive.
+
+#### Improvements
+
+- Docker Compose:
+
+  - Centralized NvStreamer, VSS Configurator, and Video Analytics API services and removed duplicated profile-specific configurations and Configurator initialization services.
+  - Reorganized `.env` and `overrides.env` configuration and updated Warehouse profile-selection defaults.
+
+- Microservices:
+
+  - Behavior Analytics: Refactored restricted-area and confined-area violation detection and ROI information handling, simplified trajectory and state management, tuned default pipeline worker counts, and improved worker-lifecycle and fatal-error reporting.
+  - Video Analytics API: Added readiness checks for Elasticsearch connectivity, the insertion-timestamp ingest pipeline, and required Kafka topics before starting the HTTP listener and accepting calibration uploads. Redis deployments ignore Kafka configuration.
+  - VIOS: Aligned bounding-box overlay colors across Warehouse profiles.
+  - VSS Configurator: Validates dataset selection and camera counts, generates dataset-specific Sparse4D configuration, and completes calibration trimming and BEV-group recomputation before reporting readiness.
+  - SDR: Uses perception readiness checks before adding streams.
+  - Logstash:
+
+    - Added separate ingestion pipelines and consumer groups per Kafka topic, with worker, batch, heap, and resource tuning to reduce Elasticsearch ingestion delays.
+    - Improved Redis Stream plugin connection-pool lifecycle, graceful shutdown, duplicate-message handling, acknowledgment, and protobuf descriptor loading.
+
+- Models and hardware configuration:
+
+  - Updated per-GPU stream limits using RT-DETR and Sparse4D performance measurements.
+  - Increased the RT-DETR Person-class detection limit from 20 to 50.
+  - Added batch-size suffixes to TensorRT engine filenames to prevent incompatible engine reuse.
+  - Tuned RTVI-VLM memory utilization and context length for RTX PRO 4500 Blackwell deployments.
+
+- Build and validation:
+
+  - Added GitHub-based container builds for Behavior Analytics and Video Analytics API, with integration tests and SonarQube scanning.
+  - Expanded deployment and analytics evaluations across Docker Compose and Helm, including broker variants, behavior trajectories, incident schemas, and VLM alert verification.
+
+- Documentation and datasets:
+
+  - Added Warehouse VSS Configurator documentation, image-coordinate and Cartesian calibration workflows, GPU-sharing guidance, and updated Kafka topic and Elasticsearch index inventories.
+  - Updated deployment skills, troubleshooting, hardware prerequisites, custom-dataset guidance, and Video Analytics API OpenAPI documentation.
+  - Updated the real-world Warehouse sample videos with face redaction and compatible video encoding.
+
+#### Fixed Issues
+
+- Behavior Analytics: Fixed missing `restrictedAreaViolation=false` output for ROIs with no objects present.
+- Perception:
+
+  - Fixed invalid-value propagation in Sparse4D that caused detections to stop during extended runs.
+  - Fixed duplicate RT-DETR class detections with identical bounding boxes that caused false Person-Forklift proximity alerts.
+
+- Alerting and RTVI-VLM:
+
+  - Fixed real-time alerts failing to initialize when Elasticsearch shards were not yet ready.
+  - Fixed missing real-time VLM incidents caused by Redis message-field configuration.
+  - Fixed RTVI-VLM inference failures caused by multimodal processor caching and request serialization.
+
+- VIOS:
+
+  - Fixed ghost or inverted 3D bounding boxes by filtering objects behind the camera.
+  - Fixed bounding-box overlays disappearing from downloaded recordings when Elasticsearch metadata requests were throttled.
+
+See [Warehouse Known Limitations](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/known-limitations) for current warehouse profile constraints and workarounds.
+</Tab>
 </Tabs>
 
 ## VSS 3.2.1
