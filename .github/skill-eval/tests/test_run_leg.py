@@ -894,7 +894,7 @@ class RunInvocations(unittest.TestCase):
                 )
 
         self.assertEqual(rc, 0)
-        self.assertEqual(command.call_args.args[4], "claude-code")
+        self.assertEqual(command.call_args.args[4], "codex")
         run.assert_called_once()
 
     def test_daily_codex_selection_routes_non_operational_task_to_codex(self):
@@ -950,6 +950,7 @@ class RunInvocations(unittest.TestCase):
         )
         env = {
             **self.ENV,
+                "SKILLS_EVAL_CODING_HARNESS": "claude-code",
             "EVAL_AGENT": "claude-code",
             "SKILLS_EVAL_CODING_MODEL": "selected/model",
             "SKILLS_EVAL_CODING_API_KEY": "route-secret",
@@ -1052,8 +1053,10 @@ class RunInvocations(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         prepare.assert_called_once_with(invocations[0], "vss-manage-alerts")
-        self.assertEqual(command.call_args_list[0].args[4], "claude-code")
+        self.assertEqual(command.call_args_list[0].args[4], "codex")
         self.assertEqual(command.call_args_list[1].args[4], "nemoclaw")
+        self.assertEqual(command.call_args_list[0].args[2], "azure/openai/gpt-6.1-sol")
+        self.assertEqual(command.call_args_list[1].args[2], "aws/anthropic/bedrock-claude-opus-5-5")
         self.assertEqual(
             command.call_args_list[0].kwargs["agent_timeout_multiplier"],
             run_leg.NEMOCLAW_SETUP_AGENT_TIMEOUT_MULTIPLIER,
@@ -1152,7 +1155,7 @@ class RunInvocations(unittest.TestCase):
         )
         self.assertEqual(
             [call.args[4] for call in command.call_args_list],
-            ["claude-code", "nemoclaw", "claude-code", "nemoclaw"],
+            ["codex", "nemoclaw", "codex", "nemoclaw"],
         )
         self.assertEqual(
             [item.get("SKILL_EVAL_PRESERVE_DEPLOYMENT") for item in seen_env],
@@ -1182,6 +1185,7 @@ class RunInvocations(unittest.TestCase):
             ]
             env = {
                 **self.ENV,
+                "SKILLS_EVAL_OPERATIONAL_HARNESS": "claude-code",
                 "EVAL_SPEC_PATH": (
                     "skills/operations/vss-manage-alerts/evals/alerts.json"
                 ),
@@ -1311,6 +1315,8 @@ class RunInvocations(unittest.TestCase):
             ]
             env = {
                 **self.ENV,
+                "SKILLS_EVAL_CODING_HARNESS": "claude-code",
+                "SKILLS_EVAL_OPERATIONAL_HARNESS": "claude-code",
                 "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/alerts.json",
                 "SKILLS_EVAL_CODING_MODEL": "coding/model",
                 "SKILLS_EVAL_OPERATIONAL_MODEL": "operational/model",

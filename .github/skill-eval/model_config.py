@@ -16,6 +16,8 @@ NVIDIA_INFERENCE_SOURCE_URL = "https://inference.nvidia.com/"
 NVIDIA_INFERENCE_API_BASE_URL = "https://inference-api.nvidia.com/v1"
 LOCAL_NIM_PROVIDER = "local-nim"
 ROLES = ("coding", "operational")
+DEFAULT_CODEX_MODEL = "azure/openai/gpt-6.1-sol"
+DEFAULT_NEMOCLAW_MODEL = "aws/anthropic/bedrock-claude-opus-5-5"
 
 
 def _first(*values: object) -> str:
@@ -53,9 +55,9 @@ def resolve_model_config(
     env = environment if environment is not None else os.environ
     prefix = f"SKILLS_EVAL_{role.upper()}"
     runtime_default = (
-        "claude-code"
+        "codex"
         if role == "coding"
-        else _first(env.get("EVAL_AGENT"), "claude-code")
+        else _first(env.get("EVAL_AGENT"), "nemoclaw")
     )
     runtime = _first(env.get(f"{prefix}_HARNESS"), runtime_default)
     requested_model = _first(env.get(f"{prefix}_MODEL"))
@@ -75,9 +77,7 @@ def resolve_model_config(
         )
     if runtime in {"claude-code", "codex"}:
         if runtime == "codex":
-            model = requested_model or _first(env.get("CODEX_MODEL"))
-            if not model:
-                raise ValueError(f"{prefix}_MODEL or CODEX_MODEL is required for codex")
+            model = requested_model or _first(env.get("CODEX_MODEL"), DEFAULT_CODEX_MODEL)
         else:
             model = requested_model or _first(env.get("ANTHROPIC_MODEL"))
         endpoint_url = NVIDIA_INFERENCE_API_BASE_URL
@@ -86,8 +86,7 @@ def resolve_model_config(
     else:
         model = requested_model or _first(
             env.get("NEMOCLAW_MODEL"),
-            env.get("ANTHROPIC_MODEL"),
-            env.get("LLM_REMOTE_MODEL"),
+            DEFAULT_NEMOCLAW_MODEL,
         )
         endpoint_url = NVIDIA_INFERENCE_API_BASE_URL
         api_key = route_api_key or _first(
