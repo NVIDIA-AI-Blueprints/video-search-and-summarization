@@ -36,6 +36,7 @@ navigation:
     contents:
       - page: "VSS 2.X Release Notes"
         slug: vss-2-x-release-notes
+        hidden: true
         path: ../docs/release-notes-ver-2.mdx
   - section: "Getting Started"
     slug: getting-started
