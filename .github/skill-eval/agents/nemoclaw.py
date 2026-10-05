@@ -57,7 +57,9 @@ class NemoClaw(OpenClaw):
 repo="$HOME/video-search-and-summarization"
 cd "$repo"
 mkdir -p /tmp/skill-eval/nemoclaw /logs/agent
-rm -f /logs/agent/openclaw.txt /logs/agent/openclaw.session.jsonl /logs/agent/trajectory.json
+rm -f /logs/agent/openclaw.txt /logs/agent/openclaw.session.jsonl \
+  /logs/agent/trajectory.json /logs/agent/trajectory.jsonl \
+  /logs/agent/claude-code.txt /logs/agent/codex.txt /logs/agent/agent.log
 printf %s {shlex.quote(prompt)} | base64 -d > {shlex.quote(prompt_path)}
 python3 .github/skill-eval/nemoclaw/headless_runner.py \
   --prompt-file {shlex.quote(prompt_path)} \

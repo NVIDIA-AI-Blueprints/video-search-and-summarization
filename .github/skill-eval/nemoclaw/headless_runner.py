@@ -324,10 +324,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
     except Exception as exc:  # noqa: BLE001
-        print(
-            f"NemoClaw/OpenClaw headless run failed: {type(exc).__name__}: {exc}",
-            file=sys.stderr,
+        failure = (
+            f"NemoClaw/OpenClaw headless run failed: {type(exc).__name__}: {exc}"
         )
+        # No session exists when gateway/inference fails before an answer.
+        # Give Harbor and the judge this trial's failure evidence instead of
+        # leaving them to discover a previous coding or operational raw log.
+        (agent_log_dir / "agent.log").write_text(failure + "\n", encoding="utf-8")
+        print(failure, file=sys.stderr)
         return 1
 
 
