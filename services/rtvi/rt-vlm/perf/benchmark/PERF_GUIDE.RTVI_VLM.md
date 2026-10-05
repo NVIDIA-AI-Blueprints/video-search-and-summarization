@@ -53,6 +53,15 @@ This is the minimal path from bare hardware to running benchmarks.
 
 ### Step 1 — Export required variables, then run the setup script
 
+Install the [NGC CLI](https://org.ngc.nvidia.com/setup/installers/cli) for your
+host architecture and ensure `ngc` is on `PATH` (`ngc --version`). Fresh media
+preparation requires access to
+`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`, in addition to
+your selected model and container images. The media helper authenticates with
+`NGC_API_KEY` (or `NGC_CLI_API_KEY` if explicitly set); an API key alone does not
+grant access to every NGC resource. Already prepared, valid local BCD clips can
+be reused without downloading the warehouse resource.
+
 The setup script configures VST to run
 `nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:3.2.0`,
 `nvcr.io/nvidia/vss-core/vss-vios-sensor:3.2.0`,
@@ -330,27 +339,22 @@ Expected response:
 
 ### Prepare Test Videos
 
-#### Legacy Warehouse Videos (local files)
+#### BCD Videos (prepared automatically)
 
-Supply legacy warehouse videos locally in `PERF_VIDEOS_DIR`
-(default: `~/rtvi-perf/vst_package/videos/`).
-Missing legacy videos are skipped during setup. Supply the files before running
-scenarios that need them. BCD media preparation uses NGC or local sources instead.
+Setup downloads the NGC warehouse source when needed and generates the following
+1920×1080, 10 FPS clips in `PERF_VIDEOS_DIR` (default: `${VST_DIR}/videos`).
+The default and platform-specific file scenarios use these generated files.
 `compose.perf.yaml` mounts that directory into the container at `/opt/nvidia/rtvi/streams/perf/`.
 
 | File | Duration | Used by |
 |------|----------|---------|
-| `warehouse_gopro_10s.mp4` | 10 s | BCD 3 (file_burst) + BCD 4 (e2e_latency 10 s baseline) |
-| `warehouse_gopro_1m.mp4` | 60 s | nvstreamer source for VST live RTSP stream |
-| `warehouse_gopro_10m.mp4` | 600 s | BCD 4 (e2e_latency 10-min point) |
-| `warehouse_gopro_60m.mp4` | 3600 s | BCD 4 (e2e_latency 60-min point) |
+| `FPS10_Res1080p_Dur10sec_1.mp4` | 10 s | File burst and 10 s E2E latency |
+| `warehouse_gopro_10m_10fps.mp4` | 600 s | 10 min E2E latency |
+| `warehouse_gopro_60m_10fps.mp4` | 3600 s | 60 min E2E latency and VST live stream source |
 
-To extract `warehouse_gopro_10s.mp4` from your local one-minute source:
-
-```bash
-ffmpeg -i "${PERF_VIDEOS_DIR}/warehouse_gopro_1m.mp4" \
-       -t 10 -c copy "${PERF_VIDEOS_DIR}/warehouse_gopro_10s.mp4"
-```
+These replace the legacy media in the generic profiles; results should not be
+compared with earlier legacy-media runs as if the inputs were unchanged. Custom
+profiles that still use legacy filenames require those exact files locally.
 
 #### RTSP Stream Setup via VST (For Live Stream Tests)
 
@@ -727,7 +731,7 @@ file_burst_1_token:
     vlm_input_height: 448
     max_tokens: 1
   videos:
-    - filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10s.mp4"
+    - filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
       chunk_sizes: [10]
       concurrency_levels: [1, 2, 4, 8, 16, 32, 64]
 ```
@@ -757,15 +761,15 @@ e2e_latency_1_token:
     max_tokens: 1
   videos:
     - name: "warehouse_10s"       # 10 s — 1 chunk per request
-      filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10s.mp4"
+      filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
       chunk_sizes: [10]
       concurrency_levels: [1, 2, 4, 8, 16, 32]
     - name: "warehouse_10min"     # 600 s — 60 chunks per request
-      filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10m.mp4"
+      filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10m_10fps.mp4"
       chunk_sizes: [10]
       concurrency_levels: [1]
     - name: "warehouse_60min"     # 3600 s — 360 chunks per request
-      filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_60m.mp4"
+      filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_60m_10fps.mp4"
       chunk_sizes: [10]
       concurrency_levels: [1]
 ```
@@ -1425,6 +1429,9 @@ serving RTSP streams. The recommended recovery is a clean teardown followed by
 a fresh setup:
 
 ```bash
+# Preserve both caches before changing the deployment directory.
+export PERF_VIDEOS_DIR="${PERF_VIDEOS_DIR:-${VST_DIR:-${HOME}/rtvi-perf/vst_package}/videos}"
+export LVS_VIDEO_DATA_DIR="${LVS_VIDEO_DATA_DIR:-${VST_DIR:-${HOME}/rtvi-perf/vst_package}/lvs-benchmark-data}"
 bash perf/teardown_perf_env.sh   # stops all services started by setup_perf_env.sh
 export VST_DIR="$(mktemp -d "${PWD}/vst-retry.XXXXXX")"
 bash perf/setup_perf_env.sh     # stages a fresh deployment and runs all 12 steps
