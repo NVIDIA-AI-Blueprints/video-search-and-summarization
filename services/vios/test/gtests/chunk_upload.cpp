@@ -8,6 +8,9 @@
 #include <cstdlib>
 #include <fstream>
 #include <future>
+#include <poll.h>
+#include <signal.h>
+#include <sys/wait.h>
 
 namespace fs = std::filesystem;
 namespace upload = nv_vms::chunk_upload;
@@ -50,6 +53,76 @@ protected:
         const auto removed = upload::cleanupAbandonedUploads(m_storage, error);
         EXPECT_FALSE(error) << error.message();
         return removed;
+    }
+
+    void runOtherProcess(const fs::path& path, bool graceful)
+    {
+        int ready[2];
+        int release[2];
+        ASSERT_EQ(::pipe(ready), 0);
+        ASSERT_EQ(::pipe(release), 0);
+        // Fork before acquiring a lock so the child does not inherit an already
+        // locked file descriptor. It must coordinate using shared storage alone.
+        const pid_t child = ::fork();
+        ASSERT_NE(child, -1);
+        if (child == 0)
+        {
+            ::close(ready[0]);
+            ::close(release[1]);
+            try
+            {
+                upload::Activity activity(path);
+                const char signal = '1';
+                if (::write(ready[1], &signal, 1) != 1)
+                {
+                    ::_exit(1);
+                }
+                char resume;
+                if (::read(release[0], &resume, 1) != 1)
+                {
+                    ::_exit(1);
+                }
+                if (!graceful)
+                {
+                    // Simulate a crash: no Activity destructor or timestamp refresh.
+                    ::_exit(0);
+                }
+            }
+            catch (...)
+            {
+                ::_exit(1);
+            }
+            ::_exit(0);
+        }
+
+        ::close(ready[1]);
+        ::close(release[0]);
+        pollfd readyPoll{ready[0], POLLIN, 0};
+        const int notified = ::poll(&readyPoll, 1, 5000);
+        char signal = '0';
+        if (notified == 1)
+        {
+            const auto read = ::read(ready[0], &signal, 1);
+            EXPECT_EQ(read, 1);
+        }
+        EXPECT_EQ(signal, '1');
+        if (signal == '1')
+        {
+            EXPECT_EQ(cleanup(), 0);
+            EXPECT_TRUE(fs::exists(path / "filepart"));
+            const char resume = '1';
+            EXPECT_EQ(::write(release[1], &resume, 1), 1);
+        }
+        else
+        {
+            ::kill(child, SIGKILL);
+        }
+        ::close(ready[0]);
+        ::close(release[1]);
+        int status = 0;
+        EXPECT_EQ(::waitpid(child, &status, 0), child);
+        EXPECT_TRUE(WIFEXITED(status));
+        EXPECT_EQ(WEXITSTATUS(status), 0);
     }
 
     fs::path m_storage;
@@ -143,4 +216,31 @@ TEST_F(ChunkUploadCleanupTest, SuccessfulFinalizationDoesNotRecreateSession)
     }
     EXPECT_FALSE(fs::exists(path));
     EXPECT_EQ(cleanup(), 0);
+}
+
+TEST_F(ChunkUploadCleanupTest, ProtectsUploadInAnotherProcess)
+{
+    const auto path = createSession("shared-upload", true);
+    runOtherProcess(path, true);
+    EXPECT_TRUE(fs::exists(path / "filepart"));
+    EXPECT_EQ(cleanup(), 0);
+}
+
+TEST_F(ChunkUploadCleanupTest, ProcessExitReleasesLockForCleanup)
+{
+    const auto path = createSession("crashed-upload", true);
+    runOtherProcess(path, false);
+    EXPECT_EQ(cleanup(), 1);
+    EXPECT_FALSE(fs::exists(path));
+}
+
+TEST_F(ChunkUploadCleanupTest, LockFailurePreservesChunks)
+{
+    const auto path = createSession("lock-failure", true);
+    std::ofstream(path.parent_path() / ".locks") << "blocks lock directory creation";
+    EXPECT_THROW(upload::Activity activity(path), std::system_error);
+    std::error_code error;
+    EXPECT_EQ(upload::cleanupAbandonedUploads(m_storage, error), 0);
+    EXPECT_TRUE(error);
+    EXPECT_TRUE(fs::exists(path / "filepart"));
 }

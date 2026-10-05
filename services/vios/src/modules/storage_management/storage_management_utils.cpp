@@ -1414,7 +1414,16 @@ VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr,
             return VmsErrorCode::InvalidParameterError;
         }
         const auto uploadDirectory = chunk_upload::directory(fileLocation, data.m_chunkIdentifier);
-        uploadActivity = std::make_unique<chunk_upload::Activity>(uploadDirectory);
+        try
+        {
+            uploadActivity = std::make_unique<chunk_upload::Activity>(uploadDirectory);
+        }
+        catch (const std::system_error& exception)
+        {
+            LOG(error) << "Failed to lock upload session: " << exception.what() << endl;
+            SET_VMS_ERROR2(VmsErrorCode::VMSInternalError, out, "Unable to lock upload session");
+            return VmsErrorCode::VMSInternalError;
+        }
         if (string(chunkNumber) != "1" && !isDirExist(uploadDirectory.string()))
         {
             SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, out, "Upload session expired or missing; retry the file from the first chunk");

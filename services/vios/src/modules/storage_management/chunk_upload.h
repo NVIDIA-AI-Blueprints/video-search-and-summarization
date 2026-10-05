@@ -6,13 +6,15 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
+#include <cerrno>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
-#include <functional>
-#include <mutex>
+#include <fcntl.h>
 #include <string>
 #include <system_error>
+#include <sys/file.h>
+#include <unistd.h>
 
 namespace nv_vms::chunk_upload
 {
@@ -34,18 +36,66 @@ inline std::filesystem::path directory(const std::filesystem::path& storage,
     return (storage / DIRECTORY_NAME / identifier).lexically_normal();
 }
 
-inline std::mutex& sessionMutex(const std::filesystem::path& path)
+class SessionLock
 {
-    // A bounded set of locks avoids retaining state for every upload identifier.
-    static std::array<std::mutex, 256> locks;
-    return locks[std::hash<std::string>{}(path.lexically_normal().string()) % locks.size()];
-}
+public:
+    explicit SessionLock(const std::filesystem::path& session, bool nonBlocking = false)
+    {
+        // These bounded lock files stay outside session directories and are never
+        // unlinked by cleanup, so every process locks the same persistent inode.
+        const auto lockDirectory = session.parent_path() / ".locks";
+        std::filesystem::create_directories(lockDirectory);
+        // FNV-1a is deterministic across processes, architectures and mount paths.
+        uint64_t slot = 14695981039346656037ULL;
+        for (unsigned char c : session.filename().string())
+        {
+            slot = (slot ^ c) * 1099511628211ULL;
+        }
+        const auto lockFile = lockDirectory / (std::to_string(slot % 256) + ".lock");
+        m_descriptor = ::open(lockFile.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0666);
+        if (m_descriptor < 0)
+        {
+            throw std::system_error(errno, std::generic_category(), "Opening upload session lock");
+        }
+        const int operation = LOCK_EX | (nonBlocking ? LOCK_NB : 0);
+        int result;
+        do
+        {
+            result = ::flock(m_descriptor, operation);
+        } while (result != 0 && errno == EINTR);
+        if (result != 0)
+        {
+            const int error = errno;
+            ::close(m_descriptor);
+            m_descriptor = -1;
+            if (!nonBlocking || (error != EWOULDBLOCK && error != EAGAIN))
+            {
+                throw std::system_error(error, std::generic_category(), "Locking upload session");
+            }
+        }
+    }
+
+    ~SessionLock()
+    {
+        if (m_descriptor >= 0)
+        {
+            ::close(m_descriptor);
+        }
+    }
+
+    bool ownsLock() const { return m_descriptor >= 0; }
+    SessionLock(const SessionLock&) = delete;
+    SessionLock& operator=(const SessionLock&) = delete;
+
+private:
+    int m_descriptor = -1;
+};
 
 class Activity
 {
 public:
     explicit Activity(const std::filesystem::path& path)
-        : m_path(path), m_lock(sessionMutex(path)) {}
+        : m_path(path), m_lock(path) {}
 
     ~Activity()
     {
@@ -61,7 +111,7 @@ public:
 
 private:
     std::filesystem::path m_path;
-    std::unique_lock<std::mutex> m_lock;
+    SessionLock m_lock;
 };
 
 inline size_t cleanupAbandonedUploads(const std::filesystem::path& storage,
@@ -104,20 +154,28 @@ inline size_t cleanupAbandonedUploads(const std::filesystem::path& storage,
             continue;
         }
 
-        // Hold the same lock as the request through the age check and deletion.
-        std::unique_lock<std::mutex> lock(sessionMutex(it->path()), std::try_to_lock);
-        if (!lock.owns_lock())
+        try
         {
-            continue;
-        }
-        const auto modified = fs::last_write_time(it->path(), entryError);
-        if (!entryError && modified < cutoff)
-        {
-            fs::remove_all(it->path(), entryError);
-            if (!entryError)
+            // Hold the shared filesystem lock through the age check and deletion.
+            SessionLock lock(it->path(), true);
+            if (!lock.ownsLock())
             {
-                ++removed;
+                continue;
             }
+            const auto modified = fs::last_write_time(it->path(), entryError);
+            if (!entryError && modified < cutoff)
+            {
+                fs::remove_all(it->path(), entryError);
+                if (!entryError)
+                {
+                    ++removed;
+                }
+            }
+        }
+        catch (const std::system_error& exception)
+        {
+            // Fail closed if the filesystem does not support locking.
+            entryError = exception.code();
         }
         if (entryError)
         {
