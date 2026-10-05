@@ -55,21 +55,21 @@ class GstNvAudioEncoder
         }
         ~GstNvAudioEncoder ()
         {
-            LOG(info) << "Audio Decoder instance deleted" << endl;
+            LOG(info) << "Audio Decoder instance deleted" << std::endl;
         }
 
         /* GstNvDecoder Interfaces */
-        int create(string peerId);
+        int create(std::string peerId);
         void destroy(bool expect_result = false);
 
-        void addConsumer    (shared_ptr<IMediaDataConsumer> consumer);
-        void removeConsumer (shared_ptr<IMediaDataConsumer> consumer);
-        std::map<string, media_info, std::less<>> getAudioInfo ();
-        void onFrame(const string& media, const string& codec, const unsigned char *buffer, ssize_t size,
+        void addConsumer    (std::shared_ptr<IMediaDataConsumer> consumer);
+        void removeConsumer (std::shared_ptr<IMediaDataConsumer> consumer);
+        std::map<std::string, media_info, std::less<>> getAudioInfo ();
+        void onFrame(const std::string& media, const std::string& codec, const unsigned char *buffer, ssize_t size,
                      int sample_rate, size_t num_channels);
 
         GstFlowReturn processNewSampleFromSink(GstElement * appsink);
-        std::vector<shared_ptr<IMediaDataConsumer>> m_consumersList;
+        std::vector<std::shared_ptr<IMediaDataConsumer>> m_consumersList;
 
     private:
         GstElement*             m_pipeline = nullptr;

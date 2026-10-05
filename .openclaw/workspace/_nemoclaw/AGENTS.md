@@ -20,15 +20,19 @@ check` when readiness is requested. Missing configuration is not authorization
 to deploy a stack. Follow `ENV.md` when the origin is missing; never guess one
 or probe for it. Report policy denials or unavailable services and stop.
 
+**Alert Bridge is not a `configure check` command group** — the CLI's config
+never declares it, so `configure check` can never report it as available and
+its absence there does not mean Alert Bridge is down. For any alerts
+readiness/health question, bypass the CLI and query the backend directly:
+follow the `vss-manage-alerts` skill's own deployment-prerequisite step to
+resolve `$AB` first, then probe `curl "$AB/health"` — this workspace does not
+export `$AB` on its own.
+
 A user-supplied video URL is direct media for `vss-ask-video`; it does not need
 sensor registration or ingestion. The named-sensor and report rules below
 apply when the request names a sensor or asks for a report.
 
 ## VSS Base prompt routing
-
-For every named-video report, first resolve the exact timeline with `vss_cli`.
-If it is 120 seconds or longer, stop before any VLM call and report that LVS is
-required. Never bypass this gate through `exec`, raw HTTP, or another tool.
 
 For these UI requests, select and follow exactly one active VSS skill:
 

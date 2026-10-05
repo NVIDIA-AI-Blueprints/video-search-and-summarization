@@ -335,8 +335,8 @@ The configuration file supports multiple message broker types. You can configure
     - `anomalyActionThreshold`: Confidence threshold for anomaly action detection. **Default: 0.5**
     - `anomalyIgnoreSensors`: List of sensor IDs to ignore for anomaly detection. **Default: []**
     - `anomalyClasses`: List of object classes for anomaly detection. **Default: []**
-    - `anomalySpeedViolation`: JSON config for speed violation detection. Includes `enable`, `mphThreshold`, `timeIntervalSecThreshold`.
-    - `anomalyUnexpectedStop`: JSON config for unexpected stop detection. Includes `enable`, `mphThreshold`, `timeIntervalSecThreshold`.
+    - `anomalySpeedViolation`: JSON config for speed violation detection. Includes `enable`, `mphThreshold`, `timeIntervalSecThreshold`. Despite its name, `mphThreshold` is interpreted as pixels per second for image-coordinate calibration, including when no calibration file is provided.
+    - `anomalyUnexpectedStop`: JSON config for unexpected stop detection. Includes `enable`, `mphThreshold`, `timeIntervalSecThreshold`. Despite its name, `mphThreshold` is interpreted as pixels per second for image-coordinate calibration, including when no calibration file is provided.
     - `anomalyAbnormalMovement`: JSON config for abnormal movement detection. Includes `enable`, `distanceMetersThreshold`, `timeIntervalSecThreshold`, `changeInDirectionDegree`.
     - `anomalyFallRisk`: JSON config for fall risk detection. Includes `enable` (default `true`), `nConfirmStart` (default `10`), `nConfirmEnd` (default `50`).
     - `anomalyLackMovement`: JSON config for lack-of-movement detection. Includes `enable` (default `true`), `durationThreshold` in seconds (default `120.0`).
@@ -870,8 +870,8 @@ The key attributes of the Behavior are based on object movement + Object appeara
 | direction | represents the direction in which object is moving, bearing is converted to direction like East, West, North or South |
 | distance | in meters, approximate distance computed based on movement of object for each point in the Behavior |
 | linearDistance | Euclidean distance between start and end of Behavior |
-| speed | average speed in miles per hour (mph), computed based on distance traversed over time internal of the Behavior |
-| speedOverTime | speed in miles per hour (mph), The speed computation over time is computed based smaller segments of the Behavior. default is every segment with a span of 1 seconds speed is computed |
+| speed | Average speed computed from distance traveled over the Behavior's time interval. The unit is miles per hour (mph) for Cartesian or geographic calibration and pixels per second (px/s) for image-coordinate calibration, including when no calibration file is provided. |
+| speedOverTime | Speed computed over smaller segments of the Behavior. The unit is mph for Cartesian or geographic calibration and px/s for image-coordinate calibration, including when no calibration file is provided. |
 | start | start timestamp in UTC of the Behavior |
 | timeInterval | time span of the Behavior in seconds |
 | locations | representing array of [longitude, latitude] or [x, y] |
@@ -928,7 +928,7 @@ average_speed = distance / time_interval
 ```
 
 <Note>
-For Geo coordinates `haversine distance` is used.
+For geographic coordinates, Haversine distance is used and the resulting speed is reported in mph. For image-coordinate calibration, distance is measured in pixels and speed is reported in px/s. Image-coordinate calibration is also the default when no calibration file is provided.
 </Note>
 
 ##### Speed Computation Over Time

@@ -20,6 +20,8 @@
 #include <algorithm>
 #include <sstream>
 
+using namespace std;
+
 // Default grid layout constants for compositor
 static constexpr int DEFAULT_GRID_COLS = 3;
 static constexpr int DEFAULT_GRID_ROWS = 1;

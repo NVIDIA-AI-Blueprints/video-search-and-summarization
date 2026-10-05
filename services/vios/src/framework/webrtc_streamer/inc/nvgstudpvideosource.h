@@ -340,12 +340,12 @@ public:
             m_udpVideoClient = UdpClientPool::getInstance()->getClient(m_streamid, m_mediaType);
             if (m_udpVideoClient)
             {
-                m_videoDataConsumer = static_pointer_cast<VideoDataConsumer>(m_udpVideoClient->getConsumer(UdpClient::UDP_VIDEO_TYPE));
+                m_videoDataConsumer = static_pointer_cast<VideoDataConsumer>(m_udpVideoClient->getConsumer(nv_vms::UdpClient::UDP_VIDEO_TYPE));
                 if (!m_videoDataConsumer)
                 {
                     LOG(info) << "Creating new Video Data Consumer and setting it" << endl;
                     m_videoDataConsumer.reset(new VideoDataConsumer());
-                    m_udpVideoClient->setConsumer(m_videoDataConsumer, UdpClient::UDP_VIDEO_TYPE);
+                    m_udpVideoClient->setConsumer(m_videoDataConsumer, nv_vms::UdpClient::UDP_VIDEO_TYPE);
                 }
                 else
                 {
@@ -409,16 +409,16 @@ public:
 
     void setupClient (const std::map<std::string, std::string, std::less<>> &opts)
     {
-        UdpStream stream;
+        nv_vms::UdpStream stream;
         if ( opts.find("video_port") != opts.end() )
         {
             stream.m_videoPort = stringToInt(opts.at("video_port"));
-            stream.m_type = UdpClient::UDP_VIDEO_TYPE;
+            stream.m_type = nv_vms::UdpClient::UDP_VIDEO_TYPE;
         }
         if ( opts.find("audio_port") != opts.end() )
         {
             stream.m_audioPort = stringToInt(opts.at("audio_port"));
-            stream.m_type = UdpClient::UDP_VIDEO_AUDIO_TYPE;
+            stream.m_type = nv_vms::UdpClient::UDP_VIDEO_AUDIO_TYPE;
             stream.m_audioFreq = m_audioFreq;
         }
         if ( opts.find("codec") != opts.end() )
@@ -430,7 +430,7 @@ public:
         if (m_udpVideoClient)
         {
             m_udpVideoClient->create();
-            m_udpVideoClient->setConsumer(m_videoDataConsumer, UdpClient::UDP_VIDEO_TYPE);
+            m_udpVideoClient->setConsumer(m_videoDataConsumer, nv_vms::UdpClient::UDP_VIDEO_TYPE);
         }
     }
 
@@ -486,7 +486,7 @@ public:
     }
 
 private:
-    shared_ptr<UdpClient>               m_udpVideoClient;
+    shared_ptr<nv_vms::UdpClient>               m_udpVideoClient;
     shared_ptr<VideoDataConsumer>       m_videoDataConsumer;
     int                                 m_audioFreq;
     webrtc::VideoBroadcaster               m_broadcaster;

@@ -75,7 +75,7 @@ Sibling NIM backends (`cosmos-reason1-7b`, `cosmos-reason2-8b`, `cosmos3-reasone
   **Trigger:** per-chunk, only when the lower-cased response contains `"yes"` or `"true"`.
 
 - **Method:** Kafka topic — error records
-  **Topic:** `${ERROR_MESSAGE_TOPIC}` (compose default `mdx-vlm-errors`; raw upstream compose fallback `vision-llm-errors`)
+  **Topic:** `${ERROR_MESSAGE_TOPIC}` (default `mdx-vlm-errors`)
   **Schema:** NvSchema error protobuf. Headers: `message_type: error`.
   **Trigger:** any upstream / VLM error.
 
@@ -120,7 +120,7 @@ The host-side variable names that the compose interpolates differ from the canon
 | `RTVI_VLM_ERROR_BUS` → `ERROR_BUS` | Error-output broker type | `kafka` | optional; empty disables errors |
 | `RTVI_VLM_KAFKA_INCIDENT_TOPIC` → `KAFKA_INCIDENT_TOPIC` | Incident topic | `mdx-vlm-incidents` | optional |
 | `KAFKA_BOOTSTRAP_SERVERS` | Broker address | `${HOST_IP}:9092` (host-net) or `kafka:9092` (compose-net) | **Yes (effective)** |
-| `RTVI_VLM_ERROR_MESSAGE_TOPIC` → `ERROR_MESSAGE_TOPIC` | Error topic | `vision-llm-errors` | optional |
+| `RTVI_VLM_ERROR_MESSAGE_TOPIC` → `ERROR_MESSAGE_TOPIC` | Error topic | `mdx-vlm-errors` | optional |
 | `VIA_VLM_ENDPOINT` (host: `RTVI_VLM_ENDPOINT`) | Remote OpenAI-compat backend URL when `VLM_MODEL_TO_USE=openai-compat` | — | conditional |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` (host: `VLM_NAME`) | Remote model deployment name | — | conditional |
 | `VSS_RT_VLM_TAG` | Compose image-tag override; append `-sbsa` only for SBSA Grace/Spark. Resolve the standalone default from the canonical RT-VLM Compose file; the full VSS project may override it through `deploy/docker/containers.env`. | `develop-latest` (standalone Compose) | optional |
@@ -182,7 +182,7 @@ services:
       ERROR_BUS: "${RTVI_VLM_ERROR_BUS:-kafka}"
       KAFKA_INCIDENT_TOPIC: "${RTVI_VLM_KAFKA_INCIDENT_TOPIC:-mdx-vlm-incidents}"
       KAFKA_BOOTSTRAP_SERVERS: "${HOST_IP}:9092"
-      ERROR_MESSAGE_TOPIC: "${RTVI_VLM_ERROR_MESSAGE_TOPIC:-vision-llm-errors}"
+      ERROR_MESSAGE_TOPIC: "${RTVI_VLM_ERROR_MESSAGE_TOPIC:-mdx-vlm-errors}"
     deploy:
       resources:
         reservations:
@@ -220,7 +220,7 @@ The `nv.VisionLLM` and `nv.Incident` protobuf schemas are the contract between R
 
 - **Health:** `curl -f http://localhost:${RTVI_VLM_PORT}/v1/health/ready` — used by the Docker healthcheck; expect HTTP 200.
 - **Loaded model ID:** `curl -s http://localhost:${RTVI_VLM_PORT}/v1/models | jq` — confirms the model resolved at warmup. Source: `real-time-vlm.rst` § Usage Examples note (lines 478–491).
-- **End-to-end caption + Kafka:** upload via `POST /v1/files`, call `POST /v1/generate_captions`, then poll `mdx-vlm` topic offsets:
+- **End-to-end caption + Kafka:** upload via `POST /v1/files`, call `POST /v1/generate_captions`, then poll `mdx-vlm-captions` topic offsets:
 
 ```bash
 docker exec kafka kafka-get-offsets --bootstrap-server 127.0.0.1:9092 --topic mdx-vlm-captions

@@ -2,6 +2,7 @@
 
 ## Contents
 
+- [NemoClaw harness](#nemoclaw-harness--before-compose)
 - [Default teardown](#default-teardown--clean-project-volumes)
 - [Cache-preserving teardown](#cache-preserving-teardown--explicit-opt-in)
 - [Bind-mounted data cleanup](#bind-mounted-data-cleanup)
@@ -13,6 +14,104 @@ target the selected project and pass `-v --remove-orphans`.
 
 The default removes all project volumes, including model caches. Use the
 cache-preserving path only when the user explicitly asks to keep model caches.
+
+Ask the user to confirm before running either path, and say which one you are
+about to run: on the default, that it discards the NIM/RTVI model caches and the
+next deploy re-downloads them.
+
+## NemoClaw harness — before Compose
+
+Run this whenever the build was harnessed — it holds a `sandbox` file, or, from
+before that file existed, a `nemoclaw-setup.log` naming the sandbox. Tearing
+down the build covers its sandbox and relay without the user naming them. Run
+it first, so the sandbox is not left pointed at an origin that has stopped
+answering.
+
+A build whose harness setup **failed** has the file too — the name is recorded
+before the notebook runs, because onboarding happens in its section 3.1 and a
+later section can still fail over a live sandbox. So run this section for a
+failed build as well; skipping it is how a sandbox gets left behind.
+
+`nemoclaw destroy` does not stop the two host processes the setup notebook
+started. The dashboard-forward watchdog would see the forward die and run
+`nemoclaw <sandbox> recover` against the sandbox being destroyed, and keep
+retrying it afterwards, so stop it **before** the destroy. The dashboard relay,
+left running, holds `NEMOCLAW_DASHBOARD_RELAY_PORT` (default `18790`), and the
+next deploy's relay cell stops on it as a foreign listener; stop it after.
+
+```bash
+REPO="$(git rev-parse --show-toplevel)"
+BUILD_DIR="$REPO/_builds/<name>"
+if [ -s "$BUILD_DIR/sandbox" ]; then
+  SANDBOX="$(cat "$BUILD_DIR/sandbox")"
+else  # a build harnessed before the skill wrote the sandbox file
+  SANDBOX="$(sed -n 's/^Sandbox: //p' "$BUILD_DIR/nemoclaw-setup.log" \
+    2>/dev/null | tail -1)"
+fi
+if [ -z "$SANDBOX" ]; then
+  # Nothing was named, so nothing was created. Exit 0: the Compose teardown
+  # the user asked for still has to run.
+  echo "no sandbox recorded in $BUILD_DIR; nothing to destroy" >&2
+  exit 0
+fi
+
+# Match the exact --sandbox argument, never the port or a name prefix: other
+# sandboxes' watchdogs and relays share the scripts and may sit on neighbouring
+# ports. pkill -f compiles an extended regex. Escape the recorded name so
+# vision.dev selects that sandbox's processes alone.
+SANDBOX_RE="$(printf '%s' "$SANDBOX" | sed 's/[][(){}.*+?^$|\\]/\\&/g')"
+stop_sandbox_process() {  # <script> <label>
+  local pattern="$1 --sandbox ${SANDBOX_RE}( |$)"
+  pkill -f -- "$pattern"
+  for _ in $(seq 50); do pgrep -f -- "$pattern" >/dev/null || return 0; sleep 0.1; done
+  pgrep -af -- "$pattern"
+  echo "$2 for $SANDBOX still running" >&2
+  exit 1
+}
+
+stop_sandbox_process 'dashboard-forward-watchdog\.py' "dashboard-forward watchdog"
+nemoclaw "$SANDBOX" destroy --yes --cleanup-gateway
+stop_sandbox_process 'dashboard-relay\.py' "dashboard relay"
+```
+
+A name recorded by a run that failed *before* onboarding belongs to a sandbox
+that was never created, so `destroy` reports it as not found. That is the one
+non-zero here to accept and move on from; any other failure is a blocker.
+
+A setup that failed even earlier records no name at all — an older build's log
+carries the `Sandbox:` line only once the notebook has printed it. Report the
+build as carrying no recorded sandbox and continue with the Compose teardown;
+never leave the requested teardown unfinished over a sandbox that was never
+created.
+
+The name comes from that file and nowhere else: `nemoclaw list` names no
+Compose project and the sandbox carries no project label, so neither the build
+directory nor the `vss-harness-sandbox` default identifies the sandbox this
+build owns.
+
+So a sandbox no build recorded — one a user onboarded by running
+`deploy_nemoclaw.ipynb` themselves, or one left by a build directory since
+deleted — survives every teardown here, along with its watchdog and relay.
+Nothing above goes looking for it, and the next deploy takes nothing from it
+unasked: onboard stops or moves the sandbox elsewhere when it holds `18789`,
+and the relay cell stops on a foreign listener on `18790`. The next harness bring-up is where that gets
+settled, under [Ports the harness
+claims](agent-harness.md#ports-the-harness-claims) — which reads ownership off
+this same per-build record, so a sandbox named `vss-harness-sandbox` that the
+next build's own record does not name is one it reports and asks about rather
+than recreates.
+Never destroy a sandbox this build does not own.
+
+A harness built from a [harness source
+ref](agent-harness.md#harness-source-ref) also left a detached worktree under
+the build directory. Remove it here: deleting `_builds/<name>/` alone leaves
+the worktree registered in the checkout.
+
+```bash
+if [ -d "$BUILD_DIR/harness-src" ]; then
+  git -C "$REPO" worktree remove --force "$BUILD_DIR/harness-src"
+fi
+```
 
 ## Default teardown — clean project volumes
 
@@ -60,8 +159,6 @@ next deploy doesn't re-download them. Do not select this path unless the user
 explicitly requests cache preservation.
 
 ### Tear down while preserving model caches
-
-Ask user to confirm to tear down the deployment before you proceed.
 
 When cache preservation was explicitly requested, still stop every prior VSS
 stack, especially when switching profiles (`base` → `search`, alerts

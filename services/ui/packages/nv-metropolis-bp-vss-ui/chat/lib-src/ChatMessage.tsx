@@ -18,6 +18,7 @@ import remarkMath from 'remark-math';
 
 import { ChatSteps } from './ChatSteps';
 import { getMarkdownComponents, VssUiArtifact } from './markdown/components';
+import { rehypeOpenShellMediaUrls } from './markdown/mediaUrls';
 import { fixMalformedHtml } from './markdown/streaming';
 import type { ChatFeatureFlags, ChatMessage as ChatMessageType } from './types';
 
@@ -333,7 +334,7 @@ const AssistantMessageContent: React.FC<AssistantMessageContentProps> = ({
       <div className="prose max-w-none break-words dark:prose-invert">
         <ReactMarkdown
           remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
-          rehypePlugins={[rehypeRaw] as any}
+          rehypePlugins={[rehypeRaw, [rehypeOpenShellMediaUrls, { mediaProxyUrl }]] as any}
           components={markdownComponents as any}
         >
           {content}

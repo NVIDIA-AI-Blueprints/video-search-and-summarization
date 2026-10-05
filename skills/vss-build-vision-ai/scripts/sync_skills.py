@@ -24,7 +24,8 @@
 #                           strips the prefix; the service has no root route,
 #                           only /health, /ready, /metrics) or <host>:9080/health
 #   always               -> active on every deployment
-# Several may be listed, space-separated; all must hold.
+# Several may be listed, space-separated; all must hold. `a|b` holds when any
+# of its alternatives does (e.g. `summarize|vlm`).
 # No recorded deployment (vss configure never ran) -> everything active, so
 # the agent can still configure. --all forces that.
 #
@@ -166,16 +167,20 @@ def select(specs: list[SkillSpec], *, all_skills: bool = False, vss_bin: str = "
                if availability.error else "no deployment recorded by `vss configure`")
         return Selection([s.name for s in specs], {}, f"{why}; all shipped skills active")
     alerts = (alerts_available(availability.base_url, run)
-              if any("alerts" in s.needs for s in specs) else False)
+              if any("alerts" in n.split("|") for s in specs for n in s.needs) else False)
     active: list[str] = []
     inactive: dict[str, str] = {}
     for s in specs:
-        missing = [n for n in s.needs if (not alerts if n == "alerts" else n not in availability.available)]
+        missing = [n for n in s.needs
+                   if not any(alerts if a == "alerts" else a in availability.available
+                              for a in n.split("|"))]
         if not missing:
             active.append(s.name)
         else:
             inactive[s.name] = "; ".join(
-                "alert-bridge not reachable" if n == "alerts" else f"vss command group '{n}' unavailable"
+                "alert-bridge not reachable" if n == "alerts"
+                else f"vss command group '{n}' unavailable" if "|" not in n
+                else f"none of vss command groups '{n}' available"
                 for n in missing
             )
     listed = ", ".join(sorted(availability.available)) or "none"

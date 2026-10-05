@@ -20,6 +20,8 @@
 #include "logger.h"
 #include "nvbufwrapper.h"
 
+using namespace std;
+
 constexpr int JPEG_DEFAULT_QUALITY = 75;
 #ifndef MAX_CHANNELS
 /**

@@ -21,6 +21,8 @@
 #include <iostream>
 #include <string>
 
+using namespace std;
+
 NvVideoEncodeOut::NvVideoEncodeOut() :
                 m_tee(nullptr)
                 , m_queue_record(nullptr)

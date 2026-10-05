@@ -23,6 +23,7 @@
 #include "sensor_info.h"
 
 using namespace nv_vms;
+using namespace std;
 
 extern "C" ISensorDiscoveryInterface* createObject()
 {

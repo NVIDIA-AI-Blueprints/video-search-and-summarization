@@ -36,6 +36,8 @@
 
 #include "logger.h"
 
+using namespace std;
+
 namespace fs = boost::filesystem;
 
 static size_t du(fs::path p)

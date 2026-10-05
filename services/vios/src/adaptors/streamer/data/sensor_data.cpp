@@ -24,6 +24,9 @@
 
 #include <memory>
 
+using namespace std;
+using namespace nv_vms;
+
 extern "C" ISensorDiscoveryInterface* createObject()
 {
     return std::make_unique<SensorDataCollector>().release();

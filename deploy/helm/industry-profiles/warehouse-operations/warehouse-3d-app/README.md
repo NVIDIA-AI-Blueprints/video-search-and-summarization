@@ -85,32 +85,16 @@ hardware-accelerated video encode/decode in the stream processor.
 | `vss-vios-streamprocessing` | 1 | HW encode/decode; see below |
 | **Total** | **2** | |
 
-To run `vss-vios-streamprocessing` in software encode/decode mode (FFmpeg CPU path)
-and free that GPU for other workloads, set **`vios.vss-vios-streamprocessing.resources`**
-to an empty map in your values override:
+Keep hardware video processing enabled and allocate a GPU to VIOS streamprocessing.
 
-```yaml
-vios:
-  vss-vios-streamprocessing:
-    useSoftwarePath: true
-    resources: null
-```
+### GPU sharing
 
-Or inline at install time:
+If there are not enough physical GPUs to assign one to each GPU workload, consider GPU sharing:
 
-```bash
---set vios.vss-vios-streamprocessing.useSoftwarePath=true \
---set 'vios.vss-vios-streamprocessing.resources=null'
-```
+- [Multi-Instance GPU (MIG)](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-operator-mig.html) partitions supported GPUs into instances with dedicated memory and fault isolation.
+- [GPU time-slicing](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html) lets multiple workloads share a GPU without memory or fault isolation.
 
-Both flags are required together — **`useSoftwarePath`** switches the VST encode/decode
-path in the config, and **`resources: null`** drops the GPU claim from the pod spec.
-Setting only one leaves the stack misconfigured.
-
-`resources: {}` does **not** work — Helm deep-merges maps, so the subchart default
-keys survive an empty-map override. Use `null` to drop the block entirely.
-
-Software mode reduces video throughput; use it only when a second GPU is not available.
+Choose based on your GPU hardware, workload compatibility, memory needs, and isolation requirements. See the [MIG and time-slicing comparison](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html#comparison-time-slicing-and-multi-instance-gpu). Keep hardware video processing enabled for VIOS and verify that the selected GPU or MIG profile supports the required video encode/decode capabilities.
 
 ### Required secrets
 
@@ -192,8 +176,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vios.vstStorage.vstData.size`** | **`10Gi`** | PVC size for shared VST data volume. |
 | **`vios.vstStorage.vstVideo.size`** | **`20Gi`** | PVC size for shared VST video volume. |
 | **`vios.vstStorage.streamerVideos.size`** | **`20Gi`** | PVC size for the NVStreamer upload volume. |
-| **`vios.vss-vios-streamprocessing.useSoftwarePath`** | **`false`** | Set **`true`** (paired with **`resources: null`**) to use FFmpeg software encode/decode and free the second GPU. Both flags required — see [GPU requirements](#gpu-requirements). |
-| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Pod resource requests/limits for streamprocessing. Set **`null`** (with **`useSoftwarePath: true`**) to drop the GPU claim entirely. |
+| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Keep one GPU allocation for streamprocessing. See [GPU requirements](#gpu-requirements) for dedicated and shared GPU guidance. |
 | **`vios.vss-vios-nvstreamer.syncFileCount`** | **`4`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** | **`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`** | NGC resource for the NVStreamer sample video seed. Keep in step with **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`**. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.fromExistingClaim`** | **`vss-rtvi-cv-models`** | Reuses the PVC from the `vss-rtvi-cv` NGC download job so the video data is not downloaded twice. Clear this and set **`resourceVersion`** to download the video seed independently. |
@@ -328,11 +311,79 @@ branch name otherwise; omit `--set global.gitRef=...` to default to `develop`.
 `calibration/sample-data/` those same three links point at. Default is
 `warehouse-4cams-20mx20m-synthetic`.
 
-**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** (default
-`http://vss-video-analytics-api:8081/config/calibration`) makes behavior-analytics
-fetch calibration.json from that endpoint via an initContainer, retrying until
-it returns real data and validating it before the main container starts. Clear
-it to fall back to the bundled `files/behavior-analytics/calibration.json`.
+**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** and
+**`resourceFiles.calibration.enabled`** (both default to a live API URL /
+`true`) together control calibration:
+
+- **Default** — fetches `calibration.json` from `apiUrl` via an initContainer
+  before the app starts.
+- **Clear `apiUrl`** — skips the fetch, falls back to the bundled
+  `files/behavior-analytics/calibration.json`.
+- **Set `enabled: false`** — skips calibration entirely (no initContainer, no
+  fallback). Not viable for 3D: `SpaceAnalyzer` and the global-ROI transform
+  need real calibration geometry to produce correct output.
+
+#### Using a custom dataset
+
+Video source — pick one; they're mutually exclusive, don't configure both:
+
+1. **Recorded video files**, not live cameras: point
+   **`vios.vss-vios-nvstreamer.persistence.streamerVideos.hostPath`** (or an
+   equivalent PVC binding) at the video files, and set
+   **`vios.vss-vios-nvstreamer.ngcVideoSeed.enabled=false`** so the chart
+   doesn't also seed sample videos into that volume. bp-configurator's default
+   **`SENSOR_INFO_SOURCE=nvstreamer`** auto-discovers sensors from what
+   NVStreamer is serving — leave `global.cameraInfo` unset for this path. Set
+   **`vios.vss-vios-nvstreamer.syncFileCount`** to the effective stream count
+   from **Stream count** below, not the raw file count — set higher than the
+   stream cap, sync stalls instead of serving media.
+
+2. **Live RTSP streams**: set **`global.cameraInfo.enabled=true`**, which
+   flips bp-configurator to `SENSOR_INFO_SOURCE=file`. Add each camera under
+   **`global.cameraInfo.sensors`** — required: `camera_name`, `rtsp_url`;
+   optional: `group_id`, `region`. For more than a handful, use
+   **`global.cameraInfo.sensorsFile`** instead (raw JSON, takes priority over
+   `sensors` — copy `../camera_configs/camera_info.example.json` outside the
+   repo, fill in real cameras, and pass it with `--set-file`). Each
+   `rtsp_url` must be reachable from the cluster — VIOS connects to it
+   directly; test with VLC or `ffplay` from the deployment machine before
+   deploying.
+
+Calibration data has to be supplied either way:
+
+| Setting | Set | Effect |
+|---|---|---|
+| `calibration-import.calibrationFileSource` | your `calibration.json` URL | Replaces the bundled sample calibration. |
+| `calibration-import.imageMetadataFileSource` | your `imageMetadata.json` URL | Must resolve to a file with an `images[]` array, each entry carrying a `fileName`. |
+| `calibration-import.imageBaseSource` | base URL for your floor-plan images | Base URL each `fileName` above is fetched from. |
+| `calibration-import.requireCalibration` / `requireImages` | keep default `true` | A broken URL fails the Job instead of deploying with no calibration. |
+
+Each `camera_name` registered above must match the corresponding sensor name
+in `calibration.json` — the importer doesn't check this for you. This
+repoints what's uploaded to the video analytics API only — the 3D perception
+pod reads its own copy from
+`deploy/helm/services/rtvi/charts/rtvi-cv/files/warehouse-standalone-3d/calibration/calibration.json`;
+replace that file too (before `helm dependency update`) so perception matches.
+
+Also configure, outside `global`:
+
+- **`warehouse.datasetType`** — set to `real`, then regenerate the
+  model-selection values file (see the `warehouse.datasetType` row above).
+  Left at the default `synthetic`, real footage still runs against the
+  synthetic Sparse4D model/anchor/label set: no error, just wrong results.
+- **Stream count** — set `<N>` to the number of cameras/streams for whichever
+  video source you picked above (sensors under `global.cameraInfo.sensors`/
+  `sensorsFile` for RTSP, or the number of video files for the recorded-video
+  path), by running
+  `python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py --mode 3d --num-streams <N>`
+  (see [Scaling: NUM_STREAMS by GPU](#scaling-num_streams-by-gpu)) and
+  layering the generated file in. Left at the default 4, sensors past the 4th
+  are dropped silently.
+
+`global.gitRef`, `global.sampleVideoDataset`, and (by default)
+`vios.vss-vios-nvstreamer.ngcVideoSeed.dataset` only matter for the bundled
+sample dataset — irrelevant once the video and calibration sources above are
+overridden.
 
 ### 4. Post-install validation
 

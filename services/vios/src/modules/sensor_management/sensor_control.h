@@ -47,28 +47,28 @@ class SensorControl
 
         int connect();
         int getSensorsStreamInfo();
-        int getSensorStreamInfo(shared_ptr<SensorInfo>& sensorInfo);
-        int getStreamInfo(const string & sensor_id, const string & stream_id, shared_ptr<StreamInfo>& stream);
-        int synchronizeSensorTime(const string sensor_id);
-        int rebootSensor(const string sensor_id);
-        int getSensorNetworkInfo(const string sensor_id, SensorNetworkInfo& networkInfo);
-        int setSensorNetworkInfo(const string sensor_id, const SensorNetworkInfo& networkInfo, bool& rebootNeeded);
-        int getSensorSettings(const string sensor_id, const string stream_id, SensorSettings& settings, const string& type);
-        int setSensorImageSettings(const string sensor_id, const SensorImageSettingsValues& settings);
-        int setSensorEncodeSettings(const string sensor_id, const SensorVideoEncoderSettingsValues& settings);
-        int getStreamSettings(const string sensor_id, const string& stream_id);
-        bool validateCredentials(const string sensor_id, const string username, const string password);
-        int setPTZ(const string sensor_id, PTZAction ptz, string x, string y);
+        int getSensorStreamInfo(std::shared_ptr<SensorInfo>& sensorInfo);
+        int getStreamInfo(const std::string & sensor_id, const std::string & stream_id, std::shared_ptr<StreamInfo>& stream);
+        int synchronizeSensorTime(const std::string sensor_id);
+        int rebootSensor(const std::string sensor_id);
+        int getSensorNetworkInfo(const std::string sensor_id, SensorNetworkInfo& networkInfo);
+        int setSensorNetworkInfo(const std::string sensor_id, const SensorNetworkInfo& networkInfo, bool& rebootNeeded);
+        int getSensorSettings(const std::string sensor_id, const std::string stream_id, SensorSettings& settings, const std::string& type);
+        int setSensorImageSettings(const std::string sensor_id, const SensorImageSettingsValues& settings);
+        int setSensorEncodeSettings(const std::string sensor_id, const SensorVideoEncoderSettingsValues& settings);
+        int getStreamSettings(const std::string sensor_id, const std::string& stream_id);
+        bool validateCredentials(const std::string sensor_id, const std::string username, const std::string password);
+        int setPTZ(const std::string sensor_id, PTZAction ptz, std::string x, std::string y);
         
         // Profile G - Recording Timeline API
-        int getRecordingTimelines(const string& sensor_id, Json::Value& timelinesJson);
+        int getRecordingTimelines(const std::string& sensor_id, Json::Value& timelinesJson);
 
         VmsErrorCode addSensor(const Json::Value& sensorInfo);
-        bool deleteSensor(shared_ptr<SensorInfo>& sensorInfo);
-        int setSensorInfo(const string sensor_id);
+        bool deleteSensor(std::shared_ptr<SensorInfo>& sensorInfo);
+        int setSensorInfo(const std::string sensor_id);
         int setCacheSensorList();
 
-        shared_ptr<SensorInfo> getSensor(const string& id);
+        std::shared_ptr<SensorInfo> getSensor(const std::string& id);
 
     private:
         DeviceManager* m_deviceManager;

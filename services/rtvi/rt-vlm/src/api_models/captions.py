@@ -27,6 +27,7 @@ from .common import (
     DEFAULT_MAX_GENERATION_TOKENS,
     MAX_GENERATION_TOKENS,
     MAX_GENERATION_TOKENS_ENV,
+    STREAM_ID_PATTERN,
     CommonBaseModel,
     CompletionUsage,
     MediaInfoOffset,
@@ -72,6 +73,10 @@ def get_vlm_prompt_max_length() -> int:
 
 
 VLM_PROMPT_MAX_LENGTH = get_vlm_prompt_max_length()
+VlmAssetId = (
+    UUID
+    | Annotated[str, Field(min_length=1, max_length=256, pattern=STREAM_ID_PATTERN)]
+)
 
 
 # Absolute upper bound for `prompt` / `system_prompt` length, used as the
@@ -287,7 +292,7 @@ class VlmQuery(CommonBaseModel):
 
     _prompt_driven_reasoning: bool = PrivateAttr(default=False)
 
-    id: UUID | List[UUID] = Field(
+    id: VlmAssetId | List[VlmAssetId] = Field(
         description="Unique ID or list of IDs of the file(s)/live-stream(s) to generate VLM captions for",
         examples=[
             "123e4567-e89b-12d3-a456-426614174000",
@@ -295,8 +300,22 @@ class VlmQuery(CommonBaseModel):
         ],
         json_schema_extra={
             "anyOf": [
-                {"type": "string", "format": "uuid"},
-                {"type": "array", "items": {"type": "string", "format": "uuid"}, "maxItems": 50},
+                {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": STREAM_ID_PATTERN,
+                },
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                        "pattern": STREAM_ID_PATTERN,
+                    },
+                    "maxItems": 50,
+                },
             ]
         },
     )
@@ -308,8 +327,8 @@ class VlmQuery(CommonBaseModel):
         return v
 
     @property
-    def id_list(self) -> List[UUID]:
-        return [self.id] if isinstance(self.id, UUID) else self.id
+    def id_list(self) -> List[VlmAssetId]:
+        return self.id if isinstance(self.id, list) else [self.id]
 
     @property
     def get_query_json(self: CommonBaseModel) -> dict:
@@ -321,7 +340,7 @@ class VlmQuery(CommonBaseModel):
         description=(
             "URL of the video/image to process. Supported schemes: "
             "http://, https://, s3://, file://. "
-            "When provided, 'id' must also be specified as a single UUID."
+            "When provided, 'id' must also be specified as a single identifier."
         ),
         pattern=r"^(https?://|s3://|file://).*",
         examples=[

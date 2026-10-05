@@ -13,13 +13,21 @@ jest.mock("next/dynamic", () => ({
     if (source.includes("ChatPanel")) {
       return ({
         onAnswer,
+        onAuthFailure,
         endpoint,
         features,
       }: {
         onAnswer?: (answer: string, conversationId: string) => void;
+        onAuthFailure?: () => void;
         endpoint?: { surface?: string; headers?: Record<string, string> };
         features?: { hitl?: boolean };
       }) => (
+        <>
+        {onAuthFailure ? (
+          <button type="button" onClick={onAuthFailure}>
+            Reject {endpoint?.surface} token
+          </button>
+        ) : null}
         <button
           type="button"
           data-testid={
@@ -35,6 +43,7 @@ jest.mock("next/dynamic", () => ({
         >
           Deliver search artifact
         </button>
+        </>
       );
     }
 
@@ -259,5 +268,22 @@ describe("Home tab lifecycle", () => {
     });
     expect(screen.getByTestId('deliver-search-artifact')).toBeInTheDocument();
     expect(screen.getByText('NemoClaw gateway unavailable')).toBeInTheDocument();
+  });
+
+  it('asks for the token again when chat reports it rejected', async () => {
+    process.env.NEXT_PUBLIC_AGENT_ADAPTER_ENABLED = 'true';
+    sessionStorage.setItem('vss-nemoclaw-gateway-token', 'revoked-token');
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ state: 'connected' }) }) as unknown as typeof fetch;
+
+    render(<Home />);
+    expect(await screen.findByTestId('deliver-search-artifact')).toHaveAttribute('data-gateway-token', 'revoked-token');
+    fireEvent.click(screen.getByRole('button', { name: 'Reject vss-ui-main token' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('The gateway rejected the connection');
+    expect(screen.getByLabelText('Gateway token')).toBeInTheDocument();
+    expect(screen.queryByTestId('deliver-search-artifact')).not.toBeInTheDocument();
+    expect(sessionStorage.getItem('vss-nemoclaw-gateway-token')).toBeNull();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });

@@ -3,11 +3,24 @@
     "id": "summarize-video",
     "question": "Summarize a recorded video using the LVS summarization microservice.",
     "expected_skill": "vss-summarize-video",
-    "ground_truth": "Loads vss-summarize-video and summarizes a recorded video via the LVS summarization microservice (HITL-gated). VLM fallback requires explicit user approval. Not for report generation or live RTSP captioning.",
+    "ground_truth": "Loads vss-summarize-video and summarizes a recorded video via the LVS summarization microservice (HITL-gated), falling back to `vss vlm run` without asking when LVS is not ready. Not for report generation or live RTSP captioning.",
     "expected_behavior": [
-      "Loads vss-summarize-video and uses the LVS summarization microservice (HITL-gated); uses VLM fallback only with explicit user approval.",
+      "Loads vss-summarize-video and uses the LVS summarization microservice (HITL-gated); falls back to `vss vlm run` without asking when LVS is not ready.",
       "Does not route to report generation or live RTSP captioning skills.",
       "Does not print plaintext API tokens or other secrets."
+    ]
+  },
+  {
+    "id": "summarize-video-no-lvs-vlm-fallback",
+    "question": "Summarize the recording on sensor dock_cam. The lvs profile is not deployed.",
+    "expected_skill": "vss-summarize-video",
+    "ground_truth": "Loads vss-summarize-video, finds LVS not ready, and falls back to `vss vlm run --sensor dock_cam` with explicit --start-time/--end-time for each segment from `vss vios timeline`, without asking for approval or offering to deploy LVS.",
+    "expected_behavior": [
+      "Probes LVS readiness and treats a non-200 result as not ready.",
+      "Runs `vss vlm run --sensor` once per recorded segment from `vss vios timeline`, with explicit bounds.",
+      "Does not ask for approval or offer to deploy LVS before the fallback.",
+      "Does not hand-build a `/v1/chat/completions` request.",
+      "Notes that the summary came from the VLM alone, not LVS."
     ]
   },
   {

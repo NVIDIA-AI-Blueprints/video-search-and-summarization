@@ -32,33 +32,32 @@ class TempFileScheduler;
 inline constexpr const char* TEMP_STORAGE_PATH = "/storage/temp_files";
 inline constexpr const char* TEMP_STORAGE_DIR = "/temp_files";
 
-using namespace std;
 
 namespace vst_common
 {
-    string sensorStatusEventToString(nv_vms::SensorStatusEvent event);
+    std::string sensorStatusEventToString(nv_vms::SensorStatusEvent event);
     // Maps a stored sensor type such as sensor_rtsp to the notification
     // camera_type value rtsp; values without the sensor_ prefix pass through.
-    string sensorTypeToCameraType(const string& sensorType);
+    std::string sensorTypeToCameraType(const std::string& sensorType);
     // Resolves the camera_type notification value for a sensor id, falling
     // back to the parent sensor when given a stream id. Empty when unknown.
-    string cameraTypeForSensor(const string& sensorOrStreamId);
-    nv_vms::VmsErrorCode getSensorStreamList(shared_ptr<nv_vms::DeviceManager> deviceManager, const string sensor_id, const string& query_string, Json::Value &response);
-    nv_vms::VmsErrorCode getSensorStreamList(shared_ptr<nv_vms::DeviceManager> deviceManager, const Json::Value& req_info, Json::Value &response);
-    nv_vms::VmsErrorCode getSensorStreamListFromDB(shared_ptr<nv_vms::DeviceManager> deviceManager, Json::Value &response, bool fetchFromDB = false);
-    void updateSensorDetailsToDB(const string deviceId, shared_ptr<nv_vms::SensorInfo> sensor, bool force=false);
+    std::string cameraTypeForSensor(const std::string& sensorOrStreamId);
+    nv_vms::VmsErrorCode getSensorStreamList(std::shared_ptr<nv_vms::DeviceManager> deviceManager, const std::string sensor_id, const std::string& query_string, Json::Value &response);
+    nv_vms::VmsErrorCode getSensorStreamList(std::shared_ptr<nv_vms::DeviceManager> deviceManager, const Json::Value& req_info, Json::Value &response);
+    nv_vms::VmsErrorCode getSensorStreamListFromDB(std::shared_ptr<nv_vms::DeviceManager> deviceManager, Json::Value &response, bool fetchFromDB = false);
+    void updateSensorDetailsToDB(const std::string deviceId, std::shared_ptr<nv_vms::SensorInfo> sensor, bool force=false);
     std::string getSslCertificate();
     EVP_PKEY *generate_key();
     X509 *generate_x509(EVP_PKEY *pkey);
     bool write_cert_to_disk(std::string certFile, EVP_PKEY * pkey, X509 * x509);
-    bool encrypt_data(const std::string &input, std::string &output, string &iv_);
-    bool decrypt_data(const std::string &input, std::string &output, string &iv_);
+    bool encrypt_data(const std::string &input, std::string &output, std::string &iv_);
+    bool decrypt_data(const std::string &input, std::string &output, std::string &iv_);
     void evp_cleanup(EVP_CIPHER_CTX *ctx_);
     bool evp_final(std::string &out, EVP_CIPHER_CTX *ctx_, int dir_);
     bool evp_update(const std::string &in, std::string &out, EVP_CIPHER_CTX *ctx_, int dir_);
-    void evp_setup(int dir, EVP_CIPHER_CTX *ctx_, const EVP_CIPHER *cryptoAlgorithm_, string &key_, string &iv_);
+    void evp_setup(int dir, EVP_CIPHER_CTX *ctx_, const EVP_CIPHER *cryptoAlgorithm_, std::string &key_, std::string &iv_);
     int evp_blocksize(EVP_CIPHER_CTX *ctx_);
-    bool getSha256(const string &str, string &hashedStr);
+    bool getSha256(const std::string &str, std::string &hashedStr);
 
     // Hex SHA-256 of `input`, or a non-hex sentinel string on hash failure.
     // Guaranteed to be a non-empty value that cannot be confused with the
@@ -82,37 +81,37 @@ namespace vst_common
     // are supplied so callers fall back to the legacy empty-hash lookup.
     std::string computePictureConfigHash(const std::string& queryString,
                                          bool includeOverlayAndDebug = true);
-    string toDomainName(const string& url, const string& id);
-    void addSensorToRemoteDevice(shared_ptr<nv_vms::SensorInfo>& sensor, std::shared_ptr<nv_vms::DeviceManager> deviceManager);
-    void removeSensorFromRemoteDevice(const string& sensor_id);
-    void notifySensorStatusEvent(nv_vms::SensorStatusEvent statusEvent, shared_ptr<nv_vms::SensorInfo> sensor,
-                                 string httpFileUrl = EMPTY_STRING, int64_t fileStartTimeMs = 0);
-    void notifyStreamStatusEvent(nv_vms::SensorStatusEvent statusEvent, shared_ptr<nv_vms::StreamInfo> stream);
+    std::string toDomainName(const std::string& url, const std::string& id);
+    void addSensorToRemoteDevice(std::shared_ptr<nv_vms::SensorInfo>& sensor, std::shared_ptr<nv_vms::DeviceManager> deviceManager);
+    void removeSensorFromRemoteDevice(const std::string& sensor_id);
+    void notifySensorStatusEvent(nv_vms::SensorStatusEvent statusEvent, std::shared_ptr<nv_vms::SensorInfo> sensor,
+                                 std::string httpFileUrl = EMPTY_STRING, int64_t fileStartTimeMs = 0);
+    void notifyStreamStatusEvent(nv_vms::SensorStatusEvent statusEvent, std::shared_ptr<nv_vms::StreamInfo> stream);
     // fileStartTimeMs is the first frame's epoch time; 0 omits the field.
-    void notifyEvent(const nv_vms::SensorStatus& status, const string& sensor_url,
+    void notifyEvent(const nv_vms::SensorStatus& status, const std::string& sensor_url,
                      const nv_vms::SensorVideoEncoderSettingsValues* encoder_values = nullptr,
                      int64_t fileStartTimeMs = 0);
     void addStreamMetadata(Json::Value& metadata, const nv_vms::SensorVideoEncoderSettingsValues& encoder_values);
-    int addSensorManually(shared_ptr<nv_vms::SensorInfo>& sensor, string& response, std::shared_ptr<nv_vms::DeviceManager> deviceManager);
-    nv_vms::VmsErrorCode getCameraPicture(shared_ptr<nv_vms::DeviceManager> deviceManager, const string sensor_id, const string& query_string, Json::Value &response, bool isURLRequested = false, const string& configHash = "");
+    int addSensorManually(std::shared_ptr<nv_vms::SensorInfo>& sensor, std::string& response, std::shared_ptr<nv_vms::DeviceManager> deviceManager);
+    nv_vms::VmsErrorCode getCameraPicture(std::shared_ptr<nv_vms::DeviceManager> deviceManager, const std::string sensor_id, const std::string& query_string, Json::Value &response, bool isURLRequested = false, const std::string& configHash = "");
     std::vector <nv_vms::VideoFileInfo> getStreamerFileName(std::string url);
-    void deleteWebrtcSensorDetails(shared_ptr<nv_vms::SensorInfo> sensor);
-    int deleteWebrtcSensor(const string sensor_id, std::shared_ptr<nv_vms::DeviceManager> deviceManager);
+    void deleteWebrtcSensorDetails(std::shared_ptr<nv_vms::SensorInfo> sensor);
+    int deleteWebrtcSensor(const std::string sensor_id, std::shared_ptr<nv_vms::DeviceManager> deviceManager);
     void updateSensorInfoToRemoteVst(nv_vms::SensorInfo& sensorInfo);
-    void updateSensorNetworkInfoToRemoteVst(const nv_vms::SensorNetworkInfo &netInfo, const string& sensor_id);
-    nv_vms::VmsErrorCode getRecordTimelines(const string stream_id, const string start_time, const string end_time, Json::Value &response);
+    void updateSensorNetworkInfoToRemoteVst(const nv_vms::SensorNetworkInfo &netInfo, const std::string& sensor_id);
+    nv_vms::VmsErrorCode getRecordTimelines(const std::string stream_id, const std::string start_time, const std::string end_time, Json::Value &response);
     nv_vms::VmsErrorCode GetAllRecordTimelines(const Json::Value& req_info, Json::Value &out);
-    string parseMetadataObject(map<string, float, std::less<>>& coordinates, string &obj_type,
+    std::string parseMetadataObject(std::map<std::string, float, std::less<>>& coordinates, std::string &obj_type,
                             double &confidence, Json::Value& curr_object, int index = 0);
-    void saveTempFileToDatabase(const string& deviceId, const string& filePath, const string& streamId, size_t fileSize, int64_t expiryTimestamp, int64_t createdTimestamp, int64_t startTimeMs = 0, const string& fileType = "", const string& configHash = "");
-    void generateUrlResponse(Json::Value& response, const string& baseUrl, const string& tempFileName, const string& streamId, bool isReplay, const string& startTime,
-                            int expiryMinutesInt, int64_t expiryTimestamp, const string& expiryISO);
-    string calculateExpiryTime(int expiryMinutesInt, int64_t& expiryTimestamp, int64_t& currentTimestamp);
-    bool ShouldRefreshSensorCache(const string& deviceId, size_t currentSensorCount);
-    bool tryReuseCachedPictureUrl(const string& deviceId, const string& sensorId, const string& startTime,
-                                  const string& expiryMinutesStr, TempFileScheduler& scheduler, Json::Value& response,
-                                  const string& configHash = "");
-    nv_vms::VmsErrorCode handlePictureAction(shared_ptr<nv_vms::DeviceManager> deviceManager, const string& deviceId,
-                                     const string& sensorId, const string& queryString, bool isURLRequested,
+    void saveTempFileToDatabase(const std::string& deviceId, const std::string& filePath, const std::string& streamId, size_t fileSize, int64_t expiryTimestamp, int64_t createdTimestamp, int64_t startTimeMs = 0, const std::string& fileType = "", const std::string& configHash = "");
+    void generateUrlResponse(Json::Value& response, const std::string& baseUrl, const std::string& tempFileName, const std::string& streamId, bool isReplay, const std::string& startTime,
+                            int expiryMinutesInt, int64_t expiryTimestamp, const std::string& expiryISO);
+    std::string calculateExpiryTime(int expiryMinutesInt, int64_t& expiryTimestamp, int64_t& currentTimestamp);
+    bool ShouldRefreshSensorCache(const std::string& deviceId, size_t currentSensorCount);
+    bool tryReuseCachedPictureUrl(const std::string& deviceId, const std::string& sensorId, const std::string& startTime,
+                                  const std::string& expiryMinutesStr, TempFileScheduler& scheduler, Json::Value& response,
+                                  const std::string& configHash = "");
+    nv_vms::VmsErrorCode handlePictureAction(std::shared_ptr<nv_vms::DeviceManager> deviceManager, const std::string& deviceId,
+                                     const std::string& sensorId, const std::string& queryString, bool isURLRequested,
                                      TempFileScheduler& scheduler, Json::Value& response);
 }

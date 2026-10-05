@@ -21,6 +21,7 @@
 #include "rtc_base/time_utils.h"
 #include "api/make_ref_counted.h"
 using namespace std;
+using namespace nv_vms;
 
 void VideoWebRTCSender::unRefDataStructure(encoder_params *params)
 {

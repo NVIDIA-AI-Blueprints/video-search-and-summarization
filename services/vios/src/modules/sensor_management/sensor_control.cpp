@@ -23,6 +23,7 @@
 #include <string>
 
 using namespace nv_vms;
+using namespace std;
 
 SensorControl::SensorControl(DeviceManager* deviceMngr)
                      : m_deviceManager(deviceMngr)

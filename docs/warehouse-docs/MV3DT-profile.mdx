@@ -44,7 +44,7 @@ The **VSS Warehouse MV3DT Blueprint** emphasizes 3D multi-camera detection, trac
 5. **Appearance ReID (`reid-embed` + Milvus)** ([3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt))
 
    - `reid-embed` consumes `mdx-raw`, stores CLIP-ReID (1280-D) features in a Milvus gallery (etcd + MinIO), and answers HTTP queries from the tracker. This helps re-associate people across gaps in camera coverage or when they reappear after an extended period. Re-association is **Person only**.
-   - Warehouse deployments also run a secondary SigLIP 2 encoder (`siglip_v2_vdeployable_v1.1`) and publish `mdx-compressed-embeddings` on the same Kafka or Redis broker. SigLIP runs only on selected high-quality samples of each object, at regular intervals, so each object still gets a strong appearance embedding without putting SigLIP on every DeepStream frame. BEV Fusion still consumes only `mdx-raw`.
+   - Warehouse deployments also run a secondary SigLIP 2 encoder (`siglip_v2_vdeployable_v2.0`) and publish `mdx-compressed-embeddings` on the same Kafka or Redis broker. SigLIP runs only on selected high-quality samples of each object, at regular intervals, so each object still gets a strong appearance embedding without putting SigLIP on every DeepStream frame. BEV Fusion still consumes only `mdx-raw`.
    - Gallery backends are ephemeral. CLIP-ReID and SigLIP 2 weights persist under `$VSS_DATA_DIR/models/reid` (Compose) or the RT-CV models PVC (Helm). Perception waits on `GET /health/ready` after the init container and Milvus are up. The health-check start grace period is 300s; first-boot engine build can take longer.
 
 6. **BEV Fusion** ([3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt))
@@ -915,6 +915,8 @@ vi <PATH_TO_VST_CONFIG_DIR>/vst_config.json
 #### Approach 2: Automatic Config Management using VSS Configurator
 
 The VSS Configurator provides a **declarative approach** to automatically update all required configuration files based on your hardware profile and deployment mode. This is the recommended approach for production deployments and simplifies the configuration management process.
+
+For how the configurator updates configurations in this blueprint, see [VSS Configurator for the Warehouse Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/vss-configurator). The guide describes configuration inputs, affected files, stream ceilings, and hardware-specific overrides.
 
 To enable the VSS Configurator, in VSS Configurator's environment variables you **must** set:
 

@@ -23,6 +23,8 @@
 #include "utils.h"
 #include "../../overlays/overlay_internal.h"
 
+using namespace std;
+
 // Implementation of PipelineConfiguration
 PipelineConfiguration::PipelineConfiguration()
     : m_uri("")

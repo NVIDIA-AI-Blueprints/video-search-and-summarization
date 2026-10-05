@@ -45,7 +45,7 @@ private:
     int addNewSensor(SensorInfo& sensor);
     void onvifSensorMonitorTask();
     void onvifListnerTask();
-    void synchronizeDateAndTime(std::vector<shared_ptr<SensorInfo>>& sensor_list);
+    void synchronizeDateAndTime(std::vector<std::shared_ptr<SensorInfo>>& sensor_list);
 private:
     std::thread m_monitorThread;
     std::thread m_onvifListnerThread;
@@ -55,7 +55,7 @@ private:
     std::mutex   m_monitorMutex;
     std::mutex   m_sleeperLock;
     std::condition_variable m_sleeperWait;
-    map<string, SensorInfo> m_freshList;
+    std::map<std::string, SensorInfo> m_freshList;
     CURLM* m_sensorSyncMultiHandle = nullptr;
     std::chrono::steady_clock::time_point m_timePrev = std::chrono::steady_clock::time_point::min();
 };

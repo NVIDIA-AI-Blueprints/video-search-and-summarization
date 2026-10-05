@@ -68,7 +68,7 @@ private:
 
     static void dumpstack(unsigned int max_frames = 63)
     {
-        LOG(error) << "stack trace:" << endl;
+        LOG(error) << "stack trace:" << std::endl;
         // storage array for stack trace address data
         void* addrlist[max_frames+1];
 
@@ -76,7 +76,7 @@ private:
         int addrlen = backtrace(addrlist, static_cast<int>(max_frames + 1));
         if (addrlen == 0)
         {
-            LOG(error) << " <empty, possibly corrupt>" << endl;
+            LOG(error) << " <empty, possibly corrupt>" << std::endl;
             return;
         }
 
@@ -121,18 +121,18 @@ private:
                     abi::__cxa_demangle(begin_name, nullptr, nullptr, &status), &std::free);
                 if (status == 0)
                 {
-                    LOG(error) << symbollist.get()[i] << " : " << funcname.get() << "+" << begin_offset << endl;
+                    LOG(error) << symbollist.get()[i] << " : " << funcname.get() << "+" << begin_offset << std::endl;
                 }
                 else
                 {
                     // demangling failed. Output function name as a C function with no arguments.
-                    LOG(error) << symbollist.get()[i] << " : " << begin_name << "+" << begin_offset << endl;
+                    LOG(error) << symbollist.get()[i] << " : " << begin_name << "+" << begin_offset << std::endl;
                 }
             }
             else
             {
                 // couldn't parse the line? print the whole line.
-                LOG(error) << " " << symbollist.get()[i] << endl;
+                LOG(error) << " " << symbollist.get()[i] << std::endl;
             }
         }
         return;

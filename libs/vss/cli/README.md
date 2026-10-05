@@ -57,7 +57,7 @@ does not expose is *absent* from the file rather than present-but-broken.
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--base-url` | required | Deployment origin, e.g. `http://10.0.0.1:7777`. A missing scheme is assumed `http://` with a note on stderr |
+| `--base-url` | required | Deployment origin, e.g. `http://10.0.0.1:7777`, or a bare VLM endpoint (see [A VLM endpoint without VSS](#a-vlm-endpoint-without-vss)). A missing scheme is assumed `http://` with a note on stderr |
 | `--timeout` | 5.0 | Per-route probe timeout in seconds (0.1–120) |
 
 | Subcommand | What it does |
@@ -87,29 +87,10 @@ rather than a typed-in value.
 | `rt_vlm` | `/rtvi-vlm` | URL + model ids — the default model for `vss vlm` and introspection follow-ups |
 | `lvs` | `/lvs` | URL + model ids (long-video summarization) |
 
-If `/rtvi-vlm` is absent, `configure` also checks `/v1/models` for a standalone
-OpenAI-compatible VLM. A successful JSON response with a nonempty list of model
-IDs records the origin itself as `services.rt_vlm.url`, with the discovered
-models. Standard `/rtvi-vlm` routing takes precedence when both exist.
-`configure check` rechecks that recorded service at `/v1/models`, not at the
-absent `/rtvi-vlm/v1/models` mount. No VIOS or Elasticsearch is required for
-direct video-URL inference:
-
-```bash
-export VSS_VLM_BACKEND=vllm
-export VSS_VLM_TIMEOUT=600
-vss configure --base-url https://my-vllm.example.com
-vss configure check
-vss vlm run --media-url https://media.example.com/video.mp4 --prompt "What happens?" --no-persist
-```
-
-Discovery records endpoints and models; `VSS_VLM_BACKEND=vllm` selects the vLLM
-request schema separately. Existing persisted VLM policy still takes precedence
-over environment defaults. An auth challenge, non-JSON page, or empty/malformed
-root model list is not accepted as standalone discovery.
-
-If neither a standard route nor a standalone VLM is found, `configure` fails
-rather than writing an empty config. Elasticsearch indices are created by ingestion, not deployment,
+When no `/rtvi-vlm` route answers, `configure` also tries the origin as an
+OpenAI-compatible VLM (below): a bare model server, or a partial stack with
+VIOS and Elasticsearch behind the ingress and vLLM at its root. If the origin
+exposes nothing at all, `configure` fails rather than writing an empty config. Elasticsearch indices are created by ingestion, not deployment,
 so configuring a fresh stack records zero `mdx-*` indices and says so — re-run
 `configure` after ingesting video and before searching.
 
@@ -123,12 +104,48 @@ refused rather than half-read, with a message telling you to re-run `configure`.
 
 Re-running `vss configure --base-url …` refreshes routes and **preserves valid
 static memory and VLM policy**, so re-probing after a deployment change does
-not reset request, judge, embedding, or persistence settings.
+not reset request, judge, embedding, or persistence settings. An existing file
+it cannot read (corrupt, or carrying settings this version no longer has)
+stops `configure` with the reason and writes nothing, rather than being
+replaced by one without those policies.
 
 `vss configure check` prints per-service reachability and a `commands:` table
 marking each group available or unavailable (a group is available only when
 *every* service it needs is routed). It exits 3 if any recorded route no longer
 answers.
+
+### A VLM endpoint without VSS
+
+`--base-url` also accepts a bare OpenAI-compatible VLM server: a standalone
+vLLM, a Cosmos Reason NIM, RT-VLM's own port, or Inference Hub. When no
+`/rtvi-vlm` route answers, `configure` requests `<origin>/v1/models` and, if it
+answers, records the origin as the `rt_vlm` service: the only service for a
+bare endpoint, or next to the VSS routes it found for a partial stack. A bare host, an OpenAI `base_url` ending in `/v1`
+and a full `/v1/chat/completions` URL all record the same origin.
+
+```bash
+export VSS_VLM_API_KEY=sk-...          # Inference Hub; never written to the config
+vss configure --base-url https://inference-api.nvidia.com/v1
+vss configure vlm --model <model-id>   # needed when the endpoint lists several
+vss vlm run --media-url https://host/clip.mp4 --prompt "What happens?"
+```
+
+- **Credential.** `VSS_VLM_API_KEY`, when set, is sent as `Authorization: Bearer`
+  on the probe and on every `vss vlm run`. A 401 or 403 from `/v1/models` stops
+  `configure` with a request to export it.
+- **Backend.** Inference Hub identifies itself (LiteLLM `x-litellm-*` headers),
+  and `configure` records the `openai` backend unless `VSS_VLM_BACKEND` or a
+  saved non-default backend says otherwise. A model list reporting vLLM is only
+  a hint, because RT-VLM can answer the same way and rejects vLLM's request
+  shape: `configure` prints it, and `vss configure vlm --backend vllm` applies it.
+- **Model.** `--model`, else `VSS_VLM_MODEL` or `vss configure vlm --model`, else
+  the endpoint's only listed model. With several listed and none chosen,
+  `vss vlm run` stops and lists them.
+- **Media.** There is no VIOS, so `--sensor` fails; use `--media-url` with a URL
+  the endpoint can fetch, or a local file with `--use-base64`. Results persist
+  only if memory is configured separately.
+
+`vss configure check` re-probes `/v1/models` for such a config.
 
 That same file is where memory policy lives. `vss configure` records service
 URLs (including RT-VLM). `vss configure memory` records how the CLI uses
@@ -149,8 +166,8 @@ vss configure vlm \
   --disable-reasoning \
   --chunk-duration 0 \
   --fps 4 \
-  --shortest-edge 262144 \
-  --longest-edge 16777216 \
+  --max-frames 256 \
+  --total-pixels 16777216 \
   --lock
 ```
 
@@ -158,7 +175,8 @@ Each field also has an independent runtime environment override:
 
 | Field | Environment variable |
 |-------|----------------------|
-| `backend` | `VSS_VLM_BACKEND` (`rt_vlm`, `vllm`, or alpha `cosmos_reason_nim`) |
+| `backend` | `VSS_VLM_BACKEND` (`rt_vlm`, `vllm`, alpha `cosmos_reason_nim`, or `openai` for a plain chat completion) |
+| `model` | `VSS_VLM_MODEL` |
 | `timeout` | `VSS_VLM_TIMEOUT` |
 | `temperature` | `VSS_VLM_TEMPERATURE` |
 | `max_tokens` | `VSS_VLM_MAX_TOKENS` |
@@ -166,15 +184,71 @@ Each field also has an independent runtime environment override:
 | `enable_reasoning` | `VSS_VLM_ENABLE_REASONING` (`true` or `false`) |
 | `chunk_duration` | `VSS_VLM_CHUNK_DURATION` |
 | `fps` | `VSS_VLM_FPS` |
-| `shortest_edge` | `VSS_VLM_SHORTEST_EDGE` |
-| `longest_edge` | `VSS_VLM_LONGEST_EDGE` |
-| `locked` | `VSS_VLM_LOCKED` (`true` or `false`) |
+| `max_frames` | `VSS_VLM_MAX_FRAMES` |
+| `total_pixels` | `VSS_VLM_TOTAL_PIXELS` |
+| `locked` | `VSS_VLM_LOCKED` (`true` or `false`; see below) |
 
 Environment variables provide per-field defaults. Values persisted by
 `vss configure vlm` override those defaults. Explicit `vss vlm run` arguments
 override the resulting policy when it is unlocked; conflicting arguments are
 rejected when it is locked. If neither source defines a field, its built-in
-request default applies. Empty or malformed environment variables are errors.
+request default applies. An empty variable counts as unset, so an image that
+declares one empty keeps the default; a malformed one is an error, and so is a
+non-empty `VSS_VLM_*` name the CLI does not support (a typo, or a removed
+setting such as `VSS_VLM_LOCKED`), which would otherwise do nothing.
+A policy is locked by `vss configure vlm --lock` or by `VSS_VLM_LOCKED=true`.
+The variable is for images that must fix their settings: under it the values
+the environment sets win over saved ones, the policy is locked whatever the
+config file says, and `vss configure vlm` refuses changes. `VSS_VLM_LOCKED=false`
+(the default the hermes and openclaw images declare) adds no lock and does not
+unlock a policy saved with `--lock`.
+
+### Frame sampling
+
+Three fields control what the model sees. They follow VLMEvalKit's video
+dataset configs, and the CLI sends them to the backend rather than resolving
+them itself:
+
+| Field | Meaning | Sent as |
+|-------|---------|---------|
+| `fps` | Frames sampled per second | `media_io_kwargs.video.fps` |
+| `max_frames` | Upper bound on frames; combines with `fps` | `media_io_kwargs.video.num_frames` (vLLM also gets `max_frames`, which its `qwen3_vl` loader reads) |
+| `total_pixels` | Pixel budget for the whole clip | `mm_processor_kwargs.size.longest_edge`, with `shortest_edge` set to the Qwen3-VL floor of 131072 or `total_pixels` if smaller |
+
+There is no separate per-frame pixel field, because `mm_processor_kwargs.max_pixels`
+is not one. Where it is read at all -- RT-VLM's patched vLLM `qwen3_vl.py`,
+transformers' Qwen2-VL processors -- it is an alias that overwrites
+`size.longest_edge`, the field `total_pixels` sets; stock vLLM and the
+Qwen3-VL video processor do not accept it. So `total_pixels` is the one pixel
+control: a whole-clip budget on Qwen3-VL, where it sets per-frame resolution
+together with `max_frames`, and a per-frame limit on Qwen2/2.5-VL.
+
+`total_pixels` assumes a Qwen3-VL-family processor (Qwen3-VL, Cosmos-Reason2),
+where the budget covers every frame: 16,777,216 is roughly 8,192 vision tokens
+(each token is a 32x32 tile across two merged frames). Qwen2/2.5-VL processors
+read the same field as a per-frame limit. A server may also ignore per-request
+processor kwargs: vLLM 0.28 serving Qwen3.8-27B did, so there the pixel budget
+has to be set server-side.
+
+A field left unset is not sent, and the VLM server's own sampling applies. On
+RT-VLM that is the deployment's `VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK`,
+which some profiles set to one frame per chunk. `vss configure` prints the
+effective values and their source (environment variable or config file) and
+names any that are unset.
+
+The `openai` backend sends none of these fields, nor `enable_reasoning`: it is a
+plain chat completion, so the endpoint's own sampling applies and `configure`
+says so.
+
+RT-VLM and the Cosmos NIM accept `fps` or `num_frames`, not both (HTTP 400).
+With both set, the CLI sends them `fps` alone, logs a warning, and their
+deployment-wide frame cap applies; `max_frames` applies there only when `fps`
+is unset, or when `--max-frames` is given on the command line and `fps` only
+came from the environment or saved policy: an explicit frame count replaces an
+inherited rate there (a fixed-count benchmark gets its count), unless the policy
+is locked. vLLM receives both. With `fps` alone, vLLM also gets
+`num_frames: -1`: its `VideoMediaIO` otherwise hands the loader `num_frames=32`
+(vLLM 0.28), which would stop the default loader at 32 frames whatever the rate.
 
 ## The surface
 
@@ -348,10 +422,9 @@ vss vlm run --sensor warehouse --prompt "What happened?" --start-time T --end-ti
 | `--sensor` / `--media-url` / `--file` | one required | Exactly one media source |
 | `--start-time` / `--end-time` | clip bounds | ISO-8601 UTC; with `--sensor` only |
 | `--prompt` | required | Question sent to the VLM |
-| `--model` | deployment `rt_vlm` model | Override the recorded model name |
+| `--model` | configured model, else the endpoint's only one | Override the model name |
 | `--timeout` | 30s (`vlm run`); 180s (introspection follow-ups) | HTTP / workflow budget |
-| `--num-frames` | 8 when neither sampling flag is set | Fixed frame count across the clip |
-| `--fps` | unset | Frames per second; mutually exclusive with `--num-frames`. Direct `vlm run` sends the requested rate to the backend without converting it to a 60-frame sample. For standalone vLLM, its loader receives `fps` with `num_frames=-1`, then Qwen consumes the selected frames without sampling again. Backend/deployment limits still apply. |
+| `--fps` / `--max-frames` / `--total-pixels` | policy, else server sampling | Frame sampling; see [Frame sampling](#frame-sampling) |
 | `--max-tokens` / `--temperature` | unset | Optional generation knobs |
 | `--intent` | `qa` (`vlm run`); `introspection` (follow-ups) | Stored on the memory record |
 | `--no-persist` | off | Skip writing this VLM job |

@@ -1,0 +1,85 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Validated benchmark profile for Qwen/Qwen3.8-27B.
+nameOverride: qwen-vllm
+
+vllm:
+  model: Qwen/Qwen3.8-27B
+  port: 8022
+  dtype: bfloat16
+  gpuMemoryUtilization: 0.75
+  maxModelLen: 262144
+  maxNumSeqs: 4
+  enableChunkedPrefill: true
+  skipMmProfiling: true
+  mmProcessorCacheGiB: 16
+  seed: 1
+  mmProcessorKwargs:
+    size:
+      shortest_edge: 4096
+      longest_edge: 469762048
+  mediaIoKwargs:
+    video:
+      video_backend: qwen3_vl
+      backend: torchcodec
+      seek_mode: exact
+      num_frames: -1
+      fps: 2
+      max_frames: 8192
+  overrideGenerationConfig:
+    temperature: 1
+    top_p: 0.95
+    top_k: 20
+    presence_penalty: 0
+    repetition_penalty: 1
+    max_new_tokens: 16384
+  defaultChatTemplateKwargs:
+    enable_thinking: true
+    preserve_thinking: true
+
+requestPolicy:
+  enabled: true
+  # Long video requests may be larger than ordinary text prompts, but remain bounded.
+  maxBodyBytes: 67108864
+  payload:
+    temperature: 1
+    top_p: 0.95
+    top_k: 20
+    presence_penalty: 0
+    repetition_penalty: 1
+    max_tokens: 16384
+    seed: 1
+    chat_template_kwargs:
+      enable_thinking: true
+      preserve_thinking: true
+    mm_processor_kwargs:
+      size:
+        shortest_edge: 4096
+        longest_edge: 469762048
+
+service:
+  port: 8022
+
+ingress:
+  hosts:
+    - host: qwen-vllm.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+persistence:
+  size: 200Gi
+
+shm:
+  sizeLimit: 32Gi
+
+resources:
+  requests:
+    cpu: "16"
+    memory: 256Gi
+    nvidia.com/gpu: 1
+  limits:
+    cpu: "16"
+    memory: 256Gi
+    nvidia.com/gpu: 1

@@ -32,7 +32,6 @@
 #include "nvsoap.h"
 #include "logger.h"
 
-using namespace std;
 
 namespace nv_vms
 {
@@ -49,31 +48,31 @@ public:
     OnvifClient& operator=(OnvifClient&&) = delete;
 
     int connect();
-    int getSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sensors);
-    int getSensorStreamInfo(shared_ptr<SensorInfo>& sensor);
-    int synchronizeSensorTime(shared_ptr<SensorInfo>& sensor);
-    bool isServerOnline(const string & url);
-    int setPTZ(shared_ptr<SensorInfo>& sensor, PTZAction, string x, string y);
-    map<PTZAction, ptzRange> getPTZ(shared_ptr<SensorInfo>& sensor) override;
-    bool validateCredentials(shared_ptr<SensorInfo>& sensor, const string username, const string password);
-    int getNetworkInfo(shared_ptr<SensorInfo>& sensor, SensorNetworkInfo& networkInfo);
-    int setNetworkInfo(shared_ptr<SensorInfo>& sensor, const SensorNetworkInfo& networkInfo, bool& rebootNeeded);
-    int getSensorImageSettings(shared_ptr<SensorInfo>& sensor, const string& stream_id, SensorSettings& settings);
-    int setSensorImageSettings(shared_ptr<SensorInfo>& sensor, const SensorImageSettingsValues& settings);
-    int getSensorEncodeSettings(shared_ptr<SensorInfo>& sensor, const string& stream_id, SensorSettings& settings);
-    int setSensorEncodeSettings(shared_ptr<SensorInfo>& sensor, const SensorVideoEncoderSettingsValues& settings);
-    int rebootSensor(shared_ptr<SensorInfo>& sensor);
-    int getStreamSettings(shared_ptr<SensorInfo>& sensor, const string& stream_id);
+    int getSensorStreamInfo(std::vector<std::shared_ptr<SensorInfo>>& sensors);
+    int getSensorStreamInfo(std::shared_ptr<SensorInfo>& sensor);
+    int synchronizeSensorTime(std::shared_ptr<SensorInfo>& sensor);
+    bool isServerOnline(const std::string & url);
+    int setPTZ(std::shared_ptr<SensorInfo>& sensor, PTZAction, std::string x, std::string y);
+    std::map<PTZAction, ptzRange> getPTZ(std::shared_ptr<SensorInfo>& sensor) override;
+    bool validateCredentials(std::shared_ptr<SensorInfo>& sensor, const std::string username, const std::string password);
+    int getNetworkInfo(std::shared_ptr<SensorInfo>& sensor, SensorNetworkInfo& networkInfo);
+    int setNetworkInfo(std::shared_ptr<SensorInfo>& sensor, const SensorNetworkInfo& networkInfo, bool& rebootNeeded);
+    int getSensorImageSettings(std::shared_ptr<SensorInfo>& sensor, const std::string& stream_id, SensorSettings& settings);
+    int setSensorImageSettings(std::shared_ptr<SensorInfo>& sensor, const SensorImageSettingsValues& settings);
+    int getSensorEncodeSettings(std::shared_ptr<SensorInfo>& sensor, const std::string& stream_id, SensorSettings& settings);
+    int setSensorEncodeSettings(std::shared_ptr<SensorInfo>& sensor, const SensorVideoEncoderSettingsValues& settings);
+    int rebootSensor(std::shared_ptr<SensorInfo>& sensor);
+    int getStreamSettings(std::shared_ptr<SensorInfo>& sensor, const std::string& stream_id);
     
     // Profile G - Recording Timeline APIs
-    int getRecordingTimelines(shared_ptr<SensorInfo>& sensor, Json::Value& timelinesJson);
+    int getRecordingTimelines(std::shared_ptr<SensorInfo>& sensor, Json::Value& timelinesJson);
 private:
-    int fetchSensorStreamInfo(shared_ptr<SensorInfo> sensor);
-    int fetchSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sensors);
+    int fetchSensorStreamInfo(std::shared_ptr<SensorInfo> sensor);
+    int fetchSensorStreamInfo(std::vector<std::shared_ptr<SensorInfo>>& sensors);
     int getSensorStreamInfo(SensorInfo& sensor);
-    bool isSensorExists(const string& id);
-    std::shared_ptr<SensorInfo> getSensor(const string& id);
-    int restoreSensorCapabilitiesFromCache(shared_ptr<SensorInfo>& sensor);
+    bool isSensorExists(const std::string& id);
+    std::shared_ptr<SensorInfo> getSensor(const std::string& id);
+    int restoreSensorCapabilitiesFromCache(std::shared_ptr<SensorInfo>& sensor);
 };
 
 } //nv_vms

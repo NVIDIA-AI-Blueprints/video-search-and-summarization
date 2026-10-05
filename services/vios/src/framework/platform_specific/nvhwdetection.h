@@ -37,7 +37,7 @@ public:
 private:
     NvHwDetection()
     {
-        LOG(info) << __func__ << endl;
+        LOG(info) << __func__ << std::endl;
         if (GET_CONFIG().use_software_path)
         {
             m_useNvV4l2Enc = false;
@@ -52,7 +52,7 @@ private:
 
     ~NvHwDetection()
     {
-        LOG(info) << __func__ << endl;
+        LOG(info) << __func__ << std::endl;
     }
 };
 

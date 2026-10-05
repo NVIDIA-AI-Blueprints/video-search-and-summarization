@@ -19,7 +19,7 @@
 
 #include "media_consumer.h"
 
-typedef std::map<string, std::shared_ptr<IMediaDataConsumer>> mediaConsumerMap;
+typedef std::map<std::string, std::shared_ptr<IMediaDataConsumer>> mediaConsumerMap;
 namespace nv_vms
 {
     struct UdpStream
@@ -30,30 +30,23 @@ namespace nv_vms
                      , m_audioFreq(8000)
                      , m_videoCodec("h264")
         {}
-        UdpStream (const UdpStream& obj)
-        {
-            this->m_audioPort = obj.m_audioPort;
-            this->m_videoPort = obj.m_videoPort;
-            this->m_type = obj.m_type;
-            this->m_audioFreq = obj.m_audioFreq;
-            this->m_videoCodec = obj.m_videoCodec;
-        }
+        UdpStream (const UdpStream& obj) = default;
         unsigned int m_videoPort;
         unsigned int m_audioPort;
-        string m_type;
+        std::string m_type;
         int m_audioFreq;
-        string m_videoCodec;
+        std::string m_videoCodec;
     };
     class UdpClient
     {
         public:
-            static const string UDP_VIDEO_TYPE;
-            static const string UDP_AUDIO_TYPE;
-            static const string UDP_VIDEO_AUDIO_TYPE;
-            static const string UDP_UNKNOWN_TYPE;
+            static const std::string UDP_VIDEO_TYPE;
+            static const std::string UDP_AUDIO_TYPE;
+            static const std::string UDP_VIDEO_AUDIO_TYPE;
+            static const std::string UDP_UNKNOWN_TYPE;
             UdpClient() : m_id("")
             {}
-            UdpClient(const string& id, UdpStream& stream) : m_id(id)
+            UdpClient(const std::string& id, UdpStream& stream) : m_id(id)
                                                            , m_udpStream(stream)
             {}
             virtual ~UdpClient() = default;
@@ -64,12 +57,12 @@ namespace nv_vms
             virtual void destroy (bool expect_result) = 0;
             virtual void start () = 0;
             virtual void pause () = 0;
-            void setConsumer(std::shared_ptr<IMediaDataConsumer> consumer, const string& media_type)
+            void setConsumer(std::shared_ptr<IMediaDataConsumer> consumer, const std::string& media_type)
             {
                 m_consumerMap[media_type] = consumer;
             }
 
-            std::shared_ptr<IMediaDataConsumer> getConsumer(const string& media_type)
+            std::shared_ptr<IMediaDataConsumer> getConsumer(const std::string& media_type)
             {
                 mediaConsumerMap::iterator it = m_consumerMap.find(media_type);
                 if(it != m_consumerMap.end())
@@ -80,14 +73,14 @@ namespace nv_vms
             }
 
             virtual EventLoop *getEventLoop() { return nullptr; }
-            string getId() { return m_id; }
-            string getType() { return m_udpStream.m_type; }
+            std::string getId() { return m_id; }
+            std::string getType() { return m_udpStream.m_type; }
             unsigned int getVideoPort() { return m_udpStream.m_videoPort; }
             unsigned int getAudioPort() { return m_udpStream.m_audioPort; }
             int getAudioFreq() { return m_udpStream.m_audioFreq; }
-            string getVideoCodec() { return m_udpStream.m_videoCodec; }
+            std::string getVideoCodec() { return m_udpStream.m_videoCodec; }
         private:
-            string m_id;
+            std::string m_id;
             UdpStream m_udpStream;
             mediaConsumerMap m_consumerMap;
     };

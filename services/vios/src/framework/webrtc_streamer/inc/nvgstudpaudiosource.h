@@ -36,26 +36,26 @@ class AudioDataConsumer : public IMediaDataConsumer
         , m_channel (1)
         , m_bitsPerSample(16)
         { 
-            LOG(info) << "AudioDataConsumer" << endl;
+            LOG(info) << "AudioDataConsumer" << std::endl;
             m_audioBuffer.clear();
         }
         void setSinks (webrtc::AudioTrackSinkInterface *sink)
         {
             std::lock_guard<std::mutex> lock(m_audioSinkLock);
             m_sinks.push_back(sink);
-            LOG(info) << "Audio Broadcasters size = " << m_sinks.size() << endl;
+            LOG(info) << "Audio Broadcasters size = " << m_sinks.size() << std::endl;
         }
         void removeSinks (webrtc::AudioTrackSinkInterface *sink)
         {
             std::lock_guard<std::mutex> lock(m_audioSinkLock);
             m_sinks.remove(sink);
-            LOG(info) << "Audio Broadcasters size = " << m_sinks.size() << endl;
+            LOG(info) << "Audio Broadcasters size = " << m_sinks.size() << std::endl;
         }
         size_t getSinksSize ()
         {
             std::lock_guard<std::mutex> lock(m_audioSinkLock);
             size_t sinks_size = m_sinks.size();
-            LOG(info) << "Audio Broadcasters size = " << sinks_size << endl;
+            LOG(info) << "Audio Broadcasters size = " << sinks_size << std::endl;
             return sinks_size;
         }
         void setAudioInfo (int freq, int bitsPerSample)
@@ -95,7 +95,7 @@ class AudioDataConsumer : public IMediaDataConsumer
         }
     private:
         std::list<webrtc::AudioTrackSinkInterface *>   m_sinks;
-        vector<uint16_t>                               m_audioBuffer;
+        std::vector<uint16_t>                               m_audioBuffer;
         std::mutex                                     m_audioSinkLock;
         int                                            m_freq;
         int                                            m_channel;
@@ -112,13 +112,13 @@ public:
 
     virtual void AddSink(webrtc::AudioTrackSinkInterface *sink) override
     {
-        LOG(info) << "NvGstUDPAudioSource::AddSink " << endl;
+        LOG(info) << "NvGstUDPAudioSource::AddSink " << std::endl;
         m_audioDataConsumer->setSinks (sink);
     }
 
     virtual void RemoveSink(webrtc::AudioTrackSinkInterface *sink) override
     {
-        LOG(info) << "NvGstUDPAudioSource::RemoveSink " << endl;
+        LOG(info) << "NvGstUDPAudioSource::RemoveSink " << std::endl;
         m_audioDataConsumer->removeSinks(sink);
     }
 
@@ -151,12 +151,12 @@ public:
             m_bitsPerSample = stringToInt(bits_per_sample_string, 0);
         }
 
-        LOG(info) << "NvGstUDPAudioSource peerid: "<< m_peerid << " streamid: "<< m_streamid << " media: " << m_mediaType << endl;
+        LOG(info) << "NvGstUDPAudioSource peerid: "<< m_peerid << " streamid: "<< m_streamid << " media: " << m_mediaType << std::endl;
         if (UdpClientPool::getInstance()->isClientExist(m_streamid, m_mediaType) == false)
         {
             // Create new udp client & decoder pipeline.
             setupClient(opts);
-            LOG(info) << "Created udpClient:" << m_udpAudioClient << ", Consumer:" << m_audioDataConsumer.get() << endl;
+            LOG(info) << "Created udpClient:" << m_udpAudioClient << ", Consumer:" << m_audioDataConsumer.get() << std::endl;
         }
         else
         {
@@ -164,24 +164,24 @@ public:
             m_udpAudioClient = UdpClientPool::getInstance()->getClient(m_streamid, m_mediaType);
             if (m_udpAudioClient)
             {
-                LOG(info) << "Creating audio pipeline " << endl;
+                LOG(info) << "Creating audio pipeline " << std::endl;
                 m_udpAudioClient->create_audio();
-                m_audioDataConsumer = std::static_pointer_cast<AudioDataConsumer>(m_udpAudioClient->getConsumer(UdpClient::UDP_AUDIO_TYPE));
+                m_audioDataConsumer = std::static_pointer_cast<AudioDataConsumer>(m_udpAudioClient->getConsumer(nv_vms::UdpClient::UDP_AUDIO_TYPE));
                 if (!m_audioDataConsumer)
                 {
                     m_audioDataConsumer.reset(new AudioDataConsumer());
                     m_audioDataConsumer->setAudioInfo (m_freq, m_bitsPerSample);
-                    m_udpAudioClient->setConsumer(m_audioDataConsumer, UdpClient::UDP_AUDIO_TYPE);
+                    m_udpAudioClient->setConsumer(m_audioDataConsumer, nv_vms::UdpClient::UDP_AUDIO_TYPE);
                 }
                 else
                 {
-                    LOG(warning) << "Audio Consumer already exists" << endl;
+                    LOG(warning) << "Audio Consumer already exists" << std::endl;
                 }
-                LOG(info) << "Reusing udpClient:" << m_udpAudioClient << ", Consumer:" << m_audioDataConsumer.get() << endl;
+                LOG(info) << "Reusing udpClient:" << m_udpAudioClient << ", Consumer:" << m_audioDataConsumer.get() << std::endl;
             }
             else
             {
-                LOG(error) << "UdpAudioClient not found for media:" << m_mediaType << endl;
+                LOG(error) << "UdpAudioClient not found for media:" << m_mediaType << std::endl;
             }
         }
     }
@@ -189,43 +189,43 @@ public:
     virtual ~NvGstUDPAudioSource()
     {
         try {
-            LOG(info) << __METHOD_NAME__ << endl;
+            LOG(info) << __METHOD_NAME__ << std::endl;
             if (m_audioDataConsumer)
             {
                 size_t size = m_audioDataConsumer->getSinksSize();
-                LOG(warning) << __METHOD_NAME__ << " sink size = " << size << endl;
+                LOG(warning) << __METHOD_NAME__ << " sink size = " << size << std::endl;
             }
             else
             {
-                LOG(warning) << __METHOD_NAME__ << " m_audioDataConsumer is null, skipping sink size check" << endl;
+                LOG(warning) << __METHOD_NAME__ << " m_audioDataConsumer is null, skipping sink size check" << std::endl;
             }
         } catch (const std::exception& e) {
-            try { LOG(error) << "Exception in ~NvGstUDPAudioSource: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
+            try { LOG(error) << "Exception in ~NvGstUDPAudioSource: " << e.what() << std::endl; } catch (...) { (void)std::current_exception(); }
         } catch (...) {
-            try { LOG(error) << "Unknown exception in ~NvGstUDPAudioSource" << endl; } catch (...) { (void)std::current_exception(); }
+            try { LOG(error) << "Unknown exception in ~NvGstUDPAudioSource" << std::endl; } catch (...) { (void)std::current_exception(); }
         }
     }
 
     void setupClient (const std::map<std::string, std::string, std::less<>> &opts)
     {
-        UdpStream stream;
+        nv_vms::UdpStream stream;
         if ( opts.find("audio_port") != opts.end() )
         {
             stream.m_audioPort = stringToInt(opts.at("audio_port"));
-            stream.m_type = UdpClient::UDP_AUDIO_TYPE;
+            stream.m_type = nv_vms::UdpClient::UDP_AUDIO_TYPE;
         }
   
         m_udpAudioClient = UdpClientPool::getInstance()->addClient(m_streamid, stream);
         if (m_udpAudioClient)
         {
             m_udpAudioClient->create_audio();
-            m_udpAudioClient->setConsumer(m_audioDataConsumer, UdpClient::UDP_AUDIO_TYPE);
+            m_udpAudioClient->setConsumer(m_audioDataConsumer, nv_vms::UdpClient::UDP_AUDIO_TYPE);
             m_udpAudioClient->start();
         }
     }
 private:
-    shared_ptr<UdpClient>                          m_udpAudioClient;
-    shared_ptr<AudioDataConsumer>                  m_audioDataConsumer;
+    std::shared_ptr<nv_vms::UdpClient>                          m_udpAudioClient;
+    std::shared_ptr<AudioDataConsumer>                  m_audioDataConsumer;
     std::string                                    m_uri;
     int                                            m_freq;
     int                                            m_bitsPerSample;

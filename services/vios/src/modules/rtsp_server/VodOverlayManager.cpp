@@ -23,6 +23,8 @@
 #include "logger.h"
 #include "mm_utils.h"
 
+using namespace nv_vms;
+
 VodOverlayManager::VodOverlayManager(NvMediaSource* mediaSource)
     : m_mediaSource(mediaSource)
 {

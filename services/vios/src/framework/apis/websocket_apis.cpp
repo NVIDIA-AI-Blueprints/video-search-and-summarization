@@ -26,6 +26,7 @@
 #include "network_utils.h"
 
 using namespace std;
+using namespace nv_vms;
 
 // Plugin server API paths
 constexpr const char* TOKKIO_PLUGIN_SERVER_USE_RAG_API_PATH = "/rag/use_rag";

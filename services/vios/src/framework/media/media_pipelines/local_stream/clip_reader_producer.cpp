@@ -39,6 +39,8 @@
 #include <cstdlib>
 #endif
 
+using namespace std;
+
 /* Macro defined in splitmuxsrc plugin */
 #define FIXED_TS_OFFSET (1000*GST_SECOND)
 //#define GIOSRC_FRAME_DEBUG

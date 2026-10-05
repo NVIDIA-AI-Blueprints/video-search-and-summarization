@@ -38,6 +38,19 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 
 ## Instructions
 
+Select the report mode by request intent before any probes. Modes B/C report
+over stored incident/SOP records and bypass this video-source check, even when
+their sensor is a camera. For Mode A, before timeline resolution or inference
+(including the workspace's short-report route), reject any stream (RTSP/RTSPS
+URL or registered camera), including recorded time windows, with:
+**Live-stream summarization / report generation isn't supported.** Then stop;
+do not ingest, extract clips, or invoke inference. Reject an explicitly identified
+stream/camera even if its URL is absent. For a registered sensor name/id only,
+check its current type with `vss vios list --sensor <name>`; never reuse an earlier
+file classification. Reject a `stream`; if the type is unclear or the lookup
+fails, report that limitation and stop. Local/uploaded files, direct recorded-video
+URLs, and Mode A2 local/base64 inputs are not sensor handles; use their file workflow.
+
 0. **Set `SKILL_DIR`** to the "Base directory for this skill" path announced when this skill loads. All skill-relative reads (e.g. the default VLM prompt) resolve under `$SKILL_DIR` — never via cwd-relative paths. If no base directory was announced (this file was opened directly), `SKILL_DIR` is the directory containing this `SKILL.md`. Each fenced block is its own shell and nothing survives it, so the skill hands state over explicitly: the blocks that resolve shared values end by printing shell-quoted `NAME=value` lines (*Endpoint resolution* → `DEPLOYMENT_KIND`, `VSS_PUBLIC_URL`, `HOST_IP`, `VST_API_BASE`, `VA_MCP_URL`, `VLM_ENDPOINT`; Mode A Step 1 → `VIDEO_URL`, `CLIP_START`, `CLIP_END`, `CLIP_SECONDS`; Mode A Step 2 → `VLM_BACKEND`, `VLM_ENDPOINT`, `VLM_MODEL`; the clip-URL rewrite blocks (Kubernetes / Docker) take `RAW_URL` in and print `BROWSER_CLIP_URL`). Paste those lines as printed, plus `SKILL_DIR='<that path>'` (single-quoted — paths may contain spaces) and any gate result (`HITL_RESOLVED` / `HITL_PROMPT_FILE`, *HITL prompt mode*; `REASONING=true` only when the user asked for reasoning), at the top of the next block you run, with any caller-supplied value (e.g. `VLM_ENDPOINT` / `VLM_MODEL`) pasted **after** them so it wins; consuming blocks refuse to run (`${VAR:?}`) when a required value is missing.
 1. **Pick the mode** — Mode A for a single recorded clip/sensor video (path `A1` VST clip URL or `A2` local file / base64 — the *Mode-by-mode checklist* rows), Mode B when the request is about incidents / alerts (usually with a time range, including “report on the last/latest/most recent incident”), Mode C when the request asks for an SOP / compliance report (match against *Examples*).
 2. **Verify runtime prerequisites** for that mode under *Runtime prerequisites*; hand off only when required services are missing (Mode A / B on Docker Compose → `/vss-build-vision-ai`; on Kubernetes report the missing public route to the deployment owner instead; Mode C → `/vss-build-vision-ai` for the SOP tools).
@@ -153,7 +166,7 @@ Hard gate behavior:
 - If required services for the chosen row are not reachable, stop and report the missing dependency.
 - Do not silently switch modes because a dependency is missing.
 - Offer `/vss-build-vision-ai` only after user confirmation.
-- Mode A: a clip **120 seconds or longer** never takes the direct VLM path — stop and prompt the user to deploy / use LVS (`/vss-build-vision-ai` + `/vss-summarize-video` on Docker Compose, confirm first; on Kubernetes report the missing `/lvs` route to the deployment owner) — unless LVS is already ready per the Mode A file's LVS check, in which case use it directly — then continue with the report template; details in `references/report-types/video-analysis.md` § Long-video rule.
+- Mode A: a clip **120 seconds or longer** never takes the direct VLM path — hand off to `/vss-summarize-video` (LVS when ready, otherwise `vss vlm run`), then continue with the report template; details in `references/report-types/video-analysis.md` § Long-video rule.
 
 Probe examples:
 
@@ -390,7 +403,7 @@ Mode letters are stable aliases (other skills reference them); files are named b
 
 ## Error Handling
 
-- If a probe, `curl`, VLM call, or `/vss-query-analytics` request fails, stop the workflow and report the failing endpoint, HTTP status or command error, and the next useful recovery step (exceptions: the Mode A LVS readiness probe's non-zero exit is the documented "not ready — take the VLM-direct path" branch, and the `Clip is N s (120 s or longer)` exit of A1 Step 1 / Step 3 routes to the Long-video rule; neither is a failure). Do not fabricate a report from partial or missing data.
+- If a probe, `curl`, VLM call, or `/vss-query-analytics` request fails, stop the workflow and report the failing endpoint, HTTP status or command error, and the next useful recovery step (exception: the `Clip is N s (120 s or longer)` exit of A1 Step 1 / Step 3 is the Long-video hand-off, not a failure). Do not fabricate a report from partial or missing data.
 - If the VLM response is empty, malformed, or contains only a reasoning block, surface that response problem and suggest checking model readiness/logs before retrying.
 - If a clip URL cannot be rewritten to the public host/port: Mode A sets the `Clip URL` row to `N/A (browser-playable URL unavailable)` (Mode A Step 4); Mode B omits that incident's clip sub-bullet; in both cases say that the browser-playable URL could not be produced.
 - For Mode B, treat missing optional incident fields (`info.reasoning`, `objectIds`, clip URL) as omissions in the report, but treat missing `id`, `timestamp`, or `category` as a data-quality error that should be reported.

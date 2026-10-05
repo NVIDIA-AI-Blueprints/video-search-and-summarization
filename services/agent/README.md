@@ -324,7 +324,7 @@ A version-only check, and a range check that passes:
 $ python3 scripts/check_vss_version.py http://localhost:8000
 3.3.0
 $ python3 scripts/check_vss_version.py http://localhost:8000 \
-    --skill ../../skills/benchmarking/benchmark-video-summarization/SKILL.md
+    --skill ../../skills/benchmarking/vss-benchmark-video-summarization/SKILL.md
 3.3.0
 $ echo $?
 0
@@ -334,7 +334,7 @@ A range check that fails closed, here against a deployment reporting `3.2.1`:
 
 ```console
 $ python3 scripts/check_vss_version.py http://localhost:8000 \
-    --skill ../../skills/benchmarking/benchmark-vlm-qa/SKILL.md
+    --skill ../../skills/benchmarking/vss-benchmark-vlm-qa/SKILL.md
 error: incompatible: deployed VSS 3.2.1 is outside the range >=3.3.0,<4.0.0 required by this skill (skill version 3.3.0). Do not benchmark this deployment: the results would not be comparable. Either deploy a VSS release inside that range, or use a revision of the skill whose declared range covers the deployment. A prerelease of X.Y.Z counts as X.Y.Z, so the suffix is not what excluded it.
 $ echo $?
 3
@@ -354,16 +354,16 @@ $ echo $?
 the mechanism the VSS benchmarking skills use to decide whether a deployment may
 be benchmarked at all. Each declares the deployment range it supports in a
 `requires-vss` field under `metadata:` in its `SKILL.md` front matter.
-`benchmark-video-summarization` enforces it in
-[`preflight.sh`](../../skills/benchmarking/benchmark-video-summarization/scripts/preflight.sh),
+`vss-benchmark-video-summarization` enforces it in
+[`preflight.sh`](../../skills/benchmarking/vss-benchmark-video-summarization/scripts/preflight.sh),
 which runs the check before every benchmark run and hard-fails the run on exit
 `3`: benchmarking a deployment outside the range produces numbers that are not
 comparable to the skill's own baselines.
 
 | Skill | Declared `requires-vss` |
 |-------|-------------------------|
-| [`benchmark-video-summarization`](../../skills/benchmarking/benchmark-video-summarization/SKILL.md) | `>=3.2.0,<4.0.0` |
-| [`benchmark-vlm-qa`](../../skills/benchmarking/benchmark-vlm-qa/SKILL.md) | `>=3.3.0,<4.0.0` |
+| [`vss-benchmark-video-summarization`](../../skills/benchmarking/vss-benchmark-video-summarization/SKILL.md) | `>=3.2.0,<4.0.0` |
+| [`vss-benchmark-vlm-qa`](../../skills/benchmarking/vss-benchmark-vlm-qa/SKILL.md) | `>=3.3.0,<4.0.0` |
 | [`vss-evaluate-caption-accuracy`](../../skills/benchmarking/vss-evaluate-caption-accuracy/SKILL.md) | `>=3.2.0,<4.0.0` |
 
 A range is a comma-separated list of comparators, **all** of which must hold —

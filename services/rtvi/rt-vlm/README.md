@@ -7,6 +7,20 @@ If Yes/No questions are asked, it also generates incidents based on set prompts.
 
 Default Docker Compose model: Cosmos3 Nano Reasoner BF16 with `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` (configurable; see [Supported Models](#supported-models)).
 
+## BCD 3.2 performance benchmarks
+
+The host-side VLM benchmark runner, all 24 BCD 3.2 scenarios, setup/teardown scripts, and reporting helpers are under [`perf/`](perf/). They were ported from RTVI microservices GitLab `main` at commit `e70445ddb871461ec620cd0150b3da4733fac294`; only paths into this repository's `services/rtvi/rt-vlm` layout were changed.
+
+From this service directory, validate the available scenarios without starting a GPU workload:
+
+```bash
+python3 perf/benchmark/rtvi_perf_benchmark.py \
+  --config perf/benchmark/rtvi_vlm_bcd_3_2_config.yaml \
+  --list-scenarios
+```
+
+See [`perf/benchmark/README.RTVI_VLM.md`](perf/benchmark/README.RTVI_VLM.md) for setup and execution instructions. The VST package and benchmark videos are downloaded by `perf/setup_perf_env.sh` and are intentionally not stored in Git.
+
 ## Prerequisites
 - **NGC API key** to download the base container and any NGC-hosted model.
 
@@ -404,7 +418,7 @@ REDIS_HOST=redis.example.com
 REDIS_PORT=6379
 REDIS_DB=0
 REDIS_PASSWORD=your_password  # Optional, only if Redis requires authentication
-ERROR_MESSAGE_TOPIC=vision-llm-errors  # Redis channel name for error messages
+ERROR_MESSAGE_TOPIC=mdx-vlm-errors  # Redis channel name for error messages
 ```
 
 Error messages will be published to the Redis channel specified in `ERROR_MESSAGE_TOPIC`. The message format remains the same as Kafka (JSON with streamId, timestamp, type, source, event fields).
@@ -468,7 +482,7 @@ pip install redis
 
 # Subscribe to Redis error channel
 python3 test_redis_consumer.py \
-    --channel vision-llm-errors \
+    --channel mdx-vlm-errors \
     --host <redis_host> \
     --port 6379 \
     --verbose
@@ -483,7 +497,7 @@ Download [test_redis_publisher.py](tests/redis/test_redis_publisher.py)
 ```bash
 # Send a test error message
 python3 test_redis_publisher.py \
-    --channel vision-llm-errors \
+    --channel mdx-vlm-errors \
     --host <redis_host> \
     --port 6379 \
     --message "Test error message" \
@@ -927,7 +941,7 @@ These Kubernetes chart values are defined by the standalone RT-VLM chart under `
 | `waitForKafka.image.tag` | Kafka wait init container image tag | `8.2.0` |
 | `waitForKafka.imagePullPolicy` | Kafka wait init container pull policy | `IfNotPresent` |
 | `waitForKafka.timeoutSeconds` | Kafka wait timeout | `1200` |
-| `waitForKafka.topics` | Kafka topics to wait for | `mdx-vlm`, `mdx-vlm-incidents` |
+| `waitForKafka.topics` | Kafka topics to wait for | `mdx-vlm-captions`, `mdx-vlm-incidents` |
 | `redisHost` | Redis host injected into the pod | Empty, resolves to `redis`; standalone override uses `127.0.0.1` |
 | `redisPort` | Redis port | `6379` |
 | `redisDb` | Redis database | `0` |
@@ -1082,7 +1096,7 @@ curl -X POST "$BACKEND/v1/stream/add" \
 
 Response:
 ```json
-{"camera_id": "cam-001", "asset_id": "uuid-...", "status": "processing", "inference": true}
+{"camera_id": "cam-001", "asset_id": "cam-001", "status": "processing", "inference": true}
 ```
 
 #### Add Stream without Inference (Passthrough)
@@ -1123,10 +1137,11 @@ curl "$BACKEND/v1/stream/get-stream-info"
 Response:
 ```json
 {
-  "streams": [
-    {"camera_id": "cam-001", "asset_id": "uuid-...", "camera_url": "rtsp://...", "inference_active": true}
-  ],
-  "stream_count": 1
+  "status": "ok",
+  "stream_count": 1,
+  "stream_list": [
+    {"camera_id": "cam-001", "asset_id": "cam-001", "camera_url": "rtsp://...", "inference_active": true}
+  ]
 }
 ```
 
@@ -1148,7 +1163,7 @@ curl -X POST "$BACKEND/v1/stream/remove" \
 
 Response:
 ```json
-{"camera_id": "cam-001", "asset_id": "uuid-...", "status": "removed"}
+{"camera_id": "cam-001", "asset_id": "cam-001", "status": "removed"}
 ```
 
 #### CLI Commands

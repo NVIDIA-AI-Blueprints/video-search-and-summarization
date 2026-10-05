@@ -24,6 +24,8 @@
 #include <random>
 #include <sstream>
 
+using namespace std;
+
 namespace nv_vms
 {
 

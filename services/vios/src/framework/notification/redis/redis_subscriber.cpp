@@ -26,7 +26,7 @@
 
 using namespace std;
 
-static void* openLibrary(const char* libName)
+static DynamicLibrary* openLibrary(const char* libName)
 {
     std::string lib_path;
     void* handle = nullptr;
@@ -44,7 +44,7 @@ static void* openLibrary(const char* libName)
     handle = dlopen(lib_path.c_str(), RTLD_LAZY);
 #endif
 
-    return handle;
+    return static_cast<DynamicLibrary*>(handle);
 }
 
 static void subscribe_cb(NvDsMsgApiErrorType flag, void *msg, int len, char *topic, void *user_ptr)
@@ -90,14 +90,14 @@ RedisSubscriber::RedisSubscriber()
         , m_error(false)
 {
     // Temporary solution to load libnvds_logger in memory
-    m_handleRedis = static_cast<DynamicLibrary*>(openLibrary("libnvds_logger.so"));
+    m_handleRedis = openLibrary("libnvds_logger.so");
     if (!m_handleRedis)
     {
         LOG(error) << "Cannot open nvds_logger library: " << dlerror() << endl;
         goto error;
     }
 
-    m_handleRedisProto = static_cast<DynamicLibrary*>(openLibrary("libnvds_redis_proto.so"));
+    m_handleRedisProto = openLibrary("libnvds_redis_proto.so");
     if (!m_handleRedisProto)
     {
         LOG(error) << "Cannot open nvds_redis library: " << dlerror() << endl;

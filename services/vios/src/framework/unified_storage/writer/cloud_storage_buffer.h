@@ -77,35 +77,10 @@ struct BufferedFrame
     }
 
     // Move constructor for better performance
-    BufferedFrame(BufferedFrame&& other) noexcept
-        : m_data(std::move(other.m_data))
-        , m_size(other.m_size)
-        , m_pts(other.m_pts)
-        , m_media_type(std::move(other.m_media_type))
-        , m_session_id(std::move(other.m_session_id))
-        , m_stream_id(std::move(other.m_stream_id))
-    {
-        other.m_size = 0;
-        other.m_pts = 0;
-    }
+    BufferedFrame(BufferedFrame&& other) noexcept = default;
 
     // Move assignment operator
-    BufferedFrame& operator=(BufferedFrame&& other) noexcept
-    {
-        if (this != &other)
-        {
-            m_data = std::move(other.m_data);
-            m_size = other.m_size;
-            m_pts = other.m_pts;
-            m_media_type = std::move(other.m_media_type);
-            m_session_id = std::move(other.m_session_id);
-            m_stream_id = std::move(other.m_stream_id);
-            
-            other.m_size = 0;
-            other.m_pts = 0;
-        }
-        return *this;
-    }
+    BufferedFrame& operator=(BufferedFrame&& other) noexcept = default;
 
     // Delete copy constructor and copy assignment operator to prevent expensive copies
     BufferedFrame(const BufferedFrame&) = delete;

@@ -77,6 +77,10 @@ If you have already completed those steps for another agent workflow, skip to [S
 # Set NGC CLI API key
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
+# Authenticate Docker for gated NIM and other nvcr.io images. The managed VSS
+# images on ghcr.io are public and do not require a registry login.
+printf '%s' "$NGC_CLI_API_KEY" | \
+  docker login nvcr.io --username '$oauthtoken' --password-stdin
 ```
 
 See [Configuration](/vss/system-components/configuration) for common variables,
@@ -84,7 +88,13 @@ valid values, defaults, and env-file precedence. The complete profile-specific
 template is
 `deploy/docker/developer-profiles/dev-profile-alerts/overrides.env`.
 
-`overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
+From the repository checkout root, enter the Compose deployment directory:
+
+```bash
+cd deploy/docker
+```
+
+`overrides.env` is the checked-in template. Copy it to any
 filename matching `*-overrides.env` before selecting a layout. Files matching
 that pattern are ignored by Git so local settings and credentials are not
 committed. The commands below use `user-overrides.env` as a concrete example;
@@ -714,7 +724,7 @@ docker compose -f compose.yml \
   --env-file containers.env \
   --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
   --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
-  up -d
+  up --detach --pull always --force-recreate --build
 ```
 
 On the first bring-up, Docker Compose pulls the required containers from the
@@ -988,7 +998,7 @@ Once you've familiarized yourself with the alert verification workflow, you can 
 
 * Video playback duration for verified alerts may not exactly match the alert timestamps.
 
-* Report generation may produce inaccurate results. As a potential workaround, remove the `use_base64: true` line under `video_understanding_iso` in `developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml`.
+* Report generation may produce inaccurate results.
 
 * If perception crashes and restarts, streams are not automatically re-added and alerts will not be generated.
 

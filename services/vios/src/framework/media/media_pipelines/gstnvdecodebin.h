@@ -29,7 +29,7 @@ class NvDecodeBin
 {
     public:
         NvDecodeBin();
-        NvDecodeBin(DecoderBase* parent, const string codec);
+        NvDecodeBin(DecoderBase* parent, const std::string codec);
         ~NvDecodeBin();
 
         GstElement*       create               (bool is_image_capture = false);

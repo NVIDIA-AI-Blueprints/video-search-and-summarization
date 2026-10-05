@@ -30,6 +30,8 @@
 #include "logger.h"
 #include "stats.h"
 
+using namespace nv_vms;
+
 RTSPVideoCapturer::RTSPVideoCapturer(const std::string & uri, const std::map<std::string,std::string, std::less<>> & opts)
 	: LiveVideoSource(uri, opts)
 {

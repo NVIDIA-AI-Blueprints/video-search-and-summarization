@@ -974,6 +974,7 @@ No known issues.
 
 * If the backend agent restarts, the UI doesn't clear the outdated chat history.
 * On a Build Vision AI deployment with NemoClaw, the Web UI starts with chat waiting for a gateway token. After onboarding, run `nemoclaw <sandbox> gateway-token --quiet` on the deployment host and enter the result in **Connect NemoClaw chat**. If the relay is still starting, the panel reports that the gateway is unreachable and offers **Retry gateway**. A rejected token is reported separately. The token remains in the browser tab session; no UI container restart is needed. Use HTTPS when accessing the UI remotely because the browser sends the token to the UI's agent API.
+* If the NemoClaw agent API returns error 503, the OpenShell tunnel may have stopped forwarding traffic even if the process still appears alive. To recover, run `nemoclaw <sandbox> recover`.
 
 ### Alerts Tab
 

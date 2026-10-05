@@ -20,6 +20,9 @@
 #include "Websocket.h"
 #include "utils.h"
 
+using namespace std;
+using namespace nv_vms;
+
 constexpr unsigned int SENSOR_MONITOR_THREAD_COUNT = 1;
 constexpr unsigned int SENSOR_MONITOR_INTERVAL = 20;
 constexpr unsigned int DATA_CHANNEL_WAIT_TIME = 10000;

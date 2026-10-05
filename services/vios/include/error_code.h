@@ -40,19 +40,19 @@ inline constexpr char WHITESPACE_CHAR = ' ';
 inline constexpr int FATAL_ERROR_CODE = -100;
 
 
-#define SET_VMS_ERROR(err_code, value) { std::pair<string, string> err = getCameraErrorCodeString(err_code); \
+#define SET_VMS_ERROR(err_code, value) { std::pair<std::string, std::string> err = getCameraErrorCodeString(err_code); \
                                         value["error_code"] = err.first; \
                                         value["error_message"] = err.second; }
 
-#define SET_VMS_ERROR2(err_code, value, message) { std::pair<string, string> err = getCameraErrorCodeString(err_code); \
+#define SET_VMS_ERROR2(err_code, value, message) { std::pair<std::string, std::string> err = getCameraErrorCodeString(err_code); \
                                         value["error_code"] = err.first; \
-                                        string msg(message); \
+                                        std::string msg(message); \
                                         if (msg.empty()) {value["error_message"] = err.second;} else {value["error_message"] = msg;} }
 
 
 #define CHECK_JSON_OBJECT_IF_ERROR_RETURN(json_obj) {\
                                         if (!json_obj.isObject() ||  json_obj.empty()) { \
-                                            LOG(error) << "Invalid Parameter" << endl; \
+                                            LOG(error) << "Invalid Parameter" << std::endl; \
                                             SET_VMS_ERROR(VmsErrorCode::InvalidParameterError, response) \
                                             return VmsErrorCode::InvalidParameterError; } }
 namespace nv_vms

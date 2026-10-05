@@ -25,7 +25,6 @@ def probes(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         return False, "connection refused"
 
     monkeypatch.setattr(configure_mod, "_probe", fake_probe)
-    monkeypatch.setattr(configure_mod, "_standalone_vlm", lambda *_: (None, "connection refused"))
     return seen
 
 

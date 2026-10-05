@@ -23,6 +23,7 @@
 #include "database.h"
 
 using namespace std;
+using namespace nv_vms;
 
 bool UserAuthHandler::extractCookieField(const char* cookie, const char* fieldName, std::string& fieldValue)
 {

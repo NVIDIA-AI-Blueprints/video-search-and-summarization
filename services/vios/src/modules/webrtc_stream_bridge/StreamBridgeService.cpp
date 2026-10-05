@@ -21,6 +21,8 @@
 #include "config.h"
 #include "vst_common.h"
 
+using namespace nv_vms;
+
 constexpr const char* STREAMBRIDGE_API = "/api/v1/streambridge/stream/*";
 #define EXECUTE_FUNC(func_key, arg1, arg2, arg3, agr4)  m_callbackMap[func_key](arg1, arg2, arg3, agr4);
 

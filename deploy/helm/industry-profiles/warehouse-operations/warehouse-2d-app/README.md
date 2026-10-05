@@ -85,32 +85,19 @@ hardware-accelerated video encode/decode in the stream processor.
 | `vss-vios-streamprocessing` | 1 | HW encode/decode; see below |
 | **Total** | **2** | |
 
-To run `vss-vios-streamprocessing` in software encode/decode mode (FFmpeg CPU path)
-and free that GPU for other workloads, set **`vios.vss-vios-streamprocessing.resources`**
-to an empty map in your values override:
+Enabling the in-cluster RT-VLM for [Alerts](#alerts) requests one additional
+GPU: **3 GPUs total** with hardware video processing.
 
-```yaml
-vios:
-  vss-vios-streamprocessing:
-    useSoftwarePath: true
-    resources: null
-```
+Keep hardware video processing enabled and allocate a GPU to VIOS streamprocessing.
 
-Or inline at install time:
+### GPU sharing
 
-```bash
---set vios.vss-vios-streamprocessing.useSoftwarePath=true \
---set 'vios.vss-vios-streamprocessing.resources=null'
-```
+If there are not enough physical GPUs to assign one to each GPU workload, consider GPU sharing:
 
-Both flags are required together — **`useSoftwarePath`** switches the VST encode/decode
-path in the config, and **`resources: null`** drops the GPU claim from the pod spec.
-Setting only one leaves the stack misconfigured.
+- [Multi-Instance GPU (MIG)](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-operator-mig.html) partitions supported GPUs into instances with dedicated memory and fault isolation.
+- [GPU time-slicing](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html) lets multiple workloads share a GPU without memory or fault isolation.
 
-`resources: {}` does **not** work — Helm deep-merges maps, so the subchart default
-keys survive an empty-map override. Use `null` to drop the block entirely.
-
-Software mode reduces video throughput; use it only when a second GPU is not available.
+Choose based on your GPU hardware, workload compatibility, memory needs, and isolation requirements. See the [MIG and time-slicing comparison](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html#comparison-time-slicing-and-multi-instance-gpu). Keep hardware video processing enabled for VIOS and verify that the selected GPU or MIG profile supports the required video encode/decode capabilities.
 
 ### Required secrets
 
@@ -192,9 +179,8 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vios.vstStorage.vstData.size`** | **`10Gi`** | PVC size for shared VST data volume. |
 | **`vios.vstStorage.vstVideo.size`** | **`20Gi`** | PVC size for shared VST video volume. |
 | **`vios.vstStorage.streamerVideos.size`** | **`20Gi`** | PVC size for the NVStreamer upload volume. |
-| **`vios.vss-vios-streamprocessing.useSoftwarePath`** | **`false`** | Set **`true`** (paired with **`resources: null`**) to use FFmpeg software encode/decode and free the second GPU. Both flags required — see [GPU requirements](#gpu-requirements). |
-| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Pod resource requests/limits for streamprocessing. Set **`null`** (with **`useSoftwarePath: true`**) to drop the GPU claim entirely. |
-| **`vios.vss-vios-nvstreamer.syncFileCount`** | **`3`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
+| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Keep one GPU allocation for streamprocessing. See [GPU requirements](#gpu-requirements) for dedicated and shared GPU guidance. |
+| **`vios.vss-vios-nvstreamer.syncFileCount`** | **`4`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** | **`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`** | NGC resource for the NVStreamer sample video seed. Keep in step with **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`**. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.fromExistingClaim`** | **`vss-rtvi-cv-models`** | Reuses the PVC from the `vss-rtvi-cv` NGC download job so the video data is not downloaded twice. Clear this and set **`resourceVersion`** to download the video seed independently. |
 | **`vios.vss-vios-sensor.videoMetadataServerUrl`** | **`""`** (derived: `<elasticsearch-svc>:9200/mdx-raw*`) | VST overlay metadata source. Derived from the in-cluster `elasticsearch` Service; override for a non-standard endpoint. No `http://` scheme — VST rejects one. |
@@ -278,6 +264,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vss-alert-bridge.vstBaseUrl`** | **`""`** | Base URL of the VST service for alert media retrieval. Required when alerts are enabled. |
 | **`vss-alert-bridge.vlmName`** | **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** | VLM model name used by the alert bridge. Override when pointing at a different model endpoint. |
 | **`vss-alert-bridge.vlmBaseUrl`** | **`""`** | External VLM base URL. Set this and omit **`rtvi.vss-rtvi-vlm.enabled`** when using an external VLM instead of the in-cluster RT-VLM pod. |
+| **`vss-alert-bridge.waitForDependencies.vlmReadyUrl`** | **`<vlmBaseUrl>/v1/health/ready`** | Waits up to 30 minutes before starting the alert bridge. For an external VLM, set its readiness URL or clear this value if unsupported. |
 | **`agent.enabled`** | **`false`** | Enables `vss-agent` and `vss-va-mcp`. Required for the alerts stack. |
 | **`vss-agent-ui.enabled`** | **`false`** | Enables the agent UI. Required for alerts; not controlled by **`agent.enabled`**. |
 
@@ -334,15 +321,109 @@ the defaults.
 `GIT_REF` above resolves to the tag when installing from a tagged checkout, or the
 branch name otherwise; omit `--set global.gitRef=...` to default to `develop`.
 
-**`global.sampleVideoDataset`** picks the dataset directory under
-`calibration/sample-data/` those same three links point at. Default is
-`warehouse-4cams-20mx20m-synthetic`.
+#### Select one of the three sample datasets
 
-**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** (default
-`http://vss-video-analytics-api:8081/config/calibration`) makes behavior-analytics
-fetch calibration.json from that endpoint via an initContainer, retrying until
-it returns real data and validating it before the main container starts. Clear
-it to fall back to the bundled `files/behavior-analytics/calibration.json`.
+Set `global.sampleVideoDataset` in your values override to select matching
+videos and calibration:
+
+| Value | Type | Cameras |
+|---|---|---:|
+| `nv-warehouse-4cams` | Real NVIDIA warehouse | 4 |
+| `warehouse-4cams-20mx20m-synthetic` **(default)** | Synthetic warehouse | 4 |
+| `warehouse-loading-dock-3cams-synthetic` | Synthetic loading dock | 3 |
+
+```yaml
+global:
+  sampleVideoDataset: nv-warehouse-4cams
+```
+
+Leave `vios.vss-vios-nvstreamer.ngcVideoSeed.dataset` unset to inherit this selection.
+For the three-camera dataset, set `vios.vss-vios-nvstreamer.syncFileCount: 3`
+and use the [stream-count helper](#scaling-num_streams-by-gpu) with `--num-streams 3`
+to update `NUM_STREAMS` (both default to 4).
+
+Select before the first install: changing this value does not replace videos
+already staged in the video volume.
+
+**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** and
+**`resourceFiles.calibration.enabled`** (both default to a live API URL /
+`true`) together control calibration:
+
+- **Default** — fetches `calibration.json` from `apiUrl` via an initContainer
+  before the app starts.
+- **Clear `apiUrl`** — skips the fetch, falls back to the bundled
+  `files/behavior-analytics/calibration.json`.
+- **Set `enabled: false`** — skips calibration entirely (no initContainer, no
+  fallback); 2D runs on raw image coordinates.
+
+#### Using a custom dataset
+
+Video source — pick one; they're mutually exclusive, don't configure both:
+
+1. **Recorded video files**, not live cameras: point
+   **`vios.vss-vios-nvstreamer.persistence.streamerVideos.hostPath`** (or an
+   equivalent PVC binding) at the video files, and set
+   **`vios.vss-vios-nvstreamer.ngcVideoSeed.enabled=false`** so the chart
+   doesn't also seed sample videos into that volume. bp-configurator's default
+   **`SENSOR_INFO_SOURCE=nvstreamer`** auto-discovers sensors from what
+   NVStreamer is serving — leave `global.cameraInfo` unset for this path. Set
+   **`vios.vss-vios-nvstreamer.syncFileCount`** to the effective stream count
+   from **Stream count** below, not the raw file count — set higher than the
+   stream cap, sync stalls instead of serving media.
+
+2. **Live RTSP streams**: set **`global.cameraInfo.enabled=true`**, which
+   flips bp-configurator to `SENSOR_INFO_SOURCE=file`. Add each camera under
+   **`global.cameraInfo.sensors`** — required: `camera_name`, `rtsp_url`;
+   optional: `group_id`, `region`. For more than a handful, use
+   **`global.cameraInfo.sensorsFile`** instead (raw JSON, takes priority over
+   `sensors` — copy `../camera_configs/camera_info.example.json` outside the
+   repo, fill in real cameras, and pass it with `--set-file`). Each
+   `rtsp_url` must be reachable from the cluster — VIOS connects to it
+   directly; test with VLC or `ffplay` from the deployment machine before
+   deploying.
+
+**Calibration is optional for 2D** (unlike 3D/MV3DT):
+
+- 2D detection/tracking runs directly on the camera stream in image (pixel)
+  coordinates — no calibration required.
+- Calibration is only needed for ROI/tripwire events in behavior-analytics.
+- Neither is disabled by default.
+
+If you don't need ROI/tripwire, skip calibration entirely with these 3 changes:
+
+| Setting | Set | Effect |
+|---|---|---|
+| `calibration-import.enabled` | `false` (`--set calibration-import.enabled=false`) | Skips the calibration upload Job. |
+| `analytics.vss-behavior-analytics.resourceFiles.calibration.enabled` | `false` (`--set analytics.vss-behavior-analytics.resourceFiles.calibration.enabled=false`) | Skips the `fetch-calibration` initContainer and the bundled sample `calibration.json` fallback mount. |
+| `analytics.vss-behavior-analytics.command` | remove `--calibration`/`/resources/calibration.json` | Final command: `--set 'analytics.vss-behavior-analytics.command={python3,apps/analytics/main_analytics_2d_app.py,--config,/resources/vss-behavior-analytics-config.json}'` (arrays are always replaced whole, never merged, so this is safe) — or restate as a list in a `-f` values file. |
+
+If you do need ROI/tripwire:
+
+| Setting | Set | Effect |
+|---|---|---|
+| `calibration-import.calibrationFileSource` | your `calibration.json` URL | Replaces the bundled sample calibration. |
+| `calibration-import.imageMetadataFileSource` | your `imageMetadata.json` URL | Must resolve to a file with an `images[]` array, each entry carrying a `fileName`. |
+| `calibration-import.imageBaseSource` | base URL for your floor-plan images | Base URL each `fileName` above is fetched from. |
+| `calibration-import.requireCalibration` / `requireImages` | keep default `true` | A broken URL fails the Job instead of deploying with no calibration. |
+
+Each `camera_name` registered above must match the corresponding sensor name
+in `calibration.json` — the importer doesn't check this for you.
+
+Also configure, outside `global`:
+
+- **Stream count** — set `<N>` to the number of cameras/streams for whichever
+  video source you picked above (sensors under `global.cameraInfo.sensors`/
+  `sensorsFile` for RTSP, or the number of video files for the recorded-video
+  path), by running
+  `python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py --mode 2d --num-streams <N>`
+  (see [Scaling: NUM_STREAMS by GPU](#scaling-num_streams-by-gpu)) and
+  layering the generated file in. Left at the default 4, sensors past the 4th
+  are dropped silently.
+
+`global.gitRef`, `global.sampleVideoDataset`, and (by default)
+`vios.vss-vios-nvstreamer.ngcVideoSeed.dataset` only matter for the bundled
+sample dataset — irrelevant once the video and calibration sources above are
+overridden.
 
 ### 4. Post-install validation
 
@@ -389,12 +470,14 @@ has to change too, or the app 404s after its first redirect.
 
 ### No ingress controller: NodePort
 
-The bundled override puts the same UIs on node ports and skips the Ingress:
+The bundled override puts the same UIs on node ports and skips the Ingress.
+Pass your site values last so they take precedence:
 
 ```bash
 helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app \
   -n <namespace> --create-namespace \
-  -f deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/values-nodeport.yaml
+  -f deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/values-nodeport.yaml \
+  -f my-values.yaml
 ```
 
 | UI | URL |
@@ -404,6 +487,7 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
 | Kibana | `http://<NODE_IP>:31560/` |
 | Grafana | `http://<NODE_IP>:30300/` |
 | Prometheus | `http://<NODE_IP>:30909/` |
+| Video Analytics API | `http://<NODE_IP>:30801/` |
 
 With [Alerts](#alerts) enabled:
 
@@ -415,6 +499,27 @@ With [Alerts](#alerts) enabled:
 
 It sets **`global.vssIngress.enabled`** to false and clears
 the path prefixes, since each app then owns the root of its own port.
+
+For the Alerts UI, add explicit NodePort URLs to `my-values.yaml`:
+
+```yaml
+vss-agent-ui:
+  agentApiUrlBase: "http://<NODE_IP>:30800/api/v1"
+  vstApiUrl: "http://<NODE_IP>:30888/vst/api"
+  fillAlertBridgeUrlFromGlobal: false
+  alertsApiUrl: "http://<NODE_IP>:30980/api/v1"
+  dashboardKibanaBaseUrl: "http://<NODE_IP>:31560"
+  envOverrides:
+    # Preserve existing entries; Helm replaces lists.
+    - name: NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX
+      value: "true"
+    - name: NEXT_PUBLIC_MDX_WEB_API_URL
+      value: "http://<NODE_IP>:30801"
+```
+
+The `false` flag prevents the generated Ingress URL from overriding `alertsApiUrl`.
+Preserve existing `envOverrides`. The alerts list uses the analytics API on `30801`;
+the alert bridge on `30980` manages rules.
 
 ### Port-forward
 
@@ -513,7 +618,7 @@ kubectl port-forward -n <namespace> svc/grafana 3000:3000
 
 ## Scaling: NUM_STREAMS by GPU
 
-The chart ships a fixed `NUM_STREAMS=3` in `bp-configurator.env` with no GPU cap —
+The chart ships a fixed `NUM_STREAMS=4` in `bp-configurator.env` with no GPU cap —
 unlike Docker Compose, which caps it automatically per `HARDWARE_PROFILE`. Before an initial
 install or an upgrade where you want streams sized to your hardware, generate a values-override:
 
