@@ -1493,7 +1493,17 @@ class ViaStreamHandler:
             # behind when a later SSE error fails the request. Stage files on
             # disk to bound RAM use; live streams still publish immediately.
             if not req_info.is_live:
-                pending_file_responses = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
+                staging_limit = int(
+                    os.environ.get("LVS_FILE_CAPTION_STAGING_MAX_BYTES", str(64 * 1024 * 1024))
+                )
+                if staging_limit <= 0:
+                    raise ViaException(
+                        "LVS_FILE_CAPTION_STAGING_MAX_BYTES must be positive",
+                        "InvalidServerConfiguration",
+                        500,
+                        failed_stage="caption_generation",
+                    )
+                pending_file_responses = tempfile.TemporaryFile(mode="w+b")
             model_info = self._vlm_pipeline.get_models_info()
             rtvi_sse_start = time.time()
 
@@ -1673,7 +1683,15 @@ class ViaStreamHandler:
                         staged = vars(response).copy()
                         staged["chunk"] = response.chunk.model_dump()
                         staged.pop("model_info", None)
-                        pending_file_responses.write(json.dumps(staged) + "\n")
+                        encoded = (json.dumps(staged) + "\n").encode("utf-8")
+                        if pending_file_responses.tell() + len(encoded) > staging_limit:
+                            raise ViaException(
+                                f"Provisional file captions exceed the {staging_limit}-byte limit",
+                                "CaptionStagingLimitExceeded",
+                                507,
+                                failed_stage="caption_generation",
+                            )
+                        pending_file_responses.write(encoded)
                     chunk_idx += 1
 
             if pending_file_responses is not None:
@@ -1715,6 +1733,10 @@ class ViaStreamHandler:
                 req_info.error_message = ex.message
                 req_info.rtvi_status_code = ex.status_code
                 req_info.rtvi_error_code = ex.code
+            elif isinstance(ex, ViaException):
+                req_info.error_message = ex.message
+                req_info.error_status_code = ex.status_code
+                req_info.error_code = ex.code
             else:
                 req_info.error_message = str(ex)
             req_info.end_time = time.time()

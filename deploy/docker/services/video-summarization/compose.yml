@@ -83,6 +83,8 @@ services:
 
       # Default Save Events to Elasticsearch
       - LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=${LVS_DISABLE_DB_RESET_ON_REQUEST_DONE:-true}
+      # Per-request disk budget for captions staged until RTVI completes.
+      - LVS_FILE_CAPTION_STAGING_MAX_BYTES=${LVS_FILE_CAPTION_STAGING_MAX_BYTES:-67108864}
 
       # Kafka integration (consume captions / publish structured summaries)
       - KAFKA_ENABLED=${KAFKA_ENABLED:-false}

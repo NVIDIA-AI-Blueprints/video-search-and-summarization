@@ -77,6 +77,7 @@ Video summarization service:
 | `LVS_IMAGE` | `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization` | Image repository. |
 | `LVS_TAG` | `3.3.0-rc2` on x86/Tegra; use `3.3.0-rc2-sbsa` on SBSA. |
 | `LVS_ENABLE_MCP` | `false` | Enable optional MCP/SSE port. |
+| `LVS_FILE_CAPTION_STAGING_MAX_BYTES` | `67108864` (64 MiB) | Positive per-file disk limit for provisional captions. Exceeding it fails with HTTP 507 and `CaptionStagingLimitExceeded` before caption or QA ingestion; the temporary file is removed on every exit path. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Active CA-RAG database backend. Use `graph_db` for Neo4j or `graph_db_arango` for ArangoDB only with an embedding endpoint configured. |
 | `LVS_EMB_ENABLE` | `false` | Required as `true` for Neo4j or ArangoDB graph backends. |
 | `LVS_EMB_MODEL_NAME` | unset | Text embedding model id for graph backends, copied from the embedding endpoint's `/models` response. Current LVS graph-RAG examples use `nvidia/llama-3.2-nv-embedqa-1b-v2`. |

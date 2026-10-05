@@ -367,3 +367,25 @@ def test_provisional_file_captions_use_bounded_memory():
 
     assert ingested == list(range(64))
     assert peak < 8 * 1024 * 1024, f"provisional captions used {peak} bytes of RAM"
+
+
+@pytest.mark.unit
+def test_provisional_caption_disk_limit_fails_without_partial_writes():
+    handler = _make_handler()
+    req_info = _make_req_info()
+    req_info._ctx_mgr = MagicMock()
+    handler._on_vlm_chunk_response = MagicMock()
+    handler._vlm_pipeline.generate_captions_stream.return_value = iter(
+        [{"chunk_responses": [{"chunk_id": idx, "content": "x" * 2048}]} for idx in range(4)]
+    )
+    with patch.dict(
+        os.environ, {"ENABLE_DENSE_CAPTION": "", "LVS_FILE_CAPTION_STAGING_MAX_BYTES": "4096"}
+    ):
+        handler._trigger_query(req_info)
+
+    assert req_info.status == RequestInfo.Status.FAILED
+    assert req_info.error_status_code == 507
+    assert req_info.error_code == "CaptionStagingLimitExceeded"
+    assert req_info.failed_stage == "caption_generation"
+    handler._on_vlm_chunk_response.assert_not_called()
+    req_info._ctx_mgr.add_doc.assert_not_called()
