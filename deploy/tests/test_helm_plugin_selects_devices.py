@@ -10,7 +10,9 @@ every existing values file are unaffected.
 rtvi-vlm could already drop it, but only through gpuResourceName, which also
 renames the GPU resource; those are now separate. video-summarization merges
 env into a map where extraEnv sets a value and never removes a name, so the
-removal has to happen after that merge.
+removal has to happen after that merge. LVS delegates inference to RTVI-VLM,
+so its default render has no GPU resource or device variable; the flag only
+removes a device variable when one is explicitly supplied.
 """
 
 from __future__ import annotations
@@ -99,7 +101,9 @@ class RtviVlm(unittest.TestCase):
 @helm_required
 class VideoSummarization(unittest.TestCase):
     def test_the_default_render_is_unchanged(self):
-        self.assertEqual(_device_values(_render(SUMMARIZATION)), ["0"])
+        documents = _render(SUMMARIZATION)
+        self.assertEqual(_device_values(documents), [])
+        self.assertEqual(_gpu_resources(documents), set())
 
     def test_the_flag_drops_the_variable(self):
         self.assertEqual(_device_values(_render(SUMMARIZATION, "pluginSelectsDevices=true")), [])
@@ -117,10 +121,13 @@ class VideoSummarization(unittest.TestCase):
         self.assertEqual(_device_values(documents), [])
 
     def test_other_env_entries_are_untouched(self):
-        on = _render(SUMMARIZATION, "pluginSelectsDevices=true")
-        off = _render(SUMMARIZATION)
-        names = lambda docs: sorted(e["name"] for c in _containers(docs) for e in c.get("env") or [])
-        self.assertEqual(set(names(off)) - set(names(on)), {VAR})
+        overrides = (f"extraEnv[0].name={VAR}", "extraEnv[0].value=7")
+        on = _render(SUMMARIZATION, "pluginSelectsDevices=true", *overrides)
+        off = _render(SUMMARIZATION, *overrides)
+        env = lambda docs: {e["name"]: e for c in _containers(docs) for e in c.get("env") or []}
+        before = env(off)
+        self.assertEqual(before.pop(VAR)["value"], "7")
+        self.assertEqual(env(on), before)
 
 
 if __name__ == "__main__":
