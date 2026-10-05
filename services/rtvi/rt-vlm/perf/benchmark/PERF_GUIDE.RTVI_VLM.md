@@ -48,32 +48,24 @@ Performance benchmarking suite for VSS RTVI VLM Microservice video caption and a
 ## Quick Start (3-Step Workflow)
 
 This is the minimal path from bare hardware to running benchmarks.
-`setup_perf_env.sh` handles everything end-to-end: VST download, nvstreamer + VST startup,
+`setup_perf_env.sh` handles everything end-to-end: VST staging, nvstreamer + VST startup,
 `.env.perf` generation, RTVI VLM deployment, Python venv creation, and RTSP URL injection.
 
 ### Step 1 — Export required variables, then run the setup script
 
-#### Artifactory Access (only when downloading the VST package or legacy videos)
+#### Artifact sources (no Artifactory credentials required)
 
-`ARTIFACTORY_USER` and `ARTIFACTORY_TOKEN` are required when setup must download
-the VST package. Providing a local `VST_LOCAL_PACKAGE` (default:
-`perf/vst_package.tar.gz`) or a cached `VST_DIR/vst_package.tar.gz` avoids that
-download. Legacy warehouse videos are optional: setup downloads them when
-Artifactory credentials are set and skips missing ones otherwise. BCD media
-uses NGC or local sources; missing BCD media does not itself require Artifactory
-access. You still need the media required by the benchmark you run. If you need
-Artifactory downloads:
+Fresh setup stages the tracked VIOS/NVStreamer deployment files from
+`services/vios/deployment/stream-processing/docker-compose/`. It uses the
+single-pod VIOS direct mode, retaining VST-issued `/live/` URLs for consumers.
+No VST package or legacy video is downloaded from Artifactory, and
+`ARTIFACTORY_USER` / `ARTIFACTORY_TOKEN` are not used.
 
-1. **Request DL membership** — join the `it-aws-artifactory-users` distribution
-   list at <https://dlrequest.nvidia.com>. Access is typically granted within one
-   business day.
-2. **Log in to Artifactory** — once the DL is approved, visit
-   <https://artifactory.nvidia.com/ui/repos/tree/General/sw-ds-generic-bld-local>
-   and sign in with NVIDIA SSO.
-3. **Generate an API token** — click **Set Me Up** (top-right corner), then
-   click **Generate Token & Create Instructions**.
-4. **Set the variables** — use your NVIDIA username as `ARTIFACTORY_USER` and
-   the generated token as `ARTIFACTORY_TOKEN`.
+Use a fresh `VST_DIR` for each setup; repository staging refuses to overwrite an
+existing deployment. Stop the previous deployment with `teardown_perf_env.sh`
+using its original `VST_DIR` and `VST_COMPOSE_PROJECT` before starting a new one
+on the same ports. BCD media comes from NGC or local sources. NGC/model and
+container registry access are still required.
 
 The setup script patches the extracted VST package to run
 `nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:3.2.0`,
@@ -83,11 +75,10 @@ The setup script patches the extracted VST package to run
 different VST build, override `VST_IMAGE_REGISTRY`, `VST_IMAGE_TAG`, or one of
 the full-image variables shown by `bash perf/setup_perf_env.sh -h`.
 
-For pinned package testing, place the VST tarball locally at `perf/vst_package.tar.gz`
-or set `VST_LOCAL_PACKAGE=/path/to/vst_package.tar.gz`. Setup stages that local
-tarball before considering the cached `VST_DIR/vst_package.tar.gz` or downloading
-`VST_PKG_URL`. The container images above are pulled from `nvcr.io`, separately
-from the Artifactory package download.
+For pinned package testing, explicitly set
+`VST_LOCAL_PACKAGE=/path/to/vst_package.tar.gz`. Setup uses that local tarball
+instead of repository deployment files; an invalid path fails setup. Cached
+tarballs are not selected implicitly. Container images are pulled from `nvcr.io`.
 
 The script reads an existing `docker/.env.perf` as defaults
 before validation, including `export KEY=value` lines. Exported shell variables
@@ -102,11 +93,8 @@ exports those variables in the shell for a non-standard experiment.
 export NGC_API_KEY=nvapi-XXXXXX                # NGC API key for model download
 export NVIDIA_VISIBLE_DEVICES=0                # GPU index
 
-# ── Conditional (VST package or optional legacy video downloads) ─────────────
-export ARTIFACTORY_USER=your_username          # omit when using local/cached VST
-export ARTIFACTORY_TOKEN=your_token            # and no legacy video downloads
-
 # ── Optional (override defaults if needed) ───────────────────────────────────
+export VST_DIR="${HOME}/rtvi-perf/vst-run-01"  # fresh deployment directory
 export RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
 # DGX Spark default: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest-sbsa
 export BACKEND_PORT=8010          # RTVI VLM host port          (default: 8010)
@@ -141,7 +129,7 @@ sudo bash perf/apply_vss_sysctl.sh
 
 bash perf/setup_perf_env.sh
 # Runs all 12 setup steps:
-#   Downloads VST package → starts nvstreamer → starts VST →
+#   Stages repository VST files → starts nvstreamer → starts VST →
 #   downloads benchmark videos → auto-generates .env.perf →
 #   starts RTVI VLM + DCGM + Node Exporter + Prometheus →
 #   creates Python venv → injects live RTSP URL into config
@@ -356,14 +344,12 @@ Expected response:
 
 ### Prepare Test Videos
 
-#### Legacy Warehouse Videos (optional Artifactory downloads)
+#### Legacy Warehouse Videos (local files)
 
-With Artifactory credentials, `perf/setup_perf_env.sh` attempts to download the
-four legacy warehouse videos to `PERF_VIDEOS_DIR`
+Supply legacy warehouse videos locally in `PERF_VIDEOS_DIR`
 (default: `~/rtvi-perf/vst_package/videos/`).
-Missing legacy videos are skipped when credentials are unset; download failures
-are non-fatal during setup. Supply the files before running scenarios that need
-them. BCD media preparation uses NGC or local sources instead.
+Missing legacy videos are skipped during setup. Supply the files before running
+scenarios that need them. BCD media preparation uses NGC or local sources instead.
 `compose.perf.yaml` mounts that directory into the container at `/opt/nvidia/rtvi/streams/perf/`.
 
 | File | Duration | Used by |
@@ -373,7 +359,7 @@ them. BCD media preparation uses NGC or local sources instead.
 | `warehouse_gopro_10m.mp4` | 600 s | BCD 4 (e2e_latency 10-min point) |
 | `warehouse_gopro_60m.mp4` | 3600 s | BCD 4 (e2e_latency 60-min point) |
 
-If `warehouse_gopro_10s.mp4` is not available on Artifactory, extract it locally:
+To extract `warehouse_gopro_10s.mp4` from your local one-minute source:
 
 ```bash
 ffmpeg -i "${PERF_VIDEOS_DIR}/warehouse_gopro_1m.mp4" \
@@ -386,10 +372,8 @@ Use `perf/setup_perf_env.sh` to automate this entirely (see **Quick Start** abov
 All live-stream benchmarks use VST-managed streams at `rtsp://<HOST>/live/<stream_id>`.
 
 ```bash
-# Run setup script (downloads VST, starts it, polls for streams, injects URL)
-# Only needed if VST is not local/cached, or to download legacy warehouse videos:
-export ARTIFACTORY_USER=your_username
-export ARTIFACTORY_TOKEN=your_token
+# Run setup script (stages VST, starts it, polls for streams, injects URL)
+# Export NGC_API_KEY and NVIDIA_VISIBLE_DEVICES as in Quick Start above.
 bash perf/setup_perf_env.sh
 
 # Or manually start VST if already installed:
@@ -1441,10 +1425,8 @@ placeholder `RTSP_STREAM_URL` instead of a real `rtsp://` URL. This happens when
 - The config was pulled/reset from git after `setup_perf_env.sh` had already patched it, or
 - `setup_perf_env.sh` was never run on this machine.
 
-**Fix:** Tear down and re-run setup to regenerate the patched config:
-```bash
-bash perf/teardown_perf_env.sh && bash perf/setup_perf_env.sh
-```
+**Fix:** Follow the fresh-directory recovery sequence below to tear down and
+regenerate the patched config.
 
 The setup script replaces `RTSP_STREAM_URL` with the live RTSP URL discovered from the VST API.
 
@@ -1458,23 +1440,16 @@ a fresh setup:
 
 ```bash
 bash perf/teardown_perf_env.sh   # stops all services started by setup_perf_env.sh
-bash perf/setup_perf_env.sh      # re-runs all 12 setup steps
+export VST_DIR="$(mktemp -d "${PWD}/vst-retry.XXXXXX")"
+bash perf/setup_perf_env.sh     # stages a fresh deployment and runs all 12 steps
 ```
 
-The setup script is **idempotent** — tarballs and videos already on disk are
-skipped, VST patches are not applied twice, and any existing containers are
-stopped before new ones are started. A re-run is always safe.
-
-If nvstreamer fails on the first attempt without a full teardown, re-running
-the setup script alone is also sufficient:
-
-```bash
-bash perf/setup_perf_env.sh
-```
-
-The script will re-download nothing (tarballs and videos are cached), re-patch VST
-(the patch markers prevent double-patching), stop any dangling containers, and retry
-the full nvstreamer → VST → RTVI VLM startup sequence.
+Run teardown with the original `VST_DIR` and `VST_COMPOSE_PROJECT` before changing
+directories. Default repository staging refuses to overwrite an existing
+deployment; use a fresh `VST_DIR` for every retry, including after a partial setup
+failure. Existing videos in `PERF_VIDEOS_DIR` can be reused. An explicit
+`VST_LOCAL_PACKAGE` retains the local-tarball extraction path instead of repository
+staging. Keep the failed deployment's logs for diagnosis.
 
 If nvstreamer fails repeatedly, check its logs before re-running:
 
@@ -1488,17 +1463,16 @@ curl -v http://localhost:31000
 # Verify the video files nvstreamer serves are present
 ls -lh ~/rtvi-perf/vst_package/videos/
 
-# Manually stop everything, then re-run the setup script
-bash perf/teardown_perf_env.sh
-bash perf/setup_perf_env.sh
 ```
 
 If the VST stream poll times out (Step 9), increase the timeout and re-run:
 
 ```bash
 export STREAM_POLL_TIMEOUT=600   # wait up to 10 minutes for streams
-bash perf/setup_perf_env.sh
 ```
+
+Then follow the fresh-directory recovery sequence above; do not rerun setup
+against the already staged directory.
 
 ### Prometheus / Node Exporter / DCGM Exporter Fail to Start
 
@@ -1512,12 +1486,14 @@ re-running:
 # Check which ports are occupied
 ss -tlnp | grep -E "9100|9400|9090"
 
-# Override whichever port(s) are in use and re-run
+# Override whichever port(s) are in use
 export NODE_EXPORTER_PORT=9101   # default 9100
 export DCGM_EXPORTER_PORT=9401   # default 9400
 export PROMETHEUS_PORT=9091      # default 9090
-bash perf/setup_perf_env.sh
 ```
+
+Retry using the fresh-directory recovery sequence above if staging already
+occurred. If setup stopped before staging, the same empty `VST_DIR` can be reused.
 
 The overridden ports are written into `.env.perf` automatically and picked up by
 `compose.perf.yaml`.
