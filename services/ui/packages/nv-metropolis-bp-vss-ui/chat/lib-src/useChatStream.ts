@@ -234,6 +234,7 @@ export function useChatStream(
       let answer = '';
       let failed = '';
       let failedCode = '';
+      let undelivered = false;
       let credentialsRejected = false;
       let agentTerminal = false;
       const artifactEnvelopes: string[] = [];
@@ -274,6 +275,7 @@ export function useChatStream(
           } else if (ev.kind === 'error') {
             failed = ev.message;
             failedCode = ('code' in ev && ev.code) || '';
+            undelivered = 'delivered' in ev && ev.delivered === false;
           } else {
             agentTerminal = true;
             patchReply((m) => ({ ...m, streaming: false, steps: settleSteps('complete') }));
@@ -286,8 +288,9 @@ export function useChatStream(
           const agentEndpoint = endpointRef.current;
           const baseUrl = agentEndpoint.url.replace(/\/$/, '');
           const threadId = agentEndpoint.conversationId;
-          // One retry when the backend was unreachable before the run reached
-          // the agent: nothing ran, so the turn cannot execute twice.
+          // One retry when the turn never reached the agent: the run was not
+          // created (503 backend_unreachable), or the adapter marked the failed
+          // run undelivered. Nothing ran, so the turn cannot execute twice.
           for (let attempt = 0; ; attempt += 1) {
             const createResponse = await fetch(`${baseUrl}/runs`, {
               method: 'POST',
@@ -370,13 +373,14 @@ export function useChatStream(
             if (
               attempt === 0 &&
               failed &&
-              failedCode === GATEWAY_UNREACHABLE &&
+              undelivered &&
               !answer &&
               !artifactEnvelopes.length &&
               steps.every((step) => step.id.startsWith('run-status-'))
             ) {
               failed = '';
               failedCode = '';
+              undelivered = false;
               agentTerminal = false;
               steps.length = 0;
               patchReply((m) => ({ ...m, streaming: true, steps: [] }));

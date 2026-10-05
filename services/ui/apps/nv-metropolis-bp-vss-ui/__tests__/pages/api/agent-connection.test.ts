@@ -126,6 +126,48 @@ describe('NemoClaw runtime token', () => {
     expect(check).toHaveBeenCalledTimes(1);
   });
 
+  it('rechecks an accepted token once a minute and revokes it on rejection', async () => {
+    let now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const check = jest.spyOn(OpenClawConnector.prototype, 'checkConnection').mockResolvedValue();
+    await agentAdapterHandler(request('capabilities', 'GET', 'rotated-token'), response());
+    expect(check).toHaveBeenCalledTimes(1);
+
+    now += 59_000;
+    await agentAdapterHandler(request('capabilities', 'GET', 'rotated-token'), response());
+    expect(check).toHaveBeenCalledTimes(1);
+
+    now += 1_000;
+    check.mockRejectedValue(new ConnectorError('rejected', 'backend_auth_error'));
+    const revoked = response();
+    await agentAdapterHandler(request('capabilities', 'GET', 'rotated-token'), revoked);
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(revoked.statusCode).toBe(401);
+
+    const later = response();
+    await agentAdapterHandler(request('capabilities', 'GET', 'rotated-token'), later);
+    expect(later.statusCode).toBe(401);
+    expect(globalThis.__vssEmbeddedAgentAdapterSessions?.size ?? 0).toBe(0);
+  });
+
+  it('keeps serving an accepted token when its recheck cannot reach the gateway', async () => {
+    let now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const check = jest.spyOn(OpenClawConnector.prototype, 'checkConnection').mockResolvedValue();
+    await agentAdapterHandler(request('capabilities', 'GET', 'valid-token'), response());
+
+    now += 60_000;
+    check.mockRejectedValue(new ConnectorError('unreachable', 'backend_unreachable'));
+    const during = response();
+    await agentAdapterHandler(request('capabilities', 'GET', 'valid-token'), during);
+    expect(during.statusCode).toBe(200);
+    expect(check).toHaveBeenCalledTimes(2);
+
+    now += 30_000;
+    await agentAdapterHandler(request('capabilities', 'GET', 'valid-token'), response());
+    expect(check).toHaveBeenCalledTimes(2);
+  });
+
   it('rechecks a token after a run reports it rejected', async () => {
     const service = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'revoked-token' });
     service!.credentialsRejected = true;

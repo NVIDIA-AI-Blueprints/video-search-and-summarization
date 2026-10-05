@@ -19,10 +19,7 @@ export interface AgentApiEvent {
   data: JsonObject;
 }
 
-/**
- * Error code for a backend the adapter could not connect to. The adapter only
- * raises it before a run reaches the agent, so a retry cannot repeat any work.
- */
+/** Error code for a backend the adapter could not reach. */
 export const GATEWAY_UNREACHABLE = 'backend_unreachable';
 
 /** Error codes for a backend that rejected this browser's credentials. */
@@ -38,8 +35,11 @@ export type AgentApiChatEvent =
   | { kind: 'token'; text: string }
   | { kind: 'step'; step: ChatStep }
   | { kind: 'artifact'; envelope: string }
-  /** `code`: the adapter's error code for a failed run, when it sent one. */
-  | { kind: 'error'; message: string; code?: string }
+  /**
+   * `code`: the adapter's error code for a failed run, when it sent one.
+   * `delivered: false`: the adapter knows the turn never reached the backend.
+   */
+  | { kind: 'error'; message: string; code?: string; delivered?: false }
   | { kind: 'done' };
 
 export interface AgentApiChatState {
@@ -276,6 +276,7 @@ export function agentApiEventToChatEvents(
         kind: 'error',
         message: message ?? 'The agent backend could not complete this request.',
         ...(typeof fields?.code === 'string' ? { code: fields.code } : {}),
+        ...(fields?.delivered === false ? { delivered: false as const } : {}),
       },
       { kind: 'done' },
     ];

@@ -365,6 +365,39 @@ describe("embedded adapter connectors", () => {
     expect(service.credentialsRejected).toBe(rejected);
   });
 
+  it("marks a failed run undelivered only when the connector knows nothing was sent", async () => {
+    const openClaw = new AgentAdapterService(
+      config({ backendProtocol: "openclaw-ws", backendUrl: "ws://agent.local", backendPath: "/" })
+    );
+    // The OpenClaw socket cannot open, so the gateway never sees the turn.
+    jest.spyOn(OpenClawConnector.prototype, "run").mockRestore();
+    (openClaw as unknown as { connector: OpenClawConnector }).connector = new OpenClawConnector(
+      openClaw.config,
+      () => {
+        throw new Error("connection refused");
+      }
+    );
+    global.fetch = jest.fn().mockRejectedValue(new TypeError("socket hang up"));
+    const responses = new AgentAdapterService(config());
+
+    const failures = [];
+    for (const service of [openClaw, responses]) {
+      const { record } = service.createRun(requestWithInstructions);
+      for (let attempt = 0; attempt < 20 && !record.terminal; attempt += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      failures.push(record.eventsAfter(0).find((event) => event.type === "run.failed")?.data);
+    }
+
+    expect(failures[0]).toEqual({
+      error: expect.objectContaining({ code: "backend_unreachable", delivered: false }),
+    });
+    expect(failures[1]).toEqual({
+      error: expect.objectContaining({ code: "backend_unreachable" }),
+    });
+    expect((failures[1] as { error: object }).error).not.toHaveProperty("delivered");
+  });
+
   it("uses native OpenClaw chat and tool events with narrow requested scopes", async () => {
     const socket = new FakeOpenClawSocket();
     const connector = new OpenClawConnector(

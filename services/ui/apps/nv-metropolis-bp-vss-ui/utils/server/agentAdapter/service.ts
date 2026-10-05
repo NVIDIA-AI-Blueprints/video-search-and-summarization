@@ -229,6 +229,7 @@ export class AgentAdapterService {
             code: error.code,
             message: error.message,
             retryable: error.retryable,
+            ...(error.delivered === false ? { delivered: false } : {}),
           },
         });
       } else {

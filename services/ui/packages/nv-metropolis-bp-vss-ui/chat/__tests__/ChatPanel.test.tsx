@@ -705,10 +705,17 @@ describe('ChatPanel', () => {
       status: 503,
       json: async () => ({ error: { code: 'backend_unreachable', message: 'OpenClaw Gateway is unreachable' } }),
     };
-    const failedUnreachable = (id: number) =>
+    const failedUnreachable = (id: number, markedUndelivered = true) =>
       agentApiFrame(
         'run.failed',
-        { error: { code: 'backend_unreachable', message: 'OpenClaw Gateway is unreachable', retryable: true } },
+        {
+          error: {
+            code: 'backend_unreachable',
+            message: 'OpenClaw Gateway is unreachable',
+            retryable: true,
+            ...(markedUndelivered ? { delivered: false } : {}),
+          },
+        },
         id,
       );
     const answered = () =>
@@ -767,6 +774,20 @@ describe('ChatPanel', () => {
       expect(fetchMock).toHaveBeenCalledTimes(4);
       expect(idempotencyKey(fetchMock, 2)).toBe(`${idempotencyKey(fetchMock, 0)}-retry`);
       expect(screen.queryByText(/OpenClaw Gateway is unreachable/)).not.toBeInTheDocument();
+    });
+
+    it('does not retry a failure the adapter cannot place before delivery', async () => {
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValueOnce(created)
+        .mockResolvedValueOnce(sseResponse([agentApiFrame('run.started', {}, 1), failedUnreachable(2, false)]));
+      global.fetch = fetchMock as any;
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} />);
+      await sendAndWaitOutRetry('hello');
+
+      await waitFor(() => expect(screen.getByText(/OpenClaw Gateway is unreachable/)).toBeInTheDocument());
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
     it('does not retry once the agent has produced output', async () => {
