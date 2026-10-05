@@ -4,6 +4,7 @@
     "vss-build-vision-ai",
     "vss-query-analytics"
   ],
+  "shared_local_llm": true,
   "resources": {
     "platforms": {
       "DGX-SPARK": {

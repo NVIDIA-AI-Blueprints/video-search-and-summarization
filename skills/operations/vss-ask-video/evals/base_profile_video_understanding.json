@@ -3,6 +3,7 @@
     "vss-ask-video"
   ],
   "profile": "base",
+  "shared_local_llm": true,
   "resources": {
     "platforms": {
       "DGX-SPARK": {

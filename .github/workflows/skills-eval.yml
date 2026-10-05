@@ -75,6 +75,10 @@ on:
         required: false
         default: ""
         type: string
+      share_local_llm_with_vss:
+        description: "OPERATIONAL · Share VSS's local LLM NIM with NemoClaw (requires a supported local VSS eval)."
+        type: boolean
+        default: false
       spark_runner:
         description: "Run on the registered Brev Spark-ba-WiFi worker."
         type: boolean
@@ -256,6 +260,7 @@ jobs:
           CODING_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_harness || 'claude-code' }}
           CODING_DEPLOYMENT_INPUT: ${{ inputs.coding_deployment || 'hosted-nvidia-inference' }}
           OPERATIONAL_DEPLOYMENT_INPUT: ${{ inputs.operational_deployment || 'hosted-nvidia-inference' }}
+          SHARE_LOCAL_LLM_WITH_VSS_INPUT: ${{ inputs.share_local_llm_with_vss && 'true' || 'false' }}
           SPARK_RUNNER_INPUT: ${{ inputs.spark_runner && 'true' || 'false' }}
           CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || '' }}
           OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
@@ -283,6 +288,7 @@ jobs:
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
           coding_deployment="$CODING_DEPLOYMENT_INPUT"
           operational_deployment="$OPERATIONAL_DEPLOYMENT_INPUT"
+          share_local_llm_with_vss="$SHARE_LOCAL_LLM_WITH_VSS_INPUT"
           spark_runner="$SPARK_RUNNER_INPUT"
           coding_harness="$CODING_HARNESS_INPUT"
           coding_model="$CODING_MODEL_INPUT"
@@ -300,6 +306,8 @@ jobs:
           export PATH="$skill_eval_venv_dir/bin:$PATH"
           export SKILLS_EVAL_CODING_DEPLOYMENT="$coding_deployment"
           export SKILLS_EVAL_OPERATIONAL_DEPLOYMENT="$operational_deployment"
+          export SKILLS_EVAL_SHARE_LOCAL_LLM_WITH_VSS="$share_local_llm_with_vss"
+          export EVAL_SPEC_PATH="${{ matrix.spec_path }}"
           export SKILLS_EVAL_SPARK_RUNNER="$spark_runner"
           export EVAL_AGENT="$operational_harness"
           export SKILLS_EVAL_CODING_HARNESS="$coding_harness"

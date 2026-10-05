@@ -54,6 +54,7 @@ Manual runs configure both routes without changing the coordinator or judge:
 | `operational_harness` | Operational runtime: `claude-code`, `codex`, or `nemoclaw` |
 | `operational_deployment` | Independent `hosted-nvidia-inference` (default) or `local-nim` for operational tasks |
 | `operational_model` | Same ID rules as `coding_model`, independently selected for operational tasks |
+| `share_local_llm_with_vss` | Opt in to one VSS-owned local LLM NIM shared with NemoClaw; requires hosted coding, `operational_harness=nemoclaw`, `operational_deployment=local-nim`, a supported VSS model, and a compatible operational spec. Default false |
 | `spark_runner` | Run on Brev external node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`); default false |
 
 
@@ -93,6 +94,19 @@ OpenAI Responses, and authenticated Chat Completions for NemoClaw. NIM ports
 bind to loopback; NemoClaw reaches the adapter on the worker's private address.
 Startup and reuse smoke requests exercise each selected protocol.
 The NIM and VSS run on the same worker.
+
+With `share_local_llm_with_vss=true`, the VSS build owns the operational LLM
+instead. The eval runner skips its operational NIM and Build Vision AI deploys
+the selected local model as the VSS LLM. After VSS is healthy, the setup task
+checks the deployed `resolved.yml`, running container, readiness endpoint, and
+advertised model before onboarding NemoClaw at the VSS NIM's host port. This
+mode currently supports `nvidia/nemotron-3.5-lightning-30b-a3b` and the
+`vss-ask-video` and `vss-generate-video-report` end-to-end specs. Specs that
+require a remote VSS LLM fail preflight instead of silently changing their
+deployment contract. The coding route must be hosted because coding runs
+before VSS exists. The unchecked default leaves VSS model selection and the
+existing eval-owned `local-nim` lifecycle unchanged. A local VSS VLM may still
+run alongside the shared LLM.
 
 Startup is bounded to 5,400 seconds within the existing environment deadline;
 cold downloads may exceed this and fail explicitly. The worker needs access
