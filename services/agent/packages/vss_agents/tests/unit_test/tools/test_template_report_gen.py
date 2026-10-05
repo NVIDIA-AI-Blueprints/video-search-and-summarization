@@ -22,11 +22,106 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 import pytest
 
+from vss_agents.tools import template_report_gen as template_report_gen_module
 from vss_agents.tools.template_report_gen import PDF_CONVERSION_AVAILABLE
+from vss_agents.tools.template_report_gen import ReportContentValidationError
 from vss_agents.tools.template_report_gen import _build_authoritative_incident_facts
 from vss_agents.tools.template_report_gen import _format_custom_report
 from vss_agents.tools.template_report_gen import _get_object_store_url
+from vss_agents.tools.template_report_gen import _normalize_report_model_output
 from vss_agents.tools.template_report_gen import _run_vlm_analysis
+from vss_agents.tools.template_report_gen import _validate_report_body
+
+_WAREHOUSE_TEMPLATE = """# Warehouse Incident Report
+
+## Basic Information
+
+| Field | Value |
+|-------|-------|
+| **Report Identifier** | {report_id} |
+
+## Incident Details
+
+| Field | Value |
+|-------|-------|
+| **Type of Incident** | {incident_type} |
+
+## Location and Environment Details
+
+| Field | Value |
+|-------|-------|
+| **Location Description** | {location_description} |
+
+## People Involved
+
+### Person {person_number}
+
+| Field | Value |
+|-------|-------|
+| **Person Type** | {person_type} |
+
+## Vehicles Involved
+
+### Vehicle {vehicle_number}
+
+| Field | Value |
+|-------|-------|
+| **Vehicle Type** | {vehicle_type} |
+"""
+
+
+def _valid_warehouse_report() -> str:
+    return """# Warehouse Incident Report
+
+## Basic Information
+
+| Field | Value |
+|-------|-------|
+| **Report Identifier** | inc-123 |
+| **Date of Incident** | 2026-09-29 (UTC) |
+| **Time of Incident** | 06:11:30 UTC |
+| **Reporting AI Agent** | report_agent |
+| **Sensor ID** | Camera_01 |
+
+## Incident Details
+
+| Field | Value |
+|-------|-------|
+| **Type of Incident** | Person in forklift aisle |
+| **Detailed Description** | A person walked through the forklift aisle. |
+| **Safety Distance** | N/A |
+| **Number of Persons involved** | 1 |
+| **Number of Vehicles involved** | 0 |
+
+## Location and Environment Details
+
+| Field | Value |
+|-------|-------|
+| **Location Description** | Warehouse aisle 3 |
+| **Light Condition** | Unknown |
+| **Floor Condition** | Unknown |
+| **Blockage** | N/A |
+
+## People Involved
+
+### Person 1
+
+| Field | Value |
+|-------|-------|
+| **Person Type** | worker |
+| **Person behaviour at the time** | walking |
+| **Person Location** | aisle 3 |
+
+## Vehicles Involved
+
+### Vehicle 1
+
+| Field | Value |
+|-------|-------|
+| **Vehicle Type** | N/A |
+| **Vehicle maneuver at the time** | N/A |
+| **Vehicle Location** | N/A |
+"""
 
 
 class TestGetObjectStoreUrl:
@@ -194,3 +289,168 @@ class TestIncidentReportGrounding:
         assert '"people_count": 1' in user_prompt
         assert '"vehicle_count": 0' in user_prompt
         assert "copy these values exactly" in user_prompt
+
+
+class TestReportBodyValidation:
+    """Regression coverage for empty / thinking-only / resources-only report bodies."""
+
+    def test_normalize_strips_thinking_and_fences(self):
+        raw = "```markdown\n<think>plan</think>\n# Incident\n\nN/A\n```"
+        assert _normalize_report_model_output(raw) == "# Incident\n\nN/A"
+
+    def test_empty_output_rejected(self):
+        with pytest.raises(ReportContentValidationError, match="empty_or_whitespace_body"):
+            _validate_report_body("   \n", template_content="# Incident\n")
+
+    def test_thinking_only_output_rejected(self):
+        normalized = _normalize_report_model_output("<think>all reasoning, no report</think>")
+        with pytest.raises(ReportContentValidationError, match="empty_or_whitespace_body"):
+            _validate_report_body(normalized, template_content="# Incident\n")
+
+    def test_resources_only_output_rejected(self):
+        with pytest.raises(ReportContentValidationError, match="resources_only_body"):
+            _validate_report_body(
+                "##Resources\n\n**Incident Snapshot:** ![x](http://example.com/x.png)\n",
+                template_content="# Incident\n",
+            )
+
+    def test_missing_warehouse_section_rejected(self):
+        body = """# Warehouse Incident Report
+
+## Basic Information
+
+| Field | Value |
+| **Report Identifier** | inc-1 |
+
+## Incident Details
+
+| Field | Value |
+| **Type of Incident** | spill |
+"""
+        with pytest.raises(ReportContentValidationError, match="missing_required_section"):
+            _validate_report_body(body, template_content=_WAREHOUSE_TEMPLATE)
+
+    def test_empty_warehouse_section_rejected(self):
+        body = """# Warehouse Incident Report
+
+## Basic Information
+
+| Field | Value |
+| **Report Identifier** | inc-1 |
+
+## Incident Details
+
+| Field | Value |
+| **Type of Incident** | spill |
+
+## Location and Environment Details
+
+| Field | Value |
+| **Location Description** | aisle |
+
+## People Involved
+
+### Person {person_number}
+
+| Field | Value |
+| **Person Type** | {person_type} |
+
+## Vehicles Involved
+
+| Field | Value |
+| **Vehicle Type** | N/A |
+"""
+        with pytest.raises(ReportContentValidationError, match="empty_required_section:People Involved"):
+            _validate_report_body(body, template_content=_WAREHOUSE_TEMPLATE)
+
+    def test_valid_warehouse_report_with_unknown_fields_accepted(self):
+        _validate_report_body(_valid_warehouse_report(), template_content=_WAREHOUSE_TEMPLATE)
+
+    def test_non_warehouse_template_skips_section_requirements(self):
+        _validate_report_body("# Incident\n\nN/A", template_content="# Smart City Incident Report\n")
+
+    @pytest.mark.asyncio
+    async def test_validation_failure_prevents_resources_append(self, tmp_path, monkeypatch):
+        template_name = "incident_report_template.md"
+        (tmp_path / template_name).write_text(_WAREHOUSE_TEMPLATE, encoding="utf-8")
+        append_calls: list[tuple] = []
+
+        def _tracking_append(content, image_url, video_url):
+            append_calls.append((content, image_url, video_url))
+            return content
+
+        monkeypatch.setattr(template_report_gen_module, "_append_resources_section", _tracking_append)
+
+        async def empty_llm(_prompt):
+            return AIMessage(content="<think>no usable body</think>")
+
+        with pytest.raises(ReportContentValidationError, match="empty_or_whitespace_body"):
+            await _format_custom_report(
+                vlm_results=["visible person"],
+                alert_metadata={"Id": "inc-1", "sensorId": "Camera_01"},
+                alert_sensor_id="Camera_01",
+                alert_from_timestamp="2026-09-29T06:11:30Z",
+                alert_to_timestamp="2026-09-29T06:11:35Z",
+                template_path=str(tmp_path),
+                template_name=template_name,
+                report_prompt="Populate:\n{template}\n{agent_version}",
+                llm=RunnableLambda(empty_llm),
+                image_url="http://example.com/snap.png",
+                video_url="http://example.com/clip.mp4",
+            )
+
+        assert append_calls == []
+
+    @pytest.mark.asyncio
+    async def test_valid_warehouse_report_appends_resources(self, tmp_path):
+        template_name = "incident_report_template.md"
+        (tmp_path / template_name).write_text(_WAREHOUSE_TEMPLATE, encoding="utf-8")
+
+        async def good_llm(_prompt):
+            return AIMessage(content=_valid_warehouse_report())
+
+        content = await _format_custom_report(
+            vlm_results=["A person walked through the aisle."],
+            alert_metadata={
+                "Id": "inc-123",
+                "category": "Person in forklift aisle",
+                "sensorId": "Camera_01",
+                "people_count": 1,
+                "vehicle_count": 0,
+            },
+            alert_sensor_id="Camera_01",
+            alert_from_timestamp="2026-09-29T06:11:30Z",
+            alert_to_timestamp="2026-09-29T06:11:35Z",
+            template_path=str(tmp_path),
+            template_name=template_name,
+            report_prompt="Populate:\n{template}\n{agent_version}",
+            llm=RunnableLambda(good_llm),
+            image_url="http://example.com/snap.png",
+            video_url="http://example.com/clip.mp4",
+        )
+
+        assert "##Resources" in content
+        assert "http://example.com/snap.png" in content
+        assert content.index("## Basic Information") < content.index("##Resources")
+
+    @pytest.mark.asyncio
+    async def test_llm_exception_does_not_bypass_validation(self, tmp_path):
+        template_name = "incident.md"
+        (tmp_path / template_name).write_text("# Incident\n\n{x}", encoding="utf-8")
+
+        async def boom(_prompt):
+            raise RuntimeError("model unavailable")
+
+        with pytest.raises(ValueError, match="Failed to generate custom report with LLM"):
+            await _format_custom_report(
+                vlm_results=["fallback text that must not be published"],
+                alert_metadata={"sensorId": "Camera_01"},
+                alert_sensor_id="Camera_01",
+                alert_from_timestamp="t0",
+                alert_to_timestamp="t1",
+                template_path=str(tmp_path),
+                template_name=template_name,
+                report_prompt="Populate:\n{template}\n{agent_version}",
+                llm=RunnableLambda(boom),
+                image_url="http://example.com/snap.png",
+            )

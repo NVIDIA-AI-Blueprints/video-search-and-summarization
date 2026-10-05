@@ -76,6 +76,32 @@ Grounding requirements (these override any conflicting template instruction):
 - Structural completeness of the template is not proof of factual accuracy.
 """.strip()
 
+_WAREHOUSE_REPORT_TITLE = "Warehouse Incident Report"
+_WAREHOUSE_REQUIRED_SECTIONS = (
+    "Basic Information",
+    "Incident Details",
+    "Location and Environment Details",
+    "People Involved",
+    "Vehicles Involved",
+)
+_RESOURCES_HEADING_RE = re.compile(r"^##\s*Resources\b", re.IGNORECASE | re.MULTILINE)
+_THINK_CLOSE_RE = re.compile(r"</think>", re.IGNORECASE)
+_MARKDOWN_FENCE_RE = re.compile(r"^```(?:markdown)?\s*\n?(.*?)\n?```\s*$", re.IGNORECASE | re.DOTALL)
+_SECTION_HEADING_RE = re.compile(r"^(##\s+.+)$", re.MULTILINE)
+_UNFILLED_PLACEHOLDER_RE = re.compile(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}")
+
+
+class ReportContentValidationError(ValueError):
+    """Raised when generated report Markdown fails content validation before publication."""
+
+    def __init__(self, reason: str, *, response_len: int = 0, body_len: int = 0) -> None:
+        self.reason = reason
+        self.response_len = response_len
+        self.body_len = body_len
+        super().__init__(
+            f"Generated report failed content validation ({reason}; response_len={response_len}, body_len={body_len})"
+        )
+
 
 def _get_object_store_url(object_store: Any, filename: str, config: "TemplateReportGenConfig") -> str:
     """
@@ -686,6 +712,139 @@ def _build_authoritative_incident_facts(
     return {key: value for key, value in facts.items() if value is not None}
 
 
+def _normalize_report_model_output(content: str) -> str:
+    """Strip code fences and thinking blocks before validation or Resources append."""
+    normalized = content.strip()
+    fence_match = _MARKDOWN_FENCE_RE.match(normalized)
+    if fence_match:
+        normalized = fence_match.group(1).strip()
+    else:
+        if normalized.startswith("```markdown"):
+            normalized = normalized[len("```markdown") :].strip()
+            if normalized.endswith("```"):
+                normalized = normalized[:-3].strip()
+        elif normalized.startswith("```"):
+            normalized = normalized[3:].strip()
+            if normalized.endswith("```"):
+                normalized = normalized[:-3].strip()
+
+    think_match = _THINK_CLOSE_RE.search(normalized)
+    if think_match:
+        normalized = normalized[think_match.end() :].strip()
+    return normalized
+
+
+def _is_warehouse_incident_template(template_content: str) -> bool:
+    """Return True when the configured template is the warehouse incident report."""
+    return bool(re.search(rf"^#\s*{re.escape(_WAREHOUSE_REPORT_TITLE)}\b", template_content, flags=re.MULTILINE))
+
+
+def _body_without_resources(content: str) -> str:
+    """Return report body with any Resources section removed."""
+    match = _RESOURCES_HEADING_RE.search(content)
+    if not match:
+        return content.strip()
+    return content[: match.start()].strip()
+
+
+def _extract_markdown_sections(content: str) -> dict[str, str]:
+    """Map ``##`` section titles (without the heading markers) to section bodies."""
+    parts = _SECTION_HEADING_RE.split(content)
+    sections: dict[str, str] = {}
+    # parts[0] is preamble before the first ## heading
+    for index in range(1, len(parts), 2):
+        heading = parts[index].strip()
+        body = parts[index + 1] if index + 1 < len(parts) else ""
+        title = re.sub(r"^##\s*", "", heading).strip()
+        sections[title] = body
+    return sections
+
+
+def _section_has_supported_content(section_body: str) -> bool:
+    """True when a section has supported text or an explicit Unknown/N/A marker."""
+    if re.search(r"\b(Unknown|N/A)\b", section_body, flags=re.IGNORECASE):
+        return True
+
+    # Prefer markdown table value cells so leftover field labels are not treated as content.
+    for row in section_body.splitlines():
+        stripped = row.strip()
+        if not stripped.startswith("|") or re.search(r"^\|\s*:?-+:?\s*\|", stripped):
+            continue
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        label = re.sub(r"[*_`]", "", cells[0]).strip().lower()
+        if label in {"field", "value"}:
+            continue
+        value = _UNFILLED_PLACEHOLDER_RE.sub("", cells[1])
+        value = re.sub(r"[*_`]", "", value).strip()
+        if value:
+            return True
+
+    # Non-table prose, excluding placeholder-only subheadings such as "### Person {n}".
+    prose = re.sub(r"^###\s+.*$", "", section_body, flags=re.MULTILINE)
+    prose = re.sub(r"^\|.*$", "", prose, flags=re.MULTILINE)
+    prose = _UNFILLED_PLACEHOLDER_RE.sub("", prose)
+    prose = re.sub(r"\s+", " ", prose).strip()
+    return bool(prose)
+
+
+def _validate_report_body(
+    content: str,
+    *,
+    template_content: str,
+    response_len: int | None = None,
+) -> None:
+    """
+    Validate normalized report Markdown before Resources append or artifact save.
+
+    Rejects empty, whitespace-only, thinking-only, and resources-only bodies.
+    For the warehouse template only, also requires the template's section headings
+    with supported content or explicit Unknown/N/A. Structural completeness is not
+    treated as proof of factual accuracy.
+    """
+    body_len = len(content)
+    effective_response_len = len(content) if response_len is None else response_len
+
+    def _fail(reason: str) -> None:
+        raise ReportContentValidationError(
+            reason,
+            response_len=effective_response_len,
+            body_len=body_len,
+        )
+
+    if not content or not content.strip():
+        _fail("empty_or_whitespace_body")
+
+    body = _body_without_resources(content)
+    if not body:
+        _fail("resources_only_body")
+
+    if _is_warehouse_incident_template(template_content):
+        sections = _extract_markdown_sections(body)
+        for required in _WAREHOUSE_REQUIRED_SECTIONS:
+            if required not in sections:
+                _fail(f"missing_required_section:{required}")
+            if not _section_has_supported_content(sections[required]):
+                _fail(f"empty_required_section:{required}")
+
+
+def _append_resources_section(content: str, image_url: str | None, video_url: str | None) -> str:
+    """Append media Resources after a validated report body."""
+    if not (image_url or video_url):
+        return content
+
+    updated = content
+    updated += "\n\n##Resources\n\n"
+    if image_url:
+        updated += f"**Incident Snapshot:** ![Incident Snapshot]({image_url})\n\n"
+    if video_url:
+        # FIX: URL is placed in its own paragraph (\n\n) so text-align:justify
+        # does not stretch the space between the label and URL in the PDF.
+        updated += f"**Incident Video:**\n\n{video_url}\n\n"
+    return updated
+
+
 async def _run_vlm_analysis(
     report_input: TemplateReportGenInput,
     vlm_tool: Any,
@@ -1006,47 +1165,46 @@ async def _format_custom_report(
     llm_reasoning: bool | None = None,
 ) -> str:
     """Format custom report using LLM to extract information from messages and populate template."""
+    template_content = _load_custom_template(template_path, template_name)
+
+    # Substitute the template into the report_prompt, but escape template placeholders
+    # so they don't get treated as prompt variables
+    escaped_template = template_content.replace("{", "{{").replace("}", "}}")
+    formatted_system_prompt = report_prompt.format(template=escaped_template, agent_version=agent_version)
+    formatted_system_prompt = f"{formatted_system_prompt}\n\n{_REPORT_LLM_GROUNDING_INSTRUCTION}"
+    authoritative_incident_facts = _build_authoritative_incident_facts(
+        alert_metadata,
+        alert_sensor_id,
+        alert_from_timestamp,
+        alert_to_timestamp,
+    )
+
+    # Append thinking tag to system prompt if applicable
+    thinking_tag = get_thinking_tag(llm, llm_reasoning)
+    if thinking_tag:
+        formatted_system_prompt = f"{formatted_system_prompt}\n{thinking_tag}"
+
+    prompt_template = ChatPromptTemplate.from_messages(
+        [
+            ("system", formatted_system_prompt),
+            (
+                "user",
+                "Authoritative incident facts (copy these values exactly):\n\n"
+                "{authoritative_incident_facts}\n\n"
+                "Video understanding results (use only for observations directly supported by "
+                "visible or audible evidence):\n\n"
+                "{vlm_results}\n\n"
+                "Full alert metadata:\n\n{alert_metadata}",
+            ),
+        ],
+    )
+
+    # Bind LLM with reasoning kwargs if applicable
+    llm_kwargs = get_llm_reasoning_bind_kwargs(llm, llm_reasoning)
+    bound_llm = llm.bind(**llm_kwargs) if llm_kwargs else llm
+
+    chain = prompt_template | bound_llm
     try:
-        template_content = _load_custom_template(template_path, template_name)
-
-        # Substitute the template into the report_prompt, but escape template placeholders
-        # so they don't get treated as prompt variables
-        escaped_template = template_content.replace("{", "{{").replace("}", "}}")
-        formatted_system_prompt = report_prompt.format(template=escaped_template, agent_version=agent_version)
-        formatted_system_prompt = f"{formatted_system_prompt}\n\n{_REPORT_LLM_GROUNDING_INSTRUCTION}"
-        authoritative_incident_facts = _build_authoritative_incident_facts(
-            alert_metadata,
-            alert_sensor_id,
-            alert_from_timestamp,
-            alert_to_timestamp,
-        )
-
-        # Append thinking tag to system prompt if applicable
-        thinking_tag = get_thinking_tag(llm, llm_reasoning)
-        if thinking_tag:
-            formatted_system_prompt = f"{formatted_system_prompt}\n{thinking_tag}"
-
-        prompt_template = ChatPromptTemplate.from_messages(
-            [
-                ("system", formatted_system_prompt),
-                (
-                    "user",
-                    "Authoritative incident facts (copy these values exactly):\n\n"
-                    "{authoritative_incident_facts}\n\n"
-                    "Video understanding results (use only for observations directly supported by "
-                    "visible or audible evidence):\n\n"
-                    "{vlm_results}\n\n"
-                    "Full alert metadata:\n\n{alert_metadata}",
-                ),
-            ],
-        )
-
-        # Bind LLM with reasoning kwargs if applicable
-        llm_kwargs = get_llm_reasoning_bind_kwargs(llm, llm_reasoning)
-        if llm_kwargs:
-            llm = llm.bind(**llm_kwargs)
-
-        chain = prompt_template | llm
         response = await chain.ainvoke(
             {
                 "vlm_results": vlm_results,
@@ -1054,42 +1212,29 @@ async def _format_custom_report(
                 "authoritative_incident_facts": json.dumps(authoritative_incident_facts, sort_keys=True),
             }
         )
+    except Exception as e:
+        logger.error("LLM report generation failed: %s", type(e).__name__)
+        raise ValueError(f"Failed to generate custom report with LLM: {e}") from e
 
-        content: str = str(response.content).strip()
-
-        # Remove markdown code blocks if present
-        if content.startswith("```markdown"):
-            content = content[11:-3]
-        elif content.startswith("```"):
-            content = content[3:-3]
-    except Exception:
-        logger.info("no template specified, using VLM results directly")
-        content = "\n".join(vlm_results)
-        content = content.removeprefix("```markdown\n").removeprefix("```")
-        content = content.removesuffix("```").strip()
+    raw_content = "" if response.content is None else str(response.content)
+    content = _normalize_report_model_output(raw_content)
 
     try:
-        # Find the end of the </think> tag and keep everything after it
-        match = re.search(r"</think>", content, flags=re.IGNORECASE)
-        if match:
-            content = content[match.end() :]
-        content = content.strip()
+        _validate_report_body(
+            content,
+            template_content=template_content,
+            response_len=len(raw_content),
+        )
+    except ReportContentValidationError as e:
+        logger.warning(
+            "Report body validation failed: reason=%s response_len=%d body_len=%d",
+            e.reason,
+            e.response_len,
+            e.body_len,
+        )
+        raise
 
-        # Append actual URLs to the end of the content
-        if image_url or video_url:
-            content += "\n\n##Resources\n\n"
-            if image_url:
-                content += f"**Incident Snapshot:** ![Incident Snapshot]({image_url})\n\n"
-            if video_url:
-                # FIX: URL is placed in its own paragraph (\n\n) so text-align:justify
-                # does not stretch the space between the label and URL in the PDF.
-                content += f"**Incident Video:**\n\n{video_url}\n\n"
-
-        return content
-
-    except Exception as e:
-        logger.error(f"Error generating custom report with LLM: {e}")
-        return f"Error generating custom report with LLM, {e}"
+    return _append_resources_section(content, image_url, video_url)
 
 
 @register_function(config_type=TemplateReportGenConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])

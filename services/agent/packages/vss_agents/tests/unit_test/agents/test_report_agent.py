@@ -24,6 +24,7 @@ from vss_agents.agents.report_agent import INCIDENT_REPORT_METADATA_FIELDS
 from vss_agents.agents.report_agent import ReportAgentInput
 from vss_agents.agents.report_agent import VideoReportAgentInput
 from vss_agents.agents.report_agent import _build_report_side_effects
+from vss_agents.tools.template_report_gen import ReportContentValidationError
 from vss_agents.tools.template_report_gen import TemplateReportGenOutput
 
 
@@ -73,6 +74,12 @@ class TestReportAgentInput:
 
     def test_report_fetches_authoritative_metadata(self):
         assert INCIDENT_REPORT_METADATA_FIELDS == ["category", "place", "objectIds", "info"]
+
+    def test_report_content_validation_error_is_value_error(self):
+        """Report agent VA-MCP path catches ValueError and returns status=error."""
+        assert issubclass(ReportContentValidationError, ValueError)
+        err = ReportContentValidationError("empty_or_whitespace_body", response_len=0, body_len=0)
+        assert "empty_or_whitespace_body" in str(err)
 
 
 class TestVideoReportAgentInput:
