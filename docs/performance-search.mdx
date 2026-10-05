@@ -10,14 +10,14 @@ The [Search Workflow](/vss/vision-agent/agent-workflows/search) lets you query i
 natural language. During ingestion, uploaded clips are embedded through
 [RTVI-Embed](/vss/appendix/performance/microservices/rt-embed-performance) (Cosmos-Embed1-448p) and
 [RTVI-CV](/vss/appendix/performance/microservices/rt-cv-performance)/Behavior Analytics; during query execution, the Vision
-Agent decomposes each request submitted through the VSS CLI and routes it to embed search,
-attribute search, or fusion search, then optionally verifies candidates with the critic
-agent (Cosmos3 Nano Reasoner VLM) before returning timestamped results.
+Agent decomposes each request and routes it to embed search, attribute search, or fusion
+search, then optionally verifies candidates with the critic agent (Cosmos3 Nano Reasoner
+VLM) before returning timestamped results.
 
 The tables below benchmark that search performance. Query
 latency and throughput measurements use the vad-r1-v2 / benchmark query set (121 natural-language queries
 over 17 indexed clips) at concurrent query levels 1, 10, 20, and 50, issued through
-`vss search run` with the critic agent verifying every returned hit. Each run reports
+`vss search run <action>` with the critic agent verifying every returned hit. Each run reports
 client-side end-to-end (E2E) average and P90 latency, successful query throughput (QPS),
 and per-stage latency. A separate
 section reports video upload latency and chunk counts on both platforms for files ranging from short clips to 2-hour sources. Use these numbers to size GPU choice and
@@ -37,10 +37,35 @@ expected query latency under concurrent search load on VSS 3.3.
 | Embedding model | Cosmos-Embed1-448p (`cosmos-embed1-448p-anomaly-detection`) |
 | Reasoning LLM | NVIDIA Nemotron 3.5 Lightning 30B A3B (`nvidia/nemotron-3.5-lightning-30b-a3b`) |
 | Video understanding VLM | Cosmos3 Nano Reasoner (`ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix`) |
-| Query path | `vss search run` (VSS CLI), live query decomposition |
+| Query path | `vss search run <action>` (VSS CLI), one invocation per query |
+| Query decomposition | Separate LLM call made before each invocation, not by the CLI |
+| Routed actions | H100: `attribute` 56, `fusion` 51, `embed` 14. RTX: 56 / 50 / 15 |
 | Critic agent | Enabled, `num_videos_to_evaluate: 5` (every returned hit is verified) |
 | Top-K | 5 |
 | Concurrent queries | 1, 10, 20, 50 |
+
+<Note>
+`vss search run` takes an action — `embed`, `attribute`, `tag`, `fusion` or `object` — so
+there is no bare `vss search run "<query>"` form. Each benchmark query ran as a single
+invocation carrying the decomposed arguments:
+
+```bash
+vss search run fusion \
+  --query "forklift near the loading dock" \
+  --original-query "Was a forklift operating near the loading dock?" \
+  --source-type video_file \
+  --top-k 5
+```
+
+The CLI does not decompose. The **Query decomposition (LLM)** row in the stage tables is a
+separate call made before each invocation, against the reasoning LLM at temperature 0 with
+thinking disabled, reusing the prompt the Vision Agent's search tool uses
+(`services/agent/packages/vss_agents/src/vss_agents/tools/search.py`). That call chooses the
+action and rewrites the query for retrieval; `--original-query` carries the user's untouched
+question through so the critic verifies against what was actually asked. To reproduce the
+decomposition stage you need that LLM call in front of the CLI — running `vss search run`
+alone reproduces every other row but not this one.
+</Note>
 
 ### Video Upload Performance
 
@@ -87,18 +112,29 @@ additional concurrency only adds queue time — see [Reading these numbers](#rea
 
 ### Reading these numbers
 
-Successful QPS is flat from 10 concurrent queries onward (0.961, 0.931, 0.950), because the
-deployment is already at its VLM inference ceiling by that point. Latency, by contrast,
-scales roughly linearly with concurrency — 2.5s, 9.8s, 19.8s, 42.0s — so concurrency past
-the knee buys queue depth, not work.
+Successful QPS is flat from 10 concurrent queries onward (0.961, 0.931, 0.950 on H100),
+because the deployment is already at its VLM inference ceiling by that point. Latency, by
+contrast, scales roughly linearly with concurrency — 2.5s, 9.8s, 19.8s, 42.0s — so
+concurrency past the knee buys queue depth, not work. RTX latency tracks within 4% of these
+figures at every level.
 
-Critic verification accounts for almost all of it. At every load level the per-call VLM
-inference time is within a few percent of total query time, and the retrieval stages
-(Elasticsearch, embeddings, VST) stay essentially flat as load rises. Sizing a search
-deployment for concurrency therefore means sizing RTVI-VLM: give it a dedicated GPU rather
-than sharing one with RTVI-CV, raise `RTVI_VLLM_MAX_NUM_SEQS` and `RTVI_VLM_BATCH_SIZE`
-within the available GPU memory, or scale it out. Lowering `num_videos_to_evaluate` reduces
-the per-query fan-out at the cost of leaving lower-ranked hits unverified.
+Critic verification is the largest single cost, and its share grows with load rather than
+staying constant. Per-call VLM inference is 68% of E2E at one concurrent query on H100 and
+about 90% at 20 and 50; on RTX it runs from 60% to 83%. RTVI-VLM is therefore the first
+thing to size: give it a dedicated GPU rather than sharing one with RTVI-CV, raise
+`RTVI_VLLM_MAX_NUM_SEQS` and `RTVI_VLM_BATCH_SIZE` within the available GPU memory, or scale
+it out. Lowering `num_videos_to_evaluate` reduces the per-query fan-out at the cost of
+leaving lower-ranked hits unverified.
+
+It is not the only thing to size past roughly 20 concurrent queries. Retrieval holds near
+its single-query cost through 20 — attribute search goes 0.365s to 0.425s on H100 and 0.508s
+to 0.712s on RTX — and then degrades sharply at 50, to 2.219s and 10.950s respectively.
+Nearly all of that is the RT-Embed text-embedding call that the attribute and fusion paths
+share, which climbs from 1.004s to 2.202s on H100 and from 1.817s to 7.829s on RTX. Embed
+search, Elasticsearch query execution and VST clip resolution do stay flat throughout. If
+you expect sustained load above about 20 concurrent queries, give RTVI-Embed headroom as
+well — sizing RTVI-VLM alone stops being sufficient there, and on RTX the attribute path
+becomes the second ceiling.
 
 ## Latency Stage Breakdown
 
