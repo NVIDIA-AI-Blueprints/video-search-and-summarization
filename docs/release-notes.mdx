@@ -70,11 +70,9 @@ These Release Notes describe the key features, software enhancements and improve
 - **Blank messages or empty structured-event results:** During file
   summarization, CA-RAG structured-event ingestion may drop RT-VLM captions,
   leaving empty event results even when the summarize API reports success.
-  Tracked in [NVBug 6571623](https://nvbugswb.nvidia.com/NVBugs5/redir.aspx?url=/6571623).
 - **Out-of-memory failures on DGX Spark and Jetson Thor:** RT-VLM file
   summarization with Cosmos Reason 3 Super NVFP4 may stall and exhaust memory.
   The RT-VLM service may be killed, causing summarization to fail with HTTP 503.
-  Tracked in [NVBug 6845246](https://nvbugswb.nvidia.com/NVBugs5/redir.aspx?url=/6845246).
 
 ## VSS 3.2.1
 
