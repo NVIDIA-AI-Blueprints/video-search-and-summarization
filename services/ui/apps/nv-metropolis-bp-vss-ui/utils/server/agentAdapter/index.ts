@@ -35,7 +35,7 @@ declare global {
   var __vssEmbeddedAgentAdapter: CachedService | undefined;
   // Browser-entered tokens have separate connectors but share one bounded run store.
   // eslint-disable-next-line no-var
-  var __vssEmbeddedAgentAdapterSessions: Map<string, CachedService & { lastUsed: number; checkedAt: number }> | undefined;
+  var __vssEmbeddedAgentAdapterSessions: Map<string, CachedService & { lastUsed: number }> | undefined;
   // eslint-disable-next-line no-var
   var __vssEmbeddedAgentAdapterSharedStore: { fingerprint: string; store: RunStore } | undefined;
 }
@@ -43,9 +43,6 @@ declare global {
 const TOKEN_HEADER = "x-vss-gateway-token";
 const MAX_TOKEN_SESSIONS = 32;
 const TOKEN_SESSION_IDLE_MS = 2 * 60 * 60 * 1_000;
-// How long a gateway check of an accepted token stands. Bounds how long a
-// revoked token can still read the runs retained under it.
-const TOKEN_RECHECK_MS = 60 * 1_000;
 
 const browserToken = (req: NextApiRequest): string | undefined => {
   const value = req.headers[TOKEN_HEADER];
@@ -94,15 +91,16 @@ const configFingerprint = (environment: NodeJS.ProcessEnv): string =>
     .digest("hex");
 
 // The gateway accepted this token when its session was created, and every run
-// authenticates again in its own handshake. A session whose run reported the
-// token rejected is dropped, so the token is checked again.
-const acceptedSession = (environment: NodeJS.ProcessEnv) => {
+// authenticates again in its own handshake. Revalidate only after a run reports
+// the token rejected, so ordinary requests open no extra gateway connections.
+const hasAcceptedSession = (environment: NodeJS.ProcessEnv): boolean => {
   const sessions = globalThis.__vssEmbeddedAgentAdapterSessions;
   const key = configFingerprint(environment);
   const cached = sessions?.get(key);
-  if (!cached?.service.credentialsRejected) return cached;
+  if (!cached) return false;
+  if (!cached.service.credentialsRejected) return true;
   sessions!.delete(key);
-  return undefined;
+  return false;
 };
 
 export const getAgentAdapterService = (
@@ -148,7 +146,7 @@ export const getAgentAdapterService = (
         store: service.store,
       };
     }
-    sessions.set(fingerprint, { fingerprint, service, lastUsed: now, checkedAt: now });
+    sessions.set(fingerprint, { fingerprint, service, lastUsed: now });
     return service;
   }
   if (globalThis.__vssEmbeddedAgentAdapter?.fingerprint !== fingerprint) {
@@ -386,39 +384,25 @@ export const agentAdapterHandler = async (
     return;
   }
   const environment = tokenEnvironment(token);
-  const session = environment === process.env ? undefined : acceptedSession(environment);
-  if (
-    environment !== process.env &&
-    (!session || Date.now() - session.checkedAt >= TOKEN_RECHECK_MS)
-  ) {
+  if (environment !== process.env && !hasAcceptedSession(environment)) {
     try {
       const config = loadAgentAdapterConfig(environment);
       if (config?.backendProtocol === "openclaw-ws") {
         await new OpenClawConnector(config).checkConnection(AbortSignal.timeout(15_000));
       }
-      if (session) session.checkedAt = Date.now();
     } catch (error) {
       if (error instanceof ConfigError) {
         errorResponse(res, 503, "adapter_not_configured", error.message);
         return;
       }
       const code = error instanceof ConnectorError ? error.code : "backend_unreachable";
-      const rejected = code === "backend_auth_error" || code === "backend_scope_error";
-      if (session && !rejected) {
-        // Only a rejection revokes an accepted token. A gateway that cannot be
-        // reached says nothing about it, so the session keeps serving and the
-        // next check waits a full interval.
-        session.checkedAt = Date.now();
-      } else {
-        if (session) session.service.credentialsRejected = true;
-        errorResponse(
-          res,
-          rejected ? 401 : 503,
-          code,
-          error instanceof ConnectorError ? error.message : "NemoClaw gateway is unavailable"
-        );
-        return;
-      }
+      errorResponse(
+        res,
+        code === "backend_auth_error" || code === "backend_scope_error" ? 401 : 503,
+        code,
+        error instanceof ConnectorError ? error.message : "NemoClaw gateway is unavailable"
+      );
+      return;
     }
   }
   let service: AgentAdapterService | null;
