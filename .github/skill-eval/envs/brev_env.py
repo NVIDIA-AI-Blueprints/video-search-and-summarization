@@ -305,6 +305,31 @@ class BrevEnvironment(BaseEnvironment):
                 f"exit {setup_dirs_result.return_code}; tail:\n{tail}"
             )
 
+        # Repair a repo venv a prior step left unusable. Unlike the repo sync,
+        # this is NOT gated to the first trial: `step-2+` preserves the
+        # deployment and so skips the sync's `git clean -fdx`, which is the
+        # only other thing that would clear it. Warn rather than raise -- a
+        # missing checkout is normal before the first sync, and a venv that
+        # cannot be removed still surfaces as the uv error it already was.
+        venv_reset_result = await _run_brev_exec(
+            self._instance_name,
+            _broken_venv_cleanup_command(),
+            timeout=60,
+        )
+        if venv_reset_result.return_code != 0:
+            logger.warning(
+                "broken-venv cleanup failed on %s: exit %s; tail:\n%s",
+                self._instance_name,
+                venv_reset_result.return_code,
+                (venv_reset_result.stderr or venv_reset_result.stdout or "")[-300:],
+            )
+        else:
+            logger.info(
+                "broken-venv cleanup on %s: %s",
+                self._instance_name,
+                (venv_reset_result.stdout or "").strip().splitlines()[-1:] or ["no output"],
+            )
+
         # Archive session JSONLs and root-level agent outputs left by
         # prior trials on this warm-pool box. Without this, harbor's claude-code
         # mapper merges every
@@ -1551,6 +1576,48 @@ def _claude_task_scratch_cleanup_command() -> str:
         '  echo "[claude-task-scratch] removed task dirs before=$BEFORE after=$AFTER base=$BASE"; '
         'else '
         '  echo "[claude-task-scratch] no scratch base $BASE"; '
+        "fi"
+    )
+
+
+def _broken_venv_cleanup_command() -> str:
+    """Remove repo virtualenvs that are no longer usable, on every trial.
+
+    `uv` refuses a project venv whose interpreter has gone ("not a valid
+    Python environment (no Python executable was found)"), and the `vss` CLI
+    then cannot run at all. The repo sync that would clear it via
+    `git clean -fdx` is gated to a spec's first trial, because `step-2+` has
+    to preserve the deployment -- so a venv broken during step-1 or step-2
+    survives into step-3, which is where this leg keeps failing (NVBugs
+    6829436: 2026-09-24, -27, -28 and 2026-10-04, each needing a manual
+    `rm -rf libs/vss/.venv`).
+
+    Only a venv that is already unusable is removed: a healthy one is left
+    alone so steps do not pay a reinstall every trial. `uv` recreates a
+    missing venv on its next run, so removal is the repair.
+    """
+    return (
+        'REPO="$HOME/video-search-and-summarization"; '
+        'if [ ! -d "$REPO" ]; then '
+        '  echo "[venv-reset] no checkout at $REPO; nothing to inspect"; '
+        'else '
+        '  REMOVED=0; '
+        '  for VENV in $(find "$REPO" -type d -name .venv -prune 2>/dev/null); do '
+        # An interpreter that still runs means the venv is fine; leave it.
+        '    if [ -x "$VENV/bin/python" ] && "$VENV/bin/python" -c "" 2>/dev/null; then '
+        '      continue; '
+        '    fi; '
+        # A prior container may have left root-owned files inside, same as the
+        # bind-mount dirs git clean needs sudo for.
+        '    rm -rf "$VENV" 2>/dev/null || sudo rm -rf "$VENV" 2>/dev/null || true; '
+        '    if [ -d "$VENV" ]; then '
+        '      echo "[venv-reset] FAILED to remove broken $VENV" >&2; '
+        '    else '
+        '      REMOVED=$((REMOVED+1)); '
+        '      echo "[venv-reset] removed broken $VENV"; '
+        '    fi; '
+        '  done; '
+        '  echo "[venv-reset] broken venvs removed=$REMOVED"; '
         "fi"
     )
 
