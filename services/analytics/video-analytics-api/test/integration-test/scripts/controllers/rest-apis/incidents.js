@@ -25,7 +25,7 @@ const fs = require('fs');
 const path = require('path');
 
 const INCIDENT_PAGE_SIZE = 10000;
-const INCIDENT_PROTO_PATH = path.join(__dirname, '..', '..', '..', 'schemas', 'ext.proto');
+const INCIDENT_PROTO_PATH = path.resolve(__dirname, '../../../../../../../../libs/nvschema/protobuf/ext.proto');
 const INCIDENT_ENVELOPE_FIELDS = new Set(['Id', 'type']);
 
 function loadIncidentProtoFields() {
