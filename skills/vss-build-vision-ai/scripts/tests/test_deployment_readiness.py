@@ -23,6 +23,7 @@ def fake_runtime(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     docker.write_text(
         f"#!{sys.executable}\n"
         "import json, os, sys\n"
+        "from pathlib import Path\n"
         "args = sys.argv[1:]\n"
         "if os.environ.get('VSS_TEST_DOCKER_FAIL'):\n"
         "    sys.exit(3)\n"
@@ -31,6 +32,12 @@ def fake_runtime(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         "    for i in range(int(os.environ['VSS_TEST_EXPECTED'])):\n"
         "        print(f'service-{i}')\n"
         "elif 'ps' in args:\n"
+        "    if os.environ.get('VSS_TEST_SEQUENCE'):\n"
+        "        counter = Path(os.environ['VSS_TEST_COUNTER'])\n"
+        "        index = int(counter.read_text()) if counter.exists() else 0\n"
+        "        sequence = json.loads(os.environ['VSS_TEST_SEQUENCE'])\n"
+        "        states = sequence[min(index, len(sequence) - 1)]\n"
+        "        counter.write_text(str(index + 1))\n"
         "    if '--all' not in args:\n"
         "        states = [s for s in states if s['State'] == 'running']\n"
         "    for i, state in enumerate(states):\n"
@@ -50,6 +57,20 @@ def _state(state: str, health: str = "", exit_code: int = 0) -> dict:
         "ExitCode": exit_code,
         "Status": state,
     }
+
+
+def _run_gate(env: dict[str, str]) -> subprocess.CompletedProcess:
+    reference = (BUILD_SKILL / "references/readiness.md").read_text()
+    gate = re.search(r"```bash\n(.*?)\n```", reference, re.DOTALL)
+    assert gate is not None
+    return subprocess.run(
+        ["bash", "-c", gate.group(1)],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=15,
+    )
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required by the gate")
@@ -81,18 +102,58 @@ def test_documented_gate_checks_all_container_states(
         VSS_TEST_STATES=json.dumps(states),
         VSS_TEST_EXPECTED=str(expected),
         VSS_TEST_DOCKER_FAIL="1" if docker_fails else "",
+        VSS_READINESS_TIMEOUT_SECONDS="0",
     )
-    reference = (BUILD_SKILL / "references/readiness.md").read_text()
-    gate = re.search(r"```bash\n(.*?)\n```", reference, re.DOTALL)
-    assert gate is not None
-    result = subprocess.run(
-        ["bash", "-c", gate.group(1)],
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    result = _run_gate(env)
     assert (result.returncode == 0) is passes, result.stderr
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required by the gate")
+@pytest.mark.parametrize("initial", [_state("created"), _state("running", "unhealthy")])
+def test_documented_gate_waits_for_warmup_and_preserves_completed_jobs(
+    fake_runtime: tuple[Path, dict[str, str]], tmp_path: Path, initial: dict
+) -> None:
+    bin_dir, env = fake_runtime
+    # Advance the simulated Docker state without spending five seconds per poll.
+    sleep = bin_dir / "sleep"
+    sleep.write_text("#!/bin/sh\nexit 0\n")
+    sleep.chmod(0o755)
+    counter = tmp_path / "snapshots"
+    sequence = [
+        [initial, _state("exited")],
+        [_state("running", "starting"), _state("exited")],
+        [_state("running", "healthy"), _state("exited")],
+    ]
+    env.update(
+        VSS_TEST_STATES="[]",
+        VSS_TEST_EXPECTED="2",
+        VSS_TEST_SEQUENCE=json.dumps(sequence),
+        VSS_TEST_COUNTER=str(counter),
+        VSS_READINESS_TIMEOUT_SECONDS="10",
+    )
+    result = _run_gate(env)
+    assert result.returncode == 0, result.stderr
+    assert counter.read_text() == "3"
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required by the gate")
+def test_documented_gate_times_out_when_warmup_never_finishes(
+    fake_runtime: tuple[Path, dict[str, str]], tmp_path: Path
+) -> None:
+    _, env = fake_runtime
+    counter = tmp_path / "snapshots"
+    states = [_state("running", "starting"), _state("exited")]
+    env.update(
+        VSS_TEST_STATES=json.dumps(states),
+        VSS_TEST_EXPECTED="2",
+        VSS_TEST_SEQUENCE=json.dumps([states]),
+        VSS_TEST_COUNTER=str(counter),
+        VSS_READINESS_TIMEOUT_SECONDS="1",
+    )
+    result = _run_gate(env)
+    assert result.returncode == 1
+    assert "readiness timed out after 1s" in result.stderr
+    assert int(counter.read_text()) >= 2
 
 
 @pytest.mark.parametrize("step", (0, 1))

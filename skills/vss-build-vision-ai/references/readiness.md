@@ -18,35 +18,51 @@ so keep the count guard in the same snippet as the state guard:
 set -euo pipefail
 BUILD_DIR="_builds/<name>"
 expected=$(docker compose -f "$BUILD_DIR/resolved.yml" config --services | wc -l)
-actual=$(docker compose -f "$BUILD_DIR/resolved.yml" ps --all -q | wc -l)
-if [ "$expected" -le 0 ] || [ "$actual" -le 0 ] || [ "$actual" -lt "$expected" ]; then
-  echo "FAIL: expected $expected services, got $actual — inspect resolved.yml" >&2
-  exit 1
-fi
+wait_seconds=${VSS_READINESS_TIMEOUT_SECONDS:-1200}
+[[ "$wait_seconds" =~ ^(0|[1-9][0-9]*)$ ]] || { echo "FAIL: invalid readiness timeout" >&2; exit 1; }
+deadline=$((SECONDS + wait_seconds))
 
 # docker compose 2.21+ emits NDJSON (one bare object per line) from
 # `ps --format json`, not a JSON array. Slurp all objects so a later
 # acceptable container cannot hide an earlier failure. Running services
 # with a healthcheck must be healthy; one-shot init jobs may exit 0.
-bad=$(
-  docker compose -f "$BUILD_DIR/resolved.yml" ps --all --format json \
-    | jq -sr '.[]
+while :; do
+  snapshot=$(docker compose -f "$BUILD_DIR/resolved.yml" ps --all --format json)
+  actual=$(jq -s 'length' <<<"$snapshot")
+  if [ "$expected" -le 0 ] || [ "$actual" -le 0 ] || [ "$actual" -lt "$expected" ]; then
+    echo "FAIL: expected $expected services, got $actual — inspect resolved.yml" >&2
+    exit 1
+  fi
+  bad=$(jq -sr '.[]
              | select(((.State == "running" and
                         ((.Health // "") == "" or .Health == "healthy")) or
                        (.State == "exited" and .ExitCode == 0)) | not)
-             | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"'
-)
-if [ -n "$bad" ]; then
-  echo "FAIL: containers not running or cleanly exited:" >&2
-  printf '%s\n' "$bad" >&2
-  exit 1
-fi
+             | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"' <<<"$snapshot")
+  [ -n "$bad" ] || break
+  # A failed init job needs repair; warming services get the remaining time.
+  if jq -se 'any(.[]; .State == "exited" and .ExitCode != 0)' <<<"$snapshot" >/dev/null; then
+    echo "FAIL: a container exited unsuccessfully:" >&2
+    printf '%s\n' "$bad" >&2
+    exit 1
+  fi
+  remaining=$((deadline - SECONDS))
+  if [ "$remaining" -le 0 ]; then
+    echo "FAIL: readiness timed out after ${wait_seconds}s; containers not ready:" >&2
+    printf '%s\n' "$bad" >&2
+    exit 1
+  fi
+  sleep "$((remaining < 5 ? remaining : 5))"
+done
 ```
 
 Every container must be either `running` or cleanly `exited 0`. One-shot init
 jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is
-fine. Anything `created`, `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy
-failure even though `up -d` returned 0.
+fine. Poll Docker state every five seconds for up to 20 minutes so cold-start
+`starting`, `created`, or temporarily `unhealthy`/`restarting` services can settle.
+Set `VSS_READINESS_TIMEOUT_SECONDS` to adjust this deadline. Missing containers,
+Docker command failures, and `exited <N≠0>` fail immediately; states that never
+settle fail at the deadline with the last container snapshot. This wait wraps
+Docker state inspection only; the `vss` CLI retains its own bounded waits.
 
 > **Warehouse needs a data-plane check, not just Gate 0.** Every container can
 > report `Up` while zero streams are processed, and Gate 0 cannot see it. Run the

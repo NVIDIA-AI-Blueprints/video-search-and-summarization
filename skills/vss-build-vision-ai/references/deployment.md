@@ -117,6 +117,9 @@ started and cannot satisfy readiness.
 
 Run [`readiness.md`](readiness.md)'s count and state gate against **all**
 containers, including one-shot init jobs and containers that never started.
+Keep ownership of its bounded Docker wait until healthchecks settle or its
+deadline expires; a `starting` healthcheck during model warmup is not yet a
+deployment failure.
 
 Then run the Foundation's stock readiness checks plus checks for every added
 capability owner. Allow cold NIM and RTVI model loads to finish. If a check
