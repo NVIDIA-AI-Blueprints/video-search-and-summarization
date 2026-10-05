@@ -53,20 +53,27 @@ logger = logging.getLogger(__name__)
 
 _REPORT_VLM_GROUNDING_INSTRUCTION = """
 Grounding requirements:
-- Report only facts directly visible in the supplied video.
-- Do not infer causes, contributing factors, severity, injuries, impact, outcomes, or responses.
-- Do not invent identities, roles, actions, people, vehicles, or object IDs.
-- If a requested detail is not directly visible, state that it is Unknown or N/A.
+- Report only facts directly supported by the supplied video evidence (visible, and audible when audio is available).
+- Do not make unsupported claims about causes, contributing factors, severity, injuries, impact, identities, roles, or counts.
+- Actions, outcomes, and responses may be reported only when directly supported by the available evidence.
+- Do not invent identities, roles, people, vehicles, object IDs, or counts.
+- Do not treat the number of object IDs as a people or vehicle count.
+- Date/time values may be reformatted for readability only when the underlying instant is preserved and the timezone is stated explicitly.
+- If a requested detail is not supported by the evidence, state that it is Unknown or N/A.
 """.strip()
 
 _REPORT_LLM_GROUNDING_INSTRUCTION = """
 Grounding requirements (these override any conflicting template instruction):
 - The authoritative incident facts supplied by the user are the only source of incident metadata.
 - Copy authoritative values exactly into corresponding report fields; do not replace or reinterpret them.
-- Treat video-understanding results only as evidence of directly visible observations.
-- Do not infer causes, contributing factors, severity, injuries, impact, outcomes, or responses.
-- Do not invent identities, roles, actions, people, vehicles, object IDs, or counts.
+- Treat video-understanding results only as evidence of directly supported observations (visible, and audible when audio evidence is present).
+- Do not make unsupported claims about causes, contributing factors, severity, injuries, impact, identities, roles, or counts.
+- Actions, outcomes, and responses may be reported only when directly supported by the available evidence.
+- Do not invent identities, roles, people, vehicles, object IDs, or counts.
+- Do not treat the length of objectIds as a people or vehicle count; use trusted counts from authoritative facts only when provided.
+- Date/time values may be reformatted for readability only when the underlying instant is preserved and the timezone is stated explicitly.
 - Use "Unknown" or "N/A" whenever the supplied evidence does not support a field.
+- Structural completeness of the template is not proof of factual accuracy.
 """.strip()
 
 
@@ -604,13 +611,29 @@ async def _fetch_geolocation_data(
     return geolocation_data
 
 
+def _extract_primary_object_id(alert_metadata: dict[str, Any]) -> Any:
+    """
+    Resolve primaryObjectId from the incident API shape.
+
+    OpenAPI models ``info`` as a free-form string map; warehouse fixtures store
+    ``info.primaryObjectId``. Also accept ``info.primary_object_id`` and a
+    top-level ``primaryObjectId`` if present.
+    """
+    info = alert_metadata.get("info")
+    if isinstance(info, dict):
+        for key in ("primaryObjectId", "primary_object_id"):
+            if info.get(key) is not None:
+                return info.get(key)
+    return alert_metadata.get("primaryObjectId")
+
+
 def _extract_object_ids_from_incident(alert_metadata: dict) -> list[str]:
     """
     Extract object IDs from incident metadata.
 
     Looks for:
     - objectIds field (list of IDs)
-    - info.primaryObjectId field (single ID)
+    - info.primaryObjectId / info.primary_object_id (single ID)
 
     Args:
         alert_metadata: The incident metadata dictionary
@@ -627,11 +650,9 @@ def _extract_object_ids_from_incident(alert_metadata: dict) -> list[str]:
         else:
             object_ids.add(alert_metadata["objectIds"])
 
-    # Extract from info.primaryObjectId field
-    if "info" in alert_metadata and isinstance(alert_metadata["info"], dict):
-        primary_id = alert_metadata["info"].get("primaryObjectId")
-        if primary_id is not None:
-            object_ids.add(primary_id)
+    primary_id = _extract_primary_object_id(alert_metadata)
+    if primary_id is not None:
+        object_ids.add(primary_id)
 
     result = [str(oid) for oid in object_ids if oid is not None]
     logger.info(f"Extracted object IDs from incident: {result}")
@@ -645,17 +666,23 @@ def _build_authoritative_incident_facts(
     alert_to_timestamp: str,
 ) -> dict[str, Any]:
     """Select incident fields that must not be inferred or rewritten by the report LLM."""
-    info = alert_metadata.get("info")
     place = alert_metadata.get("place")
-    facts = {
+    incident_id = alert_metadata.get("Id") or alert_metadata.get("id")
+    facts: dict[str, Any] = {
+        "Id": incident_id,
         "category": alert_metadata.get("category"),
         "timestamp": alert_metadata.get("timestamp") or alert_from_timestamp,
         "end": alert_metadata.get("end") or alert_to_timestamp,
         "sensorId": alert_metadata.get("sensorId") or alert_sensor_id,
         "objectIds": alert_metadata.get("objectIds"),
-        "primaryObjectId": info.get("primaryObjectId") if isinstance(info, dict) else None,
+        "primaryObjectId": _extract_primary_object_id(alert_metadata),
         "place.name": place.get("name") if isinstance(place, dict) else None,
     }
+    # Trusted counts already attached to metadata (e.g. behavior tool). Never derive
+    # people/vehicle counts from len(objectIds).
+    for count_key in ("people_count", "vehicle_count"):
+        if count_key in alert_metadata and alert_metadata[count_key] is not None:
+            facts[count_key] = alert_metadata[count_key]
     return {key: value for key, value in facts.items() if value is not None}
 
 
@@ -1006,7 +1033,8 @@ async def _format_custom_report(
                     "user",
                     "Authoritative incident facts (copy these values exactly):\n\n"
                     "{authoritative_incident_facts}\n\n"
-                    "Video understanding results (use only for directly visible observations):\n\n"
+                    "Video understanding results (use only for observations directly supported by "
+                    "visible or audible evidence):\n\n"
                     "{vlm_results}\n\n"
                     "Full alert metadata:\n\n{alert_metadata}",
                 ),

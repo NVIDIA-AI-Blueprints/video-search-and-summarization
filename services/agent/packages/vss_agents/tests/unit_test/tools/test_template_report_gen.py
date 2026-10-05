@@ -85,13 +85,16 @@ class TestIncidentReportGrounding:
     def test_selects_authoritative_incident_facts(self):
         facts = _build_authoritative_incident_facts(
             {
+                "Id": "inc-123",
                 "category": "Person in forklift aisle",
                 "timestamp": "2026-09-29T06:11:30Z",
                 "end": "2026-09-29T06:11:35Z",
                 "sensorId": "Camera_01",
-                "objectIds": ["person-7"],
+                "objectIds": ["person-7", "person-8"],
                 "info": {"primaryObjectId": "person-7"},
                 "place": {"name": "Warehouse aisle 3"},
+                "people_count": 1,
+                "vehicle_count": 0,
                 # These unsupported fields must not become authoritative facts.
                 "severity": "high",
                 "injury": "possible",
@@ -102,14 +105,28 @@ class TestIncidentReportGrounding:
         )
 
         assert facts == {
+            "Id": "inc-123",
             "category": "Person in forklift aisle",
             "timestamp": "2026-09-29T06:11:30Z",
             "end": "2026-09-29T06:11:35Z",
             "sensorId": "Camera_01",
-            "objectIds": ["person-7"],
+            "objectIds": ["person-7", "person-8"],
             "primaryObjectId": "person-7",
             "place.name": "Warehouse aisle 3",
+            "people_count": 1,
+            "vehicle_count": 0,
         }
+        # objectIds length must not be treated as a people/vehicle count.
+        assert facts["people_count"] != len(facts["objectIds"])
+
+    def test_primary_object_id_from_info_snake_case(self):
+        facts = _build_authoritative_incident_facts(
+            {"info": {"primary_object_id": "oid-9"}, "sensorId": "Camera_01"},
+            alert_sensor_id="fallback",
+            alert_from_timestamp="t0",
+            alert_to_timestamp="t1",
+        )
+        assert facts["primaryObjectId"] == "oid-9"
 
     @pytest.mark.asyncio
     async def test_vlm_prompt_forbids_unsupported_claims_and_resolves_empty_ids(self):
@@ -128,8 +145,10 @@ class TestIncidentReportGrounding:
         prompt = vlm_tool.ainvoke.await_args.kwargs["input"]["user_prompt"]
         assert "{object_ids}" not in prompt
         assert "none provided" in prompt
-        assert "Do not infer causes" in prompt
+        assert "Do not make unsupported claims about causes" in prompt
         assert "Do not invent identities" in prompt
+        assert "audible when audio is available" in prompt
+        assert "Actions, outcomes, and responses may be reported only when directly supported" in prompt
 
     @pytest.mark.asyncio
     async def test_report_llm_receives_authoritative_facts_and_grounding_rules(self, tmp_path):
@@ -144,11 +163,14 @@ class TestIncidentReportGrounding:
         content = await _format_custom_report(
             vlm_results=["A worker may have been injured."],
             alert_metadata={
+                "Id": "inc-123",
                 "category": "Person in forklift aisle",
                 "timestamp": "2026-09-29T06:11:30Z",
                 "sensorId": "Camera_01",
                 "objectIds": ["person-7"],
                 "place": {"name": "Warehouse aisle 3"},
+                "people_count": 1,
+                "vehicle_count": 0,
             },
             alert_sensor_id="Camera_01",
             alert_from_timestamp="2026-09-29T06:11:30Z",
@@ -162,8 +184,13 @@ class TestIncidentReportGrounding:
         assert content == "# Incident\n\nN/A"
         system_prompt = captured["messages"][0].content
         user_prompt = captured["messages"][1].content
-        assert "Do not infer causes" in system_prompt
+        assert "Do not make unsupported claims about causes" in system_prompt
         assert "injuries" in system_prompt
+        assert "timezone is stated explicitly" in system_prompt
+        assert "audible when audio evidence is present" in system_prompt
+        assert '"Id": "inc-123"' in user_prompt
         assert '"category": "Person in forklift aisle"' in user_prompt
         assert '"place.name": "Warehouse aisle 3"' in user_prompt
+        assert '"people_count": 1' in user_prompt
+        assert '"vehicle_count": 0' in user_prompt
         assert "copy these values exactly" in user_prompt
