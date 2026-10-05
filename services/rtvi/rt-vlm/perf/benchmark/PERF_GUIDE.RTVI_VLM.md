@@ -53,13 +53,16 @@ This is the minimal path from bare hardware to running benchmarks.
 
 ### Step 1 — Export required variables, then run the setup script
 
-#### Artifactory Access (one-time setup)
+#### Artifactory Access (only when downloading the VST package or legacy videos)
 
 `ARTIFACTORY_USER` and `ARTIFACTORY_TOKEN` are required when setup must download
-the VST package or any benchmark video. If you check in `perf/vst_package.tar.gz`
-and already have all benchmark videos in `PERF_VIDEOS_DIR`, setup can run without
-Artifactory credentials. If any video is missing, credentials are required. If
-you do need access:
+the VST package. Providing a local `VST_LOCAL_PACKAGE` (default:
+`perf/vst_package.tar.gz`) or a cached `VST_DIR/vst_package.tar.gz` avoids that
+download. Legacy warehouse videos are optional: setup downloads them when
+Artifactory credentials are set and skips missing ones otherwise. BCD media
+uses NGC or local sources; missing BCD media does not itself require Artifactory
+access. You still need the media required by the benchmark you run. If you need
+Artifactory downloads:
 
 1. **Request DL membership** — join the `it-aws-artifactory-users` distribution
    list at <https://dlrequest.nvidia.com>. Access is typically granted within one
@@ -80,11 +83,11 @@ The setup script patches the extracted VST package to run
 different VST build, override `VST_IMAGE_REGISTRY`, `VST_IMAGE_TAG`, or one of
 the full-image variables shown by `bash perf/setup_perf_env.sh -h`.
 
-For pinned package testing, check in the VST tarball as `perf/vst_package.tar.gz`
+For pinned package testing, place the VST tarball locally at `perf/vst_package.tar.gz`
 or set `VST_LOCAL_PACKAGE=/path/to/vst_package.tar.gz`. Setup stages that local
 tarball before considering the cached `VST_DIR/vst_package.tar.gz` or downloading
-`VST_PKG_URL`. Missing benchmark videos require Artifactory credentials so setup
-can download them.
+`VST_PKG_URL`. The container images above are pulled from `nvcr.io`, separately
+from the Artifactory package download.
 
 The script reads an existing `docker/.env.perf` as defaults
 before validation, including `export KEY=value` lines. Exported shell variables
@@ -96,10 +99,12 @@ exports those variables in the shell for a non-standard experiment.
 
 ```bash
 # ── Required ─────────────────────────────────────────────────────────────────
-export ARTIFACTORY_USER=your_username          # Artifactory username
-export ARTIFACTORY_TOKEN=your_token            # Artifactory API token
 export NGC_API_KEY=nvapi-XXXXXX                # NGC API key for model download
 export NVIDIA_VISIBLE_DEVICES=0                # GPU index
+
+# ── Conditional (VST package or optional legacy video downloads) ─────────────
+export ARTIFACTORY_USER=your_username          # omit when using local/cached VST
+export ARTIFACTORY_TOKEN=your_token            # and no legacy video downloads
 
 # ── Optional (override defaults if needed) ───────────────────────────────────
 export RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
@@ -351,10 +356,14 @@ Expected response:
 
 ### Prepare Test Videos
 
-#### Benchmark Videos (downloaded automatically by setup_perf_env.sh)
+#### Legacy Warehouse Videos (optional Artifactory downloads)
 
-`perf/setup_perf_env.sh` downloads the four benchmark videos to `PERF_VIDEOS_DIR`
+With Artifactory credentials, `perf/setup_perf_env.sh` attempts to download the
+four legacy warehouse videos to `PERF_VIDEOS_DIR`
 (default: `~/rtvi-perf/vst_package/videos/`).
+Missing legacy videos are skipped when credentials are unset; download failures
+are non-fatal during setup. Supply the files before running scenarios that need
+them. BCD media preparation uses NGC or local sources instead.
 `compose.perf.yaml` mounts that directory into the container at `/opt/nvidia/rtvi/streams/perf/`.
 
 | File | Duration | Used by |
@@ -378,6 +387,7 @@ All live-stream benchmarks use VST-managed streams at `rtsp://<HOST>/live/<strea
 
 ```bash
 # Run setup script (downloads VST, starts it, polls for streams, injects URL)
+# Only needed if VST is not local/cached, or to download legacy warehouse videos:
 export ARTIFACTORY_USER=your_username
 export ARTIFACTORY_TOKEN=your_token
 bash perf/setup_perf_env.sh
