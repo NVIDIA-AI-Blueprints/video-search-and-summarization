@@ -227,14 +227,13 @@ class TestReportBodyValidation:
     """Universal body checks plus optional explicit required_report_fields."""
 
     def test_required_report_fields_default_empty(self):
-        assert (
-            TemplateReportGenConfig(
-                object_store="object_store",
-                llm_name="llm",
-                video_understanding_tool="video_understanding",
-            ).required_report_fields
-            == []
+        config = TemplateReportGenConfig(
+            object_store="object_store",
+            llm_name="llm",
+            video_understanding_tool="video_understanding",
         )
+        assert config.required_report_fields == []
+        assert config.required_report_sections == []
 
     def test_normalize_strips_thinking_and_fences(self):
         raw = "```markdown\n<think>plan</think>\n# Incident\n\nN/A\n```"
@@ -335,6 +334,47 @@ Vehicles: none observed
 | **Detailed Description** | Resolved without trailing pipe
 """
         _validate_report_body(body, required_report_fields=["Detailed Description"])
+
+    def test_missing_configured_section_rejected_when_description_is_present(self):
+        body = _sample_table_report()
+        with pytest.raises(ReportContentValidationError, match="missing_required_section:People Involved"):
+            _validate_report_body(
+                body,
+                required_report_fields=["Detailed Description"],
+                required_report_sections=["People Involved", "Vehicles Involved"],
+            )
+
+    def test_empty_configured_section_rejected(self):
+        body = _sample_table_report() + "\n## People Involved\n\n## Vehicles Involved\n\nN/A\n"
+        with pytest.raises(ReportContentValidationError, match="empty_required_section:People Involved"):
+            _validate_report_body(
+                body,
+                required_report_sections=["People Involved", "Vehicles Involved"],
+            )
+
+    def test_placeholder_in_configured_section_rejected(self):
+        body = (
+            _sample_table_report()
+            + "\n## People Involved\n\n### Person {person_number}\n\n| **Person Type** | worker\n"
+            + "\n## Vehicles Involved\n\nN/A\n"
+        )
+        with pytest.raises(ReportContentValidationError, match="unresolved_placeholder:People Involved"):
+            _validate_report_body(body, required_report_sections=["People Involved", "Vehicles Involved"])
+
+    def test_configured_sections_accept_supported_content_or_section_level_na(self):
+        body = (
+            _sample_table_report()
+            + "\n## People Involved\n\n### Person 1\n\n| **Person Type** | worker\n"
+            + "\n## Vehicles Involved\n\nN/A\n"
+        )
+        _validate_report_body(
+            body,
+            required_report_fields=["Detailed Description"],
+            required_report_sections=["People Involved", "Vehicles Involved"],
+        )
+
+    def test_omitted_sections_pass_when_not_configured(self):
+        _validate_report_body(_sample_table_report())
 
     @pytest.mark.asyncio
     async def test_validation_failure_prevents_resources_append(self, tmp_path, monkeypatch):

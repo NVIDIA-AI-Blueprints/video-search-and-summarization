@@ -84,6 +84,8 @@ _TABLE_SEPARATOR_RE = re.compile(r"^\|\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
 _UNFILLED_PLACEHOLDER_RE = re.compile(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}")
 # Optional labeled values outside tables, e.g. "**Detailed Description:** text"
 _PROSE_LABELED_VALUE_RE = re.compile(r"^\s*\*\*(.+?)\*\*\s*:?\s*(.+?)\s*$", re.MULTILINE)
+_ATX_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$", re.MULTILINE)
+_SECTION_UNKNOWN_RE = re.compile(r"\b(Unknown|N/A)\b", re.IGNORECASE)
 
 
 class ReportContentValidationError(ValueError):
@@ -249,6 +251,15 @@ class TemplateReportGenConfig(FunctionBaseConfig, name="template_report_gen"):
             "generic body validation only: reject empty/thinking/resources-only output. "
             "Does not infer requirements from template titles, headings, or placeholder lists, "
             "so customized templates and prompt overrides remain supported."
+        ),
+    )
+    required_report_sections: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional Markdown heading titles that must appear with supported content or an "
+            "explicit Unknown/N/A in that section. Empty (default) does not require any section. "
+            "Headings are not inferred from the template, so renamed or removed sections stay valid "
+            "unless this list is updated to match."
         ),
     )
     include_picture_url: bool = Field(
@@ -811,19 +822,71 @@ def _validate_required_report_fields(body: str, required_fields: list[str], fail
             fail(f"{reason}:{normalized_label}")
 
 
+def _markdown_sections(content: str) -> dict[str, str]:
+    """Map ATX heading titles to the body that stays inside that heading."""
+    matches = list(_ATX_HEADING_RE.finditer(content))
+    sections: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        level = len(match.group(1))
+        title = match.group(2).strip()
+        body_end = len(content)
+        for later in matches[index + 1 :]:
+            if len(later.group(1)) <= level:
+                body_end = later.start()
+                break
+        # Keep the first heading when a title is repeated.
+        sections.setdefault(title, content[match.end() : body_end])
+    return sections
+
+
+def _section_body_is_supported(section_body: str) -> tuple[bool, str | None]:
+    """A required section needs resolved content or an explicit Unknown/N/A in that section."""
+    if _UNFILLED_PLACEHOLDER_RE.search(section_body):
+        return False, "unresolved_placeholder"
+    if _SECTION_UNKNOWN_RE.search(section_body):
+        return True, None
+    if any(value.strip() for value in _parse_markdown_table_fields(section_body).values()):
+        return True, None
+    cleaned = re.sub(r"(?m)^#{1,6}\s+.*$", " ", section_body)
+    cleaned = re.sub(r"(?m)^\|.*$", " ", cleaned)
+    cleaned = re.sub(r"[|*_`>#-]", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if not cleaned:
+        return False, "empty_required_section"
+    return True, None
+
+
+def _validate_required_report_sections(body: str, required_sections: list[str], fail: Any) -> None:
+    """Enforce only explicitly configured section headings."""
+    if not required_sections:
+        return
+    sections = _markdown_sections(body)
+    for title in required_sections:
+        normalized_title = title.strip()
+        if not normalized_title:
+            continue
+        if normalized_title not in sections:
+            fail(f"missing_required_section:{normalized_title}")
+        ok, reason = _section_body_is_supported(sections[normalized_title])
+        if not ok:
+            fail(f"{reason}:{normalized_title}")
+
+
 def _validate_report_body(
     content: str,
     *,
     required_report_fields: list[str] | None = None,
+    required_report_sections: list[str] | None = None,
     response_len: int | None = None,
 ) -> None:
     """
     Validate normalized report Markdown before Resources append or artifact save.
 
     Always rejects empty, whitespace-only, thinking-only, residual/unclosed thinking,
-    and resources-only bodies. Optional ``required_report_fields`` enforces only those
-    explicitly configured labels. Template titles/headings/placeholders are not assumed
-    to be mandatory. Structural completeness is not factual accuracy.
+    and resources-only bodies. Optional ``required_report_fields`` and
+    ``required_report_sections`` enforce only explicitly configured labels and headings.
+    Template titles are not assumed to make every heading mandatory. Structural
+    completeness is not factual accuracy.
     """
     body_len = len(content)
     effective_response_len = len(content) if response_len is None else response_len
@@ -846,6 +909,7 @@ def _validate_report_body(
         _fail("resources_only_body")
 
     _validate_required_report_fields(body, required_report_fields or [], _fail)
+    _validate_required_report_sections(body, required_report_sections or [], _fail)
 
 
 def _append_resources_section(content: str, image_url: str | None, video_url: str | None) -> str:
@@ -1183,6 +1247,7 @@ async def _format_custom_report(
     agent_version: str = "v1.0.0",
     llm_reasoning: bool | None = None,
     required_report_fields: list[str] | None = None,
+    required_report_sections: list[str] | None = None,
 ) -> str:
     """Format custom report using LLM to extract information from messages and populate template."""
     template_content = _load_custom_template(template_path, template_name)
@@ -1243,6 +1308,7 @@ async def _format_custom_report(
         _validate_report_body(
             content,
             required_report_fields=required_report_fields,
+            required_report_sections=required_report_sections,
             response_len=len(raw_content),
         )
     except ReportContentValidationError as e:
@@ -1322,6 +1388,7 @@ async def template_report_gen(config: TemplateReportGenConfig, builder: Builder)
             agent_version=config.agent_version,
             llm_reasoning=report_input.llm_reasoning,
             required_report_fields=config.required_report_fields,
+            required_report_sections=config.required_report_sections,
         )
 
         # Generate filenames
