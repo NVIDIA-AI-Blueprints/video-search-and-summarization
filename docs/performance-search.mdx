@@ -60,11 +60,21 @@ vss search run fusion \
 The CLI does not decompose. The **Query decomposition (LLM)** row in the stage tables is a
 separate call made before each invocation, against the reasoning LLM at temperature 0 with
 thinking disabled, reusing the prompt the Vision Agent's search tool uses
-(`services/agent/packages/vss_agents/src/vss_agents/tools/search.py`). That call chooses the
-action and rewrites the query for retrieval; `--original-query` carries the user's untouched
-question through so the critic verifies against what was actually asked. To reproduce the
-decomposition stage you need that LLM call in front of the CLI — running `vss search run`
-alone reproduces every other row but not this one.
+(`services/agent/packages/vss_agents/src/vss_agents/tools/search.py`).
+
+That call does not return an action. It returns a rewritten `query`, an `attributes` list, a
+`has_action` flag, `object_ids`, and any source or time bounds the question mentioned. The
+action is derived from those: `object_ids` present selects `object`; otherwise empty
+`attributes` selects `embed`, and `attributes` with `has_action` true selects `fusion` or
+false selects `attribute`. `--original-query` carries the user's untouched question through
+so the critic verifies against what was actually asked.
+
+Reproducing the decomposition row therefore needs both the LLM call and this derivation in
+front of the CLI — running `vss search run` alone reproduces every other row but not this
+one. The **Routed actions** counts above are the actions invoked on the command line. They
+are not necessarily the retrieval that executed: a `fusion` invocation falls back to
+attribute-only inside the search library when the embedding leg scores below
+`embed_confidence_threshold`, which is 0.1 by default.
 </Note>
 
 ### Video Upload Performance
@@ -129,12 +139,13 @@ leaving lower-ranked hits unverified.
 It is not the only thing to size past roughly 20 concurrent queries. Retrieval holds near
 its single-query cost through 20 — attribute search goes 0.365s to 0.425s on H100 and 0.508s
 to 0.712s on RTX — and then degrades sharply at 50, to 2.219s and 10.950s respectively.
-Nearly all of that is the RT-Embed text-embedding call that the attribute and fusion paths
-share, which climbs from 1.004s to 2.202s on H100 and from 1.817s to 7.829s on RTX. Embed
-search, Elasticsearch query execution and VST clip resolution do stay flat throughout. If
-you expect sustained load above about 20 concurrent queries, give RTVI-Embed headroom as
-well — sizing RTVI-VLM alone stops being sufficient there, and on RTX the attribute path
-becomes the second ceiling.
+Nearly all of that is the text-embedding call the attribute and fusion paths share, which
+climbs from 1.004s to 2.202s on H100 and from 1.817s to 7.829s on RTX. That call goes to
+RTVI-CV, not RTVI-Embed — the attribute leg embeds its text through RTVI-CV, while
+RTVI-Embed serves the embed-search path only. Embed search, Elasticsearch query execution
+and VST clip resolution do stay flat throughout. If you expect sustained load above about 20
+concurrent queries, give RTVI-CV headroom as well — sizing RTVI-VLM alone stops being
+sufficient there, and on RTX the attribute path becomes the second ceiling.
 
 ## Latency Stage Breakdown
 
