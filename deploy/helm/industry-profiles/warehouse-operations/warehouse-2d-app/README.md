@@ -382,14 +382,23 @@ Video source — pick one; they're mutually exclusive, don't configure both:
    directly; test with VLC or `ffplay` from the deployment machine before
    deploying.
 
-**Calibration is optional for 2D** (unlike 3D/MV3DT):
+##### Calibration
 
-- 2D detection/tracking runs directly on the camera stream in image (pixel)
-  coordinates — no calibration required.
-- Calibration is only needed for ROI/tripwire events in behavior-analytics.
-- Neither is disabled by default.
+2D supports three calibration states (unlike 3D/MV3DT, which always need
+cartesian calibration):
 
-If you don't need ROI/tripwire, skip calibration entirely with these 3 changes:
+- **Cartesian** (`calibrationType: "cartesian"`) — full image-to-global
+  calibration; ROI/tripwire authoring fully supported.
+- **Image coordinates, with a calibration file** (`calibrationType:
+  "image"`) — pixel-coordinate calibration, no geometric transform;
+  ROI/tripwire must be measured manually.
+- **Running 2D without calibration** — detection/tracking still runs in
+  image (pixel) coordinates; ROI/tripwire events are unavailable. See below.
+
+##### Running 2D without calibration
+
+Calibration is enabled by default. If you don't need ROI/tripwire, skip
+calibration entirely (the third state above) with these 3 changes:
 
 | Setting | Set | Effect |
 |---|---|---|
