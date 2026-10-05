@@ -192,13 +192,15 @@ else
 fi
 
 # HF — not needed by any in-tree edge path; kept for the gated Omni checkpoint.
-# Presence only, deliberately unprobed: every candidate endpoint either answers
-# the same for a good token, a junk token and no token at all (the model
-# metadata API is public), or cannot be confirmed to accept an ordinary
-# fine-grained read token, which would gate a working one. Reporting a token as
-# validated on a public 200 is worse than saying nothing, so the gate enforces
-# what it can check — that the token is set — and credentials.md's artifact
-# probes own access to the selected checkpoint.
+# Presence only, deliberately unprobed: this gate runs before the build resolves,
+# so it has no selected repository to ask about, and every endpoint that needs no
+# repository either answers the same for a good token, a junk token and no token
+# at all (a *public* repo's metadata ignores auth entirely) or cannot be confirmed
+# to accept an ordinary fine-grained read token, which would gate a working one.
+# Reporting a token as validated on a public 200 is worse than saying nothing, so
+# the gate enforces what it can check — that the token is set. A gated repo does
+# discriminate, which is why credentials.md's artifact probes own access to the
+# selected checkpoint once there is one.
 if [[ -n "${HF_TOKEN:-}" ]]; then
   echo "HF_TOKEN: set — not validated here; probe the selected checkpoint per credentials.md"
 elif [[ "$require_hf" == 1 ]]; then

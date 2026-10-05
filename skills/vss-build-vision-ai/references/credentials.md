@@ -134,13 +134,18 @@ Probe each artifact with the normalized NGC key:
     https://huggingface.co/api/models/nvidia/Nemotron-Nano-V3-Omni-GA0420-FP8
   ```
 
-  This is a real entitlement signal only because a gated repository refuses
-  anonymous access: `200` proves the token reaches it, `401`/`403` proves it
-  does not. Run it against the **selected** repository and nothing else — a
-  public repository answers `200` for any token or none, which is exactly why
-  the gate cannot validate `HF_TOKEN` on its own. The Cosmos-Embed checkpoints
-  RT-Embed uses by default are public, so there is nothing to probe and no
-  token to require.
+  This is a real entitlement signal only because a gated repository refuses an
+  anonymous caller and an invalid token identically: `200` proves the token is
+  admitted, `401`/`403` proves it is not. Run it against the **selected**
+  repository and nothing else — a public repository answers `200` for any token
+  or none, which is why the gate cannot validate `HF_TOKEN` on its own and why
+  RT-Embed's public Cosmos-Embed defaults need neither a probe nor a token.
+
+  `200` clears repository access, not the download: a token scoped below what
+  the download needs still fails at `hf download`, which stays authoritative.
+  Do not substitute a file, tree or git-transport probe; Hugging Face gates the
+  whole repository, so they carry no extra signal and a guessed filename is a
+  false failure.
 
 On `401`, `403`, permission, membership, or missing repository errors, stop
 and request an NGC key entitled to those artifacts. Do not defer this failure
