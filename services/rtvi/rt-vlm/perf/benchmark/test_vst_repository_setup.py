@@ -5,6 +5,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -17,6 +18,48 @@ STAGER = PERF / "stage_vst.py"
 
 
 class RepositoryVstSetupTests(unittest.TestCase):
+    def test_overlapping_port_numbers_preserve_sensor_and_processor_routes(self):
+        for sensor, processor in ((30001, 30002), (30001, 30000)):
+            with self.subTest(sensor=sensor, processor=processor), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary) / "staged"
+                result = subprocess.run(
+                    [sys.executable, str(STAGER)],
+                    env={"PATH": os.environ["PATH"], "VST_DIR": str(root),
+                         "VST_SENSOR_PORT": str(sensor), "VST_STREAM_PROC_PORT": str(processor)},
+                    capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                original = (PERF.parents[2] / "vios/deployment/stream-processing/docker-compose/configs/nginx-vst.conf").read_text()
+                staged = (root / "stream-processing/configs/nginx-vst.conf").read_text()
+                upstreams = lambda text: re.findall(r"proxy_pass http://127\.0\.0\.1:(\d+)", text)
+                expected = [str(sensor) if port == "30000" else str(processor)
+                            for port in upstreams(original)]
+                self.assertIn(str(sensor), expected)
+                self.assertIn(str(processor), expected)
+                self.assertEqual(upstreams(staged), expected)
+
+    def test_default_file_scenarios_use_prepared_bcd_media(self):
+        import yaml
+
+        prepared = {"FPS10_Res1080p_Dur10sec_1.mp4", "warehouse_gopro_10m_10fps.mp4",
+                    "warehouse_gopro_60m_10fps.mp4"}
+        def filepaths(node):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key == "filepath":
+                        yield Path(value).name
+                    else:
+                        yield from filepaths(value)
+            elif isinstance(node, list):
+                for value in node:
+                    yield from filepaths(value)
+        for platform in ("test", "h100", "rtx_pro", "l40s", "jetson", "spark"):
+            with self.subTest(platform=platform):
+                config = yaml.safe_load((PERF / "benchmark" / f"rtvi_vlm_config_{platform}.yaml").read_text())
+                referenced = set(filepaths(config))
+                self.assertTrue(referenced)
+                self.assertFalse(referenced - prepared, f"Unprepared media: {referenced - prepared}")
+
     @unittest.skipUnless(sys.platform == "linux", "setup requires Linux Bash and GNU sed")
     def test_setup_prerequisites_and_staging_without_artifactory(self):
         setup = (PERF / "setup_perf_env.sh").read_text()

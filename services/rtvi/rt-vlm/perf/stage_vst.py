@@ -103,8 +103,9 @@ def stage():
         compose.write_text(text)
     nginx = stream / "configs/nginx-vst.conf"
     text = nginx.read_text().replace("listen 30888;", f"listen {ports['VST_INGRESS_PORT']};")
-    for default, key in ((30000, "VST_SENSOR_PORT"), (30001, "VST_STREAM_PROC_PORT")):
-        text = text.replace(f"127.0.0.1:{default}", f"127.0.0.1:{ports[key]}")
+    upstream_ports = {"30000": ports["VST_SENSOR_PORT"], "30001": ports["VST_STREAM_PROC_PORT"]}
+    text = re.sub(r"127\.0\.0\.1:(30000|30001)\b",
+                  lambda match: f"127.0.0.1:{upstream_ports[match[1]]}", text)
     nginx.write_text(text)
     postgres = stream / "configs/postgresql.conf"
     postgres.write_text(re.sub(r"^port\s*=.*$", f"port = {ports['CENTRALIZE_DB_PORT']}",
