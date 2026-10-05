@@ -71,6 +71,7 @@ class ProfileConfigManager:
     DEFAULT_CONFIG_FILE = 'gpu_configs_generic.yaml'
     DEFAULT_HARDWARE_PROFILE = 'default'
     DEFAULT_DEPLOYMENT_MODE = '3d'
+    MODE_LESS_SUFFIX = " (mode-less)"
 
     @staticmethod
     def _hardware_profile_names(profile_configs: Dict[str, Any]) -> List[str]:
@@ -119,18 +120,18 @@ class ProfileConfigManager:
         if not self._has_effective_config():
             logger.warning(
                 f"No configuration found for HW profile: {self.hardware_profile}"
-                + (f" and MODE: {self.deployment_profile}" if self.deployment_modes_enabled else " (mode-less)")
+                + self._mode_suffix()
             )
         else:
             if self.config:
                 logger.info(
                     f"Found configurations for HW Profile: {self.hardware_profile}"
-                    + (f" and MODE: {self.deployment_profile}" if self.deployment_modes_enabled else " (mode-less)")
+                    + self._mode_suffix()
                 )
             else:
                 logger.info(
                     f"Using common configurations for HW Profile: {self.hardware_profile}"
-                    + (f" and MODE: {self.deployment_profile}" if self.deployment_modes_enabled else " (mode-less)")
+                    + self._mode_suffix()
                 )
             # Run variable validation first (validates env vars before any processing)
             self._execute_variable_validation()
@@ -1182,6 +1183,52 @@ class ProfileConfigManager:
             logger.warning(f"Unsupported file management action: {action}")
             return False
 
+    def _require_video_directory(self, raw_directory: Any) -> Path:
+        """Return a readable video directory, or raise the existing path errors."""
+        directory = Path(str(self._substitute_env_vars(raw_directory)))
+        if not directory.exists():
+            raise FileNotFoundError(f"Video directory not found: {directory}")
+        if not directory.is_dir():
+            raise ValueError(f"Video path is not a directory: {directory}")
+        if not os.access(directory, os.R_OK):
+            raise PermissionError(f"Video directory is not readable: {directory}")
+        return directory
+
+    @staticmethod
+    def _video_name_matches(name: str, normalized_patterns: List[str]) -> bool:
+        lowered = name.lower()
+        for pattern in normalized_patterns:
+            if fnmatch.fnmatch(lowered, pattern):
+                return True
+        return False
+
+    @staticmethod
+    def _matched_video_files(
+        directory: Path,
+        normalized_patterns: List[str],
+    ) -> List[Path]:
+        matched = [
+            path
+            for path in directory.iterdir()
+            if path.is_file() and ProfileConfigManager._video_name_matches(
+                path.name, normalized_patterns
+            )
+        ]
+        matched.sort(key=lambda path: path.name)
+        return matched
+
+    @staticmethod
+    def _register_camera_stem(files_by_stem: Dict[str, Path], path: Path) -> None:
+        sensor_id = path.stem
+        if not sensor_id or not sensor_id.strip():
+            raise ValueError(f"Video file has an empty camera ID: {path}")
+        if sensor_id in files_by_stem:
+            raise ValueError(
+                f"Duplicate camera ID '{sensor_id}' from video files "
+                f"{files_by_stem[sensor_id]} and {path}"
+            )
+        files_by_stem[sensor_id] = path
+
     def _discover_camera_names(
         self,
         directories: List[str],
@@ -1200,43 +1247,16 @@ class ProfileConfigManager:
         files_by_stem: Dict[str, Path] = {}
 
         for raw_directory in directories:
-            directory = Path(str(self._substitute_env_vars(raw_directory)))
-            if not directory.exists():
-                raise FileNotFoundError(f"Video directory not found: {directory}")
-            if not directory.is_dir():
-                raise ValueError(f"Video path is not a directory: {directory}")
-            if not os.access(directory, os.R_OK):
-                raise PermissionError(f"Video directory is not readable: {directory}")
-
-            matched_files = sorted(
-                (
-                    path
-                    for path in directory.iterdir()
-                    if path.is_file()
-                    and any(
-                        fnmatch.fnmatch(path.name.lower(), pattern)
-                        for pattern in normalized_patterns
-                    )
-                ),
-                key=lambda path: path.name,
-            )
+            directory = self._require_video_directory(raw_directory)
+            matched_files = self._matched_video_files(directory, normalized_patterns)
             logger.info(
                 "Discovered %d video file(s) in %s: %s",
                 len(matched_files),
                 directory,
                 [path.name for path in matched_files],
             )
-
             for path in matched_files:
-                sensor_id = path.stem
-                if not sensor_id or not sensor_id.strip():
-                    raise ValueError(f"Video file has an empty camera ID: {path}")
-                if sensor_id in files_by_stem:
-                    raise ValueError(
-                        f"Duplicate camera ID '{sensor_id}' from video files "
-                        f"{files_by_stem[sensor_id]} and {path}"
-                    )
-                files_by_stem[sensor_id] = path
+                self._register_camera_stem(files_by_stem, path)
 
         camera_names = sorted(files_by_stem)
         if not camera_names:
@@ -1246,11 +1266,8 @@ class ProfileConfigManager:
         logger.info("Camera IDs derived from video filenames: %s", camera_names)
         return camera_names
 
-    def _discover_camera_names_from_sensor_file(
-        self,
-        raw_sensor_file: Any,
-    ) -> List[str]:
-        """Return validated camera IDs from a file-based RTSP sensor config."""
+    def _resolve_sensor_file(self, raw_sensor_file: Any) -> Path:
+        """Resolve and validate a SENSOR_INFO_SOURCE=file path."""
         if not raw_sensor_file:
             raise ValueError(
                 "sensor_file is required when SENSOR_INFO_SOURCE=file"
@@ -1274,6 +1291,50 @@ class ProfileConfigManager:
             raise ValueError(f"Sensor path is not a file: {sensor_file}")
         if not os.access(sensor_file, os.R_OK):
             raise PermissionError(f"Sensor file is not readable: {sensor_file}")
+        return sensor_file
+
+    @staticmethod
+    def _camera_name_from_sensor(
+        sensor: Any,
+        index: int,
+        sensor_file: Path,
+        seen_camera_names: set,
+    ) -> str:
+        """Validate one sensor entry and record its camera_name."""
+        if not isinstance(sensor, dict):
+            raise ValueError(
+                f"Sensor at index {index} is not an object: {sensor_file}"
+            )
+
+        camera_name = sensor.get("camera_name")
+        if (
+            not isinstance(camera_name, str)
+            or not camera_name.strip()
+            or camera_name != camera_name.strip()
+        ):
+            raise ValueError(
+                f"Sensor at index {index} has an invalid camera_name: "
+                f"{sensor_file}"
+            )
+        rtsp_url = sensor.get("rtsp_url")
+        if not isinstance(rtsp_url, str) or not rtsp_url.strip():
+            raise ValueError(
+                f"Sensor '{camera_name}' has an invalid rtsp_url: {sensor_file}"
+            )
+        if camera_name in seen_camera_names:
+            raise ValueError(
+                f"Duplicate camera_name '{camera_name}' in sensor file: "
+                f"{sensor_file}"
+            )
+        seen_camera_names.add(camera_name)
+        return camera_name
+
+    def _discover_camera_names_from_sensor_file(
+        self,
+        raw_sensor_file: Any,
+    ) -> List[str]:
+        """Return validated camera IDs from a file-based RTSP sensor config."""
+        sensor_file = self._resolve_sensor_file(raw_sensor_file)
 
         with sensor_file.open("r", encoding="utf-8") as file:
             sensor_data = json.load(file)
@@ -1290,33 +1351,11 @@ class ProfileConfigManager:
         camera_names: List[str] = []
         seen_camera_names: set[str] = set()
         for index, sensor in enumerate(sensors):
-            if not isinstance(sensor, dict):
-                raise ValueError(
-                    f"Sensor at index {index} is not an object: {sensor_file}"
+            camera_names.append(
+                self._camera_name_from_sensor(
+                    sensor, index, sensor_file, seen_camera_names
                 )
-
-            camera_name = sensor.get("camera_name")
-            if (
-                not isinstance(camera_name, str)
-                or not camera_name.strip()
-                or camera_name != camera_name.strip()
-            ):
-                raise ValueError(
-                    f"Sensor at index {index} has an invalid camera_name: "
-                    f"{sensor_file}"
-                )
-            rtsp_url = sensor.get("rtsp_url")
-            if not isinstance(rtsp_url, str) or not rtsp_url.strip():
-                raise ValueError(
-                    f"Sensor '{camera_name}' has an invalid rtsp_url: {sensor_file}"
-                )
-            if camera_name in seen_camera_names:
-                raise ValueError(
-                    f"Duplicate camera_name '{camera_name}' in sensor file: "
-                    f"{sensor_file}"
-                )
-            seen_camera_names.add(camera_name)
-            camera_names.append(camera_name)
+            )
 
         camera_names.sort()
         logger.info(
@@ -1385,197 +1424,261 @@ class ProfileConfigManager:
             )
         return set(sensor_ids)
 
+    def _bev_recompute_skipped_for_mode(self, operation: Dict[str, Any]) -> bool:
+        required_mode = str(
+            self._substitute_env_vars(operation.get("required_mode", "3d"))
+        ).lower()
+        if required_mode and self.deployment_profile != required_mode:
+            logger.info(
+                "Skipping BEV group recomputation for mode %s (requires %s)",
+                self.deployment_profile,
+                required_mode,
+            )
+            return True
+        return False
+
+    def _require_bev_calibration_mode(self, operation: Dict[str, Any]) -> None:
+        required_calibration_mode = operation.get("required_calibration_mode")
+        if not required_calibration_mode:
+            return
+        required_calibration_mode = str(
+            self._substitute_env_vars(required_calibration_mode)
+        ).lower()
+        actual_calibration_mode = str(
+            self.env_vars.get("CALIBRATION_MODE", "")
+        ).lower()
+        if actual_calibration_mode != required_calibration_mode:
+            raise ValueError(
+                "BEV group recomputation requires CALIBRATION_MODE="
+                f"{required_calibration_mode}, got "
+                f"{actual_calibration_mode or '<unset>'}"
+            )
+
+    def _require_expected_camera_count(
+        self,
+        operation: Dict[str, Any],
+        camera_names: List[str],
+    ) -> None:
+        expected_count_raw = operation.get("expected_camera_count")
+        if expected_count_raw is None:
+            return
+        expected_count_raw = self._substitute_env_vars(expected_count_raw)
+        try:
+            expected_count = int(expected_count_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Invalid expected camera count: {expected_count_raw!r}"
+            ) from exc
+        if expected_count < 0:
+            raise ValueError(
+                f"Expected camera count cannot be negative: {expected_count}"
+            )
+        if expected_count > 0 and expected_count != len(camera_names):
+            raise ValueError(
+                f"Discovered {len(camera_names)} camera(s), "
+                f"but expected {expected_count}"
+            )
+
+    def _require_calibration_file(self, operation: Dict[str, Any]) -> Path:
+        raw_calibration_file = operation.get("calibration_file")
+        if not raw_calibration_file:
+            raise ValueError("calibration_file is required")
+        calibration_file = Path(
+            str(self._substitute_env_vars(raw_calibration_file))
+        )
+        if not calibration_file.exists():
+            raise FileNotFoundError(
+                f"Calibration file not found: {calibration_file}"
+            )
+        if not calibration_file.is_file():
+            raise ValueError(
+                f"Calibration path is not a file: {calibration_file}"
+            )
+        if not os.access(calibration_file, os.R_OK):
+            raise PermissionError(
+                f"Calibration file is not readable: {calibration_file}"
+            )
+        if not os.access(calibration_file.parent, os.W_OK):
+            raise PermissionError(
+                f"Calibration directory is not writable: {calibration_file.parent}"
+            )
+        return calibration_file
+
+    def _require_cameras_covered_by_calibration(
+        self,
+        camera_names: List[str],
+        calibration_file: Path,
+    ) -> None:
+        with calibration_file.open("r", encoding="utf-8") as file:
+            original_data = json.load(file)
+        original_sensor_ids = self._validate_calibration_data(
+            original_data, calibration_file
+        )
+        missing_sensor_ids = sorted(set(camera_names) - original_sensor_ids)
+        if missing_sensor_ids:
+            raise ValueError(
+                "Video camera IDs are missing from calibration sensors: "
+                f"{missing_sensor_ids}"
+            )
+        unused_sensor_ids = sorted(original_sensor_ids - set(camera_names))
+        if unused_sensor_ids:
+            logger.warning(
+                "Calibration sensors without matching videos will be removed "
+                "from the updated calibration: %s",
+                unused_sensor_ids,
+            )
+
+    def _require_calibration_backup(self, calibration_file: Path) -> str:
+        backup_path = self._create_backup(str(calibration_file))
+        if not backup_path:
+            raise OSError(
+                f"Could not create required backup for {calibration_file}"
+            )
+        return backup_path
+
+    @staticmethod
+    def _stage_calibration_copy(calibration_file: Path) -> Path:
+        file_descriptor, raw_temp_path = tempfile.mkstemp(
+            prefix=f".{calibration_file.stem}.bev_",
+            suffix=calibration_file.suffix,
+            dir=str(calibration_file.parent),
+        )
+        os.close(file_descriptor)
+        temp_path = Path(raw_temp_path)
+        try:
+            shutil.copy2(calibration_file, temp_path)
+        except Exception:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                logger.warning(
+                    "Failed to remove temporary calibration file %s: %s",
+                    temp_path,
+                    cleanup_error,
+                )
+            raise
+        return temp_path
+
+    def _require_n_sensor_groups(self, operation: Dict[str, Any]) -> int:
+        n_sensor_groups_raw = self._substitute_env_vars(
+            operation.get("n_sensor_groups", 1)
+        )
+        try:
+            n_sensor_groups = int(n_sensor_groups_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Invalid n_sensor_groups: {n_sensor_groups_raw!r}"
+            ) from exc
+        if n_sensor_groups <= 0:
+            raise ValueError("n_sensor_groups must be greater than zero")
+        return n_sensor_groups
+
+    def _recompute_bev_temp_file(
+        self,
+        temp_path: Path,
+        camera_names: List[str],
+        n_sensor_groups: int,
+    ) -> None:
+        output_path = recompute_bev_centers(
+            str(temp_path),
+            camera_names,
+            n_sensor_groups,
+            len(camera_names),
+        )
+        if not output_path:
+            raise ValueError("BEV recomputation did not return an output path")
+        output_path = Path(output_path)
+        if output_path.resolve() != temp_path.resolve():
+            raise ValueError(
+                "BEV recomputation returned an unexpected output path: "
+                f"{output_path} (expected {temp_path})"
+            )
+
+        with temp_path.open("r", encoding="utf-8") as file:
+            updated_data = json.load(file)
+        updated_sensor_ids = self._validate_calibration_data(
+            updated_data, temp_path
+        )
+        expected_sensor_ids = set(camera_names)
+        if updated_sensor_ids != expected_sensor_ids:
+            raise ValueError(
+                "BEV recomputation produced unexpected calibration sensor IDs: "
+                f"expected {sorted(expected_sensor_ids)}, "
+                f"got {sorted(updated_sensor_ids)}"
+            )
+
+    @staticmethod
+    def _write_calibration_in_place(calibration_file: Path, content: bytes) -> None:
+        with calibration_file.open("r+b") as file:
+            file.seek(0)
+            bytes_written = file.write(content)
+            if bytes_written != len(content):
+                raise OSError(
+                    "Short write while updating calibration: "
+                    f"wrote {bytes_written} of {len(content)} bytes"
+                )
+            file.truncate()
+            file.flush()
+            os.fsync(file.fileno())
+
+    def _publish_recomputed_calibration(
+        self,
+        calibration_file: Path,
+        temp_path: Path,
+        backup_path: str,
+    ) -> None:
+        # Preserve the calibration file's inode. Several warehouse services
+        # bind-mount this individual file and would keep reading the old inode
+        # if os.replace() swapped the path to a new file.
+        updated_bytes = temp_path.read_bytes()
+        original_bytes = calibration_file.read_bytes()
+        try:
+            self._write_calibration_in_place(calibration_file, updated_bytes)
+        except Exception as publish_error:
+            logger.exception(
+                "Failed to publish recomputed calibration; restoring %s",
+                calibration_file,
+            )
+            try:
+                self._write_calibration_in_place(calibration_file, original_bytes)
+            except Exception as rollback_error:
+                logger.critical(
+                    "Failed to restore calibration after publish failure; "
+                    "backup remains at %s",
+                    backup_path,
+                    exc_info=True,
+                )
+                raise RuntimeError(
+                    "Calibration publish and rollback both failed; "
+                    f"restore manually from {backup_path}"
+                ) from rollback_error
+            raise RuntimeError(
+                "Calibration publish failed; original content was restored"
+            ) from publish_error
+
     def _execute_recompute_bev_groups(self, operation: Dict[str, Any]) -> bool:
         """Safely recompute BEV groups from the configured camera source."""
         temp_path: Optional[Path] = None
         try:
-            required_mode = str(
-                self._substitute_env_vars(operation.get("required_mode", "3d"))
-            ).lower()
-            if required_mode and self.deployment_profile != required_mode:
-                logger.info(
-                    "Skipping BEV group recomputation for mode %s (requires %s)",
-                    self.deployment_profile,
-                    required_mode,
-                )
+            if self._bev_recompute_skipped_for_mode(operation):
                 return True
 
-            required_calibration_mode = operation.get("required_calibration_mode")
-            if required_calibration_mode:
-                required_calibration_mode = str(
-                    self._substitute_env_vars(required_calibration_mode)
-                ).lower()
-                actual_calibration_mode = str(
-                    self.env_vars.get("CALIBRATION_MODE", "")
-                ).lower()
-                if actual_calibration_mode != required_calibration_mode:
-                    raise ValueError(
-                        "BEV group recomputation requires CALIBRATION_MODE="
-                        f"{required_calibration_mode}, got "
-                        f"{actual_calibration_mode or '<unset>'}"
-                    )
-
+            self._require_bev_calibration_mode(operation)
             camera_names = self._resolve_recompute_camera_names(operation)
-
-            expected_count_raw = operation.get("expected_camera_count")
-            if expected_count_raw is not None:
-                expected_count_raw = self._substitute_env_vars(expected_count_raw)
-                try:
-                    expected_count = int(expected_count_raw)
-                except (TypeError, ValueError) as exc:
-                    raise ValueError(
-                        f"Invalid expected camera count: {expected_count_raw!r}"
-                    ) from exc
-                if expected_count < 0:
-                    raise ValueError(
-                        f"Expected camera count cannot be negative: {expected_count}"
-                    )
-                if expected_count > 0 and expected_count != len(camera_names):
-                    raise ValueError(
-                        f"Discovered {len(camera_names)} camera(s), "
-                        f"but expected {expected_count}"
-                    )
-
-            raw_calibration_file = operation.get("calibration_file")
-            if not raw_calibration_file:
-                raise ValueError("calibration_file is required")
-            calibration_file = Path(
-                str(self._substitute_env_vars(raw_calibration_file))
+            self._require_expected_camera_count(operation, camera_names)
+            calibration_file = self._require_calibration_file(operation)
+            self._require_cameras_covered_by_calibration(
+                camera_names, calibration_file
             )
-            if not calibration_file.exists():
-                raise FileNotFoundError(
-                    f"Calibration file not found: {calibration_file}"
-                )
-            if not calibration_file.is_file():
-                raise ValueError(
-                    f"Calibration path is not a file: {calibration_file}"
-                )
-            if not os.access(calibration_file, os.R_OK):
-                raise PermissionError(
-                    f"Calibration file is not readable: {calibration_file}"
-                )
-            if not os.access(calibration_file.parent, os.W_OK):
-                raise PermissionError(
-                    f"Calibration directory is not writable: {calibration_file.parent}"
-                )
-
-            with calibration_file.open("r", encoding="utf-8") as file:
-                original_data = json.load(file)
-            original_sensor_ids = self._validate_calibration_data(
-                original_data, calibration_file
+            backup_path = self._require_calibration_backup(calibration_file)
+            temp_path = self._stage_calibration_copy(calibration_file)
+            n_sensor_groups = self._require_n_sensor_groups(operation)
+            self._recompute_bev_temp_file(
+                temp_path, camera_names, n_sensor_groups
             )
-
-            missing_sensor_ids = sorted(set(camera_names) - original_sensor_ids)
-            if missing_sensor_ids:
-                raise ValueError(
-                    "Video camera IDs are missing from calibration sensors: "
-                    f"{missing_sensor_ids}"
-                )
-            unused_sensor_ids = sorted(original_sensor_ids - set(camera_names))
-            if unused_sensor_ids:
-                logger.warning(
-                    "Calibration sensors without matching videos will be removed "
-                    "from the updated calibration: %s",
-                    unused_sensor_ids,
-                )
-
-            backup_path = self._create_backup(str(calibration_file))
-            if not backup_path:
-                raise OSError(
-                    f"Could not create required backup for {calibration_file}"
-                )
-
-            file_descriptor, raw_temp_path = tempfile.mkstemp(
-                prefix=f".{calibration_file.stem}.bev_",
-                suffix=calibration_file.suffix,
-                dir=str(calibration_file.parent),
+            self._publish_recomputed_calibration(
+                calibration_file, temp_path, backup_path
             )
-            os.close(file_descriptor)
-            temp_path = Path(raw_temp_path)
-            shutil.copy2(calibration_file, temp_path)
-
-            n_sensor_groups_raw = self._substitute_env_vars(
-                operation.get("n_sensor_groups", 1)
-            )
-            try:
-                n_sensor_groups = int(n_sensor_groups_raw)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    f"Invalid n_sensor_groups: {n_sensor_groups_raw!r}"
-                ) from exc
-            if n_sensor_groups <= 0:
-                raise ValueError("n_sensor_groups must be greater than zero")
-
-            output_path = recompute_bev_centers(
-                str(temp_path),
-                camera_names,
-                n_sensor_groups,
-                len(camera_names),
-            )
-            if not output_path:
-                raise ValueError("BEV recomputation did not return an output path")
-            output_path = Path(output_path)
-            if output_path.resolve() != temp_path.resolve():
-                raise ValueError(
-                    "BEV recomputation returned an unexpected output path: "
-                    f"{output_path} (expected {temp_path})"
-                )
-
-            with temp_path.open("r", encoding="utf-8") as file:
-                updated_data = json.load(file)
-            updated_sensor_ids = self._validate_calibration_data(
-                updated_data, temp_path
-            )
-            expected_sensor_ids = set(camera_names)
-            if updated_sensor_ids != expected_sensor_ids:
-                raise ValueError(
-                    "BEV recomputation produced unexpected calibration sensor IDs: "
-                    f"expected {sorted(expected_sensor_ids)}, "
-                    f"got {sorted(updated_sensor_ids)}"
-                )
-
-            # Preserve the calibration file's inode. Several warehouse services
-            # bind-mount this individual file and would keep reading the old inode
-            # if os.replace() swapped the path to a new file.
-            updated_bytes = temp_path.read_bytes()
-            original_bytes = calibration_file.read_bytes()
-
-            def write_in_place(content: bytes) -> None:
-                with calibration_file.open("r+b") as file:
-                    file.seek(0)
-                    bytes_written = file.write(content)
-                    if bytes_written != len(content):
-                        raise OSError(
-                            "Short write while updating calibration: "
-                            f"wrote {bytes_written} of {len(content)} bytes"
-                        )
-                    file.truncate()
-                    file.flush()
-                    os.fsync(file.fileno())
-
-            try:
-                write_in_place(updated_bytes)
-            except Exception as publish_error:
-                logger.exception(
-                    "Failed to publish recomputed calibration; restoring %s",
-                    calibration_file,
-                )
-                try:
-                    write_in_place(original_bytes)
-                except Exception as rollback_error:
-                    logger.critical(
-                        "Failed to restore calibration after publish failure; "
-                        "backup remains at %s",
-                        backup_path,
-                        exc_info=True,
-                    )
-                    raise RuntimeError(
-                        "Calibration publish and rollback both failed; "
-                        f"restore manually from {backup_path}"
-                    ) from rollback_error
-                raise RuntimeError(
-                    "Calibration publish failed; original content was restored"
-                ) from publish_error
             temp_path.unlink()
             temp_path = None
             logger.info(
@@ -1746,19 +1849,25 @@ class ProfileConfigManager:
             logger.info(f"Set File Count output variable '{output_variable}' = {total_file_count}")        
         return True
 
-    def execute_file_operations(self) -> bool:
-        """Execute all file operations for the current profile configuration."""
-        logger.debug(f"Starting execute_file_operations for {self.hardware_profile}/{self.deployment_profile}")
-        if not self._has_effective_config():
-            mode_msg = f" and MODE: {self.deployment_profile}" if self.deployment_modes_enabled else " (mode-less)"
-            logger.error(f"No configuration found for HW Profile: {self.hardware_profile}{mode_msg}")
-            return False
-        
-        # file_operations = utils.expand_list_anchors(
-        #     self.profile_configs,
-        #     [self.hardware_profile, self.deployment_profile, 'file_operations']
-        # )
-        # check use_commons:file_operations: true or false or 2d or 3d; default is true (2d/3d only when deployment_modes_enabled)
+    def _mode_suffix(self) -> str:
+        if self.deployment_modes_enabled:
+            return f" and MODE: {self.deployment_profile}"
+        return self.MODE_LESS_SUFFIX
+
+    def _missing_profile_message(self) -> str:
+        return (
+            f"No configuration found for HW Profile: {self.hardware_profile}"
+            f"{self._mode_suffix()}"
+        )
+
+    def _resolve_file_operations(self) -> List[Any]:
+        """Select the file-operation list for the current profile.
+
+        use.commons.file_operations accepts true, false, 2d, or 3d.
+        A missing value is treated as true. 2d/3d apply only when deployment
+        modes are enabled. Profile file_operations are then appended, including
+        when the flag is false.
+        """
         use_common_file_operations = self.config.get('commons', {}).get('file_operations', "")
         if use_common_file_operations == "true" or not use_common_file_operations:
             file_operations = self._get_commons_list('file_operations')
@@ -1773,12 +1882,36 @@ class ProfileConfigManager:
 
         if self.config.get('file_operations', []):
             file_operations.extend(self.config.get('file_operations', []))
-        
+        return file_operations
+
+    def _run_file_operation(self, operation_type: Any, operation: Dict[str, Any]) -> bool:
+        handlers = {
+            'yaml_update': self._execute_yaml_update,
+            'text_config_update': self._execute_text_config_update,
+            'text_replace': self._execute_text_replace,
+            'json_update': self._execute_json_update,
+            'file_management': self._execute_file_management,
+            'recompute_bev_groups': self._execute_recompute_bev_groups,
+        }
+        handler = handlers.get(operation_type)
+        if handler is None:
+            logger.error(f"Unsupported operation type: {operation_type}")
+            return False
+        return handler(operation)
+
+    def execute_file_operations(self) -> bool:
+        """Execute all file operations for the current profile configuration."""
+        logger.debug(f"Starting execute_file_operations for {self.hardware_profile}/{self.deployment_profile}")
+        if not self._has_effective_config():
+            logger.error(self._missing_profile_message())
+            return False
+
+        file_operations = self._resolve_file_operations()
         logger.info(
             f"Executing {len(file_operations)} file operations for "
             f"{self.hardware_profile} GPU, {self.deployment_profile} profile"
         )
-        
+
         success = True
         for i, operation in enumerate(file_operations):
             operation_type = operation.get('operation_type')
@@ -1786,34 +1919,17 @@ class ProfileConfigManager:
                 logger.info(f"Skipping operation {i+1}/{len(file_operations)}: {operation_type} (disabled)")
                 continue
             logger.info(f"Executing operation {i+1}/{len(file_operations)}: {operation_type}")
-            
+
             try:
-                if operation_type == 'yaml_update':
-                    result = self._execute_yaml_update(operation)
-                elif operation_type == 'text_config_update':
-                    result = self._execute_text_config_update(operation)
-                elif operation_type == 'text_replace':
-                    result = self._execute_text_replace(operation)
-                elif operation_type == 'json_update':
-                    result = self._execute_json_update(operation)
-                elif operation_type == 'file_management':
-                    result = self._execute_file_management(operation)
-                elif operation_type == 'recompute_bev_groups':
-                    result = self._execute_recompute_bev_groups(operation)
-                else:
-                    logger.error(f"Unsupported operation type: {operation_type}")
-                    result = False
-                
-                if not result:
+                if not self._run_file_operation(operation_type, operation):
                     success = False
                     logger.error(f"Operation {i+1} failed: {operation_type}")
                 else:
                     logger.info(f"Operation {i+1} completed successfully: {operation_type}")
-                    
             except Exception as e:
                 logger.exception(f"Operation {i+1} failed with exception: {e}")
                 success = False
-        
+
         return success
 
     def generate_all_configs(self) -> bool:

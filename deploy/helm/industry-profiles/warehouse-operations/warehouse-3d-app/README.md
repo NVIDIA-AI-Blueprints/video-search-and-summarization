@@ -85,32 +85,16 @@ hardware-accelerated video encode/decode in the stream processor.
 | `vss-vios-streamprocessing` | 1 | HW encode/decode; see below |
 | **Total** | **2** | |
 
-To run `vss-vios-streamprocessing` in software encode/decode mode (FFmpeg CPU path)
-and free that GPU for other workloads, set **`vios.vss-vios-streamprocessing.resources`**
-to an empty map in your values override:
+Keep hardware video processing enabled and allocate a GPU to VIOS streamprocessing.
 
-```yaml
-vios:
-  vss-vios-streamprocessing:
-    useSoftwarePath: true
-    resources: null
-```
+### GPU sharing
 
-Or inline at install time:
+If there are not enough physical GPUs to assign one to each GPU workload, consider GPU sharing:
 
-```bash
---set vios.vss-vios-streamprocessing.useSoftwarePath=true \
---set 'vios.vss-vios-streamprocessing.resources=null'
-```
+- [Multi-Instance GPU (MIG)](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-operator-mig.html) partitions supported GPUs into instances with dedicated memory and fault isolation.
+- [GPU time-slicing](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html) lets multiple workloads share a GPU without memory or fault isolation.
 
-Both flags are required together — **`useSoftwarePath`** switches the VST encode/decode
-path in the config, and **`resources: null`** drops the GPU claim from the pod spec.
-Setting only one leaves the stack misconfigured.
-
-`resources: {}` does **not** work — Helm deep-merges maps, so the subchart default
-keys survive an empty-map override. Use `null` to drop the block entirely.
-
-Software mode reduces video throughput; use it only when a second GPU is not available.
+Choose based on your GPU hardware, workload compatibility, memory needs, and isolation requirements. See the [MIG and time-slicing comparison](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html#comparison-time-slicing-and-multi-instance-gpu). Keep hardware video processing enabled for VIOS and verify that the selected GPU or MIG profile supports the required video encode/decode capabilities.
 
 ### Required secrets
 
@@ -192,8 +176,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vios.vstStorage.vstData.size`** | **`10Gi`** | PVC size for shared VST data volume. |
 | **`vios.vstStorage.vstVideo.size`** | **`20Gi`** | PVC size for shared VST video volume. |
 | **`vios.vstStorage.streamerVideos.size`** | **`20Gi`** | PVC size for the NVStreamer upload volume. |
-| **`vios.vss-vios-streamprocessing.useSoftwarePath`** | **`false`** | Set **`true`** (paired with **`resources: null`**) to use FFmpeg software encode/decode and free the second GPU. Both flags required — see [GPU requirements](#gpu-requirements). |
-| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Pod resource requests/limits for streamprocessing. Set **`null`** (with **`useSoftwarePath: true`**) to drop the GPU claim entirely. |
+| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Keep one GPU allocation for streamprocessing. See [GPU requirements](#gpu-requirements) for dedicated and shared GPU guidance. |
 | **`vios.vss-vios-nvstreamer.syncFileCount`** | **`4`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** | **`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`** | NGC resource for the NVStreamer sample video seed. Keep in step with **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`**. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.fromExistingClaim`** | **`vss-rtvi-cv-models`** | Reuses the PVC from the `vss-rtvi-cv` NGC download job so the video data is not downloaded twice. Clear this and set **`resourceVersion`** to download the video seed independently. |
