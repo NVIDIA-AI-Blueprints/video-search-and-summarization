@@ -342,7 +342,7 @@ def coordinator(run_id):
         trajectory_path = path.parent / 'agent/trajectory.json'
         try:
             trajectory = json.loads(trajectory_path.read_text())
-            tool_metadata = {'available': True, 'tool_counts': {}, 'startup_doc_reads': 0, 'markdown_memory_reads': 0, 'vlm_calls': 0, 'introspection_calls': 0}
+            tool_metadata = {'available': True, 'tool_counts': {}, 'startup_doc_reads': 0, 'markdown_memory_reads': 0, 'vlm_calls': 0, 'introspection_calls': 0, 'inference_config_write_commands': 0, 'direct_adapter_config_write_commands': 0, 'api_key_config_write_commands': 0}
             counts = Counter()
             for entry in trajectory.get('steps') or []:
                 if not isinstance(entry,dict) or entry.get('source') != 'agent':
@@ -364,6 +364,13 @@ def coordinator(run_id):
                         if Path(filename).name == 'MEMORY.md' or '/memory/' in filename:
                             tool_metadata['markdown_memory_reads']+=1
                     args=arguments.get('args')
+                    command = arguments.get('command') or arguments.get('cmd')
+                    if isinstance(command, str) and 'openclaw.json' in command:
+                        writes_config = any(marker in command for marker in ['write_text', 'json.dump', 'sed -i', 'config set'])
+                        if writes_config and any(marker in command for marker in ['baseUrl', 'apiKey', "['inference']", '["inference"]']):
+                            tool_metadata['inference_config_write_commands'] += 1
+                            tool_metadata['direct_adapter_config_write_commands'] += bool(re.search(r'https?://[^\s\"\']+:18400', command))
+                            tool_metadata['api_key_config_write_commands'] += 'apiKey' in command
                     if name == 'vss_cli' and isinstance(args,list):
                         tool_metadata['vlm_calls']+=args[:2]==['vlm','run']
                         tool_metadata['introspection_calls']+=args[:2]==['memory','introspect']
@@ -371,6 +378,7 @@ def coordinator(run_id):
         except (OSError,ValueError,TypeError):
             pass
         trials.append({
+            'leg':path.parts[-5],
             'trajectory_tool_metadata':tool_metadata,
             "step": step,
             "reward": reward if type(reward) in [int,float] and 0 <= reward <= 1 else None,
