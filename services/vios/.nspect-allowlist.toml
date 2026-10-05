@@ -1,0 +1,9 @@
+version = "1.0.0"
+
+[oss]
+
+[oss.excluded]
+
+[[oss.excluded.directories]]
+paths = ['test', 'test/bdd_tests', 'test/gtests']
+comment = 'Automation test packages'
