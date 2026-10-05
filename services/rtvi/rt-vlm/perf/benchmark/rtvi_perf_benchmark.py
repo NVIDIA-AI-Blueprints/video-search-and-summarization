@@ -24,6 +24,7 @@ import time
 from typing import Dict
 
 from base import BenchmarkBase
+from bcd_live_route import validate_bcd_live_inputs
 from concurrency_benchmark import ConcurrencyBenchmark
 from concurrent_live_streams_benchmark import ConcurrentLiveStreamsBenchmark
 from dotenv import load_dotenv
@@ -567,6 +568,15 @@ def main():
         scenarios_to_run[args.scenario] = config["test_scenarios"][args.scenario]
     else:
         scenarios_to_run = config["test_scenarios"]
+
+    # Validate selected BCD sources before contacting measurement services.
+    try:
+        validate_bcd_live_inputs(
+            {"global": global_config, "test_scenarios": scenarios_to_run}, args.config
+        )
+    except (OSError, ValueError) as e:
+        logger.error("BCD live-source validation failed: %s", e)
+        sys.exit(1)
 
     # Log GPU information
     if global_config.get("gpu_monitoring", {}).get("enabled", False):

@@ -135,12 +135,14 @@ Optional environment variables (sensible defaults shown):
   ARTIFACTORY_BASE      Base Artifactory URL
   VST_PKG_URL           Full URL to vst_package.tar.gz
   VST_LOCAL_PACKAGE     Local vst_package.tar.gz override  (default: perf/vst_package.tar.gz)
-  VST_IMAGE_REGISTRY    VST image registry/repo prefix     (default: nvcr.io/rxczgrvsg8nx/vst-dev)
-  VST_IMAGE_TAG         VST image tag                      (default: 2.1.0-26.04.1)
+  VST_IMAGE_REGISTRY    VST image registry/repo prefix     (default: nvcr.io/nvidia/vss-core)
+  VST_IMAGE_TAG         VST image tag                      (default: 3.2.0)
   VST_STREAMPROCESSING_IMAGE  Full stream-processing image override
   VST_SENSOR_IMAGE      Full sensor-ms image override
   VST_INGRESS_IMAGE     Full ingress image override
   VST_NVSTREAMER_IMAGE  Full nvstreamer image override
+  BCD_VST_SOURCE_ID     Verified VST ID for the BCD 60-minute source when its
+                        /live/<source-id> path is opaque; no direct fallback.
   BCD_10S_VIDEO_SOURCE_PATH
                         Optional local path to a 10 s, 10 FPS BCD clip.
                         When set, setup copies it to PERF_VIDEOS_DIR under
@@ -328,12 +330,12 @@ ARTIFACTORY_BASE="${ARTIFACTORY_BASE:-https://artifactory.nvidia.com/artifactory
 ARTIFACTORY_USER="${ARTIFACTORY_USER:-}"
 ARTIFACTORY_TOKEN="${ARTIFACTORY_TOKEN:-}"
 VST_PKG_URL="${VST_PKG_URL:-${ARTIFACTORY_BASE}/sw-ds-generic-bld-local/lmm/build/vst_package.tar.gz}"
-VST_IMAGE_REGISTRY="${VST_IMAGE_REGISTRY:-nvcr.io/rxczgrvsg8nx/vst-dev}"
-VST_IMAGE_TAG="${VST_IMAGE_TAG:-2.1.0-26.04.1}"
-VST_STREAMPROCESSING_IMAGE="${VST_STREAMPROCESSING_IMAGE:-${VST_IMAGE_REGISTRY}/vst-streamprocessing:${VST_IMAGE_TAG}}"
-VST_SENSOR_IMAGE="${VST_SENSOR_IMAGE:-${VST_IMAGE_REGISTRY}/vst-sensor:${VST_IMAGE_TAG}}"
-VST_INGRESS_IMAGE="${VST_INGRESS_IMAGE:-${VST_IMAGE_REGISTRY}/vst-ingress:${VST_IMAGE_TAG}}"
-VST_NVSTREAMER_IMAGE="${VST_NVSTREAMER_IMAGE:-${VST_IMAGE_REGISTRY}/nvstreamer:${VST_IMAGE_TAG}}"
+VST_IMAGE_REGISTRY="${VST_IMAGE_REGISTRY:-nvcr.io/nvidia/vss-core}"
+VST_IMAGE_TAG="${VST_IMAGE_TAG:-3.2.0}"
+VST_STREAMPROCESSING_IMAGE="${VST_STREAMPROCESSING_IMAGE:-${VST_IMAGE_REGISTRY}/vss-vios-streamprocessing:${VST_IMAGE_TAG}}"
+VST_SENSOR_IMAGE="${VST_SENSOR_IMAGE:-${VST_IMAGE_REGISTRY}/vss-vios-sensor:${VST_IMAGE_TAG}}"
+VST_INGRESS_IMAGE="${VST_INGRESS_IMAGE:-${VST_IMAGE_REGISTRY}/vss-vios-ingress:${VST_IMAGE_TAG}}"
+VST_NVSTREAMER_IMAGE="${VST_NVSTREAMER_IMAGE:-${VST_IMAGE_REGISTRY}/vss-vios-nvstreamer:${VST_IMAGE_TAG}}"
 VIDEOS_URL="${VIDEOS_URL:-${ARTIFACTORY_BASE}/sw-ds-generic-bld-local/via-engine/media/perf}"
 BCD_10S_VIDEO_SOURCE_PATH="${BCD_10S_VIDEO_SOURCE_PATH:-}"
 BCD_10S_VIDEO_FILENAME="${BCD_10S_VIDEO_FILENAME:-FPS10_Res1080p_Dur10sec_1.mp4}"
@@ -1685,21 +1687,12 @@ STREAM_POLL_TIMEOUT="${STREAM_POLL_TIMEOUT:-600}"   # seconds; override via env 
 while [[ -z "${RTSP_URLS}" ]]; do
     RESP=$(curl -sf "${VST_STREAMS_API}" 2>/dev/null || true)
     if [[ -n "${RESP}" ]]; then
-        # First try /live/ paths (standard VST stream format)
+        # Only canonical VST live paths. Never consume direct nvstreamer URLs.
         RTSP_URLS=$(echo "${RESP}" \
-            | jq -r '.. | strings | select(startswith("rtsp://")) | select(contains("/live/"))' \
+            | jq -r '[.. | strings | select(test("^rtsp://[^/@?#]+:[0-9]+/live/[A-Za-z0-9_-]+$"))] | unique | .[]' \
             2>/dev/null \
             | paste -sd ';' \
             | sed 's/;$//')
-        # If no /live/ streams, accept any RTSP URL from the response
-        if [[ -z "${RTSP_URLS}" ]]; then
-            RTSP_URLS=$(echo "${RESP}" \
-                | jq -r '.. | strings | select(startswith("rtsp://"))' \
-                2>/dev/null \
-                | paste -sd ';' \
-                | sed 's/;$//')
-            [[ -n "${RTSP_URLS}" ]] && warn "  No /live/ streams found — using all RTSP URLs from VST response."
-        fi
     fi
     if [[ -z "${RTSP_URLS}" ]]; then
         ELAPSED=$((ELAPSED + 10))
@@ -1708,7 +1701,7 @@ while [[ -z "${RTSP_URLS}" ]]; do
             warn "  Raw VST response:"
             curl -s "${VST_STREAMS_API}" 2>/dev/null | jq . >&2 || \
                 warn "  (API unreachable at ${VST_STREAMS_API})"
-            die "No RTSP streams found. Check VST logs: docker logs nvstreamer"
+            die "No canonical VST /live/ streams found; direct nvstreamer is forbidden for BCD."
         fi
         log "  [${ELAPSED}s] Streams not ready yet, retrying..."
         sleep 10
@@ -1722,12 +1715,15 @@ log "  Detected ${STREAM_COUNT} live stream(s):"
 echo "${RTSP_URLS}" | tr ';' '\n' | while read -r url; do log "    ${url}"; done
 
 # Prefer the BCD 10 FPS 60-minute stream used for long-run BCD tests.
-# Look for it by name in the detected stream list; fall back to constructing the URL from HOST_IP.
-INJECT_RTSP_URL=$(echo "${RTSP_URLS}" | tr ';' '\n' | grep -i "warehouse_gopro_60m_10fps" | head -1 || true)
-if [[ -z "${INJECT_RTSP_URL}" ]]; then
-    INJECT_RTSP_URL="rtsp://${HOST_IP}:${NVSTREAMER_RTSP_PORT}/warehouse_gopro_60m_10fps"
-    log "  warehouse_gopro_60m_10fps not found in VST stream list; using constructed URL."
+# Opaque VST IDs must come from verified source metadata, never be invented.
+if [[ -n "${BCD_VST_SOURCE_ID:-}" ]]; then
+    [[ "${BCD_VST_SOURCE_ID}" =~ ^[A-Za-z0-9_-]+$ ]] || die "Invalid BCD_VST_SOURCE_ID"
+    INJECT_RTSP_URL=$(echo "${RTSP_URLS}" | tr ';' '\n' | awk -F/ -v id="${BCD_VST_SOURCE_ID}" '$NF == id')
+else
+    INJECT_RTSP_URL=$(echo "${RTSP_URLS}" | tr ';' '\n' | grep -i "warehouse_gopro_60m_10fps" || true)
 fi
+[[ -n "${INJECT_RTSP_URL}" && "${INJECT_RTSP_URL}" != *$'\n'* ]] \
+    || die "Expected exactly one VST-issued BCD 60-minute live URL; set verified BCD_VST_SOURCE_ID for opaque IDs. No direct fallback."
 log "  Benchmark RTSP URL (warehouse_gopro_60m_10fps): ${_C_CYAN}${INJECT_RTSP_URL}${_C_RESET}"
 
 section "Python Environment"

@@ -46,10 +46,18 @@ point at a different local tarball. Artifactory credentials are only required
 when the VST package must be downloaded.
 
 By default, the setup script patches the extracted VST package to use
-`nvcr.io/rxczgrvsg8nx/vst-dev` images tagged `2.1.0-26.04.1` for
-`vst-streamprocessing`, `vst-sensor`, `vst-ingress`, and `nvstreamer`. Override
+`nvcr.io/nvidia/vss-core` images tagged `3.2.0` for
+`vss-vios-streamprocessing`, `vss-vios-sensor`, `vss-vios-ingress`, and
+`vss-vios-nvstreamer`. Override
 `VST_IMAGE_REGISTRY`, `VST_IMAGE_TAG`, or the per-image variables printed by
 `bash perf/setup_perf_env.sh -h` when testing a different VST build.
+
+BCD live inputs must use VST-issued `/live/<source-id>` URLs, never direct
+nvstreamer URLs. For opaque IDs, set `BCD_VST_SOURCE_ID` from verified VST
+source metadata. Setup fails if the source is missing or ambiguous; the benchmark
+also rejects noncanonical BCD RTSP inputs before measurement. This syntax check
+does not replace runtime proof of endpoint ownership, actual consumer URI,
+fresh frames/source cardinality, and synchronized clocks.
 
 The script prints a summary at the end with the RTSP URL and the value
 of `PERF_VIDEOS_DIR` — note both for the next step.

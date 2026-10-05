@@ -26,6 +26,30 @@ import yaml
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_released_vios_image_defaults_preserve_explicit_overrides():
+    setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    start = setup.index('VST_IMAGE_REGISTRY="')
+    end = setup.index('\nVIDEOS_URL=', start)
+    command = setup[start:end] + '\nprintf "%s\\n" "$VST_STREAMPROCESSING_IMAGE" "$VST_SENSOR_IMAGE" "$VST_INGRESS_IMAGE" "$VST_NVSTREAMER_IMAGE"'
+    keys = ("VST_IMAGE_REGISTRY", "VST_IMAGE_TAG", "VST_STREAMPROCESSING_IMAGE",
+            "VST_SENSOR_IMAGE", "VST_INGRESS_IMAGE", "VST_NVSTREAMER_IMAGE")
+    env = {key: value for key, value in os.environ.items() if key not in keys}
+    result = subprocess.run(["bash", "-c", command], env=env, check=True, capture_output=True, text=True)
+    assert result.stdout.splitlines() == [
+        f"nvcr.io/nvidia/vss-core/vss-vios-{name}:3.2.0"
+        for name in ("streamprocessing", "sensor", "ingress", "nvstreamer")
+    ]
+    env.update(VST_IMAGE_REGISTRY="registry.example/custom", VST_IMAGE_TAG="test",
+               VST_SENSOR_IMAGE="registry.example/sensor@sha256:explicit")
+    result = subprocess.run(["bash", "-c", command], env=env, check=True, capture_output=True, text=True)
+    assert result.stdout.splitlines() == [
+        "registry.example/custom/vss-vios-streamprocessing:test",
+        "registry.example/sensor@sha256:explicit",
+        "registry.example/custom/vss-vios-ingress:test",
+        "registry.example/custom/vss-vios-nvstreamer:test",
+    ]
+
+
 def test_bcd_3_2_vlm_release_is_complete():
     required_paths = [
         "docker/compose.perf.yaml",
