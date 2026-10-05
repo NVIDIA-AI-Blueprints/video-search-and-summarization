@@ -2891,6 +2891,16 @@ class RTVIServer:
                                             "model": model_info.id,
                                             "created": int(req_info.queue_time),
                                             "usage": None,
+                                            "error": {
+                                                "code": (
+                                                    "InternalServerError"
+                                                    if req_info.error_status_code >= 500
+                                                    else "RequestError"
+                                                ),
+                                                "message": req_info.error_message
+                                                or "Failed to generate VLM captions",
+                                                "status": req_info.error_status_code,
+                                            },
                                         }
                                         yield json.dumps(response)
                                     break

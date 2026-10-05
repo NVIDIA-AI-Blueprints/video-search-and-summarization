@@ -399,9 +399,21 @@ class RtviVlmClient:
 
                 try:
                     chunk = json.loads(data)
-                    yield chunk
-                except Exception as e:
+                except json.JSONDecodeError as e:
                     logger.warning("RTVI SSE parse error: %s, line: %s", e, data)
+                    continue
+
+                # SSE begins with HTTP 200 even when inference fails later.
+                # Preserve that terminal failure rather than passing it to LVS
+                # as an event with no chunk_responses and losing its cause.
+                if chunk.get("error"):
+                    error = chunk["error"]
+                    raise RtviError(
+                        error.get("status", 500),
+                        error.get("code", "StreamingError"),
+                        error.get("message", "RTVI caption generation failed"),
+                    )
+                yield chunk
 
             logger.info("RTVI generate_captions_stream: stream ended")
         finally:

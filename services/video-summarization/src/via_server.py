@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -1663,6 +1663,15 @@ class ViaServer:
                         failed_stage=getattr(req_info, "failed_stage", None),
                     )
 
+                if not resp_list:
+                    raise ViaException(
+                        "Summarization completed without a response",
+                        "SummarizationFailed",
+                        502,
+                        job_id=request_id,
+                        failed_stage="aggregation",
+                    )
+
                 # Create response json and return it
                 return {
                     "id": request_id,
@@ -1674,17 +1683,13 @@ class ViaServer:
                         req_info.start_timestamp,
                         req_info.end_timestamp,
                     ).model_dump(),
-                    "choices": (
-                        [
-                            {
-                                "finish_reason": CompletionFinishReason.STOP.value,
-                                "index": 0,
-                                "message": {"content": resp_list[0].response, "role": "assistant"},
-                            }
-                        ]
-                        if resp_list
-                        else []
-                    ),
+                    "choices": [
+                        {
+                            "finish_reason": CompletionFinishReason.STOP.value,
+                            "index": 0,
+                            "message": {"content": resp_list[0].response, "role": "assistant"},
+                        }
+                    ],
                     "usage": {
                         "total_chunks_processed": req_info.chunk_count,
                         "query_processing_time": int(

@@ -106,3 +106,21 @@ class TestGenerateCaptionsStreamResponseClose:
         resp.iter_lines.return_value = failing_lines()
         self._run(client, resp)
         resp.close.assert_called_once()
+
+
+@pytest.mark.parametrize("status,code", [(400, "RequestError"), (503, "InternalServerError")])
+def test_sse_error_preserves_rtvi_failure(status, code):
+    from rtvi_vlm_client import RtviError
+
+    client = _make_client()
+    error = {"error": {"status": status, "code": code, "message": "VLM inference failed"}}
+    resp = _make_resp(lines=[f"data: {json.dumps(error)}", "data: [DONE]"])
+    client._session.post.return_value = resp
+
+    with pytest.raises(RtviError) as exc_info:
+        _drain(client.generate_captions_stream(file_id="test-uuid", model="test-model"))
+
+    assert exc_info.value.status_code == status
+    assert exc_info.value.code == code
+    assert exc_info.value.message == "VLM inference failed"
+    resp.close.assert_called_once()

@@ -462,6 +462,42 @@ class TestSummarizeRoute:
         assert data["object"] == "summarization.completion"
         assert len(data["choices"]) == 1
 
+    @pytest.mark.parametrize("chunk_count", [0, 21])
+    def test_summarize_missing_response_returns_actionable_502(
+        self, test_client, mock_via_server, chunk_count
+    ):
+        """An empty response queue cannot be advertised as a successful summary."""
+        from via_stream_handler import RequestInfo
+
+        handler = mock_via_server._stream_handler
+        handler.get_models_info.return_value = self._model_info()
+        handler._ctx_mgr = MagicMock()
+        request_id = "00000000-0000-0000-0000-000000000099"
+        handler.summarize.return_value = request_id
+        req_info = RequestInfo()
+        req_info.status = RequestInfo.Status.SUCCESSFUL
+        req_info.chunk_count = chunk_count
+        req_info.queue_time = 1700000000
+        req_info.start_timestamp = 0
+        req_info.end_timestamp = 210
+        handler.get_response.return_value = (req_info, [])
+
+        response = test_client.post(
+            "/v1/summarize",
+            json={
+                "url": "http://example.com/warehouse_sample.mp4",
+                "model": "test-model",
+                "scenario": "warehouse monitoring",
+                "events": ["boxes falling", "forklift stuck", "person entering restricted area"],
+                "chunk_duration": 10,
+                "creation_time": "2025-01-01T00:00:00.000Z",
+            },
+        )
+        assert response.status_code == 502
+        assert response.json()["code"] == "SummarizationFailed"
+        assert response.json()["job_id"] == request_id
+        assert response.json()["failed_stage"] == "aggregation"
+
     def test_summarize_empty_aggregation_returns_actionable_502(
         self, test_client, mock_via_server
     ):

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -706,14 +706,14 @@ class ViaStreamHandler:
                 self._metrics.active_live_streams.dec()
                 self._update_completion_metrics(req_info, chunk_responses)
         else:
+            req_info.progress = 100
+            req_info.end_time = time.time()
             if req_info.status == RequestInfo.Status.FAILED:
                 logger.info(
                     "Summary generation failed for video file request %s", req_info.request_id
                 )
                 self._update_completion_metrics(req_info, chunk_responses)
             else:
-                req_info.progress = 100
-                req_info.end_time = time.time()
                 self._update_completion_metrics(req_info, chunk_responses)
                 req_info.status = RequestInfo.Status.SUCCESSFUL
                 logger.info(
@@ -1673,6 +1673,7 @@ class ViaStreamHandler:
             req_info.error_message = f"RTVI dependency is down at {self._vlm_pipeline._base_url}"
             req_info.rtvi_status_code = 503
             req_info.rtvi_error_code = "DependencyUnavailable"
+            req_info.failed_stage = "caption_generation"
             req_info.end_time = time.time()
             req_info.progress = 100
             self._metrics.queries_processed.inc()
@@ -1685,6 +1686,7 @@ class ViaStreamHandler:
         except Exception as ex:
             logger.error("RTVI query %s failed: %s", req_info.request_id, ex)
             req_info.status = RequestInfo.Status.FAILED
+            req_info.failed_stage = "caption_generation"
             if isinstance(ex, RtviError):
                 req_info.error_message = ex.message
                 req_info.rtvi_status_code = ex.status_code
@@ -3445,9 +3447,18 @@ This is very important and you must follow this strictly.
                 chunk_responses.sort(key=lambda item: ntp_to_unix_timestamp(item.chunk.start_ntp))
 
         if len(chunk_responses) == 0:
-            # Return empty response if there are no chunks / chunks with vlm responses
-            logger.info(f"No chunks with vlm responses for request {req_info.request_id}")
-            return []
+            if req_info.is_live:
+                return []
+            # No captions means processing was not confirmed. Returning [] here
+            # used to mark the job successful and emit choices=[], deferring the
+            # real failure until the CLI tried to persist missing content.
+            raise ViaException(
+                "RTVI returned no caption chunks for summarization",
+                "NoCaptionsGenerated",
+                502,
+                job_id=req_info.request_id,
+                failed_stage="caption_generation",
+            )
 
         if req_info._ctx_mgr:
             # Debug mode: skip summarization and return concatenated chunk responses

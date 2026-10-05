@@ -834,7 +834,11 @@ class TestCaptionGeneration:
         response = test_client.delete(f"{API_PREFIX}/generate_captions/{fake_id}")
         assert response.status_code == 400
 
-    def test_generate_captions_failed_request_preserves_status_code(self, test_client, rtvi_server):
+    @pytest.mark.parametrize("stream", [False, True])
+    @pytest.mark.parametrize("status", [400, 503])
+    def test_generate_captions_failed_request_preserves_status_code(
+        self, test_client, rtvi_server, stream, status
+    ):
         """Test completed request failures keep their original status code."""
         fake_id = str(uuid.uuid4())
         request_id = str(uuid.uuid4())
@@ -850,19 +854,39 @@ class TestCaptionGeneration:
         req_info = RequestInfo(request_id=request_id)
         req_info.status = RequestInfo.Status.FAILED
         req_info.error_message = error_message
-        req_info.error_status_code = 400
+        req_info.error_status_code = status
+        req_info.queue_time = time.time()
 
         rtvi_server._stream_handler.wait_for_request_done = MagicMock()
         rtvi_server._stream_handler.get_response = MagicMock(return_value=(req_info, []))
         rtvi_server._stream_handler._send_error_message_to_kafka = MagicMock()
+        rtvi_server._stream_handler._request_info_map[request_id] = req_info
 
         response = test_client.post(
             f"{API_PREFIX}/generate_captions",
-            json={"id": fake_id, "model": "test-model", "prompt": "Describe the video."},
+            json={
+                "id": fake_id,
+                "model": "test-model",
+                "prompt": "Describe the video.",
+                "stream": stream,
+            },
         )
 
-        assert response.status_code == 400
-        assert response.json() == {"code": "RequestError", "message": error_message}
+        code = "InternalServerError" if status >= 500 else "RequestError"
+        if stream:
+            import json
+
+            assert response.status_code == 200
+            events = [line[6:] for line in response.text.splitlines() if line.startswith("data: ")]
+            assert json.loads(events[0])["error"] == {
+                "code": code,
+                "message": error_message,
+                "status": status,
+            }
+            assert events[-1] == "[DONE]"
+        else:
+            assert response.status_code == status
+            assert response.json() == {"code": code, "message": error_message}
         rtvi_server._stream_handler._send_error_message_to_kafka.assert_not_called()
 
     def test_process_live_vlm_request_creates_independent_request(self, rtvi_server):

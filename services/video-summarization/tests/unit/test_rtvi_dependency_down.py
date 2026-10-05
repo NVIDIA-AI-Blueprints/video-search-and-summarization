@@ -28,6 +28,7 @@ Covers:
 import os
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from threading import RLock
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -218,3 +219,28 @@ class TestTriggerQueryRtviDown:
 
         handler._metrics.queries_processed.inc.assert_called_once()
         handler._metrics.queries_pending.dec.assert_called_once()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("chunks", [[], [{"chunk_responses": []}]], ids=["no-sse-data", "empty-chunks"])
+def test_file_without_captions_fails_before_persistence(chunks):
+    """The nightly's zero-chunk result must not become an empty successful completion."""
+    handler = _make_handler()
+    handler._args.enable_dev_dc_gen = False
+    handler._vlm_pipeline.generate_captions_stream.return_value = iter(chunks)
+    req_info = _make_req_info()
+    req_info._output_process_thread_pool = ThreadPoolExecutor(max_workers=1)
+    handler._request_info_map[req_info.request_id] = req_info
+
+    with patch.dict(os.environ, {"ENABLE_DENSE_CAPTION": ""}):
+        handler._trigger_query(req_info)
+    req_info._output_process_thread_pool.shutdown(wait=True)
+
+    assert req_info.status == RequestInfo.Status.FAILED
+    assert req_info.error_status_code == 502
+    assert req_info.error_code == "NoCaptionsGenerated"
+    assert req_info.failed_stage == "caption_generation"
+    assert req_info.progress == 100
+    assert req_info.end_time is not None
+    assert req_info.response == []
+    handler._vlm_pipeline.generate_captions_stream.assert_called_once()
