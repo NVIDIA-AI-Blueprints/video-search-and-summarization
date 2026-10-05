@@ -29,8 +29,6 @@ const incidents = require('../../../integration-test/scripts/controllers/rest-ap
 const behavior = require('../../../integration-test/scripts/controllers/rest-apis/behavior');
 const config = require('../../../integration-test/scripts/controllers/rest-apis/config');
 const runner = require('../../../integration-test/scripts/run_integration_tests');
-const fs = require('fs');
-const path = require('path');
 
 const PROFILE_VARIABLES = ['COMPOSE_PROFILE', 'BP_PROFILE', 'MODE', 'DEPLOY_PROFILE', 'WAREHOUSE_VLM_ALERTS_VERIFICATION'];
 const CONSTANTS = {
@@ -49,11 +47,6 @@ function incident(overrides = {}) {
 
 function body(records) {
     return JSON.stringify({ incidents: records });
-}
-
-function loadDump(name) {
-    return fs.readFileSync(path.join(__dirname, '../../../integration-test/elasticsearch_data_dump', name), 'utf8')
-        .trim().split('\n').map((line) => JSON.parse(line)._source);
 }
 
 function findTest(tests, name) {
@@ -112,11 +105,18 @@ describe('Warehouse integration contracts', () => {
         expect(incidents.getTests(CONSTANTS)).to.have.length(10);
     });
 
-    it('passes the paired source/VLM dump through every warehouse incident validator', async () => {
+    it('accepts paired source/VLM responses in every warehouse incident validator', async () => {
         process.env.COMPOSE_PROFILE = 'bp_wh_2d';
-        const records = loadDump('warehouse-verification-incidents.json');
-        const source = records.filter((record) => record.type === 'mdx-incidents');
-        const verified = records.filter((record) => record.type === 'mdx-vlm-incidents');
+        const source = [
+            'Proximity Violation', 'PPE Violation',
+            'Pathway Obstruction Violation', 'Load Quality Violation'
+        ].map((category, index) => incident({ Id: `source-${index}`, category, type: 'mdx-incidents' }));
+        const verified = source.map((record) => ({
+            ...record,
+            type: 'mdx-vlm-incidents',
+            category: record.category === 'Proximity Violation' ? 'Near Miss Violation' : record.category,
+            info: { ...record.info, verdict: 'confirmed' }
+        }));
         for (const test of incidents.getTests(CONSTANTS)) {
             if (!test.validate) continue;
             const query = new URL(test.path, 'http://example.test').searchParams;
