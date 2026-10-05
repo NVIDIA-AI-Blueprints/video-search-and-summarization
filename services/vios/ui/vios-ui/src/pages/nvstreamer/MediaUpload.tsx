@@ -133,7 +133,6 @@ const MediaUpload = () => {
         metadataTag: string;
         sensorId: string;
         checksum: string;
-        selectedSensorId: string;
     }
 
     const stateRef = useRef<UploadState>({
@@ -149,7 +148,6 @@ const MediaUpload = () => {
         metadataTag,
         sensorId,
         checksum,
-        selectedSensorId: selectedSensor?.sensorId || '',
     });
 
     // Update useEffect to include metadata fields
@@ -167,7 +165,6 @@ const MediaUpload = () => {
             metadataTag,
             sensorId,
             checksum,
-            selectedSensorId: selectedSensor?.sensorId || '',
         };
     }, [
         enableTranscode,
@@ -182,7 +179,6 @@ const MediaUpload = () => {
         metadataTag,
         sensorId,
         checksum,
-        selectedSensor,
     ]);
 
     // Add debug logging for state changes
@@ -428,9 +424,8 @@ const MediaUpload = () => {
             'nvstreamer-total-chunks': params.totalChunkCount,
             'nvstreamer-is-last-chunk': isLastChunk ? 'true' : 'false',
         };
-        const sensorId = params.currentState.selectedSensorId || params.metadata.sensorId;
-        if (sensorId) {
-            uploadHeaders.streamId = sensorId;
+        if (params.metadata.sensorId) {
+            uploadHeaders.streamId = params.metadata.sensorId;
         }
         applyTranscodeHeaders(uploadHeaders, params.currentState);
         return uploadHeaders;
@@ -447,8 +442,10 @@ const MediaUpload = () => {
         fd.append('mediaFile', file.slice(start, start + chunkSizeBytes));
         fd.append('filename', file.name);
 
-        // The backend finalizes the file using metadata from the last request.
-        fd.append('metadata', JSON.stringify(params.metadata));
+        // Add metadata to the first chunk
+        if (chunkNumber === 1) {
+            fd.append('metadata', JSON.stringify(params.metadata));
+        }
 
         try {
             const response = await nvAxios.post(`${config.storageManagementEndpoint}/api/v1/storage/file`, fd, {
@@ -543,8 +540,8 @@ const MediaUpload = () => {
                 };
 
                 // Add streamId header if sensor is selected
-                if (currentState.selectedSensorId) {
-                    headers['streamId'] = currentState.selectedSensorId;
+                if (selectedSensor?.sensorId) {
+                    headers['streamId'] = selectedSensor.sensorId;
                 }
 
                 applyTranscodeHeaders(headers, currentState);
