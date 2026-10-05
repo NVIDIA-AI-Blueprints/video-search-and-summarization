@@ -39,6 +39,7 @@ def summarize_log(path):
     recent = []
     started, completed = 0, 0
     inference_writes = []
+    credential_route_commands = []
     last_failed_notebook = None
     signals = {
         "scope upgrade pending approval": "gateway_scope_approval",
@@ -81,6 +82,20 @@ def summarize_log(path):
             command = item.get("command")
             if not isinstance(command, str):
                 continue
+            if event.get('type') == 'item.completed' and any(marker in command for marker in ['COMPATIBLE_API_KEY', 'SKILL_EVAL_LOCAL_NIM_API_KEY', 'provider update', 'provider create', 'inference set']):
+                output = item.get('aggregated_output') or ''
+                credential_route_commands.append({
+                    'notebook': 'run_setup_notebook.py' in command,
+                    'provider_mutation': any(marker in command for marker in ['provider update', 'provider create']),
+                    'inference_mutation': 'inference set' in command,
+                    'placeholder_key_assignment': bool(re.search(r'COMPATIBLE_API_KEY\s*=\s*[\"\']?(?:EMPTY|unused)', command)),
+                    'eval_key_reference': 'SKILL_EVAL_LOCAL_NIM_API_KEY' in command,
+                    'nvidia_key_reference': 'NVIDIA_API_KEY' in command,
+                    'comp_key_reference': 'COMPATIBLE_API_KEY' in command,
+                    'reused_gateway_credential': 'Reusing existing gateway credential' in output,
+                    'key_lengths': [int(n) for n in re.findall(r'COMPATIBLE_API_KEY=\(set, ([0-9]+) chars\)', output)],
+                    'exit_code': item.get('exit_code') if type(item.get('exit_code')) is int else None,
+                })
             if event.get("type") == "item.completed" and any(marker in command for marker in ['openclaw.json', 'models.providers.inference', 'inference set']):
                 if any(marker in command for marker in ['write_text', 'json.dump', 'sed -i', 'config set', 'inference set']):
                     inference_writes.append({
@@ -144,6 +159,7 @@ def summarize_log(path):
         "failed_tool_signals": dict(errors),
         "last_failed_notebook": last_failed_notebook,
         "inference_write_commands": inference_writes,
+        "credential_route_commands": credential_route_commands,
         "recent_completed_tools": recent[-12:],
     }
 
