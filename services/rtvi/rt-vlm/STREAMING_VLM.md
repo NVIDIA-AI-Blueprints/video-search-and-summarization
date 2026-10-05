@@ -71,6 +71,9 @@ part of the intended prompt contract. Ordinary requests remain chunked.
 
 ## RTVI to Cosmos Streaming NIM
 
+For the October 1 Turbo RC and a repeatable RTVI adapter smoke test, see
+[TURBO_NIM_STREAMING.md](TURBO_NIM_STREAMING.md).
+
 The streaming NIM release candidate used for integration testing is:
 
 ```text
