@@ -1280,9 +1280,10 @@ class VlmProcess(ProcessBase):
         self._next_model_health_check_at = 0.0
         self._streaming_vlm_sessions = {}
         self._closed_streaming_vlm_streams = {}
-        self._streaming_vlm_lock = Lock()
 
     def _initialize(self):
+        # Thread locks belong to the child, not the pickled spawn state.
+        self._streaming_vlm_lock = Lock()
         # Determine the class path to use
         class_path = get_model_class_path(
             self._vlm_model_type, self._model_path, self._model_implementation_path

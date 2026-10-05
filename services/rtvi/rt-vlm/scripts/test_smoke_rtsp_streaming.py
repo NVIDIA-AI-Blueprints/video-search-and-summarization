@@ -15,8 +15,10 @@ class SmokeTest(unittest.TestCase):
         for fail in (False, True):
             with self.subTest(fail=fail):
                 calls = []
+                caption_response = None
 
                 def respond(request, timeout):
+                    nonlocal caption_response
                     calls.append(request.full_url)
                     if request.full_url.endswith("/models"):
                         body = json.dumps({"data": [{"id": "test-model"}]})
@@ -28,7 +30,11 @@ class SmokeTest(unittest.TestCase):
                         if fail:
                             raise RuntimeError("inference failed")
                         body = 'data: {"chunk_responses": [{"content": "A visible scene"}]}\n\n'
+                        caption_response = io.BytesIO(body.encode())
+                        return caption_response
                     else:
+                        if request.get_method() == "DELETE" and caption_response is not None:
+                            self.assertFalse(caption_response.closed)
                         body = "{}"
                     return io.BytesIO(body.encode())
 

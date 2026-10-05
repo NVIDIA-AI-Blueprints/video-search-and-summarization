@@ -1310,8 +1310,13 @@ class RTVIServer:
 
     async def _cleanup_native_streaming_request(self, request_id: str) -> None:
         """Bound cleanup of one disconnected native StreamingVLM subscriber."""
+        from server.rtvi_stream_handler import RequestInfo
+
         with self._stream_handler._lock:
             req_info = self._stream_handler._request_info_map.get(request_id)
+            # Explicit stop owns teardown once the request is terminal.
+            if req_info is not None and req_info.status == RequestInfo.Status.SUCCESSFUL:
+                return
         if (
             req_info is None
             or not req_info.is_live

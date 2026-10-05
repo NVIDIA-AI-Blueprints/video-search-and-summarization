@@ -37,7 +37,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from threading import Thread
+from threading import Lock, Thread
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -62,6 +62,17 @@ from server.rtvi_vlm_server import (
 )
 from tests.tests_common import TempEnv
 from vlm_pipeline.vlm_pipeline import PipelineChunkResult, VlmModelType, VlmPipeline, VlmProcess
+
+
+def test_disconnect_cleanup_skips_completed_streaming_request():
+    server = object.__new__(RTVIServer)
+    remove = MagicMock()
+    server._stream_handler = SimpleNamespace(
+        _lock=Lock(), _request_info_map={"request": SimpleNamespace(status=RequestInfo.Status.SUCCESSFUL)},
+        remove_rtsp_stream_request=remove,
+    )
+    asyncio.run(server._cleanup_native_streaming_request("request"))
+    remove.assert_not_called()
 
 API_PREFIX = "/v1"
 

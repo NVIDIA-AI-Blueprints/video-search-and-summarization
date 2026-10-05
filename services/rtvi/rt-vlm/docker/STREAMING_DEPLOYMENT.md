@@ -90,8 +90,23 @@ pass `docker compose config --quiet`. MediaMTX and FFmpeg were launched with
 Compose and an RTSP client confirmed H.264 at 1920x1080. The offline REST-client
 check passes success and failed-inference cleanup cases:
 `python3 -m unittest discover -s scripts -p test_smoke_rtsp_streaming.py`
-(run from the RT-VLM source directory). Full RTSP-to-RTVI-to-NIM caption
-inference and the native RTSP path are not yet validated by these recipes.
+(run from the RT-VLM source directory).
+
+Full RTSP-to-RTVI-to-Turbo-NIM REST caption smoke validation passed on October 5,
+2026: five nonempty captions with frame indices 0-4, one sampled frame per
+update, successful stop and camera removal (HTTP 200), and zero remaining RTVI
+streams. No runtime ERROR logs or tracebacks were found in the final run. Owned
+containers were removed and GPU memory returned to 14 MiB.
+
+The test used an H100 PCIe 80 GB shared by RTVI decoding and NIM inference,
+the pinned Turbo image above, Nano BF16 weights, and speculation disabled.
+RTVI used this branch's source mounted onto foundation image
+`sha256:c8551f83f7abed6c89c597c4edffec587efc5cd9e52991bdb29d6c9d6e615fba`;
+it was not a clean Dockerfile rebuild. Startup plugin warnings remain in that
+foundation image. Native RTSP mode, sustained throughput, SOP accuracy, and
+action localization replacement are not validated by this smoke test. Cold
+initialization produced backlog, so these five captions are not latency
+benchmark evidence.
 
 Stop each deployment with its matching project name and Compose files:
 

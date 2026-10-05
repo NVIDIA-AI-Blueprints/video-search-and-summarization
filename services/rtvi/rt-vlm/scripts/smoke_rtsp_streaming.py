@@ -33,6 +33,7 @@ def main():
 
     camera = "streaming-smoke-" + uuid.uuid4().hex
     asset = None
+    stopped = False
     count = 0
     try:
         with request("/models") as response:
@@ -66,13 +67,17 @@ def main():
                         count += 1
                 if count >= args.captions:
                     break
+            # Stop before closing SSE, which also initiates automatic teardown.
+            with request("/generate_captions/" + asset, method="DELETE"):
+                stopped = True
         if count < args.captions:
             raise RuntimeError(f"Only {count}/{args.captions} captions received")
     finally:
         if asset is not None:
             try:
-                with request("/generate_captions/" + asset, method="DELETE"):
-                    pass
+                if not stopped:
+                    with request("/generate_captions/" + asset, method="DELETE"):
+                        pass
             finally:
                 with request("/stream/remove", {"key": "sensor", "value": {
                     "camera_id": camera, "change": "camera_remove"

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import builtins
+import pickle
 import sys
 import time
 import types
@@ -39,6 +40,24 @@ from models.vllm_compatible.vllm_compatible_model import (
     _get_processor_use_fast_override,
 )
 from vlm_pipeline.vlm_pipeline import VlmProcess, VlmRequestParams
+
+
+def test_streaming_lock_is_created_in_worker_not_spawn_state():
+    args = types.SimpleNamespace(
+        vlm_batch_size=1, vlm_model_type=types.SimpleNamespace(value="openai-compat"),
+        model_path="", model_implementation_path="", num_gpus=1,
+    )
+    with patch("vlm_pipeline.vlm_pipeline.ProcessBase.__init__"):
+        process = VlmProcess(args, "/tmp", model_unhealthy_event=False)
+    pickle.dumps(process.__dict__)
+    assert not hasattr(process, "_streaming_vlm_lock")
+    process._batch_size = 1
+    with patch("vlm_pipeline.vlm_pipeline.get_model_class_path", return_value="test"), patch(
+        "vlm_pipeline.vlm_pipeline.load_model", return_value=object()
+    ):
+        assert process._initialize()
+    with process._streaming_vlm_lock:
+        pass
 
 
 @dataclass

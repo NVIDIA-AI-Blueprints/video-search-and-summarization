@@ -3,6 +3,10 @@
 For independent `.env` and `docker compose up` deployments, including a
 MediaMTX RTSP test source, see [Streaming Compose Deployments](docker/STREAMING_DEPLOYMENT.md).
 
+The full RTSP REST-caption smoke path now passes with the worker-startup and
+cleanup fixes on this branch. See the deployment guide's validation status for
+the tested setup and limits; this is separate from the adapter-only test below.
+
 This recipe connects RT-VLM's `openai-compat` streaming adapter to a separate
 Cosmos3 Turbo NIM. It depends on the streaming adapter in PR #2508. Native mode
 is not required; see [STREAMING_VLM.md](STREAMING_VLM.md) for native instructions
