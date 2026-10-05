@@ -273,6 +273,11 @@ jobs:
             VSS_PACKAGE_VERSION=${{ needs.changes.outputs.release-line }}+tree.${{ steps.meta.outputs.tree_sha }}
             VSS_REF=${{ github.sha }}
           push: true
+          # BuildKit's default SLSA/SBOM attestations show up in GHCR as
+          # unknown/unknown OS/Arch rows and break some docker/containerd pulls.
+          # Image provenance here is the com.nvidia.vss.* labels, not these.
+          provenance: false
+          sbom: false
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
           # Publish the content-addressed alias too so a later build of the same
@@ -524,6 +529,10 @@ jobs:
             VSS_PACKAGE_VERSION=${{ needs.changes.outputs.release-line }}+tree.${{ steps.meta.outputs.tree_sha }}
             VSS_REF=${{ github.sha }}
           push: true
+          # See the standard multiarch build-push step: skip index-attached
+          # attestations so GHCR does not list unknown/unknown platforms.
+          provenance: false
+          sbom: false
           cache-from: ${{ steps.cache.outputs.from }}
           cache-to: ${{ steps.cache.outputs.to }}
           tags: ${{ steps.meta.outputs.image }}:${{ steps.platform-meta.outputs.tag }}
