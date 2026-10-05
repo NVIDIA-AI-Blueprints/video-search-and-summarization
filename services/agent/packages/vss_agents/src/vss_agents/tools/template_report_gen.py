@@ -737,12 +737,14 @@ def _build_authoritative_incident_facts(
 
 
 def _normalize_report_model_output(content: str) -> str:
-    """Drop closed thinking, then keep the first complete fenced block if one exists."""
+    """Drop closed thinking, then keep every complete fenced block."""
     normalized = content.strip()
     if think_match := _THINK_CLOSE_RE.search(normalized):
         normalized = normalized[think_match.end() :].strip()
-    if fence_match := _FENCED_BLOCK_RE.search(normalized):
-        return fence_match.group(1).strip()
+    fenced_blocks = [match.group(1).strip() for match in _FENCED_BLOCK_RE.finditer(normalized)]
+    fenced_blocks = [block for block in fenced_blocks if block]
+    if fenced_blocks:
+        return "\n\n".join(fenced_blocks)
     # A lone opening fence (with an optional info string) or a leftover closing fence.
     normalized = re.sub(r"^```[\w-]*[ \t]*\n?", "", normalized)
     normalized = re.sub(r"\n?```\s*$", "", normalized)
@@ -871,25 +873,23 @@ def _iter_headings(content: str) -> list[tuple[int, int, int, str]]:
     return headings
 
 
-def _markdown_sections(content: str, stop_titles: set[str] | None = None) -> dict[str, str]:
+def _markdown_sections(content: str) -> dict[str, str]:
     """Map normalized heading titles to the body that stays inside that heading.
 
-    A heading closes the current section when it is a higher level, or the same
-    level and itself a required section. Same-level entry headings such as
-    ``### Person 1`` stay inside ``### People Involved``.
+    Any following heading of the same or higher level closes the section, so an
+    empty required section cannot absorb the next sibling's text or N/A. A
+    lower-level heading, such as ``### Person 1`` under ``## People Involved``,
+    stays inside.
     """
     headings = _iter_headings(content)
-    required = stop_titles or set()
     sections: dict[str, str] = {}
     for index, (_start, end, level, title) in enumerate(headings):
         key = _normalize_section_title(title)
         if not key:
             continue
         body_end = len(content)
-        for later_start, _later_end, later_level, later_title in headings[index + 1 :]:
-            later_key = _normalize_section_title(later_title)
-            closes = later_level < level or (later_level == level and later_key in required)
-            if closes:
+        for later_start, _later_end, later_level, _later_title in headings[index + 1 :]:
+            if later_level <= level:
                 body_end = later_start
                 break
         sections.setdefault(key, content[end:body_end])
@@ -928,8 +928,7 @@ def _validate_required_report_sections(body: str, required_sections: list[str], 
     if not required_sections:
         return
     configured = [title.strip() for title in required_sections if title.strip()]
-    stop_titles = {_normalize_section_title(title) for title in configured}
-    sections = _markdown_sections(body, stop_titles)
+    sections = _markdown_sections(body)
     for title in configured:
         key = _normalize_section_title(title)
         if key not in sections:

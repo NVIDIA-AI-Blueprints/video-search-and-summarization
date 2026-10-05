@@ -326,6 +326,32 @@ class TestReportBodyValidation:
         preamble = "Here is the populated report:\n```md\n# Incident\n\nN/A\n```\nLet me know if you need changes."
         assert _normalize_report_model_output(preamble) == "# Incident\n\nN/A"
 
+    def test_normalize_keeps_every_fenced_block(self):
+        raw = (
+            "Here is the report:\n"
+            "```markdown\n"
+            "# Incident\n\n"
+            "| **Detailed Description** | A person walked through the aisle.\n"
+            "```\n"
+            "```markdown\n"
+            "## People Involved\n\n"
+            "| **Person Type** | worker\n\n"
+            "## Vehicles Involved\n\n"
+            "N/A\n"
+            "```\n"
+            "Let me know if you need changes."
+        )
+        normalized = _normalize_report_model_output(raw)
+        assert "Detailed Description" in normalized
+        assert "## People Involved" in normalized
+        assert "## Vehicles Involved" in normalized
+        assert "Let me know" not in normalized
+        _validate_report_body(
+            normalized,
+            required_report_fields=["Detailed Description"],
+            required_report_sections=["People Involved", "Vehicles Involved"],
+        )
+
     def test_empty_output_rejected(self):
         with pytest.raises(ReportContentValidationError, match="empty_or_whitespace_body"):
             _validate_report_body("   \n")
@@ -501,10 +527,22 @@ Vehicles: none observed
             required_report_sections=["People Involved", "Vehicles Involved"],
         )
 
-    def test_same_level_entry_heading_stays_inside_required_section(self):
+    def test_same_level_sibling_does_not_fill_an_empty_required_section(self):
         body = (
             _sample_table_report()
-            + "\n### People Involved\n\n### Person 1\n\n| **Person Type** | worker\n"
+            + "\n## People Involved\n\n## Notes\n\nN/A\n"
+            + "\n## Vehicles Involved\n\n| **Vehicle Type** | forklift\n"
+        )
+        with pytest.raises(ReportContentValidationError, match="empty_required_section:People Involved"):
+            _validate_report_body(
+                body,
+                required_report_sections=["People Involved", "Vehicles Involved"],
+            )
+
+    def test_nested_entry_heading_stays_inside_required_section(self):
+        body = (
+            _sample_table_report()
+            + "\n## People Involved\n\n### Person 1\n\n| **Person Type** | worker\n"
             + "\n## Vehicles Involved\n\nN/A\n"
         )
         _validate_report_body(
