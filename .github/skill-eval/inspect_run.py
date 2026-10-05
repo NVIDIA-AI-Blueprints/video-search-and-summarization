@@ -317,7 +317,7 @@ def coordinator(run_id):
                         for value in Path('/proc/'+parts[4]+'/environ').read_bytes().split(b'\0'):
                             if value.startswith(b'GITHUB_RUN_ID='):
                                 candidate=value.split(b'=',1)[1].decode()
-                                if candidate in ['37061722712','37065990802','37065993422','37070420536']:
+                                if re.fullmatch(r'[0-9]{1,20}', candidate):
                                     owner_run=candidate
                     except (OSError,UnicodeError): pass
                     lock_rows.append({'worker':'Spark-ba-WiFi','owned_by_requested_leg':int(parts[4]) in run_leg_pids,'owner_monitored_run':owner_run})
