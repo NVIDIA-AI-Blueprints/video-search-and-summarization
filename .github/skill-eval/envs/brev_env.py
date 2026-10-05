@@ -308,9 +308,11 @@ class BrevEnvironment(BaseEnvironment):
         # Repair a repo venv a prior step left unusable. Unlike the repo sync,
         # this is NOT gated to the first trial: `step-2+` preserves the
         # deployment and so skips the sync's `git clean -fdx`, which is the
-        # only other thing that would clear it. Warn rather than raise -- a
-        # missing checkout is normal before the first sync, and a venv that
-        # cannot be removed still surfaces as the uv error it already was.
+        # only other thing that would clear it. A non-zero exit means a broken
+        # venv could not be removed, and the per-path reason is on stderr --
+        # log both streams so the next uv failure is explainable. Warn rather
+        # than raise: the trial can still run, and a venv left in place
+        # surfaces as the uv error it already was.
         venv_reset_result = await _run_brev_exec(
             self._instance_name,
             _broken_venv_cleanup_command(),
@@ -321,7 +323,14 @@ class BrevEnvironment(BaseEnvironment):
                 "broken-venv cleanup failed on %s: exit %s; tail:\n%s",
                 self._instance_name,
                 venv_reset_result.return_code,
-                (venv_reset_result.stderr or venv_reset_result.stdout or "")[-300:],
+                "\n".join(
+                    part
+                    for part in (
+                        (venv_reset_result.stdout or "").strip(),
+                        (venv_reset_result.stderr or "").strip(),
+                    )
+                    if part
+                )[-800:],
             )
         else:
             logger.info(
@@ -1595,14 +1604,30 @@ def _broken_venv_cleanup_command() -> str:
     Only a venv that is already unusable is removed: a healthy one is left
     alone so steps do not pay a reinstall every trial. `uv` recreates a
     missing venv on its next run, so removal is the repair.
+
+    This deletes with `sudo`, so it reads the candidate list NUL-delimited and
+    re-checks every path before acting. Word-splitting an unquoted `find`
+    substitution would let a newline in a directory name yield a fragment that
+    is an absolute path of its own, and `rm -rf` would then follow it out of
+    the checkout entirely. A path has to survive all three guards -- under
+    `$REPO/`, basename `.venv`, and still a directory -- to be removed.
+
+    Exits non-zero when a removal failed, so the caller logs it rather than
+    reporting the trial as clean and leaving the next `uv` failure unexplained.
     """
     return (
         'REPO="$HOME/video-search-and-summarization"; '
         'if [ ! -d "$REPO" ]; then '
         '  echo "[venv-reset] no checkout at $REPO; nothing to inspect"; '
         'else '
-        '  REMOVED=0; '
-        '  for VENV in $(find "$REPO" -type d -name .venv -prune 2>/dev/null); do '
+        '  LIST=$(mktemp) || exit 1; '
+        '  find "$REPO" -type d -name .venv -prune -print0 2>/dev/null > "$LIST"; '
+        '  REMOVED=0; FAILED=0; '
+        '  while IFS= read -r -d "" VENV; do '
+        # Three guards, because the next statement runs rm -rf as root.
+        '    case "$VENV" in "$REPO"/*) ;; *) continue ;; esac; '
+        '    [ "${VENV##*/}" = ".venv" ] || continue; '
+        '    [ -d "$VENV" ] || continue; '
         # An interpreter that still runs means the venv is fine; leave it.
         '    if [ -x "$VENV/bin/python" ] && "$VENV/bin/python" -c "" 2>/dev/null; then '
         '      continue; '
@@ -1611,13 +1636,17 @@ def _broken_venv_cleanup_command() -> str:
         # bind-mount dirs git clean needs sudo for.
         '    rm -rf "$VENV" 2>/dev/null || sudo rm -rf "$VENV" 2>/dev/null || true; '
         '    if [ -d "$VENV" ]; then '
+        '      FAILED=$((FAILED+1)); '
         '      echo "[venv-reset] FAILED to remove broken $VENV" >&2; '
         '    else '
         '      REMOVED=$((REMOVED+1)); '
         '      echo "[venv-reset] removed broken $VENV"; '
         '    fi; '
-        '  done; '
-        '  echo "[venv-reset] broken venvs removed=$REMOVED"; '
+        '  done < "$LIST"; '
+        '  rm -f "$LIST"; '
+        '  echo "[venv-reset] broken venvs removed=$REMOVED failed=$FAILED"; '
+        # Load-bearing: a failed removal has to reach the caller's warning.
+        '  [ "$FAILED" -eq 0 ]; '
         "fi"
     )
 
