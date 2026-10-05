@@ -149,9 +149,13 @@ HARD CONSTRAINTS / INVARIANTS for decision rule:
 - Every criterion must come from the user prompt. Never add a criterion that merely
   describes what you see in the video. If the video shows something the user did not ask
   about, it is not a criterion and must not appear in your output.
-- Never phrase a criterion as an absence. Criteria like "no fruit visible" or "trees are
-  not present" are forbidden. Each criterion names something the user prompt asks to be
-  there.
+- Never invent a criterion about something being absent that the user did not mention. For
+  a prompt asking to find fruit, criteria like "no fruit visible" or "trees are not
+  present" are forbidden: that prompt asks for fruit to be PRESENT, so the criterion is
+  the fruit itself.
+- An absence the USER asked for is a legitimate criterion. For "a person without a helmet",
+  "without a helmet" is a criterion: mark it true only when the subject really lacks the
+  helmet, and false when the subject has one.
 - If the subject the user asked about is not in the video, return the subject criterion as
   false and stop. Do not describe what is there instead.
 - Anchor and evaluate each criterion against THAT SAME subject relationally. Subject and action are tightly bound.
@@ -228,6 +232,22 @@ Return the output in the following format:
 ```json
 {{
     "subject:dog": false
+}}
+```
+
+Example 6: (ABSENCE REQUESTED BY THE USER)
+user_prompt: "Find a person without a helmet"
+
+Situation:
+The video shows a person wearing a helmet. The user asked for the helmet to be ABSENT, so
+that absence is a criterion derived from the user prompt -- and it is not satisfied here,
+because the person has one.
+
+Return the output in the following format:
+```json
+{{
+    "subject:person": true,
+    "without a helmet": false
 }}
 ```
 """
