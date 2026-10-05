@@ -3128,12 +3128,17 @@ This is very important and you must follow this strictly.
                 # This allows concurrent processing of the same asset by multiple requests
                 self.remove_request_id(request_id)
                 if req_info._ctx_mgr:
-                    if not os.environ.get(
-                        "LVS_DISABLE_DB_RESET_ON_REQUEST_DONE", "false"
-                    ).lower() in [
-                        "true",
-                        "1",
-                    ]:  # noqa: E501
+                    # A failed file request may share its asset with existing
+                    # captions, QA data, or another active request. Release its
+                    # managers without resetting or dropping that asset's data.
+                    preserve_file_data = (
+                        not req_info.is_live and req_info.status == RequestInfo.Status.FAILED
+                    )
+                    if (
+                        not preserve_file_data
+                        and os.environ.get("LVS_DISABLE_DB_RESET_ON_REQUEST_DONE", "false").lower()
+                        not in ["true", "1"]
+                    ):
                         req_info._ctx_mgr.reset(
                             {
                                 "summarization": {"uuid": req_info.source_id},

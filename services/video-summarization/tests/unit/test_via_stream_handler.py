@@ -2815,6 +2815,44 @@ class TestCheckStatusRemoveReqIdDropsIndex:
 
         assert mock_ctx in handler._ctx_mgr_pool
 
+    @pytest.mark.parametrize("delete_external_collection", [False, True])
+    def test_failed_file_preserves_existing_data_and_releases_request(
+        self, delete_external_collection
+    ):
+        """Finalizing a zero-caption failure must leave the shared asset intact."""
+        from via_stream_handler import RequestInfo
+
+        handler, ri, ctx = self._make_completed_file_request()
+        handler._args.enable_dev_dc_gen = False
+        ri.status = RequestInfo.Status.PROCESSING
+        ri.start_time = time.time()
+        ri.delete_external_collection = delete_external_collection
+        qa_ctx = MagicMock()
+        ri._qa_ctx_mgr = qa_ctx
+        existing_data = {"caption": "Warehouse activity", "qa": "A forklift is present"}
+        ctx.reset.side_effect = lambda *_: existing_data.clear()
+        handler.drop_collection_for_asset = MagicMock(side_effect=lambda *_a, **_k: existing_data.clear())
+        other_request = RequestInfo()
+        other_request.source_id = ri.source_id
+        other_request.status = RequestInfo.Status.PROCESSING
+        handler._request_info_map[other_request.request_id] = other_request
+
+        handler._process_output(ri, False, [])
+        assert ri.status == RequestInfo.Status.FAILED
+        assert ri.progress == 100
+
+        with patch.dict(os.environ, {"LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "false"}):
+            handler.check_status_remove_req_id(ri.request_id)
+
+        assert existing_data == {"caption": "Warehouse activity", "qa": "A forklift is present"}
+        ctx.reset.assert_not_called()
+        handler.drop_collection_for_asset.assert_not_called()
+        assert ri.request_id not in handler._request_info_map
+        assert handler._request_info_map[other_request.request_id] is other_request
+        assert ctx in handler._ctx_mgr_pool
+        assert qa_ctx in handler._qa_ctx_mgr_pool
+        assert ri._qa_ctx_mgr is None
+
 
 # ---------------------------------------------------------------------------
 # drop_collection_for_asset's force_legacy bypass
