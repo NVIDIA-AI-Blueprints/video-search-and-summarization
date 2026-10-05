@@ -56,7 +56,7 @@ without requiring credentials, probing services, or changing files:
 
 | Script | Owner and purpose |
 | --- | --- |
-| `scripts/check_credentials.sh` | `references/credentials.md`: read-only NGC, NVIDIA API, and Hugging Face credential probes. |
+| `scripts/check_credentials.sh` | `references/credentials.md`: read-only NGC, NVIDIA API, and Hugging Face credential gate; `--require` declares which of them are mandatory, and exit `2` blocks. |
 | `scripts/probe_remote_models.sh` | `references/credentials.md`, `references/env-overrides.md`, and `references/troubleshooting.md`: OpenAI-compatible remote-model discovery. |
 | `scripts/normalize_resolved_yml.py` | `references/composition.md` and `references/deployment.md`: normalize the filtered Compose model. |
 | `scripts/validate_resolved_yml.py` | `references/composition.md` and `references/deployment.md`: validate the exact generated Compose model. |
@@ -409,6 +409,8 @@ After the selection, ask in one typed-values message only for that provider's st
    Submit that line for approval and run it — whether the host looks like it needs it and whatever the `sudo -n true` probe returned, since the script is idempotent and its `sudo` calls are internal ([Docker pin](references/prerequisites.md#docker-pin)). Only a declined or unavailable approval makes it a handoff, and the handoff is that same line — never a `sudo` command you wrote yourself, and never a hand-written `daemon.json` edit ahead of the script that already makes it ([Cgroup driver](references/prerequisites.md#cgroup-driver)). Resume by repeating only the failed check.
 
    Both NemoClaw harness images ship the NGC CLI, so only a non-NemoClaw build installs it here: attempt `references/ngc.md`'s install when `ngc` is missing, and hand that block over per `references/prerequisites.md` check 4 when `sudo` is unavailable rather than improvising another install path.
+
+   **Declare what the credential gate must enforce, then branch on its exit code.** `scripts/check_credentials.sh` takes the requirement set from `--require` (`ngc` for any local NIM, `nvidia-api` for a remote NIM endpoint, `hf` for the standalone RT-VLM / RT-Embed Hugging Face checkpoints) — derive it from the Foundation's `LLM_MODE` / `VLM_MODE` and the selected endpoints, per [`references/credentials.md`](references/credentials.md). Exit `2` is a blocker at this step: name the missing, rejected, or unvalidated credential and stop. Never carry an unset required key into Step 8, where it is baked into `resolved.yml` as `''` and no later export can fix it.
 
    When the harness is NemoClaw — including by default — add its host preflight from `references/agent-harness.md`; a missing installer prerequisite, or a credential [Q3a](#harness-model--q3a) did not turn up for the endpoint it settled on, blocks here, while the build is still cheap to re-aim. Read the environment and Brev references when applicable.
 4. Read `references/composition.md` and only the capability-owner files under `references/services/` needed by the request.
