@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 import traceback
 import uuid
@@ -1484,13 +1485,15 @@ class ViaStreamHandler:
         # Build VLM generation params from req_info
         gen_config = req_info.vlm_request_params.vlm_generation_config or {}
 
+        pending_file_responses = None
         try:
             chunk_idx = 0
             # File captions are provisional until RTVI finishes the stream.
             # Ingesting them as they arrive leaves partial caption/QA writes
-            # behind when a later SSE error fails the request. Buffer only
-            # files; live streams continue publishing each chunk immediately.
-            pending_file_responses = []
+            # behind when a later SSE error fails the request. Stage files on
+            # disk to bound RAM use; live streams still publish immediately.
+            if not req_info.is_live:
+                pending_file_responses = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
             model_info = self._vlm_pipeline.get_models_info()
             rtvi_sse_start = time.time()
 
@@ -1667,11 +1670,21 @@ class ViaStreamHandler:
                     if req_info.is_live:
                         self._on_vlm_chunk_response(response, req_info)
                     else:
-                        pending_file_responses.append(response)
+                        staged = vars(response).copy()
+                        staged["chunk"] = response.chunk.model_dump()
+                        staged.pop("model_info", None)
+                        pending_file_responses.write(json.dumps(staged) + "\n")
                     chunk_idx += 1
 
-            for response in pending_file_responses:
-                self._on_vlm_chunk_response(response, req_info)
+            if pending_file_responses is not None:
+                pending_file_responses.seek(0)
+                for line in pending_file_responses:
+                    staged = json.loads(line)
+                    staged["chunk"] = ChunkInfo.model_validate(staged["chunk"])
+                    response = VlmChunkResponse()
+                    vars(response).update(staged)
+                    response.model_info = model_info
+                    self._on_vlm_chunk_response(response, req_info)
 
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as ex:
             logger.error(
@@ -1713,6 +1726,10 @@ class ViaStreamHandler:
             self._end_e2e_span(req_info)
             req_info.status_event.set()
             return
+
+        finally:
+            if pending_file_responses is not None:
+                pending_file_responses.close()
 
         req_info.chunk_count = chunk_idx
 

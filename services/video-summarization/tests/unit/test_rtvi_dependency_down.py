@@ -330,3 +330,40 @@ def test_file_captions_are_ingested_in_order_after_rtvi_completes():
 
     assert ingested == [0, 1]
     assert req_info.chunk_count == 2
+
+
+@pytest.mark.unit
+def test_provisional_file_captions_use_bounded_memory():
+    import tracemalloc
+
+    handler = _make_handler()
+    req_info = _make_req_info()
+    ingested = []
+
+    def stream(**_kwargs):
+        for idx in range(64):
+            yield {
+                "chunk_responses": [
+                    {
+                        "chunk_id": idx,
+                        "start_time": idx * 10,
+                        "end_time": (idx + 1) * 10,
+                        "content": str(idx) + "x" * (256 * 1024),
+                    }
+                ]
+            }
+
+    handler._vlm_pipeline.generate_captions_stream.side_effect = stream
+    handler._on_vlm_chunk_response = lambda response, _req_info: ingested.append(
+        response.chunk.chunkIdx
+    )
+    with patch.dict(os.environ, {"ENABLE_DENSE_CAPTION": ""}):
+        tracemalloc.start()
+        try:
+            handler._trigger_query(req_info)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+
+    assert ingested == list(range(64))
+    assert peak < 8 * 1024 * 1024, f"provisional captions used {peak} bytes of RAM"
