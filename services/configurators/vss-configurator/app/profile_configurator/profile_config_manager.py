@@ -71,6 +71,7 @@ class ProfileConfigManager:
     DEFAULT_CONFIG_FILE = 'gpu_configs_generic.yaml'
     DEFAULT_HARDWARE_PROFILE = 'default'
     DEFAULT_DEPLOYMENT_MODE = '3d'
+    MODE_LESS_SUFFIX = " (mode-less)"
 
     @staticmethod
     def _hardware_profile_names(profile_configs: Dict[str, Any]) -> List[str]:
@@ -119,18 +120,18 @@ class ProfileConfigManager:
         if not self._has_effective_config():
             logger.warning(
                 f"No configuration found for HW profile: {self.hardware_profile}"
-                + (f" and MODE: {self.deployment_profile}" if self.deployment_modes_enabled else " (mode-less)")
+                + self._mode_suffix()
             )
         else:
             if self.config:
                 logger.info(
                     f"Found configurations for HW Profile: {self.hardware_profile}"
-                    + (f" and MODE: {self.deployment_profile}" if self.deployment_modes_enabled else " (mode-less)")
+                    + self._mode_suffix()
                 )
             else:
                 logger.info(
                     f"Using common configurations for HW Profile: {self.hardware_profile}"
-                    + (f" and MODE: {self.deployment_profile}" if self.deployment_modes_enabled else " (mode-less)")
+                    + self._mode_suffix()
                 )
             # Run variable validation first (validates env vars before any processing)
             self._execute_variable_validation()
@@ -1848,14 +1849,15 @@ class ProfileConfigManager:
             logger.info(f"Set File Count output variable '{output_variable}' = {total_file_count}")        
         return True
 
+    def _mode_suffix(self) -> str:
+        if self.deployment_modes_enabled:
+            return f" and MODE: {self.deployment_profile}"
+        return self.MODE_LESS_SUFFIX
+
     def _missing_profile_message(self) -> str:
-        mode_msg = (
-            f" and MODE: {self.deployment_profile}"
-            if self.deployment_modes_enabled
-            else " (mode-less)"
-        )
         return (
-            f"No configuration found for HW Profile: {self.hardware_profile}{mode_msg}"
+            f"No configuration found for HW Profile: {self.hardware_profile}"
+            f"{self._mode_suffix()}"
         )
 
     def _resolve_file_operations(self) -> List[Any]:
