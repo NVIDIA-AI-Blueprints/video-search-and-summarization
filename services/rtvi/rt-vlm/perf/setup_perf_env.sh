@@ -21,7 +21,7 @@
 #   1. Validates required environment variables and tools
 #   2. Checks NTP clock synchronization via chrony (warns if offset > 100ms)
 #   3. Detects platform and starts sys_cache_cleaner (DGX Spark / Jetson Thor only)
-#   4. Downloads and extracts the VST package from Artifactory
+#   4. Stages VST deployment files from this repository (or an explicit local package)
 #   5. Patches VST image tags and makes Redis port configurable via $REDIS_PORT
 #   6. Fetches the LVS warehouse video and derives benchmark test videos
 #   7. Detects the host IP for RTSP stream URLs
@@ -32,8 +32,6 @@
 #  12. Generates .env.perf from env vars and starts RTVI VLM via compose.perf.yaml
 #
 # Required environment variables:
-#   ARTIFACTORY_USER    — Artifactory username (required when VST must be downloaded)
-#   ARTIFACTORY_TOKEN   — Artifactory API token / password (required when VST must be downloaded)
 #   NGC_API_KEY         — NGC API key for model download (nvapi-...)
 #   NVIDIA_VISIBLE_DEVICES — GPU index(es) to expose to the RTVI container and DCGM exporter
 #                            e.g. export NVIDIA_VISIBLE_DEVICES=0
@@ -51,9 +49,7 @@
 #   MODEL_PATH          — Model source path (default: NGC Cosmos Reason2 path)
 #   BACKEND_PORT        — Host port for the RTVI VLM service (default: 8010)
 #   HF_TOKEN            — HuggingFace token for private model repos (optional)
-#   ARTIFACTORY_BASE    — Base Artifactory URL
-#   VST_PKG_URL         — Full URL to vst_package.tar.gz
-#   VST_LOCAL_PACKAGE   — Local vst_package.tar.gz to use before Artifactory download
+#   VST_LOCAL_PACKAGE   — Optional explicit local VST tarball instead of repository files
 #   VST_IMAGE_REGISTRY  — Registry/repository prefix for VST images
 #   VST_IMAGE_TAG       — Tag for VST images
 #   VST_STREAMPROCESSING_IMAGE — Full image override for stream-processing
@@ -92,12 +88,10 @@ usage() {
 Usage: bash perf/setup_perf_env.sh [-h|--help]
 
 End-to-end setup script for the RTVI VLM performance benchmark environment.
-Runs 12 steps: VST download → nvstreamer → VST → test videos → .env.perf
+Runs 12 steps: VST staging → nvstreamer → VST → test videos → .env.perf
 generation → RTVI VLM startup → Python venv → RTSP URL injection.
 
 Required environment variables (must be exported before running):
-  ARTIFACTORY_USER      Artifactory username (required when VST must be downloaded)
-  ARTIFACTORY_TOKEN     Artifactory API token / password (required when VST must be downloaded)
   NGC_API_KEY           NGC API key for model download (nvapi-...)
   NVIDIA_VISIBLE_DEVICES  GPU index(es) for RTVI container + DCGM exporter
                           Can be set inline: NVIDIA_VISIBLE_DEVICES=3 bash perf/setup_perf_env.sh
@@ -132,9 +126,7 @@ Optional environment variables (sensible defaults shown):
   VLM_MODEL_TO_USE      VLM model key                      (default: cosmos-reason2)
   MODEL_PATH            Model source path                  (default: NGC Cosmos Reason2)
   HF_TOKEN              HuggingFace token for private repos (default: empty)
-  ARTIFACTORY_BASE      Base Artifactory URL
-  VST_PKG_URL           Full URL to vst_package.tar.gz
-  VST_LOCAL_PACKAGE     Local vst_package.tar.gz override  (default: perf/vst_package.tar.gz)
+  VST_LOCAL_PACKAGE     Explicit local VST tarball override (default: repository deployment)
   VST_IMAGE_REGISTRY    VST image registry/repo prefix     (default: nvcr.io/nvidia/vss-core)
   VST_IMAGE_TAG         VST image tag                      (default: 3.2.0)
   VST_STREAMPROCESSING_IMAGE  Full stream-processing image override
@@ -222,8 +214,6 @@ Teardown:
   bash perf/teardown_perf_env.sh   # stops all services started by this script
 
 Example:
-  export ARTIFACTORY_USER=jdoe
-  export ARTIFACTORY_TOKEN=mytoken
   # Optional: override the platform-specific GHCR develop image.
   # export RTVI_IMAGE=registry/rtvi_vlm:custom
   export NGC_API_KEY=nvapi-abc123
@@ -326,17 +316,12 @@ fi
 # ---------------------------------------------------------------------------
 # Configuration — all values can be overridden by environment variables
 # ---------------------------------------------------------------------------
-ARTIFACTORY_BASE="${ARTIFACTORY_BASE:-https://artifactory.nvidia.com/artifactory}"
-ARTIFACTORY_USER="${ARTIFACTORY_USER:-}"
-ARTIFACTORY_TOKEN="${ARTIFACTORY_TOKEN:-}"
-VST_PKG_URL="${VST_PKG_URL:-${ARTIFACTORY_BASE}/sw-ds-generic-bld-local/lmm/build/vst_package.tar.gz}"
 VST_IMAGE_REGISTRY="${VST_IMAGE_REGISTRY:-nvcr.io/nvidia/vss-core}"
 VST_IMAGE_TAG="${VST_IMAGE_TAG:-3.2.0}"
 VST_STREAMPROCESSING_IMAGE="${VST_STREAMPROCESSING_IMAGE:-${VST_IMAGE_REGISTRY}/vss-vios-streamprocessing:${VST_IMAGE_TAG}}"
 VST_SENSOR_IMAGE="${VST_SENSOR_IMAGE:-${VST_IMAGE_REGISTRY}/vss-vios-sensor:${VST_IMAGE_TAG}}"
 VST_INGRESS_IMAGE="${VST_INGRESS_IMAGE:-${VST_IMAGE_REGISTRY}/vss-vios-ingress:${VST_IMAGE_TAG}}"
 VST_NVSTREAMER_IMAGE="${VST_NVSTREAMER_IMAGE:-${VST_IMAGE_REGISTRY}/vss-vios-nvstreamer:${VST_IMAGE_TAG}}"
-VIDEOS_URL="${VIDEOS_URL:-${ARTIFACTORY_BASE}/sw-ds-generic-bld-local/via-engine/media/perf}"
 BCD_10S_VIDEO_SOURCE_PATH="${BCD_10S_VIDEO_SOURCE_PATH:-}"
 BCD_10S_VIDEO_FILENAME="${BCD_10S_VIDEO_FILENAME:-FPS10_Res1080p_Dur10sec_1.mp4}"
 BCD_10M_VIDEO_FILENAME="${BCD_10M_VIDEO_FILENAME:-warehouse_gopro_10m_10fps.mp4}"
@@ -381,7 +366,7 @@ LVS_VIDEO_SOURCE_PATH="${LVS_VIDEO_DATA_DIR}/videos/warehouse_10min.mp4"
 BENCHMARK_DIR="${SCRIPT_DIR}/benchmark"
 BENCHMARK_CONFIG="${BENCHMARK_CONFIG:-${BENCHMARK_DIR}/rtvi_vlm_config_test.yaml}"
 REQUIREMENTS_FILE="${BENCHMARK_DIR}/requirements.txt"
-VST_LOCAL_PACKAGE="${VST_LOCAL_PACKAGE:-${SCRIPT_DIR}/vst_package.tar.gz}"
+VST_LOCAL_PACKAGE="${VST_LOCAL_PACKAGE:-}"
 
 # RTVI VLM service (compose.perf.yaml)
 COMPOSE_PERF_YAML="${COMPOSE_PERF_YAML:-${REPO_ROOT}/docker/compose.perf.yaml}"
@@ -727,13 +712,17 @@ log "Step 1/12: Validating prerequisites..."
 
 # Collect missing required variables so we can show them all at once
 _missing=()
-_needs_artifactory=false
-if [[ ! -f "${VST_LOCAL_PACKAGE}" && ! -f "${VST_DIR}/vst_package.tar.gz" ]]; then
-    _needs_artifactory=true
+if [[ -n "${VST_LOCAL_PACKAGE}" && ! -f "${VST_LOCAL_PACKAGE}" ]]; then
+    echo "VST_LOCAL_PACKAGE does not exist: ${VST_LOCAL_PACKAGE}" >&2
+    exit 1
 fi
-if [[ "${_needs_artifactory}" == "true" ]]; then
-    [[ -n "${ARTIFACTORY_USER}" ]]      || _missing+=("ARTIFACTORY_USER")
-    [[ -n "${ARTIFACTORY_TOKEN}" ]]     || _missing+=("ARTIFACTORY_TOKEN")
+if [[ -z "${VST_LOCAL_PACKAGE}" ]]; then
+    for _entry in stream-processing nvstreamer scripts deploy.sh; do
+        if [[ -e "${VST_DIR}/${_entry}" || -L "${VST_DIR}/${_entry}" ]]; then
+            echo "Use a fresh VST_DIR; refusing to overwrite ${VST_DIR}/${_entry}" >&2
+            exit 1
+        fi
+    done
 fi
 if [[ -n "${BCD_10S_VIDEO_SOURCE_PATH}" && ! -f "${BCD_10S_VIDEO_SOURCE_PATH}" ]]; then
     _missing+=("BCD_10S_VIDEO_SOURCE_PATH")
@@ -749,8 +738,6 @@ if [[ "${#_missing[@]}" -gt 0 ]]; then
     echo "" >&2
     for _var in "${_missing[@]}"; do
         case "${_var}" in
-            ARTIFACTORY_USER)      echo -e "    ${_C_YELLOW}export ARTIFACTORY_USER=<your_artifactory_username>${_C_RESET}" >&2 ;;
-            ARTIFACTORY_TOKEN)     echo -e "    ${_C_YELLOW}export ARTIFACTORY_TOKEN=<your_artifactory_token>${_C_RESET}" >&2 ;;
             BCD_10S_VIDEO_SOURCE_PATH)
                 echo -e "    ${_C_YELLOW}export BCD_10S_VIDEO_SOURCE_PATH=/path/to/10s_10fps_clip.mp4${_C_RESET}" >&2
                 ;;
@@ -986,15 +973,15 @@ fi
 section "Stream Download"
 
 # ---------------------------------------------------------------------------
-# Step 4: Download and extract VST package
+# Step 4: Stage repository deployment or an explicit local VST package
 # ---------------------------------------------------------------------------
-log "Step 4/12: Downloading VST package..."
+log "Step 4/12: Staging VST deployment..."
 
 mkdir -p "${VST_DIR}"
 
 VST_TARBALL="${VST_DIR}/vst_package.tar.gz"
 
-if [[ -f "${VST_LOCAL_PACKAGE}" ]]; then
+if [[ -n "${VST_LOCAL_PACKAGE}" ]]; then
     log "  Using local VST package: ${VST_LOCAL_PACKAGE}"
     if [[ -f "${VST_TARBALL}" ]] && cmp -s "${VST_LOCAL_PACKAGE}" "${VST_TARBALL}"; then
         log "  Local VST package already staged at ${VST_TARBALL}."
@@ -1002,16 +989,6 @@ if [[ -f "${VST_LOCAL_PACKAGE}" ]]; then
         cp -f "${VST_LOCAL_PACKAGE}" "${VST_TARBALL}" \
             || die "Failed to stage local VST package from ${VST_LOCAL_PACKAGE}"
     fi
-elif [[ -f "${VST_TARBALL}" ]]; then
-    log "  vst_package.tar.gz already present, skipping download."
-else
-    log "  Downloading from ${VST_PKG_URL} ..."
-    curl -fsSL \
-        -u "${ARTIFACTORY_USER}:${ARTIFACTORY_TOKEN}" \
-        -o "${VST_TARBALL}" \
-        "${VST_PKG_URL}" \
-        || die "Failed to download VST package from ${VST_PKG_URL}"
-fi
 
 # Stop any previously running VST containers BEFORE overwriting deploy.sh.
 # The tarball re-extraction below replaces deploy.sh with a fresh copy and
@@ -1037,6 +1014,15 @@ fi
 
 log "  Extracting VST package to ${VST_DIR} ..."
 tar -xzf "${VST_TARBALL}" -C "${VST_DIR}" --strip-components=1
+else
+    VST_DIR="${VST_DIR}" PERF_VIDEOS_DIR="${PERF_VIDEOS_DIR}" \
+        VST_COMPOSE_PROJECT="${VST_COMPOSE_PROJECT}" \
+        REDIS_PORT="${REDIS_PORT}" CENTRALIZE_DB_PORT="${CENTRALIZE_DB_PORT}" \
+        VST_SENSOR_PORT="${VST_SENSOR_PORT}" VST_STREAM_PROC_PORT="${VST_STREAM_PROC_PORT}" \
+        VST_INGRESS_PORT="${VST_INGRESS_PORT}" VST_RTSP_PORT="${VST_RTSP_PORT}" \
+        NVSTREAMER_HTTP_PORT="${NVSTREAMER_HTTP_PORT}" NVSTREAMER_RTSP_PORT="${NVSTREAMER_RTSP_PORT}" \
+        python3 "${SCRIPT_DIR}/stage_vst.py" || die "Failed to stage repository VST deployment"
+fi
 
 set_compose_env_value() {
     local env_file="$1"
@@ -1456,41 +1442,9 @@ mkdir -p "${PERF_VIDEOS_DIR}"
 #   warehouse_gopro_1m.mp4   —   60 s  (legacy; kept for backward compatibility)
 #   warehouse_gopro_10m.mp4  —  600 s  (legacy 29.97 FPS source)
 #   warehouse_gopro_60m.mp4  — 3600 s  (legacy 29.97 FPS source)
-download_video() {
-    local video="$1"
-    local required="$2"
-    local force="${3:-false}"
-    local dest="${PERF_VIDEOS_DIR}/${video}"
-
-    if [[ -f "${dest}" && "${force}" != "true" ]]; then
-        log "  ${video} already present, skipping."
-        return
-    fi
-
-    if [[ "${force}" == "true" && -f "${dest}" ]]; then
-        log "  Refreshing ${video} ..."
-    else
-        log "  Downloading ${video} ..."
-    fi
-    if curl -fsSL \
-        -u "${ARTIFACTORY_USER}:${ARTIFACTORY_TOKEN}" \
-        -o "${dest}" \
-        "${VIDEOS_URL}/${video}"; then
-        return
-    fi
-
-    rm -f "${dest}"
-    if [[ "${required}" == "true" ]]; then
-        die "Failed to download required benchmark video ${video} from ${VIDEOS_URL}/${video}"
-    fi
-    warn "  Failed to download ${video} — continuing without it."
-}
-
 for video in "${BENCHMARK_VIDEOS[@]}"; do
-    if [[ -n "${ARTIFACTORY_USER}" && -n "${ARTIFACTORY_TOKEN}" ]]; then
-        download_video "${video}" false
-    elif [[ ! -f "${PERF_VIDEOS_DIR}/${video}" ]]; then
-        log "  Skipping optional legacy video ${video} (Artifactory credentials not set)."
+    if [[ ! -f "${PERF_VIDEOS_DIR}/${video}" ]]; then
+        log "  Optional legacy video ${video} is absent; supply it locally if your scenario needs it."
     fi
 done
 
