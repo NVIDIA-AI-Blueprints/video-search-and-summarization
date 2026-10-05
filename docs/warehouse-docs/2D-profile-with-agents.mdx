@@ -347,12 +347,19 @@ Refer to [RT-DETR Real-Time Performance](/vss/system-components/models/rt-detr-2
 
 #### Step 3: Deploy and generate new calibration
 
-The 2D with Agents profile supports two calibration types:
+2D with Agents supports three calibration states — pick one:
 
-Choose one calibration workflow:
-
-- **Image coordinates** (`"calibrationType": "image"`): Prepare the file manually using camera pixel coordinates. Follow **Image coordinate calibration** below.
-- **Cartesian coordinates** (`"calibrationType": "cartesian"`): Generate image-to-global calibration using Auto Calibration's AMC method. Follow **Cartesian coordinate calibration** below.
+- **Cartesian** (`"calibrationType": "cartesian"`): full image-to-global
+  calibration, generated using Auto Calibration's AMC method. ROI/tripwire
+  authoring is fully supported. Follow **Cartesian coordinate calibration**
+  below.
+- **Image coordinates, with a calibration file** (`"calibrationType":
+  "image"`): a manually-prepared, pixel-coordinate calibration file — no
+  image-to-global transform. ROI/tripwire must be measured manually. Follow
+  **Image coordinate calibration** below.
+- **Running 2D without calibration**: skip calibration entirely. Detection/
+  tracking still runs in image (pixel) coordinates; ROI/tripwire events are
+  unavailable. See below.
 
 ##### Image coordinate calibration
 
@@ -504,6 +511,22 @@ Configure `industry-profiles/warehouse-operations/overrides.env` using the **Aut
 - Manually add any other attributes that are missing from the generated calibration file but are required for your use case.
 - Auto Calibration requires time-synchronized videos as input. For RTSP cameras, record videos from the RTSP source (e.g. using ffmpeg or similar tools), manually trim the videos to time-synchronize them if needed, then provide them to Auto Calibration.
 </Note>
+
+##### Running 2D without calibration
+
+Applies only when there's no `calibration.json` file at all — not for either
+calibration type above. Detection/tracking still runs directly on the camera
+stream in image (pixel) coordinates; only ROI/tripwire events in
+behavior-analytics are unavailable. Calibration is enabled by default; to
+skip it entirely:
+
+* Remove `import-calibration-output-container-2d` from whichever profile variable you're deploying with — `COMPOSE_PROFILES_WH_2D`, `COMPOSE_PROFILES_WH_KAFKA_2D`, `COMPOSE_PROFILES_WH_REDIS_2D`, `COMPOSE_PROFILES_PLAYBACK_KAFKA_2D`, `COMPOSE_PROFILES_PLAYBACK_REDIS_2D` — edit the value directly in `overrides.env`.
+
+* Remove `--calibration /resources/calibration.json` from the `vss-behavior-analytics` service's `command:` in `warehouse-2d-app/warehouse-2d-app.yml`. This is a static line in the compose file, not an env var, so it needs a direct edit (or a compose override file layered on top).
+
+* Also remove the `vss-behavior-analytics-2d` service's `calibration.json` bind mount in the same file — the `volumes:` line ending `.../calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/resources/calibration.json`. This is independent of the profile and command changes above. If a custom dataset has no `calibration.json` on the host, Compose creates an empty directory at that path to satisfy the mount, which then blocks placing a real `calibration.json` there later — leave the mount in only if the file already exists.
+
+* The `bp-configurator-2d` service's `/opt/data` mount (`.../calibration/sample-data/$SAMPLE_VIDEO_DATASET:/opt/data`) is unused in 2D mode — good to remove.
 
 #### Step 4: Redeploy the stack to apply the new calibration
 
