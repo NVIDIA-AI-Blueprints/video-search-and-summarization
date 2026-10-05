@@ -23,5 +23,5 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
 data:
   config.yaml: |
-{{ .Files.Get "configs/config.yaml" | indent 4 }}
+{{ tpl (.Files.Get "configs/config.yaml") . | indent 4 }}
 {{- end }}

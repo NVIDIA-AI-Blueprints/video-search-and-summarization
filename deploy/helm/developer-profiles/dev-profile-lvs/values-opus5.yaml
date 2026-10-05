@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+nims:
+  enabled: false
+  nemotron35:
+    enabled: false
+
+agent:
+  enabled: false
+
+vss-agent-ui:
+  enabled: false
+
+vss-summarization:
+  llmBaseUrl: https://inference-api.nvidia.com/v1
+  llmName: azure/anthropic/claude-opus-5
+  llmSampling:
+    temperature: null
+    topP: null
+  llmApiKeySecret:
+    name: lvs-inference-api
+    key: api-key

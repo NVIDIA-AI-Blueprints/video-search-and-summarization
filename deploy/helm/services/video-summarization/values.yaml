@@ -40,6 +40,12 @@ llmService: ""   # e.g. nemotron-35-lightning-30b-a3b — ignored when llmBaseUr
 vlmService: ""  # e.g. nvidia-cosmos3-reasoner — ignored when vlmBaseUrl/global.vlmBaseUrl resolves non-empty
 llmBaseUrl: ""  # optional: overrides global.llmBaseUrl for LVS only
 vlmBaseUrl: ""  # optional: overrides global.vlmBaseUrl for LVS only
+llmSampling:
+  temperature: 0.2
+  topP: 0.7
+llmApiKeySecret:
+  name: ""
+  key: api-key
 llmName: ""  # optional: overrides global.llmName for LVS_LLM_MODEL_NAME
 vlmName: ""  # optional: overrides global.vlmName for VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME
 elasticsearchHost: ""

@@ -61,8 +61,8 @@ tools:
       model: !ENV ${LVS_LLM_MODEL_NAME}
       base_url: !ENV ${LVS_LLM_BASE_URL}
       max_tokens: 10240
-      temperature: 0.2
-      top_p: 0.7
+      temperature: {{ .Values.llmSampling.temperature | toJson }}
+      top_p: {{ .Values.llmSampling.topP | toJson }}
       api_key: !ENV ${NVIDIA_API_KEY}
 
   nvidia_embedding:

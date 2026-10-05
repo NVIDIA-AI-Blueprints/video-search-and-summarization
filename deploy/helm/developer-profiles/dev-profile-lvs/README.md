@@ -73,6 +73,38 @@ With default **`values.yaml`** and typical LVS install (LLM NIM enabled, **`vss-
 
 To run the RTVI-VLM against a shared/remote VLM endpoint instead of the integrated checkpoint, set `rtvi.vss-rtvi-vlm.useSharedNim=true` and configure the target VLM endpoint/model values.
 
+### Claude Opus 5 through NVIDIA Inference API
+
+Use the existing LVS chart with `values-opus5.yaml`. This preset sends LVS LLM
+requests to `https://inference-api.nvidia.com/v1` using
+`azure/anthropic/claude-opus-5`. It omits temperature and top-p sampling parameters, which Opus 5 does not accept.
+It disables the local Nemotron workload and the
+VSS agent/UI; Hermes can use LVS independently. RTVI retains the integrated
+Cosmos VLM. The preset requests **two GPUs**: one for RTVI-VLM and one for VIOS
+stream processing. LVS and the remote LLM request no cluster GPUs. When
+registering this preset in the eval harness, set `gpu_count: 2`; the stock LVS
+profile requests three, so a four-GPU reservation overstates either configuration.
+
+Create the API-key Secret in the release namespace. The key file must contain
+only the inference API credential; do not store the credential in Helm values.
+
+```bash
+kubectl create namespace vss-opus5
+kubectl -n vss-opus5 create secret generic lvs-inference-api \
+  --from-file=api-key=/path/to/private/inference-api-key
+helm dependency build deploy/helm/developer-profiles/dev-profile-lvs
+helm upgrade --install vss deploy/helm/developer-profiles/dev-profile-lvs \
+  -n vss-opus5 \
+  -f deploy/helm/developer-profiles/dev-profile-lvs/values-lvs.yaml \
+  -f deploy/helm/developer-profiles/dev-profile-lvs/values-opus5.yaml \
+  --set global.externalHost=lvs.example.com
+```
+
+Configure NGC pull/model credentials and storage as for a normal LVS install.
+Override `vss-summarization.llmApiKeySecret.name` and `.key` to use an existing
+Secret. The default chart still supports its existing literal API-key setting
+when no Secret is selected. Keep the Opus preset last in the values-file order.
+
 ### Optional GPU monitoring
 
 The chart's DCGM exporter is disabled by default because the NVIDIA GPU
