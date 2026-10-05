@@ -18,7 +18,7 @@
 # current directory, skipping anything already present.
 #
 #   ./radio-clip_vdeployable_v1.0/         # with --secondary
-#   ./siglip_v2_vdeployable_v1.1/
+#   ./siglip_v2_vdeployable_v2.0/
 #   ./clip-reid/                           # with --clipreid: source, ckpt, cache
 #   ./reid_model.onnx                      # with --clipreid
 #
@@ -47,12 +47,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 MODELS=(
-  "nvidia/tao/siglip_v2:deployable_v1.1"
+  "nvidia/tao/siglip_v2:deployable_v2.0"
 )
 
 # Filename ReID loads from SECONDARY_EMBEDDING_ONNX_MODEL_PATH. Cache hits and
 # download success are keyed on this file, not on any other leftover .onnx.
-SIGLIP_ONNX_NAME="siglip_v2_v1.1.onnx"
+SIGLIP_ONNX_NAME="siglip_v2_v2.0.onnx"
+
+# The ONNX holds no weights; they sit beside it as external data in a file some
+# 3500x larger, so that one -- not the ONNX -- is what an interrupted download
+# truncates. Exact sizes come from the NGC version manifest; re-pin both
+# whenever SIGLIP_ONNX_NAME moves to a new version.
+SIGLIP_ONNX_BYTES=1297782
+SIGLIP_WEIGHTS_BYTES=4542683848
 
 # Matches NGC_ORG_DEFAULT in rtvi-cv/download-models.sh.
 NGC_ORG_DEFAULT="${NGC_ORG_DEFAULT:-nvidia}"
@@ -160,6 +167,25 @@ file_nonempty() {
   [ -f "$1" ] && [ -s "$1" ]
 }
 
+# stat(1) is read from metadata, so this stays O(1) even on the multi-GB weights
+# file. BSD/busybox stat takes -f instead of -c, hence the python3 fallback the
+# sha256 check above also relies on.
+file_size() {
+  stat -c %s "$1" 2>/dev/null \
+    || python3 -c "import os,sys; print(os.path.getsize(sys.argv[1]))" "$1" 2>/dev/null
+}
+
+file_has_size() {
+  local path="$1" want="$2" got
+  [ -f "$path" ] || return 1
+  got="$(file_size "$path")" || return 1
+  [ "$got" = "$want" ]
+}
+
+siglip_weights_name() {
+  printf '%s_weights.bin\n' "${SIGLIP_ONNX_NAME%.onnx}"
+}
+
 verify_clipreid_checkpoint() {
   local got
   file_nonempty "$CLIPREID_CKPT" || {
@@ -185,11 +211,14 @@ print(h.hexdigest())" "$CLIPREID_CKPT")
   fi
 }
 
-# Skip / accept a version dir only when the ReID-configured ONNX is present
-# and nonempty. A wildcard *.onnx would treat a stale or partial sibling as
-# complete and skip recovery forever.
+# Skip / accept a version dir only when the ReID-configured ONNX and its external
+# weights are both at their manifest sizes. A wildcard *.onnx would treat a stale
+# or partial sibling as complete and skip recovery forever; a nonempty-only check
+# would accept a truncated weights file, which staging reports as success and the
+# service then fails on at load.
 ngc_onnx_present() {
-  file_nonempty "$1/$SIGLIP_ONNX_NAME"
+  file_has_size "$1/$SIGLIP_ONNX_NAME" "$SIGLIP_ONNX_BYTES" \
+    && file_has_size "$1/$(siglip_weights_name)" "$SIGLIP_WEIGHTS_BYTES"
 }
 
 version_dir() {
@@ -220,6 +249,7 @@ run_in_image() {
     -e USER="$(id -un)" \
     -e LOGNAME="$(id -un)" \
     -e NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    -e CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}" \
     -e PYTHONUNBUFFERED=1 \
     -v "$CLIPREID_DIR:/work" \
     --entrypoint bash \
@@ -362,7 +392,7 @@ download_tao_models() {
       continue
     fi
     if [ -d "$dir" ]; then
-      echo "── Incomplete ${dir##*/}/ (missing ${SIGLIP_ONNX_NAME}); re-downloading $spec"
+      echo "── Incomplete ${dir##*/}/ (${SIGLIP_ONNX_NAME} or $(siglip_weights_name) missing or wrong size); re-downloading $spec"
     fi
     ensure_ngc_cli
     echo "── Downloading $spec ..."
@@ -380,7 +410,8 @@ download_tao_models() {
       rm -rf "$dir"
       echo "ERROR: download failed for $spec (org ${NGC_ORG_DEFAULT})." >&2
       echo "       Gated models need NGC_CLI_API_KEY set in the environment." >&2
-      echo "       The version dir must contain a nonempty ${SIGLIP_ONNX_NAME} after download." >&2
+      echo "       After download the version dir must hold ${SIGLIP_ONNX_NAME} at ${SIGLIP_ONNX_BYTES} bytes" >&2
+      echo "       and $(siglip_weights_name) at ${SIGLIP_WEIGHTS_BYTES} bytes." >&2
       exit 1
     fi
   done

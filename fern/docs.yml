@@ -36,6 +36,7 @@ navigation:
     contents:
       - page: "VSS 2.X Release Notes"
         slug: vss-2-x-release-notes
+        hidden: true
         path: ../docs/release-notes-ver-2.mdx
   - section: "Getting Started"
     slug: getting-started
@@ -229,6 +230,9 @@ navigation:
                       - page: "Behavior Analytics"
                         slug: behavior-analytics
                         path: ../docs/warehouse-docs/Behavior-Analytics.mdx
+                      - page: "VSS Configurator"
+                        slug: vss-configurator
+                        path: ../docs/warehouse-docs/VSS-Configurator.mdx
                       - page: "Alerting Service"
                         slug: alerting-service
                         path: ../docs/warehouse-docs/alerting-service.mdx
