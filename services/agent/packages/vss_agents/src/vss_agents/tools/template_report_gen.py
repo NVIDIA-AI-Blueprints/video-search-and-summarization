@@ -76,58 +76,14 @@ Grounding requirements (these override any conflicting template instruction):
 - Structural completeness of the template is not proof of factual accuracy.
 """.strip()
 
-_WAREHOUSE_REPORT_TITLE = "Warehouse Incident Report"
-_WAREHOUSE_REQUIRED_SECTIONS = (
-    "Basic Information",
-    "Incident Details",
-    "Location and Environment Details",
-    "People Involved",
-    "Vehicles Involved",
-)
-# Field labels from deploy/.../warehouse-operations/.../incident_report_template.md
-_WAREHOUSE_BASIC_FIELDS = (
-    "Report Identifier",
-    "Date of Incident",
-    "Time of Incident",
-    "Reporting AI Agent",
-    "Sensor ID",
-)
-_WAREHOUSE_INCIDENT_DETAIL_FIELDS = (
-    "Type of Incident",
-    "Detailed Description",
-    "Safety Distance",
-    "Number of Persons involved",
-    "Number of Vehicles involved",
-)
-_WAREHOUSE_LOCATION_FIELDS = (
-    "Location Description",
-    "Light Condition",
-    "Floor Condition",
-    "Blockage",
-)
-_WAREHOUSE_PERSON_FIELDS = (
-    "Person Type",
-    "Person behaviour at the time",
-    "Person Location",
-)
-_WAREHOUSE_VEHICLE_FIELDS = (
-    "Vehicle Type",
-    "Vehicle maneuver at the time",
-    "Vehicle Location",
-)
-_WAREHOUSE_SECTION_FIELDS: dict[str, tuple[str, ...]] = {
-    "Basic Information": _WAREHOUSE_BASIC_FIELDS,
-    "Incident Details": _WAREHOUSE_INCIDENT_DETAIL_FIELDS,
-    "Location and Environment Details": _WAREHOUSE_LOCATION_FIELDS,
-}
 _RESOURCES_HEADING_RE = re.compile(r"^##\s*Resources\b", re.IGNORECASE | re.MULTILINE)
 _THINK_OPEN_RE = re.compile(r"<think\b", re.IGNORECASE)
 _THINK_CLOSE_RE = re.compile(r"</think>", re.IGNORECASE)
 _MARKDOWN_FENCE_RE = re.compile(r"^```(?:markdown)?\s*\n?(.*?)\n?```\s*$", re.IGNORECASE | re.DOTALL)
-_SECTION_HEADING_RE = re.compile(r"^(##\s+.+)$", re.MULTILINE)
 _TABLE_SEPARATOR_RE = re.compile(r"^\|\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
 _UNFILLED_PLACEHOLDER_RE = re.compile(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}")
-_SECTION_LEVEL_UNKNOWN_RE = re.compile(r"\b(Unknown|N/A)\b", re.IGNORECASE)
+# Optional labeled values outside tables, e.g. "**Detailed Description:** text"
+_PROSE_LABELED_VALUE_RE = re.compile(r"^\s*\*\*(.+?)\*\*\s*:?\s*(.+?)\s*$", re.MULTILINE)
 
 
 class ReportContentValidationError(ValueError):
@@ -284,6 +240,16 @@ class TemplateReportGenConfig(FunctionBaseConfig, name="template_report_gen"):
     report_prompt: str = Field(
         default="",
         description="System prompt for the LLM to use when generating custom reports. Must contain {template} for the report template. ",
+    )
+    required_report_fields: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional explicit field labels that must appear in the generated Markdown with a "
+            "non-empty resolved value (or Unknown/N/A for that label). Empty (default) means "
+            "generic body validation only: reject empty/thinking/resources-only output. "
+            "Does not infer requirements from template titles, headings, or placeholder lists, "
+            "so customized templates and prompt overrides remain supported."
+        ),
     )
     include_picture_url: bool = Field(
         default=True,
@@ -773,11 +739,6 @@ def _normalize_report_model_output(content: str) -> str:
     return normalized
 
 
-def _is_warehouse_incident_template(template_content: str) -> bool:
-    """Return True when the configured template is the warehouse incident report."""
-    return bool(re.search(rf"^#\s*{re.escape(_WAREHOUSE_REPORT_TITLE)}\b", template_content, flags=re.MULTILINE))
-
-
 def _body_without_resources(content: str) -> str:
     """Return report body with any Resources section removed."""
     match = _RESOURCES_HEADING_RE.search(content)
@@ -786,29 +747,15 @@ def _body_without_resources(content: str) -> str:
     return content[: match.start()].strip()
 
 
-def _extract_markdown_sections(content: str) -> dict[str, str]:
-    """Map ``##`` section titles (without the heading markers) to section bodies."""
-    parts = _SECTION_HEADING_RE.split(content)
-    sections: dict[str, str] = {}
-    # parts[0] is preamble before the first ## heading
-    for index in range(1, len(parts), 2):
-        heading = parts[index].strip()
-        body = parts[index + 1] if index + 1 < len(parts) else ""
-        title = re.sub(r"^##\s*", "", heading).strip()
-        sections[title] = body
-    return sections
-
-
-def _parse_markdown_table_fields(section_body: str) -> dict[str, str]:
+def _parse_markdown_table_fields(content: str) -> dict[str, str]:
     """
-    Parse Field/Value markdown table rows.
+    Parse Field/Value markdown table rows from arbitrary report content.
 
-    Supports the warehouse template's rows that omit a trailing pipe, e.g.
-    ``| **Sensor ID** | {sensor_id}``. Uses ``lstrip`` only so blank values made of
-    trailing spaces are not collapsed away before cell parsing.
+    Supports rows that omit a trailing pipe, e.g. ``| **Sensor ID** | Camera_01``.
+    Uses ``lstrip`` only so blank values made of trailing spaces are preserved.
     """
     fields: dict[str, str] = {}
-    for line in section_body.splitlines():
+    for line in content.splitlines():
         stripped = line.lstrip()
         if not stripped.startswith("|") or _TABLE_SEPARATOR_RE.match(stripped.rstrip()):
             continue
@@ -827,6 +774,17 @@ def _parse_markdown_table_fields(section_body: str) -> dict[str, str]:
     return fields
 
 
+def _extract_labeled_field_values(content: str) -> dict[str, str]:
+    """Collect labeled values from markdown tables and simple prose ``**Label**`` lines."""
+    fields = _parse_markdown_table_fields(content)
+    for match in _PROSE_LABELED_VALUE_RE.finditer(content):
+        label = match.group(1).strip().rstrip(":").strip()
+        value = match.group(2).strip()
+        if label and label not in fields:
+            fields[label] = value
+    return fields
+
+
 def _field_value_is_resolved(value: str) -> tuple[bool, str | None]:
     """Return (ok, failure_reason_suffix) for a single field value."""
     if _UNFILLED_PLACEHOLDER_RE.search(value):
@@ -837,108 +795,35 @@ def _field_value_is_resolved(value: str) -> tuple[bool, str | None]:
     return True, None
 
 
-def _require_warehouse_fields(
-    section_body: str,
-    required_labels: tuple[str, ...],
-    *,
-    section_name: str,
-    fail: Any,
-) -> None:
-    """Require each listed field row with a resolved value or per-field Unknown/N/A."""
-    fields = _parse_markdown_table_fields(section_body)
-    for label in required_labels:
-        if label not in fields:
-            fail(f"missing_required_field:{section_name}:{label}")
-        ok, reason = _field_value_is_resolved(fields[label])
+def _validate_required_report_fields(body: str, required_fields: list[str], fail: Any) -> None:
+    """Enforce only explicitly configured field labels; Unknown/N/A is per-field."""
+    if not required_fields:
+        return
+    fields = _extract_labeled_field_values(body)
+    for label in required_fields:
+        normalized_label = label.strip()
+        if not normalized_label:
+            continue
+        if normalized_label not in fields:
+            fail(f"missing_required_field:{normalized_label}")
+        ok, reason = _field_value_is_resolved(fields[normalized_label])
         if not ok:
-            fail(f"{reason}:{section_name}:{label}")
-
-
-def _split_entity_entries(section_body: str, entity_name: str) -> list[tuple[str, str]]:
-    """Split a People/Vehicles section into (heading, body) entries."""
-    pattern = re.compile(rf"^(###\s+{re.escape(entity_name)}\b.*)$", re.MULTILINE | re.IGNORECASE)
-    parts = pattern.split(section_body)
-    entries: list[tuple[str, str]] = []
-    for index in range(1, len(parts), 2):
-        heading = parts[index].strip()
-        body = parts[index + 1] if index + 1 < len(parts) else ""
-        entries.append((heading, body))
-    return entries
-
-
-def _validate_warehouse_involvement_section(
-    section_body: str,
-    *,
-    entity_name: str,
-    required_fields: tuple[str, ...],
-    fail: Any,
-) -> None:
-    """
-    Validate People/Vehicles Involved.
-
-    Either an explicit section-level Unknown/N/A (no fabricated entries), or each
-    populated entry must include all expected fields with resolved values.
-    """
-    # Warehouse headings are "People Involved" / "Vehicles Involved"
-    section_key = "People Involved" if entity_name.lower() == "person" else "Vehicles Involved"
-
-    if re.search(rf"^###\s+{re.escape(entity_name)}\s*\{{", section_body, flags=re.MULTILINE | re.IGNORECASE):
-        fail(f"unfinished_entry_heading:{section_key}")
-
-    entries = _split_entity_entries(section_body, entity_name)
-    if not entries:
-        if _SECTION_LEVEL_UNKNOWN_RE.search(section_body) and not _UNFILLED_PLACEHOLDER_RE.search(section_body):
-            return
-        fail(f"missing_or_inapplicable_section:{section_key}")
-
-    for heading, entry_body in entries:
-        if _UNFILLED_PLACEHOLDER_RE.search(heading):
-            fail(f"unfinished_entry_heading:{section_key}")
-        _require_warehouse_fields(
-            entry_body,
-            required_fields,
-            section_name=section_key,
-            fail=fail,
-        )
-
-
-def _validate_warehouse_report_fields(sections: dict[str, str], fail: Any) -> None:
-    """Field-level warehouse checks. Structural completeness is not factual accuracy."""
-    for section_name, required_fields in _WAREHOUSE_SECTION_FIELDS.items():
-        _require_warehouse_fields(
-            sections[section_name],
-            required_fields,
-            section_name=section_name,
-            fail=fail,
-        )
-
-    _validate_warehouse_involvement_section(
-        sections["People Involved"],
-        entity_name="Person",
-        required_fields=_WAREHOUSE_PERSON_FIELDS,
-        fail=fail,
-    )
-    _validate_warehouse_involvement_section(
-        sections["Vehicles Involved"],
-        entity_name="Vehicle",
-        required_fields=_WAREHOUSE_VEHICLE_FIELDS,
-        fail=fail,
-    )
+            fail(f"{reason}:{normalized_label}")
 
 
 def _validate_report_body(
     content: str,
     *,
-    template_content: str,
+    required_report_fields: list[str] | None = None,
     response_len: int | None = None,
 ) -> None:
     """
     Validate normalized report Markdown before Resources append or artifact save.
 
-    Rejects empty, whitespace-only, thinking-only, residual/unclosed thinking, and
-    resources-only bodies. For the warehouse template only, validates required
-    fields individually (Unknown/N/A must apply to the specific field). Structural
-    completeness is not treated as proof of factual accuracy.
+    Always rejects empty, whitespace-only, thinking-only, residual/unclosed thinking,
+    and resources-only bodies. Optional ``required_report_fields`` enforces only those
+    explicitly configured labels. Template titles/headings/placeholders are not assumed
+    to be mandatory. Structural completeness is not factual accuracy.
     """
     body_len = len(content)
     effective_response_len = len(content) if response_len is None else response_len
@@ -960,12 +845,7 @@ def _validate_report_body(
     if not body:
         _fail("resources_only_body")
 
-    if _is_warehouse_incident_template(template_content):
-        sections = _extract_markdown_sections(body)
-        for required in _WAREHOUSE_REQUIRED_SECTIONS:
-            if required not in sections:
-                _fail(f"missing_required_section:{required}")
-        _validate_warehouse_report_fields(sections, _fail)
+    _validate_required_report_fields(body, required_report_fields or [], _fail)
 
 
 def _append_resources_section(content: str, image_url: str | None, video_url: str | None) -> str:
@@ -1302,6 +1182,7 @@ async def _format_custom_report(
     video_url: str | None = None,
     agent_version: str = "v1.0.0",
     llm_reasoning: bool | None = None,
+    required_report_fields: list[str] | None = None,
 ) -> str:
     """Format custom report using LLM to extract information from messages and populate template."""
     template_content = _load_custom_template(template_path, template_name)
@@ -1361,7 +1242,7 @@ async def _format_custom_report(
     try:
         _validate_report_body(
             content,
-            template_content=template_content,
+            required_report_fields=required_report_fields,
             response_len=len(raw_content),
         )
     except ReportContentValidationError as e:
@@ -1440,6 +1321,7 @@ async def template_report_gen(config: TemplateReportGenConfig, builder: Builder)
             video_url=video_url,
             agent_version=config.agent_version,
             llm_reasoning=report_input.llm_reasoning,
+            required_report_fields=config.required_report_fields,
         )
 
         # Generate filenames
