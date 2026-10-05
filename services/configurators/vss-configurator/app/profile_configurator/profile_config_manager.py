@@ -1544,7 +1544,18 @@ class ProfileConfigManager:
         )
         os.close(file_descriptor)
         temp_path = Path(raw_temp_path)
-        shutil.copy2(calibration_file, temp_path)
+        try:
+            shutil.copy2(calibration_file, temp_path)
+        except Exception:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                logger.warning(
+                    "Failed to remove temporary calibration file %s: %s",
+                    temp_path,
+                    cleanup_error,
+                )
+            raise
         return temp_path
 
     def _require_n_sensor_groups(self, operation: Dict[str, Any]) -> int:
