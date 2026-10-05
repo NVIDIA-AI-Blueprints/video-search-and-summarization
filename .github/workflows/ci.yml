@@ -494,6 +494,8 @@ jobs:
             .github/skill-eval/tests/test_leg_report.py \
             .github/skill-eval/tests/test_python_runtime_contract.py \
             .github/skill-eval/tests/test_nemoclaw_onboard_endpoint.py \
+            .github/skill-eval/tests/test_nemoclaw_failure_evidence.py \
+            .github/skill-eval/tests/test_nemoclaw_local_nim_route.py \
             .github/skill-eval/tests/test_operational_setup_specs.py \
             .github/skill-eval/tests/test_plan_matrix.py \
             .github/skill-eval/tests/test_skills_eval_agent_protocol.py \
