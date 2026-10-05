@@ -438,8 +438,9 @@ image editing tool) and enter them in the file.
    IrfanView, etc.), read the pixel coordinates for the ROIs and tripwires
    your analytics require, then:
    - Set `calibrationType` to `image` and the sensor `type` to `camera`.
-   - Replace `Camera_01` with the matching camera name in `calibration.json`
-     (must match `camera_name` registered under `global.cameraInfo`).
+   - Replace `Camera_01` with the matching sensor id — the registered
+     `camera_name` for RTSP, or the video filename (no extension) for
+     recorded files.
    - Set `scaleFactor` to `1` and add the frame width/height to `attributes`.
    - Enter ROI vertices and tripwire endpoints in pixel coordinates. Leave
      `rois`/`tripwires` empty if your analytics don't require them.
