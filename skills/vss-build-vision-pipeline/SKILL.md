@@ -7,7 +7,7 @@ description: >-
   and instance segmentation.
 license: Apache-2.0
 metadata:
-  version: "0.1.0"
+  version: "3.3.0-rc0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
 ---
 
@@ -72,10 +72,6 @@ object tracking, semantic segmentation, and instance segmentation.
    this API, report the compatibility limitation rather than inventing a substitute
    API or silently changing the implementation.
 
-## Inputs
-
-<!-- To be defined. -->
-
 ## Workflow
 
 For model inference, follow these steps. Decoding/frame-sampling-only requests
@@ -122,10 +118,6 @@ an output parser.
   DeepStream pipeline so downstream components can consume them without interpreting
   model-specific tensors themselves.
 
-## Outputs
-
-<!-- To be defined. -->
-
 ## Validation and Evaluation
 
 Evaluate the correctness of the generated software and pipeline. Verify the
@@ -140,21 +132,3 @@ the model contract and source implementation as needed.
 
 Keep reproducible build/run commands, runtime output, test results, and a concise
 report of completed checks and unresolved issues.
-
-The following scenario specs follow the VSS skill-eval convention (`skills`,
-`resources.platforms`, and ordered `expects` queries/checks):
-
-- [YOLO26 object detection](evals/yolo26_object_detection.json)
-- [PeopleNet Transformer with four video inputs](evals/peoplenet_transformer_four_streams.json)
-- [RF-DETR instance segmentation](evals/rf_detr_instance_segmentation.json)
-
-Each targets one L40S GPU and requires containerized execution with retained
-model/conversion, parser, metadata, and validation evidence. Each query is the
-original user prompt, passed verbatim. The skill provides implementation guidance;
-the separate checks assess artifacts, execution traces, and runtime evidence.
-
-The skill is registered in `.github/skill-eval/plan_matrix.py` for PR and manual/
-daily discovery. Per the CI convention, a missing Harbor adapter first triggers
-an adapter-generation leg; scenario execution follows once the adapter is
-committed. Adding these specs does not establish that the GPU trials pass.
-See the repository's `.github/skill-eval/README.md` for harness details.
