@@ -7,7 +7,7 @@ The skill should be reviewed before publication. Address the blocking findings b
 ## Evaluation Metadata
 
 - Skill: `vss-manage-alerts`
-- Evaluation date: 2026-10-02
+- Evaluation date: 2026-10-05
 - Evaluator version: `1.5.6`
 - Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`), Codex (`openai/openai/gpt-5.5`)
 - Tasks: 11 evaluation tasks (10 positive, 1 negative)
@@ -33,12 +33,12 @@ The three-tier evaluation checks whether the skill:
 
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 87.8% — baseline ran, but no comparable score was available; uplift unavailable | 74.4% — baseline ran, but no comparable score was available; uplift unavailable |
-| Security | 90.9% → 95.5% (+4.6 points) | 59.1% → 68.2% (+9.1 points) |
-| Correctness | 14.6% → 90.9% (+76.3 points) | 25.5% → 78.2% (+52.7 points) |
-| Discoverability | 98.5% — baseline ran, but no comparable score was available; uplift unavailable | 84.0% — baseline ran, but no comparable score was available; uplift unavailable |
-| Effectiveness | 26.7% → 66.3% (+39.6 points) | 26.8% → 54.6% (+27.8 points) |
-| Efficiency | 88.0% — baseline ran, but no comparable score was available; uplift unavailable | 86.9% — baseline ran, but no comparable score was available; uplift unavailable |
+| Overall | 88.6% — baseline ran, but no comparable score was available; uplift unavailable | 74.8% — baseline ran, but no comparable score was available; uplift unavailable |
+| Security | 100.0% → 100.0% (±0.0 points) | 54.6% → 59.1% (+4.5 points) |
+| Correctness | 9.1% → 89.1% (+80.0 points) | 41.8% → 85.5% (+43.7 points) |
+| Discoverability | 99.8% — baseline ran, but no comparable score was available; uplift unavailable | 85.5% — baseline ran, but no comparable score was available; uplift unavailable |
+| Effectiveness | 23.0% → 64.5% (+41.5 points) | 34.7% → 60.2% (+25.5 points) |
+| Efficiency | 89.3% — baseline ran, but no comparable score was available; uplift unavailable | 83.6% — baseline ran, but no comparable score was available; uplift unavailable |
 
 **How to read this table:** baseline is the same task attempted without the target skill. Scores are rounded to one decimal; threshold-adjacent values use additional precision so their displayed band matches the verdict. Uplift is derived from those displayed scores and shown in percentage points.
 
@@ -52,31 +52,31 @@ Actual Tier 3 execution usage is reported for every observed agent/case pair and
 
 | Agent | Dataset case | With skill | Without skill | Delta | Change | Coverage |
 |---|---|---:|---:|---:|---:|---|
-| claude-code | All cases | 3,777,438 | 2,177,415 | +1,600,023 | +73.48% | skill 11/11; base 11/11 |
-| claude-code | alerts-always-on-status-routing | 340,230 | 119,955 | +220,275 | +183.63% | skill 1/1; base 1/1 |
-| claude-code | alerts-consolidated-event-count | 320,911 | 152,213 | +168,698 | +110.83% | skill 1/1; base 1/1 |
-| claude-code | alerts-create-realtime-rule | 428,678 | 216,201 | +212,477 | +98.28% | skill 1/1; base 1/1 |
-| claude-code | alerts-cv-mode-subscription-refusal | 76,986 | 391,728 | -314,742 | -80.35% | skill 1/1; base 1/1 |
-| claude-code | alerts-incident-query-routing | 221,721 | 151,600 | +70,121 | +46.25% | skill 1/1; base 1/1 |
-| claude-code | alerts-list-active-rules | 370,957 | 247,109 | +123,848 | +50.12% | skill 1/1; base 1/1 |
-| claude-code | alerts-negative-non-alert-analytics | 494,509 | 213,945 | +280,564 | +131.14% | skill 1/1; base 1/1 |
-| claude-code | alerts-ondemand-verify-clip-routing | 274,439 | 60,292 | +214,147 | +355.18% | skill 1/1; base 1/1 |
-| claude-code | alerts-slack-webhook-status | 250,969 | 150,424 | +100,545 | +66.84% | skill 1/1; base 1/1 |
-| claude-code | alerts-stop-rule-confirmation | 488,157 | 155,804 | +332,353 | +213.31% | skill 1/1; base 1/1 |
-| claude-code | alerts-verification-verdict-routing | 509,881 | 318,144 | +191,737 | +60.27% | skill 1/1; base 1/1 |
-| codex | All cases | 3,926,025 | 3,562,425 | +363,600 | +10.21% | skill 11/11; base 11/11 |
-| codex | alerts-always-on-status-routing | 258,132 | 160,379 | +97,753 | +60.95% | skill 1/1; base 1/1 |
-| codex | alerts-consolidated-event-count | 724,075 | 1,642,564 | -918,489 | -55.92% | skill 1/1; base 1/1 |
-| codex | alerts-create-realtime-rule | 406,406 | 54,979 | +351,427 | +639.20% | skill 1/1; base 1/1 |
-| codex | alerts-cv-mode-subscription-refusal | 73,332 | 302,525 | -229,193 | -75.76% | skill 1/1; base 1/1 |
-| codex | alerts-incident-query-routing | 399,768 | 55,886 | +343,882 | +615.33% | skill 1/1; base 1/1 |
-| codex | alerts-list-active-rules | 439,135 | 306,967 | +132,168 | +43.06% | skill 1/1; base 1/1 |
-| codex | alerts-negative-non-alert-analytics | 127,108 | 145,283 | -18,175 | -12.51% | skill 1/1; base 1/1 |
-| codex | alerts-ondemand-verify-clip-routing | 455,477 | 72,263 | +383,214 | +530.30% | skill 1/1; base 1/1 |
-| codex | alerts-slack-webhook-status | 98,149 | 60,564 | +37,585 | +62.06% | skill 1/1; base 1/1 |
-| codex | alerts-stop-rule-confirmation | 346,540 | 129,776 | +216,764 | +167.03% | skill 1/1; base 1/1 |
-| codex | alerts-verification-verdict-routing | 597,903 | 631,239 | -33,336 | -5.28% | skill 1/1; base 1/1 |
-| ALL AGENTS | Dataset aggregate | 7,703,463 | 5,739,840 | +1,963,623 | +34.21% | skill 22/22; base 22/22 |
+| claude-code | All cases | 3,052,096 | 1,912,024 | +1,140,072 | +59.63% | skill 11/11; base 11/11 |
+| claude-code | alerts-always-on-status-routing | 286,317 | 120,679 | +165,638 | +137.26% | skill 1/1; base 1/1 |
+| claude-code | alerts-consolidated-event-count | 271,051 | 283,719 | -12,668 | -4.46% | skill 1/1; base 1/1 |
+| claude-code | alerts-create-realtime-rule | 271,502 | 183,962 | +87,540 | +47.59% | skill 1/1; base 1/1 |
+| claude-code | alerts-cv-mode-subscription-refusal | 77,187 | 280,717 | -203,530 | -72.50% | skill 1/1; base 1/1 |
+| claude-code | alerts-incident-query-routing | 253,887 | 120,017 | +133,870 | +111.54% | skill 1/1; base 1/1 |
+| claude-code | alerts-list-active-rules | 221,859 | 121,752 | +100,107 | +82.22% | skill 1/1; base 1/1 |
+| claude-code | alerts-negative-non-alert-analytics | 309,391 | 218,849 | +90,542 | +41.37% | skill 1/1; base 1/1 |
+| claude-code | alerts-ondemand-verify-clip-routing | 420,507 | 30,189 | +390,318 | +1292.91% | skill 1/1; base 1/1 |
+| claude-code | alerts-slack-webhook-status | 299,713 | 119,911 | +179,802 | +149.95% | skill 1/1; base 1/1 |
+| claude-code | alerts-stop-rule-confirmation | 221,139 | 218,063 | +3,076 | +1.41% | skill 1/1; base 1/1 |
+| claude-code | alerts-verification-verdict-routing | 419,543 | 214,166 | +205,377 | +95.90% | skill 1/1; base 1/1 |
+| codex | All cases | 5,276,478 | 4,020,706 | +1,255,772 | +31.23% | skill 11/11; base 11/11 |
+| codex | alerts-always-on-status-routing | 282,677 | 162,122 | +120,555 | +74.36% | skill 1/1; base 1/1 |
+| codex | alerts-consolidated-event-count | 1,150,930 | 840,452 | +310,478 | +36.94% | skill 1/1; base 1/1 |
+| codex | alerts-create-realtime-rule | 545,288 | 70,113 | +475,175 | +677.73% | skill 1/1; base 1/1 |
+| codex | alerts-cv-mode-subscription-refusal | 113,861 | 604,092 | -490,231 | -81.15% | skill 1/1; base 1/1 |
+| codex | alerts-incident-query-routing | 478,577 | 55,463 | +423,114 | +762.88% | skill 1/1; base 1/1 |
+| codex | alerts-list-active-rules | 239,861 | 611,886 | -372,025 | -60.80% | skill 1/1; base 1/1 |
+| codex | alerts-negative-non-alert-analytics | 721,754 | 112,336 | +609,418 | +542.50% | skill 1/1; base 1/1 |
+| codex | alerts-ondemand-verify-clip-routing | 304,269 | 41,535 | +262,734 | +632.56% | skill 1/1; base 1/1 |
+| codex | alerts-slack-webhook-status | 117,108 | 99,704 | +17,404 | +17.46% | skill 1/1; base 1/1 |
+| codex | alerts-stop-rule-confirmation | 412,292 | 602,482 | -190,190 | -31.57% | skill 1/1; base 1/1 |
+| codex | alerts-verification-verdict-routing | 909,861 | 820,521 | +89,340 | +10.89% | skill 1/1; base 1/1 |
+| ALL AGENTS | Dataset aggregate | 8,328,574 | 5,932,730 | +2,395,844 | +40.38% | skill 22/22; base 22/22 |
 
 Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. N/A means the relevant trajectory counters were not available; coverage is never estimated.
 
