@@ -9,7 +9,7 @@ Recommended for publication based on the completed evaluation evidence in this r
 ## Evaluation Metadata
 
 - Skill: `vss-search-archive`
-- Evaluation date: 2026-10-02
+- Evaluation date: 2026-10-05
 - Evaluator version: `1.5.6`
 - Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`), Codex (`openai/openai/gpt-5.5`)
 - Tasks: 11 evaluation tasks (9 positive, 2 negative)
@@ -35,12 +35,12 @@ The three-tier evaluation checks whether the skill:
 
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 67.8% — baseline ran, but no comparable score was available; uplift unavailable | 63.1% — baseline ran, but no comparable score was available; uplift unavailable |
-| Security | 100.0% → 95.5% (-4.5 points) | 90.9% → 95.5% (+4.6 points) |
-| Correctness | 21.8% → 58.2% (+36.4 points) | 23.6% → 30.9% (+7.3 points) |
-| Discoverability | 65.6% — baseline ran, but no comparable score was available; uplift unavailable | 78.3% — baseline ran, but no comparable score was available; uplift unavailable |
-| Effectiveness | 25.3% → 40.2% (+14.9 points) | 28.6% → 27.0% (-1.6 points) |
-| Efficiency | 79.8% — baseline ran, but no comparable score was available; uplift unavailable | 83.8% — baseline ran, but no comparable score was available; uplift unavailable |
+| Overall | 72.6% — baseline ran, but no comparable score was available; uplift unavailable | 64.1% — baseline ran, but no comparable score was available; uplift unavailable |
+| Security | 86.4% → 100.0% (+13.6 points) | 68.2% → 100.0% (+31.8 points) |
+| Correctness | 21.8% → 60.0% (+38.2 points) | 32.7% → 29.1% (-3.6 points) |
+| Discoverability | 84.2% — baseline ran, but no comparable score was available; uplift unavailable | 78.3% — baseline ran, but no comparable score was available; uplift unavailable |
+| Effectiveness | 27.1% → 35.3% (+8.2 points) | 29.1% → 30.5% (+1.4 points) |
+| Efficiency | 83.6% — baseline ran, but no comparable score was available; uplift unavailable | 82.5% — baseline ran, but no comparable score was available; uplift unavailable |
 
 **How to read this table:** baseline is the same task attempted without the target skill. Scores are rounded to one decimal; threshold-adjacent values use additional precision so their displayed band matches the verdict. Uplift is derived from those displayed scores and shown in percentage points.
 
@@ -54,31 +54,31 @@ Actual Tier 3 execution usage is reported for every observed agent/case pair and
 
 | Agent | Dataset case | With skill | Without skill | Delta | Change | Coverage |
 |---|---|---:|---:|---:|---:|---|
-| claude-code | All cases | 2,703,336 | 2,475,246 | +228,090 | +9.21% | skill 11/11; base 11/11 |
-| claude-code | search-archive | 281,988 | 460,920 | -178,932 | -38.82% | skill 1/1; base 1/1 |
-| claude-code | search-archive-confirm-verification | 429,787 | 119,554 | +310,233 | +259.49% | skill 1/1; base 1/1 |
-| claude-code | search-archive-fusion-decompose | 315,610 | 375,558 | -59,948 | -15.96% | skill 1/1; base 1/1 |
-| claude-code | search-archive-implicit | 431,063 | 330,461 | +100,602 | +30.44% | skill 1/1; base 1/1 |
-| claude-code | search-archive-missing-source | 390,811 | 151,846 | +238,965 | +157.37% | skill 1/1; base 1/1 |
-| claude-code | search-archive-mixed-upload-and-stream | 30,393 | 518,778 | -488,385 | -94.14% | skill 1/1; base 1/1 |
-| claude-code | search-archive-negative-direct-video-qa | 241,230 | 119,218 | +122,012 | +102.34% | skill 1/1; base 1/1 |
-| claude-code | search-archive-negative-summary | 59,139 | 91,125 | -31,986 | -35.10% | skill 1/1; base 1/1 |
-| claude-code | search-archive-partially-verified | 29,756 | 29,598 | +158 | +0.53% | skill 1/1; base 1/1 |
-| claude-code | search-archive-results-first | 432,954 | 218,593 | +214,361 | +98.06% | skill 1/1; base 1/1 |
-| claude-code | search-archive-rtsp-live-stream | 60,605 | 59,595 | +1,010 | +1.69% | skill 1/1; base 1/1 |
-| codex | All cases | 1,183,666 | 1,688,717 | -505,051 | -29.91% | skill 11/11; base 11/11 |
-| codex | search-archive | 186,012 | 307,837 | -121,825 | -39.57% | skill 1/1; base 1/1 |
-| codex | search-archive-confirm-verification | 85,707 | 56,130 | +29,577 | +52.69% | skill 1/1; base 1/1 |
-| codex | search-archive-fusion-decompose | 80,136 | 86,617 | -6,481 | -7.48% | skill 1/1; base 1/1 |
-| codex | search-archive-implicit | 114,661 | 99,225 | +15,436 | +15.56% | skill 1/1; base 1/1 |
-| codex | search-archive-missing-source | 80,716 | 55,069 | +25,647 | +46.57% | skill 1/1; base 1/1 |
-| codex | search-archive-mixed-upload-and-stream | 133,791 | 55,033 | +78,758 | +143.11% | skill 1/1; base 1/1 |
-| codex | search-archive-negative-direct-video-qa | 55,057 | 54,850 | +207 | +0.38% | skill 1/1; base 1/1 |
-| codex | search-archive-negative-summary | 256,201 | 59,434 | +196,767 | +331.07% | skill 1/1; base 1/1 |
-| codex | search-archive-partially-verified | 13,432 | 13,349 | +83 | +0.62% | skill 1/1; base 1/1 |
-| codex | search-archive-results-first | 80,526 | 118,136 | -37,610 | -31.84% | skill 1/1; base 1/1 |
-| codex | search-archive-rtsp-live-stream | 97,427 | 783,037 | -685,610 | -87.56% | skill 1/1; base 1/1 |
-| ALL AGENTS | Dataset aggregate | 3,887,002 | 4,163,963 | -276,961 | -6.65% | skill 22/22; base 22/22 |
+| claude-code | All cases | 3,318,758 | 2,600,921 | +717,837 | +27.60% | skill 11/11; base 11/11 |
+| claude-code | search-archive | 395,537 | 634,669 | -239,132 | -37.68% | skill 1/1; base 1/1 |
+| claude-code | search-archive-confirm-verification | 317,321 | 119,629 | +197,692 | +165.25% | skill 1/1; base 1/1 |
+| claude-code | search-archive-fusion-decompose | 493,453 | 244,273 | +249,180 | +102.01% | skill 1/1; base 1/1 |
+| claude-code | search-archive-implicit | 356,230 | 422,746 | -66,516 | -15.73% | skill 1/1; base 1/1 |
+| claude-code | search-archive-missing-source | 391,215 | 150,768 | +240,447 | +159.48% | skill 1/1; base 1/1 |
+| claude-code | search-archive-mixed-upload-and-stream | 434,977 | 451,069 | -16,092 | -3.57% | skill 1/1; base 1/1 |
+| claude-code | search-archive-negative-direct-video-qa | 120,329 | 119,057 | +1,272 | +1.07% | skill 1/1; base 1/1 |
+| claude-code | search-archive-negative-summary | 29,832 | 89,314 | -59,482 | -66.60% | skill 1/1; base 1/1 |
+| claude-code | search-archive-partially-verified | 29,730 | 29,589 | +141 | +0.48% | skill 1/1; base 1/1 |
+| claude-code | search-archive-results-first | 318,332 | 250,048 | +68,284 | +27.31% | skill 1/1; base 1/1 |
+| claude-code | search-archive-rtsp-live-stream | 431,802 | 89,759 | +342,043 | +381.07% | skill 1/1; base 1/1 |
+| codex | All cases | 2,035,859 | 2,809,518 | -773,659 | -27.54% | skill 11/11; base 11/11 |
+| codex | search-archive | 80,968 | 107,069 | -26,101 | -24.38% | skill 1/1; base 1/1 |
+| codex | search-archive-confirm-verification | 200,970 | 71,775 | +129,195 | +180.00% | skill 1/1; base 1/1 |
+| codex | search-archive-fusion-decompose | 212,978 | 435,068 | -222,090 | -51.05% | skill 1/1; base 1/1 |
+| codex | search-archive-implicit | 786,925 | 99,409 | +687,516 | +691.60% | skill 1/1; base 1/1 |
+| codex | search-archive-missing-source | 80,111 | 55,371 | +24,740 | +44.68% | skill 1/1; base 1/1 |
+| codex | search-archive-mixed-upload-and-stream | 80,569 | 1,768,722 | -1,688,153 | -95.44% | skill 1/1; base 1/1 |
+| codex | search-archive-negative-direct-video-qa | 54,883 | 54,531 | +352 | +0.65% | skill 1/1; base 1/1 |
+| codex | search-archive-negative-summary | 258,028 | 56,149 | +201,879 | +359.54% | skill 1/1; base 1/1 |
+| codex | search-archive-partially-verified | 13,383 | 13,270 | +113 | +0.85% | skill 1/1; base 1/1 |
+| codex | search-archive-results-first | 152,996 | 77,024 | +75,972 | +98.63% | skill 1/1; base 1/1 |
+| codex | search-archive-rtsp-live-stream | 114,048 | 71,130 | +42,918 | +60.34% | skill 1/1; base 1/1 |
+| ALL AGENTS | Dataset aggregate | 5,354,617 | 5,410,439 | -55,822 | -1.03% | skill 22/22; base 22/22 |
 
 Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. N/A means the relevant trajectory counters were not available; coverage is never estimated.
 
@@ -86,7 +86,7 @@ Prompt tokens include cached reads, so total tokens are `prompt + completion` (c
 
 | Tier | Purpose | Status | Evidence |
 |---|---|---|---|
-| Tier 1 | Static validation | **PASSED WITH OBSERVATIONS** | 11 validator(s); 24 finding(s) |
+| Tier 1 | Static validation | **PASSED WITH OBSERVATIONS** | 11 validator(s); 23 finding(s) |
 | Tier 2 | Semantic deduplication | **PASSED** | 2 validator(s); 0 finding(s) |
 | Tier 3 | Live agent evaluation | **PASS** | 2 agent(s); 11 task(s) |
 
@@ -100,7 +100,7 @@ Prompt tokens include cached reads, so total tokens are `prompt + completion` (c
 - **MEDIUM** QUALITY/quality_efficiency: Deeply nested references in source_lifecycle.md (`skills/operations/vss-search-archive/SKILL.md`)
 - **MEDIUM** SCHEMA/folder_hierarchy: Unexpected nesting depth for general skill (`skills/operations/vss-search-archive`)
 - **MEDIUM** SCHEMA/body_recommended_section: Missing recommended section: '## Instructions' (`skills/operations/vss-search-archive/SKILL.md`)
-- 19 additional finding(s) are available in the full evaluation artifacts.
+- 18 additional finding(s) are available in the full evaluation artifacts.
 
 </details>
 

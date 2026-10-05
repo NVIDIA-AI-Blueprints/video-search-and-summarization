@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache 2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to search archived VSS video by natural-language or similarity query, ingest sources for search, or delete previously ingested sources through the vss CLI. <br>
+Developers and engineers who need to search archived video using natural-language or similarity queries, ingest video sources for search, or delete previously ingested sources on VSS deployments. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -25,16 +25,16 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [CLI Usage](references/cli_usage.md) <br>
-- [Result Verification](references/result_verification.md) <br>
-- [Source Lifecycle](references/source_lifecycle.md) <br>
+- [vss search run reference](references/cli_usage.md) <br>
+- [Search-result verification](references/result_verification.md) <br>
+- [Search source lifecycle](references/source_lifecycle.md) <br>
+- [NVIDIA Video Search and Summarization Demo](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [VSS Demo on NVIDIA Build](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
-- [Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Shell commands, Analysis] <br>
+**Output Type(s):** [Shell commands, Analysis, Configuration instructions] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
@@ -46,36 +46,36 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-11 evaluation tasks (9 positive, 2 negative) from skill-evaluator-dataset-snapshot/1, each run in an isolated sandbox pod. <br>
+11 evaluation tasks (9 positive, 2 negative) run in isolated sandbox pods against a k8s-sandbox environment. Dataset digest: sha256:d3d57e60e47f9a1f556d52df6af4589543e1834407e038b4dd114809b7176346. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
-- Security: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
-- Correctness: Checks whether the final answer is correct against the reference answer. <br>
-- Discoverability: Checks whether the right skill was selected, decoys were avoided, and the workflow executed. <br>
-- Effectiveness: Checks whether the skill helped complete the user's goal and followed expected workflow behavior. <br>
-- Efficiency: Checks tool-call productivity and token usage efficiency. <br>
+- Security: Whether the skill is safe to use: checks for unsafe operations, secret leakage, and unauthorized access. <br>
+- Correctness: Whether the final answer is correct against the reference answer. <br>
+- Discoverability: Whether the right skill was loaded when needed: skill selection, decoy avoidance, and workflow execution. <br>
+- Effectiveness: Whether the skill helped complete the user's goal, scored as equal-weight mean of goal completion and expected workflow adherence. <br>
+- Efficiency: Whether the skill avoided wasted tool calls and token usage, scored as 50% tool-call productivity and 50% token efficiency. <br>
 
 Underlying evaluation signals used in this run: <br>
 - `security`: Unsafe operations, secret leakage, and unauthorized access. <br>
 - `skill_execution`: Whether the expected skill was selected, decoys were avoided, and the workflow executed. <br>
-- `skill_efficiency`: Tool-call productivity (routing scored under Discoverability). <br>
 - `accuracy`: Final-answer correctness against the reference answer. <br>
 - `goal_accuracy`: Whether the user's goal was achieved. <br>
 - `behavior_check`: Whether the expected workflow behavior was followed. <br>
-- `token_efficiency`: Actual uncached prompt plus completion usage. <br>
+- `skill_efficiency`: Tool-call productivity (routing scored under Discoverability, not Efficiency). <br>
+- `token_efficiency`: Actual uncached prompt plus completion token usage. <br>
 
 
 
 ## Evaluation Results: <br>
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 67.8% | 63.1% |
-| Security | 100.0% → 95.5% (-4.5 points) | 90.9% → 95.5% (+4.6 points) |
-| Correctness | 21.8% → 58.2% (+36.4 points) | 23.6% → 30.9% (+7.3 points) |
-| Discoverability | 65.6% | 78.3% |
-| Effectiveness | 25.3% → 40.2% (+14.9 points) | 28.6% → 27.0% (-1.6 points) |
-| Efficiency | 79.8% | 83.8% |
+| Overall | 72.6% | 64.1% |
+| Security | 86.4% → 100.0% (+13.6 pts) | 68.2% → 100.0% (+31.8 pts) |
+| Correctness | 21.8% → 60.0% (+38.2 pts) | 32.7% → 29.1% (-3.6 pts) |
+| Discoverability | 84.2% | 78.3% |
+| Effectiveness | 27.1% → 35.3% (+8.2 pts) | 29.1% → 30.5% (+1.4 pts) |
+| Efficiency | 83.6% | 82.5% |
 
 ## Skill Version(s): <br>
 3.3.0-rc0 (source: frontmatter) <br>

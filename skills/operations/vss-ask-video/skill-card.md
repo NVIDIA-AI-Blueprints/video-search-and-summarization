@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache 2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to answer questions about previously analyzed or freshly scoped video from a deployed NVIDIA VSS stack, including reading stored memory jobs, running visual introspection queries, and performing direct VLM inspection. <br>
+Developers, operators, and end-users who need to answer natural-language questions about live or recorded video managed by a deployed NVIDIA VSS stack, including visual Q&A, memory retrieval, and introspection workflows. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -25,10 +25,9 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [NVIDIA AI Blueprint: Video Search and Summarization](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [Latest Release](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/releases/latest) <br>
+- [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [Try the Demo on build.nvidia.com](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
 
 ## Skill Output: <br>
@@ -44,7 +43,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-17 evaluation tasks (16 positive, 1 negative) across 2 agents in isolated sandbox pods. <br>
+17 evaluation tasks (16 positive, 1 negative) run in isolated sandbox pods with evaluator version 1.5.6. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -56,11 +55,11 @@ Reported benchmark dimensions: <br>
 
 Underlying evaluation signals used in this run: <br>
 - `security`: Unsafe operations, secret leakage, and unauthorized access. <br>
-- `skill_execution`: Whether the expected skill was selected, decoys were avoided, and the workflow executed. <br>
-- `skill_efficiency`: Tool-call productivity (routing is scored under Discoverability). <br>
 - `accuracy`: Final-answer correctness against the reference answer. <br>
+- `skill_execution`: Whether the expected skill was selected, decoys were avoided, and the workflow executed. <br>
 - `goal_accuracy`: Whether the user's goal was achieved. <br>
 - `behavior_check`: Whether the expected workflow behavior was followed. <br>
+- `skill_efficiency`: Tool-call productivity (routing is scored under Discoverability). <br>
 - `token_efficiency`: Actual uncached prompt plus completion usage. <br>
 
 
@@ -68,12 +67,12 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 88.7% | 85.9% |
-| Security | 100.0% → 100.0% (±0.0 points) | 73.5% → 100.0% (+26.5 points) |
-| Correctness | 25.9% → 95.3% (+69.4 points) | 40.0% → 82.4% (+42.4 points) |
-| Discoverability | 84.1% | 92.8% |
-| Effectiveness | 37.5% → 76.6% (+39.1 points) | 45.3% → 59.6% (+14.3 points) |
-| Efficiency | 87.4% | 94.6% |
+| Overall | 88.6% | 85.3% |
+| Security | 94.1% → 100.0% (+5.9 points) | 64.7% → 100.0% (+35.3 points) |
+| Correctness | 22.4% → 94.1% (+71.7 points) | 40.0% → 81.2% (+41.2 points) |
+| Discoverability | 92.5% | 91.9% |
+| Effectiveness | 35.7% → 66.9% (+31.2 points) | 41.6% → 60.0% (+18.4 points) |
+| Efficiency | 89.5% | 93.5% |
 
 ## Skill Version(s): <br>
 3.3.0-rc0 (source: frontmatter) <br>
