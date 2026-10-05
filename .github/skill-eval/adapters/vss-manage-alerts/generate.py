@@ -42,8 +42,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -100,6 +102,10 @@ PLATFORMS: dict[str, dict] = {
 DEFAULT_PLATFORM = "L40S"
 DEFAULT_SPEC = "alerts_vlm_real_time.json"
 
+# Set on an OpenShell GHA guest. An empty --platform there means "this card",
+# not "every platform the spec declares".
+_LOCAL_GPU_ENV = "SKILL_EVAL_LOCAL_GPU_INSTANCE"
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -135,8 +141,108 @@ def _substitute(value: object, subs: dict[str, str]) -> object:
     return value
 
 
+def _loose_gpu_match(want: str, have: str) -> bool:
+    """All tokens of `want` appear in `have` (`RTX PRO 6000` ⊆ a Blackwell name)."""
+    want_tokens = set(want.replace("-", " ").split())
+    have_tokens = set(have.replace("-", " ").split())
+    return bool(want_tokens) and (want_tokens.issubset(have_tokens) or want in have)
+
+
+def _platform_for_gpu_name(gpu_name: str) -> str | None:
+    """Map one nvidia-smi name to a PLATFORMS key. Longer gpu_type wins."""
+    matches = [
+        name
+        for name, spec in PLATFORMS.items()
+        if _loose_gpu_match(str(spec["gpu_type"]), gpu_name)
+    ]
+    if not matches:
+        return None
+    matches.sort(key=lambda name: len(str(PLATFORMS[name]["gpu_type"])), reverse=True)
+    best_len = len(str(PLATFORMS[matches[0]]["gpu_type"]))
+    tied = [
+        name
+        for name in matches
+        if len(str(PLATFORMS[name]["gpu_type"])) == best_len
+    ]
+    if len(tied) != 1:
+        return None
+    return tied[0]
+
+
+def _nvidia_smi_names() -> list[str]:
+    try:
+        proc = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        print(
+            f"BLOCKED: nvidia-smi failed ({exc}); cannot size this OpenShell guest",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip() or str(proc.returncode)
+        print(
+            f"BLOCKED: nvidia-smi failed ({detail}); cannot size this OpenShell guest",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    names = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    if not names:
+        print(
+            "BLOCKED: nvidia-smi reported no GPU; cannot size this OpenShell guest",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    return names
+
+
+def detect_guest_platform() -> str:
+    """The one platform this OpenShell guest's card measures as.
+
+    An unrecognised name blocks. Falling back to every spec platform would
+    deploy another card's sizing on this guest.
+    """
+    names = _nvidia_smi_names()
+    resolved: list[str] = []
+    for name in names:
+        platform = _platform_for_gpu_name(name)
+        if platform is None:
+            print(
+                f"BLOCKED: unrecognised GPU {name!r}; "
+                "no measured platform for this card",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        resolved.append(platform)
+    unique = sorted(set(resolved))
+    if len(unique) != 1:
+        print(
+            f"BLOCKED: guest GPUs map to multiple platforms {unique} ({names})",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    return unique[0]
+
+
+def _modes_for(declared: dict, platform: str) -> list[str]:
+    cfg = declared.get(platform) or {}
+    modes = cfg.get("modes") if isinstance(cfg, dict) else None
+    return list(modes) if modes else ["remote-all"]
+
+
 def _platform_modes(spec: dict, platform_filter: str | None) -> list[tuple[str, str]]:
     declared: dict = ((spec.get("resources") or {}).get("platforms") or {})
+    # OpenShell passes --platform "" so the guest card decides. The spec's
+    # platform keys are the Brev matrix; they must not each become a chain.
+    if not platform_filter and os.environ.get(_LOCAL_GPU_ENV, "").strip():
+        platform = detect_guest_platform()
+        print(f"  OpenShell guest GPU → {platform}", file=sys.stderr)
+        return [(platform, mode) for mode in _modes_for(declared, platform)]
+
     tasks: list[tuple[str, str]] = []
     for platform, cfg in declared.items():
         if platform_filter and platform != platform_filter:
@@ -398,7 +504,7 @@ def generate_platform_mode(
 # CLI
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -411,10 +517,23 @@ def main() -> None:
                         help="Path to skills/vss-build-vision-ai (included so agent can diagnose issues)")
     parser.add_argument("--spec", default=None,
                         help=f"Path to spec JSON (default: <skill-dir>/evals/{DEFAULT_SPEC})")
-    parser.add_argument("--platform", default=None,
-                        choices=list(PLATFORMS.keys()),
-                        help="Generate for this platform only")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--platform",
+        default=None,
+        help=(
+            "Generate for this platform only. Empty on an OpenShell guest "
+            "(SKILL_EVAL_LOCAL_GPU_INSTANCE): read nvidia-smi and emit that card."
+        ),
+    )
+    args = parser.parse_args(argv)
+    platform_filter = (args.platform or "").strip() or None
+    if platform_filter and platform_filter not in PLATFORMS:
+        print(
+            f"unknown platform {platform_filter!r}; "
+            f"choose from {', '.join(PLATFORMS)}",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
 
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir)
@@ -437,7 +556,7 @@ def main() -> None:
     # Substitute {{platform}} and {{mode}} at generation time using
     # the first platform/mode from the matrix as defaults; the adapter
     # renders per-task below.
-    tasks = _platform_modes(spec, args.platform)
+    tasks = _platform_modes(spec, platform_filter)
 
     print("=== Inputs ===")
     print(f"  output_dir       : {output_root}")
