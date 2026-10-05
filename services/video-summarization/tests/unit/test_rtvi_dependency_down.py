@@ -298,6 +298,25 @@ def test_partial_rtvi_failure_does_not_write_captions_or_qa(failure):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("limit", ["invalid", "", "0", "-1"])
+def test_invalid_caption_staging_limit_reports_configuration_error(limit):
+    handler = _make_handler()
+    req_info = _make_req_info()
+    handler._on_vlm_chunk_response = MagicMock()
+    with patch.dict(
+        os.environ, {"ENABLE_DENSE_CAPTION": "", "LVS_FILE_CAPTION_STAGING_MAX_BYTES": limit}
+    ):
+        handler._trigger_query(req_info)
+
+    assert req_info.status == RequestInfo.Status.FAILED
+    assert req_info.error_status_code == 500
+    assert req_info.error_code == "InvalidServerConfiguration"
+    assert "LVS_FILE_CAPTION_STAGING_MAX_BYTES" in req_info.error_message
+    handler._vlm_pipeline.generate_captions_stream.assert_not_called()
+    handler._on_vlm_chunk_response.assert_not_called()
+
+
+@pytest.mark.unit
 def test_file_captions_are_ingested_in_order_after_rtvi_completes():
     handler = _make_handler()
     req_info = _make_req_info()

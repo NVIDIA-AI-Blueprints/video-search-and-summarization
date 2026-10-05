@@ -1493,9 +1493,17 @@ class ViaStreamHandler:
             # behind when a later SSE error fails the request. Stage files on
             # disk to bound RAM use; live streams still publish immediately.
             if not req_info.is_live:
-                staging_limit = int(
-                    os.environ.get("LVS_FILE_CAPTION_STAGING_MAX_BYTES", str(64 * 1024 * 1024))
-                )
+                try:
+                    staging_limit = int(
+                        os.environ.get("LVS_FILE_CAPTION_STAGING_MAX_BYTES", str(64 * 1024 * 1024))
+                    )
+                except ValueError as ex:
+                    raise ViaException(
+                        "LVS_FILE_CAPTION_STAGING_MAX_BYTES must be a positive integer",
+                        "InvalidServerConfiguration",
+                        500,
+                        failed_stage="caption_generation",
+                    ) from ex
                 if staging_limit <= 0:
                     raise ViaException(
                         "LVS_FILE_CAPTION_STAGING_MAX_BYTES must be positive",
