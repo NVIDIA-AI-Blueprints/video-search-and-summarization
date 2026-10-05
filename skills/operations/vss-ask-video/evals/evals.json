@@ -76,7 +76,7 @@
     "ground_truth": "Use one direct VLM job for the exact scope.",
     "expected_behavior": [
       "Uses exactly one vss vlm run.",
-      "Chooses --fps from the skim/locate/inspect policy instead of a fixed --num-frames.",
+      "Chooses --fps from the skim/locate/inspect policy instead of a fixed --max-frames.",
       "Does not search Markdown or introspect."
     ]
   },

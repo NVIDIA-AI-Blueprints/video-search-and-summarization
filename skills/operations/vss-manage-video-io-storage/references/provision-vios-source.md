@@ -226,11 +226,23 @@ both as success, never as a reason to re-add.
 
 Teardown = `vss vios delete --type video|stream --sensor <name>` (raw:
 `DELETE /sensor/<sensorId>`); the enabled `*-camera-remove` items withdraw the
-source from the consumers and run the upload-anchor ES cleanup. Two known
-limitations, not failures: the ES cleanups target the `*-2025-01-01` anchor
-indices, so live-dated documents survive, and no shipped config cleans the VLM
-tag index (`default_<streamId>`), so tag-search hits survive in full. A
-hand-driven RT-VLM leg is torn down by its caller, before the sensor goes.
+source from the consumers and run the upload-anchor ES cleanup. For an uploaded
+video, `es-vlm-tags-camera-remove` also deletes its tag documents from the
+per-video `default_<streamId>` index, matching on `cameraId`. Known limitations,
+not failures:
+- the anchor ES cleanups target the `*-2025-01-01` indices, so live-dated
+  documents survive;
+- the emptied `default_<streamId>` index itself stays behind;
+- deleting a video **while it is being tagged, or just after**, can bring its
+  tags back: VIOS fires the RT-VLM remove and the cleanup concurrently, so
+  chunks still publishing (RT-VLM refuses the remove with `409`) or still in
+  flight through Kafka and Logstash land after the cleanup. Let tagging finish
+  and settle before deleting, or remove the leftovers by hand.
+
+A hand-driven RT-VLM leg is torn down by its caller, before the sensor goes.
+Its tag documents stay searchable afterwards: they carry no `cameraId`, so the
+shipped cleanup misses them, and the edge keeps Elasticsearch read-only. Where
+tag cleanup matters, use the tagging receiver rather than a hand-driven leg.
 
 ## Driving RT-VLM by hand
 

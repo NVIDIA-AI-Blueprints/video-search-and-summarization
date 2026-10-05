@@ -80,6 +80,8 @@ For example, Kafka-based deployments run four parallel Logstash analytics pipeli
 
 For Docker Compose deployments, reduce the analytics pipeline count in `$VSS_APPS_DIR/services/infra/elk/logstash/configs/pipelines-kafka.yml`. Comment out extra `pipeline.id` entries and their corresponding `path.config` lines, keeping at least `mdx-kafka`, then restart Logstash. Fewer pipelines can reduce CPU overhead but also reduce ingestion throughput. Leave `mdx-lvs` unchanged. Redis deployments already use one analytics pipeline.
 
+Another example is high CPU usage from PyTorch thread oversubscription when running Sparse4D. See **PyTorch thread oversubscription (Sparse4D)** under [Performance Notes](/vss/system-components/vision-microservices/object-detection-and-tracking#performance-notes) for tuning guidance.
+
 ### Why does Elasticsearch stop accepting writes or mark indices read-only when disk usage is high?
 
 Elasticsearch uses disk watermarks to protect the ELK stack from running out of disk space. One common symptom is Kibana Discover failing with `Unable to retrieve search results` and `Request timeout: "Request timed out"`. The default watermarks are:
@@ -225,6 +227,10 @@ This change forces the PGIE scaling operation to run on the GPU, which may lower
 ## VST
 
 This section provides answers to some of the frequently asked questions on using VST application:
+
+### Why are object IDs missing from the video overlay?
+
+In VST's **Analytics Overlay Settings**, enable **Show Bounding Boxes** and **Show Object ID** under **Object ID Display** for the **2D** and **2D with Agents** profiles, then click **Save Settings**. Debug Mode is optional for these profiles and adds diagnostic overlays. For **3D** and **MV3DT**, object IDs are displayed by default with Debug Mode enabled. See [Display Object IDs in Warehouse Profiles](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#display-object-ids-in-warehouse-profiles) for the settings and screenshot.
 
 ### I bought a new camera, plugged it in, used default password but cannot access video
 
