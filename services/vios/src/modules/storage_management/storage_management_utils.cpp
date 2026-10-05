@@ -16,7 +16,6 @@
  */
 
 #include "storage_management_utils.h"
-#include "chunk_upload.h"
 #include "logger.h"
 #include "storage_management.h"
 #include "vst_common.h"
@@ -393,8 +392,7 @@ int field_found(const char *key, const char *filename, char *path, size_t pathle
         if (data->m_isChunkedUpload)
         {
             // Chunked upload: store in temporary directory
-            std::string uploadRoot = appendDirectory(fileLocation, chunk_upload::DIRECTORY_NAME);
-            std::string tempDirectory = appendDirectory(uploadRoot, data->m_chunkIdentifier);
+            std::string tempDirectory = appendDirectory(fileLocation, data->m_chunkIdentifier);
             if(data->m_tempDirectory == EMPTY_STRING)
             {
                 data->m_tempDirectory = tempDirectory;
@@ -1206,7 +1204,6 @@ VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr,
 
     const char *chunkNumber = nullptr;
     const char *chunkIdentifier = nullptr;
-    std::unique_ptr<chunk_upload::Activity> uploadActivity;
     const char *enable_transcode = nullptr;
     
     Json::Value mediaInfo;
@@ -1408,27 +1405,6 @@ VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr,
         LOG(verbose) << "totalChunks: " << totalChunks << endl;
 
         data.m_chunkIdentifier = string(chunkIdentifier);
-        if (!chunk_upload::isValidIdentifier(data.m_chunkIdentifier))
-        {
-            SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, out, "Invalid upload identifier: use 1-128 letters, digits, hyphens or underscores");
-            return VmsErrorCode::InvalidParameterError;
-        }
-        const auto uploadDirectory = chunk_upload::directory(fileLocation, data.m_chunkIdentifier);
-        try
-        {
-            uploadActivity = std::make_unique<chunk_upload::Activity>(uploadDirectory);
-        }
-        catch (const std::system_error& exception)
-        {
-            LOG(error) << "Failed to lock upload session: " << exception.what() << endl;
-            SET_VMS_ERROR2(VmsErrorCode::VMSInternalError, out, "Unable to lock upload session");
-            return VmsErrorCode::VMSInternalError;
-        }
-        if (string(chunkNumber) != "1" && !isDirExist(uploadDirectory.string()))
-        {
-            SET_VMS_ERROR2(VmsErrorCode::InvalidParameterError, out, "Upload session expired or missing; retry the file from the first chunk");
-            return VmsErrorCode::InvalidParameterError;
-        }
         data.m_isLastChunk = strcmp(isLastChunk, "true") == 0 ? true : false;
     }
     else

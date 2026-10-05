@@ -16,7 +16,6 @@
  */
 
 #include "storage_management.h"
-#include "chunk_upload.h"
 #include "logger.h"
 #include "database.h"
 #include "prometheus_client/prometheus_client.h"
@@ -137,19 +136,6 @@ StorageManagement::StorageManagement(const string deviceType, const string devic
     m_monitoring = make_unique<Bosma::Scheduler>(1);
     m_monitoring->interval(prometheus_interval, [this]() {
         sendCurrentUsedStorageSizeToPrometheus();
-    });
-    // This runs for NVStreamer too, where the recording aging policy is disabled.
-    m_monitoring->interval(std::chrono::minutes(1), []() {
-        std::error_code error;
-        const auto removed = chunk_upload::cleanupAbandonedUploads(GET_CONFIG().nv_streamer_directory_path, error);
-        if (removed > 0)
-        {
-            LOG(info) << "Removed " << removed << " abandoned chunked uploads" << endl;
-        }
-        if (error)
-        {
-            LOG(warning) << "Failed to clean up abandoned chunked uploads: " << error.message() << endl;
-        }
     });
 
     m_videoCleanupScheduler = std::make_unique<TempFileScheduler>(

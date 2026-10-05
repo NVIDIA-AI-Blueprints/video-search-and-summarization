@@ -619,7 +619,6 @@ TEST_SRCS := test/gtests/test_main.cpp \
              test/gtests/streammonitor.cpp \
              test/gtests/mediapipelinetest.cpp \
              test/gtests/storage.cpp \
-             test/gtests/chunk_upload.cpp \
              test/gtests/sensor.cpp \
              test/gtests/recorder.cpp \
              test/gtests/rtspserver.cpp \
