@@ -92,6 +92,12 @@ shmSize: "16Gi"
 # A MIG deployment always requests one slice per pod.
 # gpuResourceName: "nvidia.com/mig-3g.40gb"
 
+# Set true when something outside the chart chooses the GPU: a Kubernetes device
+# plugin, or a DRA ResourceClaim. The chart then omits NVIDIA_VISIBLE_DEVICES,
+# which would otherwise override that choice from inside the container.
+# gpuResourceName implies this, so a MIG deployment needs no change.
+pluginSelectsDevices: false
+
 resources:
   # CPU and memory resources can be added here. gpuResourceName replaces the
   # default GPU resource in both limits and requests. See
