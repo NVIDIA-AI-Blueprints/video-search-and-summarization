@@ -156,15 +156,24 @@ def test_documented_gate_times_out_when_warmup_never_finishes(
     assert int(counter.read_text()) >= 2
 
 
-@pytest.mark.parametrize("step", (0, 1))
+@pytest.mark.parametrize(
+    ("spec_name", "step", "group"),
+    [
+        ("vdr_2_add_alerting_summarization", 0, "vlm"),
+        ("vdr_2_add_alerting_summarization", 1, "summarize"),
+        ("vdr_1_quickstart_vision_agent", 2, "vlm"),
+    ],
+)
 @pytest.mark.parametrize(
     ("available", "cli_exit", "passes"),
     [(True, 0, True), (False, 0, False), (True, 3, False)],
 )
-def test_vdr2_capability_checks_use_installed_cli_and_exit_codes(
+def test_vdr_capability_checks_use_installed_cli_and_exit_codes(
     fake_runtime: tuple[Path, dict[str, str]],
     tmp_path: Path,
+    spec_name: str,
     step: int,
+    group: str,
     available: bool,
     cli_exit: int,
     passes: bool,
@@ -179,16 +188,15 @@ def test_vdr2_capability_checks_use_installed_cli_and_exit_codes(
         "    sys.exit(int(os.environ['VSS_TEST_CLI_EXIT']))\n"
     )
     vss.chmod(0o755)
-    group = "vlm" if step == 0 else "summarize"
     env.update(
         VSS_TEST_CAPABILITY=f"  {group}  {'available' if available else 'unavailable'}",
         VSS_TEST_CLI_EXIT=str(cli_exit),
     )
-    spec = json.loads(
-        (BUILD_SKILL / "evals/vdr_2_add_alerting_summarization.json").read_text()
-    )
+    spec = json.loads((BUILD_SKILL / "evals" / f"{spec_name}.json").read_text())
     check = next(
-        c for c in spec["expects"][step]["checks"] if "vss configure check" in c
+        c
+        for c in spec["expects"][step]["checks"]
+        if "vss configure check" in c and c.startswith("`sh -c")
     )
     command = (
         check.split("`", 2)[1]
