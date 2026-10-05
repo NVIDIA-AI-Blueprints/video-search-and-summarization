@@ -85,6 +85,69 @@ The test registers a unique camera, requests ordered Streaming VLM captions,
 checks nonempty responses, stops inference, and removes the camera even on
 failure. It is a functional smoke test, not an accuracy or capacity benchmark.
 
+## Demonstrate the Caption API
+
+These commands use Bash, `curl`, and `jq`. Start the RTSP publisher and wait
+for both RTVI and NIM readiness first. For native mode, wait for RTVI readiness
+only; the request selects the same streaming inference mode. The NIM path is
+the live-tested configuration described below.
+
+In terminal 1, register a unique camera without starting automatic inference:
+
+```bash
+export API=http://localhost:18094/v1
+export RTSP_URL=rtsp://host.docker.internal:18554/smoke
+export CAMERA_ID="rtvi-caption-demo-$(date +%s)"
+export MODEL=$(curl --fail --silent --show-error "$API/models" | jq -er '.data[0].id')
+export ASSET_ID=$(jq -n --arg camera "$CAMERA_ID" --arg url "$RTSP_URL" \
+  '{key:"sensor",value:{camera_id:$camera,camera_url:$url,change:"camera_add"}}' | \
+  curl --fail --silent --show-error "$API/stream/add" \
+    -H 'Content-Type: application/json' --data-binary @- | jq -er '.asset_id')
+# Copy this printed export command into terminal 2 for cleanup:
+printf 'export API=%q CAMERA_ID=%q ASSET_ID=%q\n' "$API" "$CAMERA_ID" "$ASSET_ID"
+```
+
+Then request captions in terminal 1. `curl -N` displays SSE events as they arrive:
+
+```bash
+jq -n --arg id "$ASSET_ID" --arg model "$MODEL" '{
+  id:$id, model:$model, prompt:"Describe the visible scene briefly.",
+  stream:true, inference_mode:"streaming_vlm", streaming_frame_policy:"ordered",
+  chunk_duration:1, num_frames_per_second_or_fixed_frames_chunk:1,
+  use_fps_for_chunking:false, max_tokens:32, temperature:0
+}' | curl --fail --silent --show-error -N "$API/generate_captions" \
+  -H 'Content-Type: application/json' --data-binary @-
+```
+
+This uses one sampled frame per update, not every decoded camera frame. Captions
+arrive in `data:` events containing `chunk_responses`; SSE comment/heartbeat
+lines are not captions. An abbreviated example of the response shape is:
+
+```text
+data: {"chunk_responses":[{"chunk_id":0,"content":"A white bus is parked on the right side of the road...","frame_count":1,"streaming_metrics":{"frame_index":0}}]}
+```
+
+After several captions, use terminal 2 with the printed exports to stop inference
+**while terminal 1's SSE connection is still open**, then remove the camera:
+
+```bash
+curl --fail --silent --show-error -X DELETE "$API/generate_captions/$ASSET_ID"
+jq -n --arg camera "$CAMERA_ID" \
+  '{key:"sensor",value:{camera_id:$camera,change:"camera_remove"}}' | \
+  curl --fail --silent --show-error "$API/stream/remove" \
+    -H 'Content-Type: application/json' --data-binary @-
+curl --fail --silent --show-error "$API/stream/get-stream-info" | \
+  jq --arg camera "$CAMERA_ID" '[.stream_list[] | select(.camera_id == $camera)]'
+```
+
+Both cleanup calls should succeed, and the last command should print `[]`.
+The SSE request ends with `data: [DONE]`. Avoid Ctrl+C before the explicit stop:
+disconnecting also starts automatic teardown, so a simultaneous stop/remove can
+receive HTTP 409 while cleanup is in progress. The Python smoke client handles
+the demonstrated stop-before-disconnect ordering automatically.
+
+## Validation
+
 Validation status: both RTVI overrides and the standalone NIM configuration
 pass `docker compose config --quiet`. MediaMTX and FFmpeg were launched with
 Compose and an RTSP client confirmed H.264 at 1920x1080. The offline REST-client
