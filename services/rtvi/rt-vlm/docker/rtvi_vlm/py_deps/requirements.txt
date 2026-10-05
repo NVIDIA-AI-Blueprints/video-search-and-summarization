@@ -144,12 +144,12 @@ pydantic-core==2.48.0
 pydantic-extra-types[pycountry]==2.11.1
 pydantic-settings==2.15.0
 pygments==2.21.0
-pyjwt[crypto]==2.13.0
+pyjwt[crypto]==2.14.0
 pymediainfo==6.1.0
 pyparsing==3.3.2
 pytest==8.1.1
 python-dateutil==2.9.0.post0
-python-discovery==1.5.3
+python-discovery==1.6.1
 python-dotenv==1.2.3
 python-multipart==0.0.30
 pywin32==312; sys_platform == "win32"
@@ -196,11 +196,11 @@ transformers==5.5.0
 typer==0.27.1
 typing-extensions==4.16.0
 typing-inspection==0.4.4
-urllib3==2.7.0
+urllib3==2.8.0
 uuid-utils==0.17.0
 uvicorn==0.52.4; sys_platform != "emscripten"
 validators==0.35.0
-virtualenv==21.7.5
+virtualenv==21.7.13
 wcwidth==0.8.2
 websockets==17.0.1
 win32-setctime==1.2.0; sys_platform == "win32"
