@@ -14,6 +14,7 @@
 # limitations under the License.
 """Unit tests for template_report_gen module."""
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -22,13 +23,16 @@ from unittest.mock import patch
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 import pytest
+import yaml
 
 from vss_agents.tools import template_report_gen as template_report_gen_module
+from vss_agents.tools.template_report_gen import _UNFILLED_PLACEHOLDER_RE
 from vss_agents.tools.template_report_gen import PDF_CONVERSION_AVAILABLE
 from vss_agents.tools.template_report_gen import ReportContentValidationError
 from vss_agents.tools.template_report_gen import TemplateReportGenConfig
 from vss_agents.tools.template_report_gen import TemplateReportGenInput
 from vss_agents.tools.template_report_gen import _build_authoritative_incident_facts
+from vss_agents.tools.template_report_gen import _fetch_behavior_data
 from vss_agents.tools.template_report_gen import _format_custom_report
 from vss_agents.tools.template_report_gen import _get_object_store_url
 from vss_agents.tools.template_report_gen import _normalize_report_model_output
@@ -146,6 +150,35 @@ class TestIncidentReportGrounding:
         # objectIds length must not be treated as a people/vehicle count.
         assert facts["people_count"] != len(facts["objectIds"])
 
+    def test_absent_counts_are_omitted_from_authoritative_facts(self):
+        facts = _build_authoritative_incident_facts(
+            {"Id": "inc-123", "people_count": None, "vehicle_count": None, "sensorId": "Camera_01"},
+            alert_sensor_id="Camera_01",
+            alert_from_timestamp="t0",
+            alert_to_timestamp="t1",
+        )
+        assert "people_count" not in facts
+        assert "vehicle_count" not in facts
+
+    @pytest.mark.asyncio
+    async def test_behavior_lookup_failure_does_not_invent_zero_counts(self):
+        tool = SimpleNamespace(ainvoke=AsyncMock(side_effect=RuntimeError("behavior down")))
+        result = await _fetch_behavior_data(tool, "Camera_01", "t0", "t1")
+        assert result["people_count"] is None
+        assert result["vehicle_count"] is None
+        facts = _build_authoritative_incident_facts(
+            {
+                "Id": "inc-123",
+                "people_count": result["people_count"],
+                "vehicle_count": result["vehicle_count"],
+            },
+            alert_sensor_id="Camera_01",
+            alert_from_timestamp="t0",
+            alert_to_timestamp="t1",
+        )
+        assert "people_count" not in facts
+        assert "vehicle_count" not in facts
+
     def test_primary_object_id_from_info_snake_case(self):
         facts = _build_authoritative_incident_facts(
             {"info": {"primary_object_id": "oid-9"}, "sensorId": "Camera_01"},
@@ -221,6 +254,54 @@ class TestIncidentReportGrounding:
         assert '"people_count": 1' in user_prompt
         assert '"vehicle_count": 0' in user_prompt
         assert "copy these values exactly" in user_prompt
+        assert "only source of incident metadata" not in system_prompt
+        assert "Authoritative facts take precedence" in system_prompt
+        assert "including geolocation" in system_prompt
+
+    @pytest.mark.asyncio
+    async def test_full_metadata_may_supply_geolocation_and_non_ascii_names(self, tmp_path):
+        template_name = "incident.md"
+        (tmp_path / template_name).write_text("# Incident\n\n{detailed_description}", encoding="utf-8")
+        captured = {}
+
+        async def capture_prompt(prompt):
+            captured["messages"] = prompt.to_messages()
+            return AIMessage(content="# Incident\n\nN/A")
+
+        await _format_custom_report(
+            vlm_results=["A vehicle stopped."],
+            alert_metadata={
+                "Id": "sc-1",
+                "sensorId": "Caméra_Entrée",
+                "place": {"name": "São Paulo/Av_Paulista"},
+                "info": {"location": "42.53,-83.67,250"},
+                "geolocation": {
+                    "road": "Main Street",
+                    "county": "Franklin County",
+                    "speed_limit": "30 mph",
+                },
+            },
+            alert_sensor_id="Caméra_Entrée",
+            alert_from_timestamp="t0",
+            alert_to_timestamp="t1",
+            template_path=str(tmp_path),
+            template_name=template_name,
+            report_prompt="Populate this template:\n{template}\nVersion: {agent_version}",
+            llm=RunnableLambda(capture_prompt),
+        )
+
+        user_prompt = captured["messages"][1].content
+        facts_text, metadata_text = user_prompt.split("Full alert metadata:", maxsplit=1)
+        assert "São Paulo/Av_Paulista" in facts_text
+        assert "Caméra_Entrée" in facts_text
+        assert "\\u00e3" not in facts_text
+        assert "\\u00e9" not in facts_text
+        assert "Franklin County" not in facts_text
+        assert "Main Street" not in facts_text
+        assert "Franklin County" in metadata_text
+        assert "Main Street" in metadata_text
+        assert "42.53" in metadata_text
+        assert "30 mph" in metadata_text
 
 
 class TestReportBodyValidation:
@@ -238,6 +319,12 @@ class TestReportBodyValidation:
     def test_normalize_strips_thinking_and_fences(self):
         raw = "```markdown\n<think>plan</think>\n# Incident\n\nN/A\n```"
         assert _normalize_report_model_output(raw) == "# Incident\n\nN/A"
+
+    def test_normalize_strips_think_then_fence_and_preamble(self):
+        think_then_fence = "<think>plan</think>\n```markdown\n# Incident\n\nN/A\n```"
+        assert _normalize_report_model_output(think_then_fence) == "# Incident\n\nN/A"
+        preamble = "Here is the populated report:\n```md\n# Incident\n\nN/A\n```\nLet me know if you need changes."
+        assert _normalize_report_model_output(preamble) == "# Incident\n\nN/A"
 
     def test_empty_output_rejected(self):
         with pytest.raises(ReportContentValidationError, match="empty_or_whitespace_body"):
@@ -306,7 +393,7 @@ Vehicles: none observed
 
     def test_explicit_required_field_placeholder_rejected_when_other_fields_populated(self):
         body = _sample_table_report(**{"Detailed Description": "{detailed_description}"})
-        with pytest.raises(ReportContentValidationError, match="unresolved_placeholder:Detailed Description"):
+        with pytest.raises(ReportContentValidationError, match="unresolved_placeholder"):
             _validate_report_body(body, required_report_fields=["Detailed Description"])
 
     def test_unknown_elsewhere_does_not_satisfy_explicit_required_field(self):
@@ -316,7 +403,7 @@ Vehicles: none observed
                 "Type of Incident": "Unknown",
             }
         )
-        with pytest.raises(ReportContentValidationError, match="unresolved_placeholder:Detailed Description"):
+        with pytest.raises(ReportContentValidationError, match="unresolved_placeholder"):
             _validate_report_body(body, required_report_fields=["Detailed Description"])
 
     def test_explicit_required_field_accepts_unknown_for_that_field(self):
@@ -334,6 +421,28 @@ Vehicles: none observed
 | **Detailed Description** | Resolved without trailing pipe
 """
         _validate_report_body(body, required_report_fields=["Detailed Description"])
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "| **Detailed Description:** | A person entered the aisle. |",
+            "| **Detailed description** | A person entered the aisle. |",
+            "- **Detailed Description:** A person entered the aisle.",
+        ],
+    )
+    def test_required_field_accepts_cosmetic_label_variants(self, body):
+        _validate_report_body(f"# Report\n\n{body}\n", required_report_fields=["Detailed Description"])
+
+    @pytest.mark.parametrize("value", ["-", "<br>", "<br/>", "&nbsp;"])
+    def test_blank_rendered_required_field_rejected(self, value):
+        body = _sample_table_report(**{"Detailed Description": value})
+        with pytest.raises(ReportContentValidationError, match="empty_required_field:Detailed Description"):
+            _validate_report_body(body, required_report_fields=["Detailed Description"])
+
+    def test_empty_prose_label_does_not_consume_the_next_line(self):
+        body = "# Report\n\n**Detailed Description:**\n**Location:** aisle 3\n"
+        with pytest.raises(ReportContentValidationError, match="empty_required_field:Detailed Description"):
+            _validate_report_body(body, required_report_fields=["Detailed Description"])
 
     def test_missing_configured_section_rejected_when_description_is_present(self):
         body = _sample_table_report()
@@ -358,7 +467,7 @@ Vehicles: none observed
             + "\n## People Involved\n\n### Person {person_number}\n\n| **Person Type** | worker\n"
             + "\n## Vehicles Involved\n\nN/A\n"
         )
-        with pytest.raises(ReportContentValidationError, match="unresolved_placeholder:People Involved"):
+        with pytest.raises(ReportContentValidationError, match="unresolved_placeholder"):
             _validate_report_body(body, required_report_sections=["People Involved", "Vehicles Involved"])
 
     def test_configured_sections_accept_supported_content_or_section_level_na(self):
@@ -375,6 +484,103 @@ Vehicles: none observed
 
     def test_omitted_sections_pass_when_not_configured(self):
         _validate_report_body(_sample_table_report())
+
+    @pytest.mark.parametrize(
+        "people_heading,vehicles_heading",
+        [
+            ("## **People Involved:**", "## Vehicles involved"),
+            ("##People Involved", "##Vehicles Involved"),
+            ("## People Involved (1)", "## Vehicles Involved (2)"),
+            ("People Involved\n---", "Vehicles Involved\n---"),
+        ],
+    )
+    def test_configured_sections_accept_heading_style_variants(self, people_heading, vehicles_heading):
+        body = _sample_table_report() + f"\n{people_heading}\n\nA worker was present.\n\n{vehicles_heading}\n\nN/A\n"
+        _validate_report_body(
+            body,
+            required_report_sections=["People Involved", "Vehicles Involved"],
+        )
+
+    def test_same_level_entry_heading_stays_inside_required_section(self):
+        body = (
+            _sample_table_report()
+            + "\n### People Involved\n\n### Person 1\n\n| **Person Type** | worker\n"
+            + "\n## Vehicles Involved\n\nN/A\n"
+        )
+        _validate_report_body(
+            body,
+            required_report_sections=["People Involved", "Vehicles Involved"],
+        )
+
+    def test_blank_section_table_ignores_trailing_prose(self):
+        body = (
+            _sample_table_report()
+            + "\n## People Involved\n\n| **Person Type** | worker\n"
+            + "\n## Vehicles Involved\n\n| Field | Value |\n| --- | --- |\n| **Vehicle Type** |   |\n"
+            + "\n**AI Agent Version:** dev\n"
+        )
+        with pytest.raises(ReportContentValidationError, match="empty_required_section:Vehicles Involved"):
+            _validate_report_body(
+                body,
+                required_report_sections=["People Involved", "Vehicles Involved"],
+            )
+
+    def test_blank_horizontal_section_table_rejected(self):
+        body = (
+            _sample_table_report()
+            + "\n## People Involved\n\n| Person Type | Person Location |\n| --- | --- |\n|  |  |\n"
+            + "\n## Vehicles Involved\n\nN/A\n"
+        )
+        with pytest.raises(ReportContentValidationError, match="empty_required_section:People Involved"):
+            _validate_report_body(
+                body,
+                required_report_sections=["People Involved", "Vehicles Involved"],
+            )
+
+    def test_unfilled_placeholder_outside_configured_sections_rejected(self):
+        body = (
+            _sample_table_report()
+            + "\n## People Involved\n\n| **Person Type** | worker\n"
+            + "\n## Vehicles Involved\n\nN/A\n"
+            + "\n{incident_date} {floor_condition}\n"
+        )
+        with pytest.raises(ReportContentValidationError, match="unresolved_placeholder"):
+            _validate_report_body(
+                body,
+                required_report_fields=["Detailed Description"],
+                required_report_sections=["People Involved", "Vehicles Involved"],
+            )
+
+    def test_prose_braces_with_spaces_are_not_placeholders(self):
+        body = "# Report\n\n**Detailed Description:** {Specify the date (DD/MM/YYYY).}\n"
+        _validate_report_body(body, required_report_fields=["Detailed Description"])
+
+    def test_shipped_warehouse_template_satisfies_configured_requirements(self):
+        repo_root = next(
+            parent for parent in Path(__file__).resolve().parents if (parent / "deploy" / "docker").is_dir()
+        )
+        profiles = [
+            (
+                repo_root / "deploy/docker/industry-profiles/warehouse-operations/vss-agent/configs/config.yml",
+                repo_root
+                / "deploy/docker/industry-profiles/warehouse-operations/vss-agent/templates/incident_report_template.md",
+            ),
+            (
+                repo_root
+                / "deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/configs/vss-agent/config.yml",
+                repo_root
+                / "deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/configs/vss-agent/incident_report_template.md",
+            ),
+        ]
+        for config_path, template_path in profiles:
+            config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+            tool_config = config["functions"]["template_report_gen"]
+            filled = _UNFILLED_PLACEHOLDER_RE.sub("filled", template_path.read_text(encoding="utf-8"))
+            _validate_report_body(
+                filled,
+                required_report_fields=tool_config["required_report_fields"],
+                required_report_sections=tool_config["required_report_sections"],
+            )
 
     @pytest.mark.asyncio
     async def test_validation_failure_prevents_resources_append(self, tmp_path, monkeypatch):
@@ -510,7 +716,7 @@ Vehicles: none observed
             function_info = await gen.__anext__()
             with pytest.raises(
                 ReportContentValidationError,
-                match="unresolved_placeholder:Detailed Description",
+                match="unresolved_placeholder",
             ):
                 await function_info.single_fn(
                     TemplateReportGenInput(

@@ -205,7 +205,7 @@ class TestReportAgentValidationFailureBoundary:
         template_report_tool = SimpleNamespace(
             ainvoke=AsyncMock(
                 side_effect=ReportContentValidationError(
-                    "unresolved_placeholder:Incident Details:Detailed Description",
+                    "missing_required_field:Detailed Description",
                     response_len=120,
                     body_len=120,
                 )
@@ -235,3 +235,35 @@ class TestReportAgentValidationFailureBoundary:
         assert all("successfully" not in message.lower() for message in output.messages)
         assert not output.side_effects or "report_downloads" not in output.side_effects
         template_report_tool.ainvoke.assert_awaited_once()
+        assert get_incident_tool.ainvoke.await_args.args[0]["includes"] == INCIDENT_REPORT_METADATA_FIELDS
+
+    @pytest.mark.asyncio
+    async def test_get_incidents_requests_authoritative_metadata_fields(self):
+        config = ReportAgentConfig(
+            get_incidents_tool="get_incidents",
+            get_incident_tool="get_incident",
+            template_report_tool="template_report_gen",
+        )
+        get_incidents_tool = SimpleNamespace(ainvoke=AsyncMock(return_value=json.dumps({"incidents": []})))
+        builder = AsyncMock()
+
+        async def _get_tool(name, wrapper_type=None):
+            tools = {
+                "get_incidents": get_incidents_tool,
+                "get_incident": SimpleNamespace(ainvoke=AsyncMock()),
+                "template_report_gen": SimpleNamespace(ainvoke=AsyncMock()),
+            }
+            return tools[str(name)]
+
+        builder.get_tool = AsyncMock(side_effect=_get_tool)
+        gen = report_agent.__wrapped__(config, builder)
+        function_info = await gen.__anext__()
+        chunks = [chunk async for chunk in function_info.stream_fn(ReportAgentInput())]
+
+        assert chunks[-1].type == AgentMessageChunkType.FINAL
+        assert get_incidents_tool.ainvoke.await_args.args[0]["includes"] == [
+            "category",
+            "place",
+            "objectIds",
+            "info",
+        ]

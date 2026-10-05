@@ -64,7 +64,7 @@ Grounding requirements:
 
 _REPORT_LLM_GROUNDING_INSTRUCTION = """
 Grounding requirements (these override any conflicting template instruction):
-- The authoritative incident facts supplied by the user are the only source of incident metadata.
+- Authoritative facts take precedence; the full alert metadata (including geolocation) may supply fields not listed there.
 - Copy authoritative values exactly into corresponding report fields; do not replace or reinterpret them.
 - Treat video-understanding results only as evidence of directly supported observations (visible, and audible when audio evidence is present).
 - Do not make unsupported claims about causes, contributing factors, severity, injuries, impact, identities, roles, or counts.
@@ -79,13 +79,20 @@ Grounding requirements (these override any conflicting template instruction):
 _RESOURCES_HEADING_RE = re.compile(r"^##\s*Resources\b", re.IGNORECASE | re.MULTILINE)
 _THINK_OPEN_RE = re.compile(r"<think\b", re.IGNORECASE)
 _THINK_CLOSE_RE = re.compile(r"</think>", re.IGNORECASE)
-_MARKDOWN_FENCE_RE = re.compile(r"^```(?:markdown)?\s*\n?(.*?)\n?```\s*$", re.IGNORECASE | re.DOTALL)
 _TABLE_SEPARATOR_RE = re.compile(r"^\|\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
 _UNFILLED_PLACEHOLDER_RE = re.compile(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}")
-# Optional labeled values outside tables, e.g. "**Detailed Description:** text"
-_PROSE_LABELED_VALUE_RE = re.compile(r"^\s*\*\*(.+?)\*\*\s*:?\s*(.+?)\s*$", re.MULTILINE)
-_ATX_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$", re.MULTILINE)
+# Labeled values on one line, including a leading bullet. [ \t] must not cross newlines.
+_PROSE_LABELED_VALUE_RE = re.compile(
+    r"^[ \t]*(?:-[ \t]*)?\*\*(.+?)\*\*[ \t]*:?[ \t]*(.*)$",
+    re.MULTILINE,
+)
+# Bounded hashes plus spaces; trailing ### is stripped in Python so this stays linear.
+_ATX_HEADING_RE = re.compile(r"^(#{1,6})[ \t]*(.*\S)[ \t]*$", re.MULTILINE)
+_SETEXT_HEADING_RE = re.compile(r"(?m)^(?P<title>[^#|\n][^\n]*)\n(?P<underline>[-=])(?P=underline){2,}[ \t]*$")
+_TRAILING_HEADING_HASHES_RE = re.compile(r"[ \t]+#+\s*$")
+_FENCED_BLOCK_RE = re.compile(r"```[\w-]*[ \t]*\n(.*?)\n[ \t]*```", re.DOTALL)
 _SECTION_UNKNOWN_RE = re.compile(r"\b(Unknown|N/A)\b", re.IGNORECASE)
+_BLANK_RENDERED_VALUE_RE = re.compile(r"(?i)<br\s*/?>|&nbsp;")
 
 
 class ReportContentValidationError(ValueError):
@@ -720,8 +727,9 @@ def _build_authoritative_incident_facts(
         "primaryObjectId": _extract_primary_object_id(alert_metadata),
         "place.name": place.get("name") if isinstance(place, dict) else None,
     }
-    # Trusted counts already attached to metadata (e.g. behavior tool). Never derive
-    # people/vehicle counts from len(objectIds).
+    # Optional counts only when a caller already set them. The report path does not
+    # attach people_count or vehicle_count, and a failed behavior lookup must not
+    # become an authoritative 0. Never derive either count from len(objectIds).
     for count_key in ("people_count", "vehicle_count"):
         if count_key in alert_metadata and alert_metadata[count_key] is not None:
             facts[count_key] = alert_metadata[count_key]
@@ -729,25 +737,16 @@ def _build_authoritative_incident_facts(
 
 
 def _normalize_report_model_output(content: str) -> str:
-    """Strip code fences and closed thinking blocks before validation or Resources append."""
+    """Drop closed thinking, then keep the first complete fenced block if one exists."""
     normalized = content.strip()
-    fence_match = _MARKDOWN_FENCE_RE.match(normalized)
-    if fence_match:
-        normalized = fence_match.group(1).strip()
-    else:
-        if normalized.startswith("```markdown"):
-            normalized = normalized[len("```markdown") :].strip()
-            if normalized.endswith("```"):
-                normalized = normalized[:-3].strip()
-        elif normalized.startswith("```"):
-            normalized = normalized[3:].strip()
-            if normalized.endswith("```"):
-                normalized = normalized[:-3].strip()
-
-    think_match = _THINK_CLOSE_RE.search(normalized)
-    if think_match:
+    if think_match := _THINK_CLOSE_RE.search(normalized):
         normalized = normalized[think_match.end() :].strip()
-    return normalized
+    if fence_match := _FENCED_BLOCK_RE.search(normalized):
+        return fence_match.group(1).strip()
+    # A lone opening fence (with an optional info string) or a leftover closing fence.
+    normalized = re.sub(r"^```[\w-]*[ \t]*\n?", "", normalized)
+    normalized = re.sub(r"\n?```\s*$", "", normalized)
+    return normalized.strip()
 
 
 def _body_without_resources(content: str) -> str:
@@ -765,8 +764,16 @@ def _parse_markdown_table_fields(content: str) -> dict[str, str]:
     Supports rows that omit a trailing pipe, e.g. ``| **Sensor ID** | Camera_01``.
     Uses ``lstrip`` only so blank values made of trailing spaces are preserved.
     """
+    lines = content.splitlines()
+    header_line_indexes = {
+        index
+        for index, line in enumerate(lines[:-1])
+        if line.lstrip().startswith("|") and _TABLE_SEPARATOR_RE.match(lines[index + 1].lstrip().rstrip())
+    }
     fields: dict[str, str] = {}
-    for line in content.splitlines():
+    for index, line in enumerate(lines):
+        if index in header_line_indexes:
+            continue
         stripped = line.lstrip()
         if not stripped.startswith("|") or _TABLE_SEPARATOR_RE.match(stripped.rstrip()):
             continue
@@ -778,18 +785,32 @@ def _parse_markdown_table_fields(content: str) -> dict[str, str]:
         cells = [cell.strip() for cell in inner.split("|")]
         if len(cells) < 2:
             continue
-        label = re.sub(r"[*_`]", "", cells[0]).strip()
-        if not label or label.lower() in {"field", "value"}:
+        label = _normalize_report_label(cells[0])
+        if not label or label in {"field", "value"}:
             continue
-        fields[label] = cells[1].strip()
+        fields.setdefault(label, cells[1].strip())
     return fields
 
 
+def _normalize_report_label(label: str) -> str:
+    """Compare labels ignoring markdown emphasis, bullets, trailing colons, and case."""
+    cleaned = re.sub(r"[*_`]", "", label)
+    cleaned = re.sub(r"^[ \t]*-[ \t]*", "", cleaned)
+    cleaned = cleaned.strip().rstrip(":").strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.casefold()
+
+
+def _normalize_section_title(title: str) -> str:
+    """Section titles use the label rules, plus a trailing parenthetical such as ``(1)``."""
+    return re.sub(r"\s*\([^)]*\)\s*$", "", _normalize_report_label(title)).strip()
+
+
 def _extract_labeled_field_values(content: str) -> dict[str, str]:
-    """Collect labeled values from markdown tables and simple prose ``**Label**`` lines."""
+    """Collect labeled values from markdown tables and one-line ``**Label**`` prose."""
     fields = _parse_markdown_table_fields(content)
     for match in _PROSE_LABELED_VALUE_RE.finditer(content):
-        label = match.group(1).strip().rstrip(":").strip()
+        label = _normalize_report_label(match.group(1))
         value = match.group(2).strip()
         if label and label not in fields:
             fields[label] = value
@@ -800,7 +821,9 @@ def _field_value_is_resolved(value: str) -> tuple[bool, str | None]:
     """Return (ok, failure_reason_suffix) for a single field value."""
     if _UNFILLED_PLACEHOLDER_RE.search(value):
         return False, "unresolved_placeholder"
-    if not value.strip():
+    cleaned = _BLANK_RENDERED_VALUE_RE.sub(" ", value)
+    # "-", "<br>", and "&nbsp;" render as a blank PDF cell.
+    if re.fullmatch(r"[\s\-]*", cleaned):
         return False, "empty_required_field"
     # Explicit Unknown/N/A is allowed for this individual field only.
     return True, None
@@ -812,42 +835,86 @@ def _validate_required_report_fields(body: str, required_fields: list[str], fail
         return
     fields = _extract_labeled_field_values(body)
     for label in required_fields:
-        normalized_label = label.strip()
-        if not normalized_label:
+        configured = label.strip()
+        key = _normalize_report_label(configured)
+        if not key:
             continue
-        if normalized_label not in fields:
-            fail(f"missing_required_field:{normalized_label}")
-        ok, reason = _field_value_is_resolved(fields[normalized_label])
+        if key not in fields:
+            fail(f"missing_required_field:{configured}")
+            continue
+        ok, reason = _field_value_is_resolved(fields[key])
         if not ok:
-            fail(f"{reason}:{normalized_label}")
+            fail(f"{reason}:{configured}")
 
 
-def _markdown_sections(content: str) -> dict[str, str]:
-    """Map ATX heading titles to the body that stays inside that heading."""
-    matches = list(_ATX_HEADING_RE.finditer(content))
+def _clean_heading_title(raw: str) -> str:
+    return _TRAILING_HEADING_HASHES_RE.sub("", raw).strip()
+
+
+def _iter_headings(content: str) -> list[tuple[int, int, int, str]]:
+    """Return (start, end, level, title) for ATX and setext headings, in order."""
+    headings: list[tuple[int, int, int, str]] = []
+    for match in _ATX_HEADING_RE.finditer(content):
+        title = _clean_heading_title(match.group(2))
+        if title:
+            headings.append((match.start(), match.end(), len(match.group(1)), title))
+    occupied = {start for start, _end, _level, _title in headings}
+    for match in _SETEXT_HEADING_RE.finditer(content):
+        if match.start() in occupied:
+            continue
+        title = match.group("title").strip()
+        if not title:
+            continue
+        level = 1 if match.group("underline") == "=" else 2
+        headings.append((match.start(), match.end(), level, title))
+    headings.sort(key=lambda item: item[0])
+    return headings
+
+
+def _markdown_sections(content: str, stop_titles: set[str] | None = None) -> dict[str, str]:
+    """Map normalized heading titles to the body that stays inside that heading.
+
+    A heading closes the current section when it is a higher level, or the same
+    level and itself a required section. Same-level entry headings such as
+    ``### Person 1`` stay inside ``### People Involved``.
+    """
+    headings = _iter_headings(content)
+    required = stop_titles or set()
     sections: dict[str, str] = {}
-    for index, match in enumerate(matches):
-        level = len(match.group(1))
-        title = match.group(2).strip()
+    for index, (_start, end, level, title) in enumerate(headings):
+        key = _normalize_section_title(title)
+        if not key:
+            continue
         body_end = len(content)
-        for later in matches[index + 1 :]:
-            if len(later.group(1)) <= level:
-                body_end = later.start()
+        for later_start, _later_end, later_level, later_title in headings[index + 1 :]:
+            later_key = _normalize_section_title(later_title)
+            closes = later_level < level or (later_level == level and later_key in required)
+            if closes:
+                body_end = later_start
                 break
-        # Keep the first heading when a title is repeated.
-        sections.setdefault(title, content[match.end() : body_end])
+        sections.setdefault(key, content[end:body_end])
     return sections
+
+
+def _section_contains_table(section_body: str) -> bool:
+    return any(line.lstrip().startswith("|") for line in section_body.splitlines())
 
 
 def _section_body_is_supported(section_body: str) -> tuple[bool, str | None]:
     """A required section needs resolved content or an explicit Unknown/N/A in that section."""
     if _UNFILLED_PLACEHOLDER_RE.search(section_body):
         return False, "unresolved_placeholder"
+    if _section_contains_table(section_body):
+        # Trailing prose must not fill a blank table. Header rows are not values.
+        if _SECTION_UNKNOWN_RE.search(section_body):
+            return True, None
+        values = _parse_markdown_table_fields(section_body).values()
+        if any(_field_value_is_resolved(value)[0] for value in values):
+            return True, None
+        return False, "empty_required_section"
     if _SECTION_UNKNOWN_RE.search(section_body):
         return True, None
-    if any(value.strip() for value in _parse_markdown_table_fields(section_body).values()):
-        return True, None
-    cleaned = re.sub(r"(?m)^#{1,6}\s+.*$", " ", section_body)
+    cleaned = re.sub(r"(?m)^#{1,6}[ \t]*.*$", " ", section_body)
     cleaned = re.sub(r"(?m)^\|.*$", " ", cleaned)
     cleaned = re.sub(r"[|*_`>#-]", " ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
@@ -860,16 +927,17 @@ def _validate_required_report_sections(body: str, required_sections: list[str], 
     """Enforce only explicitly configured section headings."""
     if not required_sections:
         return
-    sections = _markdown_sections(body)
-    for title in required_sections:
-        normalized_title = title.strip()
-        if not normalized_title:
+    configured = [title.strip() for title in required_sections if title.strip()]
+    stop_titles = {_normalize_section_title(title) for title in configured}
+    sections = _markdown_sections(body, stop_titles)
+    for title in configured:
+        key = _normalize_section_title(title)
+        if key not in sections:
+            fail(f"missing_required_section:{title}")
             continue
-        if normalized_title not in sections:
-            fail(f"missing_required_section:{normalized_title}")
-        ok, reason = _section_body_is_supported(sections[normalized_title])
+        ok, reason = _section_body_is_supported(sections[key])
         if not ok:
-            fail(f"{reason}:{normalized_title}")
+            fail(f"{reason}:{title}")
 
 
 def _validate_report_body(
@@ -883,8 +951,9 @@ def _validate_report_body(
     Validate normalized report Markdown before Resources append or artifact save.
 
     Always rejects empty, whitespace-only, thinking-only, residual/unclosed thinking,
-    and resources-only bodies. Optional ``required_report_fields`` and
-    ``required_report_sections`` enforce only explicitly configured labels and headings.
+    resources-only bodies, and unfilled ``{identifier}`` placeholders. Optional
+    ``required_report_fields`` and ``required_report_sections`` enforce only explicitly
+    configured labels and headings.
     Template titles are not assumed to make every heading mandatory. Structural
     completeness is not factual accuracy.
     """
@@ -907,6 +976,10 @@ def _validate_report_body(
     body = _body_without_resources(content)
     if not body:
         _fail("resources_only_body")
+
+    # A raw {identifier} is never valid output. Prose braces with spaces do not match.
+    if _UNFILLED_PLACEHOLDER_RE.search(body):
+        _fail("unresolved_placeholder")
 
     _validate_required_report_fields(body, required_report_fields or [], _fail)
     _validate_required_report_sections(body, required_report_sections or [], _fail)
@@ -1122,7 +1195,8 @@ async def _fetch_behavior_data(
         to_timestamp: End timestamp in ISO format
 
     Returns:
-        Dictionary with 'people_count', 'vehicle_count', and 'cv_metadata' (raw API response as JSON string)
+        Dictionary with 'people_count', 'vehicle_count', and 'cv_metadata'. Counts are
+        None when the lookup fails so an outage is not reported as zero people or vehicles.
     """
     try:
         logger.info("Fetching behavior data")
@@ -1178,8 +1252,8 @@ async def _fetch_behavior_data(
     except Exception as e:
         logger.warning(f"Failed to fetch behavior data: {e}")
         return {
-            "people_count": 0,
-            "vehicle_count": 0,
+            "people_count": None,
+            "vehicle_count": None,
             "cv_metadata": "No CV metadata available",
         }
 
@@ -1294,7 +1368,11 @@ async def _format_custom_report(
             {
                 "vlm_results": vlm_results,
                 "alert_metadata": alert_metadata,
-                "authoritative_incident_facts": json.dumps(authoritative_incident_facts, sort_keys=True),
+                "authoritative_incident_facts": json.dumps(
+                    authoritative_incident_facts,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                ),
             }
         )
     except Exception as e:
