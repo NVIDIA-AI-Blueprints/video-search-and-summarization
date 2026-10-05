@@ -84,11 +84,50 @@ _WAREHOUSE_REQUIRED_SECTIONS = (
     "People Involved",
     "Vehicles Involved",
 )
+# Field labels from deploy/.../warehouse-operations/.../incident_report_template.md
+_WAREHOUSE_BASIC_FIELDS = (
+    "Report Identifier",
+    "Date of Incident",
+    "Time of Incident",
+    "Reporting AI Agent",
+    "Sensor ID",
+)
+_WAREHOUSE_INCIDENT_DETAIL_FIELDS = (
+    "Type of Incident",
+    "Detailed Description",
+    "Safety Distance",
+    "Number of Persons involved",
+    "Number of Vehicles involved",
+)
+_WAREHOUSE_LOCATION_FIELDS = (
+    "Location Description",
+    "Light Condition",
+    "Floor Condition",
+    "Blockage",
+)
+_WAREHOUSE_PERSON_FIELDS = (
+    "Person Type",
+    "Person behaviour at the time",
+    "Person Location",
+)
+_WAREHOUSE_VEHICLE_FIELDS = (
+    "Vehicle Type",
+    "Vehicle maneuver at the time",
+    "Vehicle Location",
+)
+_WAREHOUSE_SECTION_FIELDS: dict[str, tuple[str, ...]] = {
+    "Basic Information": _WAREHOUSE_BASIC_FIELDS,
+    "Incident Details": _WAREHOUSE_INCIDENT_DETAIL_FIELDS,
+    "Location and Environment Details": _WAREHOUSE_LOCATION_FIELDS,
+}
 _RESOURCES_HEADING_RE = re.compile(r"^##\s*Resources\b", re.IGNORECASE | re.MULTILINE)
+_THINK_OPEN_RE = re.compile(r"<think\b", re.IGNORECASE)
 _THINK_CLOSE_RE = re.compile(r"</think>", re.IGNORECASE)
 _MARKDOWN_FENCE_RE = re.compile(r"^```(?:markdown)?\s*\n?(.*?)\n?```\s*$", re.IGNORECASE | re.DOTALL)
 _SECTION_HEADING_RE = re.compile(r"^(##\s+.+)$", re.MULTILINE)
+_TABLE_SEPARATOR_RE = re.compile(r"^\|\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
 _UNFILLED_PLACEHOLDER_RE = re.compile(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}")
+_SECTION_LEVEL_UNKNOWN_RE = re.compile(r"\b(Unknown|N/A)\b", re.IGNORECASE)
 
 
 class ReportContentValidationError(ValueError):
@@ -713,7 +752,7 @@ def _build_authoritative_incident_facts(
 
 
 def _normalize_report_model_output(content: str) -> str:
-    """Strip code fences and thinking blocks before validation or Resources append."""
+    """Strip code fences and closed thinking blocks before validation or Resources append."""
     normalized = content.strip()
     fence_match = _MARKDOWN_FENCE_RE.match(normalized)
     if fence_match:
@@ -760,33 +799,131 @@ def _extract_markdown_sections(content: str) -> dict[str, str]:
     return sections
 
 
-def _section_has_supported_content(section_body: str) -> bool:
-    """True when a section has supported text or an explicit Unknown/N/A marker."""
-    if re.search(r"\b(Unknown|N/A)\b", section_body, flags=re.IGNORECASE):
-        return True
+def _parse_markdown_table_fields(section_body: str) -> dict[str, str]:
+    """
+    Parse Field/Value markdown table rows.
 
-    # Prefer markdown table value cells so leftover field labels are not treated as content.
-    for row in section_body.splitlines():
-        stripped = row.strip()
-        if not stripped.startswith("|") or re.search(r"^\|\s*:?-+:?\s*\|", stripped):
+    Supports the warehouse template's rows that omit a trailing pipe, e.g.
+    ``| **Sensor ID** | {sensor_id}``. Uses ``lstrip`` only so blank values made of
+    trailing spaces are not collapsed away before cell parsing.
+    """
+    fields: dict[str, str] = {}
+    for line in section_body.splitlines():
+        stripped = line.lstrip()
+        if not stripped.startswith("|") or _TABLE_SEPARATOR_RE.match(stripped.rstrip()):
             continue
-        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        # Only strip a trailing delimiter pipe when the row has label + value + trailing "|".
+        # Two-pipe rows like `| **Label** |    ` must keep the blank value cell.
+        inner = stripped[1:]
+        if stripped.count("|") >= 3 and inner.rstrip().endswith("|"):
+            inner = inner.rstrip()[:-1]
+        cells = [cell.strip() for cell in inner.split("|")]
         if len(cells) < 2:
             continue
-        label = re.sub(r"[*_`]", "", cells[0]).strip().lower()
-        if label in {"field", "value"}:
+        label = re.sub(r"[*_`]", "", cells[0]).strip()
+        if not label or label.lower() in {"field", "value"}:
             continue
-        value = _UNFILLED_PLACEHOLDER_RE.sub("", cells[1])
-        value = re.sub(r"[*_`]", "", value).strip()
-        if value:
-            return True
+        fields[label] = cells[1].strip()
+    return fields
 
-    # Non-table prose, excluding placeholder-only subheadings such as "### Person {n}".
-    prose = re.sub(r"^###\s+.*$", "", section_body, flags=re.MULTILINE)
-    prose = re.sub(r"^\|.*$", "", prose, flags=re.MULTILINE)
-    prose = _UNFILLED_PLACEHOLDER_RE.sub("", prose)
-    prose = re.sub(r"\s+", " ", prose).strip()
-    return bool(prose)
+
+def _field_value_is_resolved(value: str) -> tuple[bool, str | None]:
+    """Return (ok, failure_reason_suffix) for a single field value."""
+    if _UNFILLED_PLACEHOLDER_RE.search(value):
+        return False, "unresolved_placeholder"
+    if not value.strip():
+        return False, "empty_required_field"
+    # Explicit Unknown/N/A is allowed for this individual field only.
+    return True, None
+
+
+def _require_warehouse_fields(
+    section_body: str,
+    required_labels: tuple[str, ...],
+    *,
+    section_name: str,
+    fail: Any,
+) -> None:
+    """Require each listed field row with a resolved value or per-field Unknown/N/A."""
+    fields = _parse_markdown_table_fields(section_body)
+    for label in required_labels:
+        if label not in fields:
+            fail(f"missing_required_field:{section_name}:{label}")
+        ok, reason = _field_value_is_resolved(fields[label])
+        if not ok:
+            fail(f"{reason}:{section_name}:{label}")
+
+
+def _split_entity_entries(section_body: str, entity_name: str) -> list[tuple[str, str]]:
+    """Split a People/Vehicles section into (heading, body) entries."""
+    pattern = re.compile(rf"^(###\s+{re.escape(entity_name)}\b.*)$", re.MULTILINE | re.IGNORECASE)
+    parts = pattern.split(section_body)
+    entries: list[tuple[str, str]] = []
+    for index in range(1, len(parts), 2):
+        heading = parts[index].strip()
+        body = parts[index + 1] if index + 1 < len(parts) else ""
+        entries.append((heading, body))
+    return entries
+
+
+def _validate_warehouse_involvement_section(
+    section_body: str,
+    *,
+    entity_name: str,
+    required_fields: tuple[str, ...],
+    fail: Any,
+) -> None:
+    """
+    Validate People/Vehicles Involved.
+
+    Either an explicit section-level Unknown/N/A (no fabricated entries), or each
+    populated entry must include all expected fields with resolved values.
+    """
+    # Warehouse headings are "People Involved" / "Vehicles Involved"
+    section_key = "People Involved" if entity_name.lower() == "person" else "Vehicles Involved"
+
+    if re.search(rf"^###\s+{re.escape(entity_name)}\s*\{{", section_body, flags=re.MULTILINE | re.IGNORECASE):
+        fail(f"unfinished_entry_heading:{section_key}")
+
+    entries = _split_entity_entries(section_body, entity_name)
+    if not entries:
+        if _SECTION_LEVEL_UNKNOWN_RE.search(section_body) and not _UNFILLED_PLACEHOLDER_RE.search(section_body):
+            return
+        fail(f"missing_or_inapplicable_section:{section_key}")
+
+    for heading, entry_body in entries:
+        if _UNFILLED_PLACEHOLDER_RE.search(heading):
+            fail(f"unfinished_entry_heading:{section_key}")
+        _require_warehouse_fields(
+            entry_body,
+            required_fields,
+            section_name=section_key,
+            fail=fail,
+        )
+
+
+def _validate_warehouse_report_fields(sections: dict[str, str], fail: Any) -> None:
+    """Field-level warehouse checks. Structural completeness is not factual accuracy."""
+    for section_name, required_fields in _WAREHOUSE_SECTION_FIELDS.items():
+        _require_warehouse_fields(
+            sections[section_name],
+            required_fields,
+            section_name=section_name,
+            fail=fail,
+        )
+
+    _validate_warehouse_involvement_section(
+        sections["People Involved"],
+        entity_name="Person",
+        required_fields=_WAREHOUSE_PERSON_FIELDS,
+        fail=fail,
+    )
+    _validate_warehouse_involvement_section(
+        sections["Vehicles Involved"],
+        entity_name="Vehicle",
+        required_fields=_WAREHOUSE_VEHICLE_FIELDS,
+        fail=fail,
+    )
 
 
 def _validate_report_body(
@@ -798,10 +935,10 @@ def _validate_report_body(
     """
     Validate normalized report Markdown before Resources append or artifact save.
 
-    Rejects empty, whitespace-only, thinking-only, and resources-only bodies.
-    For the warehouse template only, also requires the template's section headings
-    with supported content or explicit Unknown/N/A. Structural completeness is not
-    treated as proof of factual accuracy.
+    Rejects empty, whitespace-only, thinking-only, residual/unclosed thinking, and
+    resources-only bodies. For the warehouse template only, validates required
+    fields individually (Unknown/N/A must apply to the specific field). Structural
+    completeness is not treated as proof of factual accuracy.
     """
     body_len = len(content)
     effective_response_len = len(content) if response_len is None else response_len
@@ -816,6 +953,9 @@ def _validate_report_body(
     if not content or not content.strip():
         _fail("empty_or_whitespace_body")
 
+    if _THINK_OPEN_RE.search(content) or _THINK_CLOSE_RE.search(content):
+        _fail("residual_thinking_markup")
+
     body = _body_without_resources(content)
     if not body:
         _fail("resources_only_body")
@@ -825,8 +965,7 @@ def _validate_report_body(
         for required in _WAREHOUSE_REQUIRED_SECTIONS:
             if required not in sections:
                 _fail(f"missing_required_section:{required}")
-            if not _section_has_supported_content(sections[required]):
-                _fail(f"empty_required_section:{required}")
+        _validate_warehouse_report_fields(sections, _fail)
 
 
 def _append_resources_section(content: str, image_url: str | None, video_url: str | None) -> str:

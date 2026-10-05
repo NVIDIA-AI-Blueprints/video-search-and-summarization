@@ -15,15 +15,21 @@
 """Unit tests for report_agent module."""
 
 from datetime import datetime
+import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from pydantic import ValidationError
 import pytest
 
+from vss_agents.agents.data_models import AgentMessageChunkType
+from vss_agents.agents.data_models import AgentOutput
 from vss_agents.agents.report_agent import INCIDENT_REPORT_METADATA_FIELDS
+from vss_agents.agents.report_agent import ReportAgentConfig
 from vss_agents.agents.report_agent import ReportAgentInput
 from vss_agents.agents.report_agent import VideoReportAgentInput
 from vss_agents.agents.report_agent import _build_report_side_effects
+from vss_agents.agents.report_agent import report_agent
 from vss_agents.tools.template_report_gen import ReportContentValidationError
 from vss_agents.tools.template_report_gen import TemplateReportGenOutput
 
@@ -176,3 +182,56 @@ class TestBuildReportSideEffects:
         media = side_effects["media"]
         assert "- ![Incident Snapshot](http://vss:7777/snap.jpg)" in media
         assert "- [Incident Video](http://vss:7777/clip.mp4)" in media
+
+
+class TestReportAgentValidationFailureBoundary:
+    """Validation failures must surface as status=error with no download side effects."""
+
+    @pytest.mark.asyncio
+    async def test_validation_failure_returns_error_without_downloads(self):
+        config = ReportAgentConfig(
+            get_incidents_tool="get_incidents",
+            get_incident_tool="get_incident",
+            template_report_tool="template_report_gen",
+        )
+        incident = {
+            "Id": "inc-123",
+            "sensorId": "Camera_01",
+            "timestamp": "2026-09-29T06:11:30Z",
+            "end": "2026-09-29T06:11:35Z",
+            "category": "Person in forklift aisle",
+        }
+        get_incident_tool = SimpleNamespace(ainvoke=AsyncMock(return_value=json.dumps(incident)))
+        template_report_tool = SimpleNamespace(
+            ainvoke=AsyncMock(
+                side_effect=ReportContentValidationError(
+                    "unresolved_placeholder:Incident Details:Detailed Description",
+                    response_len=120,
+                    body_len=120,
+                )
+            )
+        )
+
+        builder = AsyncMock()
+
+        async def _get_tool(name, wrapper_type=None):
+            tools = {
+                "get_incidents": SimpleNamespace(ainvoke=AsyncMock()),
+                "get_incident": get_incident_tool,
+                "template_report_gen": template_report_tool,
+            }
+            return tools[str(name)]
+
+        builder.get_tool = AsyncMock(side_effect=_get_tool)
+
+        gen = report_agent.__wrapped__(config, builder)
+        function_info = await gen.__anext__()
+        chunks = [chunk async for chunk in function_info.stream_fn(ReportAgentInput(incident_id="inc-123"))]
+
+        assert chunks
+        assert chunks[-1].type == AgentMessageChunkType.FINAL
+        output = AgentOutput.model_validate_json(chunks[-1].content)
+        assert output.status == "error"
+        assert all("successfully" not in message.lower() for message in output.messages)
+        assert not output.side_effects or "report_downloads" not in output.side_effects
+        template_report_tool.ainvoke.assert_awaited_once()

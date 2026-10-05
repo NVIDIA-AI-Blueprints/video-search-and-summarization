@@ -14,9 +14,11 @@
 # limitations under the License.
 """Unit tests for template_report_gen module."""
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
@@ -25,53 +27,37 @@ import pytest
 from vss_agents.tools import template_report_gen as template_report_gen_module
 from vss_agents.tools.template_report_gen import PDF_CONVERSION_AVAILABLE
 from vss_agents.tools.template_report_gen import ReportContentValidationError
+from vss_agents.tools.template_report_gen import TemplateReportGenConfig
+from vss_agents.tools.template_report_gen import TemplateReportGenInput
 from vss_agents.tools.template_report_gen import _build_authoritative_incident_facts
 from vss_agents.tools.template_report_gen import _format_custom_report
 from vss_agents.tools.template_report_gen import _get_object_store_url
 from vss_agents.tools.template_report_gen import _normalize_report_model_output
 from vss_agents.tools.template_report_gen import _run_vlm_analysis
 from vss_agents.tools.template_report_gen import _validate_report_body
+from vss_agents.tools.template_report_gen import template_report_gen
 
-_WAREHOUSE_TEMPLATE = """# Warehouse Incident Report
+_REPO_ROOT = Path(__file__).resolve().parents[7]
+_ACTUAL_WAREHOUSE_TEMPLATE_PATH = (
+    _REPO_ROOT / "deploy/docker/industry-profiles/warehouse-operations/vss-agent/templates/incident_report_template.md"
+)
+_WAREHOUSE_TEMPLATE = _ACTUAL_WAREHOUSE_TEMPLATE_PATH.read_text(encoding="utf-8")
 
-## Basic Information
 
-| Field | Value |
-|-------|-------|
-| **Report Identifier** | {report_id} |
-
-## Incident Details
-
-| Field | Value |
-|-------|-------|
-| **Type of Incident** | {incident_type} |
-
-## Location and Environment Details
+def _valid_warehouse_report(*, vehicles_inapplicable: bool = False) -> str:
+    vehicles = (
+        "N/A"
+        if vehicles_inapplicable
+        else """### Vehicle 1
 
 | Field | Value |
 |-------|-------|
-| **Location Description** | {location_description} |
-
-## People Involved
-
-### Person {person_number}
-
-| Field | Value |
-|-------|-------|
-| **Person Type** | {person_type} |
-
-## Vehicles Involved
-
-### Vehicle {vehicle_number}
-
-| Field | Value |
-|-------|-------|
-| **Vehicle Type** | {vehicle_type} |
+| **Vehicle Type** | N/A |
+| **Vehicle maneuver at the time** | N/A |
+| **Vehicle Location** | N/A |
 """
-
-
-def _valid_warehouse_report() -> str:
-    return """# Warehouse Incident Report
+    )
+    return f"""# Warehouse Incident Report
 
 ## Basic Information
 
@@ -114,14 +100,28 @@ def _valid_warehouse_report() -> str:
 
 ## Vehicles Involved
 
-### Vehicle 1
-
-| Field | Value |
-|-------|-------|
-| **Vehicle Type** | N/A |
-| **Vehicle maneuver at the time** | N/A |
-| **Vehicle Location** | N/A |
+{vehicles}
 """
+
+
+def _warehouse_report_with_incident_details(**overrides: str) -> str:
+    """Build a mostly-valid warehouse report with Incident Details field overrides."""
+    details = {
+        "Type of Incident": "Person in forklift aisle",
+        "Detailed Description": "A person walked through the forklift aisle.",
+        "Safety Distance": "N/A",
+        "Number of Persons involved": "1",
+        "Number of Vehicles involved": "0",
+    }
+    details.update(overrides)
+    detail_rows = "\n".join(f"| **{label}** | {value}" for label, value in details.items())
+    base = _valid_warehouse_report()
+    # Replace the Incident Details table body while preserving section structure.
+    marker_start = "## Incident Details\n\n| Field | Value |\n|-------|-------|\n"
+    marker_end = "\n\n## Location and Environment Details"
+    start = base.index(marker_start) + len(marker_start)
+    end = base.index(marker_end)
+    return base[:start] + detail_rows + base[end:]
 
 
 class TestGetObjectStoreUrl:
@@ -292,7 +292,14 @@ class TestIncidentReportGrounding:
 
 
 class TestReportBodyValidation:
-    """Regression coverage for empty / thinking-only / resources-only report bodies."""
+    """Regression coverage for empty / thinking-only / resources-only / field-level bodies."""
+
+    def test_actual_warehouse_template_is_loaded(self):
+        assert "Warehouse Incident Report" in _WAREHOUSE_TEMPLATE
+        assert "**Detailed Description**" in _WAREHOUSE_TEMPLATE
+        # Actual template omits trailing pipes on some rows.
+        assert "| **Sensor ID** | {sensor_id}" in _WAREHOUSE_TEMPLATE
+        assert not _WAREHOUSE_TEMPLATE.split("| **Sensor ID** | {sensor_id}", 1)[1].lstrip().startswith("|")
 
     def test_normalize_strips_thinking_and_fences(self):
         raw = "```markdown\n<think>plan</think>\n# Incident\n\nN/A\n```"
@@ -305,6 +312,11 @@ class TestReportBodyValidation:
     def test_thinking_only_output_rejected(self):
         normalized = _normalize_report_model_output("<think>all reasoning, no report</think>")
         with pytest.raises(ReportContentValidationError, match="empty_or_whitespace_body"):
+            _validate_report_body(normalized, template_content="# Incident\n")
+
+    def test_unclosed_thinking_output_rejected(self):
+        normalized = _normalize_report_model_output("<think>unclosed reasoning without end tag\n# Incident\n\nN/A")
+        with pytest.raises(ReportContentValidationError, match="residual_thinking_markup"):
             _validate_report_body(normalized, template_content="# Incident\n")
 
     def test_resources_only_output_rejected(self):
@@ -330,40 +342,78 @@ class TestReportBodyValidation:
         with pytest.raises(ReportContentValidationError, match="missing_required_section"):
             _validate_report_body(body, template_content=_WAREHOUSE_TEMPLATE)
 
-    def test_empty_warehouse_section_rejected(self):
-        body = """# Warehouse Incident Report
-
-## Basic Information
-
-| Field | Value |
-| **Report Identifier** | inc-1 |
-
-## Incident Details
-
-| Field | Value |
-| **Type of Incident** | spill |
-
-## Location and Environment Details
-
-| Field | Value |
-| **Location Description** | aisle |
-
-## People Involved
-
-### Person {person_number}
-
-| Field | Value |
-| **Person Type** | {person_type} |
-
-## Vehicles Involved
-
-| Field | Value |
-| **Vehicle Type** | N/A |
-"""
-        with pytest.raises(ReportContentValidationError, match="empty_required_section:People Involved"):
+    def test_missing_detailed_description_row_rejected(self):
+        body = _warehouse_report_with_incident_details()
+        body = body.replace("| **Detailed Description** | A person walked through the forklift aisle.\n", "")
+        with pytest.raises(
+            ReportContentValidationError,
+            match="missing_required_field:Incident Details:Detailed Description",
+        ):
             _validate_report_body(body, template_content=_WAREHOUSE_TEMPLATE)
 
-    def test_valid_warehouse_report_with_unknown_fields_accepted(self):
+    def test_blank_detailed_description_rejected(self):
+        body = _warehouse_report_with_incident_details(**{"Detailed Description": "   "})
+        with pytest.raises(
+            ReportContentValidationError,
+            match="empty_required_field:Incident Details:Detailed Description",
+        ):
+            _validate_report_body(body, template_content=_WAREHOUSE_TEMPLATE)
+
+    def test_unresolved_detailed_description_rejected_when_category_populated(self):
+        body = _warehouse_report_with_incident_details(**{"Detailed Description": "{detailed_description}"})
+        with pytest.raises(
+            ReportContentValidationError,
+            match="unresolved_placeholder:Incident Details:Detailed Description",
+        ):
+            _validate_report_body(body, template_content=_WAREHOUSE_TEMPLATE)
+
+    def test_unknown_elsewhere_does_not_satisfy_missing_detailed_description(self):
+        body = _warehouse_report_with_incident_details(
+            **{
+                "Detailed Description": "{detailed_description}",
+                "Safety Distance": "Unknown",
+            }
+        )
+        with pytest.raises(
+            ReportContentValidationError,
+            match="unresolved_placeholder:Incident Details:Detailed Description",
+        ):
+            _validate_report_body(body, template_content=_WAREHOUSE_TEMPLATE)
+
+    def test_partial_person_entry_rejected(self):
+        body = _valid_warehouse_report().replace(
+            "| **Person behaviour at the time** | walking |\n",
+            "| **Person behaviour at the time** | {person_behaviour} |\n",
+        )
+        with pytest.raises(
+            ReportContentValidationError,
+            match="unresolved_placeholder:People Involved:Person behaviour at the time",
+        ):
+            _validate_report_body(body, template_content=_WAREHOUSE_TEMPLATE)
+
+    def test_unfinished_person_heading_rejected(self):
+        body = _valid_warehouse_report().replace("### Person 1", "### Person {person_number}")
+        with pytest.raises(ReportContentValidationError, match="unfinished_entry_heading:People Involved"):
+            _validate_report_body(body, template_content=_WAREHOUSE_TEMPLATE)
+
+    def test_partial_vehicle_entry_rejected(self):
+        body = _valid_warehouse_report().replace(
+            "| **Vehicle maneuver at the time** | N/A |\n",
+            "| **Vehicle maneuver at the time** |  |\n",
+        )
+        with pytest.raises(
+            ReportContentValidationError,
+            match="empty_required_field:Vehicles Involved:Vehicle maneuver at the time",
+        ):
+            _validate_report_body(body, template_content=_WAREHOUSE_TEMPLATE)
+
+    def test_legitimate_unknown_fields_and_inapplicable_vehicles_accepted(self):
+        _validate_report_body(
+            _valid_warehouse_report(vehicles_inapplicable=True),
+            template_content=_WAREHOUSE_TEMPLATE,
+        )
+
+    def test_valid_warehouse_report_against_actual_template(self):
         _validate_report_body(_valid_warehouse_report(), template_content=_WAREHOUSE_TEMPLATE)
 
     def test_non_warehouse_template_skips_section_requirements(self):
@@ -454,3 +504,78 @@ class TestReportBodyValidation:
                 llm=RunnableLambda(boom),
                 image_url="http://example.com/snap.png",
             )
+
+    @pytest.mark.asyncio
+    async def test_validation_failure_skips_markdown_and_pdf_save(self, tmp_path):
+        template_name = "incident_report_template.md"
+        (tmp_path / template_name).write_text(_WAREHOUSE_TEMPLATE, encoding="utf-8")
+
+        config = TemplateReportGenConfig(
+            object_store="object_store",
+            llm_name="llm",
+            video_understanding_tool="video_understanding",
+            picture_url_tool="vst_picture_url",
+            video_url_tool="vst_video_url",
+            template_path=str(tmp_path),
+            template_name=template_name,
+            report_prompt="Populate:\n{template}\n{agent_version}",
+            vlm_prompts=["describe"],
+        )
+
+        object_store = AsyncMock()
+        vlm_tool = SimpleNamespace(ainvoke=AsyncMock(return_value="visible person in aisle"))
+        picture_tool = SimpleNamespace(
+            ainvoke=AsyncMock(return_value=SimpleNamespace(image_url="http://example.com/snap.png", video_url=None))
+        )
+        video_tool = SimpleNamespace(
+            ainvoke=AsyncMock(return_value=SimpleNamespace(video_url="http://example.com/clip.mp4"))
+        )
+
+        async def bad_llm(_prompt):
+            return AIMessage(
+                content=_warehouse_report_with_incident_details(**{"Detailed Description": "{detailed_description}"})
+            )
+
+        builder = AsyncMock()
+        builder.get_object_store_client = AsyncMock(return_value=object_store)
+        builder.get_llm = AsyncMock(return_value=RunnableLambda(bad_llm))
+
+        async def _get_tool(name, wrapper_type=None):
+            tools = {
+                "video_understanding": vlm_tool,
+                "vst_picture_url": picture_tool,
+                "vst_video_url": video_tool,
+            }
+            return tools[name]
+
+        builder.get_tool = AsyncMock(side_effect=_get_tool)
+
+        md_save = AsyncMock(return_value=("http://md", 1))
+        pdf_save = AsyncMock(return_value=("http://pdf", 1))
+
+        with (
+            patch.object(template_report_gen_module, "_save_markdown_to_object_store", md_save),
+            patch.object(template_report_gen_module, "_save_pdf_to_object_store", pdf_save),
+        ):
+            gen = template_report_gen.__wrapped__(config, builder)
+            function_info = await gen.__anext__()
+            with pytest.raises(
+                ReportContentValidationError,
+                match="unresolved_placeholder:Incident Details:Detailed Description",
+            ):
+                await function_info.single_fn(
+                    TemplateReportGenInput(
+                        alert_sensor_id="Camera_01",
+                        alert_from_timestamp="2026-09-29T06:11:30Z",
+                        alert_to_timestamp="2026-09-29T06:11:35Z",
+                        alert_metadata={
+                            "Id": "inc-123",
+                            "category": "Person in forklift aisle",
+                            "sensorId": "Camera_01",
+                        },
+                    )
+                )
+
+        md_save.assert_not_called()
+        pdf_save.assert_not_called()
+        object_store.upsert_object.assert_not_called()
