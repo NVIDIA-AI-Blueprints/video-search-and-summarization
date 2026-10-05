@@ -1605,45 +1605,59 @@ def _broken_venv_cleanup_command() -> str:
     alone so steps do not pay a reinstall every trial. `uv` recreates a
     missing venv on its next run, so removal is the repair.
 
-    This deletes with `sudo`, so it reads the candidate list NUL-delimited and
-    re-checks every path before acting. Word-splitting an unquoted `find`
-    substitution would let a newline in a directory name yield a fragment that
-    is an absolute path of its own, and `rm -rf` would then follow it out of
-    the checkout entirely. A path has to survive all three guards -- under
-    `$REPO/`, basename `.venv`, and still a directory -- to be removed.
+    Strictly POSIX, and path-safe without relying on the remote shell. The
+    command string is handed to `brev exec` / `ssh`, neither of which selects
+    an interpreter, so it may run under dash -- where `read -d` does not
+    exist and a bash-only loop would quietly match nothing, leave the broken
+    venv, and still report success. `find -exec ... {} +` passes each path as
+    an argument instead, so nothing is word-split and no newline in a
+    directory name can turn a fragment into an absolute path of its own.
+
+    Removal runs with `sudo`, so each candidate is re-checked inside the
+    loop: under `$REPO/`, basename `.venv`, and still a directory.
 
     Exits non-zero when a removal failed, so the caller logs it rather than
     reporting the trial as clean and leaving the next `uv` failure unexplained.
     """
+    # Counts come back through files: `-exec ... +` runs in child shells, so a
+    # variable incremented there would not survive to the summary line.
+    inner = (
+        'for VENV in "$@"; do '
+        '  case "$VENV" in "$VENV_REPO"/*) ;; *) continue ;; esac; '
+        '  [ "${VENV##*/}" = ".venv" ] || continue; '
+        '  [ -d "$VENV" ] || continue; '
+        '  if [ -x "$VENV/bin/python" ] && "$VENV/bin/python" -c "" 2>/dev/null; then '
+        '    continue; '
+        '  fi; '
+        # A prior container may have left root-owned files inside, same as the
+        # bind-mount dirs git clean needs sudo for.
+        '  rm -rf "$VENV" 2>/dev/null || sudo rm -rf "$VENV" 2>/dev/null || true; '
+        '  if [ -d "$VENV" ]; then '
+        '    echo "$VENV" >> "$VENV_STATE/failed"; '
+        '  else '
+        '    echo "$VENV" >> "$VENV_STATE/removed"; '
+        '    echo "[venv-reset] removed broken $VENV"; '
+        '  fi; '
+        "done"
+    )
     return (
         'REPO="$HOME/video-search-and-summarization"; '
         'if [ ! -d "$REPO" ]; then '
         '  echo "[venv-reset] no checkout at $REPO; nothing to inspect"; '
         'else '
-        '  LIST=$(mktemp) || exit 1; '
-        '  find "$REPO" -type d -name .venv -prune -print0 2>/dev/null > "$LIST"; '
-        '  REMOVED=0; FAILED=0; '
-        '  while IFS= read -r -d "" VENV; do '
-        # Three guards, because the next statement runs rm -rf as root.
-        '    case "$VENV" in "$REPO"/*) ;; *) continue ;; esac; '
-        '    [ "${VENV##*/}" = ".venv" ] || continue; '
-        '    [ -d "$VENV" ] || continue; '
-        # An interpreter that still runs means the venv is fine; leave it.
-        '    if [ -x "$VENV/bin/python" ] && "$VENV/bin/python" -c "" 2>/dev/null; then '
-        '      continue; '
-        '    fi; '
-        # A prior container may have left root-owned files inside, same as the
-        # bind-mount dirs git clean needs sudo for.
-        '    rm -rf "$VENV" 2>/dev/null || sudo rm -rf "$VENV" 2>/dev/null || true; '
-        '    if [ -d "$VENV" ]; then '
-        '      FAILED=$((FAILED+1)); '
-        '      echo "[venv-reset] FAILED to remove broken $VENV" >&2; '
-        '    else '
-        '      REMOVED=$((REMOVED+1)); '
-        '      echo "[venv-reset] removed broken $VENV"; '
-        '    fi; '
-        '  done < "$LIST"; '
-        '  rm -f "$LIST"; '
+        '  STATE=$(mktemp -d) || exit 1; '
+        '  : > "$STATE/removed"; : > "$STATE/failed"; '
+        '  VENV_REPO="$REPO" VENV_STATE="$STATE" '
+        '  find "$REPO" -type d -name .venv -prune '
+        f"    -exec sh -c '{inner}' _ {{}} + 2>/dev/null; "
+        '  REMOVED=$(wc -l < "$STATE/removed"); '
+        '  FAILED=$(wc -l < "$STATE/failed"); '
+        # Named here rather than from the child shells, so find's own
+        # permission-denied noise can stay suppressed without losing these.
+        '  while IFS= read -r FAILED_PATH; do '
+        '    echo "[venv-reset] FAILED to remove broken $FAILED_PATH" >&2; '
+        '  done < "$STATE/failed"; '
+        '  rm -rf "$STATE"; '
         '  echo "[venv-reset] broken venvs removed=$REMOVED failed=$FAILED"; '
         # Load-bearing: a failed removal has to reach the caller's warning.
         '  [ "$FAILED" -eq 0 ]; '
