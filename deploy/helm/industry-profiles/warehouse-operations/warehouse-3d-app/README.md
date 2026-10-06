@@ -87,7 +87,7 @@ hardware-accelerated video encode/decode in the stream processor.
 
 Keep hardware video processing enabled and allocate a GPU to VIOS streamprocessing.
 
-#### Dropping a GPU claim
+#### Disabling GPU allocation to VST
 
 To disable a GPU allocation, explicitly set both `resources.limits.nvidia.com/gpu`
 and `resources.requests.nvidia.com/gpu` to `0`. Setting `nvidia.com/gpu: null`,
@@ -107,6 +107,8 @@ vios:
       requests:
         nvidia.com/gpu: 0
 ```
+
+**Limitation:** VST overlay and video wall functionality do not work properly when GPU allocation to VST is disabled. Keep hardware video processing enabled and allocate a GPU to VST if you need these features.
 
 Software mode reduces video throughput. Keep the CV inference GPU allocation enabled.
 

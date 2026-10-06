@@ -160,7 +160,7 @@ Both parts are required together — **`useSoftwarePath`** switches the VST
 encode/decode path in the config, and the zeroed claim releases the GPU. Setting
 only one leaves the stack misconfigured.
 
-#### Dropping a GPU claim
+#### Disabling GPU allocation to VST
 
 Set both `resources.limits.nvidia.com/gpu` and `resources.requests.nvidia.com/gpu`
 to `0` to release a GPU. Setting `nvidia.com/gpu: null`, `resources: null`, or
@@ -168,6 +168,8 @@ to `0` to release a GPU. Setting `nvidia.com/gpu: null`, `resources: null`, or
 `--set`: Helm coalesces the **subchart's own** `values.yaml` defaults back in after
 your override is applied, so `nvidia.com/gpu: 1` reappears. Only explicitly
 setting both GPU counts to `0` preserves the override.
+
+**Limitation:** VST overlay and video wall functionality do not work properly when GPU allocation to VST is disabled. Keep hardware video processing enabled and allocate a GPU to VST if you need these features.
 
 Software mode reduces video throughput; use it only when an additional GPU is not
 available.
