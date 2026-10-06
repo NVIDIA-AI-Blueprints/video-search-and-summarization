@@ -718,6 +718,55 @@ def test_budget_config_is_single_stdlib_readable_source() -> None:
     }
     assert json.loads(ledger_mod.BUDGET_PATH.read_text()) == expected
     assert ledger_mod.BUDGETS == expected
+    ledger = initialized()
+    assert ledger["budgets"] == expected
+    changed = copy.deepcopy(ledger)
+    changed["budgets"]["max_total_vlm_calls"] = 5
+    with pytest.raises(ledger_mod.LedgerValidationError, match="configured ledger budgets"):
+        ledger_mod.validate_ledger(changed)
+
+
+def test_explicit_budget_fixture_and_failed_calls_use_configured_limits(tmp_path: Path) -> None:
+    fixture = {
+        "max_initial_claims": 1,
+        "max_expansions": 1,
+        "max_total_claims": 1,
+        "max_inspection_rounds": 1,
+        "max_parallel_subagents": 1,
+        "max_vlm_calls_per_subagent": 1,
+        "max_total_vlm_calls": 1,
+    }
+    path = tmp_path / "ledger-budgets.json"
+    path.write_text(json.dumps(fixture), encoding="utf-8")
+    assert ledger_mod.load_budgets(path) == fixture
+
+    ledger = initialized()
+    tasks = create_tasks(ledger)
+    failed = result(tasks[0], coverage="none", gap="The inspection failed.", calls=4, error="vlm failed")
+    merged = ledger_mod.merge_round_results(ledger, tasks, [failed])
+    assert merged["vlm_calls_used"] == 4
+    assert merged["observations"] == []
+    assert merged["stop_reason"] == "tool_failure"
+
+    near_cap = initialized()
+    near_cap["vlm_calls_used"] = near_cap["budgets"]["max_total_vlm_calls"] - 1
+    last_tasks = create_tasks(near_cap)
+    assert last_tasks[0]["max_vlm_calls"] == 1
+    exhausted = ledger_mod.merge_round_results(
+        near_cap,
+        last_tasks,
+        [result(last_tasks[0], coverage="none", gap="The retry failed.", calls=1, error="vlm failed")],
+    )
+    assert exhausted["vlm_calls_used"] == near_cap["budgets"]["max_total_vlm_calls"]
+    assert exhausted["status"] == "unresolved"
+    at_cap = initialized()
+    at_cap["vlm_calls_used"] = at_cap["budgets"]["max_total_vlm_calls"]
+    with pytest.raises(ledger_mod.LedgerValidationError, match="global VLM-call budget is exhausted"):
+        create_tasks(at_cap)
+    at_rounds = initialized()
+    at_rounds["round"] = at_rounds["budgets"]["max_inspection_rounds"]
+    with pytest.raises(ledger_mod.LedgerValidationError, match="inspection round budget is exhausted"):
+        create_tasks(at_rounds)
 
 
 def test_unknown_fields_and_non_iso_vlm_times_are_rejected() -> None:
