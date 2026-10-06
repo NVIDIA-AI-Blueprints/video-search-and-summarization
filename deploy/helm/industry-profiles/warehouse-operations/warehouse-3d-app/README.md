@@ -87,6 +87,29 @@ hardware-accelerated video encode/decode in the stream processor.
 
 Keep hardware video processing enabled and allocate a GPU to VIOS streamprocessing.
 
+#### Dropping a GPU claim
+
+To disable a GPU allocation, explicitly set both `resources.limits.nvidia.com/gpu`
+and `resources.requests.nvidia.com/gpu` to `0`. Setting `nvidia.com/gpu: null`,
+`resources: null`, or `resources: {}` does not disable the allocation: Helm
+coalesces the dependency chart's defaults back in, restoring the GPU count to `1`.
+
+For VIOS streamprocessing, pair the zeroed GPU claim with `useSoftwarePath: true`
+to use software encode/decode:
+
+```yaml
+vios:
+  vss-vios-streamprocessing:
+    useSoftwarePath: true
+    resources:
+      limits:
+        nvidia.com/gpu: 0
+      requests:
+        nvidia.com/gpu: 0
+```
+
+Software mode reduces video throughput. Keep the CV inference GPU allocation enabled.
+
 ### GPU sharing
 
 If there are not enough physical GPUs to assign one to each GPU workload, consider GPU sharing:
@@ -176,7 +199,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vios.vstStorage.vstData.size`** | **`10Gi`** | PVC size for shared VST data volume. |
 | **`vios.vstStorage.vstVideo.size`** | **`20Gi`** | PVC size for shared VST video volume. |
 | **`vios.vstStorage.streamerVideos.size`** | **`20Gi`** | PVC size for the NVStreamer upload volume. |
-| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Keep one GPU allocation for streamprocessing. See [GPU requirements](#gpu-requirements) for dedicated and shared GPU guidance. |
+| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Keep one GPU allocation for hardware video processing. For software mode, set both GPU limits and requests to `0` with `useSoftwarePath: true`; `null` restores the default GPU count. See [GPU requirements](#gpu-requirements). |
 | **`vios.vss-vios-nvstreamer.syncFileCount`** | **`4`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** | **`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`** | NGC resource for the NVStreamer sample video seed. Keep in step with **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`**. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.fromExistingClaim`** | **`vss-rtvi-cv-models`** | Reuses the PVC from the `vss-rtvi-cv` NGC download job so the video data is not downloaded twice. Clear this and set **`resourceVersion`** to download the video seed independently. |

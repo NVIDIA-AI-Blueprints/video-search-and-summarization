@@ -242,9 +242,11 @@ vios:
       vstVideo: { enabled: true, create: false, existingClaim: "" }
       streamerVideos: { enabled: true, create: false, existingClaim: "" }
     # GPU for hardware-accelerated encode/decode. To run in software mode (lower
-    # throughput, frees the GPU for other workloads), set both in your values override:
+    # throughput, frees the GPU for other workloads), set all three in your values override:
     #   vios.vss-vios-streamprocessing.useSoftwarePath: true
-    #   vios.vss-vios-streamprocessing.resources: null
+    #   vios.vss-vios-streamprocessing.resources.limits.nvidia.com/gpu: 0
+    #   vios.vss-vios-streamprocessing.resources.requests.nvidia.com/gpu: 0
+    # Use explicit 0 values; null restores dependency defaults during Helm coalescing.
     useSoftwarePath: false
     resources:
       limits:
