@@ -18,6 +18,7 @@ applies the session's ARGs to the inherited config at build, before the config
 hash is recomputed.
 
 Derivations mirror NemoClaw's generator (scripts/generate-openclaw-config.mts):
+the gateway port follows the explicit onboard CHAT_UI_URL port;
 origins are unique([loopback, chat, portless]); allowInsecureAuth is
 scheme == http; device auth is disabled for a non-loopback UI host.
 
@@ -133,7 +134,21 @@ def apply(config: str | None = None, env: dict | None = None) -> list[str]:
     # --- control UI origins: onboard supplies CHAT_UI_URL --------------------
     gateway = cfg.setdefault("gateway", {})
     port = gateway.get("port") if isinstance(gateway.get("port"), int) else 18789
-    ui = control_ui((env.get("CHAT_UI_URL") or "").strip(), port)
+    chat_ui_url = (env.get("CHAT_UI_URL") or "").strip()
+    # Onboard rewrites CHAT_UI_URL to its selected sandbox dashboard port.
+    # Persist it before the image's config hash is computed: NemoClaw's
+    # canonical warm-up and approval calls deliberately clear env overrides
+    # and must reach the same gateway as PID 1, including on custom ports.
+    try:
+        parsed_chat = urlparse(chat_ui_url)
+        selected_port = parsed_chat.port
+    except ValueError:
+        selected_port = None
+    if selected_port is not None and parsed_chat.scheme in ("http", "https") and parsed_chat.hostname and 1024 <= selected_port <= 65535:
+        if port != selected_port:
+            gateway["port"] = port = selected_port
+            changes.append(f"gateway.port -> {port}")
+    ui = control_ui(chat_ui_url, port)
     if ui:
         current = gateway.setdefault("controlUi", {})
         if current.get("allowedOrigins") != ui["allowedOrigins"]:

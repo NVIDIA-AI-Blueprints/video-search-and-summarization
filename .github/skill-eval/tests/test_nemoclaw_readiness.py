@@ -74,3 +74,30 @@ def test_only_pending_pairing_is_retried(monkeypatch, tmp_path, pending):
         with pytest.raises(RuntimeError, match="gateway_authentication"):
             runner._check_readiness("se-test", tmp_path / "readiness.json")
         assert len(calls) == 1
+
+
+def test_pairing_deadline_preserves_last_failure_without_short_probe(monkeypatch, tmp_path):
+    spec = importlib.util.spec_from_file_location("readiness_runner", SCRIPT)
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    clock = [0.0]
+    timeouts = []
+    def probe(sandbox, command, **kwargs):
+        if "gateway call" in command:
+            timeouts.append(kwargs["timeout"])
+            clock[0] += 45 if len(timeouts) == 1 else 15
+            return subprocess.CompletedProcess(command, 1, "", "scope upgrade pending approval token=secret")
+        return subprocess.CompletedProcess(command, 0, '{"ok":true}', "")
+    monkeypatch.setattr(runner, "_ensure_gateway", lambda _: None)
+    monkeypatch.setattr(runner, "_sandbox_exec", probe)
+    monkeypatch.setattr(runner.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(runner.time, "sleep", lambda duration: clock.__setitem__(0, clock[0] + duration))
+    evidence = tmp_path / "readiness.json"
+    with pytest.raises(RuntimeError, match="gateway_authentication"):
+        runner._check_readiness("se-test", evidence)
+    row = json.loads(evidence.read_text())["stages"][-1]
+    assert timeouts == [30, 30]
+    assert row["reason"] == "pairing_deadline"
+    assert row["attempts"] == 2
+    assert row["exit_code"] == 1
+    assert "secret" not in evidence.read_text()

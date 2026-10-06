@@ -279,12 +279,17 @@ and occupied ports without deleting registries or stopping listeners. A retry
 reuses its own receipt. Setup and all operational steps receive the selected
 triplet and keep the same deployment. Explicit port overrides remain strict:
 they must be distinct, available, and use a non-default gateway port.
+The image build persists the dashboard port from onboarding into OpenClaw's
+`gateway.port`. NemoClaw's canonical warm-up and pairing approval clear runtime
+port overrides, so an inherited default port would prevent scope approval.
 
 Before each operational prompt, `agent/readiness.json` records separate checks
 for sandbox access, gateway health, authenticated gateway health, and the
 sandbox-installed `vss configure check`. A listening HTTP endpoint alone does
 not establish successful pairing. Readiness failure stops before model work
 and records stage/exit metadata without gateway credentials or raw config.
+Pending pairing receives full probe budgets; when no full attempt fits, the
+report preserves the last pairing failure with a `pairing_deadline` reason.
 The same report and the initial namespace ownership/port receipt are included
 under `artifacts/logs/artifacts/nemoclaw/` so the workflow archive preserves
 them even though it excludes raw agent trajectories.

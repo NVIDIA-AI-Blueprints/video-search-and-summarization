@@ -144,15 +144,22 @@ def _check_readiness(sandbox: str, evidence: Path) -> None:
                 deadline = time.monotonic() + 90
                 while True:
                     remaining = deadline - time.monotonic()
-                    if row.get("attempts", 0) and remaining <= 0:
+                    if row.get("attempts", 0) and remaining < 30:
+                        # Preserve the useful pairing result rather than
+                        # replacing it with a final one-second exec timeout.
+                        row["reason"] = "pairing_deadline"
                         break
-                    timeout = max(1, min(30, int(remaining))) if stage == "gateway_authentication" else 90
+                    timeout = 30 if stage == "gateway_authentication" else 90
                     result = _sandbox_exec(sandbox, command, timeout=timeout)
                     row["attempts"] = row.get("attempts", 0) + 1
                     pending = stage == "gateway_authentication" and result.returncode != 0 and any(
                         marker in ((result.stderr or "") + (result.stdout or "")).lower()
                         for marker in ("scope upgrade pending approval", "pairing required")
                     )
+                    if stage == "gateway_authentication" and result.returncode != 0:
+                        row["reason"] = "pairing_pending" if pending else "command_failed"
+                    elif stage == "gateway_authentication":
+                        row.pop("reason", None)
                     remaining = deadline - time.monotonic()
                     if not pending or remaining <= 0:
                         break
@@ -161,6 +168,7 @@ def _check_readiness(sandbox: str, evidence: Path) -> None:
                 if result.returncode != 0:
                     raise RuntimeError(f"NemoClaw readiness failed at {stage} (exit {result.returncode})")
                 if stage == "gateway_authentication" and _json_object(result.stdout).get("ok") is not True:
+                    row["reason"] = "invalid_health_response"
                     raise RuntimeError("NemoClaw readiness failed at gateway_authentication: health did not report ok")
             row["status"] = "passed"
         except Exception as exc:

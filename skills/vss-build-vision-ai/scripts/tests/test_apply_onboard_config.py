@@ -107,7 +107,7 @@ def test_chat_ui_url_adds_the_remote_origin(cfg):
 def test_explicit_port_also_yields_the_portless_origin(cfg):
     mod.apply(str(cfg), {"CHAT_UI_URL": "https://host.example.com:8443"})
     assert read(cfg)["gateway"]["controlUi"]["allowedOrigins"] == [
-        "http://127.0.0.1:18789", "https://host.example.com:8443", "https://host.example.com"]
+        "http://127.0.0.1:8443", "https://host.example.com:8443", "https://host.example.com"]
 
 
 def test_loopback_chat_url_keeps_device_auth(cfg):
@@ -176,3 +176,20 @@ def test_every_value_reaches_this_script_as_a_file():
         assert re.search(rf'{name}="\$\(cat /etc/vss-onboard-args/{name}\)"', DOCKERFILE), (
             f"{name} is not read from /etc/vss-onboard-args/ into "
             "vss-apply-onboard-config — the base image's ENV would shadow it")
+
+
+@pytest.mark.parametrize("origin", ["http://127.0.0.1:22430", "https://chat.example.com:22430"])
+def test_custom_onboard_port_survives_cleared_runtime_overrides(cfg, origin):
+    changes = mod.apply(str(cfg), {"CHAT_UI_URL": origin})
+    d = read(cfg)
+    assert d["gateway"]["port"] == 22430
+    assert d["gateway"]["controlUi"]["allowedOrigins"][0] == "http://127.0.0.1:22430"
+    assert "http://127.0.0.1:18789" not in d["gateway"]["controlUi"]["allowedOrigins"]
+    assert "gateway.port -> 22430" in changes
+    assert mod.apply(str(cfg), {"CHAT_UI_URL": origin}) == []
+
+
+@pytest.mark.parametrize("origin", ["https://chat.example.com", "http://127.0.0.1:80", "https://chat.example.com:443"])
+def test_public_default_or_privileged_port_keeps_configured_gateway(cfg, origin):
+    mod.apply(str(cfg), {"CHAT_UI_URL": origin})
+    assert read(cfg)["gateway"]["port"] == 18789
