@@ -555,6 +555,18 @@ def coordinator(run_id):
             # Emit only known public VSS image references and hex revisions;
             # never raw commands, request bodies, environments or log text.
             refs = sorted(set(re.findall(r'(?:ghcr\.io/nvidia-ai-blueprints/vss|nvcr\.io/(?:nvidia|nvstaging)/vss-core)/vss-[a-z0-9-]+:[a-zA-Z0-9_.-]+', raw)))
+            shape = {}
+            try:
+                parsed_trace = json.loads(raw)
+                shape['json_kind'] = type(parsed_trace).__name__
+                if isinstance(parsed_trace,dict):
+                    shape['keys'] = [key for key in parsed_trace if re.fullmatch(r'[A-Za-z_]{1,50}',key)]
+                    for key in ['steps','messages','trajectory']:
+                        entries = parsed_trace.get(key)
+                        if isinstance(entries,list) and entries and isinstance(entries[0],dict):
+                            shape[key+'_entry_keys'] = [k for k in entries[0] if re.fullmatch(r'[A-Za-z_]{1,50}',k)]
+            except ValueError:
+                shape['json_kind'] = 'invalid'
             commands = []
             def visit(value):
                 if isinstance(value, dict):
@@ -573,7 +585,7 @@ def coordinator(run_id):
                     except ValueError: pass
             try: visit(json.loads(raw))
             except ValueError: pass
-            version_traces.append({'image_command_metadata':commands[:50] if path.parent.parent.name in ['step-1__SzoAfci','step-1__xpTbtgP'] else [],'trial':path.parent.parent.name,
+            version_traces.append({'trajectory_shape':shape if path.parent.parent.name == 'step-1__SzoAfci' else {},'image_command_metadata':commands[:50] if path.parent.parent.name in ['step-1__SzoAfci','step-1__xpTbtgP'] else [],'trial':path.parent.parent.name,
                                    'image_references_mentioned':refs[:80],
                                    'source_tree_shas_mentioned':sorted(set(re.findall(r'\b[0-9a-f]{40}\b', raw)))[:40],
                                    'legacy_alert_image_mentioned':'vss-alert-verification' in raw,
