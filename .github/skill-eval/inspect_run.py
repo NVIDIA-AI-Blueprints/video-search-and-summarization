@@ -450,6 +450,15 @@ for path, label in [('/tmp/gateway.log','gateway'),('/tmp/nemoclaw-start.log','l
     }
     log_signals[label] = sorted(set(value for needle,value in needles.items() if needle in data))
 pairing_summary = {}
+import subprocess
+pairing_probes = {}
+for label, command in [('plain', 'openclaw gateway call health --json'), ('runtime_env', '[ -r /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh && unset OPENCLAW_GATEWAY_TOKEN && openclaw gateway call health --json')]:
+    try:
+        probe = subprocess.run(['sh', '-lc', command], capture_output=True, text=True, timeout=12)
+        output = (probe.stdout or '') + (probe.stderr or '')
+        pairing_probes[label] = {'exit_code': probe.returncode, 'ok': '\"ok\": true' in output or '\"ok\":true' in output, 'pairing_pending': 'pending approval' in output or 'pairing required' in output, 'token_rejected': 'invalid token' in output or 'token mismatch' in output}
+    except subprocess.TimeoutExpired:
+        pairing_probes[label] = {'timeout': True}
 for path, label in [('/sandbox/.openclaw/devices/pending.json', 'pending'), ('/sandbox/.openclaw/devices/paired.json', 'paired')]:
     rows = read(path)
     if isinstance(rows, dict):
@@ -472,6 +481,7 @@ except OSError:
     pairing_summary['watcher_reasons'] = []
 print(json.dumps({
     'pairing_summary': pairing_summary,
+    'pairing_probes': pairing_probes,
     'gateway_port': gateway.get('port') if type(gateway.get('port')) is int else None,
     'gateway_listeners': listeners,
     'process_kinds':dict(processes),
@@ -487,7 +497,7 @@ print(json.dumps({
     'sandbox_introspection_enabled': (memory.get('introspection') or {}).get('enabled') is True,
 }))
 '''
-                probe = subprocess.run([openshell, "sandbox", "exec", "-n", sandbox, "--", "python3", "-c", code], capture_output=True, text=True, timeout=20)
+                probe = subprocess.run([openshell, "sandbox", "exec", "-n", sandbox, "--", "python3", "-c", code], capture_output=True, text=True, timeout=40)
                 report["sandbox_metadata_exit_code"] = probe.returncode
                 if probe.returncode == 0:
                     report["sandbox_metadata"] = json.loads(probe.stdout.strip().splitlines()[-1])
