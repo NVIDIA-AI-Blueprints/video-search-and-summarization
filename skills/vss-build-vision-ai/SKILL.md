@@ -263,6 +263,15 @@ Take the tag from the first source that answers, and do not ask when one does:
 3. Neither: select nothing and let `containers.env` default. This is the
    ordinary case and nothing below applies to it.
 
+**Do not substitute older images to recover from a pull or startup failure.**
+The default is the current checkout's `containers.env` image selection, not an
+arbitrary published release. A missing/denied image, or an unhealthy container,
+requires diagnosing that exact artifact; it does not authorize switching to
+`nvcr.io/...:3.0.0`, a legacy `vss-alert-verification` image, another release's
+Compose files, or a different checkout. Change the selected version only when
+the request explicitly authorizes it, then re-resolve and validate the whole
+build. A healthy older Alert service can still lack the APIs this skill needs.
+
 A selected tag must be non-empty once trimmed; an empty or whitespace-only
 value is a blocker to report, never a silent fall back to `develop-latest`.
 Record it as `VSS_CONTAINER_TAG` in `override.env`, name it in the Step 6

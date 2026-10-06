@@ -82,6 +82,25 @@ else
 fi
 ```
 
+### Eval checkout identity
+
+When the evaluator supplies `PR_HEAD_SHA`, use its synchronized checkout and
+verify the exact revision before resolving or deploying. Do not replace it with
+a fresh default-branch clone, another cached checkout, or release Compose files:
+the installed skill bundle and the deployed sources must refer to the same eval.
+A mismatch blocks bring-up; report both SHAs so the evaluator can repair its
+checkout rather than guessing a release.
+
+```bash
+if [ -n "${PR_HEAD_SHA:-}" ]; then
+  checkout_sha=$(git -C "$REPO" rev-parse HEAD) || exit 1
+  if [ "$checkout_sha" != "$PR_HEAD_SHA" ]; then
+    echo "FAIL: checkout $checkout_sha does not match eval $PR_HEAD_SHA" >&2
+    exit 1
+  fi
+fi
+```
+
 ## When to Use
 
 Use this reference when:
