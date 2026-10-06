@@ -1037,6 +1037,34 @@ def test_contradicted_partial_claim_stays_eligible_while_budget_remains() -> Non
         ledger_mod.final_result(partial, "runs/question-1")
 
 
+def test_window_completion_alone_does_not_satisfy_the_evidence_gate() -> None:
+    ledger = initialized()
+    tasks = create_tasks(ledger)
+    occluded = observation(
+        relation="context",
+        text="The worker is occluded, so no hat transition is visibly established.",
+    )
+    merged = ledger_mod.merge_round_results(
+        ledger,
+        tasks,
+        [result(tasks[0], (occluded,), coverage="sufficient")],
+    )
+    assert merged["claims"][0]["status"] == "unresolved"
+    assert ledger_mod.assess_sufficiency(merged)["sufficient"] is False
+    assert merged["status"] != "answered"
+
+    visible = observation(
+        text="The worker is partly occluded, and the yellow vest is clearly visible."
+    )
+    supported = ledger_mod.merge_round_results(
+        initialized(),
+        tasks,
+        [result(tasks[0], (visible,), coverage="sufficient")],
+    )
+    assert supported["claims"][0]["status"] == "supported"
+    assert ledger_mod.assess_sufficiency(supported)["sufficient"] is True
+
+
 def test_sufficient_supported_claim_resolves() -> None:
     ledger = initialized()
     tasks = create_tasks(ledger)

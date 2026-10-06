@@ -370,7 +370,8 @@ it to:
   invoke VLM only through the guarded helper below, never directly;
 - report visible facts against the support and falsification tests, leaving
   missing visibility, ambiguity, occlusion, failure, and incomplete coverage
-  unresolved;
+  unresolved; an occlusion, an ambiguous view, or an unobservable requested
+  attribute is a limitation, not proof that the attribute or event was absent;
 - preserve VSS job ID and the exact assigned provenance selector: sensor plus
   ISO-8601 window, media URL, or file path;
 - put tool failures in `error`, never in `observations`; exit 6 may retain
@@ -397,19 +398,29 @@ python3 "${VLM_HELPER}" inspect \
 
 Omit `--history` when no prior inspection artifact exists; repeat it for every
 prior round that targeted the claim. The helper rejects an exact duplicate
-sensor/window/FPS/prompt call before inference, records it in
-`rejected_duplicates`, and charges no VLM call. A higher-density refinement or
-materially different evidence prompt is not a duplicate.
+sensor/window/FPS/prompt/claim call before inference. A usable prior attempt
+for that same claim is returned in `reused_evidence` with its original
+observation ID, job ID, and provenance; it counts as inspected and does not
+spend a new VLM call. Do not insert that evidence again. A failed or unusable
+prior attempt does not establish coverage. A different sensor, claim, sampling
+rate, or prompt is not coverage. A higher-density refinement or materially
+different evidence prompt is not a duplicate.
 
 The helper records every attempted subwindow, detects empty, reasoning-only,
 repetitive-template, and reverse-chronology output. It attempts each affordable
-planned window once before spending remaining allocation on at most one quality
-retry per unusable window. This prevents a degenerate early window from starving
-later windows. Every inference attempt, including a quality retry, counts toward
-`vlm_calls_used`. The retry uses an explicit repair prompt, so it is not rejected
-as a duplicate. Unusable output is retained for diagnostics but never becomes
-an observation or increases coverage. Convert only usable attempts into claim
-observations with the returned job ID and exact subwindow provenance.
+uncovered window once before spending remaining allocation on at most one
+quality retry per unusable window. This prevents a degenerate early window from
+starving later windows. Every new inference attempt, including a quality retry,
+counts toward `vlm_calls_used`. Reused evidence does not. The retry uses an
+explicit repair prompt, so it is not rejected as a duplicate. Unusable output
+is retained for diagnostics but never becomes an observation. `window_inspection`
+reports only whether planned windows produced usable text. `claim_sufficiency`
+is always null: well-formed text, including a report that the subject is
+occluded, does not make the claim sufficient. Convert a usable attempt into an
+observation only when it visibly supports or contradicts the claim. When the
+requested fact is not visible, keep the claim unresolved and record the
+limitation in the gap; do not treat occlusion language itself as unusable text
+or as proof of absence.
 
 For a sensor scope, `--task` is mandatory. Before any inference call, the
 helper loads that one task and rejects a missing or ambiguous task ID, a

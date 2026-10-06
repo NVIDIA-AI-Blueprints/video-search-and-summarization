@@ -119,8 +119,9 @@ def _call_key(
     end: str,
     fps: float,
     prompt_sha256: str,
-) -> tuple[str, str, str, float, str]:
-    return (sensor, start, end, float(fps), prompt_sha256)
+    claim_id: str = "",
+) -> tuple[str, str, str, float, str, str]:
+    return (sensor, start, end, float(fps), prompt_sha256, claim_id)
 
 
 def load_attempt_history(paths: Sequence[str]) -> list[dict[str, Any]]:
@@ -357,6 +358,7 @@ def inspect_sensor_scope(
     assigned_start: str | None = None,
     assigned_end: str | None = None,
     task_call_allocation: int | None = None,
+    claim_id: str | None = None,
 ) -> dict[str, Any]:
     """Inspect every affordable subwindow before bounded quality retries."""
     if calls_budget < 1:
@@ -398,31 +400,40 @@ def inspect_sensor_scope(
     windows = split_sensor_window(start, end, fps, max_frames=max_frames)
     attempts: list[dict[str, Any]] = []
     rejected_duplicates: list[dict[str, Any]] = []
-    seen = {
-        _call_key(
-            str(item.get("sensor_id") or sensor),
-            str(item.get("start") or ""),
-            str(item.get("end") or ""),
+    reused_evidence: list[dict[str, Any]] = []
+    bound_claim = claim_id or ""
+    priors_by_key: dict[tuple[str, str, str, float, str, str], list[dict[str, Any]]] = {}
+    for item in prior_attempts:
+        if not (
+            item.get("start")
+            and item.get("end")
+            and item.get("fps") is not None
+            and item.get("prompt_sha256")
+            and item.get("sensor_id")
+        ):
+            continue
+        key = _call_key(
+            str(item.get("sensor_id")),
+            str(item.get("start")),
+            str(item.get("end")),
             float(item.get("fps") or 0),
-            str(item.get("prompt_sha256") or ""),
+            str(item.get("prompt_sha256")),
+            str(item.get("claim_id") or ""),
         )
-        for item in prior_attempts
-        if item.get("start")
-        and item.get("end")
-        and item.get("fps") is not None
-        and item.get("prompt_sha256")
-    }
+        priors_by_key.setdefault(key, []).append(item)
     completed_windows: set[int] = set()
     retry_windows: list[tuple[int, dict[str, Any]]] = []
-    for window_index, window in enumerate(windows):
-        if len(attempts) >= calls_budget:
-            break
-        prompt_sha256 = _prompt_digest(prompt)
-        call_key = _call_key(
-            sensor, window["start"], window["end"], fps, prompt_sha256
-        )
-        if call_key in seen:
-            rejected_duplicates.append(
+
+    def _remember_duplicate(
+        window_index: int,
+        window: dict[str, Any],
+        prompt_sha256: str,
+        retry: int,
+        priors: Sequence[dict[str, Any]],
+    ) -> None:
+        usable_prior = next((item for item in priors if item.get("usable") is True), None)
+        if usable_prior is not None:
+            reused_evidence.append(
                 {
                     "window_index": window_index,
                     "sensor_id": sensor,
@@ -430,10 +441,42 @@ def inspect_sensor_scope(
                     "end": window["end"],
                     "fps": fps,
                     "prompt_sha256": prompt_sha256,
-                    "retry": 0,
-                    "reason": "duplicate_window_call",
+                    "claim_id": usable_prior.get("claim_id") or claim_id,
+                    "job_id": usable_prior.get("job_id"),
+                    "status": usable_prior.get("status"),
+                    "answer": usable_prior.get("answer")
+                    if isinstance(usable_prior.get("answer"), str)
+                    else "",
+                    "observation_id": usable_prior.get("observation_id"),
+                    "exit_code": usable_prior.get("exit_code"),
+                    "source": "prior_inspection",
                 }
             )
+            completed_windows.add(window_index)
+            return
+        rejected_duplicates.append(
+            {
+                "window_index": window_index,
+                "sensor_id": sensor,
+                "start": window["start"],
+                "end": window["end"],
+                "fps": fps,
+                "prompt_sha256": prompt_sha256,
+                "retry": retry,
+                "reason": "duplicate_window_call",
+            }
+        )
+
+    for window_index, window in enumerate(windows):
+        prompt_sha256 = _prompt_digest(prompt)
+        call_key = _call_key(
+            sensor, window["start"], window["end"], fps, prompt_sha256, bound_claim
+        )
+        priors = priors_by_key.get(call_key, [])
+        if priors:
+            _remember_duplicate(window_index, window, prompt_sha256, 0, priors)
+            continue
+        if len(attempts) >= calls_budget:
             continue
         attempt = _run_vlm(
             vss_project=vss_project,
@@ -456,7 +499,7 @@ def inspect_sensor_scope(
             }
         )
         attempts.append(attempt)
-        seen.add(call_key)
+        priors_by_key.setdefault(call_key, []).append(attempt)
         if attempt["usable"]:
             completed_windows.add(window_index)
         elif max_degenerate_retries:
@@ -468,21 +511,11 @@ def inspect_sensor_scope(
         attempt_prompt = prompt + QUALITY_REPAIR_SUFFIX
         prompt_sha256 = _prompt_digest(attempt_prompt)
         call_key = _call_key(
-            sensor, window["start"], window["end"], fps, prompt_sha256
+            sensor, window["start"], window["end"], fps, prompt_sha256, bound_claim
         )
-        if call_key in seen:
-            rejected_duplicates.append(
-                {
-                    "window_index": window_index,
-                    "sensor_id": sensor,
-                    "start": window["start"],
-                    "end": window["end"],
-                    "fps": fps,
-                    "prompt_sha256": prompt_sha256,
-                    "retry": 1,
-                    "reason": "duplicate_window_call",
-                }
-            )
+        priors = priors_by_key.get(call_key, [])
+        if priors:
+            _remember_duplicate(window_index, window, prompt_sha256, 1, priors)
             continue
         attempt = _run_vlm(
             vss_project=vss_project,
@@ -505,30 +538,35 @@ def inspect_sensor_scope(
             }
         )
         attempts.append(attempt)
-        seen.add(call_key)
+        priors_by_key.setdefault(call_key, []).append(attempt)
         if attempt["usable"]:
             completed_windows.add(window_index)
+    covered = len(completed_windows)
+    total = len(windows)
+    if covered == total:
+        window_inspection = "complete"
+    elif covered:
+        window_inspection = "partial"
+    else:
+        window_inspection = "none"
     return {
         "sensor_id": sensor,
+        "claim_id": claim_id,
         "scope": {"start": start, "end": end},
         "fps": fps,
         "max_frames_per_call": max_frames,
         "planned_windows": windows,
         "attempts": attempts,
+        "reused_evidence": reused_evidence,
         "rejected_duplicates": rejected_duplicates,
         "vlm_calls_used": len(attempts),
-        "complete": len(completed_windows) == len(windows),
-        "coverage": (
-            "sufficient"
-            if len(completed_windows) == len(windows)
-            else "partial"
-            if completed_windows
-            else "none"
-        ),
+        "complete": covered == total,
+        "window_inspection": window_inspection,
+        "claim_sufficiency": None,
         "gap": (
             None
-            if len(completed_windows) == len(windows)
-            else f"{len(windows) - len(completed_windows)} of {len(windows)} planned windows lack usable output."
+            if covered == total
+            else f"{total - covered} of {total} planned windows lack usable output."
         ),
     }
 
@@ -611,6 +649,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 assigned_start=scope["start"],
                 assigned_end=scope["end"],
                 task_call_allocation=selected["max_vlm_calls"],
+                claim_id=(
+                    selected["claim"]["claim_id"]
+                    if isinstance(selected.get("claim"), dict)
+                    and isinstance(selected["claim"].get("claim_id"), str)
+                    else None
+                ),
             ),
         )
     return 0
