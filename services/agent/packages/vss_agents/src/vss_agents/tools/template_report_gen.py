@@ -15,6 +15,7 @@
 
 import asyncio
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from datetime import datetime
 from importlib.resources import files
 import json
@@ -79,17 +80,7 @@ Grounding requirements (these override any conflicting template instruction):
 _RESOURCES_HEADING_RE = re.compile(r"^##\s*Resources\b", re.IGNORECASE | re.MULTILINE)
 _THINK_OPEN_RE = re.compile(r"<think\b", re.IGNORECASE)
 _THINK_CLOSE_RE = re.compile(r"</think>", re.IGNORECASE)
-_TABLE_SEPARATOR_RE = re.compile(r"^\|\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
-_UNFILLED_PLACEHOLDER_RE = re.compile(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}")
-# Labeled values on one line, including a leading bullet. [ \t] must not cross newlines.
-_PROSE_LABELED_VALUE_RE = re.compile(
-    r"^[ \t]*(?:-[ \t]*)?\*\*(.+?)\*\*[ \t]*:?[ \t]*(.*)$",
-    re.MULTILINE,
-)
-# Bounded hashes plus spaces; trailing ### is stripped in Python so this stays linear.
-_ATX_HEADING_RE = re.compile(r"^(#{1,6})[ \t]*(.*\S)[ \t]*$", re.MULTILINE)
-_SETEXT_HEADING_RE = re.compile(r"(?m)^(?P<title>[^#|\n][^\n]*)\n(?P<underline>[-=])(?P=underline){2,}[ \t]*$")
-_TRAILING_HEADING_HASHES_RE = re.compile(r"[ \t]+#+\s*$")
+# {identifier} stays ASCII. Python \\w is Unicode, so a character class would change matching.
 _FENCED_BLOCK_RE = re.compile(r"```[\w-]*[ \t]*\n(.*?)\n[ \t]*```", re.DOTALL)
 _CLOSER_LINE_RE = re.compile(
     r"^(?:let me know\b|hope this\b|feel free to\b).*$",
@@ -554,7 +545,7 @@ def _convert_markdown_to_pdf(markdown_file_path: str, output_pdf_path: str) -> b
         return True
 
     except Exception as e:
-        logger.error(f"Error converting markdown to PDF: {e}")
+        logger.exception("Error converting markdown to PDF: %s", type(e).__name__)
         return False
 
 
@@ -568,7 +559,12 @@ def _load_custom_template(template_path: str, template_name: str) -> str:
             resource_path = f"{resource_dir}/{template_name}" if resource_dir else template_name
             return (package_files / resource_path).read_text()
         except Exception as e:
-            logger.error(f"Failed to load template {template_name} from package {package_name}: {e}")
+            logger.exception(
+                "Failed to load template %s from package %s: %s",
+                template_name,
+                package_name,
+                type(e).__name__,
+            )
             return f"# Report\n\nTemplate '{template_name}' could not be loaded from package '{package_name}'.\n\nError: {e}\n\n"
     else:
         # Regular file path
@@ -577,7 +573,12 @@ def _load_custom_template(template_path: str, template_name: str) -> str:
             with open(full_template_path, encoding="utf-8") as f:
                 return f.read()
         except Exception as e:
-            logger.error(f"Failed to load custom template {template_name} from {template_path}: {e}")
+            logger.exception(
+                "Failed to load custom template %s from %s: %s",
+                template_name,
+                template_path,
+                type(e).__name__,
+            )
             return (
                 f"# Report\n\nTemplate '{template_name}' could not be loaded from '{template_path}'.\n\nError: {e}\n\n"
             )
@@ -664,7 +665,7 @@ async def _fetch_geolocation_data(
         logger.info(f"Geolocation data: {geolocation_data}")
 
     except Exception as e:
-        logger.error(f"Failed to fetch geolocation data: {e}", exc_info=True)
+        logger.exception("Failed to fetch geolocation data: %s", type(e).__name__)
 
     return geolocation_data
 
@@ -819,6 +820,86 @@ def _body_without_resources(content: str) -> str:
     return content[: match.start()].strip()
 
 
+def _is_placeholder_start(char: str) -> bool:
+    return char.isascii() and (char.isalpha() or char == "_")
+
+
+def _is_placeholder_continue(char: str) -> bool:
+    return char.isascii() and (char.isalnum() or char == "_")
+
+
+def _placeholder_end(text: str, open_index: int) -> int | None:
+    """Return the index after a closing brace, or None. One forward scan."""
+    end = open_index + 1
+    length = len(text)
+    if end >= length or not _is_placeholder_start(text[end]):
+        return None
+    end += 1
+    while end < length and _is_placeholder_continue(text[end]):
+        end += 1
+    if end < length and text[end] == "}":
+        return end + 1
+    return None
+
+
+def _contains_unfilled_placeholder(text: str) -> bool:
+    """True for an ASCII ``{identifier}``. Spaced or non-ASCII braces do not match."""
+    index = 0
+    length = len(text)
+    while index < length:
+        if text[index] != "{":
+            index += 1
+            continue
+        end = _placeholder_end(text, index)
+        if end is not None:
+            return True
+        index += 1
+    return False
+
+
+def _replace_unfilled_placeholders(text: str, replacement: str) -> str:
+    """Replace ASCII ``{identifier}`` tokens. Other brace text is left in place."""
+    parts: list[str] = []
+    index = 0
+    length = len(text)
+    while index < length:
+        if text[index] != "{":
+            parts.append(text[index])
+            index += 1
+            continue
+        end = _placeholder_end(text, index)
+        if end is None:
+            parts.append(text[index])
+            index += 1
+            continue
+        parts.append(replacement)
+        index = end
+    return "".join(parts)
+
+
+def _is_table_separator(line: str) -> bool:
+    """True for a Markdown delimiter row such as ``| --- | --- |``.
+
+    Each cell is visited once. A cell must be dashes with an optional colon
+    on either side, so a long malformed row cannot backtrack.
+    """
+    stripped = line.strip()
+    if len(stripped) < 2 or stripped[0] != "|" or "-" not in stripped:
+        return False
+    cells = stripped.strip("|").split("|")
+    if not cells:
+        return False
+    for cell in cells:
+        token = cell.strip()
+        if token.startswith(":"):
+            token = token[1:]
+        if token.endswith(":"):
+            token = token[:-1]
+        if not token or any(char != "-" for char in token):
+            return False
+    return True
+
+
 def _parse_markdown_table_fields(content: str) -> dict[str, str]:
     """
     Parse Field/Value markdown table rows from arbitrary report content.
@@ -830,14 +911,14 @@ def _parse_markdown_table_fields(content: str) -> dict[str, str]:
     header_line_indexes = {
         index
         for index, line in enumerate(lines[:-1])
-        if line.lstrip().startswith("|") and _TABLE_SEPARATOR_RE.match(lines[index + 1].lstrip().rstrip())
+        if line.lstrip().startswith("|") and _is_table_separator(lines[index + 1])
     }
     fields: dict[str, str] = {}
     for index, line in enumerate(lines):
         if index in header_line_indexes:
             continue
         stripped = line.lstrip()
-        if not stripped.startswith("|") or _TABLE_SEPARATOR_RE.match(stripped.rstrip()):
+        if not stripped.startswith("|") or _is_table_separator(stripped):
             continue
         # Only strip a trailing delimiter pipe when the row has label + value + trailing "|".
         # Two-pipe rows like `| **Label** |    ` must keep the blank value cell.
@@ -863,17 +944,65 @@ def _normalize_report_label(label: str) -> str:
     return cleaned.casefold()
 
 
+def _strip_trailing_parenthetical(title: str) -> str:
+    """Drop one trailing ``(1)`` style suffix. A title without it is unchanged."""
+    trimmed = title.rstrip()
+    if not trimmed.endswith(")"):
+        return trimmed
+    open_index = trimmed.rfind("(")
+    if open_index < 0 or ")" in trimmed[open_index + 1 : -1]:
+        return trimmed
+    return trimmed[:open_index].rstrip()
+
+
 def _normalize_section_title(title: str) -> str:
     """Section titles use the label rules, plus a trailing parenthetical such as ``(1)``."""
-    return re.sub(r"\s*\([^)]*\)\s*$", "", _normalize_report_label(title)).strip()
+    return _strip_trailing_parenthetical(_normalize_report_label(title))
+
+
+def _skip_inline_space(line: str, index: int) -> int:
+    length = len(line)
+    while index < length and line[index] in " \t":
+        index += 1
+    return index
+
+
+def _skip_optional_bullet(line: str, index: int) -> int:
+    if index < len(line) and line[index] == "-":
+        return _skip_inline_space(line, index + 1)
+    return index
+
+
+def _parse_prose_labeled_line(line: str) -> tuple[str, str] | None:
+    """Parse one ``**Label**`` prose line.
+
+    Each line uses one leading scan, one ``str.find`` for the closing marker,
+    and one scan of the remainder. Nothing is read from the next line.
+    """
+    index = _skip_optional_bullet(line, _skip_inline_space(line, 0))
+    if index + 1 >= len(line) or line[index : index + 2] != "**":
+        return None
+    label_end = line.find("**", index + 2)
+    if label_end < 0:
+        return None
+    label = line[index + 2 : label_end].strip()
+    if not label:
+        return None
+    rest_index = _skip_inline_space(line, label_end + 2)
+    if rest_index < len(line) and line[rest_index] == ":":
+        rest_index = _skip_inline_space(line, rest_index + 1)
+    return label, line[rest_index:].strip()
 
 
 def _extract_labeled_field_values(content: str) -> dict[str, str]:
     """Collect labeled values from markdown tables and one-line ``**Label**`` prose."""
     fields = _parse_markdown_table_fields(content)
-    for match in _PROSE_LABELED_VALUE_RE.finditer(content):
-        label = _normalize_report_label(match.group(1))
-        value = match.group(2).strip()
+    for line in content.splitlines():
+        parsed = _parse_prose_labeled_line(line)
+        if parsed is None:
+            continue
+        raw_label, value = parsed
+        label = _normalize_report_label(raw_label)
         if label and label not in fields:
             fields[label] = value
     return fields
@@ -881,7 +1010,7 @@ def _extract_labeled_field_values(content: str) -> dict[str, str]:
 
 def _field_value_is_resolved(value: str) -> tuple[bool, str | None]:
     """Return (ok, failure_reason_suffix) for a single field value."""
-    if _UNFILLED_PLACEHOLDER_RE.search(value):
+    if _contains_unfilled_placeholder(value):
         return False, "unresolved_placeholder"
     cleaned = _BLANK_RENDERED_VALUE_RE.sub(" ", value)
     # "-", "<br>", and "&nbsp;" render as a blank PDF cell.
@@ -909,26 +1038,78 @@ def _validate_required_report_fields(body: str, required_fields: list[str], fail
             fail(f"{reason}:{configured}")
 
 
-def _clean_heading_title(raw: str) -> str:
-    return _TRAILING_HEADING_HASHES_RE.sub("", raw).strip()
+def _strip_trailing_heading_hashes(title: str) -> str:
+    """Remove a closing ``##`` only when whitespace separates it from the title."""
+    end = len(title)
+    while end > 0 and title[end - 1] in " \t":
+        end -= 1
+    hash_end = end
+    while end > 0 and title[end - 1] == "#":
+        end -= 1
+    if end == hash_end or end == 0 or title[end - 1] not in " \t":
+        return title[:hash_end]
+    while end > 0 and title[end - 1] in " \t":
+        end -= 1
+    return title[:end]
+
+
+def _parse_atx_heading(line: str) -> tuple[int, str] | None:
+    """Return ``(level, title)`` for one ATX heading line, without a regex."""
+    hashes = 0
+    while hashes < len(line) and hashes < 6 and line[hashes] == "#":
+        hashes += 1
+    if hashes == 0:
+        return None
+    title = _strip_trailing_heading_hashes(line[hashes:].lstrip(" \t"))
+    if not title:
+        return None
+    return hashes, title
+
+
+def _parse_setext_heading(title_line: str, underline: str) -> tuple[int, str] | None:
+    """Return a setext heading when the next line is ``---`` or ``===``."""
+    if not title_line or title_line[0] in "#|" or underline[:1] not in "-=":
+        return None
+    marker = underline.rstrip(" \t")
+    if len(marker) < 3 or any(char != marker[0] for char in marker):
+        return None
+    title = title_line.strip()
+    if not title:
+        return None
+    return (1 if marker[0] == "=" else 2), title
+
+
+def _line_spans(content: str) -> list[tuple[int, int, str]]:
+    """Return ``(start, end, text)`` for each line. ``end`` excludes the line break."""
+    spans: list[tuple[int, int, str]] = []
+    offset = 0
+    for line in content.splitlines(keepends=True):
+        text = line[:-1] if line.endswith("\n") else line
+        if text.endswith("\r"):
+            text = text[:-1]
+        spans.append((offset, offset + len(text), text))
+        offset += len(line)
+    return spans
 
 
 def _iter_headings(content: str) -> list[tuple[int, int, int, str]]:
     """Return (start, end, level, title) for ATX and setext headings, in order."""
+    spans = _line_spans(content)
     headings: list[tuple[int, int, int, str]] = []
-    for match in _ATX_HEADING_RE.finditer(content):
-        title = _clean_heading_title(match.group(2))
-        if title:
-            headings.append((match.start(), match.end(), len(match.group(1)), title))
+    for start, end, text in spans:
+        parsed = _parse_atx_heading(text)
+        if parsed is not None:
+            level, title = parsed
+            headings.append((start, end, level, title))
     occupied = {start for start, _end, _level, _title in headings}
-    for match in _SETEXT_HEADING_RE.finditer(content):
-        if match.start() in occupied:
+    for index, (start, _end, text) in enumerate(spans[:-1]):
+        if start in occupied:
             continue
-        title = match.group("title").strip()
-        if not title:
+        parsed = _parse_setext_heading(text, spans[index + 1][2])
+        if parsed is None:
             continue
-        level = 1 if match.group("underline") == "=" else 2
-        headings.append((match.start(), match.end(), level, title))
+        level, title = parsed
+        headings.append((start, spans[index + 1][1], level, title))
     headings.sort(key=lambda item: item[0])
     return headings
 
@@ -962,7 +1143,7 @@ def _section_contains_table(section_body: str) -> bool:
 
 def _section_body_is_supported(section_body: str) -> tuple[bool, str | None]:
     """A required section needs resolved content or an explicit Unknown/N/A in that section."""
-    if _UNFILLED_PLACEHOLDER_RE.search(section_body):
+    if _contains_unfilled_placeholder(section_body):
         return False, "unresolved_placeholder"
     if _section_contains_table(section_body):
         # Trailing prose must not fill a blank table. Header rows are not values.
@@ -974,10 +1155,12 @@ def _section_body_is_supported(section_body: str) -> tuple[bool, str | None]:
         return False, "empty_required_section"
     if _SECTION_UNKNOWN_RE.search(section_body):
         return True, None
-    cleaned = re.sub(r"(?m)^#{1,6}[ \t]*.*$", " ", section_body)
-    cleaned = re.sub(r"(?m)^\|.*$", " ", cleaned)
-    cleaned = re.sub(r"[|*_`>#-]", " ", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    kept: list[str] = []
+    for line in section_body.splitlines():
+        if _parse_atx_heading(line) is not None or line.lstrip().startswith("|"):
+            continue
+        kept.append("".join(" " if char in "|*_`>#-" else char for char in line))
+    cleaned = " ".join(" ".join(kept).split())
     if not cleaned:
         return False, "empty_required_section"
     return True, None
@@ -1037,7 +1220,7 @@ def _validate_report_body(
         _fail("resources_only_body")
 
     # A raw {identifier} is never valid output. Prose braces with spaces do not match.
-    if _UNFILLED_PLACEHOLDER_RE.search(body):
+    if _contains_unfilled_placeholder(body):
         _fail("unresolved_placeholder")
 
     _validate_required_report_fields(body, required_report_fields or [], _fail)
@@ -1309,7 +1492,7 @@ async def _fetch_behavior_data(
         }
 
     except Exception as e:
-        logger.warning(f"Failed to fetch behavior data: {e}")
+        logger.warning("Failed to fetch behavior data: %s", type(e).__name__, exc_info=True)
         return {
             "people_count": None,
             "vehicle_count": None,
@@ -1361,8 +1544,23 @@ async def _fetch_proximity_threshold(
         return None
 
     except Exception as e:
-        logger.warning(f"Failed to fetch proximity data from frames_enhanced: {e}")
+        logger.warning("Failed to fetch proximity data from frames_enhanced: %s", type(e).__name__, exc_info=True)
         return None
+
+
+@dataclass
+class _CustomReportOptions:
+    """Template, validation, and media settings for one custom report."""
+
+    template_path: str
+    template_name: str
+    report_prompt: str
+    agent_version: str = "v1.0.0"
+    llm_reasoning: bool | None = None
+    required_report_fields: list[str] | None = None
+    required_report_sections: list[str] | None = None
+    image_url: str | None = None
+    video_url: str | None = None
 
 
 async def _format_custom_report(
@@ -1371,24 +1569,19 @@ async def _format_custom_report(
     alert_sensor_id: str,
     alert_from_timestamp: str,
     alert_to_timestamp: str,
-    template_path: str,
-    template_name: str,
-    report_prompt: str,
     llm: Any,
-    image_url: str | None = None,
-    video_url: str | None = None,
-    agent_version: str = "v1.0.0",
-    llm_reasoning: bool | None = None,
-    required_report_fields: list[str] | None = None,
-    required_report_sections: list[str] | None = None,
+    options: _CustomReportOptions,
 ) -> str:
     """Format custom report using LLM to extract information from messages and populate template."""
-    template_content = _load_custom_template(template_path, template_name)
+    template_content = _load_custom_template(options.template_path, options.template_name)
 
     # Substitute the template into the report_prompt, but escape template placeholders
     # so they don't get treated as prompt variables
     escaped_template = template_content.replace("{", "{{").replace("}", "}}")
-    formatted_system_prompt = report_prompt.format(template=escaped_template, agent_version=agent_version)
+    formatted_system_prompt = options.report_prompt.format(
+        template=escaped_template,
+        agent_version=options.agent_version,
+    )
     formatted_system_prompt = f"{formatted_system_prompt}\n\n{_REPORT_LLM_GROUNDING_INSTRUCTION}"
     authoritative_incident_facts = _build_authoritative_incident_facts(
         alert_metadata,
@@ -1398,7 +1591,7 @@ async def _format_custom_report(
     )
 
     # Append thinking tag to system prompt if applicable
-    thinking_tag = get_thinking_tag(llm, llm_reasoning)
+    thinking_tag = get_thinking_tag(llm, options.llm_reasoning)
     if thinking_tag:
         formatted_system_prompt = f"{formatted_system_prompt}\n{thinking_tag}"
 
@@ -1418,7 +1611,7 @@ async def _format_custom_report(
     )
 
     # Bind LLM with reasoning kwargs if applicable
-    llm_kwargs = get_llm_reasoning_bind_kwargs(llm, llm_reasoning)
+    llm_kwargs = get_llm_reasoning_bind_kwargs(llm, options.llm_reasoning)
     bound_llm = llm.bind(**llm_kwargs) if llm_kwargs else llm
 
     chain = prompt_template | bound_llm
@@ -1435,8 +1628,13 @@ async def _format_custom_report(
             }
         )
     except Exception as e:
-        logger.error("LLM report generation failed: %s", type(e).__name__)
-        raise ValueError(f"Failed to generate custom report with LLM: {e}") from e
+        # Provider errors can echo the prompt or model response. logger.exception()
+        # would record that text, so the type-only log is an intentional S8572 exception.
+        logger.error(  # NOSONAR S8572: provider errors can echo the prompt; log the exception type only
+            "LLM report generation failed: %s",
+            type(e).__name__,
+        )
+        raise ValueError("Failed to generate custom report with LLM") from e
 
     raw_content = "" if response.content is None else str(response.content)
     content = _normalize_report_model_output(raw_content)
@@ -1444,8 +1642,8 @@ async def _format_custom_report(
     try:
         _validate_report_body(
             content,
-            required_report_fields=required_report_fields,
-            required_report_sections=required_report_sections,
+            required_report_fields=options.required_report_fields,
+            required_report_sections=options.required_report_sections,
             response_len=len(raw_content),
         )
     except ReportContentValidationError as e:
@@ -1457,7 +1655,7 @@ async def _format_custom_report(
         )
         raise
 
-    return _append_resources_section(content, image_url, video_url)
+    return _append_resources_section(content, options.image_url, options.video_url)
 
 
 @register_function(config_type=TemplateReportGenConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
@@ -1516,16 +1714,18 @@ async def template_report_gen(config: TemplateReportGenConfig, builder: Builder)
             alert_sensor_id=report_input.alert_sensor_id,
             alert_from_timestamp=report_input.alert_from_timestamp,
             alert_to_timestamp=report_input.alert_to_timestamp,
-            template_path=config.template_path,
-            template_name=config.template_name,
-            report_prompt=config.report_prompt,
             llm=llm,
-            image_url=image_url,
-            video_url=video_url,
-            agent_version=config.agent_version,
-            llm_reasoning=report_input.llm_reasoning,
-            required_report_fields=config.required_report_fields,
-            required_report_sections=config.required_report_sections,
+            options=_CustomReportOptions(
+                template_path=config.template_path,
+                template_name=config.template_name,
+                report_prompt=config.report_prompt,
+                agent_version=config.agent_version,
+                llm_reasoning=report_input.llm_reasoning,
+                required_report_fields=config.required_report_fields,
+                required_report_sections=config.required_report_sections,
+                image_url=image_url,
+                video_url=video_url,
+            ),
         )
 
         # Generate filenames

@@ -16,6 +16,7 @@
 
 from datetime import datetime
 import json
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -236,6 +237,50 @@ class TestReportAgentValidationFailureBoundary:
         assert not output.side_effects or "report_downloads" not in output.side_effects
         template_report_tool.ainvoke.assert_awaited_once()
         assert get_incident_tool.ainvoke.await_args.args[0]["includes"] == INCIDENT_REPORT_METADATA_FIELDS
+
+    @pytest.mark.asyncio
+    async def test_llm_provider_error_is_not_returned_or_logged(self, caplog):
+        config = ReportAgentConfig(
+            get_incidents_tool="get_incidents",
+            get_incident_tool="get_incident",
+            template_report_tool="template_report_gen",
+        )
+        incident = {
+            "Id": "inc-123",
+            "sensorId": "Camera_01",
+            "timestamp": "2026-09-29T06:11:30Z",
+            "end": "2026-09-29T06:11:35Z",
+        }
+        provider_secret = "provider-prompt-echo-7c1e"  # pragma: allowlist secret
+        llm_failure = ValueError("Failed to generate custom report with LLM")
+        llm_failure.__cause__ = RuntimeError(provider_secret)
+        get_incident_tool = SimpleNamespace(ainvoke=AsyncMock(return_value=json.dumps(incident)))
+        template_report_tool = SimpleNamespace(ainvoke=AsyncMock(side_effect=llm_failure))
+
+        builder = AsyncMock()
+
+        async def _get_tool(name, wrapper_type=None):
+            tools = {
+                "get_incidents": SimpleNamespace(ainvoke=AsyncMock()),
+                "get_incident": get_incident_tool,
+                "template_report_gen": template_report_tool,
+            }
+            return tools[str(name)]
+
+        builder.get_tool = AsyncMock(side_effect=_get_tool)
+        gen = report_agent.__wrapped__(config, builder)
+        function_info = await gen.__anext__()
+        caplog.set_level(logging.DEBUG)
+        chunks = [chunk async for chunk in function_info.stream_fn(ReportAgentInput(incident_id="inc-123"))]
+
+        assert chunks
+        output = AgentOutput.model_validate_json(chunks[-1].content)
+        rendered = chunks[-1].content + "\n" + "\n".join(output.messages) + "\n" + (output.error_message or "")
+        assert output.status == "error"
+        assert provider_secret not in rendered
+        assert provider_secret not in caplog.text
+        assert all("successfully" not in message.lower() for message in output.messages)
+        assert not output.side_effects or "report_downloads" not in output.side_effects
 
     @pytest.mark.asyncio
     async def test_get_incidents_requests_authoritative_metadata_fields(self):

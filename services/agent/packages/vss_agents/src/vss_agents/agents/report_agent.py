@@ -50,11 +50,43 @@ from vss_agents.agents.data_models import AgentOutput
 logger = logging.getLogger(__name__)
 
 INCIDENT_REPORT_METADATA_FIELDS = ["category", "place", "objectIds", "info"]
+_LLM_REPORT_GENERATION_ERROR = "Failed to generate custom report with LLM"
 
 _ARTIFACT_DISPLAY_NOTE = (
     "Do not include or offer to provide report download links in your final response "
     "since they will be automatically appended to your final response to the user."
 )
+
+
+def _is_llm_report_generation_failure(error: BaseException) -> bool:
+    """True when this error is the generic custom-report LLM failure or was raised from it."""
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if str(current) == _LLM_REPORT_GENERATION_ERROR:
+            return True
+        current = current.__cause__
+    return False
+
+
+def _log_incident_report_failure(error: BaseException, *, unexpected: bool = False) -> None:
+    """Log an incident-report failure without a provider prompt or model response.
+
+    ``raise ... from e`` keeps the provider error for debugging, and
+    ``logger.exception()`` would write that chain. The generic LLM failure is
+    logged as its type only.
+    """
+    if _is_llm_report_generation_failure(error):
+        logger.error(  # NOSONAR S8572: chained provider errors can echo the prompt; log the exception type only
+            "Report Agent: Failed to execute incident report: %s",
+            type(error).__name__,
+        )
+        return
+    if unexpected:
+        logger.exception("Report Agent: Unexpected error in incident report execution")
+        return
+    logger.exception("Report Agent: Failed to execute incident report")
 
 
 def _append_artifact_display_note(side_effects: dict[str, Any]) -> None:
@@ -349,20 +381,22 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
                 async for chunk in _handle_single_incident(report_input):
                     yield chunk
             except (ValueError, KeyError, AttributeError, json.JSONDecodeError) as e:
-                logger.exception("Report Agent: Failed to execute incident report")
+                _log_incident_report_failure(e)
                 execution_time_ms = int((time.time() - execution_start_time) * 1000)
+                # The LLM failure's cause can contain the prompt. Return a fixed message.
+                detail = "Failed to generate incident report" if _is_llm_report_generation_failure(e) else str(e)
                 error_output = AgentOutput(
-                    messages=[f"Report Agent: Error generating incident report: {e!s}"],
+                    messages=[f"Report Agent: Error generating incident report: {detail}"],
                     status="error",
-                    error_message=f"Report Agent: Failed to generate incident report: {e!s}",
+                    error_message=f"Report Agent: Failed to generate incident report: {detail}",
                     metadata={
                         "generation_time_ms": execution_time_ms,
                         "report_type": "single_incident",
                     },
                 )
                 yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content=error_output.model_dump_json())
-            except Exception:
-                logger.exception("Report Agent: Unexpected error in incident report execution")
+            except Exception as e:
+                _log_incident_report_failure(e, unexpected=True)
                 execution_time_ms = int((time.time() - execution_start_time) * 1000)
                 error_output = AgentOutput(
                     messages=["Report Agent: Unexpected error generating incident report"],

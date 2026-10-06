@@ -14,6 +14,7 @@
 # limitations under the License.
 """Unit tests for template_report_gen module."""
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -26,16 +27,23 @@ import pytest
 import yaml
 
 from vss_agents.tools import template_report_gen as template_report_gen_module
-from vss_agents.tools.template_report_gen import _UNFILLED_PLACEHOLDER_RE
 from vss_agents.tools.template_report_gen import PDF_CONVERSION_AVAILABLE
 from vss_agents.tools.template_report_gen import ReportContentValidationError
 from vss_agents.tools.template_report_gen import TemplateReportGenConfig
 from vss_agents.tools.template_report_gen import TemplateReportGenInput
 from vss_agents.tools.template_report_gen import _build_authoritative_incident_facts
+from vss_agents.tools.template_report_gen import _contains_unfilled_placeholder
+from vss_agents.tools.template_report_gen import _CustomReportOptions
+from vss_agents.tools.template_report_gen import _extract_labeled_field_values
 from vss_agents.tools.template_report_gen import _fetch_behavior_data
 from vss_agents.tools.template_report_gen import _format_custom_report
 from vss_agents.tools.template_report_gen import _get_object_store_url
+from vss_agents.tools.template_report_gen import _is_table_separator
 from vss_agents.tools.template_report_gen import _normalize_report_model_output
+from vss_agents.tools.template_report_gen import _normalize_section_title
+from vss_agents.tools.template_report_gen import _parse_atx_heading
+from vss_agents.tools.template_report_gen import _parse_prose_labeled_line
+from vss_agents.tools.template_report_gen import _replace_unfilled_placeholders
 from vss_agents.tools.template_report_gen import _run_vlm_analysis
 from vss_agents.tools.template_report_gen import _validate_report_body
 from vss_agents.tools.template_report_gen import template_report_gen
@@ -235,10 +243,12 @@ class TestIncidentReportGrounding:
             alert_sensor_id="Camera_01",
             alert_from_timestamp="2026-09-29T06:11:30Z",
             alert_to_timestamp="2026-09-29T06:11:35Z",
-            template_path=str(tmp_path),
-            template_name=template_name,
-            report_prompt="Populate this template:\n{template}\nVersion: {agent_version}",
             llm=RunnableLambda(capture_prompt),
+            options=_CustomReportOptions(
+                template_path=str(tmp_path),
+                template_name=template_name,
+                report_prompt="Populate this template:\n{template}\nVersion: {agent_version}",
+            ),
         )
 
         assert content == "# Incident\n\nN/A"
@@ -284,10 +294,12 @@ class TestIncidentReportGrounding:
             alert_sensor_id="Caméra_Entrée",
             alert_from_timestamp="t0",
             alert_to_timestamp="t1",
-            template_path=str(tmp_path),
-            template_name=template_name,
-            report_prompt="Populate this template:\n{template}\nVersion: {agent_version}",
             llm=RunnableLambda(capture_prompt),
+            options=_CustomReportOptions(
+                template_path=str(tmp_path),
+                template_name=template_name,
+                report_prompt="Populate this template:\n{template}\nVersion: {agent_version}",
+            ),
         )
 
         user_prompt = captured["messages"][1].content
@@ -509,6 +521,107 @@ Vehicles: none observed
         body = "# Report\n\n**Detailed Description:** A person entered the aisle.\n"
         _validate_report_body(body, required_report_fields=["Detailed Description"])
 
+    @pytest.mark.parametrize(
+        ("line", "value"),
+        [
+            ("**Detailed Description:** text", "text"),
+            ("**Detailed Description**: text", "text"),
+            ("**Detailed Description** text", "text"),
+            ("- **Detailed Description:** text", "text"),
+            (" \t- \t**Detailed Description:** \t text \t", "text"),
+            ("**Detailed Description:**", ""),
+            ("**Detailed Description**:", ""),
+        ],
+    )
+    def test_prose_label_forms(self, line, value):
+        parsed = _parse_prose_labeled_line(line)
+        assert parsed is not None
+        label, parsed_value = parsed
+        assert label.rstrip(":").strip() == "Detailed Description"
+        assert parsed_value == value
+
+    def test_prose_label_skips_empty_label_and_missing_closer(self):
+        assert _parse_prose_labeled_line("**** text") is None
+        assert _parse_prose_labeled_line("**   ** text") is None
+        assert _parse_prose_labeled_line("**Detailed Description: text") is None
+        assert _parse_prose_labeled_line("- not a label") is None
+
+    def test_prose_label_does_not_read_the_next_line(self):
+        fields = _extract_labeled_field_values("**Detailed Description:**\n**Location:** aisle 3\n")
+        assert fields["detailed description"] == ""
+        assert fields["location"] == "aisle 3"
+
+    def test_table_field_takes_precedence_over_prose_label(self):
+        body = "| **Detailed Description** | from table\n**Detailed Description:** from prose\n"
+        assert _extract_labeled_field_values(body)["detailed description"] == "from table"
+
+    def test_prose_label_parser_handles_large_lines(self):
+        prefix = " \t" * 20_000
+        label = "D" * 5_000
+        value = "v" * 20_000
+        parsed = _parse_prose_labeled_line(f"{prefix}- \t**{label}:** {value}")
+        assert parsed is not None
+        parsed_label, parsed_value = parsed
+        assert parsed_label.rstrip(":") == label
+        assert parsed_value == value
+        assert len(parsed_value) == len(value)
+        assert _parse_prose_labeled_line("*" * 50_000) is None
+        assert _parse_prose_labeled_line("**" + ("x" * 50_000)) is None
+
+    def test_empty_prose_value_fails_required_field_validation(self):
+        body = "# Report\n\n**Detailed Description:**\n"
+        with pytest.raises(ReportContentValidationError, match="empty_required_field:Detailed Description"):
+            _validate_report_body(body, required_report_fields=["Detailed Description"])
+
+    @pytest.mark.parametrize(
+        ("line", "expected"),
+        [
+            ("|---|---|", True),
+            ("| --- | --- |", True),
+            ("|-------|-------|", True),
+            ("| :--- | ---: | :---: |", True),
+            ("| - |", True),
+            ("| **Detailed Description** | value", False),
+            ("| --- | text |", False),
+            ("|", False),
+            ("not a table", False),
+        ],
+    )
+    def test_table_separator_rows(self, line, expected):
+        assert _is_table_separator(line) is expected
+
+    def test_table_separator_rejects_long_malformed_row(self):
+        assert _is_table_separator("| " + (" " * 20_000) + " |") is False
+        assert _is_table_separator("|" + ("-" * 20_000) + "|") is True
+
+    @pytest.mark.parametrize(
+        ("line", "level", "title"),
+        [
+            ("## People Involved", 2, "People Involved"),
+            ("##People Involved", 2, "People Involved"),
+            ("## People Involved ##", 2, "People Involved"),
+            ("### Person 1", 3, "Person 1"),
+        ],
+    )
+    def test_atx_heading_lines(self, line, level, title):
+        assert _parse_atx_heading(line) == (level, title)
+
+    def test_atx_heading_rejects_hashes_without_a_title(self):
+        assert _parse_atx_heading("#" + (" " * 10_000)) is None
+        assert _parse_atx_heading("#" + ("a" * 10_000)) == (1, "a" * 10_000)
+
+    def test_parenthetical_section_title_and_setext_heading(self):
+        assert _normalize_section_title("People Involved (1)") == "people involved"
+        assert _normalize_section_title("People Involved") == "people involved"
+        body = "People Involved\n---\n\nA worker was present.\n\nVehicles Involved\n---\n\nN/A\n"
+        _validate_report_body(body, required_report_sections=["People Involved", "Vehicles Involved"])
+
+    def test_placeholder_scan_keeps_ascii_identifiers_only(self):
+        assert _contains_unfilled_placeholder("{detailed_description}") is True
+        assert _contains_unfilled_placeholder("{Specify the date (DD/MM/YYYY).}") is False
+        assert _contains_unfilled_placeholder("{café}") is False
+        assert _replace_unfilled_placeholders("id {report_id} {café}", "filled") == "id filled {café}"
+
     def test_rows_without_trailing_pipe_supported(self):
         body = """# Report
 
@@ -682,7 +795,7 @@ Vehicles: none observed
         for config_path, template_path in profiles:
             config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
             tool_config = config["functions"]["template_report_gen"]
-            filled = _UNFILLED_PLACEHOLDER_RE.sub("filled", template_path.read_text(encoding="utf-8"))
+            filled = _replace_unfilled_placeholders(template_path.read_text(encoding="utf-8"), "filled")
             _validate_report_body(
                 filled,
                 required_report_fields=tool_config["required_report_fields"],
@@ -711,12 +824,14 @@ Vehicles: none observed
                 alert_sensor_id="Camera_01",
                 alert_from_timestamp="2026-09-29T06:11:30Z",
                 alert_to_timestamp="2026-09-29T06:11:35Z",
-                template_path=str(tmp_path),
-                template_name=template_name,
-                report_prompt="Populate:\n{template}\n{agent_version}",
                 llm=RunnableLambda(empty_llm),
-                image_url="http://example.com/snap.png",
-                video_url="http://example.com/clip.mp4",
+                options=_CustomReportOptions(
+                    template_path=str(tmp_path),
+                    template_name=template_name,
+                    report_prompt="Populate:\n{template}\n{agent_version}",
+                    image_url="http://example.com/snap.png",
+                    video_url="http://example.com/clip.mp4",
+                ),
             )
 
         assert append_calls == []
@@ -735,38 +850,51 @@ Vehicles: none observed
             alert_sensor_id="Camera_01",
             alert_from_timestamp="2026-09-29T06:11:30Z",
             alert_to_timestamp="2026-09-29T06:11:35Z",
-            template_path=str(tmp_path),
-            template_name=template_name,
-            report_prompt="Ignore the template layout and write a short prose summary.\n{template}\n{agent_version}",
             llm=RunnableLambda(good_llm),
-            image_url="http://example.com/snap.png",
-            video_url="http://example.com/clip.mp4",
+            options=_CustomReportOptions(
+                template_path=str(tmp_path),
+                template_name=template_name,
+                report_prompt="Ignore the template layout and write a short prose summary.\n{template}\n{agent_version}",
+                image_url="http://example.com/snap.png",
+                video_url="http://example.com/clip.mp4",
+            ),
         )
 
         assert "##Resources" in content
         assert "http://example.com/snap.png" in content
 
     @pytest.mark.asyncio
-    async def test_llm_exception_does_not_bypass_validation(self, tmp_path):
+    async def test_llm_exception_does_not_bypass_validation(self, tmp_path, caplog):
         template_name = "incident.md"
         (tmp_path / template_name).write_text("# Incident\n\n{x}", encoding="utf-8")
+        provider_secret = "provider-prompt-echo-7c1e"  # pragma: allowlist secret
 
         async def boom(_prompt):
-            raise RuntimeError("model unavailable")
+            raise RuntimeError(provider_secret)
 
-        with pytest.raises(ValueError, match="Failed to generate custom report with LLM"):
+        caplog.set_level(logging.DEBUG)
+        with pytest.raises(ValueError, match="Failed to generate custom report with LLM") as raised:
             await _format_custom_report(
                 vlm_results=["fallback text that must not be published"],
                 alert_metadata={"sensorId": "Camera_01"},
                 alert_sensor_id="Camera_01",
                 alert_from_timestamp="t0",
                 alert_to_timestamp="t1",
-                template_path=str(tmp_path),
-                template_name=template_name,
-                report_prompt="Populate:\n{template}\n{agent_version}",
                 llm=RunnableLambda(boom),
-                image_url="http://example.com/snap.png",
+                options=_CustomReportOptions(
+                    template_path=str(tmp_path),
+                    template_name=template_name,
+                    report_prompt="Populate:\n{template}\n{agent_version}",
+                    image_url="http://example.com/snap.png",
+                ),
             )
+
+        assert str(raised.value) == "Failed to generate custom report with LLM"
+        assert isinstance(raised.value.__cause__, RuntimeError)
+        assert str(raised.value.__cause__) == provider_secret
+        assert provider_secret not in str(raised.value)
+        assert provider_secret not in caplog.text
+        assert "RuntimeError" in caplog.text
 
     @pytest.mark.asyncio
     async def test_validation_failure_skips_markdown_and_pdf_save(self, tmp_path):
@@ -838,6 +966,68 @@ Vehicles: none observed
                     )
                 )
 
+        md_save.assert_not_called()
+        pdf_save.assert_not_called()
+        object_store.upsert_object.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_empty_prose_value_skips_markdown_and_pdf_save(self, tmp_path):
+        template_name = "custom.md"
+        (tmp_path / template_name).write_text("# Custom\n\n{notes}", encoding="utf-8")
+        config = TemplateReportGenConfig(
+            object_store="object_store",
+            llm_name="llm",
+            video_understanding_tool="video_understanding",
+            picture_url_tool="vst_picture_url",
+            video_url_tool="vst_video_url",
+            template_path=str(tmp_path),
+            template_name=template_name,
+            report_prompt="Populate:\n{template}\n{agent_version}",
+            vlm_prompts=["describe"],
+            required_report_fields=["Detailed Description"],
+        )
+        object_store = AsyncMock()
+        vlm_tool = SimpleNamespace(ainvoke=AsyncMock(return_value="visible person in aisle"))
+        picture_tool = SimpleNamespace(
+            ainvoke=AsyncMock(return_value=SimpleNamespace(image_url="http://example.com/snap.png", video_url=None))
+        )
+        video_tool = SimpleNamespace(
+            ainvoke=AsyncMock(return_value=SimpleNamespace(video_url="http://example.com/clip.mp4"))
+        )
+
+        async def empty_value_llm(_prompt):
+            return AIMessage(content="# Report\n\n**Detailed Description:**\n")
+
+        builder = AsyncMock()
+        builder.get_object_store_client = AsyncMock(return_value=object_store)
+        builder.get_llm = AsyncMock(return_value=RunnableLambda(empty_value_llm))
+
+        async def _get_tool(name, wrapper_type=None):
+            tools = {
+                "video_understanding": vlm_tool,
+                "vst_picture_url": picture_tool,
+                "vst_video_url": video_tool,
+            }
+            return tools[name]
+
+        builder.get_tool = AsyncMock(side_effect=_get_tool)
+        md_save = AsyncMock(return_value=("http://md", 1))
+        pdf_save = AsyncMock(return_value=("http://pdf", 1))
+        with (
+            patch.object(template_report_gen_module, "_save_markdown_to_object_store", md_save),
+            patch.object(template_report_gen_module, "_save_pdf_to_object_store", pdf_save),
+        ):
+            gen = template_report_gen.__wrapped__(config, builder)
+            function_info = await gen.__anext__()
+            with pytest.raises(ReportContentValidationError, match="empty_required_field:Detailed Description"):
+                await function_info.single_fn(
+                    TemplateReportGenInput(
+                        alert_sensor_id="Camera_01",
+                        alert_from_timestamp="2026-09-29T06:11:30Z",
+                        alert_to_timestamp="2026-09-29T06:11:35Z",
+                        alert_metadata={"Id": "inc-123", "sensorId": "Camera_01"},
+                    )
+                )
         md_save.assert_not_called()
         pdf_save.assert_not_called()
         object_store.upsert_object.assert_not_called()
