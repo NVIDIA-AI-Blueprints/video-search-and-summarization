@@ -886,6 +886,11 @@ time.sleep(30)
 
 
 class RunInvocations(unittest.TestCase):
+    def setUp(self):
+        allocator = mock.patch.object(run_leg, "allocate_gateway_ports", side_effect=lambda instance, owner, preferred, env, **kwargs: preferred)
+        self.allocator = allocator.start()
+        self.addCleanup(allocator.stop)
+
     ENV = {
         "ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-opus-4-6",
         "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
@@ -1103,6 +1108,8 @@ class RunInvocations(unittest.TestCase):
         )
 
     def test_operational_nemoclaw_leg_uses_first_expect_for_setup(self):
+        self.allocator.side_effect = None
+        self.allocator.return_value = [45000, 45001, 45002]
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             invocations = [
@@ -1153,6 +1160,8 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(command.call_args_list[0].args[4], "codex")
         self.assertEqual(command.call_args_list[1].args[4], "nemoclaw")
         self.assertEqual(seen_env[0]["SKILLS_EVAL_OPERATIONAL_HARNESS"], "nemoclaw")
+        self.allocator.assert_called_once()
+        self.assertEqual(self.allocator.call_args.args[0], "vss-eval-box")
         self.assertEqual(json.loads(seen_env[0]["SKILL_EVAL_NEMOCLAW_FIXTURES"]), ["warehouse_safety_0001.mp4"])
         self.assertEqual(command.call_args_list[0].args[2], "azure/openai/gpt-6.1-sol")
         self.assertEqual(command.call_args_list[1].args[2], "aws/anthropic/bedrock-claude-opus-5-5")
@@ -1169,6 +1178,7 @@ class RunInvocations(unittest.TestCase):
         self.assertNotEqual(seen_env[0]["NEMOCLAW_SANDBOX_NAME"], "skill-eval")
         self.assertEqual(seen_env[0]["NEMOCLAW_RECREATE_SANDBOX"], "0")
         ports = [seen_env[0][key] for key in ("NEMOCLAW_GATEWAY_PORT", "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_DASHBOARD_RELAY_PORT")]
+        self.assertEqual(ports, ["45000", "45001", "45002"])
         self.assertEqual(len(set(ports)), 3)
         self.assertNotEqual(ports[0], "8080")
         for key in ("NEMOCLAW_GATEWAY_PORT", "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_DASHBOARD_RELAY_PORT", "SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER"):
@@ -2671,6 +2681,29 @@ class NemoClawSandboxName(unittest.TestCase):
         )
         self.assertTrue(first.startswith("se-027479-"))
         self.assertLessEqual(len(first), 19)
+
+
+class GatewayAllocation(unittest.TestCase):
+    def test_remote_selection_is_validated_and_returned(self):
+        owner = "a" * 64
+        selected = [24000, 24001, 24002]
+        result = subprocess.CompletedProcess([], 0, 'NEMOCLAW_GATEWAY_ALLOCATION=' + json.dumps({'owner': owner, 'ports': selected}) + '\n', '')
+        with mock.patch.object(run_leg.subprocess, 'run', return_value=result) as execute:
+            self.assertEqual(run_leg.allocate_gateway_ports('vss-eval-box', owner, [23000,23001,23002], {}), selected)
+        self.assertIn('--allocate', execute.call_args.args[0][-1])
+        self.assertEqual(execute.call_args.kwargs['timeout'], 150)
+
+    def test_receipt_errors_and_explicit_port_changes_fail_closed(self):
+        owner = "a" * 64
+        for data in ({'owner': 'b' * 64, 'ports': [24000,24001,24002]}, {'owner': owner, 'ports': [8080,24001,24002]}, {'owner': owner, 'ports': [24000,24000,24002]}, {'owner': owner, 'ports': [24000,24001,24002]}):
+            result = subprocess.CompletedProcess([], 0, 'NEMOCLAW_GATEWAY_ALLOCATION=' + json.dumps(data), '')
+            with mock.patch.object(run_leg.subprocess, 'run', return_value=result), self.assertRaises(RuntimeError):
+                run_leg.allocate_gateway_ports('vss-eval-box', owner, [23000,23001,23002], {}, exact=True)
+
+    def test_transport_failure_is_not_a_port_collision(self):
+        result = subprocess.CompletedProcess([], 1, '', 'connection unavailable')
+        with mock.patch.object(run_leg.subprocess, 'run', return_value=result), self.assertRaisesRegex(RuntimeError, 'allocation failed'):
+            run_leg.allocate_gateway_ports('vss-eval-box', 'a' * 64, [23000,23001,23002], {})
 
 
 if __name__ == "__main__":

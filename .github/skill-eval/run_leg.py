@@ -34,6 +34,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
@@ -1555,6 +1556,35 @@ def cleanup_deferred_agent_run(instance: str, marker: str) -> None:
         )
 
 
+def allocate_gateway_ports(instance: str, owner: str, preferred: list[int], env: dict[str, str], *, exact=False) -> list[int]:
+    """Claim an available namespace on the locked worker before Harbor starts."""
+    script = (REPO_ROOT / ".github/skill-eval/nemoclaw/gateway_state.py").read_text()
+    args = [owner, *(str(port) for port in preferred), "--allocate"]
+    if exact:
+        args.append("--exact")
+    command = "python3 -c " + shlex.quote(script) + " " + shlex.join(args)
+    result = subprocess.run(
+        ["uvx", "--python", sys.executable, "--from", HARBOR_REQUIREMENT, "python", "-c",
+         "import asyncio,sys; from envs.brev_env import _run_brev_exec_retry; "
+         "r=asyncio.run(_run_brev_exec_retry(sys.argv[1],sys.argv[2],timeout=30)); "
+         "print(r.stdout or ''); print(r.stderr or '',file=sys.stderr); sys.exit(r.return_code)",
+         instance, command],
+        cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=150, check=False,
+    )
+    if result.returncode:
+        raise RuntimeError("NemoClaw gateway allocation failed: " + (result.stderr or result.stdout or "")[-1000:])
+    records = [json.loads(line.split("=", 1)[1]) for line in (result.stdout or "").splitlines() if line.startswith("NEMOCLAW_GATEWAY_ALLOCATION=")]
+    if len(records) != 1 or records[0].get("owner") != owner:
+        raise RuntimeError("missing or mismatched gateway allocation receipt")
+    ports = records[0].get("ports")
+    if not isinstance(ports, list) or len(ports) != 3 or any(type(p) is not int or not 1024 <= p <= 65535 for p in ports) or len(set(ports)) != 3 or ports[0] == 8080:
+        raise RuntimeError("invalid gateway allocation ports")
+    if exact and ports != preferred:
+        raise RuntimeError("gateway allocation changed explicitly requested ports")
+    print(f"[run-leg] selected eval gateway/dashboard/relay ports: {ports}", flush=True)
+    return ports
+
+
 def spark_instance() -> str:
     """Resolve the operator-selected external node, never a cloud fallback."""
     from local_nim import SPARK_NODE_ID, SPARK_NODE_NAME
@@ -1811,6 +1841,13 @@ def _run_invocations(
         ):
             env.setdefault(key, str(port))
         env["SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER"] = identity
+        port_keys = ("NEMOCLAW_GATEWAY_PORT", "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_DASHBOARD_RELAY_PORT")
+        with phase("allocate:nemoclaw-gateway"):
+            selected_ports = allocate_gateway_ports(
+                instance, identity, [int(env[key]) for key in port_keys], env,
+                exact=any(key in os.environ for key in port_keys),
+            )
+        env.update({key: str(port) for key, port in zip(port_keys, selected_ports)})
         # Fixture requirements belong to the spec, not appended prompts.
         fixture_spec = REPO_ROOT / spec_path
         env.pop("SKILL_EVAL_NEMOCLAW_FIXTURES", None)

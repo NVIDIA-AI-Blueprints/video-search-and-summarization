@@ -94,3 +94,50 @@ def test_notebook_reads_session_from_selected_gateway(monkeypatch, tmp_path, por
     if port != "8080":
         root = root / "gateways" / port
     assert namespace["_session_path"] == root / "onboard-session.json"
+
+
+def test_allocator_skips_previous_job_and_reuses_own_selection(tmp_path):
+    preferred = free_ports()
+    gateway.claim("a" * 64, preferred, tmp_path)
+    previous = tmp_path / ".nemoclaw/gateways" / str(preferred[0])
+    (previous / "sandboxes.json").write_text("previous job registry")
+    receipt = (previous / "skill-eval-owner.json").read_text()
+    selected = gateway.allocate("b" * 64, preferred, tmp_path)
+    assert not set(selected).intersection(preferred)
+    assert gateway.allocate("b" * 64, free_ports(), tmp_path) == selected
+    assert (previous / "sandboxes.json").read_text() == "previous job registry"
+    assert (previous / "skill-eval-owner.json").read_text() == receipt
+
+
+def test_allocator_skips_unowned_state_and_busy_listener(tmp_path):
+    preferred = free_ports()
+    root = tmp_path / ".nemoclaw/gateways" / str(preferred[0])
+    root.mkdir(parents=True)
+    (root / "sandboxes.json").write_text("unowned registry")
+    selected = gateway.allocate("c" * 64, preferred, tmp_path)
+    assert selected[0] != preferred[0]
+    assert (root / "sandboxes.json").read_text() == "unowned registry"
+    assert not (root / "skill-eval-owner.json").exists()
+    preferred = free_ports()
+    with socket.socket() as listener:
+        listener.bind(("0.0.0.0", preferred[1]))
+        selected = gateway.allocate("d" * 64, preferred, tmp_path)
+        assert not set(selected).intersection(preferred)
+        assert listener.getsockname()[1] == preferred[1]
+
+
+def test_explicit_ports_remain_exact(tmp_path):
+    preferred = free_ports()
+    gateway.claim("a" * 64, preferred, tmp_path)
+    with pytest.raises(ValueError, match="different evaluation"):
+        gateway.allocate("b" * 64, preferred, tmp_path, exact=True)
+
+
+def test_allocator_exhaustion_and_permission_errors_fail_closed(monkeypatch, tmp_path):
+    import errno
+    monkeypatch.setattr(gateway, 'claim', lambda *args: (_ for _ in ()).throw(gateway.NamespaceUnavailable('occupied')))
+    with pytest.raises(ValueError, match='no unused'):
+        gateway.allocate('a' * 64, [25000,25001,25002], tmp_path)
+    monkeypatch.setattr(gateway, 'claim', lambda *args: (_ for _ in ()).throw(PermissionError(errno.EACCES, 'denied')))
+    with pytest.raises(PermissionError):
+        gateway.allocate('a' * 64, [25000,25001,25002], tmp_path)

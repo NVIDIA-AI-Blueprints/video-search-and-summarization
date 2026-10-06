@@ -273,11 +273,12 @@ relay port triplet. NemoClaw v0.0.127 uses the gateway port to scope its host
 registry and shared inference provider under `~/.nemoclaw/gateways/<port>/`.
 Docker cleanup alone leaves the default registry intact; a unique sandbox name
 does not prevent conflicts with its previous inference routes. Before setup,
-the worker claims only the selected namespace with an eval ownership receipt.
-Existing unowned state, another eval's receipt, and occupied ports are refused
-without deleting registries or stopping listeners. All operational steps keep
-the same triplet and deployment. Explicit port overrides must remain distinct
-and use a non-default gateway port.
+the coordinator allocates and claims an unused namespace on the locked worker
+before Harbor starts. It skips existing unowned state, another eval's receipt,
+and occupied ports without deleting registries or stopping listeners. A retry
+reuses its own receipt. Setup and all operational steps receive the selected
+triplet and keep the same deployment. Explicit port overrides remain strict:
+they must be distinct, available, and use a non-default gateway port.
 
 Before each operational prompt, `agent/readiness.json` records separate checks
 for sandbox access, gateway health, authenticated gateway health, and the

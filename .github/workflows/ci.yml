@@ -515,6 +515,7 @@ jobs:
             .github/skill-eval/tests/test_run_leg.py::RunCommand \
             .github/skill-eval/tests/test_run_leg.py::ProcessGroupShutdown \
             .github/skill-eval/tests/test_run_leg.py::RunInvocations \
+            .github/skill-eval/tests/test_run_leg.py::GatewayAllocation \
             .github/skill-eval/tests/test_run_leg.py::TheHeartbeatNamesTheRightPhase \
             .github/skill-eval/tests/test_run_leg.py::InstrumentationNeverChangesTheVerdict \
             -q
