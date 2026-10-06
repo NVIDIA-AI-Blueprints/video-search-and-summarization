@@ -34,7 +34,7 @@ on:
         # `type: string` rather than `type: choice` because the skills/
         # tree has more than 10 entries — GitHub caps `choice` at 10.
         # plan_matrix.py validates the value (skill-dir name or `*`).
-        description: "Which skill to eval: `*` or a bare skill-directory name."
+        description: "Which skills to eval: `operations`, `*`, or a bare skill-directory name."
         required: false
         default: "*"
         type: string
@@ -75,10 +75,6 @@ on:
         required: false
         default: "aws/anthropic/bedrock-claude-opus-5-5"
         type: string
-      share_local_llm_with_vss:
-        description: "OPERATIONAL · Share VSS's local LLM NIM with NemoClaw (requires a supported local VSS eval)."
-        type: boolean
-        default: false
       spark_runner:
         description: "Run on the registered Brev Spark-ba-WiFi worker."
         type: boolean
@@ -199,9 +195,10 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Allow up to eight matrix legs. Unavailable runner slots queue in
+      # Queue Spark legs one at a time; they share one registered worker.
+      # Allow up to eight other matrix legs. Unavailable runner slots queue in
       # Actions; run_leg.py still caps execution at one leg per GPU box.
-      max-parallel: 8
+      max-parallel: ${{ inputs.spark_runner && 1 || 8 }}
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1.5 h agent ceiling
@@ -260,7 +257,6 @@ jobs:
           CODING_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_harness || 'codex' }}
           CODING_DEPLOYMENT_INPUT: ${{ inputs.coding_deployment || 'hosted-nvidia-inference' }}
           OPERATIONAL_DEPLOYMENT_INPUT: ${{ inputs.operational_deployment || 'hosted-nvidia-inference' }}
-          SHARE_LOCAL_LLM_WITH_VSS_INPUT: ${{ inputs.share_local_llm_with_vss && 'true' || 'false' }}
           SPARK_RUNNER_INPUT: ${{ inputs.spark_runner && 'true' || 'false' }}
           CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || 'azure/openai/gpt-6.1-sol' }}
           OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'nemoclaw' }}
@@ -288,7 +284,6 @@ jobs:
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
           coding_deployment="$CODING_DEPLOYMENT_INPUT"
           operational_deployment="$OPERATIONAL_DEPLOYMENT_INPUT"
-          share_local_llm_with_vss="$SHARE_LOCAL_LLM_WITH_VSS_INPUT"
           spark_runner="$SPARK_RUNNER_INPUT"
           coding_harness="$CODING_HARNESS_INPUT"
           coding_model="$CODING_MODEL_INPUT"
@@ -306,8 +301,6 @@ jobs:
           export PATH="$skill_eval_venv_dir/bin:$PATH"
           export SKILLS_EVAL_CODING_DEPLOYMENT="$coding_deployment"
           export SKILLS_EVAL_OPERATIONAL_DEPLOYMENT="$operational_deployment"
-          export SKILLS_EVAL_SHARE_LOCAL_LLM_WITH_VSS="$share_local_llm_with_vss"
-          export EVAL_SPEC_PATH="${{ matrix.spec_path }}"
           export SKILLS_EVAL_SPARK_RUNNER="$spark_runner"
           export EVAL_AGENT="$operational_harness"
           export SKILLS_EVAL_CODING_HARNESS="$coding_harness"

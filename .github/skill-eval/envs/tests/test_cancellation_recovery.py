@@ -511,6 +511,9 @@ class PriorAgentOutputIsolationTest(unittest.TestCase):
         subprocess.run(["bash", "-n", "-c", command], check=True)
         for output in (
             "claude-code.txt",
+            "codex.txt",
+            "openclaw.txt",
+            "openclaw.session.jsonl",
             "trajectory.json",
             "trajectory.jsonl",
             "agent.log",
@@ -523,6 +526,30 @@ class PriorAgentOutputIsolationTest(unittest.TestCase):
         )
         self.assertIn('mv "$PROJ"/* "$ARCHIVE/sessions/"', command)
         self.assertIn("-mtime +7", command)
+
+    def test_mixed_harness_outputs_are_archived_before_failed_next_trial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "agent"
+            root.mkdir()
+            outputs = {
+                "codex.txt": "previous coding setup",
+                "openclaw.txt": "previous operational envelope",
+                "openclaw.session.jsonl": "previous operational session",
+                "trajectory.json": "previous trajectory",
+                "agent.log": "previous failure",
+            }
+            for name, content in outputs.items():
+                (root / name).write_text(content)
+            command = brev_env._prior_agent_output_archive_command()
+            command = command.replace("/logs/agent", str(root)).replace(
+                "$HOME/.claude-archive", str(Path(tmp) / "archive")
+            )
+            subprocess.run(["bash", "-c", command], check=True, capture_output=True)
+            self.assertEqual(list(root.iterdir()), [])
+            for name, content in outputs.items():
+                copies = list((Path(tmp) / "archive").glob(f"*/root-output/{name}"))
+                self.assertEqual(len(copies), 1)
+                self.assertEqual(copies[0].read_text(), content)
 
     def test_transfer_wall_budget_includes_active_and_reap_windows(self):
         self.assertEqual(brev_env.BREV_TRANSFER_ACTIVE_TIMEOUT_SEC, 600)

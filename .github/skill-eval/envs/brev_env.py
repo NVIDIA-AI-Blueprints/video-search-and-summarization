@@ -394,12 +394,14 @@ class BrevEnvironment(BaseEnvironment):
             # The Build Vision AI provisioning task owns host-side NemoClaw
             # setup. Forward its provider and lifecycle inputs exactly as
             # supplied by CI; the harness invokes the worker's NemoClaw CLI.
+            "SKILLS_EVAL_OPERATIONAL_HARNESS",
             "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_RECREATE_SANDBOX",
             "NEMOCLAW_GATEWAY_PORT",
             "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_POLICY_MODE",
             "NEMOCLAW_PROVIDER", "NEMOCLAW_ENDPOINT_URL",
             "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
             "SKILL_EVAL_LOCAL_NIM_API_KEY",
+            "SKILL_EVAL_LOCAL_NIM_PLAN",
             "NEMOCLAW_INFERENCE_PROXY",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
@@ -573,6 +575,11 @@ class BrevEnvironment(BaseEnvironment):
             raise ValueError("Invalid local NIM owner")
         remote = f"/tmp/skill-eval-nim-{plan['owner']}"
         await self.upload_file(Path(__file__).resolve().parents[1] / "local_nim.py", remote + ".py")
+        if plan.get("reuse_vss"):
+            await self.upload_file(
+                Path(__file__).resolve().parents[1] / "shared_vss_llm.py",
+                remote + "-shared.py",
+            )
         with tempfile.TemporaryDirectory() as directory:
             local = Path(directory) / "plan.json"
             local.write_text(json.dumps(plan))
@@ -1508,7 +1515,8 @@ def _prior_agent_output_archive_command() -> str:
         "ts=$(date +%Y%m%d-%H%M%S)-$$; "
         "PROJ=/logs/agent/sessions/projects; "
         "ROOT=/logs/agent; "
-        "OUTPUTS='claude-code.txt trajectory.json trajectory.jsonl agent.log'; "
+        "OUTPUTS='claude-code.txt codex.txt openclaw.txt openclaw.session.jsonl "
+        "trajectory.json trajectory.jsonl agent.log'; "
         "HAS_SESSIONS=0; "
         "HAS_OUTPUT=0; "
         'if [ -d "$PROJ" ] && [ -n "$(ls -A "$PROJ" 2>/dev/null)" ]; then '

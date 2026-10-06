@@ -7,9 +7,14 @@ uv run --python 3.12 --with 'litellm[proxy]==1.103.0' --with pytest \
 """
 
 import json
+import os
+import socket
+import subprocess
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 
@@ -128,6 +133,7 @@ def test_harness_protocols_translate_to_nim_chat_completions(
         args["tool_choice"] = "auto"
         schema = {"type": "object", "properties": {}}
         if protocol == "messages":
+            args["tool_choice"] = {"type": "auto"}
             args["tools"] = [
                 {
                     "name": "check_status",
@@ -170,3 +176,76 @@ def test_harness_protocols_translate_to_nim_chat_completions(
     assert len(requests) == 1
     assert requests[0][0] == "/v1/chat/completions"
     assert requests[0][1]["model"] == "qwen/qwen3-32b"
+
+
+def test_proxy_accepts_no_key_and_stale_keys_for_all_harness_protocols(fake_nim, tmp_path):
+    """Exercise the pinned HTTP proxy's actual auth and protocol handlers."""
+    import httpx
+
+    base, requests = fake_nim
+    config = tmp_path / "proxy.json"
+    config.write_text(json.dumps({
+        "model_list": [{
+            "model_name": "eval-model",
+            "litellm_params": {
+                "model": "nvidia_nim/qwen/qwen3-32b",
+                "api_base": base,
+                "api_key": "local-nim",
+            },
+        }],
+        "litellm_settings": {"drop_params": True},
+    }))
+    with socket.socket() as reserved:
+        reserved.bind(("127.0.0.1", 0))
+        port = reserved.getsockname()[1]
+    env = os.environ.copy()
+    for key in ("LITELLM_MASTER_KEY", "DATABASE_URL", "LITELLM_DATABASE_URL"):
+        env.pop(key, None)
+    env["LITELLM_TELEMETRY"] = "False"
+    log = tmp_path / "proxy.log"
+    with log.open("w") as output:
+        proxy = subprocess.Popen(
+            [str(Path(sys.executable).with_name("litellm")), "--config", str(config),
+             "--host", "127.0.0.1", "--port", str(port)],
+            env=env, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
+        )
+        try:
+            with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=20, trust_env=False) as client:
+                deadline = time.monotonic() + 45
+                while time.monotonic() < deadline:
+                    assert proxy.poll() is None, log.read_text()[-4000:]
+                    try:
+                        if client.get("/health/liveliness").status_code == 200:
+                            break
+                    except httpx.ConnectError:
+                        pass
+                    time.sleep(0.1)
+                else:
+                    pytest.fail("LiteLLM did not become ready: " + log.read_text()[-4000:])
+                headers_to_check = [{}, {"Authorization": "Bearer stale-eval-key"}, {"x-api-key": "stale-eval-key"}]
+                for headers in headers_to_check:
+                    for protocol in ("messages", "responses", "chat/completions"):
+                        for stream in (False, True):
+                            body = {"model": "eval-model", "stream": stream}
+                            schema = {"type": "object", "properties": {}}
+                            if protocol == "messages":
+                                body.update(messages=[{"role": "user", "content": "Check status"}], max_tokens=16,
+                                            tools=[{"name": "check_status", "description": "Check status", "input_schema": schema}])
+                            elif protocol == "responses":
+                                body.update(input="Check status", max_output_tokens=16,
+                                            tools=[{"type": "function", "name": "check_status", "description": "Check status", "parameters": schema}])
+                            else:
+                                body.update(messages=[{"role": "user", "content": "Check status"}], max_tokens=16,
+                                            tools=[{"type": "function", "function": {"name": "check_status", "description": "Check status", "parameters": schema}}])
+                            response = client.post("/v1/" + protocol, headers={**headers, "anthropic-version": "2023-06-01"}, json=body)
+                            assert response.status_code == 200, response.text
+                            assert "check_status" in response.text
+                assert len(requests) == 18
+                assert all(path == "/v1/chat/completions" and body["model"] == "qwen/qwen3-32b" for path, body in requests)
+        finally:
+            proxy.terminate()
+            try:
+                proxy.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proxy.kill()
+                proxy.wait(timeout=5)

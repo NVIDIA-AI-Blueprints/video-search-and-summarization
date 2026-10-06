@@ -114,8 +114,6 @@ The canonical harbor command is in § Harbor invocation.
 
    Optional: `profile` (string label for dataset grouping, e.g. `"alerts"`)
    and `deploy_mode` (string label for mode grouping, e.g. `"verification"`).
-   `shared_local_llm: true` explicitly allows the shared VSS/NemoClaw route;
-   use it only when the spec's setup and checks permit a local VSS LLM.
    These are **hints for the adapter** (used to pick the dataset
    group / deploy-mode defaults). They are **NOT** harness directives —
    the harness no longer pre-deploys anything.
@@ -593,8 +591,11 @@ markers; and releases the lock when it exits.
 `run_leg.py` resolves independent coding and operational routes. For a spec
 under `skills/operations/`, the coding route runs the first `expects[]` task as
 the deployment/readiness contract and the operational route runs the remaining
-tasks. If the operational route is NemoClaw, Build Vision AI also attaches its
-sandbox during that first task. Specs outside `skills/operations/`, including
+tasks. If the operational route is NemoClaw, the spec also bootstraps its
+sandbox during that first task, as explicitly requested in the spec query.
+The runner forwards `SKILLS_EVAL_OPERATIONAL_HARNESS` and provider/lifecycle
+inputs; it does not append instructions or copy skills into generated tasks.
+Adapters must include the spec-declared Build Vision AI skill. Specs outside `skills/operations/`, including
 `vss-build-vision-ai`, use the coding route throughout. Worker selection and
 locking remain route-independent.
 
@@ -605,13 +606,7 @@ model, and deployment inputs. Hosted routes use the fixed
 checks architecture, starts it after Docker reset, and shares one deployment
 when both roles select the same model. Do not deploy these inference models
 in an adapter or ask the evaluated agent to deploy them. The harness manages
-their endpoints, temporary credentials, readiness, logs, and cleanup.
-When `SKILLS_EVAL_SHARE_LOCAL_LLM_WITH_VSS=true`, the operational NemoClaw
-route is the documented exception: Build Vision AI deploys the selected local
-LLM as a VSS Compose service, then verifies the build's served model and points
-NemoClaw at that same NIM. Do not start the eval-owned operational NIM in this
-mode. The coding route must be hosted, and only specs opting into shared local
-LLM placement may use it. An unchecked box preserves the original routes.
+their endpoints, non-secret client placeholders, readiness, logs, and cleanup.
 Coordinator and judge routing stays runner-managed. One role must never inherit
 another role's model or deployment override. See README.md for lifecycle details.
 

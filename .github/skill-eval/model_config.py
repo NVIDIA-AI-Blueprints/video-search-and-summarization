@@ -5,11 +5,9 @@
 
 from __future__ import annotations
 
-import json
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from pathlib import Path
 
 RUNTIMES = ("claude-code", "codex", "nemoclaw")
 CODING_RUNTIMES = ("claude-code", "codex")
@@ -18,37 +16,6 @@ NVIDIA_INFERENCE_SOURCE_URL = "https://inference.nvidia.com/"
 NVIDIA_INFERENCE_API_BASE_URL = "https://inference-api.nvidia.com/v1"
 LOCAL_NIM_PROVIDER = "local-nim"
 ROLES = ("coding", "operational")
-VSS_SHARED_LOCAL_MODELS = {"nvidia/nemotron-3.5-lightning-30b-a3b": "nemotron-3.5-lightning-30b-a3b"}
-
-
-def share_local_llm_with_vss(environment: Mapping[str, str]) -> bool:
-    value = (environment.get("SKILLS_EVAL_SHARE_LOCAL_LLM_WITH_VSS") or "false").lower()
-    if value not in {"true", "false"}:
-        raise ValueError("SKILLS_EVAL_SHARE_LOCAL_LLM_WITH_VSS must be true or false")
-    return value == "true"
-
-
-def validate_shared_local_llm(routes: SkillEvalModelRoutes, environment: Mapping[str, str]) -> None:
-    if not share_local_llm_with_vss(environment):
-        return
-    if routes.coding.provider != NVIDIA_INFERENCE_PROVIDER:
-        raise ValueError("sharing VSS's LLM requires hosted coding; a local coding NIM starts before VSS")
-    if routes.operational.runtime != "nemoclaw" or routes.operational.provider != LOCAL_NIM_PROVIDER:
-        raise ValueError("sharing VSS's LLM requires NemoClaw with operational_deployment=local-nim")
-    if routes.operational.model not in VSS_SHARED_LOCAL_MODELS:
-        raise ValueError(
-            f"VSS cannot deploy {routes.operational.model!r} as a local LLM; "
-            f"supported: {', '.join(VSS_SHARED_LOCAL_MODELS)}"
-        )
-    spec_path = environment.get("EVAL_SPEC_PATH")
-    if spec_path:
-        repo = Path(__file__).resolve().parents[2]
-        spec = json.loads((repo / spec_path).read_text())
-        if not spec.get("shared_local_llm"):
-            raise ValueError(
-                f"{spec_path} does not support shared local VSS LLM; "
-                "its deployment contract may require remote inference"
-            )
 DEFAULT_CODEX_MODEL = "azure/openai/gpt-6.1-sol"
 DEFAULT_NEMOCLAW_MODEL = "aws/anthropic/bedrock-claude-opus-5-5"
 
@@ -136,16 +103,16 @@ def resolve_model_config(
             "no configured default model"
         )
     if deployment == LOCAL_NIM_PROVIDER:
-        from local_nim import validate_model_id
+        from local_nim import LOCAL_NIM_CLIENT_KEY, validate_model_id
         try:
             validate_model_id(model)
         except ValueError as exc:
             raise ValueError(f"{prefix}_MODEL: {exc}") from exc
         if not _first(env.get("NGC_CLI_API_KEY"), env.get("NGC_API_KEY")):
             raise ValueError("local-nim requires NGC_CLI_API_KEY or NGC_API_KEY")
-        # Filled with a per-leg credential by run_leg; never send a hosted key.
+        # Non-secret client placeholder; the job-owned proxy requires no auth.
         endpoint_url = "http://127.0.0.1:18400/v1"
-        api_key = "local-nim"
+        api_key = LOCAL_NIM_CLIENT_KEY
     if not api_key:
         raise ValueError(
             f"no API key is configured; set {credential_name} on the runner"
@@ -167,18 +134,14 @@ def resolve_model_routes(
     """Resolve coding and operational routes from independent input prefixes."""
 
     env = environment if environment is not None else os.environ
-    routes = SkillEvalModelRoutes(
+    return SkillEvalModelRoutes(
         coding=resolve_model_config(env, role="coding"),
         operational=resolve_model_config(env, role="operational"),
     )
-    validate_shared_local_llm(routes, env)
-    return routes
 
 
 def main() -> int:
     routes = resolve_model_routes()
-    if share_local_llm_with_vss(os.environ):
-        print("skill-eval operational: share-local-llm-with-vss=true; VSS owns the NIM")
     for config in (routes.coding, routes.operational):
         print(
             f"skill-eval {config.role}: runtime={config.runtime} "

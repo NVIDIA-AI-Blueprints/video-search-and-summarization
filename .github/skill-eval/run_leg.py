@@ -33,7 +33,6 @@ import json
 import os
 from pathlib import Path
 import re
-import secrets
 import shutil
 import signal
 import subprocess
@@ -49,12 +48,7 @@ import urllib.parse
 # leg_timing.current_phase(); importing the global copies it once.
 import leg_timing
 from leg_timing import HEARTBEAT_SEC, leg_log, phase
-from model_config import (
-    SkillEvalModelRoutes,
-    VSS_SHARED_LOCAL_MODELS,
-    resolve_model_routes,
-    share_local_llm_with_vss,
-)
+from model_config import SkillEvalModelRoutes, resolve_model_routes
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -822,96 +816,6 @@ def nemoclaw_sandbox_name(run_id: str, leg_slug: str) -> str:
     return f"se-{safe_run_id[-6:]}-{digest}"
 
 
-def prepare_nemoclaw_setup_task(
-    invocation: HarborInvocation,
-    operational_skill: str,
-    shared_model: str | None = None,
-) -> None:
-    """Make the spec's first task provision VSS and NemoClaw via Build Vision AI.
-
-    The generated task remains authoritative for the deployment intent and its
-    checks.  This only supplies the orchestration skill and tells the coding
-    agent which harness the current eval requested.
-    """
-    task_dir = invocation.harbor_root / invocation.include_task_name
-    instruction_path = task_dir / "instruction.md"
-    if not instruction_path.is_file():
-        raise FileNotFoundError(f"setup instruction missing: {instruction_path}")
-    build_vision_skill = REPO_ROOT / "skills" / "vss-build-vision-ai"
-    if not (build_vision_skill / "SKILL.md").is_file():
-        raise FileNotFoundError(f"Build Vision AI skill missing: {build_vision_skill}")
-
-    original_instruction = instruction_path.read_text(encoding="utf-8")
-    if shared_model:
-        # This spec opts into a different LLM placement while retaining its
-        # VLM and operational checks. Make the effective setup query explicit.
-        original_instruction = original_instruction.replace(
-            "Use the configured remote model endpoints and run autonomously.",
-            "Use the configured VLM endpoint and a local VSS LLM; run autonomously.",
-        )
-        slug = VSS_SHARED_LOCAL_MODELS[shared_model]
-        shared_requirement = f"""
-
-## Shared local VSS LLM (selected by this eval job)
-
-This job overrides the setup query's LLM placement only. Deploy the VSS
-profile with `LLM_MODE=local_shared` on DGX Spark (or `local` on a dedicated
-GPU), `LLM_NAME={shared_model}`, and
-`LLM_NAME_SLUG={slug}`. Keep the query's VLM placement and other services.
-The VSS Compose deployment is the sole owner of this LLM NIM: do not start a
-second NemoClaw or eval-owned LLM server. Fail if the selected model cannot be
-deployed by VSS.
-
-After the VSS NIM is ready and **before** onboarding NemoClaw, verify the
-actual build and derive its served route. Replace `<build-dir>` with the exact
-Build Vision AI directory containing the deployed `resolved.yml`:
-
-```bash
-repo="$HOME/video-search-and-summarization"
-route_file="/tmp/skill-eval/shared-vss-llm-${{NEMOCLAW_SANDBOX_NAME}}.env"
-python3 "$repo/.github/skill-eval/shared_vss_llm.py" \\
-  --resolved "<build-dir>/resolved.yml" \\
-  --model {shared_model} --env-file "$route_file"
-cat "$route_file" >> "$HOME/.eval_env"
-. "$route_file"
-```
-
-The verifier rejects a remote VSS LLM, a wrong served model, a stopped NIM,
-or an inaccessible endpoint. Preserve its `NEMOCLAW_PROVIDER=custom`,
-`NEMOCLAW_INFERENCE_PROXY=0`, and `COMPATIBLE_API_KEY=EMPTY` values through
-onboarding; the endpoint must use `host.openshell.internal` and the port
-derived from `resolved.yml`. Report the shared container and endpoint.
-"""
-    else:
-        shared_requirement = ""
-    harness_requirement = f"""
-
-## Selected agent harness: NemoClaw
-
-The evaluation query above is the complete deployment/setup intent. Fulfil it
-through `/vss-build-vision-ai` and attach NemoClaw to that same build before
-returning. Use the existing `$NEMOCLAW_SANDBOX_NAME` and model-provider
-environment values unchanged{', except for the verified VSS route above' if shared_model else ''}, install `/{operational_skill}` in that sandbox,
-and complete Build Vision AI's documented readiness verification. The task is
-not complete until `openshell sandbox get "$NEMOCLAW_SANDBOX_NAME"` succeeds
-and the sandbox gateway is ready. Include the sandbox name and Agent UI link in
-the final response. Run non-interactively with the query's choices and the
-documented defaults.
-"""
-    instruction_path.write_text(
-        original_instruction.rstrip() + shared_requirement + harness_requirement,
-        encoding="utf-8",
-    )
-
-    skills_dir = task_dir / "skills"
-    skills_dir.mkdir(exist_ok=True)
-    shutil.copytree(
-        build_vision_skill,
-        skills_dir / "vss-build-vision-ai",
-        dirs_exist_ok=True,
-    )
-
-
 def attempt_lock_timeout(
     base: int, work_deadline: float | None, reserve: int
 ) -> int:
@@ -1389,6 +1293,44 @@ def latest_reward(
     return latest.read_text().strip()
 
 
+def latest_trial_exception(
+    results_root: Path,
+    include_task_name: str,
+    started_at: float,
+) -> str | None:
+    """Read this invocation's structured failure, independent of its reward.
+
+    Harbor can exit zero and run the verifier after an agent timeout. A
+    passing reward in that case does not mean setup finished successfully.
+    Ignore earlier invocations and job-level aggregate result files.
+    """
+    matches = [
+        path
+        for path in results_root.glob(f"*/{include_task_name}__*/result.json")
+        if path.stat().st_mtime >= started_at
+    ]
+    if not matches:
+        return None
+    latest = max(matches, key=lambda path: path.stat().st_mtime)
+    try:
+        payload = json.loads(latest.read_text())
+    except (OSError, ValueError):
+        return "unreadable trial result"
+    if not isinstance(payload, dict):
+        return "invalid trial result"
+    info = payload.get("exception_info")
+    if not info:
+        return None
+    # Log the exception type only; messages and tracebacks can contain secrets.
+    if isinstance(info, dict):
+        exception_type = info.get("exception_type")
+        if isinstance(exception_type, str) and re.fullmatch(
+            r"[A-Za-z][A-Za-z0-9_]{0,100}", exception_type
+        ):
+            return exception_type
+    return "Harbor trial exception"
+
+
 def _coordinator_env_id() -> str | None:
     """Brev env id of the COORDINATOR host — the box running `harbor view`.
 
@@ -1728,13 +1670,12 @@ def run_invocations(
     model_routes: SkillEvalModelRoutes,
     work_deadline: float | None = None,
 ) -> int:
-    from local_nim import PROXY_PORT
+    from local_nim import LOCAL_NIM_CLIENT_KEY, PROXY_PORT
 
     routes = [
         r
         for r in (model_routes.coding, model_routes.operational)
         if r.provider == "local-nim"
-        and not (r.role == "operational" and share_local_llm_with_vss(os.environ))
     ]
     if not routes:
         return _run_invocations(
@@ -1749,19 +1690,25 @@ def run_invocations(
             work_deadline,
         )
     owner = hashlib.sha256(str(results_root).encode()).hexdigest()[:24]
-    token = "sk-" + secrets.token_hex(24)
     plan = {
         "owner": owner,
-        "token": token,
         "routes": [
             {"role": r.role, "model": r.model, "runtime": r.runtime} for r in routes
         ],
     }
+    # Select after the spec's VSS deployment, before NemoClaw onboarding.
+    # Ordinary build evals and hosted operational routes keep their lifecycle.
+    plan["reuse_vss"] = (
+        os.environ.get("EVAL_SPEC_PATH", "").startswith("skills/operations/")
+        and model_routes.operational.provider == "local-nim"
+        and model_routes.operational.runtime == "nemoclaw"
+    )
 
     def local_route(route):
         return (
             dataclasses.replace(
-                route, api_key=token, endpoint_url=f"http://127.0.0.1:{PROXY_PORT}/v1"
+                route, api_key=LOCAL_NIM_CLIENT_KEY,
+                endpoint_url=f"http://127.0.0.1:{PROXY_PORT}/v1"
             )
             if route.provider == "local-nim"
             else route
@@ -1849,21 +1796,9 @@ def _run_invocations(
     nemoclaw_setups: dict[str, HarborInvocation] = {}
     deferred_agent_marker: str | None = None
     operational_config = model_routes.operational
-    shared_model = (
-        operational_config.model if share_local_llm_with_vss(os.environ) else None
-    )
+    env["SKILLS_EVAL_OPERATIONAL_HARNESS"] = operational_config.runtime
     if operational_eval and operational_config.runtime == "nemoclaw":
         nemoclaw_setups = coding_setups
-        operational_skill = os.environ.get("EVAL_SKILL", "operational-skill")
-        try:
-            for setup in nemoclaw_setups.values():
-                if shared_model:
-                    prepare_nemoclaw_setup_task(setup, operational_skill, shared_model)
-                else:
-                    prepare_nemoclaw_setup_task(setup, operational_skill)
-        except OSError as exc:
-            print(f"FATAL: could not prepare NemoClaw setup task: {exc}", file=sys.stderr)
-            return 1
 
         derived_sandbox_name = nemoclaw_sandbox_name(run_id, leg_slug)
         sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME") or derived_sandbox_name
@@ -1883,17 +1818,9 @@ def _run_invocations(
             }
         )
         env["COMPATIBLE_API_KEY"] = operational_config.api_key
-        if shared_model:
-            # The VSS build does not exist until this coding task deploys it.
-            # The setup instruction validates and installs its route before
-            # onboarding NemoClaw. No eval-owned NIM or adapter is started.
-            env.pop("NEMOCLAW_ENDPOINT_URL", None)
-            env["COMPATIBLE_API_KEY"] = "EMPTY"
-            env["NEMOCLAW_INFERENCE_PROXY"] = "0"
-            print(f"[run-leg] VSS owns shared local LLM {shared_model}; no operational NIM", flush=True)
-        elif operational_config.provider == "local-nim":
-            # Keep the per-leg proxy credential separate from the generic
-            # provider setting, which setup recipes may replace with EMPTY.
+        if operational_config.provider == "local-nim":
+            # Clients require a non-empty API key even though the job-owned
+            # proxy does not authenticate it. Never forward a hosted key.
             env["SKILL_EVAL_LOCAL_NIM_API_KEY"] = operational_config.api_key
             # NemoClaw's inference proxy rewrites private endpoints to HTTPS
             # on port 443. The worker NIM adapter serves plain HTTP on 18400.
@@ -2014,12 +1941,17 @@ def _run_invocations(
             publish_trace(results_root, invocation, started_at, leg_slug, run_id)
         except Exception as exc:  # noqa: BLE001
             # A trace link is reporting convenience; the verdict comes from
-            # reward.txt. Never let a viewer-publish error fail the leg.
+            # trial result and reward. A viewer-publish error does not fail the leg.
             print(f"[run-leg] trace publish failed: {exc!r}", flush=True)
         if rc != 0 and overall_rc == 0:
             overall_rc = rc
 
         reward: str | None = None
+        trial_exception = latest_trial_exception(
+            results_root, invocation.include_task_name, started_at
+        )
+        if trial_exception is not None and overall_rc == 0:
+            overall_rc = 1
         if is_coding_setup or (
             invocation.step_index is not None and invocation.step_count is not None
         ):
@@ -2027,13 +1959,17 @@ def _run_invocations(
             reward_value = _reward_value(reward)
             print(
                 f"[run-leg] {invocation.chain_key}/{invocation.include_task_name} "
-                f"rc={rc} reward={reward if reward is not None else 'missing'}",
+                f"rc={rc} reward={reward if reward is not None else 'missing'} "
+                f"exception={trial_exception or 'none'}",
                 flush=True,
             )
             if (
                 invocation.step_index is not None
                 and invocation.step_count is not None
-                and (rc == 124 or rc >= 128 or reward_value < 1.0)
+                and (
+                    rc == 124 or rc >= 128 or reward_value < 1.0
+                    or trial_exception is not None
+                )
             ):
                 write_skip_markers(
                     scratch,
@@ -2046,7 +1982,7 @@ def _run_invocations(
                 skipped_after[invocation.chain_key] = invocation.step_index
 
         if is_coding_setup:
-            if rc != 0 or _reward_value(reward) < 1.0:
+            if rc != 0 or _reward_value(reward) < 1.0 or trial_exception is not None:
                 if overall_rc == 0:
                     overall_rc = rc or 1
                 if (
