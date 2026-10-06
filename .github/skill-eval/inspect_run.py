@@ -35,7 +35,8 @@ def tool_kind(command):
 
 
 def summarize_log(path):
-    kinds, errors = Counter(), Counter()
+    kinds, errors, event_types = Counter(), Counter(), Counter()
+    launch_signals = set()
     recent = []
     started, completed = 0, 0
     inference_writes = []
@@ -70,12 +71,25 @@ def summarize_log(path):
     }
     with path.open() as stream:
         for line in stream:
+            for needle, label in {
+                "401": "http_401", "403": "http_403", "429": "http_429",
+                "invalid api key": "authentication", "model not found": "model_unavailable",
+                "unknown model": "model_unavailable", "Connection refused": "connection_refused",
+                "Permission denied": "permission_denied", "not found": "missing_dependency",
+                "stream disconnected": "stream_disconnected", "Reconnecting": "reconnecting",
+                "failed to": "launch_failure", "Error:": "launch_error",
+            }.items():
+                if needle in line:
+                    launch_signals.add(label)
             try:
                 event = json.loads(line)
             except ValueError:
                 continue
             if not isinstance(event, dict):
                 continue
+            event_type = event.get("type")
+            if isinstance(event_type, str) and re.fullmatch(r"[A-Za-z_.-]{1,80}", event_type):
+                event_types[event_type] += 1
             item = event.get("item")
             if not isinstance(item, dict) or item.get("type") != "command_execution":
                 continue
@@ -155,6 +169,8 @@ def summarize_log(path):
         "modified_at": path.stat().st_mtime,
         "tools_started": started,
         "tools_completed": completed,
+        "json_event_types": dict(event_types),
+        "launch_signals": sorted(launch_signals),
         "completed_tool_kinds": dict(kinds),
         "failed_tool_signals": dict(errors),
         "last_failed_notebook": last_failed_notebook,
@@ -189,7 +205,7 @@ def worker(run_id):
                     except (ValueError, TypeError):
                         pass
             executable = (process / "exe").resolve().name
-            if executable in {"node", "python3", "python3.13", "codex", "bash", "sh", "openshell"}:
+            if re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", executable):
                 matches.append(executable)
         except OSError:
             continue
