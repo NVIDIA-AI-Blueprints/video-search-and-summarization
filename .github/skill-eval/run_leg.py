@@ -1811,6 +1811,13 @@ def _run_invocations(
         ):
             env.setdefault(key, str(port))
         env["SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER"] = identity
+        # Fixture requirements belong to the spec, not appended prompts.
+        fixture_spec = REPO_ROOT / spec_path
+        env.pop("SKILL_EVAL_NEMOCLAW_FIXTURES", None)
+        if fixture_spec.is_file():
+            fixtures = json.loads(fixture_spec.read_text()).get("sandbox_fixtures", [])
+            if fixtures:
+                env["SKILL_EVAL_NEMOCLAW_FIXTURES"] = json.dumps(fixtures)
         env.setdefault("NEMOCLAW_RECREATE_SANDBOX", "0")
         env.update(
             {

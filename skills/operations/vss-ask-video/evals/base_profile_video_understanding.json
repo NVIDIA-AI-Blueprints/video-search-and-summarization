@@ -112,5 +112,8 @@
         "It does not search stored agent Markdown memory (for example MEMORY.md, memory/*.md, or the harness-native memory_search tool), introspect, access VIOS, call RT-VLM directly, or POST to the VSS Agent. Reading startup/deployment instructions such as ENV.md, AGENTS.md, or SKILL.md is not memory recall and does not violate this check."
       ]
     }
+  ],
+  "sandbox_fixtures": [
+    "warehouse_safety_0001.mp4"
   ]
 }

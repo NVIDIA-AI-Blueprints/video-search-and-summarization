@@ -221,6 +221,25 @@ class SubprocessCancellationTest(unittest.IsolatedAsyncioTestCase):
             run.await_args_list[1].args[1],
         )
 
+    async def test_fixture_staging_runs_before_setup_verifier_and_fails_closed(self):
+        for staging_rc in (0, 1):
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            outputs = [brev_env.ExecResult(return_code=0), brev_env.ExecResult(return_code=staging_rc)]
+            if staging_rc:
+                outputs.append(brev_env.ExecResult(return_code=0))
+            with mock.patch.dict(os.environ, {
+                brev_env.DEFER_AGENT_REAP_ENV: "1",
+                "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
+                "SKILL_EVAL_NEMOCLAW_FIXTURES": '["warehouse_safety_0001.mp4"]',
+                "NEMOCLAW_SANDBOX_NAME": "se-current",
+            }), mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(side_effect=outputs)) as run:
+                result = await env.exec("codex exec --json")
+            self.assertEqual(result.return_code, staging_rc)
+            self.assertIn("stage_fixtures.py", run.await_args_list[1].args[1])
+            self.assertIn("se-current", run.await_args_list[1].args[1])
+            self.assertEqual(run.await_count, 3 if staging_rc else 2)
+
     async def test_nonzero_codex_exec_is_marked_and_reaped(self):
         env = brev_env.BrevEnvironment()
         env._instance_name = "vss-eval-test"

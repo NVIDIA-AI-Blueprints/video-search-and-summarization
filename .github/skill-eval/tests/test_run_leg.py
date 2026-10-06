@@ -1119,7 +1119,7 @@ class RunInvocations(unittest.TestCase):
                 **self.ENV,
                 "EVAL_AGENT": "nemoclaw",
                 "EVAL_SKILL": "vss-manage-alerts",
-                "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/alerts.json",
+                "EVAL_SPEC_PATH": "skills/operations/vss-ask-video/evals/base_profile_video_understanding.json",
             }
             for invocation in invocations:
                 task = invocation.harbor_root / invocation.include_task_name
@@ -1153,6 +1153,7 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(command.call_args_list[0].args[4], "codex")
         self.assertEqual(command.call_args_list[1].args[4], "nemoclaw")
         self.assertEqual(seen_env[0]["SKILLS_EVAL_OPERATIONAL_HARNESS"], "nemoclaw")
+        self.assertEqual(json.loads(seen_env[0]["SKILL_EVAL_NEMOCLAW_FIXTURES"]), ["warehouse_safety_0001.mp4"])
         self.assertEqual(command.call_args_list[0].args[2], "azure/openai/gpt-6.1-sol")
         self.assertEqual(command.call_args_list[1].args[2], "aws/anthropic/bedrock-claude-opus-5-5")
         self.assertEqual(

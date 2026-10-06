@@ -402,3 +402,11 @@ tree, including Codex date directories and Claude project directories, along
 with root agent outputs. A failed launch therefore cannot borrow prior-trial
 sessions, token counts, or deployment evidence. Archives remain under
 `~/.claude-archive/` for runner-side investigation.
+
+Specs can declare `sandbox_fixtures` as MP4 basenames from the pinned bundle
+at `/tmp/vss-sample-data/dev-profile-sample-data/`. For NemoClaw setup, after
+the coding agent succeeds and before grading, the harness uploads only these
+files into the supplied sandbox and requires matching SHA-256 checksums.
+Missing host files, upload failures and mismatches fail setup. It neither
+downloads fixtures nor registers them with VSS. Sanitized results are retained
+in `nemoclaw/fixtures.json` in the workflow artifacts.

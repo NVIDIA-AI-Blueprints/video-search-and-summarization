@@ -1368,6 +1368,29 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                 full_cmd,
                 timeout=timeout_sec or BREV_EXEC_TIMEOUT,
             )
+            fixtures = os.environ.get("SKILL_EVAL_NEMOCLAW_FIXTURES")
+            if (
+                is_trial_agent and defer_agent_reap and result.return_code == 0
+                and os.environ.get("SKILLS_EVAL_OPERATIONAL_HARNESS") == "nemoclaw"
+                and fixtures
+            ):
+                # Stage declared media after sandbox creation and before the
+                # verifier. This hook runs for either coding harness, only in
+                # setup; later operational steps never upload fixtures again.
+                sandbox = os.environ["NEMOCLAW_SANDBOX_NAME"]
+                staged = await _run_brev_exec(
+                    self._instance_name,
+                    'export PATH="$HOME/.local/bin:$PATH"; source ~/.profile 2>/dev/null; '
+                    'python3 "$HOME/video-search-and-summarization/.github/skill-eval/nemoclaw/stage_fixtures.py" '
+                    f"--sandbox {shlex.quote(sandbox)} --files-json {shlex.quote(fixtures)}",
+                    timeout=180,
+                )
+                if staged.return_code != 0:
+                    result = ExecResult(
+                        return_code=staged.return_code,
+                        stdout=result.stdout,
+                        stderr="Sandbox fixture staging failed: " + (staged.stderr or staged.stdout or "")[-2000:],
+                    )
             if agent_run_marker is not None and (
                 result.return_code != 0 or not defer_agent_reap
             ):
