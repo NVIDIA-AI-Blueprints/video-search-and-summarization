@@ -4,7 +4,21 @@ Performance benchmarking framework for RTVI VLM services.
 
 ---
 
-## Quick Start (BCD benchmarks)
+## Quick Start (BCD 3.3)
+
+Use the [platform/model/artifact table](PERF_GUIDE.RTVI_VLM.md#bcd-33-model-selection)
+and [BCD 3.3 quick start](PERF_GUIDE.RTVI_VLM.md#bcd-33-quick-start).
+L40S uses **CR3 Nano FP8**; Thor/Spark use **CR3 Nano NVFP4**;
+H100 uses **CR3 Super FP8**; RTX Pro 6000/4500 and B200 use **CR3 Super NVFP4**;
+Orin uses **CR3 Edge BF16**. The table links exact NGC versions and the pinned
+Hugging Face Edge revision. These are model selections, not runtime validation.
+
+Set `BENCHMARK_CONFIG` to the matching `rtvi_vlm_bcd_3_3_*_config.yaml` before
+setup and use the same config for the benchmark. Its `global.model_preset` selects
+the model; unset `VLM_MODEL_PRESET`, `VLM_MODEL_TO_USE`, and `MODEL_PATH` in your
+shell to avoid conflicting overrides. CR2 examples are for legacy runs only.
+
+## Legacy BCD 3.2 / custom benchmark workflow
 
 > **Recommended:** Use `perf/setup_perf_env.sh` (see
 > [PERF_GUIDE.RTVI_VLM.md](PERF_GUIDE.RTVI_VLM.md)) which automates all
@@ -33,8 +47,10 @@ export ARTIFACTORY_TOKEN=<your-api-token>
 # export VST_IMAGE_TAG=3.2.0
 # export PERF_VIDEOS_DIR=~/rtvi-perf/vst_package/videos
 # export VLM_MODEL_PRESET=cr3-nano-reasoner-fp8
-# export VLM_MODEL_PRESET=cr3-nano-reasoner-nvfp4  # Blackwell platforms
-# export VLM_MODEL_PRESET=cosmos3-edge-bf16        # AGX Orin BCD 3.3 candidate
+# export VLM_MODEL_PRESET=cr3-nano-reasoner-nvfp4  # Thor / Spark
+# export VLM_MODEL_PRESET=cr3-super-reasoner-fp8   # H100
+# export VLM_MODEL_PRESET=cr3-super-reasoner-nvfp4 # RTX Pro / B200
+# export VLM_MODEL_PRESET=cosmos3-edge-bf16        # AGX Orin
 # export MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
 
 bash perf/setup_perf_env.sh
@@ -100,13 +116,16 @@ $BENCH --scenario file_burst_1_token_2k
 
 ### Changing the model
 
-Set `VLM_MODEL_PRESET` or `MODEL_PATH` before running `perf/setup_perf_env.sh`.
+For a custom config without `global.model_preset`, set `VLM_MODEL_PRESET` or
+`MODEL_PATH` before running `perf/setup_perf_env.sh`. For BCD 3.3, select the
+platform YAML instead; it rejects model overrides.
 The script writes the resolved model settings into
 `docker/.env.perf` and restarts the RTVI service with that
 model.
 
 ```bash
-# Choose one preset or explicit MODEL_PATH.
+# Choose one preset. Clear explicit exports, which take precedence over presets.
+unset VLM_MODEL_TO_USE MODEL_PATH
 
 # CR3 Nano Reasoner FP8:
 export VLM_MODEL_PRESET=cr3-nano-reasoner-fp8
@@ -114,18 +133,23 @@ export VLM_MODEL_PRESET=cr3-nano-reasoner-fp8
 # export VLM_MODEL_TO_USE=cosmos-reason3
 # export MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix
 
-# CR3 Nano Reasoner NVFP4 for Blackwell platforms:
+# CR3 Nano Reasoner NVFP4 for Thor / Spark:
 # export VLM_MODEL_PRESET=cr3-nano-reasoner-nvfp4
 # Equivalent explicit values:
 # export VLM_MODEL_TO_USE=cosmos-reason3
 # export MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix
 
-# Cosmos3-Edge BF16 for AGX Orin BCD 3.3 (requires an RTVI image with Edge support):
+# CR3 Super Reasoner FP8 for H100:
+# export VLM_MODEL_PRESET=cr3-super-reasoner-fp8
+# CR3 Super Reasoner NVFP4 for RTX Pro / B200:
+# export VLM_MODEL_PRESET=cr3-super-reasoner-nvfp4
+
+# Cosmos3-Edge BF16 for AGX Orin (requires an RTVI image with Edge support):
 # export VLM_MODEL_PRESET=cosmos3-edge-bf16
 # The preset selects vllm-compatible and pins the Hugging Face model commit.
 
-# Default BCD setup model:
-export MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-static-kv8
+# Legacy CR2 only (not BCD 3.3); use explicit paths instead of a CR3 preset:
+# export MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-static-kv8
 
 # CR2 FP8 dynamic KV8:
 # export MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
@@ -163,8 +187,9 @@ Create `docker/.env.perf`:
 BACKEND_PORT=8010
 NVIDIA_VISIBLE_DEVICES=0                   # GPU index(es)
 NGC_API_KEY=nvapi-XXXXXX
-VLM_MODEL_TO_USE=cosmos-reason2
-MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-static-kv8
+# L40S example; use the platform/model table for other GPUs.
+VLM_MODEL_TO_USE=cosmos-reason3
+MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix
 # Optional image override; defaults to GHCR develop-latest
 # RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
 # DGX Spark is detected automatically and defaults to develop-latest-sbsa.
