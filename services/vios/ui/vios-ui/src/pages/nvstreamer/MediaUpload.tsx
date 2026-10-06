@@ -451,13 +451,14 @@ const MediaUpload = () => {
                 headers: buildChunkHeaders(params, isLastChunk),
                 cancelToken: cancelToken.token,
                 onUploadProgress: progressEvent => {
-                    const progress = ((start + progressEvent.loaded) / fileSize) * 100;
+                    const progress = Math.min(100, ((start + progressEvent.loaded) / fileSize) * 100);
                     onProgress({ percent: progress });
                 },
             });
 
             if (response.data && Object.prototype.hasOwnProperty.call(response.data, 'filename')) {
                 if (isLastChunk) {
+                    cancelTokensRef.current.delete(file.name);
                     setFileTag(tags, response.data.id);
                 }
                 handleChunkSuccess(response, chunkNumber, totalChunkCount, onSuccess);
@@ -477,6 +478,15 @@ const MediaUpload = () => {
     const uploadFileInChunks = async (options: UploadOptions) => {
         const { onError, file } = options;
         const currentState = stateRef.current;
+
+        if (file.size === 0) {
+            enqueueSnackbar('Error - empty files cannot be uploaded', {
+                variant: 'error',
+                anchorOrigin: { horizontal: 'right', vertical: 'bottom' },
+            });
+            onError({ error: new Error('Empty files cannot be uploaded') });
+            return;
+        }
 
         const metadata = buildMetadata(currentState);
         if (!isChunkSizeValid(currentState.chunkSize, onError)) {

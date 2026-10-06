@@ -364,36 +364,24 @@ To upload media, navigate to **Upload Media** option in **Media Management** tab
   * Tag
   * Checksum
 
-* **Enable multi-part upload**: Enable this option for large file uploads
+* **Enable multi-part upload**: Enabled by default. Splits files into 50 MB chunks to help large uploads succeed through proxy request limits. Use **Chunk size in MB** to reduce the chunk size when needed; it must be greater than 10 MB.
 
  ![VIOS WebUI Upload Media](/assets/images/vios/VIOS-Upload-Media.png)
 
 ###### Configuring upload file size limit
 
-The maximum upload file size in VIOS is controlled by two settings. The effective upload limit is the **minimum** of these two values, so both must be configured to allow larger uploads.
+The UI uploads in chunks by default. NGINX's `client_max_body_size` limits each request body, including multipart metadata and framing, rather than the assembled file. A 10–20 GB video can therefore upload in 50 MB chunks without increasing the request limit to the full video size. The Docker VIOS NGINX configurations shipped in this repository set this limit to `25G`; check your deployment's configuration and any upstream proxy limits.
 
-1. **Stream-processor NGINX configuration** (`client_max_body_size`):
+Choose a chunk size below the smallest request limit along the upload route, leaving room for multipart overhead. For example, a 100 MB request limit allows the default 50 MB chunks:
 
-   Controls the maximum request body size accepted by the NGINX reverse proxy in the stream-processor. The default value is 500 MB. To allow larger uploads (for example, 10–20 GB), increase this value before deployment:
+```nginx
+client_max_body_size 100M;
+```
 
-   ```nginx
-   client_max_body_size 20G;
-   ```
-
-2. **VIOS configuration** (`nv_streamer_max_upload_file_size_MB`):
-
-   Controls the maximum file size accepted for upload in both VIOS and NVStreamer. The default value is 1000 MB. To allow larger uploads, set this parameter in the `data` section of the VIOS configuration file (refer to [VIOS Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#vios-config)):
-
-   ```json
-   {
-       "data": {
-           "nv_streamer_max_upload_file_size_MB": 10000
-       }
-   }
-   ```
+If **Enable multi-part upload** is disabled, the entire file and its multipart overhead must fit in one request.
 
 <Note>
-Both settings are configurable pre-deployment. Set them according to your upload size requirements. The effective upload limit is determined by whichever value is lower.
+Request limits do not cap the total size of a chunked UI upload. The current VIOS/NVStreamer upload handler also bypasses the `nv_streamer_max_upload_file_size_MB` check, so that configuration field does not enforce a UI upload size limit. Do not rely on either setting to cap the assembled file size.
 </Note>
 
 ##### Download recordings
