@@ -162,10 +162,12 @@ only one leaves the stack misconfigured.
 
 #### Dropping a GPU claim
 
-Setting the count to `0` is the way to release a GPU. Neither `resources: {}` nor
-`resources: null` works, whether passed with `-f` or `--set`: Helm coalesces the
-**subchart's own** `values.yaml` defaults back in after your override is applied,
-so `nvidia.com/gpu: 1` reappears. Only overriding the value itself sticks.
+Set both `resources.limits.nvidia.com/gpu` and `resources.requests.nvidia.com/gpu`
+to `0` to release a GPU. Setting `nvidia.com/gpu: null`, `resources: null`, or
+`resources: {}` does not disable the allocation, whether passed with `-f` or
+`--set`: Helm coalesces the **subchart's own** `values.yaml` defaults back in after
+your override is applied, so `nvidia.com/gpu: 1` reappears. Only explicitly
+setting both GPU counts to `0` preserves the override.
 
 Software mode reduces video throughput; use it only when an additional GPU is not
 available.
@@ -397,8 +399,8 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vios.vstStorage.vstData.size`** | **`10Gi`** | PVC size for shared VST data volume. |
 | **`vios.vstStorage.vstVideo.size`** | **`20Gi`** | PVC size for shared VST video volume. |
 | **`vios.vstStorage.streamerVideos.size`** | **`20Gi`** | PVC size for the NVStreamer upload volume. |
-| **`vios.vss-vios-streamprocessing.useSoftwarePath`** | **`false`** | Set **`true`** (paired with **`resources: null`**) to use FFmpeg software encode/decode and free the second GPU. Both flags required — see [GPU requirements](#gpu-requirements). |
-| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Pod resource requests/limits for streamprocessing. Set **`null`** (with **`useSoftwarePath: true`**) to drop the GPU claim entirely. |
+| **`vios.vss-vios-streamprocessing.useSoftwarePath`** | **`false`** | Set **`true`** and set both GPU limits and requests to **`0`** to use FFmpeg software encode/decode and free the streamprocessing GPU. Both the path and resource overrides are required — see [GPU requirements](#gpu-requirements). |
+| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Pod resource requests/limits for streamprocessing. Set both **`limits.nvidia.com/gpu`** and **`requests.nvidia.com/gpu`** to **`0`** with **`useSoftwarePath: true`** to release the GPU. `null` restores the default GPU count. |
 | **`vios.vss-vios-nvstreamer.syncFileCount`** | **`4`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** | **`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`** | NGC resource for the NVStreamer sample video seed. Keep in step with **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`**. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.fromExistingClaim`** | **`vss-rtvi-cv-models`** | Reuses the PVC from the `vss-rtvi-cv` NGC download job so the video data is not downloaded twice. Clear this and set **`resourceVersion`** to download the video seed independently. |
