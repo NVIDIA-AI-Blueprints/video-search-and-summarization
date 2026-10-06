@@ -34,6 +34,8 @@ def test_readiness_stages_stop_at_failure(monkeypatch, tmp_path, failed_stage):
     else:
         runner._check_readiness("se-test", evidence)
     rows = json.loads(evidence.read_text())["stages"]
+    artifact = evidence.parent.parent / "artifacts/nemoclaw/readiness.json"
+    assert artifact.read_text() == evidence.read_text()
     assert "secret" not in evidence.read_text()
     assert all(row["status"] == "passed" for row in rows[:-1])
     assert rows[-1]["stage"] == (failed_stage or "vss_configuration")

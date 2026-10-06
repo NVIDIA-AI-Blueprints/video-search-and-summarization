@@ -124,6 +124,8 @@ def _ensure_gateway(sandbox: str) -> None:
 def _check_readiness(sandbox: str, evidence: Path) -> None:
     """Prove sandbox access, authenticated gateway and CLI before a prompt."""
     stages: list[dict[str, Any]] = []
+    artifact = evidence.parent.parent / "artifacts" / "nemoclaw" / evidence.name
+    artifact.parent.mkdir(parents=True, exist_ok=True)
     for stage, command in (
         ("sandbox_access", "true"),
         ("gateway_health", None),
@@ -166,7 +168,13 @@ def _check_readiness(sandbox: str, evidence: Path) -> None:
             raise
         finally:
             # Metadata only: never store gateway tokens, config or raw output.
-            evidence.write_text(json.dumps({"sandbox": sandbox, "stages": stages}, indent=2) + "\n")
+            report = json.dumps({
+                "sandbox": sandbox,
+                "gateway_port": os.environ.get("NEMOCLAW_GATEWAY_PORT", "8080"),
+                "stages": stages,
+            }, indent=2) + "\n"
+            evidence.write_text(report)
+            artifact.write_text(report)
 
 
 def _nemoclaw_exec(

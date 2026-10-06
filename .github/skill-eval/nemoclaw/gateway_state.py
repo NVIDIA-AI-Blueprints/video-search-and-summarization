@@ -45,5 +45,9 @@ def claim(owner: str, ports: list[int], home: Path) -> None:
 
 
 if __name__ == "__main__":
-    claim(sys.argv[1], [int(value) for value in sys.argv[2:]], Path.home())
+    ports = [int(value) for value in sys.argv[2:]]
+    claim(sys.argv[1], ports, Path.home())
+    artifact = Path("/logs/artifacts/nemoclaw/gateway_namespace.json")
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text(json.dumps({"owner": sys.argv[1], "ports": ports, "registry_isolated": True}, indent=2) + "\n")
     print("NemoClaw eval gateway namespace claimed")

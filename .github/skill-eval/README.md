@@ -284,6 +284,9 @@ for sandbox access, gateway health, authenticated gateway health, and the
 sandbox-installed `vss configure check`. A listening HTTP endpoint alone does
 not establish successful pairing. Readiness failure stops before model work
 and records stage/exit metadata without gateway credentials or raw config.
+The same report and the initial namespace ownership/port receipt are included
+under `artifacts/logs/artifacts/nemoclaw/` so the workflow archive preserves
+them even though it excludes raw agent trajectories.
 
 The setup checks require trajectory evidence of Build Vision AI use and,
 when selected, a ready NemoClaw sandbox with its VSS CLI configured. An answer
