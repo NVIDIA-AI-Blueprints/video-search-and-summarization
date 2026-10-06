@@ -895,6 +895,40 @@ class RunInvocations(unittest.TestCase):
     def config(self, env=None):
         return run_leg.resolve_model_routes(env or self.ENV)
 
+    def test_local_proxy_uses_placeholder_and_preserves_hosted_route(self):
+        env = {
+            **self.ENV,
+            "NGC_API_KEY": "registry-secret",
+            "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
+            "SKILLS_EVAL_OPERATIONAL_DEPLOYMENT": "local-nim",
+            "SKILLS_EVAL_OPERATIONAL_MODEL": "nvidia/nemotron-3.5-lightning-30b-a3b",
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.object(run_leg, "_run_invocations", return_value=0) as execute,
+                mock.patch.object(run_leg, "cleanup_local_nims") as cleanup,
+            ):
+                rc = run_leg.run_invocations(
+                    [], "Spark-ba-WiFi", root / "results", root / "scratch",
+                    "base", "DGX-SPARK", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                    self.config(env),
+                )
+            routes = execute.call_args.args[7]
+            self.assertEqual(routes.coding.api_key, "test-secret")
+            self.assertEqual(routes.operational.api_key, "local-nim")
+            plan = execute.call_args.kwargs["nim_plan"]
+            self.assertNotIn("token", plan)
+            self.assertEqual(plan["routes"], [{
+                "role": "operational", "runtime": "nemoclaw",
+                "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+            }])
+            cleanup.assert_called_once_with("Spark-ba-WiFi", plan["owner"])
+            evidence = (root / "results" / "model-deployments.json").read_text()
+            self.assertNotIn("test-secret", evidence)
+            self.assertNotIn("registry-secret", evidence)
+        self.assertEqual(rc, 0)
+
     def test_timeout_stops_all_single_step_invocations(self):
         invocations = [
             run_leg.HarborInvocation(
@@ -1008,7 +1042,7 @@ class RunInvocations(unittest.TestCase):
         )
         env = {
             **self.ENV,
-                "SKILLS_EVAL_CODING_HARNESS": "claude-code",
+            "SKILLS_EVAL_CODING_HARNESS": "claude-code",
             "EVAL_AGENT": "claude-code",
             "SKILLS_EVAL_CODING_MODEL": "selected/model",
             "SKILLS_EVAL_CODING_API_KEY": "route-secret",
@@ -1087,16 +1121,22 @@ class RunInvocations(unittest.TestCase):
                 "EVAL_SKILL": "vss-manage-alerts",
                 "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/alerts.json",
             }
+            for invocation in invocations:
+                task = invocation.harbor_root / invocation.include_task_name
+                task.mkdir(parents=True, exist_ok=True)
+                (task / "instruction.md").write_text("Spec-owned task\n")
             seen_env = []
 
             def run_command(_cmd, child_env, _timeout):
+                for invocation in invocations:
+                    instruction = invocation.harbor_root / invocation.include_task_name / "instruction.md"
+                    self.assertEqual(instruction.read_text(), "Spec-owned task\n")
                 seen_env.append(child_env.copy())
                 return 0
 
             with (
                 mock.patch.dict(run_leg.os.environ, env, clear=True),
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
-                mock.patch.object(run_leg, "prepare_nemoclaw_setup_task") as prepare,
                 mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]) as command,
                 mock.patch.object(run_leg, "run_command", side_effect=run_command) as run,
                 mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
@@ -1110,9 +1150,9 @@ class RunInvocations(unittest.TestCase):
                 )
 
         self.assertEqual(rc, 0)
-        prepare.assert_called_once_with(invocations[0], "vss-manage-alerts")
         self.assertEqual(command.call_args_list[0].args[4], "codex")
         self.assertEqual(command.call_args_list[1].args[4], "nemoclaw")
+        self.assertEqual(seen_env[0]["SKILLS_EVAL_OPERATIONAL_HARNESS"], "nemoclaw")
         self.assertEqual(command.call_args_list[0].args[2], "azure/openai/gpt-6.1-sol")
         self.assertEqual(command.call_args_list[1].args[2], "aws/anthropic/bedrock-claude-opus-5-5")
         self.assertEqual(
@@ -1174,9 +1214,6 @@ class RunInvocations(unittest.TestCase):
                 mock.patch.dict(run_leg.os.environ, env, clear=True),
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
                 mock.patch.object(
-                    run_leg, "prepare_nemoclaw_setup_task"
-                ) as prepare,
-                mock.patch.object(
                     run_leg, "build_harbor_command", return_value=["harbor"]
                 ) as command,
                 mock.patch.object(
@@ -1200,13 +1237,6 @@ class RunInvocations(unittest.TestCase):
                 )
 
         self.assertEqual(rc, 0)
-        self.assertEqual(
-            prepare.call_args_list,
-            [
-                mock.call(invocations[0], "vss-manage-alerts"),
-                mock.call(invocations[2], "vss-manage-alerts"),
-            ],
-        )
         self.assertEqual(
             [call.args[2] for call in command.call_args_list],
             ["coding/model", "operational/model", "coding/model", "operational/model"],
@@ -1332,7 +1362,6 @@ class RunInvocations(unittest.TestCase):
                         "COMPATIBLE_API_KEY": "stale-compatible-key",
                     },
                 ),
-                mock.patch.object(run_leg, "prepare_nemoclaw_setup_task"),
                 mock.patch.object(
                     run_leg, "build_harbor_command", return_value=["harbor"]
                 ),
@@ -1446,7 +1475,6 @@ class RunInvocations(unittest.TestCase):
             with (
                 mock.patch.dict(run_leg.os.environ, env, clear=True),
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
-                mock.patch.object(run_leg, "prepare_nemoclaw_setup_task"),
                 mock.patch.object(
                     run_leg, "build_harbor_command", return_value=["harbor"]
                 ) as command,
@@ -1508,7 +1536,6 @@ class RunInvocations(unittest.TestCase):
             with (
                 mock.patch.dict(run_leg.os.environ, env, clear=True),
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
-                mock.patch.object(run_leg, "prepare_nemoclaw_setup_task"),
                 mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]),
                 mock.patch.object(run_leg, "run_command", return_value=0) as run,
                 mock.patch.object(run_leg, "latest_reward", return_value="0.5"),
@@ -1526,38 +1553,74 @@ class RunInvocations(unittest.TestCase):
             cleanup.assert_called_once()
             self.assertTrue((root / "scratch" / "skipped-alerts-L40S-step-2.txt").is_file())
 
-    def test_prepare_nemoclaw_setup_task_preserves_query_and_adds_build_vision(self):
+    def test_trial_timeout_with_passing_reward_stops_setup_and_operational_chains(self):
+        for coding_setup, failed_step in ((True, 1), (False, 2)):
+            with self.subTest(coding_setup=coding_setup), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                invocations = [
+                    run_leg.HarborInvocation(
+                        harbor_root=root / "dataset",
+                        include_task_name=f"step-{index}",
+                        chain_key="alerts",
+                        step_index=index,
+                        step_count=failed_step + 1,
+                    )
+                    for index in (failed_step, failed_step + 1)
+                ]
+                env = dict(self.ENV)
+                if coding_setup:
+                    env.update({
+                        "EVAL_AGENT": "nemoclaw",
+                        "EVAL_SKILL": "vss-manage-alerts",
+                        "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/alerts.json",
+                    })
+                child_envs = []
+
+                def timed_out_trial(_cmd, child_env, _timeout):
+                    child_envs.append(child_env.copy())
+                    result = root / "results" / "job" / f"step-{failed_step}__trial" / "result.json"
+                    result.parent.mkdir(parents=True)
+                    result.write_text(json.dumps({
+                        "exception_info": {"exception_type": "AgentTimeoutError"},
+                        "verifier_result": {"rewards": {"reward": 1.0}},
+                    }))
+                    # Harbor reports a completed job even though its agent timed out.
+                    return 0
+
+                with (
+                    mock.patch.dict(run_leg.os.environ, env, clear=True),
+                    mock.patch.object(run_leg, "harbor_env", return_value={}),
+                    mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]),
+                    mock.patch.object(run_leg, "run_command", side_effect=timed_out_trial) as run,
+                    mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
+                    mock.patch.object(run_leg, "publish_trace", return_value=None),
+                    mock.patch.object(run_leg, "cleanup_deferred_agent_run") as cleanup,
+                ):
+                    rc = run_leg.run_invocations(
+                        invocations, "vss-eval-box", root / "results", root / "scratch",
+                        "alerts", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                        self.config(env),
+                    )
+
+                self.assertEqual(rc, 1)
+                self.assertEqual(run.call_count, 1)
+                self.assertNotEqual(child_envs[0].get("SKILL_EVAL_PRESERVE_DEPLOYMENT"), "1")
+                marker = root / "scratch" / f"skipped-alerts-L40S-step-{failed_step + 1}.txt"
+                self.assertTrue(marker.is_file())
+                self.assertIn("reward=1.0", marker.read_text())
+                if coding_setup:
+                    cleanup.assert_called_once()
+
+    def test_trial_exception_ignores_old_results_and_other_steps(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            task = root / "dataset" / "step-1"
-            task.mkdir(parents=True)
-            (task / "instruction.md").write_text("Deploy the requested system.\n")
-            build_skill = root / "repo" / "skills" / "vss-build-vision-ai"
-            build_skill.mkdir(parents=True)
-            (build_skill / "SKILL.md").write_text("# Build Vision AI\n")
-            invocation = run_leg.HarborInvocation(
-                harbor_root=task.parent,
-                include_task_name="step-1",
-                chain_key="spec",
-            )
-
-            with mock.patch.object(run_leg, "REPO_ROOT", root / "repo"):
-                run_leg.prepare_nemoclaw_setup_task(invocation, "vss-ask-video")
-
-            instruction = (task / "instruction.md").read_text()
-            self.assertTrue(instruction.startswith("Deploy the requested system.\n"))
-            self.assertIn(
-                "The evaluation query above is the complete deployment/setup intent",
-                instruction,
-            )
-            self.assertIn("/vss-build-vision-ai", instruction)
-            self.assertIn("/vss-ask-video", instruction)
-            self.assertIn(
-                'openshell sandbox get "$NEMOCLAW_SANDBOX_NAME"',
-                instruction,
-            )
-            self.assertNotIn("HARBOR_SKILL_EVAL_AGENT_RUN", instruction)
-            self.assertTrue((task / "skills" / "vss-build-vision-ai" / "SKILL.md").is_file())
+            for trial in ("step-1__old", "step-2__other"):
+                result = root / "job" / trial / "result.json"
+                result.parent.mkdir(parents=True)
+                result.write_text(json.dumps({"exception_info": {"exception_type": "AgentTimeoutError"}}))
+                if trial.endswith("old"):
+                    os.utime(result, (10, 10))
+            self.assertIsNone(run_leg.latest_trial_exception(root, "step-1", 20))
 
     def test_passing_step_lets_the_chain_continue(self):
         """reward 1.0 and rc 0 must run step 2 and write no skip markers.

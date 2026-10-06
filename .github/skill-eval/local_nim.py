@@ -4,9 +4,9 @@
 """Worker-side NIM lifecycle. Standard library only; copied to the VSS worker.
 
 Discover model-specific NIMs in nvcr.io, pin the resolved manifest digest,
-validate CPU architecture, then serve coding harnesses through LiteLLM and
-NemoClaw through NIM's native API. No resource sizing or hosted fallback is
-performed.
+validate CPU architecture, then serve the selected harnesses through an
+unauthenticated, job-owned LiteLLM adapter. No resource sizing or hosted
+fallback is performed.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ import urllib.request
 from pathlib import Path
 
 PROXY_PORT = 18400
+LOCAL_NIM_CLIENT_KEY = "local-nim"  # Non-secret placeholder for clients that require an API key.
 LITELLM_VERSION = "1.103.0"
 LABEL = "vss.skill-eval.nim-owner"
 STARTUP_BUDGET_SEC = 5400
@@ -264,7 +265,8 @@ def wait_ready(url: str, token: str, timeout: int = 900, container: str | None =
     deadline = min(time.monotonic() + timeout, _START_DEADLINE or float("inf"))
     while time.monotonic() < deadline:
         try:
-            return request_json(url, {"Authorization": f"Bearer {token}"})[0]
+            headers = {"Authorization": f"Bearer {token}"} if token else {}
+            return request_json(url, headers)[0]
         except urllib.error.HTTPError as exc:
             if exc.code in (401, 403):
                 raise NimError(
@@ -302,15 +304,11 @@ def start(plan: dict):
         ).stdout.split()
         previous = json.loads(marker.read_text())
         config_file = root / "proxy.json"
-        previous_key = (
-            json.loads(config_file.read_text())
-            .get("general_settings", {})
-            .get("master_key")
-            if config_file.exists()
-            else None
-        )
+        previous_config = json.loads(config_file.read_text()) if config_file.exists() else None
         same_plan = (
-            previous.get("roles") == plan["routes"] and previous_key == plan["token"]
+            previous.get("roles") == plan["routes"]
+            and previous_config is not None
+            and previous_config.get("general_settings", {}).get("master_key") is None
         )
         if same_plan and len(containers) == len(unique_models(plan["routes"])) + 1:
             for i, model in enumerate(unique_models(plan["routes"])):
@@ -326,7 +324,7 @@ def start(plan: dict):
                 ]:
                     raise NimError(f"Reused local NIM changed served model: {model}")
             wait_ready(
-                f"http://127.0.0.1:{PROXY_PORT}/health/liveliness", plan["token"], 30
+                f"http://127.0.0.1:{PROXY_PORT}/health/liveliness", "", 30
             )
             smoke_routes(plan, worker_host() if any(
                 route["runtime"] == "nemoclaw" for route in plan["routes"]
@@ -427,7 +425,7 @@ def start(plan: dict):
         ))
         if direct_nemoclaw:
             # Keep the selected ID on NIM for discovery. NemoClaw reaches it
-            # through the authenticated proxy, never this loopback port.
+            # through the job-owned proxy, never this loopback port.
             nim_args.extend(("--served-model-name", nemoclaw_route["model"]))
         docker(*nim_args)
         base = f"http://127.0.0.1:{port}/v1"
@@ -462,7 +460,6 @@ def start(plan: dict):
     proxy_config = {
         "model_list": list({m["model_name"]: m for m in models}.values()),
         "litellm_settings": {"drop_params": True},
-        "general_settings": {"master_key": plan["token"]},
     }
     config_file = root / "proxy.json"
     config_file.write_text(json.dumps(proxy_config))
@@ -484,7 +481,7 @@ def start(plan: dict):
         f"pip install --disable-pip-version-check 'litellm[proxy]=={LITELLM_VERSION}' && exec litellm --config /config.yaml --host 0.0.0.0 --port {PROXY_PORT}",
         timeout=300,
     )
-    wait_ready(f"http://127.0.0.1:{PROXY_PORT}/health/liveliness", plan["token"], 300)
+    wait_ready(f"http://127.0.0.1:{PROXY_PORT}/health/liveliness", "", 300)
     # Exercise each harness protocol, so a healthy server with an incompatible
     # API cannot produce an apparently successful deployment.
     smoke_routes(plan, host)
@@ -497,7 +494,7 @@ def start(plan: dict):
 
 
 def smoke_routes(plan: dict, host: str | None):
-    """Check the same authenticated endpoints the evaluated harnesses use."""
+    """Check each selected protocol without proxy credentials."""
     for route in plan["routes"]:
         runtime = route["runtime"]
         schema = {"type": "object", "properties": {}}
@@ -559,8 +556,6 @@ def smoke_routes(plan: dict, host: str | None):
             request_json(
                 f"{smoke_base}/{path}",
                 {
-                    "Authorization": f"Bearer {plan['token']}",
-                    "x-api-key": plan["token"],
                     "anthropic-version": "2023-06-01",
                     "Content-Type": "application/json",
                 },
@@ -568,7 +563,7 @@ def smoke_routes(plan: dict, host: str | None):
             )
         except urllib.error.HTTPError as exc:
             detail = exc.read(1500).decode(errors="replace")
-            for secret in (plan["token"], os.environ.get("NGC_API_KEY"), os.environ.get("NGC_CLI_API_KEY")):
+            for secret in (os.environ.get("NGC_API_KEY"), os.environ.get("NGC_CLI_API_KEY")):
                 if secret:
                     detail = detail.replace(secret, "[REDACTED]")
             raise NimError(
@@ -579,10 +574,19 @@ def smoke_routes(plan: dict, host: str | None):
 
 def configure_nemoclaw(evidence: dict):
     if evidence.get("nemoclaw_endpoint"):
+        endpoint = evidence["nemoclaw_endpoint"]
+        host = urllib.parse.urlsplit(endpoint).hostname
+        if not host:
+            raise NimError("Worker NIM endpoint has no host")
+        # Onboard rejects private inference destinations unless the operator
+        # explicitly trusts their exact host. This is the job-owned adapter
+        # we started on this worker; do not grant a subnet or relax other URLs.
         with (Path.home() / ".eval_env").open("a") as handle:
             handle.write(
                 "\nexport NEMOCLAW_ENDPOINT_URL="
-                + shlex.quote(evidence["nemoclaw_endpoint"])
+                + shlex.quote(endpoint)
+                + "\nexport NEMOCLAW_TRUSTED_PRIVATE_INFERENCE_HOSTS="
+                + shlex.quote(host)
                 + "\n"
             )
 
@@ -606,7 +610,6 @@ def collect_logs(plan: dict):
         result = docker("logs", "--tail", "150", name, check=False)
         logs = result.stdout + result.stderr
         for value in (
-            plan.get("token"),
             os.environ.get("NGC_API_KEY"),
             os.environ.get("NGC_CLI_API_KEY"),
         ):
@@ -681,7 +684,6 @@ def main():
         target.mkdir(parents=True, exist_ok=True)
         message = f"{type(exc).__name__}: {exc}"
         for secret in (
-            plan["token"],
             os.environ.get("NGC_API_KEY"),
             os.environ.get("NGC_CLI_API_KEY"),
         ):

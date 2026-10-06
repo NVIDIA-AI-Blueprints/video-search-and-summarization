@@ -498,6 +498,18 @@ class ListChangedFiles(unittest.TestCase):
                                  "skills/operations/vss-manage-alerts/evals/b.json"])
         self.assertEqual(calls, [])  # manual mode never invokes git
 
+    def test_manual_operations_filter_excludes_build_vision_ai(self):
+        from unittest import mock
+
+        with mock.patch.dict(os.environ, {"MANUAL_SKILLS_FILTER": "operations"}), \
+             mock.patch.object(plan_matrix.subprocess, "run") as git:
+            os.environ.pop("CHANGED_FILES", None)
+            files = plan_matrix.list_changed_files()
+        self.assertTrue(files)
+        self.assertTrue(all(path.startswith("skills/operations/") for path in files))
+        self.assertFalse(any(path.startswith("skills/vss-build-vision-ai/") for path in files))
+        git.assert_not_called()
+
     def test_manual_filter_unknown_skill_raises(self):
         """A typo'd / non-existent skill filter fails the plan loudly instead
         of emitting a silent empty matrix the eval job skips."""

@@ -394,6 +394,7 @@ class BrevEnvironment(BaseEnvironment):
             # The Build Vision AI provisioning task owns host-side NemoClaw
             # setup. Forward its provider and lifecycle inputs exactly as
             # supplied by CI; the harness invokes the worker's NemoClaw CLI.
+            "SKILLS_EVAL_OPERATIONAL_HARNESS",
             "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_RECREATE_SANDBOX",
             "NEMOCLAW_GATEWAY_PORT",
             "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_POLICY_MODE",
@@ -1508,7 +1509,8 @@ def _prior_agent_output_archive_command() -> str:
         "ts=$(date +%Y%m%d-%H%M%S)-$$; "
         "PROJ=/logs/agent/sessions/projects; "
         "ROOT=/logs/agent; "
-        "OUTPUTS='claude-code.txt trajectory.json trajectory.jsonl agent.log'; "
+        "OUTPUTS='claude-code.txt codex.txt openclaw.txt openclaw.session.jsonl "
+        "trajectory.json trajectory.jsonl agent.log'; "
         "HAS_SESSIONS=0; "
         "HAS_OUTPUT=0; "
         'if [ -d "$PROJ" ] && [ -n "$(ls -A "$PROJ" 2>/dev/null)" ]; then '

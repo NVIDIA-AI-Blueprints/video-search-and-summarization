@@ -103,16 +103,16 @@ def resolve_model_config(
             "no configured default model"
         )
     if deployment == LOCAL_NIM_PROVIDER:
-        from local_nim import validate_model_id
+        from local_nim import LOCAL_NIM_CLIENT_KEY, validate_model_id
         try:
             validate_model_id(model)
         except ValueError as exc:
             raise ValueError(f"{prefix}_MODEL: {exc}") from exc
         if not _first(env.get("NGC_CLI_API_KEY"), env.get("NGC_API_KEY")):
             raise ValueError("local-nim requires NGC_CLI_API_KEY or NGC_API_KEY")
-        # Filled with a per-leg credential by run_leg; never send a hosted key.
+        # Non-secret client placeholder; the job-owned proxy requires no auth.
         endpoint_url = "http://127.0.0.1:18400/v1"
-        api_key = "local-nim"
+        api_key = LOCAL_NIM_CLIENT_KEY
     if not api_key:
         raise ValueError(
             f"no API key is configured; set {credential_name} on the runner"

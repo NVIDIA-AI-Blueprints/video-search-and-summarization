@@ -591,8 +591,11 @@ markers; and releases the lock when it exits.
 `run_leg.py` resolves independent coding and operational routes. For a spec
 under `skills/operations/`, the coding route runs the first `expects[]` task as
 the deployment/readiness contract and the operational route runs the remaining
-tasks. If the operational route is NemoClaw, Build Vision AI also attaches its
-sandbox during that first task. Specs outside `skills/operations/`, including
+tasks. If the operational route is NemoClaw, the spec also bootstraps its
+sandbox during that first task, as explicitly requested in the spec query.
+The runner forwards `SKILLS_EVAL_OPERATIONAL_HARNESS` and provider/lifecycle
+inputs; it does not append instructions or copy skills into generated tasks.
+Adapters must include the spec-declared Build Vision AI skill. Specs outside `skills/operations/`, including
 `vss-build-vision-ai`, use the coding route throughout. Worker selection and
 locking remain route-independent.
 
@@ -603,7 +606,7 @@ model, and deployment inputs. Hosted routes use the fixed
 checks architecture, starts it after Docker reset, and shares one deployment
 when both roles select the same model. Do not deploy these inference models
 in an adapter or ask the evaluated agent to deploy them. The harness manages
-their endpoints, temporary credentials, readiness, logs, and cleanup.
+their endpoints, non-secret client placeholders, readiness, logs, and cleanup.
 Coordinator and judge routing stays runner-managed. One role must never inherit
 another role's model or deployment override. See README.md for lifecycle details.
 

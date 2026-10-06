@@ -33,7 +33,6 @@ import json
 import os
 from pathlib import Path
 import re
-import secrets
 import shutil
 import signal
 import subprocess
@@ -817,53 +816,6 @@ def nemoclaw_sandbox_name(run_id: str, leg_slug: str) -> str:
     return f"se-{safe_run_id[-6:]}-{digest}"
 
 
-def prepare_nemoclaw_setup_task(
-    invocation: HarborInvocation,
-    operational_skill: str,
-) -> None:
-    """Make the spec's first task provision VSS and NemoClaw via Build Vision AI.
-
-    The generated task remains authoritative for the deployment intent and its
-    checks.  This only supplies the orchestration skill and tells the coding
-    agent which harness the current eval requested.
-    """
-    task_dir = invocation.harbor_root / invocation.include_task_name
-    instruction_path = task_dir / "instruction.md"
-    if not instruction_path.is_file():
-        raise FileNotFoundError(f"setup instruction missing: {instruction_path}")
-    build_vision_skill = REPO_ROOT / "skills" / "vss-build-vision-ai"
-    if not (build_vision_skill / "SKILL.md").is_file():
-        raise FileNotFoundError(f"Build Vision AI skill missing: {build_vision_skill}")
-
-    original_instruction = instruction_path.read_text(encoding="utf-8")
-    harness_requirement = f"""
-
-## Selected agent harness: NemoClaw
-
-The evaluation query above is the complete deployment/setup intent. Fulfil it
-through `/vss-build-vision-ai` and attach NemoClaw to that same build before
-returning. Use the existing `$NEMOCLAW_SANDBOX_NAME` and model-provider
-environment values unchanged, install `/{operational_skill}` in that sandbox,
-and complete Build Vision AI's documented readiness verification. The task is
-not complete until `openshell sandbox get "$NEMOCLAW_SANDBOX_NAME"` succeeds
-and the sandbox gateway is ready. Include the sandbox name and Agent UI link in
-the final response. Run non-interactively with the query's choices and the
-documented defaults.
-"""
-    instruction_path.write_text(
-        original_instruction.rstrip() + harness_requirement,
-        encoding="utf-8",
-    )
-
-    skills_dir = task_dir / "skills"
-    skills_dir.mkdir(exist_ok=True)
-    shutil.copytree(
-        build_vision_skill,
-        skills_dir / "vss-build-vision-ai",
-        dirs_exist_ok=True,
-    )
-
-
 def attempt_lock_timeout(
     base: int, work_deadline: float | None, reserve: int
 ) -> int:
@@ -1341,6 +1293,44 @@ def latest_reward(
     return latest.read_text().strip()
 
 
+def latest_trial_exception(
+    results_root: Path,
+    include_task_name: str,
+    started_at: float,
+) -> str | None:
+    """Read this invocation's structured failure, independent of its reward.
+
+    Harbor can exit zero and run the verifier after an agent timeout. A
+    passing reward in that case does not mean setup finished successfully.
+    Ignore earlier invocations and job-level aggregate result files.
+    """
+    matches = [
+        path
+        for path in results_root.glob(f"*/{include_task_name}__*/result.json")
+        if path.stat().st_mtime >= started_at
+    ]
+    if not matches:
+        return None
+    latest = max(matches, key=lambda path: path.stat().st_mtime)
+    try:
+        payload = json.loads(latest.read_text())
+    except (OSError, ValueError):
+        return "unreadable trial result"
+    if not isinstance(payload, dict):
+        return "invalid trial result"
+    info = payload.get("exception_info")
+    if not info:
+        return None
+    # Log the exception type only; messages and tracebacks can contain secrets.
+    if isinstance(info, dict):
+        exception_type = info.get("exception_type")
+        if isinstance(exception_type, str) and re.fullmatch(
+            r"[A-Za-z][A-Za-z0-9_]{0,100}", exception_type
+        ):
+            return exception_type
+    return "Harbor trial exception"
+
+
 def _coordinator_env_id() -> str | None:
     """Brev env id of the COORDINATOR host — the box running `harbor view`.
 
@@ -1680,7 +1670,7 @@ def run_invocations(
     model_routes: SkillEvalModelRoutes,
     work_deadline: float | None = None,
 ) -> int:
-    from local_nim import PROXY_PORT
+    from local_nim import LOCAL_NIM_CLIENT_KEY, PROXY_PORT
 
     routes = [
         r
@@ -1700,10 +1690,8 @@ def run_invocations(
             work_deadline,
         )
     owner = hashlib.sha256(str(results_root).encode()).hexdigest()[:24]
-    token = "sk-" + secrets.token_hex(24)
     plan = {
         "owner": owner,
-        "token": token,
         "routes": [
             {"role": r.role, "model": r.model, "runtime": r.runtime} for r in routes
         ],
@@ -1712,7 +1700,8 @@ def run_invocations(
     def local_route(route):
         return (
             dataclasses.replace(
-                route, api_key=token, endpoint_url=f"http://127.0.0.1:{PROXY_PORT}/v1"
+                route, api_key=LOCAL_NIM_CLIENT_KEY,
+                endpoint_url=f"http://127.0.0.1:{PROXY_PORT}/v1"
             )
             if route.provider == "local-nim"
             else route
@@ -1800,15 +1789,9 @@ def _run_invocations(
     nemoclaw_setups: dict[str, HarborInvocation] = {}
     deferred_agent_marker: str | None = None
     operational_config = model_routes.operational
+    env["SKILLS_EVAL_OPERATIONAL_HARNESS"] = operational_config.runtime
     if operational_eval and operational_config.runtime == "nemoclaw":
         nemoclaw_setups = coding_setups
-        operational_skill = os.environ.get("EVAL_SKILL", "operational-skill")
-        try:
-            for setup in nemoclaw_setups.values():
-                prepare_nemoclaw_setup_task(setup, operational_skill)
-        except OSError as exc:
-            print(f"FATAL: could not prepare NemoClaw setup task: {exc}", file=sys.stderr)
-            return 1
 
         derived_sandbox_name = nemoclaw_sandbox_name(run_id, leg_slug)
         sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME") or derived_sandbox_name
@@ -1829,8 +1812,8 @@ def _run_invocations(
         )
         env["COMPATIBLE_API_KEY"] = operational_config.api_key
         if operational_config.provider == "local-nim":
-            # Keep the per-leg proxy credential separate from the generic
-            # provider setting, which setup recipes may replace with EMPTY.
+            # Clients require a non-empty API key even though the job-owned
+            # proxy does not authenticate it. Never forward a hosted key.
             env["SKILL_EVAL_LOCAL_NIM_API_KEY"] = operational_config.api_key
             # NemoClaw's inference proxy rewrites private endpoints to HTTPS
             # on port 443. The worker NIM adapter serves plain HTTP on 18400.
@@ -1951,12 +1934,17 @@ def _run_invocations(
             publish_trace(results_root, invocation, started_at, leg_slug, run_id)
         except Exception as exc:  # noqa: BLE001
             # A trace link is reporting convenience; the verdict comes from
-            # reward.txt. Never let a viewer-publish error fail the leg.
+            # trial result and reward. A viewer-publish error does not fail the leg.
             print(f"[run-leg] trace publish failed: {exc!r}", flush=True)
         if rc != 0 and overall_rc == 0:
             overall_rc = rc
 
         reward: str | None = None
+        trial_exception = latest_trial_exception(
+            results_root, invocation.include_task_name, started_at
+        )
+        if trial_exception is not None and overall_rc == 0:
+            overall_rc = 1
         if is_coding_setup or (
             invocation.step_index is not None and invocation.step_count is not None
         ):
@@ -1964,13 +1952,17 @@ def _run_invocations(
             reward_value = _reward_value(reward)
             print(
                 f"[run-leg] {invocation.chain_key}/{invocation.include_task_name} "
-                f"rc={rc} reward={reward if reward is not None else 'missing'}",
+                f"rc={rc} reward={reward if reward is not None else 'missing'} "
+                f"exception={trial_exception or 'none'}",
                 flush=True,
             )
             if (
                 invocation.step_index is not None
                 and invocation.step_count is not None
-                and (rc == 124 or rc >= 128 or reward_value < 1.0)
+                and (
+                    rc == 124 or rc >= 128 or reward_value < 1.0
+                    or trial_exception is not None
+                )
             ):
                 write_skip_markers(
                     scratch,
@@ -1983,7 +1975,7 @@ def _run_invocations(
                 skipped_after[invocation.chain_key] = invocation.step_index
 
         if is_coding_setup:
-            if rc != 0 or _reward_value(reward) < 1.0:
+            if rc != 0 or _reward_value(reward) < 1.0 or trial_exception is not None:
                 if overall_rc == 0:
                     overall_rc = rc or 1
                 if (
