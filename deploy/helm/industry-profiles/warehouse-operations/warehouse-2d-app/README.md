@@ -382,14 +382,82 @@ Video source — pick one; they're mutually exclusive, don't configure both:
    directly; test with VLC or `ffplay` from the deployment machine before
    deploying.
 
-**Calibration is optional for 2D** (unlike 3D/MV3DT):
+##### Calibration
 
-- 2D detection/tracking runs directly on the camera stream in image (pixel)
-  coordinates — no calibration required.
-- Calibration is only needed for ROI/tripwire events in behavior-analytics.
-- Neither is disabled by default.
+2D supports three calibration states (unlike 3D/MV3DT, which always need
+cartesian calibration):
 
-If you don't need ROI/tripwire, skip calibration entirely with these 3 changes:
+- **Cartesian** (`calibrationType: "cartesian"`) — full image-to-global
+  calibration; ROI/tripwire authoring fully supported.
+- **Image coordinates, with a calibration file** (`calibrationType:
+  "image"`) — pixel-coordinate calibration, no geometric transform;
+  ROI/tripwire must be measured manually.
+- **Running 2D without calibration** — detection/tracking still runs in
+  image (pixel) coordinates; ROI/tripwire events are unavailable. See below.
+
+##### Image coordinate calibration
+
+Image-coordinate calibration does not require an image-to-global coordinate
+transformation, so camera intrinsics, extrinsics, and homography are not
+needed. ROIs and tripwires are optional and only needed for analytics that
+use them — Auto Calibration currently does not support defining them in
+image coordinates, so measure their pixel coordinates manually (using an
+image editing tool) and enter them in the file.
+
+1. **Start with the empty calibration template** — contains a placeholder
+   sensor named `Camera_01`; fill the blank fields and replace the
+   placeholder values before using it:
+
+   ```text
+   {
+     "version": "1.0",
+     "osmURL": "",
+     "calibrationType": "",
+     "sensors": [
+       {
+         "type": "",
+         "id": "Camera_01",
+         "origin": { "lng": 0, "lat": 0 },
+         "geoLocation": { "lng": 0, "lat": 0 },
+         "coordinates": { "x": 0, "y": 0 },
+         "scaleFactor": 0,
+         "attributes": [],
+         "place": [],
+         "imageCoordinates": [],
+         "globalCoordinates": [],
+         "tripwires": [],
+         "rois": []
+       },
+       ...
+     ]
+   }
+   ```
+
+2. **Measure pixel coordinates and fill the template** — open a frame from
+   your camera at its original resolution in an image editing tool (Paint,
+   IrfanView, etc.), read the pixel coordinates for the ROIs and tripwires
+   your analytics require, then:
+   - Set `calibrationType` to `image` and the sensor `type` to `camera`.
+   - Replace `Camera_01` with the matching sensor id — the registered
+     `camera_name` for RTSP, or the video filename (no extension) for
+     recorded files.
+   - Set `scaleFactor` to `1` and add the frame width/height to `attributes`.
+   - Enter ROI vertices and tripwire endpoints in pixel coordinates. Leave
+     `rois`/`tripwires` empty if your analytics don't require them.
+   - Leave `imageCoordinates` and `globalCoordinates` empty.
+
+3. **Host the completed file and point the chart at it** — put the file
+   somewhere reachable by URL, then set
+   **`calibration-import.calibrationFileSource`** to it (see the
+   **If you do need ROI/tripwire** table below). `requireCalibration` and
+   `requireImages` both stay at their default `true`, so a broken
+   calibration or image-metadata URL fails the Job instead of deploying
+   with no calibration.
+
+##### Running 2D without calibration
+
+Calibration is enabled by default. If you don't need ROI/tripwire, skip
+calibration entirely (the third state above) with these 3 changes:
 
 | Setting | Set | Effect |
 |---|---|---|
