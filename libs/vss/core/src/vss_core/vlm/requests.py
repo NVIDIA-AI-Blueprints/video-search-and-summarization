@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from contextlib import suppress
 from dataclasses import asdict
 import json
 import logging
@@ -18,7 +17,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
     from collections.abc import Callable
     from pathlib import Path
-    from typing import BinaryIO
 
 from .chat import ChatError
 from .chat import ChatRequest
@@ -32,18 +30,12 @@ from .chat import VideoPart
 _LOG = logging.getLogger(__name__)
 
 
-async def _read_video_chunk(stream: BinaryIO) -> bytes:
-    task = asyncio.create_task(asyncio.to_thread(stream.read, 3 * 65536))
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        # A worker read cannot be cancelled. Wait before the generator closes
-        # its file, including when another cancellation arrives during cleanup.
-        while not task.done():
-            with suppress(asyncio.CancelledError, OSError):
-                await asyncio.shield(task)
-        task.exception()
-        raise
+def _read_video_chunk(path: Path, offset: int) -> bytes:
+    # The worker owns the file for the whole read. Cancelling its await returns
+    # promptly without closing a file still in use by a stalled worker.
+    with path.open("rb") as stream:
+        stream.seek(offset)
+        return stream.read(3 * 65536)
 
 
 def validate_backend(request: ChatRequest, backend: str) -> None:
@@ -201,9 +193,10 @@ def serialize_request(
     async def body() -> AsyncGenerator[bytes]:
         for prefix, path in segments:
             yield (prefix + '"data:video/mp4;base64,').encode()
-            with path.open("rb") as stream:
-                while chunk := await _read_video_chunk(stream):
-                    yield base64.b64encode(chunk)
+            offset = 0
+            while chunk := await asyncio.to_thread(_read_video_chunk, path, offset):
+                offset += len(chunk)
+                yield base64.b64encode(chunk)
             yield b'"'
         yield remaining.encode()
 
