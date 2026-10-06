@@ -12,8 +12,12 @@ a cold NIM start.
   the NGC CLI and build override use `NGC_CLI_API_KEY`; NIM / RT-VLM
   containers receive the key as `NGC_API_KEY`.
 - `NVIDIA_API_KEY`: required for a remote endpoint on build.nvidia.com
-  (`integrate.api.nvidia.com`). Any other remote endpoint carries its own key,
-  passed as `REMOTE_API_KEY`, and a keyless one needs none.
+  (`integrate.api.nvidia.com`), and the key a remote NIM reads
+  ([`env-overrides.md`](env-overrides.md)). A keyed endpoint elsewhere still
+  needs a runtime key persisted, named for its consumer: `OPENAI_API_KEY` for an
+  OpenAI-compatible LLM/VLM the agent calls, `RTVI_VLM_API_KEY` for RT-VLM's own
+  endpoint. Only a genuinely keyless endpoint needs none. `REMOTE_API_KEY` is
+  probe-only and persists nothing.
 - `HF_TOKEN`: required only for a gated or private Hugging Face checkpoint
   (`--require hf`); the RT-Embed Cosmos-Embed defaults are public, and no
   in-tree edge path needs it.
@@ -60,11 +64,16 @@ job.
 | `LLM_BASE_URL` / `VLM_BASE_URL` on build.nvidia.com (`integrate.api.nvidia.com`) | `--require nvidia-api` |
 | A **gated or private** Hugging Face checkpoint | `--require hf` |
 
-Key the second row on the endpoint, not on the mode being remote. Any other
-remote endpoint — a self-hosted NIM, a third-party gateway — carries its own
-key, which reaches it as `REMOTE_API_KEY` for `probe_remote_models.sh` below; a
-keyless endpoint such as `http://localhost:30081` needs no `--require` at all.
-Requiring `NVIDIA_API_KEY` for those would block a build that needs no such key.
+Key the second row on the endpoint, not on the mode being remote: a keyless
+endpoint such as `http://localhost:30081` needs no `--require` at all, and
+requiring `NVIDIA_API_KEY` for it would block a build that needs no such key.
+
+`--require nvidia-api` is a gate-time presence check, not the runtime wiring. A
+keyed endpoint elsewhere — a self-hosted NIM, a third-party gateway — still
+needs its key written into `override.env` as the variable its consumer reads,
+named under "Required By Mode" above. `REMOTE_API_KEY` only feeds
+`probe_remote_models.sh` and is read by no deployed service, so setting it alone
+leaves the build with no usable key and fails at the first inference.
 
 The Cosmos-Embed checkpoints RT-Embed uses by default are public, so a build
 that loads only those needs no token and no `--require hf`.
@@ -177,7 +186,9 @@ before the deploy flow spends time generating compose or warming containers.
 
 Use the base URL without a trailing `/v1`; the script strips `/v1` and
 `/v1/models` if the user supplied them. If the endpoint requires auth, set
-`REMOTE_API_KEY` to the key that the agent will use for that endpoint.
+`REMOTE_API_KEY` to the key that the agent will use for that endpoint. It scopes
+to this probe only — no deployed service reads it, so the runtime key still has
+to be persisted separately, named under "Required By Mode" above.
 
 On build.nvidia.com this clears the endpoint and the advertised model, not the
 key: `/v1/models` there is a public catalog that answers `200` with no
