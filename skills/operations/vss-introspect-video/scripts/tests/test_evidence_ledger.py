@@ -7,7 +7,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import importlib.util
+import io
 import json
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import pytest
@@ -129,29 +131,18 @@ def result(
 def finalize(
     ledger: dict,
     directory: str,
-    label: str | None,
-    explanation: str | None,
+    answer: str | None,
     **kwargs: object,
 ) -> dict:
     evidence_ids = kwargs.pop(
         "evidence_ids",
         [item["observation_id"] for item in ledger["observations"]],
     )
-    choices = kwargs.pop("choices", None)
-    if (
-        choices is None
-        and isinstance(label, str)
-        and len(label.strip()) == 1
-        and label.strip().isalpha()
-    ):
-        choices = ["A", "B", "C", "D"]
     return ledger_mod.final_result(
         ledger,
         directory,
-        label,
-        explanation,
+        answer,
         evidence_ids=evidence_ids,
-        choices=choices,
         **kwargs,
     )
 
@@ -477,13 +468,14 @@ def test_18_detects_sufficient_completion_and_builds_traceable_result() -> None:
     final = finalize(
         ledger,
         "runs/question-1",
-        "A",
         "The worker wore a yellow vest.",
     )
     assert final["status"] == "answered"
-    assert final["answer_label"] == "A"
-    assert final["answer_explanation"] == "The worker wore a yellow vest."
-    assert final["answer"] == "A. The worker wore a yellow vest."
+    assert final["evidence_status"] == "resolved"
+    assert final["decision_source"] == "introspection"
+    assert "answer_label" not in final
+    assert "answer_explanation" not in final
+    assert final["answer"] == "The worker wore a yellow vest."
     assert final["evidence"] == ledger["claims"][0]["observation_ids"]
     assert final["evidence_details"] == ledger["observations"]
     assert final["revision"] == ledger["revision"]
@@ -491,7 +483,7 @@ def test_18_detects_sufficient_completion_and_builds_traceable_result() -> None:
     assert final["unresolved_gaps"] == []
 
 
-def test_open_question_answers_without_a_choice_label() -> None:
+def test_open_question_preserves_natural_language_answer() -> None:
     ledger = ledger_mod.merge_memory(
         initialized(),
         [memory_update("claim-color", observation(source_type="memory"))],
@@ -500,22 +492,13 @@ def test_open_question_answers_without_a_choice_label() -> None:
     final = ledger_mod.final_result(
         ledger,
         "runs/question-1",
-        None,
         "The worker wore a yellow vest.",
         evidence_ids=evidence,
     )
-    assert final["answer_label"] is None
     assert final["answer"] == "The worker wore a yellow vest."
-    worded = ledger_mod.final_result(
-        ledger,
-        "runs/question-1",
-        "yellow",
-        "The vest is yellow.",
-        evidence_ids=evidence,
-        choices=["red", "yellow"],
-    )
-    assert worded["answer_label"] == "yellow"
-    assert worded["answer"] == "yellow. The vest is yellow."
+    assert final["decision_source"] == "introspection"
+    assert "answer_label" not in final
+    assert "answer_explanation" not in final
 
 
 def test_19_detects_no_progress() -> None:
@@ -791,15 +774,18 @@ def test_final_unresolved_result_uses_allowed_reason() -> None:
     final = ledger_mod.final_result(ledger, "runs/question-1")
     assert final["status"] == "unresolved"
     assert final["answer"] is None
+    assert final["decision_source"] == "abstention"
+    assert "answer_label" not in final
     assert final["evidence_details"] == []
     assert final["revision"] == ledger["revision"]
     assert final["artifact_dir"] == "runs/question-1"
     assert final["unresolved_gaps"][0]["reason"] == "not_visible"
 
 
-def test_unresolved_options_question_records_best_available_choice() -> None:
+def test_unresolved_answer_requires_real_citations_and_rejects_blanks() -> None:
     ledger = initialized()
     tasks = create_tasks(ledger)
+    before = copy.deepcopy(ledger)
     ledger = ledger_mod.merge_round_results(
         ledger,
         tasks,
@@ -809,37 +795,16 @@ def test_unresolved_options_question_records_best_available_choice() -> None:
         ledger_mod.final_result(
             ledger,
             "runs/question-1",
-            "C",
             "C is the closest option; the vest color was not directly visible.",
-            choices=["A", "B", "C", "D"],
         )
-    forced = ledger_mod.final_result(
-        ledger,
-        "runs/question-1",
-        "C",
-        "No observation supports a choice; this selection is unsupported.",
-        choices=["A", "B", "C", "D"],
-        require_choice=True,
-    )
-    assert forced["decision_source"] == "unsupported_forced_choice"
-    assert forced["evidence_status"] == "unresolved"
-    assert forced["evidence"] == []
+    with pytest.raises(ledger_mod.LedgerValidationError, match="empty answer"):
+        ledger_mod.final_result(ledger, "runs/question-1", "  ")
     assert ledger["status"] == "unresolved"
-    ledger_mod.validate_terminal_pair(
-        ledger_mod.prepare_for_final_result(ledger), forced
-    )
-    with pytest.raises(ledger_mod.LedgerValidationError, match="answer_explanation"):
-        ledger_mod.final_result(
-            ledger,
-            "runs/question-1",
-            "C",
-            None,
-            choices=["A", "B", "C", "D"],
-            require_choice=True,
-        )
+    assert ledger["claims"][0]["status"] == "unresolved"
+    assert before["status"] == "in_progress"
 
 
-def test_citations_follow_the_synthesizer_and_labels_must_be_members(
+def test_citations_follow_the_synthesizer_and_answer_text_is_preserved(
     tmp_path: Path,
 ) -> None:
     ledger = ledger_mod.merge_memory(
@@ -870,10 +835,8 @@ def test_citations_follow_the_synthesizer_and_labels_must_be_members(
     final = ledger_mod.final_result(
         ledger,
         "runs/question-1",
-        "A",
         "The vest is yellow.",
         evidence_ids=[support_id, support_id],
-        choices=["A", "B", "C", "D"],
     )
     assert final["evidence"] == [support_id]
     assert context_id not in final["evidence"]
@@ -882,59 +845,42 @@ def test_citations_follow_the_synthesizer_and_labels_must_be_members(
         ledger_mod.final_result(
             ledger,
             "runs/question-1",
-            "A",
             "The vest is yellow.",
             evidence_ids=["obs-" + "f" * 24],
-            choices=["A", "B", "C", "D"],
         )
-    with pytest.raises(ledger_mod.LedgerValidationError, match="one of the question's choices"):
-        ledger_mod.final_result(
+    for supplied in ("B", "2", "yellow", "The vest is yellow."):
+        preserved = ledger_mod.final_result(
             ledger,
             "runs/question-1",
-            "E",
-            "Not a choice.",
-            evidence_ids=[support_id],
-            choices=["A", "B", "C", "D"],
-        )
-    accepted = ledger_mod.final_result(
-        ledger,
-        "runs/question-1",
-        "h",
-        "H is allowed.",
-        evidence_ids=[support_id],
-        choices=list("ABCDEFGH"),
-    )
-    assert accepted["answer_label"] == "H"
-    with pytest.raises(ledger_mod.LedgerValidationError, match="allowed labels"):
-        ledger_mod.final_result(
-            ledger,
-            "runs/question-1",
-            "A",
-            "Missing the choice set.",
+            supplied,
             evidence_ids=[support_id],
         )
-    with pytest.raises(ledger_mod.LedgerValidationError, match="unique"):
-        ledger_mod.final_result(
-            ledger,
-            "runs/question-1",
-            "A",
-            "Ambiguous labels.",
-            evidence_ids=[support_id],
-            choices=["A", "a"],
-        )
+        assert preserved["answer"] == supplied
+        assert preserved["decision_source"] == "introspection"
     open_ended = ledger_mod.final_result(
         ledger,
         "runs/question-1",
-        None,
         "The vest is yellow.",
         evidence_ids=[support_id],
     )
-    assert open_ended["answer_label"] is None
+    assert open_ended["answer"] == "The vest is yellow."
     assert open_ended["evidence"] == [support_id]
 
     path = tmp_path / "ledger.json"
     path.write_text(json.dumps(ledger), encoding="utf-8")
-    with pytest.raises(ledger_mod.LedgerValidationError, match="blank choice"):
+    with pytest.raises(ledger_mod.LedgerValidationError, match="empty answer"):
+        ledger_mod.main(
+            [
+                "final-result",
+                "--ledger",
+                str(path),
+                "--artifact-dir",
+                str(tmp_path),
+                "--answer",
+                "",
+            ]
+        )
+    with pytest.raises(SystemExit):
         ledger_mod.main(
             [
                 "final-result",
@@ -943,14 +889,38 @@ def test_citations_follow_the_synthesizer_and_labels_must_be_members(
                 "--artifact-dir",
                 str(tmp_path),
                 "--answer-label",
-                "",
-                "--answer-explanation",
-                "",
+                "A",
             ]
         )
+    assert ledger_mod.main(
+        [
+            "final-result",
+            "--ledger",
+            str(path),
+            "--artifact-dir",
+            str(tmp_path),
+            "--answer",
+            "The vest is yellow.",
+            "--evidence-id",
+            support_id,
+            "--output",
+            str(tmp_path / "final-result.json"),
+        ]
+    ) == 0
+    written = json.loads((tmp_path / "final-result.json").read_text(encoding="utf-8"))
+    assert written["answer"] == "The vest is yellow."
+    assert "answer_label" not in written
+    help_buffer = io.StringIO()
+    with pytest.raises(SystemExit) as help_exit, redirect_stdout(help_buffer):
+        ledger_mod._parser().parse_args(["final-result", "--help"])
+    assert help_exit.value.code == 0
+    help_text = help_buffer.getvalue()
+    assert "--answer" in help_text
+    assert "--answer-label" not in help_text
+    assert "--answer-explanation" not in help_text
 
 
-def test_best_available_choice_keeps_gaps_and_selected_citations() -> None:
+def test_best_available_answer_keeps_gaps_and_selected_citations() -> None:
     ledger = initialized()
     while ledger["status"] == "in_progress":
         tasks = create_tasks(ledger)
@@ -969,6 +939,7 @@ def test_best_available_choice_keeps_gaps_and_selected_citations() -> None:
             [result(tasks[0], (note, fact), coverage="partial", calls=1)],
         )
     assert ledger["status"] == "unresolved"
+    claims_before = copy.deepcopy(ledger["claims"])
     fact_id = next(
         item["observation_id"]
         for item in ledger["observations"]
@@ -979,20 +950,33 @@ def test_best_available_choice_keeps_gaps_and_selected_citations() -> None:
         for item in ledger["observations"]
         if item["relation"] == "context"
     )
+    supplied = "B is the closest supported color; coverage is still partial."
     final = ledger_mod.final_result(
         ledger,
         "runs/question-1",
-        "B",
-        "B is the closest supported color; coverage is still partial.",
+        supplied,
         evidence_ids=[fact_id, fact_id],
-        choices=["A", "B", "C", "D"],
     )
-    assert final["decision_source"] == "best_available_choice"
+    assert final["answer"] == supplied
+    assert final["status"] == "answered"
+    assert final["decision_source"] == "best_available_answer"
     assert final["evidence_status"] == "unresolved"
     assert final["evidence"] == [fact_id]
     assert context_id not in final["evidence"]
     assert final["unresolved_gaps"]
     assert ledger["status"] == "unresolved"
+    assert ledger["claims"] == claims_before
+    assert ledger["stop_reason"] == "budget_exhausted"
+    partial = ledger_mod.final_result(
+        ledger,
+        "runs/question-1",
+        "A yellow vest is partly visible, but coverage is still incomplete.",
+        evidence_ids=[fact_id],
+    )
+    assert partial["decision_source"] == "best_available_answer"
+    assert partial["evidence_status"] == "unresolved"
+    assert partial["unresolved_gaps"] == final["unresolved_gaps"]
+    ledger_mod.validate_terminal_pair(ledger, partial)
 
 
 def test_task_records_and_enforces_assigned_media_scope() -> None:
@@ -1157,7 +1141,7 @@ def test_final_result_contains_audit_provenance() -> None:
         initialized(),
         [memory_update("claim-color", observation(source_type="memory"))],
     )
-    final = finalize(ledger, "runs/question-1", "A", "Visible result.")
+    final = finalize(ledger, "runs/question-1", "Visible result.")
     assert final["evidence_details"] == ledger["observations"]
     assert final["revision"] == ledger["revision"]
     assert final["artifact_dir"] == "runs/question-1"
@@ -1179,7 +1163,7 @@ def test_supported_partial_claim_stays_eligible_while_budget_remains() -> None:
     assert again[0]["claim"]["claim_id"] == "claim-color"
     assert again[0]["task_id"].endswith("-r2")
     with pytest.raises(ledger_mod.LedgerValidationError, match="budget remains"):
-        ledger_mod.final_result(partial, "runs/question-1", "A", "Too early.")
+        ledger_mod.final_result(partial, "runs/question-1", "Too early.")
 
 
 def test_exhausted_partial_ledger_terminates_and_writes_final_result(tmp_path: Path) -> None:
@@ -1330,7 +1314,7 @@ def test_sufficient_supported_claim_resolves() -> None:
     )
     assert resolved["status"] == "answered"
     assert resolved["stop_reason"] == "resolved"
-    final = finalize(resolved, "runs/question-1", "A", "The claim holds.")
+    final = finalize(resolved, "runs/question-1", "The claim holds.")
     assert final["status"] == "answered"
     assert final["unresolved_gaps"] == []
 
@@ -1478,7 +1462,7 @@ def test_terminal_commit_publishes_revision_matched_marker(tmp_path: Path) -> No
     answered = ledger_mod.merge_round_results(
         ledger, tasks, [result(tasks[0], (observation(),))]
     )
-    final = finalize(answered, str(tmp_path), "A", "Visible result")
+    final = finalize(answered, str(tmp_path), "Visible result")
     ledger_mod.atomic_commit_terminal(
         tmp_path / "ledger.json",
         answered,
@@ -1500,7 +1484,7 @@ def test_terminal_commit_binds_attempt_context(
     answered = ledger_mod.merge_round_results(
         ledger, tasks, [result(tasks[0], (observation(),))]
     )
-    final = finalize(answered, str(tmp_path), "A", "Visible result")
+    final = finalize(answered, str(tmp_path), "Visible result")
     context = {
         "schema_version": 1,
         "case_id": "dataset-case-1",
@@ -1534,7 +1518,7 @@ def test_terminal_commit_rejects_context_for_wrong_video(
     answered = ledger_mod.merge_round_results(
         ledger, tasks, [result(tasks[0], (observation(),))]
     )
-    final = finalize(answered, str(tmp_path), "A", "Visible result")
+    final = finalize(answered, str(tmp_path), "Visible result")
     context = {
         "schema_version": 1,
         "case_id": "dataset-case-1",
@@ -1564,7 +1548,7 @@ def test_terminal_commit_rejects_revision_mismatch(tmp_path: Path) -> None:
     answered = ledger_mod.merge_round_results(
         ledger, tasks, [result(tasks[0], (observation(),))]
     )
-    final = finalize(answered, str(tmp_path), "A", "Visible result")
+    final = finalize(answered, str(tmp_path), "Visible result")
     final["revision"] += 1
     with pytest.raises(ledger_mod.LedgerValidationError, match="revision"):
         ledger_mod.atomic_commit_terminal(
