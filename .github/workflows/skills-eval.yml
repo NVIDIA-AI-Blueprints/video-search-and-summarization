@@ -247,8 +247,6 @@ jobs:
           CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || '' }}
           OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
           OPERATIONAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_model || '' }}
-          # Viewer origin for trace links. Empty keeps the Brev URL.
-          HARBOR_VIEW_BASE_URL: ${{ vars.HARBOR_VIEW_BASE_URL }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
