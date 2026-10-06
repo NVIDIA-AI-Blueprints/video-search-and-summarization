@@ -35,7 +35,9 @@ remain invisible to the VSS CLI and libraries.
 
 `config/ledger-budgets.json` is the only numeric budget source; never copy its
 values into prompts or other configuration. Never exceed any maximum loaded
-from that file.
+from that file. The initialized ledger records every effective value in
+`budgets`. Task allocation and stopping use those configured limits. Failed
+inspections and retries count toward `vlm_calls_used`.
 
 All objects are strict: every listed field is required unless marked optional,
 and unknown fields are rejected.
@@ -81,8 +83,9 @@ inspection.
 ### Ledger
 
 The ledger has exactly `ledger_version`, `revision`, `plan`, `claims`,
-`observations`, `round`, `expansions_used`, `vlm_calls_used`, `status`, and
-`stop_reason`. `ledger_version` is `"1.0"`. Status is `in_progress`, `answered`,
+`observations`, `round`, `expansions_used`, `vlm_calls_used`, `budgets`,
+`status`, and `stop_reason`. `budgets` is the effective snapshot of
+`config/ledger-budgets.json`. `ledger_version` is `"1.0"`. Status is `in_progress`, `answered`,
 or `unresolved`; stop reason is null, `resolved`, `no_progress`,
 `budget_exhausted`, or `tool_failure`.
 
@@ -202,8 +205,11 @@ ${VSS_WORKSPACE:-$HOME/.vss}/runs/vss-introspection/<question-id>/
     │   ├── results.json
     │   └── result-<claim-id>.json
     ├── round-2/
-    └── round-3/
+    └── round-<n>/
 ```
+
+`round-<n>` continues through the configured `max_inspection_rounds`. The tree
+does not cap the run at three rounds.
 
 Freeze `base-ledger.json` before dispatch. Atomically replace `ledger.json` and
 `final-result.json`; publish `terminal-commit.json` last with the committed

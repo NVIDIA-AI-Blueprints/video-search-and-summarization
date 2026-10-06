@@ -84,6 +84,7 @@ LEDGER_KEYS = {
     "round",
     "expansions_used",
     "vlm_calls_used",
+    "budgets",
     "status",
     "stop_reason",
 }
@@ -467,6 +468,8 @@ def validate_ledger(ledger: Any) -> None:
         _fail("ledger.status", "invalid ledger status")
     if ledger["stop_reason"] not in STOP_REASONS:
         _fail("ledger.stop_reason", "invalid stop reason")
+    if ledger["budgets"] != BUDGETS:
+        _fail("ledger.budgets", "must match the configured ledger budgets")
 
     plan = ledger["plan"]
     # A ledger plan can contain the initial claims plus accepted expansions.
@@ -575,6 +578,7 @@ def initialize_ledger(plan: Mapping[str, Any]) -> dict[str, Any]:
         "round": 0,
         "expansions_used": 0,
         "vlm_calls_used": 0,
+        "budgets": dict(BUDGETS),
         "status": "in_progress",
         "stop_reason": None,
     }
