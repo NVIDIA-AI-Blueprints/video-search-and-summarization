@@ -11,6 +11,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[3]
 VIDEO_FIXTURES = {
+    "base_profile_local_nim_reuse": ("warehouse_safety_0001.mp4",),
     "base_profile_video_understanding": ("warehouse_safety_0001.mp4",),
     "base_profile_report": ("warehouse_safety_0001.mp4",),
     "lvs_profile_summarize": ("warehouse_sample.mp4",),

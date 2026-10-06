@@ -94,10 +94,19 @@ not written to a worker key file or forwarded into `~/.eval_env`.
 The existing VSS deploy path still forwards `NGC_CLI_API_KEY` to the evaluated
 agent because that agent performs the VSS deployment.
 
-After the existing first-task Docker reset, the worker starts one NIM per
-unique selected local model. Identical coding and operational models share
-one container; later tasks reuse that deployment. Different models run as
-separate containers. A pinned LiteLLM adapter provides Anthropic Messages,
+After the existing first-task Docker reset, local coding routes start their
+NIMs. For operational NemoClaw using `local-nim`, model selection waits until
+the spec's VSS deployment is ready, before the NemoClaw notebook onboards the
+sandbox. The helper reads the current checkout's running VSS Compose project
+and reuses an existing NIM for the exact requested model, after verifying its
+container, image, architecture, published endpoint, readiness and served ID.
+If that deployment has no matching NIM, it provisions an eval-owned NIM.
+Stopped, unready or ambiguous matches fail rather than provision a duplicate.
+The spec keeps control of VSS model placement; no workflow checkbox or spec
+allowlist enables sharing. Hosted NemoClaw routes remain hosted.
+
+Identical selected local models share one upstream; later tasks retain the
+recorded binding. A pinned LiteLLM adapter provides Anthropic Messages,
 OpenAI Responses, and Chat Completions for NemoClaw. The ephemeral, job-owned
 adapter runs without authentication: its config has no `master_key`, and
 readiness/protocol probes send no API key. Clients that require a non-empty
@@ -126,11 +135,18 @@ The adapter listens on port 18400 and is advertised on the worker's private addr
 NIM ports 18410+ bind to loopback.
 Job-owned containers are removed when the leg ends or is cancelled. The next
 first-task Docker reset reconciles leftovers after an uncatchable SIGKILL.
+Sharing never relabels, restarts, reconfigures or removes the VSS-owned NIM.
+The existing reset between independent specs still clears the prior VSS stack.
 Weights persist under `~/.cache/skill-eval-nim-models/`, outside Docker volumes.
 Sanitized image/tag/digest, model, architecture, startup errors, and bounded
 container logs appear in each trial's `artifacts/local-nim` directory (under
 Harbor's collected `/logs/artifacts` tree). `model-deployments.json` records
 role choices and the actual worker at the leg results root.
+For deferred selection, `ready.json` records `operational_prepared`, the
+selection reason, and each model's `source` (`vss` or `eval`). A shared model
+also records its Compose project/service, container ID and image ID.
+`base_profile_local_nim_reuse.json` explicitly requests a local VSS Lightning
+NIM on Spark and validates reuse followed by a native operational turn.
 
 ### Spark selection
 

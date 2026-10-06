@@ -401,6 +401,7 @@ class BrevEnvironment(BaseEnvironment):
             "NEMOCLAW_PROVIDER", "NEMOCLAW_ENDPOINT_URL",
             "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
             "SKILL_EVAL_LOCAL_NIM_API_KEY",
+            "SKILL_EVAL_LOCAL_NIM_PLAN",
             "NEMOCLAW_INFERENCE_PROXY",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
@@ -574,6 +575,11 @@ class BrevEnvironment(BaseEnvironment):
             raise ValueError("Invalid local NIM owner")
         remote = f"/tmp/skill-eval-nim-{plan['owner']}"
         await self.upload_file(Path(__file__).resolve().parents[1] / "local_nim.py", remote + ".py")
+        if plan.get("reuse_vss"):
+            await self.upload_file(
+                Path(__file__).resolve().parents[1] / "shared_vss_llm.py",
+                remote + "-shared.py",
+            )
         with tempfile.TemporaryDirectory() as directory:
             local = Path(directory) / "plan.json"
             local.write_text(json.dumps(plan))

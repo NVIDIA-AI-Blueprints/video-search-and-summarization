@@ -24,6 +24,9 @@ ANTHROPIC_API_KEY's value as OPENAI_API_KEY into the subprocess env (and the
 endpoint as `--ak api_base=${ANTHROPIC_BASE_URL}`), so no separate
 OPENAI_API_KEY / OPENAI_BASE_URL needs to be configured.
 """
+from pathlib import PurePosixPath
+from uuid import uuid4
+
 from harbor.agents.installed.codex import Codex
 
 
@@ -40,6 +43,16 @@ class _WholeModel(str):
 
 
 class NvCodex(Codex):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Harbor appends its endpoint to config.toml. Cancellation can leave
+        # the shared /tmp/codex-home behind, causing duplicate keys on the next
+        # trial and even stale session usage. Keep both config and credentials
+        # private to this agent instance; Harbor's normal cleanup removes them.
+        root = PurePosixPath("/tmp/skill-eval-codex") / uuid4().hex
+        self._REMOTE_CODEX_HOME = root / "home"
+        self._REMOTE_CODEX_SECRETS_DIR = root / "secrets"
+
     @property
     def model_name(self):
         return self._nv_model_name

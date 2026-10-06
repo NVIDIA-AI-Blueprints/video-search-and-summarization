@@ -1696,6 +1696,13 @@ def run_invocations(
             {"role": r.role, "model": r.model, "runtime": r.runtime} for r in routes
         ],
     }
+    # Select after the spec's VSS deployment, before NemoClaw onboarding.
+    # Ordinary build evals and hosted operational routes keep their lifecycle.
+    plan["reuse_vss"] = (
+        os.environ.get("EVAL_SPEC_PATH", "").startswith("skills/operations/")
+        and model_routes.operational.provider == "local-nim"
+        and model_routes.operational.runtime == "nemoclaw"
+    )
 
     def local_route(route):
         return (

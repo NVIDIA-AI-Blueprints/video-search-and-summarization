@@ -493,6 +493,7 @@ jobs:
             .github/skill-eval/tests/test_leg_timing.py \
             .github/skill-eval/tests/test_leg_report.py \
             .github/skill-eval/tests/test_local_nim.py \
+            .github/skill-eval/tests/test_shared_vss_llm.py \
             .github/skill-eval/tests/test_model_config.py \
             .github/skill-eval/tests/test_python_runtime_contract.py \
             .github/skill-eval/tests/test_nemoclaw_onboard_endpoint.py \
@@ -512,6 +513,13 @@ jobs:
             .github/skill-eval/tests/test_run_leg.py::TheHeartbeatNamesTheRightPhase \
             .github/skill-eval/tests/test_run_leg.py::InstrumentationNeverChangesTheVerdict \
             -q
+
+      - name: Skill eval installed-agent configuration
+        working-directory: ${{ github.workspace }}
+        run: |
+          uvx --python 3.12 --from "pytest==9.1.1" --with "harbor==0.20.0" pytest \
+            .github/skill-eval/tests/test_nv_codex.py \
+            .github/skill-eval/tests/test_nv_claude_code.py -q
 
       - name: Upload coverage report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2

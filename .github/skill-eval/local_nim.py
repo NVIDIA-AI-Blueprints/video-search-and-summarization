@@ -15,6 +15,7 @@ import argparse
 import base64
 import contextlib
 import hashlib
+import importlib.util
 import json
 import os
 import platform
@@ -293,9 +294,88 @@ def wait_ready(url: str, token: str, timeout: int = 900, container: str | None =
     raise NimError(f"Local NIM readiness timed out: {url}")
 
 
+def sharing_helper(owner: str):
+    path = Path(f"/tmp/skill-eval-nim-{owner}-shared.py")
+    if not path.exists():
+        path = Path(__file__).with_name("shared_vss_llm.py")
+    spec = importlib.util.spec_from_file_location("shared_vss_llm_worker", path)
+    if spec is None or spec.loader is None:
+        raise NimError("Unable to load the staged VSS model discovery helper")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def prepare(plan: dict, repo: Path):
+    """Called after VSS deployment, before the first NemoClaw onboard."""
+    if not plan.get("reuse_vss"):
+        raise NimError("Model sharing requires the local operational NemoClaw route")
+    if repo is None:
+        raise NimError("Model selection requires the VSS checkout path")
+    marker = owner_paths(plan["owner"]) / "ready.json"
+    previous = json.loads(marker.read_text()) if marker.exists() else {}
+    if previous.get("operational_prepared"):
+        # Notebook retry must retain the binding already handed to onboard.
+        start(plan)
+        return
+    route = next(r for r in plan["routes"] if r["role"] == "operational" and r["runtime"] == "nemoclaw")
+    shared = sharing_helper(plan["owner"]).discover(repo, route["model"])
+    start({
+        **plan, "_prepared": True,
+        "external_models": [shared] if shared else [],
+        "selection": "matching-vss-nim" if shared else "no-matching-vss-nim",
+    })
+
+
+def prepare_for_notebook(repo: Path) -> dict:
+    """Use the bounded worker helper; return only non-secret onboarding inputs."""
+    plan = json.loads(os.environ["SKILL_EVAL_LOCAL_NIM_PLAN"])
+    owner_paths(plan["owner"])  # Validate before building a worker path.
+    helper = Path(f"/tmp/skill-eval-nim-{plan['owner']}.py")
+    if not helper.is_file():
+        raise NimError("Eval's local model helper was not staged on this worker")
+    with tempfile.NamedTemporaryFile(mode="w", prefix="skill-eval-nim-", suffix=".json", delete=False) as handle:
+        json.dump(plan, handle)
+    try:
+        subprocess.run(
+            [sys.executable, str(helper), "prepare", "--plan", handle.name, "--repo", str(repo)],
+            check=True, timeout=STARTUP_BUDGET_SEC + 60,
+        )
+    finally:
+        Path(handle.name).unlink(missing_ok=True)
+    evidence = json.loads((owner_paths(plan["owner"]) / "ready.json").read_text())
+    updates = configure_nemoclaw(evidence)
+    if not updates:
+        raise NimError("Local operational model preparation produced no NemoClaw endpoint")
+    return updates
+
+
 def start(plan: dict):
     root = owner_paths(plan["owner"])
     marker = root / "ready.json"
+    if plan.get("reuse_vss") and not plan.get("_prepared"):
+        previous = json.loads(marker.read_text()) if marker.exists() else {}
+        if previous.get("operational_prepared"):
+            start({
+                **plan, "_prepared": True,
+                "external_models": [item for item in previous["models"] if item.get("source") == "vss"],
+                "selection": previous["selection"],
+            })
+        else:
+            coding = [r for r in plan["routes"] if r["role"] == "coding"]
+            if coding:
+                start({**plan, "reuse_vss": False, "routes": coding})
+            else:
+                marker.write_text(json.dumps({"models": [], "roles": [], "operational_pending": True}))
+                publish(root)
+        return
+    external = {item["model"]: item for item in plan.get("external_models", [])}
+    arch = architecture(platform.machine())
+    for item in external.values():
+        if item["architecture"] != arch:
+            raise NimError("Matching VSS NIM has a different worker architecture")
+        sharing_helper(plan["owner"]).verify(item)
+    owned_models = [model for model in unique_models(plan["routes"]) if model not in external]
     if marker.exists():
         # Same leg, later task: share the existing services. A new chain's
         # Docker reset removes them, in which case rebuild below.
@@ -309,9 +389,10 @@ def start(plan: dict):
             previous.get("roles") == plan["routes"]
             and previous_config is not None
             and previous_config.get("general_settings", {}).get("master_key") is None
+            and [item for item in previous["models"] if item.get("source") == "vss"] == list(external.values())
         )
-        if same_plan and len(containers) == len(unique_models(plan["routes"])) + 1:
-            for i, model in enumerate(unique_models(plan["routes"])):
+        if same_plan and len(containers) == len(owned_models) + 1:
+            for i, model in enumerate(owned_models):
                 base = f"http://127.0.0.1:{PROXY_PORT + 10 + i}/v1"
                 wait_ready(
                     f"{base}/health/ready", "", 30,
@@ -335,42 +416,44 @@ def start(plan: dict):
     marker.unlink(missing_ok=True)
     (root / "deployment.json").unlink(missing_ok=True)
     key = os.environ.get("NGC_API_KEY") or os.environ.get("NGC_CLI_API_KEY")
-    if not key:
+    if owned_models and not key:
         raise NimError(
             "Local NIM requires NGC_CLI_API_KEY or NGC_API_KEY on the worker"
         )
-    os.environ["NGC_API_KEY"] = key
-    arch = architecture(platform.machine())
+    if key:
+        os.environ["NGC_API_KEY"] = key
     resolved = [
-        resolve_image(model, arch, key) for model in unique_models(plan["routes"])
+        {**resolve_image(model, arch, key), "source": "eval"} for model in owned_models
     ]
+    all_models = [*resolved, *external.values()]
     # Persist sanitized resolution evidence even if deployment fails later.
     (root / "deployment.json").write_text(
         json.dumps(
-            {"models": resolved, "roles": plan["routes"], "architecture": arch},
+            {"models": all_models, "roles": plan["routes"], "architecture": arch},
             indent=2,
         )
     )
     # Scope login credentials to this operation, never modify the user's Docker config.
-    with tempfile.TemporaryDirectory(prefix="nim-docker-") as config:
-        old = os.environ.get("DOCKER_CONFIG")
-        os.environ["DOCKER_CONFIG"] = config
-        try:
-            docker(
-                "login",
-                "nvcr.io",
-                "-u",
-                "$oauthtoken",
-                "--password-stdin",
-                input_text=key,
-            )
-            for item in resolved:
-                docker("pull", item["image"], timeout=1500)
-        finally:
-            if old is None:
-                os.environ.pop("DOCKER_CONFIG", None)
-            else:
-                os.environ["DOCKER_CONFIG"] = old
+    if resolved:
+        with tempfile.TemporaryDirectory(prefix="nim-docker-") as config:
+            old = os.environ.get("DOCKER_CONFIG")
+            os.environ["DOCKER_CONFIG"] = config
+            try:
+                docker(
+                    "login",
+                    "nvcr.io",
+                    "-u",
+                    "$oauthtoken",
+                    "--password-stdin",
+                    input_text=key,
+                )
+                for item in resolved:
+                    docker("pull", item["image"], timeout=1500)
+            finally:
+                if old is None:
+                    os.environ.pop("DOCKER_CONFIG", None)
+                else:
+                    os.environ["DOCKER_CONFIG"] = old
     cleanup(plan["owner"], remove_files=False)
     models = []
     nemoclaw_route = next(
@@ -456,6 +539,16 @@ def start(plan: dict):
                     }
                 )
         item["served_model"] = names[0]
+    for item in external.values():
+        for route in plan["routes"]:
+            if validate_model_id(route["model"]) == item["model"]:
+                models.append({
+                    "model_name": route["model"],
+                    "litellm_params": {
+                        "model": f"nvidia_nim/{item['served_model']}",
+                        "api_base": item["endpoint"], "api_key": LOCAL_NIM_CLIENT_KEY,
+                    },
+                })
     # JSON is valid YAML; no templating of arbitrary model strings into shell.
     proxy_config = {
         "model_list": list({m["model_name"]: m for m in models}.values()),
@@ -485,7 +578,9 @@ def start(plan: dict):
     # Exercise each harness protocol, so a healthy server with an incompatible
     # API cannot produce an apparently successful deployment.
     smoke_routes(plan, host)
-    evidence = {"models": resolved, "roles": plan["routes"], "architecture": arch}
+    evidence = {"models": all_models, "roles": plan["routes"], "architecture": arch}
+    if plan.get("_prepared"):
+        evidence.update(operational_prepared=True, selection=plan["selection"])
     if nemoclaw_route:
         evidence["nemoclaw_endpoint"] = f"http://{host}:{PROXY_PORT}/v1"
     marker.write_text(json.dumps(evidence, indent=2))
@@ -572,12 +667,19 @@ def smoke_routes(plan: dict, host: str | None):
             ) from None
 
 
-def configure_nemoclaw(evidence: dict):
+def configure_nemoclaw(evidence: dict) -> dict:
     if evidence.get("nemoclaw_endpoint"):
         endpoint = evidence["nemoclaw_endpoint"]
         host = urllib.parse.urlsplit(endpoint).hostname
         if not host:
             raise NimError("Worker NIM endpoint has no host")
+        updates = {
+            "NEMOCLAW_PROVIDER": "custom", "NEMOCLAW_ENDPOINT_URL": endpoint,
+            "NEMOCLAW_TRUSTED_PRIVATE_INFERENCE_HOSTS": host,
+            "NEMOCLAW_MODEL": next(r["model"] for r in evidence["roles"] if r["runtime"] == "nemoclaw"),
+            "COMPATIBLE_API_KEY": LOCAL_NIM_CLIENT_KEY,
+            "NEMOCLAW_INFERENCE_PROXY": "0",
+        }
         # Onboard rejects private inference destinations unless the operator
         # explicitly trusts their exact host. This is the job-owned adapter
         # we started on this worker; do not grant a subnet or relax other URLs.
@@ -589,6 +691,9 @@ def configure_nemoclaw(evidence: dict):
                 + shlex.quote(host)
                 + "\n"
             )
+
+        return updates
+    return {}
 
 
 def collect_logs(plan: dict):
@@ -640,9 +745,10 @@ def cleanup(owner: str, remove_files: bool = True):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("start", "cleanup"))
+    parser.add_argument("action", choices=("start", "prepare", "cleanup"))
     parser.add_argument("--plan")
     parser.add_argument("--owner")
+    parser.add_argument("--repo", type=Path)
     args = parser.parse_args()
     global _START_DEADLINE
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
@@ -672,7 +778,10 @@ def main():
     pid_file.write_text(str(os.getpid()))
     _START_DEADLINE = time.monotonic() + STARTUP_BUDGET_SEC
     try:
-        start(plan)
+        if args.action == "prepare":
+            prepare(plan, args.repo)
+        else:
+            start(plan)
         try:
             collect_logs(plan)
         except (OSError, ValueError, NimError, subprocess.SubprocessError):
