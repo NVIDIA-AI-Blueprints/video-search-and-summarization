@@ -270,6 +270,11 @@ def worker(run_id):
                     continue
                 state = container.get("State", {})
                 row = {"running":state.get("Running") is True, "oom_killed":state.get("OOMKilled") is True, "restart_count":container.get("RestartCount"), "health_status":(state.get("Health") or {}).get("Status")}
+                processes = subprocess.run(["docker", "top", container["Id"], "-eo", "comm"], capture_output=True, text=True, timeout=10)
+                row["process_kinds"] = dict(Counter(name for name in processes.stdout.splitlines()[1:] if re.fullmatch(r"[A-Za-z0-9_.:/-]{1,100}", name)))
+                cached = subprocess.run(["docker", "exec", container["Id"], "du", "-sk", "/opt/nim/.cache"], capture_output=True, text=True, timeout=10)
+                parts = cached.stdout.split()
+                row["cache_kib"] = int(parts[0]) if parts and parts[0].isdigit() else None
                 ports = container.get("NetworkSettings", {}).get("Ports", {}).get("8000/tcp") or []
                 if ports and str(ports[0].get("HostPort", "")).isdigit():
                     port = int(ports[0]["HostPort"])
