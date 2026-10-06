@@ -424,9 +424,7 @@ const MediaUpload = () => {
             'nvstreamer-total-chunks': params.totalChunkCount,
             'nvstreamer-is-last-chunk': isLastChunk ? 'true' : 'false',
         };
-        if (params.metadata.sensorId) {
-            uploadHeaders.streamId = params.metadata.sensorId;
-        }
+        // Keep Sensor ID in metadata so SDRC can route uploads without a pod mapping.
         applyTranscodeHeaders(uploadHeaders, params.currentState);
         return uploadHeaders;
     };
