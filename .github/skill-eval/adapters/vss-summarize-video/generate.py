@@ -97,6 +97,30 @@ PREAMBLE = (
     "Render video_summary and every event description verbatim and in full."
 )
 
+REMOTE_DEPLOYMENT_CONTEXT = (
+    "## Supplied remote model routes (deployment step only)\n\n"
+    "The evaluation has selected remote-all deployment and supplied its "
+    "chosen endpoints and exact model IDs in the host environment: "
+    "`LLM_REMOTE_URL`, `LLM_REMOTE_MODEL`, `VLM_REMOTE_URL`, and "
+    "`VLM_REMOTE_MODEL` (forwarded through `~/.eval_env`). These are the "
+    "requested deployment inputs, not optional candidates. Use them for "
+    "the `/vss-build-vision-ai` remote model configuration, following its "
+    "URL normalization and remote model discovery rules. In particular, "
+    "derive `RTVI_VLM_ENDPOINT` from `VLM_REMOTE_URL` and set `VLM_NAME` to "
+    "`VLM_REMOTE_MODEL`; derive `LLM_BASE_URL` from `LLM_REMOTE_URL` and set "
+    "`LLM_NAME` to `LLM_REMOTE_MODEL`. Do not substitute public catalog "
+    "endpoints such as integrate.api.nvidia.com, a default model, or a route "
+    "left over from another deployment. If any supplied value is missing "
+    "or its selected model cannot be discovered, report BLOCKED and stop "
+    "before deployment; do not guess a replacement. Before declaring setup "
+    "complete, verify that the resolved RT-VLM container's `VIA_VLM_ENDPOINT` "
+    "and model match the supplied VLM route, with `/v1` normalized per the "
+    "build skill. Save the selected endpoint origins/paths and model IDs "
+    "under `/logs/artifacts/remote-model-routes.json`, omitting credentials "
+    "and all other environment values. Do not print keys or full environment "
+    "files."
+)
+
 
 # ---------------------------------------------------------------------------
 # Generation
@@ -163,6 +187,7 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         lines = [
             PREAMBLE,
             "",
+            REMOTE_DEPLOYMENT_CONTEXT if idx == 1 else "",
             "",
             f"## Query {idx} of {len(expects)}",
             "",

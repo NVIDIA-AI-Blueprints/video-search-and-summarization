@@ -53,6 +53,33 @@ def _load_adapter():
     return module
 
 
+def test_generated_setup_uses_supplied_remote_models_only(tmp_path: Path) -> None:
+    """Deployment must use CI's model routes instead of guessing public ones."""
+    adapter = _load_adapter()
+    spec = json.loads(EVAL_SPEC.read_text())
+    spec["_source_path"] = str(EVAL_SPEC)
+    adapter.generate_task(
+        "RTXPRO6000BW", "lvs", spec, tmp_path,
+        EVAL_SPEC.parents[1], None, None,
+    )
+    setup = (tmp_path / "lvs/rtxpro6000bw/step-1/instruction.md").read_text()
+    operation = (tmp_path / "lvs/rtxpro6000bw/step-2/instruction.md").read_text()
+
+    for variable in (
+        "LLM_REMOTE_URL", "LLM_REMOTE_MODEL", "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
+    ):
+        assert variable in setup
+        assert variable not in operation
+    assert "Do not substitute" in setup
+    assert "BLOCKED" in setup
+    assert "VIA_VLM_ENDPOINT" in setup
+    assert "exactly one `vss summarize run`" in operation
+    generated_spec = json.loads(
+        (tmp_path / "lvs/rtxpro6000bw/step-2/tests/lvs_profile_summarize.json").read_text()
+    )
+    assert generated_spec["expects"][1]["checks"] == spec["expects"][1]["checks"]
+
+
 def test_preamble_enforces_single_terminal_summarization_request() -> None:
     """Ensure every generated trial receives the common safe-call contract."""
     preamble = _load_adapter().PREAMBLE
