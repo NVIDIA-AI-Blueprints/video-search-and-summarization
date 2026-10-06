@@ -261,6 +261,32 @@ def worker_host() -> str:
     return host
 
 
+def run_nim_container(args: list[str], owner: str, image: str, name: str) -> None:
+    """Reconcile an ambiguous launch timeout before retrying the same name."""
+    for attempt in range(3):
+        try:
+            docker(*args, timeout=600)
+            return
+        except subprocess.TimeoutExpired:
+            state = docker("inspect", name, check=False)
+            if state.returncode == 0:
+                info = json.loads(state.stdout)[0]
+                config = info.get("Config") or {}
+                if (config.get("Labels") or {}).get(LABEL) != owner or config.get("Image") != image:
+                    raise NimError("NIM launch timed out; existing container ownership or image differs") from None
+                if (info.get("State") or {}).get("Running"):
+                    return
+                raise NimError("NIM launch timed out; job-owned container exists but is not running") from None
+            detail = (state.stderr or "").lower()
+            if not any(f"no such {kind}: {name.lower()}" in detail for kind in ("object", "container")):
+                raise NimError("NIM launch timed out and container state could not be established") from None
+            if attempt == 2:
+                raise NimError("NIM container launch timed out after three attempts") from None
+            # A confirmed absent container is safe to recreate under the same
+            # deterministic name. Never duplicate a possibly running launch.
+            time.sleep(10 * 2 ** attempt)
+
+
 def wait_ready(url: str, token: str, timeout: int = 900, container: str | None = None):
     deadline = min(time.monotonic() + timeout, _START_DEADLINE or float("inf"))
     while time.monotonic() < deadline:
@@ -427,7 +453,7 @@ def start(plan: dict):
             # Keep the selected ID on NIM for discovery. NemoClaw reaches it
             # through the job-owned proxy, never this loopback port.
             nim_args.extend(("--served-model-name", nemoclaw_route["model"]))
-        docker(*nim_args)
+        run_nim_container(nim_args, plan["owner"], item["image"], name)
         base = f"http://127.0.0.1:{port}/v1"
         wait_ready(f"{base}/health/ready", "", 4800, container=name)
         served, _ = request_json(f"{base}/models")

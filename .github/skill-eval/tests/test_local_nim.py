@@ -19,6 +19,40 @@ import run_leg
 DIGEST = "sha256:" + "a" * 64
 
 
+@pytest.mark.parametrize("case", ["running", "absent", "foreign", "stopped", "unknown", "exhausted"])
+def test_launch_timeout_reconciles_container_before_retry(monkeypatch, case):
+    owner, image, name = "a" * 24, "nvcr.io/nim/nvidia/test@" + DIGEST, "job-nim"
+    launches = []
+
+    def docker(*args, **kwargs):
+        if args[0] == "run":
+            assert kwargs["timeout"] == 600
+            launches.append(args)
+            if case == "absent" and len(launches) == 2:
+                return subprocess.CompletedProcess(args, 0, "id", "")
+            raise subprocess.TimeoutExpired(args, 120)
+        assert args == ("inspect", name)
+        if case in ("absent", "exhausted"):
+            return subprocess.CompletedProcess(args, 1, "", "Error: No such object: job-nim")
+        if case == "unknown":
+            return subprocess.CompletedProcess(args, 1, "", "Cannot connect to Docker daemon")
+        info = {"Config": {"Image": image, "Labels": {nim.LABEL: "foreign" if case == "foreign" else owner}},
+                "State": {"Running": case == "running"}}
+        return subprocess.CompletedProcess(args, 0, json.dumps([info]), "")
+
+    monkeypatch.setattr(nim, "docker", docker)
+    pause = Mock()
+    monkeypatch.setattr(nim.time, "sleep", pause)
+    if case in ("running", "absent"):
+        nim.run_nim_container(["run", "--name", name, image], owner, image, name)
+    else:
+        with pytest.raises(nim.NimError):
+            nim.run_nim_container(["run", "--name", name, image], owner, image, name)
+    expected = 2 if case == "absent" else 3 if case == "exhausted" else 1
+    assert len(launches) == expected
+    assert pause.call_count == expected - 1
+
+
 def registry(monkeypatch, *, arch="arm64", tags=None, fail=None):
     calls = []
 

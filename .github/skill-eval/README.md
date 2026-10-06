@@ -251,7 +251,20 @@ Schema:
 
 For stock deployments, write the query in the same terms the skill routes on, such as "use the `/vss-build-vision-ai` stock Search workflow with remote LLM/VLM placement" or "use the stock Alerts workflow in verification mode (`MODE=2d_cv`)". Do not use legacy `-p` / `-m` command flags.
 
-Manual dispatch with `skills=operations` selects all runtime specs under `skills/operations/` and excludes Build Vision AI's own evals. With `spark_runner=true`, matrix legs queue one at a time on the shared Spark worker.
+Manual dispatch with `skills=operations` selects all runtime specs under `skills/operations/` and excludes Build Vision AI's own evals. Fleet sweeps run at most two legs concurrently. With `spark_runner=true`, matrix legs queue one at a time on the shared Spark worker.
+
+Worker preparation probes connectivity before repository sync. The probe, sync,
+and file transfers allow three attempts for transient transport failures, with
+exponential backoff and jitter. Authentication and command errors fail immediately;
+arbitrary remote commands are not automatically retried. Timed-out managed-worker
+commands retain their stderr tail for diagnosis.
+
+NIM container creation allows ten minutes per attempt within the existing overall
+startup budget. On timeout, the launcher inspects the deterministic container name:
+a running container with the expected job owner and pinned image proceeds to
+readiness checks; only a confirmed absent container is retried. Unknown ownership,
+unavailable inspection, or a stopped container fails explicitly. The model and
+LiteLLM readiness budgets are unchanged.
 
 The runner passes the selected runtime as `SKILLS_EVAL_OPERATIONAL_HARNESS` to the worker. Operational setup queries explicitly invoke `/vss-build-vision-ai` and specify conditional NemoClaw setup, skill installation, and readiness. Adapters include the declared Build Vision AI skill when generating tasks; `run_leg.py` never rewrites generated instructions.
 

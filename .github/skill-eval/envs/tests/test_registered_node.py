@@ -299,6 +299,65 @@ class ClaudeTaskScratchCleanup(unittest.TestCase):
         self.assertNotIn("rm -rf {} + 2>/dev/null", cmd)
 
 
+class PreparationRetries(unittest.IsolatedAsyncioTestCase):
+    async def test_repo_sync_recovers_after_transport_timeout(self):
+        env = object.__new__(brev_env.BrevEnvironment)
+        env._instance_name = "vss-eval-l40s"
+        failure = brev_env.ExecResult(stderr="Command timed out", return_code=124)
+        success = brev_env.ExecResult(stdout="synced repo", return_code=0)
+        with mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(side_effect=[success, failure, success])) as execute, \
+             mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()) as pause:
+            await env._sync_repo_to_pr_head()
+        self.assertEqual(execute.await_count, 3)
+        self.assertEqual(execute.await_args_list[1], execute.await_args_list[2])
+        pause.assert_awaited_once_with(0)
+
+    async def test_failed_preflight_stops_before_repo_sync(self):
+        env = object.__new__(brev_env.BrevEnvironment)
+        env._instance_name = "vss-eval-l40s"
+        failure = brev_env.ExecResult(stderr="Connection timed out", return_code=124)
+        with mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(return_value=failure)) as execute, \
+             mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()):
+            with self.assertRaisesRegex(RuntimeError, "connectivity preflight failed"):
+                await env._sync_repo_to_pr_head()
+        self.assertEqual(execute.await_count, 3)
+        self.assertTrue(all("git" not in call.args[1] for call in execute.await_args_list))
+
+    async def test_transport_failure_is_bounded(self):
+        failure = brev_env.ExecResult(stderr="context deadline exceeded", return_code=1)
+        with mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(return_value=failure)) as execute, \
+             mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()) as pause:
+            result = await brev_env._run_brev_exec_retry("worker", "git fetch", timeout=300)
+        self.assertIs(result, failure)
+        self.assertEqual(execute.await_count, 3)
+        self.assertEqual(pause.await_count, 2)
+
+    async def test_authentication_and_command_errors_are_not_retried(self):
+        for message in ("Permission denied", "authentication failed", "fatal: bad revision"):
+            failure = brev_env.ExecResult(stderr=message, return_code=1)
+            with mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(return_value=failure)) as execute, \
+                 mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()) as pause:
+                self.assertIs(await brev_env._run_brev_exec_retry("worker", "git fetch", 300), failure)
+                execute.assert_awaited_once()
+                pause.assert_not_awaited()
+
+    async def test_transfer_recovers_from_rate_limit(self):
+        failure = brev_env.ExecResult(stderr="Too many requests", return_code=1)
+        success = brev_env.ExecResult(return_code=0)
+        with mock.patch.object(brev_env, "_run_brev_copy_once", new=mock.AsyncMock(side_effect=[failure, success])) as transfer, \
+             mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()) as pause:
+            self.assertIs(await brev_env._run_brev_copy("src", "worker:dst"), success)
+        self.assertEqual(transfer.await_count, 2)
+        pause.assert_awaited_once_with(0)
+
+    async def test_cancellation_does_not_trigger_retry(self):
+        with mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(side_effect=asyncio.CancelledError)), \
+             mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()) as pause:
+            with self.assertRaises(asyncio.CancelledError):
+                await brev_env._run_brev_exec_retry("worker", "git fetch", 300)
+            pause.assert_not_awaited()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

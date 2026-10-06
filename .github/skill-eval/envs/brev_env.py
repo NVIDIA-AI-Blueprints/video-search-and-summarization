@@ -27,6 +27,7 @@ from enum import Enum
 import json
 import logging
 import os
+import random
 from pathlib import Path
 import shlex
 import signal
@@ -819,7 +820,15 @@ git clean -fdx -e data/ -e .env 2>/dev/null || sudo git clean -fdx -e data/ -e .
 echo "synced $REPO to $(git rev-parse --short HEAD)"
 """
         logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
-        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        probe = await _run_brev_exec_retry(
+            self._instance_name, "printf 'skill-eval-worker-ready\\n'", timeout=45,
+        )
+        if probe.return_code != 0:
+            raise RuntimeError(
+                f"worker connectivity preflight failed on {self._instance_name}: "
+                f"exit {probe.return_code}; tail:\n{(probe.stderr or probe.stdout or '')[-500:]}"
+            )
+        result = await _run_brev_exec_retry(self._instance_name, cmd, timeout=300)
         if result.return_code != 0:
             tail = (result.stderr or result.stdout or "")[-500:]
             raise RuntimeError(
@@ -1890,7 +1899,7 @@ async def _run_brev_exec(
         stdout, stderr = await proc.communicate()
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
-            stderr="Command timed out",
+            stderr=(stderr.decode() if stderr else "")[-2000:] + "\nCommand timed out",
             return_code=124,
         )
 
@@ -1899,6 +1908,36 @@ async def _run_brev_exec(
         stderr=stderr.decode() if stderr else None,
         return_code=proc.returncode or 0,
     )
+
+
+def _transient_transport_failure(result: ExecResult) -> bool:
+    """Retry only transport failures, never authentication or command errors."""
+    detail = ((result.stderr or "") + "\n" + (result.stdout or "")).lower()
+    if any(term in detail for term in (
+        "permission denied", "authentication failed", "invalid token", "unauthorized",
+    )):
+        return False
+    return result.return_code == 124 or any(term in detail for term in (
+        "deadline_exceeded", "context deadline exceeded", "rate limit", "too many requests",
+        "connection reset", "connection refused", "connection timed out",
+        "connection failed", "connection corrupted", "bad packet length",
+        "no route to host", "temporary failure in name resolution",
+    ))
+
+
+async def _transport_backoff(attempt: int) -> None:
+    await asyncio.sleep(10 * 2 ** attempt + random.uniform(0, 5))
+
+
+async def _run_brev_exec_retry(instance: str, command: str, timeout: int) -> ExecResult:
+    """For explicitly idempotent preparation only; arbitrary exec is never retried."""
+    for attempt in range(3):
+        result = await _run_brev_exec(instance, command, timeout=timeout)
+        if result.return_code == 0 or not _transient_transport_failure(result) or attempt == 2:
+            return result
+        logger.warning("Worker preparation transport failed on %s; retry %s/2", instance, attempt + 1)
+        await _transport_backoff(attempt)
+    raise AssertionError("unreachable")
 
 
 async def _run_brev_copy(
@@ -1914,11 +1953,11 @@ async def _run_brev_copy(
     result = None
     for attempt in range(3):
         result = await _run_brev_copy_once(src, dst, timeout)
-        if result.return_code == 0:
+        if result.return_code == 0 or not _transient_transport_failure(result) or attempt == 2:
             return result
         logger.warning("brev copy failed (attempt %s): %s",
                        attempt + 1, (result.stderr or "")[-200:])
-        await asyncio.sleep(10)
+        await _transport_backoff(attempt)
     return result
 
 
