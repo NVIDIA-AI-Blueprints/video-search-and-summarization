@@ -167,6 +167,7 @@ def summarize_log(path):
 def worker(run_id):
     matches = []
     sandbox = None
+    nim_owner = None
     for process in Path("/proc").iterdir():
         if not process.name.isdigit():
             continue
@@ -179,6 +180,14 @@ def worker(run_id):
                     candidate = entry.split(b"=", 1)[1].decode("utf-8", "replace")
                     if re.fullmatch(r"se-[A-Za-z0-9-]{1,100}", candidate):
                         sandbox = candidate
+            for entry in entries:
+                if entry.startswith(b"SKILL_EVAL_LOCAL_NIM_PLAN="):
+                    try:
+                        plan = json.loads(entry.split(b"=", 1)[1])
+                        if re.fullmatch(r"[a-f0-9]{24}", plan.get("owner", "")):
+                            nim_owner = plan["owner"]
+                    except (ValueError, TypeError):
+                        pass
             executable = (process / "exe").resolve().name
             if executable in {"node", "python3", "python3.13", "codex", "bash", "sh", "openshell"}:
                 matches.append(executable)
@@ -205,6 +214,25 @@ def worker(run_id):
             states[f"{group}_{state}"] += 1
         report["running_containers"] = dict(states)
         report["docker_ps_exit_code"] = result.returncode
+        if nim_owner:
+            try:
+                ready = json.loads((Path.home()/'.cache/skill-eval-nim'/nim_owner/'ready.json').read_text())
+            except (OSError, ValueError):
+                ready = {}
+            owned = subprocess.run([
+                "docker", "ps", "--filter", f"label=vss.skill-eval.nim-owner={nim_owner}",
+                "--format", "{{.Names}}",
+            ], capture_output=True, text=True, timeout=10)
+            names = owned.stdout.split()
+            sources = Counter(model.get('source', 'unspecified') for model in ready.get('models', []))
+            report['local_model_selection'] = {
+                'operational_pending': ready.get('operational_pending') is True,
+                'operational_prepared': ready.get('operational_prepared') is True,
+                'selection': ready.get('selection') if ready.get('selection') in ['matching-vss-nim', 'no-matching-vss-nim'] else 'not-recorded',
+                'model_sources': {k:v for k,v in sources.items() if k in ['vss', 'eval', 'unspecified']},
+                'owned_nim_containers': sum(bool(re.fullmatch(r'skill-eval-nim-[a-f0-9]{24}-[0-9]+', n)) for n in names),
+                'owned_proxy_containers': sum(n.endswith('-proxy') for n in names),
+            }
         if sandbox:
             try:
                 session = json.loads((Path.home()/'.nemoclaw/onboard-session.json').read_text())
