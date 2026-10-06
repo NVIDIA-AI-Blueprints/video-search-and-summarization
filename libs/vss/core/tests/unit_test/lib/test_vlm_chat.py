@@ -54,7 +54,7 @@ def no_backoff(monkeypatch):
     )
 
 
-@pytest.mark.parametrize("backend", ["openai", "vllm"])
+@pytest.mark.parametrize("backend", ["openai", "vllm", "cosmos_reason_nim"])
 @pytest.mark.asyncio
 async def test_ordered_history_images_controls_continuation_and_suffix(backend):
     captured = []
@@ -210,7 +210,7 @@ def test_rt_vlm_accepted_subsets(messages):
     assert payload["top_k"] == 1000
 
 
-@pytest.mark.parametrize("backend", ["vllm", "openai"])
+@pytest.mark.parametrize("backend", ["vllm", "openai", "cosmos_reason_nim"])
 def test_direct_servers_preserve_text_arrays_and_multiple_videos(backend):
     req = ChatRequest(
         (ChatMessage("user", (TextPart("a"), VideoPart("https://h/1"), TextPart("b"), VideoPart("https://h/2"))),), "m"
@@ -230,9 +230,11 @@ def test_direct_servers_preserve_text_arrays_and_multiple_videos(backend):
         ),
     ],
 )
-def test_nim_rejects_unverified_extensions(req):
-    with pytest.raises(ChatError):
-        serialize_request(req, "cosmos_reason_nim")
+def test_nim_accepts_text_image_and_video_generation_extensions(req):
+    payload, body = serialize_request(req, "cosmos_reason_nim")
+    assert body is None and payload["model"] == req.model
+    assert [m["role"] for m in payload["messages"]] == [m.role for m in req.messages]
+    assert payload.get("top_p") == req.generation.top_p
 
 
 @pytest.mark.parametrize(
@@ -527,3 +529,67 @@ def test_video_data_uri_validation_decodes_bounded_blocks(monkeypatch):
 def test_video_data_uri_validation_rejects_empty_invalid_and_nonfinal_padding(encoded):
     with pytest.raises(ChatError):
         VideoPart("data:video/mp4;base64," + encoded)
+
+
+@pytest.mark.asyncio
+async def test_nim_http_rejection_does_not_retry_with_stripped_controls():
+    payloads = []
+
+    def handler(req):
+        payloads.append(json.loads(req.content))
+        return httpx.Response(400)
+
+    req = ChatRequest(
+        (ChatMessage("user", "question"), ChatMessage("assistant", "prefix")),
+        "m",
+        GenerationOptions(max_tokens=64, seed=7, top_p=0.8, top_k=20, repetition_penalty=1.1),
+        continuation=True,
+    )
+    async with VLMChatClient(
+        "https://h", "cosmos_reason_nim", attempts=3, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(ChatError) as error:
+            await client.complete(req)
+    assert error.value.status_code == 400 and error.value.attempts == 1
+    assert len(payloads) == 1
+    assert payloads[0]["messages"][-1]["content"] == "prefix"
+    assert payloads[0]["continue_final_message"] is True
+    assert payloads[0]["add_generation_prompt"] is False
+    assert payloads[0]["top_k"] == 20 and payloads[0]["seed"] == 7
+
+
+@pytest.mark.parametrize("backend", ["rt_vlm", "cosmos_reason_nim"])
+@pytest.mark.asyncio
+async def test_legacy_streamed_video_option_field_order(backend, tmp_path):
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"video")
+    req = ChatRequest(
+        (ChatMessage("user", (VideoPart(VideoFile(video)), TextPart("question"))),),
+        "m",
+        GenerationOptions(temperature=0.3, max_tokens=128, seed=7),
+        enable_reasoning=False,
+        video_options=VideoOptions(fps=2, max_frames=4, total_pixels=262144, chunk_duration=0),
+    )
+    payload, body = serialize_request(req, backend)
+    assert payload is None
+    raw = b"".join([chunk async for chunk in body()])
+    expected = {
+        "model": "m",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,dmlkZW8="}},
+                    {"type": "text", "text": "question"},
+                ],
+            }
+        ],
+        "temperature": 0.3,
+        "max_tokens": 128,
+        "seed": 7,
+        "media_io_kwargs": {"video": {"fps": 2}},
+        "enable_reasoning": False,
+        "chunk_duration": 0,
+        "mm_processor_kwargs": {"size": {"shortest_edge": 131072, "longest_edge": 262144}},
+    }
+    assert raw == json.dumps(expected).encode()

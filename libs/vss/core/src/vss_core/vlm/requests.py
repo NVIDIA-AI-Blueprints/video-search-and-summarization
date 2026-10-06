@@ -30,6 +30,13 @@ _LOG = logging.getLogger(__name__)
 
 
 def validate_backend(request: ChatRequest, backend: str) -> None:
+    """Keep server-specific RT-VLM restrictions out of direct chat backends.
+
+    Cosmos Reason NIM uses ordered OpenAI-style messages and top-level
+    generation/continuation fields. Its deployed model and image determine
+    modality, history and continuation support; HTTP rejections stay typed.
+    Legacy video-option translations remain unchanged for existing consumers.
+    """
     media = [
         p
         for m in request.messages
@@ -38,24 +45,6 @@ def validate_backend(request: ChatRequest, backend: str) -> None:
         if isinstance(p, (ImagePart, VideoPart))
     ]
     generation = request.generation
-    if backend == "cosmos_reason_nim":
-        if (
-            len(request.messages) != 1
-            or request.messages[0].role != "user"
-            or len(media) != 1
-            or not isinstance(media[0], VideoPart)
-            or request.continuation
-            or any(getattr(generation, n) is not None for n in ("top_p", "top_k", "repetition_penalty"))
-        ):
-            raise ChatError("alpha NIM supports only legacy single-video requests")
-        content = request.messages[0].content
-        if (
-            isinstance(content, str)
-            or len(content) != 2
-            or not isinstance(content[0], VideoPart)
-            or not isinstance(content[1], TextPart)
-        ):
-            raise ChatError("alpha NIM requires one video followed by one text part")
     if backend == "rt_vlm":
         if request.continuation or generation.repetition_penalty is not None:
             raise ChatError("RT-VLM does not support continuation or repetition_penalty")
@@ -103,13 +92,8 @@ def _backend_options(request: ChatRequest, backend: str) -> dict[str, Any]:
         _LOG.warning(
             "Cosmos Reason NIM backend support is alpha; request construction currently uses the RT-VLM request schema and is pending refinement."
         )
-    if request.enable_reasoning is not None:
-        if backend == "vllm":
-            payload["chat_template_kwargs"] = {"enable_thinking": request.enable_reasoning}
-        else:
-            payload["enable_reasoning"] = request.enable_reasoning
-    if backend != "vllm" and options.chunk_duration is not None:
-        payload["chunk_duration"] = options.chunk_duration
+    if backend == "vllm" and request.enable_reasoning is not None:
+        payload["chat_template_kwargs"] = {"enable_thinking": request.enable_reasoning}
     video = {}
     if options.fps is not None:
         video["fps"] = options.fps
@@ -130,6 +114,13 @@ def _backend_options(request: ChatRequest, backend: str) -> dict[str, Any]:
         payload["media_io_kwargs"] = {"video": video}
         if backend == "vllm":
             processor["do_sample_frames"] = False
+    # Preserve the field order of existing video requests, including streamed
+    # JSON bodies: RT-VLM/NIM put video sampling before reasoning/chunk options.
+    if backend != "vllm":
+        if request.enable_reasoning is not None:
+            payload["enable_reasoning"] = request.enable_reasoning
+        if options.chunk_duration is not None:
+            payload["chunk_duration"] = options.chunk_duration
     if options.total_pixels is not None:
         processor["size"] = {
             "shortest_edge": min(128 * 32 * 32, options.total_pixels),
