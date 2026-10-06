@@ -162,7 +162,17 @@ securityContext:
   fsGroup: 0
 
 # Set true to use FFmpeg software encode/decode instead of GPU hardware path.
-# Must be paired with resources: null so the pod is not scheduled requiring a GPU.
+# Pair software mode with GPU limits and requests set explicitly to 0.
+# For an override of this subchart, use the following nested YAML:
+# useSoftwarePath: true
+# resources:
+#   limits:
+#     nvidia.com/gpu: 0
+#   requests:
+#     nvidia.com/gpu: 0
+# In a Warehouse profile override, nest these settings under vios.vss-vios-streamprocessing.
+# Use explicit 0 values; null restores dependency defaults during Helm coalescing.
+# VST overlay and video wall do not work properly without GPU allocation.
 useSoftwarePath: false
 
 # Base download timeout in seconds, rendered into download_files_timeout_secs.
