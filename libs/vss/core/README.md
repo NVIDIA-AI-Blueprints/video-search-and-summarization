@@ -49,6 +49,9 @@ Optional `detail` is `auto`, `low` or `high`. Embedded images support PNG, JPEG
 and WebP with MIME/signature checks; there is no download or reencoding step.
 `VideoPart.source` is an HTTP(S) URL, MP4 data URI, or `VideoFile(Path(...))`.
 Local video streams JSON in 192 KiB raw chunks with a fresh file per attempt.
+MP4 data URI validation also decodes bounded 256 KiB base64 blocks without
+allocating the whole decoded video. Data URI text remains caller-owned;
+use `VideoFile` to stream large local videos without constructing a data URI.
 Media references reject file URLs and embedded userinfo. Local/loopback HTTP
 references are allowed for deployments that need them.
 

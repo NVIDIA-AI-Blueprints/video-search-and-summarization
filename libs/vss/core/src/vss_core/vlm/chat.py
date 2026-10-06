@@ -98,14 +98,28 @@ def _image_bytes(data: bytes, mime: str) -> None:
 def _reference(url: str, *, image: bool) -> int:
     _check(type(url) is str and bool(url), "invalid media reference")
     if url.startswith("data:"):
-        head, separator, encoded = url.partition(",")
+        separator = url.find(",")
+        head = url[:separator] if separator >= 0 else url
         allowed = ("image/png", "image/jpeg", "image/webp") if image else ("video/mp4",)
         mime = head[5:].removesuffix(";base64")
-        _check(bool(separator) and head.endswith(";base64") and mime in allowed, "invalid media data URI")
+        _check(separator >= 0 and head.endswith(";base64") and mime in allowed, "invalid media data URI")
+        start = separator + 1
         if image:
-            _check(len(encoded) <= 4 * ((IMAGE_LIMIT + 2) // 3), "embedded image exceeds size limit")
+            _check(len(url) - start <= 4 * ((IMAGE_LIMIT + 2) // 3), "embedded image exceeds size limit")
         try:
-            decoded = base64.b64decode(encoded, validate=True)
+            if not image:
+                # Validate videos without allocating the full decoded payload or
+                # copying the encoded URI. Padding belongs only to the final block.
+                size = 0
+                block_size = 4 * 65536
+                for offset in range(start, len(url), block_size):
+                    block = url[offset : offset + block_size]
+                    if offset + block_size < len(url) and "=" in block:
+                        raise ValueError("nonfinal base64 padding")
+                    size += len(base64.b64decode(block, validate=True))
+                _check(size > 0, "empty embedded media")
+                return size
+            decoded = base64.b64decode(url[start:], validate=True)
         except (ValueError, binascii.Error):
             raise ChatError("invalid media base64") from None
         _check(bool(decoded), "empty embedded media")

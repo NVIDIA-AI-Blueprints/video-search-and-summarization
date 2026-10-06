@@ -505,3 +505,25 @@ async def test_video_disappearing_after_validation_retains_attempts_and_safe_err
             await client.complete(req)
         assert error.value.kind == "validation" and error.value.attempts == 1
         assert "private" not in str(error.value)
+
+
+def test_video_data_uri_validation_decodes_bounded_blocks(monkeypatch):
+    data = bytes(range(256)) * 2500
+    source = "data:video/mp4;base64," + base64.b64encode(data).decode()
+    original = base64.b64decode
+    lengths = []
+
+    def decode(block, **kwargs):
+        lengths.append(len(block))
+        return original(block, **kwargs)
+
+    monkeypatch.setattr(base64, "b64decode", decode)
+    part = VideoPart(source)
+    assert part.source is source
+    assert len(lengths) > 1 and max(lengths) <= 4 * 65536
+
+
+@pytest.mark.parametrize("encoded", ["", "AAAA!", "YQ==" + "A" * (4 * 65536), "A" * (4 * 65536) + "!"])
+def test_video_data_uri_validation_rejects_empty_invalid_and_nonfinal_padding(encoded):
+    with pytest.raises(ChatError):
+        VideoPart("data:video/mp4;base64," + encoded)
