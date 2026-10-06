@@ -51,6 +51,7 @@ def evs_serving(evs_video_session):
 async def _pending_evs_operation(serving_class, operation):
     cache = set()
     entered, resume = asyncio.Event(), asyncio.Event()
+    generating, finish_generation = asyncio.Event(), asyncio.Event()
 
     async def free(hashes):
         cache.difference_update(hashes)
@@ -72,6 +73,9 @@ async def _pending_evs_operation(serving_class, operation):
 
     async def generate(*args):
         assert mm_hash in cache, "Encoder cache miss before generation admission"
+        generating.set()
+        await finish_generation.wait()
+        assert mm_hash in cache, "Encoder cache released during generation"
         yield SimpleNamespace(outputs=[], prompt_token_ids=[])
 
     async def encode(*args, **kwargs):
@@ -97,7 +101,14 @@ async def _pending_evs_operation(serving_class, operation):
         )
     await asyncio.wait_for(entered.wait(), timeout=2)
     return SimpleNamespace(
-        handler=handler, sid=sid, session=session, cache=cache, resume=resume, task=task
+        handler=handler,
+        sid=sid,
+        session=session,
+        cache=cache,
+        resume=resume,
+        task=task,
+        generating=generating,
+        finish_generation=finish_generation,
     )
 
 
@@ -126,6 +137,10 @@ def test_session_delete_drains_pending_evs_work(evs_serving, operation, cancel_d
                 with pytest.raises(ValueError, match="test encode failure"):
                     await pending.task
             else:
+                await asyncio.wait_for(pending.generating.wait(), timeout=2)
+                assert not second.done(), "delete returned while generation was still pending"
+                assert pending.cache == {"evs-merged-pending"}
+                pending.finish_generation.set()
                 await pending.task
             await asyncio.wait_for(second, timeout=2)
             if not cancel_delete:
@@ -133,6 +148,7 @@ def test_session_delete_drains_pending_evs_work(evs_serving, operation, cancel_d
             assert not pending.cache
         finally:
             pending.resume.set()
+            pending.finish_generation.set()
             await asyncio.gather(
                 pending.task,
                 first,
@@ -154,6 +170,7 @@ def test_session_expiry_preserves_pending_evs_work(evs_serving, operation):
             assert pending.sid in manager._sessions
         finally:
             pending.resume.set()
+            pending.finish_generation.set()
             await asyncio.gather(pending.task, return_exceptions=True)
         assert "evs-merged-pending" in manager.expire_stale_sessions()
         assert pending.sid not in manager._sessions
@@ -318,6 +335,44 @@ def _make_evs_model(handler):
     model.model_dir_name = "cosmos-reason2-8b"
     model._ensure_evs_handler = lambda: handler
     return model
+
+
+@pytest.mark.parametrize("close_all", [False, True])
+def test_wrapper_retries_failed_release_and_closes_remaining_sessions(
+    monkeypatch, evs_serving, close_all
+):
+    calls = []
+
+    async def free(hashes):
+        calls.append(hashes)
+        if hashes == ["retry"] and calls.count(["retry"]) == 1:
+            raise RuntimeError("temporary cache release failure")
+
+    handler = evs_serving(SimpleNamespace(free_ec_caches=free))
+    model = _make_evs_model(handler)
+    for stream, prompt in [("stream-1", "retry"), ("stream-1", "ok"), ("stream-2", "other")]:
+        sid = handler.manager.create_session(model="test-model", token_budget=1)
+        handler.manager.get_session(sid).record_merged_mm_hash(prompt)
+        model._evs_sessions[(stream, prompt)] = sid
+    sessions = dict(model._evs_sessions)
+    monkeypatch.setattr(
+        vllm_compatible_model.asyncio,
+        "run_coroutine_threadsafe",
+        lambda coro, _loop: _CompletedFuture(asyncio.run(coro)),
+    )
+    close = model.close_evs_session if close_all else lambda: model._close_evs_session("stream-1")
+    with pytest.raises(RuntimeError, match="temporary cache release failure"):
+        close()
+    assert model._evs_sessions[("stream-1", "retry")] == sessions[("stream-1", "retry")]
+    assert ("stream-1", "ok") not in model._evs_sessions
+    assert sessions[("stream-1", "ok")] not in handler.manager._sessions
+    assert (("stream-2", "other") in model._evs_sessions) is not close_all
+    close()
+    assert calls.count(["retry"]) == 2
+    assert sessions[("stream-1", "retry")] not in handler.manager._sessions
+    assert model._evs_sessions == (
+        {} if close_all else {("stream-2", "other"): sessions[("stream-2", "other")]}
+    )
 
 
 def test_same_stream_different_prompt_uses_separate_evs_sessions(monkeypatch):
