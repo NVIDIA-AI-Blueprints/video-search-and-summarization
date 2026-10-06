@@ -384,6 +384,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 |-----|---------|-------------|
 | **`global.externalScheme`** | **`""`** | `http` or `https`. Builds browser-facing URLs together with **`global.externalHost`** and **`global.externalPort`**. |
 | **`global.externalPort`** | **`""`** | Port segment in generated URLs. Leave empty so URLs omit `:port` when using standard 80/443. Set only for non-standard ports. |
+| **`global.vstExternalPort`** | **`""`** | Public VST port when it differs from `global.externalPort`; the NodePort overlay sets `30888`. |
 | **`global.useReleaseNamePrefix`** | **`false`** | When `true`, all in-cluster service names are prefixed with the Helm release name. The SDRC `waitForWorkloads` target is rewritten the same way so it still reaches `vss-rtvi-cv`. |
 | **`global.vios.messageBrokerConsumer`** | **`kafka`** | Live metadata broker VST/VIOS listens on for overlay bounding boxes. Chart default is `redis`; this profile overrides it since perception publishes to Kafka. Shared by `vss-vios-sensor` and `vss-vios-streamprocessing`. |
 | **`global.vios.messageBrokerTopicConsumer`** | **`mdx-bev`** | Topic VIOS consumes for live overlay metadata. |
@@ -674,8 +675,8 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
 | Grafana | `http://<NODE_IP>:30300/` |
 | Prometheus | `http://<NODE_IP>:30909/` |
 
-It sets **`global.vssIngress.enabled`** to false and clears the path prefixes, since
-each app then owns the root of its own port.
+It disables ingress, clears the path prefixes, and sets **`global.vstExternalPort`**
+to `30888`. Set **`global.externalHost`** to the node address clients use.
 
 ### Port-forward
 
