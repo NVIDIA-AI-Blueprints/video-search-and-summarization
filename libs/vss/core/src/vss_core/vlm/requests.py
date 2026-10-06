@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from contextlib import suppress
 from dataclasses import asdict
 import json
 import logging
 import secrets
+import threading
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -17,6 +19,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
     from collections.abc import Callable
     from pathlib import Path
+    from typing import BinaryIO
 
 from .chat import ChatError
 from .chat import ChatRequest
@@ -30,12 +33,41 @@ from .chat import VideoPart
 _LOG = logging.getLogger(__name__)
 
 
-def _read_video_chunk(path: Path, offset: int) -> bytes:
-    # The worker owns the file for the whole read. Cancelling its await returns
-    # promptly without closing a file still in use by a stalled worker.
-    with path.open("rb") as stream:
-        stream.seek(offset)
-        return stream.read(3 * 65536)
+class _VideoReader:
+    """One descriptor per attempt; workers own reads and eventual cleanup."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._stream: BinaryIO | None = None
+        self._lock = threading.Lock()
+        self._closing = threading.Event()
+
+    def _close_stream(self) -> None:
+        stream, self._stream = self._stream, None
+        if stream is not None:
+            with suppress(OSError):
+                stream.close()
+
+    def read(self) -> bytes:
+        with self._lock:
+            if self._closing.is_set():
+                return b""
+            if self._stream is None:
+                self._stream = self._path.open("rb")
+            chunk = b""
+            try:
+                chunk = self._stream.read(3 * 65536)
+                return chunk
+            finally:
+                if not chunk or self._closing.is_set():
+                    self._close_stream()
+
+    def request_close(self) -> None:
+        self._closing.set()
+
+    def close(self) -> None:
+        with self._lock:
+            self._close_stream()
 
 
 def validate_backend(request: ChatRequest, backend: str) -> None:
@@ -193,10 +225,15 @@ def serialize_request(
     async def body() -> AsyncGenerator[bytes]:
         for prefix, path in segments:
             yield (prefix + '"data:video/mp4;base64,').encode()
-            offset = 0
-            while chunk := await asyncio.to_thread(_read_video_chunk, path, offset):
-                offset += len(chunk)
-                yield base64.b64encode(chunk)
+            reader = _VideoReader(path)
+            try:
+                while chunk := await asyncio.to_thread(reader.read):
+                    yield base64.b64encode(chunk)
+            finally:
+                reader.request_close()
+                # Never wait for a stalled worker or close its active descriptor.
+                # The read worker closes on return; this also closes idle readers.
+                asyncio.get_running_loop().run_in_executor(None, reader.close)
             yield b'"'
         yield remaining.encode()
 

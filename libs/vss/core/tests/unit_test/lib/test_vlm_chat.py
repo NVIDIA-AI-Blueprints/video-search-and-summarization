@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from contextlib import contextmanager
 from dataclasses import FrozenInstanceError
 import json
 from pathlib import Path
@@ -409,8 +408,14 @@ async def test_slow_video_reads_leave_event_loop_responsive(tmp_path, monkeypatc
         def __init__(self, stream):
             self.stream = stream
 
-        def seek(self, offset):
-            return self.stream.seek(offset)
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            self.close()
+
+        def close(self):
+            self.stream.close()
 
         def read(self, size):
             loop.call_soon_threadsafe(progressed.set)
@@ -418,10 +423,8 @@ async def test_slow_video_reads_leave_event_loop_responsive(tmp_path, monkeypatc
             observations.append(progressed.is_set())
             return self.stream.read(size)
 
-    @contextmanager
     def slow_open(self, *args, **kwargs):
-        with original(self, *args, **kwargs) as stream:
-            yield SlowReader(stream)
+        return SlowReader(original(self, *args, **kwargs))
 
     monkeypatch.setattr(Path, "open", slow_open)
     req = ChatRequest((ChatMessage("user", (VideoPart(VideoFile(path)), TextPart("x"))),), "m")
@@ -447,8 +450,15 @@ async def test_cancelled_video_read_does_not_hold_completion_or_client_shutdown(
         def __init__(self, stream):
             self.stream = stream
 
-        def seek(self, offset):
-            return self.stream.seek(offset)
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            self.close()
+
+        def close(self):
+            self.stream.close()
+            finished.set()
 
         def read(self, size):
             loop.call_soon_threadsafe(entered.set)
@@ -458,14 +468,10 @@ async def test_cancelled_video_read_does_not_hold_completion_or_client_shutdown(
                 raise OSError("read failed")
             return self.stream.read(size)
 
-    @contextmanager
     def blocking_open(self, *args, **kwargs):
-        try:
-            with original(self, *args, **kwargs) as stream:
-                opened.append(stream)
-                yield BlockingReader(stream)
-        finally:
-            finished.set()
+        stream = original(self, *args, **kwargs)
+        opened.append(stream)
+        return BlockingReader(stream)
 
     monkeypatch.setattr(Path, "open", blocking_open)
     req = ChatRequest((ChatMessage("user", (VideoPart(VideoFile(path)), TextPart("x"))),), "m")
@@ -498,12 +504,31 @@ async def test_stream_generator_closes_file_when_cancelled(tmp_path, monkeypatch
     path = tmp_path / "video.mp4"
     path.write_bytes(b"x" * 300000)
     opened = []
+    closed = threading.Event()
     original = Path.open
+
+    class TrackedReader:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __getattr__(self, name):
+            return getattr(self.stream, name)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            self.close()
+
+        def close(self):
+            self.stream.close()
+            closed.set()
 
     def track(self, *args, **kwargs):
         stream = original(self, *args, **kwargs)
         opened.append(stream)
-        return stream
+        closed.clear()
+        return TrackedReader(stream)
 
     monkeypatch.setattr(Path, "open", track)
     req = ChatRequest((ChatMessage("user", (VideoPart(VideoFile(path)), TextPart("x"))),), "m")
@@ -517,7 +542,32 @@ async def test_stream_generator_closes_file_when_cancelled(tmp_path, monkeypatch
     async with VLMChatClient("https://h", "vllm") as client:
         with pytest.raises(asyncio.CancelledError):
             await client.complete(req)
+    assert await asyncio.to_thread(closed.wait, 5)
     assert opened and all(stream.closed for stream in opened)
+
+
+@pytest.mark.parametrize("replace", [False, True])
+@pytest.mark.asyncio
+async def test_video_upload_keeps_original_descriptor_after_path_change(tmp_path, replace):
+    path = tmp_path / "video.mp4"
+    data = b"original" * 75000
+    path.write_bytes(data)
+    req = ChatRequest((ChatMessage("user", (VideoPart(VideoFile(path)), TextPart("x"))),), "m")
+    _, factory = serialize_request(req, "vllm")
+    body = factory()
+    try:
+        chunks = [await anext(body), await anext(body)]
+        if replace:
+            replacement = tmp_path / "replacement.mp4"
+            replacement.write_bytes(b"replacement" * 60000)
+            replacement.replace(path)
+        else:
+            path.unlink()
+        chunks.extend([chunk async for chunk in body])
+    finally:
+        await body.aclose()
+    payload = json.loads(b"".join(chunks))
+    assert base64.b64decode(payload["messages"][0]["content"][0]["video_url"]["url"].split(",")[1]) == data
 
 
 @pytest.mark.asyncio
