@@ -3884,7 +3884,7 @@ urllib3,2.7.0,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,dec
 urllib3,2.7.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 urllib3,2.7.0,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 urllib3,2.7.0,MIT,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
-urllib3,2.7.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+urllib3,2.8.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 urllib3,2.7.0,MIT,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 urllib3,2.7.0,MIT,services/video-summarization,python,lockfile;manifest,services/video-summarization/docker/base/py_deps/pyproject.toml;services/video-summarization/docker/base/py_deps/uv.lock,runtime,no,no,no,declared-manifest,None
 urllib3,2.7.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
