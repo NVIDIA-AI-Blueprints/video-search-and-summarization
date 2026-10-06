@@ -2,16 +2,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Credential gate for vss-build-vision-ai. Validates the keys a deploy needs
-# (NGC / NVIDIA_API_KEY / HF_TOKEN) against their services so a bad key fails in
-# seconds, not after a cold NIM start. Read-only: it reads env vars and curls —
-# it does NOT write override.env (the skill writes the resolved key per
-# credentials.md). The NGC and NVIDIA keys are reported as validated, rejected
-# by the service, not validated because the service never answered, or skipped;
-# HF_TOKEN is presence-only for the reason given at its block. Which of them
-# are required depends on the deployment mode, so it comes in via --require and
-# the exit code is the verdict the caller branches on:
-# 0 gate passed, 1 usage error, 2 gate failed.
+# Credential gate for vss-build-vision-ai. Checks the keys a deploy needs
+# (NGC / NVIDIA_API_KEY / HF_TOKEN) so a bad key fails in seconds, not after a
+# cold NIM start. Read-only: it reads env vars and curls — it does NOT write
+# override.env (the skill writes the resolved key per credentials.md). The NGC
+# key is probed and reported as validated, rejected by the service, not
+# validated because the service never answered, or skipped; NVIDIA_API_KEY and
+# HF_TOKEN are presence-only for the reasons given at their blocks. Which of
+# them are required depends on the deployment mode, so it comes in via --require
+# and the exit code is the verdict the caller branches on: 0 gate passed,
+# 1 usage error, 2 gate failed. Any non-zero exit blocks.
 set -u
 
 usage() {
@@ -23,10 +23,12 @@ Validate configured VSS deployment credentials without modifying them.
 Options:
   --require ngc         NGC key is required (any local NIM image pull:
                         LLM_MODE / VLM_MODE of local or local_shared)
-  --require nvidia-api  NVIDIA_API_KEY is required (remote NIM endpoints)
-  --require hf          HF_TOKEN is required (only a gated Hugging Face
-                        checkpoint, such as the Omni weights; the Cosmos-Embed
-                        defaults are public and need no token)
+  --require nvidia-api  NVIDIA_API_KEY is required (a build.nvidia.com /
+                        integrate.api.nvidia.com endpoint; any other remote
+                        endpoint carries its own key — see credentials.md)
+  --require hf          HF_TOKEN is required (a gated or private Hugging Face
+                        checkpoint; the Cosmos-Embed defaults are public and
+                        need no token)
   -h, --help            Print this help and exit without probing
 
 Environment variables:
@@ -37,18 +39,21 @@ Environment variables:
 A credential that is unset, rejected, or left unvalidated by an unreachable or
 erroring service is a blocker only when its --require name was passed;
 otherwise it is reported and does not gate. Conflicting NGC_CLI_API_KEY /
-NGC_API_KEY values always gate. Each probe is bounded at 5s to connect and 15s
+NGC_API_KEY values always gate. The probe is bounded at 5s to connect and 15s
 in total, so the gate cannot hang on a host with no egress.
 
-HF_TOKEN is checked for presence only. No Hugging Face endpoint distinguishes a
-good token here, so a set token is reported unvalidated rather than claimed
-valid; access to the selected checkpoint belongs to the artifact probes in
-credentials.md.
+NVIDIA_API_KEY and HF_TOKEN are checked for presence only; neither is probed.
+The build.nvidia.com model catalog answers 200 with no credential at all, and so
+does a gated repository's Hugging Face metadata, so a 200 from either is not a
+verdict on the key. A set key is reported unvalidated rather than claimed valid;
+the selected endpoint and checkpoint are probed per credentials.md.
 
 Exit codes:
-  0  every required credential validated
-  1  usage error
+  0  every required credential present, and validated where probed (NGC only)
+  1  usage error — nothing was checked; fix the invocation and re-run
   2  gate failed (see the BLOCKER summary on stderr)
+
+Any non-zero exit blocks.
 EOF
   return 0
 }
@@ -178,37 +183,43 @@ else
   echo "NGC: not set — skip (required for any local NIM)"
 fi
 
-# build.nvidia.com — remote NIM endpoints
+# build.nvidia.com — remote NIM endpoints. Presence only, deliberately
+# unprobed: /v1/models is the public model catalog and answers 200 with no
+# Authorization header at all, so its 200 is not a verdict on the key and the
+# 401/403 arm of report_status could never fire for this host. Claiming a key
+# validated on a public 200 is worse than saying nothing. The inference route
+# does enforce auth, but only for a POST naming a listed model, which spends a
+# real request and turns a retired model id into a false rejection. The
+# endpoint that will actually be called is probed with this key as
+# REMOTE_API_KEY by probe_remote_models.sh, per credentials.md.
 if [[ -n "${NVIDIA_API_KEY:-}" ]]; then
-  nvidia_status=$(http_status -H "Authorization: Bearer ${NVIDIA_API_KEY}" \
-    "https://integrate.api.nvidia.com/v1/models")
-  report_status "$nvidia_status" "$require_nvidia" "NVIDIA_API_KEY" "integrate.api.nvidia.com"
+  echo "NVIDIA_API_KEY: set — not validated here (the model catalog is public); probe the selected endpoint per credentials.md"
 elif [[ "$require_nvidia" == 1 ]]; then
-  nvidia_missing="NVIDIA_API_KEY: not set — required for remote NIM endpoints"
+  nvidia_missing="NVIDIA_API_KEY: not set — required for a build.nvidia.com endpoint"
   echo "$nvidia_missing"
   blockers+=("$nvidia_missing")
 else
-  echo "NVIDIA_API_KEY: not set — skip (required only for remote NIM)"
+  echo "NVIDIA_API_KEY: not set — skip (required only for a build.nvidia.com endpoint)"
 fi
 
-# HF — not needed by any in-tree edge path; kept for the gated Omni checkpoint.
-# Presence only, deliberately unprobed: this gate runs before the build resolves,
-# so it has no selected repository to ask about, and every endpoint that needs no
-# repository either answers the same for a good token, a junk token and no token
-# at all (a *public* repo's metadata ignores auth entirely) or cannot be confirmed
-# to accept an ordinary fine-grained read token, which would gate a working one.
-# Reporting a token as validated on a public 200 is worse than saying nothing, so
-# the gate enforces what it can check — that the token is set. A gated repo does
-# discriminate, which is why credentials.md's artifact probes own access to the
-# selected checkpoint once there is one.
+# HF — not needed by any in-tree edge path; kept for a gated or private
+# checkpoint. Presence only, deliberately unprobed: this gate runs before the
+# build resolves, so it has no selected repository to ask about, and no
+# repository-free endpoint settles the question. Hugging Face keeps a gated
+# repo's metadata and file list public, so /api/models answers 200 for a good
+# token, a junk token and none alike. /api/whoami-v2 does separate a valid token
+# from a junk one, but it could not be confirmed to accept an ordinary
+# fine-grained read token, and a token it accepts can still lack access to the
+# checkpoint. Only a repository-scoped probe decides that, which is why
+# credentials.md's artifact probes own it once a repository is selected.
 if [[ -n "${HF_TOKEN:-}" ]]; then
   echo "HF_TOKEN: set — not validated here; probe the selected checkpoint per credentials.md"
 elif [[ "$require_hf" == 1 ]]; then
-  hf_missing="HF_TOKEN: not set — required for a gated Hugging Face checkpoint"
+  hf_missing="HF_TOKEN: not set — required for a gated or private Hugging Face checkpoint"
   echo "$hf_missing"
   blockers+=("$hf_missing")
 else
-  echo "HF_TOKEN: not set — skip (no in-tree edge path needs it; used by gated HF checkpoints)"
+  echo "HF_TOKEN: not set — skip (no in-tree edge path needs it; used by gated or private HF checkpoints)"
 fi
 
 if [[ "${#blockers[@]}" -gt 0 ]]; then

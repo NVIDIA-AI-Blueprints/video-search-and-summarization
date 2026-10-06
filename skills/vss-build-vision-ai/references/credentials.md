@@ -35,25 +35,34 @@ Surface discovered credentials to the user; do not auto-source them without conf
 ## Probes
 
 Run the credential gate, naming the credentials the chosen mode requires with
-`--require`. It validates the NGC and NVIDIA keys when set, reports each as
-validated, rejected by the service, not validated because the service never
-answered, or skipped, resolves `NGC_CLI_API_KEY` / `NGC_API_KEY` to one key,
-and reports a conflict when both are set and differ. Only a `401`/`403` is a
-verdict on the key itself; a timeout, a rate limit, or a `5xx` means the probe
-got no verdict, so retry or check the service rather than replacing the key.
-Each probe is bounded at 5s to connect and 15s in total.
+`--require`. It validates the NGC key when set, reporting it as validated,
+rejected by the service, not validated because the service never answered, or
+skipped, resolves `NGC_CLI_API_KEY` / `NGC_API_KEY` to one key, and reports a
+conflict when both are set and differ. Only a `401`/`403` is a verdict on the
+key itself; a timeout, a rate limit, or a `5xx` means the probe got no verdict,
+so retry or check the service rather than replacing the key. The probe is
+bounded at 5s to connect and 15s in total.
 
-`HF_TOKEN` is the exception: it is checked for presence, never validated. The
-model metadata API answers `200` for a good token, a junk token and no token
-alike, so a probe against it proves nothing, and claiming a validated token on
-that basis is worse than saying nothing. Checkpoint access is the artifact
-probes' job, below.
+`NVIDIA_API_KEY` and `HF_TOKEN` are the exceptions: both are checked for
+presence, never validated. `integrate.api.nvidia.com/v1/models` is a public
+catalog, and a gated repository's Hugging Face metadata is public too, so each
+answers `200` for a good key, a junk key and none alike. A probe against either
+proves nothing, and claiming a validated key on that basis is worse than saying
+nothing. The endpoint that will actually be called is probed by
+`probe_remote_models.sh` below, and checkpoint access is the artifact probes'
+job.
 
 | Chosen mode | Pass |
 | --- | --- |
 | `LLM_MODE` or `VLM_MODE` of `local` / `local_shared` | `--require ngc` |
-| Remote NIM endpoint | `--require nvidia-api` |
-| A **gated** Hugging Face checkpoint, such as the Omni weights | `--require hf` |
+| `LLM_BASE_URL` / `VLM_BASE_URL` on build.nvidia.com (`integrate.api.nvidia.com`) | `--require nvidia-api` |
+| A **gated or private** Hugging Face checkpoint | `--require hf` |
+
+Key the second row on the endpoint, not on the mode being remote. Any other
+remote endpoint — a self-hosted NIM, a third-party gateway — carries its own
+key, which reaches it as `REMOTE_API_KEY` for `probe_remote_models.sh` below; a
+keyless endpoint such as `http://localhost:30081` needs no `--require` at all.
+Requiring `NVIDIA_API_KEY` for those would block a build that needs no such key.
 
 The Cosmos-Embed checkpoints RT-Embed uses by default are public, so a build
 that loads only those needs no token and no `--require hf`.
@@ -62,11 +71,13 @@ that loads only those needs no token and no `--require hf`.
 bash skills/vss-build-vision-ai/scripts/check_credentials.sh --require ngc
 ```
 
-Branch on the exit code, not on the printed lines: `0` every required
-credential validated, `1` usage error, `2` gate failed, with a `BLOCKER`
-summary on stderr naming each cause. Which credentials are required is the
-caller's to declare — with no `--require` the gate only fails on an NGC
-key-name conflict.
+Branch on the exit code, not on the printed lines. Any non-zero exit blocks:
+`0` is every required credential present and validated where probed, `2` is a
+gate failure with a `BLOCKER` summary on stderr naming each cause, and `1` is a
+usage error, which means the gate never checked a single credential — fix the
+invocation and re-run rather than treating it as a pass. Which credentials are
+required is the caller's to declare — with no `--require` the gate only fails on
+an NGC key-name conflict.
 
 After the NGC key validates, set **both** `NGC_CLI_API_KEY` and `NGC_API_KEY` to
 that one resolved key in `_builds/<name>/override.env` — the NGC CLI and VSS env read
@@ -99,7 +110,8 @@ Build the artifact list from the selected deployment:
 - Profile staging instructions: NGC model/resource downloads such as
   alerts/search perception models.
 
-Probe each artifact with the normalized NGC key:
+Probe each artifact with the credential that will fetch it — the normalized NGC
+key for the NGC artifacts, `HF_TOKEN` for the Hugging Face ones:
 
 - Container images: after `docker login nvcr.io`, run `docker manifest inspect
   <nvcr.io/...>`, or use `ngc registry image info ...` when it maps cleanly to
@@ -125,31 +137,33 @@ Probe each artifact with the normalized NGC key:
   container-image probe as the org/team entitlement signal.
 - Profile-staged TAO/perception models: run the corresponding NGC model or
   resource probe before downloading them.
-- Hugging Face checkpoints: probe the exact selected repository with the token.
+- Hugging Face checkpoints: probe the exact selected repository with
+  `auth-check`, the endpoint `huggingface_hub`'s `HfApi.auth_check()` calls.
 
   ```bash
-  # RTVI_VLM_MODEL_PATH=git:https://huggingface.co/nvidia/Nemotron-Nano-V3-Omni-GA0420-FP8
+  # RTVI_VLM_MODEL_PATH=git:https://huggingface.co/<org>/<repo>
   curl -s -o /dev/null -w '%{http_code}\n' --connect-timeout 5 --max-time 15 \
     -H "Authorization: Bearer $HF_TOKEN" \
-    https://huggingface.co/api/models/nvidia/Nemotron-Nano-V3-Omni-GA0420-FP8
+    https://huggingface.co/api/models/<org>/<repo>/auth-check
   ```
 
-  This is a real entitlement signal only because a gated repository refuses an
-  anonymous caller and an invalid token identically: `200` proves the token is
-  admitted, `401`/`403` proves it is not. Run it against the **selected**
-  repository and nothing else — a public repository answers `200` for any token
-  or none, which is why the gate cannot validate `HF_TOKEN` on its own and why
-  RT-Embed's public Cosmos-Embed defaults need neither a probe nor a token.
+  `200` is access, `401` a missing or invalid token, `403` a valid token that
+  has not been granted the repository. Do not substitute `/api/models/<repo>` or
+  its `/tree/main`: Hugging Face keeps a **gated** repository's metadata and
+  file list public, so both answer `200` for a good token, a junk token and none
+  alike — the same reason the gate cannot validate `HF_TOKEN` on its own. Only a
+  private repository refuses those, which is why metadata is not the probe.
+  A public repository answers `200` to anyone here too, so run this against the
+  **selected** repository and nothing else; RT-Embed's public Cosmos-Embed
+  defaults need neither a probe nor a token.
 
   `200` clears repository access, not the download: a token scoped below what
   the download needs still fails at `hf download`, which stays authoritative.
-  Do not substitute a file, tree or git-transport probe; Hugging Face gates the
-  whole repository, so they carry no extra signal and a guessed filename is a
-  false failure.
 
-On `401`, `403`, permission, membership, or missing repository errors, stop
-and request an NGC key entitled to those artifacts. Do not defer this failure
-to image pull, model download, or NIM cold start.
+On `401`, `403`, permission, membership, or missing repository errors, stop and
+request access for the credential that probe used: an NGC key entitled to the
+NGC artifacts, or a Hugging Face token granted the selected repository. Do not
+defer this failure to image pull, model download, or NIM cold start.
 
 ## Remote Endpoint Probes
 
@@ -183,11 +197,13 @@ the user for the correct endpoint/model before writing the build override.
 
 ## Decision Rule
 
-Exit `2` from the credential gate, a selected NGC or Hugging Face artifact
-access failure, or a selected remote endpoint that fails `/v1/models` is a
-blocker. Prompt the user, re-probe, and do not proceed to env mutation until it
-resolves — an unset key that reaches `resolved.yml` is baked in as `''` and no
-later export fixes it.
+Any non-zero exit from the credential gate, a selected NGC or Hugging Face
+artifact access failure, or a selected remote endpoint that fails `/v1/models`
+is a blocker. Exit `2` names a credential cause; exit `1` means the gate did not
+run at all, so never read it as a pass — fix the invocation and re-run. Prompt
+the user, re-probe, and do not proceed to env mutation until it resolves — an
+unset key that reaches `resolved.yml` is baked in as `''` and no later export
+fixes it.
 
 The gate applies the declared requirements itself, so a `skip` for a key the
 mode does not use exits `0` and is fine, as is a rejected or unvalidated key
@@ -195,6 +211,7 @@ the mode does not need. `not validated` means the service gave no verdict — no
 answer within the probe timeout, a rate limit, or a `5xx`: fix the host's
 egress or wait for the service, rather than replacing a key that may be good.
 
-An exit `0` is not a statement that `HF_TOKEN` works. The gate only saw that it
-was set, so a gated checkpoint stays unproven until its artifact probe runs. Do
-not read `HF_TOKEN: set` as a pass for the checkpoint.
+An exit `0` is not a statement that `HF_TOKEN` or `NVIDIA_API_KEY` works. The
+gate only saw that they were set, so the checkpoint stays unproven until its
+artifact probe runs and the endpoint until `probe_remote_models.sh` runs. Do not
+read either `set — not validated here` line as a pass.

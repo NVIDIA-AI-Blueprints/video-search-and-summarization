@@ -4,10 +4,12 @@
 
 `SKILL.md` Step 3 and `references/credentials.md` tell callers to branch on the
 exit code rather than on the printed lines, so the mapping is the interface:
-0 every required credential validated, 1 usage error, 2 gated. These tests pin
-that mapping, plus the two rules the exit code alone cannot express -- only a
-credential named by `--require` may gate, and a service that returns no verdict
-is not reported as a rejection. `curl` is stubbed, so no probe leaves the host.
+0 every required credential present and validated where probed, 1 usage error
+with nothing checked, 2 gated. These tests pin that mapping, plus the three
+rules the exit code alone cannot express -- only a credential named by
+`--require` may gate, a service that returns no verdict is not reported as a
+rejection, and the presence-only credentials are never probed at all. `curl` is
+stubbed, so no probe leaves the host.
 """
 
 from __future__ import annotations
@@ -24,13 +26,15 @@ GATE = Path(__file__).resolve().parents[1] / "check_credentials.sh"
 # Real curl writes its `-w` output even when the transfer fails (a refused
 # connection prints 000 and exits 7), and the gate reads only stdout, so the
 # stub answers on stdout for every case.
+# Only authn.nvidia.com answers: NVIDIA_API_KEY and HF_TOKEN are presence-only,
+# so a probe for either is a regression, and leaving it unstubbed makes the
+# tests below fail loudly rather than silently accept a new request.
 CURL_STUB = """\
 #!/bin/sh
 printf '%s\\n' "$*" >> "$CURL_LOG"
 for arg in "$@"; do
   case "$arg" in
     *authn.nvidia.com*) printf '%s' "$STUB_NGC"; exit 0 ;;
-    *integrate.api.nvidia.com*) printf '%s' "$STUB_NVIDIA"; exit 0 ;;
   esac
 done
 printf '000'
@@ -51,7 +55,6 @@ class Gate:
         self,
         *args: str,
         ngc: str = "200",
-        nvidia: str = "200",
         **credentials: str,
     ) -> subprocess.CompletedProcess[str]:
         env = {
@@ -60,7 +63,6 @@ class Gate:
             "LANG": "C.UTF-8",
             "PATH": f"{self.bin_dir}:/usr/bin:/bin",
             "STUB_NGC": ngc,
-            "STUB_NVIDIA": nvidia,
         }
         env.update(credentials)
         return subprocess.run(
@@ -237,12 +239,16 @@ def test_identical_ngc_key_names_are_not_a_conflict(gate: Gate) -> None:
 
 
 def test_every_probe_is_bounded(gate: Gate) -> None:
-    """A gate that promises to fail in seconds cannot sit on the OS timeout."""
+    """A gate that promises to fail in seconds cannot sit on the OS timeout.
+
+    With all three credentials set, the NGC key is the only one probed, so this
+    also pins that the presence-only pair sends nothing.
+    """
     result = gate.run(
         NGC_CLI_API_KEY="key", NVIDIA_API_KEY="key", HF_TOKEN="token"
     )
     assert result.returncode == 0, output(result)
-    assert len(gate.curl_calls) == 2
+    assert len(gate.curl_calls) == 1
     for call in gate.curl_calls:
         assert "--connect-timeout 5" in call
         assert "--max-time 15" in call
@@ -254,13 +260,35 @@ def test_set_hf_token_is_reported_unvalidated_and_never_probed(
 ) -> None:
     """Presence is all the gate claims for HF_TOKEN.
 
-    Every candidate endpoint either answers the same for a good token, a junk
-    token and no token (the model metadata API is public), or cannot be
-    confirmed to accept an ordinary fine-grained read token. So a set token
-    must neither be called valid nor gate the build, and no request goes out.
+    Hugging Face keeps a gated repository's metadata public, so `/api/models`
+    answers the same for a good token, a junk token and none; `whoami-v2` does
+    discriminate but could not be confirmed to accept a fine-grained read token,
+    and passing it still would not prove checkpoint access. So a set token must
+    neither be called valid nor gate the build, and no request goes out.
     """
     result = gate.run(*args, HF_TOKEN="whatever-this-is")
     assert result.returncode == 0, output(result)
     assert "not validated here" in result.stdout
     assert "HF_TOKEN ok" not in result.stdout
     assert not [call for call in gate.curl_calls if "huggingface.co" in call]
+
+
+@pytest.mark.parametrize("args", [(), ("--require", "nvidia-api")])
+def test_set_nvidia_key_is_reported_unvalidated_and_never_probed(
+    gate: Gate, args: tuple[str, ...]
+) -> None:
+    """Presence is all the gate claims for NVIDIA_API_KEY.
+
+    `integrate.api.nvidia.com/v1/models` is the public model catalog: it answers
+    `200` with no `Authorization` header at all, so a `200` is not a verdict on
+    the key and the `401`/`403` arm of `report_status` could never fire for this
+    host. Pinning the absent probe is what stops it coming back: a key this
+    bogus used to print `NVIDIA_API_KEY ok` and exit 0 under `--require`.
+    """
+    result = gate.run(*args, NVIDIA_API_KEY="nvapi-bogus-0000")
+    assert result.returncode == 0, output(result)
+    assert "not validated here" in result.stdout
+    assert "NVIDIA_API_KEY ok" not in result.stdout
+    assert not [
+        call for call in gate.curl_calls if "integrate.api.nvidia.com" in call
+    ]
