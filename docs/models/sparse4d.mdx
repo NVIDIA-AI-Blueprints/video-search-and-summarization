@@ -186,6 +186,8 @@ ngc registry model download-version nvidia/tao/sparse4d_rn50:trainable_v3.0 \
 
 This writes `/data/sparse4d_rn50_vtrainable_v3.0/_loose_to_tight_mlp.pth`, including the leading underscore in the filename. Make that path visible inside the TAO training environment and use it for `model.head.loose_to_tight.mlp_ckpt`, as shown below. Keep the checkpoint's ordered class taxonomy unchanged and validate its corrections on the target data. Continue with teacher-cache preparation and mixed-training data preparation below.
 
+This workflow supports only the released checkpoint's seven classes in their original order. Custom taxonomies require a matching LTT checkpoint and are outside this guide; changing class names in the configuration does not adapt the released weights.
+
 Retain the external LTT file for fine-tuning and resume: the frozen MLP is excluded from Sparse4D model checkpoints. Standard evaluation, inference, and export do not require it.
 
 #### Prepare the training data
@@ -197,7 +199,7 @@ Use the same ordered taxonomy for data preparation `class_names`, training `data
 
 #### Prepare calibrated real-scene inputs
 
-Use `annotations convert` in TAO Data Services with the [unlabeled-scene spec](https://github.com/NVIDIA-TAO/tao-data-services/blob/dbf26c3a4ba80f63e3460e3dcf06f59ecf184cde/nvidia_tao_ds/annotations/experiment_specs/aicity2ovpkl_unlabeled.yaml). Copy the spec to `/specs/aicity2ovpkl_unlabeled.yaml` and set its ordered `aicity.class_config.CLASS_LIST` to match your model and teacher caches. This requires a build that exposes `aicity.load_annotations` and `aicity.fps`.
+Use `annotations convert` in TAO Data Services with the [unlabeled-scene spec](https://github.com/NVIDIA-TAO/tao-data-services/blob/main/nvidia_tao_ds/annotations/experiment_specs/aicity2ovpkl_unlabeled.yaml). Copy the spec to `/specs/aicity2ovpkl_unlabeled.yaml` and set its ordered `aicity.class_config.CLASS_LIST` to match your model and teacher caches. This requires a build that exposes `aicity.load_annotations` and `aicity.fps`.
 
 Arrange each scene as `/data/real/train/<scene>/calibration.json` plus `<camera>/rgb/000000000.jpg`, `000000001.jpg`, and so on. NVSchema calibration must provide camera intrinsics and world-to-camera poses with IDs matching the image directories. The `rgb_00000.jpg` image naming convention also works. Use synchronized, constant-rate frames, contiguous from zero, and provide the actual capture rate:
 
