@@ -449,7 +449,29 @@ for path, label in [('/tmp/gateway.log','gateway'),('/tmp/nemoclaw-start.log','l
         'OPENCLAW_DEVICE_AUTH':'device_auth', 'SIGTERM':'sigterm',
     }
     log_signals[label] = sorted(set(value for needle,value in needles.items() if needle in data))
+pairing_summary = {}
+for path, label in [('/sandbox/.openclaw/devices/pending.json', 'pending'), ('/sandbox/.openclaw/devices/paired.json', 'paired')]:
+    rows = read(path)
+    if isinstance(rows, dict):
+        rows = list(rows.values())
+    pairing_summary[label] = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        scopes = row.get('scopes') or row.get('requestedScopes') or []
+        pairing_summary[label].append({
+            'client': row.get('clientId') if row.get('clientId') in ['cli', 'openclaw-cli', 'openclaw-control-ui'] else 'other',
+            'scopes': [v for v in scopes if v in ['operator.read', 'operator.write', 'operator.pairing', 'operator.admin', 'operator.approvals']],
+            'approved_scopes': [v for v in row.get('approvedScopes', []) if v in ['operator.read', 'operator.write', 'operator.pairing', 'operator.admin', 'operator.approvals']],
+        })
+try:
+    import re
+    pair_log = pathlib.Path('/tmp/auto-pair.log').read_text(errors='replace')[-100000:]
+    pairing_summary['watcher_reasons'] = sorted(set(re.findall(r'reason=(unknown-client|disallowed-scopes|malformed-scopes|approval-timeout|invalid-json|invalid-response|no-request)', pair_log)))
+except OSError:
+    pairing_summary['watcher_reasons'] = []
 print(json.dumps({
+    'pairing_summary': pairing_summary,
     'gateway_port': gateway.get('port') if type(gateway.get('port')) is int else None,
     'gateway_listeners': listeners,
     'process_kinds':dict(processes),
