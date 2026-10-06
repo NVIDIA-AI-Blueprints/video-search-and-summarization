@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import FrozenInstanceError
 import json
 from pathlib import Path
@@ -544,6 +545,72 @@ async def test_stream_generator_closes_file_when_cancelled(tmp_path, monkeypatch
             await client.complete(req)
     assert await asyncio.to_thread(closed.wait, 5)
     assert opened and all(stream.closed for stream in opened)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_stalled_read_leaves_workers_for_other_uploads(tmp_path, monkeypatch):
+    stalled = tmp_path / "stalled.mp4"
+    healthy = tmp_path / "healthy.mp4"
+    stalled.write_bytes(b"stalled")
+    healthy.write_bytes(b"healthy")
+    original = Path.open
+    loop = asyncio.get_running_loop()
+    entered = asyncio.Event()
+    release = threading.Event()
+    closed = threading.Event()
+
+    class StalledReader:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            self.close()
+
+        def close(self):
+            self.stream.close()
+            closed.set()
+
+        def read(self, size):
+            loop.call_soon_threadsafe(entered.set)
+            assert release.wait(5)
+            assert not self.stream.closed
+            return self.stream.read(size)
+
+    def controlled_open(self, *args, **kwargs):
+        stream = original(self, *args, **kwargs)
+        return StalledReader(stream) if self == stalled else stream
+
+    def video_request(path):
+        return ChatRequest((ChatMessage("user", (VideoPart(VideoFile(path)), TextPart("x"))),), "m")
+
+    monkeypatch.setattr(Path, "open", controlled_open)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        loop.set_default_executor(executor)
+        async with VLMChatClient(
+            "https://h", "vllm", transport=httpx.MockTransport(lambda _: httpx.Response(200, json=response("ok")))
+        ) as client:
+            cancelled = asyncio.create_task(client.complete(video_request(stalled)))
+            tasks = [cancelled]
+            try:
+                await asyncio.wait_for(entered.wait(), 5)
+                closed.clear()
+                cancelled.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await cancelled
+                other = asyncio.create_task(client.complete(video_request(healthy)))
+                tasks.append(other)
+                done, _ = await asyncio.wait((other,), timeout=0.5)
+                assert other in done and other.result().text == "ok"
+                assert not release.is_set() and not closed.is_set()
+            finally:
+                release.set()
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                assert await asyncio.to_thread(closed.wait, 5)
 
 
 @pytest.mark.parametrize("replace", [False, True])

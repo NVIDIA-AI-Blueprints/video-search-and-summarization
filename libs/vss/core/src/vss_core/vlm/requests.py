@@ -49,25 +49,37 @@ class _VideoReader:
                 stream.close()
 
     def read(self) -> bytes:
-        with self._lock:
-            if self._closing.is_set():
-                return b""
-            if self._stream is None:
-                self._stream = self._path.open("rb")
-            chunk = b""
-            try:
-                chunk = self._stream.read(3 * 65536)
-                return chunk
-            finally:
-                if not chunk or self._closing.is_set():
+        try:
+            with self._lock:
+                if self._closing.is_set():
                     self._close_stream()
+                    return b""
+                if self._stream is None:
+                    self._stream = self._path.open("rb")
+                chunk = b""
+                try:
+                    chunk = self._stream.read(3 * 65536)
+                    return chunk
+                finally:
+                    if not chunk:
+                        self._close_stream()
+        finally:
+            # Check after releasing the lock so cleanup cannot miss a close
+            # request that arrives just as this read finishes.
+            if self._closing.is_set():
+                self.close()
 
     def request_close(self) -> None:
         self._closing.set()
 
     def close(self) -> None:
-        with self._lock:
+        if not self._lock.acquire(blocking=False):
+            # The active reader handles its close request when it returns.
+            return
+        try:
             self._close_stream()
+        finally:
+            self._lock.release()
 
 
 def validate_backend(request: ChatRequest, backend: str) -> None:
