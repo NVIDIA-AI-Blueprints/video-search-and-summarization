@@ -572,7 +572,7 @@ def coordinator(run_id):
                 if isinstance(value, dict):
                     source = value.get("source", source)
                     for key, item in value.items():
-                        if key in ['command', 'cmd', 'message', 'text'] and isinstance(item,str):
+                        if isinstance(item,str):
                             images = sorted(set(re.findall(r'(?:ghcr\.io/nvidia-ai-blueprints/vss|nvcr\.io/(?:nvidia|nvstaging)/vss-core)/vss-[a-z0-9-]+:[a-zA-Z0-9_.-]+', item)))
                             actions = [label for marker,label in [('docker run','docker_run'),('docker compose','compose'),('git clone','clone'),('git checkout','checkout'),('sed ','edit_or_read'),('cat ','read_or_write')] if marker in item]
                             branch = re.findall(r'(?:--branch|-b)\s+[\"\']?([A-Za-z0-9_.-]{1,80})',item) if 'git clone' in item else []
