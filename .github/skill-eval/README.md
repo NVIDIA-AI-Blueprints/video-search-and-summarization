@@ -389,3 +389,16 @@ disown
 **Agent deployment fails with "pull access denied".** `NGC_CLI_API_KEY` missing or invalid — the agent needs it to pull VSS NIM containers from `nvcr.io`.
 
 **Orphan `harbor-*` Brev instances.** The harness no longer auto-provisions — every trial must use a `vss-eval-*` pool member. If you see `harbor-*` instances in `brev ls`, they're stragglers from before this change (or from someone running `uvx harbor` manually without `BREV_INSTANCE` set). Clean them up with `brev delete <name>`.
+
+### Codex scratch and trajectory isolation
+
+Each Codex invocation uses a fresh temporary home and credential directory.
+Harbor appends provider and MCP configuration, so an interrupted invocation's
+configuration must never be reused by a later invocation. Codex resume still
+restores the explicitly requested session through Harbor's resume mechanism.
+
+Before each trial, the Brev environment archives the full `/logs/agent/sessions`
+tree, including Codex date directories and Claude project directories, along
+with root agent outputs. A failed launch therefore cannot borrow prior-trial
+sessions, token counts, or deployment evidence. Archives remain under
+`~/.claude-archive/` for runner-side investigation.

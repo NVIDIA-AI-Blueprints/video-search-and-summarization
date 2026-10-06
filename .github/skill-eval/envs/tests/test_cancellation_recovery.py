@@ -551,6 +551,26 @@ class PriorAgentOutputIsolationTest(unittest.TestCase):
                 self.assertEqual(len(copies), 1)
                 self.assertEqual(copies[0].read_text(), content)
 
+    def test_codex_sessions_are_archived_even_when_next_launch_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "agent"
+            sessions = root / "sessions"
+            for name in ("2026/10/06/rollout-old.jsonl", "projects/project/old.jsonl"):
+                path = sessions / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("previous successful setup")
+            (root / "trajectory.json").write_text("previous trajectory")
+            command = brev_env._prior_agent_output_archive_command()
+            command = command.replace("/logs/agent", str(root)).replace(
+                "$HOME/.claude-archive", str(Path(tmp) / "archive")
+            )
+            subprocess.run(["bash", "-c", command], check=True, capture_output=True)
+            # A failed next launch produces no sessions: neither mapper can
+            # discover the previous trial's deployment or token counts.
+            self.assertEqual(list(sessions.rglob("*.jsonl")), [])
+            self.assertFalse((root / "trajectory.json").exists())
+            self.assertEqual(len(list((Path(tmp) / "archive").rglob("*.jsonl"))), 2)
+
     def test_transfer_wall_budget_includes_active_and_reap_windows(self):
         self.assertEqual(brev_env.BREV_TRANSFER_ACTIVE_TIMEOUT_SEC, 600)
         self.assertEqual(brev_env.BREV_TRANSFER_CANCELLATION_GRACE_SEC, 30)

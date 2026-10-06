@@ -304,7 +304,8 @@ class BrevEnvironment(BaseEnvironment):
                 f"exit {setup_dirs_result.return_code}; tail:\n{tail}"
             )
 
-        # Archive session JSONLs and root-level agent outputs left by
+        # Archive the full sessions tree (Claude projects and Codex date
+        # directories) and root-level agent outputs left by
         # prior trials on this warm-pool box. Without this, harbor's claude-code
         # mapper merges every
         # `*.jsonl` file under `/logs/agent/sessions/projects/<project>/`
@@ -1527,7 +1528,7 @@ async def reap_remote_agent_run(instance: str, agent_run_marker: str) -> None:
 def _prior_agent_output_archive_command() -> str:
     """Archive every prior output that Harbor could mistake for this trial.
 
-    Session projects are consumed by Claude's trajectory mapper. Root-level
+    Session directories are consumed by Claude's and Codex's trajectory mappers. Root-level
     outputs are uploaded back by Harbor after a completed trial and are also
     recognized by our fallback/judge paths. Leaving either class in place can
     make a pre-agent failure inherit the previous trial's evidence. Move both
@@ -1537,7 +1538,7 @@ def _prior_agent_output_archive_command() -> str:
     """
     return (
         "ts=$(date +%Y%m%d-%H%M%S)-$$; "
-        "PROJ=/logs/agent/sessions/projects; "
+        "PROJ=/logs/agent/sessions; "
         "ROOT=/logs/agent; "
         "OUTPUTS='claude-code.txt codex.txt openclaw.txt openclaw.session.jsonl "
         "trajectory.json trajectory.jsonl agent.log'; "
