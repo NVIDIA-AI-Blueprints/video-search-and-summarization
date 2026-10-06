@@ -799,14 +799,8 @@ jobs:
       - name: Run unit tests
         run: |
           mkdir -p test/coverage
-          uv venv --python 3.13
-          uv pip install --python .venv/bin/python \
-            pytest \
-            pytest-cov \
-            Flask==3.1.0 \
-            requests==2.32.3 \
-            ruamel.yaml==0.18.15
-          .venv/bin/pytest tests/ -v --tb=short \
+          uv sync --python 3.13 --frozen --group dev
+          uv run --python 3.13 pytest tests/ -v --tb=short \
             --junitxml=test/coverage/test-results.xml \
             --cov=app \
             --cov-report=xml:coverage.xml \
