@@ -162,7 +162,7 @@ An example dataset can be found in the [Warehouse_014](https://huggingface.co/da
 A projected 3D cuboid encloses all eight corners and can be larger than the object's tight image-space box. A geometry-only **loose-to-tight (LTT)** MLP learns to correct this difference from paired 3D boxes and tight, amodal 2D boxes in labeled data. During Sparse4D fine-tuning, the MLP is frozen and its predicted correction factors are detached; gradients flow through the corrected box projection into Sparse4D. Per-camera matching then compares these boxes with real-world 2D detections, such as offline RT-DETR predictions, to supervise box geometry and classification.
 
 <Note>
-Use a TAO PyTorch build that includes `model.head.loose_to_tight`. The data preparation commands below also require a TAO Data Services build with `annotations sparse4d_prepare` and the [annotation-free scene converter](https://github.com/NVIDIA-TAO/tao-data-services/pull/55); use the [shipped preparation spec](https://github.com/NVIDIA-TAO/tao-data-services/blob/main/nvidia_tao_ds/annotations/experiment_specs/sparse4d_prepare.yaml). LTT fitting and native artifact commands are documented in the [TAO PyTorch tools guide](https://github.com/NVIDIA-TAO/tao-pytorch/blob/main/nvidia_tao_pytorch/cv/sparse4d/tools/README.md). Check the specs shipped with your build; the optional LTT training losses are disabled by default.
+Use a TAO PyTorch build that includes `model.head.loose_to_tight`. The data preparation commands below also require a TAO Data Services build with `annotations sparse4d_prepare` and `annotations convert` support for `aicity.load_annotations=false`; use the [shipped preparation spec](https://github.com/NVIDIA-TAO/tao-data-services/blob/main/nvidia_tao_ds/annotations/experiment_specs/sparse4d_prepare.yaml). LTT fitting and native artifact commands are documented in the [TAO PyTorch tools guide](https://github.com/NVIDIA-TAO/tao-pytorch/blob/main/nvidia_tao_pytorch/cv/sparse4d/tools/README.md). Check the specs shipped with your build; the optional LTT training losses are disabled by default.
 </Note>
 
 #### Choose the supervision route
@@ -195,6 +195,22 @@ annotations convert -e /specs/aicity2ovpkl_unlabeled.yaml \
 ```
 
 The spec sets `aicity.load_annotations=false`, keeps the world frame without recentering, and uses all calibrated cameras as one group per scene. It writes `/data/real_infos/train/<scene>_infos_train.pkl` with synchronized image paths, camera geometry, sequence/frame identifiers, timestamps in seconds, and `gt_boxes=None`. Ground truth and depth files are not required, and anchor initialization is skipped. Reuse the pretrained model's anchors and keep image paths visible at the same location inside the training environment.
+
+Each PKL stores frame records in `infos`. Each record retains `token`,
+`scene_name`, `timestamp`, `cams`, and `gt_boxes=None` for unlabeled frames.
+The `cams` mapping is keyed by camera ID; each camera entry retains its
+`data_path`. Preserve these field names and conventions:
+
+| Location | Field | Meaning |
+| --- | --- | --- |
+| Frame record | `frame_idx` | Zero-based source frame ID, matching the 2D teacher cache; starts at zero for each sequence. |
+| Camera entry in `cams` | `cam_intrinsic` | 3 × 3 camera intrinsic matrix for the source image dimensions. |
+| Camera entry in `cams` | `sensor2world_transform` | 4 × 4 **world-to-camera** extrinsic matrix for the default unrecentered spec. |
+
+`sensor2world_transform` is a legacy field name. The loader uses this matrix
+directly with the camera intrinsics to project 3D points; it does **not** invert
+it. If BEV-group recentering is enabled, the matrix must instead map the
+corresponding group-local 3D coordinates into the camera frame.
 
 For HDF5 image arrays, set `aicity.rgb_format=h5` and provide `<camera>.h5` files with HWC arrays at `rgb/rgb_00000.jpg`, `rgb/rgb_00001.jpg`, and so on. Set `dataset.use_h5_file_for_rgb: true` for these inputs during training.
 
