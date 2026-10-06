@@ -46,16 +46,23 @@ client with the checked-in notebook; they preserve the application backend
 and disable its UI adapter. Remaining entries run through the ready sandbox.
 Build Vision AI and other non-operational specs use the coding route throughout.
 
+Default setup runs use **Codex with Sol 6.1** (`azure/openai/gpt-6.1-sol`);
+operational queries use **NemoClaw with Opus 5.5**
+(`aws/anthropic/bedrock-claude-opus-5-5`). Both default to hosted NVIDIA
+Inference. These defaults apply to automatic PR evaluations and manual dispatch;
+manual inputs can override each role independently. Selecting `local-nim`
+requires replacing the hosted model ID with an available NIM image ID.
+
 Manual runs configure both routes without changing the coordinator or judge:
 
 | Workflow input | Meaning |
 |---|---|
-| `coding_harness` | Build Vision AI/setup runtime: `claude-code` or `codex` |
+| `coding_harness` | Build Vision AI/setup runtime: `codex` (default) or `claude-code` |
 | `coding_deployment` | `hosted-nvidia-inference` (default) or `local-nim` for coding/setup |
-| `coding_model` | Hosted: [Inference Hub](https://inference.nvidia.com/) model ID, such as `nvidia/nvidia/nemotron-3.5-lightning`. Local NIM: self-hosted NIM image ID from [build.nvidia.com](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b?nim=self-hosted), such as `nvidia/nemotron-3.5-lightning-30b-a3b`. A blank value uses the configured default, which must be a NIM image ID for `local-nim` |
-| `operational_harness` | Operational runtime: `claude-code`, `codex`, or `nemoclaw` |
+| `coding_model` | Hosted: [Inference Hub](https://inference.nvidia.com/) model ID, such as `nvidia/nvidia/nemotron-3.5-lightning`. Local NIM: self-hosted NIM image ID from [build.nvidia.com](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b?nim=self-hosted), such as `nvidia/nemotron-3.5-lightning-30b-a3b`. Default `azure/openai/gpt-6.1-sol`; select a NIM image ID explicitly for `local-nim` |
+| `operational_harness` | Operational runtime: `nemoclaw` (default), `claude-code`, or `codex` |
 | `operational_deployment` | Independent `hosted-nvidia-inference` (default) or `local-nim` for operational tasks |
-| `operational_model` | Same ID rules as `coding_model`, independently selected for operational tasks |
+| `operational_model` | Same ID rules as `coding_model`; default `aws/anthropic/bedrock-claude-opus-5-5`, independently selected for operational tasks |
 | `spark_runner` | Run on Brev external node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`); default false |
 
 
@@ -128,7 +135,12 @@ role choices and the actual worker at the leg results root.
 ### Spark selection
 
 The checkbox selects the **Brev execution worker**, not the GitHub Actions
-coordinator. `run_leg.py` resolves the registered node by external node ID
+coordinator. Spark is opt-in: with the checkbox off (including automatic PR
+evals), the plan excludes `DGX-SPARK` rows even when a skill spec supports that
+platform. Specs that support only Spark produce no eval jobs until it is
+selected. The runner also rejects Spark platform, hardware, or instance hints
+without the explicit selection, before acquiring a worker lock.
+`run_leg.py` resolves the registered node by external node ID
 (or the supplied name on older Brev versions), then holds the existing
 per-worker lock across all tasks and NIM cleanup. Missing nodes or conflicting
 explicit instance overrides fail; no other worker is selected. If Brev reports

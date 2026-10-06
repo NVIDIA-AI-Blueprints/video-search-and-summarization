@@ -41,7 +41,7 @@ on:
       coding_harness:
         description: "CODING · Harness for Build Vision AI deployment/setup."
         required: false
-        default: "claude-code"
+        default: "codex"
         type: choice
         options:
           - claude-code
@@ -52,14 +52,14 @@ on:
         default: hosted-nvidia-inference
         options: [hosted-nvidia-inference, local-nim]
       coding_model:
-        description: "CODING · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning). Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Blank uses the configured default."
+        description: "CODING · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning). Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Default: Sol 6.1. Override the model ID when selecting local NIM."
         required: false
-        default: ""
+        default: "azure/openai/gpt-6.1-sol"
         type: string
       operational_harness:
         description: "OPERATIONAL · Harness for operational skill queries after setup."
         required: false
-        default: "claude-code"
+        default: "nemoclaw"
         type: choice
         options:
           - claude-code
@@ -71,9 +71,9 @@ on:
         default: hosted-nvidia-inference
         options: [hosted-nvidia-inference, local-nim]
       operational_model:
-        description: "OPERATIONAL · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning). Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Blank uses the configured default."
+        description: "OPERATIONAL · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning). Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Default: Opus 5.5. Override the model ID when selecting local NIM."
         required: false
-        default: ""
+        default: "aws/anthropic/bedrock-claude-opus-5-5"
         type: string
       spark_runner:
         description: "Run on the registered Brev Spark-ba-WiFi worker."
@@ -253,14 +253,14 @@ jobs:
           # GitHub Actions secret.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CODEX_MODEL: ${{ vars.CODEX_MODEL }}
-          EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
-          CODING_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_harness || 'claude-code' }}
+          EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'nemoclaw' }}
+          CODING_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_harness || 'codex' }}
           CODING_DEPLOYMENT_INPUT: ${{ inputs.coding_deployment || 'hosted-nvidia-inference' }}
           OPERATIONAL_DEPLOYMENT_INPUT: ${{ inputs.operational_deployment || 'hosted-nvidia-inference' }}
           SPARK_RUNNER_INPUT: ${{ inputs.spark_runner && 'true' || 'false' }}
-          CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || '' }}
-          OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
-          OPERATIONAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_model || '' }}
+          CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || 'azure/openai/gpt-6.1-sol' }}
+          OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'nemoclaw' }}
+          OPERATIONAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_model || 'aws/anthropic/bedrock-claude-opus-5-5' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
