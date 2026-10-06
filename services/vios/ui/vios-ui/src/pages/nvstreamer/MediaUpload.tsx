@@ -442,8 +442,8 @@ const MediaUpload = () => {
         fd.append('mediaFile', file.slice(start, start + chunkSizeBytes));
         fd.append('filename', file.name);
 
-        // Add metadata to the first chunk
-        if (chunkNumber === 1) {
+        // Include metadata on the first and final chunks.
+        if (chunkNumber === 1 || isLastChunk) {
             fd.append('metadata', JSON.stringify(params.metadata));
         }
 
