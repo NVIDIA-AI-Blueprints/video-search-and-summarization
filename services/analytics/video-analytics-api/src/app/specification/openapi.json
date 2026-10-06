@@ -15496,6 +15496,127 @@
                                         ]
                                     }
                                 },
+                                "congestions": {
+                                    "type": "array",
+                                    "maxItems": 100000,
+                                    "items": {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "id": {
+                                                "type": "string",
+                                                "pattern": "^.{0,10000}$",
+                                                "maxLength": 10000
+                                            },
+                                            "objectIds": {
+                                                "type": "array",
+                                                "maxItems": 100000,
+                                                "items": {
+                                                    "type": "string",
+                                                    "pattern": "^.{0,10000}$",
+                                                    "maxLength": 10000
+                                                }
+                                            },
+                                            "amount": {
+                                                "type": "number",
+                                                "format": "float",
+                                                "minimum": 0,
+                                                "maximum": 1
+                                            },
+                                            "info": {
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                    "type": "string",
+                                                    "pattern": "^.{0,10000}$",
+                                                    "maxLength": 10000,
+                                                    "example": "1"
+                                                },
+                                                "example": {
+                                                    "additionalProperty1": "value1",
+                                                    "additionalProperty2": "value2"
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "interactions": {
+                                    "type": "array",
+                                    "maxItems": 100000,
+                                    "items": {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "id": {
+                                                "type": "string",
+                                                "pattern": "^.{0,10000}$",
+                                                "maxLength": 10000
+                                            },
+                                            "objectIds": {
+                                                "type": "array",
+                                                "maxItems": 100000,
+                                                "items": {
+                                                    "type": "string",
+                                                    "pattern": "^.{0,10000}$",
+                                                    "maxLength": 10000
+                                                }
+                                            },
+                                            "coordinates": {
+                                                "type": "array",
+                                                "maxItems": 100000,
+                                                "items": {
+                                                    "type": "object",
+                                                    "additionalProperties": false,
+                                                    "properties": {
+                                                        "x": {
+                                                            "type": "number",
+                                                            "format": "double",
+                                                            "minimum": -10000,
+                                                            "maximum": 10000,
+                                                            "example": 6.5
+                                                        },
+                                                        "y": {
+                                                            "type": "number",
+                                                            "format": "double",
+                                                            "minimum": -10000,
+                                                            "maximum": 10000,
+                                                            "example": 4.3
+                                                        },
+                                                        "z": {
+                                                            "type": "number",
+                                                            "format": "double",
+                                                            "minimum": -10000,
+                                                            "maximum": 10000,
+                                                            "example": 2.8
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "x",
+                                                        "y",
+                                                        "z"
+                                                    ]
+                                                }
+                                            },
+                                            "description": {
+                                                "type": "string",
+                                                "pattern": "^.{0,10000}$",
+                                                "maxLength": 10000
+                                            },
+                                            "info": {
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                    "type": "string",
+                                                    "pattern": "^.{0,10000}$",
+                                                    "maxLength": 10000,
+                                                    "example": "1"
+                                                },
+                                                "example": {
+                                                    "additionalProperty1": "value1",
+                                                    "additionalProperty2": "value2"
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
                                 "info": {
                                     "type": "object",
                                     "additionalProperties": {
