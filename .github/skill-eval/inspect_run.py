@@ -42,6 +42,7 @@ def summarize_log(path):
     inference_writes = []
     credential_route_commands = []
     last_failed_notebook = None
+    last_started_tool = None
     signals = {
         "scope upgrade pending approval": "gateway_scope_approval",
         "pairing required": "gateway_pairing",
@@ -122,12 +123,21 @@ def summarize_log(path):
             kind = tool_kind(command)
             if event.get("type") == "item.started":
                 started += 1
+                last_started_tool = {
+                    "kind": kind,
+                    "notebook_execution": "run_setup_notebook.py" in command and "--notebook" in command,
+                    "notebook_inspection": "run_setup_notebook.py" in command and any(part in command for part in ["sed ", "rg ", "cat ", "--help"]),
+                    "local_model_probe": "/v1/models" in command or "/health/ready" in command,
+                }
             if event.get("type") == "item.completed":
                 completed += 1
                 kinds[kind] += 1
                 rc = item.get("exit_code")
                 rc = rc if type(rc) is int and -255 <= rc <= 255 else None
                 recent.append({"kind": kind, "exit_code": rc})
+                if kind == "setup_notebook":
+                    recent[-1]["notebook_execution"] = "--notebook" in command
+                    recent[-1]["notebook_inspection"] = any(part in command for part in ["sed ", "rg ", "cat ", "--help"])
                 if kind == 'compose':
                     recent[-1]['actions']=[label for marker,label in [(' up ','up'), (' down','down'), (' build','build'), (' config','config'), (' pull','pull'), (' restart','restart'), (' stop','stop'), (' ps','ps')] if marker in command]
                 recent[-1]['global_container_operation'] = any(marker in command for marker in ['docker ps -aq','docker ps -q','docker system prune','docker container prune'])
@@ -174,6 +184,7 @@ def summarize_log(path):
         "completed_tool_kinds": dict(kinds),
         "failed_tool_signals": dict(errors),
         "last_failed_notebook": last_failed_notebook,
+        "last_started_tool": last_started_tool,
         "inference_write_commands": inference_writes,
         "credential_route_commands": credential_route_commands,
         "recent_completed_tools": recent[-12:],
@@ -230,6 +241,22 @@ def worker(run_id):
             states[f"{group}_{state}"] += 1
         report["running_containers"] = dict(states)
         report["docker_ps_exit_code"] = result.returncode
+        vss = subprocess.run([
+            "docker", "ps", "-a", "--filter", "label=com.docker.compose.project=vss",
+            "--format", '{{.Label "com.docker.compose.service"}}\t{{.State}}\t{{.Status}}\t{{.Image}}',
+        ], capture_output=True, text=True, timeout=10)
+        services = []
+        for line in vss.stdout.splitlines():
+            values = line.split("\t")
+            if len(values) != 4:
+                continue
+            service, state, status, image = values
+            if not re.fullmatch(r"[a-zA-Z0-9_.-]{1,100}", service):
+                continue
+            row = {"service": service, "state": state if state in ["running", "created", "exited", "restarting"] else "other", "healthy": "(healthy)" in status}
+            row["requested_lightning_nim"] = image.startswith("nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b")
+            services.append(row)
+        report["vss_services"] = services
         if nim_owner:
             try:
                 ready = json.loads((Path.home()/'.cache/skill-eval-nim'/nim_owner/'ready.json').read_text())
