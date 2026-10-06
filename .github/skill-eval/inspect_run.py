@@ -222,6 +222,19 @@ def worker(run_id):
         except OSError:
             continue
     report = {"run_id": run_id, "matching_process_kinds": dict(Counter(matches))}
+    registry_path = Path.home() / '.nemoclaw/sandboxes.json'
+    try:
+        registry = json.loads(registry_path.read_text())
+        names = list((registry.get('sandboxes') or {}).keys())
+        report['default_registry'] = {'registered_count':len(names), 'eval_named_count':sum(name.startswith('se-') for name in names)}
+        gateway_registries = []
+        for path in (Path.home()/'.nemoclaw/gateways').glob('*/sandboxes.json'):
+            if not path.parent.name.isdigit(): continue
+            data=json.loads(path.read_text())
+            gateway_registries.append({'port':int(path.parent.name),'registered_count':len(data.get('sandboxes') or {})})
+        report['other_gateway_registries']=gateway_registries
+    except (OSError,ValueError,TypeError):
+        report['registry_read_failed']=True
     if matches:
         path = Path("/logs/agent/codex.txt")
         if path.is_file():
@@ -454,7 +467,7 @@ def coordinator(run_id):
         except OSError: pass
     lock_rows=[]
     for lock in Path('/tmp/brev').glob('*.lock'):
-        if lock.name not in ['Spark-ba-WiFi.lock','spark-ba-wifi.lock']: continue
+        if not re.fullmatch(r'vss-eval-[A-Za-z0-9-]+\.lock', lock.name): continue
         try:
             inode=lock.stat().st_ino
             for line in Path('/proc/locks').read_text().splitlines():
@@ -468,7 +481,7 @@ def coordinator(run_id):
                                 if re.fullmatch(r'[0-9]{1,20}', candidate):
                                     owner_run=candidate
                     except (OSError,UnicodeError): pass
-                    lock_rows.append({'worker':'Spark-ba-WiFi','owned_by_requested_leg':int(parts[4]) in run_leg_pids,'owner_monitored_run':owner_run})
+                    lock_rows.append({'worker':lock.stem,'owned_by_requested_leg':int(parts[4]) in run_leg_pids,'owner_monitored_run':owner_run})
         except (OSError,ValueError): pass
     trials = []
     for path in Path("/tmp/skill-eval/results").glob(f"*/{run_id}/*/step-*__*/result.json"):
@@ -564,18 +577,23 @@ def coordinator(run_id):
             except Exception:
                 row['viewer_available'] = False
             trace_metadata.append(row)
-    command = shlex.join(["python3", "-", "--worker", run_id])
-    result = subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2", "spark-ba-wifi", command],
-        input=Path(__file__).read_text(), capture_output=True, text=True, timeout=45,
-    )
-    report = {"run_id": run_id, "coordinator_process_kinds":dict(process_kinds),"worker_lock_metadata":lock_rows, "completed_trial_metadata": trials, "viewer_coding_trace_metadata":viewer_coding_traces, "trace_metadata":trace_metadata, "worker_probe_exit_code": result.returncode}
-    if result.returncode == 0:
-        report["worker"] = json.loads(result.stdout)
-    else:
-        for error_type in ("FileNotFoundError", "TimeoutExpired", "JSONDecodeError", "KeyError", "AttributeError", "TypeError", "PermissionError"):
-            if re.search(r"^" + error_type + r":", result.stderr, re.MULTILINE):
-                report["worker_error_type"] = error_type
+    probes = []
+    for lock in lock_rows:
+        if lock['owner_monitored_run'] != run_id:
+            continue
+        command = shlex.join(["python3", "-", "--worker", run_id])
+        try:
+            result = subprocess.run(
+                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2", lock['worker'], command],
+                input=Path(__file__).read_text(), capture_output=True, text=True, timeout=55,
+            )
+            entry = {'worker':lock['worker'], 'exit_code':result.returncode}
+            if result.returncode == 0:
+                entry['metadata'] = json.loads(result.stdout)
+            probes.append(entry)
+        except (subprocess.TimeoutExpired, ValueError):
+            probes.append({'worker':lock['worker'], 'probe_failed':True})
+    report = {"run_id": run_id, "coordinator_process_kinds":dict(process_kinds),"worker_lock_metadata":lock_rows, "completed_trial_metadata": trials, "viewer_coding_trace_metadata":viewer_coding_traces, "trace_metadata":trace_metadata, "workers":probes}
     # Never print transport errors or raw remote output.
     return report
 
