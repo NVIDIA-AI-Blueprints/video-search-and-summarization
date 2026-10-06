@@ -237,7 +237,10 @@ For a general memory-aware question that Markdown does not fully answer:
 - invoke `vss-introspect-video` once;
 - do not query structured memory or run VLM before delegation;
 - return the delegated answer or unresolved result with observation IDs,
-  provenance, gaps, final revision, and artifact path.
+  provenance, gaps, final revision, and artifact path. The delegated skill
+  selects the best available option only when the question explicitly asks for
+  a selection; otherwise it answers naturally. A list by itself is not a
+  selection request.
 
 The delegated skill uses ordinary `vss memory get`, `vss memory query`, VIOS
 lookup, and `vss vlm run` as evidence producers. It never uses the legacy

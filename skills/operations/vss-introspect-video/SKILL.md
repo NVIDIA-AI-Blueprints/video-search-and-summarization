@@ -114,17 +114,18 @@ the assigned selector exactly. Errors are strings or null and never evidence.
 ### Final result
 
 The final result keeps decision and evidence state separate. It includes
-`status`, `evidence_status`, validated `answer_label`, `answer_explanation`,
-the backward-compatible rendered `answer`, `decision_source`, `evidence`,
+`status`, `evidence_status`, `answer`, `decision_source`, `evidence`,
 `evidence_details`, `unresolved_gaps`, `revision`, and `artifact_dir`.
-`answer_label` is one of the choices the question itself gives, or null when
-the question does not ask for a choice. The explanation carries the reason or
-the open answer; it does not replace a required choice.
+`answer` is the complete text supplied by the top-level agent, or null when
+abstaining. The utility does not add a letter, infer options, or join a label
+to an explanation.
 
-An answered result may have unresolved introspection evidence when
-`decision_source` is `best_available_choice` or `unsupported_forced_choice`.
-The forced source is only for an explicit `--require-choice` selection and
-cites nothing. An abstention has null answer fields.
+A resolved ledger with an answer has `evidence_status: resolved` and
+`decision_source: introspection`. A terminal unresolved ledger with a partial
+or best-effort answer has `status: answered`, `evidence_status: unresolved`,
+and `decision_source: best_available_answer`, and it keeps the unresolved gaps.
+An abstention omits the answer: `status` and `evidence_status` stay
+`unresolved`, `answer` is null, and `decision_source` is `abstention`.
 Every gap has `claim_id`, `gap`, and one reason: `insufficient_coverage`,
 `not_visible`, `tool_failure`, or `budget_exhausted`.
 
@@ -156,26 +157,16 @@ python3 "${LEDGER_TOOL}" merge-round \
 
 python3 "${LEDGER_TOOL}" assess --ledger "${RUN_DIR}/ledger.json"
 
-# Multiple-choice answer. Pass the question's own labels and the observation
-# IDs the synthesis actually used. Do not expand unset variables into empty flags.
+# Answered result. Pass the complete answer text and the observation IDs the
+# synthesis actually used. Do not expand an unset variable into an empty flag.
 python3 "${LEDGER_TOOL}" final-result \
   --ledger "${RUN_DIR}/ledger.json" \
   --artifact-dir "${RUN_DIR}" \
-  --choice A --choice B --choice C --choice D \
-  --answer-label A \
-  --answer-explanation "The accepted observations support A." \
+  --answer "The accepted observations support the yellow vest." \
   --evidence-id "${OBSERVATION_ID}" \
   --output "${RUN_DIR}/final-result.json"
 
-# Supported open-ended answer: explanation and citations, no choice label.
-python3 "${LEDGER_TOOL}" final-result \
-  --ledger "${RUN_DIR}/ledger.json" \
-  --artifact-dir "${RUN_DIR}" \
-  --answer-explanation "The worker wore a yellow vest." \
-  --evidence-id "${OBSERVATION_ID}" \
-  --output "${RUN_DIR}/final-result.json"
-
-# Unresolved abstention: omit both answer flags. Do not pass empty strings.
+# Unresolved abstention: omit --answer entirely. Do not pass an empty string.
 python3 "${LEDGER_TOOL}" final-result \
   --ledger "${RUN_DIR}/ledger.json" \
   --artifact-dir "${RUN_DIR}" \
@@ -537,29 +528,17 @@ statement must cite the accepted observation IDs that justify it. Pass those
 IDs with repeated `--evidence-id` flags. Do not cite context observations or
 observations for other claims unless they are the evidence the synthesis
 actually used. The utility rejects unknown IDs and does not fill citations
-from the rest of the ledger.
+from the rest of the ledger. Never fabricate citations.
 
-Pass `--answer-label` and `--answer-explanation` separately, and only when
-they should appear. Use the label only for one of the question's own choices.
-Pass those choices with repeated `--choice` flags; a letter that is not in
-that set is rejected. Open-ended answers omit `--answer-label` and `--choice`.
-Unresolved abstention omits `--answer-label`, `--answer-explanation`, and
-`--choice`. Never pass an empty string for either answer flag.
+Answer the original question using accepted evidence and follow the caller’s requested response format.
 
-When accepted evidence supports one of the question's choices, pass that
-label, its explanation, the choice set, and the observation IDs it uses. If
-the evidence is incomplete but some accepted observations still favor one
-choice, pass that best-available choice the same way. The result records
-`decision_source: best_available_choice`, keeps the unresolved gaps, and cites
-only the IDs you supplied. If no choice has supporting observations, omit the
-answer flags and leave the result unresolved. Pass `--require-choice` only
-when the caller explicitly requires a selection despite that lack of support.
-That forced selection stays `evidence_status: unresolved`, uses
-`decision_source: unsupported_forced_choice`, and has empty citations. The
-presence of choices is not itself a requirement to choose, and selecting a
-letter does not mark the ledger resolved. When the question does not ask for
-a choice, answer from the accepted evidence if it is sufficient. Otherwise
-leave the answer unset.
+If the question supplies answer options and explicitly asks you to select one, select the best available option. Compare the full meaning of each option against the evidence, rather than matching isolated words. If evidence is incomplete, still make the requested selection, but preserve unresolved evidence status and gaps. State uncertainty when the requested response format permits it; otherwise retain that uncertainty in the introspection artifacts.
+
+If the question does not ask for an option selection, answer naturally without inventing options or labels. Report supported partial findings and remaining uncertainty when appropriate. If no answer is supported, say it cannot be determined.
+
+Only the top-level agent synthesizes the answer and performs any requested option selection. Planning and inspection remain option-blind.
+
+A list in the question is not a request to select. Do not hardcode benchmark names or letter-only output. Letter, numeric, and word options are all ordinary answer text. Pass that text with `--answer`. Omit `--answer` entirely to abstain, and never pass an empty string. A resolved ledger records `decision_source: introspection`. A terminal unresolved ledger that still has a partial finding or best-effort selection records `decision_source: best_available_answer`, keeps `evidence_status: unresolved`, and keeps the gaps. Supplying an answer does not resolve claims or the ledger. An omitted answer records `decision_source: abstention` and `answer: null`.
 
 Write `final-result.json` with `scripts/evidence_ledger.py final-result` before
 any user-facing answer. Do this for every outcome: resolved, partial coverage
@@ -568,9 +547,8 @@ persists a budget stop when no inspection budget remains, then writes the
 file. It refuses an in-progress ledger that still has budget; create the next
 task instead of writing a synthesis note. `merge-round` also writes
 `final-result.json` when the merged ledger is unresolved. Rerun `final-result`
-with a best-available choice only when accepted observations support that
-choice. Without supporting observations, leave the answer unset unless the
-caller passed `--require-choice`. Every unresolved run reports each claim gap using only:
+with `--answer` only when accepted observations support that text. Without
+supporting observations, omit `--answer`. Every unresolved run reports each claim gap using only:
 
 - `insufficient_coverage`;
 - `not_visible`;
