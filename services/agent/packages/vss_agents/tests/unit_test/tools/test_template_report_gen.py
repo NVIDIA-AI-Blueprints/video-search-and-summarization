@@ -417,6 +417,10 @@ class TestReportBodyValidation:
         assert "Detailed Description" in normalized
         assert "## People Involved" in normalized
 
+    def test_normalize_keeps_plain_title_ending_with_colon(self):
+        raw = "Incident Report:\n\nA person entered the aisle.\n"
+        assert _normalize_report_model_output(raw) == "Incident Report:\n\nA person entered the aisle."
+
     def test_empty_output_rejected(self):
         with pytest.raises(ReportContentValidationError, match="empty_or_whitespace_body"):
             _validate_report_body("   \n")

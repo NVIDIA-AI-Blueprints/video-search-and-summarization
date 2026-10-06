@@ -95,6 +95,11 @@ _CLOSER_LINE_RE = re.compile(
     r"^(?:let me know\b|hope this\b|feel free to\b).*$",
     re.IGNORECASE,
 )
+# A lead-in with nothing after the colon. A title such as "Incident Report:" does not match.
+_LEAD_IN_LINE_RE = re.compile(
+    r"^(?:here(?:'s| is)\b|below is\b|sure,|i have\b|i've\b).*$",
+    re.IGNORECASE,
+)
 _SECTION_UNKNOWN_RE = re.compile(r"\b(Unknown|N/A)\b", re.IGNORECASE)
 _BLANK_RENDERED_VALUE_RE = re.compile(r"(?i)<br\s*/?>|&nbsp;")
 
@@ -750,8 +755,8 @@ def _is_chatter_line(line: str) -> bool:
     # "Here is what the camera shows: a person entered" keeps the observation.
     if re.search(r":\s*\S", stripped):
         return False
-    # "Sure, I have prepared the incident report:" has nothing after the colon.
-    if stripped.endswith(":"):
+    # "Sure, I have prepared the incident report:" is a lead-in. "Incident Report:" is a title.
+    if stripped.endswith(":") and _LEAD_IN_LINE_RE.match(stripped):
         return True
     return _CLOSER_LINE_RE.match(stripped) is not None
 
