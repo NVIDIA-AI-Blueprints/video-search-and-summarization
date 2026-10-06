@@ -1380,6 +1380,7 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                 sandbox = os.environ["NEMOCLAW_SANDBOX_NAME"]
                 staged = await _run_brev_exec(
                     self._instance_name,
+                    f"export {REMOTE_AGENT_RUN_ENV}={shlex.quote(agent_run_marker)}; "
                     'export PATH="$HOME/.local/bin:$PATH"; source ~/.profile 2>/dev/null; '
                     'python3 "$HOME/video-search-and-summarization/.github/skill-eval/nemoclaw/stage_fixtures.py" '
                     f"--sandbox {shlex.quote(sandbox)} --files-json {shlex.quote(fixtures)}",

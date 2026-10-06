@@ -237,6 +237,8 @@ class SubprocessCancellationTest(unittest.IsolatedAsyncioTestCase):
                 result = await env.exec("codex exec --json")
             self.assertEqual(result.return_code, staging_rc)
             self.assertIn("stage_fixtures.py", run.await_args_list[1].args[1])
+            marker = self._agent_marker_from_command(run.await_args_list[0].args[1])
+            self.assertIn(f"{brev_env.REMOTE_AGENT_RUN_ENV}={marker}", run.await_args_list[1].args[1])
             self.assertIn("se-current", run.await_args_list[1].args[1])
             self.assertEqual(run.await_count, 3 if staging_rc else 2)
 
