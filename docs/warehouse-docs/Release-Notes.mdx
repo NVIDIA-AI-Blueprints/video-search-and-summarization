@@ -23,7 +23,6 @@ position: 2
 
   - Behavior Analytics:
 
-    - Added the configurable `search_and_alerts` application to run Search and Alerts together in one Behavior Analytics container, replacing `dev_example`.
     - Added `behaviorEmitOnce` to emit a final behavior when a track ends, with per-sensor event-time handling, behavior holdback, and shutdown flushing. Real-time emission remains the default, and `isComplete` identifies completed behaviors.
     - Added configurable ROI ENTRY / EXIT detection based on bounding-box overlap.
 
@@ -33,7 +32,7 @@ position: 2
 - Models - Core AI models for perception and analytics:
 
   - [Sparse4D - 3D Warehouse Models v2.3 and v3.0](/vss/system-components/models/sparse4d-3d-multi-camera) - Updated models for synthetic and real-world Warehouse datasets, respectively. `DATASET_TYPE` selects the matching model, anchor, labels, and TensorRT engine configuration.
-  - Added automatic downloads of perception models from the NGC TAO registry. Perception models are no longer bundled in the Warehouse app-data archive.
+  - Perception models are now downloaded from the NGC TAO registry during deployment instead of being bundled in the Warehouse app-data archive.
 
 ### Improvements
 
@@ -47,8 +46,9 @@ position: 2
 
   - Behavior Analytics:
 
+    - Combined Search and Alerts in a single Behavior Analytics main application script.
     - Refactored restricted-area and confined-area violation detection and ROI information handling, simplified trajectory and state management, tuned default pipeline worker counts, and improved worker-lifecycle and fatal-error reporting.
-    - Added support for sub-second violation durations and expiration windows, and enabled proximity, confined-area, and restricted-area incident detection in the Warehouse 3D profile.
+    - Enabled proximity, confined-area, and restricted-area incidents in the Warehouse 3D profile.
     - Updated ROI output to report `restrictedAreaViolation=false` when no objects are present.
   - Video Analytics API: Added readiness checks for Elasticsearch connectivity, the insertion-timestamp ingest pipeline, and required Kafka topics before starting the HTTP listener and accepting calibration uploads. Redis deployments ignore Kafka configuration.
   - Logstash:
@@ -72,6 +72,7 @@ position: 2
   - Fixed missing real-time VLM incidents caused by Redis message-field configuration.
   - Fixed RTVI-VLM inference failures caused by multimodal processor caching and request serialization.
 
+- Behavior Analytics: Fixed validation of violation-duration thresholds and expiration windows to accept fractional seconds.
 - SDRC: Fixed a startup race with RTVI-CV by waiting for perception readiness before adding streams.
 - Video IO & Storage (VIOS):
 
