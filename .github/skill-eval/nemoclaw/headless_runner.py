@@ -121,6 +121,54 @@ def _ensure_gateway(sandbox: str) -> None:
     )
 
 
+def _check_readiness(sandbox: str, evidence: Path) -> None:
+    """Prove sandbox access, authenticated gateway and CLI before a prompt."""
+    stages: list[dict[str, Any]] = []
+    for stage, command in (
+        ("sandbox_access", "true"),
+        ("gateway_health", None),
+        ("gateway_authentication", "openclaw gateway call health --json"),
+        ("vss_configuration", "vss configure check"),
+    ):
+        row: dict[str, Any] = {"stage": stage, "status": "failed"}
+        stages.append(row)
+        try:
+            if command is None:
+                _ensure_gateway(sandbox)
+            else:
+                # Canonical device scope approval can settle asynchronously.
+                # Wait only for that explicit state; bad credentials and other
+                # failures are not disguised as slow gateway startup.
+                deadline = time.monotonic() + 90
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if row.get("attempts", 0) and remaining <= 0:
+                        break
+                    timeout = max(1, min(30, int(remaining))) if stage == "gateway_authentication" else 90
+                    result = _sandbox_exec(sandbox, command, timeout=timeout)
+                    row["attempts"] = row.get("attempts", 0) + 1
+                    pending = stage == "gateway_authentication" and result.returncode != 0 and any(
+                        marker in ((result.stderr or "") + (result.stdout or "")).lower()
+                        for marker in ("scope upgrade pending approval", "pairing required")
+                    )
+                    remaining = deadline - time.monotonic()
+                    if not pending or remaining <= 0:
+                        break
+                    time.sleep(min(3, remaining))
+                row["exit_code"] = result.returncode
+                if result.returncode != 0:
+                    raise RuntimeError(f"NemoClaw readiness failed at {stage} (exit {result.returncode})")
+                if stage == "gateway_authentication" and _json_object(result.stdout).get("ok") is not True:
+                    raise RuntimeError("NemoClaw readiness failed at gateway_authentication: health did not report ok")
+            row["status"] = "passed"
+        except Exception as exc:
+            row["exception_type"] = type(exc).__name__
+            raise
+        finally:
+            # Metadata only: never store gateway tokens, config or raw output.
+            evidence.write_text(json.dumps({"sandbox": sandbox, "stages": stages}, indent=2) + "\n")
+
+
 def _nemoclaw_exec(
     sandbox: str,
     script: str,
@@ -312,7 +360,7 @@ def main(argv: list[str] | None = None) -> int:
     prompt = Path(args.prompt_file).read_text(encoding="utf-8")
 
     try:
-        _ensure_gateway(sandbox)
+        _check_readiness(sandbox, agent_log_dir / "readiness.json")
         # Onboarding owns the provider binding. The job's local proxy needs
         # no credential refresh; the native agent turn verifies inference.
         envelope, session = _run_openclaw(sandbox, prompt, args.timeout)

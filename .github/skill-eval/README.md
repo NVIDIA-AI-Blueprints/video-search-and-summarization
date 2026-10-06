@@ -268,6 +268,23 @@ LiteLLM readiness budgets are unchanged.
 
 The runner passes the selected runtime as `SKILLS_EVAL_OPERATIONAL_HARNESS` to the worker. Operational setup queries explicitly invoke `/vss-build-vision-ai` and specify conditional NemoClaw setup, skill installation, and readiness. Adapters include the declared Build Vision AI skill when generating tasks; `run_leg.py` never rewrites generated instructions.
 
+NemoClaw operational legs also receive a per-run/per-leg gateway, dashboard and
+relay port triplet. NemoClaw v0.0.127 uses the gateway port to scope its host
+registry and shared inference provider under `~/.nemoclaw/gateways/<port>/`.
+Docker cleanup alone leaves the default registry intact; a unique sandbox name
+does not prevent conflicts with its previous inference routes. Before setup,
+the worker claims only the selected namespace with an eval ownership receipt.
+Existing unowned state, another eval's receipt, and occupied ports are refused
+without deleting registries or stopping listeners. All operational steps keep
+the same triplet and deployment. Explicit port overrides must remain distinct
+and use a non-default gateway port.
+
+Before each operational prompt, `agent/readiness.json` records separate checks
+for sandbox access, gateway health, authenticated gateway health, and the
+sandbox-installed `vss configure check`. A listening HTTP endpoint alone does
+not establish successful pairing. Readiness failure stops before model work
+and records stage/exit metadata without gateway credentials or raw config.
+
 The setup checks require trajectory evidence of Build Vision AI use and,
 when selected, a ready NemoClaw sandbox with its VSS CLI configured. An answer
 that only mentions the skill or sandbox does not satisfy those checks.

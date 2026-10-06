@@ -40,6 +40,8 @@ def test_operational_setup_is_spec_owned(spec_path, platform, tmp_path):
     assert f"install `/{skill}`" in query
     assert 'openshell sandbox get "$NEMOCLAW_SANDBOX_NAME"' in query
     assert "sandbox gateway must be ready" in query
+    for key in ("NEMOCLAW_GATEWAY_PORT", "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_DASHBOARD_RELAY_PORT"):
+        assert "$" + key in query
     checks = "\n".join(spec["expects"][0]["checks"])
     assert "reading or invoking the bundled `/vss-build-vision-ai`" in checks
     assert "sandbox-installed `vss configure check` succeeds" in checks

@@ -407,5 +407,29 @@ class LocalNimStartupOrder(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(env._started)
 
 
+class NemoClawNamespaceClaim(unittest.IsolatedAsyncioTestCase):
+    async def test_namespace_conflict_stops_before_agent(self):
+        env = brev_env.BrevEnvironment()
+        env._instance_name = "vss-eval-test"
+        with (
+            mock.patch.dict(os.environ, {
+                "SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER": "a" * 64,
+                "NEMOCLAW_GATEWAY_PORT": "45000",
+                "NEMOCLAW_DASHBOARD_PORT": "45001",
+                "NEMOCLAW_DASHBOARD_RELAY_PORT": "45002",
+            }),
+            mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(return_value=brev_env.ExecResult(return_code=1, stderr="gateway namespace belongs to a different evaluation"))) as execute,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "different evaluation"):
+                await env._claim_nemoclaw_gateway()
+        self.assertEqual(execute.call_count, 1)
+
+    async def test_non_nemoclaw_trial_does_not_claim_namespace(self):
+        env = brev_env.BrevEnvironment()
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock()) as execute:
+            await env._claim_nemoclaw_gateway()
+            execute.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

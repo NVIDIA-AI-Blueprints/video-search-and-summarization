@@ -398,6 +398,8 @@ class BrevEnvironment(BaseEnvironment):
             "SKILLS_EVAL_OPERATIONAL_HARNESS",
             "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_RECREATE_SANDBOX",
             "NEMOCLAW_GATEWAY_PORT",
+            "SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER",
+            "NEMOCLAW_DASHBOARD_RELAY_PORT",
             "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_POLICY_MODE",
             "NEMOCLAW_PROVIDER", "NEMOCLAW_ENDPOINT_URL",
             "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
@@ -490,6 +492,7 @@ class BrevEnvironment(BaseEnvironment):
             # purging first would race the writers and the dirs would be
             # dirty again by the time the trial starts.
             await self._purge_host_data_dirs()
+            await self._claim_nemoclaw_gateway()
         else:
             logger.info(
                 "Skipping docker reset, host purge, and repo sync on %s — %s "
@@ -599,6 +602,24 @@ class BrevEnvironment(BaseEnvironment):
         )
         if result.return_code:
             raise RuntimeError(f"Local NIM deployment failed: {(result.stderr or result.stdout or '')[-2000:]}")
+
+    async def _claim_nemoclaw_gateway(self) -> None:
+        """Claim only this leg's isolated NemoClaw host namespace."""
+        owner = os.environ.get("SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER")
+        if not owner:
+            return
+        script = (Path(__file__).resolve().parents[1] / "nemoclaw" / "gateway_state.py").read_text()
+        args = [owner, *(os.environ[key] for key in (
+            "NEMOCLAW_GATEWAY_PORT", "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_DASHBOARD_RELAY_PORT",
+        ))]
+        result = await _run_brev_exec(
+            self._instance_name,
+            "python3 -c " + shlex.quote(script) + " " + shlex.join(args),
+            timeout=30,
+        )
+        if result.return_code != 0:
+            # The helper emits only non-secret ownership/port diagnostics.
+            raise RuntimeError("NemoClaw gateway namespace claim failed: " + (result.stderr or result.stdout or "")[-500:])
 
     async def _reset_docker_runtime(self) -> None:
         """Wipe the warm-pool box's docker runtime before the trial.

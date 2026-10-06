@@ -34,7 +34,11 @@ def test_prompt_uses_native_inference_without_mutating_provider(monkeypatch, tmp
     def sandbox_exec(sandbox, script, **kwargs):
         assert sandbox == "se-test"
         calls.append(script)
-        if "/health" in script:
+        if script in ("true", "vss configure check"):
+            output = ""
+        elif script == "openclaw gateway call health --json":
+            output = '{"ok":true}'
+        elif "/health" in script:
             output = ""
         elif "openclaw agent" in script:
             assert "Operate the deployment" in script
@@ -52,7 +56,7 @@ def test_prompt_uses_native_inference_without_mutating_provider(monkeypatch, tmp
     monkeypatch.setattr(runner, "_sandbox_exec", sandbox_exec)
     monkeypatch.setattr(runner.subprocess, "run", lambda *args, **kwargs: pytest.fail("host provider mutated"))
     assert runner.main(["--prompt-file", str(prompt), "--agent-log-dir", str(logs)]) == 0
-    assert len(calls) == 3
+    assert len(calls) == 6
     envelope = json.loads((logs / "openclaw.txt").read_text())
     assert envelope["meta"]["agentMeta"]["usage"]["input"] == 5
     assert envelope["meta"]["agentMeta"]["usage"]["output"] == 2

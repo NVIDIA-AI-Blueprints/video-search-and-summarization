@@ -25,6 +25,7 @@ def test_failure_is_available_to_the_verifier(monkeypatch, tmp_path, stage):
         raise RuntimeError(message)
 
     monkeypatch.setattr(runner, "_load_env_file", lambda path: None)
+    monkeypatch.setattr(runner, "_sandbox_exec", lambda *a, **kw: __import__("subprocess").CompletedProcess(a, 0, '{"ok":true}', ""))
     monkeypatch.setattr(runner, "_ensure_gateway", fail if stage == "gateway" else lambda name: None)
     monkeypatch.setattr(runner, "_run_openclaw", fail)
     assert runner.main(["--prompt-file", str(prompt), "--agent-log-dir", str(logs)]) == 1

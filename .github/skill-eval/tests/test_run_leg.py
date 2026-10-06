@@ -1167,6 +1167,11 @@ class RunInvocations(unittest.TestCase):
         )
         self.assertNotEqual(seen_env[0]["NEMOCLAW_SANDBOX_NAME"], "skill-eval")
         self.assertEqual(seen_env[0]["NEMOCLAW_RECREATE_SANDBOX"], "0")
+        ports = [seen_env[0][key] for key in ("NEMOCLAW_GATEWAY_PORT", "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_DASHBOARD_RELAY_PORT")]
+        self.assertEqual(len(set(ports)), 3)
+        self.assertNotEqual(ports[0], "8080")
+        for key in ("NEMOCLAW_GATEWAY_PORT", "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_DASHBOARD_RELAY_PORT", "SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER"):
+            self.assertEqual(seen_env[0][key], seen_env[1][key])
         self.assertEqual(
             seen_env[0]["BREV_EXEC_TIMEOUT"],
             str(run_leg.NEMOCLAW_SETUP_BREV_EXEC_TIMEOUT_SEC),

@@ -1798,6 +1798,19 @@ def _run_invocations(
         # Provisioning and later scenarios address one per-leg sandbox, so a
         # warm worker cannot inherit another evaluation's sessions.
         env["NEMOCLAW_SANDBOX_NAME"] = sandbox_name
+        # A sandbox name does not isolate NemoClaw's provider-global inference
+        # route. Non-default gateway ports select separate host registries.
+        # Keep one gateway/dashboard/relay triplet through every step of this
+        # leg; the worker claims its namespace before the coding agent starts.
+        identity = hashlib.sha256(f"{run_id}:{leg_slug}".encode()).hexdigest()
+        gateway_port = 21000 + 3 * (int(identity[:8], 16) % 3000)
+        for key, port in (
+            ("NEMOCLAW_GATEWAY_PORT", gateway_port),
+            ("NEMOCLAW_DASHBOARD_PORT", gateway_port + 1),
+            ("NEMOCLAW_DASHBOARD_RELAY_PORT", gateway_port + 2),
+        ):
+            env.setdefault(key, str(port))
+        env["SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER"] = identity
         env.setdefault("NEMOCLAW_RECREATE_SANDBOX", "0")
         env.update(
             {

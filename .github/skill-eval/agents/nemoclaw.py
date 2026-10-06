@@ -57,7 +57,7 @@ class NemoClaw(OpenClaw):
 repo="$HOME/video-search-and-summarization"
 cd "$repo"
 mkdir -p /tmp/skill-eval/nemoclaw /logs/agent
-rm -f /logs/agent/openclaw.txt /logs/agent/openclaw.session.jsonl \
+rm -f /logs/agent/openclaw.txt /logs/agent/openclaw.session.jsonl /logs/agent/readiness.json \
   /logs/agent/trajectory.json /logs/agent/trajectory.jsonl \
   /logs/agent/claude-code.txt /logs/agent/codex.txt /logs/agent/agent.log
 printf %s {shlex.quote(prompt)} | base64 -d > {shlex.quote(prompt_path)}
