@@ -136,7 +136,8 @@ def test_inspection_stops_at_call_budget(monkeypatch: pytest.MonkeyPatch) -> Non
     )
     assert len(result["planned_windows"]) == 4
     assert result["vlm_calls_used"] == 2
-    assert result["coverage"] == "partial"
+    assert result["window_inspection"] == "partial"
+    assert result["claim_sufficiency"] is None
 
 
 def test_degenerate_window_does_not_starve_remaining_window(
@@ -176,7 +177,8 @@ def test_degenerate_window_does_not_starve_remaining_window(
     )
     assert [attempt["window_index"] for attempt in result["attempts"]] == [0, 1]
     assert [attempt["retry"] for attempt in result["attempts"]] == [0, 0]
-    assert result["coverage"] == "partial"
+    assert result["window_inspection"] == "partial"
+    assert result["claim_sufficiency"] is None
 
 
 def test_degenerate_retry_runs_after_initial_window_coverage(
@@ -377,7 +379,8 @@ def test_exact_duplicate_window_call_is_rejected(
     )
     assert invoked is False
     assert result["vlm_calls_used"] == 0
-    assert result["coverage"] == "none"
+    assert result["window_inspection"] == "none"
+    assert result["reused_evidence"] == []
     assert result["rejected_duplicates"][0]["reason"] == "duplicate_window_call"
 
 
@@ -689,3 +692,175 @@ def test_assigned_subwindow_and_exact_window_are_allowed(
         (START, "2026-09-30T00:00:10Z"),
         (START, "2026-09-30T00:00:20Z"),
     ]
+
+
+def test_occlusion_text_stays_usable_without_resolving_the_claim() -> None:
+    occluded = vlm.classify_vlm_output(
+        "The worker is occluded, so no hat transition is visibly established."
+    )
+    visible = vlm.classify_vlm_output(
+        "The worker is partly occluded, and the yellow vest is clearly visible."
+    )
+    assert occluded["usable"] is True
+    assert visible["usable"] is True
+
+
+def test_prior_usable_windows_are_reused_without_a_new_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"count": 0}
+
+    def fake_run(**_: object) -> dict:
+        calls["count"] += 1
+        return {
+            "exit_code": 0,
+            "job_id": "vlm-b",
+            "status": "succeeded",
+            "answer": "Window B shows the vest.",
+            "usable": True,
+            "quality_reason": "ok",
+            "error": None,
+            "persistence_limited": False,
+        }
+
+    monkeypatch.setattr(vlm, "_run_vlm", fake_run)
+    prompt = "Is the vest visible?"
+    windows = vlm.split_sensor_window(START, "2026-09-30T00:02:00Z", 1)
+    assert len(windows) == 2
+    prior = {
+        "sensor_id": "sensor-1",
+        "claim_id": "claim-color",
+        "start": windows[0]["start"],
+        "end": windows[0]["end"],
+        "fps": 1,
+        "prompt_sha256": vlm._prompt_digest(prompt),
+        "usable": True,
+        "answer": "Window A shows the vest.",
+        "job_id": "vlm-a",
+        "observation_id": "obs-" + "a" * 24,
+        "status": "completed",
+        "exit_code": 0,
+    }
+    mixed = vlm.inspect_sensor_scope(
+        vss_project="/repo/libs/vss",
+        sensor="sensor-1",
+        claim_id="claim-color",
+        start=START,
+        end="2026-09-30T00:02:00Z",
+        fps=1,
+        prompt=prompt,
+        calls_budget=1,
+        prior_attempts=[prior],
+    )
+    assert calls["count"] == 1
+    assert mixed["vlm_calls_used"] == 1
+    assert mixed["window_inspection"] == "complete"
+    assert mixed["claim_sufficiency"] is None
+    assert mixed["reused_evidence"][0]["observation_id"] == prior["observation_id"]
+    assert mixed["reused_evidence"][0]["job_id"] == "vlm-a"
+    assert [item["window_index"] for item in mixed["attempts"]] == [1]
+
+    covered = vlm.inspect_sensor_scope(
+        vss_project="/repo/libs/vss",
+        sensor="sensor-1",
+        claim_id="claim-color",
+        start=START,
+        end="2026-09-30T00:00:20Z",
+        fps=1,
+        prompt=prompt,
+        calls_budget=1,
+        prior_attempts=[
+            {
+                **prior,
+                "start": START,
+                "end": "2026-09-30T00:00:20Z",
+            }
+        ],
+    )
+    assert covered["vlm_calls_used"] == 0
+    assert covered["complete"] is True
+    assert covered["window_inspection"] == "complete"
+    assert covered["reused_evidence"][0]["observation_id"] == prior["observation_id"]
+    assert calls["count"] == 1
+
+
+def test_failed_or_incompatible_priors_do_not_count_as_coverage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"count": 0}
+
+    def fake_run(**_: object) -> dict:
+        calls["count"] += 1
+        return {
+            "exit_code": 0,
+            "job_id": "vlm-new",
+            "status": "succeeded",
+            "answer": "The vest is visible.",
+            "usable": True,
+            "quality_reason": "ok",
+            "error": None,
+            "persistence_limited": False,
+        }
+
+    monkeypatch.setattr(vlm, "_run_vlm", fake_run)
+    prompt = "Is the vest visible?"
+    failed = {
+        "sensor_id": "sensor-1",
+        "claim_id": "claim-color",
+        "start": START,
+        "end": "2026-09-30T00:00:20Z",
+        "fps": 1,
+        "prompt_sha256": vlm._prompt_digest(prompt),
+        "usable": False,
+        "answer": "",
+        "job_id": "vlm-failed",
+    }
+    failed_result = vlm.inspect_sensor_scope(
+        vss_project="/repo/libs/vss",
+        sensor="sensor-1",
+        claim_id="claim-color",
+        start=START,
+        end="2026-09-30T00:00:20Z",
+        fps=1,
+        prompt=prompt,
+        calls_budget=1,
+        prior_attempts=[failed],
+    )
+    assert calls["count"] == 0
+    assert failed_result["window_inspection"] == "none"
+    assert failed_result["reused_evidence"] == []
+
+    other_sensor = vlm.inspect_sensor_scope(
+        vss_project="/repo/libs/vss",
+        sensor="sensor-1",
+        claim_id="claim-color",
+        start=START,
+        end="2026-09-30T00:00:20Z",
+        fps=1,
+        prompt=prompt,
+        calls_budget=1,
+        prior_attempts=[{**failed, "usable": True, "answer": "Seen elsewhere.", "sensor_id": "sensor-2"}],
+    )
+    other_prompt = vlm.inspect_sensor_scope(
+        vss_project="/repo/libs/vss",
+        sensor="sensor-1",
+        claim_id="claim-color",
+        start=START,
+        end="2026-09-30T00:00:20Z",
+        fps=1,
+        prompt=prompt,
+        calls_budget=1,
+        prior_attempts=[
+            {
+                **failed,
+                "usable": True,
+                "answer": "A different question.",
+                "prompt_sha256": vlm._prompt_digest("Count the forklifts."),
+            }
+        ],
+    )
+    assert calls["count"] == 2
+    assert other_sensor["reused_evidence"] == []
+    assert other_prompt["reused_evidence"] == []
+    assert other_sensor["window_inspection"] == "complete"
+    assert other_prompt["window_inspection"] == "complete"
