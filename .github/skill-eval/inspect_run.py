@@ -285,9 +285,21 @@ def worker(run_id):
                                 row[label] = error.code
                             except (OSError, URLError, TimeoutError):
                                 row[label] = 0
-                logs = subprocess.run(["docker", "logs", "--tail", "80", container["Id"]], capture_output=True, text=True, timeout=10)
+                logs = subprocess.run(["docker", "logs", "--tail", "1000", container["Id"]], capture_output=True, text=True, timeout=10)
                 data = logs.stdout + logs.stderr
-                row["log_signals"] = [label for needle,label in [("Downloading", "downloading"), ("Loading", "loading"), ("CUDA graph", "cuda_graph"), ("Application startup complete", "api_started"), ("Traceback", "traceback"), ("out of memory", "out_of_memory"), ("ValueError", "value_error"), ("AssertionError", "assertion_error"), ("max_model_len", "model_context"), ("GPU memory", "gpu_memory")] if needle in data]
+                row["log_signals"] = [label for needle,label in [("Downloading", "downloading"), ("Loading", "loading"), ("CUDA graph", "cuda_graph"), ("Application startup complete", "api_started"), ("Traceback", "traceback"), ("out of memory", "out_of_memory"), ("ValueError", "value_error"), ("AssertionError", "assertion_error"), ("max_model_len", "model_context"), ("GPU memory", "gpu_memory")] if needle.lower() in data.lower()]
+                # Bound and redact relevant startup lines, never credentials or
+                # entire raw logs. Model-serving logs can contain signed URLs.
+                secrets = []
+                for value in container.get("Config", {}).get("Env", []):
+                    name, sep, secret = value.partition("=")
+                    if sep and secret and re.search(r"key|token|secret|password|credential", name, re.I):
+                        secrets.append(secret)
+                for secret in secrets:
+                    data = data.replace(secret, "[redacted]")
+                data = re.sub(r"https?://[^\s<>]+", "[url]", data)
+                data = re.sub(r"(?i)(bearer\s+|(?:token|key|secret|password)\s*[=:]\s*)[^\s,;]+", r"\1[redacted]", data)
+                row["startup_messages"] = [line[:400] for line in data.splitlines() if re.search(r"error|download|loading|profile|snapshot|engine", line, re.I) and not re.search(r"(?:GET|POST) /v1/", line)][-8:]
                 probes.append(row)
             report["vss_nim_probes"] = probes
         if nim_owner:
