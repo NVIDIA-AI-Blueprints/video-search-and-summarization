@@ -136,27 +136,53 @@ def load_attempt_history(paths: Sequence[str]) -> list[dict[str, Any]]:
 
 def expected_sensor_from_task(path: str, task_id: str | None = None) -> str:
     """Load the immutable sensor UUID from a canonical inspection task."""
-    task = json.loads(Path(path).read_text(encoding="utf-8"))
-    if isinstance(task, list):
+    return str(load_selected_task(path, task_id)["media_scope"]["sensor_id"])
+
+
+def load_selected_task(path: str, task_id: str | None = None) -> dict[str, Any]:
+    """Load one sensor inspection task and reject an ambiguous selection."""
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(payload, list):
+        if task_id is None:
+            raise ValueError("task list requires exactly one task_id")
         matches = [
             item
-            for item in task
-            if isinstance(item, dict)
-            and task_id is not None
-            and item.get("task_id") == task_id
+            for item in payload
+            if isinstance(item, dict) and item.get("task_id") == task_id
         ]
         if len(matches) != 1:
             raise ValueError("task list must contain exactly one matching task_id")
         task = matches[0]
+    elif isinstance(payload, dict):
+        if task_id is not None and payload.get("task_id") != task_id:
+            raise ValueError("task_id does not match the inspection task")
+        task = payload
+    else:
+        raise ValueError("inspection task must be an object")
+    _validate_sensor_task(task)
+    return task
+
+
+def _validate_sensor_task(task: dict[str, Any]) -> None:
+    """Reject a task that cannot bound a sensor VLM call."""
     if not isinstance(task, dict):
         raise ValueError("inspection task must be an object")
     scope = task.get("media_scope")
-    if not isinstance(scope, dict) or scope.get("type") != "sensor":
+    if not isinstance(scope, dict):
+        raise ValueError("inspection task must contain a media_scope object")
+    if scope.get("type") != "sensor":
         raise ValueError("inspection task must contain a sensor media_scope")
     sensor = scope.get("sensor_id")
     if not isinstance(sensor, str) or not sensor.strip():
         raise ValueError("inspection task sensor_id must be a non-empty string")
-    return sensor
+    start = scope.get("start")
+    end = scope.get("end")
+    if not isinstance(start, str) or not isinstance(end, str):
+        raise ValueError("inspection task sensor scope requires start and end")
+    window_duration_seconds(start, end)
+    allocation = task.get("max_vlm_calls")
+    if isinstance(allocation, bool) or not isinstance(allocation, int) or allocation < 1:
+        raise ValueError("inspection task max_vlm_calls must be a positive integer")
 
 
 def allowed_sensors_from_attempt_context() -> tuple[str, ...]:
@@ -217,18 +243,56 @@ def classify_vlm_output(raw: str) -> dict[str, Any]:
     return {"usable": True, "reason": "ok", "normalized_text": normalized}
 
 
-def parse_vlm_stdout(stdout: str) -> dict[str, Any]:
-    """Return the first JSON object carrying the VLM answer contract."""
-    for line in stdout.splitlines():
+def _json_values(stdout: str) -> list[Any]:
+    """Decode successive JSON values without treating a prefix as the document."""
+    decoder = json.JSONDecoder()
+    index = 0
+    length = len(stdout)
+    values: list[Any] = []
+    while index < length:
+        while index < length and stdout[index].isspace():
+            index += 1
+        if index >= length:
+            break
         try:
-            value = json.loads(line)
+            value, end = decoder.raw_decode(stdout, index)
         except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict) and (
-            "answer" in value or "job_id" in value or "status" in value
-        ):
-            return value
-    return {}
+            return []
+        values.append(value)
+        index = end
+    return values
+
+
+def parse_vlm_stdout(stdout: str) -> dict[str, Any]:
+    """Return the answer-bearing VLM body, not a later completion marker.
+
+    ``vss vlm run`` prints one JSON body and then one compact completion
+    marker. ``--pretty`` makes the body multiline; ``--raw`` keeps it compact.
+    A marker that only carries job identity is not an answer.
+    """
+    objects = [value for value in _json_values(stdout) if isinstance(value, dict)]
+    answer_bearing = [item for item in objects if "answer" in item]
+    markers = [
+        item
+        for item in objects
+        if isinstance(item.get("event"), str) and item["event"].startswith("vss_job_")
+    ]
+    if not answer_bearing:
+        if not markers:
+            return {}
+        preserved: dict[str, Any] = {}
+        marker = markers[-1]
+        for key in ("job_id", "status", "error"):
+            if key in marker:
+                preserved[key] = marker[key]
+        return preserved
+    chosen = dict(answer_bearing[0])
+    if markers:
+        marker = markers[-1]
+        for key in ("job_id", "status", "error"):
+            if chosen.get(key) in (None, "") and key in marker:
+                chosen[key] = marker[key]
+    return chosen
 
 
 def _run_vlm(
@@ -248,6 +312,7 @@ def _run_vlm(
         "vss",
         "vlm",
         "run",
+        "--raw",
         "--prompt",
         prompt,
         "--sensor",
@@ -269,6 +334,7 @@ def _run_vlm(
         "status": payload.get("status"),
         "answer": verdict["normalized_text"],
         "usable": completed.returncode in (0, 6) and verdict["usable"],
+        "persistence_limited": completed.returncode == 6,
         "quality_reason": verdict["reason"],
         "error": completed.stderr.strip() or payload.get("error"),
     }
@@ -288,10 +354,36 @@ def inspect_sensor_scope(
     prior_attempts: Sequence[dict[str, Any]] = (),
     expected_sensor: str | None = None,
     allowed_sensors: Sequence[str] = (),
+    assigned_start: str | None = None,
+    assigned_end: str | None = None,
+    task_call_allocation: int | None = None,
 ) -> dict[str, Any]:
     """Inspect every affordable subwindow before bounded quality retries."""
     if calls_budget < 1:
         raise ValueError("calls_budget must be at least one")
+    if (
+        isinstance(task_call_allocation, bool)
+        or (
+            task_call_allocation is not None
+            and (not isinstance(task_call_allocation, int) or task_call_allocation < 1)
+        )
+    ):
+        raise ValueError("task allocation must be a positive integer")
+    if task_call_allocation is not None and calls_budget > task_call_allocation:
+        raise ValueError("calls_budget exceeds the task allocation")
+    requested_start = _parse_instant(start)
+    requested_end = _parse_instant(end)
+    if requested_start >= requested_end:
+        raise ValueError("window start must be before end")
+    if (assigned_start is None) != (assigned_end is None):
+        raise ValueError("assigned scope requires both start and end")
+    if assigned_start is not None and assigned_end is not None:
+        scope_start = _parse_instant(assigned_start)
+        scope_end = _parse_instant(assigned_end)
+        if scope_start >= scope_end:
+            raise ValueError("assigned window start must be before end")
+        if requested_start < scope_start or requested_end > scope_end:
+            raise ValueError("requested window is outside the assigned media scope")
     if expected_sensor is not None and sensor != expected_sensor:
         raise ValueError(
             f"sensor mismatch: requested {sensor!r}, task requires {expected_sensor!r}"
@@ -500,6 +592,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             classify_vlm_output(Path(args.input).read_text(encoding="utf-8")),
         )
     else:
+        selected = load_selected_task(args.task, args.task_id)
+        scope = selected["media_scope"]
         _write_json(
             args.output,
             inspect_sensor_scope(
@@ -512,8 +606,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 calls_budget=args.calls_budget,
                 max_frames=args.max_frames,
                 prior_attempts=load_attempt_history(args.history),
-                expected_sensor=expected_sensor_from_task(args.task, args.task_id),
+                expected_sensor=scope["sensor_id"],
                 allowed_sensors=allowed_sensors_from_attempt_context(),
+                assigned_start=scope["start"],
+                assigned_end=scope["end"],
+                task_call_allocation=selected["max_vlm_calls"],
             ),
         )
     return 0

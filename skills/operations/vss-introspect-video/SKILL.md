@@ -411,12 +411,17 @@ as a duplicate. Unusable output is retained for diagnostics but never becomes
 an observation or increases coverage. Convert only usable attempts into claim
 observations with the returned job ID and exact subwindow provenance.
 
-For a sensor scope, `--task` is mandatory. The helper reads the immutable sensor
-UUID from that task and rejects a mismatched `--sensor` before launching VLM.
-When the caller supplies `.vss/introspection-attempt.json`, the helper also
-requires both the task sensor and requested sensor to match that attempt's
-video ID or sensor UUID. An internally consistent task for a different video
-is therefore rejected before inference.
+For a sensor scope, `--task` is mandatory. Before any inference call, the
+helper loads that one task and rejects a missing or ambiguous task ID, a
+non-sensor scope, a mismatched sensor, a requested interval that is reversed
+or not entirely inside the task's immutable window, and a call allowance
+above the task allocation. It requests `vss vlm run --raw` and still accepts
+a pretty-printed answer body followed by the compact completion marker; it
+does not treat the marker as the answer. When the caller supplies
+`.vss/introspection-attempt.json`, the helper also requires both the task
+sensor and requested sensor to match that attempt's video ID or sensor UUID.
+An internally consistent task for a different video is therefore rejected
+before inference.
 Every returned observation must also use the assigned sensor and remain within
 the assigned window; merge validation rejects mismatches.
 
