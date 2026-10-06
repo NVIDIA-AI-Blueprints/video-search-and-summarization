@@ -1663,11 +1663,11 @@ class TraceUrls(unittest.TestCase):
         self.assertEqual(url.count("%2F"), 2)
 
     def test_configured_viewer_origin_replaces_brev(self):
-        os.environ["HARBOR_VIEW_BASE_URL"] = "http://10.32.187.32:8080"
+        os.environ["HARBOR_VIEW_BASE_URL"] = "http://viewer.example:8080"
         with tempfile.TemporaryDirectory() as td:
             result = self._write_result(Path(td) / "step-7__E6dBECL")
             url = run_leg.trace_url(result, self.JOB)
-        self.assertTrue(url.startswith("http://10.32.187.32:8080/jobs/"))
+        self.assertTrue(url.startswith("http://viewer.example:8080/jobs/"))
         self.assertNotIn("brevlab.com", url)
 
     def test_trace_url_none_on_incomplete_result(self):

@@ -247,7 +247,7 @@ jobs:
           CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || '' }}
           OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
           OPERATIONAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_model || '' }}
-          # Persistent viewer on sc-metro-05. Empty keeps the Brev URL.
+          # Viewer origin for trace links. Empty keeps the Brev URL.
           HARBOR_VIEW_BASE_URL: ${{ vars.HARBOR_VIEW_BASE_URL }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
@@ -654,7 +654,7 @@ jobs:
           CI_LLM_REMOTE_MODEL: ${{ secrets.LLM_REMOTE_MODEL }}
           CI_VLM_REMOTE_URL: ${{ secrets.VLM_REMOTE_URL }}
           CI_VLM_REMOTE_MODEL: ${{ secrets.VLM_REMOTE_MODEL }}
-          # Persistent viewer on sc-metro-05. Empty keeps the Brev URL.
+          # Viewer origin for trace links. Empty keeps the Brev URL.
           HARBOR_VIEW_BASE_URL: ${{ vars.HARBOR_VIEW_BASE_URL }}
           EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'claude-code' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a

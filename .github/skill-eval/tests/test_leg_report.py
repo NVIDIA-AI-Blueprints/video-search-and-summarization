@@ -500,7 +500,7 @@ def _write_ack(ack_root: Path, job: str, trials: list[str]) -> None:
     ack_root.mkdir(parents=True, exist_ok=True)
     payload = {
         "version": 1,
-        "host": "smc521ge-0149",
+        "host": "viewer-host",
         "runner": "vss-skill-eval-gpu-1",
         "run_id": "555",
         "job": job,
@@ -539,7 +539,7 @@ def test_an_unacknowledged_trial_drops_only_its_own_link(tmp_path: Path, capsys)
     assert _trace_url(job, "step-1__aaa") in body
     assert _trace_url(job, "step-2__bbb") not in body
     assert "omit trace step-2/step-2__bbb: not listed in acknowledgement" in err
-    assert "sc-metro-05" not in err
+    assert "viewer-host" not in err
     assert "metro install failed" not in err
 
 
