@@ -1135,46 +1135,122 @@ def prepare_for_final_result(ledger: Mapping[str, Any]) -> dict[str, Any]:
     return apply_budget_stop(ledger)
 
 
+def _blank_argument(value: Any) -> bool:
+    return isinstance(value, str) and not value.strip()
+
+
+def _normalize_choice_set(choices: Sequence[str] | None) -> list[str] | None:
+    """Normalize allowed labels and reject a set that collapses together."""
+    if choices is None:
+        return None
+    if isinstance(choices, (str, bytes)) or not isinstance(choices, Sequence) or not list(choices):
+        _fail("choices", "must list the question's allowed labels")
+    normalized: list[str] = []
+    for index, value in enumerate(choices):
+        normalized.append(_choice_label(value, f"choices[{index}]", required=True))
+    if len(normalized) != len(set(normalized)):
+        _fail("choices", "normalized labels must be unique")
+    return normalized
+
+
+def _cited_observation_ids(
+    ledger: Mapping[str, Any], evidence_ids: Sequence[str] | None
+) -> list[str]:
+    """Keep only synthesizer-selected observation IDs, in deterministic order."""
+    if evidence_ids is None:
+        return []
+    if isinstance(evidence_ids, (str, bytes)) or not isinstance(evidence_ids, Sequence):
+        _fail("evidence_ids", "must be a list of observation IDs")
+    known = {item["observation_id"] for item in ledger["observations"]}
+    cited: list[str] = []
+    for item_id in evidence_ids:
+        if not isinstance(item_id, str) or item_id not in known:
+            _fail("evidence_ids", "unknown observation ID")
+        if item_id not in cited:
+            cited.append(item_id)
+    cited.sort()
+    return cited
+
+
+def _resolve_answer_label(
+    label: str | None, choices: list[str] | None
+) -> str | None:
+    """Accept an open-ended label, or a member of the supplied choice set."""
+    if _blank_argument(label):
+        _fail(
+            "answer_label",
+            "omit empty answer flags; do not pass blank choice arguments",
+        )
+    parsed = _choice_label(label, "answer_label", required=False)
+    if parsed is None:
+        return None
+    if choices is None:
+        if re.fullmatch(r"[A-Z]", parsed):
+            _fail(
+                "answer_label",
+                "multiple-choice finalization requires the question's allowed labels",
+            )
+        return parsed
+    if parsed not in choices:
+        _fail("answer_label", "must be one of the question's choices")
+    return parsed
+
+
 def final_result(
     ledger: Mapping[str, Any],
     artifact_dir: str,
     answer_label: str | None = None,
     answer_explanation: str | None = None,
+    *,
+    evidence_ids: Sequence[str] | None = None,
+    choices: Sequence[str] | None = None,
+    require_choice: bool = False,
 ) -> dict[str, Any]:
     """Build an answered or unresolved handoff with self-contained provenance."""
     ledger = prepare_for_final_result(ledger)
     if ledger["status"] == "in_progress":
         _fail("ledger.status", "cannot finalize an in-progress ledger")
+    if _blank_argument(answer_label) or _blank_argument(answer_explanation):
+        _fail(
+            "answer_label",
+            "omit empty answer flags; do not pass blank choice arguments",
+        )
     artifact_dir = _nonempty(artifact_dir, "artifact_dir")
     observation_map = {item["observation_id"]: item for item in ledger["observations"]}
+    choice_set = _normalize_choice_set(choices)
+    label = _resolve_answer_label(answer_label, choice_set)
+    cited = _cited_observation_ids(ledger, evidence_ids)
+
+    def _details(ids: Sequence[str]) -> list[dict[str, Any]]:
+        return [copy.deepcopy(observation_map[item_id]) for item_id in ids]
+
     if ledger["status"] == "answered":
-        answer_label = _choice_label(answer_label, "answer_label", required=False)
         answer_explanation = _nonempty(answer_explanation, "answer_explanation")
-        evidence = sorted(
-            {
-                item_id
-                for state in ledger["claims"]
-                for item_id in state["observation_ids"]
-            }
-        )
+        if not cited:
+            _fail("evidence_ids", "an answer must cite the observations that support it")
         return {
             "status": "answered",
             "evidence_status": "resolved",
-            "answer_label": answer_label,
+            "answer_label": label,
             "answer_explanation": answer_explanation,
-            "answer": _render_answer(answer_label, answer_explanation),
+            "answer": _render_answer(label, answer_explanation),
             "decision_source": "introspection",
-            "evidence": evidence,
-            "evidence_details": [
-                copy.deepcopy(observation_map[item_id]) for item_id in evidence
-            ],
+            "evidence": cited,
+            "evidence_details": _details(cited),
             "unresolved_gaps": [],
             "revision": ledger["revision"],
             "artifact_dir": artifact_dir,
         }
-    if answer_label is not None or answer_explanation is not None:
-        answer_label = _choice_label(answer_label, "answer_label", required=True)
-        answer_explanation = _nonempty(answer_explanation, "answer_explanation")
+    if label is not None or answer_explanation is not None or require_choice:
+        if require_choice and label is None:
+            _fail("answer_label", "a forced choice requires one of the question's labels")
+        if label is not None:
+            answer_explanation = _nonempty(answer_explanation, "answer_explanation")
+        elif answer_explanation is not None:
+            _fail(
+                "answer_label",
+                "an unresolved open question omits both answer flags",
+            )
     gaps = []
     for state in ledger["claims"]:
         if (
@@ -1200,23 +1276,39 @@ def final_result(
                 "reason": reason,
             }
         )
-    if answer_label is not None:
-        evidence = sorted(observation_map)
+    if label is not None and cited:
         return {
             "status": "answered",
             "evidence_status": "unresolved",
-            "answer_label": answer_label,
+            "answer_label": label,
             "answer_explanation": answer_explanation,
-            "answer": _render_answer(answer_label, answer_explanation),
+            "answer": _render_answer(label, answer_explanation),
             "decision_source": "best_available_choice",
-            "evidence": evidence,
-            "evidence_details": [
-                copy.deepcopy(observation_map[item_id]) for item_id in evidence
-            ],
+            "evidence": cited,
+            "evidence_details": _details(cited),
             "unresolved_gaps": gaps,
             "revision": ledger["revision"],
             "artifact_dir": artifact_dir,
         }
+    if label is not None and require_choice:
+        return {
+            "status": "answered",
+            "evidence_status": "unresolved",
+            "answer_label": label,
+            "answer_explanation": answer_explanation,
+            "answer": _render_answer(label, answer_explanation),
+            "decision_source": "unsupported_forced_choice",
+            "evidence": [],
+            "evidence_details": [],
+            "unresolved_gaps": gaps,
+            "revision": ledger["revision"],
+            "artifact_dir": artifact_dir,
+        }
+    if label is not None:
+        _fail(
+            "evidence_ids",
+            "a best-available choice must cite the observations it uses",
+        )
     return {
         "status": "unresolved",
         "evidence_status": "unresolved",
@@ -1279,10 +1371,22 @@ def validate_terminal_pair(
             _choice_label(label, "final_result.answer_label", required=True)
         _nonempty(explanation, "final_result.answer_explanation")
         if ledger["status"] == "unresolved":
-            if terminal_result.get("decision_source") != "best_available_choice":
+            source = terminal_result.get("decision_source")
+            if source not in ("best_available_choice", "unsupported_forced_choice"):
                 _fail(
                     "final_result.decision_source",
-                    "an unresolved ledger may answer only as a best-available choice",
+                    "an unresolved ledger may answer only as a best-available or unsupported forced choice",
+                )
+            evidence = terminal_result.get("evidence")
+            if source == "unsupported_forced_choice" and evidence:
+                _fail(
+                    "final_result.evidence",
+                    "an unsupported forced choice cannot cite observations",
+                )
+            if source == "best_available_choice" and not evidence:
+                _fail(
+                    "final_result.evidence",
+                    "a best-available choice must cite the observations it uses",
                 )
     elif status == "unresolved":
         if ledger["status"] != "unresolved":
@@ -1400,6 +1504,9 @@ def _parser() -> argparse.ArgumentParser:
     finish.add_argument("--artifact-dir", required=True)
     finish.add_argument("--answer-label")
     finish.add_argument("--answer-explanation")
+    finish.add_argument("--evidence-id", action="append")
+    finish.add_argument("--choice", action="append")
+    finish.add_argument("--require-choice", action="store_true")
     finish.add_argument("--output")
     identifier = commands.add_parser("observation-id")
     identifier.add_argument("--observation", required=True)
@@ -1465,6 +1572,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.artifact_dir,
             args.answer_label,
             args.answer_explanation,
+            evidence_ids=args.evidence_id,
+            choices=args.choice,
+            require_choice=args.require_choice,
         )
         if args.output:
             atomic_commit_terminal(args.ledger, prepared, args.output, terminal)
