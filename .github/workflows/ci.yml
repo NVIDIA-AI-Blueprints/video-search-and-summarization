@@ -492,11 +492,14 @@ jobs:
             .github/skill-eval/tests/test_eval_env_forwarding.py \
             .github/skill-eval/tests/test_leg_timing.py \
             .github/skill-eval/tests/test_leg_report.py \
+            .github/skill-eval/tests/test_plan_matrix.py \
             .github/skill-eval/tests/test_python_runtime_contract.py \
+            .github/skill-eval/tests/test_model_config.py \
             .github/skill-eval/tests/test_nemoclaw_onboard_endpoint.py \
             .github/skill-eval/tests/test_skills_eval_agent_protocol.py \
             .github/skill-eval/envs/tests/test_cancellation_recovery.py \
             .github/skill-eval/tests/test_run_leg.py::HarborCommand \
+            .github/skill-eval/tests/test_run_leg.py::SparkSelection \
             .github/skill-eval/tests/test_run_leg.py::PhaseBudgets \
             .github/skill-eval/tests/test_run_leg.py::HarborEnvironment \
             .github/skill-eval/tests/test_run_leg.py::RunCommand \

@@ -35,13 +35,13 @@ def test_catalog_source_is_distinct_from_fixed_inference_api() -> None:
     )
 
 
-def test_default_routes_preserve_claude_runner_configuration() -> None:
+def test_default_routes_use_codex_sol_and_nemoclaw_opus() -> None:
     routes = model_config.resolve_model_routes(DEFAULT_ENV)
 
-    assert routes.coding.runtime == "claude-code"
-    assert routes.operational.runtime == "claude-code"
-    assert routes.coding.model == DEFAULT_ENV["ANTHROPIC_MODEL"]
-    assert routes.operational.model == DEFAULT_ENV["ANTHROPIC_MODEL"]
+    assert routes.coding.runtime == "codex"
+    assert routes.operational.runtime == "nemoclaw"
+    assert routes.coding.model == "azure/openai/gpt-6.1-sol"
+    assert routes.operational.model == "aws/anthropic/bedrock-claude-opus-5-5"
     assert routes.coding.provider == model_config.NVIDIA_INFERENCE_PROVIDER
     assert routes.operational.provider == model_config.NVIDIA_INFERENCE_PROVIDER
     assert routes.coding.endpoint_url == model_config.NVIDIA_INFERENCE_API_BASE_URL
@@ -98,7 +98,7 @@ def test_legacy_eval_agent_remains_operational_default() -> None:
         }
     )
 
-    assert routes.coding.runtime == "claude-code"
+    assert routes.coding.runtime == "codex"
     assert routes.operational.runtime == "nemoclaw"
     assert routes.operational.provider == model_config.NVIDIA_INFERENCE_PROVIDER
     assert (
@@ -115,12 +115,19 @@ def test_coding_route_rejects_nemoclaw() -> None:
         )
 
 
-def test_codex_requires_its_own_model() -> None:
-    with pytest.raises(ValueError, match="CODEX_MODEL is required for codex"):
-        model_config.resolve_model_config(
-            {**DEFAULT_ENV, "SKILLS_EVAL_CODING_HARNESS": "codex"},
-            role="coding",
-        )
+def test_configured_codex_model_overrides_fallback() -> None:
+    route = model_config.resolve_model_config(
+        {**DEFAULT_ENV, "CODEX_MODEL": "configured/codex"}, role="coding"
+    )
+    assert route.model == "configured/codex"
+
+
+def test_explicit_claude_harness_retains_its_configured_model() -> None:
+    route = model_config.resolve_model_config(
+        {**DEFAULT_ENV, "SKILLS_EVAL_CODING_HARNESS": "claude-code"}, role="coding"
+    )
+    assert route.runtime == "claude-code"
+    assert route.model == DEFAULT_ENV["ANTHROPIC_MODEL"]
 
 
 def test_operational_nemoclaw_uses_nvidia_inference() -> None:

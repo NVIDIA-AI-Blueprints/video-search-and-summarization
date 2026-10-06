@@ -78,6 +78,64 @@ class SparkReachability(unittest.TestCase):
         probe.assert_not_called()
 
 
+class SparkSelection(unittest.TestCase):
+    def test_unselected_spark_job_stops_before_worker_lock_or_trial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset = Path(tmp) / "dataset" / "spark" / "step-1"
+            dataset.mkdir(parents=True)
+            (dataset / "task.toml").write_text('step_count = 1\n[metadata]\ngpu_type = "GB10"\n')
+            with mock.patch.dict(os.environ, RunInvocations.ENV, clear=True), \
+                 mock.patch.object(run_leg, "SKILL_EVAL_PYTHON_VERSION", sys.version_info[:2]), \
+                 mock.patch.object(leg_timing, "start_heartbeat", return_value=(mock.Mock(), mock.Mock())), \
+                 mock.patch.object(run_leg, "hold_pool_lock") as lock, \
+                 mock.patch.object(run_leg, "run_invocations") as trial, \
+                 mock.patch.object(run_leg, "spark_instance") as spark:
+                rc = run_leg.main([
+                    "--dataset-root", str(Path(tmp) / "dataset"),
+                    "--results-root", str(Path(tmp) / "results"),
+                    "--scratch", str(Path(tmp) / "scratch"),
+                    "--spec-stem", "spec", "--platform", "DGX-SPARK",
+                ])
+        self.assertEqual(rc, 1)
+        lock.assert_not_called()
+        trial.assert_not_called()
+        spark.assert_not_called()
+
+    def test_platform_support_cannot_select_spark(self):
+        for env in ({}, {"SKILLS_EVAL_SPARK_RUNNER": "false"}):
+            with self.subTest(env=env), mock.patch.dict(os.environ, env, clear=True), \
+                 mock.patch.object(run_leg, "spark_instance") as spark:
+                with self.assertRaisesRegex(ValueError, "select the Spark checkbox"):
+                    run_leg.selected_instance(None, {}, "DGX-SPARK")
+                spark.assert_not_called()
+
+    def test_instance_or_hardware_hints_cannot_bypass_selection(self):
+        cases = [("Spark-ba-WiFi", {}, "L40S"),
+                 (None, {"brev_instance": "spark-ba-wifi"}, "L40S"),
+                 (None, {"gpu_type": "GB10"}, "")]
+        with mock.patch.dict(os.environ, {}, clear=True):
+            for instance, metadata, platform in cases:
+                with self.subTest(instance=instance, metadata=metadata), \
+                     self.assertRaisesRegex(ValueError, "select the Spark checkbox"):
+                    run_leg.selected_instance(instance, metadata, platform)
+
+    def test_explicit_selection_resolves_registered_spark(self):
+        with mock.patch.dict(os.environ, {"SKILLS_EVAL_SPARK_RUNNER": "true"}, clear=True), \
+             mock.patch.object(run_leg, "spark_instance", return_value="Spark-renamed") as spark:
+            self.assertEqual(run_leg.selected_instance(None, {}, "DGX-SPARK"), "Spark-renamed")
+            with self.assertRaisesRegex(ValueError, "conflicts"):
+                run_leg.selected_instance("vss-eval-l40s", {}, "DGX-SPARK")
+        self.assertEqual(spark.call_count, 2)
+
+    def test_unselected_normal_worker_precedence_is_preserved(self):
+        with mock.patch.dict(os.environ, {}, clear=True), \
+             mock.patch.object(run_leg, "spark_instance") as spark:
+            self.assertIsNone(run_leg.selected_instance(None, {}, "L40S"))
+            self.assertEqual(run_leg.selected_instance(None, {"brev_instance": "vss-eval-l40s"}, "L40S"), "vss-eval-l40s")
+            self.assertEqual(run_leg.selected_instance("vss-eval-h100", {"brev_instance": "vss-eval-l40s"}, "H100"), "vss-eval-h100")
+        spark.assert_not_called()
+
+
 class DiscoverInvocations(unittest.TestCase):
     def test_discover_single_step_invocation(self):
         with tempfile.TemporaryDirectory() as td:
@@ -894,7 +952,7 @@ class RunInvocations(unittest.TestCase):
                 )
 
         self.assertEqual(rc, 0)
-        self.assertEqual(command.call_args.args[4], "claude-code")
+        self.assertEqual(command.call_args.args[4], "codex")
         run.assert_called_once()
 
     def test_daily_codex_selection_routes_non_operational_task_to_codex(self):
@@ -950,6 +1008,7 @@ class RunInvocations(unittest.TestCase):
         )
         env = {
             **self.ENV,
+                "SKILLS_EVAL_CODING_HARNESS": "claude-code",
             "EVAL_AGENT": "claude-code",
             "SKILLS_EVAL_CODING_MODEL": "selected/model",
             "SKILLS_EVAL_CODING_API_KEY": "route-secret",
@@ -1052,8 +1111,10 @@ class RunInvocations(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         prepare.assert_called_once_with(invocations[0], "vss-manage-alerts")
-        self.assertEqual(command.call_args_list[0].args[4], "claude-code")
+        self.assertEqual(command.call_args_list[0].args[4], "codex")
         self.assertEqual(command.call_args_list[1].args[4], "nemoclaw")
+        self.assertEqual(command.call_args_list[0].args[2], "azure/openai/gpt-6.1-sol")
+        self.assertEqual(command.call_args_list[1].args[2], "aws/anthropic/bedrock-claude-opus-5-5")
         self.assertEqual(
             command.call_args_list[0].kwargs["agent_timeout_multiplier"],
             run_leg.NEMOCLAW_SETUP_AGENT_TIMEOUT_MULTIPLIER,
@@ -1152,7 +1213,7 @@ class RunInvocations(unittest.TestCase):
         )
         self.assertEqual(
             [call.args[4] for call in command.call_args_list],
-            ["claude-code", "nemoclaw", "claude-code", "nemoclaw"],
+            ["codex", "nemoclaw", "codex", "nemoclaw"],
         )
         self.assertEqual(
             [item.get("SKILL_EVAL_PRESERVE_DEPLOYMENT") for item in seen_env],
@@ -1182,6 +1243,7 @@ class RunInvocations(unittest.TestCase):
             ]
             env = {
                 **self.ENV,
+                "SKILLS_EVAL_OPERATIONAL_HARNESS": "claude-code",
                 "EVAL_SPEC_PATH": (
                     "skills/operations/vss-manage-alerts/evals/alerts.json"
                 ),
@@ -1311,6 +1373,8 @@ class RunInvocations(unittest.TestCase):
             ]
             env = {
                 **self.ENV,
+                "SKILLS_EVAL_CODING_HARNESS": "claude-code",
+                "SKILLS_EVAL_OPERATIONAL_HARNESS": "claude-code",
                 "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/alerts.json",
                 "SKILLS_EVAL_CODING_MODEL": "coding/model",
                 "SKILLS_EVAL_OPERATIONAL_MODEL": "operational/model",
