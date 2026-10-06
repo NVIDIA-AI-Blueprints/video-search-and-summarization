@@ -281,7 +281,8 @@ def test_expected_sensor_is_loaded_from_task(tmp_path: Path) -> None:
                     "sensor_id": "canonical-sensor",
                     "start": START,
                     "end": "2026-09-30T00:00:20Z",
-                }
+                },
+                "max_vlm_calls": 2,
             }
         ),
         encoding="utf-8",
@@ -299,14 +300,20 @@ def test_expected_sensor_is_selected_from_task_list(tmp_path: Path) -> None:
                     "media_scope": {
                         "type": "sensor",
                         "sensor_id": "sensor-one",
+                        "start": START,
+                        "end": "2026-09-30T00:00:20Z",
                     },
+                    "max_vlm_calls": 2,
                 },
                 {
                     "task_id": "inspect-claim-two-r1",
                     "media_scope": {
                         "type": "sensor",
                         "sensor_id": "sensor-two",
+                        "start": START,
+                        "end": "2026-09-30T00:00:20Z",
                     },
+                    "max_vlm_calls": 2,
                 },
             ]
         ),
@@ -411,3 +418,274 @@ def test_higher_density_or_different_prompt_is_not_a_duplicate(
     assert result["vlm_calls_used"] == 1
     assert result["complete"] is True
     assert result["rejected_duplicates"] == []
+
+
+def _completed(answer: str, *, code: int = 0, job_id: str = "vlm-1") -> object:
+    class Completed:
+        returncode = code
+        stdout = ""
+        stderr = ""
+
+    body = {"answer": answer, "job_id": job_id, "status": "completed"}
+    marker = {
+        "event": "vss_job_completed",
+        "group": "vlm",
+        "job_id": job_id,
+        "status": "completed",
+        "persisted": code != 6,
+        "exit_hint": code,
+    }
+    completed = Completed()
+    completed.stdout = json.dumps(body) + "\n" + json.dumps(marker, separators=(",", ":")) + "\n"
+    completed.stderr = ""
+    return completed
+
+
+def test_parser_prefers_answer_over_completion_marker() -> None:
+    compact = _completed("A worker wears a hard hat.").stdout
+    parsed = vlm.parse_vlm_stdout(compact)
+    assert parsed["answer"] == "A worker wears a hard hat."
+    assert parsed["job_id"] == "vlm-1"
+
+    pretty_body = {
+        "answer": "A worker wears a hard hat.",
+        "job_id": "vlm-1",
+        "status": "completed",
+    }
+    pretty = (
+        json.dumps(pretty_body, indent=2)
+        + "\n"
+        + json.dumps(
+            {
+                "event": "vss_job_completed",
+                "job_id": "vlm-1",
+                "status": "completed",
+            },
+            separators=(",", ":"),
+        )
+        + "\n"
+    )
+    assert vlm.parse_vlm_stdout(pretty)["answer"] == "A worker wears a hard hat."
+
+
+def test_parser_keeps_escaped_answer_text() -> None:
+    stdout = (
+        '{"answer":"line1\\nline2 {not a marker}","job_id":"vlm-9","status":"completed"}\n'
+        '{"event":"vss_job_completed","job_id":"vlm-9","status":"completed"}\n'
+    )
+    parsed = vlm.parse_vlm_stdout(stdout)
+    assert parsed["answer"] == "line1\nline2 {not a marker}"
+    assert parsed["job_id"] == "vlm-9"
+
+
+def test_parser_keeps_marker_identity_without_inventing_an_answer() -> None:
+    parsed = vlm.parse_vlm_stdout(
+        '{"event":"vss_job_completed","job_id":"vlm-1","status":"completed","persisted":true}\n'
+    )
+    assert "answer" not in parsed
+    assert parsed["job_id"] == "vlm-1"
+    assert parsed["status"] == "completed"
+    assert vlm.parse_vlm_stdout("{not json\n") == {}
+    assert vlm.parse_vlm_stdout('{"status":"completed","job_id":"vlm-1"}\n') == {}
+
+
+def test_pretty_output_is_one_call_and_exit_6_keeps_the_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], **_: object) -> object:
+        calls.append(command)
+        body = {
+            "answer": "The hard hat is visible.",
+            "status": "completed",
+        }
+        marker = {
+            "event": "vss_job_completed",
+            "job_id": "vlm-6",
+            "status": "completed",
+            "persisted": False,
+            "exit_hint": 6,
+        }
+        class Completed:
+            returncode = 6
+            stderr = "persistence failed"
+
+        completed = Completed()
+        completed.stdout = (
+            json.dumps(body, indent=2) + "\n" + json.dumps(marker, separators=(",", ":")) + "\n"
+        )
+        return completed
+
+    monkeypatch.setattr(vlm.subprocess, "run", fake_run)
+    result = vlm.inspect_sensor_scope(
+        vss_project="/repo/libs/vss",
+        sensor="sensor-1",
+        start=START,
+        end="2026-09-30T00:00:10Z",
+        fps=1,
+        prompt="Is a hard hat visible?",
+        calls_budget=2,
+    )
+    assert len(calls) == 1
+    assert "--raw" in calls[0]
+    assert result["vlm_calls_used"] == 1
+    attempt = result["attempts"][0]
+    assert attempt["answer"] == "The hard hat is visible."
+    assert attempt["job_id"] == "vlm-6"
+    assert attempt["usable"] is True
+    assert attempt["persistence_limited"] is True
+    assert attempt["exit_code"] == 6
+
+
+def _rejecting_run() -> object:
+    def unexpected(**_: object) -> dict:
+        raise AssertionError("inference ran outside the assignment")
+
+    return unexpected
+
+
+def _task(sensor: str = "sensor-1", start: str = START, end: str = "2026-09-30T00:00:20Z", calls: int = 2) -> dict:
+    return {
+        "task_id": "inspect-claim-color-r1",
+        "max_vlm_calls": calls,
+        "media_scope": {
+            "type": "sensor",
+            "sensor_id": sensor,
+            "start": start,
+            "end": end,
+        },
+    }
+
+
+def test_assignment_violations_make_no_inference_call(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(vlm, "_run_vlm", _rejecting_run())
+    assigned = {
+        "expected_sensor": "sensor-1",
+        "assigned_start": START,
+        "assigned_end": "2026-09-30T00:00:20Z",
+        "task_call_allocation": 2,
+    }
+    common = {
+        "vss_project": "/repo/libs/vss",
+        "fps": 1,
+        "prompt": "Locate the event.",
+        "calls_budget": 1,
+        **assigned,
+    }
+    with pytest.raises(ValueError, match="sensor mismatch"):
+        vlm.inspect_sensor_scope(
+            sensor="other-sensor",
+            start=START,
+            end="2026-09-30T00:00:10Z",
+            **common,
+        )
+    with pytest.raises(ValueError, match="outside the assigned"):
+        vlm.inspect_sensor_scope(
+            sensor="sensor-1",
+            start="2026-09-29T23:59:50Z",
+            end="2026-09-30T00:00:10Z",
+            **common,
+        )
+    with pytest.raises(ValueError, match="outside the assigned"):
+        vlm.inspect_sensor_scope(
+            sensor="sensor-1",
+            start=START,
+            end="2026-09-30T00:00:30Z",
+            **common,
+        )
+    with pytest.raises(ValueError, match="before end"):
+        vlm.inspect_sensor_scope(
+            sensor="sensor-1",
+            start=START,
+            end=START,
+            **common,
+        )
+    with pytest.raises(ValueError, match="before end"):
+        vlm.inspect_sensor_scope(
+            sensor="sensor-1",
+            start="2026-09-30T00:00:10Z",
+            end=START,
+            **common,
+        )
+    with pytest.raises(ValueError, match="exceeds the task allocation"):
+        vlm.inspect_sensor_scope(
+            sensor="sensor-1",
+            start=START,
+            end="2026-09-30T00:00:10Z",
+            **{**common, "calls_budget": 3},
+        )
+
+    missing = tmp_path / "tasks.json"
+    missing.write_text(json.dumps([_task(), _task(sensor="sensor-2")]), encoding="utf-8")
+    with pytest.raises(ValueError, match="task_id"):
+        vlm.load_selected_task(str(missing), None)
+    ambiguous = tmp_path / "ambiguous.json"
+    ambiguous.write_text(
+        json.dumps([_task(), {**_task(), "task_id": "inspect-claim-color-r1"}]),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="exactly one"):
+        vlm.load_selected_task(str(ambiguous), "inspect-claim-color-r1")
+    invalid = tmp_path / "invalid.json"
+    invalid.write_text(
+        json.dumps({**_task(), "media_scope": {"type": "file", "path": "/tmp/clip.mp4"}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="sensor media_scope"):
+        vlm.load_selected_task(str(invalid))
+
+
+def test_assigned_subwindow_and_exact_window_are_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def fake_run(**kwargs: str) -> dict:
+        calls.append((kwargs["start"], kwargs["end"]))
+        return {
+            "exit_code": 0,
+            "job_id": "vlm-1",
+            "status": "succeeded",
+            "answer": "The event is visible.",
+            "usable": True,
+            "quality_reason": "ok",
+            "error": None,
+            "persistence_limited": False,
+        }
+
+    monkeypatch.setattr(vlm, "_run_vlm", fake_run)
+    bounds = {
+        "expected_sensor": "sensor-1",
+        "assigned_start": START,
+        "assigned_end": "2026-09-30T00:00:20Z",
+        "task_call_allocation": 2,
+    }
+    subwindow = vlm.inspect_sensor_scope(
+        vss_project="/repo/libs/vss",
+        sensor="sensor-1",
+        start=START,
+        end="2026-09-30T00:00:10Z",
+        fps=1,
+        prompt="Locate the event.",
+        calls_budget=1,
+        **bounds,
+    )
+    exact = vlm.inspect_sensor_scope(
+        vss_project="/repo/libs/vss",
+        sensor="sensor-1",
+        start=START,
+        end="2026-09-30T00:00:20Z",
+        fps=1,
+        prompt="Locate the event.",
+        calls_budget=1,
+        **bounds,
+    )
+    assert subwindow["vlm_calls_used"] == 1
+    assert exact["vlm_calls_used"] == 1
+    assert calls == [
+        (START, "2026-09-30T00:00:10Z"),
+        (START, "2026-09-30T00:00:20Z"),
+    ]
