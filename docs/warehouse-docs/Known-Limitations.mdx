@@ -118,12 +118,18 @@ The Auto Calibration UI supports only a two-point tripwire: a start point and an
 
 ### Image mode calibration
 
-VSS warehouse blueprint has mainly been used for use cases where the locations of objects are tracked and analyzed in a global coordinate system.
-It supports all functionalities in image pixel coordinate as well, which we call image mode.
-Auto Calibration currently does not support image-coordinate tripwires and ROIs. Users must manually find their pixel coordinates.
-It can be done by using image editing software or tools like Paint, IrfanView, etc.
-In addition, the user needs to set `"calibrationType": "image"` instead of `"calibrationType": "cartesian"` in the calibration file.
+VSS warehouse blueprint has mainly been used for use cases where the
+locations of objects are tracked and analyzed in a global coordinate system.
+It also supports all functionalities in image pixel coordinates — called
+**image mode** — using a calibration file typed `"calibrationType": "image"`.
 
+Limitations of image mode:
+
+- Set `"calibrationType": "image"` instead of `"calibrationType":
+  "cartesian"` in the calibration file.
+- Auto Calibration does not support image-coordinate tripwires and ROIs —
+  find their pixel coordinates manually, using image editing software (Paint,
+  IrfanView, etc.).
 
 ## Brev Launchable
 

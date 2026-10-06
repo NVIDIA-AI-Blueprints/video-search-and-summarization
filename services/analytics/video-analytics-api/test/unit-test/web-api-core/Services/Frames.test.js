@@ -1043,6 +1043,50 @@ describe('Frames', () => {
     });
 
     describe('getBevFrames', () => {
+        it('should return BEV analytics fields that validate against the OpenAPI response schema', async () => {
+            const Ajv = require('ajv');
+            const ajv = new Ajv({ strict: false, allErrors: true });
+            require('ajv-formats')(ajv);
+            for (const format of ['float', 'double']) {
+                ajv.addFormat(format, { type: 'number', validate: Number.isFinite });
+            }
+            const specification = require('../../../../src/app/specification/openapi.json');
+            ajv.addSchema(specification, 'openapi');
+            const responseSchema = specification.paths['/frames/bev'].get.responses['200'].content['application/json'].schema;
+            const validate = ajv.compile({ $ref: `openapi${responseSchema.$ref}` });
+            const frame = {
+                version: '4.0', id: '4', sensorId: 'bev-sensor-1',
+                timestamp: '2026-03-29T14:49:48.000Z',
+                objects: [], rois: [], fov: [], info: { source: 'analytics' },
+                congestions: [], interactions: []
+            };
+
+            for (const analytics of [
+                { congestions: [], interactions: [] },
+                {
+                    congestions: [{ id: 'zone-1', objectIds: ['1', '2'], amount: 0.75, info: {} }],
+                    interactions: [{
+                        id: 'interaction-1', objectIds: ['1', '2'],
+                        coordinates: [{ x: 1, y: 2, z: 0 }],
+                        description: 'Objects meeting', info: { duration: '30s' }
+                    }]
+                }
+            ]) {
+                const source = { ...frame, ...analytics };
+                searchStub.resolves({
+                    indexAbsent: false,
+                    body: { hits: { hits: [{ _source: source }] } }
+                });
+                const result = await frames.getBevFrames(elasticDb, { sensorId: frame.sensorId, frameId: frame.id });
+                expect(result.bevFrames[0]).to.deep.equal(source);
+                expect(validate(result), JSON.stringify(validate.errors)).to.equal(true);
+            }
+
+            expect(validate({ bevFrames: [{ ...frame, congestions: 'invalid' }] })).to.equal(false);
+            expect(validate({ bevFrames: [{ ...frame, interactions: [{ objectIds: [1] }] }] })).to.equal(false);
+            expect(validate({ bevFrames: [{ ...frame, unexpected: [] }] })).to.equal(false);
+        });
+
         it('should return BEV frames', async () => {
             const input = {
                 sensorId: 'sensor123',

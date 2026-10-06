@@ -346,6 +346,14 @@ This setting instructs VIOS to propagate the original timestamp from the camera 
 
 ## Model Update
 
+### Can I reuse a TensorRT engine file on another GPU?
+
+<Note>
+TensorRT engine files depend on the GPU architecture and TensorRT version used to build them. You can reuse a compatible pre-built engine on another machine with the same GPU architecture and TensorRT version. Rebuild the engine for the target GPU when these compatibility requirements are not met. See the **TensorRT Engine File Creation and Reuse** section in [Object Detection and Tracking](/vss/system-components/vision-microservices/object-detection-and-tracking) for configuration details.
+
+For example, on a T7000 system with an integrated GPU (iGPU) and a discrete GPU (dGPU), do not use an engine built on the iGPU for inference on the dGPU, or vice versa. Build a separate engine on each GPU and configure inference to use the corresponding engine file.
+</Note>
+
 ### I finetuned my own Sparse4D model via the Nvidia TAO Toolkit. How do I replace the existing model in the perception microservice with my own?
 
 Refer to the [3D-multi-camera-detection-and-tracking-Sparse4D](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d) page for more details.
