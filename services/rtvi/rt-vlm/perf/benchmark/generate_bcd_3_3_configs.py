@@ -11,11 +11,11 @@ HERE = Path(__file__).resolve().parent
 SOURCE = HERE / "rtvi_vlm_bcd_3_2_config.yaml"
 PROFILES = {
     # platform: (model preset, max-live starting count, increment, concurrency sweep)
-    "rtx_pro_6000_se": ("cr3-nano-reasoner-nvfp4", 1, 5, [1, 16, 32, 64, 128]),
-    "rtx_pro_4500": ("cr3-nano-reasoner-nvfp4", 1, 1, [1, 4, 8, 16, 32]),
+    "rtx_pro_6000_se": ("cr3-super-reasoner-nvfp4", 1, 5, [1, 16, 32, 64, 128]),
+    "rtx_pro_4500": ("cr3-super-reasoner-nvfp4", 1, 1, [1, 4, 8, 16, 32]),
     "l40s": ("cr3-nano-reasoner-fp8", 1, 5, [1, 16, 32, 64, 128]),
-    "h100_sxm": ("cr3-nano-reasoner-fp8", 1, 5, [1, 16, 32, 64, 128]),
-    "b200_sxm": ("cr3-nano-reasoner-nvfp4", 1, 5, [1, 16, 32, 64, 128]),
+    "h100_sxm": ("cr3-super-reasoner-fp8", 1, 5, [1, 16, 32, 64, 128]),
+    "b200_sxm": ("cr3-super-reasoner-nvfp4", 1, 5, [1, 16, 32, 64, 128]),
     "agx_thor_t5000": ("cr3-nano-reasoner-nvfp4", 1, 1, [1, 4, 8, 16]),
     "dgx_spark": ("cr3-nano-reasoner-nvfp4", 1, 1, [1, 4, 8, 16]),
     "agx_orin": ("cosmos3-edge-bf16", 1, 1, [1, 2, 4, 8]),
@@ -39,10 +39,7 @@ def render(
     if platform == "agx_orin":
         header += "# Cosmos3-Edge BF16 needs Orin preflight before the suite.\n"
     else:
-        header += (
-            "# BCD 3.3 CR3 Super/Edge variants require separately verified "
-            "model artifacts.\n"
-        )
+        header += "# Verify exact model access and platform runtime before the suite.\n"
     text = source.replace(
         "# RTVI VLM BCD 3.2 benchmark configuration.\n",
         "# RTVI VLM BCD 3.3 benchmark configuration.\n" + header,

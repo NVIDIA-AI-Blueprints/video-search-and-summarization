@@ -44,7 +44,8 @@
 #   VLM_MODEL_PRESET    — Optional model preset; supported values:
 #                         cr2-fp8-static-kv8, cr2-fp8-dynamic-kv8,
 #                         cr2-nvfp4-dynamic-kv8, cr3-nano-reasoner-fp8,
-#                         cr3-nano-reasoner-nvfp4, cosmos3-edge-bf16
+#                         cr3-nano-reasoner-nvfp4, cr3-super-reasoner-fp8,
+#                         cr3-super-reasoner-nvfp4, cosmos3-edge-bf16
 #   VLM_MODEL_TO_USE    — VLM model key (default: cosmos-reason2)
 #   MODEL_PATH          — Model source path (default: NGC Cosmos Reason2 path)
 #   BACKEND_PORT        — Host port for the RTVI VLM service (default: 8010)
@@ -120,7 +121,8 @@ Optional environment variables (sensible defaults shown):
   VLM_MODEL_PRESET      Optional model preset. Supported values:
                         cr2-fp8-static-kv8, cr2-fp8-dynamic-kv8,
                         cr2-nvfp4-dynamic-kv8, cr3-nano-reasoner-fp8,
-                        cr3-nano-reasoner-nvfp4, cosmos3-edge-bf16
+                        cr3-nano-reasoner-nvfp4, cr3-super-reasoner-fp8,
+                        cr3-super-reasoner-nvfp4, cosmos3-edge-bf16
                         When set, fills VLM_MODEL_TO_USE and MODEL_PATH unless
                         those variables are explicitly exported.
   VLM_MODEL_TO_USE      VLM model key                      (default: cosmos-reason2)
@@ -220,10 +222,9 @@ Example:
   export BACKEND_PORT=8010
   export REDIS_PORT=6379
   export CENTRALIZE_DB_PORT=5432
-  # Optional: run CR3 Nano Reasoner FP8 instead of the default CR2 FP8 static KV model.
-  # export VLM_MODEL_PRESET=cr3-nano-reasoner-fp8
-  # Optional: run CR3 Nano Reasoner NVFP4 on Blackwell platforms.
-  # export VLM_MODEL_PRESET=cr3-nano-reasoner-nvfp4
+  # BCD 3.3: choose the platform config; it selects the required CR3 model.
+  export BENCHMARK_CONFIG=perf/benchmark/rtvi_vlm_bcd_3_3_l40s_config.yaml
+  # Do not export model overrides with a BCD platform config.
   bash perf/setup_perf_env.sh
 EOF
 }
@@ -539,12 +540,20 @@ apply_model_preset() {
             _preset_model="cosmos-reason3"
             _preset_path="ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix"
             ;;
+        cr3-super-reasoner-fp8)
+            _preset_model="cosmos-reason3"
+            _preset_path="ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix"
+            ;;
+        cr3-super-reasoner-nvfp4)
+            _preset_model="cosmos-reason3"
+            _preset_path="ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_fix"
+            ;;
         cosmos3-edge-bf16)
             _preset_model="vllm-compatible"
             _preset_path="git:https://huggingface.co/nvidia/Cosmos3-Edge@344d602b128d1bbdacb43b08d0a3626f46343e29"
             ;;
         *)
-            die "Unknown VLM_MODEL_PRESET='${_preset}'. Supported values: cr2-fp8-static-kv8, cr2-fp8-dynamic-kv8, cr2-nvfp4-dynamic-kv8, cr3-nano-reasoner-fp8, cr3-nano-reasoner-nvfp4, cosmos3-edge-bf16."
+            die "Unknown VLM_MODEL_PRESET='${_preset}'. Supported values: cr2-fp8-static-kv8, cr2-fp8-dynamic-kv8, cr2-nvfp4-dynamic-kv8, cr3-nano-reasoner-fp8, cr3-nano-reasoner-nvfp4, cr3-super-reasoner-fp8, cr3-super-reasoner-nvfp4, cosmos3-edge-bf16."
             ;;
     esac
 
@@ -562,7 +571,7 @@ infer_vlm_model_from_model_path() {
     fi
 
     case "${MODEL_PATH}" in
-        *cosmos3-nano-reasoner*)
+        *cosmos3-nano-reasoner*|*cosmos3-super-reasoner*)
             VLM_MODEL_TO_USE="cosmos-reason3"
             ;;
         *cosmos-reason2-8b*)
