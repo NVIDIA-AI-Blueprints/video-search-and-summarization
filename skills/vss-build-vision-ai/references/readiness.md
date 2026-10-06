@@ -121,7 +121,7 @@ probe_args=()
 if grep -qx alert-bridge <<<"$services"; then
   probe_args+=(--alert-direct-origin "http://${HOST_IP}:${ALERT_BRIDGE_HOST_PORT:-9080}")
   if grep -qx vss-haproxy-ingress <<<"$services"; then
-    probe_args+=(--alert-ingress-origin "${VSS_PUBLIC_URL%/}/alert-bridge")
+    probe_args+=(--alert-ingress-origin "http://${HOST_IP}:${HAPROXY_HOST_PORT:-7777}/alert-bridge")
   fi
 fi
 python3 "$REPO/skills/vss-build-vision-ai/scripts/check_deployment_provenance.py" \
@@ -129,7 +129,8 @@ python3 "$REPO/skills/vss-build-vision-ai/scripts/check_deployment_provenance.py
   --output "$BUILD_DIR/deployment-provenance.json" "${probe_args[@]}"
 ```
 
-Use the already resolved, documented deployment origin for `VSS_PUBLIC_URL`.
+Use the host's documented HAProxy origin for this routing check; published
+Brev secure-link authentication is a separate browser-access check.
 For an Alert build, this gate requires `GET /api/v1/verification/config` to
 return the current `{status, configs, count}` contract; an empty `configs` list
 is valid. A health check alone does not prove this API exists. A direct failure
