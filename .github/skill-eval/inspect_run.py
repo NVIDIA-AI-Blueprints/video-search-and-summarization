@@ -555,7 +555,25 @@ def coordinator(run_id):
             # Emit only known public VSS image references and hex revisions;
             # never raw commands, request bodies, environments or log text.
             refs = sorted(set(re.findall(r'(?:ghcr\.io/nvidia-ai-blueprints/vss|nvcr\.io/(?:nvidia|nvstaging)/vss-core)/vss-[a-z0-9-]+:[a-zA-Z0-9_.-]+', raw)))
-            version_traces.append({'trial':path.parent.parent.name,
+            commands = []
+            def visit(value):
+                if isinstance(value, dict):
+                    for key, item in value.items():
+                        if key in ['command', 'cmd'] and isinstance(item,str):
+                            images = sorted(set(re.findall(r'(?:ghcr\.io/nvidia-ai-blueprints/vss|nvcr\.io/(?:nvidia|nvstaging)/vss-core)/vss-[a-z0-9-]+:[a-zA-Z0-9_.-]+', item)))
+                            actions = [label for marker,label in [('docker run','docker_run'),('docker compose','compose'),('git clone','clone'),('git checkout','checkout'),('sed ','edit_or_read'),('cat ','read_or_write')] if marker in item]
+                            branch = re.findall(r'(?:--branch|-b)\s+[\"\']?([A-Za-z0-9_.-]{1,80})',item) if 'git clone' in item else []
+                            if images or branch:
+                                commands.append({'actions':actions,'image_refs':images,'clone_branches':branch})
+                        visit(item)
+                elif isinstance(value,list):
+                    for item in value: visit(item)
+                elif isinstance(value,str) and value.startswith('{'):
+                    try: visit(json.loads(value))
+                    except ValueError: pass
+            try: visit(json.loads(raw))
+            except ValueError: pass
+            version_traces.append({'image_command_metadata':commands[:50] if path.parent.parent.name in ['step-1__SzoAfci','step-1__xpTbtgP'] else [],'trial':path.parent.parent.name,
                                    'image_references_mentioned':refs[:80],
                                    'source_tree_shas_mentioned':sorted(set(re.findall(r'\b[0-9a-f]{40}\b', raw)))[:40],
                                    'legacy_alert_image_mentioned':'vss-alert-verification' in raw,
