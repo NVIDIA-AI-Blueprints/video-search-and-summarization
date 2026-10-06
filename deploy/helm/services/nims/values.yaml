@@ -17,6 +17,7 @@
 #
 # USAGE – select GPU at install time with a single flag:
 #   helm install nims ./nims --set gpuType=H100
+#   helm install nims ./nims --set gpuType=H200
 #   helm install nims ./nims --set gpuType=GB300
 #   helm install nims ./nims --set gpuType=L40S
 #   helm install nims ./nims --set gpuType=RTXPRO6000BW
@@ -38,7 +39,7 @@ global:
 # ---------------------------------------------------------------------------
 # GPU selection
 # Sets which entry in gpuProfiles is used when rendering the nim-env ConfigMaps.
-# Valid values: H100 | GB300 | L40S | RTXPRO4500BW | RTXPRO6000BW | OTHER
+# Valid values: H100 | H200 | GB300 | L40S | RTXPRO4500BW | RTXPRO6000BW | OTHER
 # ---------------------------------------------------------------------------
 gpuType: "H100"
 
@@ -61,6 +62,18 @@ gpuProfiles:
       NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --max-num-seqs 8 --default-chat-template-kwargs {\"enable_thinking\":true}'
     cosmos3:
       NIM_GPU_MEMORY_UTILIZATION: "0.9"
+      NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
+      NIM_DELETE_LAST_FRAMES: "1"
+
+  # H200 (141 GB HBM3e). Mirrors Docker's hw-H200.env for cosmos3-reasoner and
+  # nemotron-3.5-lightning-30b-a3b: BF16 weights fit without the INT4 pin, so
+  # NIM_MODEL_PROFILE is left unset and the NIM auto-selects. Dedicated-GPU
+  # tuning (shared-GPU variants map to a separate deployment path).
+  H200:
+    nemotron35:
+      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder'
+    cosmos3:
+      NIM_GPU_MEMORY_UTILIZATION: "0.7"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
 
