@@ -403,6 +403,7 @@ navigation:
                 path: ../docs/vios-nvstreamer.mdx
               - section: "VST API Reference"
                 slug: vst-api-reference
+                path: ../docs/vst-api-reference.mdx
                 contents:
                   - section: "VST Sensor Management API"
                     slug: vst-sensor-management-api
