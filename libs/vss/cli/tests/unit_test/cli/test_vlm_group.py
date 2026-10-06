@@ -490,16 +490,30 @@ def test_cli_missing_media_source(
     assert result.exit_code == Exit.INVALID_INPUT
 
 
+@pytest.mark.parametrize(
+    "usage",
+    [
+        None,
+        [],
+        {"total_tokens": None},
+        {"total_tokens": True},
+        {"total_tokens": "30"},
+        {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+    ],
+)
 def test_cli_run_success(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    usage: Any,
 ) -> None:
     monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
     config_mod.save(configured)
 
     answer = "Nothing unusual."
-    _patch_post(monkeypatch, _fake_post(httpx.Response(200, json=_completion(answer))))
+    payload = _completion(answer)
+    payload["usage"] = usage
+    _patch_post(monkeypatch, _fake_post(httpx.Response(200, json=payload)))
 
     runner = CliRunner()
     result = runner.invoke(

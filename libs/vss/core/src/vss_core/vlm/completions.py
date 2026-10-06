@@ -48,15 +48,16 @@ def extract_completion(
     fields = (payload.get("model"), payload.get("id"), choice.get("finish_reason"), message.get("reasoning_content"))
     if any(v is not None and not isinstance(v, str) for v in fields):
         raise ValueError("invalid completion metadata")
-    usage = payload.get("usage")
-    if usage is not None:
-        if not isinstance(usage, dict):
-            raise ValueError("invalid usage")
+    raw_usage = payload.get("usage")
+    usage = None
+    if isinstance(raw_usage, dict):
+        # Usage is optional telemetry. Preserve the answer and any valid counters
+        # when a backend omits a counter or reports an unexpected value.
         counters = {
-            name: usage[name] for name in ("prompt_tokens", "completion_tokens", "total_tokens") if name in usage
+            name: value
+            for name in ("prompt_tokens", "completion_tokens", "total_tokens")
+            if type(value := raw_usage.get(name)) is int and value >= 0
         }
-        if any(type(v) is not int or v < 0 for v in counters.values()):
-            raise ValueError("invalid usage counters")
         usage = TokenUsage(**counters)
     return ChatCompletion(
         text, model, fields[0], fields[1], fields[2], fields[2] == "length", usage, attempts, latency_s, fields[3]

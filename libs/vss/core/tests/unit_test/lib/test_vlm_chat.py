@@ -6,9 +6,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from contextlib import contextmanager
 from dataclasses import FrozenInstanceError
 import json
 from pathlib import Path
+import threading
+import time
 
 import httpx
 import pytest
@@ -265,8 +268,6 @@ async def test_typed_failure_status_attempts_and_safe_details(status, retry_stat
         {},
         {"choices": []},
         {"choices": [{"message": {"content": 3}}]},
-        response(usage={"total_tokens": True}),
-        response(usage=[]),
         response(model=8),
         response(id={}),
         {"choices": [{"message": {"content": "ok"}, "finish_reason": 7}]},
@@ -280,6 +281,25 @@ async def test_malformed_response_is_structured(payload):
         with pytest.raises(ChatError) as error:
             await client.complete(request())
         assert error.value.kind == "response_format" and error.value.attempts == 1
+
+
+@pytest.mark.parametrize(
+    "usage", [None, [], {"total_tokens": None}, {"total_tokens": True}, {"total_tokens": -1}, {"total_tokens": "12"}]
+)
+@pytest.mark.asyncio
+async def test_optional_usage_does_not_discard_valid_answer(usage):
+    payload = response(" answer \n", usage=usage)
+    if isinstance(usage, dict):
+        payload["usage"]["prompt_tokens"] = 12
+    async with VLMChatClient(
+        "https://h", "openai", transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))
+    ) as client:
+        result = await client.complete(request())
+    assert result.text == " answer \n"
+    if isinstance(usage, dict):
+        assert result.usage.prompt_tokens == 12 and result.usage.total_tokens is None
+    else:
+        assert result.usage is None
 
 
 @pytest.mark.asyncio
@@ -374,6 +394,85 @@ async def test_streamed_video_reopens_on_retry_preserves_hashes_and_escaping(tmp
     parts = bodies[0]["messages"][0]["content"]
     assert base64.b64decode(parts[0]["video_url"]["url"].split(",")[1]) == data
     assert parts[1]["text"] == 'quote" slash\\ newline\n'
+
+
+@pytest.mark.asyncio
+async def test_slow_video_reads_leave_event_loop_responsive(tmp_path, monkeypatch):
+    path = tmp_path / "video.mp4"
+    path.write_bytes(b"video")
+    original = Path.open
+    loop = asyncio.get_running_loop()
+    progressed = threading.Event()
+    observations = []
+
+    class SlowReader:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def read(self, size):
+            loop.call_soon_threadsafe(progressed.set)
+            time.sleep(0.05)
+            observations.append(progressed.is_set())
+            return self.stream.read(size)
+
+    @contextmanager
+    def slow_open(self, *args, **kwargs):
+        with original(self, *args, **kwargs) as stream:
+            yield SlowReader(stream)
+
+    monkeypatch.setattr(Path, "open", slow_open)
+    req = ChatRequest((ChatMessage("user", (VideoPart(VideoFile(path)), TextPart("x"))),), "m")
+    _, factory = serialize_request(req, "vllm")
+    body = b"".join([chunk async for chunk in factory()])
+    assert observations and all(observations)
+    assert base64.b64decode(json.loads(body)["messages"][0]["content"][0]["video_url"]["url"].split(",")[1]) == b"video"
+
+
+@pytest.mark.asyncio
+async def test_cancelling_active_video_read_waits_before_closing_file(tmp_path, monkeypatch):
+    path = tmp_path / "video.mp4"
+    path.write_bytes(b"video")
+    original = Path.open
+    entered = asyncio.Event()
+    release = threading.Event()
+    loop = asyncio.get_running_loop()
+    opened = []
+
+    class BlockingReader:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def read(self, size):
+            loop.call_soon_threadsafe(entered.set)
+            assert release.wait(5)
+            assert not self.stream.closed
+            return self.stream.read(size)
+
+    @contextmanager
+    def blocking_open(self, *args, **kwargs):
+        with original(self, *args, **kwargs) as stream:
+            opened.append(stream)
+            yield BlockingReader(stream)
+
+    monkeypatch.setattr(Path, "open", blocking_open)
+    req = ChatRequest((ChatMessage("user", (VideoPart(VideoFile(path)), TextPart("x"))),), "m")
+    _, factory = serialize_request(req, "vllm")
+    body = factory()
+    await anext(body)
+    task = asyncio.create_task(anext(body))
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        task.cancel()
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done() and not opened[-1].closed
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await body.aclose()
+    assert all(stream.closed for stream in opened)
 
 
 @pytest.mark.asyncio

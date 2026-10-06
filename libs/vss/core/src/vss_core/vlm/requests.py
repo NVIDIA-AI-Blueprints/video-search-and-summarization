@@ -4,7 +4,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
+from contextlib import suppress
 from dataclasses import asdict
 import json
 import logging
@@ -16,6 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
     from collections.abc import Callable
     from pathlib import Path
+    from typing import BinaryIO
 
 from .chat import ChatError
 from .chat import ChatRequest
@@ -27,6 +30,20 @@ from .chat import VideoOptions
 from .chat import VideoPart
 
 _LOG = logging.getLogger(__name__)
+
+
+async def _read_video_chunk(stream: BinaryIO) -> bytes:
+    task = asyncio.create_task(asyncio.to_thread(stream.read, 3 * 65536))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        # A worker read cannot be cancelled. Wait before the generator closes
+        # its file, including when another cancellation arrives during cleanup.
+        while not task.done():
+            with suppress(asyncio.CancelledError, OSError):
+                await asyncio.shield(task)
+        task.exception()
+        raise
 
 
 def validate_backend(request: ChatRequest, backend: str) -> None:
@@ -185,7 +202,7 @@ def serialize_request(
         for prefix, path in segments:
             yield (prefix + '"data:video/mp4;base64,').encode()
             with path.open("rb") as stream:
-                while chunk := stream.read(3 * 65536):
+                while chunk := await _read_video_chunk(stream):
                     yield base64.b64encode(chunk)
             yield b'"'
         yield remaining.encode()
