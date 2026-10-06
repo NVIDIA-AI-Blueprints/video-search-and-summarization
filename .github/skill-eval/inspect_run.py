@@ -543,6 +543,25 @@ def coordinator(run_id):
             continue
         for path in directory.glob('step-*__*/agent/codex.txt'):
             viewer_coding_traces.append({'job': directory.name, 'step':path.parent.parent.name.split('__')[0], 'metadata': summarize_log(path)})
+    version_traces = []
+    for base in [Path('/tmp/skill-eval/results'), Path('/tmp/skill-eval/results/_viewer')]:
+        for path in base.glob(f'*{run_id}*/**/agent/trajectory.json'):
+            if 'vss-manage-alerts' not in str(path):
+                continue
+            try:
+                raw = path.read_text()
+            except OSError:
+                continue
+            # Emit only known public VSS image references and hex revisions;
+            # never raw commands, request bodies, environments or log text.
+            refs = sorted(set(re.findall(r'(?:ghcr\.io/nvidia-ai-blueprints/vss|nvcr\.io/(?:nvidia|nvstaging)/vss-core)/vss-[a-z0-9-]+:[a-zA-Z0-9_.-]+', raw)))
+            version_traces.append({'trial':path.parent.parent.name,
+                                   'image_references_mentioned':refs[:80],
+                                   'source_tree_shas_mentioned':sorted(set(re.findall(r'\b[0-9a-f]{40}\b', raw)))[:40],
+                                   'legacy_alert_image_mentioned':'vss-alert-verification' in raw,
+                                   'source_clone_mentioned':bool(re.search(r'git (?:clone|checkout|reset|fetch)',raw)),
+                                   'old_release_mentioned':'3.1.0' in raw,
+                                   'trajectory_bytes':len(raw)})
     for path in Path('/tmp/skill-eval/results').glob(f'*/{run_id}/trace-urls.tsv'):
         for line in path.read_text().splitlines():
             parts = line.split('\t')
@@ -569,7 +588,7 @@ def coordinator(run_id):
         ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2", "spark-ba-wifi", command],
         input=Path(__file__).read_text(), capture_output=True, text=True, timeout=45,
     )
-    report = {"run_id": run_id, "coordinator_process_kinds":dict(process_kinds),"worker_lock_metadata":lock_rows, "completed_trial_metadata": trials, "viewer_coding_trace_metadata":viewer_coding_traces, "trace_metadata":trace_metadata, "worker_probe_exit_code": result.returncode}
+    report = {"version_trace_metadata": version_traces, "run_id": run_id, "coordinator_process_kinds":dict(process_kinds),"worker_lock_metadata":lock_rows, "completed_trial_metadata": trials, "viewer_coding_trace_metadata":viewer_coding_traces, "trace_metadata":trace_metadata, "worker_probe_exit_code": result.returncode}
     if result.returncode == 0:
         report["worker"] = json.loads(result.stdout)
     else:
