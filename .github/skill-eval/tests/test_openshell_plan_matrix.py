@@ -449,12 +449,6 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertIn("infrastructure:", workflow)
         self.assertIn("brev_plan:", workflow)
         self.assertIn("openshell_plan:", workflow)
-        brev_plan, _, openshell_plan = workflow.partition("openshell_plan:")
-        brev_if = brev_plan.split("if:", 1)[1].split("runs-on:", 1)[0]
-        openshell_if = openshell_plan.split("if:", 1)[1].split("runs-on:", 1)[0]
-        self.assertNotIn("pull-request/", brev_if)
-        self.assertIn("inputs.infrastructure == 'brev'", brev_if)
-        self.assertIn("pull-request/", openshell_if)
         self.assertIn(".github/skill-eval/plan_matrix.py", workflow)
         self.assertIn(".github/skill-eval/openshell/plan_matrix.py", workflow)
         self.assertFalse(

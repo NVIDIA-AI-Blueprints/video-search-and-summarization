@@ -4,10 +4,10 @@
 # Skills eval — matrix dispatch. See .github/skill-eval/docs/matrix-dispatch-design.md.
 #
 # push to pull-request/<N>:
-#   OpenShell plan -> computes the (skill, spec) matrix from the PR diff
-#   OpenShell eval -> one leg per (spec, platform)
-#   Brev does not start from a mirror push. A manual run with
-#   infrastructure=brev still plans and runs the Brev legs.
+#   plan  -> computes the (skill, spec) matrix from the PR diff
+#   eval  -> one leg per (spec, platform), each leg runs skills_eval_agent.py
+#            in single-spec mode (foreground agent, one synchronous harbor
+#            run), posts its own PR comment per AGENTS.md.
 # workflow_dispatch:
 #   plan -> computes the same (skill, spec, platform) rows
 #   eval -> dispatches one matrix job per row with independent coding and
@@ -114,8 +114,9 @@ jobs:
   # ---------------------------------------------------------------------
   brev_plan:
     name: Plan eval matrix
-    # Mirror pushes run OpenShell only. Brev stays available on manual dispatch.
-    if: github.event_name == 'workflow_dispatch' && inputs.infrastructure == 'brev'
+    if: >-
+      startsWith(github.ref, 'refs/heads/pull-request/') ||
+      (github.event_name == 'workflow_dispatch' && inputs.infrastructure == 'brev')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
