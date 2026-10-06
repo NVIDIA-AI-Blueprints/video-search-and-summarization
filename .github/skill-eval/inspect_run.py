@@ -568,20 +568,21 @@ def coordinator(run_id):
             except ValueError:
                 shape['json_kind'] = 'invalid'
             commands = []
-            def visit(value):
+            def visit(value, source=None):
                 if isinstance(value, dict):
+                    source = value.get("source", source)
                     for key, item in value.items():
-                        if key in ['command', 'cmd', 'message'] and isinstance(item,str):
+                        if key in ['command', 'cmd', 'message', 'text'] and isinstance(item,str):
                             images = sorted(set(re.findall(r'(?:ghcr\.io/nvidia-ai-blueprints/vss|nvcr\.io/(?:nvidia|nvstaging)/vss-core)/vss-[a-z0-9-]+:[a-zA-Z0-9_.-]+', item)))
                             actions = [label for marker,label in [('docker run','docker_run'),('docker compose','compose'),('git clone','clone'),('git checkout','checkout'),('sed ','edit_or_read'),('cat ','read_or_write')] if marker in item]
                             branch = re.findall(r'(?:--branch|-b)\s+[\"\']?([A-Za-z0-9_.-]{1,80})',item) if 'git clone' in item else []
                             if images or branch:
-                                commands.append({'actions':actions,'image_refs':images,'clone_branches':branch,'source':value.get('source') if value.get('source') in ['agent','environment','user','system'] else None,'mentions_registry_denied':'denied' in item.lower(),'mentions_fallback':'fallback' in item.lower() or 'fall back' in item.lower()})
-                        visit(item)
+                                commands.append({'actions':actions,'image_refs':images,'clone_branches':branch,'source':source if source in ['agent','environment','user','system'] else None,'mentions_registry_denied':'denied' in item.lower(),'mentions_fallback':'fallback' in item.lower() or 'fall back' in item.lower()})
+                        visit(item, source)
                 elif isinstance(value,list):
-                    for item in value: visit(item)
+                    for item in value: visit(item, source)
                 elif isinstance(value,str) and value.startswith('{'):
-                    try: visit(json.loads(value))
+                    try: visit(json.loads(value), source)
                     except ValueError: pass
             try: visit(json.loads(raw))
             except ValueError: pass
