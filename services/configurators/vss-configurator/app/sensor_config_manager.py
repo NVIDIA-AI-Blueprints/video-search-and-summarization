@@ -69,6 +69,16 @@ _config_cache = {}
 
 NVSTREAMER_STREAMS_POLL_INTERVAL_SEC = 5
 
+CALIBRATION_DISABLED_LOG = (
+    "Calibration process disabled, generating sensor mapping without calibration data"
+)
+CALLING_SENSOR_ADD_API_LOG = "Calling sensor add API for VMS/RTSP Server"
+SKIPPING_SENSOR_ADD_API_LOG = (
+    "Skipping sensor add API call as CALL_SENSOR_ADD_API is disabled"
+)
+REDIS_RECONNECT_LOG = "Redis event duplicator will attempt to reconnect in 5 seconds..."
+INTERNAL_SERVER_ERROR = "Internal server error"
+
 
 def _parse_non_negative_int_env(env_var, default_value=0):
     """Parse a non-negative integer from the environment; invalid values fall back to default."""
@@ -449,7 +459,7 @@ def process_sensor_info_from_msb():
         logger.debug(f"Generating sensor mapping with calibration data")
         sensor_mapping = SensorMapping.generate(sensor_bridge_output, calibration_data, logger, info_source="msb")
     else:
-        logger.debug("Calibration process disabled, generating sensor mapping without calibration data")
+        logger.debug(CALIBRATION_DISABLED_LOG)
         sensor_mapping = SensorMapping.generate(sensor_bridge_output, None, logger, info_source="msb")
     logger.debug(f"Saving sensor mapping to {CONFIG['SENSOR_MAPPING_FILE_PATH']}")
     sensor_mapping.save_to_file(CONFIG['SENSOR_MAPPING_FILE_PATH']) 
@@ -479,11 +489,11 @@ def process_sensor_info_from_msb():
         # except Exception as e:
         #     logger.error(f"Error sending message via {CONFIG['MESSAGE_BROKER_TYPE']}: {e}")
     if CONFIG['CALL_SENSOR_ADD_API']:
-        logger.info("Calling sensor add API for VMS/RTSP Server")
+        logger.info(CALLING_SENSOR_ADD_API_LOG)
         [add_sensor(sensor_info) for sensor_info in sensor_mapping.sensors.values()]
         logger.info(f"Successfully called sensor add API for {len(sensor_mapping.sensors)} sensors")
     else:
-        logger.info("Skipping sensor add API call as CALL_SENSOR_ADD_API is disabled")
+        logger.info(SKIPPING_SENSOR_ADD_API_LOG)
 
 
 def fetch_sensor_data_from_file(delay=30) -> Optional[List[Dict]]:
@@ -590,7 +600,7 @@ def process_sensor_info_from_file():
         logger.debug("Generating sensor mapping with calibration data")
         sensor_mapping = SensorMapping.generate(file_sensors, calibration_data, logger, info_source="file")
     else:
-        logger.debug("Calibration process disabled, generating sensor mapping without calibration data")
+        logger.debug(CALIBRATION_DISABLED_LOG)
         # When no calibration data, we can still use group_id and region from the file
         sensor_mapping = SensorMapping.generate(file_sensors, None, logger, info_source="file")
 
@@ -606,11 +616,11 @@ def process_sensor_info_from_file():
         logger.info("Skipping config message sending as SEND_CONFIG_TO_SDR is disabled")
     
     if CONFIG['CALL_SENSOR_ADD_API']:
-        logger.info("Calling sensor add API for VMS/RTSP Server")
+        logger.info(CALLING_SENSOR_ADD_API_LOG)
         [add_sensor(sensor_info) for sensor_info in sensor_mapping.sensors.values()]
         logger.info(f"Successfully called sensor add API for {len(sensor_mapping.sensors)} sensors")
     else:
-        logger.info("Skipping sensor add API call as CALL_SENSOR_ADD_API is disabled")
+        logger.info(SKIPPING_SENSOR_ADD_API_LOG)
     
     # if CONFIG['ENABLE_REDIS_DUPLICATOR_THREAD']:
     #     send_nvstreamer_streams_to_redis(nvstreamer_streams)
@@ -944,7 +954,7 @@ def get_sensor_mapping_from_nvstreamer():
         calibration_data = get_calibration_data()
     else:
         calibration_data = None
-        logger.debug("Calibration process disabled, generating sensor mapping without calibration data")
+        logger.debug(CALIBRATION_DISABLED_LOG)
     sensor_mapping = SensorMapping.generate(nvstreamer_streams, calibration_data, logger, info_source="nvstreamer")
 
     return sensor_mapping, nvstreamer_streams
@@ -994,7 +1004,7 @@ def send_nvstreamer_streams_to_redis(nvstreamer_streams):
             # Create alert data structure for Redis
             alert_data = {
                 "alert_type": "camera_status_change",
-                "created_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "created_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "event": {
                     "camera_id": stream["event"]["camera_id"],
                     "camera_name": stream["event"]["camera_name"],
@@ -1162,7 +1172,7 @@ def process_sensor_info_from_nvstreamer():
         logger.info("Skipping config message sending as SEND_CONFIG_TO_SDR is disabled")
 
     if CONFIG['CALL_SENSOR_ADD_API']:
-        logger.info("Calling sensor add API for VMS/RTSP Server")
+        logger.info(CALLING_SENSOR_ADD_API_LOG)
         [add_sensor(sensor_info) for sensor_info in sensor_mapping.sensors.values()]
         added_count = len(sensor_mapping.sensors)
         expected_count = CONFIG.get('NUM_STREAMS', 0) or 0
@@ -1174,7 +1184,7 @@ def process_sensor_info_from_nvstreamer():
         else:
             logger.info(f"Successfully called sensor add API for {added_count} sensors")
     else:
-        logger.info("Skipping sensor add API call as CALL_SENSOR_ADD_API is disabled")
+        logger.info(SKIPPING_SENSOR_ADD_API_LOG)
     
     if CONFIG['ENABLE_REDIS_DUPLICATOR_THREAD']:
         send_nvstreamer_streams_to_redis(nvstreamer_streams)
@@ -1222,18 +1232,18 @@ def start_redis_duplicator_thread():
                 if redis_client:
                     try:
                         redis_client.close()
-                    except:
+                    except Exception:
                         pass
                 redis_client = None
                 connected = False
                 # Sleep before attempting to reconnect
-                logger.info("Redis event duplicator will attempt to reconnect in 5 seconds...")
+                logger.info(REDIS_RECONNECT_LOG)
                 time.sleep(5)
                 continue
             except Exception as e:
                 logger.error(f"Unexpected error in Redis event duplicator thread: {e}")
                 # Sleep before attempting to reconnect
-                logger.info("Redis event duplicator will attempt to reconnect in 5 seconds...")
+                logger.info(REDIS_RECONNECT_LOG)
                 time.sleep(5)
                 continue
         
@@ -1316,11 +1326,11 @@ def start_redis_duplicator_thread():
             if redis_client:
                 try:
                     redis_client.close()
-                except:
+                except Exception:
                     pass
             redis_client = None
             # Sleep before attempting to reconnect
-            logger.info("Redis event duplicator will attempt to reconnect in 5 seconds...")
+            logger.info(REDIS_RECONNECT_LOG)
             time.sleep(5)
         except Exception as e:
             logger.error(f"Unexpected error while processing messages: {e}")
@@ -1396,7 +1406,7 @@ def download_calibration_file():
         )
     except Exception as e:
         logger.exception("Error sending calibration file")
-        return jsonify({"error": "Internal server error"}), 500
+        return jsonify({"error": INTERNAL_SERVER_ERROR}), 500
 
 @app.route('/cameras', methods=['GET'])
 def get_sensor_names():
@@ -1416,7 +1426,7 @@ def get_sensor_names():
         return jsonify(sensor_list), 200
     except Exception as e:
         logger.exception(f"Error retrieving sensor list.")
-        return jsonify({"error": "Internal server error"}), 500
+        return jsonify({"error": INTERNAL_SERVER_ERROR}), 500
 
 @app.route('/groups', methods=['GET'])
 def get_group_names():
@@ -1436,7 +1446,7 @@ def get_group_names():
         return jsonify(sensor_list), 200
     except Exception as e:
         logger.exception(f"Error retrieving sensor list.")
-        return jsonify({"error": "Internal server error"}), 500
+        return jsonify({"error": INTERNAL_SERVER_ERROR}), 500
 
 # Readiness marker file path - must match the path in profile_config_manager.py
 PROFILE_CONFIG_READY_FILE = os.environ.get(
