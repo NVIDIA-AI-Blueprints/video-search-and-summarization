@@ -375,6 +375,48 @@ class TestReportBodyValidation:
             required_report_sections=["People Involved", "Vehicles Involved"],
         )
 
+    def test_normalize_keeps_heading_glued_to_closing_fence(self):
+        raw = (
+            "```markdown\n"
+            "# Incident\n\n"
+            "| **Detailed Description** | A person walked through the aisle.\n"
+            "```## People Involved\n\n"
+            "| **Person Type** | worker\n\n"
+            "## Vehicles Involved\n\n"
+            "N/A\n"
+        )
+        normalized = _normalize_report_model_output(raw)
+        assert "\n## People Involved" in normalized
+        _validate_report_body(
+            normalized,
+            required_report_fields=["Detailed Description"],
+            required_report_sections=["People Involved", "Vehicles Involved"],
+        )
+
+    def test_normalize_keeps_observation_that_starts_with_here_is(self):
+        observation = "Here is what the camera shows: a person entered the aisle."
+        raw = (
+            _sample_table_report()
+            + "\n## People Involved\n\n| **Person Type** | worker\n"
+            + "\n## Vehicles Involved\n\nN/A\n"
+            + observation
+            + "\n"
+        )
+        normalized = _normalize_report_model_output(raw)
+        assert observation in normalized
+
+    def test_normalize_drops_preamble_that_only_introduces_the_report(self):
+        raw = (
+            "Sure, I have prepared the incident report:\n```markdown\n"
+            + _sample_table_report()
+            + "\n## People Involved\n\nA worker was present.\n"
+            + "\n## Vehicles Involved\n\nN/A\n```\n"
+        )
+        normalized = _normalize_report_model_output(raw)
+        assert "Sure, I have prepared" not in normalized
+        assert "Detailed Description" in normalized
+        assert "## People Involved" in normalized
+
     def test_empty_output_rejected(self):
         with pytest.raises(ReportContentValidationError, match="empty_or_whitespace_body"):
             _validate_report_body("   \n")

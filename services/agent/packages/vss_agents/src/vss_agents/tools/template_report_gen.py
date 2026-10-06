@@ -91,8 +91,8 @@ _ATX_HEADING_RE = re.compile(r"^(#{1,6})[ \t]*(.*\S)[ \t]*$", re.MULTILINE)
 _SETEXT_HEADING_RE = re.compile(r"(?m)^(?P<title>[^#|\n][^\n]*)\n(?P<underline>[-=])(?P=underline){2,}[ \t]*$")
 _TRAILING_HEADING_HASHES_RE = re.compile(r"[ \t]+#+\s*$")
 _FENCED_BLOCK_RE = re.compile(r"```[\w-]*[ \t]*\n(.*?)\n[ \t]*```", re.DOTALL)
-_CHATTER_LINE_RE = re.compile(
-    r"^(?:here(?:'s| is)\b|below is\b|let me know\b|hope this\b|feel free to\b).*$",
+_CLOSER_LINE_RE = re.compile(
+    r"^(?:let me know\b|hope this\b|feel free to\b).*$",
     re.IGNORECASE,
 )
 _SECTION_UNKNOWN_RE = re.compile(r"\b(Unknown|N/A)\b", re.IGNORECASE)
@@ -741,13 +741,19 @@ def _build_authoritative_incident_facts(
 
 
 def _is_chatter_line(line: str) -> bool:
-    """A preamble or closing remark, not a report heading, table, or labeled line."""
+    """A lead-in or closing remark, not a heading, table, label, or observation."""
     stripped = line.strip()
     if not stripped or stripped.startswith("|") or "**" in stripped:
         return False
     if re.match(r"^#{1,6}[ \t]*\S", stripped):
         return False
-    return _CHATTER_LINE_RE.match(stripped) is not None
+    # "Here is what the camera shows: a person entered" keeps the observation.
+    if re.search(r":\s*\S", stripped):
+        return False
+    # "Sure, I have prepared the incident report:" has nothing after the colon.
+    if stripped.endswith(":"):
+        return True
+    return _CLOSER_LINE_RE.match(stripped) is not None
 
 
 def _strip_surrounding_chatter(text: str) -> str:
@@ -762,6 +768,15 @@ def _strip_surrounding_chatter(text: str) -> str:
     return "\n".join(lines[start:end]).strip()
 
 
+def _append_part(parts: list[str], text: str) -> None:
+    """Append text, inserting a newline when two pieces would share a line."""
+    if text == "":
+        return
+    if parts and not parts[-1].endswith("\n") and not text.startswith("\n"):
+        parts.append("\n")
+    parts.append(text)
+
+
 def _unwrap_fenced_blocks(text: str) -> str:
     """Remove fence markers and keep both fenced and surrounding report text, in order."""
     matches = list(_FENCED_BLOCK_RE.finditer(text))
@@ -770,10 +785,10 @@ def _unwrap_fenced_blocks(text: str) -> str:
     parts: list[str] = []
     cursor = 0
     for match in matches:
-        parts.append(text[cursor : match.start()])
-        parts.append(match.group(1))
+        _append_part(parts, text[cursor : match.start()])
+        _append_part(parts, match.group(1))
         cursor = match.end()
-    parts.append(text[cursor:])
+    _append_part(parts, text[cursor:])
     return "".join(parts)
 
 
