@@ -263,6 +263,12 @@ Take the tag from the first source that answers, and do not ask when one does:
 3. Neither: select nothing and let `containers.env` default. This is the
    ordinary case and nothing below applies to it.
 
+Use the evaluator's synchronized checkout when `PR_HEAD_SHA` is supplied;
+confirm its HEAD matches that SHA before deploying. Use that checkout's Compose
+files and `containers.env` image defaults unless the user requested a specific
+version. Do not switch to an older release, legacy image, or another checkout to
+work around a pull or startup failure; diagnose the failure and report a blocker.
+
 A selected tag must be non-empty once trimmed; an empty or whitespace-only
 value is a blocker to report, never a silent fall back to `develop-latest`.
 Record it as `VSS_CONTAINER_TAG` in `override.env`, name it in the Step 6
