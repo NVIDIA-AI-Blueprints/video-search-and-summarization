@@ -12,9 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -95,64 +93,9 @@ def _is_profile_spec(spec: dict) -> bool:
     return "vss-build-vision-ai" in (spec.get("skills") or [])
 
 
-def _detect_local_gpu_platform() -> str | None:
-    """Read the guest's own GPU via `nvidia-smi` and map to a PLATFORMS
-    key. Returns None when there is no local GPU or the SKU isn't in
-    the catalog — the caller decides whether that's fatal (OpenShell)
-    or fine (managed Brev, where the spec's platforms drive things).
-
-    OpenShell placement is by GitHub labels + gpu_count only, so the
-    adapter is invoked with an empty `--platform` and must resolve the
-    card off the runner it lands on. Falling back to `spec.resources.
-    platforms[0]` there would deploy H200 KV-cache fractions on a
-    96 GB card."""
-    try:
-        out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=15,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return None
-    if out.returncode != 0:
-        return None
-    name = (out.stdout.strip().splitlines() or [""])[0].strip()
-    if not name:
-        return None
-    for key, cfg in PLATFORMS.items():
-        needle = cfg.get("gpu_type") or ""
-        if needle and needle.lower() in name.lower():
-            return key
-    # Detected a real GPU but not in the catalog — surface it.
-    print(
-        f"detected local GPU '{name}' but no PLATFORMS entry matched; "
-        f"OpenShell requires a catalog entry to size correctly",
-        file=sys.stderr,
-    )
-    return None
-
-
 def _platform_modes_from_spec(
     spec: dict, platform_filter: str | None
 ) -> list[tuple[str, str]]:
-    # OpenShell leg: no explicit platform, but a local GPU is pinned to
-    # this guest. Generate exactly one task for the detected card and
-    # ignore the spec's declared platform list (the spec no longer
-    # decides — see AGENTS.md § "Platform topology").
-    on_openshell = bool(os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip())
-    if not platform_filter and on_openshell:
-        detected = _detect_local_gpu_platform()
-        if detected is None:
-            print(
-                "OpenShell guest with unrecognised GPU: cannot size the "
-                "task without a catalog entry",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        default_mode = "remote-all" if _is_profile_spec(spec) else "standalone"
-        declared = (spec.get("resources") or {}).get("platforms") or {}
-        modes = ((declared.get(detected) or {}).get("modes")) or [default_mode]
-        return [(detected, modes[0])]
-
     declared = (spec.get("resources") or {}).get("platforms") or {}
     if not declared:
         default_mode = "remote-all" if _is_profile_spec(spec) else "standalone"
@@ -344,19 +287,8 @@ def main() -> None:
     parser.add_argument("--skill-dir", required=True)
     parser.add_argument("--deploy-skill-dir", default=None)
     parser.add_argument("--spec", default=None, help=f"Path to {DEFAULT_SPEC}")
-    # An OpenShell leg is placed by fleet labels + gpu_count only, so the
-    # planner passes an empty `--platform` string and this adapter reads
-    # the SKU off the guest's own card in `_platform_modes_from_spec`.
-    # `choices=` would reject that empty string before we get there.
-    parser.add_argument("--platform", default=None)
+    parser.add_argument("--platform", default=None, choices=list(PLATFORMS.keys()))
     args = parser.parse_args()
-    # Treat an empty `--platform ""` the same as omitting the flag.
-    if args.platform is not None and not args.platform.strip():
-        args.platform = None
-    elif args.platform is not None and args.platform not in PLATFORMS:
-        parser.error(
-            f"--platform '{args.platform}' not in {sorted(PLATFORMS.keys())}"
-        )
 
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir)
