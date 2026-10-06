@@ -1580,7 +1580,11 @@ def _prior_agent_output_archive_command() -> str:
         "fi; "
         'if [ "$HAS_SESSIONS" -eq 1 ]; then '
         '  mkdir -p "$ARCHIVE/sessions" || exit 1; '
-        '  mv "$PROJ"/* "$ARCHIVE/sessions/" || exit 1; '
+        # Enumerate immediate entries, including dotfiles and dangling symlinks.
+        # Unlike the shell glob, find includes everything ls -A detected
+        # and tolerates a directory emptied between detection and movement.
+        '  find "$PROJ" -mindepth 1 -maxdepth 1 '
+        '    -exec mv -t "$ARCHIVE/sessions/" -- {} + || exit 1; '
         '  echo "[trajectory-isolation] archived prior sessions to $ARCHIVE/sessions"; '
         "fi; "
         'if [ "$HAS_OUTPUT" -eq 1 ]; then '

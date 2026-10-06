@@ -559,8 +559,68 @@ class PriorAgentOutputIsolationTest(unittest.TestCase):
             'mv "$ROOT/$name" "$ARCHIVE/root-output/"',
             command,
         )
-        self.assertIn('mv "$PROJ"/* "$ARCHIVE/sessions/"', command)
         self.assertIn("-mtime +7", command)
+
+    def test_session_archive_handles_empty_hidden_and_mixed_entries(self):
+        for case in ("missing", "empty", "hidden", "mixed"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / "agent"
+                root.mkdir()
+                sessions = root / "sessions"
+                archive = Path(tmp) / "archive"
+                entries = {}
+                if case != "missing":
+                    sessions.mkdir()
+                if case in ("hidden", "mixed"):
+                    entries[".session marker"] = "hidden marker"
+                    entries[".state/nested.jsonl"] = "hidden session"
+                    (sessions / ".dangling").symlink_to("missing-target")
+                if case == "mixed":
+                    entries["-session\nwith space.jsonl"] = "visible session"
+                    entries["2026/10/07/rollout.jsonl"] = "nested session"
+                for name, content in entries.items():
+                    path = sessions / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(content)
+                command = brev_env._prior_agent_output_archive_command()
+                command = command.replace("/logs/agent", str(root)).replace(
+                    "$HOME/.claude-archive", str(archive)
+                )
+                subprocess.run(["sh", "-c", command], check=True, capture_output=True)
+                if sessions.exists():
+                    self.assertEqual(list(sessions.iterdir()), [])
+                if entries:
+                    saved = list(archive.glob("*/sessions"))
+                    self.assertEqual(len(saved), 1)
+                    for name, content in entries.items():
+                        self.assertEqual((saved[0] / name).read_text(), content)
+                    self.assertTrue((saved[0] / ".dangling").is_symlink())
+                    self.assertEqual(os.readlink(saved[0] / ".dangling"), "missing-target")
+                else:
+                    self.assertFalse(archive.exists())
+                # A second trial with no new session files must be harmless.
+                subprocess.run(["sh", "-c", command], check=True, capture_output=True)
+
+    def test_session_archive_still_fails_on_real_move_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "agent"
+            sessions = root / "sessions"
+            sessions.mkdir(parents=True)
+            marker = sessions / ".session"
+            marker.write_text("prior evidence")
+            shim = Path(tmp) / "bin"
+            shim.mkdir()
+            (shim / "mv").write_text("#!/bin/sh\necho 'archive move refused' >&2\nexit 5\n")
+            (shim / "mv").chmod(0o755)
+            command = brev_env._prior_agent_output_archive_command()
+            command = command.replace("/logs/agent", str(root)).replace(
+                "$HOME/.claude-archive", str(Path(tmp) / "archive")
+            )
+            env = dict(os.environ, PATH=f"{shim}:{os.environ['PATH']}")
+            result = subprocess.run(["sh", "-c", command], env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("archive move refused", result.stderr)
+            self.assertEqual(marker.read_text(), "prior evidence")
 
     def test_mixed_harness_outputs_are_archived_before_failed_next_trial(self):
         with tempfile.TemporaryDirectory() as tmp:

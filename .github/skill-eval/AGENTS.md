@@ -792,8 +792,8 @@ when `harbor-view.service` is down. To inspect the index by hand:
 `BrevEnvironment.start()` performs two cleanups before this trial's
 `claude --print` runs:
 
-- archives prior-trial session JSONLs (`mv
-  /logs/agent/sessions/projects/* $HOME/.claude-archive/<ts>/`), because
+- archives all prior-trial `/logs/agent/sessions` entries, including hidden
+  files and nested directories, under `$HOME/.claude-archive/<ts>/sessions/`, because
   harbor's mapper merges **every** `*.jsonl` under
   `sessions/projects/<project>/` into one `trajectory.json` — on a warm box
   that would otherwise splice in every prior trial (observed: 7549 steps

@@ -404,8 +404,9 @@ configuration must never be reused by a later invocation. Codex resume still
 restores the explicitly requested session through Harbor's resume mechanism.
 
 Before each trial, the Brev environment archives the full `/logs/agent/sessions`
-tree, including Codex date directories and Claude project directories, along
-with root agent outputs. A failed launch therefore cannot borrow prior-trial
+tree, including hidden entries, Codex date directories and Claude project
+directories, along with root agent outputs. Empty directories are harmless;
+an actual archive failure stops setup. A failed launch therefore cannot borrow prior-trial
 sessions, token counts, or deployment evidence. Archives remain under
 `~/.claude-archive/` for runner-side investigation.
 
