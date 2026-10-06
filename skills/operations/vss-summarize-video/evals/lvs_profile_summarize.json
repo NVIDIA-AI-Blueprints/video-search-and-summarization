@@ -48,5 +48,8 @@
         "The agent never calls a VLM or RT-VLM inference endpoint directly, including POST /v1/chat/completions or /v1/generate_captions, and never performs extracted-frame inference"
       ]
     }
+  ],
+  "sandbox_fixtures": [
+    "warehouse_sample.mp4"
   ]
 }

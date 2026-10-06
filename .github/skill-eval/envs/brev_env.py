@@ -1384,7 +1384,9 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                     'export PATH="$HOME/.local/bin:$PATH"; source ~/.profile 2>/dev/null; '
                     'python3 "$HOME/video-search-and-summarization/.github/skill-eval/nemoclaw/stage_fixtures.py" '
                     f"--sandbox {shlex.quote(sandbox)} --files-json {shlex.quote(fixtures)}",
-                    timeout=180,
+                    # One mkdir plus upload/checksum per file, each bounded
+                    # to 45s by stage_fixtures.py, with 45s transport headroom.
+                    timeout=90 + 90 * len(json.loads(fixtures)),
                 )
                 if staged.return_code != 0:
                     result = ExecResult(

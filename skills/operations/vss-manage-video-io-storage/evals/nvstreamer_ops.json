@@ -57,5 +57,9 @@
         "Calling `/live/stream/<new-sensorId>/picture` with NEITHER `frameId` NOR `startTime` returns HTTP 500 — proving `/picture` needs EITHER a `frameId` OR a `startTime` (they are alternatives, not `frameId`-only). The current build's body is `{\"error_code\": \"VMSInternalError\", \"error_message\": \"Wrong time format or frameId provided\"}`; accept that exact body OR any HTTP 500 whose message indicates a `frameId`/`startTime` is required. See `references/nvstreamer-api-reference.md § 5`."
       ]
     }
+  ],
+  "sandbox_fixtures": [
+    "warehouse_safety_0001.mp4",
+    "warehouse_sample.mp4"
   ]
 }

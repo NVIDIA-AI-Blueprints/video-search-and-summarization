@@ -87,5 +87,8 @@
         "`sh -c 'r=$(curl -s --max-time 15 -w \"\\n%{http_code}\" \"http://localhost:9080/api/v1/realtime/incidents?consolidate=true&sensor_id=warehouse_sample\"); case \"$r\" in *validation_failed*400) exit 0;; esac; exit 1'` returns exit 0 (deterministic negative probe: `consolidate=true` without a time window is rejected with HTTP 400 `validation_failed`, the case the skill tells the agent to fix rather than treat as an outage)."
       ]
     }
+  ],
+  "sandbox_fixtures": [
+    "warehouse_sample.mp4"
   ]
 }

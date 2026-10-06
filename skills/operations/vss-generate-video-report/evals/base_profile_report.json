@@ -78,5 +78,8 @@
         "If no incidents were found, the agent says so clearly and does not fabricate a report"
       ]
     }
+  ],
+  "sandbox_fixtures": [
+    "warehouse_safety_0001.mp4"
   ]
 }

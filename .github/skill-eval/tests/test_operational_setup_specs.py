@@ -4,6 +4,7 @@
 
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -43,6 +44,11 @@ def test_operational_setup_is_spec_owned(spec_path, platform, tmp_path):
     for key in ("NEMOCLAW_GATEWAY_PORT", "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_DASHBOARD_RELAY_PORT"):
         assert "$" + key in query
     checks = "\n".join(spec["expects"][0]["checks"])
+    declared = spec.get("sandbox_fixtures", [])
+    requested = list(dict.fromkeys(re.findall(r'\$SAMPLE_DIR/([A-Za-z0-9_.-]+\.mp4)', query)))
+    assert declared == requested
+    assert tuple(declared) == VIDEO_FIXTURES.get(spec_path.stem, ())
+
     assert "reading or invoking the bundled `/vss-build-vision-ai`" in checks
     assert "sandbox-installed `vss configure check` succeeds" in checks
     for filename in VIDEO_FIXTURES.get(spec_path.stem, ()):

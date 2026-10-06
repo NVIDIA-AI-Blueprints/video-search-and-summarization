@@ -136,5 +136,9 @@
         "The final reply faithfully reported the result: for each returned hit it summarized source, start/end time, lexical score, screenshot or clip URL, and tags; if no hits were returned, it stated so explicitly without inventing results or claiming the object was absent"
       ]
     }
+  ],
+  "sandbox_fixtures": [
+    "warehouse_sample.mp4",
+    "sample-warehouse-ladder.mp4"
   ]
 }

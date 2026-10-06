@@ -47,3 +47,21 @@ def test_checksum_mismatch_fails(monkeypatch, tmp_path):
     monkeypatch.setattr(fixtures, 'call', lambda args: 'incorrect  file\n' if 'sha256sum' in args else '')
     with pytest.raises(ValueError, match='checksum mismatch'):
         fixtures.stage('se-current', ['a.mp4'], tmp_path)
+
+
+def test_multiple_files_are_verified_individually(monkeypatch, tmp_path):
+    names = ['warehouse_sample.mp4', 'sample-warehouse-ladder.mp4']
+    for name in names:
+        (tmp_path / name).write_bytes(name.encode())
+    calls = []
+    def call(args):
+        calls.append(args)
+        if 'sha256sum' in args:
+            name = Path(args[-1]).name
+            return hashlib.sha256(name.encode()).hexdigest() + '  file\n'
+        return ''
+    monkeypatch.setattr(fixtures, 'call', call)
+    rows = fixtures.stage('se-current', names, tmp_path)
+    assert [row['file'] for row in rows] == names
+    assert all(row['status'] == 'verified' for row in rows)
+    assert len(calls) == 5

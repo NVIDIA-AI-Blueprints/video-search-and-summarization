@@ -140,5 +140,8 @@
         "The /info response's `sensorId` matches the sensorId resolved from /vst/api/v1/sensor/list"
       ]
     }
+  ],
+  "sandbox_fixtures": [
+    "warehouse_sample.mp4"
   ]
 }
