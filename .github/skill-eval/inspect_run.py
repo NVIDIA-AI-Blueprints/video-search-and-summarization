@@ -196,6 +196,8 @@ def worker(run_id):
     matches = []
     sandbox = None
     nim_owner = None
+    gateway_port = None
+    gateway_owner = None
     for process in Path("/proc").iterdir():
         if not process.name.isdigit():
             continue
@@ -216,6 +218,15 @@ def worker(run_id):
                             nim_owner = plan["owner"]
                     except (ValueError, TypeError):
                         pass
+            for entry in entries:
+                if entry.startswith(b'NEMOCLAW_GATEWAY_PORT='):
+                    value = entry.split(b'=',1)[1].decode()
+                    if value.isdigit() and 1024 <= int(value) <= 65535:
+                        gateway_port = int(value)
+                if entry.startswith(b'SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER='):
+                    value = entry.split(b'=',1)[1].decode()
+                    if re.fullmatch(r'[a-f0-9]{64}',value):
+                        gateway_owner = value
             executable = (process / "exe").resolve().name
             if re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", executable):
                 matches.append(executable)
@@ -235,6 +246,15 @@ def worker(run_id):
         report['other_gateway_registries']=gateway_registries
     except (OSError,ValueError,TypeError):
         report['registry_read_failed']=True
+    report['eval_gateway_port'] = gateway_port
+    if gateway_port and gateway_owner:
+        path = Path.home()/'.nemoclaw/gateways'/str(gateway_port)/'skill-eval-owner.json'
+        try:
+            receipt = json.loads(path.read_text())
+            report['namespace_owner_matches_active_run'] = receipt.get('owner') == gateway_owner
+            report['namespace_ports'] = receipt.get('ports') if all(type(p) is int and 1024<=p<=65535 for p in receipt.get('ports',[])) else []
+        except (OSError,ValueError):
+            report['namespace_receipt_unavailable'] = True
     if matches:
         path = Path("/logs/agent/codex.txt")
         if path.is_file():
