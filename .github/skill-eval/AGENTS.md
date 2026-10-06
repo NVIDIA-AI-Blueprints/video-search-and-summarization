@@ -519,14 +519,17 @@ A deployment spec opts into the direct OpenShell path when
 object. Those legs are independent of the GPU spec.
 Placement and sizing are decided in different places, by different things:
 
-- **Placement** is the GitHub label `poc-copy` for this Harbor test.
-  `openshell_job_labels()` emits only that label. The PoC runners advertise
-  it alone, so shared fleet tags or `gpus-N` would leave the job queued.
-  `openshell_requirements()` still reads `openshell.gpu_count` and ignores
-  the rest; `brev_env` gates the guest on live `gpu_count` only — no
+- **Placement** is GitHub labels plus GPU count, and nothing else.
+  `openshell_job_labels()` emits `vss-skill-eval-gpu` +
+  `openshell-runner` + `openshell` + `gpus-N` and no SKU;
+  `openshell_requirements()` reads `openshell.gpu_count` and ignores the
+  rest; `brev_env` gates the guest on live `gpu_count` only — no
   `gpu_type`, no VRAM floor. The matrix leg therefore carries an **empty**
   `platform` and `hardware_profile`, and its `cohort` is the flat tag
-  `openshell`. A profile that does not fit the card it got fails as a
+  `openshell`. Any OpenShell guest with that many GPUs may claim the job,
+  and none of them is the wrong one. Every cohort carries those fleet
+  tags, so a `gpus-1` leg can land on a 15 GB A16 as easily as on a
+  141 GB H200. A profile that does not fit the card it got fails as a
   deployment failure on a real guest — that is a result, not a
   misroute. Do not "fix" it by reintroducing a SKU label.
 - **Sizing** is read off the guest, never guessed. `HARDWARE_PROFILE`
