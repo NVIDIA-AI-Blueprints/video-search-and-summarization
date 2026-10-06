@@ -358,8 +358,12 @@ jobs:
         working-directory: services/configurators/vss-configurator
         run: |
           mkdir -p test/coverage
-          uv sync --python 3.13 --frozen --group dev
-          uv run --python 3.13 pytest tests/ -v --tb=short \
+          # spatialai-data-utils pins NumPy 1.26.4, which has no Python 3.13 wheel.
+          # Unit tests mock that package, so install the locked app deps without it.
+          uv export --frozen --group dev --no-emit-project --prune spatialai-data-utils -o /tmp/vss-configurator-test-reqs.txt
+          uv venv --python 3.13
+          uv pip install --python .venv/bin/python -r /tmp/vss-configurator-test-reqs.txt
+          .venv/bin/pytest tests/ -v --tb=short \
             --junitxml=test/coverage/test-results.xml \
             --cov=app \
             --cov-report=xml:coverage.xml \
