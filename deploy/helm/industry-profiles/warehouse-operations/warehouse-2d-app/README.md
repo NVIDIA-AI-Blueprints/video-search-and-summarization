@@ -449,9 +449,10 @@ image editing tool) and enter them in the file.
 3. **Host the completed file and point the chart at it** — put the file
    somewhere reachable by URL, then set
    **`calibration-import.calibrationFileSource`** to it (see the
-   **If you do need ROI/tripwire** table below). `requireCalibration` stays
-   at its default `true`, so a broken URL fails the Job instead of
-   deploying with no calibration.
+   **If you do need ROI/tripwire** table below). `requireCalibration` and
+   `requireImages` both stay at their default `true`, so a broken
+   calibration or image-metadata URL fails the Job instead of deploying
+   with no calibration.
 
 ##### Running 2D without calibration
 
