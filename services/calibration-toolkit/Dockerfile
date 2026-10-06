@@ -15,9 +15,9 @@
 # ---------------------------------------------------------------------------
 FROM node:18-alpine AS frontend-builder
 WORKDIR /client
-COPY calibration/client/package*.json ./
+COPY calibration-toolkit/calibration/client/package*.json ./
 RUN npm ci --prefer-offline
-COPY calibration/client/ ./
+COPY calibration-toolkit/calibration/client/ ./
 # Build React then run the NGC prod path post-processor (rewrites static
 # URLs in index.html so the app works when deployed at a sub-path).
 # Mirrors the steps in build_prod_yarn.sh that ran before docker build.
@@ -25,7 +25,7 @@ RUN npm run build && node ./modify-html-in-prod.js
 
 FROM python:3.13-slim AS wheel-builder
 WORKDIR /build
-COPY . .
+COPY calibration-toolkit/ .
 # Replicate the two copy steps from build_prod_yarn.sh:
 #   cp build/index.html  → server/frontend/templates/frontend/
 #   cp -r build/static   → server/frontend/static/
@@ -34,8 +34,11 @@ COPY --from=frontend-builder /client/build/index.html \
      calibration/server/frontend/templates/frontend/index.html
 COPY --from=frontend-builder /client/build/static \
      calibration/server/frontend/static
+# Build vss-behavior-analytics wheel from monorepo source (context: services/)
+COPY analytics/behavior-analytics/ /behavior-analytics/
 RUN pip install --no-cache-dir build && \
-    python -m build --wheel --outdir dist
+    python -m build --wheel --outdir dist && \
+    pip wheel --no-deps --wheel-dir dist /behavior-analytics/
 
 # ---------------------------------------------------------------------------
 # Stage 2: runtime image
@@ -100,8 +103,8 @@ WORKDIR /calibration
 # install nginx
 RUN apt-get update && apt-get install nginx -y
 # copy our nginx configuration to overwrite nginx defaults
-COPY calibration/server/nginx/nginx.conf /etc/nginx/conf.d/default.conf
-COPY calibration/server/nginx/nginx_default.conf /etc/nginx/nginx.conf
+COPY calibration-toolkit/calibration/server/nginx/nginx.conf /etc/nginx/conf.d/default.conf
+COPY calibration-toolkit/calibration/server/nginx/nginx_default.conf /etc/nginx/nginx.conf
 
 # link nginx logs to container stdout
 RUN ln -sf /dev/stdout /var/log/nginx/access.log && ln -sf /dev/stderr /var/log/nginx/error.log
@@ -112,17 +115,17 @@ RUN ln -sf /dev/stdout /var/log/nginx/access.log && ln -sf /dev/stderr /var/log/
 # RUN chmod 755 /usr/local/bin/deploy.sh
 # COPY calibration/server/manage.py /usr/local/bin
 # RUN chmod 755 /usr/local/bin/manage.py
-COPY calibration/server/config/gunicorn/dev.py /
-COPY calibration/server/resources/crs_config.json /
-COPY 3rdParty_Licenses.md /
-COPY 3rd_Party_Notice /
+COPY calibration-toolkit/calibration/server/config/gunicorn/dev.py /
+COPY calibration-toolkit/calibration/server/resources/crs_config.json /
+COPY calibration-toolkit/3rdParty_Licenses.md /
+COPY calibration-toolkit/3rd_Party_Notice /
 
 
 # Install pipenv and wheel 
 RUN pip3 install pipenv wheel
 
 # Copy project files including Pipfile and Pipfile.lock
-COPY Pipfile* ./
+COPY calibration-toolkit/Pipfile* ./
 
 # Install from the committed Pipfile.lock for fully reproducible builds.
 # Hashes are emitted from the lock and verified by pip.
@@ -142,7 +145,8 @@ RUN pip3 install --upgrade pip /calibration-1.0-py3-none-any.whl
 #COPY . /app/server
 
 # RUN python3 -m pip install --upgrade pip setuptools==80.6.0 wheel
-RUN pip3 install --index-url https://urm.nvidia.com/artifactory/api/pypi/sw-metropolis-pypi/simple vss-behavior-analytics==3.2.0
+COPY --from=wheel-builder /build/dist/vss_behavior_analytics-*.whl /
+RUN pip3 install /vss_behavior_analytics-*.whl && rm /vss_behavior_analytics-*.whl
 
 RUN pip3 uninstall -y wheel pipenv pip setuptools && \
     rm -r /root/.cache/pip

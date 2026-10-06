@@ -322,7 +322,7 @@
       "strategy": "build",
       "ghcr_build": true,
       "source_path": "services/calibration-toolkit",
-      "context": "services/calibration-toolkit",
+      "context": "services",
       "dockerfile": "services/calibration-toolkit/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-calibration-toolkit"]
