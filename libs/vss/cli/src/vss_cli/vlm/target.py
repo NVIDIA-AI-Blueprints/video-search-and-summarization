@@ -40,10 +40,11 @@ def default_model(deployment: config_mod.Deployment) -> str:
 def resolve_vlm_target(
     deployment: config_mod.Deployment, model: str | None = None, policy: config_mod.VlmConfig | None = None
 ) -> VlmTarget:
+    """Resolve a model input after CLI policy has already been applied."""
     policy = policy or config_mod.effective_vlm_config(deployment.vlm)
     return VlmTarget(
         deployment.endpoint("rt_vlm"),
-        model or (policy.model if policy else None) or default_model(deployment),
+        model or default_model(deployment),
         policy.backend if policy else "rt_vlm",
         config_mod.vlm_api_key(),
     )

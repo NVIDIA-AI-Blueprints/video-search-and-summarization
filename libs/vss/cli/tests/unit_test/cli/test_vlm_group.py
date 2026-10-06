@@ -2275,3 +2275,15 @@ def test_cli_keeps_string_only_response_acceptance(monkeypatch):
     ctx.extra = {"no_persist": True}
     result = VlmGroup().run("", VlmInput(prompt="What?", media_url="https://h/clip.mp4"), ctx)
     assert result.exit == Exit.BACKEND_UNREACHABLE
+
+
+def test_explicit_empty_model_preserves_endpoint_fallback_with_saved_policy(configured):
+    from vss_cli.vlm.group import _apply_vlm_policy
+    from vss_cli.vlm.target import resolve_vlm_target
+
+    policy = config_mod.VlmConfig(model="configured-other-model")
+    inputs = VlmInput(prompt="question", media_url="https://host/video.mp4", model="")
+    applied = _apply_vlm_policy(inputs, policy)
+    assert applied.model == ""
+    target = resolve_vlm_target(configured, applied.model, policy)
+    assert target.model == configured.services["rt_vlm"].models[0]
