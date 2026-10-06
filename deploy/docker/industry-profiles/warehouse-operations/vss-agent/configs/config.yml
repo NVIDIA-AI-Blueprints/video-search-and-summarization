@@ -108,6 +108,12 @@ functions:
     video_url_tool: vst_video_url
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
+    # Explicit requirements for this profile only; custom templates default to [].
+    required_report_fields:
+    - Detailed Description
+    required_report_sections:
+    - People Involved
+    - Vehicles Involved
     vlm_prompts:
     - >-
       Describe the incident in details including why the
