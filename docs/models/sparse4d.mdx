@@ -174,9 +174,23 @@ Use a TAO PyTorch build that includes `model.head.loose_to_tight`. The data prep
 
 Keep 3D-labeled data in the training mix to retain metric geometry supervision.
 
+#### Download the released LTT checkpoint
+
+For the released seven-class warehouse taxonomy listed below, reuse `_loose_to_tight_mlp.pth` from the [Sparse4D ResNet-50 `trainable_v3.0` bundle on NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/sparse4d_rn50/files?version=trainable_v3.0). With the NGC CLI, download just the LTT file:
+
+```bash
+mkdir -p /data
+ngc registry model download-version nvidia/tao/sparse4d_rn50:trainable_v3.0 \
+  --file _loose_to_tight_mlp.pth --dest /data
+```
+
+This writes `/data/sparse4d_rn50_vtrainable_v3.0/_loose_to_tight_mlp.pth`, including the leading underscore in the filename. Make that path visible inside the TAO training environment and use it for `model.head.loose_to_tight.mlp_ckpt`, as shown below. Keep the checkpoint's ordered class taxonomy unchanged and validate its corrections on the target data. Reusing this checkpoint skips LTT geometry extraction and MLP fitting; teacher-cache preparation and mixed-training data preparation are still required.
+
+Retain the external LTT file for fine-tuning and resume: the frozen MLP is excluded from Sparse4D model checkpoints. Standard evaluation, inference, and export do not require it.
+
 #### Prepare the data and geometric correction model
 
-1. **Fit the LTT model on labeled data.** Use `annotations sparse4d_prepare` with `operation=ltt_data` to extract paired cuboid projections and tight amodal 2D boxes. Fit the MLP in the TAO PyTorch environment with `python -m nvidia_tao_pytorch.cv.sparse4d.tools.ltt_train --data /data/ltt_training.npz --out /data/loose_to_tight_mlp.pth --epochs 60 --device cuda`. Check its held-out per-class GIoU against the uncorrected projection baseline.
+1. **Optionally fit a custom LTT model.** Skip this step when reusing the released checkpoint. For a different taxonomy or custom fitting, use `annotations sparse4d_prepare` with `operation=ltt_data` to extract paired cuboid projections and tight amodal 2D boxes. Fit the MLP in the TAO PyTorch environment with `python -m nvidia_tao_pytorch.cv.sparse4d.tools.ltt_train --data /data/ltt_training.npz --out /data/loose_to_tight_mlp.pth --epochs 60 --device cuda`. Check its held-out per-class GIoU against the uncorrected projection baseline, and set `model.head.loose_to_tight.mlp_ckpt` to this custom output path instead of the downloaded checkpoint.
 2. **Prepare 2D supervision.** Use `operation=ltt_2dgt` for visible-2D sidecars on 3D-labeled scenes. For calibrated real scenes, run the 2D teacher offline, then use `operation=rtdetr_2d` to convert its per-camera KITTI `labels.tar.gz` archives to `<scene>__rtdetr2d.npz`. This operation converts detections; it does not run RT-DETR. Before building the mixed split, create matching image/calibration info PKLs with the [calibrated real-scene conversion command](#prepare-calibrated-real-scene-inputs) below.
 3. **Build the mixed training split.** List the converted 3D-labeled and calibrated real info PKLs once each. Mark genuinely unlabeled 3D samples with `gt_boxes=None`, rather than treating them as annotated empty scenes. Run `operation=lazy_index` after finalizing this split if using `dataset.lazy_load: true`.
 
@@ -228,7 +242,7 @@ model:
   head:
     loose_to_tight:
       enable: true
-      mlp_ckpt: /data/loose_to_tight_mlp.pth
+      mlp_ckpt: /data/sparse4d_rn50_vtrainable_v3.0/_loose_to_tight_mlp.pth
       num_classes: 0  # Derive from dataset.classes.
       loss_weight: 0.1
       pseudo_enable: true
