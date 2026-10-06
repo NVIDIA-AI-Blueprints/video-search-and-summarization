@@ -455,8 +455,8 @@ pairing_probes = {}
 for label, command in [
     ('plain', 'openclaw gateway call health --json'),
     ('runtime_env', '[ -r /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh && unset OPENCLAW_GATEWAY_TOKEN && openclaw gateway call health --json'),
-    ('canonical_warmup', '''[ -r /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh && unset OPENCLAW_GATEWAY_URL OPENCLAW_GATEWAY_PORT OPENCLAW_GATEWAY_TOKEN OPENCLAW_GATEWAY_PASSWORD && NEMOCLAW_OPENCLAW_FORCE_DEVICE_PAIRING=1 command openclaw gateway call sessions.create --params '{"key":"agent:main:nemoclaw-onboard-warmup-skill-eval-readiness","agentId":"main"}' --json'''),
-    ('port_preserved_warmup', '''[ -r /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh && unset OPENCLAW_GATEWAY_URL OPENCLAW_GATEWAY_TOKEN OPENCLAW_GATEWAY_PASSWORD && NEMOCLAW_OPENCLAW_FORCE_DEVICE_PAIRING=1 command openclaw gateway call sessions.create --params '{"key":"agent:main:nemoclaw-onboard-warmup-skill-eval-readiness","agentId":"main"}' --json'''),
+    ('canonical_warmup', """[ -r /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh && unset OPENCLAW_GATEWAY_URL OPENCLAW_GATEWAY_PORT OPENCLAW_GATEWAY_TOKEN OPENCLAW_GATEWAY_PASSWORD && NEMOCLAW_OPENCLAW_FORCE_DEVICE_PAIRING=1 command openclaw gateway call sessions.create --params '{"key":"agent:main:nemoclaw-onboard-warmup-skill-eval-readiness","agentId":"main"}' --json"""),
+    ('port_preserved_warmup', """[ -r /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh && unset OPENCLAW_GATEWAY_URL OPENCLAW_GATEWAY_TOKEN OPENCLAW_GATEWAY_PASSWORD && NEMOCLAW_OPENCLAW_FORCE_DEVICE_PAIRING=1 command openclaw gateway call sessions.create --params '{"key":"agent:main:nemoclaw-onboard-warmup-skill-eval-readiness","agentId":"main"}' --json"""),
     ('after_warmup', '[ -r /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh && unset OPENCLAW_GATEWAY_TOKEN && openclaw gateway call health --json'),
 ]:
     try:
