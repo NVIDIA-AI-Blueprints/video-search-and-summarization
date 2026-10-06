@@ -104,47 +104,6 @@ The `:9901` probe is therefore present only for an explicitly selected legacy
 MCP workflow. A CLI-based Alerts build probes the Video Analytics API and Alert
 Bridge instead.
 
-## Record the deployed version and check the Alert API contract
-
-After the readiness endpoints answer, run the provenance gate below. Keep the
-JSON alongside `resolved.yml`; for a skill eval, also copy it into
-`/logs/artifacts/deployment-provenance.json` so the trace retains it even if a
-later operational step fails. It records the worker checkout SHA, a hash of the
-resolved model, Compose service keys, container names, actual image IDs, registry
-digests, and available source/version labels. It never copies container
-environments or API response bodies. An eval's `PR_HEAD_SHA`, when supplied,
-must match the worker checkout.
-
-```bash
-services=$(docker compose -f "$BUILD_DIR/resolved.yml" config --services)
-probe_args=()
-if grep -qx alert-bridge <<<"$services"; then
-  probe_args+=(--alert-direct-origin "http://${HOST_IP}:${ALERT_BRIDGE_HOST_PORT:-9080}")
-  if grep -qx vss-haproxy-ingress <<<"$services"; then
-    probe_args+=(--alert-ingress-origin "http://${HOST_IP}:${HAPROXY_HOST_PORT:-7777}/alert-bridge")
-  fi
-fi
-python3 "$REPO/skills/vss-build-vision-ai/scripts/check_deployment_provenance.py" \
-  --repo-root "$REPO" --resolved "$BUILD_DIR/resolved.yml" \
-  --output "$BUILD_DIR/deployment-provenance.json" "${probe_args[@]}"
-```
-
-Use the host's documented HAProxy origin for this routing check; published
-Brev secure-link authentication is a separate browser-access check.
-For an Alert build, this gate requires `GET /api/v1/verification/config` to
-return the current `{status, configs, count}` contract; an empty `configs` list
-is valid. A health check alone does not prove this API exists. A direct failure
-needs image provenance and service-log investigation; a direct success with an
-ingress failure points to routing. Retain the report on either failure and stop
-before onboarding or operational work.
-
-A moving tag such as `develop-latest` is not proof that a running image matches
-the checkout or a release. Missing source labels mean source identity is unknown;
-do not infer it from the tag. Compare the recorded digest/labels with the intended
-build. Likewise, `vss-behavior-analytics-alerts` is the current Alerts Compose
-**service key**, while `vss-behavior-analytics` is its **container name**; that
-difference does not establish an old VSS release.
-
 ## Step 3 — triage slow containers
 
 If any probe times out, dump `docker compose ps` and

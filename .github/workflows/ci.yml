@@ -480,7 +480,6 @@ jobs:
             skills/vss-build-vision-ai/scripts/tests/test_stage_vss_src.py \
             skills/vss-build-vision-ai/scripts/tests/test_apply_onboard_config.py \
             skills/vss-build-vision-ai/scripts/tests/test_container_tag_override.py \
-            skills/vss-build-vision-ai/scripts/tests/test_deployment_provenance.py \
             skills/vss-build-vision-ai/scripts/tests/test_script_help.py \
             -q
 
