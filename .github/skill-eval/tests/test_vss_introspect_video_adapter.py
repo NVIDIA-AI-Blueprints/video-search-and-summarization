@@ -94,6 +94,11 @@ def test_lightweight_evals_cover_all_requested_scenarios() -> None:
         "incomplete-evidence-unresolved",
         "partial-parallel-failure",
         "memory-only-completion",
+        "open-ended-answer",
+        "partial-evidence-answer",
+        "explicit-option-incomplete-evidence",
+        "list-without-selection-request",
+        "caller-requested-format",
         "ask-video-delegation",
     }
 
@@ -118,6 +123,12 @@ def test_skill_documents_full_agent_owned_loop_and_canonical_limits() -> None:
     assert "Never fabricate sensor or time fields" in normalized
     assert '{"type":"media_url","media_url":"https://..."}' in skill
     assert "`evidence_details`" in skill
+    assert "--answer" in skill
+    assert "best_available_answer" in skill
+    assert "answer_label" not in skill
+    assert "--answer-label" not in skill
+    assert "--answer-explanation" not in skill
+    assert "best_available_choice" not in skill
 
     # The legacy command may appear only in an explicit prohibition.
     occurrences = [

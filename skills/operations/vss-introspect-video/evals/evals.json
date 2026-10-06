@@ -80,6 +80,56 @@
     ]
   },
   {
+    "id": "open-ended-answer",
+    "question": "What color vest was the worker wearing in the grounded warehouse clip?",
+    "expected_skill": "vss-introspect-video",
+    "ground_truth": "Answer in natural language from accepted evidence, without inventing option labels.",
+    "expected_behavior": [
+      "Plans an option-blind attribute claim before memory or inspection.",
+      "The top-level agent passes the complete natural-language answer with --answer and cites accepted observation IDs."
+    ]
+  },
+  {
+    "id": "partial-evidence-answer",
+    "question": "Describe what the worker was wearing. The accepted windows show only part of the vest.",
+    "expected_skill": "vss-introspect-video",
+    "ground_truth": "Report the supported partial finding and keep the remaining coverage gap unresolved.",
+    "expected_behavior": [
+      "Does not mark the ledger resolved because a partial observation exists.",
+      "A supplied partial answer stays evidence_status unresolved and preserves unresolved gaps."
+    ]
+  },
+  {
+    "id": "explicit-option-incomplete-evidence",
+    "question": "Which option best matches the vest: red, yellow, or blue? Select one even if coverage is incomplete.",
+    "expected_skill": "vss-introspect-video",
+    "ground_truth": "Select the best available option from incomplete evidence without resolving the ledger.",
+    "expected_behavior": [
+      "Keeps the option text out of planning and inspection.",
+      "The top-level agent compares each option's full meaning and passes the selected text with --answer while evidence remains unresolved."
+    ]
+  },
+  {
+    "id": "list-without-selection-request",
+    "question": "The dock log mentions red, yellow, and blue vests. What color was actually visible?",
+    "expected_skill": "vss-introspect-video",
+    "ground_truth": "A mentioned list is not a request to select an option. Answer naturally.",
+    "expected_behavior": [
+      "Does not force a choice or invent a letter label.",
+      "Answers from accepted evidence, or says the color cannot be determined when no observation supports one."
+    ]
+  },
+  {
+    "id": "caller-requested-format",
+    "question": "What did the worker do after entering? Reply in one sentence naming the action and the time window.",
+    "expected_skill": "vss-introspect-video",
+    "ground_truth": "Follow the caller's requested response format without baking that schema into the ledger.",
+    "expected_behavior": [
+      "The top-level agent supplies answer text that follows the requested sentence format.",
+      "The ledger utility stores that text as answer and does not add its own prefix or file schema."
+    ]
+  },
+  {
     "id": "ask-video-delegation",
     "question": "Watch this scoped video and tell me which answer choice is correct.",
     "expected_skill": "vss-ask-video",
