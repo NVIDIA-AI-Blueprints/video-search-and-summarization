@@ -99,22 +99,31 @@ Never send raw Markdown documents to VSS or a visual subagent.
 All requests for an answer about video enter this skill, including "which
 option is correct?" The planner is never the answering route.
 
-Use these exact routes:
+Use these exact routes, in this order. The first matching route wins.
 
 1. **Hot context sufficient:** answer directly.
 2. **Exact stored read:** a specific `job_id` or complete child identity uses
    `vss memory get` directly. Preserve this simple route; do not delegate it.
-3. **Introspection requested or enabled:** explicit introspection, multi-claim,
-   answer-choice, whole-video, or reassessment requests delegate once to
-   `vss-introspect-video`. A general video question also delegates when
-   `vss configure memory show` reports memory introspection enabled. The new
-   skill replaces the legacy answering command; do not invoke
-   `vss memory introspect`.
-4. **Explicit one-scope fresh inspection while introspection is not enabled:**
-   a grounded sensor and exact window,
-   a trusted bounded `VIDEO_URL`, or a safe user-named local file uses exactly
-   one `vss vlm run`. Preserve this exact route; do not delegate it.
-5. **General direct answer while introspection is disabled or unconfigured:**
+3. **Explicit one-scope fresh inspection:** this takes precedence over
+   enabled introspection. The user asked for one fresh look at a grounded
+   sensor and exact window, a named sensor, a trusted bounded `VIDEO_URL`,
+   or a safe user-named local file. Use exactly one `vss vlm run` for that
+   scope, including when the user says exactly once. For a named sensor with
+   no user-supplied window, ground the bounds with `vss vios timeline`; never
+   invent timestamps. Do not delegate this route.
+4. **Broad whole-recording overview:** "summarize this recording" or "what
+   happens in this recording?" Read the duration with `vss vios timeline`.
+   Under 120 seconds, run one direct `vss vlm run` per recorded segment.
+   At 120 seconds or longer, hand off to `/vss-summarize-video`. A specific
+   factual question is not this route.
+5. **Introspection requested or enabled:** a general factual question,
+   multi-claim question, reassessment, or explicit introspection request
+   must delegate once to `vss-introspect-video` when the user asked for
+   introspection or `vss configure memory show` reports it enabled. A factual
+   question about a long recording uses this route instead of summarization.
+   Answer choices alone do not enable introspection when it is explicitly
+   disabled or unconfigured. Do not invoke `vss memory introspect`.
+6. **General direct answer while introspection is disabled or unconfigured:**
    search agent Markdown memory, then ordinary structured VSS memory if needed.
    Answer only when that evidence is sufficient. Otherwise report the missing
    grounded scope or evidence; do not enable introspection or automatically run
@@ -242,7 +251,10 @@ disable, or rewrite it as a side effect of answering a video question.
 
 ## Direct fresh inspection
 
-Each grounded scope the user asked for gets one `vss vlm run`. Two cameras, or
+This route wins even when introspection is enabled. Each grounded scope the
+user asked for gets one `vss vlm run`. A named sensor without a user window
+is grounded with `vss vios timeline` before that call; do not invent the
+timestamps. Two cameras, or
 two distinct windows, are two scopes and may each be inspected once; a scope
 already inspected is never inspected again. Exit 6 is the exception to
 failure, not to the count: the answer exists and only persistence failed, so
@@ -318,10 +330,14 @@ answer and report that limitation.
 
 ## Whole-recording questions
 
-When the request names a sensor but no window ("what happens in `dock_cam`?"),
-run `vss vios timeline --sensor <name>`. Under 120 s in total, run one `vss vlm
-run --sensor <name> --start-time <start> --end-time <end>` per segment. At
-120 s or longer, hand off to `/vss-summarize-video`.
+A broad overview that names a sensor but no window ("what happens in
+`dock_cam`?", "summarize this recording") uses `vss vios timeline --sensor
+<name>` for the duration. Under 120 s in total, run one `vss vlm run --sensor
+<name> --start-time <start> --end-time <end>` per segment. At 120 s or longer,
+hand off to `/vss-summarize-video`. Do not send every question about a longer
+recording there. A specific factual question uses enabled introspection, or
+the disabled-introspection memory route when introspection is off. An explicit
+fresh inspection still uses the direct VLM route above.
 
 ## Examples
 
@@ -338,7 +354,16 @@ run --sensor <name> --start-time <start> --end-time <end>` per segment. At
   visual tasks never receive the choices.
 - **Exact fresh verification:** "Freshly verify whether the worker wore a hard
   hat on `dock_cam` from `2026-08-13T20:00:00Z` to
-  `2026-08-13T20:00:30Z`." -> `vss vlm run` with that exact sensor/window.
+  `2026-08-13T20:00:30Z`." -> one `vss vlm run` with that exact sensor/window,
+  even when introspection is enabled.
+- **Named-sensor fresh inspection:** "Check the video itself on `dock_cam`."
+  -> `vss vios timeline` for the real bounds, then one direct `vss vlm run`.
+  Do not invent timestamps and do not delegate.
+- **Broad long recording:** "What happens in `warehouse-front`?" and the
+  timeline shows 235 seconds -> `/vss-summarize-video`.
+- **Factual long recording:** "Did anyone enter `warehouse-front`?" and
+  introspection is enabled -> delegate once, even though the recording is
+  longer than 120 seconds.
 - **Search handoff:** a user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL -> Path A `--media-url`.
 - **Evidence loop with scope:** "Across the complete grounded recording, which
   worker was last to enter?" -> delegate to `vss-introspect-video`, which plans
@@ -352,8 +377,9 @@ run --sensor <name> --start-time <start> --end-time <end>` per segment. At
 - Archive/semantic similarity retrieval ("find videos of ...") -> `/vss-search-archive`.
   This skill may inspect only the pre-resolved bounded clip that search hands
   off after confirmation; it never performs the retrieval itself.
-- Long-form summarization, or a whole recording of 120 s or longer ->
-  `/vss-summarize-video`.
+- Broad long-form summarization, or a whole-recording overview of 120 s or
+  longer -> `/vss-summarize-video`. A factual question about that recording
+  stays on the introspection or disabled-memory route.
 - Structured reports -> `/vss-generate-video-report`.
 - Existing analytics incidents or metrics -> `/vss-query-analytics`.
 - Deployment/profile changes -> `/vss-build-vision-ai`.

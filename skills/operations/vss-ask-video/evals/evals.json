@@ -71,13 +71,24 @@
   },
   {
     "id": "explicit-fresh-window",
-    "question": "Freshly verify dock_cam from 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z: was the worker wearing a helmet?",
+    "question": "Memory introspection is enabled. Freshly verify dock_cam from 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z exactly once: was the worker wearing a helmet?",
     "expected_skill": "vss-ask-video",
-    "ground_truth": "Use one direct VLM job for the exact scope.",
+    "ground_truth": "Use one direct VLM job for the exact scope, even though introspection is enabled.",
     "expected_behavior": [
-      "Uses exactly one vss vlm run.",
+      "Uses exactly one vss vlm run for the requested sensor and window.",
       "Chooses --fps from the skim/locate/inspect policy instead of a fixed --max-frames.",
-      "Does not search Markdown or introspect."
+      "Does not delegate to vss-introspect-video."
+    ]
+  },
+  {
+    "id": "explicit-fresh-named-sensor",
+    "question": "Check the video itself, not stored memory: was the worker wearing a helmet on dock_cam? No window was given.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Ground the named sensor with VIOS, then run one direct VLM inspection.",
+    "expected_behavior": [
+      "Uses vss vios timeline to obtain the recorded bounds and does not invent timestamps.",
+      "Uses one direct vss vlm run --sensor for that grounded scope.",
+      "Does not delegate to vss-introspect-video."
     ]
   },
   {
@@ -142,12 +153,22 @@
   },
   {
     "id": "answer-choice-delegation",
-    "question": "Watch the scoped recording and tell me whether the correct answer is A, B, C, or D.",
+    "question": "Memory introspection is enabled. Watch the scoped recording and tell me whether the correct answer is A, B, C, or D.",
     "expected_skill": "vss-ask-video",
     "ground_truth": "Enter ask-video and delegate once; keep choices out of planning and inspection.",
     "expected_behavior": [
       "Delegates once to vss-introspect-video instead of routing directly to the planner.",
       "Passes the choices only for final answer rendering after option-blind evidence gathering."
+    ]
+  },
+  {
+    "id": "answer-choice-introspection-disabled",
+    "question": "Memory introspection is explicitly disabled. Watch the scoped recording and tell me whether the correct answer is A, B, C, or D.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Answer choices do not turn introspection on when it is explicitly disabled.",
+    "expected_behavior": [
+      "Uses the disabled-introspection memory route.",
+      "Does not delegate to vss-introspect-video."
     ]
   },
   {
@@ -175,11 +196,21 @@
     "id": "whole-recording-long",
     "question": "What happens in warehouse-front? Its recording is 235 seconds long.",
     "expected_skill": "vss-ask-video",
-    "ground_truth": "Hand off to /vss-summarize-video, since the whole recording is 120 seconds or longer.",
+    "ground_truth": "Hand off to /vss-summarize-video, since this broad overview is 120 seconds or longer.",
     "expected_behavior": [
       "Reads the recording's length with `vss vios timeline`.",
       "Hands off to /vss-summarize-video instead of running `vss vlm run` itself.",
       "Does not stop to ask the user for a shorter window."
+    ]
+  },
+  {
+    "id": "factual-long-recording",
+    "question": "Memory introspection is enabled. Did a forklift enter warehouse-front? The recording is 235 seconds long.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Delegate the factual question; do not summarize a long recording just because it exceeds 120 seconds.",
+    "expected_behavior": [
+      "Delegates once to vss-introspect-video.",
+      "Does not hand off to /vss-summarize-video."
     ]
   }
 ]
