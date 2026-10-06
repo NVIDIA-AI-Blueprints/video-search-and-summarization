@@ -11,10 +11,12 @@ a cold NIM start.
   same underlying NGC personal API key with different consumer conventions:
   the NGC CLI and build override use `NGC_CLI_API_KEY`; NIM / RT-VLM
   containers receive the key as `NGC_API_KEY`.
-- `NVIDIA_API_KEY`: required for remote NIM endpoints.
-- `HF_TOKEN`: required only on edge targets that use the standalone
-  RT-VLM / RT-Embed Hugging Face checkpoints; no in-tree edge
-  LLM does not need it.
+- `NVIDIA_API_KEY`: required for a remote endpoint on build.nvidia.com
+  (`integrate.api.nvidia.com`). Any other remote endpoint carries its own key,
+  passed as `REMOTE_API_KEY`, and a keyless one needs none.
+- `HF_TOKEN`: required only for a gated or private Hugging Face checkpoint
+  (`--require hf`); the RT-Embed Cosmos-Embed defaults are public, and no
+  in-tree edge path needs it.
 - Customer LLM/VLM endpoint URL + model name: required for any selected
   remote endpoint. This includes build.nvidia.com / NVIDIA API catalog
   endpoints because their `/v1/models` response can list many models.
@@ -177,6 +179,15 @@ Use the base URL without a trailing `/v1`; the script strips `/v1` and
 `/v1/models` if the user supplied them. If the endpoint requires auth, set
 `REMOTE_API_KEY` to the key that the agent will use for that endpoint.
 
+On build.nvidia.com this clears the endpoint and the advertised model, not the
+key: `/v1/models` there is a public catalog that answers `200` with no
+`Authorization` header, so neither it nor the credential gate can reject a bad
+`NVIDIA_API_KEY`. One surfaces at the first authenticated inference request —
+read that `401` as a credential failure, not an endpoint fault
+([`troubleshooting.md`](troubleshooting.md)). An authenticated probe would not
+settle it sooner: a bogus key and a valid key without access to the named model
+both answer `403`.
+
 Aggregate endpoints such as `https://integrate.api.nvidia.com` can advertise
 many LLM and VLM models. Do not auto-select the first returned model from such
 endpoints. If the endpoint lists multiple models and the user has not selected
@@ -212,6 +223,8 @@ answer within the probe timeout, a rate limit, or a `5xx`: fix the host's
 egress or wait for the service, rather than replacing a key that may be good.
 
 An exit `0` is not a statement that `HF_TOKEN` or `NVIDIA_API_KEY` works. The
-gate only saw that they were set, so the checkpoint stays unproven until its
-artifact probe runs and the endpoint until `probe_remote_models.sh` runs. Do not
-read either `set — not validated here` line as a pass.
+gate only saw that they were set. The checkpoint stays unproven until its
+artifact probe runs; `NVIDIA_API_KEY` stays unproven even after
+`probe_remote_models.sh`, which clears the endpoint and the model but not the
+key, until the first authenticated inference request. Do not read either
+`set — not validated here` line as a pass.

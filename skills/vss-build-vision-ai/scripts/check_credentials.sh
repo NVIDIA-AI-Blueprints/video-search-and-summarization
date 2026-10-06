@@ -188,10 +188,12 @@ fi
 # Authorization header at all, so its 200 is not a verdict on the key and the
 # 401/403 arm of report_status could never fire for this host. Claiming a key
 # validated on a public 200 is worse than saying nothing. The inference route
-# does enforce auth, but only for a POST naming a listed model, which spends a
-# real request and turns a retired model id into a false rejection. The
-# endpoint that will actually be called is probed with this key as
-# REMOTE_API_KEY by probe_remote_models.sh, per credentials.md.
+# enforces auth but cannot be read as a verdict either: a bogus key and a valid
+# key without access to the named model both answer 403, so only a 200 is
+# informative and earning one needs a model the key is already entitled to,
+# which this gate cannot know before the build resolves. probe_remote_models.sh
+# clears the endpoint and the model, not the key; a bad key surfaces at the
+# first authenticated inference request, per credentials.md.
 if [[ -n "${NVIDIA_API_KEY:-}" ]]; then
   echo "NVIDIA_API_KEY: set — not validated here (the model catalog is public); probe the selected endpoint per credentials.md"
 elif [[ "$require_nvidia" == 1 ]]; then
