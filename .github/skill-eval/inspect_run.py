@@ -452,11 +452,17 @@ for path, label in [('/tmp/gateway.log','gateway'),('/tmp/nemoclaw-start.log','l
 pairing_summary = {}
 import subprocess
 pairing_probes = {}
-for label, command in [('plain', 'openclaw gateway call health --json'), ('runtime_env', '[ -r /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh && unset OPENCLAW_GATEWAY_TOKEN && openclaw gateway call health --json')]:
+for label, command in [
+    ('plain', 'openclaw gateway call health --json'),
+    ('runtime_env', '[ -r /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh && unset OPENCLAW_GATEWAY_TOKEN && openclaw gateway call health --json'),
+    ('canonical_warmup', '''[ -r /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh && unset OPENCLAW_GATEWAY_URL OPENCLAW_GATEWAY_PORT OPENCLAW_GATEWAY_TOKEN OPENCLAW_GATEWAY_PASSWORD && NEMOCLAW_OPENCLAW_FORCE_DEVICE_PAIRING=1 command openclaw gateway call sessions.create --params '{"key":"agent:main:nemoclaw-onboard-warmup-skill-eval-readiness","agentId":"main"}' --json'''),
+    ('port_preserved_warmup', '''[ -r /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh && unset OPENCLAW_GATEWAY_URL OPENCLAW_GATEWAY_TOKEN OPENCLAW_GATEWAY_PASSWORD && NEMOCLAW_OPENCLAW_FORCE_DEVICE_PAIRING=1 command openclaw gateway call sessions.create --params '{"key":"agent:main:nemoclaw-onboard-warmup-skill-eval-readiness","agentId":"main"}' --json'''),
+    ('after_warmup', '[ -r /tmp/nemoclaw-proxy-env.sh ] && . /tmp/nemoclaw-proxy-env.sh && unset OPENCLAW_GATEWAY_TOKEN && openclaw gateway call health --json'),
+]:
     try:
         probe = subprocess.run(['sh', '-lc', command], capture_output=True, text=True, timeout=12)
         output = (probe.stdout or '') + (probe.stderr or '')
-        pairing_probes[label] = {'exit_code': probe.returncode, 'ok': '\"ok\": true' in output or '\"ok\":true' in output, 'pairing_pending': 'pending approval' in output or 'pairing required' in output, 'token_rejected': 'invalid token' in output or 'token mismatch' in output}
+        pairing_probes[label] = {'exit_code': probe.returncode, 'ok': '\"ok\": true' in output or '\"ok\":true' in output, 'pairing_pending': 'pending approval' in output or 'pairing required' in output, 'token_rejected': 'invalid token' in output or 'token mismatch' in output, 'connection_refused': 'ECONNREFUSED' in output or 'Connection refused' in output}
     except subprocess.TimeoutExpired:
         pairing_probes[label] = {'timeout': True}
 for path, label in [('/sandbox/.openclaw/devices/pending.json', 'pending'), ('/sandbox/.openclaw/devices/paired.json', 'paired')]:
@@ -497,7 +503,7 @@ print(json.dumps({
     'sandbox_introspection_enabled': (memory.get('introspection') or {}).get('enabled') is True,
 }))
 '''
-                probe = subprocess.run([openshell, "sandbox", "exec", "-n", sandbox, "--", "python3", "-c", code], capture_output=True, text=True, timeout=40)
+                probe = subprocess.run([openshell, "sandbox", "exec", "-n", sandbox, "--", "python3", "-c", code], capture_output=True, text=True, timeout=75)
                 report["sandbox_metadata_exit_code"] = probe.returncode
                 if probe.returncode == 0:
                     report["sandbox_metadata"] = json.loads(probe.stdout.strip().splitlines()[-1])
