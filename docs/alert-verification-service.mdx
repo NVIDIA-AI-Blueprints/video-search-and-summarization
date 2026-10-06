@@ -202,6 +202,10 @@ In this example:
 - The `Stop Anomaly Module` uses `output_category` but no enrichment prompt (enrichment is optional per alert type).
 - `vlm_params` can be added to any alert type to override the global VLM defaults; `collision` shows it as an illustration, but each alert type may define its own subset of overrides independently.
 
+<Note>
+For prompts that ask for alert enhancement, such as an `enrichment` prompt or structured output read by a [pluggable response parser](#pluggable-response-parser), set `vlm_params.max_tokens` large enough for the expected length of the VLM response. A response that reaches the limit is cut off and may fail parsing.
+</Note>
+
 ## Pluggable Response Parser
 
 By default, the Alerts Microservice extracts a binary YES/NO verdict from the VLM response, which is appropriate for alert verification but limiting for other use cases such as classification, analytics, enrichment, or counting. A pluggable response parser lets you replace the built-in verification parsing with a custom class that returns arbitrary structured data.
