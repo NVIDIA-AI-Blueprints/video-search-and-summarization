@@ -159,6 +159,8 @@ An example dataset can be found in the [Warehouse_014](https://huggingface.co/da
 
 **2D-to-3D geometric distillation** lets Sparse4D learn from calibrated multi-camera real-world images with 2D annotations or detector pseudo-labels, reducing the need to collect full 3D ground truth. The term **2D-to-3D** describes the direction of supervision: 2D targets supervise the 3D model. During training, **3D-to-2D projection** maps Sparse4D's predicted 3D boxes into camera images, where they can be compared with the 2D targets. Sparse4D still predicts 3D boxes and tracking IDs.
 
+For the complete TAO configuration and artifact-preparation procedure, refer to the [TAO 2D-to-3D geometric distillation guide](https://docs.nvidia.com/tao/tao-toolkit/latest/text/cv_finetuning/pytorch/sparse4d/sparse4d.html#sparse4d-geometric-distillation).
+
 A projected 3D cuboid encloses all eight corners and can be larger than the object's tight image-space box. The released geometry-only **loose-to-tight (LTT)** MLP corrects this difference toward tight, amodal 2D boxes. During Sparse4D fine-tuning, the MLP is frozen and its predicted correction factors are detached; gradients flow through the corrected box projection into Sparse4D. Per-camera matching then compares these boxes with real-world 2D detections, such as offline RT-DETR predictions, to supervise box geometry and classification.
 
 <Note>
