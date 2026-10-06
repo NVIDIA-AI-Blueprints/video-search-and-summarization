@@ -11,6 +11,7 @@ import shlex
 import subprocess
 import sys
 from urllib.parse import quote, urlsplit
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 
@@ -257,6 +258,38 @@ def worker(run_id):
             row["requested_lightning_nim"] = image.startswith("nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b")
             services.append(row)
         report["vss_services"] = services
+        nim = subprocess.run([
+            "docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=vss",
+        ], capture_output=True, text=True, timeout=10)
+        if nim.stdout.strip():
+            inspected = subprocess.run(["docker", "inspect", *nim.stdout.split()], capture_output=True, text=True, timeout=10)
+            probes = []
+            for container in json.loads(inspected.stdout) if inspected.returncode == 0 else []:
+                image = container.get("Config", {}).get("Image", "")
+                if not image.startswith("nvcr.io/nim/nvidia/nemotron-3.5-lightning-30b-a3b"):
+                    continue
+                state = container.get("State", {})
+                row = {"running":state.get("Running") is True, "oom_killed":state.get("OOMKilled") is True, "restart_count":container.get("RestartCount"), "health_status":(state.get("Health") or {}).get("Status")}
+                ports = container.get("NetworkSettings", {}).get("Ports", {}).get("8000/tcp") or []
+                if ports and str(ports[0].get("HostPort", "")).isdigit():
+                    port = int(ports[0]["HostPort"])
+                    if 1 <= port <= 65535:
+                        for route, label in [("/v1/health/ready", "readiness_http"), ("/v1/models", "models_http")]:
+                            try:
+                                with urlopen(f"http://127.0.0.1:{port}{route}", timeout=3) as response:
+                                    row[label] = response.status
+                                    if label == "models_http":
+                                        names = [m.get("id") for m in json.load(response).get("data", [])]
+                                        row["requested_model_advertised"] = names == ["nvidia/nemotron-3.5-lightning-30b-a3b"]
+                            except HTTPError as error:
+                                row[label] = error.code
+                            except (OSError, URLError, TimeoutError):
+                                row[label] = 0
+                logs = subprocess.run(["docker", "logs", "--tail", "80", container["Id"]], capture_output=True, text=True, timeout=10)
+                data = logs.stdout + logs.stderr
+                row["log_signals"] = [label for needle,label in [("Downloading", "downloading"), ("Loading", "loading"), ("CUDA graph", "cuda_graph"), ("Application startup complete", "api_started"), ("Traceback", "traceback"), ("out of memory", "out_of_memory"), ("ValueError", "value_error"), ("AssertionError", "assertion_error"), ("max_model_len", "model_context"), ("GPU memory", "gpu_memory")] if needle in data]
+                probes.append(row)
+            report["vss_nim_probes"] = probes
         if nim_owner:
             try:
                 ready = json.loads((Path.home()/'.cache/skill-eval-nim'/nim_owner/'ready.json').read_text())
