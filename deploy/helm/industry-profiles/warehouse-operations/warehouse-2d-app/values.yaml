@@ -21,6 +21,7 @@ global:
   useReleaseNamePrefix: false
   externalHost: ""
   externalPort: ""
+  vstExternalPort: ""
   # Branch/tag for calibration-import source URLs. Empty falls back to "develop".
   gitRef: ""
   # Dataset dir under calibration/sample-data/, shared by calibration-import's source URLs.

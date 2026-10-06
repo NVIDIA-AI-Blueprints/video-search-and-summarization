@@ -187,6 +187,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 |-----|---------|-------------|
 | **`global.externalScheme`** | **`""`** | `http` or `https`. Builds browser-facing URLs together with **`global.externalHost`** and **`global.externalPort`**. |
 | **`global.externalPort`** | **`""`** | Port segment in generated URLs. Leave empty so URLs omit `:port` when using standard 80/443. Set only for non-standard ports. |
+| **`global.vstExternalPort`** | **`""`** | Public VST port. Overrides `global.externalPort` for VST URLs; `values-nodeport.yaml` sets `30888`. |
 | **`global.useReleaseNamePrefix`** | **`false`** | When `true`, all in-cluster service names are prefixed with the Helm release name. |
 | **`global.vios.messageBrokerConsumer`** | **`kafka`** | Live metadata broker VST/VIOS listens on for overlay bounding boxes. Chart default is `redis`; this profile overrides it since perception publishes to Kafka. Shared by `vss-vios-sensor` and `vss-vios-streamprocessing`. |
 | **`global.vios.messageBrokerTopicConsumer`** | **`mdx-raw`** | Topic VIOS consumes for live overlay metadata. |
@@ -590,8 +591,13 @@ With [Alerts](#alerts) enabled:
 | Agent API | `http://<NODE_IP>:30800/` |
 | Alert bridge | `http://<NODE_IP>:30980/` |
 
-It sets **`global.vssIngress.enabled`** to false and clears
-the path prefixes, since each app then owns the root of its own port.
+It disables ingress and clears the path prefixes. It sets
+**`global.vstExternalPort`** to `30888`; keep it equal to
+`vios.vss-vios-ingress.service.nodePort`. Set **`global.externalHost`** to the
+node address used by clients.
+If both port values are set, `global.vstExternalPort` takes precedence for VST
+and Alert Bridge media links. `vss-alert-bridge.externalIp` overrides the
+derived Alert Bridge address.
 
 For the Alerts UI, add explicit NodePort URLs to `my-values.yaml`:
 

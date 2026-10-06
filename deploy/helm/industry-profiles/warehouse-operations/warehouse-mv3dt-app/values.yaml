@@ -24,8 +24,8 @@ global:
   # Set at install: --set global.externalHost=<NODE_IP>
   # With HAProxy ingress leave blank and set vssIngress.host instead.
   externalHost: ""
-  # NodePort for VST ingress (30888). Set when using values-nodeport.yaml.
   externalPort: ""
+  vstExternalPort: ""
   # Branch/tag for calibration-import source URLs. Empty falls back to "develop".
   gitRef: ""
   # Dataset dir under calibration/sample-data/, shared by calibration-import's source URLs.

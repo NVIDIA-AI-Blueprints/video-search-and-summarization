@@ -29,6 +29,7 @@
 # Ports sit in the default 30000-32767 NodePort range.
 
 global:
+  vstExternalPort: "30888"
   vssIngress:
     enabled: false
 
