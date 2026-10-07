@@ -148,10 +148,16 @@ def test_full_onboard_arg_set(cfg):
     assert changes  # reported to the build log
 
 
+def test_custom_image_preserves_onboarded_inference_endpoint(cfg):
+    endpoint = "http://10.229.20.2:18410/v1"
+    mod.apply(str(cfg), {"NEMOCLAW_INFERENCE_BASE_URL": endpoint})
+    assert read(cfg)["models"]["providers"]["inference"]["baseUrl"] == endpoint
+
+
 # --- how .openclaw/Dockerfile delivers the values to this script ---------------
 
 ONBOARD_ARGS = ("NEMOCLAW_PRIMARY_MODEL_REF", "NEMOCLAW_MODEL", "NEMOCLAW_CONTEXT_WINDOW",
-                "NEMOCLAW_MAX_TOKENS", "CHAT_UI_URL")
+                "NEMOCLAW_MAX_TOKENS", "CHAT_UI_URL", "NEMOCLAW_INFERENCE_BASE_URL")
 DOCKERFILE = (REPO_ROOT / ".openclaw" / "Dockerfile").read_text()
 
 

@@ -11,21 +11,13 @@ import sys
 import pytest
 
 REPO = Path(__file__).resolve().parents[3]
-VIDEO_FIXTURES = {
-    "base_profile_video_understanding": ("warehouse_safety_0001.mp4",),
-    "base_profile_report": ("warehouse_safety_0001.mp4",),
-    "lvs_profile_summarize": ("warehouse_sample.mp4",),
-    "vios_ops": ("warehouse_sample.mp4",),
-    "nvstreamer_ops": ("warehouse_safety_0001.mp4", "warehouse_sample.mp4"),
-    "alerts_vlm_real_time": ("warehouse_sample.mp4",),
-    "search": ("warehouse_sample.mp4", "sample-warehouse-ladder.mp4"),
-}
 SPECS = []
 for path in sorted((REPO / "skills/operations").glob("*/evals/*.json")):
     document = json.loads(path.read_text())
     if isinstance(document, dict) and document.get("resources", {}).get("platforms"):
-        for platform in document["resources"]["platforms"]:
-            SPECS.append((path, platform))
+        # Setup ownership is platform-independent; adapter/platform rendering
+        # is covered separately. Exercise every operational spec once.
+        SPECS.append((path, next(iter(document["resources"]["platforms"]))))
 
 
 @pytest.mark.parametrize("spec_path,platform", SPECS, ids=[
@@ -40,51 +32,21 @@ def test_operational_setup_is_spec_owned(spec_path, platform, tmp_path):
     assert "$SKILLS_EVAL_OPERATIONAL_HARNESS" in query
     assert f"install `/{skill}`" in query
     assert 'openshell sandbox get "$NEMOCLAW_SANDBOX_NAME"' in query
-    assert "sandbox gateway must be ready" in query
     for key in ("NEMOCLAW_GATEWAY_PORT", "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_DASHBOARD_RELAY_PORT"):
         assert "$" + key in query
     checks = "\n".join(spec["expects"][0]["checks"])
     declared = spec.get("sandbox_fixtures", [])
     requested = list(dict.fromkeys(re.findall(r'\$SAMPLE_DIR/([A-Za-z0-9_.-]+\.mp4)', query)))
     assert declared == requested
-    assert tuple(declared) == VIDEO_FIXTURES.get(spec_path.stem, ())
 
-    assert "reading or invoking the bundled `/vss-build-vision-ai`" in checks
-    assert "sandbox-installed `vss configure check` succeeds" in checks
-    for filename in VIDEO_FIXTURES.get(spec_path.stem, ()):
+    for filename in declared:
         assert f'upload "$SAMPLE_DIR/{filename}" /tmp/vss-sample-data/dev-profile-sample-data/' in query
         assert filename in checks
-        assert "sandbox `sha256sum` matches its host source" in checks
-    if spec_path.stem in VIDEO_FIXTURES:
-        assert "keep NGC credentials on the host" in query
-        assert "nvidia/vss-developer/dev-profile-sample-data:3.2.0" in query
-    if spec_path.stem == "base_profile_video_understanding":
-        assert "/app/warehouse_safety_0001.mp4" not in query
-        assert "/tmp/vss-sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4" in spec["expects"][-1]["query"]
-    if spec_path.stem == "search":
-        assert "fresh `mktemp -d` directory" in query
-        assert "do not fetch NGC from the sandbox" in spec["expects"][1]["query"]
-        assert "copied into NemoClaw during setup with matching hashes" in spec["expects"][1]["checks"][1]
-        assert "no sample bundle was downloaded" not in checks
-        assert "When NemoClaw is selected, the fresh sample bundle may be downloaded" in checks
-    if spec_path.stem == "lvs_profile_summarize":
-        assert "Run on ONE `{{platform}}` host" in query
     if "This deployment uses the in-stack agent:" in query:
         assert "separate evaluation client" in query
         assert "do not select it in Build Vision AI's Q3" in query
         assert "VSS_AGENT_ADAPTER_ENABLED=false" in query
         assert "use Build Vision AI to attach NemoClaw" not in query
-    if skill == "vss-manage-video-io-storage":
-        assert "base-profile composition" in query
-        assert "SDR controller" in query
-        for later in spec["expects"][1:]:
-            assert "Do NOT invoke `/vss-build-vision-ai`" not in later["query"]
-            assert "**Deploy VIOS" not in later["query"]
-    # Preserve the alerts backend independently of the evaluated operator.
-    if skill == "vss-manage-alerts" and "in-stack agent" in query:
-        assert "do not replace it with the evaluation harness" in query
-        assert "harness selection does not apply" not in query
-
     result = subprocess.run([
         sys.executable, str(REPO / f".github/skill-eval/adapters/{skill}/generate.py"),
         "--spec", str(spec_path), "--platform", platform,

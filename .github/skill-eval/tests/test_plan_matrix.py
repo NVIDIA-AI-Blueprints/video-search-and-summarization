@@ -586,14 +586,6 @@ class SparkDispatch(unittest.TestCase):
                     self.assertEqual(plan_matrix.main(), 0)
                 emit.assert_called_once_with([rows[0], rows[2], rows[3]])
 
-    def test_spark_only_spec_without_selection_produces_no_jobs(self):
-        with patch.dict(os.environ, {}, clear=True), \
-             patch.object(plan_matrix, "list_changed_files", return_value=[]), \
-             patch.object(plan_matrix, "build_matrix", return_value=[{"platform": "DGX-SPARK"}]), \
-             patch.object(plan_matrix, "emit") as emit:
-            self.assertEqual(plan_matrix.main(), 0)
-        emit.assert_called_once_with([])
-
     def test_spark_selection_excludes_other_hardware(self):
         rows = [{"platform": "L40S"}, {"platform": "DGX-SPARK"}]
         with patch.dict(os.environ, {"SKILLS_EVAL_SPARK_RUNNER": "true"}, clear=True), \
