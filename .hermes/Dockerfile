@@ -189,16 +189,25 @@ RUN set -eux; \
     && su -s /bin/sh sandbox -c 'h=$(mktemp -d) && cd /opt/hermes && HERMES_HOME=$h /opt/hermes/.venv/bin/python3 -c "from tools.skills_sync import sync_skills; sync_skills(quiet=True)" && test -f $h/skills/vss/vss-ask-video/SKILL.md && HERMES_HOME=$h vss-hermes-sync --all && test -d $h/skills/github && rm -rf $h' \
     && cp /opt/vss-assets/workspace/*.md /sandbox/ \
     && for f in /opt/vss-assets/workspace/*.md; do chown sandbox:sandbox "/sandbox/$(basename "$f")"; done \
-    # vss_cli tool plugin: a user ($HERMES_HOME/plugins/<name>/) plugin, per
-    # ../.hermes/README.md's documented extension path — installed here rather
-    # than bundled (/opt/hermes/plugins/) so it is discovered the same way for
-    # every HERMES_HOME, default or caller-chosen, exactly like the skills set.
-    && mkdir -p /sandbox/.hermes/plugins \
-    && cp -R /opt/vss-assets/plugin /sandbox/.hermes/plugins/vss \
-    && chown -R sandbox:sandbox /sandbox/.hermes/plugins \
-    && python3 -m py_compile /sandbox/.hermes/plugins/vss/__init__.py \
-    && su -s /bin/sh sandbox -c 'HOME=/sandbox HERMES_HOME=/sandbox/.hermes hermes plugins enable vss' \
-    && su -s /bin/sh sandbox -c 'HOME=/sandbox HERMES_HOME=/sandbox/.hermes hermes plugins list' | grep -q vss \
+    # vss_cli tool plugin: bundled (/opt/hermes/plugins/vss), not a
+    # $HERMES_HOME/plugins/ user install -- a plugin.yaml `kind: backend`
+    # bundled plugin auto-loads (PluginManager.discover_and_load) with no
+    # per-HERMES_HOME `plugins enable` step, so it is discovered the same way
+    # for every HERMES_HOME, default or caller-chosen, exactly like the
+    # bundled skills library above. (A plain $HERMES_HOME/plugins/ install,
+    # tried first, only reaches the one HERMES_HOME it was enabled under.)
+    && cp -R /opt/vss-assets/plugin /opt/hermes/plugins/vss \
+    && chmod -R a+rX /opt/hermes/plugins/vss \
+    && python3 -m py_compile /opt/hermes/plugins/vss/__init__.py \
+    # Prove it reaches a fresh, caller-chosen HERMES_HOME with no enable step.
+    && su -s /bin/sh sandbox -c 'h=$(mktemp -d) && cd /opt/hermes && HERMES_HOME=$h /opt/hermes/.venv/bin/python3 -c "\
+import sys; sys.path.insert(0, \".\"); \
+from hermes_cli.plugins import discover_plugins; \
+import model_tools; \
+discover_plugins(); \
+names = {t[\"function\"][\"name\"] for t in model_tools.get_tool_definitions(quiet_mode=True, skip_tool_search_assembly=True)}; \
+assert \"vss_cli\" in names, sorted(names)" \
+       && rm -rf $h' \
     && mv /opt/vss-assets/ngc-cli /usr/local/lib/ngc-cli \
     && chmod -R a+rX /usr/local/lib/ngc-cli \
     && chmod +x /usr/local/lib/ngc-cli/ngc \

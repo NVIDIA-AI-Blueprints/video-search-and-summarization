@@ -69,6 +69,19 @@ def _clip(text: str) -> tuple[str, bool]:
     return text[:_MAX_CAPTURE] + "\n…[truncated]", True
 
 
+def _as_text(value: object) -> str:
+    # TimeoutExpired.stdout/.stderr carry whatever communicate() captured
+    # before the timeout fired, which can be raw bytes even though
+    # subprocess.run was called with text=True (the decode step applies to
+    # the completed read, not necessarily the partial one). Decode rather
+    # than discard, so a timeout still reports what the command printed.
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    if isinstance(value, str):
+        return value
+    return ""
+
+
 def vss_cli_tool(args: dict, **_kw: Any) -> dict:
     argv = args.get("args") or []
     cwd: Optional[str] = args.get("cwd")
@@ -99,8 +112,8 @@ def vss_cli_tool(args: dict, **_kw: Any) -> dict:
             "truncated": out_truncated or err_truncated,
         }
     except subprocess.TimeoutExpired as e:
-        out, out_truncated = _clip((e.stdout or "") if isinstance(e.stdout, str) else "")
-        err, err_truncated = _clip((e.stderr or "") if isinstance(e.stderr, str) else "")
+        out, out_truncated = _clip(_as_text(e.stdout))
+        err, err_truncated = _clip(_as_text(e.stderr))
         return {
             "command": command,
             "exitCode": None,

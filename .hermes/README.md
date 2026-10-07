@@ -122,8 +122,9 @@ alert-bridge probe), exactly like `vss-openclaw-sync`.
 ## Base image
 
 `Dockerfile.base` builds NemoClaw's managed Hermes runtime with the `vss` CLI
-and the `vss_cli` tool plugin preloaded (installed into
-`$HERMES_HOME/plugins/vss` and enabled, same as `./Dockerfile`), but no VSS
+and the `vss_cli` tool plugin preloaded (bundled into `/opt/hermes/plugins/vss`
+as a `kind: backend` plugin, which auto-loads with no per-`HERMES_HOME` enable
+step, same as `./Dockerfile`), but no VSS
 skills and no workspace instruction docs beyond the empty `/sandbox/AGENTS.md`
 — a VSS-capable foundation for evaluating an agent that users still extend
 with their own skills and plugins, not a blank harness. CI publishes it as

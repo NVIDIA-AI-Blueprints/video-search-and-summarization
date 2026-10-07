@@ -77,8 +77,9 @@ COPY plugin/ /opt/vss-plugin/
 #    $HERMES_HOME/skills. The directory stays so the copy finds nothing.
 #  - The vss CLI, same wheel-install pattern as ./Dockerfile (own venv, never
 #    /opt/hermes/.venv).
-#  - The vss_cli tool plugin, installed into $HERMES_HOME/plugins/vss and
-#    enabled, same as ./Dockerfile.
+#  - The vss_cli tool plugin, bundled into /opt/hermes/plugins/vss (a
+#    plugin.yaml `kind: backend` bundled plugin auto-loads, no per-home
+#    enable step), same as ./Dockerfile.
 #  - Tools, memory and config hashes (base-config.py apply), then the check
 #    that the agent resolves to exactly the kept tools (including vss_cli;
 #    base-config.py's check() runs plugin discovery first) and seeds no
@@ -95,13 +96,10 @@ RUN set -eux; \
     rm -rf /opt/vss-wheels; \
     vss --version; \
     su -s /bin/sh sandbox -c "vss --version"; \
-    mkdir -p /sandbox/.hermes/plugins; \
-    cp -R /opt/vss-plugin /sandbox/.hermes/plugins/vss; \
-    chown -R sandbox:sandbox /sandbox/.hermes/plugins; \
+    cp -R /opt/vss-plugin /opt/hermes/plugins/vss; \
+    chmod -R a+rX /opt/hermes/plugins/vss; \
     rm -rf /opt/vss-plugin; \
-    python3 -m py_compile /sandbox/.hermes/plugins/vss/__init__.py; \
-    su -s /bin/sh sandbox -c 'HOME=/sandbox HERMES_HOME=/sandbox/.hermes hermes plugins enable vss'; \
-    su -s /bin/sh sandbox -c 'HOME=/sandbox HERMES_HOME=/sandbox/.hermes hermes plugins list' | grep -q vss; \
+    python3 -m py_compile /opt/hermes/plugins/vss/__init__.py; \
     /opt/hermes/.venv/bin/python3 /usr/local/lib/vss-harness/base-config.py apply; \
     : > /sandbox/AGENTS.md; \
     : > /sandbox/.hermes/SOUL.md; \

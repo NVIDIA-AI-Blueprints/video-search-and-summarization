@@ -192,6 +192,22 @@ RUN set -eux; \
     python3 /usr/local/lib/vss-harness/base-config.py; \
     chmod 644 /etc/openclaw-harness/config-overlay.json; \
     su -s /bin/sh sandbox -c 'cd /sandbox && HOME=/sandbox openclaw config validate'; \
+    # config validate only checks the config is well-formed, not what the
+    # gateway actually resolves at runtime. Boot it, long enough to prove the
+    # vss plugin (and memory-core) actually load and zero skills are
+    # discovered -- the two things base-config.py's tool policy promises --
+    # rather than trusting that the deny list alone keeps that promise.
+    su -s /bin/sh sandbox -c '\
+      set -eu; cd /sandbox; export HOME=/sandbox; \
+      ( openclaw gateway run --bind loopback --auth none --force --port 19001 \
+          > /tmp/gateway-verify.log 2>&1 & echo $! > /tmp/gateway-verify.pid ); \
+      for i in $(seq 1 30); do grep -q "\[gateway\] ready" /tmp/gateway-verify.log && break; sleep 1; done; \
+      grep -q "\[gateway\] ready" /tmp/gateway-verify.log; \
+      grep -E "^\S+ \[gateway\] http server listening \([0-9]+ plugins: .*\bmemory-core\b.*\bvss\b.*\)" /tmp/gateway-verify.log \
+        || grep -E "^\S+ \[gateway\] http server listening \([0-9]+ plugins: .*\bvss\b.*\bmemory-core\b.*\)" /tmp/gateway-verify.log; \
+      ! grep -q "skill selection unavailable" /tmp/gateway-verify.log; \
+      kill "$(cat /tmp/gateway-verify.pid)" 2>/dev/null || true; \
+      openclaw doctor 2>&1 | grep -q "Eligible: 0"'; \
     chown sandbox:sandbox /sandbox/.openclaw/openclaw.json; \
     chmod 660 /sandbox/.openclaw/openclaw.json; \
     sha256sum /sandbox/.openclaw/openclaw.json > /sandbox/.openclaw/.config-hash; \

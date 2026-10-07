@@ -1,6 +1,12 @@
 name: vss
 label: NVIDIA VSS
 version: 0.1.0
+# backend: bundled backends auto-load (PluginManager.discover_and_load) with
+# no per-HERMES_HOME enable step, so the plugin reaches every HERMES_HOME —
+# default or caller-chosen — the same way the bundled skills library does.
+# A "standalone" (default) kind only auto-loads under /sandbox/.hermes,
+# where the one-time `hermes plugins enable` step ran at build time.
+kind: backend
 description: >
   Drive a live Video Search and Summarization deployment: the vss CLI as an
   agent tool. Mirrors the OpenClaw vss_cli tool (../../.openclaw/plugin) —

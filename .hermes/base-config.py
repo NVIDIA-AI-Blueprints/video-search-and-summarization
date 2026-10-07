@@ -86,10 +86,10 @@ def check() -> None:
     import model_tools
     from tools.skills_sync import sync_skills
 
-    # The vss plugin ($HERMES_HOME/plugins/vss, installed + enabled by
-    # ./Dockerfile.base) registers vss_cli at discovery time, same as every
-    # other plugin; get_tool_definitions() below only sees it if discovery has
-    # already run in this process.
+    # The vss plugin (bundled at /opt/hermes/plugins/vss, kind: backend, by
+    # ./Dockerfile.base) auto-loads and registers vss_cli at discovery time;
+    # get_tool_definitions() below only sees it if discovery has already run
+    # in this process.
     discover_plugins()
 
     cfg = yaml.safe_load(CONFIG.read_text())

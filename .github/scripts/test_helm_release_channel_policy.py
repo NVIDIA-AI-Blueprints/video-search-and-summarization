@@ -6,8 +6,13 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from release_set import inventory_by_compose_name  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GHCR_ROOT = "ghcr.io/nvidia-ai-blueprints/vss"
@@ -203,13 +208,22 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
             if image.get("ghcr_build") is True and not image.get("tag_suffix")
         }
         self.assertTrue(variants)
+        # A missing compose_image_names field is not "no compose reference":
+        # inventory_by_compose_name (the same lookup release_set.py uses to
+        # decide Compose membership) defaults it to [image["name"]], so an
+        # omitted field still counts as one. Checking the parent's effective
+        # compose names here, not bare dict.get, keeps this test accurate if
+        # a future parent omits the field instead of setting it to [].
+        by_compose_name = inventory_by_compose_name(inventory)
         for variant in variants:
             self.assertEqual(variant.get("compose_image_names"), [])
             self.assertEqual(variant.get("tag_variables"), [])
             repository = variant.get("repository")
             self.assertTrue(repository)
             self.assertIn(repository, parents)
-            if parents[repository].get("compose_image_names"):
+            parent = parents[repository]
+            is_compose_service = by_compose_name.get(parent["name"]) is parent
+            if is_compose_service:
                 self.assertIn(repository, HELM_VALUES)
 
     def test_helm_defaults_to_managed_ghcr_channel(self):
