@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""ev-verify: answer one Event Verification question with simple yes/no checks and a per-subset cut-off.
+
+    ev-verify --question-file Q.txt --media-url URL [--lookup LOOKUP.json] [--vss-cmd vss]
+
+Lookup "mode": "f3" also asks the original question (verbatim) and averages its P(yes) with the checks' score; otherwise checks only.
+Looks the question text up (whitespace and quote-normalised, exact match) in the lookup file, asks the VLM each check through
+`vss vlm run --return-yes-prob`, combines the checks' P(yes) (rule "any" = max, "all" = min) and answers yes iff the score
+reaches the subset's cut-off. Prints one JSON object. Exit codes: 0 answered, 2 no checks for this question text,
+3 a check returned no probability or the vss call failed. Nothing is estimated or guessed on failure.
+Extra vss arguments (e.g. sampling flags when the deployment is not locked) come from EV_VERIFY_EXTRA_ARGS.
+"""
+import argparse, json, os, re, shlex, subprocess, sys
+
+DEFAULT_LOOKUP = os.environ.get("EV_VERIFY_LOOKUP", "/opt/ev/ev-verify-f3-checks-and-cutoffs-2026-10-07.json")
+
+
+def norm(s):
+    s = (s or "").replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def find_key(obj, key):
+    if isinstance(obj, dict):
+        if key in obj:
+            return obj[key]
+        for v in obj.values():
+            r = find_key(v, key)
+            if r is not None:
+                return r
+    elif isinstance(obj, list):
+        for v in obj:
+            r = find_key(v, key)
+            if r is not None:
+                return r
+    return None
+
+
+def all_json(text):
+    """Every top-level JSON object in the output (the CLI prints the result, then an event line)."""
+    dec, found, i = json.JSONDecoder(), [], 0
+    while (i := text.find("{", i)) != -1:
+        try:
+            obj, end = dec.raw_decode(text[i:])
+            found.append(obj)
+            i += end
+        except ValueError:
+            i += 1
+    return found
+
+
+def ask(vss_cmd, media_url, prompt, extra):
+    cmd = shlex.split(vss_cmd) + ["vlm", "run", "--media-url", media_url, "--prompt", prompt, "--return-yes-prob"] + shlex.split(extra)
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    body = all_json(r.stdout)
+    if r.returncode != 0 or not body:
+        return None, f"vss exit {r.returncode}: {(r.stderr or r.stdout).strip()[:300]}"
+    p = find_key(body, "p_yes")
+    if p is None:
+        return None, "no p_yes in output: " + str(find_key(body, "yes_prob_warning") or "unknown reason")
+    return float(p), None
+
+
+def verify(question, media_url, lookup, vss_cmd="vss", extra=""):
+    q = {norm(k): v for k, v in lookup["questions"].items()}.get(norm(question))
+    if q is None:
+        return 2, {"error": "no checks for this question text", "question_head": norm(question)[:120]}
+    ps = []
+    for c in q["checks"]:
+        p, err = ask(vss_cmd, media_url, c, extra)
+        if err:
+            return 3, {"error": err, "check": c, "p_yes_so_far": ps}
+        ps.append(p)
+    checks_score = min(ps) if q["rule"] == "all" else max(ps)
+    out = {"subset": q["subset"], "rule": q["rule"], "check_p_yes": [round(p, 4) for p in ps], "checks_score": round(checks_score, 4)}
+    score = checks_score
+    if lookup.get("mode") == "f3":   # F3: average the checks' score with the original question's P(yes)
+        p0, err = ask(vss_cmd, media_url, question.strip(), extra)
+        if err:
+            return 3, {"error": err, "check": "original question", "p_yes_so_far": ps}
+        out["original_p_yes"] = round(p0, 4)
+        score = (checks_score + p0) / 2
+    cutoff = lookup["cutoffs"][q["subset"]]
+    out.update({"answer": "yes" if score >= cutoff else "no", "score": round(score, 4), "cutoff": cutoff})
+    return 0, out
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--question-file", required=True)
+    ap.add_argument("--media-url", required=True)
+    ap.add_argument("--lookup", default=DEFAULT_LOOKUP)
+    ap.add_argument("--vss-cmd", default=os.environ.get("EV_VERIFY_VSS_CMD", "vss"))
+    a = ap.parse_args()
+    code, out = verify(open(a.question_file).read(), a.media_url, json.load(open(a.lookup)), a.vss_cmd, os.environ.get("EV_VERIFY_EXTRA_ARGS", ""))
+    print(json.dumps(out))
+    sys.exit(code)
+
+
+if __name__ == "__main__":
+    main()

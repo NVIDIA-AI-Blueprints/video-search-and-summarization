@@ -274,6 +274,11 @@ USER root
 RUN printf '%s\n' '#!/bin/sh' 'exec python3 /sandbox/.openclaw/extensions/vss/sync_skills.py --plugin-dir /sandbox/.openclaw/extensions/vss "$@"' > /usr/local/bin/vss-openclaw-sync \
     && chmod 755 /usr/local/bin/vss-openclaw-sync
 
+# EXPERIMENT ONLY (ev-rrsi): Event Verification checks tool and its lookup; removed after the test.
+COPY ev/ev-verify /usr/local/bin/ev-verify
+COPY ev/ev-verify-f3-checks-and-cutoffs-2026-10-07.json /opt/ev/ev-verify-f3-checks-and-cutoffs-2026-10-07.json
+RUN chmod 755 /usr/local/bin/ev-verify && su sandbox -c "command -v ev-verify"
+
 # Enabling the plugin changes openclaw.json after the managed runtime hashed it;
 # nemoclaw-start verifies that hash, so refresh it.
 #
