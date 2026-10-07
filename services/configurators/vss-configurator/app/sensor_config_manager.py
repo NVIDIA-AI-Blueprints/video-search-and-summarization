@@ -1190,151 +1190,152 @@ def process_sensor_info_from_nvstreamer():
         send_nvstreamer_streams_to_redis(nvstreamer_streams)
         start_redis_duplicator_thread()
 
+def _close_redis_client(redis_client):
+    """Close a Redis client, ignoring errors from an already broken socket."""
+    if redis_client:
+        try:
+            redis_client.close()
+        except Exception:
+            pass
+
+
+def _sleep_before_redis_reconnect():
+    logger.info(REDIS_RECONNECT_LOG)
+    time.sleep(5)
+
+
+def _create_redis_duplicator_client():
+    return redis.StrictRedis(
+        host=CONFIG['WDM_REDIS_HOST'],
+        port=CONFIG['WDM_REDIS_PORT'],
+        db=CONFIG['REDIS_DB'],
+        decode_responses=False,  # Keep binary data as is
+        socket_timeout=10,
+        socket_connect_timeout=5,
+        retry_on_timeout=True,
+        health_check_interval=30  # Periodically check if connection is alive
+    )
+
+
+def _connect_redis_duplicator(redis_client, connected):
+    """Return (client, connected, retry). Retry means the caller should loop again."""
+    if connected:
+        return redis_client, True, False
+    try:
+        redis_client = _create_redis_duplicator_client()
+        redis_client.ping()
+        logger.info(
+            f"Redis event duplicator started. Listening on {CONFIG['REDIS_SOURCE_TOPIC']} "
+            f"stream and duplicating to {', '.join(CONFIG['REDIS_TARGET_TOPICS'])}"
+        )
+    except redis.RedisError as e:
+        logger.error(f"Redis connection error in event duplicator thread: {e}")
+        _close_redis_client(redis_client)
+        _sleep_before_redis_reconnect()
+        return None, False, True
+    except Exception as e:
+        logger.error(f"Unexpected error in Redis event duplicator thread: {e}")
+        _sleep_before_redis_reconnect()
+        return redis_client, False, True
+    return redis_client, True, False
+
+
+def _apply_camera_name_suffix(data_json, target_topic):
+    if 'event' in data_json and 'camera_name' in data_json['event']:
+        original_name = data_json['event']['camera_name']
+        if target_topic.endswith('cv'):
+            data_json['event']['camera_name'] = f"{original_name}{CONFIG['CV_SUFFIX']}"
+        elif target_topic.endswith('pn26'):
+            data_json['event']['camera_name'] = f"{original_name}{CONFIG['PN_SUFFIX']}"
+
+
+def _message_for_target_topic(message_data, target_topic):
+    """Return a per-topic copy. JSON errors propagate so the caller can forward the original."""
+    modified_data = message_data.copy()
+    redis_field_name = CONFIG['WDM_REDIS_MSG_KEY'].encode('utf-8')
+    if redis_field_name in modified_data and isinstance(modified_data[redis_field_name], bytes):
+        data_str = modified_data[redis_field_name].decode('utf-8').strip()
+        data_json = json.loads(data_str)
+        _apply_camera_name_suffix(data_json, target_topic)
+        modified_data[redis_field_name] = json.dumps(data_json).encode('utf-8')
+    else:
+        logger.warning(f"Unexpected message format: {modified_data}")
+    return modified_data
+
+
+def _forward_message_to_topic(redis_client, message_data, target_topic):
+    try:
+        modified_data = _message_for_target_topic(message_data, target_topic)
+        redis_client.xadd(target_topic, modified_data)
+    except json.JSONDecodeError as e:
+        logger.error(f"Error decoding JSON in message: {e}")
+        redis_client.xadd(target_topic, message_data)
+    except Exception as e:
+        logger.error(f"Error modifying message for {target_topic}: {e}")
+        redis_client.xadd(target_topic, message_data)
+
+
+def _duplicate_stream_message(redis_client, stream_name, message_id, message_data):
+    logger.debug(f"Received message from stream {stream_name}: {message_id}, {message_data}")
+    logger.info(f"Received Message: {message_data}")
+    for target_topic in CONFIG['REDIS_TARGET_TOPICS']:
+        _forward_message_to_topic(redis_client, message_data, target_topic)
+    logger.debug(
+        f"Duplicated message from {CONFIG['REDIS_SOURCE_TOPIC']} to "
+        f"{', '.join(CONFIG['REDIS_TARGET_TOPICS'])}"
+    )
+
+
+def _advance_duplicated_messages(redis_client, response, last_id):
+    for stream_name, messages in response:
+        for message_id, message_data in messages:
+            try:
+                # Advance before publish so a later failure does not re-read this id.
+                last_id = message_id
+                _duplicate_stream_message(redis_client, stream_name, message_id, message_data)
+            except Exception as e:
+                logger.error(f"Error processing Redis stream message: {e}")
+                continue
+    return last_id
+
+
+def _read_and_duplicate_once(redis_client, last_id):
+    streams = {CONFIG['REDIS_SOURCE_TOPIC']: last_id}
+    response = redis_client.xread(streams=streams, count=10, block=1000)
+    if not response:
+        return last_id
+    return _advance_duplicated_messages(redis_client, response, last_id)
+
+
+def _duplicate_until_disconnect(redis_client, last_id):
+    """Return (last_id, client, connected). A lost Redis connection clears the client."""
+    try:
+        return _read_and_duplicate_once(redis_client, last_id), redis_client, True
+    except redis.RedisError as e:
+        logger.error(f"Redis connection lost: {e}")
+        _close_redis_client(redis_client)
+        _sleep_before_redis_reconnect()
+        return last_id, None, False
+    except Exception as e:
+        logger.error(f"Unexpected error while processing messages: {e}")
+        return last_id, redis_client, True
+
+
 def start_redis_duplicator_thread():
     """
     Thread function that reads messages from vst.event Redis Stream and
     duplicates them to vst.event.cv and vst.event.pn26 topics.
     Maintains a consistent connection and only reconnects when needed.
     """
-    # Connect to Redis once outside the loop
     redis_client = None
     connected = False
     last_id = '$'  # Start with the most recent message ($ means latest ID in the stream)
-    
-    # vst_preload()
-    
-    while True:  # Main loop to ensure the function runs forever
-        # Only create a new connection if we're not already connected
-        if not connected:
-            try:
-                # Connect to Redis
-                redis_client = redis.StrictRedis(
-                    host=CONFIG['WDM_REDIS_HOST'],
-                    port=CONFIG['WDM_REDIS_PORT'],
-                    db=CONFIG['REDIS_DB'],
-                    decode_responses=False,  # Keep binary data as is
-                    socket_timeout=10,
-                    socket_connect_timeout=5,
-                    retry_on_timeout=True,
-                    health_check_interval=30  # Periodically check if connection is alive
-                )
-                
-                # Test the connection
-                redis_client.ping()
-                
-                logger.info(f"Redis event duplicator started. Listening on {CONFIG['REDIS_SOURCE_TOPIC']} stream and duplicating to {', '.join(CONFIG['REDIS_TARGET_TOPICS'])}")
-                
-                # Mark as connected
-                connected = True
-            except redis.RedisError as e:
-                logger.error(f"Redis connection error in event duplicator thread: {e}")
-                # Clean up if connection attempt failed
-                if redis_client:
-                    try:
-                        redis_client.close()
-                    except Exception:
-                        pass
-                redis_client = None
-                connected = False
-                # Sleep before attempting to reconnect
-                logger.info(REDIS_RECONNECT_LOG)
-                time.sleep(5)
-                continue
-            except Exception as e:
-                logger.error(f"Unexpected error in Redis event duplicator thread: {e}")
-                # Sleep before attempting to reconnect
-                logger.info(REDIS_RECONNECT_LOG)
-                time.sleep(5)
-                continue
-        
-        # Process messages using the established connection
-        try:
-            # Read from the stream with a block of 1000ms (1 second)
-            # Format: {stream_name: last_id}
-            streams = {CONFIG['REDIS_SOURCE_TOPIC']: last_id}
-            response = redis_client.xread(streams=streams, count=10, block=1000)
-            
-            # If no messages, continue the loop
-            if not response:
-                continue
-            
-            # Process each message from the stream
-            for stream_name, messages in response:
-                for message_id, message_data in messages:
-                    try:
-                        # Update last_id to the current message_id for next iteration
-                        last_id = message_id
-                        
-                        logger.debug(f"Received message from stream {stream_name}: {message_id}, {message_data}")
-                        logger.info(f"Received Message: {message_data}")
-                        
-                        # For each target topic, modify the message and then add it to the stream
-                        for target_topic in CONFIG['REDIS_TARGET_TOPICS']:
-                            try:
-                                # Make a copy of the message data to avoid modifying the original
-                                modified_data = message_data.copy()
-                                
-                                # The message has a different structure than expected
-                                # Check for the configurable Redis message field key which contains the JSON data
-                                redis_field_name = CONFIG['WDM_REDIS_MSG_KEY'].encode('utf-8')
-                                if redis_field_name in modified_data and isinstance(modified_data[redis_field_name], bytes):
-                                    # Decode the JSON string from bytes
-                                    data_str = modified_data[redis_field_name].decode('utf-8')
-                                    # Remove trailing newline if present
-                                    data_str = data_str.strip()
-                                    data_json = json.loads(data_str)
-                                    
-                                    # Modify the camera_name based on the target topic
-                                    if 'event' in data_json and 'camera_name' in data_json['event']:
-                                        original_name = data_json['event']['camera_name']
-                                        
-                                        # Add suffix based on target topic
-                                        if target_topic.endswith('cv'):
-                                            data_json['event']['camera_name'] = f"{original_name}{CONFIG['CV_SUFFIX']}"
-                                        elif target_topic.endswith('pn26'):
-                                            data_json['event']['camera_name'] = f"{original_name}{CONFIG['PN_SUFFIX']}"
-                                    
-                                    # Convert back to JSON string and then to bytes
-                                    # Store with the configurable key
-                                    modified_data[redis_field_name] = json.dumps(data_json).encode('utf-8')
-                                else:
-                                    # Handle case where data might be directly in the message (not in bytes)
-                                    # This is a fallback, but the primary format should be bytes
-                                    logger.warning(f"Unexpected message format: {modified_data}")
-                                
-                                # Add the modified message to the target stream
-                                redis_client.xadd(target_topic, modified_data)
-                            except json.JSONDecodeError as e:
-                                logger.error(f"Error decoding JSON in message: {e}")
-                                # If we can't decode JSON, still try to forward the original message
-                                redis_client.xadd(target_topic, message_data)
-                            except Exception as e:
-                                logger.error(f"Error modifying message for {target_topic}: {e}")
-                                # If modification fails, still try to forward the original message
-                                redis_client.xadd(target_topic, message_data)
-                        
-                        logger.debug(f"Duplicated message from {CONFIG['REDIS_SOURCE_TOPIC']} to {', '.join(CONFIG['REDIS_TARGET_TOPICS'])}")
-                    except Exception as e:
-                        logger.error(f"Error processing Redis stream message: {e}")
-                        # Continue processing other messages
-                        continue
-        except redis.RedisError as e:
-            logger.error(f"Redis connection lost: {e}")
-            # Mark as disconnected so we'll reconnect on the next iteration
-            connected = False
-            # Clean up the broken connection
-            if redis_client:
-                try:
-                    redis_client.close()
-                except Exception:
-                    pass
-            redis_client = None
-            # Sleep before attempting to reconnect
-            logger.info(REDIS_RECONNECT_LOG)
-            time.sleep(5)
-        except Exception as e:
-            logger.error(f"Unexpected error while processing messages: {e}")
-            # Continue the loop, but don't disconnect unless it's a Redis error
+
+    while True:
+        redis_client, connected, retry = _connect_redis_duplicator(redis_client, connected)
+        if retry:
+            continue
+        last_id, redis_client, connected = _duplicate_until_disconnect(redis_client, last_id)
 
 # def start_redis_duplicator_thread():
 #     """
