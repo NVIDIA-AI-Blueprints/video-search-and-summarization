@@ -1,5 +1,5 @@
 ## Description: <br>
-Manage VIOS video input/output and storage with the vss vios CLI — sensors, streams, uploads, snapshots, clip URLs, and timelines — plus the VIOS REST API for operations the CLI does not cover and NvStreamer for synthetic RTSP feeds. <br>
+Use to drive `vss vios` for sensor list, timelines, clips, snapshots, and add/delete of video or stream sources, and the VIOS REST API only for what that CLI does not cover (sensor info/status/settings, storage and recorder status, WebRTC, the RTSP proxy, network scan, device settings, bytes to disk, the NvStreamer API), when the caller names a REST endpoint, or to debug VIOS. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache 2.0 <br>
 ## Use Case: <br>
-Developers and operators use this skill to manage video input/output and storage on a running VSS deployment — listing sensors, adding or deleting video files and RTSP streams, retrieving clips and snapshots, and provisioning sources into headless builds. <br>
+Developers and operators managing video input/output and storage in a deployed VSS stack — listing sensors, uploading video files, adding RTSP streams, extracting clips and snapshots, and provisioning sources into headless builds. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -31,12 +31,12 @@ Mitigation: Review and scan skill before deployment. <br>
 - [NvStreamer API Reference](references/nvstreamer-api-reference.md) <br>
 - [Provision VIOS Source](references/provision-vios-source.md) <br>
 - [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [Video Search and Summarization (GitHub)](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Shell commands, API Calls, Configuration instructions] <br>
-**Output Format:** [JSON and Markdown with inline bash code blocks] <br>
+**Output Type(s):** [Shell commands, API Calls, JSON] <br>
+**Output Format:** [JSON (CLI stdout) and Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
 
@@ -47,36 +47,36 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-3 evaluation tasks (2 positive, 1 negative) in isolated sandbox pods, evaluator version 1.5.6. <br>
+3 evaluation tasks (2 positive, 1 negative) executed in isolated sandbox pods with 1 attempt per task. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
-- Security: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
-- Correctness: Checks whether the final answer is correct against the reference answer. <br>
-- Discoverability: Checks whether the right skill was selected, decoys were avoided, and the workflow executed. <br>
-- Effectiveness: Checks whether the skill helped complete the user's goal and followed the expected workflow (goal_accuracy 50% + behavior_check 50%). <br>
-- Efficiency: Checks for wasted tool calls and token usage (skill_efficiency 50% + token_efficiency 50%). <br>
+- Security: Whether the skill avoids unsafe operations, secret leakage, and unauthorized access. <br>
+- Correctness: Whether the final answer is correct against the reference answer. <br>
+- Discoverability: Whether the right skill was selected, decoys were avoided, and the workflow executed. <br>
+- Effectiveness: Whether the skill helped complete the user's goal (50% goal completion + 50% expected workflow adherence). <br>
+- Efficiency: Whether the skill avoided wasted tool calls and token usage (50% tool-call productivity + 50% token efficiency). <br>
 
 Underlying evaluation signals used in this run: <br>
-- `security`: Detects unsafe operations, secret leakage, and unauthorized access. <br>
-- `skill_execution`: Verifies the expected skill was selected, decoys avoided, and workflow executed. <br>
-- `accuracy`: Measures final-answer correctness against the reference answer. <br>
-- `goal_accuracy`: Measures whether the user's goal was achieved. <br>
-- `behavior_check`: Verifies the expected workflow behavior was followed. <br>
-- `skill_efficiency`: Measures tool-call productivity. <br>
-- `token_efficiency`: Measures actual uncached prompt plus completion token usage. <br>
+- `security`: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
+- `accuracy`: Final-answer correctness against the reference answer. <br>
+- `skill_execution`: Whether the expected skill was selected and the workflow executed. <br>
+- `goal_accuracy`: Whether the user's goal was achieved. <br>
+- `behavior_check`: Whether the expected workflow behavior was followed. <br>
+- `skill_efficiency`: Tool-call productivity (routing scored under Discoverability). <br>
+- `token_efficiency`: Actual uncached prompt plus completion token usage. <br>
 
 
 
 ## Evaluation Results: <br>
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 73.0% | 69.6% |
-| Security | 100.0% → 100.0% (±0.0 pts) | 50.0% → 100.0% (+50.0 pts) |
-| Correctness | 13.3% → 33.3% (+20.0 pts) | 66.7% → 40.0% (-26.7 pts) |
-| Discoverability | 97.5% | 82.5% |
-| Effectiveness | 18.3% → 42.5% (+24.2 pts) | 55.0% → 30.0% (-25.0 pts) |
-| Efficiency | 91.5% | 95.5% |
+| Overall | 72.7% | 64.3% |
+| Security | 83.3% → 100.0% (+16.7 pts) | 66.7% → 83.3% (+16.6 pts) |
+| Correctness | 20.0% → 40.0% (+20.0 pts) | 46.7% → 33.3% (-13.4 pts) |
+| Discoverability | 92.5% | 87.5% |
+| Effectiveness | 16.7% → 38.3% (+21.6 pts) | 36.7% → 30.0% (-6.7 pts) |
+| Efficiency | 92.9% | 87.1% |
 
 ## Skill Version(s): <br>
 3.3.0-rc0 (source: frontmatter) <br>

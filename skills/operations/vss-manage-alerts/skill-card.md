@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache 2.0 <br>
 ## Use Case: <br>
-Developers and operators managing NVIDIA Video Search and Summarization (VSS) deployments who need to operate alert pipelines — configuring real-time monitoring rules, querying detected incidents, managing Slack notifications, inspecting verification verdicts, and onboarding cameras. <br>
+Developers and engineers operating VSS alert pipelines for real-time video monitoring, Alert-Bridge subscription management, incident queries, verification verdicts, always-on alerting, Slack notifications, and camera onboarding. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -25,22 +25,22 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [Alert Notifications Reference](references/alert-notify.md) <br>
-- [Alert Subscriptions Reference](references/alert-subscriptions.md) <br>
-- [Always-On Alerting Reference](references/always-on.md) <br>
-- [CV Verifier Prompts Reference](references/cv-verifier-prompts.md) <br>
-- [Deploy Alerts Reference](references/deploy-alerts.md) <br>
-- [Integrate Alerts Reference](references/integrate-alerts.md) <br>
-- [On-Demand Verification Reference](references/on-demand-verification.md) <br>
-- [Query Incidents Reference](references/query-incidents.md) <br>
-- [Verification Reference](references/verification.md) <br>
-- [VSS Blueprint Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [VSS GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [alert-notify.md](references/alert-notify.md) <br>
+- [alert-subscriptions.md](references/alert-subscriptions.md) <br>
+- [always-on.md](references/always-on.md) <br>
+- [cv-verifier-prompts.md](references/cv-verifier-prompts.md) <br>
+- [deploy-alerts.md](references/deploy-alerts.md) <br>
+- [integrate-alerts.md](references/integrate-alerts.md) <br>
+- [on-demand-verification.md](references/on-demand-verification.md) <br>
+- [query-incidents.md](references/query-incidents.md) <br>
+- [verification.md](references/verification.md) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Shell commands, API Calls, Configuration instructions, Analysis] <br>
-**Output Format:** [Markdown with inline bash code blocks and JSON API responses] <br>
+**Output Type(s):** [Shell commands, API Calls, Configuration instructions] <br>
+**Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [None] <br>
 
@@ -51,36 +51,36 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-11 evaluation tasks (10 positive, 1 negative) covering alert routing, rule CRUD, incident queries, mode-gated refusals, on-demand verification, Slack webhook status, always-on operation, and negative non-alert analytics routing. <br>
+11 evaluation tasks (10 positive, 1 negative) run in isolated sandbox pods with dataset digest sha256:2b5bf7deee2ba610968002c68c2365d6b4caef09ec9d3c359932dc32a2a099bb. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
 - Security: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
-- Correctness: Verifies final-answer correctness against the reference answer. <br>
-- Discoverability: Whether the expected skill was selected, decoys were avoided, and the workflow executed. <br>
-- Effectiveness: Equal-weight mean of goal completion (goal_accuracy) and expected workflow adherence (behavior_check). <br>
-- Efficiency: 50% tool-call productivity and 50% token efficiency. <br>
+- Correctness: Checks final-answer correctness against the reference answer. <br>
+- Discoverability: Checks whether the expected skill was selected and the workflow executed. <br>
+- Effectiveness: Checks whether the user's goal was achieved and expected workflow behavior was followed (equal-weight mean of goal_accuracy and behavior_check). <br>
+- Efficiency: Checks tool-call productivity and token efficiency (50% each). <br>
 
 Underlying evaluation signals used in this run: <br>
-- `security`: Unsafe operations, secret leakage, and unauthorized access. <br>
-- `accuracy`: Final-answer correctness against the reference answer. <br>
-- `skill_execution`: Whether the expected skill was selected, decoys were avoided, and the workflow executed. <br>
-- `goal_accuracy`: Whether the user's goal was achieved. <br>
-- `behavior_check`: Whether the expected workflow behavior was followed. <br>
-- `skill_efficiency`: Tool-call productivity (routing scored under Discoverability). <br>
-- `token_efficiency`: Actual uncached prompt plus completion token usage. <br>
+- `security`: Verifies absence of unsafe operations, secret leakage, and unauthorized access. <br>
+- `skill_execution`: Verifies the expected skill was selected, decoys avoided, and the workflow executed. <br>
+- `skill_efficiency`: Verifies tool-call productivity (routing scored under Discoverability). <br>
+- `accuracy`: Verifies final-answer correctness against the reference answer. <br>
+- `goal_accuracy`: Verifies whether the user's goal was achieved. <br>
+- `behavior_check`: Verifies whether the expected workflow behavior was followed. <br>
+- `token_efficiency`: Verifies actual uncached prompt plus completion usage. <br>
 
 
 
 ## Evaluation Results: <br>
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 88.6% | 74.8% |
-| Security | 100.0% → 100.0% (±0.0 pts) | 54.6% → 59.1% (+4.5 pts) |
-| Correctness | 9.1% → 89.1% (+80.0 pts) | 41.8% → 85.5% (+43.7 pts) |
-| Discoverability | 99.8% | 85.5% |
-| Effectiveness | 23.0% → 64.5% (+41.5 pts) | 34.7% → 60.2% (+25.5 pts) |
-| Efficiency | 89.3% | 83.6% |
+| Overall | Not available | 73.6% |
+| Security | Not available | 40.9% → 50.0% (+9.1 pts) |
+| Correctness | Not available | 34.6% → 90.9% (+56.3 pts) |
+| Discoverability | Not available | 82.0% |
+| Effectiveness | Not available | 28.6% → 56.5% (+27.9 pts) |
+| Efficiency | Not available | 88.5% |
 
 ## Skill Version(s): <br>
 3.3.0-rc0 (source: frontmatter) <br>
