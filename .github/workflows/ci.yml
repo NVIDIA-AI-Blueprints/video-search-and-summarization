@@ -1032,6 +1032,8 @@ jobs:
     timeout-minutes: 150
     env:
       COMPOSE_TIMEOUT: "300"
+      # Match the behavior analytics stack's host-network build policy.
+      COMPOSE_BAKE: "false"
       BUILD_TIMEOUT: "600"
       NPM_CONFIG_AUDIT: "false"
       NPM_CONFIG_FUND: "false"

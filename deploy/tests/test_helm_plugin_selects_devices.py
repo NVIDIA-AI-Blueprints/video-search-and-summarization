@@ -99,7 +99,10 @@ class RtviVlm(unittest.TestCase):
 @helm_required
 class VideoSummarization(unittest.TestCase):
     def test_the_default_render_is_unchanged(self):
-        self.assertEqual(_device_values(_render(SUMMARIZATION)), ["0"])
+        # Summarization delegates inference to RTVI-VLM and has no GPU defaults.
+        documents = _render(SUMMARIZATION)
+        self.assertEqual(_device_values(documents), [])
+        self.assertEqual(_gpu_resources(documents), set())
 
     def test_the_flag_drops_the_variable(self):
         self.assertEqual(_device_values(_render(SUMMARIZATION, "pluginSelectsDevices=true")), [])
@@ -117,8 +120,10 @@ class VideoSummarization(unittest.TestCase):
         self.assertEqual(_device_values(documents), [])
 
     def test_other_env_entries_are_untouched(self):
-        on = _render(SUMMARIZATION, "pluginSelectsDevices=true")
-        off = _render(SUMMARIZATION)
+        # Exercise removal of an explicit override now that the default is CPU-only.
+        device_override = (f"extraEnv[0].name={VAR}", "extraEnv[0].value=7")
+        on = _render(SUMMARIZATION, *device_override, "pluginSelectsDevices=true")
+        off = _render(SUMMARIZATION, *device_override)
         names = lambda docs: sorted(e["name"] for c in _containers(docs) for e in c.get("env") or [])
         self.assertEqual(set(names(off)) - set(names(on)), {VAR})
 
