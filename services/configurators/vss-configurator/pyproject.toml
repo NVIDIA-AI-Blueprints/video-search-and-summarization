@@ -19,10 +19,11 @@ version = "0.1.0"
 description = "Unified configuration management service for VSS Blueprints"
 requires-python = ">=3.13"
 dependencies = [
-    "Flask==3.1.0",
+    "Flask==3.1.3",
     "kafka-python==2.3.2",
     "gunicorn==23.0.0",
-    "requests==2.32.3",
+    "requests==2.34.2",
+    "urllib3==2.8.0",
     "redis==5.0.1",
     "ruamel.yaml==0.18.15",
     "spatialai-data-utils",
@@ -30,6 +31,13 @@ dependencies = [
 
 [tool.uv]
 managed = true
+# spatialai-data-utils pins older requests and python-dotenv. Override them
+# for this service only so its lock installs the patched versions.
+override-dependencies = [
+    "requests==2.34.2",
+    "python-dotenv==1.2.4",
+    "urllib3==2.8.0",
+]
 
 [tool.uv.sources]
 spatialai-data-utils = { path = "../../../libs/analytics/spatialai-data-utils/release" }

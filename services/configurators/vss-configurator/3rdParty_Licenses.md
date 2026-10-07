@@ -1141,7 +1141,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ---
 
-## flask:3.1.0
+## flask:3.1.3
 
 **License Type:** BSD-3-Clause
 
@@ -4351,7 +4351,7 @@ The above BSD License Applies to all code, even that also covered by Apache 2.0.
 
 ---
 
-## python-dotenv:1.0.1
+## python-dotenv:1.2.4
 
 **License Type:** BSD-3-Clause
 
@@ -4502,7 +4502,7 @@ THE SOFTWARE.
 
 ---
 
-## requests:2.32.3
+## requests:2.34.2
 
 **License Type:** Apache-2.0
 
@@ -5297,7 +5297,7 @@ limitations under the License.
 
 ---
 
-## urllib3:2.7.0
+## urllib3:2.8.0
 
 **License Type:** MIT
 
