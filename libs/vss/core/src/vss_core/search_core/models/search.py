@@ -105,7 +105,7 @@ class SearchVerification(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
-    result: Literal["confirmed", "rejected", "unverified"] = "unverified"
+    result: Literal["confirmed", "rejected", "unverified"]
     criteria_met: dict[str, bool] = Field(default_factory=dict)
 
 

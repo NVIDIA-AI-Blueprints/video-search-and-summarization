@@ -117,11 +117,12 @@ Search automatically attempts bounded visual verification through
 `vss_core.search_core.critic` when `vss configure` discovered both VST and an RT-VLM model.
 When those services are available, the critic attempts every returned hit.
 Every hit the critic evaluated contains `critic_result.result`: `confirmed`,
-`rejected`, or `unverified`. Verification is fail-open: a missing VLM,
-inaccessible clip, or critic failure does not fail retrieval and leaves the
-affected hit `unverified`, either with that result or with a `null`
-`critic_result`. There are no critic or VLM flags; deployment discovery remains
-the single source of endpoints and model ids.
+`rejected`, or `unverified`. Verification is fail-open and never fails
+retrieval: an inaccessible clip or a failed VLM call for a hit gives
+`result: "unverified"`; no VST or RT-VLM, or a critic error, gives
+`critic_result: null`. Both read as unverified. There are no critic or VLM
+flags; deployment discovery remains the single source of endpoints and model
+ids.
 
 Only when every displayed hit is `unverified` may the host ask whether the user
 wants them checked through the separate `vss-ask-video` workflow. If even one
