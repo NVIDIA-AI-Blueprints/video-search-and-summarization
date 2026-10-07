@@ -1152,6 +1152,14 @@ jobs:
       - name: Typecheck
         run: npm run typecheck -- --filter='common'
 
+      - name: Install VIOS UI test dependencies
+        working-directory: services/vios/ui/vios-ui
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Test VIOS UI uploads
+        working-directory: services/vios/ui/vios-ui
+        run: npm test
+
   # ---------------------------------------------------------------------------
   # Job 6: Frontend build
   # ---------------------------------------------------------------------------

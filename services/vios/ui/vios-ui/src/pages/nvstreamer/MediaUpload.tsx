@@ -458,14 +458,18 @@ const MediaUpload = () => {
 
             if (response.data && Object.prototype.hasOwnProperty.call(response.data, 'filename')) {
                 if (isLastChunk) {
-                    cancelTokensRef.current.delete(file.name);
+                    if (cancelTokensRef.current.get(file.name) === cancelToken) {
+                        cancelTokensRef.current.delete(file.name);
+                    }
                     setFileTag(tags, response.data.id);
                 }
                 handleChunkSuccess(response, chunkNumber, totalChunkCount, onSuccess);
             }
             return true;
         } catch (error: unknown) {
-            cancelTokensRef.current.delete(file.name);
+            if (cancelTokensRef.current.get(file.name) === cancelToken) {
+                cancelTokensRef.current.delete(file.name);
+            }
             if (axios.isCancel(error)) {
                 return false;
             }

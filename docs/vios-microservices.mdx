@@ -366,22 +366,16 @@ To upload media, navigate to **Upload Media** option in **Media Management** tab
 
 * **Enable multi-part upload**: Enabled by default. Splits files into 50 MB chunks to help large uploads succeed through proxy request limits. Use **Chunk size in MB** to reduce the chunk size when needed; it must be greater than 10 MB.
 
- ![VIOS WebUI Upload Media](/assets/images/vios/VIOS-Upload-Media.png)
-
 ###### Configuring upload file size limit
 
 The UI uploads in chunks by default. NGINX's `client_max_body_size` limits each request body, including multipart metadata and framing, rather than the assembled file. A 10–20 GB video can therefore upload in 50 MB chunks without increasing the request limit to the full video size. The Docker VIOS NGINX configurations shipped in this repository set this limit to `25G`; check your deployment's configuration and any upstream proxy limits.
 
-Choose a chunk size below the smallest request limit along the upload route, leaving room for multipart overhead. For example, a 100 MB request limit allows the default 50 MB chunks:
+Choose a chunk size below the smallest request limit along the upload route, leaving room for multipart overhead. For example, if a proxy in front of VIOS enforces a 100 MB request limit, the default 50 MB chunks still fit.
 
-```nginx
-client_max_body_size 100M;
-```
-
-If **Enable multi-part upload** is disabled, the entire file and its multipart overhead must fit in one request.
+On Helm, the VIOS ingress's `clientMaxBodySize` value configures NGINX's `client_max_body_size`. These request limits apply to every client using that ingress, including single-request uploads from the VSS UI, Configurator, and storage API clients. Reducing a limit to accommodate UI chunks can prevent those clients from uploading larger files. If **Enable multi-part upload** is disabled in the VIOS/NVStreamer UI, its entire file and multipart overhead must also fit in one request.
 
 <Note>
-Request limits do not cap the total size of a chunked UI upload. The current VIOS/NVStreamer upload handler also bypasses the `nv_streamer_max_upload_file_size_MB` check, so that configuration field does not enforce a UI upload size limit. Do not rely on either setting to cap the assembled file size.
+Request limits do not cap the total size of a chunked upload. The current VIOS/NVStreamer storage upload handler bypasses the `nv_streamer_max_upload_file_size_MB` check for all POST and PUT file uploads, with or without the `/vst` prefix, regardless of the client. That configuration field does not enforce an upload size limit. Do not rely on either setting to cap the assembled file size of a chunked upload.
 </Note>
 
 ##### Download recordings
@@ -597,7 +591,7 @@ Following table describes the parameters in VIOS config file, which should be pr
 | storage_monitoring_frequency_secs | Monitor storage usage with frequency in seconds | 2 |
 | supported_video_codecs | Video codec supported for video recording | ["h264","h265"] |
 | supported_audio_codecs | Audio codec supported for audio recording and decode | ["pcmu","pcma","mpeg4-generic"] |
-| nv_streamer_max_upload_file_size_MB | Maximum file upload size in MB. Applicable for file upload in both VIOS and NVStreamer. | 1000 |
+| nv_streamer_max_upload_file_size_MB | Configured upload-size value in MB. Currently bypassed for all storage file-upload POST and PUT requests in VIOS and NVStreamer; it does not enforce an upload size limit. | 1000 |
 | max_video_download_size_MB | Limiting the maximum video download size | 1000 |
 | always_recording | Enable/Disable always ON recording | FALSE |
 | use_software_path | Enable allows processing on CPU otherwise on GPU | FALSE |
