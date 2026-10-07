@@ -51,7 +51,7 @@ streamProcessorEndpoint: ""   # override if needed; else derived from streamProc
 # Unset keys follow global.useReleaseNamePrefix; an explicit false is honoured.
 peerUseReleaseNamePrefix: {}
 streamProcessorService: "sdrc"
-vstIngressEndpoint: ""        # full URL with scheme. When global.vlmBaseUrl and global.externalHost are set, defaults to <externalScheme>://<externalHost>[:externalPort]/vst for remote VLM. Else in-cluster vst-ingress URL.
+vstIngressEndpoint: ""        # Full URL with scheme. Defaults to the public ingress when externalHost is set; otherwise the in-cluster ingress.
 # Redis: used in notification_config.json message_broker.redis_server_env_var. Default "" means <Release.Name>-redis:6379.
 redisServerAddress: ""
 # Kafka and MQTT use notification_config.json placeholders; video metadata and cloud storage remain in vst_config.json. Empty = release-based or Compose default.

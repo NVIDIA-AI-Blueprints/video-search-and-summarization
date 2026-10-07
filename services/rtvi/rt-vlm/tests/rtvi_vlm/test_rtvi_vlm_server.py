@@ -794,6 +794,64 @@ class TestLiveStreamEndpoints:
 class TestCaptionGeneration:
     """Test caption generation endpoint"""
 
+    def test_streaming_generate_captions_sends_request_id_before_events(self, rtvi_server):
+        stream_id = uuid.uuid4()
+        request_id = str(uuid.uuid4())
+        rtvi_server._process_vlm_request = AsyncMock(
+            return_value=(request_id, MagicMock(), [MagicMock()])
+        )
+        req_info = RequestInfo(request_id=request_id)
+        req_info.status = RequestInfo.Status.FAILED
+        req_info.queue_time = time.time()
+        rtvi_server._stream_handler._request_info_map[request_id] = req_info
+        rtvi_server._stream_handler.get_response = MagicMock(return_value=(req_info, []))
+        query = VlmQuery(
+            id=stream_id,
+            model="test-model",
+            prompt="Describe the stream.",
+            stream=True,
+        )
+        path = f"{API_PREFIX}/generate_captions"
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode(),
+            "root_path": "",
+            "query_string": b"",
+            "headers": [(b"content-type", b"application/json")],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+        }
+        messages = []
+        request_sent = False
+
+        async def receive():
+            nonlocal request_sent
+            if not request_sent:
+                request_sent = True
+                return {
+                    "type": "http.request",
+                    "body": query.model_dump_json().encode(),
+                    "more_body": False,
+                }
+            await asyncio.Event().wait()
+
+        async def send(message):
+            messages.append(message)
+
+        asyncio.run(asyncio.wait_for(rtvi_server._app(scope, receive, send), timeout=5))
+
+        assert messages[0]["type"] == "http.response.start"
+        assert messages[0]["status"] == 200
+        assert dict(messages[0]["headers"])[b"x-request-id"] == request_id.encode()
+        body = b"".join(message.get("body", b"") for message in messages[1:])
+        assert b'data: {"id": "' + request_id.encode() + b'"' in body
+        assert b"data: [DONE]" in body
+
     def test_generate_captions_missing_id(self, test_client):
         """Test generating captions without file ID"""
         response = test_client.post(f"{API_PREFIX}/generate_captions", json={"model": "test-model"})

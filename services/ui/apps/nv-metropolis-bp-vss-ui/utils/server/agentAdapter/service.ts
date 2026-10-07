@@ -31,6 +31,8 @@ const buildConnector = (config: AgentAdapterConfig): Connector => {
 export class AgentAdapterService {
   readonly store: RunStore;
   private readonly connector: Connector;
+  /** Set when the backend rejects this service's credentials during a run. */
+  credentialsRejected = false;
 
   constructor(
     readonly config: AgentAdapterConfig,
@@ -216,11 +218,18 @@ export class AgentAdapterService {
           reason: "client_cancelled",
         });
       } else if (error instanceof ConnectorError) {
+        if (
+          error.code === "backend_auth_error" ||
+          error.code === "backend_scope_error"
+        ) {
+          this.credentialsRejected = true;
+        }
         this.store.finish(record, "run.failed", {
           error: {
             code: error.code,
             message: error.message,
             retryable: error.retryable,
+            ...(error.delivered === false ? { delivered: false } : {}),
           },
         });
       } else {

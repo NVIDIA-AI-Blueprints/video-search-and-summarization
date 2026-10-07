@@ -63,7 +63,97 @@ These Release Notes describe the key features, software enhancements and improve
   the [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice)
   guide.
 </Tab>
+<Tab title="Warehouse Operations">
+
+#### Features
+
+- Deployment profiles:
+
+  - Added Warehouse Helm charts for 2D, 2D with Agents, 3D, and MV3DT profiles.
+  - Added support for RTX PRO 4500 Blackwell and GB300 hardware profiles.
+
+- Launchable and Skills:
+
+  - Added Warehouse deployment support to the Build Vision AI skill, covering 2D, 3D, MV3DT, and Auto Calibration profiles, Kafka / Redis variants, and minimal / extended configurations.
+  - Added the `vss-deploy-warehouse-helm` skill and a standalone `compute_stream_cap.py` helper to set stream limits based on GPU hardware.
+  - Updated Behavior Analytics skills for the Build Vision Agent to deploy standalone and combined Search + Alerts workloads, with guidance for proximity alerts, FOV counting, ROI bounding-box overlap, object speed, and people counting.
+  - Updated the Warehouse Brev launchable notebook for the refactored Docker Compose configuration and unified Auto Calibration profile.
+
+- Microservices:
+
+  - Behavior Analytics:
+
+    - Added `behaviorEmitOnce` to emit a final behavior when a track ends, with per-sensor event-time handling, behavior holdback, and shutdown flushing. Real-time emission remains the default, and `isComplete` identifies completed behaviors.
+    - Added configurable ROI ENTRY / EXIT detection based on bounding-box overlap.
+
+  - Video IO & Storage (VIOS): Added DASH live-stream playback as an alternative to WebRTC.
+  - MV3DT: Integrated ReID embeddings with Kafka and Elasticsearch ingestion support.
+
+- Models - Core AI models for perception and analytics:
+
+  - [Sparse4D - 3D Warehouse Models v2.3 and v3.0](/vss/system-components/models/sparse4d-3d-multi-camera) - Updated models for synthetic and real-world Warehouse datasets, respectively. `DATASET_TYPE` selects the matching model, anchor, labels, and TensorRT engine configuration.
+  - Perception models are now downloaded from the NGC TAO registry during deployment instead of being bundled in the Warehouse app-data archive.
+
+#### Improvements
+
+- Docker Compose:
+
+  - Centralized NvStreamer, VSS Configurator, and Video Analytics API services and removed duplicated profile-specific configurations and Configurator initialization services.
+  - Unified the Warehouse Auto Calibration profile to deploy NvStreamer, VIOS, Auto Calibration, and VSS Configurator together.
+  - Reorganized `.env` and `overrides.env` configuration and updated Warehouse profile-selection defaults.
+
+- Microservices:
+
+  - Behavior Analytics:
+
+    - Combined Search and Alerts in a single Behavior Analytics main application script.
+    - Refactored restricted-area and confined-area violation detection and ROI information handling, simplified trajectory and state management, tuned default pipeline worker counts, and improved worker-lifecycle and fatal-error reporting.
+    - Enabled proximity, confined-area, and restricted-area incidents in the Warehouse 3D profile.
+    - Updated ROI output to report `restrictedAreaViolation=false` when no objects are present.
+  - Video Analytics API: Added readiness checks for Elasticsearch connectivity, the insertion-timestamp ingest pipeline, and required Kafka topics before starting the HTTP listener and accepting calibration uploads. Redis deployments ignore Kafka configuration.
+  - Logstash:
+
+    - Replicated Logstash ingestion pipelines and updated consumer groups per Kafka topic, with worker, batch, heap, and resource tuning to reduce Elasticsearch ingestion delays.
+    - Added the Redis Stream input plugin source code, build documentation, and tests to the repository.
+    - Improved Redis Stream plugin connection-pool lifecycle, graceful shutdown, duplicate-message handling, acknowledgment, and protobuf descriptor loading.
+
+- Models and hardware configuration:
+
+  - Updated the maximum number of streams per GPU for RT-DETR and Sparse4D models.
+  - Increased the RT-DETR Person-class detection limit from 20 to 50.
+  - Added batch-size suffixes to TensorRT engine filenames to prevent incompatible engine reuse.
+  - Tuned RTVI-VLM memory utilization and context length for RTX PRO 4500 Blackwell deployments.
+
+#### Fixed Issues
+
+- Alerting and RTVI-VLM:
+
+  - Fixed real-time alerts failing to initialize when Elasticsearch shards were not yet ready.
+  - Fixed missing real-time VLM incidents caused by Redis message-field configuration.
+  - Fixed RTVI-VLM inference failures caused by multimodal processor caching and request serialization.
+
+- Behavior Analytics: Fixed validation of violation-duration thresholds and expiration windows to accept fractional seconds.
+- SDRC: Fixed a startup race with RTVI-CV by waiting for perception readiness before adding streams.
+- Video IO & Storage (VIOS):
+
+  - Fixed incorrect 3D bounding-box overlays caused by projecting boxes behind the camera.
+  - Fixed missing overlays in downloaded recordings when Elasticsearch throttles metadata requests.
+
+See [Warehouse Known Limitations](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/known-limitations) for current warehouse profile constraints and workarounds.
+</Tab>
 </Tabs>
+
+### Known Issues and Limitations
+
+- **Empty structured-event results during file summarization:** CA-RAG may
+  fail to parse RT-VLM output that does not match the expected event schema,
+  leaving empty event results even when captions are generated and stored
+  and the summarize API reports success.
+- **Memory pressure under concurrent summarization on DGX Spark and Jetson
+  Thor:** RT-VLM memory usage with Cosmos Reason 3 Super NVFP4 varies with
+  request concurrency. Concurrent file-summarization workloads may exceed
+  available system memory, causing stalls, RT-VLM service termination, and
+  HTTP 503 errors.
 
 ## VSS 3.2.1
 

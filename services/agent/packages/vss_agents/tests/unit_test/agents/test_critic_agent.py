@@ -324,6 +324,107 @@ class TestCriteriaMet:
 
 
 # ---------------------------------------------------------------------------
+# Verdicts for the response shapes CRITIC_AGENT_PROMPT asks the VLM to produce
+# ---------------------------------------------------------------------------
+
+
+class TestPromptDerivedVerdicts:
+    """Verdicts for the response shapes CRITIC_AGENT_PROMPT asks the VLM to produce.
+
+    The prompt derives criteria from the query before the clip is seen, reports an absent
+    subject as a single false subject criterion, and treats an absence the *user* asked
+    for as a criterion in its own right. These pin what the critic does with each shape.
+    Whether a given model obeys the prompt is an eval question against a live VLM, not
+    something a unit test can answer.
+    """
+
+    @pytest.mark.asyncio
+    async def test_absent_subject_yields_rejected(self, default_config: CriticAgentConfig) -> None:
+        mock_tool = AsyncMock()
+        mock_tool.ainvoke.return_value = _vlm_json({"subject:dog": False})
+        execute = await _build_execute_fn(default_config, mock_tool)
+
+        result: CriticAgentOutput = await execute(
+            CriticAgentInput(query="Find the dog chasing a ball", videos=[_VIDEO_A])
+        )
+
+        vr = result.video_results[0]
+        assert vr.result == CriticAgentResult.REJECTED
+        assert vr.criteria_met == {"subject:dog": False}
+
+    @pytest.mark.asyncio
+    async def test_user_requested_absence_unsatisfied_yields_rejected(self, default_config: CriticAgentConfig) -> None:
+        """The subject wears a helmet, so the user-requested absence is unsatisfied."""
+        mock_tool = AsyncMock()
+        mock_tool.ainvoke.return_value = _vlm_json({"subject:person": True, "without a helmet": False})
+        execute = await _build_execute_fn(default_config, mock_tool)
+
+        result: CriticAgentOutput = await execute(
+            CriticAgentInput(query="Find a person without a helmet", videos=[_VIDEO_A])
+        )
+
+        vr = result.video_results[0]
+        assert vr.result == CriticAgentResult.REJECTED
+        assert vr.criteria_met["without a helmet"] is False
+
+    @pytest.mark.asyncio
+    async def test_user_requested_absence_satisfied_yields_confirmed(self, default_config: CriticAgentConfig) -> None:
+        mock_tool = AsyncMock()
+        mock_tool.ainvoke.return_value = _vlm_json({"subject:person": True, "without a helmet": True})
+        execute = await _build_execute_fn(default_config, mock_tool)
+
+        result: CriticAgentOutput = await execute(
+            CriticAgentInput(query="Find a person without a helmet", videos=[_VIDEO_A])
+        )
+
+        assert result.video_results[0].result == CriticAgentResult.CONFIRMED
+
+    @pytest.mark.asyncio
+    async def test_query_and_criteria_rules_reach_the_vlm(self, default_config: CriticAgentConfig) -> None:
+        mock_tool = AsyncMock()
+        mock_tool.ainvoke.return_value = _vlm_json({"subject:dog": False})
+        execute = await _build_execute_fn(default_config, mock_tool)
+
+        await execute(CriticAgentInput(query="Find the dog chasing a ball", videos=[_VIDEO_A]))
+
+        prompt = mock_tool.ainvoke.call_args.args[0]["user_prompt"]
+        assert "Find the dog chasing a ball" in prompt
+        assert "Derive the criteria from the user prompt ALONE" in prompt
+        assert "An absence the USER asked for is a legitimate criterion" in prompt
+
+    @pytest.mark.asyncio
+    @pytest.mark.xfail(
+        strict=True,
+        reason="The criteria keys are still chosen by the VLM, so a clip it merely "
+        "describes accurately aggregates as a match. Binding the key set in code is the "
+        "fix; delete this marker when that lands.",
+    )
+    async def test_accurately_described_clip_is_not_confirmed(self, default_config: CriticAgentConfig) -> None:
+        """The response captured in NVBug 6402815: warehouse footage for a fruit query.
+
+        Every criterion is true -- including the one reporting that no fruit is present --
+        so strict-AND aggregation confirms it. Asserts only "not confirmed" because either
+        candidate fix (reject, or unverified on a key-set mismatch) satisfies the contract.
+        """
+        mock_tool = AsyncMock()
+        mock_tool.ainvoke.return_value = _vlm_json(
+            {
+                "subject:worker": True,
+                "wearing yellow hard hat": True,
+                "standing on ladder": True,
+                "no fruit or trees visible": True,
+            }
+        )
+        execute = await _build_execute_fn(default_config, mock_tool)
+
+        result: CriticAgentOutput = await execute(
+            CriticAgentInput(query="show fruits falling from tree", videos=[_VIDEO_A])
+        )
+
+        assert result.video_results[0].result != CriticAgentResult.CONFIRMED
+
+
+# ---------------------------------------------------------------------------
 # CriticResult mapping tests (VideoResult → CriticResult used by search)
 # ---------------------------------------------------------------------------
 
