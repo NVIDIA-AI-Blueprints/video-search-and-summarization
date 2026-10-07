@@ -152,9 +152,25 @@ class ResponseFormat(CommonBaseModel):
         return self
 
 
+class VlmCaptionChunkError(CommonBaseModel):
+    """A failed chunk; recoverable errors do not terminate the live request."""
+
+    code: str = Field(max_length=64, pattern=ANY_CHAR_PATTERN)
+    message: str = Field(max_length=100000, pattern=ANY_CHAR_PATTERN)
+    status_code: int = Field(ge=400, le=599, json_schema_extra={"format": "int32"})
+    recoverable: bool = Field(
+        description="Later live chunks can still succeed. Do not retry the dropped live chunk."
+    )
+    stream_id: Optional[str] = Field(default=None, max_length=128, pattern=ANY_CHAR_PATTERN)
+
+
 class VlmCaptionResponse(CommonBaseModel):
     """Represents a VLM caption response for a single chunk."""
 
+    error: Optional[VlmCaptionChunkError] = Field(
+        default=None,
+        description="Per-chunk failure. On live overload, keep the connection open for later captions.",
+    )
     chunk_id: int = Field(
         default=0,
         description="Zero-based chunk index within the processing session.",

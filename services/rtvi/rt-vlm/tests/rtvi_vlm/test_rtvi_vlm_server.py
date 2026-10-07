@@ -29,6 +29,7 @@ Tests cover:
 
 import argparse
 import asyncio
+import json
 import multiprocessing
 import os
 import socket
@@ -46,7 +47,7 @@ import uvicorn
 from fastapi.testclient import TestClient
 
 import server.rtvi_vlm_server as rtvi_vlm_server
-from api_models.captions import VlmQuery
+from api_models.captions import VlmCaptionResponse, VlmQuery
 from api_models.nim_compat import ChatCompletionRequest
 from common.chunk_info import ChunkInfo
 from common.service_exception import ServiceException
@@ -833,6 +834,90 @@ class TestCaptionGeneration:
         fake_id = str(uuid.uuid4())
         response = test_client.delete(f"{API_PREFIX}/generate_captions/{fake_id}")
         assert response.status_code == 400
+
+    def test_live_chunk_overload_is_reported_and_later_caption_recovers(
+        self, rtvi_server, test_client
+    ):
+        stream_id = rtvi_server._asset_manager.add_live_stream("rtsp://example.com/live")
+        asset = rtvi_server._asset_manager.get_asset(stream_id)
+        request = RequestInfo(
+            request_id=str(uuid.uuid4()), assets=[asset], is_live=True, queue_time=time.time()
+        )
+        request.status = RequestInfo.Status.PROCESSING
+        handler = rtvi_server._stream_handler
+        handler._request_info_map[request.request_id] = request
+        handler._send_error_message_to_kafka = MagicMock()
+        error = PipelineChunkResult(
+            chunk=ChunkInfo(
+                chunkIdx=4, start_ntp="2026-10-07T10:00:00.000Z", end_ntp="2026-10-07T10:00:06.000Z"
+            ),
+            error="Live decoder backlog exceeded the bounded decoder-to-VLM transport",
+            error_status_code=503,
+            error_code="DecoderBacklogExceeded",
+        )
+        handler._on_vlm_chunk_response(error, request)
+        assert request.status == RequestInfo.Status.PROCESSING
+        assert not request.status_event.is_set()
+        _, responses = handler.get_response(request.request_id, 1)
+        response = rtvi_server._build_chunk_response(responses[0], True, False, None)
+        assert response["error"] == {
+            "code": "DecoderBacklogExceeded",
+            "message": error.error,
+            "status_code": 503,
+            "recoverable": True,
+            "stream_id": stream_id,
+        }
+        assert VlmCaptionResponse(**response).error.recoverable is True
+        recovered = PipelineChunkResult(
+            chunk=ChunkInfo(
+                chunkIdx=5, start_ntp="2026-10-07T10:00:06.000Z", end_ntp="2026-10-07T10:00:12.000Z"
+            ),
+            vlm_model_output=VlmModelOutput(output="Traffic is moving."),
+        )
+        handler._on_vlm_chunk_response(recovered, request)
+        _, responses = handler.get_response(request.request_id, 1)
+        response = rtvi_server._build_chunk_response(responses[0], True, False, None)
+        assert response["content"] == "Traffic is moving."
+        assert "error" not in response
+        assert request.status == RequestInfo.Status.PROCESSING
+        handler._vlm_pipeline.remove_live_stream.assert_not_called()
+
+        # Exercise the real HTTP/SSE serializer on the same live request.
+        request.response = [error, recovered]
+        original_get_response = handler.get_response
+
+        def poll(request_id, count):
+            info, chunks = original_get_response(request_id, count)
+            if not chunks:
+                info.status = RequestInfo.Status.SUCCESSFUL
+            return info, chunks
+
+        handler.get_response = MagicMock(side_effect=poll)
+        rtvi_server._process_vlm_request = AsyncMock(
+            return_value=(request.request_id, asset, [asset])
+        )
+        response = test_client.post(
+            f"{API_PREFIX}/generate_captions",
+            json={
+                "id": [stream_id],
+                "model": "test-model",
+                "stream": True,
+                "prompt": "Describe the stream.",
+                "chunk_duration": 6,
+            },
+        )
+        events = [
+            json.loads(line[5:])
+            for line in response.text.splitlines()
+            if line.startswith("data:") and line[5:].strip() != "[DONE]"
+        ]
+        chunks = [chunk for event in events for chunk in event.get("chunk_responses", [])]
+        assert response.status_code == 200
+        assert [chunk["chunk_id"] for chunk in chunks] == [4, 5]
+        assert chunks[0]["error"]["recoverable"] is True
+        assert chunks[1]["content"] == "Traffic is moving."
+        assert "error" not in chunks[1]
+        assert all(event["id"] == request.request_id for event in events)
 
     def test_generate_captions_failed_request_preserves_status_code(self, test_client, rtvi_server):
         """Test completed request failures keep their original status code."""

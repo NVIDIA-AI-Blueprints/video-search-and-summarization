@@ -42,7 +42,12 @@ from models.base_vlm_model import VlmGenerationConfig, VlmModelOutput
 from models.dynamic_model_loader import DynamicModelLoader, load_model
 from utils.asset_manager import Asset
 
-from .errors import CUDA_OOM_STATUS_CODE, format_cuda_oom_error, is_cuda_oom_error
+from .errors import (
+    CUDA_OOM_STATUS_CODE,
+    DECODER_BACKLOG_ERROR_CODE,
+    format_cuda_oom_error,
+    is_cuda_oom_error,
+)
 from .ipc_frame_source import DEFAULT_IPC_SOCKET_DIR, select_ipc_stream_identity
 from .model_path_policy import validate_model_config, validate_model_path_source
 from .ngc_model_downloader import download_model, download_model_git
@@ -558,6 +563,7 @@ class DecoderProcess(ProcessBase):
                 item.pop("frames", None)
                 item["error"] = "Live decoder backlog exceeded the bounded decoder-to-VLM transport"
                 item["error_status_code"] = 503
+                item["error_code"] = DECODER_BACKLOG_ERROR_CODE
                 self._final_output_queue.put(item)
                 logger.warning(
                     "Dropped a live decoded chunk because the %d-slot host "
@@ -1817,6 +1823,7 @@ class PipelineChunkResult:
     audio_transcript: str = ""
     error: str | None = None
     error_status_code: int = 500
+    error_code: str = "ChunkProcessingError"
     queue_time: float = 0
     processing_latency: float = 0
     is_live_stream_ended: bool = False
@@ -2232,6 +2239,7 @@ class VlmPipeline:
             chunk_result = PipelineChunkResult()
             chunk_result.error = item.get("error", None)
             chunk_result.error_status_code = item.get("error_status_code", 500)
+            chunk_result.error_code = item.get("error_code", "ChunkProcessingError")
             chunk_result.chunk = item["chunk"]
             chunk_result.decode_retry_count = item.get("decode_retry_count", 0)
             if not chunk_result.error:

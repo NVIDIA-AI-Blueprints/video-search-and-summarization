@@ -1324,3 +1324,18 @@ This project is licensed under the **Apache License, Version 2.0**. See the top-
 ## External Materials Notice
 
 NOTICE AND DISCLAIMER: This software automatically retrieves, accesses or interacts with external materials. Those retrieved materials are not distributed with this software and are governed solely by separate terms, conditions and licenses. You are solely responsible for finding, reviewing and complying with all applicable terms, conditions, and licenses, and for verifying the security, integrity and suitability of any retrieved materials for your specific use case. This software is provided "AS IS", without warranty of any kind. The author makes no representations or warranties regarding any retrieved materials, and assumes no liability for any losses, damages, liabilities or legal consequences from your use or inability to use this software or any retrieved materials. Use this software and the retrieved materials at your own risk.
+
+### Recoverable live caption errors
+
+A live `generate_captions` SSE connection remains open when an individual chunk
+is dropped under overload. Its `chunk_responses` entry retains the chunk ID and
+time range and includes an `error` object with `code`, `message`, `status_code`,
+`recoverable`, and `stream_id`. Decoder backlog errors use
+`DecoderBacklogExceeded` with status code `503` and `recoverable: true`.
+
+Clients should keep the connection open, retain the last valid caption, and
+process subsequent captions normally. Reduce concurrent load or increase chunk
+duration if overload persists; do not retry dropped live chunks into the same
+backlog. Successful chunks omit `error`. A fatal model-backend failure continues
+to terminate the request. The SSE HTTP status remains `200` once the connection
+has started; the per-chunk status describes the failed work.
