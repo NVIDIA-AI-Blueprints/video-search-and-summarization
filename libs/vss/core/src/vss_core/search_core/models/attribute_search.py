@@ -23,7 +23,6 @@ from __future__ import annotations
 
 from datetime import datetime  # noqa: TC003  Pydantic field annotation; resolved at runtime
 from typing import Any
-from typing import cast
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
@@ -51,7 +50,7 @@ class AttributeSearchInput(BaseModel):
     min_similarity: float = Field(default=0.3, ge=0.0, le=1.0)
     fuse_multi_attribute: bool = True
     exclude_videos: list[dict[str, str]] = Field(default_factory=list)
-    # Precomputed query embeddings, parallel to ``query`` (NVBug 6781021). When
+    # Precomputed query embeddings, parallel to :meth:`normalized_queries` (NVBug 6781021). When
     # supplied, attribute search reuses these vectors instead of re-embedding the
     # query text on every call — fusion's per-hit fan-out embeds each attribute once
     # up front and passes the vectors through here, so the same attribute is not
@@ -78,10 +77,10 @@ class AttributeSearchInput(BaseModel):
             return None
         if isinstance(self.query_embedding[0], list):
             # Multiple vectors, one per attribute.
-            vectors: list[list[float]] = [list(v) for v in cast("list[list[float]]", self.query_embedding)]
+            vectors: list[list[float]] = [list(v) for v in self.query_embedding]
         else:
             # A single vector for a one-attribute query; wrap it.
-            vectors = [list(cast("list[float]", self.query_embedding))]
+            vectors = [list(self.query_embedding)]
         count = len(self.normalized_queries())
         if len(vectors) != count:
             raise InvalidInputError(f"query_embedding has {len(vectors)} vector(s) but query has {count} attribute(s)")

@@ -277,6 +277,87 @@ def _resolve_video_sources_for_search(
 # ==========================================================================
 
 
+async def _precompute_fusion_embeddings(
+    attributes: list[str], embed_client: TextEmbedder | None, *, has_candidates: bool
+) -> list[list[float]] | None:
+    """Embed once, draining all siblings before propagating or falling back."""
+    if embed_client is None or not attributes or not has_candidates:
+        return None
+    with TimeMeasure("fusion: generate attribute embeddings (once)"):
+        tasks = [asyncio.create_task(embed_client.get_text_embedding(attr)) for attr in attributes]
+        try:
+            return await asyncio.gather(*tasks)
+        except BaseException:
+            # gather propagates the first failure without stopping its siblings.
+            # Finish cleanup before a fallback reuses the same client or locks.
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+
+
+async def _fusion_sensor_id(embed_result: SearchResult, vst_internal_url: str | None) -> str:
+    """Resolve the indexed sensor identity with best-effort VST enrichment."""
+    if embed_result.sensor_id and vst_internal_url:
+        try:
+            sensor_id = await get_sensor_id_from_stream_id(embed_result.sensor_id, vst_internal_url)
+            if sensor_id:
+                return sensor_id
+        except Exception as e:
+            logger.warning(f"VST conversion failed: {scrub_log(str(e))}. Using fallback")
+    return embed_result.sensor_id_raw or embed_result.video_name or embed_result.sensor_id or ""
+
+
+async def _lookup_fusion_attributes(
+    embed_result: SearchResult,
+    attributes: list[str],
+    attribute_search_fn: SupportsAinvoke,
+    attribute_embeddings: list[list[float]] | None,
+    vst_internal_url: str | None,
+    source_type: str,
+) -> tuple[SearchResult, Any]:
+    """Look up one candidate, preserving systemic errors and best-effort misses."""
+    try:
+        start_dt = safe_iso8601_to_datetime(embed_result.start_time)
+        end_dt = safe_iso8601_to_datetime(embed_result.end_time)
+        if start_dt is None or end_dt is None:
+            logger.warning(
+                f"Skipping fusion attribute lookup for {scrub_log(embed_result.video_name)}: "
+                "unparseable start/end timestamp"
+            )
+            return embed_result, None
+        if end_dt <= start_dt:
+            original_start = start_dt
+            start_dt = original_start - timedelta(seconds=2.5)
+            end_dt = original_start + timedelta(seconds=2.5)
+            logger.info(
+                f"Extended 0-duration clip to ±2.5 seconds: {embed_result.start_time} -> "
+                f"[{datetime_to_iso8601(start_dt)}, {datetime_to_iso8601(end_dt)}]"
+            )
+        filter_sensor_id = await _fusion_sensor_id(embed_result, vst_internal_url)
+        attr_params: dict[str, Any] = {
+            "query": attributes,
+            "source_type": source_type,
+            "video_sources": [filter_sensor_id] if filter_sensor_id else None,
+            "timestamp_start": start_dt,
+            "timestamp_end": end_dt,
+            "top_k": 1,
+            "min_similarity": 0.4,
+            "fuse_multi_attribute": True,
+        }
+        if attribute_embeddings is not None:
+            attr_params["query_embedding"] = attribute_embeddings
+        return embed_result, await attribute_search_fn.ainvoke(attr_params)
+    except LibraryError:
+        raise
+    except Exception as e:
+        logger.warning(
+            f"Fusion attribute lookup failed for {scrub_log(embed_result.video_name)}: {scrub_log(str(e))}",
+            exc_info=True,
+        )
+        return embed_result, None
+
+
 async def fusion_search_rerank(
     embed_results: list[SearchResult],
     attributes: list[str],
@@ -288,9 +369,22 @@ async def fusion_search_rerank(
     rrf_w: float = 0.5,
     w_attribute: float = 0.55,
     w_embed: float = 0.35,
-    embed_client: TextEmbedder | None = None,
+    attribute_embed_client: TextEmbedder | None = None,
 ) -> list[SearchResult]:
     """Rerank embed results by fusing each video's embed score with attribute matches.
+
+    ``attribute_embed_client`` precomputes each attribute's vector ONCE and threads
+    it through the per-video fan-out so the same attribute is not re-embedded for
+    every candidate (NVBug 6781021). It must be the same embedder
+    ``attribute_search_fn`` uses (the RTVI-CV ``CVTextEmbedder`` the
+    ``mdx-behavior-*`` vectors were built with); passing a different model yields
+    an ES dims error or silently wrong similarity. When ``None``, the per-hit
+    attribute adapter re-embeds on each call (legacy behavior / unit tests).
+
+    This bounds embedder method calls per request independently of cache capacity.
+    The RTVI-CV client's existing LRU cache also coalesces concurrent HTTP requests
+    for repeated text, so fewer method calls do not imply fewer HTTP requests or
+    establish a latency improvement without measuring the workload and cache state.
 
     Per-video attribute lookups are best-effort: an unexpected failure (or an
     unparseable clip timestamp) degrades that single video to its embed-only
@@ -302,91 +396,32 @@ async def fusion_search_rerank(
     # Drop blank/whitespace-only attributes once so the precomputed vectors stay
     # aligned with the (blank-stripping) normalized_queries() used downstream, and so
     # len(attributes) no longer counts no-op entries (NVBug 6781021, Greptile).
-    attributes = [a for a in attributes if a and a.strip()]
+    attributes = [a.strip() for a in attributes if a and a.strip()]
 
     logger.info(
         f"{fusion_method.upper()} fusion reranking {len(embed_results)} videos using {len(attributes)} attributes"
     )
 
-    # Embed each attribute ONCE up front so the per-hit fan-out below reuses these
-    # vectors instead of re-embedding the same attributes for every candidate video
-    # (NVBug 6781021). When no embed client is supplied, fall back to per-hit
-    # re-embedding through the attribute adapter (legacy behavior / unit tests).
-    # Skip precomputation entirely when there are no candidate videos to rerank: with
-    # nothing to fuse, embedding would only risk an avoidable service failure.
     attribute_embeddings: list[list[float]] | None = None
-    if embed_client is not None and attributes and embed_results:
-        with TimeMeasure("fusion: generate attribute embeddings (once)"):
-            attribute_embeddings = await asyncio.gather(*(embed_client.get_text_embedding(attr) for attr in attributes))
-
-    async def _get_attribute_results(embed_result: SearchResult) -> tuple[SearchResult, Any]:
-        try:
-            start_dt = safe_iso8601_to_datetime(embed_result.start_time)
-            end_dt = safe_iso8601_to_datetime(embed_result.end_time)
-            if start_dt is None or end_dt is None:
-                logger.warning(
-                    f"Skipping fusion attribute lookup for {scrub_log(embed_result.video_name)}: "
-                    "unparseable start/end timestamp"
-                )
-                return embed_result, None
-
-            if end_dt <= start_dt:
-                original_start = start_dt
-                start_dt = original_start - timedelta(seconds=2.5)
-                end_dt = original_start + timedelta(seconds=2.5)
-                logger.info(
-                    f"Extended 0-duration clip to ±2.5 seconds: {embed_result.start_time} -> "
-                    f"[{datetime_to_iso8601(start_dt)}, {datetime_to_iso8601(end_dt)}]"
-                )
-
-            filter_sensor_id = ""
-            if embed_result.sensor_id and vst_internal_url:
-                # Stream-id -> sensor-id resolution is best-effort enrichment with
-                # a defined fallback (sensor_id_raw / video_name / sensor_id), so
-                # it never aborts.
-                try:
-                    filter_sensor_id = await get_sensor_id_from_stream_id(embed_result.sensor_id, vst_internal_url)
-                    if filter_sensor_id != embed_result.sensor_id:
-                        logger.info(f"Converted stream_id '{embed_result.sensor_id}' to sensor_id '{filter_sensor_id}'")
-                except Exception as e:
-                    logger.warning(f"VST conversion failed: {scrub_log(str(e))}. Using fallback")
-
-            if not filter_sensor_id:
-                # VST absent (or resolution failed): fall back to the indexed
-                # sensor identity (the behavior document's sensor.id) carried from
-                # the embed adapter, not the display filename (video_name). A behavior
-                # doc keyed by sensor.id="warehouse_clip" with no path/url is
-                # otherwise missed when the embed hit's video_name is the display
-                # filename "warehouse_clip.mp4" (VIA-2753 review).
-                filter_sensor_id = embed_result.sensor_id_raw or embed_result.video_name or embed_result.sensor_id or ""
-
-            attr_params: dict[str, Any] = {
-                "query": attributes,
-                "source_type": source_type,
-                "video_sources": [filter_sensor_id] if filter_sensor_id else None,
-                "timestamp_start": start_dt,
-                "timestamp_end": end_dt,
-                "top_k": 1,
-                "min_similarity": 0.4,
-                "fuse_multi_attribute": True,
-            }
-            if attribute_embeddings is not None:
-                attr_params["query_embedding"] = attribute_embeddings
-            attribute_results = await attribute_search_fn.ainvoke(attr_params)
-            return embed_result, attribute_results
-        except LibraryError:
-            # Systemic failure (missing index, backend unreachable, invalid input)
-            # affects every video equally — propagate rather than degrade.
-            raise
-        except Exception as e:
-            logger.warning(
-                f"Fusion attribute lookup failed for {scrub_log(embed_result.video_name)}: {scrub_log(str(e))}",
-                exc_info=True,
-            )
-            return embed_result, None
-
+    try:
+        attribute_embeddings = await _precompute_fusion_embeddings(
+            attributes, attribute_embed_client, has_candidates=bool(embed_results)
+        )
+    except LibraryError:
+        raise
+    except Exception as e:
+        logger.warning(
+            "Fusion attribute precomputation failed; using per-candidate lookup: %s", scrub_log(str(e)), exc_info=True
+        )
     # No return_exceptions: a systemic LibraryError from any video propagates.
-    results_list = await asyncio.gather(*[_get_attribute_results(er) for er in embed_results])
+    results_list = await asyncio.gather(
+        *(
+            _lookup_fusion_attributes(
+                result, attributes, attribute_search_fn, attribute_embeddings, vst_internal_url, source_type
+            )
+            for result in embed_results
+        )
+    )
 
     # Timed separately from the enclosing rerank stage: that one wraps the
     # concurrent per-video attribute lookups, so its own self time is zero and
@@ -647,6 +682,7 @@ async def execute_core_search(
                     fusion_method="rrf",
                     rrf_k=config.rrf_k,
                     rrf_w=config.rrf_w,
+                    attribute_embed_client=getattr(attribute_search_fn, "embed_client", None),
                 )
             else:
                 with TimeMeasure(_FUSION_TIMER_NAME):

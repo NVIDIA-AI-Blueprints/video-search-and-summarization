@@ -141,6 +141,14 @@ class AttributeSearchInput(BaseModel):
         default_factory=list, description="List of videos to exclude from results"
     )
 
+    query_embedding: list[float] | list[list[float]] | None = Field(
+        default=None,
+        description="Precomputed attribute embedding(s) from the fusion embed-once seam (NVBug 6781021). "
+        "When non-empty, attribute search skips the embed round-trip and uses these vectors. "
+        "An empty list falls back to generating embeddings. "
+        "Must align with `query` (one vector per attribute, or a single vector for a single query).",
+    )
+
 
 class AttributeSearchMetadata(BaseModel):
     """Metadata for attribute search result"""
@@ -1166,10 +1174,17 @@ async def search_single_attribute(
     frames_index: str | list[str] | None,
     es: AsyncElasticsearch,
     enable_frame_lookup: bool = True,
+    query_embedding: list[float] | None = None,
 ) -> list[AttributeSearchResult]:
-    """Search for a single attribute."""
-    with TimeMeasure("attribute_search: generate text embedding"):
-        query_embedding = await embed_client.get_text_embedding(query_text)
+    """Search for a single attribute.
+
+    When ``query_embedding`` is supplied (e.g. precomputed once by a fusion caller
+    over every attribute), the embed round-trip is skipped so the same attribute
+    is not re-embedded on each per-hit fan-out (NVBug 6781021).
+    """
+    if query_embedding is None:
+        with TimeMeasure("attribute_search: generate text embedding"):
+            query_embedding = await embed_client.get_text_embedding(query_text)
     return await search_by_attributes(
         query_embedding=query_embedding,
         index=index,
@@ -1184,6 +1199,20 @@ async def search_single_attribute(
         source_type=search_input.source_type,
         exclude_videos=search_input.exclude_videos,
     )
+
+
+def _query_embeddings(search_input: AttributeSearchInput, query_count: int) -> list[list[float]] | None:
+    """Normalize precomputed vectors and reject misalignment before dispatch."""
+    qe = search_input.query_embedding
+    if not qe:
+        return None
+    if isinstance(qe[0], list):
+        embeddings = [list(v) for v in qe]
+    else:
+        embeddings = [list(qe)]
+    if len(embeddings) != query_count:
+        raise ValueError("query_embedding must contain one vector per query")
+    return embeddings
 
 
 async def search_attributes(
@@ -1205,6 +1234,8 @@ async def search_attributes(
     """
     queries = [search_input.query] if isinstance(search_input.query, str) else search_input.query
     logger.info(f"Searching {len(queries)} attribute(s) (fuse_multi_attribute={search_input.fuse_multi_attribute})")
+
+    embeddings = _query_embeddings(search_input, len(queries))
 
     # Choose index(es) by source_type: video_file -> behavior_index; otherwise mdx-behavior-* excluding behavior_index
     source_type = search_input.source_type
@@ -1230,6 +1261,7 @@ async def search_attributes(
         # FUSE MODE: Current behavior - fuse object IDs for single screenshot
         return await _fuse_multi_attribute(
             queries=queries,
+            embeddings=embeddings,
             search_input=search_input,
             embed_client=embed_client,
             search_index=search_index,
@@ -1243,6 +1275,7 @@ async def search_attributes(
         # APPEND MODE: Return top_k per attribute independently (no fusion)
         return await _append_multi_attribute(
             queries=queries,
+            embeddings=embeddings,
             search_input=search_input,
             embed_client=embed_client,
             search_index=search_index,
@@ -1256,6 +1289,7 @@ async def search_attributes(
 
 async def _fuse_multi_attribute(
     queries: list[str],
+    embeddings: list[list[float]] | None,
     search_input: AttributeSearchInput,
     embed_client: EmbedClient,
     search_index: str | list[str],
@@ -1288,14 +1322,34 @@ async def _fuse_multi_attribute(
             frames_index=search_frames_index,
             es=es,
             enable_frame_lookup=enable_frame_lookup,
+            query_embedding=embeddings[i] if embeddings is not None else None,
         )
-        for q in queries
+        for i, q in enumerate(queries)
     ]
 
     results_list = await asyncio.gather(*tasks)
     all_results = [result for results in results_list for result in results]
     logger.info(f"Found {len(all_results)} results from {len(queries)} attribute(s)")
 
+    object_ids, sensor_id, frame_timestamps = _fused_object_metadata(all_results)
+    if sensor_id and vst_external_url and search_input.timestamp_start and search_input.timestamp_end:
+        await _attach_fused_screenshot(
+            all_results,
+            search_input.timestamp_start,
+            sensor_id,
+            object_ids,
+            frame_timestamps,
+            vst_external_url,
+            vst_internal_url,
+        )
+
+    return all_results
+
+
+def _fused_object_metadata(
+    all_results: list[AttributeSearchResult],
+) -> tuple[list[int], str | None, list[str]]:
+    """Collect valid object IDs, the first sensor, and available frame timestamps."""
     # Collect object IDs and sensor info from results
     object_ids = []
     sensor_id = None
@@ -1313,50 +1367,65 @@ async def _fuse_multi_attribute(
             except (ValueError, TypeError):
                 pass
 
-    # Generate screenshot (no video generation) - single screenshot for all fused objects
-    if sensor_id and vst_external_url and search_input.timestamp_start and search_input.timestamp_end:
-        try:
-            from vss_agents.tools.vst.utils import get_stream_id
+    return object_ids, sensor_id, frame_timestamps
 
-            start_time = search_input.timestamp_start.isoformat().replace("+00:00", "Z")
 
-            # Get stream_id from sensor_id (accepts either camera name or UUID)
-            # Use internal URL for stream resolution (agent needs internal access)
-            vst_internal_for_resolution = vst_internal_url if vst_internal_url else vst_external_url
-            stream_id = await get_stream_id(sensor_id, vst_internal_for_resolution)
+def _update_fused_screenshots(
+    all_results: list[AttributeSearchResult], stream_id: str, screenshot_url: str | None
+) -> None:
+    """Preserve existing screenshots while updating the fused sensor identities."""
+    for result in all_results:
+        if screenshot_url and not result.screenshot_url:
+            result.screenshot_url = screenshot_url
+        if result.metadata:
+            result.metadata.sensor_id = stream_id
+            logger.debug(f"Updated sensor_id to stream_id '{stream_id}' for fused results")
 
-            screenshot_url = None
-            if stream_id:
-                # Use midpoint of the time range for screenshot (most likely to show all objects)
-                screenshot_timestamp = start_time
-                if frame_timestamps:
-                    # Sort timestamps and pick the middle one (median)
-                    sorted_timestamps = sorted(frame_timestamps)
-                    mid_idx = len(sorted_timestamps) // 2
-                    screenshot_timestamp = sorted_timestamps[mid_idx]
-                    logger.debug(f"Using median frame timestamp for screenshot: {screenshot_timestamp}")
 
-                screenshot_url = build_screenshot_url(vst_external_url, stream_id, screenshot_timestamp)
+async def _attach_fused_screenshot(
+    all_results: list[AttributeSearchResult],
+    timestamp_start: datetime,
+    sensor_id: str,
+    object_ids: list[int],
+    frame_timestamps: list[str],
+    vst_external_url: str,
+    vst_internal_url: str | None,
+) -> None:
+    """Attach one shared screenshot and resolved stream ID on a best-effort basis."""
+    try:
+        from vss_agents.tools.vst.utils import get_stream_id
 
-            # Update all results with screenshot and convert sensor_id to stream_id (UUID)
-            if stream_id:
-                for result in all_results:
-                    if screenshot_url and not result.screenshot_url:
-                        result.screenshot_url = screenshot_url
-                    # Update metadata.sensor_id to stream_id (UUID)
-                    if result.metadata:
-                        result.metadata.sensor_id = stream_id
-                        logger.debug(f"Updated sensor_id to stream_id '{stream_id}' for fused results")
+        start_time = timestamp_start.isoformat().replace("+00:00", "Z")
 
-            logger.info(f"Generated screenshot for {len(object_ids)} objects at stream {stream_id}")
-        except Exception as e:
-            logger.warning(f"Failed to generate screenshot: {e}", exc_info=True)
+        # Get stream_id from sensor_id (accepts either camera name or UUID)
+        # Use internal URL for stream resolution (agent needs internal access)
+        vst_internal_for_resolution = vst_internal_url if vst_internal_url else vst_external_url
+        stream_id = await get_stream_id(sensor_id, vst_internal_for_resolution)
 
-    return all_results
+        screenshot_url = None
+        if stream_id:
+            # Use midpoint of the time range for screenshot (most likely to show all objects)
+            screenshot_timestamp = start_time
+            if frame_timestamps:
+                # Sort timestamps and pick the middle one (median)
+                sorted_timestamps = sorted(frame_timestamps)
+                mid_idx = len(sorted_timestamps) // 2
+                screenshot_timestamp = sorted_timestamps[mid_idx]
+                logger.debug(f"Using median frame timestamp for screenshot: {screenshot_timestamp}")
+
+            screenshot_url = build_screenshot_url(vst_external_url, stream_id, screenshot_timestamp)
+
+        if stream_id:
+            _update_fused_screenshots(all_results, stream_id, screenshot_url)
+
+        logger.info(f"Generated screenshot for {len(object_ids)} objects at stream {stream_id}")
+    except Exception as e:
+        logger.warning(f"Failed to generate screenshot: {e}", exc_info=True)
 
 
 async def _append_multi_attribute(
     queries: list[str],
+    embeddings: list[list[float]] | None,
     search_input: AttributeSearchInput,
     embed_client: EmbedClient,
     search_index: str | list[str],
@@ -1382,7 +1451,7 @@ async def _append_multi_attribute(
 
     # Search each attribute independently
     all_results = []
-    for attr_query in queries:
+    for idx, attr_query in enumerate(queries):
         try:
             attr_results = await search_single_attribute(
                 query_text=attr_query,
@@ -1392,44 +1461,10 @@ async def _append_multi_attribute(
                 frames_index=search_frames_index,
                 es=es,
                 enable_frame_lookup=enable_frame_lookup,
+                query_embedding=embeddings[idx] if embeddings is not None else None,
             )
 
-            # Extend clips < 1 second to 1 second while respecting VST bounds
-            if attr_results and vst_internal_url:
-                for result in attr_results:
-                    await _extend_clip_to_one_second(result, vst_internal_url, vst_external_url)
-
-            # Generate screenshot for each attribute's results independently
-            # Filter out invalid sensor_ids from behavior index (e.g., "0" from garbage ES data) via VST validation
-            valid_results = []
-            if attr_results and vst_external_url:
-                for result in attr_results:
-                    if result.metadata and result.metadata.sensor_id and result.metadata.frame_timestamp:
-                        try:
-                            from vss_agents.tools.vst.utils import get_stream_id
-
-                            # Set video_name to original sensor_id (sensor name) before converting to UUID
-                            result.metadata.video_name = result.metadata.sensor_id
-
-                            vst_internal_for_resolution = vst_internal_url if vst_internal_url else vst_external_url
-                            stream_id = await get_stream_id(result.metadata.sensor_id, vst_internal_for_resolution)
-
-                            # Update metadata.sensor_id to stream_id (UUID)
-                            if stream_id:
-                                result.metadata.sensor_id = stream_id
-
-                            if stream_id and not result.screenshot_url:
-                                result.screenshot_url = build_screenshot_url(
-                                    vst_external_url, stream_id, result.metadata.frame_timestamp
-                                )
-
-                            valid_results.append(result)
-                        except Exception as e:
-                            # Skip result if VST conversion fails
-                            logger.debug(f"Failed to generate screenshot for attribute '{attr_query}': {e}")
-                            continue
-            else:
-                valid_results = attr_results
+            valid_results = await _enrich_appended_results(attr_results, vst_internal_url, vst_external_url, attr_query)
 
             all_results.extend(valid_results)
             logger.info(f"Attribute '{attr_query}': found {len(attr_results)} results")
@@ -1450,6 +1485,50 @@ async def _append_multi_attribute(
         logger.info(f"Returning top {top_k} results after deduplication")
 
     return all_results
+
+
+async def _attach_appended_screenshot(
+    result: AttributeSearchResult,
+    vst_internal_url: str | None,
+    vst_external_url: str,
+    attr_query: str,
+) -> bool:
+    """Resolve an eligible append result; failed VST conversions exclude the result."""
+    try:
+        from vss_agents.tools.vst.utils import get_stream_id
+
+        result.metadata.video_name = result.metadata.sensor_id
+        vst_internal_for_resolution = vst_internal_url if vst_internal_url else vst_external_url
+        stream_id = await get_stream_id(result.metadata.sensor_id, vst_internal_for_resolution)
+        if stream_id:
+            result.metadata.sensor_id = stream_id
+        if stream_id and not result.screenshot_url:
+            result.screenshot_url = build_screenshot_url(vst_external_url, stream_id, result.metadata.frame_timestamp)
+        return True
+    except Exception as e:
+        logger.debug(f"Failed to generate screenshot for attribute '{attr_query}': {e}")
+        return False
+
+
+async def _enrich_appended_results(
+    attr_results: list[AttributeSearchResult],
+    vst_internal_url: str | None,
+    vst_external_url: str,
+    attr_query: str,
+) -> list[AttributeSearchResult]:
+    """Extend short clips and preserve the append path's screenshot eligibility rules."""
+    if attr_results and vst_internal_url:
+        for result in attr_results:
+            await _extend_clip_to_one_second(result, vst_internal_url, vst_external_url)
+    if not (attr_results and vst_external_url):
+        return attr_results
+    valid_results = []
+    for result in attr_results:
+        if not (result.metadata and result.metadata.sensor_id and result.metadata.frame_timestamp):
+            continue
+        if await _attach_appended_screenshot(result, vst_internal_url, vst_external_url, attr_query):
+            valid_results.append(result)
+    return valid_results
 
 
 @register_function(config_type=AttributeSearchConfig)
@@ -1473,6 +1552,13 @@ async def build_attribute_search(config: AttributeSearchConfig, _builder: Builde
             frames_index=config.frames_index,
             enable_frame_lookup=config.enable_frame_lookup,
         )
+
+    # NVBug 6781021: expose the attribute leg's embedder so fusion's embed-once
+    # precompute uses the same RTVI-CV model/instance the mdx-behavior-* vectors
+    # were built with. The NAT builder wraps this closure in a LambdaFunction whose
+    # ``_info.single_fn`` is this closure, so the fusion caller reads it through
+    # ``_attribute_embed_client`` (services/agent/.../search.py).
+    attribute_search_fn.embed_client = embed_client  # type: ignore[attr-defined]
 
     try:
         yield FunctionInfo.create(
