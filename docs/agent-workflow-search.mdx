@@ -1081,51 +1081,7 @@ Use the copied RTSP URL (e.g., `rtsp://<HOST_IP>:31556/nvstream/tmp/nv_streamer/
 To avoid duplicate results due to looping of the same video, ensure that the RTSP stream is deleted from the video management tab some time after it has been added to the agent for search queries.
 </Note>
 
-#### Step 3: Search with a simple query
-
-Navigate to the **Search** tab, open the **Vision Agent** chat sidebar, and enter a natural language query. For example:
-
-```text
-a person carrying boxes
-```
-
-Press Enter or click the send button. The matching video clips appear in the Search tab. See [Step 5: Vision Agent Chat](/vss/vision-agent/agent-workflows/search#step-5-vision-agent-chat) for the chat settings and response details.
-
-![Simple search query and results](/assets/images/agent-workflows/search_simple_query.png)
-
-<Note>
-By default, the **Show top K Results** filter is applied to display the top 10 results. This value can be changed in the filters to show more or fewer results.
-</Note>
-
-#### Step 4: Search with additional filters
-
-To try additional filters, upload the video file `sample-warehouse-ladder.mp4` (following the steps in [Step 2: Upload a video](/vss/vision-agent/agent-workflows/search#upload-a-video)).
-Run a query from the chat sidebar as in Step 3, then collapse the sidebar; the filters are disabled while it is open. The filters narrow the returned results:
-
-- **Source Type**: Show results only from the selected media source type. Choose between 'Video' and 'RTSP'.
-- Click the **Filter** button to open the filter panel with the following options:
-   - **From**: Filter results by the start date and time of the video clips
-   - **To**: Filter results by the start date and time of the video clips
-   - **Video sources**: Show results only from the selected videos
-   - **Min Cosine Similarity**: Set a minimum similarity threshold (-1.00 to 1.00) to filter results based on how closely they match your query. Set a lower threshold for broader results, or raise it for high-confidence matches. Optimal values vary depending on the video content.
-   - **Show top K Results**: Set the maximum number of results to display
-
-Configure the desired filters and click **Apply**.
-
-![Filter panel with timestamp, video sources, cosine similarity, and top K options](/assets/images/agent-workflows/search_filter_query_1.png)
-
-For example, in the filter panel above:
-
-- Set **From** and **To** timestamps to filter results within a specific time range
-- Select specific **Video sources** to show results only from those videos
-- Set **Min Cosine Similarity** to `0.2` to only show results with a similarity score of 0.2 or higher
-- Set **Show top K Results** to `5` to display maximum of top 5 results
-
-After configuring the filters, the search results will be refined based on the applied criteria:
-
-![Search results after applying filters](/assets/images/agent-workflows/search_filter_query_2.png)
-
-#### Step 5: Vision Agent Chat
+#### Step 3: Search with the Vision Agent chat
 
 The Search tab includes a **Vision Agent** chat interface on the right side that provides an interactive way to search through videos using natural language. The Vision Agent automatically selects the best search method based on your query. You can also specify filters directly within your query instead of using the filter panel.
 
@@ -1148,6 +1104,10 @@ The Search tab includes a **Vision Agent** chat interface on the right side that
 The Vision Agent processes your query, selects the best search method (Embed, Attribute, Fusion, or Search by Image), and returns matching video clips in the left panel.
 
 ![Search results returned by the Vision Agent](/assets/images/agent-workflows/search_chat_results_top.png)
+
+<Note>
+The query returns up to 10 results by default. Ask for a specific count in the query (for example, `top 20`) to get more.
+</Note>
 
 Each response in the chat window includes:
 
@@ -1359,7 +1319,35 @@ The Vision Agent automatically selects the best search method based on your quer
 
 </details>
 
-##### Critic Agent Overview
+#### Step 4: Narrow results with filters
+
+To try additional filters, upload the video file `sample-warehouse-ladder.mp4` (following the steps in [Step 2: Upload a video](/vss/vision-agent/agent-workflows/search#upload-a-video)).
+Run a query as in Step 3, then click the **Chat** tab on the right edge to collapse the sidebar. The controls below are in the left sidebar and are disabled while the chat sidebar is open or a response is streaming. They narrow the results the query returned:
+
+- **Source Type**: Show results only from the selected media source type. Choose between 'Video' and 'RTSP'.
+- Click the **Filter** button to open the filter panel with the following options:
+   - **From**: Filter results by the start date and time of the video clips
+   - **To**: Filter results by the start date and time of the video clips
+   - **Video sources**: Show results only from the selected videos
+   - **Min Cosine Similarity**: Set a minimum similarity threshold (-1.00 to 1.00) to filter results based on how closely they match your query. Set a lower threshold for broader results, or raise it for high-confidence matches. Optimal values vary depending on the video content.
+   - **Show top K Results**: Set the maximum number of returned results to display (default 10)
+
+Configure the desired filters and click **Apply**.
+
+![Filter panel with timestamp, video sources, cosine similarity, and top K options](/assets/images/agent-workflows/search_filter_query_1.png)
+
+For example, in the filter panel above:
+
+- Set **From** and **To** timestamps to filter results within a specific time range
+- Select specific **Video sources** to show results only from those videos
+- Set **Min Cosine Similarity** to `0.2` to only show results with a similarity score of 0.2 or higher
+- Set **Show top K Results** to `5` to display maximum of top 5 results
+
+After configuring the filters, the search results will be refined based on the applied criteria:
+
+![Search results after applying filters](/assets/images/agent-workflows/search_filter_query_2.png)
+
+#### Critic Agent Overview
 
 The Critic Agent is a specialized agent that reviews search results with a VLM and annotates each evaluated result as confirmed or rejected.
 
@@ -1480,7 +1468,7 @@ Deduplication is **lossy** — skipped embeddings do not appear in search result
 
 </details>
 
-#### Step 6: Delete Videos or Streams
+#### Step 5: Delete Videos or Streams
 
 To remove uploaded videos or RTSP streams from the agent:
 
@@ -1498,7 +1486,7 @@ The selected videos or streams will be removed from the video list and will no l
 Deleting an uploaded video is best-effort. The agent deletes matching documents from the embed, behavior, and raw Elasticsearch indices when Elasticsearch cleanup is configured, removes the RTVI-CV registration when configured, and deletes the VIOS sensor and storage. Deleting an RTSP stream removes the live stream from VIOS and RTVI services, but the search profile keeps VIOS storage for removed RTSP streams and does not delete previously indexed Elasticsearch data. Previously ingested RTSP data can remain available for chat and search queries until index lifecycle cleanup removes it.
 </Note>
 
-#### Step 7: Teardown the agent
+#### Step 6: Teardown the agent
 
 To teardown the agent, run the following command:
 
