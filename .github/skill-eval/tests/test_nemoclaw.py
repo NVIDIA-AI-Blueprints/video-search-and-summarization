@@ -181,7 +181,7 @@ def test_uploads_only_declared_media_and_checks_hash(monkeypatch, tmp_path):
     (tmp_path / 'credentials.env').write_text('secret')
     digest = hashlib.sha256(b'video').hexdigest()
     calls = []
-    def call(args):
+    def call(args, **kwargs):
         calls.append(args)
         return digest + '  file\n' if 'sha256sum' in args else ''
     monkeypatch.setattr(fixtures, 'call', call)
@@ -194,7 +194,7 @@ def test_uploads_only_declared_media_and_checks_hash(monkeypatch, tmp_path):
 
 
 def test_missing_host_fixture_never_uploads(monkeypatch, tmp_path):
-    monkeypatch.setattr(fixtures, 'call', lambda args: pytest.fail('must validate before transport'))
+    monkeypatch.setattr(fixtures, 'call', lambda args, **kwargs: pytest.fail('must validate before transport'))
     with pytest.raises(ValueError, match='missing or empty'):
         fixtures.stage('se-current', ['missing.mp4'], tmp_path)
 
@@ -202,7 +202,7 @@ def test_missing_host_fixture_never_uploads(monkeypatch, tmp_path):
 
 def test_checksum_mismatch_fails(monkeypatch, tmp_path):
     (tmp_path / 'a.mp4').write_bytes(b'video')
-    monkeypatch.setattr(fixtures, 'call', lambda args: 'incorrect  file\n' if 'sha256sum' in args else '')
+    monkeypatch.setattr(fixtures, 'call', lambda args, **kwargs: 'incorrect  file\n' if 'sha256sum' in args else '')
     with pytest.raises(ValueError, match='checksum mismatch'):
         fixtures.stage('se-current', ['a.mp4'], tmp_path)
 
@@ -213,7 +213,7 @@ def test_multiple_files_are_verified_individually(monkeypatch, tmp_path):
     for name in names:
         (tmp_path / name).write_bytes(name.encode())
     calls = []
-    def call(args):
+    def call(args, **kwargs):
         calls.append(args)
         if 'sha256sum' in args:
             name = Path(args[-1]).name
@@ -284,13 +284,16 @@ def test_only_pending_pairing_is_retried(runner, monkeypatch, tmp_path, pending)
 
 
 
-def test_pairing_deadline_preserves_last_failure_without_short_probe(runner, monkeypatch, tmp_path):
+def test_pairing_deadline_preserves_failure_when_final_probe_times_out(runner, monkeypatch, tmp_path):
     clock = [0.0]
     timeouts = []
     def probe(sandbox, command, **kwargs):
         if "gateway call" in command:
             timeouts.append(kwargs["timeout"])
-            clock[0] += 45 if len(timeouts) == 1 else 15
+            if len(timeouts) == 3:
+                clock[0] += kwargs["timeout"]
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            clock[0] += 30
             return subprocess.CompletedProcess(command, 1, "", "scope upgrade pending approval token=secret")
         return subprocess.CompletedProcess(command, 0, '{"ok":true}', "")
     monkeypatch.setattr(runner, "_ensure_gateway", lambda _: None)
@@ -301,9 +304,9 @@ def test_pairing_deadline_preserves_last_failure_without_short_probe(runner, mon
     with pytest.raises(RuntimeError, match="gateway_authentication"):
         runner._check_readiness("se-test", evidence)
     row = json.loads(evidence.read_text())["stages"][-1]
-    assert timeouts == [30, 30]
+    assert timeouts == [30, 30, 24]
     assert row["reason"] == "pairing_deadline"
-    assert row["attempts"] == 2
+    assert row["attempts"] == 3
     assert row["exit_code"] == 1
     assert "secret" not in evidence.read_text()
 
@@ -377,3 +380,45 @@ def test_prompt_uses_native_inference_without_mutating_provider(runner, monkeypa
     assert (logs / "openclaw.session.jsonl").exists()
     assert not (logs / "agent.log").exists()
 
+
+
+@pytest.mark.parametrize("approve", [True, False])
+def test_pairing_uses_final_remaining_window(runner, monkeypatch, tmp_path, approve):
+    clock = [0.0]
+    calls = []
+    def probe(sandbox, command, **kwargs):
+        if "gateway call" not in command:
+            return subprocess.CompletedProcess(command, 0, '{"ok":true}', "")
+        calls.append(kwargs["timeout"])
+        clock[0] += kwargs["timeout"]
+        if len(calls) == 3 and approve:
+            return subprocess.CompletedProcess(command, 0, '{"ok":true}', "")
+        return subprocess.CompletedProcess(command, 1, "", "pairing required")
+    monkeypatch.setattr(runner, "_ensure_gateway", lambda _: None)
+    monkeypatch.setattr(runner, "_sandbox_exec", probe)
+    monkeypatch.setattr(runner.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(runner.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay))
+    if approve:
+        runner._check_readiness("se-test", tmp_path / "readiness.json")
+    else:
+        with pytest.raises(RuntimeError, match="gateway_authentication"):
+            runner._check_readiness("se-test", tmp_path / "readiness.json")
+    assert calls == [30, 30, 24]
+
+
+def test_media_commands_share_remaining_staging_deadline(monkeypatch):
+    clock = [0.0]
+    timeouts = []
+    monkeypatch.setattr(fixtures.time, "monotonic", lambda: clock[0])
+    def run(args, **kwargs):
+        timeouts.append(kwargs["timeout"])
+        clock[0] += 100
+        return subprocess.CompletedProcess(args, 0, "done", "")
+    monkeypatch.setattr(fixtures.subprocess, "run", run)
+    for command in ("upload", "sha256sum"):
+        fixtures.call([command], deadline=300)
+    assert timeouts == [300, 200]
+    clock[0] = 300
+    with pytest.raises(TimeoutError, match="deadline"):
+        fixtures.call(["upload"], deadline=300)
+    assert len(timeouts) == 2

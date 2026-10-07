@@ -144,14 +144,20 @@ def _check_readiness(sandbox: str, evidence: Path) -> None:
                 deadline = time.monotonic() + 90
                 while True:
                     remaining = deadline - time.monotonic()
-                    if row.get("attempts", 0) and remaining < 30:
-                        # Preserve the useful pairing result rather than
-                        # replacing it with a final one-second exec timeout.
+                    if remaining <= 0:
                         row["reason"] = "pairing_deadline"
                         break
-                    timeout = 30 if stage == "gateway_authentication" else 90
-                    result = _sandbox_exec(sandbox, command, timeout=timeout)
+                    timeout = min(30 if stage == "gateway_authentication" else 90, remaining)
                     row["attempts"] = row.get("attempts", 0) + 1
+                    try:
+                        result = _sandbox_exec(sandbox, command, timeout=timeout)
+                    except subprocess.TimeoutExpired:
+                        if row.get("reason") != "pairing_pending":
+                            raise
+                        # The final short probe must not erase the last
+                        # authenticated client's explicit pairing failure.
+                        row["reason"] = "pairing_deadline"
+                        break
                     pending = stage == "gateway_authentication" and result.returncode != 0 and any(
                         marker in ((result.stderr or "") + (result.stdout or "")).lower()
                         for marker in ("scope upgrade pending approval", "pairing required")

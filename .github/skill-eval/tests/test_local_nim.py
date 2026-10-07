@@ -16,6 +16,14 @@ import local_nim as nim
 import model_config
 import run_leg
 
+REAL_PROXY_NETWORK_POLICY = nim.proxy_network_policy
+
+
+@pytest.fixture(autouse=True)
+def isolate_host_firewall(monkeypatch):
+    monkeypatch.setattr(nim, "proxy_network_policy", lambda *args, **kwargs: None)
+
+
 DIGEST = "sha256:" + "a" * 64
 
 
@@ -482,3 +490,32 @@ def test_spark_never_falls_back_to_other_workers(monkeypatch, nodes):
     monkeypatch.setattr(run_leg, "_list_registered_nodes", lambda: nodes)
     with pytest.raises(ValueError):
         run_leg.spark_instance()
+
+
+
+def test_proxy_network_policy_is_scoped_and_fails_closed(monkeypatch, tmp_path):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    owner = "a" * 24
+    chain = "SE-NIM-" + owner[:20]
+    calls = []
+    def execute(args, **kwargs):
+        calls.append(args)
+        rc = 1 if "-C" in args and "INPUT" in args else 0
+        return subprocess.CompletedProcess(args, rc, "", "")
+    monkeypatch.setattr(nim.subprocess, "run", execute)
+    REAL_PROXY_NETWORK_POLICY(owner)
+    assert [args[6:] for args in calls if "-A" in args] == [
+        [chain, "-i", interface, "-j", "ACCEPT"] for interface in ("lo", "docker0", "br+")
+    ] + [[chain, "-j", "REJECT"]]
+    assert calls[-1][5:] == ["-I", "INPUT", "-p", "tcp", "--dport", "18400", "-j", chain]
+    REAL_PROXY_NETWORK_POLICY(owner, remove=True)
+    assert not (nim.owner_paths(owner) / "network-policy.json").exists()
+    assert calls[-2][5:] == ["-F", chain]
+    assert calls[-1][5:] == ["-X", chain]
+    monkeypatch.setattr(nim.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 2, "", ""))
+    monkeypatch.setattr(nim, "proxy_network_policy", REAL_PROXY_NETWORK_POLICY)
+    launch = Mock()
+    monkeypatch.setattr(nim, "docker", launch)
+    with pytest.raises(nim.NimError, match="Cannot enforce"):
+        nim.start(plan())
+    launch.assert_not_called()

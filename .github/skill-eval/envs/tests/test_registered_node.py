@@ -341,14 +341,16 @@ class PreparationRetries(unittest.IsolatedAsyncioTestCase):
                 execute.assert_awaited_once()
                 pause.assert_not_awaited()
 
-    async def test_transfer_recovers_from_rate_limit(self):
-        failure = brev_env.ExecResult(stderr="Too many requests", return_code=1)
-        success = brev_env.ExecResult(return_code=0)
-        with mock.patch.object(brev_env, "_run_brev_copy_once", new=mock.AsyncMock(side_effect=[failure, success])) as transfer, \
-             mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()) as pause:
-            self.assertIs(await brev_env._run_brev_copy("src", "worker:dst"), success)
-        self.assertEqual(transfer.await_count, 2)
-        pause.assert_awaited_once_with(0)
+    async def test_transfer_recovers_from_transient_failures(self):
+        for message in ("Too many requests", "Connection closed by remote host", "client_loop: send disconnect: Broken pipe"):
+            with self.subTest(message=message):
+                failure = brev_env.ExecResult(stderr=message, return_code=1)
+                success = brev_env.ExecResult(return_code=0)
+                with mock.patch.object(brev_env, "_run_brev_copy_once", new=mock.AsyncMock(side_effect=[failure, success])) as transfer, \
+                     mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()) as pause:
+                    self.assertIs(await brev_env._run_brev_copy("src", "worker:dst"), success)
+                self.assertEqual(transfer.await_count, 2)
+                pause.assert_awaited_once_with(0)
 
     async def test_cancellation_does_not_trigger_retry(self):
         with mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(side_effect=asyncio.CancelledError)), \

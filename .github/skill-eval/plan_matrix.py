@@ -526,7 +526,8 @@ def main() -> int:
         print(f"  {f}", file=sys.stderr)
     matrix = build_matrix(changed)
     if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
-        matrix = [row for row in matrix if row.get("platform") == "DGX-SPARK"]
+        matrix = [row for row in matrix if row.get("platform") == "DGX-SPARK"
+                  or (not row.get("platform") and row.get("kind") in {"missing_adapter", "missing_platform"})]
         if not matrix:
             raise ValueError("Spark worker selected, but no DGX-SPARK eval specs are declared")
     else:

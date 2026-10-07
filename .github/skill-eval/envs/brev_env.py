@@ -1384,9 +1384,9 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                     'export PATH="$HOME/.local/bin:$PATH"; source ~/.profile 2>/dev/null; '
                     'python3 "$HOME/video-search-and-summarization/.github/skill-eval/nemoclaw/stage_fixtures.py" '
                     f"--sandbox {shlex.quote(sandbox)} --files-json {shlex.quote(fixtures)}",
-                    # One mkdir plus upload/checksum per file, each bounded
-                    # to 45s by stage_fixtures.py, with 45s transport headroom.
-                    timeout=90 + 90 * len(json.loads(fixtures)),
+                    # Shared deadline covers mkdir, uploads and hashes; leave
+                    # transport headroom beyond the helper's own deadline.
+                    timeout=75 + 300 * len(json.loads(fixtures)),
                 )
                 if staged.return_code != 0:
                     result = ExecResult(
@@ -1972,6 +1972,7 @@ def _transient_transport_failure(result: ExecResult) -> bool:
     return result.return_code == 124 or any(term in detail for term in (
         "deadline_exceeded", "context deadline exceeded", "rate limit", "too many requests",
         "connection reset", "connection refused", "connection timed out",
+        "connection closed", "connection lost", "broken pipe",
         "connection failed", "connection corrupted", "bad packet length",
         "no route to host", "temporary failure in name resolution",
     ))

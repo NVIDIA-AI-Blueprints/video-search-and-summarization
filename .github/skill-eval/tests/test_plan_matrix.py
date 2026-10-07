@@ -587,13 +587,15 @@ class SparkDispatch(unittest.TestCase):
                 emit.assert_called_once_with([rows[0], rows[2], rows[3]])
 
     def test_spark_selection_excludes_other_hardware(self):
-        rows = [{"platform": "L40S"}, {"platform": "DGX-SPARK"}]
+        rows = [{"platform": "L40S"}, {"platform": "DGX-SPARK"},
+                {"platform": "", "kind": "missing_adapter"},
+                {"platform": "", "kind": "missing_platform"}]
         with patch.dict(os.environ, {"SKILLS_EVAL_SPARK_RUNNER": "true"}, clear=True), \
              patch.object(plan_matrix, "list_changed_files", return_value=[]), \
              patch.object(plan_matrix, "build_matrix", return_value=rows), \
              patch.object(plan_matrix, "emit") as emit:
             self.assertEqual(plan_matrix.main(), 0)
-        emit.assert_called_once_with([rows[1]])
+        emit.assert_called_once_with(rows[1:])
 
     def test_spark_selection_rejects_unsupported_specs(self):
         with patch.dict(os.environ, {"SKILLS_EVAL_SPARK_RUNNER": "true"}, clear=True), \

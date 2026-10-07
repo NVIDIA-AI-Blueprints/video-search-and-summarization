@@ -123,7 +123,11 @@ Startup is bounded to 5,400 seconds within the existing environment deadline;
 cold downloads may exceed this and fail explicitly. The worker needs access
 to NGC, Docker Hub (`python:3.12-slim`), and PyPI (`litellm[proxy]==1.103.0`).
 The adapter listens on port 18400 and is advertised on the worker's private address.
-NIM ports 18410+ bind to loopback.
+NIM ports 18410+ bind to loopback. Before the proxy starts, a job-owned IPv4
+INPUT policy allows port 18400 only through loopback or Docker bridge interfaces
+(`docker0` / `br+`), rejecting traffic from other interfaces. The worker requires
+passwordless `sudo iptables`; startup fails closed when enforcement is unavailable.
+Cleanup stops the owned containers before removing that job's firewall rules.
 Job-owned containers are removed when the leg ends or is cancelled. The next
 first-task Docker reset reconciles leftovers after an uncatchable SIGKILL.
 Weights persist under `~/.cache/skill-eval-nim-models/`, outside Docker volumes.

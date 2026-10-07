@@ -240,7 +240,7 @@ class SubprocessCancellationTest(unittest.IsolatedAsyncioTestCase):
             marker = self._agent_marker_from_command(run.await_args_list[0].args[1])
             self.assertIn(f"{brev_env.REMOTE_AGENT_RUN_ENV}={marker}", run.await_args_list[1].args[1])
             self.assertIn("se-current", run.await_args_list[1].args[1])
-            self.assertEqual(run.await_args_list[1].kwargs["timeout"], 180)
+            self.assertEqual(run.await_args_list[1].kwargs["timeout"], 375)
             self.assertEqual(run.await_count, 3 if staging_rc else 2)
 
     async def test_two_fixture_files_receive_sufficient_transfer_budget(self):
@@ -254,7 +254,7 @@ class SubprocessCancellationTest(unittest.IsolatedAsyncioTestCase):
         }), mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(return_value=brev_env.ExecResult(return_code=0))) as run:
             result = await env.exec("codex exec --json")
         self.assertEqual(result.return_code, 0)
-        self.assertEqual(run.await_args_list[1].kwargs["timeout"], 270)
+        self.assertEqual(run.await_args_list[1].kwargs["timeout"], 675)
 
     async def test_nonzero_codex_exec_is_marked_and_reaped(self):
         env = brev_env.BrevEnvironment()

@@ -319,8 +319,57 @@ def wait_ready(url: str, token: str, timeout: int = 900, container: str | None =
     raise NimError(f"Local NIM readiness timed out: {url}")
 
 
+def proxy_network_policy(owner: str, *, remove=False):
+    """Keep the anonymous host-network proxy reachable only locally/by Docker."""
+    root = owner_paths(owner)  # validates owner before it becomes a chain name
+    receipt = root / "network-policy.json"
+    chain = "SE-NIM-" + owner[:20]
+
+    def iptables(*args, check=True):
+        result = subprocess.run(
+            ["sudo", "-n", "iptables", "-w", "5", *args],
+            capture_output=True, text=True, timeout=30,
+        )
+        if check and result.returncode:
+            raise NimError("Cannot enforce local inference network policy")
+        return result
+
+    jump = ("INPUT", "-p", "tcp", "--dport", str(PROXY_PORT), "-j", chain)
+    if remove:
+        if not receipt.exists():
+            return
+        result = iptables("-C", *jump, check=False)
+        if result.returncode == 0:
+            iptables("-D", *jump)
+        elif result.returncode != 1:
+            raise NimError("Cannot inspect local inference network policy")
+        iptables("-F", chain)
+        iptables("-X", chain)
+        receipt.unlink()
+        return
+
+    rules = [("-i", interface, "-j", "ACCEPT") for interface in ("lo", "docker0", "br+")]
+    rules.append(("-j", "REJECT"))
+    if not receipt.exists():
+        iptables("-N", chain)
+        # Record ownership before subsequent commands so interrupted setup
+        # can remove only this job's chain after stopping its containers.
+        receipt.write_text(json.dumps({"chain": chain, "port": PROXY_PORT}))
+        for rule in rules:
+            iptables("-A", chain, *rule)
+    else:
+        for rule in rules:
+            iptables("-C", chain, *rule)
+    result = iptables("-C", *jump, check=False)
+    if result.returncode == 1:
+        iptables("-I", *jump)
+    elif result.returncode:
+        raise NimError("Cannot inspect local inference network policy")
+
+
 def start(plan: dict):
     root = owner_paths(plan["owner"])
+    proxy_network_policy(plan["owner"])
     marker = root / "ready.json"
     if marker.exists():
         # Same leg, later task: share the existing services. A new chain's
@@ -659,6 +708,7 @@ def cleanup(owner: str, remove_files: bool = True):
         raise NimError("Unable to enumerate local NIM containers for cleanup")
     for container in result.stdout.split():
         docker("rm", "-f", container)
+    proxy_network_policy(owner, remove=True)
     if remove_files:
         for name in ("proxy.json", "ready.json"):
             (root / name).unlink(missing_ok=True)
