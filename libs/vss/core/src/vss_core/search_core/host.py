@@ -156,8 +156,8 @@ class VSSSearch:
         """Best-effort critic pass over retrieved intervals.
 
         Search never depends on verification succeeding. Missing dependencies,
-        invalid media bounds, or a critic/VLM failure leave the affected hits at
-        their model default of ``unverified``.
+        invalid media bounds, or a critic/VLM failure leave the affected hits
+        without a ``critic_result``, i.e. unverified.
         """
         if self._critic is None or not output.data:
             return output
@@ -225,16 +225,16 @@ class VSSSearch:
         for index, verdict in zip(candidate_indices, critic_output.video_results, strict=False):
             verified_results[index] = verified_results[index].model_copy(
                 update={
-                    "verification": SearchVerification(
+                    "critic_result": SearchVerification(
                         result=verdict.result.value,
-                        criteria_met=verdict.criteria_met,
+                        criteria_met=verdict.criteria_met or {},
                     )
                 }
             )
         # `evaluation_count` can truncate the critic run below the candidate
-        # count; the hits it did not evaluate stay at their model default of
-        # `unverified`. Surface that rather than silently dropping them -- the
-        # CLI passes no cap today, so this is a guard for callers that do.
+        # count; the hits it did not evaluate carry no `critic_result`. Surface
+        # that rather than silently dropping them -- the CLI passes no cap
+        # today, so this is a guard for callers that do.
         if len(critic_output.video_results) < len(candidate_indices):
             extra_messages.append(
                 f"Visual verification evaluated {len(critic_output.video_results)} of "
