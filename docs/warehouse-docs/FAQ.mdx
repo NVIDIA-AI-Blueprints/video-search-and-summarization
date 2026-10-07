@@ -228,9 +228,11 @@ This change forces the PGIE scaling operation to run on the GPU, which may lower
 
 This section provides answers to some of the frequently asked questions on using VST application:
 
-### Can I add streams again after removing all streams from VST?
+### Why do streams fail to restart after removing and re-adding them in VST?
 
-After removing all streams from VST, redeploy the Warehouse Blueprint before adding new streams or re-adding the original streams.
+When using NVStreamer synchronized playback, all streams specified by `nv_streamer_sync_file_count` must request playback within `nv_streamer_sync_data_arrival_timeout_secs` (default: `150` seconds). Re-adding streams too slowly or adding fewer than the configured count can prevent playback.
+
+Increase the timeout for slower re-adds. If you still cannot re-add all streams within the timeout, or the number of streams changes, update the deployment configuration as needed and redeploy the Warehouse Blueprint. Increasing the timeout alone does not help if fewer streams are re-added.
 
 ### Why are object IDs missing from the video overlay?
 
