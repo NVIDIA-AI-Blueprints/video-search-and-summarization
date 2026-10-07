@@ -9,7 +9,7 @@ Recommended for publication based on the completed evaluation evidence in this r
 ## Evaluation Metadata
 
 - Skill: `vss-summarize-video`
-- Evaluation date: 2026-10-05
+- Evaluation date: 2026-10-07
 - Evaluator version: `1.5.6`
 - Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`), Codex (`openai/openai/gpt-5.5`)
 - Tasks: 3 evaluation tasks (2 positive, 1 negative)
@@ -35,12 +35,12 @@ The three-tier evaluation checks whether the skill:
 
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | Not available | 78.2% — baseline ran, but no comparable score was available; uplift unavailable |
-| Security | Not available | 33.3% → 100.0% (+66.7 points) |
-| Correctness | Not available | 46.7% → 53.3% (+6.6 points) |
-| Discoverability | Not available | 92.5% — baseline ran, but no comparable score was available; uplift unavailable |
-| Effectiveness | Not available | 38.6% → 48.6% (+10.0 points) |
-| Efficiency | Not available | 96.6% — baseline ran, but no comparable score was available; uplift unavailable |
+| Overall | 77.4% — baseline ran, but no comparable score was available; uplift unavailable | 84.5% — baseline ran, but no comparable score was available; uplift unavailable |
+| Security | 100.0% → 100.0% (±0.0 points) | 66.7% → 100.0% (+33.3 points) |
+| Correctness | 20.0% → 53.3% (+33.3 points) | 26.7% → 66.7% (+40.0 points) |
+| Discoverability | 95.0% — baseline ran, but no comparable score was available; uplift unavailable | 90.0% — baseline ran, but no comparable score was available; uplift unavailable |
+| Effectiveness | 40.3% → 52.8% (+12.5 points) | 47.8% → 69.2% (+21.4 points) |
+| Efficiency | 86.1% — baseline ran, but no comparable score was available; uplift unavailable | 96.7% — baseline ran, but no comparable score was available; uplift unavailable |
 
 **How to read this table:** baseline is the same task attempted without the target skill. Scores are rounded to one decimal; threshold-adjacent values use additional precision so their displayed band matches the verdict. Uplift is derived from those displayed scores and shown in percentage points.
 
@@ -54,15 +54,15 @@ Actual Tier 3 execution usage is reported for every observed agent/case pair and
 
 | Agent | Dataset case | With skill | Without skill | Delta | Change | Coverage |
 |---|---|---:|---:|---:|---:|---|
-| claude-code | All cases | 1,336,244 | 1,952,919 | -616,675 | -31.58% | skill 3/3; base 3/3 |
-| claude-code | summarize-video | 499,762 | 1,646,537 | -1,146,775 | -69.65% | skill 1/1; base 1/1 |
-| claude-code | summarize-video-negative-archive-search | 406,496 | 122,179 | +284,317 | +232.71% | skill 1/1; base 1/1 |
-| claude-code | summarize-video-no-lvs-vlm-fallback | 429,986 | 184,203 | +245,783 | +133.43% | skill 1/1; base 1/1 |
-| codex | All cases | 384,277 | 908,141 | -523,864 | -57.69% | skill 3/3; base 3/3 |
-| codex | summarize-video | 46,571 | 292,192 | -245,621 | -84.06% | skill 1/1; base 1/1 |
-| codex | summarize-video-negative-archive-search | 160,426 | 86,335 | +74,091 | +85.82% | skill 1/1; base 1/1 |
-| codex | summarize-video-no-lvs-vlm-fallback | 177,280 | 529,614 | -352,334 | -66.53% | skill 1/1; base 1/1 |
-| ALL AGENTS | Dataset aggregate | 1,720,521 | 2,861,060 | -1,140,539 | -39.86% | skill 6/6; base 6/6 |
+| claude-code | All cases | 1,089,392 | 456,982 | +632,410 | +138.39% | skill 3/3; base 3/3 |
+| claude-code | summarize-video | 511,891 | 215,228 | +296,663 | +137.84% | skill 1/1; base 1/1 |
+| claude-code | summarize-video-negative-archive-search | 196,233 | 59,729 | +136,504 | +228.54% | skill 1/1; base 1/1 |
+| claude-code | summarize-video-no-lvs-vlm-fallback | 381,268 | 182,025 | +199,243 | +109.46% | skill 1/1; base 1/1 |
+| codex | All cases | 410,878 | 741,760 | -330,882 | -44.61% | skill 3/3; base 3/3 |
+| codex | summarize-video | 90,308 | 571,461 | -481,153 | -84.20% | skill 1/1; base 1/1 |
+| codex | summarize-video-negative-archive-search | 189,825 | 114,991 | +74,834 | +65.08% | skill 1/1; base 1/1 |
+| codex | summarize-video-no-lvs-vlm-fallback | 130,745 | 55,308 | +75,437 | +136.39% | skill 1/1; base 1/1 |
+| ALL AGENTS | Dataset aggregate | 1,500,270 | 1,198,742 | +301,528 | +25.15% | skill 6/6; base 6/6 |
 
 Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. N/A means the relevant trajectory counters were not available; coverage is never estimated.
 
@@ -70,7 +70,7 @@ Prompt tokens include cached reads, so total tokens are `prompt + completion` (c
 
 | Tier | Purpose | Status | Evidence |
 |---|---|---|---|
-| Tier 1 | Static validation | **PASSED WITH OBSERVATIONS** | 11 validator(s); 13 finding(s) |
+| Tier 1 | Static validation | **PASSED WITH OBSERVATIONS** | 11 validator(s); 14 finding(s) |
 | Tier 2 | Semantic deduplication | **PASSED WITH OBSERVATIONS** | 2 validator(s); 2 finding(s) |
 | Tier 3 | Live agent evaluation | **PASS** | 2 agent(s); 3 task(s) |
 
@@ -79,14 +79,18 @@ Prompt tokens include cached reads, so total tokens are `prompt + completion` (c
 <details>
 <summary>Show detailed findings and successful checks</summary>
 
-- **CRITICAL** CONTENT_DEDUP/llm_error: LLM analysis failed for a content cluster (`skills/operations/vss-summarize-video`)
+- **HIGH** DUPLICATE/duplicate: Duplicate content found across references/video-summarization-api.md and references/video-summarization-debugging.md and references/video-summarization-deployment.md:
+  "## Models" in references/video-summarization-api.md (lines 118-127)
+  vs "## Model Id Mismatch" in references/video-summarization-debugging.md (lines 40-51)
+  vs "## Model Id Rule" in references/video-summarization-deployment.md (lines 265-275)
+  vs "# RT-VLM model id" in references/video-summarization-deployment.md (lines 301-303) (`references/video-summarization-api.md:118`)
 - **HIGH** DUPLICATE/duplicate: Duplicate content found across references/hitl-prompts.md and references/video-summarization-api.md:
   "### HITL: collect scenario and events first (REQUIRED — do not skip)" in references/hitl-prompts.md (lines 88-91)
   vs "## File Summarization" in references/video-summarization-api.md (lines 196-198) (`references/hitl-prompts.md:88`)
 - **MEDIUM** QUALITY/quality_efficiency: Large skill (5303 tokens, recommended max <5000). Per agentskills.io, SKILL.md should be concise (~500 lines) — large skill bodies increase token cost after invocation; long or unfocused top-level descriptions can degrade agent routing accuracy (`skills/operations/vss-summarize-video/SKILL.md`)
 - **MEDIUM** SCHEMA/folder_hierarchy: Unexpected nesting depth for general skill (`skills/operations/vss-summarize-video`)
 - **MEDIUM** SECURITY/Unknown (RP1): MCP Rug Pull: Docker image references without a specific tag (:latest is implicit) or digest (@sha256:...) can be silently replaced by (`references/deploy-lvs-service.md:56`)
-- 10 additional finding(s) are available in the full evaluation artifacts.
+- 11 additional finding(s) are available in the full evaluation artifacts.
 
 </details>
 

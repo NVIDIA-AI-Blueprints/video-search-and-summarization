@@ -9,7 +9,7 @@ Recommended for publication based on the completed evaluation evidence in this r
 ## Evaluation Metadata
 
 - Skill: `vss-generate-video-report`
-- Evaluation date: 2026-10-05
+- Evaluation date: 2026-10-07
 - Evaluator version: `1.5.6`
 - Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`), Codex (`openai/openai/gpt-5.5`)
 - Tasks: 14 evaluation tasks (13 positive, 1 negative)
@@ -35,12 +35,12 @@ The three-tier evaluation checks whether the skill:
 
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 90.8% — baseline ran, but no comparable score was available; uplift unavailable | 88.4% — baseline ran, but no comparable score was available; uplift unavailable |
-| Security | 100.0% → 100.0% (±0.0 points) | 100.0% → 100.0% (±0.0 points) |
-| Correctness | 12.9% → 94.3% (+81.4 points) | 38.6% → 91.4% (+52.8 points) |
-| Discoverability | 84.6% — baseline ran, but no comparable score was available; uplift unavailable | 71.5% — baseline ran, but no comparable score was available; uplift unavailable |
-| Effectiveness | 3.4% → 83.5% (+80.1 points) | 12.7% → 81.7% (+69.0 points) |
-| Efficiency | 91.6% — baseline ran, but no comparable score was available; uplift unavailable | 97.3% — baseline ran, but no comparable score was available; uplift unavailable |
+| Overall | 87.5% — baseline ran, but no comparable score was available; uplift unavailable | 89.7% — baseline ran, but no comparable score was available; uplift unavailable |
+| Security | 100.0% → 100.0% (±0.0 points) | 96.4% → 100.0% (+3.6 points) |
+| Correctness | 11.4% → 91.4% (+80.0 points) | 38.6% → 94.3% (+55.7 points) |
+| Discoverability | 80.0% — baseline ran, but no comparable score was available; uplift unavailable | 74.6% — baseline ran, but no comparable score was available; uplift unavailable |
+| Effectiveness | 8.7% → 77.6% (+68.9 points) | 14.5% → 82.1% (+67.6 points) |
+| Efficiency | 88.4% — baseline ran, but no comparable score was available; uplift unavailable | 97.3% — baseline ran, but no comparable score was available; uplift unavailable |
 
 **How to read this table:** baseline is the same task attempted without the target skill. Scores are rounded to one decimal; threshold-adjacent values use additional precision so their displayed band matches the verdict. Uplift is derived from those displayed scores and shown in percentage points.
 
@@ -54,37 +54,37 @@ Actual Tier 3 execution usage is reported for every observed agent/case pair and
 
 | Agent | Dataset case | With skill | Without skill | Delta | Change | Coverage |
 |---|---|---:|---:|---:|---:|---|
-| claude-code | All cases | 1,359,955 | 2,269,385 | -909,430 | -40.07% | skill 14/14; base 14/14 |
-| claude-code | summarize-without-report-non-activation | 219,548 | 88,945 | +130,603 | +146.84% | skill 1/1; base 1/1 |
-| claude-code | video-report-empty-range-policy | 122,224 | 120,121 | +2,103 | +1.75% | skill 1/1; base 1/1 |
-| claude-code | video-report-hitl-harness-fallback | 74,862 | 149,992 | -75,130 | -50.09% | skill 1/1; base 1/1 |
-| claude-code | video-report-hitl-multi-edit-loop | 74,621 | 149,188 | -74,567 | -49.98% | skill 1/1; base 1/1 |
-| claude-code | video-report-hitl-off-policy | 75,042 | 246,076 | -171,034 | -69.50% | skill 1/1; base 1/1 |
-| claude-code | video-report-hitl-on-policy | 74,462 | 150,630 | -76,168 | -50.57% | skill 1/1; base 1/1 |
-| claude-code | video-report-hitl-stall-guard | 74,469 | 209,163 | -134,694 | -64.40% | skill 1/1; base 1/1 |
-| claude-code | video-report-local-or-base64-path | 135,473 | 150,803 | -15,330 | -10.17% | skill 1/1; base 1/1 |
-| claude-code | video-report-long-video-lvs-handoff | 74,570 | 401,857 | -327,287 | -81.44% | skill 1/1; base 1/1 |
-| claude-code | video-report-profile-agnostic-mode-a | 74,377 | 181,372 | -106,995 | -58.99% | skill 1/1; base 1/1 |
-| claude-code | video-report-routing-mode-a | 29,377 | 29,495 | -118 | -0.40% | skill 1/1; base 1/1 |
-| claude-code | video-report-routing-mode-b | 29,329 | 29,570 | -241 | -0.82% | skill 1/1; base 1/1 |
-| claude-code | video-report-step3-no-vss-agent-fallback | 168,893 | 150,808 | +18,085 | +11.99% | skill 1/1; base 1/1 |
-| claude-code | video-report-vlm-unclear-options | 132,708 | 211,365 | -78,657 | -37.21% | skill 1/1; base 1/1 |
-| codex | All cases | 1,043,213 | 825,356 | +217,857 | +26.40% | skill 14/14; base 14/14 |
-| codex | summarize-without-report-non-activation | 40,944 | 26,768 | +14,176 | +52.96% | skill 1/1; base 1/1 |
-| codex | video-report-empty-range-policy | 68,031 | 54,881 | +13,150 | +23.96% | skill 1/1; base 1/1 |
-| codex | video-report-hitl-harness-fallback | 61,504 | 83,598 | -22,094 | -26.43% | skill 1/1; base 1/1 |
-| codex | video-report-hitl-multi-edit-loop | 62,040 | 40,599 | +21,441 | +52.81% | skill 1/1; base 1/1 |
-| codex | video-report-hitl-off-policy | 138,651 | 83,428 | +55,223 | +66.19% | skill 1/1; base 1/1 |
-| codex | video-report-hitl-on-policy | 86,437 | 102,290 | -15,853 | -15.50% | skill 1/1; base 1/1 |
-| codex | video-report-hitl-stall-guard | 49,943 | 40,732 | +9,211 | +22.61% | skill 1/1; base 1/1 |
-| codex | video-report-local-or-base64-path | 131,633 | 69,495 | +62,138 | +89.41% | skill 1/1; base 1/1 |
-| codex | video-report-long-video-lvs-handoff | 50,419 | 88,494 | -38,075 | -43.03% | skill 1/1; base 1/1 |
-| codex | video-report-profile-agnostic-mode-a | 94,867 | 80,018 | +14,849 | +18.56% | skill 1/1; base 1/1 |
-| codex | video-report-routing-mode-a | 13,385 | 13,455 | -70 | -0.52% | skill 1/1; base 1/1 |
-| codex | video-report-routing-mode-b | 13,359 | 13,368 | -9 | -0.07% | skill 1/1; base 1/1 |
-| codex | video-report-step3-no-vss-agent-fallback | 152,023 | 54,551 | +97,472 | +178.68% | skill 1/1; base 1/1 |
-| codex | video-report-vlm-unclear-options | 79,977 | 73,679 | +6,298 | +8.55% | skill 1/1; base 1/1 |
-| ALL AGENTS | Dataset aggregate | 2,403,168 | 3,094,741 | -691,573 | -22.35% | skill 28/28; base 28/28 |
+| claude-code | All cases | 1,234,432 | 2,091,782 | -857,350 | -40.99% | skill 14/14; base 14/14 |
+| claude-code | summarize-without-report-non-activation | 60,123 | 88,809 | -28,686 | -32.30% | skill 1/1; base 1/1 |
+| claude-code | video-report-empty-range-policy | 122,097 | 89,866 | +32,231 | +35.87% | skill 1/1; base 1/1 |
+| claude-code | video-report-hitl-harness-fallback | 122,097 | 181,615 | -59,518 | -32.77% | skill 1/1; base 1/1 |
+| claude-code | video-report-hitl-multi-edit-loop | 74,785 | 120,179 | -45,394 | -37.77% | skill 1/1; base 1/1 |
+| claude-code | video-report-hitl-off-policy | 74,652 | 214,422 | -139,770 | -65.18% | skill 1/1; base 1/1 |
+| claude-code | video-report-hitl-on-policy | 74,557 | 150,308 | -75,751 | -50.40% | skill 1/1; base 1/1 |
+| claude-code | video-report-hitl-stall-guard | 74,566 | 272,359 | -197,793 | -72.62% | skill 1/1; base 1/1 |
+| claude-code | video-report-local-or-base64-path | 136,077 | 185,522 | -49,445 | -26.65% | skill 1/1; base 1/1 |
+| claude-code | video-report-long-video-lvs-handoff | 121,692 | 245,011 | -123,319 | -50.33% | skill 1/1; base 1/1 |
+| claude-code | video-report-profile-agnostic-mode-a | 74,328 | 119,884 | -45,556 | -38.00% | skill 1/1; base 1/1 |
+| claude-code | video-report-routing-mode-a | 29,343 | 29,359 | -16 | -0.05% | skill 1/1; base 1/1 |
+| claude-code | video-report-routing-mode-b | 29,358 | 29,430 | -72 | -0.24% | skill 1/1; base 1/1 |
+| claude-code | video-report-step3-no-vss-agent-fallback | 134,574 | 213,083 | -78,509 | -36.84% | skill 1/1; base 1/1 |
+| claude-code | video-report-vlm-unclear-options | 106,183 | 151,935 | -45,752 | -30.11% | skill 1/1; base 1/1 |
+| codex | All cases | 1,125,779 | 1,446,959 | -321,180 | -22.20% | skill 14/14; base 14/14 |
+| codex | summarize-without-report-non-activation | 40,841 | 26,772 | +14,069 | +52.55% | skill 1/1; base 1/1 |
+| codex | video-report-empty-range-policy | 48,513 | 68,686 | -20,173 | -29.37% | skill 1/1; base 1/1 |
+| codex | video-report-hitl-harness-fallback | 59,949 | 70,213 | -10,264 | -14.62% | skill 1/1; base 1/1 |
+| codex | video-report-hitl-multi-edit-loop | 62,216 | 54,524 | +7,692 | +14.11% | skill 1/1; base 1/1 |
+| codex | video-report-hitl-off-policy | 140,402 | 693,826 | -553,424 | -79.76% | skill 1/1; base 1/1 |
+| codex | video-report-hitl-on-policy | 112,998 | 83,923 | +29,075 | +34.64% | skill 1/1; base 1/1 |
+| codex | video-report-hitl-stall-guard | 66,626 | 45,311 | +21,315 | +47.04% | skill 1/1; base 1/1 |
+| codex | video-report-local-or-base64-path | 74,453 | 55,421 | +19,032 | +34.34% | skill 1/1; base 1/1 |
+| codex | video-report-long-video-lvs-handoff | 50,524 | 88,402 | -37,878 | -42.85% | skill 1/1; base 1/1 |
+| codex | video-report-profile-agnostic-mode-a | 111,940 | 108,897 | +3,043 | +2.79% | skill 1/1; base 1/1 |
+| codex | video-report-routing-mode-a | 13,427 | 13,358 | +69 | +0.52% | skill 1/1; base 1/1 |
+| codex | video-report-routing-mode-b | 13,384 | 13,386 | -2 | -0.01% | skill 1/1; base 1/1 |
+| codex | video-report-step3-no-vss-agent-fallback | 192,019 | 54,669 | +137,350 | +251.24% | skill 1/1; base 1/1 |
+| codex | video-report-vlm-unclear-options | 138,487 | 69,571 | +68,916 | +99.06% | skill 1/1; base 1/1 |
+| ALL AGENTS | Dataset aggregate | 2,360,211 | 3,538,741 | -1,178,530 | -33.30% | skill 28/28; base 28/28 |
 
 Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. N/A means the relevant trajectory counters were not available; coverage is never estimated.
 

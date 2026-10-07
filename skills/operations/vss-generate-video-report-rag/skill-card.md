@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache 2.0 <br>
 ## Use Case: <br>
-Developers and engineers who need to generate video summary reports enhanced with Enterprise RAG knowledge context using the VSS LVS pipeline, including guided human-in-the-loop parameter collection for scenario, events, and objects of interest. <br>
+Developers and engineers use this skill to generate video summary reports with Enterprise RAG document grounding and guided human-in-the-loop parameter collection using the VSS LVS profile. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -25,16 +25,17 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
-- [VSS Blueprint on build.nvidia.com](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
-- [Video Search and Summarization GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [NVIDIA AI Blueprint: Video Search and Summarization — GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [VSS Interactive Demo](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
+- [Latest Release](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/releases/latest) <br>
 
 
 ## Skill Output: <br>
-**Output Type(s):** [Analysis, API Calls] <br>
-**Output Format:** [Markdown with embedded JSON API responses] <br>
+**Output Type(s):** [Analysis, Shell commands] <br>
+**Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
-**Other Properties Related to Output:** [Reports may include PDF download links; processing takes 3–5 minutes for a ~3.5 minute video] <br>
+**Other Properties Related to Output:** [Report generation takes 3–5 minutes for a ~3.5 minute video] <br>
 
 ## Evaluation Agents Used: <br>
 - Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`) <br>
@@ -43,23 +44,23 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-3 evaluation tasks (2 positive, 1 negative) from skill-evaluator-dataset-snapshot, evaluated in isolated k8s-sandbox pods. <br>
+3 evaluation tasks (2 positive, 1 negative) from skill-evaluator-dataset-snapshot, each run in an isolated sandbox pod. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
-- Security: Whether the skill is safe to use: checks for unsafe operations, secret leakage, and unauthorized access. <br>
-- Correctness: Whether the answer is correct against the reference answer. <br>
-- Discoverability: Whether the right skill was loaded when needed: skill selection, decoy avoidance, and workflow execution. <br>
-- Effectiveness: Whether the skill helped complete the task: goal completion (50%) and expected workflow adherence (50%). <br>
-- Efficiency: Whether the skill avoided wasted tool calls and token usage: tool-call productivity (50%) and token efficiency (50%). <br>
+- Security: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
+- Correctness: Checks final-answer correctness against the reference answer. <br>
+- Discoverability: Checks whether the expected skill was selected and decoys were avoided. <br>
+- Effectiveness: Equal-weight mean of goal completion and expected workflow adherence. <br>
+- Efficiency: 50% tool-call productivity and 50% token efficiency. <br>
 
 Underlying evaluation signals used in this run: <br>
 - `security`: Unsafe operations, secret leakage, and unauthorized access. <br>
-- `skill_execution`: Whether the expected skill was selected, decoys were avoided, and the workflow executed. <br>
-- `skill_efficiency`: Tool-call productivity (routing is scored under Discoverability). <br>
 - `accuracy`: Final-answer correctness against the reference answer. <br>
+- `skill_execution`: Whether the expected skill was selected, decoys were avoided, and the workflow executed. <br>
 - `goal_accuracy`: Whether the user's goal was achieved. <br>
 - `behavior_check`: Whether the expected workflow behavior was followed. <br>
+- `skill_efficiency`: Tool-call productivity (routing scored under Discoverability). <br>
 - `token_efficiency`: Actual uncached prompt plus completion token usage. <br>
 
 
@@ -67,12 +68,12 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 72.1% | 68.5% |
-| Security | 100.0% → 83.3% (-16.7 points) | 100.0% → 83.3% (-16.7 points) |
-| Correctness | 0.0% → 86.7% (+86.7 points) | 60.0% → 73.3% (+13.3 points) |
+| Overall | 76.0% | 70.1% |
+| Security | 100.0% → 100.0% (±0.0 pts) | 100.0% → 83.3% (-16.7 pts) |
+| Correctness | 20.0% → 80.0% (+60.0 pts) | 46.7% → 73.3% (+26.6 pts) |
 | Discoverability | 50.0% | 47.5% |
-| Effectiveness | 16.4% → 55.8% (+39.4 points) | 46.9% → 39.4% (-7.5 points) |
-| Efficiency | 84.9% | 98.9% |
+| Effectiveness | 28.1% → 51.7% (+23.6 pts) | 42.9% → 47.6% (+4.7 pts) |
+| Efficiency | 98.4% | 98.6% |
 
 ## Skill Version(s): <br>
 3.3.0-rc0 (source: frontmatter) <br>
