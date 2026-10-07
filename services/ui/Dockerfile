@@ -6,7 +6,7 @@ ARG BUILD_TYPE=prod
 # Build the architecture-independent Next.js output once on the native build
 # host. SWC and Turbo are build-only dependencies, so their architecture does
 # not need to match the runtime image.
-FROM --platform=$BUILDPLATFORM node:22.23.2 AS builder
+FROM --platform=$BUILDPLATFORM node:22.23.3 AS builder
 ARG USER_ID
 ARG GROUP_ID
 
@@ -36,7 +36,7 @@ RUN chmod -R 755 apps/nv-metropolis-bp-vss-ui/public && \
 # Next.js traces Sharp into the standalone runtime. Resolve only that small
 # native dependency set for each target architecture while still running npm
 # natively on the build host; this avoids repeating the full UI build in QEMU.
-FROM --platform=$BUILDPLATFORM node:22.23.2 AS target-native-deps
+FROM --platform=$BUILDPLATFORM node:22.23.3 AS target-native-deps
 ARG TARGETARCH
 
 COPY services/ui/package-lock.json /tmp/package-lock.json
@@ -65,10 +65,10 @@ RUN case "${TARGETARCH}" in \
 
 
 # Conditional runner phase
-FROM nvcr.io/nvidia/distroless/node:22-v4.1.4 AS runner-prod
+FROM nvcr.io/nvidia/distroless/node:22-v4.1.6 AS runner-prod
 ARG BUILD_TYPE
 
-FROM nvcr.io/nvidia/distroless/node:22-v4.1.4-dev AS runner-dev
+FROM nvcr.io/nvidia/distroless/node:22-v4.1.6-dev AS runner-dev
 ARG BUILD_TYPE
 
 
