@@ -1,8 +1,20 @@
 /* SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. */
 /* SPDX-License-Identifier: Apache-2.0 */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Utilities stay unlayered. Kaizen's theme.css is a plain stylesheet, and
+   layered Tailwind utilities lose to it — including img { height: auto },
+   which stretched the header logo over the sidebar. */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css";
+@config "../tailwind.config.js";
+@source "../app/**/*.{js,ts,jsx,tsx}";
+@source "../pages/**/*.{js,ts,jsx,tsx}";
+@source "../components/**/*.{js,ts,jsx,tsx}";
+@source "../../../packages/nv-metropolis-bp-vss-ui/*/lib/**/*.{js,jsx}";
+@source "../../../packages/nv-metropolis-bp-vss-ui/*/lib-src/**/*.{ts,tsx}";
+@source "../../../packages/common/lib/**/*.{js,jsx}";
+@source "../../../packages/common/lib-src/**/*.{ts,tsx}";
+@custom-variant dark (&:where(.dark, .dark *));
 
 body {
   font-family: 'NVIDIA Sans', system-ui, -apple-system, sans-serif;
