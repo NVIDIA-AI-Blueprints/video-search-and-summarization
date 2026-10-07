@@ -55,8 +55,9 @@ class _BatchProcess(_NoBatchProcess):
         return True
 
 
-def test_retried_stream_drop_needs_only_one_unmask(monkeypatch):
-    """A retry after drain timeout must not leave a second copy of the drop mask."""
+@pytest.mark.parametrize("is_live_stream", [True, False])
+def test_drop_mask_preserves_file_owners_and_live_retries(monkeypatch, is_live_stream):
+    """File requests own separate masks; retries of one live deletion share one."""
     proc = _NoBatchProcess()
     proc._disabled = False
     proc._gpu_id = 0
@@ -73,10 +74,15 @@ def test_retried_stream_drop_needs_only_one_unmask(monkeypatch):
     worker.start()
     try:
         assert proc._init_done_event.wait(timeout=2)
-        for command in ("drop-chunks", "drop-chunks", "stop-drop-chunks"):
-            proc._cmd_queue.put({"command": command, "stream_id": "stream-1"})
+        for command, masked in zip(
+            ("drop-chunks", "drop-chunks", "stop-drop-chunks", "stop-drop-chunks"),
+            (True, True, not is_live_stream, False),
+        ):
+            proc._cmd_queue.put(
+                {"command": command, "stream_id": "stream-1", "idempotent": is_live_stream}
+            )
             proc._cmd_response_queue.get(timeout=2)
-        assert "stream-1" not in proc._drop_chunks_stream_list
+            assert ("stream-1" in proc._drop_chunks_stream_list) == masked
     finally:
         proc._stop.set()
         worker.join(timeout=2)

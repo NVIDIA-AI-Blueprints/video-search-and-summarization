@@ -456,9 +456,12 @@ class ProcessBase(mp_ctx.Process):
             command = cmd.pop("command")
             ret = None
             if command == "drop-chunks":
-                self._drop_chunks_stream_list.add(cmd["stream_id"])
+                # File requests sharing an asset each own a mask; live-delete retries do not.
+                if not cmd.get("idempotent") or cmd["stream_id"] not in self._drop_chunks_stream_list:
+                    self._drop_chunks_stream_list.append(cmd["stream_id"])
             elif command == "stop-drop-chunks":
-                self._drop_chunks_stream_list.discard(cmd["stream_id"])
+                if cmd["stream_id"] in self._drop_chunks_stream_list:
+                    self._drop_chunks_stream_list.remove(cmd["stream_id"])
             else:
                 ret = self._handle_command(command, **cmd)
             self._cmd_response_queue.put(ret)
@@ -488,7 +491,7 @@ class ProcessBase(mp_ctx.Process):
             )
             self._init_done_event.set()
 
-        self._drop_chunks_stream_list = set()
+        self._drop_chunks_stream_list = []
         self._cmd_handler_thread = Thread(target=self._cmd_handler_thread_func)
         self._cmd_handler_thread.start()
 

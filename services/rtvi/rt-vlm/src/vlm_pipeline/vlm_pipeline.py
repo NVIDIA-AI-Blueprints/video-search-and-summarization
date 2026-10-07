@@ -2764,9 +2764,9 @@ class VlmPipeline:
         decoder_proc.send_command("stop-live-stream", live_stream_id=live_stream_id)
 
         for proc in self._vlm_procs:
-            proc.send_command("drop-chunks", stream_id=live_stream_id)
+            proc.send_command("drop-chunks", stream_id=live_stream_id, idempotent=True)
         for proc in self._asr_procs:
-            proc.send_command("drop-chunks", stream_id=live_stream_id)
+            proc.send_command("drop-chunks", stream_id=live_stream_id, idempotent=True)
 
         if abort_inflight:
             aborted_requests = self._abort_live_stream_vlm_requests(live_stream_id)

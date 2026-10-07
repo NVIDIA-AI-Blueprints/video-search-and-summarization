@@ -494,6 +494,8 @@ def test_forced_delete_marks_abort_before_stopping_decoder():
     pipeline.remove_live_stream("stream-a", abort_inflight=True)
 
     assert abort_state_at_stop == [True]
+    for proc in pipeline._vlm_procs + pipeline._asr_procs:
+        proc.send_command.assert_any_call("drop-chunks", stream_id="stream-a", idempotent=True)
 
 
 @pytest.mark.no_gpu
