@@ -509,9 +509,24 @@ def test_proxy_network_policy_is_scoped_and_fails_closed(monkeypatch, tmp_path):
     owner = "a" * 24
     chain = "SE-NIM-" + owner[:20]
     calls = []
+    created = linked = False
     def execute(args, **kwargs):
+        nonlocal created, linked
         calls.append(args)
-        rc = 1 if "-C" in args and "INPUT" in args else 0
+        rc = 0
+        if "-S" in args:
+            rc = 0 if created else 1
+        elif "-N" in args:
+            assert (nim.owner_paths(owner) / "network-policy.json").exists()
+            created = True
+        elif "-X" in args:
+            created = False
+        elif "-C" in args and "INPUT" in args:
+            rc = (0 if linked else 1) if created else 2
+        elif "-I" in args:
+            linked = True
+        elif "-D" in args:
+            linked = False
         return subprocess.CompletedProcess(args, rc, "", "")
     monkeypatch.setattr(nim.subprocess, "run", execute)
     REAL_PROXY_NETWORK_POLICY(owner)
@@ -519,6 +534,9 @@ def test_proxy_network_policy_is_scoped_and_fails_closed(monkeypatch, tmp_path):
         [chain, "-i", interface, "-j", "ACCEPT"] for interface in ("lo", "docker0", "br+")
     ] + [[chain, "-j", "REJECT"]]
     assert calls[-1][5:] == ["-I", "INPUT", "-p", "tcp", "--dport", "18400", "-j", chain]
+    before_reuse = len(calls)
+    REAL_PROXY_NETWORK_POLICY(owner)
+    assert not any("-F" in args for args in calls[before_reuse:])
     REAL_PROXY_NETWORK_POLICY(owner, remove=True)
     assert not (nim.owner_paths(owner) / "network-policy.json").exists()
     assert calls[-2][5:] == ["-F", chain]
@@ -527,6 +545,48 @@ def test_proxy_network_policy_is_scoped_and_fails_closed(monkeypatch, tmp_path):
     monkeypatch.setattr(nim, "proxy_network_policy", REAL_PROXY_NETWORK_POLICY)
     launch = Mock()
     monkeypatch.setattr(nim, "docker", launch)
-    with pytest.raises(nim.NimError, match="Cannot enforce"):
+    with pytest.raises(nim.NimError, match="local inference network policy"):
         nim.start(plan())
     launch.assert_not_called()
+
+
+@pytest.mark.parametrize("case", ["receipt-only", "partial-chain", "unowned-chain", "cleanup-receipt-only"])
+def test_proxy_network_policy_recovers_interrupted_install(monkeypatch, tmp_path, case):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    owner = "a" * 24
+    chain = "SE-NIM-" + owner[:20]
+    receipt = nim.owner_paths(owner) / "network-policy.json"
+    if case != "unowned-chain":
+        receipt.write_text(json.dumps({"chain": chain, "port": nim.PROXY_PORT}))
+    created = "chain" in case
+    calls = []
+
+    def execute(args, **kwargs):
+        nonlocal created
+        calls.append(args[5:])
+        rc = 0
+        if "-S" in args:
+            rc = 0 if created else 1
+        elif "-C" in args and "INPUT" in args:
+            rc = 1 if created else 2  # Missing target chains are iptables errors.
+        elif "-N" in args:
+            assert receipt.exists(), "chain creation must follow ownership recording"
+            created = True
+        return subprocess.CompletedProcess(args, rc, "", "")
+
+    monkeypatch.setattr(nim.subprocess, "run", execute)
+    if case == "unowned-chain":
+        with pytest.raises(nim.NimError, match="unowned"):
+            REAL_PROXY_NETWORK_POLICY(owner)
+        assert calls == [["-S", chain]]
+        assert not receipt.exists()
+    elif case == "cleanup-receipt-only":
+        REAL_PROXY_NETWORK_POLICY(owner, remove=True)
+        assert not receipt.exists()
+        assert not any(c[0] in ("-F", "-X") for c in calls)
+    else:
+        REAL_PROXY_NETWORK_POLICY(owner)
+        assert calls[-1] == ["-I", "INPUT", "-p", "tcp", "--dport", "18400", "-j", chain]
+        assert [c for c in calls if c[0] == "-A"] == [
+            ["-A", chain, "-i", interface, "-j", "ACCEPT"] for interface in ("lo", "docker0", "br+")
+        ] + [["-A", chain, "-j", "REJECT"]]

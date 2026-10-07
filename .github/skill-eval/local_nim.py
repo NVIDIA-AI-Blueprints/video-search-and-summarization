@@ -335,36 +335,50 @@ def proxy_network_policy(owner: str, *, remove=False):
         return result
 
     jump = ("INPUT", "-p", "tcp", "--dport", str(PROXY_PORT), "-j", chain)
+    if remove and not receipt.exists():
+        return
+    state = iptables("-S", chain, check=False)
+    if state.returncode not in (0, 1):
+        raise NimError("Cannot inspect local inference network policy")
     if remove:
-        if not receipt.exists():
-            return
-        result = iptables("-C", *jump, check=False)
-        if result.returncode == 0:
-            iptables("-D", *jump)
-        elif result.returncode != 1:
-            raise NimError("Cannot inspect local inference network policy")
-        iptables("-F", chain)
-        iptables("-X", chain)
+        if state.returncode == 0:
+            result = iptables("-C", *jump, check=False)
+            if result.returncode == 0:
+                iptables("-D", *jump)
+            elif result.returncode != 1:
+                raise NimError("Cannot inspect local inference network policy")
+            iptables("-F", chain)
+            iptables("-X", chain)
         receipt.unlink()
         return
 
     rules = [("-i", interface, "-j", "ACCEPT") for interface in ("lo", "docker0", "br+")]
     rules.append(("-j", "REJECT"))
     if not receipt.exists():
-        iptables("-N", chain)
-        # Record ownership before subsequent commands so interrupted setup
-        # can remove only this job's chain after stopping its containers.
+        if state.returncode == 0:
+            raise NimError("Refusing to adopt an unowned local inference network policy")
+        # Record intent before creating the chain: even an interruption just
+        # after -N must leave enough ownership evidence for cleanup/retry.
         receipt.write_text(json.dumps({"chain": chain, "port": PROXY_PORT}))
+    if state.returncode == 1:
+        # A jump check against a nonexistent target chain is an iptables error,
+        # not an absent-rule result. Create it before inspecting the jump.
+        iptables("-N", chain)
+    result = iptables("-C", *jump, check=False)
+    if result.returncode not in (0, 1):
+        raise NimError("Cannot inspect local inference network policy")
+    if state.returncode == 1 or result.returncode == 1:
+        # An unlinked owned chain can be an interrupted install. Rebuild it
+        # before linking; never flush a live policy protecting a listener.
+        if state.returncode == 0:
+            iptables("-F", chain)
         for rule in rules:
             iptables("-A", chain, *rule)
     else:
         for rule in rules:
             iptables("-C", chain, *rule)
-    result = iptables("-C", *jump, check=False)
     if result.returncode == 1:
         iptables("-I", *jump)
-    elif result.returncode:
-        raise NimError("Cannot inspect local inference network policy")
 
 
 def start(plan: dict):
