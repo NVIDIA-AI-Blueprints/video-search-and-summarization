@@ -294,8 +294,14 @@ def worker(run_id):
         nim = subprocess.run([
             "docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=vss",
         ], capture_output=True, text=True, timeout=10)
-        if nim.stdout.strip():
-            inspected = subprocess.run(["docker", "inspect", *nim.stdout.split()], capture_output=True, text=True, timeout=10)
+        nim_ids = nim.stdout.split()
+        if nim_owner:
+            owned_models = subprocess.run([
+                "docker", "ps", "-aq", "--filter", f"label=vss.skill-eval.nim-owner={nim_owner}",
+            ], capture_output=True, text=True, timeout=10)
+            nim_ids.extend(owned_models.stdout.split())
+        if nim_ids:
+            inspected = subprocess.run(["docker", "inspect", *nim_ids], capture_output=True, text=True, timeout=10)
             probes = []
             for container in json.loads(inspected.stdout) if inspected.returncode == 0 else []:
                 image = container.get("Config", {}).get("Image", "")
