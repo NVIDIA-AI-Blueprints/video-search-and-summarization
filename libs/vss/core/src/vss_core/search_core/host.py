@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from .critic import CriticAgent
+    from .critic import VideoInfo
     from .events import SearchEvent
     from .runtime import SearchRuntime
 
@@ -162,47 +163,15 @@ class VSSSearch:
         if self._critic is None or not output.data:
             return output
 
-        if inp.original_query and inp.original_query.strip():
-            query = inp.original_query.strip()
-        else:
-            query = inp.query.strip()
-            attributes = [attribute.strip() for attribute in inp.attributes if attribute.strip()]
-            missing_attributes = [attribute for attribute in attributes if attribute.casefold() not in query.casefold()]
-            if missing_attributes:
-                suffix = ", ".join(missing_attributes)
-                query = f"{query}; required visual attributes: {suffix}" if query else suffix
+        query = self._critic_query(inp)
         if not query:
             return output
 
-        from pydantic import ValidationError
-
         from .critic import CriticAgentInput
         from .critic import CriticAgentResult
-        from .critic import VideoInfo
         from .models.search import SearchVerification
 
-        candidate_indices: list[int] = []
-        videos: list[VideoInfo] = []
-        for index, result in enumerate(output.data):
-            if not result.sensor_id:
-                continue
-            try:
-                video = VideoInfo.model_validate(
-                    {
-                        "sensor_id": result.sensor_id,
-                        "start_timestamp": result.start_time,
-                        "end_timestamp": result.end_time,
-                        # Only file sources are indexed on the synthetic epoch the
-                        # critic rebases; live bounds must be taken literally.
-                        "source_type": inp.source_type,
-                    }
-                )
-            except ValidationError:
-                logger.warning("Search result %d has invalid verification bounds; leaving it unverified", index)
-                continue
-            candidate_indices.append(index)
-            videos.append(video)
-
+        candidate_indices, videos = self._critic_candidates(output, inp)
         if not videos:
             return output
 
@@ -257,6 +226,49 @@ class VSSSearch:
         if extra_messages:
             update["search_messages"] = [*output.search_messages, *extra_messages]
         return output.model_copy(update=update)
+
+    @staticmethod
+    def _critic_query(inp: SearchInput) -> str:
+        """The user's visual intent: the original wording, else the query plus any attributes it omits."""
+        if inp.original_query and inp.original_query.strip():
+            return inp.original_query.strip()
+        query = inp.query.strip()
+        attributes = [attribute.strip() for attribute in inp.attributes if attribute.strip()]
+        missing_attributes = [attribute for attribute in attributes if attribute.casefold() not in query.casefold()]
+        if not missing_attributes:
+            return query
+        suffix = ", ".join(missing_attributes)
+        return f"{query}; required visual attributes: {suffix}" if query else suffix
+
+    @staticmethod
+    def _critic_candidates(output: SearchOutput, inp: SearchInput) -> tuple[list[int], list[VideoInfo]]:
+        """Indices and critic inputs for the hits whose interval can be verified."""
+        from pydantic import ValidationError
+
+        from .critic import VideoInfo
+
+        candidate_indices: list[int] = []
+        videos: list[VideoInfo] = []
+        for index, result in enumerate(output.data):
+            if not result.sensor_id:
+                continue
+            try:
+                video = VideoInfo.model_validate(
+                    {
+                        "sensor_id": result.sensor_id,
+                        "start_timestamp": result.start_time,
+                        "end_timestamp": result.end_time,
+                        # Only file sources are indexed on the synthetic epoch the
+                        # critic rebases; live bounds must be taken literally.
+                        "source_type": inp.source_type,
+                    }
+                )
+            except ValidationError:
+                logger.warning("Search result %d has invalid verification bounds; leaving it unverified", index)
+                continue
+            candidate_indices.append(index)
+            videos.append(video)
+        return candidate_indices, videos
 
     def search_stream(self, **kw: Any) -> AsyncIterator[SearchEvent]:
         if self._search is None:

@@ -358,9 +358,9 @@ async def _critic_from(
     """Build the reusable critic stack when this deployment exposes one.
 
     RT-VLM is optional for archive search. Returning ``(None, None, reason)``
-    keeps retrieval available and leaves the result model's fail-open
-    ``unverified`` state untouched; ``reason`` names why verification is off so
-    the caller can surface it instead of leaving a silent wall of ``unverified``.
+    keeps retrieval available, and hits carry no ``critic_result``; ``reason``
+    names why verification is off so the caller can surface it instead of
+    leaving a silent wall of unverified hits.
     """
     rt_vlm = deployment.services.get("rt_vlm")
     if not deployment.has("vst"):
