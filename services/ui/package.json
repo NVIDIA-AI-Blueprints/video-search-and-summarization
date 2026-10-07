@@ -56,7 +56,8 @@
         "@babel/core": "7.29.7",
         "speech-rule-engine": "4.1.4",
         "brace-expansion": "2.1.4",
-        "js-yaml": "4.3.2"
+        "js-yaml": "4.3.2",
+        "source-map-js": "^1.2.2"
     },
     "packageManager": "npm@10.9.9"
 }
