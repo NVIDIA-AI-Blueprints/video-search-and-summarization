@@ -28,6 +28,77 @@ describe('useCvAlertsVerificationConfigs', () => {
     global.fetch = originalFetch;
   });
 
+  it('loads configs added outside the editor when refreshVersion changes', async () => {
+    global.fetch = jest.fn()
+      .mockImplementationOnce(() => response({ configs: [] }))
+      .mockImplementationOnce(() => response({ configs: [sample] }));
+    const { result, rerender } = renderHook(({ refreshVersion }) =>
+      useCvAlertsVerificationConfigs({ alertsApiUrl: 'http://alerts.test/api/v1', refreshVersion }),
+      { initialProps: { refreshVersion: 0 } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    rerender({ refreshVersion: 1 });
+    await waitFor(() => expect(result.current.configs).toEqual([sample]));
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['create', 'update', 'delete'] as const)(
+    'ignores a stale background GET after a successful %s',
+    async (mutation) => {
+      let finishRefresh: (value: Response) => void;
+      const updated = { ...sample, prompt: 'Updated prompt' };
+      const chatConfig = { ...sample, alert_type: 'Chat-created' };
+      global.fetch = jest.fn()
+        .mockImplementationOnce(() => response({ configs: mutation === 'create' ? [] : [sample] }))
+        .mockImplementationOnce(() => new Promise<Response>((resolve) => { finishRefresh = resolve; }))
+        .mockImplementationOnce(() => response(mutation === 'update' ? updated : sample))
+        .mockImplementationOnce(() => response({ configs: mutation === 'delete' ? [chatConfig] : [mutation === 'update' ? updated : sample, chatConfig] }));
+      const { result } = renderHook(() =>
+        useCvAlertsVerificationConfigs({ alertsApiUrl: 'http://alerts.test/api/v1' }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      let refresh: Promise<unknown>;
+      act(() => { refresh = result.current.refetch(); });
+      await act(async () => {
+        if (mutation === 'create') await result.current.createConfig(sample);
+        if (mutation === 'update') await result.current.updateConfig(sample.alert_type, { prompt: updated.prompt });
+        if (mutation === 'delete') await result.current.deleteConfig(sample.alert_type);
+      });
+      await act(async () => {
+        finishRefresh(await response({ configs: mutation === 'create' ? [chatConfig] : [sample, chatConfig] }));
+        await refresh;
+      });
+      expect(result.current.configs).toEqual(mutation === 'delete' ? [chatConfig] : [mutation === 'update' ? updated : sample, chatConfig]);
+      expect(result.current.loading).toBe(false);
+    },
+  );
+
+  it.each(['create', 'update', 'delete'] as const)(
+    'finishes a successful %s without waiting for its background refresh',
+    async (mutation) => {
+      const updated = { ...sample, prompt: 'Updated prompt' };
+      let finishRefresh: (value: Response) => void;
+      global.fetch = jest.fn()
+        .mockImplementationOnce(() => response({ configs: mutation === 'create' ? [] : [sample] }))
+        .mockImplementationOnce(() => response(mutation === 'update' ? updated : sample))
+        .mockImplementationOnce(() => new Promise<Response>((resolve) => { finishRefresh = resolve; }));
+      const { result } = renderHook(() =>
+        useCvAlertsVerificationConfigs({ alertsApiUrl: 'http://alerts.test/api/v1' }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      await act(async () => {
+        if (mutation === 'create') await result.current.createConfig(sample);
+        if (mutation === 'update') await result.current.updateConfig(sample.alert_type, { prompt: updated.prompt });
+        if (mutation === 'delete') await result.current.deleteConfig(sample.alert_type);
+      });
+      const expected = mutation === 'delete' ? [] : [mutation === 'update' ? updated : sample];
+      expect(result.current.configs).toEqual(expected);
+      expect(result.current.loading).toBe(true);
+      await act(async () => { finishRefresh(await response({ configs: expected })); });
+      expect(result.current.loading).toBe(false);
+    },
+  );
+
   it('lists verification configs from the configured alert bridge', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
@@ -49,8 +120,11 @@ describe('useCvAlertsVerificationConfigs', () => {
       .fn()
       .mockImplementationOnce(() => response({ configs: [], count: 0 }))
       .mockImplementationOnce(() => response(sample, true, 201, 'Created'))
+      .mockImplementationOnce(() => response({ configs: [sample] }))
       .mockImplementationOnce(() => response(updated))
-      .mockImplementationOnce(() => response({ status: 'success', message: 'deleted' }));
+      .mockImplementationOnce(() => response({ configs: [updated] }))
+      .mockImplementationOnce(() => response({ status: 'success', message: 'deleted' }))
+      .mockImplementationOnce(() => response({ configs: [] }));
 
     const { result } = renderHook(() =>
       useCvAlertsVerificationConfigs({ alertsApiUrl: 'http://alerts.test/api/v1' }),
@@ -71,7 +145,7 @@ describe('useCvAlertsVerificationConfigs', () => {
       await result.current.updateConfig(sample.alert_type, { prompt: updated.prompt });
     });
     expect(global.fetch).toHaveBeenNthCalledWith(
-      3,
+      4,
       'http://alerts.test/api/v1/verification/config/FOV%20Count%20Violation',
       expect.objectContaining({
         method: 'PUT',
@@ -84,7 +158,7 @@ describe('useCvAlertsVerificationConfigs', () => {
       await result.current.deleteConfig(sample.alert_type);
     });
     expect(global.fetch).toHaveBeenNthCalledWith(
-      4,
+      6,
       'http://alerts.test/api/v1/verification/config/FOV%20Count%20Violation',
       { method: 'DELETE' },
     );

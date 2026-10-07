@@ -14,11 +14,13 @@ jest.mock("next/dynamic", () => ({
       return ({
         onAnswer,
         onAuthFailure,
+        onAnswerComplete,
         endpoint,
         features,
       }: {
         onAnswer?: (answer: string, conversationId: string) => void;
         onAuthFailure?: () => void;
+        onAnswerComplete?: () => void;
         endpoint?: { surface?: string; headers?: Record<string, string> };
         features?: { hitl?: boolean };
       }) => (
@@ -43,8 +45,20 @@ jest.mock("next/dynamic", () => ({
         >
           Deliver search artifact
         </button>
+        <button data-testid={endpoint?.surface === "vss-ui-sidebar" ? "complete-sidebar" : "complete-main-chat"}
+          onClick={() => onAnswerComplete?.()}>Complete empty answer</button>
         </>
       );
+    }
+
+    if (source.includes("AlertsComponent")) {
+      return ({ registerSidebarChatEventSubscriber }: any) => {
+        const [completions, setCompletions] = React.useState(0);
+        React.useEffect(() => registerSidebarChatEventSubscriber((event: any) => {
+          if (event.type === 'answerComplete') setCompletions((count) => count + 1);
+        }), [registerSidebarChatEventSubscriber]);
+        return <div data-testid="alerts-completions">{completions}</div>;
+      };
     }
 
     if (source.includes("SearchComponent")) {
@@ -145,6 +159,15 @@ describe("Home tab lifecycle", () => {
   afterEach(() => {
     for (const variable of featureVariables) delete process.env[variable];
     global.fetch = originalFetch;
+  });
+
+  it('notifies Alerts when full-page Chat completes without answer content', () => {
+    process.env.NEXT_PUBLIC_ENABLE_ALERTS_TAB = 'true';
+    render(<Home />);
+    fireEvent.click(screen.getByTestId('sidebar-tab-alerts'));
+    fireEvent.click(screen.getByTestId('sidebar-tab-chat'));
+    fireEvent.click(screen.getByTestId('complete-main-chat'));
+    expect(screen.getByTestId('alerts-completions')).toHaveTextContent('1');
   });
 
   it("retains an agent search artifact when leaving the full-page Chat tab", () => {
