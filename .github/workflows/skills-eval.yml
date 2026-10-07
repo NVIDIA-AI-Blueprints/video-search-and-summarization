@@ -52,7 +52,11 @@ on:
         default: hosted-nvidia-inference
         options: [hosted-nvidia-inference, local-nim]
       coding_model:
-        description: "CODING · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning). Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Leave empty to use the selected harness's configured model (Codex fallback: Sol 6.1). Override the model ID when selecting local NIM."
+        description: >-
+          CODING · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning).
+          Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b).
+          Leave empty to use the selected harness's configured model (Codex fallback: Sol 6.1).
+          Override the model ID when selecting local NIM.
         required: false
         default: ""
         type: string
@@ -71,7 +75,11 @@ on:
         default: hosted-nvidia-inference
         options: [hosted-nvidia-inference, local-nim]
       operational_model:
-        description: "OPERATIONAL · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning). Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b). Leave empty to use the selected harness's configured model (NemoClaw fallback: Opus 5.5). Override the model ID when selecting local NIM."
+        description: >-
+          OPERATIONAL · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning).
+          Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b).
+          Leave empty to use the selected harness's configured model (NemoClaw fallback: Opus 5.5).
+          Override the model ID when selecting local NIM.
         required: false
         default: ""
         type: string

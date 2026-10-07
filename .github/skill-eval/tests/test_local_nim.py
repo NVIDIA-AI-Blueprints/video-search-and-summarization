@@ -236,13 +236,24 @@ def test_two_roles_deploy_one_nim_and_one_adapter(monkeypatch, tmp_path):
 
     monkeypatch.setattr(nim, "request_json", request)
     commands = []
+    policy_active = False
+
+    def network_policy(owner, *, remove=False):
+        nonlocal policy_active
+        assert owner == plan()["owner"]
+        policy_active = not remove
+
+    monkeypatch.setattr(nim, "proxy_network_policy", network_policy)
 
     def docker(*args, **kwargs):
+        if args[0] == "run":
+            assert policy_active, "startup cleanup removed the inference network policy"
         commands.append(args)
         return subprocess.CompletedProcess(args, 0, "", "")
 
     monkeypatch.setattr(nim, "docker", docker)
     nim.start(plan())
+    assert policy_active
     launches = [c for c in commands if c[0] == "run"]
     assert len(launches) == 2
     model_launch = next(c for c in launches if any("nvcr.io/nim/" in a for a in c))

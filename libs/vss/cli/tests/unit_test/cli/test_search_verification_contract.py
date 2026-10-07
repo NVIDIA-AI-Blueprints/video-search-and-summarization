@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -12,12 +11,8 @@ import re
 import shlex
 import subprocess
 import sys
-from typing import TYPE_CHECKING
 
 import pytest
-
-if TYPE_CHECKING:
-    from types import ModuleType
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[6]  # libs/vss/cli/tests/unit_test/cli -> repo root
 SEARCH_SKILL = REPOSITORY_ROOT / "skills" / "operations" / "vss-search-archive"
@@ -36,18 +31,6 @@ def _stamped_version() -> str:
     match = re.search(r'^VSS_VERSION="([^"$\n]+)"', env, re.MULTILINE)
     assert match, "deploy/docker/containers.env has no stamped VSS_VERSION line"
     return match.group(1)
-
-
-def _load_adapter(path: Path, name: str) -> ModuleType:
-    """Import an adapter so preamble assertions run against the text the agent
-    actually receives. Matching the raw source instead couples the contract to
-    where the implicit string concatenation happens to wrap, so a formatting-only
-    reflow that leaves the emitted instruction.md byte-identical would fail."""
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def _check_matching(checks: list[str], needle: str) -> str:
@@ -244,9 +227,8 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     spec = json.loads((SEARCH_SKILL / "evals/search.json").read_text(encoding="utf-8"))
     serialized = json.dumps(spec)
     adapter = SEARCH_ADAPTER.read_text(encoding="utf-8")
-    adapter_module = _load_adapter(SEARCH_ADAPTER, "search_archive_adapter")
-    deployment_preamble = adapter_module.DEPLOYMENT_PREAMBLE
-    ingestion_preamble = adapter_module.INGESTION_PREAMBLE
+    deployment_query = spec["expects"][0]["query"]
+    ingestion_query = spec["expects"][1]["query"]
     deployment_checks = spec["expects"][0]["checks"]
     ingestion_checks = spec["expects"][1]["checks"]
 
@@ -269,11 +251,12 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     # Cold deployment and fixture ingestion are separate persisted steps. This
     # prevents model initialization from consuming the ingestion budget and
     # removes any incentive to repair/redeploy midway through source setup.
-    assert "do not download or ingest sample media" in deployment_preamble
-    assert "Initial profile deployment activity is not a routing violation" in deployment_preamble
-    assert "preceding step already deployed" in ingestion_preamble
-    assert "do not invoke `/vss-build-vision-ai`" in ingestion_preamble
-    assert "`docker compose up`" in ingestion_preamble
+    assert "Do not ingest sample media in this step" in deployment_query
+    assert "Download files here only for the NemoClaw fixture staging" in deployment_query
+    assert "initial `/vss-build-vision-ai` workflow" in _check_matching(deployment_checks, "select_brev_origin.sh")
+    assert "already deployed, healthy, configured" in ingestion_query
+    assert "invoking `/vss-build-vision-ai`" in ingestion_query
+    assert "fail rather than running `docker compose`" in ingestion_query
     assert any("one bounded source-setup deadline" in check for check in ingestion_checks)
 
     # Current search indices use the VST sensor ID for embed/fusion source
@@ -299,7 +282,7 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     assert "neither edited `VST_EXTERNAL_URL` nor looped on routing" in origin_check
     assert "documented host-reachable fallback" in adapter
     assert "explicitly label the media URLs host-local" in adapter
-    assert "redirects disabled" in deployment_preamble
+    assert "disables redirects" in deployment_query
 
     verification_steps = [
         expect for expect in spec["expects"] if expect.get("scenario") == "confirmed-search-result-verification"
@@ -596,10 +579,13 @@ def test_search_adapter_bundles_ask_video_for_confirmation(tmp_path: Path) -> No
     )
     deployment_instruction = (tmp_path / "search/rtxpro6000bw/step-1/instruction.md").read_text(encoding="utf-8")
     ingestion_instruction = (tmp_path / "search/rtxpro6000bw/step-2/instruction.md").read_text(encoding="utf-8")
-    assert "deploys and validates the search profile only" in deployment_instruction
-    assert "do not download or ingest sample media" in deployment_instruction
-    assert "preceding step already deployed" in ingestion_instruction
-    assert "do not invoke `/vss-build-vision-ai`" in ingestion_instruction
+    spec = json.loads((SEARCH_SKILL / "evals/search.json").read_text(encoding="utf-8"))
+    for step, instruction in ((0, deployment_instruction), (1, ingestion_instruction)):
+        assert spec["expects"][step]["query"].replace("{{platform}}", "RTXPRO6000BW") in instruction
+    assert "Do not ingest sample media in this step" in deployment_instruction
+    assert "Download files here only for the NemoClaw fixture staging" in deployment_instruction
+    assert "already deployed, healthy, configured" in ingestion_instruction
+    assert "invoking `/vss-build-vision-ai`" in ingestion_instruction
 
     verification_step = tmp_path / "search/rtxpro6000bw/step-7"
     assert (verification_step / "skills/vss-ask-video/SKILL.md").is_file()

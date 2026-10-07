@@ -447,6 +447,9 @@ def start(plan: dict):
             else:
                 os.environ["DOCKER_CONFIG"] = old
     cleanup(plan["owner"], remove_files=False)
+    # Cleanup removes the owned INPUT rules along with stale containers.
+    # Restore them before any anonymous inference listener can start.
+    proxy_network_policy(plan["owner"])
     models = []
     nemoclaw_route = next(
         (r for r in plan["routes"] if r["runtime"] == "nemoclaw"), None

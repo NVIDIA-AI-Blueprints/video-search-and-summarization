@@ -980,6 +980,9 @@ jobs:
     timeout-minutes: 150
     env:
       COMPOSE_TIMEOUT: "1800"
+      # The integration stack already uses host networking for its builds.
+      # Keep Compose's direct builder: Bake requires a separate entitlement.
+      COMPOSE_BAKE: "false"
       BUILD_SERVICE_IMAGE: ${{ needs.prepare-source.outputs.build-behavior-analytics }}
       CURRENT_BEHAVIOR_ANALYTICS_IMAGE: ${{ needs.prepare-source.outputs.current-behavior-analytics-image }}
     defaults:
