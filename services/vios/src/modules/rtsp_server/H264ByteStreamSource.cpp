@@ -178,11 +178,18 @@ H264ByteStreamSource
 
       if (m_mediaSource && GET_CONFIG().enable_mega_simulation == false)
       {
-          int data_arrival_timeout_us = DATA_ARRIVAL_TIMEOUT_USEC;
+          int64_t data_arrival_timeout_us = DATA_ARRIVAL_TIMEOUT_USEC;
           if (vod_stream)
           {
               /* For vod stream, set 10sec timeout. If no data receievd then send bye packet */
               data_arrival_timeout_us = VOD_DATA_ARRIVAL_TIMEOUT_USEC;
+          }
+          else if (GET_CONFIG().nv_streamer_sync_file_count > 0)
+          {
+              /* Synchronized sources stay parked with no data until the quorum of
+               * nv_streamer_sync_file_count clients has requested PLAY, so allow
+               * a longer window before treating the source as dead. */
+              data_arrival_timeout_us = static_cast<int64_t>(GET_CONFIG().nv_streamer_sync_data_arrival_timeout_secs) * 1000 * 1000;
           }
           m_DataArrivalCheckTask = envir().taskScheduler().scheduleDelayedTask(data_arrival_timeout_us,
               (TaskFunc*)H264ByteStreamSource::dataArrivalCheck, this);

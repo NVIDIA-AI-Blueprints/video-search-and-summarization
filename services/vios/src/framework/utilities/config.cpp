@@ -587,6 +587,13 @@ VmsConfigManager::VmsConfigManager()
         m_vmsConfig.nv_streamer_seekable = data.get("nv_streamer_seekable", false).asBool();
         m_vmsConfig.nv_streamer_sync_playback = data.get("nv_streamer_sync_playback", false).asBool();
         m_vmsConfig.nv_streamer_sync_file_count = data.get("nv_streamer_sync_file_count", -1).asInt();
+        int sync_data_arrival_timeout_secs = data.get("nv_streamer_sync_data_arrival_timeout_secs", 150).asInt();
+        if (sync_data_arrival_timeout_secs <= 0)
+        {
+            LOG(warning) << "Invalid nv_streamer_sync_data_arrival_timeout_secs: " << sync_data_arrival_timeout_secs << ", using default 150" << endl;
+            sync_data_arrival_timeout_secs = 150;
+        }
+        m_vmsConfig.nv_streamer_sync_data_arrival_timeout_secs = sync_data_arrival_timeout_secs;
         m_vmsConfig.nv_streamer_rtsp_server_output_buffer_size_kb = data.get("nv_streamer_rtsp_server_output_buffer_size_kb", 800).asInt();
         m_vmsConfig.nv_streamer_max_upload_file_size_MB = data.get("nv_streamer_max_upload_file_size_MB", 10000).asUInt();
         Json::Value default_containers;

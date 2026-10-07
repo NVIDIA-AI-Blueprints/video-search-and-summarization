@@ -129,6 +129,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   onAddQueryContextReady,
   onChatVideoUploadComplete,
   onBusyChange,
+  onAuthFailure,
   onControlsReady,
   className,
 }) => {
@@ -220,6 +221,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     onAnswer: handleAnswer,
     onAnswerComplete,
     onBusyChange,
+    onAuthFailure,
     isConversationStale,
     onInteraction: features.hitl ? requestInteraction : undefined,
   });

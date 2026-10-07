@@ -157,6 +157,7 @@ DeviceConfig::DeviceConfig():recorded_video_root("./vst_video/")
             ,nv_streamer_seekable(false)
             ,nv_streamer_sync_playback(false)
             ,nv_streamer_sync_file_count(-1)
+            ,nv_streamer_sync_data_arrival_timeout_secs(150)
             ,nv_streamer_max_upload_file_size_MB(10000)
             ,nv_streamer_rtsp_server_output_buffer_size_kb(800)
             ,default_bitrate(DEFAULT_BITRATE_KBPS)
@@ -364,6 +365,7 @@ DeviceConfig::DeviceConfig():recorded_video_root("./vst_video/")
         LOG2(info) << "\tNV Streamer seekable: "<< nv_streamer_seekable << endl;
         LOG2(info) << "\tNV Streamer Sync Playback: "<< nv_streamer_sync_playback << endl;
         LOG2(info) << "\tNV Streamer Sync File Count: "<< nv_streamer_sync_file_count << endl;
+        LOG2(info) << "\tNV Streamer Sync Data Arrival Timeout secs: "<< nv_streamer_sync_data_arrival_timeout_secs << endl;
         LOG2(info) << "\tNV Streamer RTSP server buffer size kb: "<< nv_streamer_rtsp_server_output_buffer_size_kb << endl;
         LOG2(info) << "\tNV Streamer supported containers: "<< vectorToString(media_containers) << endl;
         LOG2(info) << "\tVideo codecs supported: "<< vectorToString(video_codecs) << endl;

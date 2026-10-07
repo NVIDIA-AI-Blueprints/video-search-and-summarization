@@ -228,6 +228,10 @@ This change forces the PGIE scaling operation to run on the GPU, which may lower
 
 This section provides answers to some of the frequently asked questions on using VST application:
 
+### Can I add streams again after removing all streams from VST?
+
+After removing all streams from VST, redeploy the Warehouse Blueprint before adding new streams or re-adding the original streams.
+
 ### Why are object IDs missing from the video overlay?
 
 In VST's **Analytics Overlay Settings**, enable **Show Bounding Boxes** and **Show Object ID** under **Object ID Display** for the **2D** and **2D with Agents** profiles, then click **Save Settings**. Debug Mode is optional for these profiles and adds diagnostic overlays. For **3D** and **MV3DT**, object IDs are displayed by default with Debug Mode enabled. See [Display Object IDs in Warehouse Profiles](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#display-object-ids-in-warehouse-profiles) for the settings and screenshot.
@@ -345,6 +349,14 @@ In such cases, developers can choose to enable a specific VIOS configuration:
 This setting instructs VIOS to propagate the original timestamp from the camera to downstream services like Perception, which then uses it to assign time to each frame.
 
 ## Model Update
+
+### Can I reuse a TensorRT engine file on another GPU?
+
+<Note>
+TensorRT engine files depend on the GPU architecture and TensorRT version used to build them. You can reuse a compatible pre-built engine on another machine with the same GPU architecture and TensorRT version. Rebuild the engine for the target GPU when these compatibility requirements are not met. See the **TensorRT Engine File Creation and Reuse** section in [Object Detection and Tracking](/vss/system-components/vision-microservices/object-detection-and-tracking) for configuration details.
+
+For example, on a T7000 system with an integrated GPU (iGPU) and a discrete GPU (dGPU), do not use an engine built on the iGPU for inference on the dGPU, or vice versa. Build a separate engine on each GPU and configure inference to use the corresponding engine file.
+</Note>
 
 ### I finetuned my own Sparse4D model via the Nvidia TAO Toolkit. How do I replace the existing model in the perception microservice with my own?
 
