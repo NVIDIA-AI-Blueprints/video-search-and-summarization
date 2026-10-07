@@ -12,11 +12,11 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import yaml
-
 
 SENTINELS = (
     "/path/to/deploy/docker",
@@ -138,7 +138,9 @@ def secret_errors(document: dict[str, Any], extra_required: set[str]) -> list[st
                     "time — set it and regenerate resolved.yml"
                 )
 
-    ngc_model_ref = any(NGC_MODEL_REF.search(value) for _, value in walk_strings(document))
+    ngc_model_ref = any(
+        NGC_MODEL_REF.search(value) for _, value in walk_strings(document)
+    )
     if ngc_model_ref and not (seen["NGC_API_KEY"] or seen["NGC_CLI_API_KEY"]):
         errors.append(
             "resolved model references an ngc: model path but no "
@@ -197,6 +199,27 @@ def container_tag_errors(
     return errors
 
 
+def alerts_ui_errors(document: dict[str, Any]) -> list[str]:
+    """Reject CV verification controls on an always-on RT-VLM deployment."""
+    services = document.get("services") or {}
+    bridge = services.get("alert-bridge")
+    ui = services.get("vss-ui")
+    if not isinstance(bridge, dict) or not isinstance(ui, dict):
+        return []
+    bridge_env = dict(iter_env(bridge))
+    if str(bridge_env.get("ALERT_AGENT_ALWAYS_ON", "")).lower() != "true":
+        return []
+    key = "NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION"
+    if str(dict(iter_env(ui)).get(key, "")).lower() == "false":
+        return []
+    return [
+        (
+            f"service 'vss-ui' must set {key}=false for always-on RT-VLM alerts; "
+            "set it in override.env and regenerate resolved.yml"
+        )
+    ]
+
+
 def validate_document(
     document: dict[str, Any],
     repo_root: Path,
@@ -241,6 +264,7 @@ def validate_document(
 
     errors.extend(secret_errors(document, extra_required or set()))
     errors.extend(container_tag_errors(document, expected_container_tag))
+    errors.extend(alerts_ui_errors(document))
 
     return errors
 
