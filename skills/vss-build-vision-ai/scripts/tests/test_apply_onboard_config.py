@@ -156,8 +156,9 @@ def test_full_onboard_arg_set(cfg):
     assert changes  # reported to the build log
 
 
-def test_custom_image_preserves_onboarded_inference_endpoint(cfg):
-    endpoint = "http://10.229.20.2:18410/v1"
+@pytest.mark.parametrize("endpoint", ["http://localhost:18410/v1", "https://inference.example.test/v1"])
+def test_custom_image_preserves_onboarded_inference_endpoint(cfg, endpoint):
+    # Configuration fixtures only: apply writes JSON and makes no request.
     mod.apply(str(cfg), {"NEMOCLAW_INFERENCE_BASE_URL": endpoint})
     assert read(cfg)["models"]["providers"]["inference"]["baseUrl"] == endpoint
 
