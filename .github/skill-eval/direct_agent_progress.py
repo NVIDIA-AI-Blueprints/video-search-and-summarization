@@ -15,6 +15,7 @@ import re
 import selectors
 import shlex
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -275,6 +276,31 @@ def _safe_health(value: object) -> str:
     return text if text in _HEALTH else "unknown"
 
 
+def _share_skill_eval_parents(path: Path) -> None:
+    """Let gha-runner and uid 998 both create children under skill-eval.
+
+    The progress journal is the first writer of the leg directory. A 0755
+    parent left by uid 998 makes that mkdir fail with permission denied.
+    """
+    current = path if path.is_dir() else path.parent
+    nodes: list[Path] = []
+    stop = {Path("/"), Path("/tmp"), Path("/private/tmp")}
+    while current not in stop and current != current.parent:
+        nodes.append(current)
+        if current.name == "skill-eval":
+            break
+        current = current.parent
+    else:
+        return
+    for node in nodes:
+        if node.name not in {"skill-eval", "results"}:
+            continue
+        try:
+            os.chmod(node, stat.S_IMODE(node.stat().st_mode) | 0o1777)
+        except OSError:
+            return
+
+
 class ProgressJournal:
     """Bounded JSONL writer with a closed event/field vocabulary."""
 
@@ -343,6 +369,7 @@ class ProgressJournal:
             **fields,
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        _share_skill_eval_parents(self.path.parent)
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, sort_keys=True, separators=(",", ":")))
             handle.write("\n")

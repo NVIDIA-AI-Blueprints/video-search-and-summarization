@@ -1618,6 +1618,7 @@ class TraceUrls(unittest.TestCase):
 
     def setUp(self):
         self._orig_env = os.environ.get("BREV_ENV_ID")
+        self._orig_viewer_url = os.environ.pop("HARBOR_VIEW_BASE_URL", None)
         os.environ["BREV_ENV_ID"] = "13xh5gpe7"
 
     def tearDown(self):
@@ -1625,6 +1626,10 @@ class TraceUrls(unittest.TestCase):
             os.environ.pop("BREV_ENV_ID", None)
         else:
             os.environ["BREV_ENV_ID"] = self._orig_env
+        if self._orig_viewer_url is None:
+            os.environ.pop("HARBOR_VIEW_BASE_URL", None)
+        else:
+            os.environ["HARBOR_VIEW_BASE_URL"] = self._orig_viewer_url
 
     def _write_result(self, directory: Path, payload=None) -> Path:
         directory.mkdir(parents=True, exist_ok=True)
@@ -1656,6 +1661,14 @@ class TraceUrls(unittest.TestCase):
         self.assertTrue(url.endswith("-step-7"))
         # Slashes inside <model>/<task> must be segments, not path levels.
         self.assertEqual(url.count("%2F"), 2)
+
+    def test_configured_viewer_origin_replaces_brev(self):
+        os.environ["HARBOR_VIEW_BASE_URL"] = "http://viewer.example:8080"
+        with tempfile.TemporaryDirectory() as td:
+            result = self._write_result(Path(td) / "step-7__E6dBECL")
+            url = run_leg.trace_url(result, self.JOB)
+        self.assertTrue(url.startswith("http://viewer.example:8080/jobs/"))
+        self.assertNotIn("brevlab.com", url)
 
     def test_trace_url_none_on_incomplete_result(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1704,6 +1717,69 @@ class TraceUrls(unittest.TestCase):
         self.assertEqual(row[2], url)
         self.assertIn("/jobs/leg__30284131217__2026-07-27__17-16-47/tasks/", url)
 
+    def test_publish_trace_is_readable_by_the_workload_user(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base/l40s"),
+            include_task_name="step-7",
+            chain_key="base_l40s",
+            step_index=7,
+            step_count=8,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            results_root = root / "results"
+            trial = results_root / "2026-07-27__17-16-47" / "step-7__E6dBECL"
+            self._write_result(trial)
+            os.chmod(trial, 0o700)
+            os.chmod(trial / "result.json", 0o600)
+            viewer_root = root / "_viewer"
+            outside = viewer_root.parent.parent
+            outside_mode = outside.stat().st_mode
+            orig_viewer = run_leg.VIEWER_ROOT
+            run_leg.VIEWER_ROOT = viewer_root
+            try:
+                run_leg.publish_trace(results_root, invocation, 0.0, "leg", "1")
+            finally:
+                run_leg.VIEWER_ROOT = orig_viewer
+
+            published = viewer_root / "leg__1__2026-07-27__17-16-47" / "step-7__E6dBECL"
+            self.assertTrue(published.stat().st_mode & 0o005)
+            self.assertTrue((published / "result.json").stat().st_mode & 0o004)
+            self.assertTrue(viewer_root.stat().st_mode & 0o005)
+            self.assertTrue(viewer_root.parent.stat().st_mode & 0o005)
+            self.assertEqual(outside.stat().st_mode, outside_mode)
+
+    def test_skill_eval_parents_are_writable_by_both_users(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            leg = root / "skill-eval" / "results" / "slug"
+            leg.mkdir(parents=True)
+            os.chmod(root / "skill-eval", 0o755)
+            os.chmod(root / "skill-eval" / "results", 0o755)
+            os.chmod(leg, 0o755)
+            outside_mode = root.stat().st_mode
+            run_leg._share_skill_eval_parents(leg)
+            self.assertEqual((root / "skill-eval").stat().st_mode & 0o1777, 0o1777)
+            self.assertEqual(
+                (root / "skill-eval" / "results").stat().st_mode & 0o1777, 0o1777
+            )
+            self.assertEqual(leg.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(root.stat().st_mode, outside_mode)
+
+            import direct_agent_progress
+
+            other = root / "skill-eval" / "results" / "other"
+            other.mkdir()
+            os.chmod(root / "skill-eval", 0o755)
+            os.chmod(root / "skill-eval" / "results", 0o755)
+            direct_agent_progress._share_skill_eval_parents(other)
+            self.assertEqual((root / "skill-eval").stat().st_mode & 0o1777, 0o1777)
+            plain = root / "results"
+            plain.mkdir()
+            plain_mode = plain.stat().st_mode
+            run_leg._share_skill_eval_parents(plain)
+            self.assertEqual(plain.stat().st_mode, plain_mode)
+
     def test_publish_trace_returns_none_when_trial_produced_no_result(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/base/l40s"),
@@ -1720,6 +1796,79 @@ class TraceUrls(unittest.TestCase):
                 run_leg.publish_trace(results_root, invocation, 0.0, "leg", "1")
             )
             self.assertFalse((results_root / "trace-urls.tsv").exists())
+
+    def test_publish_trace_keeps_the_final_job_unchanged_when_copy_fails(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base/l40s"),
+            include_task_name="step-7",
+            chain_key="base_l40s",
+            step_index=7,
+            step_count=8,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            results_root = root / "results"
+            trial = results_root / "2026-07-27__17-16-47" / "step-7__E6dBECL"
+            self._write_result(trial)
+            viewer_root = root / "_viewer"
+            orig_viewer = run_leg.VIEWER_ROOT
+            run_leg.VIEWER_ROOT = viewer_root
+
+            def fail_after_partial(src, dst, **kwargs):
+                dst.mkdir(parents=True)
+                (dst / "step-7__E6dBECL").mkdir()
+                raise OSError("copy interrupted")
+
+            try:
+                with mock.patch.object(run_leg.shutil, "copytree", fail_after_partial):
+                    with self.assertRaises(OSError):
+                        run_leg.publish_trace(
+                            results_root, invocation, 0.0, "leg", "30284131217"
+                        )
+            finally:
+                run_leg.VIEWER_ROOT = orig_viewer
+
+            job_dir = viewer_root / "leg__30284131217__2026-07-27__17-16-47"
+            self.assertFalse(job_dir.exists())
+            self.assertFalse(any(viewer_root.glob(".*incoming*")))
+            self.assertFalse((results_root / "trace-urls.tsv").exists())
+
+    def test_publish_trace_replaces_a_job_without_dropping_earlier_trials(self):
+        first = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base/l40s"),
+            include_task_name="step-1",
+            chain_key="base_l40s",
+            step_index=1,
+            step_count=2,
+        )
+        second = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base/l40s"),
+            include_task_name="step-2",
+            chain_key="base_l40s",
+            step_index=2,
+            step_count=2,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            results_root = root / "results"
+            date_dir = results_root / "2026-07-27__17-16-47"
+            self._write_result(date_dir / "step-1__AAA")
+            viewer_root = root / "_viewer"
+            orig_viewer = run_leg.VIEWER_ROOT
+            run_leg.VIEWER_ROOT = viewer_root
+            try:
+                run_leg.publish_trace(results_root, first, 0.0, "leg", "9")
+                self._write_result(date_dir / "step-2__BBB")
+                run_leg.publish_trace(results_root, second, 0.0, "leg", "9")
+            finally:
+                run_leg.VIEWER_ROOT = orig_viewer
+
+            job_dir = viewer_root / "leg__9__2026-07-27__17-16-47"
+            self.assertTrue((job_dir / "step-1__AAA" / "result.json").is_file())
+            self.assertTrue((job_dir / "step-2__BBB" / "result.json").is_file())
+            self.assertFalse(any(viewer_root.glob(".*")))
+            rows = (results_root / "trace-urls.tsv").read_text().splitlines()
+        self.assertEqual(len(rows), 2)
 
 
 class PoolCandidates(unittest.TestCase):

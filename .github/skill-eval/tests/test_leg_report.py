@@ -490,3 +490,114 @@ def test_no_failing_checks_section_when_everything_passed(tmp_path: Path) -> Non
            start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
            checks=[{"pass": True, "check": "a"}, {"pass": True, "check": "b"}])
     assert "### Failing checks" not in _render(tmp_path, declared=["deploy"])
+
+
+def _trace_url(job: str, trial: str) -> str:
+    return f"http://viewer.example/jobs/{job}/tasks/{trial}"
+
+
+def _write_ack(ack_root: Path, job: str, trials: list[str]) -> None:
+    ack_root.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": 1,
+        "host": "viewer-host",
+        "runner": "vss-skill-eval-gpu-1",
+        "run_id": "555",
+        "job": job,
+        "trials": [
+            {"name": name, "installed_at": "2026-09-29T09:00:00Z"}
+            for name in trials
+        ],
+    }
+    (ack_root / job).write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_an_unacknowledged_trial_drops_only_its_own_link(tmp_path: Path, capsys) -> None:
+    job = "skill__555__2026-09-29"
+    _trial(tmp_path, "r", "step-1__aaa", reward=1.0,
+           start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z")
+    _trial(tmp_path, "r", "step-2__bbb", reward=0.0,
+           start="2026-08-20T08:06:00Z", finish="2026-08-20T08:10:00Z")
+    (tmp_path / leg_report.TRACE_URLS_NAME).write_text(
+        f"step-1\tstep-1__aaa\t{_trace_url(job, 'step-1__aaa')}\n"
+        f"step-2\tstep-2__bbb\t{_trace_url(job, 'step-2__bbb')}\n"
+    )
+    ack = tmp_path / "ack"
+    _write_ack(ack, job, ["step-1__aaa"])
+    kept = leg_report.filter_unacknowledged_traces(
+        leg_report._trace_rows(tmp_path),
+        ack,
+        wait_s=0,
+    )
+    leg = leg_report.collect_leg(tmp_path)
+    leg["traces"] = kept
+    body = leg_report.render_comment(
+        leg, spec_path="s.json", platform="L40S", head_sha="0862faf3",
+        declared=["one", "two"],
+    )
+    err = capsys.readouterr().err
+    assert _trace_url(job, "step-1__aaa") in body
+    assert _trace_url(job, "step-2__bbb") not in body
+    assert "omit trace step-2/step-2__bbb: not listed in acknowledgement" in err
+    assert "viewer-host" not in err
+    assert "metro install failed" not in err
+
+
+def test_a_missing_ack_is_logged_as_not_acknowledged(tmp_path: Path, capsys) -> None:
+    job = "skill__555__2026-09-29"
+    rows = [("step-1", "step-1__aaa", _trace_url(job, "step-1__aaa"))]
+    kept = leg_report.filter_unacknowledged_traces(
+        rows, tmp_path / "missing-ack", wait_s=0,
+    )
+    err = capsys.readouterr().err
+    assert kept == {}
+    assert "omit trace step-1/step-1__aaa: not acknowledged within 0s" in err
+
+
+def test_the_gate_waits_until_the_ack_appears(tmp_path: Path, capsys) -> None:
+    job = "skill__555__2026-09-29"
+    ack = tmp_path / "ack"
+    rows = [("step-1", "step-1__aaa", _trace_url(job, "step-1__aaa"))]
+    state = {"now": 0.0}
+
+    def clock() -> float:
+        return state["now"]
+
+    def sleep(seconds: float) -> None:
+        state["now"] += seconds
+        _write_ack(ack, job, ["step-1__aaa"])
+
+    kept = leg_report.filter_unacknowledged_traces(
+        rows, ack, wait_s=300, poll_s=2, sleep=sleep, clock=clock,
+    )
+    assert kept["step-1__aaa"] == rows[0][2]
+    assert capsys.readouterr().err == ""
+
+
+def test_brev_comments_keep_trace_links_without_waiting(tmp_path: Path, capsys, monkeypatch) -> None:
+    monkeypatch.delenv("HARBOR_VIEW_BASE_URL", raising=False)
+    _trial(tmp_path, "r", "step-1__aaa", reward=1.0,
+           start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z")
+    (tmp_path / leg_report.TRACE_URLS_NAME).write_text(
+        "step-1\tstep-1__aaa\thttps://harbor.example/jobs/x\n")
+    assert leg_report.main(["--results-root", str(tmp_path), "--platform", "L40S",
+                            "--head-sha", "0862faf3"]) == 0
+    out = capsys.readouterr().out
+    assert "[trace](https://harbor.example/jobs/x)" in out
+
+
+def test_openshell_gate_does_not_change_the_render_exit_code(tmp_path: Path, capsys, monkeypatch) -> None:
+    job = "skill__555__2026-09-29"
+    monkeypatch.setenv("HARBOR_VIEW_BASE_URL", "http://viewer.example")
+    monkeypatch.setenv("HARBOR_ACK_DIR", str(tmp_path / "ack"))
+    monkeypatch.setenv("HARBOR_ACK_WAIT_S", "0")
+    _trial(tmp_path, "r", "step-1__aaa", reward=0.0, passed=0, total=4,
+           start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z")
+    (tmp_path / leg_report.TRACE_URLS_NAME).write_text(
+        f"step-1\tstep-1__aaa\t{_trace_url(job, 'step-1__aaa')}\n")
+    assert leg_report.main([
+        "--results-root", str(tmp_path), "--platform", "L40S", "--head-sha", "0862faf3",
+    ]) == 0
+    captured = capsys.readouterr()
+    assert _trace_url(job, "step-1__aaa") not in captured.out
+    assert "not acknowledged within 0s" in captured.err

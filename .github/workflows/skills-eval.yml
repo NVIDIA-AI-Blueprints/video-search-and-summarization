@@ -652,6 +652,8 @@ jobs:
           CI_LLM_REMOTE_MODEL: ${{ secrets.LLM_REMOTE_MODEL }}
           CI_VLM_REMOTE_URL: ${{ secrets.VLM_REMOTE_URL }}
           CI_VLM_REMOTE_MODEL: ${{ secrets.VLM_REMOTE_MODEL }}
+          # Viewer origin for trace links. Empty keeps the Brev URL.
+          HARBOR_VIEW_BASE_URL: ${{ vars.HARBOR_VIEW_BASE_URL }}
           EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'claude-code' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the

@@ -34,11 +34,16 @@ import math
 import os
 import re
 import sys
-
-import redact_secrets
+import time
+import urllib.parse
 from pathlib import Path
 
+import redact_secrets
+
 TRACE_URLS_NAME = "trace-urls.tsv"
+ACK_DIR = Path("/tmp/skill-eval/results/_ack")
+ACK_WAIT_S = 300.0
+ACK_POLL_S = 2.0
 PHASE_TIMINGS_NAME = "phase-timings.json"
 MACHINE_NAME = "machine.txt"
 MISSING = "—"
@@ -453,6 +458,115 @@ def _verdict_cell(trial: dict) -> str:
     return f"{MARK_FAIL} {_fmt_reward(reward)}{detail}"
 
 
+def _trace_rows(results_root: Path) -> list[tuple[str, str, str]]:
+    rows: list[tuple[str, str, str]] = []
+    trace_file = results_root / TRACE_URLS_NAME
+    if not trace_file.is_file():
+        return rows
+    for line in trace_file.read_text().splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 3 and parts[2].strip():
+            rows.append((parts[0].strip(), parts[1].strip(), parts[2].strip()))
+    return rows
+
+
+def _job_from_trace_url(url: str) -> str | None:
+    """Return the Harbor job segment from a trace URL."""
+    marker = "/jobs/"
+    start = url.find(marker)
+    if start < 0:
+        return None
+    job = urllib.parse.unquote(url[start + len(marker):].split("/tasks/", 1)[0])
+    if (
+        not job
+        or job in {".", ".."}
+        or "/" in job
+        or "\\" in job
+        or job.startswith(".")
+    ):
+        return None
+    return job
+
+
+def _ack_trial_names(ack_root: Path, job: str) -> set[str] | None:
+    """Trials named by the guest ack file, or None when that file is absent."""
+    path = ack_root / job
+    if path.is_symlink() or not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict) or data.get("version") != 1 or data.get("job") != job:
+        return None
+    names: set[str] = set()
+    for item in data.get("trials") or []:
+        if isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"]:
+            names.add(item["name"])
+    return names
+
+
+def _ack_wait_s() -> float:
+    raw = os.environ.get("HARBOR_ACK_WAIT_S", str(int(ACK_WAIT_S))).strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        value = ACK_WAIT_S
+    if value < 0:
+        return 0.0
+    return min(value, ACK_WAIT_S)
+
+
+def filter_unacknowledged_traces(
+    rows: list[tuple[str, str, str]],
+    ack_root: Path,
+    *,
+    wait_s: float,
+    poll_s: float = ACK_POLL_S,
+    sleep=time.sleep,
+    clock=time.monotonic,
+) -> dict[str, str]:
+    """Keep trace URLs whose trial is named in the local acknowledgement.
+
+    The eval result is untouched. A URL that is still missing when the wait
+    ends is omitted, and the reason is written to stderr.
+    """
+    pending = list(rows)
+    deadline = clock() + max(wait_s, 0.0)
+    while pending:
+        still: list[tuple[str, str, str]] = []
+        for step, trial, url in pending:
+            job = _job_from_trace_url(url)
+            names = _ack_trial_names(ack_root, job) if job else None
+            if names is not None and trial in names:
+                continue
+            still.append((step, trial, url))
+        pending = still
+        remaining = deadline - clock()
+        if not pending or remaining <= 0:
+            break
+        sleep(min(poll_s, remaining))
+
+    kept: dict[str, str] = {}
+    omitted = {(step, trial, url) for step, trial, url in pending}
+    for step, trial, url in rows:
+        if (step, trial, url) in omitted:
+            job = _job_from_trace_url(url)
+            names = _ack_trial_names(ack_root, job) if job else None
+            if names is None:
+                reason = f"not acknowledged within {int(wait_s)}s"
+            else:
+                reason = "not listed in acknowledgement"
+            print(
+                f"[leg-report] omit trace {step}/{trial}: {reason}",
+                file=sys.stderr,
+            )
+            continue
+        kept[step] = url
+        kept[trial] = url
+    return kept
+
+
 def _trace_link(trial: dict, traces: dict) -> str:
     url = traces.get(trial["trial_name"])
     if not url and trial.get("step"):
@@ -661,6 +775,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"redact_secrets: {line}", file=sys.stderr)
 
     leg = collect_leg(args.results_root)
+    if os.environ.get("HARBOR_VIEW_BASE_URL", "").strip():
+        ack_root = Path(os.environ.get("HARBOR_ACK_DIR", str(ACK_DIR)))
+        leg["traces"] = filter_unacknowledged_traces(
+            _trace_rows(args.results_root),
+            ack_root,
+            wait_s=_ack_wait_s(),
+        )
     if not leg["trials"]:
         print("no trials under results root", file=sys.stderr)
         return 2
