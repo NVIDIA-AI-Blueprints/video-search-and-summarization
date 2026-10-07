@@ -209,6 +209,7 @@ class EvalScope(unittest.TestCase):
             "yolo26_object_detection",
             "peoplenet_transformer_four_streams",
             "rf_detr_instance_segmentation",
+            "yolo26_object_detection_microservice",
         }
         with patch.object(plan_matrix, "adapter_exists", return_value=False):
             legs = plan_matrix.build_matrix([path])
@@ -217,7 +218,7 @@ class EvalScope(unittest.TestCase):
         with patch.object(plan_matrix, "adapter_exists", return_value=True):
             legs = plan_matrix.build_matrix([path])
         self.assertEqual({leg["spec_stem"] for leg in legs}, expected)
-        self.assertEqual(len(legs), 3)
+        self.assertEqual(len(legs), 4)
         for leg in legs:
             self.assertEqual(leg["kind"], "eval")
             self.assertEqual(leg["platform"], "L40S")

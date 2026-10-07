@@ -53,6 +53,7 @@ class LocalVisionEval(unittest.TestCase):
             "yolo26_object_detection": "Create an object detection pipeline using the Yolo26 model",
             "peoplenet_transformer_four_streams": "Create a multi-stream pipeline for 4 video inputs with the PeopleNet Transformer model",
             "rf_detr_instance_segmentation": "Create an object segmentation pipeline using RF-DETR",
+            "yolo26_object_detection_microservice": "Create an object detection microservice using the Yolo26 model.",
         }
         for name, prompt in expected.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as td:

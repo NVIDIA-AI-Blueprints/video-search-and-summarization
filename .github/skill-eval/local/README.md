@@ -1,6 +1,6 @@
 # Local vision-pipeline evaluation
 
-This runner executes the three `vss-build-vision-pipeline` scenarios on the local
+This runner executes the `vss-build-vision-pipeline` scenarios on the local
 GPU using Claude Code and the existing `generic_judge.py`. It does not use Brev
 or its Docker reset. Results are local; nothing is published or committed.
 
@@ -55,6 +55,7 @@ Other scenarios:
 
 - `peoplenet_transformer_four_streams`
 - `rf_detr_instance_segmentation`
+- `yolo26_object_detection_microservice`
 
 Run sequentially. The launcher locks out concurrent local runs started through
 it; it does not reserve the GPU against other applications. The default agent

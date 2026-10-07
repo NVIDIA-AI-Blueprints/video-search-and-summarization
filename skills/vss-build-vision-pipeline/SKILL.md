@@ -72,6 +72,12 @@ object tracking, semantic segmentation, and instance segmentation.
    this API, report the compatibility limitation rather than inventing a substitute
    API or silently changing the implementation.
 
+6. **Use Inference Builder for microservices.** When the pipeline is intended to
+   serve as a microservice, use DeepStream's
+   [Inference Builder](https://github.com/NVIDIA-AI-IOT/inference_builder)
+   (`tools/inference_builder` in the DeepStream repository) to generate and package
+   it. Follow its documentation and samples for the selected DeepStream release.
+
 ## Workflow
 
 For model inference, follow these steps. Decoding/frame-sampling-only requests
