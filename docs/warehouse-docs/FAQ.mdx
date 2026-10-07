@@ -232,7 +232,7 @@ This section provides answers to some of the frequently asked questions on using
 
 When using NVStreamer synchronized playback, all streams specified by `nv_streamer_sync_file_count` must request playback within `nv_streamer_sync_data_arrival_timeout_secs` (default: `150` seconds). Re-adding streams too slowly or adding fewer than the configured count can prevent playback.
 
-Increase the timeout for slower re-adds. If you still cannot re-add all streams within the timeout, or the number of streams changes, update the deployment configuration as needed and redeploy the Warehouse Blueprint. Increasing the timeout alone does not help if fewer streams are re-added.
+Increase `nv_streamer_sync_data_arrival_timeout_secs` for slower re-adds. A longer timeout does not help if you re-add fewer streams than `nv_streamer_sync_file_count`, since playback waits for the full count. If you still cannot re-add every stream in time, or the stream count has changed, update the deployment configuration and redeploy the Warehouse Blueprint.
 
 ### Why are object IDs missing from the video overlay?
 
