@@ -52,7 +52,7 @@ If your issue is not addressed on this page, please raise it on [GitHub Issues](
 
 ### Why do large file uploads to VIOS fail?
 
-Upload size is governed by two settings (NGINX `client_max_body_size` and `nv_streamer_max_upload_file_size_MB`). The effective limit is the lower of the two. Refer to [Configuring upload file size limit](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#configuring-upload-file-size-limit) for configuration steps.
+NGINX `client_max_body_size` (configured through `clientMaxBodySize` in the Helm VIOS ingress) and any upstream proxy limit apply to each request. The VIOS/NVStreamer UI enables multipart upload by default with 50 MB chunks, so each chunk plus multipart overhead must fit within those limits. Single-request uploads from other clients must fit the entire file within the request limit. The current storage upload handler bypasses `nv_streamer_max_upload_file_size_MB`, so that field does not enforce a file-size limit. Refer to [Configuring upload file size limit](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#configuring-upload-file-size-limit) for details.
 
 ### Why are video uploads to VIOS slow?
 

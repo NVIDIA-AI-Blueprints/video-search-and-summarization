@@ -84,7 +84,7 @@ interface Metadata {
 const VIDEO_UPLOAD_TIMEOUT = 999999999;
 
 const toolTipHelperText =
-    'If enabled the media file will be divided into small chunks and each chunk will be uploaded separately. Enable this setting if timeout is occuring during upload.';
+    'Splits files into smaller chunks to help large videos upload reliably over slow connections or through upload limits.';
 
 function hasWhiteSpace(s: string): boolean {
     return /\s/g.test(s);
@@ -99,7 +99,8 @@ const MediaUpload = () => {
     const [bitrate, setBitrate] = useState('');
     const [keyframeInterval, setKeyframeInterval] = useState('');
     const [tags, setTags] = useState('');
-    const [enableChunkUpload, setEnableChunkUpload] = useState(false);
+    // Keep each request below the upload limits of proxies such as Brev secure links.
+    const [enableChunkUpload, setEnableChunkUpload] = useState(true);
     const [chunkSize, setChunkSize] = useState<number>(50);
     const [isDragging, setIsDragging] = useState(false);
     const [selectedSensor, setSelectedSensor] = useState<Sensor | null>(null);
@@ -423,9 +424,7 @@ const MediaUpload = () => {
             'nvstreamer-total-chunks': params.totalChunkCount,
             'nvstreamer-is-last-chunk': isLastChunk ? 'true' : 'false',
         };
-        if (params.metadata.sensorId) {
-            uploadHeaders.streamId = params.metadata.sensorId;
-        }
+        // Keep Sensor ID in metadata so SDRC can route uploads without a pod mapping.
         applyTranscodeHeaders(uploadHeaders, params.currentState);
         return uploadHeaders;
     };
@@ -441,8 +440,8 @@ const MediaUpload = () => {
         fd.append('mediaFile', file.slice(start, start + chunkSizeBytes));
         fd.append('filename', file.name);
 
-        // Add metadata to the first chunk
-        if (chunkNumber === 1) {
+        // Include metadata on the first and final chunks.
+        if (chunkNumber === 1 || isLastChunk) {
             fd.append('metadata', JSON.stringify(params.metadata));
         }
 
@@ -452,20 +451,25 @@ const MediaUpload = () => {
                 headers: buildChunkHeaders(params, isLastChunk),
                 cancelToken: cancelToken.token,
                 onUploadProgress: progressEvent => {
-                    const progress = ((start + progressEvent.loaded) / fileSize) * 100;
+                    const progress = Math.min(100, ((start + progressEvent.loaded) / fileSize) * 100);
                     onProgress({ percent: progress });
                 },
             });
 
             if (response.data && Object.prototype.hasOwnProperty.call(response.data, 'filename')) {
                 if (isLastChunk) {
+                    if (cancelTokensRef.current.get(file.name) === cancelToken) {
+                        cancelTokensRef.current.delete(file.name);
+                    }
                     setFileTag(tags, response.data.id);
                 }
                 handleChunkSuccess(response, chunkNumber, totalChunkCount, onSuccess);
             }
             return true;
         } catch (error: unknown) {
-            cancelTokensRef.current.delete(file.name);
+            if (cancelTokensRef.current.get(file.name) === cancelToken) {
+                cancelTokensRef.current.delete(file.name);
+            }
             if (axios.isCancel(error)) {
                 return false;
             }
@@ -478,6 +482,15 @@ const MediaUpload = () => {
     const uploadFileInChunks = async (options: UploadOptions) => {
         const { onError, file } = options;
         const currentState = stateRef.current;
+
+        if (file.size === 0) {
+            enqueueSnackbar('Error - empty files cannot be uploaded', {
+                variant: 'error',
+                anchorOrigin: { horizontal: 'right', vertical: 'bottom' },
+            });
+            onError({ error: new Error('Empty files cannot be uploaded') });
+            return;
+        }
 
         const metadata = buildMetadata(currentState);
         if (!isChunkSizeValid(currentState.chunkSize, onError)) {
