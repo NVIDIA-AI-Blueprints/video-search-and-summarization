@@ -86,7 +86,7 @@ class RequiredPipelineTests(unittest.TestCase):
                     with self.subTest(key=key, value=value), redirect_stdout(output), patch("run.validate") as validate:
                         self.assertEqual(run.main(["--config", str(config)]), 2)
                         validate.assert_not_called()
-                    self.assertIn("always requires both Raw and Embed", output.getvalue())
+                    self.assertIn(f"unrecognized key(s): es_readiness.{key}", output.getvalue())
 
     def test_shipped_defaults_honor_selected_checkout_and_cli_configuration(self):
         config = Path(__file__).resolve().parents[1] / "config.yml"

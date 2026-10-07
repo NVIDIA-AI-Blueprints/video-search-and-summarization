@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from http.client import IncompleteRead
 import json
 import os
 import time
@@ -81,8 +82,9 @@ def request_json(
 ) -> JsonResponse:
     """Issue one JSON request and return status plus parsed body.
 
-    Non-2xx responses are returned, not raised -- a rejection is a benchmark
-    result, not an error to retry around.
+    HTTP failures and transport errors are returned as observations. Status 0
+    means no complete HTTP response was received. This function never retries;
+    the readiness poller may make its next read within its existing deadline.
     """
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     headers = {"Accept": "application/json"}
@@ -95,12 +97,18 @@ def request_json(
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
     started = time.monotonic()
     try:
-        with urllib.request.urlopen(request, timeout=timeout_sec) as response:
-            raw = response.read().decode("utf-8", errors="replace")
-            status = response.status
-    except urllib.error.HTTPError as exc:
-        raw = exc.read().decode("utf-8", errors="replace")
-        status = exc.code
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_sec) as response:
+                raw = response.read().decode("utf-8", errors="replace")
+                status = response.status
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            status = exc.code
+    except (OSError, IncompleteRead) as exc:
+        return JsonResponse(
+            status=0, body=None, text=f"ES transport error: {type(exc).__name__}",
+            elapsed_sec=time.monotonic() - started,
+        )
     elapsed = time.monotonic() - started
 
     parsed: Any = None

@@ -57,12 +57,12 @@ class CliSetupTests(unittest.TestCase):
             cli = VssCli(self.repo)
         self.assertEqual(cli.command, (str(binary),))
 
-    def test_current_workspace_environment_preferred_over_legacy(self):
-        current = self.executable(self.repo / "libs/vss/.venv/bin/vss")
+    def test_checkout_environments_are_not_implicit_launchers(self):
+        self.executable(self.repo / "libs/vss/.venv/bin/vss")
         self.executable(self.repo / "services/agent/.venv/bin/vss")
         with patch("vss_cli.shutil.which", return_value=None):
-            cli = VssCli(self.repo)
-        self.assertEqual(cli.command, (str(current),))
+            with self.assertRaisesRegex(ValueError, "Install it per AGENTS.md"):
+                VssCli(self.repo)
 
     def test_invalid_explicit_binary_does_not_silently_fallback(self):
         path = self.root / "not-executable"
@@ -70,36 +70,6 @@ class CliSetupTests(unittest.TestCase):
         for selected in (str(path), str(self.root / "missing")):
             with self.subTest(selected=selected), self.assertRaisesRegex(ValueError, "not executable"):
                 VssCli(self.repo, executable=selected)
-
-    def test_uv_fallback_covers_new_workspace_and_old_layout_offline(self):
-        for layout, expected in (("libs/vss", ("--package", "nvidia-vss-cli")), ("services/agent", ("--extra", "cli"))):
-            with self.subTest(layout=layout):
-                root = self.repo / layout.replace("/", "-")
-                project = root / layout
-                project.mkdir(parents=True)
-                (project / "pyproject.toml").touch()
-                with (
-                    patch("vss_cli.shutil.which", return_value=None),
-                    patch.dict(os.environ, {"VIRTUAL_ENV": "/other"}),
-                ):
-                    cli = VssCli(root)
-                self.assertEqual(
-                    cli.command, ("uv", "run", "--project", str(project), "--no-sync", "--no-dev", *expected, "vss")
-                )
-                self.assertNotIn("VIRTUAL_ENV", cli.env)
-                self.assertEqual(cli.env["UV_OFFLINE"], "true")
-                self.assertEqual(cli.env["UV_PYTHON_DOWNLOADS"], "never")
-
-    def test_custom_uv_override_preserved_when_path_vss_exists(self):
-        binary = self.executable(self.root / "bin/vss")
-        project = self.repo / "services/agent"
-        project.mkdir(parents=True)
-        (project / "pyproject.toml").touch()
-        with patch.dict(os.environ, {"PATH": str(binary.parent)}):
-            cli = VssCli(self.repo, uv="/custom/uv")
-            explicit = VssCli(self.repo, uv="/custom/uv", executable=str(binary))
-        self.assertEqual(cli.command[0], "/custom/uv")
-        self.assertEqual(explicit.command, (str(binary),))
 
     def test_invalid_config_and_list_json_are_not_healthy(self):
         binary = self.executable(self.root / "vss")

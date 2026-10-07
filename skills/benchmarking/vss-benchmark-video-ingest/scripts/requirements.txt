@@ -1,6 +1,6 @@
 # VSS ingest benchmark -- runner dependencies.
 #
-# The worker invokes a separately installed VSS CLI; project-based uv is a fallback.
+# The worker invokes a separately installed VSS CLI.
 # No dependency synchronization happens during a measured upload.
 # PyYAML parses benchmark config; matplotlib generates charts after the sweep.
 PyYAML>=6.0

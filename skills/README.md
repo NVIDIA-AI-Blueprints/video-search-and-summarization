@@ -257,7 +257,7 @@ it, ask questions of it, manage its alerts, and read its analytics.
 > Read `skills/README.md` and every `SKILL.md` file under `skills/`. For each skill
 > in the catalog, install it for this host so I can invoke it from a shell or chat
 > session, using the host's standard skills directory and naming each install after
-> the skill's frontmatter `name`, without its category. Symlink each skill folder
+> the skill's own directory name rather than its category. Symlink each skill folder
 > rather than copying it. Skip skills already installed and pointing at this
 > checkout. When you're done, list the skills you registered and which directory you
 > used.
@@ -269,7 +269,7 @@ Give the agent the path as it appears in the catalog above:
 
 > Install only `skills/<path-from-the-catalog>/` for this host the same way — for
 > example `skills/operations/vss-search-archive/` or `skills/vss-build-vision-ai/`.
-> Register it under the skill's frontmatter `name`, without any category prefix.
+> Register it under the skill's own directory name, without any category prefix.
 
 ### Update
 

@@ -11,7 +11,7 @@ File                         Purpose
 ``ingest_corpus.csv``        one row per measured video
 ``ingest_requests.csv``      one row per upload
 ``ingest_summary.csv``       one row per sweep point
-``ingest_errors.csv``        error taxonomy by HTTP status and observed phase
+``ingest_errors.csv``        error taxonomy by CLI exit and observed phase
 ===========================  ==============================================
 
 Two levels of metric live here, and mixing them is the easiest way to misread a
@@ -48,15 +48,10 @@ CORPUS_FIELDS = (
     "probe_status",
 )
 
-#: ``ingest_summary.csv`` column order. Harness column names are reused so a
-#: Phase 1 curve and a ``vss_ingest_perf`` curve line up without renaming.
-#: ``rt_set`` and ``ba_enabled`` stay blank: Phase 1 does not control the
-#: deployment shape, so it cannot label it.
+#: ``ingest_summary.csv`` column order for client-observed sweep results.
 SUMMARY_FIELDS = (
     "video_class",
     "concurrency",
-    "rt_set",
-    "ba_enabled",
     "upload_count",
     "success_count",
     "failure_count",
@@ -77,7 +72,6 @@ SUMMARY_FIELDS = (
     "p50_latency_sec",
     "p95_latency_sec",
     "max_latency_sec",
-    "api_failure_statuses",
     "cli_exit_statuses",
 )
 
@@ -85,16 +79,15 @@ ERROR_FIELDS = (
     "video_class",
     "concurrency",
     "phase",
-    "http_status",
     "cli_exit_code",
     "outcome",
     "count",
     "example_detail",
 )
 
-#: Below this, the slowest stream did not really finish and the point's
-#: throughput must not be plotted. Matches ``result_validity`` in the harness.
-MIN_RAW_COMPLETION_RATIO = 0.95
+#: Confirmed streams must reach the expected raw-frame count. Partial raw
+#: coverage invalidates the point, even if a legacy record says confirmed.
+MIN_RAW_COMPLETION_RATIO = 1.0
 
 #: Where in the upload an outcome was observed. Phase 1 can name the phase the
 #: *client* was in; it never names an internal pipeline stage.
@@ -106,7 +99,7 @@ PHASES = {
 
 
 def percentile(values: Sequence[float], pct: float) -> float:
-    """Linear-interpolation percentile, identical to the harness helper."""
+    """Linear-interpolation percentile of the finite observations."""
     clean = sorted(float(v) for v in values if v is not None and math.isfinite(float(v)))
     if not clean:
         return 0.0
@@ -138,26 +131,13 @@ def write_requests_csv(path: Path, records: Sequence[UploadRecord]) -> None:
     _write_csv(path, UploadRecord.CSV_FIELDS, (record.as_row() for record in records))
 
 
-def api_failure_statuses(records: Sequence[UploadRecord]) -> str:
-    """HTTP status histogram across every upload in the point, e.g. ``200:21``.
-
-    Transport-level give-ups have no status; they are counted under ``none`` so
-    the histogram still sums to ``upload_count``.
-    """
-    counts: dict[str, int] = {}
-    for record in records:
-        key = record.http_status or "none"
-        counts[key] = counts.get(key, 0) + 1
-    return "; ".join(f"{key}:{counts[key]}" for key in sorted(counts))
-
-
 def _upload_window_sec(records: Sequence[UploadRecord]) -> float | None:
     """Success window: max(completed) - min(started), with validated clocks.
 
-    Under ``es_readiness`` each record's ``ingest_confirmed_at`` is
-    max(ingested_at) across its indexed documents. It must be strictly later
-    than that upload's client timestamp. A plausible aggregate window can hide
-    an individual upload with clock skew, so validate every pair first.
+    Both endpoints come from the client clock: upload start and observation of
+    ES readiness. Polling and request latency delay completion observation.
+    Validate every pair so an invalid individual window cannot be hidden by
+    another upload's positive window.
 
     Return ``None`` for no successes; raise ``ValueError`` when a success lacks
     usable timestamps. An invalid window must never become a tiny denominator
@@ -187,8 +167,7 @@ def _upload_window_sec(records: Sequence[UploadRecord]) -> float | None:
         if completed <= started:
             raise ValueError(
                 f"{label} has a nonpositive timestamp window "
-                "(ingest_confirmed_at <= request_sent_at); check client and "
-                "Elasticsearch clock synchronization"
+                "(ingest_confirmed_at <= request_sent_at); check the client clock"
             )
         starts.append(started)
         ends.append(completed)
@@ -222,14 +201,12 @@ def summarize_point(
     * ``total_video_duration_min`` counts confirmed video-minutes and already
       includes the concurrency multiplier, because every worker uploaded the
       whole class.
-    * ``total_video_size_gb`` counts confirmed source bytes, matching the
-      harness column of the same name.
-    * ``aggregate_mb_per_sec`` counts every byte the client put on the wire,
-      confirmed or not, because the uplink carried all of them. Its
-      denominator stays the point wall clock -- the uplink carried the failed
-      bytes too, so the success window would overstate the transfer rate.
+    * ``total_video_size_gb`` counts confirmed source bytes.
+    * ``aggregate_mb_per_sec`` counts source payload bytes acknowledged by
+      successful CLI uploads, including those later unconfirmed in ES, over
+      the point wall clock. Partial failed uploads and wire overhead are unknown.
     * ``video_min_per_sec`` divides confirmed video-minutes by the success
-      upload window, the harness denominator, not by the point wall clock.
+      upload window, from first client start to last client confirmation.
     * Percentiles are taken across confirmed uploads inside this one point, so
       they measure contention rather than differences between videos.
     """
@@ -237,7 +214,7 @@ def summarize_point(
     failures = [r for r in records if r.outcome != "confirmed"]
     latencies = [r.latency_sec for r in confirmed]
 
-    # ---- result validity, mirroring the harness ------------------------
+    # ---- result validity for complete ingestion -----------------------
     ratios = [
         float(r.readiness_metrics["raw_completion_ratio"])
         for r in confirmed
@@ -257,7 +234,7 @@ def summarize_point(
     wall = max(float(wall_clock_sec), 1e-9)
     transmitted = sum(r.transmitted_bytes for r in records)
     confirmed_video_min = sum(r.duration_sec for r in confirmed) / 60.0
-    # Preserve the harness success-window denominator for usable timestamps.
+    # Use the client-observed success window for usable timestamps.
     # Invalid confirmed timing cannot support throughput, even when another
     # upload would make the aggregate window positive. Keep no-success rows at
     # zero throughput using the point wall clock, as before.
@@ -270,8 +247,6 @@ def summarize_point(
     return {
         "video_class": video_class,
         "concurrency": concurrency,
-        "rt_set": "",
-        "ba_enabled": "",
         "upload_count": len(records),
         "success_count": len(confirmed),
         "failure_count": len(records) - len(confirmed),
@@ -288,7 +263,6 @@ def summarize_point(
         "p50_latency_sec": round(percentile(latencies, 0.50), 1),
         "p95_latency_sec": round(percentile(latencies, 0.95), 1),
         "max_latency_sec": round(max(latencies), 1) if latencies else 0.0,
-        "api_failure_statuses": api_failure_statuses(records),
         "cli_exit_statuses": "; ".join(
             f"{code}:{sum(str(r.cli_exit_code) == code for r in records)}"
             for code in sorted({str(r.cli_exit_code) for r in records})
@@ -310,7 +284,6 @@ def build_error_rows(records: Sequence[UploadRecord]) -> list[dict[str, Any]]:
             record.video_class,
             record.concurrency,
             PHASES.get(record.outcome, "unknown"),
-            record.http_status or "none",
             record.outcome,
             record.cli_exit_code,
         )
@@ -320,9 +293,8 @@ def build_error_rows(records: Sequence[UploadRecord]) -> list[dict[str, Any]]:
                 "video_class": key[0],
                 "concurrency": key[1],
                 "phase": key[2],
-                "http_status": key[3],
-                "outcome": key[4],
-                "cli_exit_code": key[5],
+                "outcome": key[3],
+                "cli_exit_code": key[4],
                 "count": 0,
                 "example_detail": "",
             },

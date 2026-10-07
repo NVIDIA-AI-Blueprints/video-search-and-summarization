@@ -26,51 +26,29 @@ class VssCli:
         self,
         repo: Path,
         config_home: Path | None = None,
-        uv: str = "uv",
         executable: str | None = None,
     ):
         self.repo = repo.expanduser().resolve()
         self.env = os.environ.copy()
-        self.env["UV_OFFLINE"] = "true"
-        self.env["UV_PYTHON_DOWNLOADS"] = "never"
         if config_home is not None:
             self.env["VSS_CONFIG_HOME"] = str(config_home.expanduser().resolve())
         self.config_home = self.env.get("VSS_CONFIG_HOME", str(Path.home() / ".vss"))
 
-        projects = [self.repo / path for path in ("libs/vss", "libs/vss/cli", "services/agent")]
-        direct = None
-        if executable is not None:
-            direct = shutil.which(os.path.expanduser(executable))
-            if direct is None:
-                raise ValueError(f"VSS CLI executable is missing or not executable: {executable}")
-        elif uv == "uv":
-            # A custom uv remains an explicit launcher override for older setups.
-            direct = shutil.which("vss")
-            if direct is None:
-                for project in projects:
-                    candidate = project / ".venv/bin/vss"
-                    if candidate.is_file() and os.access(candidate, os.X_OK):
-                        direct = str(candidate)
-                        break
-        if direct is not None:
-            binary = Path(direct).resolve()
-            if not binary.is_file() or not os.access(binary, os.X_OK):
-                raise ValueError(f"VSS CLI executable is missing or not executable: {binary}")
-            self.command = (str(binary),)
-            # uv tool installs expose a symlink; resolve its actual environment.
-            if (binary.parent.parent / "pyvenv.cfg").is_file():
-                self.env["VIRTUAL_ENV"] = str(binary.parent.parent)
-                self.env["PATH"] = str(binary.parent) + os.pathsep + self.env.get("PATH", "")
-            return
-
-        project = next((path for path in projects if (path / "pyproject.toml").is_file()), None)
-        if project is None:
+        selected = os.path.expanduser(executable) if executable is not None else "vss"
+        direct = shutil.which(selected)
+        if direct is None:
             raise ValueError(
-                "VSS CLI is not installed; install it per VSS AGENTS.md or set --cli-executable/--vss-repo"
+                f"VSS CLI executable is missing or not executable: {selected}. "
+                "Install it per AGENTS.md or set --cli-executable."
             )
-        package_args = ("--extra", "cli") if project.name == "agent" else ("--package", "nvidia-vss-cli")
-        self.command = (uv, "run", "--project", str(project), "--no-sync", "--no-dev", *package_args, "vss")
-        self.env.pop("VIRTUAL_ENV", None)
+        binary = Path(direct).resolve()
+        if not binary.is_file() or not os.access(binary, os.X_OK):
+            raise ValueError(f"VSS CLI executable is missing or not executable: {binary}")
+        self.command = (str(binary),)
+        # uv tool installs expose a symlink; resolve its actual environment.
+        if (binary.parent.parent / "pyvenv.cfg").is_file():
+            self.env["VIRTUAL_ENV"] = str(binary.parent.parent)
+            self.env["PATH"] = str(binary.parent) + os.pathsep + self.env.get("PATH", "")
 
     def call(self, *args: str) -> CliResult:
         # CLI owns its bounded HTTP/timeline waits. Never retry a mutating command.

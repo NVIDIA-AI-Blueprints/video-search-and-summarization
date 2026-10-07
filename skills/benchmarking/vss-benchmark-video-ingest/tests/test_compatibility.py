@@ -13,6 +13,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlunsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import check_compatibility as compatibility
@@ -32,7 +33,7 @@ EVIDENCE = {
     "status": "compatible",
     "skill_version": "v3.3.0",
     "deployed_vss_version": "3.3.0+tree.fixture",
-    "requires_vss": "==3.3.0",
+    "requires_vss": ">=3.3.0,<3.4.0",
     "version_url": "http://fixture.invalid/api/v1/version",
     "checked_at_utc": "2026-09-28T00:00:00+00:00",
 }
@@ -45,20 +46,25 @@ def response(payload, status=200):
 
 
 class CompatibilityTests(unittest.TestCase):
-    def test_real_api_contract_and_release_comparison_without_es_auth(self):
-        for version in ("3.3.0", "3.3.0+tree.abc", "3.3.0-dev.12+tree.abc"):
+    def setUp(self):
+        self.repo = Path(__file__).resolve().parents[4]
+        self.shared, self.checker_path = compatibility.load_shared_checker(self.repo)
+        _, self.requirement, self.skill_version = self.shared.requirement_from_skill(compatibility.SKILL_PATH)
+
+    def test_real_api_contract_patch_acceptance_and_no_es_auth(self):
+        for version in ("3.3.0", "3.3.1", "3.3.99", "3.3.0+tree.abc", "3.3.1-dev.12+tree.abc"):
             with (
                 self.subTest(version=version),
                 patch.dict("os.environ", {"VSS_AUTH_TOKEN": "es-only-token"}),
-                patch(
-                    "check_compatibility.urlopen", return_value=response({"service": "vss", "version": version})
-                ) as request,
+                patch("check_compatibility.urlopen", return_value=response({"service": "vss", "version": version})) as request,
             ):
-                result = compatibility.check_compatibility(DEPLOYMENT, timeout_sec=7)
+                result = compatibility.check_compatibility(DEPLOYMENT, timeout_sec=7, vss_repo=self.repo)
                 self.assertEqual(result["deployed_vss_version"], version)
                 self.assertEqual(result["status"], "compatible")
-                self.assertEqual(result["requires_vss"], "==3.3.0")
-                self.assertEqual(result["skill_version"], "v3.3.0")
+                self.assertEqual(result["requires_vss"], ">=3.3.0,<3.4.0")
+                self.assertEqual(result["skill_version"], self.skill_version)
+                self.assertEqual(result["skill_file"], str(compatibility.SKILL_PATH))
+                self.assertEqual(result["checker_file"], str(self.checker_path))
                 sent = request.call_args.args[0]
                 self.assertEqual(sent.full_url, "http://fixture.invalid/api/v1/version")
                 self.assertEqual(sent.get_method(), "GET")
@@ -66,22 +72,49 @@ class CompatibilityTests(unittest.TestCase):
                 self.assertEqual(request.call_args.kwargs["timeout"], 7)
                 request.assert_called_once()
 
-    def test_incompatible_release_is_rejected(self):
-        for version in ("3.2.1", "3.3.1", "4.0.0"):
+    def test_shared_checker_owns_requirement_parsing_and_comparison(self):
+        with (
+            patch("check_compatibility.load_shared_checker", return_value=(self.shared, self.checker_path)),
+            patch.object(self.shared, "requirement_from_skill", wraps=self.shared.requirement_from_skill) as metadata,
+            patch.object(self.shared, "satisfies", wraps=self.shared.satisfies) as compare,
+            patch("check_compatibility.urlopen", return_value=response({"service": "vss", "version": "3.3.1"})),
+        ):
+            compatibility.check_compatibility(DEPLOYMENT, vss_repo=self.repo)
+        metadata.assert_called_once_with(compatibility.SKILL_PATH)
+        compare.assert_called_once_with("3.3.1", self.shared.parse_requirement(self.requirement))
+
+    def test_wrapper_and_documented_shared_skill_command_agree(self):
+        for version, expected in [("3.3.1", 0), ("3.4.0", 3), ("03.3.0", 1)]:
+            with (
+                self.subTest(version=version),
+                patch.object(sys, "argv", [str(self.checker_path), DEPLOYMENT["base_url"], "--skill", str(compatibility.SKILL_PATH)]),
+                patch.object(self.shared, "urlopen", return_value=response({"service": "vss", "version": version})),
+                patch("check_compatibility.urlopen", return_value=response({"service": "vss", "version": version})),
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()),
+            ):
+                self.assertEqual(self.shared.main(), expected)
+                self.assertEqual(compatibility.main([
+                    "--no-config", "--vss-repo", str(self.repo), "--base-url", DEPLOYMENT["base_url"],
+                ]), expected)
+
+    def test_incompatible_release_is_distinct_from_indeterminate(self):
+        for version in ("3.2.1", "3.4.0", "4.0.0"):
             with (
                 self.subTest(version=version),
                 patch("check_compatibility.urlopen", return_value=response({"service": "vss", "version": version})),
-                self.assertRaisesRegex(compatibility.CompatibilityError, "incompatible"),
+                self.assertRaisesRegex(compatibility.CompatibilityError, "incompatible") as raised,
             ):
-                compatibility.check_compatibility(DEPLOYMENT)
+                compatibility.check_compatibility(DEPLOYMENT, vss_repo=self.repo)
+            self.assertEqual(raised.exception.exit_code, 3)
 
     def test_failed_lookups_never_return_compatibility_or_retry(self):
         errors = [HTTPError("http://fixture.invalid", c, "failure", {}, None) for c in (401, 403, 404, 503)]
-        errors.extend([URLError("offline"), TimeoutError("deadline")])
+        errors.extend([URLError("offline"), TimeoutError("deadline"), OSError("connection reset")])
         for error in errors:
             with self.subTest(error=error), patch("check_compatibility.urlopen", side_effect=error) as request:
-                with self.assertRaises(compatibility.CompatibilityError):
-                    compatibility.check_compatibility(DEPLOYMENT)
+                with self.assertRaises(compatibility.CompatibilityError) as raised:
+                    compatibility.check_compatibility(DEPLOYMENT, vss_repo=self.repo)
+                self.assertEqual(raised.exception.exit_code, 1)
                 request.assert_called_once()
 
     def test_payload_shape_and_semver_are_strict(self):
@@ -89,60 +122,82 @@ class CompatibilityTests(unittest.TestCase):
         payloads.extend({"service": "vss", "version": v} for v in ("03.3.0", "v3.3.0", "3.3", "3.3.0-01", "3.3.0-."))
         for payload in payloads:
             with self.subTest(payload=payload), patch("check_compatibility.urlopen", return_value=response(payload)):
-                with self.assertRaises(compatibility.CompatibilityError):
-                    compatibility.check_compatibility(DEPLOYMENT)
+                with self.assertRaises(compatibility.CompatibilityError) as raised:
+                    compatibility.check_compatibility(DEPLOYMENT, vss_repo=self.repo)
+                self.assertEqual(raised.exception.exit_code, 1)
         bad_json = io.BytesIO(b"not JSON")
         bad_json.status = 200
-        with (
-            patch("check_compatibility.urlopen", return_value=bad_json),
-            self.assertRaisesRegex(compatibility.CompatibilityError, "invalid JSON"),
-        ):
-            compatibility.check_compatibility(DEPLOYMENT)
+        with (patch("check_compatibility.urlopen", return_value=bad_json),
+              self.assertRaisesRegex(compatibility.CompatibilityError, "invalid JSON")):
+            compatibility.check_compatibility(DEPLOYMENT, vss_repo=self.repo)
 
     def test_invalid_timeout_and_secret_bearing_url_fail_before_request(self):
+        # Build synthetic userinfo without a credential-shaped URL literal for secret scanners.
+        credential_url = urlunsplit(("http", "user:secret@fixture.invalid", "/version", "", ""))
         with patch("check_compatibility.urlopen") as request:
             for timeout in (0, -1, float("nan"), float("inf"), None, "ten", True):
                 with self.subTest(timeout=timeout), self.assertRaises(compatibility.CompatibilityError):
-                    compatibility.check_compatibility(DEPLOYMENT, timeout_sec=timeout)
+                    compatibility.check_compatibility(DEPLOYMENT, timeout_sec=timeout, vss_repo=self.repo)
             for url in (
-                "http://user:secret@fixture.invalid/version",
-                "http://fixture.invalid/version?token=secret",
-                "http://fixture.invalid/version#fragment",
-                "file:///version",
-                "http://fixture.invalid:bad/version",
+                credential_url, "http://fixture.invalid/version?token=secret",
+                "http://fixture.invalid/version#fragment", "file:///version", "http://fixture.invalid:bad/version",
             ):
                 with self.subTest(url=url), self.assertRaises(compatibility.CompatibilityError):
-                    compatibility.check_compatibility(DEPLOYMENT, version_url=url)
+                    compatibility.check_compatibility(DEPLOYMENT, version_url=url, vss_repo=self.repo)
             request.assert_not_called()
 
-    def test_missing_or_invalid_metadata_fails_before_request(self):
+    def test_missing_or_invalid_skill_frontmatter_fails_before_request(self):
         with tempfile.TemporaryDirectory() as d:
-            metadata = Path(d) / "metadata.yml"
+            skill = Path(d) / "SKILL.md"
             for text in (
-                "[]",
-                "skill-name: other",
-                "skill-name: vss-benchmark-video-ingest\nskill-version: v3.3.0\nrequires-vss: '*'",
-                "skill-name: vss-benchmark-video-ingest\nskill-version: v3.3.0\nrequires-vss: '>=3.3.0,'",
+                "[]", "---\nname: other\n---\n", "---\nmetadata:\n  version: '3.3.0'\n---\n",
+                "---\nmetadata:\n  version: '3.3.0'\n  requires-vss: '*'\n---\n",
+                "---\nmetadata:\n  version: '3.3.0'\n  requires-vss: '>=3.3.0,'\n---\n",
+                "---\nmetadata:\n  requires-vss: '>=3.3.0'\n---\n",
             ):
                 with self.subTest(text=text), patch("check_compatibility.urlopen") as request:
-                    metadata.write_text(text)
-                    with self.assertRaises(compatibility.CompatibilityError):
-                        compatibility.check_compatibility(DEPLOYMENT, metadata_path=metadata)
+                    skill.write_text(text)
+                    with self.assertRaises(compatibility.CompatibilityError) as raised:
+                        compatibility.check_compatibility(DEPLOYMENT, vss_repo=self.repo, skill_path=skill)
+                    self.assertEqual(raised.exception.exit_code, 1)
                     request.assert_not_called()
 
-    def test_standalone_api_mode_uses_no_cli_and_fails_closed(self):
-        output = io.StringIO()
-        with (
-            patch("check_compatibility.VssCli") as cli,
-            patch("check_compatibility.urlopen", return_value=response({"service": "vss", "version": "3.3.0"})),
-            redirect_stdout(output),
-        ):
-            code = compatibility.main(["--no-config", "--base-url", "http://fixture.invalid"])
-        self.assertEqual(code, 0)
-        self.assertEqual(json.loads(output.getvalue())["status"], "compatible")
-        cli.assert_not_called()
+    def test_installed_skill_reads_its_stamp_and_comparison_from_prepared_checkout(self):
+        with tempfile.TemporaryDirectory() as d:
+            skill = Path(d) / "installed-skill" / "SKILL.md"
+            skill.parent.mkdir()
+            for version in ("3.3.0-rc0", "3.3.1"):
+                skill.write_text(f'---\nmetadata:\n  version: "{version}"\n  requires-vss: ">=3.3.0,<3.4.0"\n---\n')
+                with patch("check_compatibility.urlopen", return_value=response({"service": "vss", "version": "3.3.1"})):
+                    evidence = compatibility.check_compatibility(DEPLOYMENT, vss_repo=self.repo, skill_path=skill)
+                self.assertEqual(evidence["skill_version"], version)
+                self.assertEqual(evidence["skill_file"], str(skill))
+                self.assertEqual(evidence["checker_file"], str(self.repo / compatibility.SHARED_CHECKER))
+            with patch("check_compatibility.urlopen") as request, self.assertRaisesRegex(compatibility.CompatibilityError, "Shared version checker is missing"):
+                compatibility.check_compatibility(DEPLOYMENT, vss_repo=Path(d), skill_path=skill)
+            request.assert_not_called()
+
+    def test_standalone_modes_keep_cli_discovery_and_explicit_public_route(self):
+        for explicit in ([], ["--version-url", "http://fixture.invalid/custom/version"]):
+            output = io.StringIO()
+            cli_instance = Mock(deployment=Mock(return_value=DEPLOYMENT))
+            with (
+                patch("check_compatibility.VssCli", return_value=cli_instance) as cli,
+                patch("check_compatibility.urlopen", return_value=response({"service": "vss", "version": "3.3.1"})) as request,
+                redirect_stdout(output),
+            ):
+                code = compatibility.main(["--no-config", "--vss-repo", str(self.repo), *explicit])
+            self.assertEqual(code, 0)
+            url = explicit[-1] if explicit else "http://fixture.invalid/api/v1/version"
+            self.assertEqual(json.loads(output.getvalue())["version_url"], url)
+            self.assertEqual(request.call_args.args[0].full_url, url)
+            if explicit:
+                cli.assert_not_called()
+            else:
+                cli.assert_called_once_with(self.repo, None, executable=None)
+                cli_instance.deployment.assert_called_once_with(check_health=False)
         with patch("check_compatibility.urlopen", side_effect=URLError("offline")), redirect_stderr(io.StringIO()):
-            self.assertEqual(compatibility.main(["--no-config", "--base-url", "http://fixture.invalid"]), 2)
+            self.assertEqual(compatibility.main(["--no-config", "--vss-repo", str(self.repo), "--base-url", "http://fixture.invalid"]), 1)
 
     def test_config_options_and_flags_resolve_consistently(self):
         with tempfile.TemporaryDirectory() as d:
@@ -174,7 +229,6 @@ class CompatibilityGateTests(unittest.TestCase):
         self.options = {
             "vss_repo": self.root,
             "cli_config_home": None,
-            "uv_executable": "uv",
             "elasticsearch_url": "",
             "corpus_root": self.root,
             "profile": "smoke",
@@ -225,7 +279,7 @@ class CompatibilityGateTests(unittest.TestCase):
                 self.subTest(dry=dry),
                 patch("validate.VssCli", return_value=self.cli),
                 patch(
-                    "validate.check_compatibility", side_effect=compatibility.CompatibilityError("version incompatible")
+                    "validate.check_compatibility", side_effect=compatibility.CompatibilityError("version incompatible", exit_code=3)
                 ),
                 patch("validate.probe_class") as probe,
                 patch("run.load_class") as load,
@@ -245,7 +299,7 @@ class CompatibilityGateTests(unittest.TestCase):
                         *dry,
                     ]
                 )
-                self.assertEqual(code, 2)
+                self.assertEqual(code, 3)
                 probe.assert_not_called()
                 load.assert_not_called()
                 upload.assert_not_called()
@@ -314,7 +368,7 @@ class CompatibilityGateTests(unittest.TestCase):
                     "--no-health-check",
                 ]
             )
-        self.assertEqual(code, 2)
+        self.assertEqual(code, 1)
         gate.assert_called_once()
         probe.assert_not_called()
 

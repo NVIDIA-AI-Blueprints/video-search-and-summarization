@@ -9,10 +9,10 @@ run without re-uploading anything.
 
 Two warnings are mandatory in every summary:
 
-1. The client uplink may be the real limit. When ``aggregate_mb_per_sec``
-   approaches the uplink, the run describes the network, not the deployment.
-2. The endpoint may refuse the requested concurrency. The harness raises the
-   RT-CV stream cap to fit its sweep; Phase 1 must not. Above the deployed cap,
+1. The client uplink may limit ingestion. Average acknowledged payload rate
+   cannot establish or exclude that bottleneck without wire measurements.
+2. The endpoint may refuse the requested concurrency. This benchmark does not change
+   the deployed stream cap. Above that cap,
    surplus uploads are rejected or never complete.
 
 Never claim an internal bottleneck -- detection, embedding, media store, index,
@@ -30,8 +30,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
-#: Report the transfer rate as uplink-bound when it reaches this share of the
-#: declared uplink. Below it, the number is reported without a verdict.
+#: Flag a high average payload rate without attributing the limiting resource.
 UPLINK_WARNING_RATIO = 0.80
 
 
@@ -76,8 +75,8 @@ OUTPUT_FILES: list[dict[str, str]] = [
     },
     {
         "path": "csv/ingest_summary.csv",
-        "holds": "One row per sweep point (video class x concurrency), using the "
-        "vss_ingest_perf column names",
+        "holds": "One row per video class and concurrency: confirmed video-minutes, "
+        "client-observed throughput, latency percentiles and result validity",
         "why": "The results table. `video_min_per_sec`, `p50/p95/max_latency_sec`, and "
         "`result_valid` are the three things to read.",
     },
@@ -201,8 +200,7 @@ def build_inputs(metadata: dict[str, Any], corpus_rows: list[dict[str, str]]) ->
             "name": "Elasticsearch readiness",
             "value": f"`{es.get('elasticsearch_url', '') or '-'}`",
             "note": f"Raw `{es.get('raw_index', '')}`, embed `{es.get('embed_index', '')}`; "
-            f"complete at {float(es.get('raw_completion_ratio', 0) or 0) * 100:.0f}% "
-            "raw-frame coverage after settling.",
+            "both expected counts must be reached.",
         },
         {
             "name": "ES request timeout",
@@ -214,10 +212,10 @@ def build_inputs(metadata: dict[str, Any], corpus_rows: list[dict[str, str]]) ->
             "value": (
                 f"{es.get('timeout_sec')} s"
                 if es.get("timeout_sec") is not None
-                else "harness-derived"
+                else "duration/concurrency-derived"
             )
             + f" / {es.get('poll_interval_sec', '')} s",
-            "note": "The poll interval is inside the reported latency, as it is in the harness.",
+            "note": "Polling and ES request latency delay observation of completion.",
         },
         {
             "name": "Warmup uploads",
@@ -238,8 +236,14 @@ def build_inputs(metadata: dict[str, Any], corpus_rows: list[dict[str, str]]) ->
         {
             "name": "Cleanup policy",
             "value": f"`{metadata.get('cleanup_policy', '')}`",
-            "note": "Deletion goes through `vss vios delete` (VIOS deletion only; ES removal is asynchronous) so VST, RT-CV, and "
-            "the indexes stay consistent.",
+            "note": (
+                "All media retained; deletion and cleanup verification skipped."
+                if metadata.get("cleanup_policy") == "never"
+                else "CLI recording deletion followed by sustained raw/Embed absence in ES, outside measurement windows. "
+                "Only assets selected by the cleanup policy are checked."
+                if metadata.get("cleanup_verification")
+                else "CLI deletion only; downstream ES removal was not verified."
+            ),
         },
         {
             "name": "Projected transfer",
@@ -258,9 +262,16 @@ def build_inputs(metadata: dict[str, Any], corpus_rows: list[dict[str, str]]) ->
         },
     ]
     compatibility = metadata.get("version_compatibility") or {}
+    cleanup = metadata.get("cleanup_verification")
+    if cleanup:
+        rows.append({
+            "name": "Cleanup timeout / settling",
+            "value": f"{cleanup.get('timeout_sec')} s / {cleanup.get('settle_sec')} s",
+            "note": "Incomplete cleanup stops subsequent points. ES absence does not prove all backend work has stopped.",
+        })
     rows[0:0] = [
         {"name": "Benchmark skill version", "value": compatibility.get("skill_version", "not recorded"),
-         "note": "Version read from the skill's metadata.yml before this run."},
+         "note": "Stamped version read from SKILL.md frontmatter before this run."},
         {"name": "Deployed VSS version", "value": compatibility.get("deployed_vss_version", "not recorded"),
          "note": "Version reported by the deployed VSS API, not the local CLI package."},
         {"name": "Version compatibility", "value": compatibility.get("status", "not recorded"),
@@ -274,6 +285,16 @@ def build_steps(metadata: dict[str, Any]) -> list[str]:
     classes = ", ".join(metadata.get("video_classes") or []) or "the selected classes"
     concurrencies = ", ".join(str(c) for c in metadata.get("concurrencies") or []) or "the sweep list"
     warmup = metadata.get("warmup_uploads", 0)
+    if metadata.get("cleanup_policy") == "never":
+        cleanup_step = "**Retained all media** (`cleanup: never`); skipped deletion and cleanup verification"
+    else:
+        cleanup_step = "**Applied the cleanup policy** through `vss vios delete`"
+        if metadata.get("cleanup_policy") == "on-success":
+            cleanup_step += " for confirmed uploads only, retaining other uploads"
+        cleanup_step += (
+            "; required sustained raw/Embed absence in ES for the selected assets before continuing"
+            if metadata.get("cleanup_verification") else " (downstream ES removal was not verified)"
+        )
     return [
         "**Validated** the requested inputs and CLI configuration; checked VIOS through VSS CLI.",
         (
@@ -284,7 +305,7 @@ def build_steps(metadata: dict[str, Any]) -> list[str]:
         ),
         "**Measured** every source video with ffprobe and wrote `csv/ingest_corpus.csv`. "
         "Throughput is counted in video-minutes, so a guessed duration would corrupt "
-        "the whole run. Projected the bytes on the wire for each sweep point and stopped for "
+        "the whole run. Projected source payload bytes for each sweep point and stopped for "
         "confirmation if the total exceeded the transfer ceiling.",
         "**Preflighted** Elasticsearch readiness before any upload.",
         (
@@ -297,8 +318,7 @@ def build_steps(metadata: dict[str, Any]) -> list[str]:
         "started on a stagger, each uploaded the whole class once under a generated "
         "filename, and each upload was then polled until Elasticsearch readiness or "
         "its timeout expired.",
-        "**Applied the cleanup policy** through `vss vios delete` (VIOS deletion only; ES removal is asynchronous), "
-        "according to the cleanup policy above; wrote the four CSVs, the raw JSONL records, and `run-metadata.json`.",
+        cleanup_step + "; wrote the four CSVs, the raw JSONL records, and `run-metadata.json`.",
         "**Summarized and charted** from those CSVs only -- which is why both can be "
         "re-run on a finished run without uploading anything again. The runner then checks required artifacts, "
         "version evidence, and ES-token disclosure before reporting completion.",
@@ -320,16 +340,15 @@ def build_summary(results_dir: Path, uplink_mbps: float | None) -> dict[str, Any
     peak_mbps = peak_mb_per_sec * 8
 
     uplink_verdict = "not declared -- pass --uplink-mbps to evaluate"
-    uplink_bound = None
+    uplink_threshold_reached = None
     if uplink_mbps:
-        uplink_bound = peak_mbps >= UPLINK_WARNING_RATIO * uplink_mbps
+        uplink_threshold_reached = peak_mbps >= UPLINK_WARNING_RATIO * uplink_mbps
         uplink_verdict = (
             f"peak {peak_mbps:.1f} Mb/s against a declared {uplink_mbps:.1f} Mb/s uplink -- "
             + (
-                "the transfer rate approached the client uplink, so this run describes the "
-                "network, not the deployment"
-                if uplink_bound
-                else "the transfer rate stayed clear of the client uplink"
+                "high average payload rate is consistent with an uplink limit, but does not prove one"
+                if uplink_threshold_reached
+                else "lower average payload rate cannot rule out transfer bursts reaching the uplink limit"
             )
         )
 
@@ -369,11 +388,9 @@ def build_summary(results_dir: Path, uplink_mbps: float | None) -> dict[str, Any
         ),
         "readiness_stops_clock_at": (
             metadata.get("es_readiness", {}) or {}
-        ).get("clock_stops_at", "max(ingested_at) across matched documents"),
-        "harness_comparable": metadata.get("harness_comparable", False),
+        ).get("clock_stops_at", "client observation of both expected ES counts"),
         "comparability_note": metadata.get("comparability_note", ""),
         "byte_accounting": metadata.get("byte_accounting", ""),
-        "harness_comparability_note": metadata.get("comparability_note", "Rebaseline CLI/webhook runs."),
         "upload_route": metadata.get("upload_route", ""),
         "es_request_timeout_sec": metadata.get("es_request_timeout_sec"),
         "inputs": inputs,
@@ -405,14 +422,14 @@ def build_summary(results_dir: Path, uplink_mbps: float | None) -> dict[str, Any
         "peak_aggregate_mb_per_sec": round(peak_mb_per_sec, 3),
         "peak_aggregate_mbps": round(peak_mbps, 1),
         "declared_uplink_mbps": uplink_mbps,
-        "uplink_bound": uplink_bound,
+        "uplink_threshold_reached": uplink_threshold_reached,
         "uplink_verdict": uplink_verdict,
         "degraded_points": [
             {
                 "video_class": row.get("video_class"),
                 "concurrency": as_int(row.get("concurrency")),
                 "success_rate_pct": as_float(row.get("success_rate_pct")),
-                "api_failure_statuses": row.get("api_failure_statuses", ""),
+                "cli_exit_statuses": row.get("cli_exit_statuses", ""),
             }
             for row in degraded
         ],
@@ -421,7 +438,6 @@ def build_summary(results_dir: Path, uplink_mbps: float | None) -> dict[str, Any
                 "video_class": row.get("video_class"),
                 "concurrency": as_int(row.get("concurrency")),
                 "phase": row.get("phase"),
-                "http_status": row.get("http_status"),
                 "cli_exit_code": row.get("cli_exit_code"),
                 "outcome": row.get("outcome"),
                 "count": as_int(row.get("count")),
@@ -429,10 +445,11 @@ def build_summary(results_dir: Path, uplink_mbps: float | None) -> dict[str, Any
             for row in error_rows
         ],
         "mandatory_warnings": [
-            "The client uplink may be the real limit. When aggregate_mb_per_sec approaches "
-            "the uplink, the run describes the network, not the deployment.",
-            "The endpoint may refuse the requested concurrency. The harness raises the RT-CV "
-            "stream cap to fit its sweep; Phase 1 must not. Above the deployed cap, surplus "
+            "The client uplink may limit ingestion. aggregate_mb_per_sec measures acknowledged "
+            "source payload over the full point, not wire traffic; it cannot establish or exclude "
+            "an uplink bottleneck.",
+            "The endpoint may refuse the requested concurrency. This benchmark does not change "
+            "the deployed stream cap. Above that cap, surplus "
             "uploads are rejected or never complete.",
         ],
         "sweep_points_detail": summary_rows,
@@ -454,7 +471,6 @@ def render_markdown(summary: dict[str, Any]) -> str:
     add(f"- Comparability: {summary['comparability_note']}")
     add(f"- Byte accounting: {summary['byte_accounting']}")
     add(f"- Readiness: `es_readiness` -- stops the clock at {summary['readiness_stops_clock_at']}")
-    add(f"- Harness-comparable: **{'yes' if summary['harness_comparable'] else 'no'}**")
     add(f"- Sweep points: {summary['sweep_points']} | uploads: {summary['total_uploads']} | confirmed: {summary['total_confirmed']}")
     if summary["overall_success_rate_pct"] is not None:
         add(f"- Overall success rate: {summary['overall_success_rate_pct']}%")
@@ -475,7 +491,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
     add("")
     add(summary["measurement_scope"])
     add("")
-    add(summary["harness_comparability_note"])
+    add(summary["comparability_note"])
     add("")
 
     add("## How the benchmark was run")
@@ -499,7 +515,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
             f"| {row.get('total_video_duration_min')} | {row.get('wall_clock_min')} "
             f"| {row.get('video_min_per_sec')} | {row.get('aggregate_mb_per_sec')} "
             f"| {row.get('p50_latency_sec')} | {row.get('p95_latency_sec')} "
-            f"| {row.get('max_latency_sec')} | {row.get('cli_exit_statuses') or row.get('api_failure_statuses') or '-'} |"
+            f"| {row.get('max_latency_sec')} | {row.get('cli_exit_statuses') or '-'} |"
         )
     add("")
     if summary["peak_video_min_per_sec"] is None:
@@ -534,7 +550,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         add("")
         add(
             "A point is invalid when an upload failed, the slowest stream indexed "
-            "under 95% of its expected frames, or completion timestamps do not define "
+            "below the required raw-frame coverage, or completion timestamps do not define "
             "a valid positive throughput window. Invalid points are excluded from "
             "headline throughput. Charts show numeric invalid points only as hollow "
             "markers; points with unavailable throughput have no throughput marker."
@@ -544,12 +560,12 @@ def render_markdown(summary: dict[str, Any]) -> str:
     if summary["degraded_points"]:
         add("## Points that did not fully confirm")
         add("")
-        add("| class | c | success % | status histogram |")
+        add("| class | c | success % | CLI exit histogram |")
         add("|---|---:|---:|---|")
         for point in summary["degraded_points"]:
             add(
                 f"| {point['video_class']} | {point['concurrency']} | {point['success_rate_pct']} "
-                f"| {point['api_failure_statuses'] or '-'} |"
+                f"| {point['cli_exit_statuses'] or '-'} |"
             )
         add("")
         add(
@@ -567,7 +583,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         for entry in summary["error_taxonomy"]:
             add(
                 f"| {entry['video_class']} | {entry['concurrency']} | {entry['phase']} "
-                f"| {entry.get('cli_exit_code', entry.get('http_status'))} | {entry['outcome']} | {entry['count']} |"
+                f"| {entry.get('cli_exit_code')} | {entry['outcome']} | {entry['count']} |"
             )
         add("")
 

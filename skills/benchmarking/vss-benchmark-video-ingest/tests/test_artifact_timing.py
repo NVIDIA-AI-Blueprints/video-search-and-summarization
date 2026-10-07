@@ -29,8 +29,6 @@ def confirmed_record(**overrides) -> UploadRecord:
         "request_sent_at": "2026-10-01T00:00:00Z",
         "ingest_confirmed_at": "2026-10-01T00:00:10Z",
         "latency_sec": 12.0,
-        "es_indexed_latency_sec": 10.0,
-        "http_status": "",
         "outcome": "confirmed",
         "transmitted_bytes": 50_000_000,
         "readiness_metrics": {"raw_completion_ratio": 1.0},
@@ -60,7 +58,7 @@ class ArtifactTimingTests(unittest.TestCase):
                 row = summary(confirmed_record(ingest_confirmed_at=completed))
                 self.assert_timing_invalid(row)
                 self.assertIn("nonpositive timestamp window", row["result_invalid_reason"])
-                self.assertIn("clock synchronization", row["result_invalid_reason"])
+                self.assertIn("client clock", row["result_invalid_reason"])
                 self.assertEqual(row["success_count"], 1)
                 self.assertEqual(row["p50_latency_sec"], 12.0)
 
@@ -128,6 +126,19 @@ class ArtifactTimingTests(unittest.TestCase):
         self.assertEqual(exported["video_min_per_sec"], "")
         self.assertEqual(exported["success_window_sec"], "")
         self.assertIn("nonpositive timestamp window", exported["result_invalid_reason"])
+
+    def test_partial_raw_coverage_invalidates_legacy_confirmed_records(self):
+        for ratio in (0.95, 0.999, 0.99999):
+            with self.subTest(ratio=ratio):
+                row = summary(confirmed_record(readiness_metrics={"raw_completion_ratio": ratio}))
+                self.assertFalse(row["result_valid"])
+                self.assertIn("< 100%", row["result_invalid_reason"])
+
+    def test_complete_raw_coverage_remains_valid(self):
+        for ratio in (1.0, 1.01):
+            with self.subTest(ratio=ratio):
+                row = summary(confirmed_record(readiness_metrics={"raw_completion_ratio": ratio}))
+                self.assertTrue(row["result_valid"])
 
     def test_no_confirmed_uploads_keep_zero_throughput_convention(self):
         row = summary(confirmed_record(outcome="failed", ingest_confirmed_at=""))

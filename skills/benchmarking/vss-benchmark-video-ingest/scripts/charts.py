@@ -22,8 +22,6 @@ p95 is the only latency series plotted. p50 and max stay in
 on one axis made the chart harder to read without adding a decision anyone
 makes from it.
 
-Axis labels, figure size, and dpi match ``chart_throughput_vs_concurrency.py``
-in ``vss_ingest_perf`` so a Phase 1 chart can be laid beside a harness chart.
 """
 
 from __future__ import annotations
@@ -132,7 +130,6 @@ def _finish(
 def chart_throughput_vs_concurrency(plt, rows, output_dir: Path) -> Path:
     """video_min_per_sec against concurrency, one series per class.
 
-    Mirrors the harness chart of the same name.
     """
     figure, axes = plt.subplots(figsize=FIGSIZE)
     any_invalid = False

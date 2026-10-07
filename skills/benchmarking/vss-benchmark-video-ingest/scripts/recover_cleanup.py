@@ -21,7 +21,6 @@ from upload import UPLOAD_NAME, delete_asset, pending_sensor_id, video_inventory
 from vss_cli import VssCli
 
 SCHEMA = "vss-ingest-upload-ledger-v2"
-LEGACY_SCHEMA = "vss-ingest-upload-ledger-v1"
 
 
 def vios_url(deployment: dict[str, Any]) -> str:
@@ -67,7 +66,7 @@ class UploadLedger:
 
 def load_ledger(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    if not rows or not isinstance(rows[0], dict) or rows[0].get("schema") not in {SCHEMA, LEGACY_SCHEMA}:
+    if not rows or not isinstance(rows[0], dict) or rows[0].get("schema") != SCHEMA:
         raise ValueError("Invalid upload ledger header")
     header = rows[0]
     if not isinstance(header.get("run_id"), str) or not header["run_id"]:
@@ -80,7 +79,6 @@ def load_ledger(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         sensor = row.get("sensor_id")
         filename = row.get("upload_filename")
         if (not isinstance(sensor, str) or sensor != sensor.strip()
-                or (not sensor and header["schema"] == LEGACY_SCHEMA)
                 or not isinstance(filename, str) or not UPLOAD_NAME.fullmatch(filename)
                 or row.get("camera_name") != filename.rsplit(".", 1)[0]):
             raise ValueError("Invalid upload identity")
@@ -145,11 +143,10 @@ def main(argv: list[str] | None = None) -> int:
                         default=Path(os.environ.get("VSS_REPO_ROOT", str(Path.home() / "video-search-and-summarization"))))
     parser.add_argument("--cli-executable", default=None)
     parser.add_argument("--cli-config-home", type=Path, default=None)
-    parser.add_argument("--uv-executable", default="uv")
     parser.add_argument("--apply", action="store_true", help="Delete verified assets; default only previews.")
     args = parser.parse_args(argv)
     try:
-        cli = VssCli(args.vss_repo, args.cli_config_home, args.uv_executable, args.cli_executable)
+        cli = VssCli(args.vss_repo, args.cli_config_home, executable=args.cli_executable)
         result = recover(cli, args.ledger, apply=args.apply)
     except (OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

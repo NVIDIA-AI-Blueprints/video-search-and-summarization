@@ -1,72 +1,46 @@
 # Version compatibility
 
-`metadata.yml` is the source of the skill version and its deployed-VSS compatibility
-policy. The current skill version is **v3.3.0**, with `requires-vss: "==3.3.0"`.
-The checker evaluates this rule; it does not assume that matching skill and VSS
-version strings always imply compatibility.
+The skill declares `metadata.requires-vss` in `SKILL.md`. Its `metadata.version`
+is maintained by the repository's shared version-stamping workflow, so there is
+no separate skill-version file to update.
 
-## Required pre-upload gate
+## Required gate
 
-After the one-time CLI and dependency setup, the agent runs
-`scripts/check_compatibility.py` first for each benchmark, before invoking
-`validate.py` or `run.py`. It reads that metadata and makes one public
-`GET /api/v1/version` request to the configured deployment. The expected response is:
-
-```json
-{"service": "vss", "version": "3.3.0"}
-```
-
-The API returns the deployed blueprint version. `vss --version` reports the local
-CLI package version and is never used as a fallback. A missing route, unavailable
-endpoint, malformed response, invalid Semantic Versioning value, or incompatible
-version stops the benchmark before any upload. There is no bypass flag or automatic
-retry. `run.py` and `validate.py` invoke this gate even if the standalone check was
-already run; each new benchmark must check its current deployment.
+After CLI setup, run this read-only check before the benchmark:
 
 ```bash
-python scripts/check_compatibility.py
-# Read-only check against an explicitly supplied deployment origin:
-python scripts/check_compatibility.py --base-url "$VSS_PUBLIC_URL"
+python scripts/check_compatibility.py --config config.local.yml
 ```
 
-Exit codes are `0` for compatible and `2` for failure. The gate uses the same config
-file selection and CLI overrides as the runner. `--no-health-check` on validation
-only skips the VIOS probe; it does not skip compatibility.
+The wrapper finds `services/agent/scripts/check_vss_version.py` in the checkout
+selected by `--vss-repo`, `cli.repo` or `VSS_REPO_ROOT`, using the same checkout
+resolution as the runner. Installed copies of the skill still need that prepared
+checkout. The wrapper delegates requirement parsing and version comparison to the
+shared checker. It preserves CLI-discovered endpoint selection and writes JSON
+provenance. `validate.py` and `run.py` repeat the gate before any upload.
 
-## Routing and comparison
+The endpoint defaults to the recorded deployment origin plus `/api/v1/version`.
+`--version-url` or `compatibility.version_url` may select another public route to
+the same deployment. The expected response includes `service: "vss"` and its
+SemVer `version`. `--version-timeout` defaults to 10 seconds. Endpoint URLs cannot
+include credentials, query parameters or fragments; the ES auth token is not sent.
 
-The default endpoint is `configure show`'s `base_url` plus `/api/v1/version`.
-`compatibility.version_url` / `--version-url` may specify another public route to
-the same deployment. `compatibility.request_timeout_sec` / `--version-timeout`
-defaults to 10 seconds. The URL must not contain credentials, query parameters or
-a fragment. `VSS_AUTH_TOKEN` is reserved for ES reads and is not sent to this API.
+The current requirement accepts the 3.3 release line, including patch releases,
+and excludes 3.4. Shared-checker comparison follows the repository's release
+convention for prerelease/build suffixes. A version match does not prove working
+webhooks, models or indexing; run the remaining preflight and smoke checks.
 
-The `requires-vss` rule accepts comma-separated comparisons (`==`, `>=`, `>`, `<=`,
-`<`) against three-part versions. Following VSS's release-version convention, the
-checker compares **major.minor.patch** and ignores valid prerelease/build suffixes.
-For example, the current rule evaluates `3.3.0-dev+build` as release `3.3.0`.
-This is the stated policy, not proof that every build or deployment configuration
-has been benchmarked. Extend the rule only after validating another release.
+| Exit | Meaning |
+|---|---|
+| `0` | Compatible |
+| `1` | Indeterminate: missing checker/configuration, failed lookup or invalid response |
+| `3` | Incompatible deployed version |
+| `2` | Command-line usage error |
 
-A successful result is stored as `version_compatibility` in `run-metadata.json`,
-including skill version, deployed VSS version, requirement, API URL, comparison
-convention and check time. Summaries read this evidence back from metadata.
+Stop on any nonzero result. Local `vss --version` is not a deployment version and
+is never a fallback. `--no-health-check` skips only VIOS probing, not this gate.
 
-## Checks that still apply
-
-A version match cannot prove working CLI commands, webhooks, models or indexing.
-The benchmark still checks the CLI/VIOS route, measures the corpus, checks ES and
-runs smoke against a new deployment. Required ingestion capabilities remain:
-`vios add --type video PATH --name NAME`, JSON `added/type/sensor_id`, `configure show`,
-`vios list`, `vios delete`, working VIOS streaming/removal webhooks, and the ES
-raw/embed identity/count schema.
-
-The current endpoint is registered in
-`services/agent/packages/vss_agents/src/vss_agents/api/version.py`; version resolution
-is in `libs/vss/core/src/vss_core/version.py`. Its hosting component does not change
-the upload path: ingestion still goes directly from CLI to VIOS and its webhooks.
-A deployment whose public version endpoint is absent must be fixed by its operator;
-the skill does not change the cluster or fall back to an Agent ingestion request.
-
-Rebaseline when the CLI, notifier, model configuration, ES schema or measurement
-contract changes. See [harness comparability](harness-comparability.md).
+Successful `version_compatibility` metadata records the skill/version requirement,
+deployed version, public endpoint, check time, skill file and shared checker file.
+Reports use that recorded evidence. Change compatibility policy only with evidence
+for the newly admitted release; a permissive range is not a validation result.

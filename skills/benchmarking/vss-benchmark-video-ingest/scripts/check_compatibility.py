@@ -1,76 +1,64 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Gate benchmarking on the deployed VSS version and this skill's metadata.
+"""Wrap the repository's shared version comparison with CLI discovery and JSON evidence.
 
-Like VSS's check_vss_version.py, compare MAJOR.MINOR.PATCH: deployment build
-and prerelease suffixes do not change the release being checked. No uploads,
-ES credentials, local CLI version fallback, or automatic retries are used.
+Exit codes follow check_vss_version.py: 0 compatible, 1 indeterminate,
+3 incompatible, and 2 for command-line usage errors. No uploads or retries.
 """
 
 from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import importlib.util
 import json
 import math
-import operator
 import os
 from pathlib import Path
-import re
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-
-import yaml
 
 from config import DEFAULT_CONFIG_PATH, ConfigError, load_config, resolve_defaults
 from httpio import parse_endpoint
 from vss_cli import VssCli
 
-METADATA_PATH = Path(__file__).resolve().parents[1] / "metadata.yml"
-# Same strict SemVer grammar as vss_core.version, without importing the server.
-SEMVER_PATTERN = re.compile(
-    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
-    r"(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
-    r"(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?"
-    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
-)
-BOUND_PATTERN = re.compile(r"(>=|<=|==|>|<)\s*((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))")
-OPERATORS = {">=": operator.ge, "<=": operator.le, "==": operator.eq, ">": operator.gt, "<": operator.lt}
+SKILL_PATH = Path(__file__).resolve().parents[1] / "SKILL.md"
+SHARED_CHECKER = Path("services/agent/scripts/check_vss_version.py")
 
 
 class CompatibilityError(ValueError):
-    """A failed lookup or compatibility rule must stop the run before upload."""
+    """A failed gate, preserving the shared checker's indeterminate/incompatible distinction."""
+
+    def __init__(self, message: str, *, exit_code: int = 1):
+        super().__init__(message)
+        self.exit_code = exit_code
 
 
-def release(version: str) -> tuple[int, int, int]:
-    match = SEMVER_PATTERN.fullmatch(version) if isinstance(version, str) else None
-    if match is None:
-        raise CompatibilityError("Version is not valid Semantic Versioning 2.0.0")
-    return tuple(int(part) for part in match.groups())
+def default_repo() -> Path:
+    if os.environ.get("VSS_REPO_ROOT"):
+        return Path(os.environ["VSS_REPO_ROOT"])
+    for parent in Path(__file__).resolve().parents:
+        if (parent / SHARED_CHECKER).is_file():
+            return parent
+    return Path.home() / "video-search-and-summarization"
 
 
-def read_metadata(path: Path = METADATA_PATH) -> tuple[str, str, list]:
+def load_shared_checker(vss_repo: Path | None = None):
+    """Load the prepared checkout's comparison; never vendor a second version parser."""
+    path = (vss_repo or default_repo()).expanduser().resolve() / SHARED_CHECKER
+    if not path.is_file():
+        raise CompatibilityError(f"Shared version checker is missing at {path}; set --vss-repo to the prepared VSS checkout")
+    spec = importlib.util.spec_from_file_location("vss_shared_version_checker", path)
+    if spec is None or spec.loader is None:
+        raise CompatibilityError(f"Cannot load the shared version checker at {path}")
+    module = importlib.util.module_from_spec(spec)
     try:
-        metadata = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, yaml.YAMLError) as exc:
-        raise CompatibilityError("Cannot read the skill's metadata.yml") from exc
-    if not isinstance(metadata, dict) or metadata.get("skill-name") != "vss-benchmark-video-ingest":
-        raise CompatibilityError("metadata.yml must identify vss-benchmark-video-ingest")
-    version = metadata.get("skill-version")
-    requirement = metadata.get("requires-vss")
-    if not isinstance(version, str) or not isinstance(requirement, str):
-        raise CompatibilityError("metadata.yml needs skill-version and requires-vss strings")
-    release(version.removeprefix("v"))
-    clauses = []
-    for clause in requirement.split(","):
-        match = BOUND_PATTERN.fullmatch(clause.strip())
-        if match is None:
-            raise CompatibilityError("requires-vss must contain comma-separated comparisons such as ==3.3.0")
-        comparison, bound = match.groups()
-        clauses.append((comparison, release(bound)))
-    return version, requirement, clauses
+        spec.loader.exec_module(module)
+    except (OSError, ImportError, SyntaxError) as exc:
+        raise CompatibilityError(f"Cannot load the shared version checker at {path}: {exc}") from exc
+    return module, path
 
 
 def endpoint_url(deployment: dict, explicit_url: str = "") -> str:
@@ -99,9 +87,17 @@ def check_compatibility(
     *,
     version_url: str = "",
     timeout_sec: float = 10.0,
-    metadata_path: Path = METADATA_PATH,
+    vss_repo: Path | None = None,
+    skill_path: Path = SKILL_PATH,
 ) -> dict:
-    skill_version, requirement, clauses = read_metadata(metadata_path)
+    shared, checker_path = load_shared_checker(vss_repo)
+    try:
+        requirement, requirement_text, skill_version = shared.requirement_from_skill(skill_path)
+        # The stamped frontmatter supplies provenance; absence must not silently
+        # substitute "unknown" into an apparently validated benchmark report.
+        shared.precedence(skill_version.removeprefix("v"))
+    except (shared.IndeterminateError, ValueError, OSError, UnicodeError) as exc:
+        raise CompatibilityError(f"Cannot determine the skill's version requirements: {exc}") from exc
     if (
         not isinstance(timeout_sec, (int, float))
         or isinstance(timeout_sec, bool)
@@ -110,7 +106,8 @@ def check_compatibility(
     ):
         raise CompatibilityError("Version request timeout must be finite and positive")
     url = endpoint_url(deployment, version_url)
-    # Deliberately do not use httpio.request_json: VSS_AUTH_TOKEN is ES-only.
+    # Keep the explicit public-route override and ES-only authentication boundary.
+    # Version/range parsing and comparison belong exclusively to the shared checker.
     request = Request(url, headers={"Accept": "application/json"}, method="GET")
     try:
         with urlopen(request, timeout=timeout_sec) as response:
@@ -118,8 +115,7 @@ def check_compatibility(
                 raise CompatibilityError(f"Version endpoint returned HTTP {response.status}; compatibility is unknown")
             payload = json.load(response)
     except HTTPError as exc:
-        hint = " (endpoint absent or not routed)" if exc.code == 404 else ""
-        raise CompatibilityError(f"Version endpoint returned HTTP {exc.code}{hint}; stopping before upload") from exc
+        raise CompatibilityError(f"Version endpoint returned HTTP {exc.code}; stopping before upload") from exc
     except (URLError, TimeoutError, OSError) as exc:
         raise CompatibilityError("Version endpoint is unreachable; stopping before upload") from exc
     except (json.JSONDecodeError, UnicodeError) as exc:
@@ -127,20 +123,24 @@ def check_compatibility(
     if not isinstance(payload, dict) or payload.get("service") != "vss" or not isinstance(payload.get("version"), str):
         raise CompatibilityError('Version endpoint must return {"service":"vss","version":"<semver>"}')
     version = payload["version"]
-    actual = release(version)
-    if not all(OPERATORS[comparison](actual, bound) for comparison, bound in clauses):
+    try:
+        compatible = shared.satisfies(version, requirement)
+    except ValueError as exc:
+        raise CompatibilityError(f"Version endpoint reported an invalid version: {exc}") from exc
+    if not compatible:
         raise CompatibilityError(
-            f"Deployed VSS {version} is incompatible with skill {skill_version} (requires-vss: {requirement}); "
-            "use a compatible skill/deployment before benchmarking"
+            f"Deployed VSS {version} is incompatible with skill {skill_version} (requires-vss: {requirement_text})",
+            exit_code=shared.EXIT_INCOMPATIBLE,
         )
     return {
         "status": "compatible",
         "skill_version": skill_version,
         "deployed_vss_version": version,
-        "requires_vss": requirement,
-        "comparison": "major.minor.patch (VSS release convention)",
+        "requires_vss": requirement_text,
+        "comparison": "major.minor.patch (shared VSS checker)",
         "version_url": url,
-        "metadata_file": str(metadata_path.resolve()),
+        "skill_file": str(skill_path.resolve()),
+        "checker_file": str(checker_path),
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -166,29 +166,33 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--vss-repo",
         type=Path,
-        default=Path(os.environ.get("VSS_REPO_ROOT", str(Path.home() / "video-search-and-summarization"))),
+        default=default_repo(),
     )
     parser.add_argument("--cli-config-home", type=Path, default=None)
     parser.add_argument("--cli-executable", default=None)
-    parser.add_argument("--uv-executable", default="uv")
     add_arguments(parser)
     try:
         config_path = known.config or DEFAULT_CONFIG_PATH
         flat = {} if known.no_config else load_config(config_path, explicit=known.config is not None)
         scalars, _ = resolve_defaults(flat, config_path.parent)
-        keys = {"vss_repo", "cli_config_home", "cli_executable", "uv_executable", "version_url", "version_timeout"}
+        keys = {"vss_repo", "cli_config_home", "cli_executable", "version_url", "version_timeout"}
         parser.set_defaults(**{k: v for k, v in scalars.items() if k in keys})
         args = parser.parse_args(argv)
         if args.base_url or args.version_url:
             deployment = {"base_url": args.base_url}
         else:
             deployment = VssCli(
-                args.vss_repo, args.cli_config_home, args.uv_executable, executable=args.cli_executable
+                args.vss_repo, args.cli_config_home, executable=args.cli_executable
             ).deployment(check_health=False)
-        result = check_compatibility(deployment, version_url=args.version_url, timeout_sec=args.version_timeout)
-    except (ConfigError, ValueError, OSError) as exc:
+        result = check_compatibility(
+            deployment, version_url=args.version_url, timeout_sec=args.version_timeout, vss_repo=args.vss_repo
+        )
+    except CompatibilityError as exc:
         print(f"ERROR  {exc}", file=sys.stderr)
-        return 2
+        return exc.exit_code
+    except (ConfigError, ValueError, OSError) as exc:
+        print(f"ERROR  Cannot determine compatibility: {exc}", file=sys.stderr)
+        return 1
     print(json.dumps(result, indent=2))
     return 0
 

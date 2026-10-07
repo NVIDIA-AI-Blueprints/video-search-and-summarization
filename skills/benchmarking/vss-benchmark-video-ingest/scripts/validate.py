@@ -8,7 +8,8 @@ Run standalone to check a configuration without executing anything::
       --elasticsearch-url "$ELASTICSEARCH_URL" \
       --corpus ./ingest-corpus --profile standard
 
-Exit codes: ``0`` valid, ``2`` invalid.
+Exit codes: ``0`` valid, ``2`` invalid inputs, ``1`` indeterminate version,
+``3`` incompatible version.
 """
 
 from __future__ import annotations
@@ -16,14 +17,16 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from dataclasses import field
-import os
 from pathlib import Path
 import sys
 from typing import Callable
 
 from check_compatibility import add_arguments as add_compatibility_arguments
 from check_compatibility import check_compatibility
+from check_compatibility import CompatibilityError
+from check_compatibility import default_repo
 from config import DEFAULT_CONFIG_PATH
+from config import DEFAULT_RESULTS_DIR
 from config import ConfigError
 from config import apply_lists
 from config import drop_profile_owned_lists
@@ -44,8 +47,7 @@ from httpio import parse_endpoint
 from httpio import redact_url
 from vss_cli import VssCli
 
-#: Benchmark profiles. ``concurrencies`` for ``standard`` reuses the harness
-#: default list; CLI/webhook runs still need a new baseline.
+#: Benchmark profiles for client-generated concurrency.
 PROFILES: dict[str, dict] = {
     "smoke": {
         "classes": ["50MB"],
@@ -87,8 +89,7 @@ ALLOWED_SWEEP_DIMENSIONS = frozenset(
 )
 
 #: Each of these mutates the system under test and changes what the
-#: measurement means. The harness sweeps several because it holds cluster admin
-#: and redeploys between points; Phase 1 must not.
+#: measurement means. This benchmark never redeploys between points.
 DISALLOWED_SWEEP_DIMENSIONS = {
     "rt_set": "RTVI replica counts change the deployment shape",
     "rt_sets": "RTVI replica counts change the deployment shape",
@@ -129,6 +130,7 @@ class ValidationResult:
     elasticsearch_url: str = ""
     version_compatibility: dict = field(default_factory=dict)
     measurements: dict[Path, dict] = field(default_factory=dict)
+    error_exit_code: int = 2
 
     @property
     def ok(self) -> bool:
@@ -342,7 +344,6 @@ def validate(
     *,
     vss_repo: Path,
     cli_config_home: Path | None,
-    uv_executable: str,
     elasticsearch_url: str,
     corpus_root: Path,
     profile: str,
@@ -371,7 +372,7 @@ def validate(
 
     # Read the configured deployment; never construct a VIOS URL or invoke Agent.
     try:
-        result.cli = VssCli(vss_repo, cli_config_home, uv_executable, executable=cli_executable)
+        result.cli = VssCli(vss_repo, cli_config_home, executable=cli_executable)
         result.deployment = result.cli.deployment(check_health=check_health)
         services = result.deployment.get("services", {})
         es_service = services.get("elasticsearch", {})
@@ -480,13 +481,17 @@ def validate(
         progress("[2/8] Deployed VSS version compatibility check")
     try:
         result.version_compatibility = check_compatibility(
-            result.deployment, version_url=version_url, timeout_sec=version_timeout_sec,
+            result.deployment, version_url=version_url, timeout_sec=version_timeout_sec, vss_repo=vss_repo,
         )
         result.notes.append(
             f"Version compatible: VSS {result.version_compatibility['deployed_vss_version']} "
             f"with skill {result.version_compatibility['skill_version']} "
             f"(requires-vss: {result.version_compatibility['requires_vss']})"
         )
+    except CompatibilityError as exc:
+        result.errors.append(str(exc))
+        result.error_exit_code = exc.exit_code
+        return result
     except (OSError, ValueError) as exc:
         result.errors.append(str(exc))
         return result
@@ -551,7 +556,6 @@ _VALIDATE_DESTS = frozenset(
     {
         "vss_repo",
         "cli_config_home",
-        "uv_executable",
         "cli_executable",
         "version_url",
         "version_timeout",
@@ -593,7 +597,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--vss-repo",
         type=Path,
-        default=Path(os.environ.get("VSS_REPO_ROOT", str(Path.home() / "video-search-and-summarization"))),
+        default=default_repo(),
     )
     parser.add_argument(
         "--cli-config-home",
@@ -601,8 +605,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="CLI config directory; otherwise use VSS_CONFIG_HOME or ~/.vss.",
     )
-    parser.add_argument("--uv-executable", default="uv", help="Explicit nondefault uv launcher for project-based CLI setups.")
-    parser.add_argument("--cli-executable", default=None, help="Installed vss executable; defaults to PATH or the checkout venv.")
+    parser.add_argument("--cli-executable", default=None, help="Installed vss executable; defaults to PATH.")
     add_compatibility_arguments(parser)
     parser.add_argument("--elasticsearch-url", default="")
     parser.add_argument("--readiness-poll-interval", type=float, default=5.0)
@@ -624,7 +627,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--concurrency", action="append", type=int, dest="concurrencies")
     parser.add_argument("--es-request-timeout", type=float, default=60.0)
-    parser.add_argument("--results-dir", type=Path, default=Path("./benchmark-results/vss/ingest"))
+    parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     parser.add_argument("--set", action="append", dest="overrides")
     parser.add_argument("--no-health-check", action="store_true")
     parser.set_defaults(**{k: v for k, v in config_scalars.items() if k in _VALIDATE_DESTS})
@@ -652,7 +655,6 @@ def main(argv: list[str] | None = None) -> int:
     result = validate(
         vss_repo=args.vss_repo,
         cli_config_home=args.cli_config_home,
-        uv_executable=args.uv_executable,
         cli_executable=args.cli_executable,
         version_url=args.version_url,
         version_timeout_sec=args.version_timeout,
@@ -673,7 +675,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Validating VSS ingest benchmark configuration (profile={args.profile})")
     print(result.report())
     print("VALID" if result.ok else "INVALID")
-    return 0 if result.ok else 2
+    return 0 if result.ok else result.error_exit_code
 
 
 if __name__ == "__main__":

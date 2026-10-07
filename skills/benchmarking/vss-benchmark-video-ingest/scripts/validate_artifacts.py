@@ -105,8 +105,6 @@ def validate_artifacts(results_dir: Path) -> list[str]:
     readiness = summary.get("readiness_stops_clock_at")
     if not isinstance(readiness, str) or not readiness.strip():
         errors.append("visualizations/summary.json must contain readiness_stops_clock_at")
-    if not isinstance(summary.get("harness_comparable"), bool):
-        errors.append("visualizations/summary.json must contain a boolean harness_comparable")
     if summary.get("measurement_scope") != scope:
         errors.append("Summary measurement_scope does not match run-metadata.json")
 

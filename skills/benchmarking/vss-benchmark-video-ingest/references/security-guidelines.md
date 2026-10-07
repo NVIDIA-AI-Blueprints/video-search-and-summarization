@@ -1,86 +1,67 @@
-# Authentication, artifacts, and cleanup
+# Authentication, artifacts and cleanup
 
-Run only local permitted video files. The subprocess uses an argument list, never
-shell=True; paths and names are not shell code. Bootstrap CLI dependencies before
-measurement. Keep the CLI config stable during concurrent execution; use a dedicated
-VSS_CONFIG_HOME for CI or multiple deployments.
+Use permitted local video files. Commands use argument arrays rather than shell
+interpolation. Keep the installed CLI and its configuration stable during the
+run; `VSS_CONFIG_HOME` can isolate a deployment from other CLI users.
 
-VSS_AUTH_TOKEN supplies ES-read Authorization only; version-API requests do not use it. The CLI upload library does not
-inherit that as an authentication option. Do not claim an authenticated upload setup
-without verifying the CLI/deployment supports it. Never put credentials in YAML,
-command arguments, or URLs. Metadata stores token presence, not the value.
+`VSS_AUTH_TOKEN` supplies ES-read authorization only. It does not authenticate
+CLI uploads or version requests. Never put credentials in URLs, YAML or arguments.
+Metadata records token presence, not its value. Artifacts include local paths,
+returned identities and bounded server diagnostics; review them before sharing.
+The artifact validator scans for the current token, but cannot identify every
+unknown secret.
 
-Artifacts contain names, paths, counts, timestamps, returned upload identity/recorded
-range, and bounded error diagnostics; no video frames. Error messages may contain
-server-provided data. Review raw diagnostics before sharing them outside the team.
-Results are local; nothing is published or exported. The final artifact validator
-scans for the current `VSS_AUTH_TOKEN` value (including its JSON-escaped form) without
-printing it. That check does not identify unknown secrets or establish that every
-server diagnostic is safe to share; review the recorded diagnostics.
+## Cleanup ownership and verification
 
-Cleanup defaults to `always` and deletes run-owned handles after each point,
-including failed/unconfirmed uploads. When the CLI returns no sensor ID, cleanup
-reads the public VIOS listing once and resolves the exact generated UUID name
-from the persisted upload intent. Only one matching video with a valid, unique
-sensor ID can be deleted; matching a prefix is never sufficient. `on-success` retains failed uploads;
-`never` retains all uploads. With cleanup enabled, a failed deletion or missing
-handle stops subsequent sweep points and records the reason in metadata and the
-summary. Collected point artifacts are still written. These options do not delete
-unrelated VIOS media.
-An unknown handle is never invented. List sensors before manual cleanup:
+`always` deletes all run-owned uploads, including non-confirmed uploads.
+`on-success` retains non-confirmed uploads; `never` retains everything. A missing
+returned ID is resolved only from one public listing with a unique exact generated
+UUID name and valid sensor ID. Prefix matches never establish ownership.
 
-```bash
-vss vios list --type video
-vss vios delete --type video --sensor RETURNED_ID
-```
+The runner requires the CLI response to confirm stored-recording deletion. It
+then polls the selected raw/Embed indices for those owned identities until both
+counts are absent across the configured settle period. Deletion and verification
+run outside measured latency/throughput. Failed deletion, unresolved ownership,
+read error or timeout stops the next point. No raw ES deletion fallback exists.
 
-VIOS removal does not prove asynchronous ES cleanup. No raw ES deletion fallback.
-Keep results/corpora out of commits; honor the printed transfer projection and the
-configured confirmation ceiling for large workloads.
+An observed zero count proves only visible document absence. Concurrent webhook
+legs may still be withdrawing consumers, and in-flight producers may write after
+the observation period. This bounded check does not prove released capacity or
+all backend work stopping. Retained media can also affect subsequent load.
 
 ## Interrupted-run recovery
 
-The runner writes a pending intent to `raw/upload_ledger.jsonl` **before** starting
-each CLI upload, including warmups. It records the exact generated UUID filename,
-camera name, run ID and public VIOS URL. An intent write failure prevents that
-upload. Returned sensor IDs are appended before waiting for ES. Each append is
-flushed and synced to disk, so a timeout or interruption before CLI JSON output
-still leaves a recoverable intent. The v2 ledger supports both intents and resolved
-identities; recovery also accepts older v1 ledgers containing returned IDs.
+Before launching an upload, the runner writes its generated filename, camera name,
+run ID and public VIOS URL as an intent in `raw/upload_ledger.jsonl`. Returned sensor
+IDs are appended before readiness polling. Each append is flushed and fsynced;
+a failed intent write prevents upload, and a failed identity write retains media.
+This ledger preserves ownership if the CLI times out before returning its JSON or
+the benchmark process is killed. It does not establish successful ingestion.
 
-The intent write precedes upload latency timing. Saving a returned ID remains
-included in end-to-end latency after CLI timing ends. Missing-ID lookup and
-cleanup occur outside the measured sweep window. Finding a cleanup handle never
-changes a failed/timed-out upload into a confirmed ingestion.
-The ledger is ownership evidence, not a completed benchmark result.
+Intent persistence precedes latency timing. Saving the returned ID occurs after
+CLI timing, within end-to-end latency. Missing-ID resolution and deletion happen
+outside the point's measurement window. Finding a cleanup identity never changes
+a failed upload into a confirmed one.
 
-Stop the interrupted run before recovery. Use the same CLI executable and CLI
-configuration as that run, then preview:
+Stop the interrupted run before recovery. Use its same CLI configuration and
+preview the current ledger's exact targets:
 
 ```bash
 python scripts/recover_cleanup.py --ledger /path/to/results/raw/upload_ledger.jsonl \
   --cli-executable /path/to/vss --cli-config-home /path/to/cli-config
 ```
 
-After reviewing the exact targets, add `--apply` to delete them. The helper checks
-the original VIOS URL and validates all targets before deletion. A recorded ID
-requires an exact ID, generated name and video type match. An ID absent from the
-listing is `already_absent`; recovery never substitutes a same-name replacement.
-A pending intent requires one exact generated-name match with a valid, unique
-video ID. The helper durably saves all newly resolved IDs before deleting, so
-subsequent recovery uses those IDs. Preview mode makes no ledger changes.
+After reviewing targets, add `--apply`. Recovery checks the original VIOS URL and
+validates all targets before deleting. A recorded ID must match the listed name
+and video type; an absent recorded ID is `already_absent` and is never replaced
+with a same-name object. A pending intent requires a unique exact-name video
+match. Resolved IDs are persisted before deletion; preview writes nothing.
 
-An intent with no current match is `unresolved`, and recovery exits nonzero;
-media may become visible later. Ambiguous names, invalid target identities or a
-malformed ledger stop all deletions. Unrelated diagnostic rows in the VIOS listing
-do not establish ownership and are left alone. The helper does not retry an
-upload or failed deletion, inspect internal services, or delete ES records.
+Unresolved intents, ambiguous names or malformed ledgers require investigation;
+recovery cannot guess ownership. It does not retry uploads or failed deletions,
+inspect internal services or write to ES. A partially written ledger must be
+reviewed before recovery.
 
-Keep this trusted local ledger with the run's other artifacts. If a returned-ID
-append fails, normal cleanup retains the media instead of deleting while the
-ledger might still contain only an intent. A partial/corrupt ledger requires
-inspection, not automatic recovery. Old v1 runs interrupted before recording an ID
-still require operator reconciliation; never guess ownership or bulk-delete by
-prefix. Recovery confirms only VIOS deletion;
-CV/Embed/ES cleanup remains asynchronous. Use a fresh results directory for the
-next attempt and managed background execution to avoid foreground tool deadlines.
+The standalone helper confirms CLI deletion only and does not run the runner's
+ES settling check. Verify downstream removal before another benchmark after
+recovery. Preserve prior results and use a fresh results directory for each run.

@@ -3,11 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Benchmark configuration file support.
 
-``config.yml`` at the skill root holds every default a run needs -- the VSS
-service URL, concurrency list, Elasticsearch URL, and readiness tuning.
-It is the same idea as ``benchmark/config.json`` in the harness, in YAML, and
-covering the sweep matrix as well because this runner sweeps every concurrency
-in one invocation instead of one per invocation.
+``config.yml`` supplies optional CLI selection, corpus, concurrency and
+Elasticsearch readiness settings. The VSS origin comes from CLI configuration.
 
 Precedence, highest first:
 
@@ -34,6 +31,8 @@ except ImportError:  # pragma: no cover - exercised only on a bare interpreter
     yaml = None  # type: ignore[assignment]
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.yml"
+DEFAULT_RESULTS_DIR = Path("./benchmark-results/vss/ingest")
+DEFAULT_WARMUP = 1
 
 
 class ConfigError(Exception):
@@ -49,7 +48,6 @@ class ConfigError(Exception):
 SCALAR_KEYS: dict[str, str] = {
     "cli.repo": "vss_repo",
     "cli.config_home": "cli_config_home",
-    "cli.uv": "uv_executable",
     "cli.executable": "cli_executable",
     "compatibility.version_url": "version_url",
     "compatibility.request_timeout_sec": "version_timeout",
@@ -67,11 +65,12 @@ SCALAR_KEYS: dict[str, str] = {
     "es_readiness.embed_chunk_duration_sec": "embed_chunk_duration",
     "es_readiness.frame_processing_time_ms": "frame_processing_time_ms",
     "es_readiness.raw_drop_grace_sec": "raw_drop_grace_sec",
-    "es_readiness.raw_completion_ratio": "raw_completion_ratio",
     "es_readiness.request_timeout_sec": "es_request_timeout",
     "upload.ramp.stagger_sec": "stagger_sec",
     "upload.ramp.max_ramp_sec": "max_ramp_sec",
     "cleanup.policy": "cleanup",
+    "cleanup.timeout_sec": "cleanup_timeout",
+    "cleanup.settle_sec": "cleanup_settle_sec",
     "limits.transfer_ceiling_gb": "transfer_ceiling_gb",
 }
 
@@ -86,7 +85,7 @@ LIST_KEYS: dict[str, str] = {
 
 # Coerced to argparse's own types so a value from the file behaves exactly like
 # the same value typed on the command line.
-_PATH_DESTS = {"corpus", "results_dir", "vss_repo", "cli_config_home"}
+_PATH_DESTS = {"corpus", "results_dir", "vss_repo", "cli_config_home", "videos"}
 
 def _flatten(node: Any, prefix: str = "") -> dict[str, Any]:
     """Flatten nested mappings into dotted keys, leaving lists intact."""
@@ -131,11 +130,10 @@ def load_config(path: Path | None, *, explicit: bool = False) -> dict[str, Any]:
         raise ConfigError(f"{path} must contain a mapping at the top level, got {type(loaded).__name__}")
 
     flat = _flatten(loaded)
-    removed = sorted(set(flat) & {"es_readiness.expect_raw", "es_readiness.expect_embed"})
-    if removed:
+    if "es_readiness.raw_completion_ratio" in flat:
         raise ConfigError(
-            f"{path}: remove obsolete key(s): {', '.join(removed)}. "
-            "Search ingest readiness always requires both Raw and Embed."
+            f"{path}: remove obsolete key es_readiness.raw_completion_ratio. "
+            "Readiness now requires the full expected raw-frame count."
         )
     known = set(SCALAR_KEYS) | set(LIST_KEYS)
     unknown = sorted(set(flat) - known)
@@ -167,11 +165,11 @@ def _coerce(dest: str, value: Any, base_dir: Path | None = None) -> Any:
                 path = (base_dir / path).resolve()
             return str(path)
         return text
-    if dest == "version_timeout":
+    if dest in {"version_timeout", "cleanup_timeout", "cleanup_settle_sec"}:
         try:
             return float(value)
         except (TypeError, ValueError) as exc:
-            raise ConfigError("compatibility.request_timeout_sec must be a number") from exc
+            raise ConfigError(f"{dest} must be a number") from exc
     return value
 
 
@@ -191,7 +189,9 @@ def resolve_defaults(
         if key not in flat:
             continue
         value = flat[key]
-        if value is None and dest in scalars:
+        if value is None and (dest == "vss_repo" or dest in scalars):
+            # A null optional checkout means use the same discovery default as
+            # an omitted key, not pass None into the CLI/shared-checker setup.
             continue
         scalars[dest] = _coerce(dest, value, base_dir)
 
@@ -203,7 +203,16 @@ def resolve_defaults(
             raise ConfigError(f"{key} must be a list, got {type(value).__name__}")
         lists[dest] = list(value)
 
+    if "videos" in lists:
+        if any(not isinstance(source, str) or not source.strip() for source in lists["videos"]):
+            raise ConfigError("sweep.videos must be a list of nonempty file or directory paths")
+        lists["videos"] = [str(_coerce("videos", source, base_dir)) for source in lists["videos"]]
+
     if "concurrencies" in lists:
+        # int(1.9) and int(True) silently change a YAML workload. Accept only
+        # integers or integer strings, just as --concurrency does.
+        if any(type(value) is not int and not isinstance(value, str) for value in lists["concurrencies"]):
+            raise ConfigError("sweep.concurrencies must be a list of integers, not booleans or decimal values")
         try:
             lists["concurrencies"] = [int(c) for c in lists["concurrencies"]]
         except (TypeError, ValueError) as exc:

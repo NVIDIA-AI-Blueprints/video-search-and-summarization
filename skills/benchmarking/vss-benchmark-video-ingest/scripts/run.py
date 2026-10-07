@@ -16,8 +16,7 @@ whole class once, so::
 Three constraints define this benchmark:
 
 * The deployed profile is a black box. Only what the client can time is measured.
-* No in-cluster benchmark Job. That is how the harness runs, and it needs RBAC,
-  a corpus volume, and Prometheus reads.
+* No in-cluster benchmark Job or internal deployment telemetry.
 * The client generates all concurrency. A concurrency the endpoint refuses is a
   result, not an obstacle -- never raise a server-side stream, batch, or
   timeout limit to fit it.
@@ -29,9 +28,10 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from datetime import timezone
+from dataclasses import asdict
 import importlib.util
 import json
-import os
+import math
 from pathlib import Path
 import sys
 import time
@@ -46,9 +46,12 @@ from artifacts import write_errors_csv  # noqa: E402
 from artifacts import write_requests_csv  # noqa: E402
 from artifacts import write_summary_csv  # noqa: E402
 from check_compatibility import add_arguments as add_compatibility_arguments  # noqa: E402
+from check_compatibility import default_repo  # noqa: E402
+from cleanup import wait_for_cleanup  # noqa: E402
 from completion import EsReadinessMonitor  # noqa: E402
 from completion import ReadinessError  # noqa: E402
 from config import DEFAULT_CONFIG_PATH  # noqa: E402
+from config import DEFAULT_RESULTS_DIR, DEFAULT_WARMUP  # noqa: E402
 from config import ConfigError  # noqa: E402
 from config import apply_lists  # noqa: E402
 from config import describe as describe_config  # noqa: E402
@@ -130,7 +133,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--vss-repo",
         type=Path,
-        default=Path(os.environ.get("VSS_REPO_ROOT", str(Path.home() / "video-search-and-summarization"))),
+        default=default_repo(),
     )
     parser.add_argument(
         "--cli-config-home",
@@ -138,8 +141,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="CLI config directory; otherwise use VSS_CONFIG_HOME or ~/.vss.",
     )
-    parser.add_argument("--uv-executable", default="uv", help="Explicit nondefault uv launcher for project-based CLI setups.")
-    parser.add_argument("--cli-executable", default=None, help="Installed vss executable; defaults to PATH or the checkout venv.")
+    parser.add_argument("--cli-executable", default=None, help="Installed vss executable; defaults to PATH.")
     add_compatibility_arguments(parser)
     parser.add_argument(
         "--corpus",
@@ -183,26 +185,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--es-raw-index", default="mdx-raw-2025-01-01")
     parser.add_argument("--embed-chunk-duration", type=int, default=5)
     parser.add_argument("--frame-processing-time-ms", type=int, default=33)
-    parser.add_argument("--raw-drop-grace-sec", type=int, default=120)
-    parser.add_argument("--raw-completion-ratio", type=float, default=0.95)
+    parser.add_argument("--raw-drop-grace-sec", type=int, default=120,
+                        help="Failure-only stall timeout, scaled by concurrency; 0 disables this guard.")
     parser.add_argument(
         "--readiness-timeout",
         type=float,
         default=None,
-        help="Ceiling on the readiness wait. Defaults to the harness-derived budget.",
+        help="Ceiling on the readiness wait. Defaults to the duration/concurrency-derived budget.",
     )
     parser.add_argument(
         "--es-request-timeout", type=float, default=60.0, help="HTTP timeout for ES reads; CLI owns upload timeouts."
     )
-    parser.add_argument("--warmup", type=int, default=1, help="Warmup uploads, discarded.")
+    parser.add_argument("--warmup", type=int, default=DEFAULT_WARMUP, help="Warmup uploads, discarded.")
     parser.add_argument("--stagger-sec", type=float, default=DEFAULT_STAGGER_SEC)
     parser.add_argument("--max-ramp-sec", type=float, default=DEFAULT_MAX_RAMP_SEC)
     parser.add_argument(
         "--cleanup",
         default="always",
         choices=("always", "on-success", "never"),
-        help="Delete run-owned media through vss vios delete; ES removal is asynchronous.",
+        help="Delete run-owned media through VSS CLI and wait for raw/Embed removal in ES.",
     )
+    parser.add_argument("--cleanup-timeout", type=float, default=300.0,
+                        help="Maximum seconds to wait for downstream ES cleanup after CLI deletion.")
+    parser.add_argument("--cleanup-settle-sec", type=float, default=30.0,
+                        help="Seconds raw and Embed documents must remain absent before continuing.")
     parser.add_argument(
         "--transfer-ceiling-gb",
         type=float,
@@ -210,7 +216,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Projected-bytes threshold requiring confirmation.",
     )
     parser.add_argument("--yes", action="store_true", help="Skip the projected-bytes confirmation.")
-    parser.add_argument("--results-dir", type=Path, default=Path("./benchmark-results/vss/ingest"))
+    parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     parser.add_argument("--set", action="append", dest="overrides", help="key=value sweep override.")
     parser.add_argument("--dry-run", action="store_true", help="Validate, probe the corpus, project bytes, then stop.")
 
@@ -228,8 +234,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("stagger, ramp and transfer ceiling must be nonnegative")
     if args.embed_chunk_duration <= 0 or args.frame_processing_time_ms <= 0:
         parser.error("chunk duration and frame processing time must be positive")
-    if not 0 < args.raw_completion_ratio <= 1 or args.raw_drop_grace_sec < 0:
-        parser.error("raw completion ratio must be in (0, 1] and grace must be nonnegative")
+    if args.raw_drop_grace_sec < 0:
+        parser.error("raw stall grace must be nonnegative")
+    if (not all(isinstance(value, (int, float)) and math.isfinite(value)
+                for value in (args.cleanup_timeout, args.cleanup_settle_sec))
+            or not 0 < args.cleanup_settle_sec < args.cleanup_timeout):
+        parser.error("cleanup timing must be finite, with 0 < settle seconds < timeout")
     if profile_given_on_cli(argv):
         dropped = drop_profile_owned_lists(config_lists, args.profile)
         if dropped:
@@ -317,14 +327,20 @@ def run_sweep_point(
 
 
 def cleanup_records(
-    cli: VssCli, records: list[UploadRecord], policy: str, *, record_identity: Callable[..., None] | None = None
+    cli: VssCli, records: list[UploadRecord], policy: str, *, es_config: EsReadinessConfig,
+    timeout_sec: float = 300.0, settle_sec: float = 30.0,
+    record_identity: Callable[..., None] | None = None,
+    verification: dict | None = None,
 ) -> dict[str, int]:
-    """Resolve pending upload intents and delete handles outside measured windows."""
+    """Delete owned media and verify ES removal outside measured windows."""
     stats = {"attempted": 0, "deleted": 0, "failed": 0, "no_handle": 0}
+    if verification is not None:
+        verification.update(status="skipped" if policy == "never" else "no_deletions", polls=0, elapsed_sec=0.0)
     if policy == "never":
         return stats
     inventory = None
     inventory_error = ""
+    deleted_records: list[UploadRecord] = []
     for record in records:
         if policy == "on-success" and record.outcome != "confirmed":
             continue
@@ -362,8 +378,27 @@ def cleanup_records(
             continue
         stats["attempted"] += 1
         ok, detail = delete_asset(cli, record.sensor_id)
-        record.cleanup_detail = "VIOS deleted; ES removal not verified" if ok else detail
-        stats["deleted" if ok else "failed"] += 1
+        if ok:
+            deleted_records.append(record)
+        else:
+            record.cleanup_detail = detail
+            stats["failed"] += 1
+    if deleted_records:
+        log(f"     Waiting for ES cleanup of {len(deleted_records)} upload(s)")
+        result = wait_for_cleanup(
+            es_config,
+            [(record.upload_filename.rsplit(".", 1)[0], record.sensor_id) for record in deleted_records],
+            timeout_sec=timeout_sec,
+            settle_sec=settle_sec,
+        )
+        if verification is not None:
+            verification.update(asdict(result), status="confirmed" if result.success else "incomplete")
+        for record in deleted_records:
+            record.cleanup_detail = (
+                f"VIOS recordings removed; {result.detail} "
+                f"({result.polls} cleanup polls, {result.elapsed_sec:.1f}s)"
+            )
+        stats["deleted" if result.success else "failed"] += len(deleted_records)
     return stats
 
 
@@ -411,7 +446,6 @@ def main(argv: list[str] | None = None) -> int:
     result = validate(
         vss_repo=args.vss_repo,
         cli_config_home=args.cli_config_home,
-        uv_executable=args.uv_executable,
         cli_executable=args.cli_executable,
         version_url=args.version_url,
         version_timeout_sec=args.version_timeout,
@@ -433,7 +467,7 @@ def main(argv: list[str] | None = None) -> int:
     log(result.report())
     if not result.ok:
         log("\nStopping: configuration is invalid.")
-        return 2
+        return result.error_exit_code
 
     if not args.dry_run and importlib.util.find_spec("matplotlib") is None:
         log("  ERROR  matplotlib is required for the final charts; install scripts/requirements.txt before benchmarking.")
@@ -511,8 +545,7 @@ def main(argv: list[str] | None = None) -> int:
             embed_chunk_duration_sec=args.embed_chunk_duration,
             poll_interval_sec=args.readiness_poll_interval,
             raw_drop_grace_sec=args.raw_drop_grace_sec,
-            raw_completion_ratio=args.raw_completion_ratio,
-            # 0 keeps the harness per-upload budget; an explicit
+            # 0 keeps the computed per-upload budget; an explicit
             # --readiness-timeout becomes a hard ceiling.
             timeout_override_sec=(float(args.readiness_timeout) if args.readiness_timeout is not None else 0.0),
         )
@@ -536,6 +569,97 @@ def main(argv: list[str] | None = None) -> int:
     args.record_identity = ledger.record
 
     warmup_records: list[UploadRecord] = []
+    cleanup_checks: list[dict] = []
+    warmup_cleanup: dict = {}
+    all_records: list[UploadRecord] = []
+    summary_rows: list[dict] = []
+    cleanup_totals = {"attempted": 0, "deleted": 0, "failed": 0, "no_handle": 0}
+    stop_reason = ""
+
+    metadata = {
+        "run_id": run_id,
+        "version_compatibility": result.version_compatibility,
+        "started_at_utc": run_id.split("-")[2],
+        "blueprint": "vss-ingest",
+        "phase": 1,
+        "profile": args.profile,
+        "video_classes": classes,
+        "concurrencies": concurrencies,
+        "corpus_root": str(args.corpus) if args.corpus else "",
+        "corpus_limit": args.limit,
+        "user_videos": list(args.videos or []),
+        "user_video_class": user_class,
+        "upload_flow": "vss-cli",
+        "upload_route": "vss vios add --type video PATH --name UNIQUE_FILENAME",
+        "cli": {"command": list(args.cli.command), "config_home": args.cli.config_home},
+        "comparability_note": "Compare runs only with matching CLI, corpus, deployment and polling settings.",
+        "byte_accounting": "Successful CLI upload payload bytes only; partial failures and wire overhead unknown.",
+        "es_readiness": {
+            "elasticsearch_url": redact_url(args.elasticsearch_url),
+            "embed_index": args.es_embed_index,
+            "raw_index": args.es_raw_index,
+            "expect_embed": True,
+            "expect_raw": True,
+            "embed_chunk_duration_sec": args.embed_chunk_duration,
+            "frame_processing_time_ms": args.frame_processing_time_ms,
+            "raw_drop_grace_sec": args.raw_drop_grace_sec,
+            "completion_rule": "raw_count >= expected_frames and embed_count >= expected_chunks",
+            "poll_interval_sec": args.readiness_poll_interval,
+            "timeout_sec": args.readiness_timeout,
+            "frame_tolerance": 15,
+            "clock_stops_at": "client observation of both expected ES counts",
+            "timing_bias": "Polling and ES request latency delay observation of actual completion.",
+        },
+        "es_request_timeout_sec": args.es_request_timeout,
+        "upload_timeout_owner": "VSS CLI (no benchmark retry or timeout wrapper)",
+        "warmup_uploads": args.warmup,
+        "warmup_cleanup": warmup_cleanup,
+        "stagger_sec": args.stagger_sec,
+        "max_ramp_sec": args.max_ramp_sec,
+        "cleanup_policy": args.cleanup,
+        "cleanup_verification": {
+            "timeout_sec": args.cleanup_timeout,
+            "settle_sec": args.cleanup_settle_sec,
+            "scope": "CLI-confirmed recording deletion and sustained raw/Embed absence in public ES",
+        },
+        "cleanup_ledger": "raw/upload_ledger.jsonl",
+        "cleanup_totals": cleanup_totals,
+        "cleanup_checks": cleanup_checks,
+        "stop_reason": stop_reason,
+        "sweep_points_completed": len(summary_rows),
+        "transfer_ceiling_gb": args.transfer_ceiling_gb,
+        "projected_bytes_total": run_bytes,
+        "projected_by_point": point_projection,
+        "vss_service_url": redact_url(deployment.get("base_url", "")),
+        "auth_token_provided": auth_configured(),
+        "sweep_overrides": overrides,
+        # Provenance: which config file supplied defaults, and what it set, so
+        # a run can be reconstructed from the artifact alone. Any value whose
+        # key names a URL goes through redact_url -- a config file should carry
+        # no credentials, but an operator may still have embedded one.
+        "config_file": str(args.config_path) if args.config_path else "",
+        "config_keys": {
+            key: (redact_url(str(value)) if key.endswith("url") and value else value)
+            for key, value in sorted(args.config_flat.items())
+        },
+        "telemetry_collected": "none",
+        "measurement_scope": (
+            "All metrics are client-observed. No Kubernetes, Prometheus, GPU, pod, trace, "
+            "log, or internal pipeline telemetry was collected."
+        ),
+    }
+
+    def write_metadata() -> None:
+        metadata.update(
+            warmup_cleanup=warmup_cleanup, stop_reason=stop_reason,
+            sweep_points_completed=len(summary_rows),
+        )
+        (args.results_dir / "run-metadata.json").write_text(
+            json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+
+    write_metadata()
+
     if args.warmup > 0:
         log(f"\n[5/8] Warmup ({args.warmup} upload(s), discarded)")
         warmup_item = min(all_items, key=lambda i: i.bytes)
@@ -552,12 +676,18 @@ def main(argv: list[str] | None = None) -> int:
             )
             warmup_records.append(record)
             log(f"  warmup {index + 1}: {record.outcome} in {record.latency_sec:.1f}s (discarded)")
+        warmup_verification: dict = {}
         warmup_cleanup = cleanup_records(
             args.cli,
             warmup_records,
             args.cleanup,
+            es_config=es_config,
+            timeout_sec=args.cleanup_timeout,
+            settle_sec=args.cleanup_settle_sec,
             record_identity=args.record_identity,
+            verification=warmup_verification,
         )
+        cleanup_checks.append({"phase": "warmup", "stats": warmup_cleanup, "es_wait": warmup_verification})
         (raw_dir / "warmup_details.jsonl").write_text(
             "\n".join(
                 json.dumps(
@@ -573,17 +703,39 @@ def main(argv: list[str] | None = None) -> int:
             + "\n",
             encoding="utf-8",
         )
-        if any(r.outcome != "confirmed" for r in warmup_records) or warmup_cleanup["failed"] or warmup_cleanup["no_handle"]:
-            log(f"Stopping: warmup failed; details in {raw_dir / 'warmup_details.jsonl'}")
+        warmup_errors = []
+        for index, record in enumerate(warmup_records, start=1):
+            if record.outcome != "confirmed":
+                warmup_errors.append(
+                    f"Warmup ingestion {index} ({record.upload_filename}): {record.outcome}; "
+                    f"{record.error_detail or 'ingestion was not confirmed'}"
+                )
+        if warmup_cleanup["failed"]:
+            warmup_errors.append(f"Warmup cleanup failed for {warmup_cleanup['failed']} upload(s).")
+        if warmup_cleanup["no_handle"]:
+            warmup_errors.append(
+                f"Warmup cleanup identity unresolved for {warmup_cleanup['no_handle']} upload(s); "
+                "could not safely select media for deletion."
+            )
+        if warmup_errors:
+            stop_reason = "; ".join(warmup_errors)
+            write_metadata()
+            for error in warmup_errors:
+                log(f"  ERROR  {error}")
+            if warmup_cleanup["failed"] or warmup_cleanup["no_handle"]:
+                # Details can describe successful cleanup too; label them as
+                # context, not additional failures in a mixed warmup batch.
+                for index, record in enumerate(warmup_records, start=1):
+                    if record.cleanup_detail:
+                        log(f"  warmup {index} cleanup ({record.upload_filename}): {record.cleanup_detail}")
+                log(f"  Recovery ledger: {raw_dir / 'upload_ledger.jsonl'}")
+            log(f"Stopping before the measured sweep. Warmup details: {raw_dir / 'warmup_details.jsonl'}")
             return 1
+        write_metadata()
     else:
         log("\n[5/8] Warmup skipped (--warmup 0)")
 
     log("\n[6/8] Sweep")
-    all_records: list[UploadRecord] = []
-    summary_rows: list[dict] = []
-    cleanup_totals = {"attempted": 0, "deleted": 0, "failed": 0, "no_handle": 0}
-    stop_reason = ""
     for video_class in classes:
         for concurrency in concurrencies:
             items = corpus[video_class]
@@ -613,7 +765,17 @@ def main(argv: list[str] | None = None) -> int:
             if row["cli_exit_statuses"]:
                 log(f"     CLI exit histogram: {row['cli_exit_statuses']}")
 
-            stats = cleanup_records(args.cli, records, args.cleanup, record_identity=args.record_identity)
+            verification: dict = {}
+            stats = cleanup_records(
+                args.cli, records, args.cleanup, es_config=es_config,
+                timeout_sec=args.cleanup_timeout, settle_sec=args.cleanup_settle_sec,
+                record_identity=args.record_identity,
+                verification=verification,
+            )
+            cleanup_checks.append({
+                "phase": "sweep", "video_class": video_class, "concurrency": concurrency,
+                "stats": stats, "es_wait": verification,
+            })
             for key in cleanup_totals:
                 cleanup_totals[key] += stats[key]
             if stats["attempted"]:
@@ -626,6 +788,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 log(f"     Stopping: {stop_reason}")
                 break
+            write_metadata()
         if stop_reason:
             break
 
@@ -653,76 +816,7 @@ def main(argv: list[str] | None = None) -> int:
         encoding="utf-8",
     )
 
-    metadata = {
-        "run_id": run_id,
-        "version_compatibility": result.version_compatibility,
-        "started_at_utc": run_id.split("-")[2],
-        "blueprint": "vss-ingest",
-        "phase": 1,
-        "profile": args.profile,
-        "video_classes": classes,
-        "concurrencies": concurrencies,
-        "corpus_root": str(args.corpus) if args.corpus else "",
-        "corpus_limit": args.limit,
-        "user_videos": list(args.videos or []),
-        "user_video_class": user_class,
-        "upload_flow": "vss-cli",
-        "upload_route": "vss vios add --type video PATH --name UNIQUE_FILENAME",
-        "cli": {"command": list(args.cli.command), "config_home": args.cli.config_home},
-        "harness_comparable": False,
-        "metric_definitions_match_harness": True,
-        "comparability_note": "CLI startup and VIOS webhook routing differ from the Agent PUT baseline; rebaseline.",
-        "byte_accounting": "Successful CLI upload payload bytes only; partial failures and wire overhead unknown.",
-        "es_readiness": {
-            "elasticsearch_url": redact_url(args.elasticsearch_url),
-            "embed_index": args.es_embed_index,
-            "raw_index": args.es_raw_index,
-            "expect_embed": True,
-            "expect_raw": True,
-            "embed_chunk_duration_sec": args.embed_chunk_duration,
-            "frame_processing_time_ms": args.frame_processing_time_ms,
-            "raw_drop_grace_sec": args.raw_drop_grace_sec,
-            "raw_completion_ratio": args.raw_completion_ratio,
-            "poll_interval_sec": args.readiness_poll_interval,
-            "timeout_sec": args.readiness_timeout,
-            "frame_tolerance": 15,
-            "clock_stops_at": "max(ingested_at) across matched documents",
-        },
-        "es_request_timeout_sec": args.es_request_timeout,
-        "upload_timeout_owner": "VSS CLI (no benchmark retry or timeout wrapper)",
-        "warmup_uploads": args.warmup,
-        "warmup_cleanup": warmup_cleanup if warmup_records else {},
-        "stagger_sec": args.stagger_sec,
-        "max_ramp_sec": args.max_ramp_sec,
-        "cleanup_policy": args.cleanup,
-        "cleanup_ledger": "raw/upload_ledger.jsonl",
-        "cleanup_totals": cleanup_totals,
-        "stop_reason": stop_reason,
-        "sweep_points_completed": len(summary_rows),
-        "transfer_ceiling_gb": args.transfer_ceiling_gb,
-        "projected_bytes_total": run_bytes,
-        "projected_by_point": point_projection,
-        "vss_service_url": redact_url(deployment.get("base_url", "")),
-        "auth_token_provided": auth_configured(),
-        "sweep_overrides": overrides,
-        # Provenance: which config file supplied defaults, and what it set, so
-        # a run can be reconstructed from the artifact alone. Any value whose
-        # key names a URL goes through redact_url -- a config file should carry
-        # no credentials, but an operator may still have embedded one.
-        "config_file": str(args.config_path) if args.config_path else "",
-        "config_keys": {
-            key: (redact_url(str(value)) if key.endswith("url") and value else value)
-            for key, value in sorted(args.config_flat.items())
-        },
-        "telemetry_collected": "none",
-        "measurement_scope": (
-            "All metrics are client-observed. No Kubernetes, Prometheus, GPU, pod, trace, "
-            "log, or internal pipeline telemetry was collected."
-        ),
-    }
-    (args.results_dir / "run-metadata.json").write_text(
-        json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    write_metadata()
 
     log("\n[8/8] Generating and validating summaries and charts")
     # Generate from the persisted CSVs, keeping all reporting outside timing.

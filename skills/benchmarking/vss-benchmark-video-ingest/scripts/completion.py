@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Elasticsearch readiness for one uploaded video.
 
-The benchmark has one definition of finished: RT-CV raw frames and RT-Embed
-chunks are indexed in Elasticsearch, matching ``vss_ingest_perf``.
+The benchmark requires both RT-CV raw frames and RT-Embed chunks to reach
+their expected counts in Elasticsearch.
 """
 
 from __future__ import annotations
@@ -37,15 +37,14 @@ class UploadContext:
     response_body: dict[str, Any]
     duration_sec: float = 0.0
     fps: float = 0.0
-    reported_chunks: int = 0
     concurrency: int = 1
 
 
 class EsReadinessMonitor:
     """Wait until both ingest pipelines have indexed their documents."""
 
-    label = "Elasticsearch readiness (vss_ingest_perf parity)"
-    stops_clock_at = "RT-CV raw frames and RT-Embed chunks indexed in Elasticsearch"
+    label = "Elasticsearch readiness (both expected counts required)"
+    stops_clock_at = "Client receipt of an ES poll observing both expected raw and Embed counts"
 
     def __init__(
         self,
@@ -86,7 +85,6 @@ class EsReadinessMonitor:
             sensor_id=ctx.sensor_id,
             duration_sec=ctx.duration_sec,
             fps=ctx.fps,
-            reported_chunks=ctx.reported_chunks,
             concurrency=ctx.concurrency,
         )
         metrics = {
@@ -101,15 +99,11 @@ class EsReadinessMonitor:
             "drop_reason": result.drop_reason,
         }
         if result.success:
-            note = (
-                "raw complete"
-                if result.raw_complete_exact
-                else f"raw settled at {result.raw_completion_ratio:.1%} of expected"
-            )
             return ReadinessResult(
                 True,
                 "confirmed",
-                f"{note}; embed {result.es_chunk_count}/{result.expected_chunks}",
+                f"raw {result.es_frame_count}/{result.expected_frames}; "
+                f"embed {result.es_chunk_count}/{result.expected_chunks}",
                 result.attempts,
                 completed_at=result.completed_at,
                 metrics=metrics,

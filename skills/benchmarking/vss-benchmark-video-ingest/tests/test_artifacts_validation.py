@@ -52,8 +52,7 @@ class ArtifactValidationTests(unittest.TestCase):
         self.summary = {
             "run_id": "fixture-run",
             "version_compatibility": compatibility.copy(),
-            "readiness_stops_clock_at": "max(ingested_at) across matched documents",
-            "harness_comparable": False,
+            "readiness_stops_clock_at": "client observation of both expected ES counts",
             "measurement_scope": scope,
         }
         (self.root / "raw").mkdir()
@@ -97,12 +96,10 @@ class ArtifactValidationTests(unittest.TestCase):
 
     def test_summary_requires_fields_types_and_matching_run(self):
         self.summary.pop("readiness_stops_clock_at")
-        self.summary["harness_comparable"] = "false"
         self.summary["run_id"] = "other-run"
         self.write_summary()
         errors = validate_artifacts(self.root)
         self.assertTrue(any("readiness_stops_clock_at" in error for error in errors))
-        self.assertTrue(any("boolean harness_comparable" in error for error in errors))
         self.assertTrue(any("run_id does not match" in error for error in errors))
 
     def test_invalid_json_reports_an_error_without_raising(self):

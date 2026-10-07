@@ -7,7 +7,6 @@
 cli:
   # Omit repo to honor VSS_REPO_ROOT, or the built-in checkout default.
   config_home: null  # VSS_CONFIG_HOME or ~/.vss
-  uv: "uv"  # fallback for older project-based CLI setups
   executable: null  # installed vss from PATH, or an explicit executable path
 
 compatibility:
@@ -15,14 +14,14 @@ compatibility:
   request_timeout_sec: 10
 
 corpus: null  # Set --corpus, --video, or a path in your local config.
-results_dir: "~/vss-ingest-run"  # Use a fresh results directory for each run.
+# results_dir: /path/to/fresh/results  # Default: ./benchmark-results/vss/ingest
 
 sweep:
   profile: "smoke"
   video_classes: []  # Empty lists use the selected profile preset.
   concurrencies: []
   limit: null
-  warmup: 0
+  # warmup: 1  # Omit to use the runner default; set 0 to skip warmup.
 
 es_readiness:
   elasticsearch_url: ""  # Discover the public ES route from the CLI configuration.
@@ -33,8 +32,7 @@ es_readiness:
   raw_index: "mdx-raw-2025-01-01"
   embed_chunk_duration_sec: 5
   frame_processing_time_ms: 33
-  raw_drop_grace_sec: 120
-  raw_completion_ratio: 0.95
+  raw_drop_grace_sec: 120  # Failure-only stall timeout, scaled by concurrency.
 
 upload:
   ramp:
@@ -43,8 +41,11 @@ upload:
 
 cleanup:
   # Delete all run-owned returned VIOS handles, including failed/unconfirmed uploads.
-  # ES removal depends on camera_remove webhooks. Hard interruptions need ledger recovery.
+  # Wait for webhook-driven raw/Embed removal before starting the next point.
+  # Hard interruptions need ledger recovery.
   policy: "always"
+  timeout_sec: 300
+  settle_sec: 30
 
 limits:
   transfer_ceiling_gb: 100.0

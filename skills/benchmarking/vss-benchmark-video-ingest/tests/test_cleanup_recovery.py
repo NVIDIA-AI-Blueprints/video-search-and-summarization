@@ -12,6 +12,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from cleanup import CleanupWaitResult
+from es_readiness import EsReadinessConfig
 from recover_cleanup import UploadLedger, load_ledger, recover
 from run import cleanup_records, parse_args
 import run
@@ -26,6 +28,9 @@ POINT_ID = "ab" * 16
 
 class RecoveryTests(unittest.TestCase):
     def setUp(self):
+        wait_patch = patch("run.wait_for_cleanup", return_value=CleanupWaitResult(True, "ES documents absent", 2, 30.0))
+        self.cleanup_wait = wait_patch.start()
+        self.addCleanup(wait_patch.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / "upload_ledger.jsonl"
@@ -41,7 +46,7 @@ class RecoveryTests(unittest.TestCase):
         cli = Mock()
         cli.deployment.return_value = DEPLOYMENT
         cli.call.side_effect = lambda *args: (
-            CliResult(0, {"sensors": sensors}) if args[1] == "list" else CliResult(0, {"deleted": True})
+            CliResult(0, {"sensors": sensors}) if args[1] == "list" else CliResult(0, {"confirmed": True, "recordings": "removed", "deleted": ["storage"]})
         )
         return cli
 
@@ -89,14 +94,14 @@ class RecoveryTests(unittest.TestCase):
                 return CliResult(0, {"sensors": [target, {**target, "sensor_id": "unrelated", "name": camera + "-other"}]})
             self.assertEqual(args, ("vios", "delete", "--type", "video", "--sensor", "listed-id"))
             self.assertEqual(load_ledger(self.path)[1][0]["sensor_id"], "listed-id")
-            return CliResult(0, {"deleted": True})
+            return CliResult(0, {"confirmed": True, "recordings": "removed", "deleted": ["storage"]})
 
         cli = Mock(call=Mock(side_effect=invoke))
         monitor = Mock()
         record = upload_one(video(), worker_index=1, upload_sequence=1, concurrency=1, run_uuid=POINT_ID,
                             cli=cli, readiness_monitor=monitor, record_identity=self.ledger.record)
         before = (record.latency_sec, record.cli_duration_sec, record.outcome)
-        stats = cleanup_records(cli, [record], "always", record_identity=self.ledger.record)
+        stats = cleanup_records(cli, [record], "always", es_config=EsReadinessConfig(), record_identity=self.ledger.record)
         self.assertEqual(stats, {"attempted": 1, "deleted": 1, "failed": 0, "no_handle": 0})
         self.assertEqual(record.sensor_id, "listed-id")
         self.assertEqual((record.latency_sec, record.cli_duration_sec, record.outcome), before)
@@ -144,7 +149,7 @@ class RecoveryTests(unittest.TestCase):
                             cli=cli, readiness_monitor=Mock(), record_identity=write)
         self.assertEqual(record.sensor_id, "owned-id")
         self.assertFalse(record.cleanup_identity_recorded)
-        self.assertEqual(cleanup_records(cli, [record], "always", record_identity=write)["failed"], 1)
+        self.assertEqual(cleanup_records(cli, [record], "always", es_config=EsReadinessConfig(), record_identity=write)["failed"], 1)
         cli.call.assert_called_once()
         self.assertEqual(len(writes), 2)
         self.assertEqual(load_ledger(self.path)[1][0]["sensor_id"], "")
@@ -162,7 +167,7 @@ class RecoveryTests(unittest.TestCase):
                             cli=Mock(call=Mock(return_value=CliResult(7, {}, "timeout"))),
                             readiness_monitor=Mock(), record_identity=self.ledger.record)
         cli = self.cli([{"sensor_id": "listed-id", "name": record.upload_filename.rsplit(".", 1)[0], "type": "video"}])
-        stats = cleanup_records(cli, [record], "always", record_identity=Mock(side_effect=OSError("disk full")))
+        stats = cleanup_records(cli, [record], "always", es_config=EsReadinessConfig(), record_identity=Mock(side_effect=OSError("disk full")))
         self.assertEqual(stats["no_handle"], 1)
         self.assertEqual(record.sensor_id, "")
         cli.call.assert_called_once()
@@ -216,7 +221,7 @@ class RecoveryTests(unittest.TestCase):
             if args[1] == "list":
                 return CliResult(0, {"sensors": [target]})
             self.assertEqual(load_ledger(self.path)[1][0]["sensor_id"], target["sensor_id"])
-            return CliResult(0, {"deleted": True})
+            return CliResult(0, {"confirmed": True, "recordings": "removed", "deleted": ["storage"]})
         cli.call.side_effect = delete_check
         self.assertEqual(recover(cli, self.path, apply=True)["assets"][0]["status"], "deleted")
         replacement_cli = self.cli([{**target, "sensor_id": "replacement-id"}])
@@ -229,17 +234,17 @@ class RecoveryTests(unittest.TestCase):
                             readiness_monitor=Mock(), record_identity=self.ledger.record)
         cli = Mock()
         for policy in ("never", "on-success"):
-            self.assertEqual(cleanup_records(cli, [record], policy, record_identity=self.ledger.record),
+            self.assertEqual(cleanup_records(cli, [record], policy, es_config=EsReadinessConfig(), record_identity=self.ledger.record),
                              {"attempted": 0, "deleted": 0, "failed": 0, "no_handle": 0})
         cli.call.assert_not_called()
 
-    def test_legacy_ledger_remains_recoverable_but_cannot_contain_pending_intents(self):
+    def test_unsupported_ledger_schema_is_rejected_before_deletion(self):
         target = self.identity()
-        self.path.write_text(self.path.read_text().replace("vss-ingest-upload-ledger-v2", "vss-ingest-upload-ledger-v1"))
-        self.assertEqual(recover(self.cli([target]), self.path, apply=True)["assets"][0]["status"], "deleted")
-        self.pending(sequence=2)
-        with self.assertRaisesRegex(ValueError, "Invalid upload identity"):
-            load_ledger(self.path)
+        self.path.write_text(self.path.read_text().replace("vss-ingest-upload-ledger-v2", "unknown-schema"))
+        cli = self.cli([target])
+        with self.assertRaisesRegex(ValueError, "Invalid upload ledger header"):
+            recover(cli, self.path, apply=True)
+        cli.call.assert_not_called()
 
     def test_conflicting_resolution_is_rejected(self):
         target = self.identity()
@@ -362,7 +367,7 @@ class RecoveryTests(unittest.TestCase):
             if args[1] == "list":
                 return CliResult(0, {"sensors": inventory})
             self.assertEqual(args, ("vios", "delete", "--type", "video", "--sensor", "listed-id"))
-            return CliResult(0, {"deleted": True})
+            return CliResult(0, {"confirmed": True, "recordings": "removed", "deleted": ["storage"]})
         cli.call.side_effect = invoke
         validation = ValidationResult(cli=cli, deployment=DEPLOYMENT,
                                       elasticsearch_url="http://vss.test/es", version_compatibility=compatibility())
@@ -384,10 +389,10 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(validate_artifacts(root), [])
 
     def test_cleanup_always_includes_failed_and_unconfirmed_handles(self):
-        cli = Mock(call=Mock(return_value=CliResult(0, {"deleted": True})))
-        records = [Mock(sensor_id="failed-id", outcome="failed"), Mock(sensor_id="unconfirmed-id", outcome="unconfirmed")]
-        self.assertEqual(cleanup_records(cli, records, "always")["deleted"], 2)
-        self.assertEqual(cleanup_records(cli, records, "on-success")["attempted"], 0)
+        cli = Mock(call=Mock(return_value=CliResult(0, {"confirmed": True, "recordings": "removed", "deleted": ["storage"]})))
+        records = [Mock(sensor_id="failed-id", outcome="failed", upload_filename="first.mp4"), Mock(sensor_id="unconfirmed-id", outcome="unconfirmed", upload_filename="second.mp4")]
+        self.assertEqual(cleanup_records(cli, records, "always", es_config=EsReadinessConfig())["deleted"], 2)
+        self.assertEqual(cleanup_records(cli, records, "on-success", es_config=EsReadinessConfig())["attempted"], 0)
         self.assertEqual(parse_args(["--no-config"]).cleanup, "always")
 
 

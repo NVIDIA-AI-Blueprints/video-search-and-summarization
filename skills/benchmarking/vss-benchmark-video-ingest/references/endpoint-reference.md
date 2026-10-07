@@ -9,7 +9,8 @@
 | Every worker upload | `vss vios add --type video PATH --name UNIQUE_FILENAME` |
 | Cleanup returned identity | `vss vios delete --type video --sensor RETURNED_ID` |
 | Readiness preflight | ES `GET /_cluster/health` |
-| Per-upload completion | ES `POST /RAW_INDEX,EMBED_INDEX/_search` with counts/timestamps |
+| Per-upload completion | ES `POST /RAW_INDEX,EMBED_INDEX/_search` with document counts |
+| Runner cleanup settling | Public ES searches for run-owned raw camera names and Embed sensor IDs; both counts must remain zero |
 
 The ES URL comes from configure show, or an explicitly supplied public ES URL for
 that same deployment. The version API defaults to the configured origin plus

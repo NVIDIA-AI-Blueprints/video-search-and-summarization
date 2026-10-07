@@ -33,18 +33,6 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def _iso_delta(started_at: str, completed_at: str) -> float:
-    """Seconds between two ISO timestamps, or 0.0 when either is unusable."""
-    if not started_at or not completed_at:
-        return 0.0
-    try:
-        start = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-        end = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
-    except ValueError:
-        return 0.0
-    return max(0.0, (end - start).total_seconds())
-
-
 @dataclass
 class UploadRecord:
     """One row of ``ingest_requests.csv``."""
@@ -60,8 +48,6 @@ class UploadRecord:
     request_sent_at: str
     ingest_confirmed_at: str
     latency_sec: float
-    es_indexed_latency_sec: float
-    http_status: str
     outcome: str
     #: Not a CSV column -- carried so cleanup can delete what the run created.
     sensor_id: str = field(default="", repr=False)
@@ -115,8 +101,6 @@ class UploadRecord:
         "request_sent_at",
         "ingest_confirmed_at",
         "latency_sec",
-        "es_indexed_latency_sec",
-        "http_status",
         "cli_exit_code",
         "cli_duration_sec",
         "outcome",
@@ -133,7 +117,7 @@ class UploadRecord:
 
 
 def generate_upload_filename(run_uuid: str, upload_sequence: int, suffix: str) -> str:
-    """``<run_uuid>-<seq>.<ext>`` -- the harness naming scheme.
+    """Use ``<run_uuid>-<seq>.<ext>`` to isolate each upload.
 
     The caller supplies a fresh UUID for every point and warmup. Short, unique, and free of any source-file stem, so a class
     of one clip uploaded at concurrency 20 produces 20 distinct assets.
@@ -142,11 +126,8 @@ def generate_upload_filename(run_uuid: str, upload_sequence: int, suffix: str) -
 
 
 def _sensor_id_from(body: dict[str, Any]) -> str:
-    for key in ("sensor_id", "sensorId", "vst_sensor_id", "id"):
-        value = body.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return ""
+    value = body.get("sensor_id")
+    return value if isinstance(value, str) and value and value == value.strip() else ""
 
 
 def video_inventory(cli: VssCli) -> list[dict[str, Any]]:
@@ -196,9 +177,8 @@ def upload_one(
 ) -> UploadRecord:
     """Send one upload and confirm it. Never raises -- every failure is a row.
 
-    ``latency_sec`` is the harness ``upload_duration_sec``: client monotonic
-    time from CLI process launch to readiness being established. Under
-    ``es_readiness`` that covers upload transfer, media store write, storage
+    ``latency_sec`` measures client monotonic time from CLI process launch
+    to readiness being observed. That covers upload transfer, media store write, storage
     read-back, detection, embedding, and the Kafka to Logstash to
     Elasticsearch indexing tail, as the client sees them. It is not transfer
     time alone, and it is not any server-side stage.
@@ -212,7 +192,6 @@ def upload_one(
     detail = ""
     outcome = ""
     readiness_metrics: dict[str, Any] = {}
-    server_completed_at = ""
 
     cli_exit_code: int | str = ""
     cli_duration_sec = 0.0
@@ -273,11 +252,6 @@ def upload_one(
         if not sensor_id:
             outcome, detail, polls = "unconfirmed", "CLI upload returned no sensor_id; cannot correlate ES", 0
         else:
-            reported_chunks = 0
-            try:
-                reported_chunks = int(body.get("chunks_processed") or 0)
-            except (TypeError, ValueError):
-                reported_chunks = 0
             try:
                 confirmation = readiness_monitor.confirm(
                     UploadContext(
@@ -287,7 +261,6 @@ def upload_one(
                         response_body=body,
                         duration_sec=item.duration_sec,
                         fps=item.fps,
-                        reported_chunks=reported_chunks,
                         concurrency=concurrency,
                     )
                 )
@@ -298,32 +271,14 @@ def upload_one(
                 detail = confirmation.detail
             polls = confirmation.polls
             readiness_metrics = confirmation.metrics or {}
-            server_completed_at = confirmation.completed_at
     else:
         polls = 0
 
-    # ``ingest_confirmed_at`` mirrors the harness ``completed_at``: when the
-    # adapter can see the moment the work actually finished -- es_readiness
-    # reports max(ingested_at) across the indexed documents -- that instant is
-    # recorded, otherwise the client clock at confirmation. It is what the
-    # throughput window closes on, exactly as in
-    # ``ingest/metrics/throughput.py::_upload_window_sec``.
-    if outcome == "confirmed":
-        ingest_confirmed_at = server_completed_at or utc_now()
-    else:
-        ingest_confirmed_at = ""
-
-    # ``latency_sec`` is the harness ``upload_duration_sec``: client monotonic
-    # time from CLI process launch to readiness being established. The
-    # harness computes its ingest_latency_p50/p95 and max_upload_duration_sec
-    # from exactly this value, so the reported percentiles must use it too --
-    # substituting the server-observed delta would report a different, smaller
-    # quantity under harness column names.
+    # Both upload timestamps come from this client. Do not substitute a server
+    # document timestamp: it can be absent or use a different clock. Observed
+    # completion includes polling and response delay, not just indexing work.
+    ingest_confirmed_at = utc_now() if outcome == "confirmed" else ""
     latency_sec = round(time.monotonic() - started, 3)
-    # The poll-interval-free view of the same upload, for diagnosis only. The
-    # difference between the two is the poll latency plus the response leg;
-    # it is never what the summary percentiles are taken over.
-    es_indexed_latency_sec = _iso_delta(request_sent_at, ingest_confirmed_at)
 
     return UploadRecord(
         worker_index=worker_index,
@@ -337,8 +292,6 @@ def upload_one(
         request_sent_at=request_sent_at,
         ingest_confirmed_at=ingest_confirmed_at,
         latency_sec=latency_sec,
-        es_indexed_latency_sec=round(es_indexed_latency_sec, 3),
-        http_status="",  # CLI does not expose a structured HTTP status
         cli_exit_code=cli_exit_code,
         cli_duration_sec=cli_duration_sec,
         cli_response=body,
@@ -356,13 +309,22 @@ def upload_one(
 def delete_asset(cli: VssCli, sensor_id: str) -> tuple[bool, str]:
     """Delete only a returned or inventory-verified VIOS handle; downstream cleanup is webhook-owned.
 
-    Exit 0 confirms VIOS deletion. It does not prove the asynchronous ES removal
-    webhooks completed. Never delete ES records directly to conceal that gap.
+    Exit 0 alone can still report unconfirmed recording removal. Require the
+    CLI's explicit confirmation and reclaimed recordings; downstream ES cleanup
+    remains a separate public-read check. Never delete ES records directly.
     """
     if not sensor_id:
         return False, "no sensor id"
     try:
         result = cli.call("vios", "delete", "--type", "video", "--sensor", sensor_id)
-        return result.exit_code == 0, result.detail
+        if result.exit_code != 0:
+            return False, result.detail or f"VIOS delete exited {result.exit_code}"
+        if result.body.get("confirmed") is not True or result.body.get("recordings") != "removed":
+            detail = (
+                "VIOS recording removal is unconfirmed: "
+                f"confirmed={result.body.get('confirmed')!r}, recordings={result.body.get('recordings')!r}"
+            )
+            return False, f"{detail}; {result.detail}" if result.detail else detail
+        return True, result.detail
     except (OSError, ValueError) as exc:
         return False, str(exc)

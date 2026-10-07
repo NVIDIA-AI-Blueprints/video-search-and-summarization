@@ -1,14 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Elasticsearch readiness using the harness's completion and count conventions.
+"""Client-observed Elasticsearch readiness requiring both expected counts.
 
 CLI success confirms VIOS media availability. VIOS webhooks dispatch inference;
 completion requires the upload's RT-CV raw frames and RT-Embed chunks in ES.
 
-Client latency includes the wait until a poll observes readiness. The separate
-indexing timestamp uses matched documents' max(ingested_at), falling back to
-client confirmation time when unavailable. Throughput uses that indexing time;
-latency percentiles retain the client-observed wait, including polling delay.
+Completion is observed on the caller's clock when a successful poll sees both
+counts. The polling interval and response latency affect the observed completion;
+this check cannot identify the instant documents were indexed inside the server.
 
 All ES reads use the deployment's public endpoint. No internal telemetry is
 collected, and the CLI/webhook path needs its own performance baseline. See
@@ -34,26 +33,19 @@ DEFAULT_EMBED_CHUNK_DURATION_SEC = 5
 DEFAULT_FRAME_PROCESSING_TIME_MS = 33
 DEFAULT_ENGINE_WARMUP_SEC = 300
 
-#: Base idle window. Used directly to confirm an already near-complete raw
-#: stream has settled, and multiplied by concurrency to size the give-up
-#: windows, since raw indexing lag grows with simultaneous streams.
+#: Base failure window, multiplied by concurrency before giving up on stalled
+#: indexing. An idle stream never establishes successful completion.
 DEFAULT_RAW_DROP_GRACE_SEC = 120
 
 #: How long embed may produce nothing while RT-CV is demonstrably writing.
 DEFAULT_EMBED_DEAD_AFTER_SEC = 900
 
-#: Fraction of expected_frames that counts as "RT-CV finished" once the raw
-#: count stops advancing. RT-CV runs with live-source=1, which drops late frames
-#: rather than queueing them, so the exact count is not reliably reachable.
-DEFAULT_RAW_COMPLETION_RATIO = 0.95
-
 #: How long raw may produce nothing at all, once embed has completed, before the
 #: wait calls the stream refused rather than slow.
 DEFAULT_RAW_ABSENT_ABORT_SEC = 600
 
-#: RT-CV lands a few frames short of ceil(duration*fps). At a tighter tolerance
-#: raw_met could never become true and readiness would only ever succeed through
-#: the settle fallback.
+#: Preserve the existing allowance for a small raw-frame shortfall when
+#: calculating the expected count. Readiness must reach that adjusted count.
 FRAME_TOLERANCE = 15
 
 
@@ -61,27 +53,9 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def parse_timestamp(value: str) -> datetime | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        return datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
-def duration_between(started_at: str, completed_at: str) -> float:
-    """Seconds between two ISO timestamps, or 0.0 when either is unusable."""
-    start, end = parse_timestamp(started_at), parse_timestamp(completed_at)
-    if start is None or end is None:
-        return 0.0
-    return max(0.0, (end - start).total_seconds())
-
-
 @dataclass
 class EsReadinessConfig:
-    """Resolved readiness settings. Mirrors the harness ``es_readiness`` block."""
+    """Resolved settings for expected counts and bounded readiness polling."""
 
     elasticsearch_url: str = DEFAULT_ES_URL
     embed_index: str = DEFAULT_EMBED_INDEX
@@ -90,7 +64,6 @@ class EsReadinessConfig:
     embed_chunk_duration_sec: int = DEFAULT_EMBED_CHUNK_DURATION_SEC
     poll_interval_sec: float = 2.0
     raw_drop_grace_sec: int = DEFAULT_RAW_DROP_GRACE_SEC
-    raw_completion_ratio: float = DEFAULT_RAW_COMPLETION_RATIO
     raw_absent_abort_sec: int = DEFAULT_RAW_ABSENT_ABORT_SEC
     embed_dead_after_sec: int = DEFAULT_EMBED_DEAD_AFTER_SEC
     #: Hard ceiling. 0 means "use the computed per-upload budget".
@@ -138,7 +111,7 @@ def search_url(config: EsReadinessConfig) -> str:
 
 
 def build_query(*, camera_name: str, sensor_id: str, config: EsReadinessConfig) -> dict[str, Any]:
-    """The harness query: two filtered buckets plus max(ingested_at).
+    """Count the upload's documents in two independently keyed pipelines.
 
     The two indices are keyed differently and this is not interchangeable:
     raw is keyed on ``sensorId.keyword`` by the *camera name*, embed on
@@ -178,9 +151,7 @@ def build_query(*, camera_name: str, sensor_id: str, config: EsReadinessConfig) 
                         "rt_embed": {"wildcard": {"_index": config.embed_index}},
                     }
                 },
-                "aggs": {"last_timestamp": {"max": {"field": "ingested_at"}}},
             },
-            "last_timestamp": {"max": {"field": "ingested_at"}},
         },
     }
 
@@ -199,35 +170,19 @@ def _bucket_count(payload: dict[str, Any], *path: str) -> int:
     return 0
 
 
-def _bucket_timestamp(payload: dict[str, Any], *path: str) -> str:
-    value: Any = payload.get("aggregations", {})
-    for key in path:
-        if not isinstance(value, dict):
-            return ""
-        value = value.get(key)
-    if isinstance(value, dict):
-        text = str(value.get("value_as_string") or "").strip()
-        return text if parse_timestamp(text) is not None else ""
-    return ""
-
-
 def expected_counts(
     *,
     duration_sec: float,
     fps: float,
-    reported_chunks: int,
     config: EsReadinessConfig,
 ) -> tuple[int, int]:
     """Return ``(expected_chunks, expected_frames)``.
 
-    ``expected_frames`` carries the harness's 15-frame tolerance: RT-CV runs
-    with live-source=1 and drops late frames rather than queueing them, so the
-    exact ``ceil(duration * fps)`` is not reachable.
+    ``expected_frames`` retains the existing 15-frame allowance for the raw
+    processing tail. Completion still requires this adjusted count in full.
     """
     chunk_duration = max(1, int(config.embed_chunk_duration_sec))
-    expected_chunks = int(reported_chunks) if reported_chunks > 0 else 0
-    if expected_chunks <= 0 and duration_sec > 0:
-        expected_chunks = int(math.ceil(duration_sec / chunk_duration))
+    expected_chunks = int(math.ceil(duration_sec / chunk_duration)) if duration_sec > 0 else 0
     expected_frames = (
         max(1, int(math.ceil(duration_sec * fps)) - FRAME_TOLERANCE)
         if duration_sec > 0 and fps > 0
@@ -238,7 +193,7 @@ def expected_counts(
 
 def compute_budget(
     *, expected_chunks: int, expected_frames: int, concurrency: int, config: EsReadinessConfig
-) -> dict[str, int]:
+) -> dict[str, int | float]:
     """Per-upload timeout and give-up windows, scaled by concurrency.
 
     Windows scale with concurrency for the same reason the timeout does: raw
@@ -257,10 +212,10 @@ def compute_budget(
     embed_timeout = max(1, int(math.ceil(chunk_duration * expected_chunks * factor)) + DEFAULT_ENGINE_WARMUP_SEC)
     timeout = max(frame_timeout, embed_timeout)
     # A ceiling, never a floor: --readiness-timeout may only cut the computed
-    # budget short. Raising it above the harness budget would let a stalled
-    # upload poll past the point the harness would have failed it.
+    # budget short. The computed concurrency-scaled timeout remains the upper
+    # bound even when a caller supplies a larger value.
     if config.timeout_override_sec > 0:
-        timeout = min(timeout, int(config.timeout_override_sec))
+        timeout = min(timeout, config.timeout_override_sec)
 
     raw_stall_grace = config.raw_drop_grace_sec * factor
     # Half the stall window, floored at the configured value, so it tracks the
@@ -287,13 +242,12 @@ def wait_for_readiness(
     sensor_id: str,
     duration_sec: float,
     fps: float,
-    reported_chunks: int = 0,
     concurrency: int = 1,
     request_sent_at: str = "",
 ) -> ReadinessResult:
     """Poll Elasticsearch until both pipelines have finished, or give up.
 
-    Success requires ``raw_complete and embed_met``. ``rt_cv_absent`` and
+    Success requires ``raw_met and embed_met``. ``rt_cv_absent`` and
     ``rt_cv_dropped`` survive only as provenance on the result, never as
     independent success paths.
     """
@@ -301,7 +255,7 @@ def wait_for_readiness(
     started = time.monotonic()
 
     expected_chunks, expected_frames = expected_counts(
-        duration_sec=duration_sec, fps=fps, reported_chunks=reported_chunks, config=config
+        duration_sec=duration_sec, fps=fps, config=config
     )
     budget = compute_budget(
         expected_chunks=expected_chunks,
@@ -316,12 +270,15 @@ def wait_for_readiness(
             success=False,
             started_at=started_at,
             completed_at=completed,
-            latency_sec=duration_between(started_at, completed),
+            latency_sec=round(time.monotonic() - started, 3),
             attempts=attempts,
             error=error,
             drop_reason=drop_reason,
             expected_frames=expected_frames,
             expected_chunks=expected_chunks,
+            raw_completion_ratio=(
+                counters.get("es_frame_count", 0) / expected_frames if expected_frames > 0 else 0.0
+            ),
             extra={"budget": budget},
             **counters,
         )
@@ -342,75 +299,63 @@ def wait_for_readiness(
     raw_count = embed_count = 0
     best_raw = best_embed = 0
     raw_ever_seen = False
-    last_progress = last_raw_progress = started
+    last_progress = started
     deadline = started + budget["timeout_sec"]
     last_error = ""
 
     while time.monotonic() < deadline:
         attempts += 1
-        remaining = max(1.0, deadline - time.monotonic())
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
         response = request_json(
             url, method="POST", payload=query, timeout_sec=min(remaining, config.request_timeout_sec)
         )
         if response.status != 200 or not isinstance(response.body, dict):
-            last_error = f"ES returned HTTP {response.status}"
+            last_error = "ES transport request failed" if response.status == 0 else f"ES returned HTTP {response.status}"
             time.sleep(min(config.poll_interval_sec, max(0.0, deadline - time.monotonic())))
             continue
 
         payload = response.body
         raw_count = _bucket_count(payload, "pipelines", "buckets", "rt_cv")
         embed_count = _bucket_count(payload, "pipelines", "buckets", "rt_embed")
-        last_timestamp = _bucket_timestamp(payload, "last_timestamp")
-        raw_ts = _bucket_timestamp(payload, "pipelines", "buckets", "rt_cv", "last_timestamp")
-        embed_ts = _bucket_timestamp(payload, "pipelines", "buckets", "rt_embed", "last_timestamp")
 
         if raw_count > 0:
             raw_ever_seen = True
 
         now = time.monotonic()
         elapsed = now - started
-        if raw_count > best_raw:
-            last_raw_progress = now
+        if now >= deadline:
+            break
         if raw_count > best_raw or embed_count > best_embed:
             best_raw, best_embed = max(best_raw, raw_count), max(best_embed, embed_count)
             last_progress = now
 
-        raw_idle = now - last_raw_progress
         stalled_sec = now - last_progress
 
         embed_met = embed_count >= expected_chunks
         raw_met = raw_count >= expected_frames
-        raw_near_complete = expected_frames > 0 and raw_count >= int(
-            math.ceil(config.raw_completion_ratio * expected_frames)
-        )
-        # A plateau at or above the completion ratio is treated as done, because
-        # live-source=1 makes the exact count unreachable; the short grace window
-        # confirms an already near-complete stream has settled.
-        raw_settled = raw_ever_seen and raw_near_complete and raw_idle >= config.raw_drop_grace_sec
-        raw_complete = raw_met or raw_settled
-
-        if raw_complete and embed_met:
-            # The clock stops when the last document was indexed, not when this
-            # poll noticed it.
-            completed = last_timestamp or utc_now()
+        # A quiet partial stream may still have documents queued upstream.
+        # Only reaching both expected counts can confirm this upload.
+        if raw_met and embed_met:
+            # Both endpoints of a reported upload window belong to the client.
+            # A server timestamp cannot remove polling delay without clock skew.
+            completed = utc_now()
             ratio = raw_count / expected_frames if expected_frames > 0 else 0.0
             return ReadinessResult(
                 success=True,
                 started_at=started_at,
                 completed_at=completed,
-                latency_sec=duration_between(started_at, completed),
+                latency_sec=round(time.monotonic() - started, 3),
                 attempts=attempts,
                 expected_frames=expected_frames,
                 es_frame_count=raw_count,
                 expected_chunks=expected_chunks,
                 es_chunk_count=embed_count,
                 raw_completion_ratio=ratio,
-                raw_complete_exact=raw_met,
-                rt_cv_dropped=raw_settled and not raw_met,
+                raw_complete_exact=True,
                 extra={
                     "budget": budget,
-                    "raw_last_timestamp": raw_ts,
-                    "embed_last_timestamp": embed_ts,
                     "poll_elapsed_sec": round(elapsed, 3),
                 },
             )
@@ -434,8 +379,7 @@ def wait_for_readiness(
                 drop_reason="rt_cv_stream_refused",
                 es_frame_count=raw_count,
                 es_chunk_count=embed_count,
-                # Provenance, as the harness records it: raw really was absent,
-                # not merely behind.
+                # Raw remained absent in every successful observation.
                 rt_cv_absent=True,
             )
 
@@ -475,7 +419,7 @@ def wait_for_readiness(
                 drop_reason="pipeline_stalled",
                 es_frame_count=raw_count,
                 es_chunk_count=embed_count,
-                # Both pipelines stopped producing; the harness flags both.
+                # Both observed document counts stopped advancing.
                 rt_cv_dropped=True,
                 rt_embed_dropped=True,
             )

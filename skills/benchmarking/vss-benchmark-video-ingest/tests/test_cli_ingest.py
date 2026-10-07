@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import argparse
 from contextlib import redirect_stdout
+from datetime import datetime, timedelta, timezone
+from itertools import count
 import io
 import json
 from pathlib import Path
@@ -19,6 +21,7 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from artifacts import build_error_rows, summarize_point
+from cleanup import CleanupWaitResult
 from completion import EsReadinessMonitor, ReadinessResult
 from config import ConfigError, load_config
 from corpus import VideoItem
@@ -83,7 +86,6 @@ class UploadTests(unittest.TestCase):
         record, cli, monitor = self.send(ack())
         self.assertEqual(record.outcome, "confirmed")
         self.assertEqual(record.cli_exit_code, 0)
-        self.assertEqual(record.http_status, "")
         self.assertGreaterEqual(record.latency_sec, record.cli_duration_sec)
         args = cli.call.call_args.args
         self.assertEqual(
@@ -111,7 +113,6 @@ class UploadTests(unittest.TestCase):
                 record, cli, monitor = self.send(CliResult(code, {}, "backend diagnostic"))
                 self.assertEqual(record.outcome, outcome)
                 self.assertEqual(record.cli_exit_code, code)
-                self.assertEqual(record.http_status, "")
                 self.assertEqual(record.transmitted_bytes, 0)
                 cli.call.assert_called_once()
                 monitor.confirm.assert_not_called()
@@ -135,7 +136,7 @@ class UploadTests(unittest.TestCase):
         monitor.confirm.assert_not_called()
 
     def test_cli_delete_only_returned_identity(self):
-        cli = Mock(call=Mock(return_value=CliResult(0, {"deleted": True})))
+        cli = Mock(call=Mock(return_value=CliResult(0, {"confirmed": True, "recordings": "removed", "deleted": ["storage"]})))
         self.assertTrue(delete_asset(cli, "returned-uuid")[0])
         cli.call.assert_called_once_with("vios", "delete", "--type", "video", "--sensor", "returned-uuid")
 
@@ -147,16 +148,15 @@ class CliProcessTests(unittest.TestCase):
             project = root / "repo with spaces/services/agent"
             project.mkdir(parents=True)
             (project / "pyproject.toml").touch()
-            fake_uv = root / "fake-uv"
-            fake_uv.write_text(
+            fake_vss = root / "fake-vss"
+            fake_vss.write_text(
                 f'#!{sys.executable}\nimport sys, os, json\nprint(json.dumps({{"args": sys.argv[1:], "home": os.environ.get("VSS_CONFIG_HOME")}}))\n'
             )
-            fake_uv.chmod(0o755)
-            cli = VssCli(root / "repo with spaces", root / "private config", str(fake_uv))
+            fake_vss.chmod(0o755)
+            cli = VssCli(root / "repo with spaces", root / "private config", executable=str(fake_vss))
             source = str(root / "video; touch SHOULD_NOT_EXIST.mp4")
             result = cli.call("vios", "add", source)
-            self.assertEqual(result.body["args"][-3:], ["vios", "add", source])
-            self.assertIn("--no-sync", result.body["args"])
+            self.assertEqual(result.body["args"], ["vios", "add", source])
             self.assertEqual(result.body["home"], str(root / "private config"))
             self.assertFalse((root / "SHOULD_NOT_EXIST.mp4").exists())
 
@@ -175,6 +175,11 @@ class CliProcessTests(unittest.TestCase):
 
 
 class SweepTests(unittest.TestCase):
+    def setUp(self):
+        wait_patch = patch("run.wait_for_cleanup", return_value=CleanupWaitResult(True, "ES documents absent", 2, 30.0))
+        self.cleanup_wait = wait_patch.start()
+        self.addCleanup(wait_patch.stop)
+
     def test_concurrency_and_unique_names_with_worker_completion_wait(self):
         barrier = threading.Barrier(3)
         active = 0
@@ -216,16 +221,19 @@ class SweepTests(unittest.TestCase):
     def test_full_runner_multiple_points_artifacts_and_cleanup(self):
         with tempfile.TemporaryDirectory() as d:
             cli = Mock()
-            cli.command = ("uv", "run", "--no-sync", "vss")
+            cli.command = ("vss",)
             cli.config_home = "/configured/cli"
-            cli.call.side_effect = lambda *args: ack(args[-1]) if args[1] == "add" else CliResult(0, {"deleted": True})
+            cli.call.side_effect = lambda *args: ack(args[-1]) if args[1] == "add" else CliResult(0, {"confirmed": True, "recordings": "removed", "deleted": ["storage"]})
             validation = ValidationResult(
                 cli=cli, deployment={"base_url": "http://vss.test", "services": {"vst": {"url": "http://vss.test/vst"}}}, elasticsearch_url="http://vss.test/elasticsearch",
                 version_compatibility=compatibility(),
             )
             monitor = Mock(confirm=Mock(side_effect=lambda ctx: ready("2026-09-28T00:01:00Z")))
+            ticks = count()
             with (
-                patch("upload.utc_now", return_value="2026-09-28T00:00:00Z"),
+                patch("upload.utc_now", side_effect=lambda: (
+                    datetime(2026, 9, 28, tzinfo=timezone.utc) + timedelta(seconds=next(ticks))
+                ).isoformat()),
                 patch("run.validate", return_value=validation),
                 patch("run.load_class", return_value=[video()]),
                 patch("run.EsReadinessMonitor", return_value=monitor),
@@ -255,9 +263,9 @@ class SweepTests(unittest.TestCase):
             self.assertEqual(code, 0)
             details = [json.loads(s) for s in (Path(d) / "raw/upload_details.jsonl").read_text().splitlines()]
             self.assertEqual(len({r["upload_filename"] for r in details}), 3)
-            self.assertTrue(all(r["cli_exit_code"] == 0 and r["http_status"] == "" for r in details))
+            self.assertTrue(all(r["cli_exit_code"] == 0 and "http_status" not in r for r in details))
             metadata = json.loads((Path(d) / "run-metadata.json").read_text())
-            self.assertFalse(metadata["harness_comparable"])
+            self.assertEqual(metadata["es_readiness"]["clock_stops_at"], "client observation of both expected ES counts")
             self.assertEqual(metadata["cleanup_totals"]["deleted"], 3)
             self.assertEqual(metadata["upload_flow"], "vss-cli")
             self.assertIs(metadata["es_readiness"]["expect_raw"], True)
@@ -272,15 +280,15 @@ class SweepTests(unittest.TestCase):
             from summarize import build_summary, render_markdown
 
             summary = build_summary(Path(d), None)
-            self.assertFalse(summary["harness_comparable"])
-            self.assertIn("Harness-comparable: **no**", render_markdown(summary))
+            self.assertIn("client observation of both expected ES counts", render_markdown(summary))
 
     def test_invalid_timing_fails_run_after_cleanup_and_preserves_evidence(self):
         import csv
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            cli = Mock(call=Mock(return_value=ack()))
+            cli = Mock(call=Mock(side_effect=lambda *args: ack() if args[1] == "add" else
+                                CliResult(0, {"confirmed": True, "recordings": "removed"})))
             cli.command = ("/installed/vss",)
             cli.config_home = "/configured/cli"
             validation = ValidationResult(
@@ -368,6 +376,7 @@ class SweepTests(unittest.TestCase):
     def test_failed_warmup_stops_before_measured_uploads(self):
         with tempfile.TemporaryDirectory() as d:
             cli = Mock(call=Mock(return_value=CliResult(7, {}, "timeline timeout")))
+            cli.command, cli.config_home = ("vss",), "/fixture/cli"
             validation = ValidationResult(
                 cli=cli,
                 deployment={"base_url": "http://fixture.invalid", "services": {"vst": {"url": "http://fixture.invalid/vst"}}},
@@ -420,7 +429,7 @@ class ReadinessTests(unittest.TestCase):
         filters = query["query"]["bool"]["should"]
         self.assertEqual(filters[0]["bool"]["filter"][1], {"term": {"sensorId.keyword": "unique-name"}})
         self.assertEqual(filters[1]["bool"]["filter"][1], {"term": {"sensor.id.keyword": "returned-id"}})
-        chunks, frames = expected_counts(duration_sec=60, fps=30, reported_chunks=0, config=cfg)
+        chunks, frames = expected_counts(duration_sec=60, fps=30, config=cfg)
         self.assertEqual((chunks, frames), (12, 1785))
 
         def payload(raw, embed):
