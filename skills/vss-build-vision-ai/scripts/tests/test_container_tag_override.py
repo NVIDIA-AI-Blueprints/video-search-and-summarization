@@ -293,7 +293,7 @@ def test_every_resolve_block_exports_the_selected_tag() -> None:
         assert '"${tag_args[@]}"' in text, reference
 
 
-@pytest.mark.parametrize("value", ["true", True, None])
+@pytest.mark.parametrize("value", ["true", True, "FALSE", "False", "0", "", None])
 def test_validator_rejects_cv_editor_on_always_on_alerts(value, tmp_path):
     ui_env = {} if value is None else {CV_FLAG: value}
     document = {

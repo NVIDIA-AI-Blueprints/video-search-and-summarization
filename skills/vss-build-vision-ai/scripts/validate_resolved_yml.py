@@ -210,7 +210,8 @@ def alerts_ui_errors(document: dict[str, Any]) -> list[str]:
     if str(bridge_env.get("ALERT_AGENT_ALWAYS_ON", "")).lower() != "true":
         return []
     key = "NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION"
-    if str(dict(iter_env(ui)).get(key, "")).lower() == "false":
+    value = dict(iter_env(ui)).get(key)
+    if value is False or value == "false":
         return []
     return [
         (
