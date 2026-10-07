@@ -500,6 +500,11 @@ jobs:
             # fails on a cache problem.
             echo "from=type=registry,ref=${ref}" >> "$GITHUB_OUTPUT"
             echo "to=type=registry,mode=max,ignore-error=true,image-manifest=true,oci-mediatypes=true,ref=${ref}" >> "$GITHUB_OUTPUT"
+            # TEMPORARY (do not merge): re-run the runtime-base stage (apt) so
+            # the shared cache is re-exported with current Ubuntu packages
+            # (libssl3t64/openssl 3.0.13-0ubuntu3.16, USN-8847). The builder
+            # stage (grpc/toolchain) still imports from the cache.
+            echo "no_cache_filters=runtime-base" >> "$GITHUB_OUTPUT"
             echo "buildcache backend: registry (${ref})"
           else
             scope="${IMAGE_NAME}-${IMAGE_ARCH}"
@@ -526,6 +531,7 @@ jobs:
           push: true
           cache-from: ${{ steps.cache.outputs.from }}
           cache-to: ${{ steps.cache.outputs.to }}
+          no-cache-filters: ${{ steps.cache.outputs.no_cache_filters }}
           tags: ${{ steps.meta.outputs.image }}:${{ steps.platform-meta.outputs.tag }}
           labels: |
             com.nvidia.vss.image_name=${{ matrix.name }}
