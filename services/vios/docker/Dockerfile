@@ -167,6 +167,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # packages: the payload is decompressed in the builder and COPYed in extracted.
 # aarch64 base additionally runs `apt-get upgrade -y` (aarch64 Dockerfile.base:23);
 # x86 does not. Per-arch extras are gated on TARGETARCH.
+# apt cache check 2026-10-07: expect this step CACHED with ubuntu3.16 (USN-8847).
 RUN apt-get update \
     && case "${TARGETARCH}" in arm64) apt-get upgrade -y;; esac \
     && apt-get install -y --no-install-recommends \
