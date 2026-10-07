@@ -19,7 +19,7 @@ Tests for the live-stream delete fast-path.
 Task 1: latency histograms + log.
 Task 2: batch delete parallelism via asyncio.gather.
 Task 3: release handler lock before VLM-pipeline drain.
-Task 4: bounded drain timeout with log-and-proceed fallback.
+Task 4: bounded drain timeout with retryable retained state.
 Task 5: fire-and-forget rmtree via dedicated cleanup executor.
 """
 
@@ -83,7 +83,7 @@ def _build_mocks(num_streams=14, sleep_per_call=0.5):
     assets = {}
     stream_id_uuids = []
     for i in range(num_streams):
-        sid = uuid.uuid4()
+        sid = str(uuid.uuid4())
         stream_id_uuids.append(sid)
         asset = MagicMock()
         asset.is_live = True
@@ -362,8 +362,8 @@ def test_remove_rtsp_stream_unlocks_asset_after_forced_teardown(stream_handler):
 
 @pytest.mark.no_gpu
 @pytest.mark.timeout(5)
-def test_remove_live_stream_times_out_and_proceeds(monkeypatch, stream_handler):
-    """If drain never completes, remove_live_stream returns within timeout+epsilon."""
+def test_remove_live_stream_times_out_and_retains_state(monkeypatch, stream_handler):
+    """An incomplete drain returns a retryable error without releasing its drop mask."""
     monkeypatch.setenv("RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC", "1")
     pipeline = stream_handler._vlm_pipeline
     # Bind the real method to the MagicMock so we exercise the production code path.
@@ -383,23 +383,28 @@ def test_remove_live_stream_times_out_and_proceeds(monkeypatch, stream_handler):
     pipeline._live_stream_id_map = {"wedged": lsinfo}
 
     t0 = time.monotonic()
-    drain_latency = pipeline.remove_live_stream("wedged")
+    with pytest.raises(ServiceException) as exc_info:
+        pipeline.remove_live_stream("wedged")
     elapsed = time.monotonic() - t0
 
+    assert exc_info.value.status_code == 503
     assert 1.0 <= elapsed < 1.5, f"expected ~1s timeout, got {elapsed:.2f}s"
     assert any(
         call.args[0] == "abort-live-stream-requests"
         for call in pipeline._vlm_procs[0].send_command.call_args_list
     )
-    assert pipeline._vlm_procs[0].send_command.call_args_list[-1].args[0] == "stop-drop-chunks"
-    # Return value must match the measured drain, so callers can record
-    # per-stream latency without racing on a shared attribute.
-    assert drain_latency is not None and 1.0 <= drain_latency < 1.5
+    assert not any(
+        call.args[0] == "stop-drop-chunks"
+        for call in pipeline._vlm_procs[0].send_command.call_args_list
+    )
+    assert pipeline._live_stream_id_map["wedged"] is lsinfo
+    assert lsinfo.all_chunks_processed is False
+    pipeline.close_evs_sessions.assert_not_called()
 
 
 @pytest.mark.no_gpu
-def test_forced_delete_eos_completes_with_dropped_chunks():
-    """Forced teardown must not wait for results that cancellation discarded."""
+def test_forced_delete_eos_waits_for_dropped_tail_chunk():
+    """Decoder EOS cannot close EVS while a final VLM-queue chunk remains unaccounted."""
     pipeline = object.__new__(VlmPipeline)
     pipeline._processed_chunk_queue = queue.Queue()
     pipeline._processed_chunk_queue_watcher_stop_event = threading.Event()
@@ -407,7 +412,9 @@ def test_forced_delete_eos_completes_with_dropped_chunks():
     pipeline.close_evs_sessions = MagicMock()
 
     callback = MagicMock()
-    subscriber = VlmPipeline._LiveStreamSubscriber(on_chunk_result=callback)
+    subscriber = VlmPipeline._LiveStreamSubscriber(
+        on_chunk_result=callback, num_chunks_processed=9
+    )
     stream_info = VlmPipeline._LiveStreamInfo(
         subscribers={"request-a": subscriber},
         abort_requested=True,
@@ -425,18 +432,38 @@ def test_forced_delete_eos_completes_with_dropped_chunks():
             }
         )
         deadline = time.monotonic() + 1
-        while not stream_info.all_chunks_processed and time.monotonic() < deadline:
+        while not stream_info.end_of_stream and time.monotonic() < deadline:
+            time.sleep(0.01)
+        with pipeline._live_stream_lock:
+            assert stream_info.end_of_stream is True
+            assert subscriber.num_chunks_processed == 9
+            assert subscriber.all_chunks_processed is False
+            assert stream_info.all_chunks_processed is False
+        pipeline.close_evs_sessions.assert_not_called()
+
+        # ProcessBase sends a frame-free completion for a dequeued dropped chunk.
+        pipeline._processed_chunk_queue.put(
+            {
+                "chunk": SimpleNamespace(streamId="stream-a", start_pts=90, end_pts=100),
+                "chunk_id": "tail",
+                "is_live_stream": True,
+                "request_id": "request-a",
+            }
+        )
+        deadline = time.monotonic() + 1
+        while not pipeline.close_evs_sessions.called and time.monotonic() < deadline:
             time.sleep(0.01)
     finally:
         pipeline._processed_chunk_queue_watcher_stop_event.set()
         watcher.join(timeout=2)
 
     assert stream_info.end_of_stream is True
-    assert subscriber.num_chunks_processed == 0
+    assert subscriber.num_chunks_processed == 10
     assert subscriber.all_chunks_processed is True
     assert stream_info.all_chunks_processed is True
-    assert callback.call_count == 1
+    assert callback.call_count == 2
     assert callback.call_args.args[0].is_live_stream_ended is True
+    pipeline.close_evs_sessions.assert_called_once_with("stream-a")
 
 
 @pytest.mark.no_gpu

@@ -503,7 +503,7 @@ class ConcurrentLiveStreamsBenchmark(BenchmarkBase):
             "chunk_size": chunk_size,
             "iterations": iterations,
             "successful_iterations": len(successful),
-            "success": len(successful) > 0,
+            "success": bool(successful) and len(successful) == iterations,
             "iteration_results": iteration_results,
             "mean_avg_latency": _mean("avg_latency"),
             "std_avg_latency": _std("avg_latency"),
@@ -764,7 +764,8 @@ class ConcurrentLiveStreamsBenchmark(BenchmarkBase):
             )
             for future in completed_futures:
                 try:
-                    future.result()
+                    if future.result():
+                        streams_with_errors += 1
                 except Exception as e:
                     cleanup_error = cleanup_error or e
                     self.logger.error(f"Monitoring thread completion error: {e}")
@@ -1227,8 +1228,9 @@ class ConcurrentLiveStreamsBenchmark(BenchmarkBase):
         stream_num: int,
         stop_event: threading.Event,
         startup_future: Optional[Future] = None,
-    ):
-        """Monitor latency for a specific stream using SSE until stop_event is set"""
+    ) -> bool:
+        """Monitor SSE until stopped; return whether this stream encountered errors."""
+        had_errors = False
         try:
             backend_type = benchmark_config.get("backend_type", "rtvi_vlm")
 
@@ -1343,6 +1345,50 @@ class ConcurrentLiveStreamsBenchmark(BenchmarkBase):
                         continue
 
                     self.logger.debug(f"Stream {stream_num} parsed JSON event successfully")
+                    chunks = result.get("chunk_responses") or []
+                    error = result.get("error") or next(
+                        (chunk["error"] for chunk in chunks if chunk.get("error")), None
+                    )
+                    if not error and (result.get("media_info") or {}).get("type") == "timestamp":
+                        if backend_type == "rtvi_embed":
+                            has_output = (
+                                all(chunk.get("embeddings") for chunk in chunks)
+                                if chunks
+                                else bool(result.get("embeddings"))
+                            )
+                        elif chunks:
+                            # EVS may accumulate its sampling budget without generating yet.
+                            if all(
+                                chunk.get("output_tokens") == 0
+                                and not chunk.get("content")
+                                and not chunk.get("reasoning_description")
+                                for chunk in chunks
+                            ):
+                                continue
+                            has_output = all(
+                                chunk.get("content")
+                                or chunk.get("reasoning_description")
+                                or chunk.get("output_tokens", 0) > 0
+                                for chunk in chunks
+                            )
+                        else:
+                            messages = [
+                                choice.get("message") or choice.get("delta") or {}
+                                for choice in result.get("choices") or []
+                            ]
+                            has_output = any(
+                                message.get("content") or message.get("reasoning_description")
+                                for message in messages
+                            )
+                            if messages and not has_output:
+                                continue
+                        if not has_output:
+                            # Older servers omit the error field when a chunk fails.
+                            error = "Timestamped response contained no generated output"
+                    if error:
+                        had_errors = True
+                        self.logger.error("Stream %s response failed: %s", stream_num, error)
+                        continue
                     self.record_pipeline_stage_samples(result)
 
                     if backend_type == "rtvi_embed":
@@ -1396,13 +1442,17 @@ class ConcurrentLiveStreamsBenchmark(BenchmarkBase):
                 except json.JSONDecodeError:
                     continue
                 except Exception as e:
+                    had_errors = True
                     self.logger.error(f"Error processing stream event for stream {stream_num}: {e}")
                     continue
 
         except Exception as e:
             if startup_future is not None and not startup_future.done():
                 startup_future.set_exception(e)
+            if not stop_event.is_set():
+                had_errors = True
             self.logger.error(f"Error monitoring stream {stream_num}: {e}")
+        return had_errors
 
     def analyze_results(self, results_dir: str, output_file: str) -> None:
         """Generate Excel report from concurrent live streams benchmark results"""
