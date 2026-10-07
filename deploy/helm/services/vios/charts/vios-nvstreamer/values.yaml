@@ -35,6 +35,10 @@ turnServerUrl: ""
 # (final_stream_count); set it to the stream count or nvstreamer serves no media.
 syncFileCount: 0
 
+# nv_streamer_sync_data_arrival_timeout_secs. When syncFileCount > 0, how long a
+# synced stream waits for media (all synced clients to PLAY) before it is dropped.
+syncDataArrivalTimeoutSecs: 150
+
 # RTSP port range Service/Deployment must expose; keep in sync with vst-config.json
 rtsp:
   basePort: 31554

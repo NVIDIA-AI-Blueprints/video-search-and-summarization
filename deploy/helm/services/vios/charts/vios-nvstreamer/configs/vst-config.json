@@ -146,7 +146,7 @@
     "nv_streamer_loop_playback": true,
     "nv_streamer_seekable": true,
     "nv_streamer_sync_file_count": "__SYNC_FILE_COUNT__",
-    "nv_streamer_sync_data_arrival_timeout_secs": 150,
+    "nv_streamer_sync_data_arrival_timeout_secs": "__SYNC_DATA_ARRIVAL_TIMEOUT_SECS__",
     "nv_streamer_max_upload_file_size_MB": 10000,
     "nv_streamer_media_container_supported": [
       "mp4",
