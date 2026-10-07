@@ -201,12 +201,14 @@ routing diagnosis. Reject credentials in the URL and never rewrite the URL or
 add a `streamId` routing header. Discard the response body; availability is not
 visual evidence.
 
-2. Read every hit's `verification` object:
+2. Read every hit's `critic_result.result`:
 
    - `confirmed`: the critic found all requested visual criteria in that clip.
    - `rejected`: the critic found a visual criterion was not met.
    - `unverified`: no usable critic verdict was produced. This includes a
      missing VLM, inaccessible media, and malformed or inconclusive output.
+     A `null` `critic_result` (the critic did not evaluate the hit) is also
+     `unverified`.
 
 The CLI is fail-open: verification failure must not discard or fail retrieval.
 Never derive a verdict from similarity, filenames, object IDs, or screenshot

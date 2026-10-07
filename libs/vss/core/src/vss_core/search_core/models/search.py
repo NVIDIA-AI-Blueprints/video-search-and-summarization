@@ -97,16 +97,16 @@ class SearchInput(BaseModel):
 
 
 class SearchVerification(BaseModel):
-    """Visual verification attached to one retrieval hit.
+    """Critic verdict attached to one retrieval hit the critic evaluated.
 
     Retrieval is useful even when no VLM is deployed or verification fails.
-    Consequently every hit starts as ``unverified`` and is upgraded only after
-    the critic successfully evaluates that exact interval.
+    Consequently a hit carries no verdict until the critic evaluates that exact
+    interval; a hit without one is unverified.
     """
 
     model_config = ConfigDict(extra="forbid")
     result: Literal["confirmed", "rejected", "unverified"] = "unverified"
-    criteria_met: dict[str, bool] | None = None
+    criteria_met: dict[str, bool] = Field(default_factory=dict)
 
 
 class SearchResult(BaseModel):
@@ -121,10 +121,9 @@ class SearchResult(BaseModel):
     screenshot_url: str
     similarity: float
     object_ids: list[str] = Field(default_factory=list)
-    # default_factory (not a shared default instance) so each result owns its
-    # own SearchVerification and serialization stays robust alongside the
-    # excluded sensor_id_raw field below.
-    verification: SearchVerification = Field(default_factory=SearchVerification)
+    # Matches the VSS agent's field, which the UI Search tab reads; None until
+    # the critic evaluates this hit.
+    critic_result: SearchVerification | None = None
     # Indexed sensor identity (the behavior document's sensor.id) carried from
     # the embed adapter for fusion's per-hit attribute lookup when VST is absent.
     # Internal routing hint: excluded from serialization so client-facing result

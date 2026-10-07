@@ -255,7 +255,7 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     assert spec["expects"][1]["scenario"] == "ingest-search-fixtures"
     assert "vss-ask-video" in spec["skills"]
     assert "libs/vss" in serialized and "vss search run --help" in serialized
-    assert "verification.result" in serialized
+    assert "critic_result.result" in serialized
     assert "confirmed" in serialized
     assert "rejected" in serialized
     assert "unverified" in serialized
