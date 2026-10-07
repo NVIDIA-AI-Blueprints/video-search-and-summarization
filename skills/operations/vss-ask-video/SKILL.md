@@ -309,36 +309,9 @@ vss configure memory introspection \
 
 Do not silently substitute ordinary VLM inspection.
 
-## Event checks: use `ev-verify`
-
-For an Event Verification question (the text under `## Question`), the deployment ships a fixed set of simple yes/no checks and
-per-subset cut-offs; it also asks the question itself and averages the two. Use them instead of asking the question yourself:
-
-1. Write the question text exactly as given, unchanged, to `./ev/question.txt` with the write tool. Do not shorten, reword, add or drop anything.
-2. Run it once, in one working directory (OpenClaw may start a fresh shell per call):
-
-```bash
-mkdir -p ev && cd ev && ev-verify --question-file question.txt --media-url "${VIDEO_URL}"; echo "ev_exit_code=$?"
-```
-
-3. Read the JSON it prints. `answer` (yes or no) is the final answer. Report `score`, `cutoff` and `check_p_yes` with it.
-   `ev-verify` makes the `vss vlm run` calls itself, one per check, so every look at the video is still a `vss vlm run`.
-
-Exit codes:
-
-- **0:** answered. Use `answer`.
-- **2:** no checks exist for this question text. Fall back to the normal path: one `vss vlm run --media-url` on the whole clip.
-- **3:** a check failed or returned no probability. Report the error text and the exit code. Do not guess, do not re-run, and do not
-  answer from your own reading of the video.
-
-Exceptions to the rules above, for `ev-verify` only:
-
-- **One run per question:** run `ev-verify` once. Each check, and the question itself, is one `vss vlm run` made by `ev-verify`, not a repeat by you. Do not add a separate `vss vlm run` on top of it.
-- **Never decode or sample frames:** `ev-verify` never lets you see frames, and you must not look at any either.
-
 ## Direct fresh inspection
 
-Each grounded scope the user asked for gets one `vss vlm run` (Event Verification questions: see "Event checks" above). Two cameras, or
+Each grounded scope the user asked for gets one `vss vlm run`. Two cameras, or
 two distinct windows, are two scopes and may each be inspected once; a scope
 already inspected is never inspected again. Exit 6 is the exception to
 failure, not to the count: the answer exists and only persistence failed, so
