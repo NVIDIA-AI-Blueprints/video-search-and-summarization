@@ -242,6 +242,7 @@ struct DeviceConfig
     bool nv_streamer_seekable;
     bool nv_streamer_sync_playback;
     int nv_streamer_sync_file_count;
+    int nv_streamer_sync_data_arrival_timeout_secs;
     size_t nv_streamer_max_upload_file_size_MB;
     std::vector<std::string> media_containers;
     std::vector<std::string> metadata_containers;
