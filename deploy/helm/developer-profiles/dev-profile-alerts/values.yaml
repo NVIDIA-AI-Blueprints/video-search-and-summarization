@@ -58,6 +58,7 @@ global:
   # rationale in the infra.sdrc block below.
   vios:
     useSdrc: true
+    maxDevicesSupported: 100
 
 # External access: set global.externalScheme / externalHost / externalPort in your values file (no separate externalAccess.baseUrl).
 
