@@ -102,22 +102,6 @@ function stripAdditionalProperties(schema) {
     }
 }
 
-/** Strip minLength so response validation allows empty strings (API may return "" for optional fields). */
-function stripMinLength(schema) {
-    if (!schema || typeof schema !== 'object') {
-        return;
-    }
-    if (!Array.isArray(schema)) {
-        delete schema.minLength;
-        for (const key of Object.keys(schema)) {
-            stripMinLength(schema[key]);
-        }
-    } else {
-        for (let i = 0; i < schema.length; i++) {
-            stripMinLength(schema[i]);
-        }
-    }
-}
 
 /**
  * Resolve $ref "#/components/schemas/X" in a schema. Returns a deep copy with refs inlined.
@@ -210,7 +194,6 @@ function getResponseSchema(openapi, method, requestPath, statusCode) {
     }
     const resolved = resolveSchemaRef(openapi, schema, new Set());
     stripAdditionalProperties(resolved);
-    stripMinLength(resolved);
     return resolved;
 }
 
