@@ -15,35 +15,54 @@ passes *vacuously* when no services started (the missing env-file pair / unset
 so keep the count guard in the same snippet as the state guard:
 
 ```bash
+set -euo pipefail
 BUILD_DIR="_builds/<name>"
 expected=$(docker compose -f "$BUILD_DIR/resolved.yml" config --services | wc -l)
-actual=$(docker compose -f "$BUILD_DIR/resolved.yml" ps -q | wc -l)
-if [ "$expected" -le 0 ] || [ "$actual" -le 0 ] || [ "$actual" -lt "$expected" ]; then
-  echo "FAIL: expected $expected services, got $actual — inspect resolved.yml" >&2
-  exit 1
-fi
+wait_seconds=${VSS_READINESS_TIMEOUT_SECONDS:-1200}
+[[ "$wait_seconds" =~ ^(0|[1-9][0-9]*)$ ]] || { echo "FAIL: invalid readiness timeout" >&2; exit 1; }
+deadline=$((SECONDS + wait_seconds))
 
 # docker compose 2.21+ emits NDJSON (one bare object per line) from
-# `ps --format json`, not a JSON array — so no `.[]` here; jq's default
-# input loop already iterates each line. The filter accepts only
-# `running` and `exited 0`; everything else (restarting, unhealthy,
-# exited with non-zero code) is a failure.
-bad=$(
-  docker compose -f "$BUILD_DIR/resolved.yml" ps --format json \
-    | jq -r 'select((.State == "running" or (.State == "exited" and .ExitCode == 0)) | not)
-             | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"'
-)
-if [ -n "$bad" ]; then
-  echo "FAIL: containers not running or cleanly exited:" >&2
-  printf '%s\n' "$bad" >&2
-  exit 1
-fi
+# `ps --format json`, not a JSON array. Slurp all objects so a later
+# acceptable container cannot hide an earlier failure. Running services
+# with a healthcheck must be healthy; one-shot init jobs may exit 0.
+while :; do
+  snapshot=$(docker compose -f "$BUILD_DIR/resolved.yml" ps --all --format json)
+  actual=$(jq -s 'length' <<<"$snapshot")
+  if [ "$expected" -le 0 ] || [ "$actual" -le 0 ] || [ "$actual" -lt "$expected" ]; then
+    echo "FAIL: expected $expected services, got $actual — inspect resolved.yml" >&2
+    exit 1
+  fi
+  bad=$(jq -sr '.[]
+             | select(((.State == "running" and
+                        ((.Health // "") == "" or .Health == "healthy")) or
+                       (.State == "exited" and .ExitCode == 0)) | not)
+             | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"' <<<"$snapshot")
+  [ -n "$bad" ] || break
+  # A failed init job needs repair; warming services get the remaining time.
+  if jq -se 'any(.[]; .State == "exited" and .ExitCode != 0)' <<<"$snapshot" >/dev/null; then
+    echo "FAIL: a container exited unsuccessfully:" >&2
+    printf '%s\n' "$bad" >&2
+    exit 1
+  fi
+  remaining=$((deadline - SECONDS))
+  if [ "$remaining" -le 0 ]; then
+    echo "FAIL: readiness timed out after ${wait_seconds}s; containers not ready:" >&2
+    printf '%s\n' "$bad" >&2
+    exit 1
+  fi
+  sleep "$((remaining < 5 ? remaining : 5))"
+done
 ```
 
 Every container must be either `running` or cleanly `exited 0`. One-shot init
 jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is
-fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy
-failure even though `up -d` returned 0.
+fine. Poll Docker state every five seconds for up to 20 minutes so cold-start
+`starting`, `created`, or temporarily `unhealthy`/`restarting` services can settle.
+Set `VSS_READINESS_TIMEOUT_SECONDS` to adjust this deadline. Missing containers,
+Docker command failures, and `exited <N≠0>` fail immediately; states that never
+settle fail at the deadline with the last container snapshot. This wait wraps
+Docker state inspection only; the `vss` CLI retains its own bounded waits.
 
 > **Warehouse needs a data-plane check, not just Gate 0.** Every container can
 > report `Up` while zero streams are processed, and Gate 0 cannot see it. Run the
@@ -103,6 +122,15 @@ fi
 The `:9901` probe is therefore present only for an explicitly selected legacy
 MCP workflow. A CLI-based Alerts build probes the Video Analytics API and Alert
 Bridge instead.
+
+**Host CLI capability gate.** When the build exposes an ingress origin, run
+`vss configure --base-url <published-build-origin>` after the service probes,
+then require `vss configure check` to exit 0 and report the selected command
+groups as available (`vlm` for Base; `summarize` for an LVS build). Use the CLI
+installed from this checkout on `PATH` per `deployment_resolution.md`, without
+depending on `libs/vss/.venv`. An exit 0 with `summarize unavailable` does not
+satisfy a request to add summarization; inspect `lvs-server` and its model
+dependencies before declaring success.
 
 ## Step 3 — triage slow containers
 

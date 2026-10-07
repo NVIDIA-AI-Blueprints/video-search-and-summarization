@@ -46,6 +46,12 @@ The selected profile's checked-in `overrides.env` is authoritative for its
 Profile Service Set. The copied list in `profiles/` is a routing aid and must be
 checked against source before writing a delta.
 
+The `base` list comes from `dev-profile-base/overrides.env`'s
+`COMPOSE_PROFILES`. `COMPOSE_PROFILES_VLM` belongs to the **Alerts** Foundation
+and already includes `alert-bridge` and analytics peers; it is not an alias for
+Base or a generic VLM deployment. Check the requested starting capabilities
+before selecting either list.
+
 ## Compute the delta
 
 Start with the Foundation's effective `COMPOSE_PROFILES`.
@@ -61,6 +67,11 @@ Start with the Foundation's effective `COMPOSE_PROFILES`.
   its self-profile. Do not derive a separate aggregate profile name.
 - Read every selected owner's `Required peers`. Add a peer only when it is not
   already present and the requested capability needs it.
+- When extending an existing build, recompute those peers from the new
+  capabilities. Adding `lvs-server` to a no-harness Base build requires adding
+  back its local `llm_${LLM_MODE}_${LLM_NAME_SLUG}` key, which was removed with
+  the agent, unless a reachable remote LLM was selected. Appending only the LVS
+  owner to the previous pruned list leaves summarization without its LLM.
 - Put user-configurable values in the env delta. Do not copy default values that
   are unchanged.
 
@@ -111,6 +122,17 @@ keys track it; read them before merging configs.
 Service activation alone is never a Compose-definition change.
 
 ## UI configuration
+
+When extending an existing deployment, carry its harness choice forward unless
+the caller changes it. Selecting a different Foundation does not reset that
+choice or its UI overrides. For a build with no in-stack agent and no harness,
+write `NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR=false`,
+`NEXT_PUBLIC_ENABLE_CHAT_TAB=false`, and `NEXT_PUBLIC_ENABLE_SEARCH_TAB=false`
+to `override.env`, then verify all three values in the resolved `vss-ui`
+environment. Inherited Foundation defaults can expose a dead chat sidebar even
+when its Chat tab is already disabled. Keep the capability tabs available:
+Alerts when `alert-bridge` remains, Dashboard when `kibana` remains, and Video
+Management when VIOS remains.
 
 For stock and delta builds with `vss-ui`, default
 `NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_ENABLE=false` unless explicitly

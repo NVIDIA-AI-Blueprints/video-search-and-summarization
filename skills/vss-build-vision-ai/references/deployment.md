@@ -106,25 +106,20 @@ carry a local-only `image:` tag with no registry manifest, so a blanket
 then builds those build-backed services from their local `build:` rather than
 that bare `image:` tag, and starts everything.
 
+Keep ownership of this command until both the pull and `up` finish. If a tool
+returns a running session, await that session's completion and inspect its exit
+code before proceeding. "Image pull is in progress" is a progress update, not
+a completed deployment. A failed pull blocks `up`; a failed `up` requires
+`ps --all` and the affected service logs. A container in `Created` has not
+started and cannot satisfy readiness.
+
 ## Readiness
 
-First require a non-empty expected service list and acceptable container states:
-
-```bash
-resolved_args=(-f "$BUILD_DIR/resolved.yml")
-
-expected="$(docker compose "${resolved_args[@]}" config --services | wc -l)"
-actual="$(docker compose "${resolved_args[@]}" ps --all -q | wc -l)"
-[ "$expected" -gt 0 ] && [ "$actual" -ge "$expected" ]
-
-if docker compose "${resolved_args[@]}" ps --all --format json |
-   jq -e 'select((.State == "running" or
-                  (.State == "exited" and .ExitCode == 0)) | not)' >/dev/null
-then
-  echo "A service is not ready" >&2
-  exit 1
-fi
-```
+Run [`readiness.md`](readiness.md)'s count and state gate against **all**
+containers, including one-shot init jobs and containers that never started.
+Keep ownership of its bounded Docker wait until healthchecks settle or its
+deadline expires; a `starting` healthcheck during model warmup is not yet a
+deployment failure.
 
 Then run the Foundation's stock readiness checks plus checks for every added
 capability owner. Allow cold NIM and RTVI model loads to finish. If a check
@@ -142,9 +137,9 @@ source to prove the stack works is not a readiness check.
   to register one VIOS source. The build's mounted notification config fans it
   out, asynchronously, so registration ends the write path.
 - **Read path (query), when a query was requested.** Run `vss configure --base-url <build-origin>` (the fronting
-  `http://$HOST_IP:$HAPROXY_HOST_PORT`) through the project-local `vss` entry point
-  (`uv run --project <repo>/libs/vss vss`; see `deployment_resolution.md`),
-  not a bare `vss`, to record the deployment, then defer to `vss-search-archive` for
+  `http://$HOST_IP:$HAPROXY_HOST_PORT`) with the CLI installed from this checkout
+  (`uv tool install <repo>/libs/vss/cli`; see `deployment_resolution.md`)
+  to record the deployment, then defer to `vss-search-archive` for
   the query.
 
 ## Stop
