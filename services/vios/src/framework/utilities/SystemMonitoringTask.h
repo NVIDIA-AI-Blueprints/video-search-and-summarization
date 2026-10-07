@@ -31,7 +31,6 @@
 #include "prometheus_client/prometheus_client.h"
 #include "config.h"
 
-using namespace std;
 
 /**
  * @brief Standalone system monitoring task that collects CPU, RAM, GPU, and storage metrics
@@ -42,21 +41,21 @@ using namespace std;
 class SystemMonitoringTask {
 private:
     // Thread management
-    thread m_monitoringThread;
-    atomic<bool> m_shouldExit{false};
-    condition_variable m_cv;
-    mutex m_cvMutex;
+    std::thread m_monitoringThread;
+    std::atomic<bool> m_shouldExit{false};
+    std::condition_variable m_cv;
+    std::mutex m_cvMutex;
     
     // Configuration
-    string m_containerName;
-    chrono::milliseconds m_monitoringInterval{5000}; // Default, overridden by config
+    std::string m_containerName;
+    std::chrono::milliseconds m_monitoringInterval{5000}; // Default, overridden by config
     
     // Signal handling - static for C-style signal handler
     static SystemMonitoringTask* s_instance;
     static void signalHandler(int signal);
     
     // Core monitoring functions (extracted from StreamMonitor)
-    string getContainerName();
+    std::string getContainerName();
     double getContainerCpuUsage();
     double getContainerMemoryUsage();
     double getContainerGpuUsage();
@@ -64,7 +63,7 @@ private:
     
     // Internal methods
     void monitoringLoop();
-    void waitForNextIteration(chrono::steady_clock::time_point startTime);
+    void waitForNextIteration(std::chrono::steady_clock::time_point startTime);
     void collectAndSendMetrics();
     void setupSignalHandling();
     void cleanupSignalHandling();

@@ -70,6 +70,18 @@ A common root cause is Elasticsearch disk pressure. In Kibana Discover, this can
 
 If Docker marks Elasticsearch, Kibana, or Logstash as `unhealthy` during startup, that is a separate Docker health check timeout. Check the service logs first; if the service is only starting slowly, increase the affected service's `healthcheck.retries` value in `video-search-and-summarization/deploy/docker/services/infra/compose.yml` (or `deploy/docker/services/infra/compose.yml` from the deployment repository root) and redeploy.
 
+### Why is CPU usage high?
+
+For Docker Compose, use `docker stats` to identify which services are consuming the most CPU.
+For Helm deployments, use `kubectl top pods -n <namespace>`; this command requires the Kubernetes Metrics API.
+Then review the configuration and logs for the affected services or pods.
+
+For example, Kafka-based deployments run four parallel Logstash analytics pipelines (`mdx-kafka`, `mdx-kafka-1`, `mdx-kafka-2`, and `mdx-kafka-3`), in addition to the separate `mdx-lvs` pipeline. This parallelism can increase CPU usage on hosts with fewer CPU cores.
+
+For Docker Compose deployments, reduce the analytics pipeline count in `$VSS_APPS_DIR/services/infra/elk/logstash/configs/pipelines-kafka.yml`. Comment out extra `pipeline.id` entries and their corresponding `path.config` lines, keeping at least `mdx-kafka`, then restart Logstash. Fewer pipelines can reduce CPU overhead but also reduce ingestion throughput. Leave `mdx-lvs` unchanged. Redis deployments already use one analytics pipeline.
+
+Another example is high CPU usage from PyTorch thread oversubscription when running Sparse4D. See **PyTorch thread oversubscription (Sparse4D)** under [Performance Notes](/vss/system-components/vision-microservices/object-detection-and-tracking#performance-notes) for tuning guidance.
+
 ### Why does Elasticsearch stop accepting writes or mark indices read-only when disk usage is high?
 
 Elasticsearch uses disk watermarks to protect the ELK stack from running out of disk space. One common symptom is Kibana Discover failing with `Unable to retrieve search results` and `Request timeout: "Request timed out"`. The default watermarks are:
@@ -146,6 +158,12 @@ Enter your NGC API key when prompted for the password, then retry the download.
     * Verify that the NVStreamer/VST is serving the videos by opening the RTSP streams in either `vlc` or `ffplay`. If using VLC click on “Media” and “Open Network Stream” and enter the following RTSP URL - `rtsp://<video url>`. Stream RTSP URL can be grabbed from NVStreamer/VST UI.
     * If NVStreamer/VST is not streaming the videos make sure the port 8554(NVStreamer)/8555(VST) is not blocked by a fire-wall.
 
+### How can I view VIOS video and overlays without a TURN server?
+
+If WebRTC playback cannot connect because a TURN server is unavailable, select **DASH** instead of **WebRTC** from **Streaming Protocol** in the VIOS UI.
+DASH supports live and recorded video with overlays and does not require a TURN server.
+A TURN server is still required for WebRTC when the browser cannot connect directly to VIOS.
+
 ### When I run reference application in playback mode could I loop through the playback data more than once?
 
 The number of passes is controlled by the `playbackLoop` setting in the behavior analytics configuration. To replay the data immediately without redeploying, restart `vss-behavior-analytics-playback` for the 2D and 3D profiles, or `vss-behavior-analytics-playback-mv3dt` for the MV3DT profile.
@@ -205,14 +223,18 @@ If the logs show `tegra-vic` job submission failures because the VIC engine coul
 
 This change forces the PGIE scaling operation to run on the GPU, which may lower FPS.
 
-### Why are streams not getting added to RTVI CV?
-
-This issue can be caused due to exhausted retry attempts to add the cameras because RTVI containers took more time for engine build and application startup.
-Increase `WDM_ADD_REMOVE_RETRY_ATTEMPTS` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-<mode>-app/sdrc/configs/config.yml.tmpl`. Update the value in the `docker-workload-rtvi-cv` section for the 2D and 3D profiles, or in `docker-workload-rtvi-cv-mv3dt` for the MV3DT profile.
 
 ## VST
 
 This section provides answers to some of the frequently asked questions on using VST application:
+
+### Can I add streams again after removing all streams from VST?
+
+After removing all streams from VST, redeploy the Warehouse Blueprint before adding new streams or re-adding the original streams.
+
+### Why are object IDs missing from the video overlay?
+
+In VST's **Analytics Overlay Settings**, enable **Show Bounding Boxes** and **Show Object ID** under **Object ID Display** for the **2D** and **2D with Agents** profiles, then click **Save Settings**. Debug Mode is optional for these profiles and adds diagnostic overlays. For **3D** and **MV3DT**, object IDs are displayed by default with Debug Mode enabled. See [Display Object IDs in Warehouse Profiles](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#display-object-ids-in-warehouse-profiles) for the settings and screenshot.
 
 ### I bought a new camera, plugged it in, used default password but cannot access video
 
@@ -327,6 +349,14 @@ In such cases, developers can choose to enable a specific VIOS configuration:
 This setting instructs VIOS to propagate the original timestamp from the camera to downstream services like Perception, which then uses it to assign time to each frame.
 
 ## Model Update
+
+### Can I reuse a TensorRT engine file on another GPU?
+
+<Note>
+TensorRT engine files depend on the GPU architecture and TensorRT version used to build them. You can reuse a compatible pre-built engine on another machine with the same GPU architecture and TensorRT version. Rebuild the engine for the target GPU when these compatibility requirements are not met. See the **TensorRT Engine File Creation and Reuse** section in [Object Detection and Tracking](/vss/system-components/vision-microservices/object-detection-and-tracking) for configuration details.
+
+For example, on a T7000 system with an integrated GPU (iGPU) and a discrete GPU (dGPU), do not use an engine built on the iGPU for inference on the dGPU, or vice versa. Build a separate engine on each GPU and configure inference to use the corresponding engine file.
+</Note>
 
 ### I finetuned my own Sparse4D model via the Nvidia TAO Toolkit. How do I replace the existing model in the perception microservice with my own?
 

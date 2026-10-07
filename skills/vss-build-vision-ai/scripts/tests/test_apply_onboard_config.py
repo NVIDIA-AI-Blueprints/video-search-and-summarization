@@ -95,44 +95,52 @@ def test_no_model_arg_leaves_model_untouched(cfg):
 
 
 # --- control UI origins (the reported "Browser origin not allowed" bug) ---------
+#
+# allowedOrigins is always a wildcard; CHAT_UI_URL only sets the auth flags.
 
-def test_chat_ui_url_adds_the_remote_origin(cfg):
+def test_chat_ui_url_yields_the_wildcard_origin(cfg):
     mod.apply(str(cfg), {"CHAT_UI_URL": "https://chat.example.brevlab.com"})
     ui = read(cfg)["gateway"]["controlUi"]
-    assert ui["allowedOrigins"] == ["http://127.0.0.1:18789", "https://chat.example.brevlab.com"]
+    assert ui["allowedOrigins"] == ["*"]
     assert ui["allowInsecureAuth"] is False          # https
     assert ui["dangerouslyDisableDeviceAuth"] is True  # non-loopback UI host
 
 
-def test_explicit_port_also_yields_the_portless_origin(cfg):
-    mod.apply(str(cfg), {"CHAT_UI_URL": "https://host.example.com:8443"})
-    assert read(cfg)["gateway"]["controlUi"]["allowedOrigins"] == [
-        "http://127.0.0.1:8443", "https://host.example.com:8443", "https://host.example.com"]
+def test_gateway_port_no_longer_affects_the_wildcard_origin(cfg):
+    d = base_config(); d["gateway"]["port"] = 19999
+    Path(cfg).write_text(json.dumps(d))
+    mod.apply(str(cfg), {"CHAT_UI_URL": "https://x.example.com"})
+    assert read(cfg)["gateway"]["controlUi"]["allowedOrigins"] == ["*"]
 
 
 def test_loopback_chat_url_keeps_device_auth(cfg):
     mod.apply(str(cfg), {"CHAT_UI_URL": "http://127.0.0.1:18789"})
     ui = read(cfg)["gateway"]["controlUi"]
-    assert ui["allowedOrigins"] == ["http://127.0.0.1:18789"]
+    assert ui["allowedOrigins"] == ["*"]
     assert ui["dangerouslyDisableDeviceAuth"] is False
     assert ui["allowInsecureAuth"] is True
 
 
-def test_gateway_port_drives_the_loopback_origin(cfg):
-    d = base_config(); d["gateway"]["port"] = 19999
-    Path(cfg).write_text(json.dumps(d))
-    mod.apply(str(cfg), {"CHAT_UI_URL": "https://x.example.com"})
-    assert read(cfg)["gateway"]["controlUi"]["allowedOrigins"][0] == "http://127.0.0.1:19999"
-
-
-def test_no_chat_url_leaves_origins_untouched(cfg):
+def test_no_chat_url_still_gets_the_wildcard_and_keeps_the_auth_flags(cfg):
     mod.apply(str(cfg), {"NEMOCLAW_MODEL": "m/x"})
-    assert read(cfg)["gateway"]["controlUi"]["allowedOrigins"] == ["http://127.0.0.1:18789"]
+    ui = read(cfg)["gateway"]["controlUi"]
+    assert ui["allowedOrigins"] == ["*"]
+    assert ui["allowInsecureAuth"] is True and ui["dangerouslyDisableDeviceAuth"] is False
 
 
-def test_malformed_chat_url_is_ignored(cfg):
+def test_malformed_chat_url_leaves_the_auth_flags(cfg):
     mod.apply(str(cfg), {"CHAT_UI_URL": "not-a-url"})
-    assert read(cfg)["gateway"]["controlUi"]["allowedOrigins"] == ["http://127.0.0.1:18789"]
+    ui = read(cfg)["gateway"]["controlUi"]
+    assert ui["allowedOrigins"] == ["*"]
+    assert ui["dangerouslyDisableDeviceAuth"] is False
+
+
+def test_an_auth_flag_change_alone_is_written(cfg):
+    d = base_config(); d["gateway"]["controlUi"]["allowedOrigins"] = ["*"]
+    Path(cfg).write_text(json.dumps(d))
+    changes = mod.apply(str(cfg), {"CHAT_UI_URL": "https://chat.example.brevlab.com"})
+    assert changes
+    assert read(cfg)["gateway"]["controlUi"]["dangerouslyDisableDeviceAuth"] is True
 
 
 # --- both together, the real onboard shape -------------------------------------
@@ -144,7 +152,7 @@ def test_full_onboard_arg_set(cfg):
     })
     d = read(cfg)
     assert d["agents"]["defaults"]["model"]["primary"] == "inference/aws/anthropic/bedrock-claude-opus-5"
-    assert "https://chat.example.brevlab.com" in d["gateway"]["controlUi"]["allowedOrigins"]
+    assert "*" in d["gateway"]["controlUi"]["allowedOrigins"]
     assert changes  # reported to the build log
 
 
@@ -189,8 +197,7 @@ def test_custom_onboard_port_survives_cleared_runtime_overrides(cfg, origin):
     changes = mod.apply(str(cfg), {"CHAT_UI_URL": origin})
     d = read(cfg)
     assert d["gateway"]["port"] == 22430
-    assert d["gateway"]["controlUi"]["allowedOrigins"][0] == "http://127.0.0.1:22430"
-    assert "http://127.0.0.1:18789" not in d["gateway"]["controlUi"]["allowedOrigins"]
+    assert d["gateway"]["controlUi"]["allowedOrigins"] == ["*"]
     assert "gateway.port -> 22430" in changes
     assert mod.apply(str(cfg), {"CHAT_UI_URL": origin}) == []
 

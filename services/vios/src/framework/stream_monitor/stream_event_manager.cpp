@@ -16,6 +16,8 @@
 #include "stream_event_manager.h"
 #include "logger.h"
 
+using namespace std;
+
 namespace nv_vms
 {
 StreamEventManager& StreamEventManager::getInstance()

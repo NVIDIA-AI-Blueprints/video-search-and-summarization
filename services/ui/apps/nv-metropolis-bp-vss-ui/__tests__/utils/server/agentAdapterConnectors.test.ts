@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { AgentAdapterConfig } from "../../../utils/server/agentAdapter/config";
+import { ConnectorError } from "../../../utils/server/agentAdapter/connectors/base";
 import { OpenClawConnector } from "../../../utils/server/agentAdapter/connectors/openClaw";
 import { ResponsesConnector } from "../../../utils/server/agentAdapter/connectors/responses";
 import type { WebSocketLike } from "../../../utils/server/agentAdapter/connectors/websocket";
@@ -338,6 +339,63 @@ describe("embedded adapter connectors", () => {
         }),
       })
     );
+  });
+
+  it.each([
+    ["backend_auth_error", true],
+    ["backend_scope_error", true],
+    ["backend_unreachable", false],
+  ])("records rejected credentials when a run fails with %s", async (code, rejected) => {
+    jest
+      .spyOn(OpenClawConnector.prototype, "run")
+      // eslint-disable-next-line require-yield
+      .mockImplementation(async function* () {
+        throw new ConnectorError("gateway failure", code, true);
+      });
+    const service = new AgentAdapterService(
+      config({ backendProtocol: "openclaw-ws", backendUrl: "ws://agent.local", backendPath: "/" })
+    );
+    const { record } = service.createRun(requestWithInstructions);
+
+    for (let attempt = 0; attempt < 20 && !record.terminal; attempt += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+
+    expect(record.terminal).toBe(true);
+    expect(service.credentialsRejected).toBe(rejected);
+  });
+
+  it("marks a failed run undelivered only when the connector knows nothing was sent", async () => {
+    const openClaw = new AgentAdapterService(
+      config({ backendProtocol: "openclaw-ws", backendUrl: "ws://agent.local", backendPath: "/" })
+    );
+    // The OpenClaw socket cannot open, so the gateway never sees the turn.
+    jest.spyOn(OpenClawConnector.prototype, "run").mockRestore();
+    (openClaw as unknown as { connector: OpenClawConnector }).connector = new OpenClawConnector(
+      openClaw.config,
+      () => {
+        throw new Error("connection refused");
+      }
+    );
+    global.fetch = jest.fn().mockRejectedValue(new TypeError("socket hang up"));
+    const responses = new AgentAdapterService(config());
+
+    const failures = [];
+    for (const service of [openClaw, responses]) {
+      const { record } = service.createRun(requestWithInstructions);
+      for (let attempt = 0; attempt < 20 && !record.terminal; attempt += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      failures.push(record.eventsAfter(0).find((event) => event.type === "run.failed")?.data);
+    }
+
+    expect(failures[0]).toEqual({
+      error: expect.objectContaining({ code: "backend_unreachable", delivered: false }),
+    });
+    expect(failures[1]).toEqual({
+      error: expect.objectContaining({ code: "backend_unreachable" }),
+    });
+    expect((failures[1] as { error: object }).error).not.toHaveProperty("delivered");
   });
 
   it("uses native OpenClaw chat and tool events with narrow requested scopes", async () => {

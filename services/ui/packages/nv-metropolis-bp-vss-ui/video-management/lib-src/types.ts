@@ -103,6 +103,7 @@ export interface VideoManagementData {
   vstApiUrl?: string | null;
   chatUploadFileConfigTemplateJson?: string | null;
   enableAddRtspButton?: boolean;
+  /** Starting position of the tab's "Enable video upload" switch. */
   enableVideoUpload?: boolean;
 }
 

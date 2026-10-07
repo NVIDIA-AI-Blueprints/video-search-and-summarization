@@ -16,9 +16,10 @@
 #   * NO NGC credentials live in GitHub. The nightly GitHub controller selects
 #     a green release set, then GitLab copies those same digests to NGC.
 #   * The com.nvidia.vss.source_tree_sha label carries the git TREE hash of
-#     the source folder (git rev-parse HEAD:<source_path>) — the exact value
-#     the check-*-container-source gate compares. A post-push verification
-#     reads it back through the same code path as the gate.
+#     the image's source paths (`release_set.py tree-sha`: rev-parse for one
+#     path, one mktree over all of them otherwise) — the exact value the
+#     check-*-container-source gate compares. A post-push verification reads
+#     it back through the same code path as the gate.
 #   * Candidate tags are immutable: the preflight guard refuses to overwrite
 #     an existing tag with different content and no-ops on idempotent re-runs.
 #   * Trust boundary: this workflow runs on `push` to develop and to the
@@ -68,25 +69,31 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # The agent chart's top-level `version:` is the repository's one declared
-      # release line -- Helm reads that exact field -- and it is now baked into
-      # the built packages, so it is what GET /api/v1/version reports. Read once
-      # here rather than per build job: it is a property of the commit, not of a
-      # matrix entry. An unreadable or malformed value must stop the run: an
-      # empty string would publish an immutable image claiming no release, and
-      # a chart version already carrying `+build` metadata would collide with
-      # the `+tree.<sha>` segment the build jobs append.
-      - name: Read the declared release line
+      # The release line is the nearest `v*` tag reachable from this commit --
+      # the same `git describe --match 'v[0-9]*'` every pyproject's hatch-vcs
+      # runs, so an image and a checkout install of one commit agree on their
+      # version. It is baked into the built packages and is what
+      # GET /api/v1/version reports. Read once here rather than per build job:
+      # it is a property of the commit, not of a matrix entry (the checkout
+      # above is fetch-depth 0, so the tags are present). No reachable tag must
+      # stop the run: an image stamped with no release would be published
+      # immutably. The tag must be a bare PEP 440 release or pre-release
+      # (v3.3.0, v3.3.0rc0): anything with its own `+local` segment would
+      # collide with the `+tree.<sha>` the build jobs append.
+      - name: Derive the release line from the nearest v* tag
         id: release
         run: |
           set -euo pipefail
-          chart=deploy/helm/services/agent/Chart.yaml
-          line="$(grep -m1 -E '^version:' "$chart" | cut -d: -f2- | tr -d "\"' \r")"
-          if ! printf '%s' "$line" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "::error file=${chart}::no usable top-level 'version:' (read '${line}')"
+          if ! tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null)"; then
+            echo "::error::no v* tag is reachable from ${GITHUB_SHA}; push one (e.g. v3.3.0rc0) before building images"
             exit 1
           fi
-          echo "release line: ${line}"
+          line="${tag#v}"
+          if ! printf '%s' "$line" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?$'; then
+            echo "::error::tag '${tag}' is not a bare release or pre-release (X.Y.Z, X.Y.ZrcN)"
+            exit 1
+          fi
+          echo "release line: ${line} (from tag ${tag})"
           echo "line=${line}" >> "$GITHUB_OUTPUT"
 
       # detect_changed_images.py owns the range semantics (event.before for
@@ -111,13 +118,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # --release-line: a v* tag is usually pushed onto an already-built
+      # commit, so no path changes; the detector reads each version-carrying
+      # image's release_line label and rebuilds the ones on an older line.
       - name: Resolve changed images
         id: detect
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 .github/scripts/detect_changed_images.py \
             --event-name "${{ github.event_name }}" \
             --ref-name "${{ github.ref_name }}" \
             --before "${{ github.event.before }}" \
+            --release-line "${{ steps.release.outputs.line }}" \
             --base-branch develop > detection.json
           cat detection.json
           {
@@ -168,7 +182,7 @@ jobs:
             --commit-sha "$GITHUB_SHA" \
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
-            --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
+            --tree-sha "$(python3 .github/scripts/release_set.py tree-sha --name "${{ matrix.name }}")" \
             --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -205,7 +219,9 @@ jobs:
         run: |
           python3 .github/scripts/ghcr_image_guard.py reuse \
             --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}" \
-            --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}"
+            --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}" \
+            --expect-release-line "${{ needs.changes.outputs.release-line }}" \
+            --dockerfile "${{ matrix.dockerfile }}"
 
       - name: Re-tag existing content onto the immutable candidate tag
         if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse == 'true'
@@ -247,10 +263,15 @@ jobs:
           # to every build and consumed by the Dockerfiles that declare the
           # ARG; the rest ignore it. Tree-derived on purpose: the re-tag path
           # above reuses a manifest across commits with an identical tree, so
-          # a commit-derived stamp would go stale while this one stays true.
+          # a commit-derived stamp would go stale. The release line is baked in
+          # too, so reuse also requires the com.nvidia.vss.release_line label to
+          # match: a new v* tag rebuilds the images that carry a version once.
+          # VSS_REF pins the harness images (the only Dockerfiles declaring it)
+          # to this commit, so their skills and CLI are the tree hashed above.
           build-args: |
             ${{ matrix.build_args }}
             VSS_PACKAGE_VERSION=${{ needs.changes.outputs.release-line }}+tree.${{ steps.meta.outputs.tree_sha }}
+            VSS_REF=${{ github.sha }}
           push: true
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
@@ -263,10 +284,12 @@ jobs:
             com.nvidia.vss.image_name=${{ matrix.name }}
             com.nvidia.vss.source_path=${{ matrix.source_path }}
             com.nvidia.vss.source_tree_sha=${{ steps.meta.outputs.tree_sha }}
+            com.nvidia.vss.release_line=${{ needs.changes.outputs.release-line }}
           annotations: |
             index:com.nvidia.vss.image_name=${{ matrix.name }}
             index:com.nvidia.vss.source_path=${{ matrix.source_path }}
             index:com.nvidia.vss.source_tree_sha=${{ steps.meta.outputs.tree_sha }}
+            index:com.nvidia.vss.release_line=${{ needs.changes.outputs.release-line }}
 
       - name: Remove local standard build cache
         if: always() && steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse != 'true'
@@ -375,7 +398,7 @@ jobs:
             --commit-sha "$GITHUB_SHA" \
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
-            --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
+            --tree-sha "$(python3 .github/scripts/release_set.py tree-sha --name "${{ matrix.name }}")" \
             --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -409,7 +432,9 @@ jobs:
         run: |
           python3 .github/scripts/ghcr_image_guard.py reuse \
             --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}" \
-            --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}"
+            --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}" \
+            --expect-release-line "${{ needs.changes.outputs.release-line }}" \
+            --dockerfile "${{ matrix.dockerfile }}"
 
       - name: Preflight — refuse to overwrite platform staging tag
         id: platform-preflight
@@ -497,6 +522,7 @@ jobs:
           build-args: |
             ${{ matrix.build_args }}
             VSS_PACKAGE_VERSION=${{ needs.changes.outputs.release-line }}+tree.${{ steps.meta.outputs.tree_sha }}
+            VSS_REF=${{ github.sha }}
           push: true
           cache-from: ${{ steps.cache.outputs.from }}
           cache-to: ${{ steps.cache.outputs.to }}
@@ -505,6 +531,7 @@ jobs:
             com.nvidia.vss.image_name=${{ matrix.name }}
             com.nvidia.vss.source_path=${{ matrix.source_path }}
             com.nvidia.vss.source_tree_sha=${{ steps.meta.outputs.tree_sha }}
+            com.nvidia.vss.release_line=${{ needs.changes.outputs.release-line }}
 
       - name: Remove local native build cache
         if: >-
@@ -567,7 +594,7 @@ jobs:
             --commit-sha "$GITHUB_SHA" \
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
-            --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
+            --tree-sha "$(python3 .github/scripts/release_set.py tree-sha --name "${{ matrix.name }}")" \
             --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -597,7 +624,9 @@ jobs:
         run: |
           python3 .github/scripts/ghcr_image_guard.py reuse \
             --ref "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}" \
-            --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}"
+            --expect-tree-sha "${{ steps.meta.outputs.tree_sha }}" \
+            --expect-release-line "${{ needs.changes.outputs.release-line }}" \
+            --dockerfile "${{ matrix.dockerfile }}"
 
       - name: Set up Buildx
         if: steps.preflight.outputs.skip != 'true'
@@ -626,6 +655,7 @@ jobs:
             --annotation "index:com.nvidia.vss.image_name=${{ matrix.name }}" \
             --annotation "index:com.nvidia.vss.source_path=${{ matrix.source_path }}" \
             --annotation "index:com.nvidia.vss.source_tree_sha=${{ steps.meta.outputs.tree_sha }}" \
+            --annotation "index:com.nvidia.vss.release_line=${{ needs.changes.outputs.release-line }}" \
             --tag "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
             --tag "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.content_tag }}" \
             "${platform_refs[@]}"

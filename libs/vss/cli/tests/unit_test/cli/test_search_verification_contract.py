@@ -25,6 +25,19 @@ ASK_VIDEO_SKILL = REPOSITORY_ROOT / "skills" / "operations" / "vss-ask-video"
 SEARCH_ADAPTER = REPOSITORY_ROOT / ".github/skill-eval/adapters/vss-search-archive/generate.py"
 
 
+def _stamped_version() -> str:
+    """The repository's one stamped version (.github/version-convention.md).
+
+    Skill versions are written by .github/scripts/stamp_versions.py from the
+    nearest v* tag, never by hand, so a test must not pin a literal: it would
+    break on every tag. The containers.env line carries the same stamp.
+    """
+    env = (REPOSITORY_ROOT / "deploy/docker/containers.env").read_text(encoding="utf-8")
+    match = re.search(r'^VSS_VERSION="([^"$\n]+)"', env, re.MULTILINE)
+    assert match, "deploy/docker/containers.env has no stamped VSS_VERSION line"
+    return match.group(1)
+
+
 def _load_adapter(path: Path, name: str) -> ModuleType:
     """Import an adapter so preamble assertions run against the text the agent
     actually receives. Matching the raw source instead couples the contract to
@@ -54,7 +67,7 @@ def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None
     normalized_verification = " ".join(verification.split())
 
     assert len(main.splitlines()) < 500
-    assert 'version: "3.3.0"' in main
+    assert f'version: "{_stamped_version()}"' in main
     assert "The CLI attempts critic verification by default" in main
     assert "VSS_ORIGIN=$(vss configure show" in main
     assert "Do not repeat public-origin selection" in main
@@ -180,7 +193,7 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
     )
     evals_by_id = {case["id"]: case for case in evals}
 
-    assert 'version: "3.3.0"' in ask_video
+    assert f'version: "{_stamped_version()}"' in ask_video
     assert "user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL" in ask_video
     assert "Search agent Markdown memory using the harness-native memory search" in normalized
     assert "Markdown search is not a `vss` command" in normalized

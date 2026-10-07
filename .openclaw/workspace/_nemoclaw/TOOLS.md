@@ -231,9 +231,9 @@ vss configure --base-url "${VSS_PUBLIC_URL}"
 ```
 
 `configure` probes the path routes behind the origin (`/api`, `/vst`,
-`/alert-bridge`, `/lvs`, ...) and records what answered. Use `configure check`
-when readiness is requested. Re-run `configure` after an intended deployment
-change; do not repair a failed evaluation's deployment. If
+`/lvs`, ...) and records what answered; Alert Bridge is not one of them (see
+AGENTS.md). Use `configure check` when readiness is requested. Re-run
+`configure` after an intended deployment change; do not repair a failed evaluation's deployment. If
 `VSS_PUBLIC_URL` is empty, stop and follow `ENV.md` "Empty VSS_PUBLIC_URL" -
 ask the user for the origin instead of guessing one; keep the port in it.
 

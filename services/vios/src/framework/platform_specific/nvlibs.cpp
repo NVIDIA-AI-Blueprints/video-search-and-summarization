@@ -22,6 +22,8 @@
 #include <linux/videodev2.h>
 #include "v4l2_nv_extensions.h"
 
+using namespace std;
+
 // dev-nodes for encoder and decoder
 constexpr const char* V4L2_DEVICE_PATH_NVDEC = "/dev/nvhost-nvdec";
 constexpr const char* V4L2_DEVICE_PATH_NVDEC_ALT = "/dev/v4l2-nvdec";

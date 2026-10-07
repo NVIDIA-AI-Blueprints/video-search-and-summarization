@@ -606,6 +606,14 @@ function get_rtvi_vllm_gpu_memory_utilization() {
     esac
   fi
 
+  # search co-locates RT-CV (SigLIP v2.0 + RT-DETR) with RT-VLM on one L40S GPU;
+  # 0.8 (38.4 GiB) starves RT-CV and crashes the vLLM EngineCore. 0.7 (33.6 GiB)
+  # leaves ~14 GiB for RT-CV.
+  if [[ "${_profile}" == "search" && "${_hardware_profile}" == "L40S" ]]; then
+    echo "0.7"
+    return
+  fi
+
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
       # High-memory boards: vLLM claims gpu_memory_utilization x total_memory
@@ -688,6 +696,8 @@ function usage() {
   echo ""
   echo "Positional arguments:"
   echo "  desired-state                    up or down"
+  echo "                                   • down performs a full reset: removes named volumes and VSS_DATA_DIR"
+  echo "                                   • to preserve data, run 'docker compose -p <project> down --remove-orphans' (default project: vss)"
   echo ""
   echo "NOTE: The following are read from the environment (no CLI options):"
   echo "  • NGC_CLI_API_KEY     — required for 'up'"
@@ -2277,6 +2287,11 @@ function state_down() {
   if [[ ${#_compose_project_names[@]} -eq 0 ]]; then
     _compose_project_names=('vss')
   fi
+
+  echo "[WARNING] Full reset: named volumes and the configured VSS_DATA_DIR will be deleted."
+  for _compose_project_name in "${_compose_project_names[@]}"; do
+    echo "[WARNING] To preserve project '${_compose_project_name}', use: docker compose -p ${_compose_project_name} down --remove-orphans"
+  done
 
   for _compose_project_name in "${_compose_project_names[@]}"; do
     echo "[INFO] Bringing down docker compose project '${_compose_project_name}' (with volumes)..."

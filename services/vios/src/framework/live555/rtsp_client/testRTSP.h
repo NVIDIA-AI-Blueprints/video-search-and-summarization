@@ -62,6 +62,10 @@ class StreamClientState
 public:
     StreamClientState();
     virtual ~StreamClientState();
+    StreamClientState(const StreamClientState&) = delete;
+    StreamClientState& operator=(const StreamClientState&) = delete;
+    StreamClientState(StreamClientState&&) = delete;
+    StreamClientState& operator=(StreamClientState&&) = delete;
 
 public:
     MediaSubsessionIterator* iter;

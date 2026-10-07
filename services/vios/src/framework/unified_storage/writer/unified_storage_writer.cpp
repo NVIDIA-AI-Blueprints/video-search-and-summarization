@@ -1110,8 +1110,8 @@ bool UnifiedStorageWriter::pushBufferToPipeline(const unsigned char* data, size_
                 buffer_owned_by_pipeline = true; // Pipeline now owns the buffer
             }
 
-            m_total_bytes_written.fetch_add(size, std::memory_order_relaxed);
-            m_frames_written.fetch_add(1, std::memory_order_relaxed);
+            m_total_bytes_written.fetch_add(size);
+            m_frames_written.fetch_add(1);
 
             return true;
         }

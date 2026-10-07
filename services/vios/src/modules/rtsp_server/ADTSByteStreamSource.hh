@@ -25,15 +25,14 @@
 #include <string>
 #include <mutex>
 
-using namespace std;
 
 class AvLoopSyncCoordinator;
 
 class ADTSByteStreamSource: public FramedSource
 {
 public:
-    static ADTSByteStreamSource* createNew(UsageEnvironment& env, const string& streamName,
-        shared_ptr<NvMediaSource> mediasource, string url_params, u_int8_t profile, unsigned samplingFrequency, u_int8_t channel);
+    static ADTSByteStreamSource* createNew(UsageEnvironment& env, const std::string& streamName,
+        std::shared_ptr<NvMediaSource> mediasource, std::string url_params, u_int8_t profile, unsigned samplingFrequency, u_int8_t channel);
 
     unsigned samplingFrequency() const { return m_samplingFrequency; }
     unsigned numChannels() const { return m_numChannels; }
@@ -41,7 +40,7 @@ public:
         // returns the 'AudioSpecificConfig' for this stream (in ASCII form)
 
 protected:
-    ADTSByteStreamSource(UsageEnvironment& env, const string& streamName, shared_ptr<NvMediaSource> mediasource, string url_params,
+    ADTSByteStreamSource(UsageEnvironment& env, const std::string& streamName, std::shared_ptr<NvMediaSource> mediasource, std::string url_params,
             u_int8_t profile, unsigned samplingFrequencyIndex, u_int8_t channelConfiguration);
     // called only by createNew()
 
@@ -65,8 +64,8 @@ private:
     void restartForLoop();
 
 private:
-    string m_streamName;
-    shared_ptr<NvMediaSource> m_mediaSource;
+    std::string m_streamName;
+    std::shared_ptr<NvMediaSource> m_mediaSource;
     unsigned m_samplingFrequency;
     unsigned m_numChannels;
     unsigned m_uSecsPerFrame;

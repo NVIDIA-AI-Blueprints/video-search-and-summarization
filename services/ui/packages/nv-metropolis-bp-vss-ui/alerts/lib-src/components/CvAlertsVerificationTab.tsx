@@ -29,6 +29,7 @@ import {
 interface CvAlertsVerificationTabProps {
   isDark: boolean;
   alertsApiUrl?: string;
+  refreshVersion?: number;
   visible: boolean;
 }
 
@@ -127,6 +128,7 @@ export const triggerVerificationAddDraft = (): boolean => {
 export const CvAlertsVerificationTab: React.FC<CvAlertsVerificationTabProps> = ({
   isDark,
   alertsApiUrl,
+  refreshVersion,
   visible,
 }) => {
   const {
@@ -138,7 +140,7 @@ export const CvAlertsVerificationTab: React.FC<CvAlertsVerificationTabProps> = (
     createConfig,
     updateConfig,
     deleteConfig,
-  } = useCvAlertsVerificationConfigs({ alertsApiUrl });
+  } = useCvAlertsVerificationConfigs({ alertsApiUrl, refreshVersion });
   const [drafts, setDrafts] = useState<VerificationAlertConfigDraft[]>([]);
   const [editing, setEditing] = useState<Record<string, EditableFields>>({});
   const [filter, setFilter] = useState('');

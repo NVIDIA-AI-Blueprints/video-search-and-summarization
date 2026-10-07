@@ -284,9 +284,17 @@ class BrevEnvironment(BaseEnvironment):
         # in an unrelated profile_in_1 trial's artifact tarball). /logs/agent is
         # left intact here — its prior-trial session JSONLs are handled by the
         # archive step just below (move-not-delete, for forensic SSH access).
+        #
+        # /skills is wiped for the same reason. It is Harbor's configured skill
+        # source, and the per-trial upload extracts a tarball over it without
+        # removing anything, so on a warm box it holds the union of every skill
+        # any trial ever uploaded. A skill since deleted from the repo is still
+        # handed to the agent from there and can win routing against the one
+        # under test (observed 2026-09-30: `vss-deploy-profile`, retired in
+        # #2141, deployed the L40S ask-video leg sixteen days later).
         setup_dirs_result = await _run_brev_exec(
             self._instance_name,
-            "sudo rm -rf /logs/artifacts /logs/verifier && "
+            "sudo rm -rf /logs/artifacts /logs/verifier /skills && "
             "sudo rm -rf /tmp/skill-eval/uploads && "
             "sudo rm -f /tmp/.harbor_dl_*.b64 && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
@@ -304,8 +312,42 @@ class BrevEnvironment(BaseEnvironment):
                 f"exit {setup_dirs_result.return_code}; tail:\n{tail}"
             )
 
-        # Archive the full sessions tree (Claude projects and Codex date
-        # directories) and root-level agent outputs left by
+        # Repair a repo venv a prior step left unusable. Unlike the repo sync,
+        # this is NOT gated to the first trial: `step-2+` preserves the
+        # deployment and so skips the sync's `git clean -fdx`, which is the
+        # only other thing that would clear it. A non-zero exit means a broken
+        # venv could not be removed, and the per-path reason is on stderr --
+        # log both streams so the next uv failure is explainable. Warn rather
+        # than raise: the trial can still run, and a venv left in place
+        # surfaces as the uv error it already was.
+        venv_reset_result = await _run_brev_exec(
+            self._instance_name,
+            _broken_venv_cleanup_command(),
+            timeout=60,
+        )
+        if venv_reset_result.return_code != 0:
+            logger.warning(
+                "broken-venv cleanup failed on %s: exit %s; tail:\n%s",
+                self._instance_name,
+                venv_reset_result.return_code,
+                "\n".join(
+                    part
+                    for part in (
+                        (venv_reset_result.stdout or "").strip(),
+                        (venv_reset_result.stderr or "").strip(),
+                    )
+                    if part
+                )[-800:],
+            )
+        else:
+            logger.info(
+                "broken-venv cleanup on %s: %s",
+                self._instance_name,
+                (venv_reset_result.stdout or "").strip().splitlines()[-1:] or ["no output"],
+            )
+
+        # Archive the full sessions tree (projects, Codex dates, and skills)
+        # and root-level agent outputs left by
         # prior trials on this warm-pool box. Without this, harbor's claude-code
         # mapper merges every
         # `*.jsonl` file under `/logs/agent/sessions/projects/<project>/`
@@ -839,6 +881,15 @@ chattr -R -i . 2>/dev/null || sudo chattr -R -i . 2>/dev/null || true
 # root-owned files in bind-mounted dirs (e.g. deploy/docker/data-dir/) that
 # a non-root git clean cannot remove ("Permission denied").
 git clean -fdx -e data/ -e .env 2>/dev/null || sudo git clean -fdx -e data/ -e .env
+# The vss CLI is a uv tool, so it outlives the checkout: adapters install it
+# only when `vss` is missing, and a box kept from an earlier run went on
+# serving that run's CLI (PR #2467: it rejected the PR's own --max-frames).
+# Reinstall from the synced tree so trials exercise the CLI under test.
+export PATH="$HOME/.local/bin:$PATH"
+if command -v uv >/dev/null 2>&1; then
+  uv tool install --force --reinstall --quiet "$REPO/libs/vss/cli"
+  echo "vss CLI: $(vss --version)"
+fi
 echo "synced $REPO to $(git rev-parse --short HEAD)"
 """
         logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
@@ -1561,6 +1612,14 @@ def _prior_agent_output_archive_command() -> str:
     classes aside: after an abrupt cancellation the root raw log may be the
     only surviving evidence because coordinator download never completed.
     Old archives are pruned to keep warm-box storage bounded.
+
+    The session skills dir is the third class. Harbor copies this trial's
+    skills into it, but never removes one a prior trial left, so a skill
+    deleted from the repo keeps being offered to the agent and can win
+    routing against the one under test (observed 2026-09-30: the L40S
+    ask-video leg deployed through `vss-deploy-profile`, retired 16 days
+    earlier in #2141, and followed its remote-VLM recipe instead of Build
+    Vision AI's).
     """
     return (
         "ts=$(date +%Y%m%d-%H%M%S)-$$; "
@@ -1622,6 +1681,82 @@ def _claude_task_scratch_cleanup_command() -> str:
         '  echo "[claude-task-scratch] removed task dirs before=$BEFORE after=$AFTER base=$BASE"; '
         'else '
         '  echo "[claude-task-scratch] no scratch base $BASE"; '
+        "fi"
+    )
+
+
+def _broken_venv_cleanup_command() -> str:
+    """Remove repo virtualenvs that are no longer usable, on every trial.
+
+    `uv` refuses a project venv whose interpreter has gone ("not a valid
+    Python environment (no Python executable was found)"), and the `vss` CLI
+    then cannot run at all. The repo sync that would clear it via
+    `git clean -fdx` is gated to a spec's first trial, because `step-2+` has
+    to preserve the deployment -- so a venv broken during step-1 or step-2
+    survives into step-3, which is where this leg keeps failing (NVBugs
+    6829436: 2026-09-24, -27, -28 and 2026-10-04, each needing a manual
+    `rm -rf libs/vss/.venv`).
+
+    Only a venv that is already unusable is removed: a healthy one is left
+    alone so steps do not pay a reinstall every trial. `uv` recreates a
+    missing venv on its next run, so removal is the repair.
+
+    Strictly POSIX, and path-safe without relying on the remote shell. The
+    command string is handed to `brev exec` / `ssh`, neither of which selects
+    an interpreter, so it may run under dash -- where `read -d` does not
+    exist and a bash-only loop would quietly match nothing, leave the broken
+    venv, and still report success. `find -exec ... {} +` passes each path as
+    an argument instead, so nothing is word-split and no newline in a
+    directory name can turn a fragment into an absolute path of its own.
+
+    Removal runs with `sudo`, so each candidate is re-checked inside the
+    loop: under `$REPO/`, basename `.venv`, and still a directory.
+
+    Exits non-zero when a removal failed, so the caller logs it rather than
+    reporting the trial as clean and leaving the next `uv` failure unexplained.
+    """
+    # Counts come back through files: `-exec ... +` runs in child shells, so a
+    # variable incremented there would not survive to the summary line.
+    inner = (
+        'for VENV in "$@"; do '
+        '  case "$VENV" in "$VENV_REPO"/*) ;; *) continue ;; esac; '
+        '  [ "${VENV##*/}" = ".venv" ] || continue; '
+        '  [ -d "$VENV" ] || continue; '
+        '  if [ -x "$VENV/bin/python" ] && "$VENV/bin/python" -c "" 2>/dev/null; then '
+        '    continue; '
+        '  fi; '
+        # A prior container may have left root-owned files inside, same as the
+        # bind-mount dirs git clean needs sudo for.
+        '  rm -rf "$VENV" 2>/dev/null || sudo rm -rf "$VENV" 2>/dev/null || true; '
+        '  if [ -d "$VENV" ]; then '
+        '    echo "$VENV" >> "$VENV_STATE/failed"; '
+        '  else '
+        '    echo "$VENV" >> "$VENV_STATE/removed"; '
+        '    echo "[venv-reset] removed broken $VENV"; '
+        '  fi; '
+        "done"
+    )
+    return (
+        'REPO="$HOME/video-search-and-summarization"; '
+        'if [ ! -d "$REPO" ]; then '
+        '  echo "[venv-reset] no checkout at $REPO; nothing to inspect"; '
+        'else '
+        '  STATE=$(mktemp -d) || exit 1; '
+        '  : > "$STATE/removed"; : > "$STATE/failed"; '
+        '  VENV_REPO="$REPO" VENV_STATE="$STATE" '
+        '  find "$REPO" -type d -name .venv -prune '
+        f"    -exec sh -c '{inner}' _ {{}} + 2>/dev/null; "
+        '  REMOVED=$(wc -l < "$STATE/removed"); '
+        '  FAILED=$(wc -l < "$STATE/failed"); '
+        # Named here rather than from the child shells, so find's own
+        # permission-denied noise can stay suppressed without losing these.
+        '  while IFS= read -r FAILED_PATH; do '
+        '    echo "[venv-reset] FAILED to remove broken $FAILED_PATH" >&2; '
+        '  done < "$STATE/failed"; '
+        '  rm -rf "$STATE"; '
+        '  echo "[venv-reset] broken venvs removed=$REMOVED failed=$FAILED"; '
+        # Load-bearing: a failed removal has to reach the caller's warning.
+        '  [ "$FAILED" -eq 0 ]; '
         "fi"
     )
 

@@ -90,7 +90,7 @@ export NGC_CLI_API_KEY="<your-key>"
   --profile search \
   --hardware-profile H100
 
-# Tear down (no profile flags — cleans the managed Compose project and data dir)
+# Full reset (no profile flags — removes named volumes and `$VSS_DATA_DIR`)
 ./deploy/docker/scripts/dev-profile.sh down
 ```
 
@@ -126,8 +126,8 @@ Each developer profile ships a stable **`.env`** and a mutable
 derived runtime values, and starts Compose with `containers.env`, the profile
 `.env`, and `generated.env` in that order.
 
-The helper resets its managed state before every `up`: it stops the Compose
-project **`mdx`**, removes Compose volumes, deletes old `generated.env` files,
+The helper resets its managed state before every `up`: it stops each managed
+Compose project (default: **`vss`**), removes Compose volumes, deletes old `generated.env` files,
 cleans generated SDRC artifacts, and deletes the developer data directory
 (default: **`deploy/docker/data-dir`**) before recreating it. Use `--dry-run` to
 preview the commands and generated environment without starting containers.
@@ -215,6 +215,92 @@ VST_STATIC_TURNURL_LIST=
 Remove the Compose-created `vss-turn-password` Docker volume and restart the warehouse profile to rotate the generated password. Only set `VST_STATIC_TURNURL_LIST` for external or multiple TURN endpoints; treat it as sensitive because it embeds TURN credentials.
 
 The warehouse VST streamprocessing startup helper also forces `network.use_coturn_auth_secret=false` and `network.coturn_turnurl_list_with_secret=[]`, matching the static username/password mode. Developer VST streamprocessing and NvStreamer services do not apply this WebRTC/TURN patch.
+
+### Check deployment status
+
+List running and completed containers for the configured Compose project (the
+developer-profile default is `vss`):
+
+```bash
+project="${COMPOSE_PROJECT_NAME:-vss}"
+docker ps -a \
+  --filter "label=com.docker.compose.project=${project}" \
+  --format 'table {{.Names}}\t{{.Status}}'
+```
+
+Do not treat every exited container as a deployment failure. One-time initialization
+and dependency-check containers normally finish with status `Exited (0)` after they
+complete successfully. Investigate containers that exit with a nonzero status, are
+`unhealthy`, or repeatedly restart.
+
+The expected one-time containers below are derived from the active profiles in
+`deploy/docker/services/` and `deploy/docker/developer-profiles/`. Model overrides
+can add, remove, or rename model-specific initialization containers.
+
+| DevX page / profile | Containers that may normally show `Exited (0)` |
+|---|---|
+| Base (`base`) | `llm-nim-init` for the default local LLM. |
+| Video Summarization (`lvs`) | `llm-nim-init`, `vss-elasticsearch-init`, `vss-kafka-topics`, `vss-kibana-init`, `vss-broker-health-check`, `sdrc-init-dirs`, `sdrc-render-config`, `sdrc-wdm-env-from-config`, and `sdrc-wait-for-redis`. |
+| Search (`search`) | `llm-nim-init`, `vss-elasticsearch-init`, `vss-kafka-topics`, `vss-kibana-init`, and `vss-broker-health-check`. Perception models are downloaded by the perception startup script, not a separate init container. |
+| Alert Verification (`alerts --mode verification`) | The same one-time containers as Search. Perception models are downloaded by the perception startup script. |
+| Real-Time Alerts (`alerts --mode real-time`) | The same one-time containers as Search. This mode does not start the CV perception service. |
+
+### Stop or reset a developer profile
+
+Run these commands from `deploy/docker`. Both remove project containers, orphans,
+and the Compose network. The project defaults to `vss`, but respects an explicit
+`COMPOSE_PROJECT_NAME`:
+
+```bash
+project="${COMPOSE_PROJECT_NAME:-vss}"
+
+# Stop the deployment and preserve named volumes.
+docker compose -p "${project}" down --remove-orphans
+
+# Reset the deployment and remove named and anonymous volumes.
+docker compose -p "${project}" down -v --remove-orphans
+```
+
+The `-v` option removes Docker-managed volumes, including VIOS PostgreSQL data,
+Phoenix telemetry, Logstash libraries, and local NIM/RTVI model caches. It also
+removes the Docker volume objects for bind-backed local volumes, but it does not
+erase their host directories. Direct bind mounts likewise survive Compose teardown.
+
+The default local deployments use the following Compose volume keys. At runtime,
+Compose prefixes each key with the project name; for example, `kafka-data` becomes
+`vss_kafka-data` under the default project. Model and local/remote mode selections
+can change the model-cache set.
+
+| DevX page / profile | Compose volume keys used by the default local deployment |
+|---|---|
+| All profiles | `agent-eval` (bind-backed by `${VSS_DATA_DIR}/agent_eval`), `phoenix-data`, `vios_pg_data`, `nemotron_3_5_lightning_cache`, `rtvi-hf-cache`, and `rtvi-ngc-model-cache`. |
+| Base (`base`) | The shared volumes above. |
+| Video Summarization (`lvs`) | Shared volumes plus bind-backed `elastic-data`, `elastic-logs`, and `kafka-data`, and Docker-managed `logstash-libs`. RT-VLM can also create anonymous `/dummy` volumes when optional host paths are unset. |
+| Search (`search`) | LVS volumes plus `rtvi-triton-model-repo`; RT-Embed shares the RTVI cache volumes. |
+| Alert Verification and Real-Time Alerts (`alerts`) | The LVS volume set. |
+
+The deployment also uses host-backed local volumes and direct bind mounts. Their
+host data survives both Compose commands above, including `down -v`:
+
+| DevX page / profile | Mutable host-mounted data |
+|---|---|
+| All profiles | `${VSS_DATA_DIR}/agent_eval`, `${VSS_DATA_DIR}/data_log/redis/{data,log}`, and the VST paths below `${VSS_DATA_DIR}/data_log/vst` (`clip_storage`, `temp_files`, `vst_data`, and `vst_video`). |
+| Video Summarization, Search, and both Alerts modes | `${VSS_DATA_DIR}/data_log/elastic/{data,logs}` and `${VSS_DATA_DIR}/data_log/kafka`, through bind-backed local volumes, in addition to the shared paths. |
+| Video Summarization (`lvs`) | `${VSS_DATA_DIR}/data_log/nvstreamer/vst_data` and `${VSS_DATA_DIR}/videos/dev-profile-lvs`. |
+| Search (`search`) | `${VSS_DATA_DIR}/data_log/nvstreamer/{streamer_videos,vst_data}`, `${VSS_DATA_DIR}/data_log/vss_video_analytics_api`, and `${VSS_DATA_DIR}/models`. |
+| Alert Verification | `${VSS_DATA_DIR}/data_log/nvstreamer/vst_data`, `${VSS_DATA_DIR}/data_log/vss_video_analytics_api`, `${VSS_DATA_DIR}/models`, and `${VSS_DATA_DIR}/videos/dev-profile-alerts`. |
+| Real-Time Alerts | `${VSS_DATA_DIR}/data_log/nvstreamer/vst_data`, `${VSS_DATA_DIR}/data_log/vss_video_analytics_api`, and `${VSS_DATA_DIR}/videos/dev-profile-alerts`. |
+
+Compose files and generated SDRC runtime files are also bind-mounted from this source
+tree. The LVS profile uses `services/infra/sdrc/log`,
+`services/infra/sdrc/.wdm-env`, and rendered profile configuration files. A normal
+Compose `down`, with or without `-v`, does not delete them.
+
+`./deploy/docker/scripts/dev-profile.sh down` is a **full reset**, not merely a
+container stop. It runs the `-v` teardown for every discovered project name, removes
+dangling volumes, deletes generated environment and SDRC runtime files, and
+recursively deletes the configured `VSS_DATA_DIR`. Use the first Compose command
+when model caches, recordings, indexes, or other deployment data must survive.
 
 ### LVS Compose notes
 

@@ -76,7 +76,7 @@
     "ground_truth": "Use one direct VLM job for the exact scope.",
     "expected_behavior": [
       "Uses exactly one vss vlm run.",
-      "Chooses --fps from the skim/locate/inspect policy instead of a fixed --num-frames.",
+      "Chooses --fps from the skim/locate/inspect policy instead of a fixed --max-frames.",
       "Does not search Markdown or introspect."
     ]
   },
@@ -148,6 +148,28 @@
     "expected_behavior": [
       "Does not activate vss-ask-video for an archive search request.",
       "Routes the request to vss-search-archive."
+    ]
+  },
+  {
+    "id": "whole-recording-short",
+    "question": "What happens in dock_cam? Its recording is 45 seconds long.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Run `vss vios timeline --sensor dock_cam`, then one `vss vlm run --sensor dock_cam` with explicit --start-time/--end-time per recorded segment.",
+    "expected_behavior": [
+      "Reads the recording's segments with `vss vios timeline`.",
+      "Runs `vss vlm run --sensor` with explicit bounds, once per segment.",
+      "Does not hand off to vss-summarize-video for a recording under 120 seconds."
+    ]
+  },
+  {
+    "id": "whole-recording-long",
+    "question": "What happens in warehouse-front? Its recording is 235 seconds long.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Hand off to /vss-summarize-video, since the whole recording is 120 seconds or longer.",
+    "expected_behavior": [
+      "Reads the recording's length with `vss vios timeline`.",
+      "Hands off to /vss-summarize-video instead of running `vss vlm run` itself.",
+      "Does not stop to ask the user for a shorter window."
     ]
   }
 ]

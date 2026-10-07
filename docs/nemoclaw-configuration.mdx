@@ -69,11 +69,11 @@ Advanced values are set in Section 1.3 or derived from the environment.
 | `AGENT_DASHBOARD_PORT` | `18789` | Loopback-only agent dashboard forward. Override with `NEMOCLAW_DASHBOARD_PORT`. |
 | `AGENT_DASHBOARD_RELAY_PORT` | `18790` | Relay used by off-loopback clients, including the VSS UI container and Brev secure link. Override with `NEMOCLAW_DASHBOARD_RELAY_PORT`. |
 | `VSS_AGENT_ADAPTER_ENABLED` | `False` | Enables the relay for a containerized VSS UI outside Brev; Brev starts the relay for its secure link regardless. |
-| `HITL_ENABLED` | `False` | When false, the harness asks follow-up questions as ordinary chat messages. |
+| `HITL_ENABLED` | `False` | Disables structured HITL dialogs in an external VSS UI connected to the harness. The agent still asks follow-up questions in chat, where you can reply inline. |
 | `NEMOCLAW_VLLM_PORT` | `18000` | Host port for a NemoClaw-managed vLLM server. |
 | `NEMOCLAW_VLLM_GPU_DEVICE` | `0` | GPU index or full GPU/MIG UUID passed to `install-vllm`; changing it requires a fresh onboard. |
 | `AGENT_PLUGIN_VARIANT` | `nemoclaw` | Workspace variant overlay read into `WORKSPACE_VARIANT`. |
-| `NEMOCLAW_SANDBOX_NAME` | `demo` | Sandbox name. The notebook replaces an existing sandbox of this name by default. Use the same value in `deploy_vss_orchestrator.ipynb`. |
+| `NEMOCLAW_SANDBOX_NAME` | `vss-harness-sandbox` | Sandbox name. The notebook replaces an existing sandbox of this name by default. Use the same value in `deploy_vss_orchestrator.ipynb`. |
 | `NEMOCLAW_RECREATE_SANDBOX` | `True` | Recreates an existing sandbox during onboarding, discarding its agent sessions. Set false only for an intentional manual reuse. Build Vision AI always recreates the sandbox so provider and model settings are applied. |
 | `VSS_PUBLIC_URL` | *(blank)* | Deployment origin recorded by `vss configure`. Blank selects this host's Compose ingress; set a Kubernetes Ingress origin explicitly. |
 | `ORCHESTRATOR_ENABLE_HTTPS` | `False` | The default HTTP orchestrator requires no registration. Set true in both notebooks to register and serve an HTTPS MCP endpoint. |
@@ -91,7 +91,7 @@ Required values every VSS deployment needs are set in Section 1.1.
 | `NGC_CLI_API_KEY` | *(blank)* | NGC Personal API Key. Required for `docker login nvcr.io` and for the model weights the containers download from NGC. |
 | `NVIDIA_API_KEY` | *(blank)* | Required for NVIDIA-hosted VSS LLM/VLM endpoints and propagated to the MCP server. |
 | `HARDWARE_PROFILE` | `RTXPRO6000BW` | Hardware profile applied by the orchestrator. Supported values are `H100`, `GB300`, `L40S`, `RTXPRO4500BW`, `RTXPRO6000BW`, `DGX-SPARK`, `IGX-THOR`, `AGX-THOR`, and `OTHER`. For `GB300`, the orchestrator applies `VSS_CONTAINER_TAG_SUFFIX=-sbsa` and `RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN`. Edge profiles (`DGX-SPARK`, `IGX-THOR`, `AGX-THOR`) are valid only for `base` and `alerts`. |
-| `NEMOCLAW_SANDBOX_NAME` | `demo` | Sandbox created in `deploy_nemoclaw.ipynb`; the Agent UI you deploy VSS from lives here. |
+| `NEMOCLAW_SANDBOX_NAME` | `vss-harness-sandbox` | Sandbox created in `deploy_nemoclaw.ipynb`; the Agent UI you deploy VSS from lives here. |
 
 Advanced values are set in Section 1.2 or derived from the environment.
 

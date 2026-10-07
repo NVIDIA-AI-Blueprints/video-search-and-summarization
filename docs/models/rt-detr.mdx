@@ -39,29 +39,41 @@ Detailed information can be found in the [Warehouse 2D single-camera detection a
 
 ## Real-Time Inference Throughput & Latency
 
-Inference runs through the DeepStream pipeline on TensorRT. The table below summarizes how many camera streams each GPU supports at 30 FPS and 15 FPS with `interval=1`. The stream counts are computed from GPU compute/latency measurements as `batch_size * 1000 / latency_ms`, then divided by the target FPS.
+The following VSS 3.3 / DeepStream 9.1 target results were collected on September 16, 2026, for the RT-DETR v1.0.2 ResNet-50 deployable model at 640×640 input resolution. These are compute-only stream capacity estimates from TensorRT measurements at each device's peak-throughput batch size.
 
-Tested deployable model: v1.0.2 FP16, ResNet-50 backbone.
+Compute throughput in images per second is `batch_size * 1000 / compute_latency_ms`. Stream capacity is `floor(compute_throughput / target_fps)`, using inference rates of 30 or 15 FPS per stream. Decode, tracking, preprocessing, postprocessing, and pipeline contention are excluded; deployed pipeline capacity can be lower.
 
-| GPU | @30 FPS | @15 FPS (interval=1) |
+| GPU | Estimated streams at 30 FPS | Estimated streams at 15 FPS |
 | --- | --- | --- |
-| 1x GB200 | 158 | 316 |
-| 1x B200 | 141 | 282 |
-| 1x H200 | 85 | 170 |
-| 1x H100 | 76 | 153 |
-| 1x H100 NVL | 59 | 118 |
-| 1x A100 | 36 | 72 |
-| 1x RTX PRO 6000 (Workstation) | 49 | 99 |
-| 1x RTX PRO 6000 (Server) | 45 | 90 |
-| 1x RTX 6000 Ada | 28 | 56 |
-| 1x L40S | 29 | 59 |
-| 1x L40 | 25 | 51 |
+| 1x GB300 | 161 | 323 |
+| 1x GB200 | 157 | 314 |
+| 1x B200 | 139 | 278 |
+| 1x H200 | 84 | 169 |
+| 1x H100 80GB HBM3 | 77 | 154 |
+| 1x H100 NVL | 61 | 122 |
+| 1x RTX PRO 6000 Blackwell Workstation Edition | 52 | 105 |
+| 1x RTX PRO 6000 Blackwell Server Edition | 47 | 94 |
+| 1x A100-SXM4-80GB | 36 | 73 |
+| 1x L40S | 28 | 57 |
+| 1x RTX 6000 Ada Generation | 27 | 55 |
+| 1x L40 | 25 | 50 |
+| 1x RTX PRO 4500 Blackwell Server Edition | 20 | 40 |
 | 1x L4 | 9 | 18 |
-| 1x DGX Spark | 7 | 15 |
-| 1x IGX Thor T7000 (iGPU) | 9 | 18 |
-| 1x IGX Thor Mini (T234 Orin iGPU) | 10 | 21 |
-| 1x IGX Thor T7000 + RTX PRO 6000 | 37 | 75 |
-| 1x Jetson AGX Thor - T5000 | 9 | 18 |
+| 1x AGX Thor (iGPU) | 10 | 20 |
+| 1x DGX Spark (iGPU) | 7 | 14 |
+| 1x AGX Orin (iGPU) | 4 | 8 |
+
+### Benchmark Software Stack
+
+The dGPU results use strongly typed TensorRT engines; the embedded results are labeled FP16. Software versions differ by platform:
+
+| Platform | TensorRT | CUDA | GPU driver |
+| --- | --- | --- | --- |
+| x86 dGPUs | 10.16.0 | 13.2.20 | 595.58.03 |
+| GB200 / GB300 | 10.16.1.7 | 13.2.51 | 580.173.02 |
+| AGX Thor (iGPU) | 10.16.2.10 | 13.2.1 | 595.78 |
+| DGX Spark (iGPU) | 10.16.1.11 | 13.0.2 | 580.159.03 |
+| AGX Orin (iGPU) | 10.16.2.10 | 13.2.1 | 580 |
 
 ## KPI
 
@@ -105,7 +117,7 @@ Use `backbone: efficientvit_l2` for the v1.0/v1.0.1 EfficientViT-L2 path, or `ba
 
 Please refer to the [Requirements section](https://docs.nvidia.com/tao/tao-toolkit/latest/text/getting_started.html) of the TAO Toolkit Quick Start Guide for more details.
 
-Runtime integration for the deployable warehouse model uses DeepStream 8.0 and TAO 6.25.10 or later. The reported inference measurements use TensorRT 10.13.3.9 or later, depending on the target platform.
+The VSS 3.3 performance snapshot targets DeepStream 9.1. The measured TensorRT, CUDA, and GPU driver versions are listed in [Benchmark Software Stack](#benchmark-software-stack). TAO fine-tuning requires TAO 6.25.10 or later.
 
 ## Dataset Requirements
 

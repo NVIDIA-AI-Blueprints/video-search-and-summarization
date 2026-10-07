@@ -1,0 +1,153 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+enabled: true
+
+global:
+  imagePullSecrets: []
+  useReleaseNamePrefix: false
+
+# Overrides global.useReleaseNamePrefix when set to true or false.
+useReleaseNamePrefix: null
+
+replicaCount: 1
+
+image:
+  repository: vllm/vllm-openai
+  tag: v0.28.0
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: false
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+podSecurityContext: {}
+securityContext: {}
+
+# The official image provides the `vllm serve` entrypoint. Override command only
+# when using an image with a different entrypoint.
+command: []
+
+vllm:
+  # Override this with the Hugging Face model ID or mounted model path to serve.
+  model: facebook/opt-125m
+  servedModelName: ""
+  port: 8000
+  tensorParallelSize: 1
+  dtype: auto
+  gpuMemoryUtilization: 0.9
+  # Optional vLLM flags. Null values and empty maps are not rendered.
+  maxModelLen: null
+  maxNumSeqs: null
+  enableChunkedPrefill: false
+  skipMmProfiling: false
+  mmProcessorCacheGiB: null
+  seed: null
+  mmProcessorKwargs: {}
+  mediaIoKwargs: {}
+  overrideGenerationConfig: {}
+  defaultChatTemplateKwargs: {}
+  extraArgs: []
+
+# Optional generic middleware that replaces conflicting fields in every
+# OpenAI-compatible chat completion request with this payload.
+requestPolicy:
+  enabled: false
+  maxBodyBytes: 16777216
+  payload: {}
+
+huggingFace:
+  # Reference an existing Secret only when the model or registry requires it.
+  existingSecret: ""
+  tokenKey: HF_TOKEN
+
+service:
+  type: ClusterIP
+  port: 8000
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: vllm.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+persistence:
+  enabled: true
+  existingClaim: ""
+  mountPath: /root/.cache
+  accessModes:
+    - ReadWriteOnce
+  size: 50Gi
+  storageClass: ""
+  annotations: {}
+
+shm:
+  sizeLimit: 8Gi
+
+resources:
+  requests:
+    cpu: "1"
+    memory: 4Gi
+    nvidia.com/gpu: 1
+  limits:
+    cpu: "4"
+    memory: 16Gi
+    nvidia.com/gpu: 1
+
+startupProbe:
+  enabled: true
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 180
+
+readinessProbe:
+  enabled: true
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+
+livenessProbe:
+  enabled: true
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+terminationGracePeriodSeconds: 120
+strategy:
+  type: Recreate
+
+runtimeClassName: ""
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+extraEnv: []
+extraVolumes: []
+extraVolumeMounts: []

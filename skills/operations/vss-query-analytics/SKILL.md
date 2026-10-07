@@ -5,10 +5,12 @@ license: Apache-2.0
 vss-requires: "analytics"
 metadata:
   author: "NVIDIA Video Search and Summarization team"
-  version: "4.0.0"
+  version: "3.3.0-rc0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
+
+# VSS Query Analytics
 
 ## Purpose
 

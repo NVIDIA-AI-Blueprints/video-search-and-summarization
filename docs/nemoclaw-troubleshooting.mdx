@@ -3,7 +3,7 @@ title: "Troubleshooting"
 description: ""
 position: 4
 ---
-Recovery steps for common NemoClaw / OpenClaw / VSS orchestrator issues. Substitute your sandbox name wherever `<sandbox>` appears. The manual notebook flow in [Deploy VSS and Skills](/vss/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills) uses `demo` by default.
+Recovery steps for common NemoClaw / OpenClaw / VSS orchestrator issues. Substitute your sandbox name wherever `<sandbox>` appears. The manual notebook flow in [Deploy VSS and Skills](/vss/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills) uses `vss-harness-sandbox` by default. If you override `NEMOCLAW_SANDBOX_NAME`, use the sandbox name printed by the notebook instead.
 
 <Note>
 If the Build Vision AI Skill provisioned NemoClaw, use the sandbox name returned
@@ -71,6 +71,75 @@ Launching Cursor from a terminal where `node -v` reports `v22.x` makes the kerne
    ```bash
    ssh -L 18789:127.0.0.1:18789 <user>@<nemoclaw-host>
    ```
+
+## Dashboard Port Already in Use
+
+**Symptom**: The Build Vision AI Skill stops at harness selection, before deploying, naming what holds `18789` or `18790`. On a manual notebook run the same conflict surfaces later: Section 3.1 onboarding ends with "Port 18789 is not available." if you exported `NEMOCLAW_DASHBOARD_PORT`, or puts the sandbox dashboard on the next free port in `18789`–`18799` if you did not, leaving the rest of the notebook addressing `18789`; Section 3.5 stops with "Port 18790 is held by pid …, which is not '\<sandbox\>'s dashboard relay". A NemoClaw older than the pinned `NEMOCLAW_INSTALL_REF` reported the onboarding half as "did not receive the required baseline scopes" instead.
+
+**Cause**: Every sandbox defaults to the same two ports — `NEMOCLAW_DASHBOARD_PORT` (`18789`) and `NEMOCLAW_DASHBOARD_RELAY_PORT` (`18790`) — so any sandbox left running on the host holds them. The notebook reclaims a port only from **its own** sandbox name: Section 3.1 replaces the sandbox named `NEMOCLAW_SANDBOX_NAME` when `NEMOCLAW_RECREATE_SANDBOX` is `True`, and Section 3.5 replaces that name's relay started from the same checkout. Anything else — another sandbox name, a relay from a second clone, or an unrelated listener — is left alone by design.
+
+The auto-allocation range (`18789`–`18799`) includes the relay's own default, so an onboard that reallocates because `18789` is taken can hand the sandbox dashboard `18790` and leave Section 3.5 with nowhere to bind. Export both `NEMOCLAW_DASHBOARD_PORT` and `NEMOCLAW_DASHBOARD_RELAY_PORT` to keep the two apart: that also makes the dashboard port explicit, so onboard reports a conflict instead of moving the sandbox, and the notebook's equality check only catches values you set yourself.
+
+**Limitation**: Neither the notebook nor teardown cleans up a sandbox it does not own. Teardown also leaves the relay and watchdog of any sandbox it did not destroy.
+
+**Solution**: Identify the owner, then clear it yourself — neither the Skill nor the notebook will destroy a sandbox it does not own:
+
+```bash
+# Absent until notebook Section 3.1 installs it, so do not let it fail the probe.
+command -v openshell >/dev/null \
+  && openshell sandbox list                         # compare against NEMOCLAW_SANDBOX_NAME
+for port in "${NEMOCLAW_DASHBOARD_PORT:-18789}" "${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"; do
+  python3 -c 'import socket,sys; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(("",int(sys.argv[1])))' "$port" 2>/dev/null \
+    && { echo "$port free"; continue; }
+  # The holder's own command line is what names its sandbox: the forward is an
+  # `openshell ... forward service <name>` process, so no --sandbox pattern
+  # finds it, and the PID alone says nothing about ownership.
+  echo "$port held by:"
+  for pid in $(lsof -tnP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null \
+    || ss -Hltnp "sport = :$port" 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2); do
+    printf '  %s: ' "$pid"; tr '\0' ' ' 2>/dev/null <"/proc/$pid/cmdline"; echo
+  done
+done
+# stderr first: a process that exits mid-scan makes the shell's own open fail.
+# `--sandbox` is required, not decoration: the echo below carries the relay path
+# in this block's own command line, which `[d]` does not hide from the scan.
+for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' 2>/dev/null <"$f"; echo; done \
+  | grep -E '[d]ashboard-(relay|forward-watchdog)\.py .*--sandbox '  # names the owner
+# A relay must carry this path to count as yours, not just the sandbox name.
+# The notebook's own value, from any directory you run this in.
+HARNESS_SRC="$(cd "${VSS_REPO_DIR:-$HOME/video-search-and-summarization}" && pwd -P)"  # harness source ref: <that>/_builds/<name>/harness-src
+echo "your relay: $HARNESS_SRC/deploy/docker/scripts/nemoclaw/dashboard-relay.py"
+```
+
+The bind test decides free or held on its own, so a host without `lsof` or `ss`
+still sees the conflict — it just cannot name the holder. Probe the ports your
+deployment actually uses: the loop reads `NEMOCLAW_DASHBOARD_PORT` and
+`NEMOCLAW_DASHBOARD_RELAY_PORT` when you have overridden either default.
+
+A matching sandbox name is not enough for the relay: Section 3.5 keeps one only
+when its script path is the one under `VSS_REPO_DIR` too, so a same-name relay
+from a second clone is foreign and must be stopped like any other. If you
+deployed from a harness source ref, that path is the `_builds/<name>/harness-src`
+worktree rather than the checkout — compare against the worktree, or the
+checkout's own relay will look like yours when Section 3.5 will reject it. With
+`VSS_REPO_DIR` unset the notebook uses `$HOME/video-search-and-summarization`,
+so export it when your checkout lives elsewhere.
+
+```bash
+# Watchdog first: it answers a dying forward with `nemoclaw recover`. Relay
+# last: `destroy` releases the forward, never the relay. Drop the `destroy`
+# when `openshell sandbox list` no longer shows <other>.
+OTHER='<other>'
+# pkill -f compiles an extended regex, so escape every metacharacter in the
+# name: an unescaped one matches other sandboxes' processes too, and these
+# scripts are shared by every sandbox on the host.
+OTHER_RE="$(printf '%s' "$OTHER" | sed 's/[][(){}.*+?^$|\\]/\\&/g')"
+pkill -f -- "dashboard-forward-watchdog\.py --sandbox ${OTHER_RE}( |$)"
+nemoclaw "$OTHER" destroy --yes --cleanup-gateway
+pkill -f -- "dashboard-relay\.py --sandbox ${OTHER_RE}( |$)"
+```
+
+Each port must be free, or held by your own sandbox name — which Section 3.1 reclaims with `NEMOCLAW_RECREATE_SANDBOX` — before you continue. Then ask your coding agent to resume the Skill, or re-run Section 3 after a manual notebook run.
 
 ## MCP Tools Not Visible or Not Reachable
 

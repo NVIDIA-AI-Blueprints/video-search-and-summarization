@@ -95,6 +95,12 @@ global:
 # className, hosts.*, annotations, tls — each wins over its counterpart below.
 # Its removed cliRoutes.* keys are ignored; Elasticsearch and the RTVI mounts
 # are no longer toggled. Set one block or the other, not both.
+#
+# vssVersion (top-level, below) is the version this deployment reports at
+# GET /api/v1/version, answered by the HAProxy ingress. Stamped by
+# .github/scripts/stamp_versions.py from the nearest v* git tag, never by hand.
+# See .github/version-convention.md.
+vssVersion: "3.3.0-rc0"
 vssIngress:
   enabled: true
   ingressClassName: haproxy
@@ -287,7 +293,7 @@ rtvi:
       DS_MODE_FLAG: "1"
       DS_MESSAGE_RATE: "1"
       VISION_ENCODER_MODEL: siglip_v2
-      VISION_ENCODER_VERSION: v1.1
+      VISION_ENCODER_VERSION: v2.0
       STREAM_TYPE: kafka
     otelSdkDisabled: 'true'
     otelServiceName: rtvi-cv
@@ -313,18 +319,18 @@ rtvi:
         org: nvidia
         sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
         destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
-      - model: nvidia/tao/siglip_v2:deployable_v1.1
+      - model: nvidia/tao/siglip_v2:deployable_v2.0
         org: nvidia
-        sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1.onnx
-        destPath: siglip_v2_v1.1.onnx
-      - model: nvidia/tao/siglip_v2:deployable_v1.1
+        sourcePath: siglip_v2_vdeployable_v2.0/siglip_v2_v2.0.onnx
+        destPath: siglip_v2_v2.0.onnx
+      - model: nvidia/tao/siglip_v2:deployable_v2.0
         org: nvidia
-        sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_weights.bin
-        destPath: siglip_v2_v1.1_weights.bin
-      - model: nvidia/tao/siglip_v2:deployable_v1.1
+        sourcePath: siglip_v2_vdeployable_v2.0/siglip_v2_v2.0_weights.bin
+        destPath: siglip_v2_v2.0_weights.bin
+      - model: nvidia/tao/siglip_v2:deployable_v2.0
         org: nvidia
-        sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_tokenizer
-        destPath: siglip_v2_v1.1_tokenizer
+        sourcePath: siglip_v2_vdeployable_v2.0/siglip_v2_v2.0_tokenizer
+        destPath: siglip_v2_v2.0_tokenizer
     models:
       authSecretName: ngc-api-key-secret
       authSecretKey: NGC_API_KEY
@@ -346,7 +352,7 @@ rtvi:
       #   DS name:    {model}-onnx
       visionEncoder:
         model: siglip_v2
-        version: v1.1
+        version: v2.0
     resources:
       limits:
         nvidia.com/gpu: 1
@@ -476,7 +482,7 @@ rtvi:
       - name: KAFKA_ENABLED
         value: "false"
       - name: ERROR_MESSAGE_TOPIC
-        value: "vision-llm-errors"
+        value: "mdx-vlm-errors"
       # Generated-output and error buses (compose defaults from rtvi-vlm-docker-compose.yml).
       - name: MESSAGE_BUS
         value: "kafka"
@@ -573,6 +579,8 @@ rtvi:
       # RT-CV in local_shared mode, which has no Kubernetes equivalent.
       - name: VLLM_GPU_MEMORY_UTILIZATION
         value: ""
+      - name: VLLM_DISABLED_KERNELS
+        value: "FlashInferFP8ScaledMMLinearKernel"
       # GB300 uses TRITON_ATTN; an empty value preserves the default on other platforms.
       - name: VLLM_ATTENTION_BACKEND
         value: ""

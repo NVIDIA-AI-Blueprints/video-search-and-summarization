@@ -21,7 +21,52 @@ More advanced techniques will be included in future releases to address similar 
 
 ### False Object Detections in MV3DT
 
-Multiple bounding boxes (BBOX) for the same object may be observed when running the [MV3DT Vision AI Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile).
+The [MV3DT Vision AI Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile) may exhibit the following detection and tracking issues:
+
+- **Tracker ID switches:** When people move close together, a tracker ID may switch from one person to another. IDs may also become associated with different objects across camera views.
+- **Tracking loss:** Previously tracked objects may lose their tracks while still visible.
+- **False detections:** Bounding boxes may appear on background structures or empty areas where no target object is present.
+- **Detached or oversized bounding boxes:** Boxes may be offset from their objects, float above them, or extend substantially beyond their dimensions.
+- **Duplicate bounding boxes:** Multiple boxes, sometimes with different tracker IDs, may appear on the same object.
+- **Unstable bounding boxes:** Boxes may flicker or change inconsistently between frames.
+- **Missed detections:** Visible people or vehicles may have no bounding box.
+
+### Appearance ReID gallery and GPU
+
+* The Milvus gallery is not durable storage. Warehouse Compose has no named volumes for etcd, MinIO, or Milvus, so `docker compose restart` keeps appearance memory, and `docker compose down` (or recreating those containers) empties it until new `mdx-raw` embeddings are ingested. Standalone named volumes survive `docker compose down` unless you pass `-v`. Helm uses `emptyDir` for those backends, so the gallery is cleared when the pods are recreated, not on a process restart inside a running pod.
+* Re-association applies to **Person** only (`operateOnClassIds: [0]`).
+* Helm files three GPU claims (perception, stream processing, `reid-embed`) against two physical cards. Without GPU time-slicing, first install can deadlock: the init Job needs a GPU to export CLIP-ReID while other pods already hold both cards. Enable time-slicing or stage models out of band as described in the [warehouse-mv3dt-app Helm README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/README.md).
+
+## Helm Deployment
+
+### VST Software Mode Without a GPU Can Affect Overlays and the Video Wall
+
+Use a dedicated GPU for VIOS streamprocessing in the Warehouse 2D, 3D, and MV3DT Helm charts. Do not use software mode: it can cause video bounding-box overlay (VBO) misalignment and video-wall failures.
+
+Keep hardware video processing enabled and allocate one GPU to streamprocessing:
+
+```yaml
+vios:
+  vss-vios-streamprocessing:
+    useSoftwarePath: false
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+      requests:
+        nvidia.com/gpu: 1
+```
+
+RTVI-CV retains its own GPU allocation.
+
+### GPU Sharing
+
+If there are not enough physical GPUs for dedicated allocations, configure GPU sharing before deployment while keeping hardware video processing enabled.
+
+[Multi-Instance GPU (MIG)](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-operator-mig.html) provides memory and fault isolation on supported hardware; [GPU time-slicing](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html) shares GPU access without that isolation. Choose based on your hardware and workload requirements, including VIOS video encode/decode support in the selected MIG profile. See the [MIG and time-slicing comparison](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html#comparison-time-slicing-and-multi-instance-gpu).
+
+GPU time-slicing can be used with the Warehouse Blueprint’s [2D](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-profile), [3D](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile), [MV3DT](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile) and [2D with Agents](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile) profiles.
+
+For ConfigMap and device-plugin configuration examples, see [NVIDIA GPU time-slicing configuration](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html#configuration). Two shared allocations allow RTVI-CV and VIOS alone to share one physical GPU. Additional GPU workloads, such as ReID or in-cluster RT-VLM, require additional shared allocations and sufficient GPU memory.
 
 ## VLM Verification of Incidents
 
@@ -29,14 +74,17 @@ When a person is inside a forklift, the interaction may be incorrectly classifie
 
 ## Agents
 
-Known issues with the [Agents](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/agents) are listed below.
-
-* Video clips analyzed by VLM should be 5-300 seconds for optimal results
-* Report generated by VLM may contain inaccurate timestamps sometimes.
-* On H100 and RTX PRO 6000 Blackwell, only the default NIMs (LLM and VLM) have been tested to run on shared GPUs. On L40S, shared GPU mode is not supported. Use Dedicated GPUs or Remote NIMs for other models.
-* On L4, RTX 6000 ADA, IGX-THOR and DGX-SPARK local NIMs are not supported. Use Remote NIMs for all models.
+See [Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues) for agent limitations.
 
 ## Alert Verification
+
+### RTX PRO 4500: Dropped Live VLM Results
+
+With `MODE=2d` and `BP_PROFILE=bp_wh`, RTVI-VLM running on a single RTX PRO 4500 Blackwell GPU may drop video chunks and result messages when the live workload saturates that GPU. This can cause missing VLM responses and alerts even while the container reports healthy. Logs may show `Live decoder backlog exceeded` or `Kafka async send queue is full`.
+
+To reduce load, remove or comment out unneeded rule blocks under `always_on_rules` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/vlm-as-verifier/realtime-config.yml`, keeping at least one rule, then redeploy the stack. Removed rules will no longer generate alerts.
+
+### VLM Connectivity Errors
 
 While running the Warehouse Blueprint **2D Vision AI Profile with Agents**, you may sometimes see the following error in mdx-vlm-incidents:
 
@@ -58,141 +106,30 @@ If the `scaleFactor` is not provided or is improper with respect to the floor ma
 the computed distance-related properties can be affected.
 In future releases, Auto Calibration will remove the requirement to provide both a floor map and `scaleFactor`.
 
-### Calibration is based on detected persons
+### AMC requires detected person movement
 
-The tracklet-based AMC method detects person movements from input videos and performs camera calibration based on them.
-The video should have people moving into various locations in camera view for the AMC method to work best.
-Currently, the AMC method only supports person as the target and it will not work on video
-without enough person movements. Support for general object tracking will be added in future releases.
+The tracklet-based AMC method calibrates cameras from detected person movements in input videos. It requires sufficient people moving through different areas of each camera's view; footage without enough person movement is unsuitable for AMC.
 
-### Global Tripwire and ROI for 3D Blueprint
+This requirement does not apply to VGGT. For multi-camera calibration with VGGT support installed, users can choose whether to run AMC or VGGT first; VGGT does not require a successful AMC run.
 
-VSS warehouse blueprint 3D profile needs global tripwire / ROI to generate related events.
-Auto Calibration currently supports per sensor tripwire / ROI only.
-To make the Auto Calibration output file compatible with the 3D blueprint,
-the user can first define the tripwire / ROI for one particular sensor then in the output calibration file
-manually move the tripwire/ROI from under `sensors` section to top level of the calibration file.
+### Tripwires Limited to Two Points
+
+The Auto Calibration UI supports only a two-point tripwire: a start point and an end point. Users cannot add intermediate vertices to create a polyline. UI annotations represent a single line segment, and the raw exported calibration stores only `wire.p1` and `wire.p2`. Polyline tripwire authoring and export are currently unsupported.
 
 ### Image mode calibration
 
-VSS warehouse blueprint has mainly been used for use cases where the locations of objects are tracked and analyzed in a global coordinate system.
-It supports all functionalities in image pixel coordinate as well, which we call image mode.
-Auto Calibration currently does not support image mode. For image mode, there are no camera parameters needed (intrinsics, extrinsics, homography, etc.) since there is no coordinate transformation involved.
-The tripwires and ROIs need to be defined in pixel coordinates. Since Auto Calibration does not support image mode at the moment, the user needs to manually find the pixel coordinates for the defined tripwires and ROIs.
-It can be done by using image editing software or tools like Paint, IrfanView, etc.
-In addition, the user needs to set `"calibrationType": "image"` instead of `"calibrationType": "cartesian"` in the calibration file.
+VSS warehouse blueprint has mainly been used for use cases where the
+locations of objects are tracked and analyzed in a global coordinate system.
+It also supports all functionalities in image pixel coordinates — called
+**image mode** — using a calibration file typed `"calibrationType": "image"`.
 
-Below is an example of the calibration file for image mode:
+Limitations of image mode:
 
-```json
-{
-    "version": "1.0",
-    "osmURL": "",
-    "calibrationType": "image",
-    "sensors": [
-    {
-            "id": "Camera_01",
-            "type": "camera",
-            "imageCoordinates": [],
-            "globalCoordinates": [],
-            "coordinates": {
-            "x": 0,
-            "y": 0
-            },
-            "origin": {
-            "lat": 0,
-            "lng": 0
-            },
-            "geoLocation": {
-            "lat": 0,
-            "lng": 0
-            },
-            "scaleFactor": 1,
-            "attributes": [
-            {
-                    "name": "fps",
-                    "value": "0.0"
-            },
-            {
-                    "name": "depth",
-                    "value": ""
-            },
-            {
-                    "name": "fieldOfView",
-                    "value": ""
-            },
-            {
-                    "name": "direction",
-                    "value": ""
-            },
-            {
-                    "name": "source",
-                    "value": "vst"
-            },
-            {
-                    "name": "frameWidth",
-                    "value": "1920"
-            },
-            {
-                    "name": "frameHeight",
-                    "value": "1080"
-            }
-            ],
-            "rois": [
-            {
-                    "id": "roi-id-1",
-                    "roiCoordinates": [
-                    {
-                            "x": 4.87747667,
-                            "y": 18.9756077
-                    },
-                    {
-                            "x": 4.87747667,
-                            "y": 11.2385153
-                    },
-                    {
-                            "x": 9.57440535,
-                            "y": 11.2385153
-                    },
-                    {
-                            "x": 9.57440535,
-                            "y": 18.9756077
-                    }
-                    ],
-                    "restrictedObjectTypes":["Person"],
-                    "confinedObjectTypes": ["Forklift"]
-            }
-            ],
-            "place": [],
-            "tripwires": [
-            {
-                    "id": "tripwire-id-1",
-                    "wire": {
-                    "p1": {
-                            "x": 943,
-                            "y": 606.0
-                    },
-                    "p2": {
-                            "x": 1403.0,
-                            "y": 309.0
-                    }
-                    },
-                    "direction": {
-                    "p1": {
-                            "x": 1040.0,
-                            "y": 395
-                    },
-                    "p2": {
-                            "x": 1282.0,
-                            "y": 566.0
-                    }
-                    }
-            }
-            ]
-    }
-    ]
-    }
-```
+- Set `"calibrationType": "image"` instead of `"calibrationType":
+  "cartesian"` in the calibration file.
+- Auto Calibration does not support image-coordinate tripwires and ROIs —
+  find their pixel coordinates manually, using image editing software (Paint,
+  IrfanView, etc.).
 
 ## Brev Launchable
 

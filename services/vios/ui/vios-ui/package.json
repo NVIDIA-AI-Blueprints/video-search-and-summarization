@@ -40,7 +40,7 @@
     "@mui/material": "^6.3.0",
     "@mui/x-date-pickers": "^7.23.3",
     "apexcharts": "4.3.0",
-    "axios": "^1.19.0",
+    "axios": "^1.20.0",
     "cron-validate": "^1.4.5",
     "cronstrue": "^2.52.0",
     "d3-scale": "^4.0.2",
@@ -94,6 +94,7 @@
     "lodash-es": "4.18.1",
     "react-is": "19.3.0-canary-fef12a01-20260413",
     "yaml@1": "1.10.3",
-    "yaml@2": "2.9.0"
+    "yaml@2": "2.9.0",
+    "source-map-js": "^1.2.2"
   }
 }

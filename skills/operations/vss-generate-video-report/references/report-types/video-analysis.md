@@ -13,27 +13,13 @@ Numbered steps for Mode A, loaded on demand from [`SKILL.md`](../../SKILL.md) (`
 
 ## Mode A — Report on a recorded video clip
 
-**If the VSS `lvs` profile is deployed** — probe LVS readiness, then hand off:
-
-```bash
-# Fresh shell: paste the Endpoint resolution hand-off (SKILL.md) at the top of this block.
-case "${DEPLOYMENT_KIND:?paste the Endpoint resolution output at the top of this block}" in
-  kubernetes|docker) ;;
-  *) echo "ERROR: DEPLOYMENT_KIND must be kubernetes or docker, got '${DEPLOYMENT_KIND}'" >&2; exit 1 ;;
-esac
-# Kubernetes (DEPLOYMENT_KIND from the hand-off) uses the public Exact path; Docker uses the host port.
-if [ "${DEPLOYMENT_KIND}" = "kubernetes" ]; then
-  _lvs_ready="${VSS_PUBLIC_URL:?kubernetes hand-off lacks VSS_PUBLIC_URL — re-run Endpoint resolution}/lvs/v1/ready"
-else
-  _lvs_ready="http://${HOST_IP:-localhost}:38111/v1/ready"
-fi
-# Exit 0 = LVS ready (hand off to /vss-summarize-video); non-zero = not ready (take the VLM-direct path).
-curl -sf --max-time 5 "${_lvs_ready}" >/dev/null && echo "LVS ready: ${_lvs_ready}" || { echo "LVS not ready (${_lvs_ready}) — take the VLM-direct path" >&2; exit 1; }
-```
-
-When that returns HTTP 200, run `/vss-summarize-video` to produce the summary,
-then paste its output into the report template in Step 4 and skip Steps 1–3
-(the VLM-direct path). Run Steps 1–3 only when `/v1/ready` is non-200. The LVS path has no Step 3 prompt-approval loop: when HITL resolved `false` (or the caller asked for autonomous execution) invoke `/vss-summarize-video` with its explicit autonomous instruction and defaults (`scenario="activity monitoring"`, `events=["notable activity"]`) and state those defaults in the chat response; when HITL resolved `true`, its settings dialogue replaces the Step 3 approval.
+Mode A routes by clip duration, not by LVS readiness. Step 1 measures the clip:
+under 120 s, run Steps 1–3 (direct VLM). At 120 s or longer (the Long-video
+rule), run `/vss-summarize-video`, which uses LVS when ready and `vss vlm run`
+otherwise, then paste its output into the Step 4 template and skip Steps 2–3.
+A base64 input is decoded to a file first (`base64 -d "$VIDEO_B64_FILE" >
+<file>`) and handed off by that path.
+That hand-off has no Step 3 prompt-approval loop: when HITL resolved `false` (or the caller asked for autonomous execution) invoke `/vss-summarize-video` with its explicit autonomous instruction and defaults (`scenario="activity monitoring"`, `events=["notable activity"]`) and state those defaults in the chat response; when HITL resolved `true`, its settings dialogue replaces the Step 3 approval.
 
 ### Step 1 — Resolve Mode A input (A1 clip URL or A2 local-file/base64)
 
@@ -79,7 +65,7 @@ Hand off to `/vss-manage-video-io-storage` to:
    # LC_ALL=C: awk formats and parses numbers per locale; a decimal comma would break the checks below and Step 3.
    CLIP_SECONDS=$(LC_ALL=C awk -v s="$_s" -v e="$_e" 'BEGIN{d=sprintf("%.3f", e-s); if (d ~ /\./) { sub(/0+$/,"",d); sub(/\.$/,"",d) }; print d}')
    case "$CLIP_SECONDS" in -*|0) echo "ERROR: resolved window is empty or reversed (${CLIP_START} -> ${CLIP_END})" >&2; exit 1 ;; esac
-   LC_ALL=C awk -v d="$CLIP_SECONDS" 'BEGIN{exit !(d+0 < 120)}' || { echo "Clip is ${CLIP_SECONDS} s (120 s or longer): the direct VLM path is not allowed — Long-video rule, use the LVS path" >&2; exit 1; }
+   LC_ALL=C awk -v d="$CLIP_SECONDS" 'BEGIN{exit !(d+0 < 120)}' || { echo "Clip is ${CLIP_SECONDS} s (120 s or longer): hand off to /vss-summarize-video (Long-video rule)" >&2; exit 1; }
    printf 'VIDEO_URL=%q\nCLIP_START=%q\nCLIP_END=%q\nCLIP_SECONDS=%q\n' "${VIDEO_URL}" "${CLIP_START}" "${CLIP_END}" "${CLIP_SECONDS}"
    ```
 
@@ -117,11 +103,10 @@ For this path, set report `Clip URL` row to `N/A (local/base64 input)` unless a 
 
 #### Long-video rule (required)
 
-If user input video/clip duration is **120 seconds (2 mins) or longer**, stop Mode A direct path and prompt:
-- deploy and use **LVS** via `/vss-build-vision-ai` (Docker Compose; on Kubernetes report the missing `/lvs` route to the deployment owner) + `/vss-summarize-video`,
-- then continue report templating with LVS output.
-
-Do not continue direct VLM Mode A on videos that are 120 seconds or longer. The rule is enforced in code: the A1 Step 1 block computes `CLIP_SECONDS` from the resolved window and refuses at 120 s or more, and the Step 3 block requires `CLIP_SECONDS` (A1 hand-off, or the A2 duration measured with `ffprobe`) and refuses again — never a default.
+A clip of **120 seconds or longer** never takes the direct VLM path: hand off to
+`/vss-summarize-video` and continue with its output in Step 4. The A1 Step 1
+block and the Step 3 block both exit on `CLIP_SECONDS` of 120 or more — never a
+default; that exit is the hand-off, not a failure.
 
 ### Step 2 — Resolve VLM endpoint and model
 
@@ -290,7 +275,7 @@ MAX_PIXELS="${VIDEO_UNDERSTANDING_MAX_PIXELS:-$MAX_PIXELS}"
 : "${CLIP_SECONDS:?paste CLIP_SECONDS from the Step 1 hand-off (A1) or set the measured duration in seconds (A2)}"
 case "$CLIP_SECONDS" in ''|.*|*[!0-9.]*) echo "ERROR: CLIP_SECONDS must be a number of seconds, got '${CLIP_SECONDS}'" >&2; exit 1 ;; esac
 LC_ALL=C awk -v d="$CLIP_SECONDS" 'BEGIN{exit !(d+0 > 0)}' || { echo "ERROR: CLIP_SECONDS must be greater than 0 s, got '${CLIP_SECONDS}' — re-measure the clip" >&2; exit 1; }
-LC_ALL=C awk -v d="$CLIP_SECONDS" 'BEGIN{exit !(d+0 < 120)}' || { echo "Clip is ${CLIP_SECONDS} s (120 s or longer): the direct VLM path is not allowed — Long-video rule, use the LVS path" >&2; exit 1; }
+LC_ALL=C awk -v d="$CLIP_SECONDS" 'BEGIN{exit !(d+0 < 120)}' || { echo "Clip is ${CLIP_SECONDS} s (120 s or longer): hand off to /vss-summarize-video (Long-video rule)" >&2; exit 1; }
 CLIP_SECONDS=$(LC_ALL=C awk -v s="$CLIP_SECONDS" 'BEGIN{printf "%d", s}')   # truncated here only, for num_frames (bash arithmetic is integer-only); both gates above ran on the precise value
 NUM_FRAMES=$(( CLIP_SECONDS * MAX_FPS ))
 [ "$NUM_FRAMES" -gt "$MAX_FRAMES" ] && NUM_FRAMES=$MAX_FRAMES

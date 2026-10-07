@@ -17,15 +17,14 @@ the sandbox keeps the base image's model, limits, and inference URL. This script
 applies the session's ARGs to the inherited config at build, before the config
 hash is recomputed.
 
-Derivations mirror NemoClaw's generator (scripts/generate-openclaw-config.mts):
-the gateway port follows the explicit onboard CHAT_UI_URL port;
-origins are unique([loopback, chat, portless]); allowInsecureAuth is
-scheme == http; device auth is disabled for a non-loopback UI host.
-
-Onboard keeps the session's host in CHAT_UI_URL and rewrites only its port, so a
-remote origin arrives here intact and this is where it enters the config: nothing
-can add one afterwards, since `config set` refuses gateway.*. Section 3.5 of
-deploy_nemoclaw.ipynb only checks that what arrived is what the browser will send.
+controlUi.allowedOrigins is always a wildcard: the gateway binds loopback, the
+gates are the token and (for a loopback UI host) device auth rather than the
+origin, and an origin derived from CHAT_UI_URL could miss
+the one the browser sends (onboard rewrites its port). CHAT_UI_URL selects the
+gateway's explicit unprivileged port and sets the
+auth flags: allowInsecureAuth is scheme == http; device auth is disabled for a
+non-loopback UI host. `config set` refuses gateway.*, so this is the only place
+to set them.
 """
 
 from __future__ import annotations
@@ -49,26 +48,14 @@ def _qualify(model: str) -> str:
     return model if model.startswith("inference/") else f"inference/{model}"
 
 
-def control_ui(chat_ui_url: str, gateway_port: int) -> dict | None:
-    """The controlUi block NemoClaw's generator would have produced."""
+def control_ui_auth(chat_ui_url: str) -> dict | None:
+    """The controlUi auth flags for the UI host CHAT_UI_URL names, or None."""
     if not chat_ui_url:
         return None
     parsed = urlparse(chat_ui_url)
     if not parsed.scheme or not parsed.hostname:
         return None
-    loopback = f"http://127.0.0.1:{gateway_port}"
-    chat = f"{parsed.scheme}://{parsed.netloc}"
-    portless = (
-        f"{parsed.scheme}://{parsed.hostname}"
-        if parsed.port is not None and not _is_loopback(parsed.hostname)
-        else None
-    )
-    origins: list[str] = []
-    for origin in (loopback, chat, portless):
-        if origin and origin not in origins:
-            origins.append(origin)
     return {
-        "allowedOrigins": origins,
         "allowInsecureAuth": parsed.scheme == "http",
         "dangerouslyDisableDeviceAuth": not _is_loopback(parsed.hostname),
     }
@@ -131,7 +118,7 @@ def apply(config: str | None = None, env: dict | None = None) -> list[str]:
                 del models[0][cfg_key]
                 changes.append(f"{cfg_key} dropped (baked for another model, none supplied)")
 
-    # --- control UI origins: onboard supplies CHAT_UI_URL --------------------
+    # --- control UI: onboard supplies the gateway port and auth flags --------
     gateway = cfg.setdefault("gateway", {})
     port = gateway.get("port") if isinstance(gateway.get("port"), int) else 18789
     chat_ui_url = (env.get("CHAT_UI_URL") or "").strip()
@@ -148,12 +135,15 @@ def apply(config: str | None = None, env: dict | None = None) -> list[str]:
         if port != selected_port:
             gateway["port"] = port = selected_port
             changes.append(f"gateway.port -> {port}")
-    ui = control_ui(chat_ui_url, port)
-    if ui:
-        current = gateway.setdefault("controlUi", {})
-        if current.get("allowedOrigins") != ui["allowedOrigins"]:
-            changes.append(f"allowedOrigins {current.get('allowedOrigins')} -> {ui['allowedOrigins']}")
-        current.update(ui)
+    # Preserve develop's wildcard origins independently of the selected port.
+    current = gateway.setdefault("controlUi", {})
+    if current.get("allowedOrigins") != ["*"]:
+        changes.append(f"allowedOrigins {current.get('allowedOrigins')} -> ['*']")
+        current["allowedOrigins"] = ["*"]
+    for key, value in (control_ui_auth(chat_ui_url) or {}).items():
+        if current.get(key) != value:
+            changes.append(f"{key} {current.get(key)} -> {value}")
+            current[key] = value
 
     if changes:
         with open(config, "w") as handle:

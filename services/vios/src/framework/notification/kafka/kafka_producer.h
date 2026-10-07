@@ -25,7 +25,6 @@
 #include <librdkafka/rdkafka.h>
 #endif
 
-using namespace nv_vms;
 
 #if !defined(AARCH64_PLATFORM)
 struct KafkaLibHandle;
@@ -40,7 +39,7 @@ typedef int (*rd_kafka_poll_t) (rd_kafka_t*, int);
 typedef const char* (*rd_kafka_err2str_t) (rd_kafka_resp_err_t);
 #endif
 
-class NvKafka : public INotificationInterface
+class NvKafka : public nv_vms::INotificationInterface
 {
 public:
     static NvKafka* getInstance();

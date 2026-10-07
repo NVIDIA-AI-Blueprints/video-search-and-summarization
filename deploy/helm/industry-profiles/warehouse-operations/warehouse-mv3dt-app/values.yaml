@@ -24,8 +24,8 @@ global:
   # Set at install: --set global.externalHost=<NODE_IP>
   # With HAProxy ingress leave blank and set vssIngress.host instead.
   externalHost: ""
-  # NodePort for VST ingress (30888). Set when using values-nodeport.yaml.
   externalPort: ""
+  vstExternalPort: ""
   # Branch/tag for calibration-import source URLs. Empty falls back to "develop".
   gitRef: ""
   # Dataset dir under calibration/sample-data/, shared by calibration-import's source URLs.
@@ -194,10 +194,18 @@ vios:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
       streamerVideos: { enabled: true, create: false, existingClaim: "" }
-    # GPU for hardware-accelerated encode/decode. To run in software mode (lower
-    # throughput, frees the GPU for other workloads), set both in your values override:
-    #   vios.vss-vios-streamprocessing.useSoftwarePath: true
-    #   vios.vss-vios-streamprocessing.resources: null
+    # GPU for hardware-accelerated encode/decode. For software mode (lower throughput),
+    # add this nested YAML to your profile override file:
+    # vios:
+    #   vss-vios-streamprocessing:
+    #     useSoftwarePath: true
+    #     resources:
+    #       limits:
+    #         nvidia.com/gpu: 0
+    #       requests:
+    #         nvidia.com/gpu: 0
+    # Use explicit 0 values; null restores dependency defaults during Helm coalescing.
+    # VST overlay and video wall do not work properly without GPU allocation.
     useSoftwarePath: false
     resources:
       limits:
@@ -538,6 +546,11 @@ monitoring:
     enabled: false
 
 # HAProxy Ingress, mirroring the vss-haproxy-ingress compose service.
+# The version this deployment reports at GET /api/v1/version, answered by the
+# HAProxy ingress. Stamped by .github/scripts/stamp_versions.py from the nearest
+# v* git tag, never by hand. See .github/version-convention.md.
+vssVersion: "3.3.0-rc0"
+
 # Optional HAProxy path-based ingress (requires a cluster-wide HAProxy ingress
 # controller). Off by default. Use values-nodeport.yaml to expose VST on NodePort 30888.
 # To enable: --set global.vssIngress.enabled=true --set global.externalHost=<HOST>

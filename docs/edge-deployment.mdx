@@ -106,13 +106,13 @@ docker compose -f compose.yml \
   --env-file containers.env \
   --env-file developer-profiles/dev-profile-base/.env \
   --env-file developer-profiles/dev-profile-base/user-overrides.env \
-  up -d
+  up --detach --pull always --force-recreate --build
 ```
 
 ## DGX Spark
 
 Add the platform values to `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`,
-then run the `docker compose config --quiet` / `up -d` commands above:
+then run the `docker compose config --quiet` / `up --detach --pull always --force-recreate --build` commands above:
 
 ```ini
 # developer-profiles/dev-profile-base/user-overrides.env

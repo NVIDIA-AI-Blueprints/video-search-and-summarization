@@ -85,7 +85,7 @@ class GstNvAudioDecoder : public IMediaDataConsumer, public GstNvDecoder
         }
         ~GstNvAudioDecoder ()
         {
-            LOG(info) << "Audio Decoder instance deleted  for uri = " << m_uri << endl;
+            LOG(info) << "Audio Decoder instance deleted  for uri = " << m_uri << std::endl;
         }
 
         /* GstNvDecoder Interfaces */
@@ -105,7 +105,7 @@ class GstNvAudioDecoder : public IMediaDataConsumer, public GstNvDecoder
         using IMediaDataConsumer::onFrame;
         void onFrame(FrameParams& params) override;
         
-        vector<uint16_t>                             m_audioBuffer;
+        std::vector<uint16_t>                             m_audioBuffer;
         std::mutex                                   m_sinkLock;
         std::list<webrtc::AudioTrackSinkInterface *> m_sinks;
         AudioData                                    m_audioData;

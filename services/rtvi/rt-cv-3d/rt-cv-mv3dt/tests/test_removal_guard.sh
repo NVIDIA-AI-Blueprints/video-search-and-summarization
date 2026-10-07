@@ -18,6 +18,8 @@
 # Sources the two guard functions with a stubbed `docker` on PATH, so no
 # deployment is needed. Run: tests/test_removal_guard.sh
 
+# Bug 6631012. removal before the pipeline has batched once leaves the API unresponsive
+#
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$HERE/../scripts/add-streams.sh"

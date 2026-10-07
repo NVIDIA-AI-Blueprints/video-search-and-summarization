@@ -60,10 +60,9 @@ spec:
               value: {{ .Values.minio.rootUser | quote }}
             - name: MINIO_ROOT_PASSWORD
               value: {{ .Values.minio.rootPassword | quote }}
-          command:
-            - minio
+          args:
             - server
-            - /minio_data
+            - /data
             - --console-address
             - ":{{ .Values.minio.consolePort }}"
             - --address
@@ -97,7 +96,7 @@ spec:
           {{- end }}
           volumeMounts:
             - name: data
-              mountPath: /minio_data
+              mountPath: /data
       volumes:
         - name: data
           emptyDir: {}

@@ -3,8 +3,8 @@
 # Versions are kept in step with the measurement-fusion image
 # (Pipfile) so the protobuf wire format and the Kafka
 # client behave identically on both sides of the integration test.
-pytest>=7.0.0
-pytest-timeout>=2.1.0
+pytest>=9.0.3                   # Fix GHSA-6w46-j5rx-g56g
+pytest-timeout>=2.4.0
 
 # --- Broker clients + schema (unit + integration) ---
 protobuf>=5.29.6,<6

@@ -160,12 +160,16 @@ Both parts are required together — **`useSoftwarePath`** switches the VST
 encode/decode path in the config, and the zeroed claim releases the GPU. Setting
 only one leaves the stack misconfigured.
 
-#### Dropping a GPU claim
+#### Disabling GPU allocation to VST
 
-Setting the count to `0` is the way to release a GPU. Neither `resources: {}` nor
-`resources: null` works, whether passed with `-f` or `--set`: Helm coalesces the
-**subchart's own** `values.yaml` defaults back in after your override is applied,
-so `nvidia.com/gpu: 1` reappears. Only overriding the value itself sticks.
+Set both `resources.limits.nvidia.com/gpu` and `resources.requests.nvidia.com/gpu`
+to `0` to release a GPU. Setting `nvidia.com/gpu: null`, `resources: null`, or
+`resources: {}` does not disable the allocation, whether passed with `-f` or
+`--set`: Helm coalesces the **subchart's own** `values.yaml` defaults back in after
+your override is applied, so `nvidia.com/gpu: 1` reappears. Only explicitly
+setting both GPU counts to `0` preserves the override.
+
+**Limitation:** VST overlay and video wall functionality do not work properly when GPU allocation to VST is disabled. Keep hardware video processing enabled and allocate a GPU to VST if you need these features.
 
 Software mode reduces video throughput; use it only when an additional GPU is not
 available.
@@ -380,6 +384,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 |-----|---------|-------------|
 | **`global.externalScheme`** | **`""`** | `http` or `https`. Builds browser-facing URLs together with **`global.externalHost`** and **`global.externalPort`**. |
 | **`global.externalPort`** | **`""`** | Port segment in generated URLs. Leave empty so URLs omit `:port` when using standard 80/443. Set only for non-standard ports. |
+| **`global.vstExternalPort`** | **`""`** | Public VST port when it differs from `global.externalPort`; the NodePort overlay sets `30888`. |
 | **`global.useReleaseNamePrefix`** | **`false`** | When `true`, all in-cluster service names are prefixed with the Helm release name. The SDRC `waitForWorkloads` target is rewritten the same way so it still reaches `vss-rtvi-cv`. |
 | **`global.vios.messageBrokerConsumer`** | **`kafka`** | Live metadata broker VST/VIOS listens on for overlay bounding boxes. Chart default is `redis`; this profile overrides it since perception publishes to Kafka. Shared by `vss-vios-sensor` and `vss-vios-streamprocessing`. |
 | **`global.vios.messageBrokerTopicConsumer`** | **`mdx-bev`** | Topic VIOS consumes for live overlay metadata. |
@@ -397,8 +402,8 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vios.vstStorage.vstData.size`** | **`10Gi`** | PVC size for shared VST data volume. |
 | **`vios.vstStorage.vstVideo.size`** | **`20Gi`** | PVC size for shared VST video volume. |
 | **`vios.vstStorage.streamerVideos.size`** | **`20Gi`** | PVC size for the NVStreamer upload volume. |
-| **`vios.vss-vios-streamprocessing.useSoftwarePath`** | **`false`** | Set **`true`** (paired with **`resources: null`**) to use FFmpeg software encode/decode and free the second GPU. Both flags required — see [GPU requirements](#gpu-requirements). |
-| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Pod resource requests/limits for streamprocessing. Set **`null`** (with **`useSoftwarePath: true`**) to drop the GPU claim entirely. |
+| **`vios.vss-vios-streamprocessing.useSoftwarePath`** | **`false`** | Set **`true`** and set both GPU limits and requests to **`0`** to use FFmpeg software encode/decode and free the streamprocessing GPU. Both the path and resource overrides are required — see [GPU requirements](#gpu-requirements). |
+| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Pod resource requests/limits for streamprocessing. Set both **`limits.nvidia.com/gpu`** and **`requests.nvidia.com/gpu`** to **`0`** with **`useSoftwarePath: true`** to release the GPU. `null` restores the default GPU count. |
 | **`vios.vss-vios-nvstreamer.syncFileCount`** | **`4`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** | **`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`** | NGC resource for the NVStreamer sample video seed. Keep in step with **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`**. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.fromExistingClaim`** | **`vss-rtvi-cv-models`** | Reuses the PVC from the `vss-rtvi-cv` NGC download job so the video data is not downloaded twice. Clear this and set **`resourceVersion`** to download the video seed independently. |
@@ -547,11 +552,76 @@ branch name otherwise; omit `--set global.gitRef=...` to default to `develop`.
 `calibration/sample-data/` those same three links point at. Default is
 `warehouse-4cams-20mx20m-synthetic`.
 
-**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** (default
-`http://vss-video-analytics-api:8081/config/calibration`) makes behavior-analytics
-fetch calibration.json from that endpoint via an initContainer, retrying until
-it returns real data and validating it before the main container starts. Clear
-it to fall back to the bundled `files/behavior-analytics/calibration.json`.
+**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** and
+**`resourceFiles.calibration.enabled`** (both default to a live API URL /
+`true`) together control calibration:
+
+- **Default** — fetches `calibration.json` from `apiUrl` via an initContainer
+  before the app starts.
+- **Clear `apiUrl`** — skips the fetch, falls back to the bundled
+  `files/behavior-analytics/calibration.json`.
+- **Set `enabled: false`** — skips calibration entirely (no initContainer, no
+  fallback). Not viable for MV3DT: the multi-view tracker needs real camera
+  matrices to localize objects across views.
+
+#### Using a custom dataset
+
+Video source — pick one; they're mutually exclusive, don't configure both:
+
+1. **Recorded video files**, not live cameras: point
+   **`vios.vss-vios-nvstreamer.persistence.streamerVideos.hostPath`** (or an
+   equivalent PVC binding) at the video files, and set
+   **`vios.vss-vios-nvstreamer.ngcVideoSeed.enabled=false`** so the chart
+   doesn't also seed sample videos into that volume. bp-configurator's default
+   **`SENSOR_INFO_SOURCE=nvstreamer`** auto-discovers sensors from what
+   NVStreamer is serving — leave `global.cameraInfo` unset for this path. Set
+   **`vios.vss-vios-nvstreamer.syncFileCount`** to the effective stream count
+   from **Stream count** below, not the raw file count — set higher than the
+   stream cap, sync stalls instead of serving media.
+
+2. **Live RTSP streams**: set **`global.cameraInfo.enabled=true`**, which
+   flips bp-configurator to `SENSOR_INFO_SOURCE=file`. Add each camera under
+   **`global.cameraInfo.sensors`** — required: `camera_name`, `rtsp_url`;
+   optional: `group_id`, `region`. For more than a handful, use
+   **`global.cameraInfo.sensorsFile`** instead (raw JSON, takes priority over
+   `sensors` — copy `../camera_configs/camera_info.example.json` outside the
+   repo, fill in real cameras, and pass it with `--set-file`). Each
+   `rtsp_url` must be reachable from the cluster — VIOS connects to it
+   directly; test with VLC or `ffplay` from the deployment machine before
+   deploying.
+
+Calibration data has to be supplied either way:
+
+| Setting | Set | Effect |
+|---|---|---|
+| `calibration-import.calibrationFileSource` | your `calibration.json` URL | Replaces the bundled sample calibration. |
+| `calibration-import.imageMetadataFileSource` | your `imageMetadata.json` URL | Must resolve to a file with an `images[]` array, each entry carrying a `fileName`. |
+| `calibration-import.imageBaseSource` | base URL for your floor-plan images | Base URL each `fileName` above is fetched from. |
+| `calibration-import.requireCalibration` / `requireImages` | keep default `true` | A broken URL fails the Job instead of deploying with no calibration. |
+
+Each `camera_name` registered above must match the corresponding sensor name
+in `calibration.json` — the importer doesn't check this for you. This
+repoints what's uploaded to the video analytics API only — bp-configurator
+seeds its own copy from
+`deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/files/behavior-analytics/calibration.json`;
+replace that file too so it matches.
+
+Also configure, outside `global`:
+
+- **Stream count** — set `<N>` to the number of cameras/streams for whichever
+  video source you picked above (sensors under `global.cameraInfo.sensors`/
+  `sensorsFile` for RTSP, or the number of video files for the recorded-video
+  path), by running
+  `python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py --mode mv3dt --num-streams <N>`
+  (see [Scaling: NUM_STREAMS by GPU](#scaling-num_streams-by-gpu)), and set
+  `rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.batchSize`, `maxBatchSize`, and
+  `fusion.maxExpectedSensors` to match — the stream-cap script doesn't touch
+  them. Left at the default 4, sensors past the 4th are dropped silently.
+
+`global.gitRef`, `global.sampleVideoDataset`, and (by default)
+`vios.vss-vios-nvstreamer.ngcVideoSeed.dataset` only matter for the bundled
+sample dataset — irrelevant once the video and calibration sources above are
+overridden.
 
 ### 4. Post-install validation
 
@@ -565,7 +635,7 @@ Then confirm the VST ingress responds:
 
 ```bash
 kubectl port-forward -n <namespace> svc/vss-vios-ingress 30888:30888
-curl -f http://127.0.0.1:30888/vst/api/health
+curl -f http://127.0.0.1:30888/health
 ```
 
 ### URLs
@@ -605,8 +675,26 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
 | Grafana | `http://<NODE_IP>:30300/` |
 | Prometheus | `http://<NODE_IP>:30909/` |
 
-It sets **`global.vssIngress.enabled`** to false and clears the path prefixes, since
-each app then owns the root of its own port.
+It disables ingress, clears the path prefixes, and sets **`global.vstExternalPort`**
+to `30888`. Set **`global.externalHost`** to the node address clients use.
+
+### Port-forward
+
+No ingress, no NodePort:
+
+```bash
+kubectl port-forward -n <namespace> svc/vss-vios-ingress 30888:30888
+kubectl port-forward -n <namespace> svc/kibana 5601:5601
+kubectl port-forward -n <namespace> svc/grafana 3000:3000
+kubectl port-forward -n <namespace> svc/prometheus 9090:9090
+```
+
+| UI | URL |
+| --- | --- |
+| VST | `http://localhost:30888/vst/` |
+| Kibana | `http://localhost:5601` |
+| Grafana | `http://localhost:3000` |
+| Prometheus | `http://localhost:9090` |
 
 ## Monitoring
 

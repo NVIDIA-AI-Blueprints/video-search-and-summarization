@@ -59,14 +59,19 @@ env:
   - name: KAFKA_INCIDENT_TOPIC
     value: "mdx-vlm-incidents"
   - name: ERROR_MESSAGE_TOPIC
-    value: "vision-llm-errors"
+    value: "mdx-vlm-errors"
 
+  # Generated-output and error buses: empty disables the bus (rtvi_stream_handler.py).
+  # Standalone override has no Kafka; KAFKA_ENABLED=false is the legacy gate and does
+  # not stop the producer on its own, so MESSAGE_BUS/ERROR_BUS must be empty too, or
+  # RT-VLM builds a Kafka client and logs NoBrokersAvailable on every start
+  # (NVBugs 6821607). Mirrors the rtvi-vlm-docker-compose.yml ${VAR-default} change.
   - name: MESSAGE_BUS
-    value: "kafka"
+    value: ""
   - name: MESSAGE_BUS_TOPIC
     value: "mdx-vlm-captions"
   - name: ERROR_BUS
-    value: "kafka"
+    value: ""
   - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
     value: "true"
   - name: RTVI_LIVE_STREAM_GPU_MEMORY_GUARD
@@ -225,6 +230,8 @@ env:
   # vLLM mm_encoder_attn_backend (e.g. for backend experiments).
   - name: VLLM_MM_ENCODER_ATTN_BACKEND
     value: ""
+  - name: VLLM_DISABLED_KERNELS
+    value: "FlashInferFP8ScaledMMLinearKernel"
   # vLLM NVFP4 CT emulation toggle (set to "1" to enable on non-NVFP4 hardware).
   - name: VLLM_USE_NVFP4_CT_EMULATIONS
     value: "0"

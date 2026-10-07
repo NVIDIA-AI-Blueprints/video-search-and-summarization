@@ -72,14 +72,17 @@ All runtime configuration is supplied through environment variables.
 | `MAX_SPEED`                  | `10`             | Reject a fused step whose estimated velocity, in m/s, is greater than this. `0` disables.                                |
 | `REACQUIRE`                  | `10`             | Accept after this many consecutive rejections, so an actual displacement is recovered.                     |
 | `SPLIT_ON_REACQUIRE`         | `1`              | Publishes a re-acquisition under a new id.                      |
+| `GATE_MEMORY`                | `300`            | Buckets a track may be unseen before the speed gate stops judging it against its last position. |
 | `TEMPORAL_FILTER`            | `1`              | Filter each fused track over time with a constant-velocity Kalman filter.           |
 | `PIXEL_SIGMA`                | `3.0`            | Box bottom-edge jitter in pixels, scaled into the filter's measurement covariance.   |
 | `ACCEL_SIGMA`                | `3.0`            | How hard a tracked object may accelerate, m/s². 3 covers a person or forklift.       |
+| `FILTER_RESET_BUCKETS`       | `30`             | Buckets of silence after which a track's filter restarts instead of predicting on. Must be greater than 0. |
 | `SENSOR_TIMEOUT_MS`          | `100`            | Maximum bucket wait before publishing with the sensors received so far.                      |
 | `BUCKET_MS`                  | `17`             | Timestamp bucket width in milliseconds. The default is roughly half a 30 FPS frame.          |
 | `SWEEP_INTERVAL_S`           | `0.02`           | Background sweep cadence for timeout and stale-bucket handling.                              |
 | `BUFFER_DURATION_S`          | `1.0`            | Hard upper bound on bucket age before dropping stale buffered data.                          |
 | `CLOSED_BUCKET_RETENTION_MS` | `1000`           | How long closed bucket keys are retained to reject late duplicate frames.                    |
+| `GATE_DEBUG`                 | `0`              | Log the gate's decision for any step at least this many metres. `0` is silent.               |
 | `LOG_LEVEL`                  | `INFO`           | Python logging level. Use `DEBUG` for per-frame tracing.                                     |
 
 ## Fusion Methods
@@ -106,7 +109,7 @@ Fewer than two calibrated views leaves the position at an area-weighted mean of 
 
 A ground-contact point sitting `d` off the assumed `z=0` plane back-projects to the wrong range by `d/h` of that range, for a camera at height `h` — a fraction, not a fixed distance. A single view typically lands short by about 1% of its range. The correction is a radial rescale about each camera, applied per view before anything else reads it.
 
-`FOOT_OFFSET=auto` ships no constant. The offset may come from the detector's bottom edge or from the calibrated floor — indistinguishable from one site, and one is a detector property while the other is a deployment property — so the service measures the value that makes overlapping cameras agree, which needs no ground truth. A site whose true offset is zero measures zero; one with the opposite sign is corrected the other way. The estimate is clamped, needs `FOOT_OFFSET_MIN_PAIRS` before it applies at all, and is re-fitted on a rolling window.
+`FOOT_OFFSET=auto` ships no constant. The offset may come from the detector's bottom edge or from the calibrated floor — indistinguishable from one site, and one is a detector property while the other is a deployment property — so the service measures the value that makes overlapping cameras agree, which needs no ground truth. A site whose true offset is zero measures zero, and one with the opposite sign is corrected the other way. The estimate is clamped, needs `FOOT_OFFSET_MIN_PAIRS` before it applies at all, and is re-fitted every `FOOT_OFFSET_EVERY` buckets over a rolling window of the last `FOOT_OFFSET_WINDOW` pairs, so a recalibration or a moved camera is followed rather than averaged away.
 
 Pairs are sampled every `FOOT_OFFSET_STRIDE` buckets: consecutive buckets hold the same people on the same cameras, so they carry less information than their count suggests. A deployment with no overlapping views measures nothing and is left uncorrected.
 
@@ -117,6 +120,8 @@ Two views sharing an id but sitting metres apart are two different people, mis-a
 ### The speed gate
 
 `MAX_SPEED` refuses a fused position that cannot follow the last one published; `REACQUIRE` accepts after that many refusals so a real move is not stranded. `SPLIT_ON_REACQUIRE` then publishes the relocation as a new track rather than leaping the old one there, reusing the longest-unused id below the highest in play.
+
+`GATE_MEMORY` bounds how long that last published position stays authoritative. A track absent for longer could legitimately be anywhere, so the gate stops measuring against a stale origin instead of refusing the reappearance as too fast. The same horizon expires the bookkeeping the gate keeps per id.
 
 `SMOOTH_LAG` holds each frame back that many buckets for an RTS backward pass. Off by default: it is latency the consumer pays and it bought nothing here.
 

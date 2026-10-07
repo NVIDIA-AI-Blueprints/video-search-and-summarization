@@ -136,6 +136,13 @@ haproxyingress:
         http: 80
         https: 443
 
+# The version this deployment reports at GET /api/v1/version, answered by the
+# HAProxy ingress for every profile. Written by .github/scripts/stamp_versions.py
+# from the nearest v* git tag in a reviewed PR, never typed (CI --check); the chart
+# `version:` is the chart's own and is not what the deployment reports.
+# See .github/version-convention.md.
+vssVersion: "3.3.0-rc0"
+
 # Optional: base-profile Ingress (ingressClassName: haproxy).
 vssIngress:
   enabled: false
@@ -496,14 +503,18 @@ rtvi:
       - name: KAFKA_INCIDENT_TOPIC
         value: "mdx-vlm-incidents"
       - name: ERROR_MESSAGE_TOPIC
-        value: "vision-llm-errors"
-      # Generated-output and error buses (compose defaults from rtvi-vlm-docker-compose.yml).
+        value: "mdx-vlm-errors"
+      # Generated-output and error buses: empty disables the bus (rtvi_stream_handler.py).
+      # Base has no Kafka broker; KAFKA_ENABLED=false is the legacy gate and does not
+      # stop the producer on its own, so MESSAGE_BUS/ERROR_BUS must be empty too, or
+      # RT-VLM builds a Kafka client and logs NoBrokersAvailable on every start
+      # (NVBugs 6821607). Mirrors the dev-profile-base overrides.env change.
       - name: MESSAGE_BUS
-        value: "kafka"
+        value: ""
       - name: MESSAGE_BUS_TOPIC
         value: "mdx-vlm-captions"
       - name: ERROR_BUS
-        value: "kafka"
+        value: ""
       - name: RTVI_ENABLE_CUDA_OOM_RECOVERY
         value: "true"
       - name: RTVI_LIVE_STREAM_GPU_MEMORY_GUARD
@@ -573,6 +584,8 @@ rtvi:
         value: "10"
       - name: VLLM_GPU_MEMORY_UTILIZATION
         value: ""
+      - name: VLLM_DISABLED_KERNELS
+        value: "FlashInferFP8ScaledMMLinearKernel"
       # GB300 uses TRITON_ATTN; an empty value preserves the default on other platforms.
       - name: VLLM_ATTENTION_BACKEND
         value: ""

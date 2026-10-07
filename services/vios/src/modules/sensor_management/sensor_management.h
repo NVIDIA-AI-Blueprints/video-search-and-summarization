@@ -33,7 +33,6 @@
 #include <jsoncpp/json/json.h>
 #include "NotificationFactory.h"
 
-using namespace std;
 
 #define GET_DEVICE_MANAGER  SensorManagement::getDeviceManagerObject
 namespace nv_vms
@@ -52,42 +51,42 @@ namespace nv_vms
         void scanCameras();
         void scanCameras(bool force);
 
-        vector<shared_ptr<SensorInfo>> getSensorInfo(bool rescan = true);
-        shared_ptr<SensorInfo> getSensorInfo(const string & sensor_id, bool force = false);
-        int setSensorInfo(const string sensor_id);
-        int addSensorManually(shared_ptr<SensorInfo>& sensorInfo, string& response); // TODO: This API is calling from the storage management also for the NVstreamer case, We need to remove the dependency in storge management
-        std::string addStream(shared_ptr<StreamInfo> stream);
-        int deleteSensor(const string sensor_id, bool isReqFromCloudDevice = false, bool isReqFromEdgeDevice = false); // TODO: This API is calling from the storage management also for the NVstreamer case, We need to remove the dependency in storge management
+        std::vector<std::shared_ptr<SensorInfo>> getSensorInfo(bool rescan = true);
+        std::shared_ptr<SensorInfo> getSensorInfo(const std::string & sensor_id, bool force = false);
+        int setSensorInfo(const std::string sensor_id);
+        int addSensorManually(std::shared_ptr<SensorInfo>& sensorInfo, std::string& response); // TODO: This API is calling from the storage management also for the NVstreamer case, We need to remove the dependency in storge management
+        std::string addStream(std::shared_ptr<StreamInfo> stream);
+        int deleteSensor(const std::string sensor_id, bool isReqFromCloudDevice = false, bool isReqFromEdgeDevice = false); // TODO: This API is calling from the storage management also for the NVstreamer case, We need to remove the dependency in storge management
         void notifyVmsRedinessEvent();
         void notifyVmsExitEvent();
-        virtual void onDecoderPlayingStatus(const string &url);
+        virtual void onDecoderPlayingStatus(const std::string &url);
         int rebootSensorDiscovery();
-        VmsErrorCode replaceSensor(const string& old_sensor_id, const string& new_sensor_id);
+        VmsErrorCode replaceSensor(const std::string& old_sensor_id, const std::string& new_sensor_id);
         bool isRemovedByUser(const SensorInfo& sensorInfo);
         VmsErrorCode addSensorToEdgeVst(const Json::Value& sensorInfo);
-        vector<shared_ptr<SensorInfo>> getSensors();
+        std::vector<std::shared_ptr<SensorInfo>> getSensors();
         std::shared_ptr<SensorControl> getSensorControl();
         SensorMonitoring* startSensorDiscovery();
         void onMessage (Json::Value payload) override;
-        void onCameraStreaming(const string &streamId, const string &proxy_url, const string &vod_url, const StreamStatus newStatus);
-        void onStreamStatusChange(const string &url, const StreamStatus newStatus, StreamEncParam& details) override { return; }
+        void onCameraStreaming(const std::string &streamId, const std::string &proxy_url, const std::string &vod_url, const StreamStatus newStatus);
+        void onStreamStatusChange(const std::string &url, const StreamStatus newStatus, StreamEncParam& details) override { return; }
     private:
         void setConfigValues(std::shared_ptr<DeviceManager>);
-        int getAndAddProxyUrl(shared_ptr<SensorInfo>& sensorInfo, const string&);
-        void deleteSensorDetails(const string& sensor_id);
+        int getAndAddProxyUrl(std::shared_ptr<SensorInfo>& sensorInfo, const std::string&);
+        void deleteSensorDetails(const std::string& sensor_id);
         void makeNativeSensorsOffline();
 
-        shared_ptr<SensorManagement> getself()
+        std::shared_ptr<SensorManagement> getself()
         {
             try
             {
                 return shared_from_this();
             }
-            catch (const bad_weak_ptr& e)
+            catch (const std::bad_weak_ptr& e)
             {
-                LOG(error) << "Bad Weak pointer error: " << e.what() << endl;
+                LOG(error) << "Bad Weak pointer error: " << e.what() << std::endl;
             }
-            return shared_ptr<SensorManagement>(nullptr);
+            return std::shared_ptr<SensorManagement>(nullptr);
         }
 
     private:
@@ -96,14 +95,14 @@ namespace nv_vms
         std::mutex m_cameraStatusMutex;
         std::shared_ptr<SensorMonitoring>  m_sensorMonitoring;
         std::shared_ptr<SensorControl>  m_sensorControl;
-        vector<string> m_userRemovedList;
+        std::vector<std::string> m_userRemovedList;
         std::mutex m_userRemovedListMutex;
     };
 
     struct SensorManagementObjDeleter {
         void operator()(SensorManagement* ptr) const
         {
-            LOG(info) << "Custom deleter is called for SensorManagement object" << endl;
+            LOG(info) << "Custom deleter is called for SensorManagement object" << std::endl;
         }
     };
 

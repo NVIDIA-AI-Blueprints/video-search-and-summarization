@@ -1154,6 +1154,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/c0/50/16306f4722ca2fcb64a5875bc1fa9b4d0bcb08c05967f60c23acd4cbb019/elasticsearch-8.17.2-py3-none-any.whl", hash = "sha256:2d058dcddd8f2686cd431a916cdf983f9fb7d211d902834f564ab7df05ba6478", size = 717971, upload-time = "2025-03-04T12:14:23.843Z" },
 ]
 
+[package.optional-dependencies]
+requests = [
+    { name = "requests" },
+]
+
 [[package]]
 name = "exa-py"
 version = "1.16.2"
@@ -3022,7 +3027,7 @@ wheels = [
 [[package]]
 name = "nvdataset"
 version = "0.93.0"
-source = { registry = "https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple" }
+source = { registry = "https://artifactory.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple" }
 dependencies = [
     { name = "multi-storage-client", extra = ["boto3", "observability-otel", "vault"] },
     { name = "packaging" },
@@ -3037,9 +3042,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/packages/nvdataset/0.93.0/nvdataset-0.93.0.tar.gz", hash = "sha256:b58acf8b8a248b008938935fef8350bc64d09559a2efd4262f68ff7728624726" }
+sdist = { url = "https://artifactory.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/packages/nvdataset/0.93.0/nvdataset-0.93.0.tar.gz", hash = "sha256:b58acf8b8a248b008938935fef8350bc64d09559a2efd4262f68ff7728624726" }
 wheels = [
-    { url = "https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/packages/nvdataset/0.93.0/nvdataset-0.93.0-py3-none-any.whl", hash = "sha256:159ff0739ef0b61c8114d3cc1ad92063e5041d0277f42f5fb50aa942d5995e42" },
+    { url = "https://artifactory.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/packages/nvdataset/0.93.0/nvdataset-0.93.0-py3-none-any.whl", hash = "sha256:159ff0739ef0b61c8114d3cc1ad92063e5041d0277f42f5fb50aa942d5995e42" },
 ]
 
 [[package]]
@@ -3446,7 +3451,7 @@ dev = [
     { name = "types-requests", specifier = ">=2.32.4.20260107" },
 ]
 eval = [
-    { name = "nvdataset", specifier = ">=0.77", index = "https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple" },
+    { name = "nvdataset", specifier = ">=0.77", index = "https://artifactory.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple" },
     { name = "nvidia-nat", extras = ["langchain", "weave"], specifier = "==1.8.0" },
     { name = "spacy", specifier = ">=3.7,<4.0" },
 ]
@@ -3520,7 +3525,7 @@ name = "nvidia-vss-core"
 source = { editable = "../../libs/vss/core" }
 dependencies = [
     { name = "aiohttp" },
-    { name = "elasticsearch" },
+    { name = "elasticsearch", extra = ["requests"] },
     { name = "httpx" },
     { name = "opencv-python-headless" },
     { name = "pydantic" },
@@ -3533,7 +3538,7 @@ requires-dist = [
     { name = "aiohttp", specifier = "~=3.14" },
     { name = "chromadb", marker = "extra == 'langchain'", specifier = ">=0.5" },
     { name = "chromadb", marker = "extra == 'llama-index'", specifier = ">=0.5" },
-    { name = "elasticsearch", specifier = "~=8.17.0" },
+    { name = "elasticsearch", extras = ["requests"], specifier = "~=8.17.0" },
     { name = "httpx", specifier = "~=0.28" },
     { name = "langchain-chroma", marker = "extra == 'langchain'", specifier = ">=0.1" },
     { name = "langchain-nvidia-ai-endpoints", marker = "extra == 'langchain'", specifier = ">=0.3" },

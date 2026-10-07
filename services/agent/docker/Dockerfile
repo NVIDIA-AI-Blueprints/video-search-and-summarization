@@ -33,11 +33,14 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # one from and the install fails without it.
 #
 # What lands here is <release line>+tree.<source tree sha>: the release line
-# declared by deploy/helm/services/agent/Chart.yaml, and the git tree hash of
-# the image's source folder, composed by build-dev-images.yml. This is not
-# provenance metadata any more -- GET /api/v1/version reports the installed
-# nvidia-vss-core version, so this string is what a deployment tells the world
-# it is running, and it has to satisfy both PEP 440 and strict SemVer.
+# from the nearest v* git tag (the same `git describe --match 'v[0-9]*'` every
+# pyproject's hatch-vcs runs, so a checkout install of this commit agrees), and
+# the git tree hash of the image's source paths (services/agent and libs/vss),
+# composed by build-dev-images.yml. This is not provenance metadata any more --
+# GET /api/v1/version reports the installed nvidia-vss-core version, so this
+# string is what a deployment tells the world it is running, and it has to
+# satisfy both PEP 440 (3.3.0rc0+tree.abc) and strict SemVer once normalised
+# (3.3.0-rc0+tree.abc).
 #
 # The local segment must stay TREE-derived, never commit-derived:
 # build-dev-images.yml re-tags an already-published manifest onto a later

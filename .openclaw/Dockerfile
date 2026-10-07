@@ -46,15 +46,18 @@ ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572
 # sandbox cannot install it for itself at runtime — its egress policy allows no
 # NGC host. Same version prerequisites.md pins for a host install.
 ARG NGC_CLI_VERSION=4.10.0
-# Skills and the vss CLI: one pinned commit of this repo, so an eval can say
-# exactly which it measured. Must be a commit whose operation skills declare
-# `vss-requires` in their SKILL.md frontmatter (staging fails loudly otherwise)
-# and whose CLI library lives at libs/vss (the wheel build below fails loudly
-# on older layouts). Override with --build-arg VSS_REF=<sha>; bump the default
-# when the skills move.
+# Skills and the vss CLI: one ref of this repo. The default is the moving
+# `develop` branch, so a plain local build tracks the latest merged skills and
+# CLI. The GHCR image is built by build-dev-images.yml with
+# --build-arg VSS_REF=<the commit being built>, and skills/ and libs/vss are in
+# this image's source_path (container-inventory.json), so a skill or CLI change
+# rebuilds it and its tree-<sha> tag names exactly what it carries; a v* tag or
+# a sha works for a manual reproducible build. Whatever the ref, its operation
+# skills must declare `vss-requires` in their SKILL.md frontmatter (staging fails loudly otherwise) and its CLI
+# library must live at libs/vss (the wheel build below fails loudly on older
+# layouts). Keep in lockstep with ../.hermes/Dockerfile.
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-# develop at tags nightly-20260922-1 / dev-26.09.4
-ARG VSS_REF=4abf68ecd10f40a74bb1978b44407990415a1ef8
+ARG VSS_REF=develop
 
 # The session values `onboard --from` rewrites. Declared before the first FROM
 # because the patcher only rewrites the first `ARG <name>=` line in the file
@@ -116,7 +119,8 @@ RUN rm -f /opt/vss-src/Dockerfile \
          echo "vss-src: pre-staged working-tree snapshot" && cat /opt/vss-src/STAGED; \
        else \
          git init -q /opt/vss-src \
-         && git -C /opt/vss-src fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
+         && git -C /opt/vss-src remote add origin "$VSS_REPO" \
+         && git -C /opt/vss-src fetch -q --filter=tree:0 --tags origin "$VSS_REF" \
          && git -C /opt/vss-src checkout -q FETCH_HEAD; \
        fi
 # The vss CLI as wheels — only the CLI library workspace (libs/vss: the
@@ -125,7 +129,13 @@ RUN rm -f /opt/vss-src/Dockerfile \
 # a sandbox operates a deployment through the CLI, it does not run the agent.
 # Building here (where the checkout and its .git live) keeps VSS source out of
 # the runtime image: the runtime installs the wheels by name and ships no
-# checkout. hatch-vcs reads the version from .git on the pinned path; a
+# checkout. hatch-vcs versions the wheels from .git the way every VSS package
+# is versioned: `git describe --match 'v[0-9]*'` off the nearest release tag,
+# so `vss --version` in the sandbox says the same thing the agent's
+# GET /api/v1/version does for that commit. That needs the tags and the commit
+# history, which is why the fetch above is a `tree:0` partial clone (commits
+# and tags only; the one checked-out tree is fetched on demand) rather than
+# `--depth 1`, which reached no tag and produced a placeholder version. A
 # pre-staged snapshot has no .git and carries a PEP 440 pretend version in its
 # STAGED marker instead.
 RUN set -eux; \
@@ -357,6 +367,27 @@ RUN rm -f /etc/profile.d/nemoclaw-rlimits.sh \
 # with "/sandbox/.nvm/nvm.sh: No such file or directory".
 # (Kaniko does not support heredocs in RUN; the shim ships as a context file.)
 COPY --chown=sandbox:sandbox nvm-shim.sh /sandbox/.nvm/nvm.sh
+
+# ── VLM request defaults for `vss vlm run` ────────────────────────────────────
+# Runtime variables, declared empty: the CLI reads empty as unset, so the VLM
+# server's own behavior applies until a sandbox sets one (`openshell sandbox
+# create --env VSS_VLM_FPS=2`, `docker run -e …`). VSS_VLM_LOCKED=true makes
+# the values set here win and locks them against agent overrides; the default
+# false adds no lock. VSS_VLM_API_KEY (the endpoint's Bearer token) is set the
+# same way and deliberately not declared.
+# Names and meanings: libs/vss/cli/README.md ("Configure VLM requests").
+ENV VSS_VLM_BACKEND= \
+    VSS_VLM_MODEL= \
+    VSS_VLM_TIMEOUT= \
+    VSS_VLM_TEMPERATURE= \
+    VSS_VLM_MAX_TOKENS= \
+    VSS_VLM_SEED= \
+    VSS_VLM_ENABLE_REASONING= \
+    VSS_VLM_CHUNK_DURATION= \
+    VSS_VLM_FPS= \
+    VSS_VLM_MAX_FRAMES= \
+    VSS_VLM_TOTAL_PIXELS= \
+    VSS_VLM_LOCKED=false
 
 # Final USER is the non-root default OpenShell requires. WORKDIR /sandbox makes
 # /sandbox the OpenShell workspace (OpenShell derives it from the OCI WorkingDir).

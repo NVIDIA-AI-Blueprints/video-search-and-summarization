@@ -15,13 +15,14 @@
 
 {{- if .Values.enabled }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "vss-alert-bridge.fullname" . }}
   labels:
     app.kubernetes.io/name: vss-alert-bridge
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
+  serviceName: {{ include "vss-alert-bridge.fullname" . }}
   replicas: {{ .Values.replicas }}
   selector:
     matchLabels:
@@ -33,7 +34,7 @@ spec:
         app.kubernetes.io/name: vss-alert-bridge
         app.kubernetes.io/instance: {{ .Release.Name }}
       annotations:
-        checksum/config: {{ tpl (.Files.Get "configs/config.yml") . | sha256sum }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       # At alert_agent.processes: 1, the shipped default, there is no
       # supervisor: up to 10s to terminate and join the API child, up to 15s
@@ -73,6 +74,28 @@ spec:
               done
               echo "Timeout waiting for Kafka or Elasticsearch"
               exit 1
+        {{- if .Values.waitForDependencies.vlmReadyUrl }}
+        - name: wait-for-vlm
+          image: {{ .Values.waitForDependencies.image.repository }}:{{ .Values.waitForDependencies.image.tag }}
+          imagePullPolicy: {{ .Values.waitForDependencies.image.pullPolicy }}
+          env:
+            - name: VLM_READY_URL
+              value: {{ tpl .Values.waitForDependencies.vlmReadyUrl . | quote }}
+          command:
+            - sh
+            - -c
+            - |
+              deadline=$(( $(date +%s) + {{ .Values.waitForDependencies.vlmTimeoutSeconds }} ))
+              until wget -q -T 5 -O /dev/null "$VLM_READY_URL"; do
+                if [ "$(date +%s)" -ge "$deadline" ]; then
+                  echo "Timeout waiting for RT-VLM readiness"
+                  exit 1
+                fi
+                echo "Waiting for RT-VLM readiness"
+                sleep 5
+              done
+              echo "RT-VLM is ready"
+        {{- end }}
       {{- end }}
       containers:
         - name: vss-alert-bridge
@@ -96,12 +119,14 @@ spec:
             {{- $vlmUrl := trim (tpl $rawVlmMerged .) }}
             {{- $globVlmUrl := trim (default "" (index $g "vlmBaseUrl")) }}
             {{- $vstIngHost := ternary (printf "%s-vss-vios-ingress:30888" .Release.Name) "vss-vios-ingress:30888" $pfx }}
+            {{- $externalHost := index $g "externalHost" | default "" | trim }}
+            {{- $vstExternalPort := index $g "vstExternalPort" | default (index $g "externalPort") | default "" | toString | trim }}
             {{- $subVn := trim (default "" .Values.vlmName) }}
             {{- $globVn := trim (default "" (index $g "vlmName")) }}
             {{- $vlmNameStr := $subVn | default $globVn | default "nvidia/cosmos3-nano-reasoner" }}
             {{- $vlmDef := ternary (printf "http://%s-nvidia-cosmos3-reasoner:8000" .Release.Name) "http://nvidia-cosmos3-reasoner:8000" $pfx }}
             - name: EXTERNAL_IP
-              value: {{ .Values.externalIp | default (index (.Values.global | default dict) "externalHost" | default "" | trim) | default "127.0.0.1" | quote }}
+              value: {{ .Values.externalIp | default (ternary (printf "%s:%s" $externalHost $vstExternalPort) ($externalHost | default "127.0.0.1") (and (ne $externalHost "") (ne $vstExternalPort ""))) | quote }}
             - name: INTERNAL_IP
               value: {{ .Values.internalIp | default $vstIngHost | quote }}
             - name: VLM_BASE_URL

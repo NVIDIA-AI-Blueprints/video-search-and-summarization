@@ -41,20 +41,19 @@ The following diagram illustrates the search workflow architecture:
 - **RTVI-CV:** Real Time Video Intelligence Computer Vision Microservice to generate object attribute embeddings for videos
 - **Behavior Analytics:** Behavior Analytics microservice to perform sequential frame analysis for object detection and tracking in videos/streams.
 
+This list describes the stock profile. The manual Compose deployment below uses it as it stands, and so does the Agent Skills deployment that names the in-stack Agent. The other two Agent Skills deployments do not: both drop the in-stack VSS Agent, Phoenix, and the Agent's LLM. The NemoClaw deployment keeps the Web UI; a capability-composed build drops it. Ask for the in-stack VSS Agent if you plan to use the Agent REST API or the manual Agent UI workflow.
+
 ## Search Workflow Data Flow
 
 The search workflow has two related paths: ingestion and query execution.
 
-During ingestion, uploaded videos and RTSP streams are registered with VSS Video IO & Storage (VIOS). The agent then sends the media to RTVI-Embed to generate video/action embeddings and to RTVI-CV/Behavior Analytics to generate object-level behavior embeddings. Elasticsearch stores these embeddings in separate indices:
+During ingestion, uploaded videos and RTSP streams are registered with VSS Video IO & Storage (VIOS). VIOS notification webhooks then fan each source out to RTVI-Embed, which generates video/action embeddings, and to RTVI-CV, whose output Behavior Analytics turns into object-level behavior embeddings. Elasticsearch stores these embeddings in separate indices:
 
 - `mdx-embed-filtered-*` for video/action embeddings used by embed search.
 - `mdx-behavior-*` for object behavior embeddings used by attribute search and Search by Image.
 - `mdx-raw-*` for raw frame/object data used when frame lookup is enabled for attribute search.
 
-During query execution, the UI can call either the direct search API or the Vision Agent chat interface:
-
-- The Search text box calls `/api/v1/search` and is optimized for direct embedding search with explicit filters.
-- The Vision Agent chat interface calls the streaming `search_agent` through `/v1/chat/stream`. This mode uses an LLM to decompose the user's natural language query and automatically select the best search route.
+During query execution, the Vision Agent chat interface calls the streaming `search_agent` through `/v1/chat/stream`. It uses an LLM to decompose the user's natural language query and automatically select the best search route. The Search tab displays the returned results.
 
 The Vision Agent chat path can run:
 
@@ -67,13 +66,251 @@ The Vision Agent chat path can run:
 
 Before you begin, ensure all of the prerequisites are met. See [Prerequisites](/vss/getting-started/prerequisites) for more details.
 
-## Manual Workflow
+## Deploy
+
+### With Agent Skills
+
+As an alternative to running the workflow manually, you can use [VSS Agent Skills](/vss/vision-agent/agent-skills) from a coding agent such as Claude Code, Codex, or NemoClaw.
+
+First install the skills as described in [Installing Skills](/vss/vision-agent/agent-skills#installing-skills) and make it accessible to your coding agent.
+
+Your coding agent drives the workflow: it deploys the stack, provisions sources, and runs retrieval. Step 1 offers three deployments, and the one you pick decides how you operate it afterwards. All three assume the same supported hardware as the manual workflow.
+
+#### Step 1: Deploy the Search Stack
+
+<Note>
+The host must meet the same deployment requirements listed under [Manually](/vss/vision-agent/agent-workflows/search#manually) (supported GPU/hardware for that profile) and must meet the [Prerequisites](/vss/getting-started/prerequisites). The skill selects the hardware profile to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
+</Note>
+
+Deployment is driven by the [`vss-build-vision-ai`](/vss/vision-agent/agent-skills) skill. It can deploy the Search developer profile as it ships, or compose a leaner stack from the capabilities you name. Any prompt below can also name an image tag to run a release's images instead of the `containers.env` default, for example *"…with image tag `${VSS_DOCS_IMAGE_TAG:-develop-latest}`."* See [Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag). The skill presents the composed architecture for your confirmation before it generates or deploys anything.
+
+##### Stock Search profile with the in-stack Agent
+
+This deploys the profile unchanged, including the in-stack VSS Agent, the Agent UI, and Phoenix — the service set under [What's being deployed](/vss/vision-agent/agent-workflows/search#whats-being-deployed). Naming the Agent is what keeps it in the build, so this is the deployment to choose if you want the Agent UI or the Agent REST API.
+
+**Deploy prompt structure**
+
+```text title="Deploy prompt structure"
+Deploy the VSS search profile with the in-stack VSS Agent so I can use the Agent UI workflow.
+```
+
+What the agent does:
+
+1. Loads the `vss-build-vision-ai` skill and detects the repository, GPU hardware, and host networking values.
+2. Validates required credentials (such as `NGC_CLI_API_KEY`) and prompts you if any are missing.
+3. Selects the `search` profile and a hardware profile that fits your system, then builds the deployment configuration.
+4. Reviews the configuration with you, then deploys the containers.
+5. Waits until all services are healthy and returns the endpoints available for the deployment.
+
+Operate it either way: with the prompts in Steps 2 to 7 below, or through the UI steps under [Manually](/vss/vision-agent/agent-workflows/search#manually).
+
+##### Stock Search profile driven by NemoClaw
+
+The same profile with NemoClaw as the harness. When the prompt does not name an agent, the skill asks whether to deploy NemoClaw and takes yes as the default. NemoClaw runs as a sandbox on the host and drives the deployment over its public routes, so the in-stack VSS Agent, Phoenix, and the Agent's LLM are left out.
+
+**Deploy prompt structure**
+
+```text title="Deploy prompt structure"
+Deploy the VSS search profile.
+```
+
+The agent follows the same steps as above, then brings up the NemoClaw sandbox against the deployed origin and reports its chat URL. You reach the deployment through that chat, and the Web UI's chat sidebar and Chat tab answer through it as well. The `/api`, `/chat`, and `/websocket` ingress routes are unavailable here. Operate this deployment with the prompts in Steps 2 to 7 below.
+
+<Note>
+NemoClaw's chat and the Web UI's chat surfaces both wait for a gateway token before they answer. For the token step, see [Agent harness](/vss/vision-agent/build-vision-ai#agent-harness).
+</Note>
+
+##### Custom search build
+
+The skill can also compose a stack from the capabilities you name rather than from a fixed profile. State the capabilities you want and how you intend to reach them. Do not name services or list what to exclude; the skill selects a Foundation and keeps only what your stated capabilities reach.
+
+This build carries no chat interface and no in-stack agent, so the VSS UI and Phoenix entries under [Service Endpoints](/vss/vision-agent/agent-workflows/search#service-endpoints) do not apply to it. Kibana and the Video Analytics API are retained as browse surfaces over stored data, and retrieval runs through the `vss` CLI.
+
+**Deploy prompt structure**
+
+```text title="Deploy prompt structure"
+Provide ingestion for streaming and on-demand videos with object
+detection/tracking and video embeddings. Make the browse and operate surfaces
+accessible via service-native REST API/CLI and exposed through single
+ingress.
+```
+
+This prompt builds a retrieval-only stack. Search returns matches with similarity scores and time ranges, but no VLM is deployed, so results are not verified and no tags are produced to search. To include both, add a sentence naming them:
+
+```text title="Deploy prompt with verification and tag search"
+Provide ingestion for streaming and on-demand videos with object
+detection/tracking and video embeddings. Verify search results and support
+search over VLM-generated tags of the ingested video. Make the browse and
+operate surfaces accessible via service-native REST API/CLI and exposed
+through single ingress.
+```
+
+That added sentence does two things. Asking for verification puts RTVI-VLM in the build and routes `/rtvi-vlm` through the ingress, which also gives you visual follow-up questions about a clip: verification and those questions are both per-request calls to the same service, so asking for one gives you both. Asking for tag search additionally makes RTVI-VLM a VIOS fan-out consumer, so each newly registered source is tagged as it arrives — deploying the service alone never does that. Ask for neither and the service is left out, because retrieval itself never calls it.
+
+<Note>
+On the multi-GPU layouts under [Manually](/vss/vision-agent/agent-workflows/search#manually), either prompt deploys on 2 GPUs, because RTVI-CV and RTVI-Embed keep their pinned devices. In the retrieval-only build each has its GPU to itself, since that build drops both the LLM and the VLM. Asking for verification puts RTVI-VLM back alongside RTVI-CV on GPU 0 at a memory fraction of `0.4`, which is the shared layout the profile ships.
+
+On the single-GPU hosts described under [Step 1: Deploy the Search Agent](/vss/vision-agent/agent-workflows/search#step-1-deploy-the-search-agent) in the manual workflow below, both retrieval services share the one GPU. Ask for verification on DGX Spark or AGX Thor and the VLM has to be a remote endpoint, because those boards cannot host one locally alongside the perception pipeline.
+</Note>
+
+What the agent does:
+
+1. Reads the skill and its search references to determine the Foundation, its authoritative service set, the GPU layout, and sizing.
+2. Composes the build as a delta on that Foundation. The VSS Agent, VSS Agent UI, Phoenix, and the LLM are dropped, because retrieval is driven through the CLI rather than a chat surface. RTVI-VLM is dropped as well unless you asked for verification or tag search.
+3. Runs pre-flight checks on the repo path, GPU and Docker runtime, and NGC credentials.
+4. Prepares the environment and the data directory tree, then writes the build artifacts under `_builds/<name>/`, including the resolved Compose file `resolved.yml`.
+5. Deploys the resolved Compose file and waits until every service reports healthy, then reports the build's public origin.
+
+#### Step 2: Video Management
+
+<Note>
+For instructions on downloading sample data, see [Download Sample Data From NGC](/vss/getting-started/quickstart#download-sample-data-from-ngc) in the Quickstart guide.
+</Note>
+
+The downloaded videos (following the Quickstart guide) are available at `./sample-data/dev-profile-sample-data/`.
+For this example, you will ask the agent to provision the video `warehouse_sample.mp4` by providing the path to the file:
+
+```text
+Provision ./sample-data/dev-profile-sample-data/warehouse_sample.mp4 as an
+on-demand VIOS source. Confirm the source appears in VIOS's sensor list and
+that the configured consumers finish processing it.
+```
+
+What the agent does on a deployment without the in-stack Agent:
+
+1. Reads the [`vss-manage-video-io-storage`](/vss/vision-agent/agent-skills) skill and its headless provisioning reference. With no Agent there is no upload handshake to call, so it registers the source once with VIOS.
+2. Resolves the VIOS endpoint and registers the source.
+3. Lets VIOS's mounted notification configuration fan the source out asynchronously to the configured consumers, such as RTVI-CV, RTVI-Embed, and optional RTVI-VLM tagging. Their outputs feed the indices queried by search.
+4. Verifies the sensor is registered and online, then waits for the configured consumers to finish processing it.
+
+On the in-stack Agent deployment the prompt is the same but the ingestion path is not. The agent uses the [`vss-search-archive`](/vss/vision-agent/agent-skills) skill's three-step upload — register the video, upload the bytes, then call `/complete` — and that completion call is what drives the detection and embedding fan-out. Registering the source in VIOS is not a substitute for it.
+
+It may take up to a few minutes depending on the size of the video(s).
+
+To ingest a live stream instead, have NVStreamer serve a file as a synthetic RTSP camera and provision that:
+
+**Provision a live RTSP source**
+
+```text title="Provision a live RTSP source"
+Serve ./sample-data/dev-profile-sample-data/warehouse_sample.mp4 as a synthetic
+RTSP camera and register it once in VIOS. Confirm the live stream is visible
+and the configured consumers have received it before reporting done.
+```
+
+<Note>
+Provisioning writes through the deployment's own host ports rather than the public origin, so ingestion does not depend on the CLI being configured.
+</Note>
+
+Before the CLI can search, it has to be pointed at the build's ingress, but this is not a step you need to run. The agent does it on the first query: it resolves the deployment's origin, runs `vss configure` against it, and repeats that after each ingestion, because the recorded index inventory is a snapshot and a freshly deployed stack records none.
+
+Run it yourself when you want to see what was recorded, or to point the CLI at a different deployment. It is a host process invoked project-locally, never a globally installed `vss` and never inside a container:
+
+```bash
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
+vss configure --base-url "<VSS_PUBLIC_URL>"
+vss configure show
+```
+
+Replace `<VSS_PUBLIC_URL>` with the ingress origin returned for your deployment.
+
+`libs/vss` is the CLI's own workspace, so no extra is required. `configure`
+probes each route and records the ones that answer, along with the Elasticsearch
+index list, and `configure show` prints what it recorded.
+
+#### Step 3: Search with a simple query
+
+Your agent can search videos given natural-language queries, without requiring a chat UI/interface.
+Use its search capability to find all instances of forklifts in the uploaded video `warehouse_sample.mp4` by using the following prompt:
+
+**Simple search prompt**
+
+```text title="Simple search prompt"
+Find all instances of forklifts in the uploaded videos.
+Report the query results with source, timestamps, similarity, and the
+clip/screenshot URL.
+Don't fetch screenshot pixels unless I opt in.
+```
+
+What the agent does:
+
+1. Reads the [`vss-search-archive`](/vss/vision-agent/agent-skills) skill to determine the retrieval path.
+2. Confirms the source is registered in VIOS, and provisions it first if it is not.
+3. Chooses a retrieval route and runs it through `vss search run`, which takes no endpoint because the CLI resolves everything from what `vss configure` recorded. The four routes match the ones the chat interface selects between: `embed` for actions and events, `attribute` for visual descriptors, `fusion` for queries combining both, and `object` for identity lookup by tracked object id.
+4. Verifies the top results with the critic if the build includes RTVI-VLM. The CLI attempts this by default and skips it when the service is absent.
+5. Presents results as a table with time ranges, similarity scores, verification verdicts, and the per-criteria breakdown.
+
+Each result carries the source name, a description, `start_time` and `end_time`, the sensor id, a screenshot URL, the similarity score, any tracked object ids, and a verification verdict. The verdict is **confirmed**, **rejected**, or **unverified**, and the criteria breakdown lists the individual conditions extracted from the query and whether each was satisfied. See [Critic Agent Overview](/vss/vision-agent/agent-workflows/search#critic-agent-overview) for how the verdicts are reached.
+
+<Note>
+An empty result set is an answer, not a failure. It means the deployment holds nothing matching the query, and re-running the same search will not change that. A backend problem reports itself as a failure instead.
+
+Every verdict is **unverified** on a build deployed without result verification, and the criteria breakdown is empty. Retrieval is unaffected, and the scores and time ranges remain valid.
+</Note>
+
+#### Step 4: Search with additional filters
+
+To search with additional filters:
+
+```text
+I have a video sample-warehouse-ladder.mp4. I need to find instances of a person climbing a ladder with source type video_file, video source sample-warehouse-ladder.mp4, and top 5 results.
+```
+
+- **VLM tag search:** search the tags RTVI-VLM produced during ingestion with a prompt like `Find clips tagged "forklift loading a pallet".` Fusion search leaves those tags out of its ranking unless its tag leg is enabled with `--w-tag` on `vss search run fusion`, which is off by default.
+
+Both stock deployments tag by default, because the profile's VIOS notification configuration ships the RTVI-VLM fan-out enabled. A custom build tags only if you asked for tag search in Step 1.
+
+#### Step 5: Ask a Follow-up Question
+
+Follow-up questions related to the search results can also be asked in the same coding-agent conversation. For example:
+
+```text
+What are the durations of the top 5 results?
+```
+
+Questions like this one are answered from the results already returned, so they work on any deployment. Questions about what is visible in a clip are different: they re-examine the video through RTVI-VLM. Both stock deployments include it; a custom build needs the verification prompt from Step 1. Without RTVI-VLM the agent reports the missing service rather than deploying one.
+
+#### Step 6: Delete Videos or Streams
+
+To remove an uploaded video or RTSP stream, issue the appropriate prompt:
+
+**Delete an uploaded video**
+
+```text title="Delete an uploaded video"
+Delete the video sample-warehouse-ladder.mp4.
+```
+
+**Delete an RTSP stream**
+
+```text title="Delete an RTSP stream"
+Delete the RTSP stream warehouse_sample.
+```
+
+#### Step 7: Teardown the deployment
+
+To teardown the deployment, issue the following prompt:
+
+```text
+Tear down the search deployment.
+```
+
+The default teardown removes the project's containers, network, and named volumes, including the multi-GB NIM and RTVI model caches. To keep the caches for an immediate redeploy, ask for that explicitly:
+
+```text
+Tear down the search deployment and preserve the model caches.
+```
+
+Bind-mounted data under `VSS_DATA_DIR`, such as Elasticsearch and Kafka data and VIOS recordings, survives either path and would carry into the next deployment. Clearing it is a separate step that needs root, so the agent will surface the command and confirm with you before running it.
+
+On the NemoClaw deployment the sandbox is a separate lifecycle from the containers, so tearing down one leaves the other running. Ask for the sandbox to be destroyed as well when you are finished with it.
+
+### Manually
 
 <Note>
 For instructions on downloading the deployment package, see [Download the Deployment Package](/vss/getting-started/quickstart#download-the-deployment-package) in the Quickstart guide.
 </Note>
 
-### Step 1: Deploy the Search Agent
+#### Step 1: Deploy the Search Agent
 
 <Note>
 - Set the NGC CLI API key and authenticate Docker to `nvcr.io` before running the deploy commands. See [Verify Your NGC Access](/vss/getting-started/prerequisites#verify-your-ngc-access).
@@ -81,6 +318,11 @@ For instructions on downloading the deployment package, see [Download the Deploy
   ```bash
   # Set NGC CLI API key
   export NGC_CLI_API_KEY='your_ngc_api_key'
+
+  # Authenticate Docker for gated NIM and other nvcr.io images. The managed VSS
+  # images on ghcr.io are public and do not require a registry login.
+  printf '%s' "$NGC_CLI_API_KEY" | \
+    docker login nvcr.io --username '$oauthtoken' --password-stdin
   ```
 
 - Refer to [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
@@ -118,7 +360,13 @@ Offloading a model to a remote endpoint frees capacity on a shared GPU without c
 
 Single-GPU hosts are the exception. On GB300, DGX Spark and AGX Thor the profile collapses every local service onto the one GPU. The two edge boards go further and require both models to be remote, since their GPU is already carrying the perception pipeline.
 
-`overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
+From the repository checkout root, enter the Compose deployment directory:
+
+```bash
+cd deploy/docker
+```
+
+`overrides.env` is the checked-in template. Copy it to any
 filename matching `*-overrides.env` before selecting a layout. Files matching
 that pattern are ignored by Git so local settings and credentials are not
 committed. The commands below use `user-overrides.env` as a concrete example;
@@ -664,7 +912,7 @@ docker compose -f compose.yml \
   --env-file containers.env \
   --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
   --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
-  up -d
+  up --detach --pull always --force-recreate --build
 ```
 
 On the first bring-up, Docker Compose pulls the required containers from the
@@ -746,7 +994,7 @@ checkpoint; a mismatch fails with `400 BadParameters: No such model`.
 The search profile deploys with `Cosmos-Embed1-448p-anomaly-detection` for RT-Embed and `SigLIP2` for RTVI-CV by default.
 To use different embedding models, see [Changing Embedding Models](/vss/vision-agent/agent-workflows/search#changing-embedding-models) below.
 
-### Step 2: Video Management
+#### Step 2: Video Management
 
 Click on the **Video Management** tab in the left sidebar to access video management features.
 You can add video sources by uploading video files or adding RTSP streams.
@@ -755,7 +1003,7 @@ You can add video sources by uploading video files or adding RTSP streams.
 For instructions on downloading sample data, see [Download Sample Data From NGC](/vss/getting-started/quickstart#download-sample-data-from-ngc) in the Quickstart guide.
 </Note>
 
-#### Upload a Video
+##### Upload a Video
 
 1. Click on the **Video Management** tab.
 2. Click the **Upload Video** button.
@@ -767,7 +1015,7 @@ Once the video(s) is/are selected, click the **Upload** button and wait for the 
 
 ![Video uploaded successfully](/assets/images/agent-workflows/search_upload_video_2.png)
 
-The upload path streams the file to VIOS and then runs search post-processing. The agent gets the uploaded stream timeline, requests a playable storage URL, optionally registers the stream with RTVI-CV, and calls RTVI-Embed to generate video embeddings. Uploaded files support `video/mp4` and `video/x-matroska` content types.
+The upload streams the file to VIOS, whose notification webhooks fan it out to RTVI-CV, RTVI-Embed, and RTVI-VLM for detection, embedding, and tagging. Uploaded files support `video/mp4` and `video/x-matroska` content types.
 
 <Note>
 - Vector embeddings generated for the uploaded videos and streams remain only until minimum index age is reached (from the time of first upload).
@@ -776,7 +1024,7 @@ The upload path streams the file to VIOS and then runs search post-processing. T
 - Default minimum index age is 48 hours for the Search Workflow. This can be configured in the ILM (Index Lifecycle Management) policy settings in the Dashboard, before the indices are expired.
 </Note>
 
-#### Add an RTSP Stream
+##### Add an RTSP Stream
 
 To add a live RTSP stream as a video source:
 
@@ -795,9 +1043,9 @@ Once added, the RTSP stream will appear in the video list alongside uploaded vid
 
 ![Video Management showing uploaded videos and RTSP stream](/assets/images/agent-workflows/search_rtsp_added.png)
 
-When an RTSP stream is added, the agent registers it with VIOS, registers it with RTVI-CV, registers it with RTVI-Embed, and starts embedding generation for search. If any required downstream step fails, the add operation rolls back the steps that already completed.
+When an RTSP stream is added, VIOS registers it and its notification webhooks fan it out to RTVI-CV, RTVI-Embed, and RTVI-VLM, as for uploaded videos.
 
-##### Create an RTSP Stream from a Video Using NVStreamer
+###### Create an RTSP Stream from a Video Using NVStreamer
 
 If you have a video file and want to stream it as an RTSP source, you can use the NVStreamer service that is deployed alongside other services.
 
@@ -833,64 +1081,14 @@ Use the copied RTSP URL (e.g., `rtsp://<HOST_IP>:31556/nvstream/tmp/nv_streamer/
 To avoid duplicate results due to looping of the same video, ensure that the RTSP stream is deleted from the video management tab some time after it has been added to the agent for search queries.
 </Note>
 
-### Step 3: Search with a simple query
-
-<Note>
-To use manual filters, ensure that the **Vision Agent** chat interface is collapsed.
-</Note>
-
-Navigate to the **Search** tab and enter a natural language query in the search input box. For example:
-
-```text
-a person carrying boxes
-```
-
-Click the **Search** button to execute the query. The agent will return video clips that match your search description.
-
-![Simple search query and results](/assets/images/agent-workflows/search_simple_query.png)
-
-<Note>
-By default, the **Show top K Results** filter is applied to display the top 10 results. This value can be changed in the filters to show more or fewer results.
-</Note>
-
-### Step 4: Search with additional filters
-
-To try additional filters, upload the video file `sample-warehouse-ladder.mp4` (following the steps in [Step 2: Upload a video](/vss/vision-agent/agent-workflows/search#upload-a-video)).
-Navigate to the Search tab to find the following options:
-
-- **Source Type**: Select the type of media source to search within. Choose between 'Video' and 'RTSP'.
-- Click the **Filter** button to open the filter panel with the following options:
-   - **From**: Filter results by the start date and time of the video clips
-   - **To**: Filter results by the start date and time of the video clips
-   - **Video sources**: Select specific videos to search within
-   - **Min Cosine Similarity**: Set a minimum similarity threshold (-1.00 to 1.00) to filter results based on how closely they match your query. Set a lower threshold for broader results, or raise it for high-confidence matches. Optimal values vary depending on the video content.
-   - **Show top K Results**: Set the maximum number of results to display
-
-Enter your search query in the Search box, configure the desired filters, and click **Apply**.
-
-The Search text box uses the direct search API. It applies explicit filters from the UI and uses embedding search for the query text. Use the Vision Agent chat interface when you want automatic query decomposition, attribute search, fusion search, Search by Image, and/or critic verification.
-
-![Filter panel with timestamp, video sources, cosine similarity, and top K options](/assets/images/agent-workflows/search_filter_query_1.png)
-
-For example, in the filter panel above:
-
-- Set **From** and **To** timestamps to filter results within a specific time range
-- Select specific **Video sources** to search within particular videos
-- Set **Min Cosine Similarity** to `0.2` to only show results with a similarity score of 0.2 or higher
-- Set **Show top K Results** to `5` to display maximum of top 5 results
-
-After configuring the filters, the search results will be refined based on the applied criteria:
-
-![Search results after applying filters](/assets/images/agent-workflows/search_filter_query_2.png)
-
-### Step 5: Vision Agent Chat
+#### Step 3: Search with the Vision Agent chat
 
 The Search tab includes a **Vision Agent** chat interface on the right side that provides an interactive way to search through videos using natural language. The Vision Agent automatically selects the best search method based on your query. You can also specify filters directly within your query instead of using the filter panel.
 
-#### Using the Chat Interface
+##### Using the Chat Interface
 
 1. Navigate to the **Search** tab.
-2. Open the **Chat** panel on the right side of the screen.
+2. Click the round **Chat** button at the bottom right to open the chat sidebar.
 3. Open the chat settings popover next to the chat input and configure:
 
    - **Search media source type**: Select from the dropdown (for example, `video_file` or `rtsp`) to specify which source index to search.
@@ -901,11 +1099,15 @@ The Search tab includes a **Vision Agent** chat interface on the right side that
 
 ![Vision Agent chat interface with source type selection and query input](/assets/images/agent-workflows/search_chat_initial.png)
 
-#### Result Returned by the Agent
+##### Result Returned by the Agent
 
 The Vision Agent processes your query, selects the best search method (Embed, Attribute, Fusion, or Search by Image), and returns matching video clips in the left panel.
 
 ![Search results returned by the Vision Agent](/assets/images/agent-workflows/search_chat_results_top.png)
+
+<Note>
+The query returns up to 10 results by default. To get more, ask for a specific count in the query (for example, `top 20`) and raise **Show top K Results** in the filters (Step 4) to display them.
+</Note>
 
 Each response in the chat window includes:
 
@@ -959,7 +1161,6 @@ The Vision Agent uses four search methods to find relevant video clips and objec
    - Searches for events, actions, and activities in videos (e.g., "carrying boxes", "walking", "driving")
    - Uses semantic embeddings to understand the context and meaning of actions
    - Used for queries that describe what is happening in the video
-   - **Note**: Searching from input text box will only perform embed search.
 
 **Attribute Search**
    - Searches for visual descriptors and object attributes (e.g., "person with green jacket", "person in a hard hat")
@@ -1118,6 +1319,34 @@ The Vision Agent automatically selects the best search method based on your quer
 
 </details>
 
+#### Step 4: Narrow results with filters
+
+To try additional filters, upload the video file `sample-warehouse-ladder.mp4` (following the steps in [Step 2: Upload a video](/vss/vision-agent/agent-workflows/search#upload-a-video)).
+Run a query as in Step 3, then collapse the chat sidebar with the chevron button (**Collapse Chat sidebar**) on its left edge. The controls below are in the left sidebar and are disabled while the chat sidebar is open or a response is streaming. They narrow the results the query returned:
+
+- **Source Type**: Show results only from the selected media source type. Choose between 'Video' and 'RTSP'.
+- Click the **Filter** button to open the filter panel with the following options:
+   - **From**: Filter results by the start date and time of the video clips
+   - **To**: Filter results by the start date and time of the video clips
+   - **Video sources**: Show results only from the selected videos
+   - **Min Cosine Similarity**: Set a minimum similarity threshold (-1.00 to 1.00) to filter results based on how closely they match your query. Set a lower threshold for broader results, or raise it for high-confidence matches. Optimal values vary depending on the video content.
+   - **Show top K Results**: Set the maximum number of returned results to display (default 10)
+
+Configure the desired filters and click **Apply**.
+
+![Filter panel with timestamp, video sources, cosine similarity, and top K options](/assets/images/agent-workflows/search_filter_query_1.png)
+
+For example, in the filter panel above:
+
+- Set **From** and **To** timestamps to filter results within a specific time range
+- Select specific **Video sources** to show results only from those videos
+- Set **Min Cosine Similarity** to `0.2` to only show results with a similarity score of 0.2 or higher
+- Set **Show top K Results** to `5` to display maximum of top 5 results
+
+After configuring the filters, the search results will be refined based on the applied criteria:
+
+![Search results after applying filters](/assets/images/agent-workflows/search_filter_query_2.png)
+
 #### Critic Agent Overview
 
 The Critic Agent is a specialized agent that reviews search results with a VLM and annotates each evaluated result as confirmed or rejected.
@@ -1239,7 +1468,7 @@ Deduplication is **lossy** — skipped embeddings do not appear in search result
 
 </details>
 
-### Step 6: Delete Videos or Streams
+#### Step 5: Delete Videos or Streams
 
 To remove uploaded videos or RTSP streams from the agent:
 
@@ -1257,7 +1486,7 @@ The selected videos or streams will be removed from the video list and will no l
 Deleting an uploaded video is best-effort. The agent deletes matching documents from the embed, behavior, and raw Elasticsearch indices when Elasticsearch cleanup is configured, removes the RTVI-CV registration when configured, and deletes the VIOS sensor and storage. Deleting an RTSP stream removes the live stream from VIOS and RTVI services, but the search profile keeps VIOS storage for removed RTSP streams and does not delete previously indexed Elasticsearch data. Previously ingested RTSP data can remain available for chat and search queries until index lifecycle cleanup removes it.
 </Note>
 
-### Step 7: Teardown the agent
+#### Step 6: Teardown the agent
 
 To teardown the agent, run the following command:
 
@@ -1285,198 +1514,6 @@ Once deployed, the following services are available:
 | NVStreamer UI | `http://<HOST_IP>:31000/#/dashboard` |
 | VST UI | `http://<HOST_IP>:30888/vst/#/dashboard` |
 | Phoenix UI | `http://<HOST_IP>:7777/phoenix/projects` |
-
-## Using Skills
-
-As an alternative to running the workflow manually, you can use [VSS Agent Skills](/vss/vision-agent/agent-skills) from a coding agent such as Claude Code, Codex, or NemoClaw.
-
-First install the skills as described in [Installing Skills](/vss/vision-agent/agent-skills#installing-skills) and make it accessible to your coding agent.
-
-This path builds and operates a headless stack. Your coding agent drives it: it composes and deploys the build, provisions sources, and runs retrieval through the `vss` CLI. The build carries no chat interface and no in-stack agent, so the VSS UI and Phoenix endpoints listed above do not apply to it. Kibana and the Video Analytics API are retained as browse surfaces over stored data. The retrieval capabilities are the same ones the UI exposes, and the deployment steps assume the same supported hardware.
-
-### Step 1: Build and deploy a headless search stack
-
-<Note>
-The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile) and must meet the [Prerequisites](/vss/getting-started/prerequisites).
-</Note>
-
-Deployment is driven by the [`vss-build-vision-ai`](/vss/vision-agent/agent-skills) skill, which composes a stack from the capabilities you name rather than from a fixed profile. State the capabilities you want and how you intend to reach them. Do not name services or list what to exclude; the skill selects a Foundation and keeps only what your stated capabilities reach.
-
-**Deploy prompt structure**
-
-```text title="Deploy prompt structure"
-Provide ingestion for streaming and on-demand videos with object
-detection/tracking and video embeddings. Make the browse and operate surfaces
-accessible via service-native REST API/CLI and exposed through single
-ingress.
-```
-
-This prompt builds a retrieval-only stack. Search returns matches with similarity scores and time ranges, but no VLM is deployed, so results are not verified and you cannot ask follow-up questions about a clip. To include those, add a sentence naming them:
-
-```text title="Deploy prompt with result verification"
-Provide ingestion for streaming and on-demand videos with object
-detection/tracking and video embeddings. Verify search results and support
-visual follow-up questions about the retrieved clips. Make the browse and
-operate surfaces accessible via service-native REST API/CLI and exposed
-through single ingress.
-```
-
-That added sentence is what puts RTVI-VLM in the build, and it also routes `/rtvi-vlm` through the ingress so the CLI can reach it. Ask for neither capability and the service is left out, because retrieval itself never calls it.
-
-Either prompt can also name an image tag to run a release's images instead of the `containers.env` default, for example *"…using image tag `${VSS_DOCS_IMAGE_TAG:-develop-latest}`."* See [Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
-
-The skill presents the composed architecture for your confirmation before it generates or deploys anything.
-
-<Note>
-The skill selects the hardware profile to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements). On the multi-GPU layouts above, either prompt deploys on 2 GPUs, because RTVI-CV and RTVI-Embed keep their pinned devices. In the retrieval-only build each has its GPU to itself, since that build drops both the LLM and the VLM. Asking for verification puts RTVI-VLM back alongside RTVI-CV on GPU 0 at a memory fraction of `0.4`, which is the shared layout the profile ships.
-
-On the single-GPU hosts described under [Step 1: Deploy the Search Agent](/vss/vision-agent/agent-workflows/search#step-1-deploy-the-search-agent) above, both retrieval services share the one GPU. Ask for verification on DGX Spark or AGX Thor and the VLM has to be a remote endpoint, because those boards cannot host one locally alongside the perception pipeline.
-</Note>
-
-What the agent does:
-
-1. Reads the skill and its search references to determine the Foundation, its authoritative service set, the GPU layout, and sizing.
-2. Composes the headless build as a delta on that Foundation. The VSS Agent, VSS Agent UI, Phoenix, and the LLM are dropped, because retrieval is driven through the CLI rather than a chat surface. RTVI-VLM is dropped as well unless you asked for verification or follow-up questions.
-3. Runs pre-flight checks on the repo path, GPU and Docker runtime, and NGC credentials.
-4. Prepares the environment and the data directory tree, then writes the build artifacts under `_builds/<name>/`, including the resolved Compose file `resolved.yml`.
-5. Deploys the resolved Compose file and waits until every service reports healthy, then reports the build's public origin.
-
-### Step 2: Video Management
-
-<Note>
-For instructions on downloading sample data, see [Download Sample Data From NGC](/vss/getting-started/quickstart#download-sample-data-from-ngc) in the Quickstart guide.
-</Note>
-
-The downloaded videos (following the Quickstart guide) are available at `./sample-data/dev-profile-sample-data/`.
-For this example, you will ask the agent to provision the video `warehouse_sample.mp4` by providing the path to the file:
-
-```text
-Provision ./sample-data/dev-profile-sample-data/warehouse_sample.mp4 as an
-on-demand VIOS source. Confirm the source appears in VIOS's sensor list and
-that the configured consumers finish processing it.
-```
-
-What the agent does:
-
-1. Reads the [`vss-manage-video-io-storage`](/vss/vision-agent/agent-skills) skill and its headless provisioning reference. A build without the VSS Agent has no chunked-upload handshake to call, so it registers the source once with VIOS.
-2. Resolves the VIOS endpoint and registers the source.
-3. Lets VIOS's mounted notification configuration fan the source out asynchronously to the configured consumers, such as RTVI-CV, RTVI-Embed, and optional RTVI-VLM tagging. Their outputs feed the indices queried by search.
-4. Verifies the sensor is registered and online, then waits for the configured consumers to finish processing it.
-
-It may take up to a few minutes depending on the size of the video(s).
-
-To ingest a live stream instead, have NVStreamer serve a file as a synthetic RTSP camera and provision that:
-
-**Provision a live RTSP source**
-
-```text title="Provision a live RTSP source"
-Serve ./sample-data/dev-profile-sample-data/warehouse_sample.mp4 as a synthetic
-RTSP camera and register it once in VIOS. Confirm the live stream is visible
-and the configured consumers have received it before reporting done.
-```
-
-<Note>
-Provisioning writes through the deployment's own host ports rather than the public origin, so ingestion does not depend on the CLI being configured.
-</Note>
-
-Before the CLI can search, it has to be pointed at the build's ingress, but this is not a step you need to run. The agent does it on the first query: it resolves the deployment's origin, runs `vss configure` against it, and repeats that after each ingestion, because the recorded index inventory is a snapshot and a freshly deployed stack records none.
-
-Run it yourself when you want to see what was recorded, or to point the CLI at a different deployment. It is a host process invoked project-locally, never a globally installed `vss` and never inside a container:
-
-```bash
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
-vss configure --base-url "<VSS_PUBLIC_URL>"
-vss configure show
-```
-
-Replace `<VSS_PUBLIC_URL>` with the ingress origin returned for your deployment.
-
-`libs/vss` is the CLI's own workspace, so no extra is required. `configure`
-probes each route and records the ones that answer, along with the Elasticsearch
-index list, and `configure show` prints what it recorded.
-
-### Step 3: Search with a simple query
-
-Your agent can search videos given natural-language queries, without requiring a chat UI/interface.
-Use its search capability to find all instances of forklifts in the uploaded video `warehouse_sample.mp4` by using the following prompt:
-
-**Simple search prompt**
-
-```text title="Simple search prompt"
-Find all instances of forklifts in the uploaded videos.
-Report the query results with source, timestamps, similarity, and the
-clip/screenshot URL.
-Don't fetch screenshot pixels unless I opt in.
-```
-
-What the agent does:
-
-1. Reads the [`vss-search-archive`](/vss/vision-agent/agent-skills) skill to determine the retrieval path.
-2. Confirms the source is registered in VIOS, and provisions it first if it is not.
-3. Chooses a retrieval route and runs it through `vss search run`, which takes no endpoint because the CLI resolves everything from what `vss configure` recorded. The four routes match the ones the chat interface selects between: `embed` for actions and events, `attribute` for visual descriptors, `fusion` for queries combining both, and `object` for identity lookup by tracked object id.
-4. Verifies the top results with the critic if the build includes RTVI-VLM. The CLI attempts this by default and skips it when the service is absent.
-5. Presents results as a table with time ranges, similarity scores, verification verdicts, and the per-criteria breakdown.
-
-Each result carries the source name, a description, `start_time` and `end_time`, the sensor id, a screenshot URL, the similarity score, any tracked object ids, and a verification verdict. The verdict is **confirmed**, **rejected**, or **unverified**, and the criteria breakdown lists the individual conditions extracted from the query and whether each was satisfied. See [Critic Agent Overview](/vss/vision-agent/agent-workflows/search#critic-agent-overview) for how the verdicts are reached.
-
-<Note>
-An empty result set is an answer, not a failure. It means the deployment holds nothing matching the query, and re-running the same search will not change that. A backend problem reports itself as a failure instead.
-
-Every verdict is **unverified** on a build deployed without result verification, and the criteria breakdown is empty. Retrieval is unaffected, and the scores and time ranges remain valid.
-</Note>
-
-### Step 4: Search with additional filters
-
-To search with additional filters:
-
-```text
-I have a video sample-warehouse-ladder.mp4. I need to find instances of a person climbing a ladder with source type video_file, video source sample-warehouse-ladder.mp4, and top 5 results.
-```
-
-- **VLM tag search:** trigger tag/fusion search over RT-VLM-generated tags with a prompt like `Find clips tagged "forklift loading a pallet" using fusion search.`
-
-### Step 5: Ask a Follow-up Question
-
-Follow-up questions related to the search results can also be asked in the same coding-agent conversation. For example:
-
-```text
-What are the durations of the top 5 results?
-```
-
-Questions like this one are answered from the results already returned, so they work on any build. Questions about what is visible in a clip are different: they re-examine the video through RTVI-VLM, so they need a build deployed with visual follow-up questions in Step 1. Without it the agent reports the missing service rather than deploying one.
-
-### Step 6: Delete Videos or Streams
-
-To remove an uploaded video or RTSP stream, issue the appropriate prompt:
-
-**Delete an uploaded video**
-
-```text title="Delete an uploaded video"
-Delete the video sample-warehouse-ladder.mp4.
-```
-
-**Delete an RTSP stream**
-
-```text title="Delete an RTSP stream"
-Delete the RTSP stream warehouse_sample.
-```
-
-### Step 7: Teardown the deployment
-
-To teardown the deployment, issue the following prompt:
-
-```text
-Tear down the search deployment.
-```
-
-The default teardown removes the project's containers, network, and named volumes, including the multi-GB NIM and RTVI model caches. To keep the caches for an immediate redeploy, ask for that explicitly:
-
-```text
-Tear down the search deployment and preserve the model caches.
-```
-
-Bind-mounted data under `VSS_DATA_DIR`, such as Elasticsearch and Kafka data and VIOS recordings, survives either path and would carry into the next deployment. Clearing it is a separate step that needs root, so the agent will surface the command and confirm with you before running it.
 
 ## Changing Embedding Models
 

@@ -28,6 +28,21 @@
 {{- $analyticsEnabled := default false (index $analytics "enabled") }}
 {{- $behaviorEnabled := default false (dig "vss-behavior-analytics" "enabled" false $analytics) }}
 {{- $monitoringEnabled := default false (index (.Values.monitoring | default dict) "enabled") }}
+{{- /*
+  vst/storage and video-analytics-api match this file's old rendering exactly,
+  so they now come from services/common's shared route table. This profile
+  has no agent/ui/alert-bridge subcharts, so those routes don't apply here.
+
+  behavior-analytics, streamer, kibana, grafana, prometheus stay hand-written:
+  the table doesn't strip behavior-analytics (this file always has), streamer
+  has no table key, and monitoring was never in the table.
+*/}}
+{{- $b := dict }}
+{{- $_ := set $b "vst" (dict "service" (index $vi "vstServiceName" | default "vss-vios-ingress") "port" (index $vi "vstPort" | default 30888)) }}
+{{- if $analyticsEnabled }}
+{{- $_ := set $b "video-analytics-api" (dict "service" (index $vi "videoAnalyticsApiServiceName" | default "vss-video-analytics-api") "port" (index $vi "videoAnalyticsApiPort" | default 8081)) }}
+{{- end }}
+{{- include "vss.ingress.assertBackends" (dict "backends" $b) }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -41,8 +56,9 @@ metadata:
     # Prometheus build absolute links, so they are told their prefix instead
     # (see the basePath / rootUrl / routePrefix values) and are not rewritten.
     haproxy.org/path-rewrite: |
-{{- if $analyticsEnabled }}
-      /video-analytics-api/(.*) /\1
+{{- $sharedRewrites := include "vss.ingress.pathRewrites" (dict "backends" $b) }}
+{{- if $sharedRewrites }}
+      {{- $sharedRewrites | nindent 6 }}
 {{- end }}
 {{- if $behaviorEnabled }}
       /behavior-analytics/(.*) /\1
@@ -50,7 +66,6 @@ metadata:
 {{- if $nvstreamerEnabled }}
       /streamer/(.*) /\1
 {{- end }}
-      ^/storage/(.*) /vst/storage/\1
     # Normalize //vst/ double-slash produced by the VST UI when served under a
     # /vst/ subpath. replace-path fires before use_backend; re-setting txn.path
     # and txn.path_match lets the router find the vss-vios-ingress backend.
@@ -58,6 +73,14 @@ metadata:
       http-request replace-path ^//vst(/.*)?$ /vst\1
       http-request set-var(txn.path) path
       http-request set-var(txn.path_match) var(txn.host_match),concat(,txn.path,),map_beg(/etc/haproxy/maps/path-prefix.map) if !{ var(txn.path_match) -m found }
+      {{- /* The deployment's version, answered by the ingress itself: this profile has
+             no agent behind /api. .Values.vssVersion is stamped by stamp_versions.py
+             (.github/version-convention.md). Only with a host: a hostless rule would
+             answer for every host on a shared HAProxy controller, i.e. report this
+             release's version for other deployments. */}}
+      {{- if $host }}
+      http-request return status 200 content-type application/json lf-string '{"service":"vss","version":"{{ .Values.vssVersion | toJson | trimAll "\"" }}"}' if { path /api/v1/version } { req.hdr(host),field(1,:) -i {{ $host }} }
+      {{- end }}
 spec:
   ingressClassName: {{ index $vi "ingressClassName" | default "haproxy" | quote }}
   rules:
@@ -67,20 +90,7 @@ spec:
       {{- end }}
       http:
         paths:
-          - path: /vst/
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ index $vi "vstServiceName" | default "vss-vios-ingress" }}
-                port:
-                  number: {{ index $vi "vstPort" | default 30888 }}
-          - path: /storage/
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ index $vi "vstServiceName" | default "vss-vios-ingress" }}
-                port:
-                  number: {{ index $vi "vstPort" | default 30888 }}
+          {{- include "vss.ingress.paths" (dict "backends" $b) | nindent 10 }}
 {{- if $nvstreamerEnabled }}
           - path: /streamer/
             pathType: Prefix
@@ -89,15 +99,6 @@ spec:
                 name: {{ index $vi "nvstreamerServiceName" | default "vss-vios-nvstreamer" }}
                 port:
                   number: {{ index $vi "nvstreamerPort" | default 31000 }}
-{{- end }}
-{{- if $analyticsEnabled }}
-          - path: /video-analytics-api/
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ index $vi "videoAnalyticsApiServiceName" | default "vss-video-analytics-api" }}
-                port:
-                  number: {{ index $vi "videoAnalyticsApiPort" | default 8081 }}
 {{- end }}
 {{- if $behaviorEnabled }}
           - path: /behavior-analytics/

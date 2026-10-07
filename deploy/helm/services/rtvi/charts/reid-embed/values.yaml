@@ -34,7 +34,7 @@ runtimeClassName: ""
 # here rather than routed through the GHCR develop-latest channel.
 image:
   repository: nvcr.io/nvstaging/vss-core/reid-embed
-  tag: 3.3.0-26.09.2
+  tag: 3.3.0-26.09.3
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -107,7 +107,7 @@ compression:
 secondaryEmbedding:
   enabled: true
   model: siglip2
-  # Defaults to <models.mountPath>/<models.subDir>/siglip_v2_vdeployable_v1.1/siglip_v2_v1.1.onnx
+  # Defaults to <models.mountPath>/<models.subDir>/siglip_v2_vdeployable_v2.0/siglip_v2_v2.0.onnx
   onnxModelPath: ""
 
 extraEnv: []
@@ -183,8 +183,8 @@ etcd:
 
 minio:
   image:
-    repository: quay.io/minio/minio
-    tag: RELEASE.2023-03-20T20-16-18Z
+    repository: cgr.dev/chainguard/minio
+    tag: latest@sha256:6a1d0b45c8669726bba580ced0bfa4cb9fdeed1ed636dfabd81d1577beb6937b
     pullPolicy: IfNotPresent
   port: 9000
   consolePort: 9001

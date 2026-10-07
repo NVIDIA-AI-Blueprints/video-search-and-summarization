@@ -25,7 +25,6 @@ export VSS_AGENT_ADAPTER_ENABLED=true
 export VSS_AGENT_BACKEND_PROTOCOL=openclaw-ws
 export VSS_AGENT_BACKEND_URL=ws://host.docker.internal:18789
 export VSS_AGENT_BACKEND_PATH=/
-export VSS_AGENT_BACKEND_TOKEN='<harness-token>'
 export HITL_ENABLED=false
 
 ./deploy/docker/scripts/dev-profile.sh up --profile base --hardware-profile H100
@@ -34,12 +33,16 @@ export HITL_ENABLED=false
 For direct Compose, copy the selected profile's `overrides.env` to the ignored
 `user-overrides.env` and set the same values there. OpenClaw uses
 `VSS_AGENT_BACKEND_PROTOCOL=openclaw-ws`, a `ws://` or `wss://` URL, and path
-`/`. Never commit a real harness token. The Compose service maps these
+`/`. Once the harness starts, enter the gateway token in the Web UI's
+**Connect NemoClaw chat** panel. The token stays in the browser tab session;
+the UI container does not need to be recreated. A server-provided
+`VSS_AGENT_BACKEND_TOKEN` remains supported for unattended deployments. Never
+commit a real harness token. The Compose service maps these
 host-side settings to the server-only `AGENT_*` variables shown below. Keep
 `HITL_ENABLED=false` for OpenClaw so follow-up questions complete as ordinary
-chat turns. Structured HITL defaults to `false` for `vss-agent` too. Set
-`HITL_ENABLED=true` explicitly only when its configured tools and the UI should
-use the legacy inline response modal; Compose passes that one value to both.
+chat turns. The in-stack `vss-agent` defaults to `HITL_ENABLED=true` in Compose,
+which enables its structured interaction dialogs. Compose passes the selected
+value to both the agent and UI.
 
 .env sample to use for docker run when running the Metropolis BP VSS UI app:
 
@@ -51,13 +54,14 @@ NEXT_PUBLIC_APP_TITLE=VSS BLUEPRINT
 NEXT_PUBLIC_APP_SUBTITLE=Warehouse
 
 # Optional backend-neutral run/event adapter embedded in the Next.js server.
-# The backend token is server-only: never expose it through NEXT_PUBLIC_*.
+# The backend token may be supplied at runtime in the Web UI. For unattended
+# deployments it can still be server-only; never expose it through NEXT_PUBLIC_*.
 # When omitted, the UI uses the legacy chat-SSE backend settings below.
 AGENT_ADAPTER_ENABLED=true
 AGENT_BACKEND_PROTOCOL=openclaw-ws
 AGENT_BACKEND_URL=ws://host.docker.internal:18789
 AGENT_BACKEND_PATH=/
-AGENT_BACKEND_TOKEN=replace-with-the-harness-token
+# AGENT_BACKEND_TOKEN=replace-with-the-harness-token
 
 # Server-only targets used by the same-origin media and chat proxy routes.
 VSS_PROXY_BASE_URL=http://vss-haproxy-ingress:7777
@@ -191,7 +195,7 @@ NEXT_PUBLIC_MAP_URL=http://127.0.0.1:3002
 NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB=true
 # Add RTSP button in Video Management tab (enabled by default, set to 'false' to hide)
 NEXT_PUBLIC_VIDEO_MANAGEMENT_TAB_ADD_RTSP_ENABLE=true
-# Upload Video button in Video Management tab (enabled by default, set to 'false' to hide)
+# Starting position of the Enable video upload switch in the Video Management tab, which shows or hides the Upload Video button (on by default, set to 'false' to start it off)
 NEXT_PUBLIC_VIDEO_MANAGEMENT_VIDEO_UPLOAD_ENABLE=true
 ```
 

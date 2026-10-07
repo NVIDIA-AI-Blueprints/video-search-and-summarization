@@ -149,7 +149,7 @@
 		"enable_drc": true,
 		"use_centralize_local_db": true,
 		"max_network_db_connections": 10,
-		"default_file_expiry_minutes": 10080,
+		"default_file_expiry_minutes": 60,
 		"download_files_timeout_secs": 120,
 		"picture_api_timeout_secs": 20,
 		"restore_rtsp_streams_on_startup": true

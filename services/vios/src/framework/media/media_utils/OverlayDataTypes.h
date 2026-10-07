@@ -78,7 +78,7 @@ struct OverlayBBoxParams
     std::string             m_bboxIdColor;
     std::string             m_bboxIdBgColor;
     bool                    m_enableHalos;
-    std::vector<string>     m_overlayClassTypeList;
+    std::vector<std::string>     m_overlayClassTypeList;
 
     OverlayBBoxParams() : m_bboxThickness(getDefaultBboxWidth())
                         , m_bboxOpacity(DEFAULT_BBOX_OPACITY)

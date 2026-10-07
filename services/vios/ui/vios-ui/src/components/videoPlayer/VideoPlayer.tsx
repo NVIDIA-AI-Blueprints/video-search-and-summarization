@@ -831,7 +831,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     const handlePlayPause = async () => {
         if (deliveryProtocol === 'dash'
-            && (streamType === StreamType.Live || streamType === StreamType.Replay)) {
+            && (streamType === StreamType.Live || streamType === StreamType.Replay
+                || streamType === StreamType.VideoWall)) {
+            if (streamType === StreamType.VideoWall) {
+                await handleVideoWallPlayPause();
+                return;
+            }
             if (!videoRef.current) {
                 return;
             }

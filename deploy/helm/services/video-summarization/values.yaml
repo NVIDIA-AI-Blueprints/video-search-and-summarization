@@ -29,12 +29,11 @@ service:
 # reads as a backend failure. The CLI bounds the wait itself. Matches the
 # per-backend `timeout server` the Docker edge sets on bk_lvs_strip.
 ingressTimeoutServer: "3600s"
-# GPU required
+# No GPU: all VLM inference is delegated to RTVI-VLM over HTTP.
 resources:
   requests:
-    nvidia.com/gpu: "1"
-  limits:
-    nvidia.com/gpu: "1"
+    cpu: "250m"
+    memory: "1Gi"
 # In-cluster: template builds http://<release>-<slug>:8000/v1 from llmService/vlmService (NIM subchart names).
 # Remote NIM: prefer global.llmBaseUrl / global.vlmBaseUrl (same base as vss-agent). LVS deployment appends /v1 when missing.
 llmService: ""   # e.g. nemotron-35-lightning-30b-a3b — ignored when llmBaseUrl/global.llmBaseUrl resolves non-empty
@@ -49,6 +48,12 @@ elasticsearchTransportPort: "9300"
 # Leave empty for the in-cluster Kafka service. Defaults to kafka-kafka:9092,
 # or <release>-kafka-kafka:9092 when global.useReleaseNamePrefix is enabled.
 kafkaBootstrapServers: ""
+# Set true when something outside the chart chooses the GPU: a Kubernetes device
+# plugin, or a DRA ResourceClaim. The chart then drops NVIDIA_VISIBLE_DEVICES
+# from the env below, which would otherwise override that choice from inside the
+# container. extraEnv cannot do this; it sets a value and never removes a name.
+pluginSelectsDevices: false
+
 env:
   - name: ARANGO_DB_HOST
     value: arango-db
@@ -72,8 +77,6 @@ env:
     value: "false"
   - name: ENABLE_VIA_HEALTH_EVAL
     value: "false"
-  - name: GPU_DEVICES
-    value: "0"
   - name: GRAPH_DB_BOLT_PORT
     value: "7687"
   - name: GRAPH_DB_HOST
@@ -118,12 +121,8 @@ env:
     value: /tmp/model_cache
   - name: NGC_MODEL_CACHE
     value: /tmp/model_cache
-  - name: NUM_GPUS
-    value: "1"
   - name: NVIDIA_API_KEY
     value: ""
-  - name: NVIDIA_VISIBLE_DEVICES
-    value: "0"
   - name: VLM_MODEL_TO_USE
     value: openai-compat
   - name: VLM_SYSTEM_PROMPT

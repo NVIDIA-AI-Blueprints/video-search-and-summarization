@@ -130,7 +130,16 @@ GENERIC_SKILL_NAMES = {
 }
 
 KEBAB_CASE_RE  = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
-SEMVER_RE      = re.compile(r"^\d+\.\d+\.\d+$")
+# Strict Semantic Versioning 2.0.0, pre-release included: skill versions are
+# stamped from the repository's nearest v* tag by stamp_versions.py, and
+# on the 3.3.0 line before its release that tag is v3.3.0rc0 -> "3.3.0-rc0".
+# Same grammar as vss_core.version.SEMVER_PATTERN.
+SEMVER_RE      = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
 DATE_RE        = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # ── Naming guideline (skill-naming-guideline rules 1–7) ─────────────────────
@@ -644,7 +653,8 @@ def check_frontmatter(skill_path: Path, result: SkillResult) -> None:
         result.findings.append(Finding(
             WARNING, "FM-004",
             f"Frontmatter 'version' ('{version}') is not valid semver. "
-            "Use MAJOR.MINOR.PATCH format, e.g. 1.0.0.",
+            "It is stamped from the repository's release tag by "
+            ".github/scripts/stamp_versions.py (e.g. 3.3.0-rc0); do not hand-edit it.",
         ))
 
     # reviewed must be YYYY-MM-DD

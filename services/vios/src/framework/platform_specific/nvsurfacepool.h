@@ -76,9 +76,9 @@ public:
             fd_index_info.m_isTransformed = true;
             m_surfacePool->addFreeSurfaceToQ(fd_index_info);
         } catch (const std::exception& e) {
-            try { LOG(error) << "Exception in ~fdWrapper: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
+            try { LOG(error) << "Exception in ~fdWrapper: " << e.what() << std::endl; } catch (...) { (void)std::current_exception(); }
         } catch (...) {
-            try { LOG(error) << "Unknown exception in ~fdWrapper" << endl; } catch (...) { (void)std::current_exception(); }
+            try { LOG(error) << "Unknown exception in ~fdWrapper" << std::endl; } catch (...) { (void)std::current_exception(); }
         }
     }
     void setIndex (int index)

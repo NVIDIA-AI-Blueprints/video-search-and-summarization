@@ -3,6 +3,7 @@
 - [Model](#model)
 - [Select the foundation](#select-the-foundation)
 - [Compute the delta](#compute-the-delta)
+- [UI configuration](#ui-configuration)
 - [Clarification gate](#clarification-gate)
 - [Artifact contract](#artifact-contract)
 - [Resolve](#resolve)
@@ -109,6 +110,25 @@ keys track it; read them before merging configs.
 
 Service activation alone is never a Compose-definition change.
 
+## UI configuration
+
+For stock and delta builds with `vss-ui`, default
+`NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_UPLOAD_FILE_ENABLE=false` unless explicitly
+requested otherwise. Write it to `override.env` when it differs from the
+inherited value, and verify it in `resolved.yml`.
+
+### UI subtitle
+
+When `vss-ui` is enabled, derive `NEXT_PUBLIC_APP_SUBTITLE` from the final
+`COMPOSE_PROFILES`. In order, include `Alerts - CV` or `Alerts - VLM` for
+`alert-bridge` according to `MODE`, `LVS` for `lvs-server`, and `Search` for
+`vss-search-analytics-2d-fusion`. Join enabled labels with ` + ` inside
+`Vision (...)`: real-time VLM alerts plus summarization becomes
+`"Vision (Alerts - VLM + LVS)"`. With none of those owners, use `Vision (Base)`
+if `rtvi-vlm` remains, otherwise `Vision`. Write the result to `override.env`
+only when it differs from the inherited subtitle; honor an explicit user
+choice. Check that `resolved.yml` gives `vss-ui` the resulting value.
+
 ## Clarification gate
 
 This gate is generic: it settles any resolution blocker the rules cannot,
@@ -197,6 +217,11 @@ For example:
   `SDR_CONTROLLER_CONFIG_PATH`, and any selected profile-specific config paths;
 - changing `HOST_IP` also requires the effective `EXTERNAL_IP`,
   `VSS_PUBLIC_HOST`, public VIOS/Agent URLs, and selected UI/API endpoints.
+- choosing Alerts `MODE=2d_vlm` requires the mode-selected Manage Alerts UI
+  flags from [`profiles/alerts.md`](profiles/alerts.md#mode-selected-manage-alerts-editors):
+  real-time alerts enabled and CV verification disabled. The Compose defaults
+  enable both editors; setting `ALERT_AGENT_ALWAYS_ON=true` alone does not
+  change them.
 
 Find the exact closure by following variable references in the selected
 Foundation's `.env` and `overrides.env`; do not assume a later primitive

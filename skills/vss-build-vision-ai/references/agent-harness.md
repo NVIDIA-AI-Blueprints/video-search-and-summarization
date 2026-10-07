@@ -69,10 +69,24 @@ gateway — what `host.docker.internal` resolves to inside the container. If the
 checked-out notebook lacks section 3.5's relay, stop and report the checkout as
 incompatible; a loopback-only forward cannot serve the containerized UI.
 
-Before onboarding, select the dashboard port (default `18789`) and the relay
-port (default `18790`, must differ) and export them with the adapter flag. The
-notebook derives `AGENT_DASHBOARD_PORT` and `AGENT_DASHBOARD_RELAY_PORT` from
-these same values:
+Before Step 7 writes the build artifacts, select the dashboard port (default
+`18789`) and the relay port (default `18790`, must differ). Put these values in
+`_builds/<name>/override.env` so the first deploy starts the UI with the
+adapter selected. Resolve `<relay-port>` to the selected relay port, not the
+loopback dashboard forward:
+
+| Variable | Value |
+|---|---|
+| `VSS_AGENT_ADAPTER_ENABLED` | `true` |
+| `VSS_AGENT_BACKEND_PROTOCOL` | `openclaw-ws` |
+| `VSS_AGENT_BACKEND_URL` | `ws://host.docker.internal:<relay-port>` |
+
+Leave `VSS_AGENT_BACKEND_TOKEN` unset. The gateway token does not exist until
+onboarding, and the Web UI accepts it at runtime. Leave
+`VSS_AGENT_BACKEND_PATH` unset; `/` is the `openclaw-ws` default.
+
+Export the selected ports and adapter flag before onboarding. The notebook
+derives `AGENT_DASHBOARD_PORT` and `AGENT_DASHBOARD_RELAY_PORT` from these values:
 
 ```bash
 export NEMOCLAW_DASHBOARD_PORT="${NEMOCLAW_DASHBOARD_PORT:-18789}"
@@ -80,25 +94,16 @@ export NEMOCLAW_DASHBOARD_RELAY_PORT="${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"
 export VSS_AGENT_ADAPTER_ENABLED=true
 ```
 
-After onboarding, add these values to `_builds/<name>/override.env`, resolving
-`<relay-port>` to the selected `NEMOCLAW_DASHBOARD_RELAY_PORT` — the relay
-port, not the forward's — rather than writing the placeholder or assuming the
-default:
+After onboarding, the user runs `nemoclaw <sandbox> gateway-token --quiet`
+with the name section 3.5 printed (`vss-harness-sandbox` by default) on the
+deployment host and enters the result in the Web UI's **Connect NemoClaw
+chat** panel. The UI checks the gateway and enables both chat surfaces when it
+accepts the token. If the relay is unavailable, the panel offers a retry; if
+the token is rejected, the user can enter a current one. The token stays in
+the browser tab session and is sent only to the UI's same-origin agent API.
+No Compose regeneration or UI container recreation is needed.
 
-| Variable | Value |
-|---|---|
-| `VSS_AGENT_ADAPTER_ENABLED` | `true` |
-| `VSS_AGENT_BACKEND_PROTOCOL` | `openclaw-ws` |
-| `VSS_AGENT_BACKEND_URL` | `ws://host.docker.internal:<relay-port>` |
-| `VSS_AGENT_BACKEND_TOKEN` | output of `nemoclaw <sandbox> gateway-token --quiet` |
-
-Leave `VSS_AGENT_BACKEND_PATH` unset; `/` is the `openclaw-ws` default. The
-token does not exist until onboarding. Capture it without printing it, keep it
-only in the ignored build artifacts, then repeat Step 8 and recreate `vss-ui`
-from the regenerated `resolved.yml`. Confirm the container has the four
-corresponding `AGENT_*` values without printing the token.
-
-This restores the chat sidebar and Chat tab. It does not restore the Search tab
+This connects the chat sidebar and Chat tab. It does not restore the Search tab
 or the ingress `/api`, `/chat`, `/websocket` routes, which address the in-stack
 agent directly. `openclaw-ws` is specific to OpenClaw; do not apply this block
 to an explicit Hermes build.
@@ -292,6 +297,10 @@ with no way to drive it.
   `VSS_REPO_DIR`; for OpenClaw, onboard builds the sandbox image from that
   Dockerfile (`--from`), so the skills and docs arrive baked rather than
   installed. Do not build a sandbox image of your own for this.
+- **`NEMOCLAW_DASHBOARD_PORT` (`18789`) and `NEMOCLAW_DASHBOARD_RELAY_PORT`
+  (`18790`) free, or held by this build's own sandbox.** See [Ports the harness
+  claims](#ports-the-harness-claims) — the one prerequisite whose remedy is the
+  user's to run, because clearing it destroys someone else's sandbox.
 
 Preflight the selected provider's row below and no other — a credential check
 that fires for every build rejects the supported paths that need no key:
@@ -324,6 +333,145 @@ the inference endpoint it was onboarded with. A `403 CONNECT tunnel failed` on
 the harness's first turn is that missing entry rather than a deployment fault —
 report it naming the port, and do not fall back to a remote provider to get a
 working chat.
+
+### Ports the harness claims
+
+The gateway forward binds `NEMOCLAW_DASHBOARD_PORT` (`18789`) and the section
+3.5 relay binds `NEMOCLAW_DASHBOARD_RELAY_PORT` (`18790`). Neither is ever
+taken from its holder — a held `18789` [stops onboard or moves the sandbox
+elsewhere](#troubleshooting-port-18789-is-not-available), and the relay cell
+stops on a foreign listener on `18790` — and every sandbox defaults to the
+same two ports, so any sandbox still running on this host holds them.
+
+Probe both on a **yes** to Q3, before accepting it and with the rest of the
+prerequisites — a build with no harness claims neither port. Probe the values
+this build will bind: an override from the environment or the request, which
+Step 7 records, or the defaults when there is none. The bind test decides
+free or held and needs only `python3`; `lsof` or `ss` only names the holder,
+and a host may lack both:
+
+```bash
+# Absent until notebook cell 3.1 installs it, so do not let it fail the probe.
+command -v openshell >/dev/null \
+  && openshell sandbox list                         # compare against NEMOCLAW_SANDBOX_NAME
+# A name is not a claim. Print which build claimed which name: a sibling build
+# holding the default name is as foreign here as a stranger's sandbox.
+grep -H . "$(git rev-parse --show-toplevel)"/_builds/*/sandbox 2>/dev/null
+for port in "${NEMOCLAW_DASHBOARD_PORT:-18789}" "${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"; do
+  python3 -c 'import socket,sys; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(("",int(sys.argv[1])))' "$port" 2>/dev/null \
+    && { echo "$port free"; continue; }
+  # The holder's own command line is what names its sandbox: the forward is an
+  # `openshell ... forward service <name>` process, so no --sandbox pattern
+  # finds it, and the PID alone says nothing about ownership.
+  echo "$port held by:"
+  for pid in $(lsof -tnP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null \
+    || ss -Hltnp "sport = :$port" 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2); do
+    printf '  %s: ' "$pid"; tr '\0' ' ' 2>/dev/null <"/proc/$pid/cmdline"; echo
+  done
+done
+# stderr first: a process that exits mid-scan makes the shell's own open fail.
+# `--sandbox` is required, not decoration: the echo below carries the relay path
+# in this block's own command line, which `[d]` does not hide from the scan.
+for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' 2>/dev/null <"$f"; echo; done \
+  | grep -E '[d]ashboard-(relay|forward-watchdog)\.py .*--sandbox '  # --sandbox names the owner
+# A relay must carry this path to count as ours, not just the sandbox name. Set
+# it from the ref decision: VSS_REPO_DIR is not exported until bring-up, so
+# reading it here silently names the wrong checkout.
+HARNESS_SRC="$(git rev-parse --show-toplevel)"      # ref build: <that>/_builds/<name>/harness-src
+echo "this build's relay: $HARNESS_SRC/deploy/docker/scripts/nemoclaw/dashboard-relay.py"
+```
+
+**No `openshell` on the host is a pass, not a failed probe.** Cell 3.1 installs
+it, so the fresh host Q3 supports has none — and with none, no sandbox is
+running to hold either port. Both ports free and no relay or watchdog in the
+process list is the whole preflight satisfied: accept the yes and continue. A
+held port still blocks even when nothing can name its holder.
+
+**Read ownership off the holder's command line, never off the port.** The
+forward prints `forward service <name>`, the relay and watchdog print
+`--sandbox <name>`, and the name to match is
+`${NEMOCLAW_SANDBOX_NAME:-vss-harness-sandbox}`. With several sandboxes on the
+host, the listing and the PID settle nothing on their own.
+
+**A matching name is not ownership; this build's own `_builds/<name>/sandbox`
+record is.** Written before bring-up runs, it is the only thing that says
+which sandbox this build may replace. The default name proves nothing on its
+own: `deploy_nemoclaw.ipynb` run by hand names its sandbox
+`vss-harness-sandbox` too, and [Teardown](#teardown) leaves exactly that one
+standing as unowned. **A sibling build's record is not this build's claim
+either** — several builds in one checkout take the same default, and the
+notebook recreates by name without reading any record, so accepting another
+`_builds/*/sandbox` here is how a build discards a sandbox and sessions
+someone is still using. Read every record to learn who holds the name; own
+only the one written under the build being deployed. A build on its first
+deploy has no record and so owns nothing, which is right — it has onboarded
+nothing yet. A re-onboard of that same build is what the record makes owned.
+
+**The relay must match the bring-up's own script path as well as the name.**
+Section 3.5 keeps a relay only when its command line carries the resolved
+`deploy/docker/scripts/nemoclaw/dashboard-relay.py` under `VSS_REPO_DIR`, so a
+same-name relay from a second clone is foreign however familiar its name looks.
+Apply that test here or the build deploys and then fails at 3.5 with `Port
+<relay-port> is held by pid …, which is not '<sandbox>'s dashboard relay` — the
+conflict Q3 exists to catch, surfacing after the cost.
+
+**Take that path from the ref decision, never from `VSS_REPO_DIR`.** The export
+does not exist until bring-up, and a [harness source ref](#harness-source-ref)
+points it at the `_builds/<name>/harness-src` worktree rather than the
+checkout. So on a ref build the checkout's own relay is foreign — reading the
+unset variable at Q3 would adopt it as this build's and approve its port.
+A re-onboard of the same build is the one case a worktree relay is owned,
+because that worktree survives for exactly that purpose.
+
+The unset case is not the checkout either: the notebook defaults
+`VSS_REPO_DIR` to `$HOME/video-search-and-summarization`, so a checkout
+anywhere else must export it — the [Bring-up](#bring-up) block does — or
+bring-up reads its assets and its relay from a path the probe never looked at.
+
+A holder this build owns is not a conflict: `NEMOCLAW_RECREATE_SANDBOX=1`
+replaces the sandbox named `NEMOCLAW_SANDBOX_NAME`, and the relay cell replaces
+that name's relay from this checkout. Do not assume that case — ownership is
+this build's own record naming the holder, and for a relay the resolved script
+path as well, so a deployment that named itself leaves a sandbox and a relay
+foreign to the next run, as do a sibling build's sandbox and a same-name relay
+from another checkout.
+
+**A holder this build's own record does not name is the one case to ask about
+rather than hand over.** The notebook takes the name regardless: section 3.1
+adds `--recreate-sandbox` for it and discards that sandbox's agent sessions.
+So put the choice before the deploy, not in the final summary — say which name
+is held, which build recorded it or that none did, and whose sessions a yes
+discards. Take either a yes to recreate it, or another `NEMOCLAW_SANDBOX_NAME`
+with a free port pair to go with it, which leaves that sandbox running and
+onboards beside it. Two ordinary situations land here: a fresh checkout on a
+host that has built before — an eval box — and a second build beside one whose
+harness is still up. Both are the question doing its job, not a false positive
+to wave through.
+
+**Anything else is a hard blocker**, including a held port nothing could name —
+report it as held by an unidentified listener. Report what holds which port, hand the
+block below over, and **do not proceed until no foreign holder remains** —
+destroy nothing and kill nothing on the user's behalf. A port the sandbox in
+this build's own record still holds is not what that waits on, nor is one the
+user has just agreed to recreate; `NEMOCLAW_RECREATE_SANDBOX=1` replaces
+either. Stopping here costs nothing: Q3 precedes every build artifact.
+
+```bash
+# Watchdog first: it answers a dying forward with `nemoclaw recover`. Relay
+# last: `destroy` releases the forward, never the relay. Drop the `destroy`
+# when `openshell sandbox list` no longer shows <other>.
+OTHER='<other>'
+# pkill -f compiles an extended regex, so escape every metacharacter in the
+# name: an unescaped one matches other sandboxes' processes too, and these
+# scripts are shared by every sandbox on the host.
+OTHER_RE="$(printf '%s' "$OTHER" | sed 's/[][(){}.*+?^$|\\]/\\&/g')"
+pkill -f -- "dashboard-forward-watchdog\.py --sandbox ${OTHER_RE}( |$)"
+nemoclaw "$OTHER" destroy --yes --cleanup-gateway
+pkill -f -- "dashboard-relay\.py --sandbox ${OTHER_RE}( |$)"
+```
+
+Re-probe both ports and resume once each is free or back to a holder this
+build owns.
 
 ## Default provider
 
@@ -450,12 +598,13 @@ Set the environment, then run the notebook:
 |---|---|---|
 | `VSS_REPO_DIR` | the checkout root | resolves the policy, skills, and workspace docs |
 | `VSS_PUBLIC_URL` | **leave unset** for a Compose build | the deployment origin `vss configure` records; empty means this host's Compose deployment and 3.2 fills it in — see [`VSS_PUBLIC_URL` is the deployment origin](#vss_public_url-is-the-deployment-origin---leave-it-empty-on-compose) below |
-| `NEMOCLAW_SANDBOX_NAME` | one name per build | the default is `demo`; a second build under the same name replaces the first build's sandbox |
+| `NEMOCLAW_SANDBOX_NAME` | `vss-harness-sandbox` unless already set | a new build replaces the sandbox of the same name, which is why Q3 settles first whether that name is this build's to take |
 | `NEMOCLAW_RECREATE_SANDBOX` | `1` | onboard is the only step that applies the provider, endpoint, model and key, so a reused sandbox would run on whatever it was onboarded with. Section 3.1 adds `--recreate-sandbox` when a sandbox of that name exists, discarding it and its agent sessions |
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
 | `NEMOCLAW_DASHBOARD_PORT` | selected port; default `18789` | NemoClaw's own forward, loopback only |
 | `NEMOCLAW_DASHBOARD_RELAY_PORT` | selected port; default `18790` | the section 3.5 relay the UI adapter backend URL must use (`ws://host.docker.internal:<relay-port>`); the Brev secure link and `CHAT_UI_URL` publish this port |
 | `VSS_AGENT_ADAPTER_ENABLED` | `true` when connecting `vss-ui` to OpenClaw | the relay is what makes the gateway reachable from the container; this flag turns the UI's adapter on |
+| `NEMOCLAW_DASHBOARD_WATCHDOG` | leave unset (on) | section 3.5 starts a host watchdog that repairs a dashboard forward holding its port without carrying HTTP; the gateway token is unchanged by a repair |
 | `NEMOCLAW_PROVIDER`, model settings, and the selected provider's credential | the Q3a answers, per [Default provider](#default-provider) | remote Claude Opus 5 when the user accepts the default; otherwise the exact notebook provider and settings selected in Q3a. The block below spells out the default remote route alone; every other route **replaces** these values rather than defaulting through them |
 | `NEMOCLAW_INFERENCE_PROXY` | unset, or `0` against a local endpoint | `0` is required when (a) points at the build's own LLM NIM, or at any plain-HTTP server: the default rewrites such an endpoint to an `https` upstream on 443 |
 | `ORCHESTRATOR_ENABLE_HTTPS` | `false` | leave at the default; the HTTPS MCP path is a separate opt-in |
@@ -465,9 +614,10 @@ set -o pipefail   # report the notebook's status, not `tee`'s
 umask 077         # the setup log echoes the notebook's own settings dump
 
 REPO="$(git rev-parse --show-toplevel)"
+BUILD_NAME="<name>"                                # the build's _builds/<name>/ directory
 
 export VSS_REPO_DIR="$REPO"
-export NEMOCLAW_SANDBOX_NAME="<build-name>"
+export NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-vss-harness-sandbox}"
 export NEMOCLAW_RECREATE_SANDBOX=1
 export NEMOCLAW_DASHBOARD_PORT="${NEMOCLAW_DASHBOARD_PORT:-18789}"
 export NEMOCLAW_DASHBOARD_RELAY_PORT="${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"
@@ -495,19 +645,27 @@ export COMPATIBLE_API_KEY
 #   export COMPATIBLE_API_KEY=EMPTY
 #   export NEMOCLAW_INFERENCE_PROXY=0
 
+# Record the name BEFORE the run, not on success: 3.1 onboards and 3.2-3.5 keep
+# configuring, so a failure in between leaves a live sandbox that teardown
+# reaches only through this file. It is also this build's claim on the name at
+# the next Q3 probe, which owns no other build's record, whatever it is called.
+printf '%s\n' "$NEMOCLAW_SANDBOX_NAME" \
+  > "$REPO/_builds/${BUILD_NAME}/sandbox"
+
 uv run --isolated --no-project --python 3.12 \
   --with nbformat --with nbclient --with ipykernel -- \
   python "$REPO/deploy/docker/scripts/run_setup_notebook.py" \
     --notebook "$REPO/deploy/docker/scripts/deploy_nemoclaw.ipynb" \
     --require-output "Sandbox '${NEMOCLAW_SANDBOX_NAME}' ready." \
     --echo-output \
-  2>&1 | tee "$REPO/_builds/${NEMOCLAW_SANDBOX_NAME}/nemoclaw-setup.log"
+  2>&1 | tee "$REPO/_builds/${BUILD_NAME}/nemoclaw-setup.log"
 ```
 
 **Take the status from the notebook, not from `tee`.** Keep `pipefail` set, or
 read `${PIPESTATUS[0]}` on the line right after the pipeline. Non-zero is a
 blocker: report it with the log path and stop, rather than going on to the UI
-link.
+link. Say that the build may hold a live sandbox and name it — the claim is on
+disk, so [Teardown](#teardown) removes it like any other build's.
 
 **`--echo-output` is what puts the notebook's output in the log.** Without it the
 runner keeps every output in memory, prints one summary line, and discards the
@@ -548,6 +706,55 @@ Run **only** `deploy_nemoclaw.ipynb`. Its companion,
 itself — work this skill has already done by the time the harness comes up.
 Add it as a second `--notebook` only when the user explicitly wants the agent to
 own the deployment lifecycle too.
+
+### Harness source ref
+
+Only when SKILL.md's [Harness source ref](../SKILL.md#harness-source-ref)
+selected one. The sandbox Dockerfiles fetch `develop` unless their build
+context holds a staged snapshot (`.vss-src/`), and the notebook takes every
+harness asset — the Dockerfile, the plugin, the policy, the skills, the
+workspace docs — from `VSS_REPO_DIR`. So build the whole harness from one
+revision: a worktree of the ref, staged with that ref's own script, as
+`VSS_REPO_DIR`. Run this **before** the notebook, in place of the plain
+`export VSS_REPO_DIR="$REPO"` above:
+
+```bash
+REF="<ref>"                                        # e.g. nightly-20260928, v3.3.0, a sha
+SRC="$REPO/_builds/${BUILD_NAME}/harness-src"
+
+# Resolve REF to what origin has *now*, never to a stale local copy: a tag is
+# force-fetched (`+`, so a moved tag updates the local one), a branch or full sha
+# is read from the FETCH_HEAD of that same fetch, and only a sha the remote will
+# not serve by name (an abbreviated one) falls back to the local object store.
+COMMIT=""
+if git -C "$REPO" fetch -q origin "+refs/tags/$REF:refs/tags/$REF" 2>/dev/null; then
+  COMMIT="$(git -C "$REPO" rev-parse --verify -q "refs/tags/$REF^{commit}" || true)"
+elif git -C "$REPO" fetch -q origin "$REF" 2>/dev/null; then
+  COMMIT="$(git -C "$REPO" rev-parse --verify -q "FETCH_HEAD^{commit}" || true)"
+elif [[ "$REF" =~ ^[0-9a-f]{7,40}$ ]]; then
+  COMMIT="$(git -C "$REPO" rev-parse --verify -q "$REF^{commit}" || true)"
+fi
+[ -n "${COMMIT:-}" ] || { echo "harness ref $REF does not resolve" >&2; exit 1; }
+git -C "$REPO" show "$COMMIT:.openclaw/Dockerfile" | grep -q 'vss-sr\[c\]' \
+  || { echo "$REF predates staged harness builds" >&2; exit 1; }
+
+git -C "$REPO" worktree remove --force "$SRC" 2>/dev/null || true
+GIT_LFS_SKIP_SMUDGE=1 git -C "$REPO" worktree add -q --detach "$SRC" "$COMMIT"
+python3 "$SRC/skills/vss-build-vision-ai/scripts/stage_vss_src.py" \
+  --repo-root "$SRC" .openclaw .hermes
+
+export VSS_REPO_DIR="$SRC"                         # every harness asset from the ref
+```
+
+The staging line prints the snapshot's sha and version (for example
+`sha 1942cc2fe0 ... version 3.3.0rc0.post1.dev21+g1942cc2fe0`); quote both in
+the summary — that version is what `vss --version` will report inside the
+sandbox. Keep `--notebook` on `$REPO/deploy/docker/scripts/deploy_nemoclaw.ipynb`
+(the runner is the checkout's; the assets are the ref's). `GIT_LFS_SKIP_SMUDGE`
+keeps the worktree to source files; the harness needs no LFS object.
+
+The worktree is the build's, not the checkout's: it stays under
+`_builds/<name>/` for a later re-onboard, and [Teardown](#teardown) removes it.
 
 The OpenClaw sandbox image ships only the **operation** skills — the ones whose
 `SKILL.md` declares `vss-requires` — and activates those the recorded deployment
@@ -623,25 +830,25 @@ the bring-up was given, read back from section 3.5's `Sandbox: <name>` line
 rather than assumed. It is the handle every later command takes:
 `nemoclaw <name> status`, `openshell sandbox exec -n <name>`, and the
 [Teardown](#teardown) destroy. The sandbox lives outside the Compose project, so
-nothing that lists the build reveals it, and a name left at the `demo` default is
-the one a second build silently replaces — a user who cannot name this sandbox
-cannot tell the two apart later.
+nothing that lists the build reveals it, and a second build under the same
+name replaces it.
 
 Say with it whether the bring-up **rebuilt** an existing sandbox of that name.
 `NEMOCLAW_RECREATE_SANDBOX=1` discards the previous sandbox and its agent
-sessions, and nothing else in the run tells the user that happened.
+sessions, and nothing else in the run tells the user that happened — Q3 asks
+first about every sandbox except the one this build's own record names.
 
-### Troubleshooting: "did not receive the required baseline scopes"
+### Troubleshooting: "Port 18789 is not available."
 
-`nemoclaw onboard` stops after `[8/8] Policy presets` with:
-
-> OpenClaw onboarding for '<name>' is incomplete because its canonical CLI
-> device did not receive the required baseline scopes.
-
-NemoClaw pairs the new sandbox's CLI device on the default dashboard port
-(`18789`); when another sandbox on the host already holds it, the pairing
-misses and onboarding times out. Retrying with `--fresh` reproduces it. The
-VSS stack and the inference route have nothing to do with it.
+Onboard's port preflight ends the run that way when the dashboard port is
+explicit — the bring-up exports `NEMOCLAW_DASHBOARD_PORT`, so it always is —
+and a listener NemoClaw cannot attribute to its own healthy runtime holds it.
+The report names the blocking process and offers
+`NEMOCLAW_DASHBOARD_PORT=<port> nemoclaw onboard`. When NemoClaw does
+recognize the holder as its own, the run continues and the new sandbox takes
+the next free port in `18789`-`18799` instead — quieter, and worse, because
+the notebook's later cells still address the port it was given. Neither
+outcome takes the port from its holder, which is why Q3 probes it first.
 
 A deploy recreates the sandbox, so its state is expendable: destroy the
 sandboxes this deploy owns - the failed one and any left by earlier runs -
@@ -655,19 +862,37 @@ nemoclaw <name> destroy             # each sandbox of this deploy
 lsof -nP -iTCP:18789 -sTCP:LISTEN   # must print nothing
 ```
 
+### Troubleshooting: "OpenClaw onboarding for '<name>' is incomplete"
+
+`nemoclaw onboard` stops after `[8/8] Policy presets` with:
+
+> OpenClaw onboarding for '<name>' is incomplete because <cause>. Resume or
+> rerun onboarding.
+
+Only that prefix is stable, so search on it and report the whole line. The
+cause is one of NemoClaw's pairing and CLI scope-settlement strings — "its
+canonical CLI device pairing did not appear", "its canonical CLI scope upgrade
+remained pending", "the sandbox scope-upgrade approval watcher was not
+running". A NemoClaw older than the pinned `NEMOCLAW_INSTALL_REF` ended the
+line "its canonical CLI device did not receive the required baseline scopes",
+which the pin no longer prints at all. The VSS stack and the inference route
+have nothing to do with any of them.
+
+The sandbox is expendable here as well: destroy it and rerun, as above.
+
 Anything beyond that — repairing a sandbox in place, NemoClaw's recreate
 guards — is NemoClaw's domain: see the
 [NemoClaw documentation](https://docs.nvidia.com/nemoclaw/latest/index.html).
 
 ## Teardown
 
-The harness and the build are independent lifecycles. Tearing down one never
-tears down the other, and [`teardown.md`](teardown.md) covers only the Compose
-project.
-
-```bash
-nemoclaw "<build-name>" destroy --yes --cleanup-gateway
-```
+The harness and the build are independent lifecycles: nothing in Compose
+reaches the sandbox. Tearing down a build therefore starts with
+[`teardown.md`](teardown.md) →
+[NemoClaw harness](teardown.md#nemoclaw-harness--before-compose), which
+stops the dashboard-forward watchdog, destroys the sandbox, stops the dashboard
+relay the destroy leaves behind, and removes the `harness-src` worktree when the
+build has one.
 
 Destroy the sandbox **before** the Compose project when doing both, so the
 harness is not left pointed at an origin that has stopped answering. Removing

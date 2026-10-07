@@ -22,11 +22,8 @@
 #include "logger.h"
 #include "AvLoopSyncCoordinator.h"
 
-/* live555's ADTSAudioStreamDiscreteFramer.hh defines ADTS_HEADER_SIZE as a
- * macro, and that header is pulled in above. This must stay a macro so the
- * identical redefinition remains benign rather than being expanded into a
- * constexpr declaration. */
-#define ADTS_HEADER_SIZE 7
+using namespace std;
+
 constexpr int DATA_ARRIVAL_TIMEOUT_USEC = 30*1000*1000;
 
 ADTSByteStreamSource

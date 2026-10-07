@@ -18,9 +18,9 @@ MODEL_SELECTOR = """
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SELECTOR_DOCUMENTS = {
-    # Only the approved VLM fallback still picks a model by hand here; the
-    # summarize request takes the one `vss configure` recorded from LVS.
-    "skills/operations/vss-summarize-video/references/end-to-end-example.md": 1,
+    # Neither path picks a model by hand: the summarize request takes the one
+    # `vss configure` recorded, and the VLM fallback is `vss vlm run`.
+    "skills/operations/vss-summarize-video/references/end-to-end-example.md": 0,
     # The direct-API reference keeps both discovery branches, because a caller
     # working against the API by hand still has to name a model.
     "skills/operations/vss-summarize-video/references/video-summarization-api.md": 2,

@@ -282,8 +282,10 @@ build's LLM NIM. It keeps Phoenix when the in-stack Agent is explicitly
 requested.
 
 If you selected NemoClaw, use the sandbox name and harness URL returned by the
-Skill. The setup log contains the authenticated dashboard URL; do not copy or
-share its token-bearing fragment. If you selected no harness, operate the
+Skill. Run `nemoclaw <sandbox> gateway-token --quiet` on the deployment host to
+get a current token. Use it with the NemoClaw dashboard URL as `/#token=<token>`;
+to use chat in the VSS Web UI, enter it in **Connect NemoClaw chat**. Do not
+share the token-bearing URL. If you selected no harness, operate the
 deployment with the project-local `vss` CLI as directed by the Skill.
 
 #### If the Skill-driven UI Doesn't Load
@@ -368,8 +370,8 @@ as documented in [Development Profile GPU Requirements](/vss/getting-started/pre
 4. Generates and validates the base deployment plan, then shows a review
    summary (services, model placement, and key endpoints).
 5. Waits for your confirmation before starting containers.
-6. Deploys with `up -d` and waits for readiness gates (container state and
-   core health checks).
+6. Deploys with `up --detach --pull always --force-recreate --build` and waits for
+   readiness gates (container state and core health checks).
 7. Returns a browser-reachable ingress URL (for example
    `http://<HOST_IP>:7777/`) for opening the UI.
 
@@ -516,7 +518,13 @@ separate GPUs with `LLM_DEVICE_ID` and `RT_VLM_DEVICE_ID`. Keep
 the local VLM service binds the GPU named by `VLM_DEVICE_ID`, while the RT-VLM
 container binds the GPU named by `RT_VLM_DEVICE_ID`.
 
-`overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
+From the repository checkout root, enter the Compose deployment directory:
+
+```bash
+cd deploy/docker
+```
+
+`overrides.env` is the checked-in template. Copy it to any
 filename matching `*-overrides.env` before selecting a layout. Files matching
 that pattern are ignored by Git so local settings and credentials are not
 committed. The commands below use `user-overrides.env` as a concrete example;
@@ -1044,11 +1052,11 @@ docker compose -f compose.yml \
   --env-file containers.env \
   --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
   --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
-  up -d
+  up --detach --pull always --force-recreate --build
 ```
 
 Review every unset-variable warning from `config --quiet` against the selected
-profile before running `up -d`. A zero exit code confirms that Compose could
+profile before running `up --detach --pull always --force-recreate --build`. A zero exit code confirms that Compose could
 render the model; it does not prove that every operationally required value is
 set. Variables used only by inactive profiles can also produce warnings.
 
@@ -1172,9 +1180,13 @@ Other examples of general supported queries include:
   <img src="/assets/images/agent-workflows/base_query_sensor_list.png" alt="Query: List all available sensors" />
 </Frame>
 
-### Generate a report
+### Generate a report with the in-stack VSS Agent
 
 You can also ask the agent to generate a report about the video. Here is an example prompt to generate a report about the video:
+
+<Note>
+The screenshots below show the in-stack VSS Agent UI. In this workflow, VSS Agent provides a PDF report download and uses a Human in the Loop (HITL) dialog to review the VLM prompt. With NemoClaw's OpenClaw runtime, the summary or report appears directly in the OpenClaw chat UI. HITL happens in that chat: the agent asks for prompt details inline, and you answer in the conversation. The VSS Agent's structured HITL dialogs are not available through an external VSS UI connected to NemoClaw.
+</Note>
 
 ```bash
 Can you generate a report for this video?
@@ -1186,7 +1198,7 @@ Can you generate a report for this video?
 
 #### Human in the loop (HITL) prompt editing:
 
-When generating a report, the agent will prompt the user to review the vlm prompt for report generation.
+When generating a report in the VSS Agent UI, the agent prompts the user to review the VLM prompt for report generation.
 This allows the user to edit the vlm prompt for report generation to improve the specificity and accuracy of the report.
 
 ![Human in the loop prompt-editing flow diagram](/assets/images/agent-workflows/base_hitl_diagram.png)

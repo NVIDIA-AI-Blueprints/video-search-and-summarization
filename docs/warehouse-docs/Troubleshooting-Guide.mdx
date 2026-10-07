@@ -141,6 +141,11 @@ $ docker ps -a
 #example
 CONTAINER ID   IMAGE                                                                  COMMAND                   CREATED          STATUS                      PORTS     NAMES
 b465521d44a8   nvcr.io/nvidia/vss-core/vss-rt-cv:3.2.1                             "/opt/nvidia/deepstr…"    10 minutes ago   Up 9 minutes                          vss-rtvi-cv-mv3dt
+a1b2c3d4e5f6   nvcr.io/nvidia/vss-core/reid-embed:3.3.0-26.09.2                    "/opt/nvidia/entrypo…"    10 minutes ago   Exited (0) 9 minutes ago              vss-reid-embed-init-mv3dt
+c7d8e9f0a1b2   nvcr.io/nvidia/vss-core/reid-embed:3.3.0-26.09.2                    "python -m reid_embe…"    10 minutes ago   Up 9 minutes (healthy)                vss-reid-embed-mv3dt
+d3e4f5a6b7c8   milvusdb/milvus:v2.5.12                                             "milvus run standalo…"    10 minutes ago   Up 10 minutes                         vss-reid-milvus-mv3dt
+e4f5a6b7c8d9   quay.io/coreos/etcd:v3.5.18                                         "etcd -advertise-cli…"    10 minutes ago   Up 10 minutes                         vss-reid-etcd-mv3dt
+f5a6b7c8d9e0   quay.io/minio/minio:RELEASE.2023-03-20T20-16-18Z                    "minio server /minio…"    10 minutes ago   Up 10 minutes                         vss-reid-minio-mv3dt
 0dba1c395455   nvcr.io/nvidia/vss-core/vss-vios-sensor:3.2.1                       "/bin/bash -c 'exec …"    10 minutes ago   Up 9 minutes (healthy)                vss-vios-sensor
 2653093ae92b   nvcr.io/nvidia/vss-core/vss-vios-nvstreamer:3.2.1                   "bin/bash -c 'if [ …"     10 minutes ago   Up 9 minutes                          vss-vios-nvstreamer-mv3dt
 22b5f0b04093   nvcr.io/nvidia/vss-core/sdr-mw-l:3.2.0                              "/usr/local/bin/wdm-…"    10 minutes ago   Up 9 minutes                          sdr-controller

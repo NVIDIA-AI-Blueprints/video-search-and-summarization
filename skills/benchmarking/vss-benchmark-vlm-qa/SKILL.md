@@ -3,7 +3,7 @@ name: vss-benchmark-vlm-qa
 description: Benchmark video Q&A accuracy and latency of a deployed RT-VLM (Cosmos Reason 3) via vss vlm run, using questions and videos from the DSS vss-devx-base dataset. Replaces the deprecated nat eval / vss-agent QA path. Not for tool-calling or trajectory evaluation, and not for LVS summarization throughput.
 license: Apache-2.0
 metadata:
-  version: "3.3.0"
+  version: "3.3.0-rc0"
   # Deployment versions this skill supports. Floor is 3.3.0 because that is the
   # Cosmos Reason 3 RT-VLM stack the published baselines were measured on, and
   # this skill replaces the deprecated `nat eval` / vss-agent QA path. Not a CLI
@@ -57,13 +57,13 @@ score tool-calling or trajectories.
   is the Cosmos Reason 3 stack the published baselines were measured on, not a CLI
   capability: the CLI comes from this checkout either way). **This is not enforced
   automatically.** Unlike
-  `benchmark-video-summarization`, this skill has no `preflight.sh`, and adding one
+  `vss-benchmark-video-summarization`, this skill has no `preflight.sh`, and adding one
   just to carry a single check would be out of proportion; `vss configure check` is
   already the gate it runs. Verify by hand when in doubt:
 
   ```bash
   python3 <repo>/services/agent/scripts/check_vss_version.py \
-    <deployment-origin> --skill <repo>/skills/benchmarking/benchmark-vlm-qa/SKILL.md
+    <deployment-origin> --skill <repo>/skills/benchmarking/vss-benchmark-vlm-qa/SKILL.md
   ```
 
   Exit 0 = compatible, 3 = incompatible, 1 = could not be determined.

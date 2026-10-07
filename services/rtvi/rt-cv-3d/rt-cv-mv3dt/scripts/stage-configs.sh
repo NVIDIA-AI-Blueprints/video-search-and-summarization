@@ -112,13 +112,13 @@ validate_reid_settings() {
     exit 1
   }
   [ -n "${MODELS_DIR:-}" ] || { echo "ERROR: MODELS_DIR is required when REID_ENABLED=1" >&2; exit 1; }
-  local model
-  for model in reid_model.onnx reid_model.onnx_b64_gpu0_fp32.engine; do
-    [ -r "$MODELS_DIR/reid/$model" ] || {
-      echo "ERROR: required ReID model is missing or unreadable: $MODELS_DIR/reid/$model" >&2
-      exit 1
-    }
-  done
+  # Only the ONNX is a prerequisite. TensorRT writes the ReID engine plan next
+  # to it on the first perception run, exactly as it does for the RT-DETR
+  # engine below, so requiring the plan here would reject a correct tree.
+  [ -r "$MODELS_DIR/reid/reid_model.onnx" ] || {
+    echo "ERROR: required ReID model is missing or unreadable: $MODELS_DIR/reid/reid_model.onnx" >&2
+    exit 1
+  }
 }
 validate_reid_settings
 
@@ -236,6 +236,76 @@ print(" ".join(sorted(str(i) for i in ids if i)))
 }
 check_camera_consistency
 
+# The perception tag has to match the machine's architecture. The SBSA / DGX
+# Spark build ships as a separate -sbsa tag. The default tag's arm64 variant
+# carries no NVIDIA decoder at all (no libgstnvvideo4linux2.so, no tegra
+# libraries), so nvv4l2decoder cannot be created, GStreamer falls back,
+# extract-sei-type5-data is unavailable and nvstreammux drops every buffer.
+# The operator sees an element-creation failure deep in the pipeline instead of
+# a wrong-image message. That is bug 6575042. Settle it here, before anything
+# is staged.
+#
+# The GHCR build and the NGC release image (nvcr.io/nvidia/vss-core/vss-rt-cv)
+# share that default/-sbsa split. A custom PERCEPTION_IMAGE is left alone.
+# SKIP_ARCH_CHECK=1 bypasses the whole thing.
+#
+# Jetson is aarch64 too, but it is not an SBSA machine. The Tegra encoder node
+# is how the encoder probe below already recognizes one, so this guard leaves
+# that host alone instead of sending it at the DGX Spark tag.
+#
+# Strip the sbsa marker wherever it sits so the suggested tag is one this guard
+# would accept. "develop-latest-sbsa" -> "develop-latest",
+# "develop-latest-sbsa-swenc" -> "develop-latest-swenc".
+x86_tag() {
+  local t="${1//-sbsa/}"
+  t="${t//sbsa-/}"
+  t="${t//sbsa/}"
+  printf '%s' "${t:-develop-latest}"
+}
+
+check_perception_arch() {
+  [ "${SKIP_ARCH_CHECK:-0}" = "1" ] && return 0
+
+  local image="${PERCEPTION_IMAGE:-}" tag="${PERCEPTION_TAG:-}" arch
+  # An unset tag is not "no opinion": compose falls back to develop-latest
+  # (see docker/compose.yml), which on aarch64 is the decoder-less image this
+  # guard exists to reject. Check what will actually run.
+  [ -n "$tag" ] || tag=develop-latest
+  case "$image" in
+    ''|*ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv|*nvcr.io/nvidia/vss-core/vss-rt-cv) ;;
+    *) return 0 ;;                       # custom image, convention does not apply
+  esac
+
+  arch="$(uname -m)"
+  case "$arch" in
+    aarch64|arm64)
+      # Jetson uses the Tegra build. The -sbsa tag is the DGX Spark image.
+      has_tegra_encoder_node && return 0
+      case "$tag" in
+        *-sbsa|*sbsa*) return 0 ;;
+        *) { echo "ERROR: perception image does not match this machine, nothing was staged."
+             echo "       $arch needs the -sbsa tag, and docker/.env has PERCEPTION_TAG=\"$tag\"."
+             echo "       That image carries no NVIDIA decoder, so sources register and then"
+             echo "       produce no frames (bug 6575042)."
+             echo "       Set PERCEPTION_TAG=\"${tag}-sbsa\" in docker/.env and restage,"
+             echo "       or re-run with SKIP_ARCH_CHECK=1 to stage anyway."; } >&2
+           exit 1 ;;
+      esac ;;
+    x86_64|amd64)
+      case "$tag" in
+        *-sbsa|*sbsa*)
+          { echo "ERROR: perception image does not match this machine, nothing was staged."
+            echo "       PERCEPTION_TAG=\"$tag\" is the aarch64 build and this host is $arch."
+            echo "       Set PERCEPTION_TAG=\"$(x86_tag "$tag")\" in docker/.env and restage,"
+            echo "       or re-run with SKIP_ARCH_CHECK=1 to stage anyway."; } >&2
+          exit 1 ;;
+        *) return 0 ;;
+      esac ;;
+    *) return 0 ;;                       # unknown architecture, say nothing
+  esac
+}
+check_perception_arch
+
 # enc-type=1 needs an encoder the stock image lacks. Settle it before staging so
 # a config known to fail at runtime is never written.
 ensure_sw_encoder() {
@@ -351,7 +421,9 @@ if [ "$REID_ENABLED" = 1 ]; then
   set_yaml_scalar "$TRACKER_STAGED" ReIDService servicePort "$REID_SERVICE_PORT"
   set_yaml_scalar "$TRACKER_STAGED" ReIDService operateOnClassIds '[0]'
   echo "   ReID enabled: ${REID_DIMENSION}-D features -> ${REID_SERVICE_HOST}:${REID_SERVICE_PORT} (topic $REID_INPUT_TOPIC)"
-  echo "   ReID models: $MODELS_DIR/reid/reid_model.onnx + reid_model.onnx_b64_gpu0_fp32.engine"
+  echo "   ReID model: $MODELS_DIR/reid/reid_model.onnx"
+  [ -r "$MODELS_DIR/reid/reid_model.onnx_b64_gpu0_fp32.engine" ] || \
+    echo "   ReID engine: not built yet; perception builds it on first run (minutes)"
 else
   # Older/custom tracker configs may omit these optional blocks entirely. If a
   # switch exists, force it off; absence already means the service is disabled.

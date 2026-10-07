@@ -23,6 +23,7 @@
 #include "vst_common.h"
 
 using namespace nv_vms;
+using namespace std;
 
 static const unsigned int max_n_threads = 10;
 

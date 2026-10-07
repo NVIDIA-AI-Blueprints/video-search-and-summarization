@@ -3,7 +3,7 @@ name: vss-evaluate-caption-accuracy
 description: Measure whether an RT-VLM configuration change altered caption quality — capture paired baseline and candidate captions for a set of videos, score both against a ground truth with an LLM judge, and emit an accuracy and processing-time table. Use when changing frame selection, decode, or model settings and you need evidence there is no accuracy regression.
 license: Apache-2.0
 metadata:
-  version: "3.2.0"
+  version: "3.3.0-rc0"
   # Deployment versions this skill supports. Wide because it talks to RT-VLM
   # over its OpenAI-compatible surface only (/v1/chat/completions, /v1/files,
   # /v1/generate, /v1/health/ready) and uses no `vss` CLI command, so nothing it

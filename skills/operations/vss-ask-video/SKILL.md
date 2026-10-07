@@ -3,7 +3,7 @@ name: vss-ask-video
 description: Use this skill when answering a question about previously analyzed or freshly scoped VSS video, or when reading a stored VSS memory job or record by id, or whenever a question should be answered by running the `vss memory introspect` command. Route through hot context, agent Markdown notes, `vss memory get` or `vss memory query`, `vss memory introspect`, or an exact-window `vss vlm run`. Not for video retrieval or metadata-answerable questions.
 license: Apache-2.0
 metadata:
-  version: "3.3.0"
+  version: "3.3.0-rc0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
   # What a live deployment must expose for this skill to be usable, as the vss CLI
@@ -223,9 +223,9 @@ RT-VLM keeps the requested FPS only while `fps × clip_seconds` is at most 60 fr
 spaced frames so the vision token budget is not spent on many tiny images.
 Prefer a shorter window before raising FPS.
 
-Do not use fixed `--num-frames` unless the user explicitly requests a fixed
-frame budget or a reproducibility workflow requires it. Never combine
-`--num-frames` and `--fps`.
+Do not pass `--max-frames` unless the user explicitly requests a frame
+budget or a reproducibility workflow requires it. It caps the frame count and
+may be combined with `--fps`; on RT-VLM it applies only when `--fps` is unset.
 
 ## When introspection is enabled
 
@@ -294,7 +294,8 @@ ask for what is missing by name rather than closing the request out.
 
 Do not simulate introspection by selecting a sensor/window and automatically
 calling VLM. Direct VLM is still allowed only for an explicit fresh-verification
-request, an exact grounded sensor/window, or a trusted bounded media handoff.
+request, an exact grounded sensor/window, a named sensor's whole recording
+under 120 s, or a trusted bounded media handoff.
 If the user explicitly asks to enable or configure introspection, explain the
 current state and run the CLI configure command. `--enable` alone
 fails when introspection was never configured; include the judge endpoint on
@@ -384,6 +385,13 @@ not substitute `vss vios clip` or raw HTTP. Cite the returned `job_id`, sensor,
 and window. Exit 6 means the answer exists but persistence failed; retain the
 answer and report that limitation.
 
+## Whole-recording questions
+
+When the request names a sensor but no window ("what happens in `dock_cam`?"),
+run `vss vios timeline --sensor <name>`. Under 120 s in total, run one `vss vlm
+run --sensor <name> --start-time <start> --end-time <end>` per segment. At
+120 s or longer, hand off to `/vss-summarize-video`.
+
 ## Examples
 
 - **Hot conversation:** The previous turn says, "A forklift crossed the loading
@@ -413,7 +421,8 @@ answer and report that limitation.
 - Archive/semantic similarity retrieval ("find videos of ...") -> `/vss-search-archive`.
   This skill may inspect only the pre-resolved bounded clip that search hands
   off after confirmation; it never performs the retrieval itself.
-- Long-form summarization -> `/vss-summarize-video`.
+- Long-form summarization, or a whole recording of 120 s or longer ->
+  `/vss-summarize-video`.
 - Structured reports -> `/vss-generate-video-report`.
 - Existing analytics incidents or metrics -> `/vss-query-analytics`.
 - Deployment/profile changes -> `/vss-build-vision-ai`.

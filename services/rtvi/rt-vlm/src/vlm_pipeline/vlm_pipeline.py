@@ -50,6 +50,7 @@ from .process_base import (
     ProcessBase,
     _contains_cuda_tensor,
     _move_cuda_frames_to_cpu,
+    _parse_bool_env,
     _safe_cuda_empty_cache,
     _spill_cuda_frames_to_cpu,
 )
@@ -581,6 +582,10 @@ class DecoderProcess(ProcessBase):
             raise
 
     def _warmup(self):
+        if _parse_bool_env("SKIP_DECODER_WARMUP"):
+            logger.info("Skipping decoder warmup")
+            return
+
         chunk = ChunkInfo()
         chunk.file = "/opt/nvidia/rtvi/warmup_streams/its_264.mp4"
         chunk.end_pts = 5000000000

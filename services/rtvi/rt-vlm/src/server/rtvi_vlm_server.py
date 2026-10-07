@@ -1325,7 +1325,7 @@ class RTVIServer:
         if vlm_query.url:
             if not vlm_query.id_list or len(vlm_query.id_list) != 1:
                 raise ServiceException(
-                    "When 'url' is provided, 'id' must be a single UUID.",
+                    "When 'url' is provided, 'id' must be a single identifier.",
                     "BadParameters",
                     400,
                 )
@@ -2989,7 +2989,12 @@ class RTVIServer:
                     yield "[DONE]"
 
                 try:
-                    return EventSourceResponse(message_generator(), send_timeout=5, ping=1)
+                    return EventSourceResponse(
+                        message_generator(),
+                        send_timeout=5,
+                        ping=1,
+                        headers={"X-Request-ID": request_id},
+                    )
                 except Exception as ex:
                     self._stream_handler._send_error_message_to_kafka(
                         VLM_CAPTIONS_ERROR_MESSAGE % str(ex),

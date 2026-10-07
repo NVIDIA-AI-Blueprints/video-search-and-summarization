@@ -22,7 +22,6 @@
 #include "HttpServerRequestHandler.h"
 #include "database.h"
 
-using namespace nv_vms;
 
 class UserRESTApis
 {
@@ -33,12 +32,12 @@ public:
 #ifndef UNIT_TEST
 private:
 #endif
-VmsErrorCode loginUser(const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn);
-VmsErrorCode addNewUser(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
-VmsErrorCode deleteUser(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
-VmsErrorCode logoutUser(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
-VmsErrorCode addNewUser(string username, string vstUser, string password, bool createUser, Json::Value &response);
-VmsErrorCode handleUserCredentials(const Json::Value &data, Json::Value &response);
+nv_vms::VmsErrorCode loginUser(const Json::Value& req_info, const Json::Value &in, Json::Value &response, struct mg_connection *conn);
+nv_vms::VmsErrorCode addNewUser(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
+nv_vms::VmsErrorCode deleteUser(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
+nv_vms::VmsErrorCode logoutUser(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
+nv_vms::VmsErrorCode addNewUser(std::string username, std::string vstUser, std::string password, bool createUser, Json::Value &response);
+nv_vms::VmsErrorCode handleUserCredentials(const Json::Value &data, Json::Value &response);
 
 private:
     std::map<std::string,HttpServerRequestHandler::httpFunction, std::less<>>  m_func;

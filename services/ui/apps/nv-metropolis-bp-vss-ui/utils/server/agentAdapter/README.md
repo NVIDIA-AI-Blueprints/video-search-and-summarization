@@ -33,7 +33,9 @@ The principal settings are:
 - `AGENT_RUN_RETENTION_SECONDS` and `AGENT_MAX_*`: optional in-process replay
   retention and memory bounds. `AGENT_MAX_RETAINED_CHARS` bounds all retained
   run requests, events, and Responses thread state; it defaults to 64 million
-  serialized characters.
+  serialized characters. Browser-entered gateway tokens share one bounded run
+  store. Replay retention is best effort: when that store reaches capacity, its
+  oldest completed run may be evicted before the retention window expires.
 
 The adapter connects to an already-configured harness. It does not install
 Skills, provision a CLI, or modify the harness's identity, memory, or history.

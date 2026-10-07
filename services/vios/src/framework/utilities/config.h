@@ -97,14 +97,14 @@ class VmsConfigManager
         bool isAudioFormatSupported(const std::string& format);
         bool isVideoContainerSupported(const std::string& container, std::string& absoluteFilePath);
         Json::Value getWebrtcVideoQualityValues(const uint32_t& height);
-        string getWebServerUrl();
-        string getDefaultCredentials();
+        std::string getWebServerUrl();
+        std::string getDefaultCredentials();
         DeviceConfig& getVmsConfig();
-        vector<shared_ptr<SensorInfo>>& getCameraBackList();
-        string getWebRootPath();
-        vector<string> getNGCAuthHeaders();
-        vector<string> getEdgeDeviceHeaders(bool isEdgeDevice);
-        bool validateVideoFileExtension(const std::vector<string>& containers, std::string filename);
+        std::vector<std::shared_ptr<SensorInfo>>& getCameraBackList();
+        std::string getWebRootPath();
+        std::vector<std::string> getNGCAuthHeaders();
+        std::vector<std::string> getEdgeDeviceHeaders(bool isEdgeDevice);
+        bool validateVideoFileExtension(const std::vector<std::string>& containers, std::string filename);
         void parseOverlayConfigs(const Json::Value& overlay);
         // Download calibration.json / floor-map image from absolute HTTP endpoints at startup.
         // Retries a few times; on failure keeps local paths (overlay may not work).
@@ -128,18 +128,18 @@ class VmsConfigManager
             bool     ok   = false;
         };
 
-        bool downloadOverlayAsset(const string& endpoint, const string& localPath,
+        bool downloadOverlayAsset(const std::string& endpoint, const std::string& localPath,
                                   bool validateCalibrationJson, int maxRetries,
                                   long timeoutMs);
-        bool isOverlayAssetUsable(const string& localPath, bool validateCalibrationJson,
+        bool isOverlayAssetUsable(const std::string& localPath, bool validateCalibrationJson,
                                   AssetVerdict& cached);
-        bool ensureOverlayAssetForLiveRequest(const string& endpoint, const string& localPath,
+        bool ensureOverlayAssetForLiveRequest(const std::string& endpoint, const std::string& localPath,
                                               bool validateCalibrationJson,
                                               std::chrono::steady_clock::time_point& lastAttempt,
                                               AssetVerdict& cached, bool isFloorMap);
     private:
         DeviceConfig m_vmsConfig;
-        vector<shared_ptr<SensorInfo>> m_backlist;
+        std::vector<std::shared_ptr<SensorInfo>> m_backlist;
         // Two locks, always taken download -> cache when both are needed.
         // The download lock covers network fetch, publish and retry bookkeeping;
         // the cache lock covers the verdicts only, so the common "asset is fine"

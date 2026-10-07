@@ -22,6 +22,7 @@ from detect_changed_images import (
     commit_exists,
     resolve_diff_base,
 )
+from check_container_tag_source import source_paths_of
 from github_build_run import GitHubApi, await_build_run
 from release_set import load_inventory
 
@@ -74,17 +75,20 @@ def downstream_relevant(changed: list[str] | None, inventory: dict) -> tuple[boo
     if changed is None:
         return True, "changed paths unavailable; running downstream"
 
-    watched = {
-        str(entry["source_path"]): str(entry["name"])
+    # source_path is one path or a list (an image whose Dockerfile COPYs from
+    # several places), and one path may feed several images (libs/vss, skills):
+    # every (path, image) pair watches.
+    watched = [
+        (source_path, str(entry["name"]))
         for entry in inventory.get("images", [])
-        if entry.get("source_path")
-        and (entry.get("ghcr_build") or entry.get(TRIGGER_FLAG))
-    }
+        if entry.get("ghcr_build") or entry.get(TRIGGER_FLAG)
+        for source_path in source_paths_of(entry.get("source_path"))
+    ]
     hit_images = sorted(
         {
             name
             for path in changed
-            for source_path, name in watched.items()
+            for source_path, name in watched
             if path == source_path or path.startswith(source_path.rstrip("/") + "/")
         }
     )

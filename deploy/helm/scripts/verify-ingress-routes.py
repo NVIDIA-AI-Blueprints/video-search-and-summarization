@@ -53,6 +53,7 @@ HERE = Path(__file__).resolve().parent  # deploy/helm/scripts
 HELM = HERE.parent
 REPO = HELM.parent.parent
 PROFILES_DIR = HELM / "developer-profiles"
+WAREHOUSE_DIR = HELM / "industry-profiles" / "warehouse-operations"
 TABLE = HELM / "services" / "common" / "templates" / "_ingress-routes.tpl"
 CLI_CONFIG = REPO / "libs/vss/cli/src/vss_cli/config.py"
 
@@ -67,6 +68,38 @@ PROFILES = {
 HOST = "10.0.0.1"
 EAST_WEST = {"/rtvi-cv", "/rtvi-embed"}
 DEDICATED_HOSTS = {"kibana", "phoenix", "streamer"}
+
+# Warehouse gates on global.vssIngress.enabled and mixes shared-table routes
+# with hand-written ones the table doesn't define (kibana/grafana/prometheus/
+# streamer/behavior-analytics) -- its own narrower check, not check_profile.
+WAREHOUSE_ON = [
+    "--set",
+    "global.vssIngress.enabled=true",
+    "--set",
+    "analytics.enabled=true",
+    "--set",
+    "agent.enabled=true",
+    "--set",
+    "vss-agent-ui.enabled=true",
+    "--set",
+    "vss-alert-bridge.enabled=true",
+]
+# warehouse-3d-app/warehouse-mv3dt-app have no agent/vss-agent-ui/vss-alert-bridge
+# dependencies at all, so this only applies to the one profile that does.
+WAREHOUSE_PROFILES = {"warehouse-2d-app": WAREHOUSE_ON}
+WAREHOUSE_HAND_WRITTEN_PATHS = {
+    "/kibana/",
+    "/grafana/",
+    "/prometheus/",
+    "/streamer/",
+    "/behavior-analytics/",
+}
+# (profile, extra --set args, path that must disappear).
+WAREHOUSE_DISABLED_CASES = [
+    ("warehouse-2d-app", "agent.vss-agent.enabled=false", "/api"),
+    ("warehouse-2d-app", "vss-agent-ui.enabled=false", "/"),
+    ("warehouse-2d-app", "vss-alert-bridge.enabled=false", "/alert-bridge"),
+]
 
 # (profile, values override, path that must disappear). One per gating shape:
 # an umbrella dependency, a leaf component, and the legacy alias keys.
@@ -96,7 +129,12 @@ def canonical_table() -> list[dict]:
     return rows
 
 
-def render(profile: str, extra: list[str]) -> list[dict]:
+def render(
+    profile: str,
+    extra: list[str],
+    profile_dir: Path = PROFILES_DIR,
+    base_args: list[str] | None = None,
+) -> list[dict]:
     out = subprocess.run(
         [
             "helm",
@@ -107,10 +145,10 @@ def render(profile: str, extra: list[str]) -> list[dict]:
             "global.externalHost=" + HOST,
             "--show-only",
             "templates/vss-ingress.yaml",
-            *PROFILES[profile],
+            *(base_args if base_args is not None else PROFILES[profile]),
             *extra,
         ],
-        cwd=PROFILES_DIR,
+        cwd=profile_dir,
         capture_output=True,
         text=True,
     )
@@ -235,6 +273,65 @@ def check_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
     return fails
 
 
+def check_warehouse_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
+    """Like check_profile, but skips paths in WAREHOUSE_HAND_WRITTEN_PATHS."""
+    fails: list[str] = []
+    by_path = {r["path"]: r for r in rows}
+    ingresses = render(
+        profile, [], profile_dir=WAREHOUSE_DIR, base_args=WAREHOUSE_PROFILES[profile]
+    )
+    for ing in ingresses:
+        for rule in ing["spec"]["rules"]:
+            for entry in rule["http"]["paths"]:
+                path = entry["path"]
+                if path in WAREHOUSE_HAND_WRITTEN_PATHS:
+                    continue
+                row = by_path.get(path)
+                if row is None:
+                    fails.append(
+                        f"{profile}: mounts {path}, which is neither in the shared "
+                        f"table nor WAREHOUSE_HAND_WRITTEN_PATHS"
+                    )
+                    continue
+                if entry["pathType"] != row["pathType"]:
+                    fails.append(
+                        f"{profile}: mounts {path} as {entry['pathType']}, "
+                        f"table says {row['pathType']}"
+                    )
+        if verbose:
+            print(f"\n{profile}")
+            for rule in ing["spec"]["rules"]:
+                for entry in rule["http"]["paths"]:
+                    svc = entry["backend"]["service"]
+                    print(
+                        f"    {entry['path']:<22} -> {svc['name']}:{svc['port']['number']}"
+                    )
+    return fails
+
+
+def check_warehouse_disabled(verbose: bool) -> list[str]:
+    """Same as check_disabled, for WAREHOUSE_DISABLED_CASES."""
+    fails = []
+    for profile, override, path in WAREHOUSE_DISABLED_CASES:
+        mounted = mounted_paths(
+            render(
+                profile,
+                ["--set", override],
+                profile_dir=WAREHOUSE_DIR,
+                base_args=WAREHOUSE_PROFILES[profile],
+            )
+        )
+        if path in mounted:
+            fails.append(
+                f"{profile}: --set {override} still mounts {path}. `default true` on a "
+                f"boolean hands back the default for an explicit false -- gate with "
+                f"vss.ingress.enabled instead"
+            )
+        elif verbose:
+            print(f"  disabled case ok: {profile} --set {override} drops {path}")
+    return fails
+
+
 def check_disabled(verbose: bool) -> list[str]:
     """A disabled component must lose its route, not keep a dangling backend."""
     fails = []
@@ -300,6 +397,10 @@ def main() -> int:
     failures += check_disabled(verbose)
     failures += check_examples(main_paths)
 
+    for profile in WAREHOUSE_PROFILES:
+        failures += check_warehouse_profile(profile, rows, verbose)
+    failures += check_warehouse_disabled(verbose)
+
     if failures:
         print("\n".join("FAIL " + f for f in failures))
         return 1
@@ -307,7 +408,9 @@ def main() -> int:
     print(
         f"OK  {len(PROFILES)} profiles render from one table ({distinct} distinct mounts); "
         f"CLI probe mounts present; {len(DISABLED_CASES)} disabled-component cases drop "
-        f"their route; examples current"
+        f"their route; examples current; {len(WAREHOUSE_PROFILES)} warehouse profile(s) "
+        f"checked; {len(WAREHOUSE_DISABLED_CASES)} warehouse disabled-component cases drop "
+        f"their route"
     )
     return 0
 

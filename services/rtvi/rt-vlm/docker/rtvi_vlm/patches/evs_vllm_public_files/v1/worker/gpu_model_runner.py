@@ -496,6 +496,7 @@ class GPUModelRunner(
         # Per-clip entries awaiting EVS merge — exempt from scheduler-driven
         # eviction until the merge step frees them explicitly.
         self._pinned_encoder_mm_hashes: set[str] = set()
+        self._pending_free_evs_mm_hashes: set[str] = set()
 
         self.use_aux_hidden_state_outputs = False
         # Set up speculative decoding.
@@ -793,6 +794,13 @@ class GPUModelRunner(
         stale embeddings computed with old weights are not reused.
         """
         self.encoder_cache.clear()
+        # Delivered discards will not be sent again after reset. Drop their
+        # pins before forgetting the pending frees so repopulated entries
+        # remain eligible for ordinary scheduler eviction.
+        self._pinned_encoder_mm_hashes.difference_update(
+            self._pending_free_evs_mm_hashes
+        )
+        self._pending_free_evs_mm_hashes.clear()
 
     @torch.inference_mode()
     def init_fp8_kv_scales(self) -> None:
@@ -962,6 +970,38 @@ class GPUModelRunner(
     def _sync_device(self) -> None:
         torch.cuda.synchronize()
 
+    def _free_evs_encoder_cache(self, scheduler_output: "SchedulerOutput") -> None:
+        """Release discarded EVS entries after their last request finishes.
+
+        API-server frees are independent of the scheduler's request lifetime.
+        Deleting a session must not unpin a merged embedding that a queued,
+        preempted, or chunked-prefill request still needs.
+        """
+        discarded = scheduler_output.free_ec_connector_mm_hashes
+        if discarded:
+            self.maybe_free_ec_from_connector(list(discarded))
+            self._pending_free_evs_mm_hashes.update(discarded)
+        if not self._pending_free_evs_mm_hashes:
+            return
+
+        # Finished requests have already been removed by _update_states.
+        # New requests in this batch have not been installed in self.requests
+        # yet, so include their features explicitly. Keep unscheduled owners:
+        # a preempted request can resume and gather the same embedding again.
+        referenced = {
+            feature.identifier
+            for request in (
+                *self.requests.values(),
+                *scheduler_output.scheduled_new_reqs,
+            )
+            for feature in (request.mm_features or ())
+        }
+        releasable = self._pending_free_evs_mm_hashes - referenced
+        for mm_hash in releasable:
+            self._pinned_encoder_mm_hashes.discard(mm_hash)
+            self.encoder_cache.pop(mm_hash, None)
+        self._pending_free_evs_mm_hashes.difference_update(releasable)
+
     def _update_states(self, scheduler_output: "SchedulerOutput") -> None:
         """Update the cached states and the persistent batch with the scheduler
         output.
@@ -990,24 +1030,10 @@ class GPUModelRunner(
         if scheduler_output.new_block_ids_to_zero:
             self._zero_block_ids(scheduler_output.new_block_ids_to_zero)
 
-        # Free IPC staging-buffer entries for clips the API server
-        # discarded (idle / pre-spike).  Also unpin and free the GPU
-        # encoder-cache tensors — discarded clips will never be merged,
-        # so keeping them pinned leaks GPU memory over long sessions.
-        if scheduler_output.free_ec_connector_mm_hashes:
-            self.maybe_free_ec_from_connector(
-                list(scheduler_output.free_ec_connector_mm_hashes)
-            )
-            for mm_hash in scheduler_output.free_ec_connector_mm_hashes:
-                was_pinned = mm_hash in self._pinned_encoder_mm_hashes
-                self._pinned_encoder_mm_hashes.discard(mm_hash)
-                removed = self.encoder_cache.pop(mm_hash, None)
-                if was_pinned or removed is not None:
-                    logger.debug(
-                        "Freed discarded clip mm_hash=%s "
-                        "(was_pinned=%s, cache_size=%d)",
-                        mm_hash, was_pinned, len(self.encoder_cache),
-                    )
+        # Session teardown can discard a merged hash while another request
+        # still consumes it. Release IPC slots now, but defer GPU tensor
+        # deletion until all worker-side owners have finished.
+        self._free_evs_encoder_cache(scheduler_output)
 
         # Free encoder cache tensors only.  IPC staging entries are NOT
         # freed here — the D node may still need to load them.  IPC

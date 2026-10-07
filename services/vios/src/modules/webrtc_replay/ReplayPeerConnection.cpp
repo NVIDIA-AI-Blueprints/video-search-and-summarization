@@ -24,6 +24,9 @@
 #include "dash_session_manager.h"
 #include <filesystem>
 
+using namespace std;
+using namespace nv_vms;
+
 namespace {
 
 const char* replayDashStateString(DashPackagerState state)

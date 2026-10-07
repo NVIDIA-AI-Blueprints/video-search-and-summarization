@@ -24,7 +24,6 @@
 #include "logger.h"
 #include "video_resolution.h"
 
-using namespace std;
 
 inline constexpr const char* DECODER_NODE           = "/dev/nvidia0";
 inline constexpr const char* NV_V4L2_DECODER        = "nvv4l2decoder";
@@ -155,7 +154,7 @@ typedef enum
 
 struct media_info
 {
-    string codec;
+    std::string codec;
     int    channel;
     int    frequency;
     int    codecData;
@@ -184,23 +183,23 @@ struct FrameSize
 };
 
 NaluType parseH264NaluType(const unsigned char *buffer, ssize_t size);
-vector<uint8_t> getH26xMarker(const unsigned char *buffer);
+std::vector<uint8_t> getH26xMarker(const unsigned char *buffer);
 int getH26xMarkerSize(const unsigned char *buffer);
-vector<uint8_t> getDefaultH26xMarker();
-std::vector<uint8_t> getUserDefinedSeiFrame(FrameInfoSeiPayload& frameInfo, const string& uuid, const string& codec);
-std::vector<uint8_t> getUserDefinedSeiFrameFromJson(Json::Value& value, const string& uuid, const string& codec);
-int64_t parseSeiFrameId(const unsigned char *buffer, ssize_t size, int64_t& pts_from_server, const string& codec);
+std::vector<uint8_t> getDefaultH26xMarker();
+std::vector<uint8_t> getUserDefinedSeiFrame(nv_vms::FrameInfoSeiPayload& frameInfo, const std::string& uuid, const std::string& codec);
+std::vector<uint8_t> getUserDefinedSeiFrameFromJson(Json::Value& value, const std::string& uuid, const std::string& codec);
+int64_t parseSeiFrameId(const unsigned char *buffer, ssize_t size, int64_t& pts_from_server, const std::string& codec);
 H265NaluType parseH265NaluType(const unsigned char *buffer, ssize_t size);
 void removeH264NalStartCodes(std::vector<uint8_t>& content);
-int getMediaInformation (const string& filename, Json::Value &response, bool millisec = false);
-int getMediaInformationUsingLibav(const string& filename, Json::Value &media_info, bool millisec = false);
+int getMediaInformation (const std::string& filename, Json::Value &response, bool millisec = false);
+int getMediaInformationUsingLibav(const std::string& filename, Json::Value &media_info, bool millisec = false);
 SliceType parseH264SliceType(const unsigned char *buffer, ssize_t size);
 SliceType parseH265SliceType(const unsigned char *buffer, ssize_t size, H265NaluType nal_type);
-bool isValidDataNAL(const uint8_t& nalu_type, const string& codec);
-bool isIDRFrame(const uint8_t& nalu_type, const string& codec);
-vector<std::pair<NaluType, int>> getListOfNalUnits(std::vector<uint8_t>& content);
-vector<std::pair<H265NaluType, int>> getListOfH265NalUnits(std::vector<uint8_t>& content);
+bool isValidDataNAL(const uint8_t& nalu_type, const std::string& codec);
+bool isIDRFrame(const uint8_t& nalu_type, const std::string& codec);
+std::vector<std::pair<NaluType, int>> getListOfNalUnits(std::vector<uint8_t>& content);
+std::vector<std::pair<H265NaluType, int>> getListOfH265NalUnits(std::vector<uint8_t>& content);
 int64_t getSeiIndex(std::vector<uint8_t>& content);
-Json::Value getVideoMetadata(const string& file_path);
-Json::Value getAudioMetadata(const string& file_path);
+Json::Value getVideoMetadata(const std::string& file_path);
+Json::Value getAudioMetadata(const std::string& file_path);
 int getSecureRandomInt(int min, int max);

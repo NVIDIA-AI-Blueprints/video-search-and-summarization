@@ -578,6 +578,7 @@ class PriorAgentOutputIsolationTest(unittest.TestCase):
                 if case == "mixed":
                     entries["-session\nwith space.jsonl"] = "visible session"
                     entries["2026/10/07/rollout.jsonl"] = "nested session"
+                    entries["skills/retired-skill/SKILL.md"] = "stale routing instructions"
                 for name, content in entries.items():
                     path = sessions / name
                     path.parent.mkdir(parents=True, exist_ok=True)

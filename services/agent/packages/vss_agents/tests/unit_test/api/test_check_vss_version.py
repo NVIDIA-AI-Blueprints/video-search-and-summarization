@@ -383,7 +383,7 @@ def test_cli_503_is_indeterminate(server: type[_VersionHandler]) -> None:
     assert result.returncode == EXIT_INDETERMINATE
     assert "cannot determine compatibility" in result.stderr
     assert "503" in result.stderr
-    assert "VSS_DEPLOYMENT_VERSION" in result.stderr
+    assert "nvidia-vss-core" in result.stderr
 
 
 def test_cli_404_is_indeterminate_and_says_the_deployment_is_too_old(

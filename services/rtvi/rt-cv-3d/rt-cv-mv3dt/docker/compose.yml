@@ -65,7 +65,7 @@ services:
     volumes:
       - ${MODELS_DIR:?set MODELS_DIR in docker/.env}/mtmc:/opt/storage
       - ${MODELS_DIR}/mv3dt/BodyPose3DNet:/opt/storage/BodyPose3DNet
-      - ${MODELS_DIR}/reid:/opt/storage/reid:ro
+      - ${MODELS_DIR}/reid:/opt/storage/reid
       - ../generated/configs:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs:ro
       - ../generated/camInfo:/tmp/camInfo:ro
       - ./init-scripts/ds-start-mv3dt.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mv3dt.sh:ro
@@ -249,7 +249,7 @@ services:
       start_period: 5s
 
   reid-minio:
-    image: ${REID_MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2023-03-20T20-16-18Z}
+    image: ${REID_MINIO_IMAGE:-cgr.dev/chainguard/minio:latest@sha256:6a1d0b45c8669726bba580ced0bfa4cb9fdeed1ed636dfabd81d1577beb6937b}
     container_name: vss-reid-minio-rtcv
     profiles: ["reid"]
     restart: unless-stopped
@@ -257,11 +257,13 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
-    command: ["minio", "server", "/minio_data", "--console-address", ":9001", "--address", ":9000"]
+      # Alias the mc ready local healthcheck needs, or reid-milvus never starts.
+      MC_HOST_local: http://localhost:9000
+    command: ["server", "/data", "--console-address", ":9001", "--address", ":9000"]
     volumes:
-      - reid-minio-data:/minio_data
+      - reid-minio-data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "mc", "ready", "local"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -298,7 +300,7 @@ services:
       start_period: 90s
 
   reid-embed:
-    image: ${REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${REID_EMBED_TAG:-3.3.0-26.09.2}
+    image: ${REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${REID_EMBED_TAG:-3.3.0-26.09.3}
     container_name: vss-reid-embed-rtcv
     profiles: ["reid"]
     network_mode: host

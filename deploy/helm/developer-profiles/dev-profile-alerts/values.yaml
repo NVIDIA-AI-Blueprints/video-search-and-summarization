@@ -168,12 +168,10 @@ infra:
       - name: mdx-incidents
       - name: mdx-vlm-incidents
       - name: mdx-vlm-captions
-      - name: mdx-vlm
       - name: mdx-embed
       - name: mdx-embed-filtered
-      - name: vision-llm-messages
       - name: vision-llm-events-incidents
-      - name: vision-llm-errors
+      - name: mdx-vlm-errors
   logstash:
     enabled: true
   vss-broker-health-check:
@@ -506,6 +504,11 @@ rtvi:
     useSharedNim: false
     kafkaBootstrapServers: ""
     redisHost: ""
+
+# The version this deployment reports at GET /api/v1/version, answered by the
+# HAProxy ingress. Stamped by .github/scripts/stamp_versions.py from the nearest
+# v* git tag, never by hand. See .github/version-convention.md.
+vssVersion: "3.3.0-rc0"
 
 # Helm-managed Ingress (ingressClassName from vssIngress.ingressClassName). Install a cluster ingress controller separately (e.g. HAProxy Kubernetes Ingress). Annotations use haproxy.org/path-rewrite for video-analytics-api, alert-bridge, and va-mcp strip prefixes.
 vssIngress:

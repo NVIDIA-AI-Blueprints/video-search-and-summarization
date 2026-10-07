@@ -3,7 +3,14 @@ title: "Agent Known Issues"
 description: ""
 position: 9
 ---
-Nemotron Omni and `ENABLE_AUDIO`
+## VLM Clip Duration and Report Accuracy
+
+- For optimal results, use video clips between 5 and 300 seconds for VLM analysis.
+- VLM-generated reports may contain inaccurate timestamps.
+
+## Shared-GPU NIM Deployment
+
+On H100 and RTX PRO 6000 Blackwell, only the default LLM and VLM NIMs have been tested on shared GPUs. Shared-GPU mode is not supported on L40S. Use dedicated GPUs or remote NIMs for other models.
 
 ## Nemotron Omni and `ENABLE_AUDIO`
 

@@ -99,7 +99,7 @@ variant, size when applicable, and sample dataset.
 | --- | --- |
 | `2d` | Multi-camera RT-DETR perception and warehouse behavior analytics. |
 | `3d` | Depth-aware Sparse4D perception with behavior analytics. |
-| `mv3dt` | Multi-view 3D tracking with BEV fusion. |
+| `mv3dt` | Multi-view 3D tracking with BEV fusion and appearance ReID. |
 | `auto-calibration` | Producing calibration for a selected warehouse dataset. |
 
 Warehouse deployments register their own sample sources through the warehouse
@@ -241,12 +241,38 @@ stops rather than deploying a partially tagged stack.
 On GB300 and DGX Spark, SBSA-suffixed services run the `-sbsa` variant of the
 selected tag, so their images differ from the common tag by that suffix.
 
+## Harness source ref
+
+The NemoClaw sandbox image carries the operation Skills, the `vss` CLI and the
+OpenClaw plugin from one revision of this repository. It is built from
+`develop` by default, whatever image tag the stack runs. To build it from a
+nightly or a release instead, name the revision in the request:
+
+1. The request, for example *"deploy base with the NemoClaw harness at
+   `nightly-20260928`"*.
+2. `VSS_HARNESS_REF` already exported in your shell.
+3. Neither, in which case the harness builds from `develop`.
+
+The Skill checks out that revision alongside your checkout (under
+`_builds/<name>/harness-src`) and builds the sandbox from it, so the Skills,
+CLI and plugin all come from the one revision; `vss --version` inside the
+sandbox reports it. The ref is independent of the
+[container image tag](#container-image-tag): name both to pin both. Revisions
+older than staged harness builds are refused rather than silently replaced
+by `develop`.
+
 ## Agent harness
 
 When a developer-profile or custom build includes the in-stack VSS Agent, the
 Skill asks whether to deploy a host-side agent harness. The default harness is
 NemoClaw, which runs outside the Docker Compose project and operates the
 deployed stack through its public ingress URL.
+
+For a NemoClaw build with the VSS Web UI, the UI starts with the stack. Its
+chat surfaces wait for a gateway token. After NemoClaw onboarding, run
+`nemoclaw <sandbox> gateway-token --quiet` on the deployment host and enter the
+token in **Connect NemoClaw chat**. The UI checks gateway access at runtime;
+the container does not need to be restarted.
 
 If you choose no harness, operate the deployment from the host with the `vss`
 CLI. If you explicitly request the in-stack VSS Agent, the Skill preserves that
@@ -298,6 +324,14 @@ Use the vss-build-vision-ai skill to deploy a warehouse 3D profile with behavior
 
 ```text title="Build a custom stack"
 Use the vss-build-vision-ai skill to build a custom VSS stack for streaming object detection, video embeddings, and semantic search.
+```
+
+```text title="Deploy with a nightly harness"
+Use the vss-build-vision-ai skill to deploy the VSS base profile with the NemoClaw harness at nightly-20260928.
+```
+
+```text title="Pin images and harness to one release"
+Use the vss-build-vision-ai skill to deploy the VSS base profile with image tag 3.4.0 and the NemoClaw harness at v3.4.0.
 ```
 
 ```text title="Tear down"

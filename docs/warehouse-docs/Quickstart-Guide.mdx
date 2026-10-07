@@ -41,7 +41,7 @@ The Warehouse Blueprint offers flexible deployment options with the following pr
 | 2D Vision AI Profile | 2D single-camera detection, tracking, and analytics | Model trained on real-world data |
 | 2D Vision AI with Agents Profile | 2D single-camera detection, tracking, analytics, and VSS agent integration | Model trained on real and synthetic data |
 | 3D Vision AI Profile | 3D multi-camera detection, tracking, and analytics | Model trained on synthetic data, recommended for simulated environments |
-| MV3DT Vision AI Profile | 3D multi-camera detection, tracking, and analytics using RT-DETR + MV3DT | RT-DETR model trained on real-world data, MV3DT distributed 3D tracking via camera projection matrices |
+| MV3DT Vision AI Profile | 3D multi-camera detection, tracking, and analytics using RT-DETR + MV3DT | RT-DETR model trained on real-world data, MV3DT distributed 3D tracking via camera projection matrices, appearance ReID re-association on by default |
 
 ## Supported GPU Hardware
 
@@ -81,7 +81,7 @@ cd deploy/docker
 
 ### Warehouse App Data
 
-Warehouse App Data contains sample video datasets, pre-trained TensorRT models (RT-DETR for 2D and MV3DT, Sparse4D for 3D, NvDCF tracker, BodyPose3DNet for MV3DT), camera calibration data, and configuration templates for deploying 2D, 3D, and MV3DT warehouse profiles.
+Warehouse App Data contains sample video datasets, pre-trained TensorRT models (RT-DETR for 2D and MV3DT, Sparse4D for 3D, NvDCF tracker, BodyPose3DNet for MV3DT), camera calibration data, and configuration templates for deploying 2D, 3D, and MV3DT warehouse profiles. MV3DT Compose also stages CLIP-ReID (`reid_model.onnx`, 1280-D) and SigLIP 2 (`siglip_v2_vdeployable_v2.0`) under `$VSS_DATA_DIR/models/reid` on first boot.
 
 The package includes the following MP4 datasets at 1920x1080 and 30 FPS:
 
@@ -137,6 +137,10 @@ This section explains the most commonly edited variables in `industry-profiles/w
 #### Deployment Selection
 
 Select the deployment profile, message broker, and deployment size below. Update the corresponding existing values in `industry-profiles/warehouse-operations/overrides.env`; do not append duplicate keys. Keep the shipped `COMPOSE_PROFILES_WH_*` definitions and update the `COMPOSE_PROFILES` selector that follows them. The three datasets with repository calibration can be selected independently of the analytics mode; set `NUM_STREAMS` to the selected dataset's camera count. For 3D, also set `DATASET_TYPE` as described under Common Variables.
+
+<Note>
+**Default deployment:** The shipped `overrides.env` selects the **2D Vision AI profile with Kafka and the extended service set** (`MODE=2d`, `BP_PROFILE=bp_wh_kafka`). It includes ELK, Video Analytics API, and monitoring, but no agents, LLM, or RT-VLM.
+</Note>
 
 <Tabs>
 <Tab title="2D + Agents">
@@ -445,65 +449,6 @@ GB300 and DGX Spark tabs when deploying on those platforms.
 
 
 <Tabs>
-<Tab title="GB300">
-<Tabs>
-<Tab title="Hardware Profile">
-
-**Published performance**
-
-Published performance figures are not currently listed for this hardware profile.
-
-Before deployment, run the following command to export the SBSA image-tag suffix:
-
-```bash
-export VSS_CONTAINER_TAG_SUFFIX="-sbsa"
-```
-
-In `industry-profiles/warehouse-operations/overrides.env`, set:
-
-```ini
-HARDWARE_PROFILE=GB300
-```
-</Tab>
-<Tab title="Vision AI only">
-
-```ini
-# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
-RT_CV_DEVICE_ID=0
-LLM_MODE=none
-```
-</Tab>
-<Tab title="Agents + Remote LLM">
-
-```ini
-# One GPU: bp_wh with MODE=2d; RT-CV and RT-VLM share the GB300.
-RT_CV_DEVICE_ID=0
-RT_VLM_DEVICE_ID=0
-RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
-RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
-LLM_MODE=remote
-
-LLM_NAME_SLUG=none
-LLM_BASE_URL=https://<llm-endpoint-without-v1>
-LLM_NAME=<llm-model-id-from-v1-models>
-LLM_MODEL_TYPE=<nim-or-openai>
-```
-</Tab>
-<Tab title="Agents + Local LLM">
-
-```ini
-# One GPU: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM share the GB300.
-RT_CV_DEVICE_ID=0
-RT_VLM_DEVICE_ID=0
-LLM_DEVICE_ID=0
-SHARED_LLM_VLM_DEVICE_ID=0
-LLM_MODE=local_shared
-RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
-RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
-```
-</Tab>
-</Tabs>
-</Tab>
 <Tab title="RTXPRO6000BW">
 <Tabs>
 <Tab title="Hardware Profile">
@@ -600,6 +545,65 @@ RT_CV_DEVICE_ID=0
 RT_VLM_DEVICE_ID=1
 LLM_DEVICE_ID=2
 LLM_MODE=local
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="GB300">
+<Tabs>
+<Tab title="Hardware Profile">
+
+**Published performance**
+
+Published performance figures are not currently listed for this hardware profile.
+
+Before deployment, run the following command to export the SBSA image-tag suffix:
+
+```bash
+export VSS_CONTAINER_TAG_SUFFIX="-sbsa"
+```
+
+In `industry-profiles/warehouse-operations/overrides.env`, set:
+
+```ini
+HARDWARE_PROFILE=GB300
+```
+</Tab>
+<Tab title="Vision AI only">
+
+```ini
+# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
+RT_CV_DEVICE_ID=0
+LLM_MODE=none
+```
+</Tab>
+<Tab title="Agents + Remote LLM">
+
+```ini
+# One GPU: bp_wh with MODE=2d; RT-CV and RT-VLM share the GB300.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=0
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
+LLM_MODE=remote
+
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+```
+</Tab>
+<Tab title="Agents + Local LLM">
+
+```ini
+# One GPU: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM share the GB300.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=0
+LLM_DEVICE_ID=0
+SHARED_LLM_VLM_DEVICE_ID=0
+LLM_MODE=local_shared
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 ```
 </Tab>
 </Tabs>
@@ -878,6 +882,15 @@ docker logs -f vss-rtvi-cv
 # For MV3DT Vision AI Profile
 docker logs -f vss-rtvi-cv-mv3dt
 ```
+
+On first MV3DT boot, wait for appearance ReID before expecting perception FPS. Models download in the one-shot `vss-reid-embed-init-mv3dt` container (exit `0`), then etcd, MinIO, and Milvus must be healthy, then:
+
+```bash
+docker logs -f vss-reid-embed-mv3dt
+curl -sf http://localhost:8088/health/ready
+```
+
+The 300s figure on the ReID health check is a start grace period, not a maximum. Retries continue after that, so first-boot engine build can take longer. Perception does not start until the probe succeeds.
 
 4. Check Kibana for indexed analytics data and alerts. Go to the endpoint listed below and navigate to the dashboard.
 

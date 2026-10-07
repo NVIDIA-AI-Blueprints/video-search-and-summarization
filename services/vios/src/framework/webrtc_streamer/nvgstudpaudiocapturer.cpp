@@ -20,6 +20,8 @@
 
 #include "nvgstudpaudiocapturer.h"
 
+using namespace std;
+
 NvGstUDPAudioCapturer::NvGstUDPAudioCapturer(const std::string & uri, const std::map<std::string,std::string, std::less<>> & opts)
 	: NvGstUDPAudioSource(uri, opts)
 {

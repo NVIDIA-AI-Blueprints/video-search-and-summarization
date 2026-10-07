@@ -112,15 +112,15 @@ Results highlighted in the above tables are for the latest v2.3 models on the te
 
 ### Dataset Requirements
 
-  The Sparse4D model can be fine-tuned on existing MTMC Tracking 2025 scenes or your own dataset obtained by setting up a Digital Twin and generating synthetic data via Isaac Sim.
-  Please refer to the [Simulation and Synthetic Data Generation](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation) page for more details on the latter.
+  The Sparse4D model can be fine-tuned on existing MTMC Tracking 2025 scenes, your own synthetic dataset generated with Isaac Sim, or real-world imagery. For real-world data without 3D annotations, use the [2D-to-3D geometric distillation workflow](#2d-to-3d-geometric-distillation-for-real-world-datasets) to combine 2D supervision with 3D-labeled training data.
+  Please refer to the [Simulation and Synthetic Data Generation](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation) page for more details on synthetic data generation.
 
   Performing 3D Multi-Camera Detection & Tracking in large regions such as warehouses with high-density cameras becomes computationally expensive. Therefore, we divide a region into a collection of groups called Bird's Eye View (BEV) groups. Each Bird's Eye View (BEV) group can contain multiple cameras, and these BEV groups may overlap with one another. Sparse4D is trained on such BEV groups.
   The below image represents a top down view of a single scene with multiple BEV groups. Each unique color represents a BEV group highlighting its camera coverage in the entire scene.
 
   ![BEV Groups](/assets/images/sparse4d/top_down_view_with_bev_groups.png)
 
-  **Minimum Requirements:**
+  **Requirements for the supervised multi-camera 3D workflow:**
 
   1. **Number of Cameras in Scene**
 
@@ -154,6 +154,130 @@ Results highlighted in the above tables are for the latest v2.3 models on the te
 
 Refer to [Dataset Post-Processing](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation/dataset-post-processing) for the file format of the files listed above.
 An example dataset can be found in the [Warehouse_014](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main/MTMC_Tracking_2025/train/Warehouse_014) scene from the [MTMC Tracking 2025](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main/MTMC_Tracking_2025) dataset.
+
+### 2D-to-3D Geometric Distillation for Real-World Datasets
+
+**2D-to-3D geometric distillation** lets Sparse4D learn from calibrated multi-camera real-world images with 2D annotations or detector pseudo-labels, reducing the need to collect full 3D ground truth. The term **2D-to-3D** describes the direction of supervision: 2D targets supervise the 3D model. During training, **3D-to-2D projection** maps Sparse4D's predicted 3D boxes into camera images, where they can be compared with the 2D targets. Sparse4D still predicts 3D boxes and tracking IDs.
+
+For the complete TAO configuration and artifact-preparation procedure, refer to the [TAO 2D-to-3D geometric distillation guide](https://docs.nvidia.com/tao/tao-toolkit/latest/text/cv_finetuning/pytorch/sparse4d/sparse4d.html#sparse4d-geometric-distillation).
+
+A projected 3D cuboid encloses all eight corners and can be larger than the object's tight image-space box. The released geometry-only **loose-to-tight (LTT)** MLP corrects this difference toward tight, amodal 2D boxes. During Sparse4D fine-tuning, the MLP is frozen and its predicted correction factors are detached; gradients flow through the corrected box projection into Sparse4D. Per-camera matching then compares these boxes with real-world 2D detections, such as offline RT-DETR predictions, to supervise box geometry and classification.
+
+<Note>
+Use a TAO PyTorch build that includes `model.head.loose_to_tight`. The data preparation commands below also require a TAO Data Services build with `annotations sparse4d_prepare` and `annotations convert` support for `aicity.load_annotations=false`; use the [shipped preparation spec](https://github.com/NVIDIA-TAO/tao-data-services/blob/main/nvidia_tao_ds/annotations/experiment_specs/sparse4d_prepare.yaml). Native artifact preparation commands are documented in the [TAO PyTorch tools guide](https://github.com/NVIDIA-TAO/tao-pytorch/blob/main/nvidia_tao_pytorch/cv/sparse4d/tools/README.md). Check the specs shipped with your build; the optional LTT training losses are disabled by default.
+</Note>
+
+#### Choose the supervision route
+
+| Training data | Required inputs | Supervision |
+| --- | --- | --- |
+| Synthetic or real scenes with 3D labels | Synchronized images, camera intrinsics/extrinsics, 3D boxes and IDs; visible 2D boxes for the optional LTT loss | Standard 3D losses, optionally supplemented by LTT 2D supervision |
+| Calibrated real-world scenes without 3D labels | Synchronized images, camera intrinsics/extrinsics, BEV groups, and per-camera 2D detections | Projected 2D box and classification pseudo-losses using LTT |
+
+Keep 3D-labeled data in the training mix to retain metric geometry supervision.
+
+#### Download the released LTT checkpoint
+
+For the released seven-class warehouse taxonomy listed below, reuse `_loose_to_tight_mlp.pth` from the [Sparse4D ResNet-50 `trainable_v3.0` bundle on NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/sparse4d_rn50/files?version=trainable_v3.0). With the NGC CLI, download just the LTT file:
+
+```bash
+mkdir -p /data
+ngc registry model download-version nvidia/tao/sparse4d_rn50:trainable_v3.0 \
+  --file _loose_to_tight_mlp.pth --dest /data
+```
+
+This writes `/data/sparse4d_rn50_vtrainable_v3.0/_loose_to_tight_mlp.pth`, including the leading underscore in the filename. Make that path visible inside the TAO training environment and use it for `model.head.loose_to_tight.mlp_ckpt`, as shown below. Keep the checkpoint's ordered class taxonomy unchanged and validate its corrections on the target data. Continue with teacher-cache preparation and mixed-training data preparation below.
+
+This workflow supports only the released checkpoint's seven classes in their original order. Custom taxonomies require a matching LTT checkpoint and are outside this guide; changing class names in the configuration does not adapt the released weights.
+
+Retain the external LTT file for fine-tuning and resume: the frozen MLP is excluded from Sparse4D model checkpoints. Standard evaluation, inference, and export do not require it.
+
+#### Prepare the training data
+
+1. **Prepare 2D supervision.** Use `operation=ltt_2dgt` for visible-2D sidecars on 3D-labeled scenes. For calibrated real scenes, run the 2D teacher offline, then use `operation=rtdetr_2d` to convert its per-camera KITTI `labels.tar.gz` archives to `<scene>__rtdetr2d.npz`. This operation converts detections; it does not run RT-DETR. Before building the mixed split, create matching image/calibration info PKLs with the [calibrated real-scene conversion command](#prepare-calibrated-real-scene-inputs) below.
+2. **Build the mixed training split.** List the converted 3D-labeled and calibrated real info PKLs once each. Mark genuinely unlabeled 3D samples with `gt_boxes=None`, rather than treating them as annotated empty scenes. Run `operation=lazy_index` after finalizing this split if using `dataset.lazy_load: true`.
+
+Use the same ordered taxonomy for data preparation `class_names`, training `dataset.classes`, the LTT checkpoint, and all caches. For the released seven-class warehouse models, the training names are `person`, `gr1_t2`, `agility_digit`, `nova_carter`, `transporter`, `forklift`, and `pallet_truck`. Map teacher labels explicitly to this taxonomy; a matching class count alone is insufficient. Camera names, source frame IDs, image dimensions, and coordinate conventions must agree between the info PKLs and their caches.
+
+#### Prepare calibrated real-scene inputs
+
+Use `annotations convert` in TAO Data Services with the [unlabeled-scene spec](https://github.com/NVIDIA-TAO/tao-data-services/blob/main/nvidia_tao_ds/annotations/experiment_specs/aicity2ovpkl_unlabeled.yaml). Copy the spec to `/specs/aicity2ovpkl_unlabeled.yaml` and set its ordered `aicity.class_config.CLASS_LIST` to match your model and teacher caches. This requires a build that exposes `aicity.load_annotations` and `aicity.fps`.
+
+Arrange each scene as `/data/real/train/<scene>/calibration.json` plus `<camera>/rgb/000000000.jpg`, `000000001.jpg`, and so on. NVSchema calibration must provide camera intrinsics and world-to-camera poses with IDs matching the image directories. The `rgb_00000.jpg` image naming convention also works. Use synchronized, constant-rate frames, contiguous from zero, and provide the actual capture rate:
+
+```bash
+annotations convert -e /specs/aicity2ovpkl_unlabeled.yaml \
+  aicity.root=/data/real aicity.split=train aicity.fps=30 \
+  results_dir=/data/real_infos
+```
+
+The spec sets `aicity.load_annotations=false`, keeps the world frame without recentering, and uses all calibrated cameras as one group per scene. It writes `/data/real_infos/train/<scene>_infos_train.pkl` with synchronized image paths, camera geometry, sequence/frame identifiers, timestamps in seconds, and `gt_boxes=None`. Ground truth and depth files are not required, and anchor initialization is skipped. Reuse the pretrained model's anchors and keep image paths visible at the same location inside the training environment.
+
+Each PKL stores frame records in `infos`. Each record retains `token`,
+`scene_name`, `timestamp`, `cams`, and `gt_boxes=None` for unlabeled frames.
+The `cams` mapping is keyed by camera ID; each camera entry retains its
+`data_path`. Preserve these field names and conventions:
+
+| Location | Field | Meaning |
+| --- | --- | --- |
+| Frame record | `frame_idx` | Zero-based source frame ID, matching the 2D teacher cache; starts at zero for each sequence. |
+| Camera entry in `cams` | `cam_intrinsic` | 3 × 3 camera intrinsic matrix for the source image dimensions. |
+| Camera entry in `cams` | `sensor2world_transform` | 4 × 4 **world-to-camera** extrinsic matrix for the default unrecentered spec. |
+
+`sensor2world_transform` is a legacy field name. The loader uses this matrix
+directly with the camera intrinsics to project 3D points; it does **not** invert
+it. If BEV-group recentering is enabled, the matrix must instead map the
+corresponding group-local 3D coordinates into the camera frame.
+
+For HDF5 image arrays, set `aicity.rgb_format=h5` and provide `<camera>.h5` files with HWC arrays at `rgb/rgb_00000.jpg`, `rgb/rgb_00001.jpg`, and so on. Set `dataset.use_h5_file_for_rgb: true` for these inputs during training.
+
+The converter rejects empty, gapped, or unequal camera sequences. Synchronize irregular or dropped-frame inputs before conversion and run the 2D teacher on those same frames. Inspect projections and cache joins before training; keep calibration consistent with image dimensions and the metric world frame.
+
+The existing camera-grouping options can generate multiple BEV groups. Use one info PKL per group, with camera names and source frame IDs matching the teacher cache. For example, a PKL scene named `RealWarehouse+bev0` uses `/data/rtdetr/RealWarehouse__rtdetr2d.npz`: the loader strips the BEV-group suffix when locating the cache. Include each PKL once in `/data/mixed_train_split.txt` alongside the 3D-labeled PKLs, then run `operation=lazy_index` using the final split.
+
+#### Configure mixed 3D and real-world training
+
+Merge the following settings into a complete Sparse4D experiment spec for your checkpoint. Replace the paths and `RealWarehouse` with your real scene-name substring. Retain the matching backbone, anchors, class order, and model input size from the base spec.
+
+```yaml
+model:
+  cotrain_param_touch: false
+  head:
+    loose_to_tight:
+      enable: true
+      mlp_ckpt: /data/sparse4d_rn50_vtrainable_v3.0/_loose_to_tight_mlp.pth
+      num_classes: 0  # Derive from dataset.classes.
+      loss_weight: 0.1
+      pseudo_enable: true
+      pseudo_box_weight: 0.1
+      pseudo_cls_weight: 1.0
+      min_cams: 1
+
+dataset:
+  classes: [person, gr1_t2, agility_digit, nova_carter, transporter, forklift, pallet_truck]
+  train_dataset:
+    ann_file: /data/mixed_train_split.txt
+  lazy_load: true
+  ltt_2dgt_sidecar_dir: /data/ltt_2dgt
+  rtdetr_2d_cache_dir: /data/rtdetr
+  rtdetr_2d_mark_real: true
+  sync_route: true
+  real_scene_keywords: [RealWarehouse]
+  real_block_prob: 0.5
+  scene_switch_iters: 100
+```
+
+`real_block_prob: 0.5` is an example starting point for the proportion of 2D-route blocks, not an accuracy recommendation. Distributed co-training requires `sync_route: true` and a positive `scene_switch_iters`; each batch must have homogeneous 2D/3D supervision. `rtdetr_2d_mark_real: true` makes any scene with a teacher cache use the 2D-only route, so keep those caches separate from scenes intended for full 3D supervision.
+
+Run the regular `sparse4d train -e /specs/experiment_spec.yaml` command inside the TAO PyTorch environment. This workflow uses the training task; there is no separate Sparse4D `distill` task. Refer to the [TAO Sparse4D documentation](https://docs.nvidia.com/tao/tao-toolkit/latest/text/cv_finetuning/pytorch/sparse4d/sparse4d.html) for the standard training, evaluation, and export workflow.
+
+#### Validate and deploy
+
+Inspect projected boxes on real images before a long run. Verify that expected labeled frames join their caches and that `loss_box_2d_pseudo_*` and `loss_cls_pseudo_*` contribute on calibrated real batches. Missing cache joins skip pseudo supervision and must not be interpreted as successfully processed empty detections.
+
+Compare the original checkpoint and the adapted checkpoint on held-out, 3D-labeled real scenes, and retain a synthetic validation set to check for regressions. Report detection and tracking metrics separately; a lower 2D loss alone does not establish better metric 3D accuracy or tracking.
+
+RT-DETR pseudo-label generation and the LTT MLP are training components. Standard Sparse4D evaluation, inference, and export do not require the external LTT checkpoint. Export the adapted Sparse4D model and follow the [model compatibility requirements](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#model-compatibility-requirements) when deploying it. The deployed multi-camera 3D pipeline still needs real camera calibration.
 
 ### Camera Grouping for Model Fine-tuning
 

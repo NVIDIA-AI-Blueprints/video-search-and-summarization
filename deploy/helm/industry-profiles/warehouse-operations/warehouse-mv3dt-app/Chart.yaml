@@ -15,6 +15,9 @@ keywords:
 maintainers:
   - name: NVIDIA
 dependencies:
+  - name: common
+    version: 3.3.0
+    repository: "file://../../../services/common"
   - name: vios
     version: 3.3.0
     repository: "file://../../../services/vios"

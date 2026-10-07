@@ -24,16 +24,15 @@
 #include <vector>
 #include <jsoncpp/json/json.h>
 
-using namespace std;
 
-class RtspStreams : public ISensorControlInterface
+class RtspStreams : public nv_vms::ISensorControlInterface
 {
     public:
         RtspStreams() = default;
         virtual ~RtspStreams() = default;
 
         int connect();
-        int getSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sensors);
-        int getSensorStreamInfo(shared_ptr<SensorInfo>& sensor);
-        bool isServerOnline(const string & url) { return true; }
+        int getSensorStreamInfo(std::vector<std::shared_ptr<nv_vms::SensorInfo>>& sensors);
+        int getSensorStreamInfo(std::shared_ptr<nv_vms::SensorInfo>& sensor);
+        bool isServerOnline(const std::string & url) { return true; }
 };

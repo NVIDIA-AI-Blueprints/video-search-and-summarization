@@ -51,7 +51,6 @@
 
 inline constexpr int SCHEDULER_THREAD_COUNT = 1;
 
-using namespace nv_vms;
 
 namespace nv_vms
 {
@@ -109,18 +108,18 @@ namespace nv_vms
                 }
                 else
 #endif
-                if (m_uri.find(NV_CSI_SENSOR) != std::string::npos)
-                {
+                    if (m_uri.find(NV_CSI_SENSOR) != std::string::npos)
+                    {
 #ifdef ENABLE_NATIVE_STREAM_MONITOR
-                    m_nativeStream = true;
-                    m_mux->setConsumerMediaType(MediaTypeVideo);
-                    NativeStreamMonitor::getInstance()->registerDataCallback(m_deviceId, m_mux, BITSTREAM_H265);
+                        m_nativeStream = true;
+                        m_mux->setConsumerMediaType(MediaTypeVideo);
+                        NativeStreamMonitor::getInstance()->registerDataCallback(m_deviceId, m_mux, BITSTREAM_H265);
 #endif
-                }
-                else
-                {
-                    StreamMonitor::getInstance()->registerDataCallback(stream->live_proxy_url, m_mux);
-                }
+                    }
+                    else
+                    {
+                        StreamMonitor::getInstance()->registerDataCallback(stream->live_proxy_url, m_mux);
+                    }
                 m_isInError = m_mux->play();
                 m_isRunning = true;
             }
@@ -216,16 +215,16 @@ namespace nv_vms
                 }
                 else
 #endif
-                if (m_nativeStream)
-                {
+                    if (m_nativeStream)
+                    {
 #ifdef ENABLE_NATIVE_STREAM_MONITOR
-                    NativeStreamMonitor::getInstance()->deregisterDataCallback(m_mux, m_deviceId, BITSTREAM_H265);
+                        NativeStreamMonitor::getInstance()->deregisterDataCallback(m_mux, m_deviceId, BITSTREAM_H265);
 #endif
-                }
-                else
-                {
-                    StreamMonitor::getInstance()->deregisterDataCallback(m_mux, m_uri);
-                }
+                    }
+                    else
+                    {
+                        StreamMonitor::getInstance()->deregisterDataCallback(m_mux, m_uri);
+                    }
                 m_mux->destroy();
             }
             LOG(info) << "Exit Stop" << std::endl;

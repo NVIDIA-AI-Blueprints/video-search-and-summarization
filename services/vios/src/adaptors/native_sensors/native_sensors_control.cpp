@@ -21,6 +21,9 @@
 #include "native_sensors_control.h"
 #include "sensor_info.h"
 
+using namespace std;
+using namespace nv_vms;
+
 extern "C" ISensorControlInterface* createObject()
 {
     return std::make_unique<NativeSensorControlInterface>().release();

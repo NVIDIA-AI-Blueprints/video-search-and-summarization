@@ -8,10 +8,18 @@
  * point here is the panel, not the persistence (covered in conversations.test).
  */
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { copyToClipboard } from 'common';
 import React from 'react';
 
 import { ChatPanel } from '../lib-src/ChatPanel';
 import { VssUiArtifact } from '../lib-src/markdown/components';
+import { saveConversations } from '../lib-src/storage';
+import { AGENT_RETRY_DELAY_MS } from '../lib-src/useChatStream';
+
+jest.mock('common', () => ({
+  ...jest.requireActual('common'),
+  copyToClipboard: jest.fn().mockResolvedValue(true),
+}));
 
 jest.mock('../lib-src/storage', () => ({
   initConversationSessionLifecycle: jest.fn(),
@@ -103,6 +111,95 @@ describe('ChatPanel', () => {
     // Rendered as markdown, not as literal asterisks.
     expect(screen.getByText('bold').tagName).toBe('STRONG');
     expect(screen.getByTestId('chat-message-user')).toHaveTextContent('what happened?');
+  });
+
+  it.each([
+    { mediaProxyUrl: '/api/proxy', mediaPrefix: '/api/proxy' },
+    { mediaProxyUrl: '/api/proxy///', mediaPrefix: '/api/proxy' },
+    { mediaProxyUrl: undefined, mediaPrefix: '' },
+  ])('opens NemoClaw Search media links with proxy $mediaProxyUrl', async ({ mediaProxyUrl, mediaPrefix }) => {
+    const internal = 'http://host.openshell.internal:7777';
+    const mediaPath = '/vst/api/v1/replay/stream/stream-1/picture?startTime=2026-09-29T12%3A00%3A00Z';
+    const answer = [
+      `[Media](${internal}${mediaPath})`,
+      `[Frame](${internal}/vst/storage/frame.jpg?token=one)`,
+      `Frame URL: ${internal}${mediaPath}`,
+      '[Docs](https://example.com/vst/help)',
+    ].join('\n\n');
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          run_id: 'run_1',
+          events_url: '/api/agent/runs/run_1/events',
+          cancel_url: '/api/agent/runs/run_1/cancel',
+        }),
+      })
+      .mockResolvedValueOnce(sseResponse([
+        agentApiFrame('run.started', {}, 1),
+        agentApiFrame('message.delta', { delta: answer }, 2),
+        agentApiFrame('run.completed', {}, 3),
+      ]));
+    global.fetch = fetchMock as any;
+
+    render(
+      <ChatPanel
+        endpoint={{
+          url: '/api/agent',
+          transport: 'agent-api',
+          conversationId: 'thread_1',
+          mediaProxyUrl,
+        }}
+        features={noHeader}
+      />,
+    );
+    await act(async () => typeAndSend('Find forklifts'));
+
+    const media = await screen.findByRole('link', { name: 'Media' });
+    expect(media).toHaveAttribute('href', `${mediaPrefix}${mediaPath}`);
+    expect(screen.getByRole('link', { name: 'Frame' })).toHaveAttribute(
+      'href', `${mediaPrefix}/vst/storage/frame.jpg?token=one`,
+    );
+    expect(screen.getByRole('link', { name: 'Docs' })).toHaveAttribute(
+      'href', 'https://example.com/vst/help',
+    );
+    expect(screen.getByRole('link', { name: `${mediaPrefix}${mediaPath}` })).toHaveAttribute(
+      'href', `${mediaPrefix}${mediaPath}`,
+    );
+    expect(screen.getByTestId('chat-message-assistant')).not.toHaveTextContent('host.openshell.internal');
+  });
+
+  it('preserves literal OpenShell URLs in code while rebasing rendered media', async () => {
+    const mediaPath = '/vst/api/v1/replay/stream/stream-1/picture?startTime=2026-09-29T12%3A00%3A00Z';
+    const url = `http://host.openshell.internal:7777${mediaPath}`;
+    const command = `curl '${url}'`;
+    const answer = [
+      `Inline command URL: \`${url}\``,
+      `\`\`\`bash\n${command}\n\`\`\``,
+      `[Media](${url})`,
+      `<a href="${url}">HTML media</a>`,
+      `<img src="${url}" srcset="${url} 1x, ${url}&scale=2 2x, https://example.com/frame.jpg 3x" alt="Forklift frame" title="${url}" />`,
+    ].join('\n\n');
+    global.fetch = jest.fn().mockResolvedValue(sseResponse([
+      `data: ${JSON.stringify({ choices: [{ delta: { content: answer } }] })}\n\n`,
+      'data: [DONE]\n\n',
+    ])) as any;
+
+    render(<ChatPanel endpoint={{ ...endpoint, mediaProxyUrl: '/api/proxy' }} features={noHeader} />);
+    await act(async () => typeAndSend('Show the frame and a command to fetch it'));
+
+    expect(await screen.findByText(url, { selector: 'code' })).toBeInTheDocument();
+    expect(screen.getByText(command, { selector: 'code' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Media' })).toHaveAttribute('href', `/api/proxy${mediaPath}`);
+    expect(screen.getByRole('link', { name: 'HTML media' })).toHaveAttribute('href', `/api/proxy${mediaPath}`);
+    expect(screen.getByRole('img', { name: 'Forklift frame' })).toHaveAttribute('src', `/api/proxy${mediaPath}`);
+    expect(screen.getByRole('img', { name: 'Forklift frame' })).toHaveAttribute(
+      'srcset', `/api/proxy${mediaPath} 1x, /api/proxy${mediaPath}&scale=2 2x, https://example.com/frame.jpg 3x`,
+    );
+    expect(screen.getByRole('img', { name: 'Forklift frame' })).toHaveAttribute('title', `/api/proxy${mediaPath}`);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalledWith(command));
   });
 
   it('keeps earlier conversations visible and selectable after starting a new chat', async () => {
@@ -585,6 +682,247 @@ describe('ChatPanel', () => {
     expect(image).toHaveAttribute('src', '/media/vst/storage/temp/snapshot.jpg?token=one');
     expect(screen.getByRole('button', { name: 'Download image' })).toBeInTheDocument();
     expect(onAnswer.mock.calls[0][0]).toContain('vss.media.image');
+  });
+
+  describe('agent API retry when the backend is unreachable', () => {
+    const agentEndpoint = {
+      url: '/api/agent',
+      transport: 'agent-api' as const,
+      surface: 'vss-ui-main',
+      conversationId: 'thread_1',
+    };
+    const created = {
+      ok: true,
+      status: 201,
+      json: async () => ({
+        run_id: 'run_1',
+        events_url: '/api/agent/runs/run_1/events',
+        cancel_url: '/api/agent/runs/run_1/cancel',
+      }),
+    };
+    const unreachable = {
+      ok: false,
+      status: 503,
+      json: async () => ({ error: { code: 'backend_unreachable', message: 'OpenClaw Gateway is unreachable' } }),
+    };
+    const failedUnreachable = (id: number, markedUndelivered = true) =>
+      agentApiFrame(
+        'run.failed',
+        {
+          error: {
+            code: 'backend_unreachable',
+            message: 'OpenClaw Gateway is unreachable',
+            retryable: true,
+            ...(markedUndelivered ? { delivered: false } : {}),
+          },
+        },
+        id,
+      );
+    const answered = () =>
+      sseResponse([
+        agentApiFrame('run.started', {}, 1),
+        agentApiFrame('message.delta', { delta: 'answered' }, 2),
+        agentApiFrame('run.completed', {}, 3),
+      ]);
+    const idempotencyKey = (fetchMock: jest.Mock, call: number) =>
+      fetchMock.mock.calls[call][1].headers['Idempotency-Key'];
+
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    const sendAndWaitOutRetry = async (text: string) => {
+      await act(async () => typeAndSend(text));
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(AGENT_RETRY_DELAY_MS);
+      });
+    };
+
+    it('retries once when the gateway is unreachable before the run is created', async () => {
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValueOnce(unreachable)
+        .mockResolvedValueOnce(created)
+        .mockResolvedValueOnce(answered());
+      global.fetch = fetchMock as any;
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} />);
+      await sendAndWaitOutRetry('hello');
+
+      await waitFor(() => expect(screen.getByText('answered')).toBeInTheDocument());
+      expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+        '/api/agent/runs',
+        '/api/agent/runs',
+        '/api/agent/runs/run_1/events',
+      ]);
+      expect(idempotencyKey(fetchMock, 1)).toBe(`${idempotencyKey(fetchMock, 0)}-retry`);
+      expect(screen.queryByText(/HTTP 503/)).not.toBeInTheDocument();
+    });
+
+    it('retries once when the run fails before reaching the agent', async () => {
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValueOnce(created)
+        .mockResolvedValueOnce(sseResponse([agentApiFrame('run.started', {}, 1), failedUnreachable(2)]))
+        .mockResolvedValueOnce(created)
+        .mockResolvedValueOnce(answered());
+      global.fetch = fetchMock as any;
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} />);
+      await sendAndWaitOutRetry('hello');
+
+      await waitFor(() => expect(screen.getByText('answered')).toBeInTheDocument());
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(idempotencyKey(fetchMock, 2)).toBe(`${idempotencyKey(fetchMock, 0)}-retry`);
+      expect(screen.queryByText(/OpenClaw Gateway is unreachable/)).not.toBeInTheDocument();
+    });
+
+    it('does not retry a failure the adapter cannot place before delivery', async () => {
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValueOnce(created)
+        .mockResolvedValueOnce(sseResponse([agentApiFrame('run.started', {}, 1), failedUnreachable(2, false)]));
+      global.fetch = fetchMock as any;
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} />);
+      await sendAndWaitOutRetry('hello');
+
+      await waitFor(() => expect(screen.getByText(/OpenClaw Gateway is unreachable/)).toBeInTheDocument());
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry once the agent has produced output', async () => {
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValueOnce(created)
+        .mockResolvedValueOnce(
+          sseResponse([
+            agentApiFrame('run.started', {}, 1),
+            agentApiFrame('message.delta', { delta: 'partial' }, 2),
+            failedUnreachable(3),
+          ]),
+        );
+      global.fetch = fetchMock as any;
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} />);
+      await sendAndWaitOutRetry('hello');
+
+      await waitFor(() => expect(screen.getByText(/OpenClaw Gateway is unreachable/)).toBeInTheDocument());
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('reports the failure after a single retry', async () => {
+      const fetchMock = jest.fn().mockResolvedValue(unreachable);
+      global.fetch = fetchMock as any;
+      const onAuthFailure = jest.fn();
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} onAuthFailure={onAuthFailure} />);
+      await sendAndWaitOutRetry('hello');
+
+      await waitFor(() => expect(screen.getByText(/HTTP 503/)).toBeInTheDocument());
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(onAuthFailure).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('agent API credentials rejected', () => {
+    const agentEndpoint = {
+      url: '/api/agent',
+      transport: 'agent-api' as const,
+      surface: 'vss-ui-main',
+      conversationId: 'thread_1',
+    };
+
+    it('reports a 401 from run creation to the embedder after showing it', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: { code: 'backend_auth_error' } }),
+      }) as any;
+      const onAuthFailure = jest.fn(() => {
+        expect(screen.getByText(/HTTP 401/)).toBeInTheDocument();
+      });
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} onAuthFailure={onAuthFailure} />);
+      await act(async () => typeAndSend('hello'));
+
+      await waitFor(() => expect(onAuthFailure).toHaveBeenCalledTimes(1));
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('saves the failed turn when the embedder unmounts the panel to ask for a token', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: { code: 'backend_auth_error' } }),
+      }) as any;
+      const save = saveConversations as jest.Mock;
+      function Embedder() {
+        const [rejected, setRejected] = React.useState(false);
+        return rejected ? (
+          <p>token prompt</p>
+        ) : (
+          <ChatPanel endpoint={agentEndpoint} features={noHeader} onAuthFailure={() => setRejected(true)} />
+        );
+      }
+
+      render(<Embedder />);
+      await act(async () => {});
+      save.mockClear();
+      await act(async () => typeAndSend('resend me later'));
+
+      expect(await screen.findByText('token prompt')).toBeInTheDocument();
+      const saved = JSON.stringify(save.mock.calls[save.mock.calls.length - 1][0]);
+      expect(saved).toContain('resend me later');
+      expect(saved).toContain('HTTP 401');
+    });
+
+    it('reports a run the gateway rejected', async () => {
+      global.fetch = jest
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          json: async () => ({
+            run_id: 'run_1',
+            events_url: '/api/agent/runs/run_1/events',
+            cancel_url: '/api/agent/runs/run_1/cancel',
+          }),
+        })
+        .mockResolvedValueOnce(
+          sseResponse([
+            agentApiFrame('run.started', {}, 1),
+            agentApiFrame(
+              'run.failed',
+              { error: { code: 'backend_auth_error', message: 'OpenClaw Gateway authentication failed' } },
+              2,
+            ),
+          ]),
+        ) as any;
+      const onAuthFailure = jest.fn();
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} onAuthFailure={onAuthFailure} />);
+      await act(async () => typeAndSend('hello'));
+
+      await waitFor(() => expect(onAuthFailure).toHaveBeenCalledTimes(1));
+      expect(screen.getByText(/OpenClaw Gateway authentication failed/)).toBeInTheDocument();
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('saves a turn that is still pending when the panel unmounts', async () => {
+    global.fetch = jest.fn(() => new Promise<Response>(() => {})) as any;
+    const save = saveConversations as jest.Mock;
+
+    const { unmount } = render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => {});
+    save.mockClear();
+    await act(async () => typeAndSend('keep this message'));
+    expect(save).not.toHaveBeenCalled();
+
+    unmount();
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(save.mock.calls[0][0])).toContain('keep this message');
   });
 
   it('folds a context chip into the request and clears it after sending', async () => {

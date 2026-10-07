@@ -21,7 +21,7 @@
         "`curl -sf --max-time 15 http://localhost:30888/vst/api/v1/sensor/version` returns exit 0 (VIOS is responsive).",
         "`timeout 570s sh -c 'while :; do for url in http://localhost:30081/v1/models http://localhost:30082/v1/models http://localhost:8018/v1/models; do curl -sf --connect-timeout 2 --max-time 5 \"$url\" >/dev/null 2>&1 && exit 0; done; sleep 5; done'` returns exit 0 (at least one configured video-understanding VLM becomes ready; polls for up to 9.5 minutes to absorb model warmup).",
         "`vss configure check` reports elasticsearch reachable, and `vss vios list` includes a sensor named warehouse_sample with a recorded timeline.",
-        "`vss vlm run --sensor warehouse_sample --prompt 'Describe the scene.' --no-persist` returns exit 0 (the configured VLM serves inference, not merely lists a model it cannot run).",
+        "`vss vlm run --sensor warehouse_sample --prompt 'Describe the scene.' --max-frames 2 --no-persist` returns exit 0 (the configured VLM serves inference, not merely lists a model it cannot run).",
         "The setup trajectory shows the agent reading or invoking the bundled `/vss-build-vision-ai` skill and using its workflow to deploy the requested backend; mentioning the skill only in the final answer is insufficient.",
         "When `$SKILLS_EVAL_OPERATIONAL_HARNESS` is `nemoclaw`, the setup trajectory proves the supplied sandbox exists (`openshell sandbox get \"$NEMOCLAW_SANDBOX_NAME\"` succeeds), its gateway is ready, and the sandbox-installed `vss configure check` succeeds against this deployment. For a different selected operational harness, no NemoClaw sandbox is required.",
         "The setup trajectory proves the pinned sample-data bundle provides nonempty `warehouse_safety_0001.mp4` on the host. When `$SKILLS_EVAL_OPERATIONAL_HARNESS` is `nemoclaw`, the same `warehouse_safety_0001.mp4` exist as nonempty files under `/tmp/vss-sample-data/dev-profile-sample-data/` inside the supplied sandbox and each sandbox `sha256sum` matches its host source. Host-only file checks are insufficient for NemoClaw. For other harnesses the host files suffice."
@@ -30,7 +30,7 @@
     {
       "query": "Was the worker wearing a safety helmet on warehouse_sample? Check the video itself, not anything already stored.",
       "checks": [
-        "It uses exactly one vss vlm run against warehouse_sample, with --fps rather than a fixed --num-frames, and returns the answer.",
+        "It uses exactly one vss vlm run against warehouse_sample, with --fps rather than a fixed --max-frames, and returns the answer.",
         "It does not search stored agent Markdown memory (for example MEMORY.md, memory/*.md, or the harness-native memory_search tool) or call vss memory introspect before the fresh inspection, because the request already names its own scope. Reading startup/deployment instructions such as ENV.md, AGENTS.md, or SKILL.md is not memory recall and does not violate this check."
       ]
     },

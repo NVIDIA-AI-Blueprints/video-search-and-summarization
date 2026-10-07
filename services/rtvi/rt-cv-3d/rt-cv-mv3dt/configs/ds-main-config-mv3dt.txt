@@ -90,7 +90,14 @@ sync=0
 source-id=0
 gpu-id=0
 nvbuf-memory-type=0
-nvdslogger=0
+# Keep this on: it is what populates the per-stream statistics in
+# /api/v1/metrics, which add-streams.sh reads to verify activation. Turning it
+# off in PR #2154 is what made the check report live streams as UNSEEN (6821633).
+# It is not the source of the **PERF console blocks: those come from the app's
+# own perf callback and print either way. Measured on a four-camera 30 FPS stack,
+# same container, steady state: 96 lines and 3312 bytes per minute with it on,
+# 98 and 3371 with it off. It costs no log volume, so there is no knob.
+nvdslogger=1
 
 [sink1]
 enable=0
@@ -107,7 +114,14 @@ msg-conv-msg2p-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv_mega.so
 sync=0
 msg-conv-embedding-filter=Person
 qos=0
-nvdslogger=0
+# Keep this on: it is what populates the per-stream statistics in
+# /api/v1/metrics, which add-streams.sh reads to verify activation. Turning it
+# off in PR #2154 is what made the check report live streams as UNSEEN (6821633).
+# It is not the source of the **PERF console blocks: those come from the app's
+# own perf callback and print either way. Measured on a four-camera 30 FPS stack,
+# same container, steady state: 96 lines and 3312 bytes per minute with it on,
+# 98 and 3371 with it off. It costs no log volume, so there is no knob.
+nvdslogger=1
 
 [sink2]
 # Grid-view (tiled) file sink

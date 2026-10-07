@@ -20,6 +20,7 @@ from datetime import datetime
 import logging
 from typing import Any
 
+from elastic_transport import RequestsHttpNode
 from elasticsearch import Elasticsearch
 from elasticsearch import NotFoundError as ESNotFoundError
 from elasticsearch.exceptions import ConnectionError as ESConnectionError
@@ -66,7 +67,14 @@ class ElasticsearchMemoryStore:
         self._endpoint = endpoint
         self._index = index
         self._owned = client is None
-        self._client = client or Elasticsearch(endpoint, request_timeout=request_timeout)
+        # Use one transport contract in proxied and direct deployments.
+        # RequestsHttpNode honors HTTP_PROXY, HTTPS_PROXY, and NO_PROXY through
+        # requests.Session, and connects directly when no proxy applies.
+        self._client = client or Elasticsearch(
+            endpoint,
+            request_timeout=request_timeout,
+            node_class=RequestsHttpNode,
+        )
 
     @property
     def index(self) -> str:

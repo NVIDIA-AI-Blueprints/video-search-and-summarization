@@ -28,7 +28,6 @@
 #include "nvbufsurface.h"
 #include "gstnvvstmeta.h"
 
-using namespace std;
 
 namespace webrtc
 {
@@ -112,7 +111,7 @@ struct _RawFrameParams
         }
     }
 
-    string     m_streamId;
+    std::string     m_streamId;
     unsigned char* m_buffer     = nullptr;
     bool m_isYuvBuffer          = false;
     GstBuffer* m_gstBuffer      = nullptr;
@@ -145,8 +144,8 @@ struct _RawFrameParams
 
 typedef struct _FrameParams
 {
-    string          m_media;
-    string          m_codec;
+    std::string          m_media;
+    std::string          m_codec;
     unsigned char*  m_buffer;
     ssize_t         m_size;
     bool            m_needParsing;
@@ -192,17 +191,17 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
             m_transcodeStats.setElementName(m_consumerName);
         }
 
-        shared_ptr<IMediaDataConsumer> getself()
+        std::shared_ptr<IMediaDataConsumer> getself()
         {
             try
             {
                 return shared_from_this();
             }
-            catch (const bad_weak_ptr& e)
+            catch (const std::bad_weak_ptr& e)
             {
                 // LOG(error) << "Bad Weak pointer error: " << e.what() << endl;
             }
-            return shared_ptr<IMediaDataConsumer>(nullptr);
+            return std::shared_ptr<IMediaDataConsumer>(nullptr);
         }
 
             virtual ~IMediaDataConsumer()
@@ -226,7 +225,7 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
         virtual void onLastFrame() { /* Default no-op: consumers with no end-of-stream work keep this empty. */ }
         virtual void reset() { /* Default no-op: stateless consumers have nothing to reset. */ }
         /* Update start time for overlay */
-        virtual void updateStartTime(string start_time) { /* Default no-op: only overlay-capable consumers track a start time. */ }
+        virtual void updateStartTime(std::string start_time) { /* Default no-op: only overlay-capable consumers track a start time. */ }
         /* Set decoder frame size provides original resolution decoded */
         virtual void setOriginalFrameSize(int w, int h) { /* Default no-op: consumers that do not rescale ignore the source resolution. */ }
         virtual void setOriginalFrameSize() { /* Default no-op: consumers that do not rescale ignore the source resolution. */ }

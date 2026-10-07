@@ -20,6 +20,8 @@
 #include "sensor_info.h"
 #include "utils.h"
 
+using namespace nv_vms;
+
 std::unique_ptr<NativeStreamMonitor>  NativeStreamMonitor::m_pInstance;
 
 bool NativeStreamMonitor::addNativeStream(std::shared_ptr<StreamInfo> stream, const string location)

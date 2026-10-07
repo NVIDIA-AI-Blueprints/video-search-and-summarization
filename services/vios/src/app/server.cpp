@@ -41,6 +41,7 @@
 #include <memory>
 
 using namespace std;
+using namespace nv_vms;
 
 struct ShutdownState
 {

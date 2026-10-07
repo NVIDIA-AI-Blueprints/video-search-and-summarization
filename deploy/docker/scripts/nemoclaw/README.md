@@ -42,7 +42,7 @@ document is the equivalent command reference for running it by hand.
 ## Canonical flow
 
 ```bash
-SB="${NEMOCLAW_SANDBOX_NAME:-demo}"
+SB="${NEMOCLAW_SANDBOX_NAME:-vss-harness-sandbox}"
 RUNTIME="${AGENT_RUNTIME:-openclaw}"          # openclaw (default) or hermes
 REPO="$(git rev-parse --show-toplevel)"
 
@@ -57,7 +57,7 @@ curl -fsSL "https://raw.githubusercontent.com/NVIDIA/NemoClaw/${NEMOCLAW_INSTALL
 
 # 2. Create the sandbox (provider/model come from the environment)
 #    NEMOCLAW_PROVIDER=build|custom, NEMOCLAW_MODEL, NEMOCLAW_ENDPOINT_URL, COMPATIBLE_API_KEY / NVIDIA_API_KEY
-# CHAT_UI_URL bakes gateway.controlUi.allowedOrigins (gateway.* cannot be
+# CHAT_UI_URL bakes gateway.controlUi's auth for a remote UI (gateway.* cannot be
 # edited afterwards) — set it to the dashboard origin before onboarding. That
 # origin is the *relay* port (18790, step 7), not NemoClaw's own forward port
 # 18789, which stays loopback-only.
@@ -118,7 +118,7 @@ openshell sandbox exec -n "$SB" -- vss-openclaw-sync    # vss-hermes-sync on Her
 # nemoclaw "$SB" mcp add vss_orchestrator --url https://host.openshell.internal:9988/mcp
 
 # 6. Sandbox config: only the optional webhooks need config set.
-#    gateway.* (incl. controlUi.allowedOrigins) is rejected — it comes from
+#    gateway.* (incl. controlUi) is rejected — it comes from
 #    CHAT_UI_URL at onboard; agents.defaults.workspace already defaults to
 #    ~/.openclaw/workspace (= /sandbox/.openclaw/workspace in the sandbox).
 nemoclaw "$SB" config set --key hooks.enabled \
@@ -138,6 +138,11 @@ if [ -n "${BREV_ENV_ID:-}" ]; then BIND=0.0.0.0;   # the secure-link edge arrive
 else BIND=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}'); fi
 setsid -f python3 "$REPO/deploy/docker/scripts/nemoclaw/dashboard-relay.py" \
   --sandbox "$SB" --listen "$BIND" --port 18790 --upstream 127.0.0.1:18789
+#    Optional: repair a forward that holds 18789 but stops carrying HTTP (the
+#    notebook starts this by default; stop this sandbox's alone with
+#    `pkill -f "dashboard-forward-watchdog.py --sandbox $SB( |$)"`).
+setsid -f python3 "$REPO/deploy/docker/scripts/nemoclaw/dashboard-forward-watchdog.py" \
+  --sandbox "$SB" --port 18789 >>/tmp/nemoclaw-dashboard-watchdog.log 2>&1
 nemoclaw "$SB" gateway-token
 #    vss-agent-ui then reaches the gateway at ws://host.docker.internal:18790.
 ```

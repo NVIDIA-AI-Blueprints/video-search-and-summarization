@@ -235,10 +235,12 @@ export class OpenClawConnector implements Connector {
       );
     } catch (error) {
       if (error instanceof WebSocketTransportError) {
+        // The WebSocket never opened, so no request reached the gateway.
         throw new ConnectorError(
           "OpenClaw Gateway is unreachable",
           "backend_unreachable",
-          true
+          true,
+          { delivered: false }
         );
       }
       throw error;
@@ -332,6 +334,12 @@ export class OpenClawConnector implements Connector {
       socket.close();
       throw error;
     }
+  }
+
+  /** Verify the relay and gateway credentials without creating a chat run. */
+  async checkConnection(signal: AbortSignal): Promise<void> {
+    const socket = await this.connect(signal);
+    socket.close();
   }
 
   private sessionKey(threadId: string): string {

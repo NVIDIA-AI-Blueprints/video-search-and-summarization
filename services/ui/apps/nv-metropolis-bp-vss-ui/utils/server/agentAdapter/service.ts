@@ -31,12 +31,18 @@ const buildConnector = (config: AgentAdapterConfig): Connector => {
 export class AgentAdapterService {
   readonly store: RunStore;
   private readonly connector: Connector;
+  /** Set when the backend rejects this service's credentials during a run. */
+  credentialsRejected = false;
 
-  constructor(readonly config: AgentAdapterConfig) {
+  constructor(
+    readonly config: AgentAdapterConfig,
+    sharedStore?: RunStore,
+    readonly ownerFingerprint?: string
+  ) {
     this.connector = buildConnector(config);
     // Reserve the thread-state ceiling up front so the independently managed
     // connector cache and run store cannot exceed the process-wide limit.
-    this.store = new RunStore(
+    this.store = sharedStore ?? new RunStore(
       config.runRetentionMs,
       config.maxRuns,
       config.maxEventsPerRun,
@@ -102,7 +108,7 @@ export class AgentAdapterService {
     request: CreateRunRequest,
     idempotencyKey?: string
   ): { record: RunRecord; replayed: boolean } {
-    const created = this.store.create(request, idempotencyKey);
+    const created = this.store.create(request, idempotencyKey, this.ownerFingerprint);
     if (created.replayed) return created;
     created.record.append("run.started", {
       surface: request.surface,
@@ -212,11 +218,18 @@ export class AgentAdapterService {
           reason: "client_cancelled",
         });
       } else if (error instanceof ConnectorError) {
+        if (
+          error.code === "backend_auth_error" ||
+          error.code === "backend_scope_error"
+        ) {
+          this.credentialsRejected = true;
+        }
         this.store.finish(record, "run.failed", {
           error: {
             code: error.code,
             message: error.message,
             retryable: error.retryable,
+            ...(error.delivered === false ? { delivered: false } : {}),
           },
         });
       } else {
@@ -233,7 +246,7 @@ export class AgentAdapterService {
   }
 
   async cancelRun(runId: string): Promise<RunRecord> {
-    const record = this.store.get(runId);
+    const record = this.store.get(runId, this.ownerFingerprint);
     if (!record.terminal) {
       record.abortController.abort(new Error("client cancelled"));
       try {

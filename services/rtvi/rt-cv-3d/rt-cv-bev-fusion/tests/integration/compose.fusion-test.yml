@@ -33,7 +33,7 @@ name: mv3dt-fusion-test
 
 services:
   kafka:
-    image: confluentinc/cp-kafka:8.1.1
+    image: confluentinc/cp-kafka:8.2.0
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -63,7 +63,7 @@ services:
   # exist (and the consumer be positioned at its end) before we produce —
   # otherwise assignment races with the producer and early frames are skipped.
   kafka-init:
-    image: confluentinc/cp-kafka:8.1.1
+    image: confluentinc/cp-kafka:8.2.0
     depends_on:
       kafka:
         condition: service_healthy

@@ -525,6 +525,18 @@ class NemoClawNotebookContractTests(unittest.TestCase):
         ):
             self._run_settings_cell({"VSS_AGENT_ADAPTER_ENABLED": "maybe"})
 
+    def test_the_dashboard_watchdog_defaults_on(self) -> None:
+        namespace, _ = self._run_settings_cell({})
+        self.assertIs(namespace["NEMOCLAW_DASHBOARD_WATCHDOG"], True)
+
+    def test_the_shell_can_turn_the_dashboard_watchdog_off(self) -> None:
+        namespace, _ = self._run_settings_cell({"NEMOCLAW_DASHBOARD_WATCHDOG": "false"})
+        self.assertIs(namespace["NEMOCLAW_DASHBOARD_WATCHDOG"], False)
+
+    def test_a_non_boolean_dashboard_watchdog_flag_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "NEMOCLAW_DASHBOARD_WATCHDOG must be true or false"):
+            self._run_settings_cell({"NEMOCLAW_DASHBOARD_WATCHDOG": "maybe"})
+
     def test_the_ui_cell_reads_no_name_the_notebook_never_binds(self) -> None:
         """Section 3.5 inherits the namespace the earlier cells built, so a name none
         of them binds is a NameError for every operator. Stubbing such a name into the
@@ -563,6 +575,8 @@ class NemoClawForwardContractTests(unittest.TestCase):
     RECOVER_HANDSHAKE = "SUPERVISOR_UNAVAILABLE"
     FORWARD_PID = "4141"
     RELAY_PID = "5151"
+    WATCHDOG_PID = "6161"
+    WATCHDOG_SCRIPT = (SCRIPTS_DIR / "nemoclaw" / "dashboard-forward-watchdog.py").resolve()
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -588,7 +602,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
         )
         onboard_config = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(onboard_config)
-        cls.control_ui = staticmethod(onboard_config.control_ui)
+        cls.control_ui_auth = staticmethod(onboard_config.control_ui_auth)
 
     def _run_ui_cell(
         self,
@@ -606,37 +620,46 @@ class NemoClawForwardContractTests(unittest.TestCase):
         relay_running_for: list[str] | None = None,
         relay_dead: bool = False,
         runtime: str = "openclaw",
+        forward_wedged: bool = False,
+        watchdog_enabled: bool = True,
+        watchdog_running: str | None = None,
     ) -> tuple[dict[str, object], list[tuple[str, ...]], list[list[str]]]:
         """Run 3.5 against a fake host. `relay_running_for` is the --listen list of a
         relay already on the relay port (this checkout's script, this sandbox);
         `relay_dead` makes that relay hold the port without answering through it.
         `forward_squatted` answers the dashboard port from something that is not this
         sandbox's forward; `forward_listener_visible` off is a listener lsof cannot
-        report - started by another user, or no lsof on the host at all."""
+        report - started by another user, or no lsof on the host at all.
+        `forward_wedged` keeps this sandbox's forward on the port without answering
+        HTTP. `watchdog_running` is a watchdog already up: "current" (this run's
+        arguments), "stale" (another port) or "foreign" (another sandbox)."""
 
-        # The config the image carries: whatever onboard's generator derived from the
-        # CHAT_UI_URL 3.1 baked in - this session's secure link, or loopback alone
-        # when the sandbox was built without a remote origin.
-        built_for = (
-            f"https://{chat_fqdn}"
-            if chat_fqdn and ui_origin_baked
-            else f"http://127.0.0.1:{self.PORT}"
-        )
+        # The controlUi the image carries: any origin, with auth flags from the
+        # CHAT_UI_URL 3.1 baked in -- or, built without one (ui_origin_baked=False),
+        # device auth left on.
+        auth = self.control_ui_auth(f"https://{chat_fqdn}" if chat_fqdn and ui_origin_baked else "")
+        control_ui_block = {
+            "allowedOrigins": ["*"],
+            **(auth or {"allowInsecureAuth": False, "dangerouslyDisableDeviceAuth": False}),
+        }
         state = {
             "forward": forward_up,
             "relay": relay_running_for,
             "relay_dead": relay_dead,
+            "wedged": forward_wedged,
+            "watchdog": watchdog_running,
             "config": {
                 "gateway": {
                     "port": self.PORT,
-                    "controlUi": self.control_ui(built_for, self.PORT),
+                    "controlUi": control_ui_block,
                 }
             },
         }
         calls: list[tuple[str, ...]] = []
         relays: list[list[str]] = []
+        watchdogs: list[list[str]] = []
         # Also on the instance, so a run that raises can still be inspected.
-        self.calls, self.relays = calls, relays
+        self.calls, self.relays, self.watchdogs = calls, relays, watchdogs
 
         def completed(command, returncode=0, stdout="", stderr=""):
             return subprocess.CompletedProcess(command, returncode, stdout, stderr)
@@ -658,6 +681,11 @@ class NemoClawForwardContractTests(unittest.TestCase):
                 f"--target-port {self.PORT} --target-host 127.0.0.1 --local 127.0.0.1:{self.PORT}"
             )
 
+        def watchdog_args():
+            sandbox = "other" if state["watchdog"] == "foreign" else self.SANDBOX
+            port = 19999 if state["watchdog"] == "stale" else self.PORT
+            return f"{sys.executable} {self.WATCHDOG_SCRIPT} --sandbox {sandbox} --port {port}"
+
         def listener_pid(port):
             if port == self.PORT:
                 return self.FORWARD_PID if state["forward"] and forward_listener_visible else ""
@@ -676,6 +704,10 @@ class NemoClawForwardContractTests(unittest.TestCase):
                 # forward as it found it.
                 if not recover_restores_forward:
                     return completed(command, 1, stderr=f"{self.RECOVER_FAILURE}\n")
+                # A forward that still accepts a TCP connect looks healthy to recover,
+                # so only a forward that is gone comes back fresh.
+                if not state["forward"]:
+                    state["wedged"] = False
                 state["forward"] = True
                 if recover_handshake_fails:
                     return completed(command, 1, stderr=f"{self.RECOVER_HANDSHAKE}\n")
@@ -683,8 +715,12 @@ class NemoClawForwardContractTests(unittest.TestCase):
             if command[:2] == ["lsof", "-t"]:
                 pid = listener_pid(int(command[2].removeprefix("-i:")))
                 return completed(command, stdout=f"{pid}\n" if pid else "")
-            if command[:2] == ["ps", "-p"]:
-                if command[2] == self.FORWARD_PID:
+            if command[:2] == ["pgrep", "-f"]:
+                return completed(command, stdout=f"{self.WATCHDOG_PID}\n" if state["watchdog"] else "")
+            if command[:2] == ["ps", "-ww"]:
+                if command[3] == self.WATCHDOG_PID:
+                    return completed(command, stdout=watchdog_args() + "\n" if state["watchdog"] else "")
+                if command[3] == self.FORWARD_PID:
                     return completed(command, stdout=forward_args() + "\n")
                 return completed(command, stdout=relay_args() + "\n" if state["relay"] else "")
             if command[:3] == ["openshell", "sandbox", "exec"]:
@@ -693,19 +729,29 @@ class NemoClawForwardContractTests(unittest.TestCase):
                 url = command[-1]
                 host, port = url.split("://", 1)[1].rsplit("/", 1)[0].rsplit(":", 1)
                 if int(port) == self.PORT:
-                    return completed(command, 0 if state["forward"] and host == "127.0.0.1" else 7)
+                    up = state["forward"] and not state["wedged"] and host == "127.0.0.1"
+                    return completed(command, 0 if up else 7, stdout="200" if up else "000")
                 reachable = state["relay"] is not None and not state["relay_dead"] and (
                     "0.0.0.0" in state["relay"] or host in state["relay"]
                 )
                 return completed(command, 0 if reachable else 7)
             if command[0] == "kill":
-                state["relay"] = None
+                if command[-1] == self.FORWARD_PID:
+                    state["forward"] = False
+                elif command[-1] == self.WATCHDOG_PID:
+                    state["watchdog"] = None
+                else:
+                    state["relay"] = None
                 return completed(command)
             if command[:2] == ["hostname", "-I"]:
                 return completed(command, stdout="192.0.2.10\n")
             raise AssertionError(f"unexpected command: {command}")
 
         def popen(command, **_kwargs):
+            if command[1] == str(self.WATCHDOG_SCRIPT):
+                watchdogs.append(list(command))
+                state["watchdog"] = "current"
+                return mock.Mock(pid=int(self.WATCHDOG_PID))
             relays.append(list(command))
             listen = command[command.index("--listen") + 1]
             state["relay"] = listen.split(",")
@@ -725,6 +771,8 @@ class NemoClawForwardContractTests(unittest.TestCase):
             "AGENT_UI_USES_GATEWAY_TOKEN": False,
             "BREV_ENVIRONMENT_CONTEXT_PATH": "",
             "DASHBOARD_RELAY_PATH": self.RELAY_SCRIPT,
+            "DASHBOARD_WATCHDOG_PATH": self.WATCHDOG_SCRIPT,
+            "NEMOCLAW_DASHBOARD_WATCHDOG": watchdog_enabled,
             "NEMOCLAW_SANDBOX_NAME": self.SANDBOX,
             "Path": lambda p: Path(self._tmp) / Path(p).name,
             "SANDBOX_CONFIG_PATH": "/sandbox/.openclaw/openclaw.json",
@@ -828,6 +876,53 @@ class NemoClawForwardContractTests(unittest.TestCase):
         self.assertIn(self.RECOVER, calls)
         self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
 
+    def test_a_wedged_forward_proved_ours_is_stopped_before_recover(self) -> None:
+        # recover judges an owned forward by a TCP connect, which a wedged forward still
+        # accepts; stopping it first is what lets recover re-create it.
+        namespace, calls, _ = self._run_ui_cell(adapter_enabled=False, chat_fqdn=None, forward_wedged=True)
+        kill = calls.index(("kill", self.FORWARD_PID))
+        self.assertLess(kill, calls.index(self.RECOVER))
+        self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
+
+    def test_a_wedged_listener_that_is_not_ours_is_never_stopped(self) -> None:
+        with self.assertRaises(RuntimeError):
+            self._run_ui_cell(
+                adapter_enabled=False, chat_fqdn=None, forward_squatted=True,
+                forward_wedged=True, recover_restores_forward=False,
+            )
+        self.assertIn(self.RECOVER, self.calls)
+        self.assertFalse(any(command[0] == "kill" for command in self.calls))
+
+    def test_the_watchdog_is_started_for_this_sandbox_and_port(self) -> None:
+        self._run_ui_cell(adapter_enabled=False, chat_fqdn=None)
+        self.assertEqual(len(self.watchdogs), 1)
+        command = self.watchdogs[0]
+        self.assertEqual(command[1], str(self.WATCHDOG_SCRIPT))
+        self.assertEqual(command[command.index("--sandbox") + 1], self.SANDBOX)
+        self.assertEqual(command[command.index("--port") + 1], str(self.PORT))
+
+    def test_a_running_watchdog_with_this_runs_arguments_is_kept(self) -> None:
+        _, calls, _ = self._run_ui_cell(adapter_enabled=False, chat_fqdn=None, watchdog_running="current")
+        self.assertEqual(self.watchdogs, [])
+        self.assertNotIn(("kill", self.WATCHDOG_PID), calls)
+
+    def test_a_watchdog_for_another_port_is_replaced(self) -> None:
+        _, calls, _ = self._run_ui_cell(adapter_enabled=False, chat_fqdn=None, watchdog_running="stale")
+        self.assertIn(("kill", self.WATCHDOG_PID), calls)
+        self.assertEqual(len(self.watchdogs), 1)
+
+    def test_another_sandboxs_watchdog_is_left_alone(self) -> None:
+        _, calls, _ = self._run_ui_cell(adapter_enabled=False, chat_fqdn=None, watchdog_running="foreign")
+        self.assertNotIn(("kill", self.WATCHDOG_PID), calls)
+        self.assertEqual(len(self.watchdogs), 1)
+
+    def test_turning_the_watchdog_off_stops_ours_and_starts_none(self) -> None:
+        _, calls, _ = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn=None, watchdog_enabled=False, watchdog_running="current"
+        )
+        self.assertIn(("kill", self.WATCHDOG_PID), calls)
+        self.assertEqual(self.watchdogs, [])
+
     def test_brev_relays_on_the_wildcard_without_host_gateway_lookup(self) -> None:
         namespace, calls, relays = self._run_ui_cell(
             adapter_enabled=False, chat_fqdn="agent.example.test"
@@ -863,7 +958,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
                 ui_origin_baked=False,
             )
         self.assertIn(
-            "https://agent.example.test is not in the sandbox's allowedOrigins",
+            "built without a remote UI origin, so https://agent.example.test cannot sign in",
             str(raised.exception),
         )
         self.assertIn("NEMOCLAW_RECREATE_SANDBOX = True", str(raised.exception))

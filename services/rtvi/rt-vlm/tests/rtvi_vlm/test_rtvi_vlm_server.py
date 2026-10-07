@@ -794,6 +794,64 @@ class TestLiveStreamEndpoints:
 class TestCaptionGeneration:
     """Test caption generation endpoint"""
 
+    def test_streaming_generate_captions_sends_request_id_before_events(self, rtvi_server):
+        stream_id = uuid.uuid4()
+        request_id = str(uuid.uuid4())
+        rtvi_server._process_vlm_request = AsyncMock(
+            return_value=(request_id, MagicMock(), [MagicMock()])
+        )
+        req_info = RequestInfo(request_id=request_id)
+        req_info.status = RequestInfo.Status.FAILED
+        req_info.queue_time = time.time()
+        rtvi_server._stream_handler._request_info_map[request_id] = req_info
+        rtvi_server._stream_handler.get_response = MagicMock(return_value=(req_info, []))
+        query = VlmQuery(
+            id=stream_id,
+            model="test-model",
+            prompt="Describe the stream.",
+            stream=True,
+        )
+        path = f"{API_PREFIX}/generate_captions"
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode(),
+            "root_path": "",
+            "query_string": b"",
+            "headers": [(b"content-type", b"application/json")],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+        }
+        messages = []
+        request_sent = False
+
+        async def receive():
+            nonlocal request_sent
+            if not request_sent:
+                request_sent = True
+                return {
+                    "type": "http.request",
+                    "body": query.model_dump_json().encode(),
+                    "more_body": False,
+                }
+            await asyncio.Event().wait()
+
+        async def send(message):
+            messages.append(message)
+
+        asyncio.run(asyncio.wait_for(rtvi_server._app(scope, receive, send), timeout=5))
+
+        assert messages[0]["type"] == "http.response.start"
+        assert messages[0]["status"] == 200
+        assert dict(messages[0]["headers"])[b"x-request-id"] == request_id.encode()
+        body = b"".join(message.get("body", b"") for message in messages[1:])
+        assert b'data: {"id": "' + request_id.encode() + b'"' in body
+        assert b"data: [DONE]" in body
+
     def test_generate_captions_missing_id(self, test_client):
         """Test generating captions without file ID"""
         response = test_client.post(f"{API_PREFIX}/generate_captions", json={"model": "test-model"})
@@ -1480,6 +1538,43 @@ class TestStreamingConstraints:
 class TestCVStreamEndpoints:
     """Test CV-compatible stream endpoints."""
 
+    @pytest.mark.parametrize("camera_id", ["", "camera/01", ".", "..", "camera 01"])
+    def test_stream_add_rejects_unsafe_camera_id(self, test_client, camera_id):
+        """CV registration rejects IDs that auto-inference cannot accept."""
+        response = test_client.post(
+            f"{API_PREFIX}/stream/add",
+            json={
+                "key": "sensor",
+                "value": {
+                    "camera_id": camera_id,
+                    "camera_url": "rtsp://example.com/stream",
+                    "change": "camera_add",
+                },
+            },
+        )
+
+        assert response.status_code == 422
+
+    def test_vios_stream_add_rejects_unsafe_camera_id(self, test_client):
+        """VIOS registration enforces the same camera ID contract."""
+        response = test_client.post(
+            "/api/v1/camera/add",
+            json={
+                "alert_type": "camera_status_change",
+                "created_at": "2026-07-01T07:06:11Z",
+                "event": {
+                    "camera_id": "camera/01",
+                    "camera_name": "Camera_01",
+                    "camera_url": "",
+                    "change": "camera_add",
+                    "tags": "",
+                },
+                "source": "vios",
+            },
+        )
+
+        assert response.status_code == 422
+
     def test_stream_add_accepts_vios_camera_add_registration(self, test_client):
         """VIOS camera_add without a URL is accepted as a registration event."""
         camera_id = f"vios-reg-{uuid.uuid4()}"
@@ -1740,6 +1835,28 @@ class TestCVStreamEndpoints:
         assert data["camera_id"] == camera_id
         assert data["asset_id"] == asset_id
 
+    def test_stream_remove_accepts_legacy_vios_camera_id(self, test_client, rtvi_server):
+        """A camera registered before the ID restriction can still be removed."""
+        camera_id = "camera/01"
+        asset_id = rtvi_server._asset_manager.add_live_stream(
+            "rtsp://example.com/stream", camera_id=camera_id
+        )
+
+        response = test_client.request(
+            "DELETE",
+            "/api/v1/camera/remove",
+            json={
+                "alert_type": "camera_status_change",
+                "created_at": "2026-07-01T07:15:20Z",
+                "event": {"camera_id": camera_id, "change": "camera_remove"},
+                "source": "vios",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["asset_id"] == asset_id
+        assert rtvi_server._asset_manager.get_asset_id_by_camera_id(camera_id) is None
+
     def test_stream_remove_accepts_vios_registration_without_asset(self, test_client):
         """VIOS camera_remove is idempotent after registration-only camera_add."""
         camera_id = f"vios-reg-remove-{uuid.uuid4()}"
@@ -1795,16 +1912,17 @@ class TestCVStreamEndpoints:
 
         duplicate_response = test_client.post(f"{API_PREFIX}/stream/add", json=body)
         assert duplicate_response.status_code == 409
-        assert duplicate_response.json()["code"] == "DuplicateCameraId"
+        assert duplicate_response.json()["code"] == "DuplicateStreamId"
 
-    def test_stream_add_rejects_duplicate_camera_id_with_metadata(self, rtvi_server):
-        """Duplicate CV camera IDs are rejected before auto-inference starts again."""
+    def test_stream_add_auto_inference_accepts_non_uuid_camera_id(self, rtvi_server):
+        """CV auto-inference accepts the stream ID format used by registration."""
         rtvi_server._process_vlm_request = AsyncMock(return_value=("request-id", None, []))
         client = TestClient(rtvi_server._app)
+        camera_id = "cam-003-430271d5"
         body = {
             "key": "sensor",
             "value": {
-                "camera_id": "cam-001",
+                "camera_id": camera_id,
                 "camera_url": "rtsp://example.com/stream",
                 "change": "camera_add",
                 "metadata": {
@@ -1820,10 +1938,35 @@ class TestCVStreamEndpoints:
         assert first_response.status_code == 200
         assert first_response.json()["status"] == "processing"
         assert first_response.json()["inference"] is True
+        assert rtvi_server._process_vlm_request.await_args.args[0].id_list == [
+            camera_id
+        ]
+        assert rtvi_server._process_vlm_request.await_count == 1
 
+    def test_stream_add_duplicate_with_metadata_does_not_restart_inference(self, rtvi_server):
+        """A duplicate CV registration never starts a second inference request."""
+        rtvi_server._process_vlm_request = AsyncMock(return_value=("request-id", None, []))
+        client = TestClient(rtvi_server._app)
+        body = {
+            "key": "sensor",
+            "value": {
+                "camera_id": "cam-duplicate-metadata",
+                "camera_url": "rtsp://example.com/stream",
+                "change": "camera_add",
+                "metadata": {
+                    "prompt": "Describe what you see",
+                    "model": "test-model",
+                    "chunk_duration": 10,
+                    "stream": True,
+                },
+            },
+        }
+
+        assert client.post(f"{API_PREFIX}/stream/add", json=body).status_code == 200
         duplicate_response = client.post(f"{API_PREFIX}/stream/add", json=body)
+
         assert duplicate_response.status_code == 409
-        assert duplicate_response.json()["code"] == "DuplicateCameraId"
+        assert duplicate_response.json()["code"] == "DuplicateStreamId"
         assert rtvi_server._process_vlm_request.await_count == 1
 
 
@@ -2090,7 +2233,7 @@ class TestNIMCompatibleEndpoints:
             vlm_output.reasoning_description = ""
             vlm_output.input_tokens = 52
             vlm_output.output_tokens = 154
-            kwargs["on_chunk_result"](MagicMock(vlm_model_output=vlm_output))
+            kwargs["on_chunk_result"](MagicMock(vlm_model_output=vlm_output, error=None))
 
         pipeline.enqueue_vlm_text_chunk.side_effect = enqueue_text_chunk
 

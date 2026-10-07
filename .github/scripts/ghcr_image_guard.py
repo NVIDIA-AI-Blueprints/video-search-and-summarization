@@ -12,10 +12,12 @@ preflight
 verify
     Run AFTER pushing: read the image's config labels back from the registry
     (the same read path check_container_tag_source.py uses) and require that
-    ``com.nvidia.vss.source_tree_sha`` equals the TREE hash of the source
-    folder — ``git rev-parse HEAD:<source_path>`` — not the commit SHA. This
-    proves at build time that the container-source gate will accept the
-    candidate, instead of discovering a contract mismatch at promotion time.
+    ``com.nvidia.vss.source_tree_sha`` equals the TREE hash of the image's
+    source paths (``check_container_tag_source.source_tree_sha``: ``git
+    rev-parse HEAD:<source_path>`` for one path, one mktree over several) —
+    not the commit SHA. This proves at build time that the container-source
+    gate will accept the candidate, instead of discovering a contract mismatch
+    at promotion time.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_container_tag_source import (  # noqa: E402
+    bakes_release_line,
     ImageManifestLabels,
     read_image_manifest_labels,
 )
@@ -73,6 +76,7 @@ def reuse_decision(
     labels: ImageManifestLabels | None,
     reason: str | None,
     expected_tree_sha: str,
+    expected_release_line: str | None = None,
 ) -> tuple[bool, str]:
     """Return ``(reuse, message)`` for the content-addressed re-tag path.
 
@@ -83,8 +87,18 @@ def reuse_decision(
     Fail-*open* to a rebuild: a missing content tag, a mislabelled one, or any
     fetch error just means "no safe shortcut — build normally". Unlike
     preflight, this can never fail the job; the worst case is the status quo.
+
+    When ``expected_release_line`` is given -- the image bakes a version in --
+    the published image must also carry that release line: an identical tree
+    built before a new v* tag reports the previous line, so pushing a tag costs
+    one rebuild of those images. A missing label is a mismatch (rebuild).
     """
     if labels and labels.source_tree_sha == expected_tree_sha:
+        if expected_release_line and labels.release_line != expected_release_line:
+            return False, (
+                f"same content but built on release line {labels.release_line or '<unlabelled>'}, "
+                f"now {expected_release_line}; rebuilding so the image reports the current line"
+            )
         return True, "content-addressed image already published; re-tagging instead of rebuilding"
     detail = labels.source_tree_sha if labels else f"<no label: {reason}>"
     return False, f"no reusable image for this content ({detail}); building"
@@ -144,7 +158,8 @@ def cmd_preflight(args: argparse.Namespace) -> int:
 
 def cmd_reuse(args: argparse.Namespace) -> int:
     labels, reason, _ = read_image_manifest_labels(args.ref)
-    reuse, message = reuse_decision(labels, reason, args.expect_tree_sha)
+    release_line = args.expect_release_line if bakes_release_line(args.dockerfile) else None
+    reuse, message = reuse_decision(labels, reason, args.expect_tree_sha, release_line)
     print(f"{args.ref}: {message}")
     _emit_output("reuse", "true" if reuse else "false")
     return 0
@@ -176,6 +191,11 @@ def main() -> int:
     )
     reuse.add_argument("--ref", required=True, help="registry/name:content-tag")
     reuse.add_argument("--expect-tree-sha", required=True)
+    reuse.add_argument(
+        "--expect-release-line",
+        help="release line the image must carry to be reused (applied only when --dockerfile bakes one in)",
+    )
+    reuse.add_argument("--dockerfile", help="the image's Dockerfile, to decide whether it bakes a version in")
 
     verify = sub.add_parser("verify", help="verify pushed labels match the source")
     verify.add_argument("--ref", required=True)

@@ -23,6 +23,8 @@
 #include <filesystem>
 #include <array>
 
+using namespace std;
+
 AsyncVideoStreamHandler::AsyncVideoStreamHandler(const std::string& filePath, const std::string& taskId)
 {
     // Input validation for security - safe error handling without throws

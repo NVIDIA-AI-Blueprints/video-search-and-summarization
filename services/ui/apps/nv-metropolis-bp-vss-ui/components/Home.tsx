@@ -40,6 +40,7 @@ import packageJson from '../package.json';
 import { APPLICATION_TITLE, APPLICATION_SUBTITLE } from '../constants/constants';
 
 import { ModeControlsSection } from './ModeControlsSection';
+import { GATEWAY_TOKEN_HEADER, NemoClawConnectionBadge, NemoClawConnectionPanel, useNemoClawConnection } from './NemoClawConnection';
 
 
 // Type definitions for SSR data
@@ -310,6 +311,10 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     };
   }, []); // Empty deps - env vars don't change during runtime
 
+  const nemoClawAdapterEnabled = readEnv('NEXT_PUBLIC_AGENT_ADAPTER_ENABLED') === 'true';
+  const nemoClawConnection = useNemoClawConnection(nemoClawAdapterEnabled);
+  const showNemoClawSetup = nemoClawAdapterEnabled && !nemoClawConnection.hasConnected;
+
   // Define all possible tabs with their configuration - memoize to prevent recreation
   const allTabs: TabConfig[] = useMemo(() => [
     { 
@@ -411,13 +416,15 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   const vssSidebarChatExtraConfig = useMemo(() => vssChatUploadConfig('sidebar'), []);
   const vssMainChatEndpoint = useMemo(() => {
     const { url, transport, surface, mediaProxyUrl, uploadUrlBase } = vssChatConfig('main');
-    return { url, transport, surface, mediaProxyUrl, uploadUrlBase };
-  }, []);
+    return { url, transport, surface, mediaProxyUrl, uploadUrlBase,
+      headers: nemoClawAdapterEnabled && nemoClawConnection.token ? { [GATEWAY_TOKEN_HEADER]: nemoClawConnection.token } : undefined };
+  }, [nemoClawAdapterEnabled, nemoClawConnection.token]);
   const vssMainChatTitle = useMemo(() => vssChatConfig('main').title, []);
   const vssSidebarChatEndpoint = useMemo(() => {
     const { url, transport, surface, mediaProxyUrl, uploadUrlBase } = vssChatConfig('sidebar');
-    return { url, transport, surface, mediaProxyUrl, uploadUrlBase };
-  }, []);
+    return { url, transport, surface, mediaProxyUrl, uploadUrlBase,
+      headers: nemoClawAdapterEnabled && nemoClawConnection.token ? { [GATEWAY_TOKEN_HEADER]: nemoClawConnection.token } : undefined };
+  }, [nemoClawAdapterEnabled, nemoClawConnection.token]);
   const vssSidebarChatTitle = useMemo(() => vssChatConfig('sidebar').title, []);
 
   const {
@@ -441,6 +448,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     handleSidebarChatVideoUploadComplete,
     handleSidebarAnswerComplete,
     handleSidebarAnswerCompleteWithContent,
+    handleMainChatAnswerComplete,
     handleMainChatAnswerCompleteWithContent,
     handleSidebarSubmitMessageReady,
     handleSidebarMessageSubmitted,
@@ -571,31 +579,36 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
 
   const renderAppSidebarChat = React.useCallback(
     () => (
-      // The bridge callbacks are what feed answers to the search/alerts tabs
-      // and clear stale results on submit, so they are preserved verbatim.
-        <VssChatPanel
-          endpoint={vssSidebarChatEndpoint}
-          title={vssSidebarChatTitle}
-          theme={theme === 'dark' ? 'dark' : 'light'}
-          onThemeChange={handleThemeChange}
-          isActive={activeTab !== 'chat'}
-          features={vssSidebarChatFeatures}
-          {...vssSidebarChatExtraConfig}
-          // Separates this panel's conversations from the chat tab's.
-          storageKeyPrefix={CHAT_SIDEBAR_INSTANCE_STORAGE_PREFIX}
-          onAnswerComplete={handleSidebarAnswerComplete}
-          onSubmitMessageReady={handleSidebarSubmitMessageReady}
-          onMessageSubmitted={handleSidebarMessageSubmitted}
-          onAddQueryContextReady={(addItem: (item: QueryDataContext) => void) => {
-            appSidebarAddQueryContextRef.current = addItem;
-          }}
-          onChatVideoUploadComplete={handleSidebarChatVideoUploadComplete}
-          // Structured artifact events are appended to this callback payload
-          // by the chat transport, without leaking transport markup into the
-          // visible assistant message.
-          onAnswer={handleSidebarAnswerCompleteWithContent}
-          onSubmit={() => handleSidebarMessageSubmitted()}
-        />
+      showNemoClawSetup ? (
+        <NemoClawConnectionPanel connection={nemoClawConnection} />
+      ) : (
+        <div className="flex h-full min-h-0 flex-col">
+          {nemoClawAdapterEnabled ? <NemoClawConnectionBadge connection={nemoClawConnection} /> : null}
+          <div className="min-h-0 flex-1">
+            {/* Keep the bridge callbacks: they feed answers to the search and alerts tabs. */}
+            <VssChatPanel
+              endpoint={vssSidebarChatEndpoint}
+              title={vssSidebarChatTitle}
+              theme={theme === 'dark' ? 'dark' : 'light'}
+              onThemeChange={handleThemeChange}
+              isActive={activeTab !== 'chat'}
+              features={vssSidebarChatFeatures}
+              {...vssSidebarChatExtraConfig}
+              storageKeyPrefix={CHAT_SIDEBAR_INSTANCE_STORAGE_PREFIX}
+              onAnswerComplete={handleSidebarAnswerComplete}
+              onSubmitMessageReady={handleSidebarSubmitMessageReady}
+              onMessageSubmitted={handleSidebarMessageSubmitted}
+              onAddQueryContextReady={(addItem: (item: QueryDataContext) => void) => {
+                appSidebarAddQueryContextRef.current = addItem;
+              }}
+              onChatVideoUploadComplete={handleSidebarChatVideoUploadComplete}
+              onAnswer={handleSidebarAnswerCompleteWithContent}
+              onSubmit={() => handleSidebarMessageSubmitted()}
+              onAuthFailure={nemoClawAdapterEnabled ? nemoClawConnection.reject : undefined}
+            />
+          </div>
+        </div>
+      )
     ),
     [
       theme,
@@ -610,6 +623,9 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       vssSidebarChatExtraConfig,
       vssSidebarChatEndpoint,
       vssSidebarChatTitle,
+      showNemoClawSetup,
+      nemoClawAdapterEnabled,
+      nemoClawConnection,
     ],
   );
 
@@ -705,19 +721,29 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
           className="absolute inset-0 flex flex-col overflow-hidden"
           style={{ display: isActive ? 'flex' : 'none' }}
         >
-          <VssChatPanel
-            endpoint={vssMainChatEndpoint}
-            title={vssMainChatTitle}
-            theme={theme === 'dark' ? 'dark' : 'light'}
-            onThemeChange={handleThemeChange}
-            isActive={isActive}
-            features={vssMainChatFeatures}
-            {...vssMainChatExtraConfig}
-            onAnswer={handleMainChatAnswerCompleteWithContent}
-            // The chat tab renders its conversation list in the app's left
-            // sidebar, which is what renderControlsInLeftSidebar did before.
-            onControlsReady={isActive ? chatControlsReadyCallback : undefined}
-          />
+          {showNemoClawSetup ? (
+            <NemoClawConnectionPanel connection={nemoClawConnection} />
+          ) : (
+            <>
+              {nemoClawAdapterEnabled ? <NemoClawConnectionBadge connection={nemoClawConnection} /> : null}
+              <div className="min-h-0 flex-1">
+                <VssChatPanel
+                  endpoint={vssMainChatEndpoint}
+                  title={vssMainChatTitle}
+                  theme={theme === 'dark' ? 'dark' : 'light'}
+                  onThemeChange={handleThemeChange}
+                  isActive={isActive}
+                  features={vssMainChatFeatures}
+                  {...vssMainChatExtraConfig}
+                  onAnswerComplete={handleMainChatAnswerComplete}
+                  onAnswer={handleMainChatAnswerCompleteWithContent}
+                  // The chat tab renders its conversation list in the app's left sidebar.
+                  onControlsReady={isActive ? chatControlsReadyCallback : undefined}
+                  onAuthFailure={nemoClawAdapterEnabled ? nemoClawConnection.reject : undefined}
+                />
+              </div>
+            </>
+          )}
         </div>
       );
     }

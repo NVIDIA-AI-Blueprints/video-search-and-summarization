@@ -25,10 +25,17 @@
 #   Kibana      http://<NODE_IP>:31560/
 #   Grafana     http://<NODE_IP>:30300/
 #   Prometheus  http://<NODE_IP>:30909/
+#   Video Analytics API http://<NODE_IP>:30801/
+#
+# With Alerts enabled (see README "Alerts"):
+#   Agent UI     http://<NODE_IP>:32300/
+#   Agent API    http://<NODE_IP>:30800/
+#   Alert bridge http://<NODE_IP>:30980/
 #
 # Ports sit in the default 30000-32767 NodePort range.
 
 global:
+  vstExternalPort: "30888"
   vssIngress:
     enabled: false
 
@@ -44,6 +51,12 @@ vios:
     service:
       type: NodePort
       nodePort: 30900
+
+analytics:
+  vss-video-analytics-api:
+    service:
+      type: NodePort
+      nodePort: 30801
 
 infra:
   kibana:
@@ -64,3 +77,21 @@ monitoring:
     service:
       type: NodePort
       nodePort: 30909
+
+# Only take effect when the matching Alerts component is enabled (see README
+# "Alerts") -- harmless otherwise, since the chart doesn't render.
+agent:
+  vss-agent:
+    service:
+      type: NodePort
+      nodePort: 30800
+
+vss-agent-ui:
+  service:
+    type: NodePort
+    nodePort: 32300
+
+vss-alert-bridge:
+  service:
+    type: NodePort
+    nodePort: 30980

@@ -108,7 +108,7 @@ explicit = true
 
 [[tool.uv.index]]
 name = "ngc-data-platform"
-url = "https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple"
+url = "https://artifactory.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple"
 explicit = true
 
 [project]

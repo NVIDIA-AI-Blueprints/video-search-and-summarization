@@ -850,6 +850,76 @@ describe('VideoManagementComponent — Add RTSP waits for VST to list the stream
   });
 });
 
+// The deployment flag only sets where the switch starts, so a deployment that ships with
+// upload off can still have it turned on from the tab.
+describe('VideoManagementComponent — Enable video upload switch', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockStreamsList = [videoStream, rtspStream];
+    lastUploadDialogProps = null;
+  });
+
+  const uploadSwitch = () => screen.getByRole('switch', { name: 'Enable video upload' });
+  const queryUploadButton = () => screen.queryByRole('button', { name: '+ Upload Video' });
+  const renderWithUploadFlag = (enableVideoUpload: boolean) =>
+    renderComponent({ videoManagementData: { ...defaultProps.videoManagementData, enableVideoUpload } });
+
+  it('starts off when the deployment disables upload, and switching it on shows the button', async () => {
+    renderWithUploadFlag(false);
+
+    expect(uploadSwitch()).toHaveAttribute('aria-checked', 'false');
+    expect(queryUploadButton()).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(uploadSwitch());
+    });
+
+    expect(uploadSwitch()).toHaveAttribute('aria-checked', 'true');
+    await act(async () => {
+      fireEvent.click(queryUploadButton()!);
+    });
+    expect(lastUploadDialogProps.open).toBe(true);
+  });
+
+  it('hides the button when switched off but keeps uploaded videos listed', async () => {
+    renderWithUploadFlag(true);
+
+    expect(uploadSwitch()).toHaveAttribute('aria-checked', 'true');
+    expect(queryUploadButton()).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(uploadSwitch());
+    });
+
+    expect(queryUploadButton()).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `Play ${videoStream.name}` })).toBeInTheDocument();
+  });
+
+  it('removes the empty-state drop zone while switched off', async () => {
+    mockStreamsList = [];
+    renderWithUploadFlag(true);
+
+    expect(screen.getByText('Drop files here')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(uploadSwitch());
+    });
+
+    expect(screen.queryByText('Drop files here')).not.toBeInTheDocument();
+    expect(screen.getByText('No videos available')).toBeInTheDocument();
+  });
+
+  it('cannot be flipped while a dialog is open', async () => {
+    renderWithUploadFlag(true);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '+ Add RTSP' }));
+    });
+
+    expect(uploadSwitch()).toBeDisabled();
+  });
+});
+
 // The RTSP and delete dialogs overlay the pane but not the toolbar above it, so their
 // trigger buttons stay clickable while a dialog is open. A second dialog opened that way
 // could end up stacked behind the first and be unreachable until the top one was closed.
@@ -948,6 +1018,7 @@ describe('VideoManagementComponent — left sidebar controls', () => {
     render(<>{controlsComponent}</>);
 
     expect(screen.getByTestId('video-management-sidebar-controls')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Enable video upload' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '+ Upload Video' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '+ Add RTSP' })).toBeInTheDocument();
     expect(screen.getByTestId('search-video-input')).toBeInTheDocument();

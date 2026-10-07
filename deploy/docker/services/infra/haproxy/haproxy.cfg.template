@@ -214,6 +214,20 @@ frontend fe_http
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vst_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vst_prefixed_storage
+    # The deployment's version, answered by the edge itself so every profile --
+    # with or without the agent -- reports one. VSS_VERSION is the stamped line
+    # in containers.env (stamp_versions.py, landed by a reviewed PR and gated by
+    # its --check in CI; see .github/version-convention.md); nothing else sets
+    # it. Same payload and the same 503 contract as the agent's own
+    # /api/v1/version, so `vss configure check` and the benchmark preflight read
+    # it unchanged. An http-request rule runs before any use_backend, so this
+    # wins over the /api -> agent route below. Unset or empty (compose run
+    # without --env-file containers.env) is a misconfiguration, answered 503
+    # rather than a 200 with an empty version; the value is JSON-escaped.
+    acl p_api_version path /api/v1/version
+    acl version_set env(VSS_VERSION) -m reg .
+    http-request return status 503 content-type application/json string '{"detail":"VSS_VERSION is not set on the edge; deploy with --env-file containers.env"}' if h_main p_api_version !version_set
+    http-request return status 200 content-type application/json lf-string '{"service":"vss","version":"%[env(VSS_VERSION),json]"}' if h_main p_api_version
     use_backend bk_vst_storage_compat if h_main p_storage
 
     acl p_video_analytics path /video-analytics-api

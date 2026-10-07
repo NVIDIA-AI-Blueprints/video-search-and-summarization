@@ -22,7 +22,6 @@
 #include <string>
 #include <vector>
 
-using namespace std;
 
 enum permissions
 {
@@ -45,38 +44,38 @@ enum permissions
     all_all = 0777,     // owner_all|group_all|others_all
 };
 
-void getDirSize(const string& dir_path, size_t& size);
-void getFileSize(const string& dir_path, uint32_t& size);
-bool deleteFile(const string& file_name);
-void deleteEmptyDirectories(const string& dir_path, const string& root_dir);
-string getDirPath(const string& filename);
-int getVideoFiles(const string& dir_path, const std::vector<string>& containers, vector<string>& list);
+void getDirSize(const std::string& dir_path, size_t& size);
+void getFileSize(const std::string& dir_path, uint32_t& size);
+bool deleteFile(const std::string& file_name);
+void deleteEmptyDirectories(const std::string& dir_path, const std::string& root_dir);
+std::string getDirPath(const std::string& filename);
+int getVideoFiles(const std::string& dir_path, const std::vector<std::string>& containers, std::vector<std::string>& list);
 bool isFileExist(const std::string& file_name);
-bool createDir(const string& path);
-void updateFilePermissions(const string& file_path, const int& perm);
+bool createDir(const std::string& path);
+void updateFilePermissions(const std::string& file_path, const int& perm);
 bool isDirExist(const std::string& path);
-size_t getAvailableSpace(const string& drive);
-std::vector<string> getDirEntries(const string& dir_path);
-uint64_t getFileTimestamp(const string& filepath);
-string getFileName(const string& file_path);
-string getFileNameWithExtension(const string& file_path);
-string getFileExtension(const string& file_path);
-string getUniqueFilePath(std::string fileName, std::string fileLocation);
-string getFileNameFromHeader(const char* content_disposition);
-string getExtensionFromHeader(const char* content_type);
-string getCurrentDirPath();
-size_t getFileSizeInBytes(const string& file_path);
-size_t getStorageCapacity(const string& drive);
-size_t getFreeSpace(const string& drive);
-size_t getUsedSpace(const string& drive);
-string appendDirectory(const string& p1, const string& p2);
-vector<std::string> getFilesInDirectory(const string& dir);
+size_t getAvailableSpace(const std::string& drive);
+std::vector<std::string> getDirEntries(const std::string& dir_path);
+uint64_t getFileTimestamp(const std::string& filepath);
+std::string getFileName(const std::string& file_path);
+std::string getFileNameWithExtension(const std::string& file_path);
+std::string getFileExtension(const std::string& file_path);
+std::string getUniqueFilePath(std::string fileName, std::string fileLocation);
+std::string getFileNameFromHeader(const char* content_disposition);
+std::string getExtensionFromHeader(const char* content_type);
+std::string getCurrentDirPath();
+size_t getFileSizeInBytes(const std::string& file_path);
+size_t getStorageCapacity(const std::string& drive);
+size_t getFreeSpace(const std::string& drive);
+size_t getUsedSpace(const std::string& drive);
+std::string appendDirectory(const std::string& p1, const std::string& p2);
+std::vector<std::string> getFilesInDirectory(const std::string& dir);
 bool deleteDirectory(const std::string& dir);
-bool createFile(const string& file_path, const string& file_content = "");
-bool isEmptyFile(const string& file_path);
-std::string getPasswordHash(const string& username);
-std::string getFilePathWithName(const string& file_path, const string& file_name);
-std::string readFileIntoString(const string &path);
-bool replaceFile(const string& src_file_name, const string& dst_file_name);
-string format_vector(const std::vector<std::string> &v);
-bool writeBinaryFile(const string& file_path, const string& binary_data);
+bool createFile(const std::string& file_path, const std::string& file_content = "");
+bool isEmptyFile(const std::string& file_path);
+std::string getPasswordHash(const std::string& username);
+std::string getFilePathWithName(const std::string& file_path, const std::string& file_name);
+std::string readFileIntoString(const std::string &path);
+bool replaceFile(const std::string& src_file_name, const std::string& dst_file_name);
+std::string format_vector(const std::vector<std::string> &v);
+bool writeBinaryFile(const std::string& file_path, const std::string& binary_data);

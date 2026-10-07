@@ -183,7 +183,6 @@ infra:
       - name: mdx-events
       - name: mdx-incidents
       - name: mdx-vlm-incidents
-      - name: mdx-vlm
       - name: mdx-embed
       - name: mdx-embed-filtered
       - name: mdx-vlm-captions
@@ -501,6 +500,11 @@ vss-agent-ui:
 #         http: 80
 #         https: 443
 
+# The version this deployment reports at GET /api/v1/version, answered by the
+# HAProxy ingress. Stamped by .github/scripts/stamp_versions.py from the nearest
+# v* git tag, never by hand. See .github/version-convention.md.
+vssVersion: "3.3.0-rc0"
+
 # LVS profile Ingress: UI, agent, VST, LVS/RT-VLM summarization APIs; optional
 # kibana.* and phoenix.* hosts when those subcharts are enabled.
 vssIngress:
@@ -549,7 +553,7 @@ vssIngress:
 
 # RTVI umbrella: LVS always-on rtvi-vlm. By default, rtvi-vlm loads the integrated
 # Cosmos checkpoint in-pod. LVS deploys Kafka so
-# RTVI can publish mdx-vlm events while the LVS backend and vss-agent call RTVI over HTTP.
+# RTVI can publish mdx-vlm-captions events while the LVS backend and vss-agent call RTVI over HTTP.
 rtvi:
   enabled: true
   vss-rtvi-cv:
@@ -587,7 +591,7 @@ rtvi:
       - name: KAFKA_INCIDENT_TOPIC
         value: "mdx-vlm-incidents"
       - name: ERROR_MESSAGE_TOPIC
-        value: "vision-llm-errors"
+        value: "mdx-vlm-errors"
       # Generated-output and error buses (empty MESSAGE_BUS/ERROR_BUS disables that bus).
       # Enable the LVS generated-output and error buses.
       - name: MESSAGE_BUS
@@ -665,6 +669,8 @@ rtvi:
         value: "10"
       - name: VLLM_GPU_MEMORY_UTILIZATION
         value: ""
+      - name: VLLM_DISABLED_KERNELS
+        value: "FlashInferFP8ScaledMMLinearKernel"
       # GB300 uses TRITON_ATTN; an empty value preserves the default on other platforms.
       - name: VLLM_ATTENTION_BACKEND
         value: ""
