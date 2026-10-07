@@ -12172,7 +12172,7 @@
                     "osmURL": {
                         "type": "string",
                         "pattern": "^.{0,10000}$",
-                        "minLength": 1,
+                        "minLength": 0,
                         "maxLength": 10000,
                         "example": "URL"
                     },
