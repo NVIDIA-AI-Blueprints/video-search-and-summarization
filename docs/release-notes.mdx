@@ -143,6 +143,18 @@ See [Warehouse Known Limitations](/vss/vision-agent/agent-workflows/industry-spe
 </Tab>
 </Tabs>
 
+### Known Issues and Limitations
+
+- **Empty structured-event results during file summarization:** CA-RAG may
+  fail to parse RT-VLM output that does not match the expected event schema,
+  leaving empty event results even when captions are generated and stored
+  and the summarize API reports success.
+- **Memory pressure under concurrent summarization on DGX Spark and Jetson
+  Thor:** RT-VLM memory usage with Cosmos Reason 3 Super NVFP4 varies with
+  request concurrency. Concurrent file-summarization workloads may exceed
+  available system memory, causing stalls, RT-VLM service termination, and
+  HTTP 503 errors.
+
 ## VSS 3.2.1
 
 VSS 3.2.1 is a bug fix release for the VSS 3.2.0 release.
