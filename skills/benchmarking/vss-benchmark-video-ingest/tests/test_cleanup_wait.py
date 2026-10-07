@@ -87,7 +87,7 @@ class CleanupWaitTests(unittest.TestCase):
         result, read, _ = self.wait([search_response()] * 3, targets=self.targets + [self.targets[0]])
         self.assertTrue(result.success)
         args, kwargs = read.call_args
-        self.assertEqual(args[0], "http://es.test/mdx-raw-2025-01-01,mdx-embed-filtered-2025-01-01/_search?ignore_unavailable=true&allow_no_indices=true")
+        self.assertEqual(args[0], "http://es.test/mdx-raw-2025-01-01,mdx-embed-filtered-2025-01-01/_search?ignore_unavailable=false&allow_no_indices=false")
         self.assertEqual(kwargs["method"], "POST")
         payload = kwargs["payload"]
         self.assertEqual(payload["size"], 0)
@@ -112,14 +112,18 @@ class CleanupWaitTests(unittest.TestCase):
         self.assertEqual(result.elapsed_sec, 15)
         self.assertEqual(read.call_count, 2)
 
-    def test_absent_indices_require_explicit_zero_shards_and_exact_zero_hits(self):
-        missing = search_response()
-        missing.body["_shards"] = {"total": 0, "successful": 0, "skipped": 0, "failed": 0}
-        missing.body.pop("aggregations")
-        result, _, _ = self.wait([missing] * 3)
-        self.assertTrue(result.success)
-        missing.body["hits"]["total"]["value"] = 1
-        self.assertFalse(self.wait([missing])[0].success)
+    def test_zero_shards_cannot_confirm_cleanup_with_or_without_buckets(self):
+        for with_buckets in (False, True):
+            with self.subTest(with_buckets=with_buckets):
+                missing = search_response()
+                missing.body["_shards"] = {"total": 0, "successful": 0, "skipped": 0, "failed": 0}
+                if not with_buckets:
+                    missing.body.pop("aggregations")
+                result, read, clock = self.wait([missing])
+                self.assertFalse(result.success)
+                self.assertIn("resolved no shards", result.detail)
+                self.assertEqual(read.call_count, 1)
+                self.assertEqual(clock.sleeps, [])
 
     def test_read_errors_fail_closed_without_retry(self):
         for response in [JsonResponse(503, {}, "unavailable", 0), JsonResponse(404, {}, "missing", 0), OSError("connection refused")]:

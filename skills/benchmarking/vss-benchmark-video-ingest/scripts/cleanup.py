@@ -42,6 +42,8 @@ def _document_counts(payload: Any) -> tuple[int, int]:
     if not isinstance(shards, dict):
         raise ValueError("ES cleanup response omitted shard status")
     total = _count(shards.get("total"), "total shard count")
+    if total == 0:
+        raise ValueError("ES cleanup search resolved no shards; cannot verify Raw and Embed removal")
     successful = _count(shards.get("successful"), "successful shard count")
     failed = _count(shards.get("failed"), "failed shard count")
     if failed or successful != total or shards.get("failures"):
@@ -55,10 +57,6 @@ def _document_counts(payload: Any) -> tuple[int, int]:
     if not isinstance(total_hits, dict) or total_hits.get("relation") != "eq":
         raise ValueError("ES cleanup response omitted an exact total hit count")
     matched = _count(total_hits.get("value"), "total hit count")
-    # A search that resolves no indices may omit aggregations. Only the explicit
-    # no-shards, no-hits result can establish absence without pipeline buckets.
-    if total == 0 and matched == 0 and "aggregations" not in payload:
-        return 0, 0
     aggregations = payload.get("aggregations")
     pipelines = aggregations.get("pipelines") if isinstance(aggregations, dict) else None
     buckets = pipelines.get("buckets") if isinstance(pipelines, dict) else None
@@ -70,7 +68,7 @@ def _document_counts(payload: Any) -> tuple[int, int]:
         if not isinstance(bucket, dict):
             raise ValueError(f"ES cleanup response omitted the {name} bucket")
         counts.append(_count(bucket.get("doc_count"), f"{name} document count"))
-    if (matched == 0) != (sum(counts) == 0) or (total == 0 and matched):
+    if (matched == 0) != (sum(counts) == 0):
         raise ValueError("ES cleanup response has inconsistent document counts")
     return counts[0], counts[1]
 
@@ -121,7 +119,7 @@ def wait_for_cleanup(
     raw_filter, embed_filter = [branch["bool"]["filter"] for branch in payload["query"]["bool"]["should"]]
     raw_filter[1] = {"terms": {"sensorId.keyword": sorted({camera for camera, _ in targets})}}
     embed_filter[1] = {"terms": {"sensor.id.keyword": sorted({sensor for _, sensor in targets})}}
-    url = search_url(config)
+    url = search_url(config, allow_missing=False)
     deadline = started + timeout_sec
     zero_since = None
     last_counts = None
@@ -136,7 +134,8 @@ def wait_for_cleanup(
                 timeout_sec=min(config.request_timeout_sec, remaining),
             )
             if not 200 <= response.status < 300:
-                return finish(False, f"ES cleanup search returned HTTP {response.status}")
+                return finish(False, f"ES cleanup search returned HTTP {response.status}; "
+                              "both configured Raw and Embed indices must exist and be searchable")
             counts = _document_counts(response.body)
         except (OSError, ValueError) as exc:
             return finish(False, f"ES cleanup verification failed: {exc}")

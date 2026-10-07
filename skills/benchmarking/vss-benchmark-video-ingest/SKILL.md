@@ -145,6 +145,8 @@ stored-recording removal, then observes both run-owned ES counts at zero across
 settle period. Failed deletion, unresolved ownership, ES read failure or a cleanup
 timeout stops subsequent points. `--cleanup-settle-sec` and `--cleanup-timeout`
 control these waits, outside upload and point timing.
+Both configured index targets must exist and be searchable during cleanup;
+missing indices or zero-shard responses leave cleanup unverified and stop the sweep.
 
 This verifies sampled ES absence, not that all producers have stopped or capacity
 is idle. Retained uploads may still consume resources. After an interruption, stop

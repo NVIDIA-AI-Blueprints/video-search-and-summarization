@@ -97,17 +97,17 @@ class ReadinessResult:
     extra: dict[str, Any] = field(default_factory=dict, repr=False)
 
 
-def search_url(config: EsReadinessConfig) -> str:
-    """Search across raw and embed indices without failing when one is missing.
+def search_url(config: EsReadinessConfig, *, allow_missing: bool = True) -> str:
+    """Search both pipelines, optionally requiring every index to resolve.
 
-    ``ignore_unavailable`` skips an index that does not exist yet (mdx-raw
-    before the first RT-CV write); ``allow_no_indices`` returns empty hits
-    instead of 404 when neither exists at deploy start.
+    Readiness permits indices not yet created by the first write. Cleanup must
+    disable this: an unavailable pipeline cannot establish document removal.
     """
     from urllib.parse import quote
 
     path = quote(config.indices(), safe="*,")
-    return f"{config.elasticsearch_url.rstrip('/')}/{path}/_search?ignore_unavailable=true&allow_no_indices=true"
+    missing = "true" if allow_missing else "false"
+    return f"{config.elasticsearch_url.rstrip('/')}/{path}/_search?ignore_unavailable={missing}&allow_no_indices={missing}"
 
 
 def build_query(*, camera_name: str, sensor_id: str, config: EsReadinessConfig) -> dict[str, Any]:

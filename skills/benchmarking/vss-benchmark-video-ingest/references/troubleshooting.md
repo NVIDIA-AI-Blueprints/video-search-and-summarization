@@ -18,6 +18,7 @@
 | Legacy raw completion ratio rejected | Remove `es_readiness.raw_completion_ratio` / `--raw-completion-ratio`; both expected counts are now mandatory. |
 | CLI delete exits 0 without stored-recording confirmation | Treat deletion as incomplete; preserve diagnostics and stop before the next point. |
 | CLI deletion confirmed, ES remains or reappears | Runner waits for continuous absence for `cleanup.settle_sec`, within `cleanup.timeout_sec`. If it cannot settle, stop and ask the operator to inspect camera_remove processing. No direct ES deletion. |
+| Cleanup reports missing indices or no shards | Verify both configured Raw and Embed index targets on the selected ES endpoint. Cleanup is unverified and later sweep points stop; do not treat missing indices as zero documents. |
 | Missing/invalid artifacts | Run `scripts/validate_artifacts.py --results-dir DIR`; regenerate summaries/charts from the completed CSVs before reporting. |
 | Throughput plateaus | Compare latency, failures, payload rate, and client resources; no internal attribution |
 

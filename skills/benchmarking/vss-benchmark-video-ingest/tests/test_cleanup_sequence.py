@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from config import ConfigError
@@ -58,7 +59,26 @@ class CleanupSequenceTests(unittest.TestCase):
 
         def search(*args, **kwargs):
             events.append(("es", clock.now))
+            missing_indices = {
+                "missing_indices": ["mdx-raw-2025-01-01", "mdx-embed-filtered-2025-01-01"],
+                "missing_raw": ["mdx-raw-2025-01-01"],
+                "missing_embed": ["mdx-embed-filtered-2025-01-01"],
+            }.get(mode, [])
+            if missing_indices:
+                params = parse_qs(urlsplit(args[0]).query)
+                if params.get("ignore_unavailable") == ["false"] and params.get("allow_no_indices") == ["false"]:
+                    return JsonResponse(404, {
+                        "error": {"type": "index_not_found_exception", "index": missing_indices[0]},
+                    }, "", 0)
+            if mode == "zero_shards" or len(missing_indices) == 2:
+                return JsonResponse(200, {
+                    "timed_out": False,
+                    "_shards": {"total": 0, "successful": 0, "skipped": 0, "failed": 0},
+                    "hits": {"total": {"value": 0, "relation": "eq"}},
+                }, "", 0)
             count = 1 if mode == "timeout" or clock.now - last_delete < 10 else 0
+            if missing_indices:
+                count = 0
             return JsonResponse(200, {
                 "timed_out": False,
                 "_shards": {"total": 1, "successful": 1, "skipped": 0, "failed": 0},
@@ -134,6 +154,32 @@ class CleanupSequenceTests(unittest.TestCase):
                 self.assertTrue((root / "visualizations/summary.json").is_file())
                 if mode == "unconfirmed":
                     self.assertFalse(any(kind == "es" for kind, _ in events))
+
+    def test_missing_cleanup_indices_after_unconfirmed_point_stop_later_points(self):
+        for mode in ("missing_indices", "missing_raw", "missing_embed", "zero_shards"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                code, events = self.execute(
+                    root, warmup=0, mode=mode,
+                    confirmation=ReadinessResult(False, "unconfirmed", "Expected ingestion counts not reached"),
+                )
+                self.assertEqual(code, 1)
+                self.assertEqual([kind for kind, _ in events], ["add", "delete", "es"])
+                metadata = json.loads((root / "run-metadata.json").read_text())
+                self.assertEqual(metadata["sweep_points_completed"], 1)
+                self.assertEqual(metadata["cleanup_totals"], {
+                    "attempted": 1, "deleted": 0, "failed": 1, "no_handle": 0,
+                })
+                self.assertIn("Cleanup incomplete", metadata["stop_reason"])
+                check = metadata["cleanup_checks"][0]["es_wait"]
+                self.assertEqual(check["status"], "incomplete")
+                self.assertEqual(check["polls"], 1)
+                diagnostic = "resolved no shards" if mode == "zero_shards" else "HTTP 404"
+                self.assertIn(diagnostic, check["detail"])
+                record = json.loads((root / "raw/upload_details.jsonl").read_text())
+                self.assertEqual(record["outcome"], "unconfirmed")
+                self.assertIn(diagnostic, record["cleanup_detail"])
+                self.assertTrue((root / "visualizations/summary.json").is_file())
 
     def test_failed_warmup_cleanup_prevents_first_point(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -25,6 +25,9 @@ concurrency. `--readiness-timeout` can cap that budget. A transient network fail
 HTTP error or timeout of an ES read keeps polling within the existing budget; it
 never retries the CLI upload. Cleanup verification separately fails on an ES read
 error, so an uncertain cleanup does not permit the next point to start.
+Cleanup requires both configured index targets to exist and be searchable;
+missing indices or zero-shard responses cannot confirm removal. Readiness may
+still wait for indices created by the first ingestion write.
 
 ## Timing
 
