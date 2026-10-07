@@ -15,7 +15,7 @@
 
 """Behavior of the Redis event duplicator after the complexity split."""
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -36,7 +36,8 @@ def _module(monkeypatch, tmp_path):
 
     mod._config_cache.clear()
     mod.refresh_config()
-    mod.redis.RedisError = RedisError
+    # The suite shares one redis MagicMock. Restore the stand-in after this test.
+    monkeypatch.setattr(mod.redis, "RedisError", RedisError)
     return mod
 
 
@@ -148,11 +149,11 @@ def test_connect_redis_error_closes_the_new_client_and_retries(monkeypatch, tmp_
     mod = _module(monkeypatch, tmp_path)
     client = MagicMock()
     client.ping.side_effect = RedisError("down")
-    mod.redis.StrictRedis.return_value = client
 
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(mod.time, "sleep", lambda seconds: None)
-        returned, connected, retry = mod._connect_redis_duplicator(None, False)
+    with pytest.MonkeyPatch.context() as sleep_patch:
+        sleep_patch.setattr(mod.time, "sleep", lambda seconds: None)
+        with patch.object(mod.redis, "StrictRedis", return_value=client):
+            returned, connected, retry = mod._connect_redis_duplicator(None, False)
 
     assert (returned, connected, retry) == (None, False, True)
     client.close.assert_called_once()
@@ -162,11 +163,11 @@ def test_non_redis_connect_error_does_not_close_the_client(monkeypatch, tmp_path
     mod = _module(monkeypatch, tmp_path)
     client = MagicMock()
     client.ping.side_effect = RuntimeError("bug")
-    mod.redis.StrictRedis.return_value = client
 
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(mod.time, "sleep", lambda seconds: None)
-        returned, connected, retry = mod._connect_redis_duplicator(None, False)
+    with pytest.MonkeyPatch.context() as sleep_patch:
+        sleep_patch.setattr(mod.time, "sleep", lambda seconds: None)
+        with patch.object(mod.redis, "StrictRedis", return_value=client):
+            returned, connected, retry = mod._connect_redis_duplicator(None, False)
 
     assert returned is client
     assert connected is False
@@ -177,12 +178,12 @@ def test_non_redis_connect_error_does_not_close_the_client(monkeypatch, tmp_path
 def test_established_connection_is_reused(monkeypatch, tmp_path):
     mod = _module(monkeypatch, tmp_path)
     client = MagicMock()
-    mod.redis.StrictRedis.reset_mock()
+    calls_before = mod.redis.StrictRedis.call_count
 
     returned, connected, retry = mod._connect_redis_duplicator(client, True)
 
     assert (returned, connected, retry) == (client, True, False)
-    mod.redis.StrictRedis.assert_not_called()
+    assert mod.redis.StrictRedis.call_count == calls_before
 
 
 def test_duplicator_publishes_one_batch_then_stops(monkeypatch, tmp_path):
@@ -192,10 +193,9 @@ def test_duplicator_publishes_one_batch_then_stops(monkeypatch, tmp_path):
         [(b"vst.event", [(b"1-0", _payload("cam"))])],
         StopDuplicator(),
     ]
-    mod.redis.StrictRedis.return_value = client
-
-    with pytest.raises(StopDuplicator):
-        mod.start_redis_duplicator_thread()
+    with patch.object(mod.redis, "StrictRedis", return_value=client):
+        with pytest.raises(StopDuplicator):
+            mod.start_redis_duplicator_thread()
 
     names = [_camera_name(call.args[1]) for call in client.xadd.call_args_list]
     assert names == ["cam-cv", "cam-pn"]
