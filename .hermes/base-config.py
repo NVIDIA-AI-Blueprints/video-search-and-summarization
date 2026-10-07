@@ -39,7 +39,7 @@ HASH_FILES = (Path("/etc/nemoclaw/hermes.config-hash"), Path("/sandbox/.hermes/.
 OFF = [
     "web", "search", "x_search", "browser", "computer_use", "desktop_ui",
     "vision", "video", "image_gen", "video_gen", "tts",
-    "todo", "memory", "session_search", "clarify", "delegation", "cronjob",
+    "todo", "session_search", "clarify", "delegation", "cronjob",
     "kanban", "project", "context_engine", "homeassistant", "spotify",
     "yuanbao", "discord", "discord_admin", "feishu_doc", "feishu_drive",
     "nemoclaw", "audio",
@@ -49,6 +49,8 @@ KEEP = {
     "read_file", "write_file", "patch", "search_files",      # file
     "skills_list", "skill_view", "skill_manage",             # skills
     "execute_code",                                          # code_execution
+    "memory",                                                # memory, on by default (see apply())
+    "vss_cli",                                               # vss plugin (see ../.openclaw/plugin parity)
 }
 PLATFORMS = ("cli", "api_server")
 
@@ -57,12 +59,16 @@ def apply() -> None:
     cfg = yaml.safe_load(CONFIG.read_text())
     cfg.setdefault("agent", {})["disabled_toolsets"] = OFF
     # Tool search defers plugin tools behind tool_search/tool_describe/tool_call;
-    # off, a tool a user's plugin adds is sent to the model directly.
+    # off, a tool a user's plugin adds (the vss plugin included) is sent to the
+    # model directly.
     cfg.setdefault("tools", {}).setdefault("tool_search", {})["enabled"] = False
-    # The memory toolset is off; also stop MEMORY.md / USER.md entering the prompt.
+    # Memory on by default: MEMORY.md and USER.md enter the prompt, matching
+    # the OpenClaw base keeping group:memory + memory-core enabled
+    # (../.openclaw/base-config.py) so an agent extended from either base
+    # retains memory across turns without extra setup.
     memory = cfg.setdefault("memory", {})
-    memory["memory_enabled"] = False
-    memory["user_profile_enabled"] = False
+    memory["memory_enabled"] = True
+    memory["user_profile_enabled"] = True
     with CONFIG.open("w") as f:  # in place: keeps sandbox ownership and mode
         yaml.safe_dump(cfg, f, sort_keys=False)
     # nemoclaw-start verifies these hashes at sandbox start.
@@ -76,8 +82,15 @@ def apply() -> None:
 def check() -> None:
     sys.path.insert(0, HERMES)
     from hermes_cli import tools_config
+    from hermes_cli.plugins import discover_plugins
     import model_tools
     from tools.skills_sync import sync_skills
+
+    # The vss plugin ($HERMES_HOME/plugins/vss, installed + enabled by
+    # ./Dockerfile.base) registers vss_cli at discovery time, same as every
+    # other plugin; get_tool_definitions() below only sees it if discovery has
+    # already run in this process.
+    discover_plugins()
 
     cfg = yaml.safe_load(CONFIG.read_text())
     disabled = cfg["agent"]["disabled_toolsets"]

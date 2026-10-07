@@ -13,7 +13,7 @@ that harness loads skills.
 | Path | What it is |
 |---|---|
 | `Dockerfile` | The sandbox image: NemoClaw's published managed OpenClaw runtime (digest-pinned) + the `vss` CLI + this plugin, installed with `openclaw plugins install` |
-| `Dockerfile.base`, `base-config.py` | The base image: the same runtime with no VSS plugin, skills or CLI, for evaluating an agent users extend (see [Base image](#base-image)) |
+| `Dockerfile.base`, `base-config.py` | The base image: the same runtime with the `vss` CLI and the plugin's `vss_cli` tool, but no skills, for evaluating an agent users extend (see [Base image](#base-image)) |
 | `plugin/` | The VSS OpenClaw plugin: `openclaw.plugin.json`, `package.json` + lockfile, `src/index.ts` (tool, workspace seeding, skill-selection shim), `stage-assets.sh` |
 | `workspace/` | The OpenClaw workspace instruction files (`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, `BOOTSTRAP.md`) and the `_nemoclaw/` overlay for the sandbox (`ENV.md`, host alias, proxy notes) |
 
@@ -159,21 +159,24 @@ and gateway health check.
 
 ## Base image
 
-`Dockerfile.base` builds NemoClaw's managed OpenClaw runtime with nothing VSS
-added, for evaluating an agent that users extend with their own skills and
-plugins. CI publishes it as `ghcr.io/nvidia-ai-blueprints/vss/vss-harness-openclaw`
+`Dockerfile.base` builds NemoClaw's managed OpenClaw runtime with the `vss`
+CLI and the VSS plugin's `vss_cli` tool preloaded, but no VSS skills and no
+workspace instruction docs — a VSS-capable foundation for evaluating an agent
+that users still extend with their own skills and plugins, not a blank
+harness. CI publishes it as `ghcr.io/nvidia-ai-blueprints/vss/vss-harness-openclaw`
 with the `-base` tag suffix (`develop-latest-base`, `develop-<sha12>-base`, …).
 
 | | |
 |---|---|
-| Tools | the `exec`, `process`, `read`, `write`, `edit` and `apply_patch` built-ins |
-| Skills | none: OpenClaw's bundled skills and its bundled plugins' skills are deleted |
-| Workspace | one empty `AGENTS.md` (`NEMOCLAW_MINIMAL_BOOTSTRAP=1` keeps NemoClaw's templates out) |
-| VSS | no plugin, no `vss` or NGC CLI |
+| Tools | the `exec`, `process`, `read`, `write`, `edit`, `apply_patch`, `memory_search`, `memory_get` and `vss_cli` built-ins/plugin tools |
+| Skills | none: OpenClaw's bundled skills, its bundled plugins' skills, and the VSS operation skills are all absent — the plugin is built with an empty `skills/`/`skills-active/` (see `vss-plugin-base-builder` in `Dockerfile.base`) |
+| Workspace | one empty `AGENTS.md` (`NEMOCLAW_MINIMAL_BOOTSTRAP=1` keeps NemoClaw's templates out); the plugin ships no `workspace/` directory in this build, so its register-time seeding is a no-op |
+| Memory | on by default (`memory_search`/`memory_get` kept, `memory-core` plugin enabled) |
+| VSS | `vss_cli` tool + `/usr/local/bin/vss`; no NGC CLI (nothing in this base shells out to it) |
 
 Every other built-in tool is switched off by name (`tools.deny` in
-`base-config.py`), and the bundled plugins that register tools (`browser`,
-`canvas`, `file-transfer`, `memory-core`) are disabled. The base sets no
+`base-config.py`), and the bundled plugins that register tools other than
+memory (`browser`, `canvas`, `file-transfer`) are disabled. The base sets no
 `tools.allow`: an allowlist would also filter the tools of every plugin
 installed later. The policy is published in `/etc/openclaw-harness/config-overlay.json`
 too, so it survives Harbor replacing `openclaw.json` at trial time.
@@ -182,7 +185,9 @@ To extend it in an evaluation:
 
 - **Skills** — copy the skill directory to `/sandbox/.openclaw/skills/<name>/`
   (or the workspace's `skills/`), owned by `sandbox`. OpenClaw lists it in the
-  prompt; no config change.
+  prompt; no config change. The VSS operation skills themselves work here too —
+  `vss_cli` is already installed, so dropping in `skills/<vss-skill>/` from this
+  repo's `skills/` tree is enough, no plugin reinstall needed.
 - **Plugins** — `openclaw plugins install <path-or-spec>`, then restart the
   gateway. Plugin tools are not denied, so they reach the agent.
 
