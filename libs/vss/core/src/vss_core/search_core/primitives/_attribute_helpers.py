@@ -1159,16 +1159,9 @@ async def _append_multi_attribute(
                 query_embedding=embeddings[idx] if embeddings is not None else None,
             )
 
-            if attr_results and vst_internal_url:
-                for result in attr_results:
-                    await _extend_clip_to_one_second(result, vst_internal_url, vst_external_url)
-
-            if attr_results and vst_external_url:
-                all_results.extend(
-                    await _attach_screenshots(attr_results, vst_internal_url, vst_external_url, attr_query)
-                )
-            else:
-                all_results.extend(attr_results)
+            all_results.extend(
+                await _enrich_append_results(attr_results, vst_internal_url, vst_external_url, attr_query)
+            )
             logger.info(f"Attribute '{scrub_log(attr_query)}': found {len(attr_results)} result(s)")
         except LibraryError:
             # Systemic failures (missing index, backend unreachable, invalid input)
@@ -1193,6 +1186,21 @@ async def _append_multi_attribute(
     if top_k > 0 and len(all_results) > top_k:
         all_results = all_results[:top_k]
     return all_results
+
+
+async def _enrich_append_results(
+    attr_results: list[AttributeSearchResult],
+    vst_internal_url: str | None,
+    vst_external_url: str,
+    attr_query: str,
+) -> list[AttributeSearchResult]:
+    """Extend clips and attach screenshots before collecting append-mode results."""
+    if attr_results and vst_internal_url:
+        for result in attr_results:
+            await _extend_clip_to_one_second(result, vst_internal_url, vst_external_url)
+    if attr_results and vst_external_url:
+        return await _attach_screenshots(attr_results, vst_internal_url, vst_external_url, attr_query)
+    return attr_results
 
 
 def _append_rank_key(result: AttributeSearchResult) -> tuple[float, str, str]:

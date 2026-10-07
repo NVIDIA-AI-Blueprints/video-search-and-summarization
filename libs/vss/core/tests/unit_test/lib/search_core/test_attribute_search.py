@@ -97,6 +97,11 @@ def _behavior_body(es: _MockEs) -> dict:
     return next(call["body"] for call in es.calls if call["body"] and "knn" in call["body"])
 
 
+def _knn_vectors(es: _MockEs) -> list[list[float]]:
+    """Return the kNN query_vector reaching ES, in request order (zac-wang-nv, NVBug 6781021)."""
+    return [c["body"]["knn"]["query_vector"] for c in es.calls if c["body"] and "knn" in c["body"]]
+
+
 # --------------------------------------------------------------------- tests
 
 
@@ -216,6 +221,8 @@ class TestAttributeSearchContract:
             )
         )
         assert embed.calls == 0
+        # zac-wang-nv: prove the supplied vectors are the ones searched with (not just that embed was skipped).
+        assert _knn_vectors(_es) == [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
 
     @pytest.mark.asyncio
     async def test_precomputed_query_embedding_skips_embed_append(self, make_attr):
@@ -229,6 +236,8 @@ class TestAttributeSearchContract:
             )
         )
         assert embed.calls == 0
+        # zac-wang-nv: the supplied vectors reach ES in attribute order (pairing is correct).
+        assert _knn_vectors(_es) == [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
 
     @pytest.mark.asyncio
     async def test_precomputed_single_vector_wraps_for_one_attribute(self, make_attr):
@@ -242,6 +251,8 @@ class TestAttributeSearchContract:
             )
         )
         assert embed.calls == 0
+        # zac-wang-nv: a single supplied vector is wrapped and reaches ES for the one attribute.
+        assert _knn_vectors(_es) == [[0.1, 0.2, 0.3]]
 
     @pytest.mark.asyncio
     async def test_precomputed_embedding_count_mismatch_raises(self, make_attr):

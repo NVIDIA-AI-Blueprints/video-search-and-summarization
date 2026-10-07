@@ -4,10 +4,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
 
+from vss_core.search_core.errors import BackendUnreachableError
 from vss_core.search_core.errors import IndexNotFoundError
 from vss_core.search_core.models.attribute_search import AttributeSearchMetadata
 from vss_core.search_core.models.attribute_search import AttributeSearchResult
@@ -328,7 +330,7 @@ async def test_fusion_rerank_embeds_each_attribute_once_and_threads_vectors():
         attributes=["red hat", "blue car"],
         attribute_search_fn=attr,
         vst_internal_url="",
-        embed_client=embed,
+        attribute_embed_client=embed,
     )
     # Two attributes embedded exactly once each (2 calls) -- NOT once per video (6).
     assert len(embed.calls) == 2
@@ -369,16 +371,16 @@ async def test_fusion_rerank_blanks_dropped_before_embed_and_aligned():
     attr = _RecordingAttr()
     out = await sh.fusion_search_rerank(
         embed_results=embed_results,
-        attributes=["red hat", "   ", "blue car"],
+        attributes=[" red hat ", "   ", "blue car"],
         attribute_search_fn=attr,
         vst_internal_url="",
-        embed_client=embed,
+        attribute_embed_client=embed,
     )
-    # Only the two non-blank attributes were embedded; the blank was dropped first.
+    # Only the two non-blank attributes were embedded (stripped); the blank was dropped first.
     assert len(embed.calls) == 2
     assert set(embed.calls) == {"red hat", "blue car"}
-    # The per-hit lookup carries exactly two vectors in attribute order, with no slot
-    # for the dropped blank, so downstream normalized_queries() stays aligned.
+    # The per-hit lookup carries exactly two vectors in attribute order (stripped),
+    # with no slot for the dropped blank, so downstream normalized_queries() stays aligned.
     assert len(attr.calls) == 1
     assert attr.calls[0]["query"] == ["red hat", "blue car"]
     expected_vectors = [
@@ -401,8 +403,148 @@ async def test_fusion_rerank_empty_embed_results_skips_precompute():
         attributes=["red hat", "blue car"],
         attribute_search_fn=attr,
         vst_internal_url="",
-        embed_client=embed,
+        attribute_embed_client=embed,
     )
     assert embed.calls == []  # nothing embedded when there is nothing to rerank
     assert attr.calls == []  # no per-hit attribute lookups either
     assert out == []  # nothing to fuse
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("persistent", [False, True])
+async def test_fusion_precompute_failure_preserves_per_candidate_lookup(persistent: bool) -> None:
+    class _FailingEmbed(_CountingEmbed):
+        async def get_text_embedding(self, text: str) -> list[float]:
+            if persistent or not self.calls:
+                self.calls.append(text)
+                raise RuntimeError("embedding failed")
+            return await super().get_text_embedding(text)
+
+    embed = _FailingEmbed()
+
+    class _EmbeddingAttr(_RecordingAttr):
+        async def ainvoke(self, payload: Any) -> Any:
+            self.calls.append(payload)
+            assert "query_embedding" not in payload
+            await embed.get_text_embedding(payload["query"][0])
+            return [_attr_result(object_id="42", behavior_score=0.8)]
+
+    attr = _EmbeddingAttr()
+    out = await sh.fusion_search_rerank(
+        [_embed_result(video_name=f"v{i}", sensor_id=f"cam{i}") for i in range(2)],
+        ["red hat"],
+        attr,
+        attribute_embed_client=embed,
+    )
+    assert len(attr.calls) == 2
+    assert len(embed.calls) == 3  # failed precompute, then the original per-candidate lookups
+    assert len(out) == 2
+    assert all(("42" in result.object_ids) is (not persistent) for result in out)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    [BackendUnreachableError("rtvi_cv", "unavailable"), IndexNotFoundError("behavior"), asyncio.CancelledError()],
+)
+async def test_fusion_precompute_systemic_errors_and_cancellation_propagate(failure: BaseException) -> None:
+    class _FailingEmbed:
+        async def get_text_embedding(self, _text: str) -> list[float]:
+            raise failure
+
+    attr = _RecordingAttr()
+    with pytest.raises(type(failure)) as caught:
+        await sh.fusion_search_rerank(
+            [_embed_result(video_name="v", sensor_id="cam")],
+            ["red hat"],
+            attr,
+            attribute_embed_client=_FailingEmbed(),
+        )
+    assert caught.value is failure
+    assert attr.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure", [RuntimeError("transient"), BackendUnreachableError("rtvi_cv", "unavailable"), asyncio.CancelledError()]
+)
+async def test_failed_precompute_drains_delayed_sibling_before_fallback_or_return(failure: BaseException) -> None:
+    sibling_started = asyncio.Event()
+    sibling_drained = asyncio.Event()
+    sibling_tasks: list[asyncio.Task[Any]] = []
+
+    class _DelayedEmbed:
+        async def get_text_embedding(self, text: str) -> list[float]:
+            if text == "red hat":
+                await sibling_started.wait()
+                raise failure
+            task = asyncio.current_task()
+            assert task is not None
+            sibling_tasks.append(task)
+            sibling_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                # Cancellation starts asynchronous cleanup; merely canceling is insufficient.
+                await asyncio.sleep(0)
+                sibling_drained.set()
+            return [1.0]
+
+    class _AfterCleanupAttr(_RecordingAttr):
+        async def ainvoke(self, payload: Any) -> Any:
+            assert sibling_drained.is_set()
+            assert all(task.done() for task in sibling_tasks)
+            assert "query_embedding" not in payload
+            return await super().ainvoke(payload)
+
+    attr = _AfterCleanupAttr()
+    args = ([_embed_result(video_name="v", sensor_id="cam")], ["red hat", "blue car"], attr)
+    if isinstance(failure, RuntimeError):
+        out = await sh.fusion_search_rerank(*args, attribute_embed_client=_DelayedEmbed())
+        assert len(out) == 1
+        assert len(attr.calls) == 1
+    else:
+        with pytest.raises(type(failure)) as caught:
+            await sh.fusion_search_rerank(*args, attribute_embed_client=_DelayedEmbed())
+        assert caught.value is failure
+        assert attr.calls == []
+    assert sibling_drained.is_set()
+    assert sibling_tasks[0].cancelled()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_rerank_drains_all_precompute_tasks() -> None:
+    started = asyncio.Event()
+    tasks: list[asyncio.Task[Any]] = []
+    drained: list[str] = []
+
+    class _DelayedEmbed:
+        async def get_text_embedding(self, text: str) -> list[float]:
+            task = asyncio.current_task()
+            assert task is not None
+            tasks.append(task)
+            if len(tasks) == 2:
+                started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                await asyncio.sleep(0)
+                drained.append(text)
+            return [1.0]
+
+    attr = _RecordingAttr()
+    rerank = asyncio.create_task(
+        sh.fusion_search_rerank(
+            [_embed_result(video_name="v", sensor_id="cam")],
+            ["red hat", "blue car"],
+            attr,
+            attribute_embed_client=_DelayedEmbed(),
+        )
+    )
+    await started.wait()
+    rerank.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await rerank
+    assert set(drained) == {"red hat", "blue car"}
+    assert all(task.done() for task in tasks)
+    assert attr.calls == []
