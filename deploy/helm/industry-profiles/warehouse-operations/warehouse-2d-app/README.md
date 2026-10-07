@@ -90,6 +90,31 @@ GPU: **3 GPUs total** with hardware video processing.
 
 Keep hardware video processing enabled and allocate a GPU to VIOS streamprocessing.
 
+#### Disabling GPU allocation to VST
+
+To disable a GPU allocation, explicitly set both `resources.limits.nvidia.com/gpu`
+and `resources.requests.nvidia.com/gpu` to `0`. Setting `nvidia.com/gpu: null`,
+`resources: null`, or `resources: {}` does not disable the allocation: Helm
+coalesces the dependency chart's defaults back in, restoring the GPU count to `1`.
+
+For VIOS streamprocessing, pair the zeroed GPU claim with `useSoftwarePath: true`
+to use software encode/decode:
+
+```yaml
+vios:
+  vss-vios-streamprocessing:
+    useSoftwarePath: true
+    resources:
+      limits:
+        nvidia.com/gpu: 0
+      requests:
+        nvidia.com/gpu: 0
+```
+
+**Limitation:** VST overlay and video wall functionality do not work properly when GPU allocation to VST is disabled. Keep hardware video processing enabled and allocate a GPU to VST if you need these features.
+
+Software mode reduces video throughput. Keep the CV inference GPU allocation enabled.
+
 ### GPU sharing
 
 If there are not enough physical GPUs to assign one to each GPU workload, consider GPU sharing:
@@ -162,6 +187,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 |-----|---------|-------------|
 | **`global.externalScheme`** | **`""`** | `http` or `https`. Builds browser-facing URLs together with **`global.externalHost`** and **`global.externalPort`**. |
 | **`global.externalPort`** | **`""`** | Port segment in generated URLs. Leave empty so URLs omit `:port` when using standard 80/443. Set only for non-standard ports. |
+| **`global.vstExternalPort`** | **`""`** | Public VST port. Overrides `global.externalPort` for VST URLs; `values-nodeport.yaml` sets `30888`. |
 | **`global.useReleaseNamePrefix`** | **`false`** | When `true`, all in-cluster service names are prefixed with the Helm release name. |
 | **`global.vios.messageBrokerConsumer`** | **`kafka`** | Live metadata broker VST/VIOS listens on for overlay bounding boxes. Chart default is `redis`; this profile overrides it since perception publishes to Kafka. Shared by `vss-vios-sensor` and `vss-vios-streamprocessing`. |
 | **`global.vios.messageBrokerTopicConsumer`** | **`mdx-raw`** | Topic VIOS consumes for live overlay metadata. |
@@ -179,7 +205,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vios.vstStorage.vstData.size`** | **`10Gi`** | PVC size for shared VST data volume. |
 | **`vios.vstStorage.vstVideo.size`** | **`20Gi`** | PVC size for shared VST video volume. |
 | **`vios.vstStorage.streamerVideos.size`** | **`20Gi`** | PVC size for the NVStreamer upload volume. |
-| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Keep one GPU allocation for streamprocessing. See [GPU requirements](#gpu-requirements) for dedicated and shared GPU guidance. |
+| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Keep one GPU allocation for hardware video processing. For software mode, set both GPU limits and requests to `0` with `useSoftwarePath: true`; `null` restores the default GPU count. See [GPU requirements](#gpu-requirements). |
 | **`vios.vss-vios-nvstreamer.syncFileCount`** | **`4`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** | **`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`** | NGC resource for the NVStreamer sample video seed. Keep in step with **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`**. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.fromExistingClaim`** | **`vss-rtvi-cv-models`** | Reuses the PVC from the `vss-rtvi-cv` NGC download job so the video data is not downloaded twice. Clear this and set **`resourceVersion`** to download the video seed independently. |
@@ -382,14 +408,82 @@ Video source — pick one; they're mutually exclusive, don't configure both:
    directly; test with VLC or `ffplay` from the deployment machine before
    deploying.
 
-**Calibration is optional for 2D** (unlike 3D/MV3DT):
+##### Calibration
 
-- 2D detection/tracking runs directly on the camera stream in image (pixel)
-  coordinates — no calibration required.
-- Calibration is only needed for ROI/tripwire events in behavior-analytics.
-- Neither is disabled by default.
+2D supports three calibration states (unlike 3D/MV3DT, which always need
+cartesian calibration):
 
-If you don't need ROI/tripwire, skip calibration entirely with these 3 changes:
+- **Cartesian** (`calibrationType: "cartesian"`) — full image-to-global
+  calibration; ROI/tripwire authoring fully supported.
+- **Image coordinates, with a calibration file** (`calibrationType:
+  "image"`) — pixel-coordinate calibration, no geometric transform;
+  ROI/tripwire must be measured manually.
+- **Running 2D without calibration** — detection/tracking still runs in
+  image (pixel) coordinates; ROI/tripwire events are unavailable. See below.
+
+##### Image coordinate calibration
+
+Image-coordinate calibration does not require an image-to-global coordinate
+transformation, so camera intrinsics, extrinsics, and homography are not
+needed. ROIs and tripwires are optional and only needed for analytics that
+use them — Auto Calibration currently does not support defining them in
+image coordinates, so measure their pixel coordinates manually (using an
+image editing tool) and enter them in the file.
+
+1. **Start with the empty calibration template** — contains a placeholder
+   sensor named `Camera_01`; fill the blank fields and replace the
+   placeholder values before using it:
+
+   ```text
+   {
+     "version": "1.0",
+     "osmURL": "",
+     "calibrationType": "",
+     "sensors": [
+       {
+         "type": "",
+         "id": "Camera_01",
+         "origin": { "lng": 0, "lat": 0 },
+         "geoLocation": { "lng": 0, "lat": 0 },
+         "coordinates": { "x": 0, "y": 0 },
+         "scaleFactor": 0,
+         "attributes": [],
+         "place": [],
+         "imageCoordinates": [],
+         "globalCoordinates": [],
+         "tripwires": [],
+         "rois": []
+       },
+       ...
+     ]
+   }
+   ```
+
+2. **Measure pixel coordinates and fill the template** — open a frame from
+   your camera at its original resolution in an image editing tool (Paint,
+   IrfanView, etc.), read the pixel coordinates for the ROIs and tripwires
+   your analytics require, then:
+   - Set `calibrationType` to `image` and the sensor `type` to `camera`.
+   - Replace `Camera_01` with the matching sensor id — the registered
+     `camera_name` for RTSP, or the video filename (no extension) for
+     recorded files.
+   - Set `scaleFactor` to `1` and add the frame width/height to `attributes`.
+   - Enter ROI vertices and tripwire endpoints in pixel coordinates. Leave
+     `rois`/`tripwires` empty if your analytics don't require them.
+   - Leave `imageCoordinates` and `globalCoordinates` empty.
+
+3. **Host the completed file and point the chart at it** — put the file
+   somewhere reachable by URL, then set
+   **`calibration-import.calibrationFileSource`** to it (see the
+   **If you do need ROI/tripwire** table below). `requireCalibration` and
+   `requireImages` both stay at their default `true`, so a broken
+   calibration or image-metadata URL fails the Job instead of deploying
+   with no calibration.
+
+##### Running 2D without calibration
+
+Calibration is enabled by default. If you don't need ROI/tripwire, skip
+calibration entirely (the third state above) with these 3 changes:
 
 | Setting | Set | Effect |
 |---|---|---|
@@ -497,8 +591,13 @@ With [Alerts](#alerts) enabled:
 | Agent API | `http://<NODE_IP>:30800/` |
 | Alert bridge | `http://<NODE_IP>:30980/` |
 
-It sets **`global.vssIngress.enabled`** to false and clears
-the path prefixes, since each app then owns the root of its own port.
+It disables ingress and clears the path prefixes. It sets
+**`global.vstExternalPort`** to `30888`; keep it equal to
+`vios.vss-vios-ingress.service.nodePort`. Set **`global.externalHost`** to the
+node address used by clients.
+If both port values are set, `global.vstExternalPort` takes precedence for VST
+and Alert Bridge media links. `vss-alert-bridge.externalIp` overrides the
+derived Alert Bridge address.
 
 For the Alerts UI, add explicit NodePort URLs to `my-values.yaml`:
 

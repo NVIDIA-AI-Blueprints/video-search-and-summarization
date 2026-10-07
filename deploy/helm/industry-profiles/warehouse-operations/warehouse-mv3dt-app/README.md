@@ -160,12 +160,16 @@ Both parts are required together — **`useSoftwarePath`** switches the VST
 encode/decode path in the config, and the zeroed claim releases the GPU. Setting
 only one leaves the stack misconfigured.
 
-#### Dropping a GPU claim
+#### Disabling GPU allocation to VST
 
-Setting the count to `0` is the way to release a GPU. Neither `resources: {}` nor
-`resources: null` works, whether passed with `-f` or `--set`: Helm coalesces the
-**subchart's own** `values.yaml` defaults back in after your override is applied,
-so `nvidia.com/gpu: 1` reappears. Only overriding the value itself sticks.
+Set both `resources.limits.nvidia.com/gpu` and `resources.requests.nvidia.com/gpu`
+to `0` to release a GPU. Setting `nvidia.com/gpu: null`, `resources: null`, or
+`resources: {}` does not disable the allocation, whether passed with `-f` or
+`--set`: Helm coalesces the **subchart's own** `values.yaml` defaults back in after
+your override is applied, so `nvidia.com/gpu: 1` reappears. Only explicitly
+setting both GPU counts to `0` preserves the override.
+
+**Limitation:** VST overlay and video wall functionality do not work properly when GPU allocation to VST is disabled. Keep hardware video processing enabled and allocate a GPU to VST if you need these features.
 
 Software mode reduces video throughput; use it only when an additional GPU is not
 available.
@@ -380,6 +384,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 |-----|---------|-------------|
 | **`global.externalScheme`** | **`""`** | `http` or `https`. Builds browser-facing URLs together with **`global.externalHost`** and **`global.externalPort`**. |
 | **`global.externalPort`** | **`""`** | Port segment in generated URLs. Leave empty so URLs omit `:port` when using standard 80/443. Set only for non-standard ports. |
+| **`global.vstExternalPort`** | **`""`** | Public VST port when it differs from `global.externalPort`; the NodePort overlay sets `30888`. |
 | **`global.useReleaseNamePrefix`** | **`false`** | When `true`, all in-cluster service names are prefixed with the Helm release name. The SDRC `waitForWorkloads` target is rewritten the same way so it still reaches `vss-rtvi-cv`. |
 | **`global.vios.messageBrokerConsumer`** | **`kafka`** | Live metadata broker VST/VIOS listens on for overlay bounding boxes. Chart default is `redis`; this profile overrides it since perception publishes to Kafka. Shared by `vss-vios-sensor` and `vss-vios-streamprocessing`. |
 | **`global.vios.messageBrokerTopicConsumer`** | **`mdx-bev`** | Topic VIOS consumes for live overlay metadata. |
@@ -397,8 +402,8 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vios.vstStorage.vstData.size`** | **`10Gi`** | PVC size for shared VST data volume. |
 | **`vios.vstStorage.vstVideo.size`** | **`20Gi`** | PVC size for shared VST video volume. |
 | **`vios.vstStorage.streamerVideos.size`** | **`20Gi`** | PVC size for the NVStreamer upload volume. |
-| **`vios.vss-vios-streamprocessing.useSoftwarePath`** | **`false`** | Set **`true`** (paired with **`resources: null`**) to use FFmpeg software encode/decode and free the second GPU. Both flags required — see [GPU requirements](#gpu-requirements). |
-| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Pod resource requests/limits for streamprocessing. Set **`null`** (with **`useSoftwarePath: true`**) to drop the GPU claim entirely. |
+| **`vios.vss-vios-streamprocessing.useSoftwarePath`** | **`false`** | Set **`true`** and set both GPU limits and requests to **`0`** to use FFmpeg software encode/decode and free the streamprocessing GPU. Both the path and resource overrides are required — see [GPU requirements](#gpu-requirements). |
+| **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Pod resource requests/limits for streamprocessing. Set both **`limits.nvidia.com/gpu`** and **`requests.nvidia.com/gpu`** to **`0`** with **`useSoftwarePath: true`** to release the GPU. `null` restores the default GPU count. |
 | **`vios.vss-vios-nvstreamer.syncFileCount`** | **`4`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** | **`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`** | NGC resource for the NVStreamer sample video seed. Keep in step with **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`**. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.fromExistingClaim`** | **`vss-rtvi-cv-models`** | Reuses the PVC from the `vss-rtvi-cv` NGC download job so the video data is not downloaded twice. Clear this and set **`resourceVersion`** to download the video seed independently. |
@@ -670,8 +675,8 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
 | Grafana | `http://<NODE_IP>:30300/` |
 | Prometheus | `http://<NODE_IP>:30909/` |
 
-It sets **`global.vssIngress.enabled`** to false and clears the path prefixes, since
-each app then owns the root of its own port.
+It disables ingress, clears the path prefixes, and sets **`global.vstExternalPort`**
+to `30888`. Set **`global.externalHost`** to the node address clients use.
 
 ### Port-forward
 

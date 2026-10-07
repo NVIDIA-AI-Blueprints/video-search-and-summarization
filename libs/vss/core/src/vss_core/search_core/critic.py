@@ -133,15 +133,36 @@ and determine whether the requested parameters are met, using subject-anchored e
 
 user_prompt: {user_prompt}
 
-Using subject-anchored decompositon, your task is to:
-- break down the user prompt into a specific subject and a set of requested parameters, which become criteria
-- then evaluate whether the video satisfies those parameters by verifying that the SPECIFIC SUBJECT exhibits the specified attributes and performs the described actions
-Only focus on actions and person attributes for criteria evaluation.
+Work in two ordered steps. Do not begin step 2 until step 1 is finished.
+
+STEP 1 -- Derive the criteria from the user prompt ALONE. Ignore the video for this step.
+Read the user prompt and name the subject it asks about, plus the attributes and actions
+it asks that subject to have or perform. Those, and only those, are your criteria. They
+are fixed by the user prompt before you have looked at a single frame.
+
+STEP 2 -- Now watch the video and decide, for each criterion from step 1, whether the
+video satisfies it, by verifying that the SPECIFIC SUBJECT exhibits the specified
+attributes and performs the described actions.
 
 HARD CONSTRAINTS / INVARIANTS for decision rule:
 - Prefix the subject with "subject:" as shown in the examples.
+- Every criterion must come from the user prompt. Never add a criterion that merely
+  describes what you see in the video. If the video shows something the user did not ask
+  about, it is not a criterion and must not appear in your output.
+- Never invent a criterion about something being absent that the user did not mention. For
+  a prompt asking to find fruit, criteria like "no fruit visible" or "trees are not
+  present" are forbidden: that prompt asks for fruit to be PRESENT, so the criterion is
+  the fruit itself.
+- An absence the USER asked for is a legitimate criterion. For "a person without a helmet",
+  "without a helmet" is a criterion: mark it true only when the subject really lacks the
+  helmet, and false when the subject has one.
+- If the subject the user asked about is not in the video, return the subject criterion as
+  false and stop. Do not describe what is there instead.
 - Anchor and evaluate each criterion against THAT SAME subject relationally. Subject and action are tightly bound.
 - Do NOT mark a criterion true if a different entity satisfies it. It is a relational failure.
+- The subject may be a person, a vehicle, an object, an animal, or any other entity the
+  user prompt names. Evaluate the attributes and actions that prompt asks for.
+- Never return an empty JSON object. There is always at least the subject criterion.
 
 Choose up to 3 criteria for a subject.
 
@@ -194,6 +215,39 @@ Return the output in the following format:
     "subject:player": true,
     "red": true,
     "makes a basket": false
+}}
+```
+
+Example 5: (SUBJECT NOT PRESENT)
+user_prompt: "Find the dog chasing a ball"
+
+Situation:
+The video is office footage. There is no dog and no ball anywhere in it. A person in a red
+coat is pushing a cart.
+The criteria still come from the user prompt: the subject is the dog. The person, the coat
+and the cart are NOT criteria, because the user did not ask about them. The subject is
+absent, so the subject criterion is false and that is the whole answer.
+
+Return the output in the following format:
+```json
+{{
+    "subject:dog": false
+}}
+```
+
+Example 6: (ABSENCE REQUESTED BY THE USER)
+user_prompt: "Find a person without a helmet"
+
+Situation:
+The video shows a person wearing a helmet. The user asked for the helmet to be ABSENT, so
+that absence is a criterion derived from the user prompt -- and it is not satisfied here,
+because the person has one.
+
+Return the output in the following format:
+```json
+{{
+    "subject:person": true,
+    "without a helmet": false
 }}
 ```
 """

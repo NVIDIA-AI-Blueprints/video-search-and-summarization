@@ -41,22 +41,19 @@ The following diagram illustrates the search workflow architecture:
 - **RTVI-CV:** Real Time Video Intelligence Computer Vision Microservice to generate object attribute embeddings for videos
 - **Behavior Analytics:** Behavior Analytics microservice to perform sequential frame analysis for object detection and tracking in videos/streams.
 
-This list describes the stock profile. The manual Compose deployment below uses it as it stands, and so does the Agent Skills deployment that names the in-stack Agent. The other two Agent Skills deployments do not: both drop the in-stack VSS Agent, Phoenix, and the Agent's LLM. The NemoClaw deployment keeps the Web UI, whose Search tab then stops working because it calls the Agent's `/api/v1/search`; a capability-composed build drops the Web UI as well. Ask for the in-stack VSS Agent if you plan to use the Agent REST API or the manual Agent UI workflow.
+This list describes the stock profile. The manual Compose deployment below uses it as it stands, and so does the Agent Skills deployment that names the in-stack Agent. The other two Agent Skills deployments do not: both drop the in-stack VSS Agent, Phoenix, and the Agent's LLM. The NemoClaw deployment keeps the Web UI; a capability-composed build drops it. Ask for the in-stack VSS Agent if you plan to use the Agent REST API or the manual Agent UI workflow.
 
 ## Search Workflow Data Flow
 
 The search workflow has two related paths: ingestion and query execution.
 
-During ingestion, uploaded videos and RTSP streams are registered with VSS Video IO & Storage (VIOS). The agent then sends the media to RTVI-Embed to generate video/action embeddings and to RTVI-CV/Behavior Analytics to generate object-level behavior embeddings. Elasticsearch stores these embeddings in separate indices:
+During ingestion, uploaded videos and RTSP streams are registered with VSS Video IO & Storage (VIOS). VIOS notification webhooks then fan each source out to RTVI-Embed, which generates video/action embeddings, and to RTVI-CV, whose output Behavior Analytics turns into object-level behavior embeddings. Elasticsearch stores these embeddings in separate indices:
 
 - `mdx-embed-filtered-*` for video/action embeddings used by embed search.
 - `mdx-behavior-*` for object behavior embeddings used by attribute search and Search by Image.
 - `mdx-raw-*` for raw frame/object data used when frame lookup is enabled for attribute search.
 
-During query execution, the UI can call either the direct search API or the Vision Agent chat interface:
-
-- The Search text box calls `/api/v1/search` and is optimized for direct embedding search with explicit filters.
-- The Vision Agent chat interface calls the streaming `search_agent` through `/v1/chat/stream`. This mode uses an LLM to decompose the user's natural language query and automatically select the best search route.
+During query execution, the Vision Agent chat interface calls the streaming `search_agent` through `/v1/chat/stream`. It uses an LLM to decompose the user's natural language query and automatically select the best search route. The Search tab displays the returned results.
 
 The Vision Agent chat path can run:
 
@@ -117,7 +114,7 @@ The same profile with NemoClaw as the harness. When the prompt does not name an 
 Deploy the VSS search profile.
 ```
 
-The agent follows the same steps as above, then brings up the NemoClaw sandbox against the deployed origin and reports its chat URL. You reach the deployment through that chat, and the Web UI's chat sidebar and Chat tab answer through it as well. The Web UI's Search tab calls the Agent's `/api/v1/search` directly, so it is unavailable here, as are the `/api`, `/chat`, and `/websocket` ingress routes. Operate this deployment with the prompts in Steps 2 to 7 below.
+The agent follows the same steps as above, then brings up the NemoClaw sandbox against the deployed origin and reports its chat URL. You reach the deployment through that chat, and the Web UI's chat sidebar and Chat tab answer through it as well. The `/api`, `/chat`, and `/websocket` ingress routes are unavailable here. Operate this deployment with the prompts in Steps 2 to 7 below.
 
 <Note>
 NemoClaw's chat and the Web UI's chat surfaces both wait for a gateway token before they answer. For the token step, see [Agent harness](/vss/vision-agent/build-vision-ai#agent-harness).
@@ -1018,7 +1015,7 @@ Once the video(s) is/are selected, click the **Upload** button and wait for the 
 
 ![Video uploaded successfully](/assets/images/agent-workflows/search_upload_video_2.png)
 
-The upload path streams the file to VIOS and then runs search post-processing. The agent gets the uploaded stream timeline, requests a playable storage URL, optionally registers the stream with RTVI-CV, and calls RTVI-Embed to generate video embeddings. Uploaded files support `video/mp4` and `video/x-matroska` content types.
+The upload streams the file to VIOS, whose notification webhooks fan it out to RTVI-CV, RTVI-Embed, and RTVI-VLM for detection, embedding, and tagging. Uploaded files support `video/mp4` and `video/x-matroska` content types.
 
 <Note>
 - Vector embeddings generated for the uploaded videos and streams remain only until minimum index age is reached (from the time of first upload).
@@ -1046,7 +1043,7 @@ Once added, the RTSP stream will appear in the video list alongside uploaded vid
 
 ![Video Management showing uploaded videos and RTSP stream](/assets/images/agent-workflows/search_rtsp_added.png)
 
-When an RTSP stream is added, the agent registers it with VIOS, registers it with RTVI-CV, registers it with RTVI-Embed, and starts embedding generation for search. If any required downstream step fails, the add operation rolls back the steps that already completed.
+When an RTSP stream is added, VIOS registers it and its notification webhooks fan it out to RTVI-CV, RTVI-Embed, and RTVI-VLM, as for uploaded videos.
 
 ###### Create an RTSP Stream from a Video Using NVStreamer
 
@@ -1084,64 +1081,14 @@ Use the copied RTSP URL (e.g., `rtsp://<HOST_IP>:31556/nvstream/tmp/nv_streamer/
 To avoid duplicate results due to looping of the same video, ensure that the RTSP stream is deleted from the video management tab some time after it has been added to the agent for search queries.
 </Note>
 
-#### Step 3: Search with a simple query
-
-<Note>
-To use manual filters, ensure that the **Vision Agent** chat interface is collapsed.
-</Note>
-
-Navigate to the **Search** tab and enter a natural language query in the search input box. For example:
-
-```text
-a person carrying boxes
-```
-
-Click the **Search** button to execute the query. The agent will return video clips that match your search description.
-
-![Simple search query and results](/assets/images/agent-workflows/search_simple_query.png)
-
-<Note>
-By default, the **Show top K Results** filter is applied to display the top 10 results. This value can be changed in the filters to show more or fewer results.
-</Note>
-
-#### Step 4: Search with additional filters
-
-To try additional filters, upload the video file `sample-warehouse-ladder.mp4` (following the steps in [Step 2: Upload a video](/vss/vision-agent/agent-workflows/search#upload-a-video)).
-Navigate to the Search tab to find the following options:
-
-- **Source Type**: Select the type of media source to search within. Choose between 'Video' and 'RTSP'.
-- Click the **Filter** button to open the filter panel with the following options:
-   - **From**: Filter results by the start date and time of the video clips
-   - **To**: Filter results by the start date and time of the video clips
-   - **Video sources**: Select specific videos to search within
-   - **Min Cosine Similarity**: Set a minimum similarity threshold (-1.00 to 1.00) to filter results based on how closely they match your query. Set a lower threshold for broader results, or raise it for high-confidence matches. Optimal values vary depending on the video content.
-   - **Show top K Results**: Set the maximum number of results to display
-
-Enter your search query in the Search box, configure the desired filters, and click **Apply**.
-
-The Search text box uses the direct search API. It applies explicit filters from the UI and uses embedding search for the query text. Use the Vision Agent chat interface when you want automatic query decomposition, attribute search, fusion search, Search by Image, and/or critic verification.
-
-![Filter panel with timestamp, video sources, cosine similarity, and top K options](/assets/images/agent-workflows/search_filter_query_1.png)
-
-For example, in the filter panel above:
-
-- Set **From** and **To** timestamps to filter results within a specific time range
-- Select specific **Video sources** to search within particular videos
-- Set **Min Cosine Similarity** to `0.2` to only show results with a similarity score of 0.2 or higher
-- Set **Show top K Results** to `5` to display maximum of top 5 results
-
-After configuring the filters, the search results will be refined based on the applied criteria:
-
-![Search results after applying filters](/assets/images/agent-workflows/search_filter_query_2.png)
-
-#### Step 5: Vision Agent Chat
+#### Step 3: Search with the Vision Agent chat
 
 The Search tab includes a **Vision Agent** chat interface on the right side that provides an interactive way to search through videos using natural language. The Vision Agent automatically selects the best search method based on your query. You can also specify filters directly within your query instead of using the filter panel.
 
 ##### Using the Chat Interface
 
 1. Navigate to the **Search** tab.
-2. Open the **Chat** panel on the right side of the screen.
+2. Click the round **Chat** button at the bottom right to open the chat sidebar.
 3. Open the chat settings popover next to the chat input and configure:
 
    - **Search media source type**: Select from the dropdown (for example, `video_file` or `rtsp`) to specify which source index to search.
@@ -1157,6 +1104,10 @@ The Search tab includes a **Vision Agent** chat interface on the right side that
 The Vision Agent processes your query, selects the best search method (Embed, Attribute, Fusion, or Search by Image), and returns matching video clips in the left panel.
 
 ![Search results returned by the Vision Agent](/assets/images/agent-workflows/search_chat_results_top.png)
+
+<Note>
+The query returns up to 10 results by default. To get more, ask for a specific count in the query (for example, `top 20`) and raise **Show top K Results** in the filters (Step 4) to display them.
+</Note>
 
 Each response in the chat window includes:
 
@@ -1210,7 +1161,6 @@ The Vision Agent uses four search methods to find relevant video clips and objec
    - Searches for events, actions, and activities in videos (e.g., "carrying boxes", "walking", "driving")
    - Uses semantic embeddings to understand the context and meaning of actions
    - Used for queries that describe what is happening in the video
-   - **Note**: Searching from input text box will only perform embed search.
 
 **Attribute Search**
    - Searches for visual descriptors and object attributes (e.g., "person with green jacket", "person in a hard hat")
@@ -1369,7 +1319,35 @@ The Vision Agent automatically selects the best search method based on your quer
 
 </details>
 
-##### Critic Agent Overview
+#### Step 4: Narrow results with filters
+
+To try additional filters, upload the video file `sample-warehouse-ladder.mp4` (following the steps in [Step 2: Upload a video](/vss/vision-agent/agent-workflows/search#upload-a-video)).
+Run a query as in Step 3, then collapse the chat sidebar with the chevron button (**Collapse Chat sidebar**) on its left edge. The controls below are in the left sidebar and are disabled while the chat sidebar is open or a response is streaming. They narrow the results the query returned:
+
+- **Source Type**: Show results only from the selected media source type. Choose between 'Video' and 'RTSP'.
+- Click the **Filter** button to open the filter panel with the following options:
+   - **From**: Filter results by the start date and time of the video clips
+   - **To**: Filter results by the start date and time of the video clips
+   - **Video sources**: Show results only from the selected videos
+   - **Min Cosine Similarity**: Set a minimum similarity threshold (-1.00 to 1.00) to filter results based on how closely they match your query. Set a lower threshold for broader results, or raise it for high-confidence matches. Optimal values vary depending on the video content.
+   - **Show top K Results**: Set the maximum number of returned results to display (default 10)
+
+Configure the desired filters and click **Apply**.
+
+![Filter panel with timestamp, video sources, cosine similarity, and top K options](/assets/images/agent-workflows/search_filter_query_1.png)
+
+For example, in the filter panel above:
+
+- Set **From** and **To** timestamps to filter results within a specific time range
+- Select specific **Video sources** to show results only from those videos
+- Set **Min Cosine Similarity** to `0.2` to only show results with a similarity score of 0.2 or higher
+- Set **Show top K Results** to `5` to display maximum of top 5 results
+
+After configuring the filters, the search results will be refined based on the applied criteria:
+
+![Search results after applying filters](/assets/images/agent-workflows/search_filter_query_2.png)
+
+#### Critic Agent Overview
 
 The Critic Agent is a specialized agent that reviews search results with a VLM and annotates each evaluated result as confirmed or rejected.
 
@@ -1490,7 +1468,7 @@ Deduplication is **lossy** — skipped embeddings do not appear in search result
 
 </details>
 
-#### Step 6: Delete Videos or Streams
+#### Step 5: Delete Videos or Streams
 
 To remove uploaded videos or RTSP streams from the agent:
 
@@ -1508,7 +1486,7 @@ The selected videos or streams will be removed from the video list and will no l
 Deleting an uploaded video is best-effort. The agent deletes matching documents from the embed, behavior, and raw Elasticsearch indices when Elasticsearch cleanup is configured, removes the RTVI-CV registration when configured, and deletes the VIOS sensor and storage. Deleting an RTSP stream removes the live stream from VIOS and RTVI services, but the search profile keeps VIOS storage for removed RTSP streams and does not delete previously indexed Elasticsearch data. Previously ingested RTSP data can remain available for chat and search queries until index lifecycle cleanup removes it.
 </Note>
 
-#### Step 7: Teardown the agent
+#### Step 6: Teardown the agent
 
 To teardown the agent, run the following command:
 

@@ -14,6 +14,8 @@ export interface NemoClawConnection {
   connect: (token: string) => Promise<void>;
   retry: () => Promise<void>;
   changeToken: () => void;
+  /** The gateway rejected the token mid-session: forget it and ask again. */
+  reject: () => void;
 }
 
 export function useNemoClawConnection(enabled: boolean): NemoClawConnection {
@@ -70,8 +72,15 @@ export function useNemoClawConnection(enabled: boolean): NemoClawConnection {
     setHasConnected(false);
     setState('token_required');
   }, []);
+  const reject = useCallback(() => {
+    requestNumber.current += 1;
+    try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* Storage is optional. */ }
+    setToken('');
+    setHasConnected(false);
+    setState('authentication_failed');
+  }, []);
 
-  return useMemo(() => ({ state, hasConnected, token, connect, retry, changeToken }), [state, hasConnected, token, connect, retry, changeToken]);
+  return useMemo(() => ({ state, hasConnected, token, connect, retry, changeToken, reject }), [state, hasConnected, token, connect, retry, changeToken, reject]);
 }
 
 export function NemoClawConnectionPanel({ connection }: { connection: NemoClawConnection }) {

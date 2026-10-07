@@ -967,11 +967,12 @@ Runtime dependencies are declared in `pyproject.toml` and locked in `uv.lock`.
 
 | Package | Version | Role |
 |---------|---------|------|
-| Flask | 3.1.0 | REST API |
+| Flask | 3.1.3 | REST API |
 | gunicorn | 23.0.0 | WSGI server |
 | kafka-python | 2.3.2 | Kafka producer |
 | redis | 5.0.1 | Redis streams / duplicator |
-| requests | 2.32.3 | HTTP client (calibration, MSB, NVStreamer, VMS) |
+| requests | 2.34.2 | HTTP client (calibration, MSB, NVStreamer, VMS) |
+| urllib3 | 2.8.0 | HTTP library used by requests |
 | ruamel.yaml | 0.18.15 | Profile YAML read/write |
 | spatialai-data-utils | in-repo path (`libs/analytics/spatialai-data-utils/release`) | BEV center recomputation (optional, 3D and MV3DT modes) |
 

@@ -56,7 +56,7 @@ without requiring credentials, probing services, or changing files:
 
 | Script | Owner and purpose |
 | --- | --- |
-| `scripts/check_credentials.sh` | `references/credentials.md`: read-only NGC, NVIDIA API, and Hugging Face credential probes. |
+| `scripts/check_credentials.sh` | `references/credentials.md`: read-only NGC, NVIDIA API, and Hugging Face credential gate; `--require` declares which of them are mandatory, and any non-zero exit blocks. |
 | `scripts/probe_remote_models.sh` | `references/credentials.md`, `references/env-overrides.md`, and `references/troubleshooting.md`: OpenAI-compatible remote-model discovery. |
 | `scripts/normalize_resolved_yml.py` | `references/composition.md` and `references/deployment.md`: normalize the filtered Compose model. |
 | `scripts/validate_resolved_yml.py` | `references/composition.md` and `references/deployment.md`: validate the exact generated Compose model. |
@@ -263,6 +263,12 @@ Take the tag from the first source that answers, and do not ask when one does:
 3. Neither: select nothing and let `containers.env` default. This is the
    ordinary case and nothing below applies to it.
 
+Use the evaluator's synchronized checkout when `PR_HEAD_SHA` is supplied;
+confirm its HEAD matches that SHA before deploying. Use that checkout's Compose
+files and `containers.env` image defaults unless the user requested a specific
+version. Do not switch to an older release, legacy image, or another checkout to
+work around a pull or startup failure; diagnose the failure and report a blocker.
+
 A selected tag must be non-empty once trimmed; an empty or whitespace-only
 value is a blocker to report, never a silent fall back to `develop-latest`.
 Record it as `VSS_CONTAINER_TAG` in `override.env`, name it in the Step 6
@@ -410,6 +416,8 @@ After the selection, ask in one typed-values message only for that provider's st
 
    Both NemoClaw harness images ship the NGC CLI, so only a non-NemoClaw build installs it here: attempt `references/ngc.md`'s install when `ngc` is missing, and hand that block over per `references/prerequisites.md` check 4 when `sudo` is unavailable rather than improvising another install path.
 
+   **Declare what the credential gate must enforce, then branch on its exit code.** `scripts/check_credentials.sh` takes the requirement set from `--require` (`ngc` for any local NIM, `nvidia-api` only when the selected endpoint is on build.nvidia.com — a keyless endpoint needs nothing, and a keyed one elsewhere needs its runtime key persisted in Step 7 rather than declared here, since `REMOTE_API_KEY` only feeds the probe — and `hf` only for a gated or private Hugging Face checkpoint, which the public Cosmos-Embed defaults RT-Embed ships with are not) — derive it from the Foundation's `LLM_MODE` / `VLM_MODE` and the selected endpoints, per [`references/credentials.md`](references/credentials.md). Any non-zero exit blocks at this step: `2` names the missing, rejected, or unvalidated credential, and `1` means the gate never checked anything — fix the invocation and re-run, never proceed on it. Never carry an unset required key into Step 8, where it is baked into `resolved.yml` as `''` and no later export can fix it. A `0` does not clear `HF_TOKEN` or `NVIDIA_API_KEY`: the gate only checks that they are set, so the checkpoint stays unproven until the artifact probe in [`references/credentials.md`](references/credentials.md) runs after Step 8, and `NVIDIA_API_KEY` stays unproven even after `probe_remote_models.sh`, which clears the endpoint and the model but not the key.
+
    When the harness is NemoClaw — including by default — add its host preflight from `references/agent-harness.md`; a missing installer prerequisite, or a credential [Q3a](#harness-model--q3a) did not turn up for the endpoint it settled on, blocks here, while the build is still cheap to re-aim. Read the environment and Brev references when applicable.
 4. Read `references/composition.md` and only the capability-owner files under `references/services/` needed by the request.
 5. Determine the effective service set. For an exact stock match, keep its authoritative set unchanged. Otherwise compute the smallest delta from the Foundation’s exact `COMPOSE_PROFILES`: add or remove only canonical service profile keys and change only requested environment knobs. If the build retains `vss-ui`, apply the [UI configuration](references/composition.md#ui-configuration).
@@ -447,3 +455,15 @@ After the selection, ask in one typed-values message only for that provider's st
    the deployed VSS Web UI and tell the user to enter the output of the same
    `gateway-token --quiet` command in its **Connect NemoClaw chat** panel.
    Do not add that token to `override.env` or recreate `vss-ui` after onboarding.
+
+11. Close in the response itself with a summary of what was built, and say in it
+    whether this is a **Stock deploy** or a **Delta build**, in those words. Every
+    build that reached [Q3](#harness-selection--q3) is a Delta, because either
+    answer removes the in-stack agent — so a quickstart that only removed services
+    is still a Delta, not a stock deploy. Reasoning that worked this out mid-run
+    does not satisfy it: a reader who sees only the last message has to be able to
+    tell which it was. Carry over what the earlier steps already owe the summary —
+    the Foundation and effective service set, the container image tag when one was
+    selected, and, on a NemoClaw harness, the token-free Agent UI origin, the
+    `gateway-token` recipe and the sandbox name — and still never print the
+    `#token=` fragment itself.
