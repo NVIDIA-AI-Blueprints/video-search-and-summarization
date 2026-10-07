@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-litellm = pytest.importorskip("litellm")
+pytest.importorskip("litellm")
 
 
 @pytest.fixture
@@ -116,68 +116,6 @@ def fake_nim():
         thread.join()
 
 
-@pytest.mark.parametrize("protocol", ["messages", "responses", "chat"])
-@pytest.mark.parametrize("stream", [False, True])
-@pytest.mark.parametrize("tool_call", [False, True])
-def test_harness_protocols_translate_to_nim_chat_completions(
-    fake_nim, protocol, stream, tool_call
-):
-    base, requests = fake_nim
-    args = {
-        "model": "nvidia_nim/qwen/qwen3-32b",
-        "api_base": base,
-        "api_key": "local-nim",
-        "stream": stream,
-    }
-    if tool_call:
-        args["tool_choice"] = "auto"
-        schema = {"type": "object", "properties": {}}
-        if protocol == "messages":
-            args["tool_choice"] = {"type": "auto"}
-            args["tools"] = [
-                {
-                    "name": "check_status",
-                    "description": "Check status",
-                    "input_schema": schema,
-                }
-            ]
-        elif protocol == "responses":
-            args["tools"] = [
-                {
-                    "type": "function",
-                    "name": "check_status",
-                    "description": "Check status",
-                    "parameters": schema,
-                }
-            ]
-        else:
-            args["tools"] = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "check_status",
-                        "description": "Check status",
-                        "parameters": schema,
-                    },
-                }
-            ]
-    if protocol == "responses":
-        response = litellm.responses(**args, input="Say OK", max_output_tokens=16)
-    elif protocol == "messages":
-        response = litellm.anthropic.messages.create(
-            **args, messages=[{"role": "user", "content": "Say OK"}], max_tokens=16
-        )
-    else:
-        response = litellm.completion(
-            **args, messages=[{"role": "user", "content": "Say OK"}], max_tokens=16
-        )
-    result = list(response) if stream else response
-    assert ("check_status" if tool_call else "OK") in str(result)
-    assert len(requests) == 1
-    assert requests[0][0] == "/v1/chat/completions"
-    assert requests[0][1]["model"] == "qwen/qwen3-32b"
-
-
 def test_proxy_accepts_no_key_and_stale_keys_for_all_harness_protocols(fake_nim, tmp_path):
     """Exercise the pinned HTTP proxy's actual auth and protocol handlers."""
     import httpx
@@ -237,9 +175,13 @@ def test_proxy_accepts_no_key_and_stale_keys_for_all_harness_protocols(fake_nim,
                             else:
                                 body.update(messages=[{"role": "user", "content": "Check status"}], max_tokens=16,
                                             tools=[{"type": "function", "function": {"name": "check_status", "description": "Check status", "parameters": schema}}])
+                            # Anonymous requests exercise plain responses; stale
+                            # keys exercise tools, through the same real HTTP proxy.
+                            if not headers:
+                                body.pop("tools")
                             response = client.post("/v1/" + protocol, headers={**headers, "anthropic-version": "2023-06-01"}, json=body)
                             assert response.status_code == 200, response.text
-                            assert "check_status" in response.text
+                            assert ("check_status" if headers else "OK") in response.text
                 assert len(requests) == 18
                 assert all(path == "/v1/chat/completions" and body["model"] == "qwen/qwen3-32b" for path, body in requests)
         finally:

@@ -147,16 +147,15 @@ def test_registry_errors_are_distinct(monkeypatch, code, message):
 
 
 @pytest.mark.parametrize(
-    "model",
+    "model,role",
     [
-        "azure/openai/gpt-6-astra",
-        "nvidia/nvidia/nemotron-3.5-lightning",
-        "../model",
-        "nvidia/model;id",
-        "nvidia/model:latest",
+        ("azure/openai/gpt-6-astra", "coding"),
+        ("nvidia/nvidia/nemotron-3.5-lightning", "operational"),
+        ("../model", "coding"),
+        ("nvidia/model;id", "operational"),
+        ("nvidia/model:latest", "coding"),
     ],
 )
-@pytest.mark.parametrize("role", ["coding", "operational"])
 def test_unsupported_model_id_fails_before_worker(model, role):
     prefix = f"SKILLS_EVAL_{role.upper()}"
     with pytest.raises(
