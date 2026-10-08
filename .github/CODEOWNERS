@@ -15,6 +15,7 @@
 # follow take precedence over these directory rules for those specific files.
 /skills/                @NVIDIA-AI-Blueprints/VSS-Skill-Developers
 /services/agent/        @NVIDIA-AI-Blueprints/VSS-Agent-Developers
+/services/calibration-toolkit/ @tnoumessi @NVIDIA-AI-Blueprints/VSS_OSRB_Approvers
 
 # CI, workflows, and repository automation.
 # A workflow edit can silently disable a gate for every PR in the repo

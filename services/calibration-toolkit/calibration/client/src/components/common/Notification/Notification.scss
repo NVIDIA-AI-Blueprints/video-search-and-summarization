@@ -1,0 +1,20 @@
+@import "../../styles/_common.scss";
+
+.new-notification {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: absolute;
+    top: -7px;
+    right: 5px;
+    width: fit-content;
+    height: 16px;
+    border-radius: 16px;
+    background-color: $lightGreen;
+    color: #fff;
+    text-align: center;
+    span {
+        font-size: 0.75rem;
+        padding: 0 5px;        
+    }    
+}

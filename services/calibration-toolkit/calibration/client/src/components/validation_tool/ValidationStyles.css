@@ -1,0 +1,28 @@
+.validationApp {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.validationDrawing {
+  display: flex;
+  flex-direction: row;
+  height: 80vh;
+}
+
+.validationManager {
+  height: 15vh;
+}
+
+.validationImage {
+  flex-basis: 50%;
+}
+
+.validationMap {
+  flex-basis: 50%;
+}
+
+.map {
+  height: 100%;
+  width: 100%;
+}

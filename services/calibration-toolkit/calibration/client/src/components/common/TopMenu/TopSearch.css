@@ -1,0 +1,12 @@
+.ui.card {
+  width: 100% !important; }
+
+.ui.segment {
+  border-radius: 2px;
+  background-color: #ffffff;
+  box-shadow: 0 2px 20px 0 rgba(185, 188, 210, 0.2);
+  border: solid 1px #e8e8ec; }
+
+.ui.input input {
+  padding: .5em 1em !important;
+  font-size: 12px; }

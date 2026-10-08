@@ -1,0 +1,26 @@
+specVersion: 1.5.0
+
+version: 1.0.2
+
+name: mdx-calibration-test
+
+description: Developer tests for mdx-calibration service
+
+dependencies:
+- ucf.svc.metropolis.mdx-calibration:1.0.2
+
+components:
+- name: mdx-calibration
+  type: ucf.svc.metropolis.mdx-calibration
+  parameters:
+    imagePullSecrets:
+      - name: imagepullsecret
+      - name: ngc-docker-reg-secret          
+#- name: some-external-endpoint
+#  type: ucf.svc.external-endpoint
+#  parameters:
+#    service: localhost
+#    port: 8080
+
+#connections:
+#  mdx-calibration/mdx-calibration-endpoint-name: some-external-endpoint/endpoint

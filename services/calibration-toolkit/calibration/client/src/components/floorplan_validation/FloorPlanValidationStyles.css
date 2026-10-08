@@ -1,0 +1,32 @@
+.cartesianValidationApp {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.cartesianValidationDrawing {
+  display: flex;
+  flex-direction: row;
+  height: 80vh;
+}
+
+.cartesianValidationManager {
+  height: 15vh;
+}
+
+.cartesianValidationImage {
+  flex-basis: 50%;
+}
+
+.cartesianValidationImage2 {
+  flex-basis: 50%;
+}
+
+.cartesianValidationMap {
+  flex-basis: 50%;
+}
+
+.map {
+  height: 100%;
+  width: 100%;
+}

@@ -1,0 +1,28 @@
+.cartesianApp {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.cartesianDrawing {
+  display: flex;
+  flex-direction: row;
+  height: 80vh;
+}
+
+.cartesianManager {
+  height: 15vh;
+}
+
+.cartesianImage {
+  flex-basis: 60%;
+}
+
+.cartesianTable {
+  flex-basis: 40%;
+}
+
+.map {
+  height: 100%;
+  width: 100%;
+}

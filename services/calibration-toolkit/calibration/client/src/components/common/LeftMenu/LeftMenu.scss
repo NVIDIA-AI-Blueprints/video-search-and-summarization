@@ -1,0 +1,74 @@
+@import "../../styles/_common.scss";
+
+.ui.vertical.menu {
+  width: 100% !important;
+    font-family: 'Poppins', sans-serif;
+    .item {
+        color: #4a4a4a !important;
+        text-align: left !important;
+        height: 3rem !important;
+        display: flex !important;
+        align-items: center !important;
+    }
+    .active.item {
+        color: $lightGreen !important;
+        border-right: 4px solid $lightGreen !important;
+        background-color: #f8f8f8 !important;
+        font-weight: 400 !important;
+    }
+}
+
+.left-menus {
+  position: fixed;
+  width: 200px;
+  padding-right: 0 !important;
+  background-color: #fff;
+  height: 100%;
+  margin-top: 20px;
+  top: 47px;
+  font-size: 12px !important;
+  border-right: 2px solid #e8e8ec;
+  .menu {
+    color: $fontGray;
+    width: 100%;
+    display: block;
+    cursor: pointer;
+    text-transform: capitalize !important;
+    padding: 15px 10px 15px 18px;
+    .angle.down.icon,
+    .angle.up.icon {
+      right: 10px;
+      position: absolute;
+    }
+  }
+  .menu .icon:first-child {
+    margin-right: 10px;
+
+  }
+  .menu.active {
+    border-right: 4px solid $lightGreen;
+    background-color: $backgroundGray;
+  }
+  .sub-menu-container {
+    .sub-menu {
+      display: none;
+      height: 0;
+      transition: 0.3s all ease;
+    }
+  }
+  .sub-menu-container.active {
+    .sub-menu {
+      display: block;
+      height: 100%;
+      text-transform: capitalize;
+      transition: 0.3s all ease;
+      // padding: .5em 1.14285714em .5em 3em;
+      a {
+        color: #4a4a4a;
+      }
+      .icon {
+       margin: 10px 10px 0 10px; 
+      }
+    }
+  }
+}

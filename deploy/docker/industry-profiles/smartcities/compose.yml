@@ -93,7 +93,7 @@ services:
     restart: on-failure
 
   calibration-toolkit-smartcities:
-    image: ${VSS_CALIBRATION_TOOLKIT_IMAGE:-nvcr.io/nvidia/vss-core/calibration}:${CALIBRATION_TOOLKIT_IMAGE_TAG}
+    image: ${VSS_CALIBRATION_TOOLKIT_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-calibration-toolkit}:${CALIBRATION_TOOLKIT_IMAGE_TAG}
     profiles: ["calibration-toolkit-smartcities"]
     ports:
       - ${CALIBRATION_TOOLKIT_HOST_PORT:-8003}:8003

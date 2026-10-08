@@ -1,0 +1,21 @@
+specVersion: '2.0.0'
+
+version: 0.0.2
+
+doc: README.md
+
+name: mdx-calibration-app
+
+description: Jupyter Notebook as a service App
+
+dependencies:
+- ucf.svc.metropolis.mdx-calibration:1.0.2
+
+components:
+- name: notebook
+  type: ucf.svc.metropolis.mdx-calibration
+  parameters:
+    imagePullSecrets:
+    - name: ngc-docker-reg-secret      
+
+connections:
