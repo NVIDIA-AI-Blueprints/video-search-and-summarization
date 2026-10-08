@@ -26,6 +26,33 @@ def runner():
     return _load_module("nemoclaw_test_runner", "headless_runner.py")
 
 
+def test_policy_denials_keep_failure_metadata_without_raw_commands(runner):
+    raw = "\n".join([
+        "HTTP:REQUEST [MED] DENIED /usr/bin/curl(42) -> GET http://host.openshell.internal:7777/vst?token=secret "
+        "[policy:vss-backend engine:opa] [reason:failed to resolve peer binary; credential=secret]",
+        "NET:OPEN [MED] DENIED /usr/bin/python3.13(43) -> host.openshell.internal:7777 "
+        "[policy:vss-backend engine:opa] [reason:binary integrity check failed]",
+        "NET:OPEN [INFO] ALLOWED /usr/bin/curl(44) -> host.openshell.internal:7777 token=secret",
+    ])
+    assert runner._policy_denials(raw) == [
+        {"host": "host.openshell.internal", "port": 7777, "binary": "/usr/bin/curl",
+         "policy": "vss-backend", "reason": "identity_resolution"},
+        {"host": "host.openshell.internal", "port": 7777, "binary": "/usr/bin/python3.13",
+         "policy": "vss-backend", "reason": "binary_integrity"},
+    ]
+    assert "secret" not in json.dumps(runner._policy_denials(raw))
+
+
+@pytest.mark.parametrize("failure", [FileNotFoundError(), subprocess.TimeoutExpired("openshell", 20)])
+def test_policy_diagnostics_preserve_trial_on_command_failure(runner, monkeypatch, tmp_path, failure):
+    def fail(*args, **kwargs):
+        raise failure
+    monkeypatch.setattr(runner.subprocess, "run", fail)
+    runner._capture_policy_denials("se-current", tmp_path / "agent")
+    report = json.loads((tmp_path / "artifacts/nemoclaw/network-denials.json").read_text())
+    assert report == {"exception_type": type(failure).__name__}
+
+
 gateway = _load_module("gateway_state", "gateway_state.py")
 fixtures = _load_module("fixture_staging", "stage_fixtures.py")
 

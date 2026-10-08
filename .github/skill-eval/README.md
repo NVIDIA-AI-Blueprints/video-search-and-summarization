@@ -301,6 +301,11 @@ report preserves the last pairing failure with a `pairing_deadline` reason.
 The same report and the initial namespace ownership/port receipt are included
 under `artifacts/logs/artifacts/nemoclaw/` so the workflow archive preserves
 them even though it excludes raw agent trajectories.
+When a turn reports HTTP403/policy denial, or the harness fails, a bounded
+OpenShell audit read also saves `network-denials.json` in that directory.
+It keeps target origins, executable paths, known policy names and classified
+reasons only; raw commands, request paths and credentials are discarded.
+Diagnostic collection never changes the trial verdict.
 
 The setup checks require trajectory evidence of Build Vision AI use and,
 when selected, a ready NemoClaw sandbox with its VSS CLI configured. An answer
