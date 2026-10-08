@@ -79,6 +79,10 @@ logger = logging.getLogger(__name__)
 # ``ValidationError`` deep in a primitive.
 _DOWNSTREAM_MAX_TOP_K = 1000
 
+# One timing stage for every fusion path, so per-stage timings stay
+# comparable whichever fusion method a query took.
+_FUSION_TIMER_NAME = "search: fusion score combination"
+
 
 class SupportsAinvoke(Protocol):
     """The single-method async adapter surface the orchestrator invokes.
@@ -364,15 +368,20 @@ async def fusion_search_rerank(
     # No return_exceptions: a systemic LibraryError from any video propagates.
     results_list = await asyncio.gather(*[_get_attribute_results(er) for er in embed_results])
 
-    candidates = _fusion.build_fusion_candidates(list(results_list), len(attributes))
-    final_results = _fusion.apply_fusion(
-        candidates,
-        fusion_method,
-        rrf_k=rrf_k,
-        rrf_w=rrf_w,
-        w_embed=w_embed,
-        w_attribute=w_attribute,
-    )
+    # Timed separately from the enclosing rerank stage: that one wraps the
+    # concurrent per-video attribute lookups, so its own self time is zero and
+    # the actual score combination -- the "fusion" in fusion search -- was not
+    # attributable to anything.
+    with TimeMeasure(_FUSION_TIMER_NAME):
+        candidates = _fusion.build_fusion_candidates(list(results_list), len(attributes))
+        final_results = _fusion.apply_fusion(
+            candidates,
+            fusion_method,
+            rrf_k=rrf_k,
+            rrf_w=rrf_w,
+            w_embed=w_embed,
+            w_attribute=w_attribute,
+        )
     logger.info(f"{fusion_method.upper()} fusion reranking complete: {len(final_results)} videos reranked")
     return final_results
 
@@ -380,6 +389,19 @@ async def fusion_search_rerank(
 # ==========================================================================
 # execute_core_search
 # ==========================================================================
+
+
+def _require_rrf_embed_weight(w_embed: float) -> None:
+    """Reject a non-positive embedding weight on the legacy rrf path.
+
+    Unlike weighted_rrf, legacy rrf always uses embedding ranks as its
+    candidate pool and score term. A zero weight cannot disable that leg,
+    even when attributes are present.
+    """
+    if w_embed <= 0:
+        raise InvalidInputError(
+            "rrf fusion requires a positive embedding weight; use weighted_rrf to disable the embedding leg"
+        )
 
 
 async def execute_core_search(
@@ -589,6 +611,7 @@ async def execute_core_search(
             # pipeline: score = 1/(rank + rrf_k) + rrf_w * normalised_attribute_score.
             # The VLM tag leg is off by default (w_tag=0); opt in via --w-tag,
             # which the CLI auto-routes to weighted_rrf.
+            _require_rrf_embed_weight(config.w_embed)
             yield AgentMessageChunk(
                 type=AgentMessageChunkType.TOOL_CALL,
                 content="Running embedding and optional attribute retrieval for rrf fusion",
@@ -606,17 +629,18 @@ async def execute_core_search(
                     rrf_w=config.rrf_w,
                 )
             else:
-                candidates = [
-                    _fusion.FusionCandidate(
-                        embed_result=result,
-                        embed_score=_coerce_float(result.similarity),
-                        normalised_attribute_score=0.0,
-                        screenshot_url=_coerce_str(result.screenshot_url),
-                        object_ids=[],
-                    )
-                    for result in embed_results
-                ]
-                search_results = _fusion.rrf_fusion(candidates, config.rrf_k, config.rrf_w)
+                with TimeMeasure(_FUSION_TIMER_NAME):
+                    candidates = [
+                        _fusion.FusionCandidate(
+                            embed_result=result,
+                            embed_score=_coerce_float(result.similarity),
+                            normalised_attribute_score=0.0,
+                            screenshot_url=_coerce_str(result.screenshot_url),
+                            object_ids=[],
+                        )
+                        for result in embed_results
+                    ]
+                    search_results = _fusion.rrf_fusion(candidates, config.rrf_k, config.rrf_w)
             # Apply the top-percent filter the embed/attribute and general fusion paths
             # apply; without this the rrf early-return would make --top-percent-filter
             # a no-op for the default fusion method.
@@ -712,12 +736,13 @@ async def execute_core_search(
                 "set at least one positive weight."
             )
 
-        search_results = _fusion.fuse_ranked_union(
-            provider_results,
-            method=config.fusion_method,
-            weights={"tag": config.w_tag, "embed": config.w_embed, "attribute": config.w_attribute},
-            rrf_k=config.rrf_k,
-        )
+        with TimeMeasure(_FUSION_TIMER_NAME):
+            search_results = _fusion.fuse_ranked_union(
+                provider_results,
+                method=config.fusion_method,
+                weights={"tag": config.w_tag, "embed": config.w_embed, "attribute": config.w_attribute},
+                rrf_k=config.rrf_k,
+            )
         search_results = _fusion.apply_top_percent_filter(search_results, getattr(config, "top_percent_filter", None))
         if getattr(config, "merge_adjacent", True):
             search_results = _fusion.merge_consecutive_results(search_results)

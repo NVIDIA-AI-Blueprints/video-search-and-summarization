@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import ValidationError
 import pytest
 
+from vss_core._foundation.time_measure import collect_timings
 from vss_core.search_core.agent_chunks import AgentMessageChunk
 from vss_core.search_core.agent_chunks import AgentMessageChunkType
 from vss_core.search_core.errors import BackendUnreachableError
@@ -183,6 +184,28 @@ async def _run(inp: SearchInput, **kwargs: Any) -> Any:
 
 
 class TestExecutionPaths:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("fusion_method", "attributes"),
+        [("rrf", []), ("rrf", ["white jacket"]), ("weighted_rrf", [])],
+        ids=["rrf-embed-only", "rrf-with-attributes", "weighted-rrf"],
+    )
+    async def test_fusion_score_combination_is_timed_once(self, fusion_method, attributes):
+        with collect_timings() as timings:
+            await _run(
+                SearchInput(
+                    query="person in white jacket",
+                    source_type="video_file",
+                    attributes=attributes,
+                    search_mode="fusion",
+                ),
+                embed_search=_FakeEmbed([_embed_output([_embed_item()])]),
+                attribute_search_fn=_FakeAttr([_attr_result()]),
+                config=_config(fusion_method=fusion_method),
+            )
+
+        assert timings["search: fusion score combination"]["calls"] == 1
+
     @pytest.mark.asyncio
     async def test_fusion_requires_tag_provider(self):
         with pytest.raises(ConfigurationError, match="tag_search must be pre-loaded"):
@@ -1013,6 +1036,23 @@ class TestTagOnlyDeploymentAndFusionWeights:
         )
         assert [r.video_name for r in out.data] == ["e1", "e2"]
         assert out.data[0].similarity == pytest.approx(1.0 / 61)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("attributes", [[], ["white jacket"]], ids=["no-attributes", "with-attributes"])
+    async def test_legacy_rrf_rejects_zero_weight_embedding_leg(self, attributes: list[str]) -> None:
+        # Legacy RRF uses embedding hits as its candidate pool and rank term,
+        # so it cannot honor w_embed=0 even when attribute lookup is active.
+        embed = _FakeEmbed([_embed_output([_embed_item()])])
+
+        with pytest.raises(InvalidInputError, match="embedding weight"):
+            await _run(
+                SearchInput(query="person", source_type="video_file", attributes=attributes, search_mode="fusion"),
+                embed_search=embed,
+                attribute_search_fn=_FakeAttr([_attr_result()]),
+                config=_config(fusion_method="rrf", w_tag=0, w_embed=0, w_attribute=1),
+            )
+
+        assert not embed.calls, "invalid fusion configuration must fail before retrieval"
 
     @pytest.mark.asyncio
     async def test_tag_mode_applies_top_percent_filter(self) -> None:
