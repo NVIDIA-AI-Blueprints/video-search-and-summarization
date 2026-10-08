@@ -26,9 +26,10 @@ ALIASES = {
     'num_frames': ('--num-frames', '--num_frames'),
     'video_batch': ('--video-batch', '--video_batch', '--video-batch-size', '--video_batch_size'),
     'text_batch': ('--text-batch', '--text_batch', '--text-batch-size', '--text_batch_size'),
-    'text': ('--text', '--text-embeddings', '--text_embeddings', '--text-npy', '--text_npy'),
-    'video': ('--video', '--video-embeddings', '--video_embeddings', '--video-npy', '--video_npy'),
+    'text': ('--text', '--text-emb', '--text-embeddings', '--text_embeddings', '--text-npy', '--text_npy'),
+    'video': ('--video', '--video-emb', '--video-embeddings', '--video_embeddings', '--video-npy', '--video_npy'),
     'video_ids': ('--video-ids', '--video_ids'),
+    'emb_dir': ('--emb-dir', '--emb_dir'),
     'metrics': ('--metrics', '--metrics-json', '--metrics_json', '--results'),
 }
 

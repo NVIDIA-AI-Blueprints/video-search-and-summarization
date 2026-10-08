@@ -32,8 +32,13 @@ model, revision, frame count, and video/text batch options; hyphen and underscor
 spellings and aliases in `generate_reference_embeddings.py` are supported.
 It must export `text.npy`, `video.npy`, and canonical `video_ids.json` (optionally
 `text_ids.json`). The retrieval script is identified by subset/text/video/output
-options and must export `metrics.json` and rankings. The event summary script is
-identified by metrics/output options and must export `event_summary.json`. These
+options (including `--text-emb`, `--video-emb`, and `--out-dir`) and must export
+`metrics.json` and rankings. The event summary script supports
+`--data subset.json --emb-dir aligned-inputs --out events/event_summary.json`:
+its output is a JSON file, and its input directory contains the aligned arrays
+and canonical video IDs. The legacy metrics/output-directory interface is also
+supported; if a script advertises both interfaces, the embedding-directory
+interface takes precedence. Multiple matching scripts are rejected. These
 contracts need verification against the supplied Drive release; the adapters do
 not rewrite its algorithm or preprocessing.
 

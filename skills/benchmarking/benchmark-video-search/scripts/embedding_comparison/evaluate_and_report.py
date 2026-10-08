@@ -55,7 +55,7 @@ def write_csv(path, rows, fields=None):
         writer.writerows(rows)
 
 
-def discover_script(directory, python, required, exclude=()):
+def discover_script(directory, python, required, exclude=(), alternatives=()):
     matches = []
     diagnostics = []
     for script in sorted(Path(directory).resolve().glob('*.py')):
@@ -63,7 +63,8 @@ def discover_script(directory, python, required, exclude=()):
             continue
         try:
             flags = advertised_flags(python, script)
-            if all(any(flag in flags for flag in ALIASES[key]) for key in required):
+            if any(all(any(flag in flags for flag in ALIASES[key]) for key in contract)
+                   for contract in (required, *alternatives)):
                 matches.append(script)
         except ValueError as exc:
             diagnostics.append(str(exc))
@@ -73,10 +74,17 @@ def discover_script(directory, python, required, exclude=()):
     return matches[0]
 
 
+def discover_event_script(directory, python, exclude=()):
+    return discover_script(directory, python, ('metrics', 'out'), exclude,
+                           alternatives=(('subset', 'emb_dir', 'out'),))
+
+
 def flatten_metrics(data, prefix=''):
     """Flatten original numeric metrics without implementing new metric definitions."""
     flattened = {}
     if isinstance(data, dict):
+        if not data and prefix:
+            return {prefix: None}
         # A zero-count slice is unavailable, regardless of a scorer's placeholder zeros.
         if any(data.get(key) == 0 for key in ('count', 'n', 'n_queries', 'num_queries')):
             return {prefix: None}
@@ -103,7 +111,12 @@ def evaluate(args):
     if reference['text'].shape != vss['text'].shape or reference['video'].shape != vss['video'].shape:
         raise ValueError('Approaches have incompatible embedding dimensions or row counts')
     scorer = discover_script(args.scripts_dir, args.python, ('subset', 'text', 'video', 'out'), ('embed_cosmos.py',))
-    event_scorer = discover_script(args.scripts_dir, args.python, ('metrics', 'out'), ('embed_cosmos.py', scorer.name))
+    event_scorer = discover_event_script(args.scripts_dir, args.python, ('embed_cosmos.py', scorer.name))
+    event_flags = advertised_flags(args.python, event_scorer)
+    # The original event script recomputes metrics from the aligned embeddings
+    # and takes a JSON output filename. Retain the legacy metrics-directory API.
+    events_from_embeddings = all(any(flag in event_flags for flag in ALIASES[key])
+                                 for key in ('subset', 'emb_dir', 'out'))
     out = Path(args.out).resolve()
     if out.exists() and any(out.iterdir()):
         raise ValueError(f'Report output must be empty: {out}')
@@ -130,10 +143,15 @@ def evaluate(args):
         if not any('rank' in p.name.lower() for p in scored.iterdir() if p.is_file()):
             raise ValueError(f'Original scorer did not export rankings in {scored}')
         events = stage / 'events'
-        command = external_command(args.python, event_scorer,
-            {'subset': Path(args.subset).resolve(), 'metrics': metrics_path, 'out': events}, {'metrics', 'out'})
-        executions[approach]['events'] = run_external(command, events)
         summary_path = events / 'event_summary.json'
+        if events_from_embeddings:
+            values = {'subset': Path(args.subset).resolve(), 'emb_dir': inputs, 'out': summary_path}
+            required = set(values)
+        else:
+            values = {'subset': Path(args.subset).resolve(), 'metrics': metrics_path, 'out': events}
+            required = {'metrics', 'out'}
+        command = external_command(args.python, event_scorer, values, required)
+        executions[approach]['events'] = run_external(command, events)
         if not summary_path.is_file():
             raise ValueError(f'Original event summary must export event_summary.json in {events}; unsupported output contract')
         metrics[approach] = {**flatten_metrics(read_json(metrics_path), 'retrieval'),

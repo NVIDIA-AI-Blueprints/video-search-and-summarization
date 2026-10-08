@@ -148,14 +148,14 @@ def stage_inputs(c, inputs, name):
 
 def preflight_external(c):
     from generate_reference_embeddings import ALIASES, advertised_flags
-    from evaluate_and_report import discover_script
+    from evaluate_and_report import discover_script, discover_event_script
     py = c.get('python', sys.executable)
     flags = advertised_flags(py, Path(c['scripts_dir']) / 'embed_cosmos.py')
     for key in ('subset', 'out', 'model', 'revision', 'num_frames', 'video_batch', 'text_batch'):
         if not any(flag in flags for flag in ALIASES[key]):
             raise ValueError(f'Original embed_cosmos.py has no supported {key} option')
     scorer = discover_script(c['scripts_dir'], py, ('subset', 'text', 'video', 'out'), ('embed_cosmos.py',))
-    discover_script(c['scripts_dir'], py, ('metrics', 'out'), ('embed_cosmos.py', scorer.name))
+    discover_event_script(c['scripts_dir'], py, ('embed_cosmos.py', scorer.name))
 
 
 def run(args):

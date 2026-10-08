@@ -42,6 +42,12 @@ def test_empty_slice_unavailable():
     assert values['nan'] is None
 
 
+def test_original_event_summary_empty_dictionary_is_unavailable():
+    values = report.flatten_metrics({'slices': {'empty': {}, 'event': {'num_queries': 1, 'mAP': .5}}})
+    assert values['slices/empty'] is None
+    assert values['slices/event/mAP'] == .5
+
+
 def test_external_discovery_unique_and_fail_closed(tmp_path):
     script=tmp_path/'score.py'
     script.write_text("import argparse\np=argparse.ArgumentParser()\nfor k in ['subset','text','video','out']: p.add_argument('--'+k)\np.parse_args()\n")
@@ -49,6 +55,24 @@ def test_external_discovery_unique_and_fail_closed(tmp_path):
     (tmp_path/'other.py').write_text(script.read_text())
     with pytest.raises(ValueError,match='exactly one'):
         report.discover_script(tmp_path,sys.executable,('subset','text','video','out'))
+
+
+def test_event_discovery_rejects_multiple_supported_interfaces(tmp_path):
+    (tmp_path / 'from_embeddings.py').write_text(
+        "import argparse\np=argparse.ArgumentParser()\n"
+        "for k in ['data','emb-dir','out']: p.add_argument('--'+k)\np.parse_args()\n")
+    (tmp_path / 'from_metrics.py').write_text(
+        "import argparse\np=argparse.ArgumentParser()\n"
+        "for k in ['metrics','out']: p.add_argument('--'+k)\np.parse_args()\n")
+    with pytest.raises(ValueError, match='exactly one'):
+        report.discover_event_script(tmp_path, sys.executable)
+
+
+def test_event_discovery_counts_dual_interface_script_once(tmp_path):
+    script = tmp_path / 'events.py'
+    script.write_text("import argparse\np=argparse.ArgumentParser()\n"
+                      "for k in ['data','emb-dir','metrics','out']: p.add_argument('--'+k)\np.parse_args()\n")
+    assert report.discover_event_script(tmp_path, sys.executable) == script
 
 
 def test_cli_defaults_and_requirements():
@@ -100,3 +124,66 @@ a=p.parse_args(); o=pathlib.Path(a.out); o.mkdir(exist_ok=True,parents=True)
         np.testing.assert_array_equal(np.load(video_path), [[1.,0.]])
     np.testing.assert_array_equal(np.load(out/'similarity_difference.npy'),[[-1.],[1.]])
     assert all((out/name).exists() for name in ['text_agreement.csv','video_agreement.csv','retrieval_comparison.csv','summary.md'])
+
+
+def test_original_drive_cli_uses_aligned_embeddings_and_summary_output_file(tmp_path, monkeypatch):
+    import json
+    import run_embedding_comparison as runner
+    scripts = tmp_path / 'scripts'
+    scripts.mkdir()
+    (scripts / 'embed_cosmos.py').write_text(
+        "import argparse\np=argparse.ArgumentParser()\n"
+        "for k in ['data','out','model','revision','num-frames','video-batch','text-batch']: "
+        "p.add_argument('--'+k)\np.parse_args()\n")
+    (scripts / 'evaluate_domain_test.py').write_text('''import argparse,json,pathlib,numpy as np
+p=argparse.ArgumentParser()
+p.add_argument('--data','--gt',required=True)
+p.add_argument('--text-emb',required=True)
+p.add_argument('--video-emb',required=True)
+p.add_argument('--video-ids',required=True)
+p.add_argument('-o','--out-dir',required=True)
+a=p.parse_args()
+assert json.loads(pathlib.Path(a.video_ids).read_text()) == ['v1','v2']
+assert np.load(a.text_emb).tolist() == [[1.,0.],[0.,1.]]
+assert np.load(a.video_emb).tolist() == [[1.,0.],[0.,1.]]
+o=pathlib.Path(a.out_dir); o.mkdir(exist_ok=True,parents=True)
+(o/'metrics.json').write_text(json.dumps({'overall':{'num_queries':2,'mAP':1.}}))
+(o/'rankings.jsonl').write_text('{}\\n')
+''')
+    (scripts / 'summarize_event_slices.py').write_text('''import argparse,json,pathlib,numpy as np
+p=argparse.ArgumentParser()
+p.add_argument('--data','--gt',required=True)
+p.add_argument('--emb-dir',required=True)
+p.add_argument('--out',required=True)
+a=p.parse_args(); i=pathlib.Path(a.emb_dir)
+assert json.loads((i/'video_ids.json').read_text()) == ['v1','v2']
+assert np.load(i/'text.npy').tolist() == [[1.,0.],[0.,1.]]
+assert np.load(i/'video.npy').tolist() == [[1.,0.],[0.,1.]]
+o=pathlib.Path(a.out); o.parent.mkdir(parents=True,exist_ok=True)
+o.write_text(json.dumps({'groups':{'event_only':{'num_queries':2,'mAP':1.}},'slices':{'empty':{}}}))
+''')
+    subset = tmp_path / 'subset.json'
+    subset.write_text(json.dumps({'queries': [{'query_id': 'q1'}, {'query_id': 'q2'}],
+                                 'gallery': [{'chunk_id': 'v1'}, {'chunk_id': 'v2'}]}))
+    def bundle(directory, subset):
+        return {'text_ids': ['q2', 'q1'], 'video_ids': ['v2', 'v1'],
+                'text': np.array([[0., 1.], [1., 0.]], dtype=np.float32),
+                'video': np.array([[0., 1.], [1., 0.]], dtype=np.float32),
+                'manifest': {'run_id': 'run', 'subset_fingerprint': 'fingerprint', 'provenance': {}}}
+    monkeypatch.setattr(report, 'load_bundle', bundle)
+    runner.preflight_external({'scripts_dir': str(scripts), 'python': sys.executable})
+    out = tmp_path / 'out'
+    args = report.parser().parse_args(['--subset', str(subset), '--vss-dir', 'vss',
+                                      '--reference-dir', 'reference', '--scripts-dir', str(scripts),
+                                      '--out', str(out)])
+    report.evaluate(args)
+    summary = json.loads((out / 'summary.json').read_text())
+    for approach in ('reference', 'vss'):
+        command = summary['executions'][approach]['events']['command']
+        assert Path(command[command.index('--emb-dir') + 1]) == out / approach / 'inputs'
+        assert Path(command[command.index('--out') + 1]) == out / approach / 'events' / 'event_summary.json'
+        assert (out / approach / 'retrieval' / 'rankings.jsonl').is_file()
+        assert (out / approach / 'events' / 'execution.json').is_file()
+    row = next(row for row in summary['retrieval_comparison'] if row['metric'] == 'events/slices/empty')
+    assert row['reference'] is None and row['vss'] is None and row['vss_minus_reference'] is None
+    assert summary['agreement']['video']['cosine_similarity']['mean'] == 1.
