@@ -19,15 +19,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  {{- $cmName := required "infra.sdrc.config.configMapName is required" (get $config "configMapName") }}
-  {{- $global := .Values.global | default dict }}
-  {{- $usePrefix := false }}
-  {{- if and (hasKey $sdrc "useReleaseNamePrefix") (kindIs "bool" (get $sdrc "useReleaseNamePrefix")) }}
-  {{- $usePrefix = get $sdrc "useReleaseNamePrefix" }}
-  {{- else if and (hasKey $global "useReleaseNamePrefix") (kindIs "bool" (index $global "useReleaseNamePrefix")) }}
-  {{- $usePrefix = index $global "useReleaseNamePrefix" }}
-  {{- end }}
-  name: {{ ternary (printf "%s-%s" .Release.Name $cmName | trunc 63 | trimSuffix "-") $cmName $usePrefix }}
+  {{- /* The name the sdrc chart mounts, so the two cannot drift. */}}
+  {{- $cmName := "" }}
+  {{- with index .Subcharts "infra" }}{{ with index .Subcharts "sdrc" }}{{ $cmName = include "sdrc.configMapName" . }}{{ end }}{{ end }}
+  name: {{ required "infra.sdrc.config.configMapName is required" $cmName }}
   labels:
     app.kubernetes.io/name: sdrc
     app.kubernetes.io/instance: {{ .Release.Name }}
