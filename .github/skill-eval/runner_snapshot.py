@@ -157,6 +157,18 @@ def host_snapshot():
         if not isinstance(info,list) or not info:continue
         state=info[0].get('State',{})
         out['containers'].append({'name':name,'status':state.get('Status'),'health':state.get('Health',{}).get('Status'),'oom':state.get('OOMKilled'),'restarts':info[0].get('RestartCount')})
+    out['build_containers']=[]
+    for container_id in subprocess.run(['docker','ps','--no-trunc','--format','{{.ID}}'],capture_output=True,text=True,timeout=10).stdout.splitlines()[:30]:
+        info=run(['docker','inspect',container_id],timeout=10)
+        if not isinstance(info,list) or not info:continue
+        config=info[0].get('Config',{})
+        if (config.get('Labels') or {}).get('com.docker.compose.service'):continue
+        command=' '.join(config.get('Cmd') or [])
+        categories={'package_install':'apt-get','npm_install':'npm ci','python_install':'uv pip','ngc_download':'ngccli.zip','source_fetch':'git init','plugin_install':'openclaw plugins install','workspace_staging':'stage-assets.sh','onboard_config':'apply_onboard_config'}
+        category=next((k for k,marker in categories.items() if marker in command),None)
+        if category:
+            state=info[0].get('State',{})
+            out['build_containers'].append({'category':category,'status':state.get('Status'),'oom':state.get('OOMKilled')})
     out['media_probe']={'status':'not_applicable'}
     sample=Path('/tmp/vss-sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4')
     if os.uname().machine=='aarch64' and sample.is_file() and 0<sample.stat().st_size<70_000_000 and any(row['name']=='vss-rtvi-vlm' for row in out['containers']):
