@@ -193,7 +193,7 @@ def host_snapshot():
                         match=re.search(r'(?:->|CONNECT)\s+([a-z0-9.-]+):([0-9]{1,5})\b',line)
                         if match:
                             flow['host']=match.group(1);flow['port']=int(match.group(2))
-                        binary=re.search(r'NET:OPEN DENIED (/[-A-Za-z0-9_./]+)\([0-9]+\)',line)
+                        binary=re.search(r'DENIED (/[-A-Za-z0-9_./]+)\([0-9]+\)',line)
                         if binary:flow['binary']=binary.group(1)
                         if flow and flow not in out['denied_flows']:out['denied_flows'].append(flow)
                     out['denied_flows']=out['denied_flows'][-20:]
