@@ -150,6 +150,33 @@ def test_generated_deployment_instruction_allows_host_local_origin(
     assert "A pull still in progress does not complete this task" in instruction
 
 
+def test_peer_video_io_skill_resolves_across_categories() -> None:
+    adapter = _load_adapter()
+    resolved = adapter._peer_skill_dir(
+        REPO_ROOT / "skills/operations/vss-search-archive",
+        "vss-manage-video-io-storage",
+    )
+    assert resolved == REPO_ROOT / "skills/operations/vss-manage-video-io-storage"
+    assert "vss-manage-video-io-storage" in _search_spec()["skills"]
+
+
+def test_deploy_step_names_selector_inputs_without_undefined_variables() -> None:
+    step = _search_spec()["expects"][0]
+    query = step["query"]
+    assert "scripts/select_brev_origin.sh" in query
+    assert "exactly once" in query and "empty string" in query
+    for undefined in ("PUBLIC_7777_ORIGIN", "${HOST_ORIGIN}", "ORIGIN_JSON"):
+        assert undefined not in query
+    assert "$HOST_IP:$HAPROXY_HOST_PORT" in query
+    assert any("Brev API endpoint" in check for check in step["checks"])
+
+
+def test_ingest_step_registers_ladder_with_explicit_name_and_handles_exit_7() -> None:
+    step = _search_spec()["expects"][1]
+    assert "--name warehouse-ladder" in step["query"]
+    assert "exits 7" in step["query"]
+
+
 def test_host_local_search_eval_bypasses_browser_only_brev_gates() -> None:
     references = REPO_ROOT / "skills/vss-build-vision-ai/references"
     prerequisites = (references / "prerequisites.md").read_text()

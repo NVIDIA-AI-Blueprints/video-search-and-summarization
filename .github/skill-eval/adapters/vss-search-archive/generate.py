@@ -724,7 +724,9 @@ def main() -> None:
     skill_dir = Path(args.skill_dir)
     deploy_skill_dir = Path(args.deploy_skill_dir) if args.deploy_skill_dir else None
     video_io_skill_dir = (
-        Path(args.video_io_skill_dir) if args.video_io_skill_dir else None
+        Path(args.video_io_skill_dir)
+        if args.video_io_skill_dir
+        else _peer_skill_dir(skill_dir, "vss-manage-video-io-storage")
     )
     ask_video_skill_dir = (
         Path(args.ask_video_skill_dir)

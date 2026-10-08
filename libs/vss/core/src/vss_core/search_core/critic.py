@@ -322,8 +322,10 @@ def _parse_criteria(vlm_text: str) -> tuple[CriticAgentResult, dict[str, bool]]:
             normalized = explicit_result.strip().lower()
             if normalized == CriticAgentResult.UNVERIFIED.value:
                 return CriticAgentResult.UNVERIFIED, criteria
-            if normalized == CriticAgentResult.REJECTED.value:
+            if normalized == CriticAgentResult.REJECTED.value and criteria:
                 return CriticAgentResult.REJECTED, criteria
+            if normalized == CriticAgentResult.REJECTED.value:
+                return CriticAgentResult.UNVERIFIED, criteria
             if normalized == CriticAgentResult.CONFIRMED.value and criteria and all(criteria.values()):
                 return CriticAgentResult.CONFIRMED, criteria
             if normalized == CriticAgentResult.CONFIRMED.value:

@@ -160,6 +160,14 @@ class TestCriticVerdict:
         assert out.video_results[0].result == CriticAgentResult.REJECTED
         assert out.video_results[0].criteria_met == {"running": False}
 
+    @pytest.mark.asyncio
+    async def test_explicit_rejected_without_criteria_is_unverified(self):
+        vlm = _FakeVLM('{"result": "rejected"}')
+        c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
+        out = await c.run(CriticAgentInput(query="q", videos=[_video()]))
+        assert out.video_results[0].result == CriticAgentResult.UNVERIFIED
+        assert out.video_results[0].criteria_met == {}
+
 
 class TestPromptDerivedVerdicts:
     """Verdicts for the response shapes DEFAULT_CRITIC_PROMPT asks the VLM to produce.

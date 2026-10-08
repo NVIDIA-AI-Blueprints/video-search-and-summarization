@@ -143,11 +143,19 @@ closure from [`composition.md`](composition.md); do not replace them with an
 unavailable FQDN. Continue through [`deployment.md`](deployment.md) and the local
 Search checks in [`readiness.md`](readiness.md). Missing public links do not
 fail this branch. The completed workflow supplies the host origin to the
-selector; operate skills do not construct it.
+selector; operate skills do not construct it. That host origin is the build's
+fronting origin `http://$HOST_IP:$HAPROXY_HOST_PORT` from the read path in
+[`deployment.md`](deployment.md).
 
-After local deployment readiness, pass the published HTTPS origin for 7777
-(or an empty string when none is available) and the **host origin supplied by
-the deployment workflow** to
+An unreadable context in this branch is reported as unreadable and treated as
+"no published link": the privileged `docker run` read above needs interactive
+user approval, so a non-interactive eval does not take it. Resolve links from the
+context file only; never query Brev API endpoints for them.
+
+After local deployment readiness, **always** run the selector, passing the
+published HTTPS origin for 7777 (or an empty string when none is available — the
+selector handles that case, so do not skip the call) and the **host origin
+supplied by the deployment workflow** to
 [`select_brev_origin.sh`](../../operations/vss-search-archive/scripts/select_brev_origin.sh).
 Never guess a Brev hostname, construct a replacement endpoint, or modify ports.
 The selector validates each public candidate as an HTTPS origin before probing;

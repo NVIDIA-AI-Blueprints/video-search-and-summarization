@@ -146,8 +146,12 @@ nothing can use. That wait **is** this origin's readiness gate:
 
 ```bash
 vss vios add /path/to/clip.mp4     # or an http(s) URL, streamed straight through
+vss vios add clip.mp4 --name site-a  # register under a name other than the filename stem
 vss vios timeline --sensor <name>  # re-check a source registered earlier
 ```
+
+Exit 7 means the recording was stored but never became indexable: report it and
+confirm once with `vss vios list`; do not re-add the same file.
 
 The equivalent raw call is
 `PUT /vst/api/v1/storage/file/<filename>?timestamp=…` without the wait
