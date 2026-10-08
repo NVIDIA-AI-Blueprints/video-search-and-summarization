@@ -184,7 +184,7 @@ def host_snapshot():
             out['sandbox_phase']=phase.get('phase') if isinstance(phase,dict) and phase.get('phase') in {'Ready','Pending','Created','Creating','Starting','Error','Failed','Terminated'} else phase.get('category') if isinstance(phase,dict) else None
             if out['sandbox_phase']=='Ready':
                 try:
-                    audit=subprocess.run(['openshell','logs',sandbox,'-g','nemoclaw-'+port,'-n','300'],stdin=subprocess.DEVNULL,capture_output=True,text=True,env=env,timeout=20)
+                    audit=subprocess.run(['openshell','logs',sandbox,'-g','nemoclaw-'+port,'-n','300','--source','all'],stdin=subprocess.DEVNULL,capture_output=True,text=True,env=env,timeout=20)
                     out['audit_exit_code']=audit.returncode
                     out['denied_flows']=[]
                     for line in audit.stdout.splitlines():
