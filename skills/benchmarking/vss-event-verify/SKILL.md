@@ -3,7 +3,7 @@ name: vss-event-verify
 description: EXPERIMENTAL (draft, not merge ready). Use this skill when asked an Event Verification yes/no question about a video (the question text under `## Question`, with a `${VIDEO_URL}`), to answer it through the `ev-verify` tool instead of a single `vss vlm run`.
 license: Apache-2.0
 metadata:
-  version: "0.0.0-experimental"
+  version: "3.3.0-rc0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   # Deployment versions this skill supports. EXPERIMENTAL: same range as
   # vss-benchmark-vlm-qa, the Cosmos Reason 3 RT-VLM stack this was measured on.
