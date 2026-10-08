@@ -76,7 +76,7 @@ print(json.dumps(out))
 
 def run(args, *, env=None, timeout=30):
     try:
-        result = subprocess.run(args, capture_output=True, text=True, env=env, timeout=timeout)
+        result = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, text=True, env=env, timeout=timeout)
     except (subprocess.TimeoutExpired, FileNotFoundError, PermissionError) as exc:
         return {'error_type':type(exc).__name__}
     if result.returncode:
@@ -116,9 +116,13 @@ def host_snapshot():
     if re.fullmatch(r'se-[0-9]+-[a-f0-9]+',sandbox):
         out['sandbox']=sandbox
         out['gateway_port']=env.get('NEMOCLAW_GATEWAY_PORT')
-        command='python3 -c '+shlex.quote(SANDBOX_SCRIPT)
+        wrapped='import json\ntry:\n exec('+repr(SANDBOX_SCRIPT)+')\nexcept Exception as exc:\n print(json.dumps({"collector_error_type":type(exc).__name__}))'
+        command='python3 -c '+shlex.quote(wrapped)
         port=env.get('NEMOCLAW_GATEWAY_PORT','')
         if port.isdecimal() and 1024<=int(port)<=65535:
+            out['native_access']=run(['openshell','sandbox','exec','--name',sandbox,'-g','nemoclaw-'+port,'--','sh','-lc','printf 1'],env=env,timeout=15)
+            phase=run(['openshell','sandbox','get',sandbox,'-g','nemoclaw-'+port,'-o','json'],env=env,timeout=15)
+            out['sandbox_phase']=phase.get('phase') if isinstance(phase,dict) and phase.get('phase') in {'Ready','Pending','Created','Creating','Starting','Error','Failed','Terminated'} else phase.get('category') if isinstance(phase,dict) else None
             out['native']=run(['openshell','sandbox','exec','--name',sandbox,'-g','nemoclaw-'+port,'--','sh','-lc',command],env=env,timeout=45)
     out['readiness']=[]
     for path in Path('/logs/artifacts/nemoclaw').glob('*readiness.json'):
