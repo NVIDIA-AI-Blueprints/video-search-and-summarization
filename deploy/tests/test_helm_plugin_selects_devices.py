@@ -8,9 +8,8 @@ choice, the chart must not emit it. The default stays as it was, so MIG and
 every existing values file are unaffected.
 
 rtvi-vlm could already drop it, but only through gpuResourceName, which also
-renames the GPU resource; those are now separate. video-summarization merges
-env into a map where extraEnv sets a value and never removes a name, so the
-removal has to happen after that merge.
+renames the GPU resource; those are now separate. video-summarization no longer
+requests a GPU or sets the variable (it runs on CPU), so it has no such flag.
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ import yaml
 
 SERVICES = Path(__file__).resolve().parents[1] / "helm" / "services"
 VLM = SERVICES / "rtvi" / "charts" / "rtvi-vlm"
-SUMMARIZATION = SERVICES / "video-summarization"
 VAR = "NVIDIA_VISIBLE_DEVICES"
 # rtvi-vlm indexes global.ngcApiSecret unconditionally; without it the chart
 # does not render at all and every assertion below would pass vacuously.
@@ -98,29 +96,12 @@ class RtviVlm(unittest.TestCase):
 
 @helm_required
 class VideoSummarization(unittest.TestCase):
-    def test_the_default_render_is_unchanged(self):
-        self.assertEqual(_device_values(_render(SUMMARIZATION)), ["0"])
-
-    def test_the_flag_drops_the_variable(self):
-        self.assertEqual(_device_values(_render(SUMMARIZATION, "pluginSelectsDevices=true")), [])
-
-    def test_extra_env_alone_cannot_remove_it(self):
-        """Why the flag exists. extraEnv writes into a map keyed by name, so an
-        override replaces the value and the name survives."""
-        documents = _render(SUMMARIZATION, f"extraEnv[0].name={VAR}", "extraEnv[0].value=")
-        self.assertEqual(_device_values(documents), [""])
-
-    def test_the_flag_wins_over_an_extra_env_entry(self):
-        """The removal runs after the extraEnv merge, not before it."""
-        documents = _render(SUMMARIZATION, "pluginSelectsDevices=true",
-                            f"extraEnv[0].name={VAR}", "extraEnv[0].value=7")
+    def test_it_requests_no_gpu_and_names_none(self):
+        """Summarization runs on CPU: no GPU resource, no NVIDIA_VISIBLE_DEVICES,
+        so there is nothing for a device plugin or DRA claim to be overridden by."""
+        documents = _render(SERVICES / "video-summarization")
         self.assertEqual(_device_values(documents), [])
-
-    def test_other_env_entries_are_untouched(self):
-        on = _render(SUMMARIZATION, "pluginSelectsDevices=true")
-        off = _render(SUMMARIZATION)
-        names = lambda docs: sorted(e["name"] for c in _containers(docs) for e in c.get("env") or [])
-        self.assertEqual(set(names(off)) - set(names(on)), {VAR})
+        self.assertEqual(_gpu_resources(documents), set())
 
 
 if __name__ == "__main__":
