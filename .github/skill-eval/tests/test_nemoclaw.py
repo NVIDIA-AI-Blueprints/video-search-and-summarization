@@ -284,6 +284,7 @@ def test_multiple_files_are_verified_individually(monkeypatch, tmp_path):
 def test_readiness_stages_stop_at_failure(runner, monkeypatch, tmp_path, failed_stage):
     names = {"true": "sandbox_access", "openclaw gateway call health --json": "gateway_authentication", "vss configure check": "vss_configuration"}
     def probe(sandbox, command, **kwargs):
+        command = next(key for key in names if command.endswith(key))
         rc = 1 if names[command] == failed_stage else 0
         return subprocess.CompletedProcess(command, rc, '{"ok":true}', "secret-must-not-be-recorded")
     def ensure(sandbox):
@@ -318,6 +319,7 @@ def test_http_listener_is_not_authenticated_gateway(runner, monkeypatch, tmp_pat
 @pytest.mark.parametrize("pending", [True, False])
 def test_only_pending_pairing_is_retried(runner, monkeypatch, tmp_path, pending):
     calls = []
+    recoveries = []
     def probe(sandbox, command, **kwargs):
         if "gateway call" in command:
             calls.append(command)
@@ -326,14 +328,21 @@ def test_only_pending_pairing_is_retried(runner, monkeypatch, tmp_path, pending)
         return subprocess.CompletedProcess(command, 0, '{"ok":true}', "")
     monkeypatch.setattr(runner, "_ensure_gateway", lambda _: None)
     monkeypatch.setattr(runner, "_sandbox_exec", probe)
+    def recover(args, **kwargs):
+        recoveries.append(args)
+        return subprocess.CompletedProcess(args, 0, 'secret', '')
+    monkeypatch.setattr(runner.subprocess, "run", recover)
     monkeypatch.setattr(runner.time, "sleep", lambda _: None)
     if pending:
         runner._check_readiness("se-test", tmp_path / "readiness.json")
         assert len(calls) == 2
+        assert recoveries == [["nemoclaw", "se-test", "connect", "--probe-only"]]
+        assert 'secret' not in (tmp_path / 'readiness.json').read_text()
     else:
         with pytest.raises(RuntimeError, match="gateway_authentication"):
             runner._check_readiness("se-test", tmp_path / "readiness.json")
         assert len(calls) == 1
+        assert recoveries == []
 
 
 
@@ -351,6 +360,7 @@ def test_pairing_deadline_preserves_failure_when_final_probe_times_out(runner, m
         return subprocess.CompletedProcess(command, 0, '{"ok":true}', "")
     monkeypatch.setattr(runner, "_ensure_gateway", lambda _: None)
     monkeypatch.setattr(runner, "_sandbox_exec", probe)
+    monkeypatch.setattr(runner.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 0, '', ''))
     monkeypatch.setattr(runner.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(runner.time, "sleep", lambda duration: clock.__setitem__(0, clock[0] + duration))
     evidence = tmp_path / "readiness.json"
@@ -361,6 +371,7 @@ def test_pairing_deadline_preserves_failure_when_final_probe_times_out(runner, m
     assert row["reason"] == "pairing_deadline"
     assert row["attempts"] == 3
     assert row["exit_code"] == 1
+    assert row["pairing_recovery_exit_code"] == 0  # Recovery alone must not pass the gate.
     assert "secret" not in evidence.read_text()
 
 
@@ -404,10 +415,12 @@ def test_prompt_uses_native_inference_without_mutating_provider(runner, monkeypa
     def sandbox_exec(sandbox, script, **kwargs):
         assert sandbox == "se-test"
         calls.append(script)
-        if script in ("true", "vss configure check"):
+        if script == "true":
             output = ""
-        elif script == "openclaw gateway call health --json":
-            output = '{"ok":true}'
+        elif script.endswith(("vss configure check", "openclaw gateway call health --json")):
+            assert ". /tmp/nemoclaw-proxy-env.sh" in script
+            assert "unset OPENCLAW_GATEWAY_TOKEN" in script
+            output = '{"ok":true}' if "gateway call" in script else ""
         elif "/health" in script:
             output = ""
         elif "openclaw agent" in script:
@@ -512,7 +525,8 @@ def test_setup_phase_lookup_timeout_uses_remaining_deadline(runner, monkeypatch,
 
 
 @pytest.mark.parametrize("approve", [True, False])
-def test_pairing_uses_final_remaining_window(runner, monkeypatch, tmp_path, approve):
+@pytest.mark.parametrize("recovery_duration", [0, 30])
+def test_pairing_uses_final_remaining_window(runner, monkeypatch, tmp_path, approve, recovery_duration):
     clock = [0.0]
     calls = []
     def probe(sandbox, command, **kwargs):
@@ -520,11 +534,18 @@ def test_pairing_uses_final_remaining_window(runner, monkeypatch, tmp_path, appr
             return subprocess.CompletedProcess(command, 0, '{"ok":true}', "")
         calls.append(kwargs["timeout"])
         clock[0] += kwargs["timeout"]
-        if len(calls) == 3 and approve:
+        if len(calls) == (2 if recovery_duration else 3) and approve:
             return subprocess.CompletedProcess(command, 0, '{"ok":true}', "")
         return subprocess.CompletedProcess(command, 1, "", "pairing required")
     monkeypatch.setattr(runner, "_ensure_gateway", lambda _: None)
     monkeypatch.setattr(runner, "_sandbox_exec", probe)
+    def recover(args, **kwargs):
+        assert kwargs['timeout'] == 30
+        clock[0] += recovery_duration
+        if recovery_duration:
+            raise subprocess.TimeoutExpired(args, kwargs['timeout'])
+        return subprocess.CompletedProcess(args, 1, '', '')
+    monkeypatch.setattr(runner.subprocess, "run", recover)
     monkeypatch.setattr(runner.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(runner.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay))
     if approve:
@@ -532,7 +553,8 @@ def test_pairing_uses_final_remaining_window(runner, monkeypatch, tmp_path, appr
     else:
         with pytest.raises(RuntimeError, match="gateway_authentication"):
             runner._check_readiness("se-test", tmp_path / "readiness.json")
-    assert calls == [30, 30, 24]
+    assert calls == ([30, 27] if recovery_duration else [30, 30, 24])
+    assert clock[0] <= 90
 
 
 def test_media_commands_share_remaining_staging_deadline(monkeypatch):
