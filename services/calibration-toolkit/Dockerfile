@@ -13,7 +13,7 @@
 # This replaces the Jenkins pre-build step that ran npm + setup.py before
 # invoking docker build.
 # ---------------------------------------------------------------------------
-FROM node:18-alpine AS frontend-builder
+FROM node:18 AS frontend-builder
 WORKDIR /client
 COPY calibration-toolkit/calibration/client/package*.json ./
 RUN npm ci
