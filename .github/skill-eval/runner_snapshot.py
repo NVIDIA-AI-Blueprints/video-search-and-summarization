@@ -411,11 +411,11 @@ def coordinator_traces():
                             for value in re.findall(r'https?://[^\\\s"<>]+',text):
                                 try:
                                     url=urlsplit(value)
-                                    if url.hostname and re.fullmatch(r'[a-z0-9.-]+',url.hostname):origins.append({'scheme':url.scheme,'host':url.hostname,'port':url.port})
+                                    if url.hostname and re.fullmatch(r'[a-z0-9.-]+',url.hostname):origins.append({'scheme':url.scheme,'host':url.hostname,'port':url.port,'path':url.path if url.path in {'','/','/vst','/api/v1','/vst/api/v1','/live/version','/record/version','/api/v1/live/version','/api/v1/record/version','/vst/api/v1/live/version','/vst/api/v1/record/version','/vst/api/v1/sensor/version','/vst/api/v1/sensor/list'} else '<other>'})
                                 except ValueError:pass
                             return origins[:8]
                         calls[block.get('id')]={'family':family,'request_origins':origins(args),
-                            'version_paths':[name for name in ('sensor','live','record') if '/api/v1/'+name+'/version' in args],'wait_seconds':[int(value) for value in re.findall(r'sleep[^0-9]{0,8}([0-9]{1,3})',args)][:5],'timestamp':event.get('timestamp') if re.fullmatch(r'[0-9T:Z.+-]{15,40}',str(event.get('timestamp',''))) else None,
+                            'version_paths':[name for name in ('sensor','live','record') if '/api/v1/'+name+'/version' in args],'config_selectors':[name for name in ('.base_url','.services.vst.url','base_url','services','vst','url') if name in args],'base_assignments':[value for value in re.findall(r'(?:VST_API_BASE|VST_BASE_URL|BASE_URL)[^=]{0,3}=[^A-Za-z0-9]{0,3}(http://host\.openshell\.internal:[0-9]{4,5}(?:/vst)?(?:/api/v1)?)',args)][:4],'wait_seconds':[int(value) for value in re.findall(r'sleep[^0-9]{0,8}([0-9]{1,3})',args)][:5],'timestamp':event.get('timestamp') if re.fullmatch(r'[0-9T:Z.+-]{15,40}',str(event.get('timestamp',''))) else None,
                             'proxy_overrides':sorted(set(re.findall(r'\b(?:HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|NO_PROXY|http_proxy|https_proxy|all_proxy|no_proxy)\b',args))),
                             'binary_paths':sorted(set(re.findall(r'/usr/(?:local/)?(?:bin|vss/bin)/(?:python3(?:\.[0-9]+)?|curl|node|vss)\b',args))),
                             'proxy_bypass':any(marker in args for marker in ('--noproxy','unset HTTP_PROXY','unset HTTPS_PROXY')),
