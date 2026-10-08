@@ -1016,6 +1016,7 @@ docker build -f envoy/Dockerfile.wdm-router -t wdm-router .
 At container start:
 1. Reads `WDM_WORKLOADS_CONFIG` (default `/config.yml`); exits if the file is missing.
 2. Runs `generate_envoy_config_xds_mw.py` with `/opt/bootstrap/bin/python3` (Jinja2 and ruamel.yaml are installed in that environment) to generate `/tmp/envoy-sdrc-generated.yaml` from `config.yml`.
+3. Starts `/sdr-mw` (the SDRC controller) in the background.
 4. Starts `envoy` with the generated config.
 
 **Required mount:**
