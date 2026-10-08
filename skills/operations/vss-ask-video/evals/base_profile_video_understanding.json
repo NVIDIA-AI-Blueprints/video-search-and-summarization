@@ -35,10 +35,10 @@
       ]
     },
     {
-      "query": "Ask that again: was the worker wearing a safety helmet in the first 10 seconds of warehouse_sample?",
+      "query": "Use the existing VSS unified-memory analysis of warehouse_sample to answer this question without inspecting the video again: was the worker wearing a safety helmet in the first 10 seconds?",
       "checks": [
         "It answers from what VSS unified memory already holds for warehouse_sample, using a vss memory command.",
-        "It does not run vss vlm run a second time."
+        "It does not invoke vss vlm run anywhere in this task's trajectory; the stored analysis already exists from the earlier task."
       ]
     },
     {
