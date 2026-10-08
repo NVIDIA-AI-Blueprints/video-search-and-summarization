@@ -21,97 +21,45 @@ next deploy re-downloads them.
 
 ## NemoClaw harness — before Compose
 
-Run this whenever the build was harnessed — it holds a `sandbox` file, or, from
-before that file existed, a `nemoclaw-setup.log` naming the sandbox. Tearing
-down the build covers its sandbox and relay without the user naming them. Run
-it first, so the sandbox is not left pointed at an origin that has stopped
-answering.
+Run this **first**, so the sandbox is not left pointed at an origin that has
+stopped answering.
 
-A build whose harness setup **failed** has the file too — the name is recorded
-before the notebook runs, because onboarding happens in its section 3.1 and a
-later section can still fail over a live sandbox. So run this section for a
-failed build as well; skipping it is how a sandbox gets left behind.
+```bash
+bash skills/vss-build-vision-ai/scripts/teardown-nemoclaw-resources.sh
+```
 
-`nemoclaw destroy` does not stop the two host processes the setup notebook
-started. The dashboard-forward watchdog would see the forward die and run
-`nemoclaw <sandbox> recover` against the sandbox being destroyed, and keep
-retrying it afterwards, so stop it **before** the destroy. The dashboard relay,
-left running, holds `NEMOCLAW_DASHBOARD_RELAY_PORT` (default `18790`), and the
-next deploy's relay cell stops on it as a foreign listener; stop it after.
+**It reclaims `NEMOCLAW_DASHBOARD_PORT` (`18789`) and
+`NEMOCLAW_DASHBOARD_RELAY_PORT` (`18790`), and destroys every sandbox
+`nemoclaw list --json` maps to either** — whoever created it, and whether or
+not its forward is still alive. That registry is the host's only port to
+sandbox index: the gateway never learns which local port a forward binds.
+**Name the sandboxes it destroys in the summary**; their agent sessions go
+with them. It prints each name as it goes.
+
+The kill is not redundant with the destroy. `nemoclaw destroy` does not stop
+the dashboard relay or the forward watchdog — both are `setsid` host processes
+it never registers — and the watchdog answers a dying forward with `nemoclaw
+<sandbox> recover`, so the sweep takes them first.
+
+The script knows nothing about the checkout, so remove the detached worktree a
+[harness source ref](agent-harness.md#harness-source-ref) build left under the
+build directory. Deleting `_builds/<name>/` alone leaves it registered.
 
 ```bash
 REPO="$(git rev-parse --show-toplevel)"
 BUILD_DIR="$REPO/_builds/<name>"
-if [ -s "$BUILD_DIR/sandbox" ]; then
-  SANDBOX="$(cat "$BUILD_DIR/sandbox")"
-else  # a build harnessed before the skill wrote the sandbox file
-  SANDBOX="$(sed -n 's/^Sandbox: //p' "$BUILD_DIR/nemoclaw-setup.log" \
-    2>/dev/null | tail -1)"
-fi
-if [ -z "$SANDBOX" ]; then
-  # Nothing was named, so nothing was created. Exit 0: the Compose teardown
-  # the user asked for still has to run.
-  echo "no sandbox recorded in $BUILD_DIR; nothing to destroy" >&2
-  exit 0
-fi
-
-# Match the exact --sandbox argument, never the port or a name prefix: other
-# sandboxes' watchdogs and relays share the scripts and may sit on neighbouring
-# ports. pkill -f compiles an extended regex. Escape the recorded name so
-# vision.dev selects that sandbox's processes alone.
-SANDBOX_RE="$(printf '%s' "$SANDBOX" | sed 's/[][(){}.*+?^$|\\]/\\&/g')"
-stop_sandbox_process() {  # <script> <label>
-  local pattern="$1 --sandbox ${SANDBOX_RE}( |$)"
-  pkill -f -- "$pattern"
-  for _ in $(seq 50); do pgrep -f -- "$pattern" >/dev/null || return 0; sleep 0.1; done
-  pgrep -af -- "$pattern"
-  echo "$2 for $SANDBOX still running" >&2
-  exit 1
-}
-
-stop_sandbox_process 'dashboard-forward-watchdog\.py' "dashboard-forward watchdog"
-nemoclaw "$SANDBOX" destroy --yes --cleanup-gateway
-stop_sandbox_process 'dashboard-relay\.py' "dashboard relay"
-```
-
-A name recorded by a run that failed *before* onboarding belongs to a sandbox
-that was never created, so `destroy` reports it as not found. That is the one
-non-zero here to accept and move on from; any other failure is a blocker.
-
-A setup that failed even earlier records no name at all — an older build's log
-carries the `Sandbox:` line only once the notebook has printed it. Report the
-build as carrying no recorded sandbox and continue with the Compose teardown;
-never leave the requested teardown unfinished over a sandbox that was never
-created.
-
-The name comes from that file and nowhere else: `nemoclaw list` names no
-Compose project and the sandbox carries no project label, so neither the build
-directory nor the `vss-harness-sandbox` default identifies the sandbox this
-build owns.
-
-So a sandbox no build recorded — one a user onboarded by running
-`deploy_nemoclaw.ipynb` themselves, or one left by a build directory since
-deleted — survives every teardown here, along with its watchdog and relay.
-Nothing above goes looking for it, and the next deploy takes nothing from it
-unasked: onboard stops or moves the sandbox elsewhere when it holds `18789`,
-and the relay cell stops on a foreign listener on `18790`. The next harness bring-up is where that gets
-settled, under [Ports the harness
-claims](agent-harness.md#ports-the-harness-claims) — which reads ownership off
-this same per-build record, so a sandbox named `vss-harness-sandbox` that the
-next build's own record does not name is one it reports and asks about rather
-than recreates.
-Never destroy a sandbox this build does not own.
-
-A harness built from a [harness source
-ref](agent-harness.md#harness-source-ref) also left a detached worktree under
-the build directory. Remove it here: deleting `_builds/<name>/` alone leaves
-the worktree registered in the checkout.
-
-```bash
 if [ -d "$BUILD_DIR/harness-src" ]; then
   git -C "$REPO" worktree remove --force "$BUILD_DIR/harness-src"
 fi
 ```
+
+A port it cannot free exits `2`. `lsof` and `fuser` return nothing for a
+holder outside this user's reach, so the script prints the `sudo lsof` line to
+hand over rather than guessing at a process it cannot see.
+
+It also reports an unwritable relay `/tmp` log, which only `sudo` clears. The
+same command runs before a deploy — see [Ports the harness
+claims](agent-harness.md#ports-the-harness-claims).
 
 ## Default teardown — clean project volumes
 
