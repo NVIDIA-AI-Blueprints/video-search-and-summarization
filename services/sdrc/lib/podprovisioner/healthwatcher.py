@@ -29,7 +29,7 @@ import logging
 import queue
 import threading
 import time
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Set
 
 import requests
 
@@ -109,7 +109,12 @@ class WorkloadHealthWatcher:
         # (unhealthy -> healthy) establishes a baseline without being mistaken
         # for recovery. Keep the entry when inventory temporarily loses a pod
         # so a StatefulSet pod returning with the same name can still recover.
-        self._recovery_pending = set()
+        self._recovery_pending: Set[str] = set()
+        # Persisted assignments can require stream reapplication after SDRC
+        # restarts while their workload is down. They are only armed for
+        # recovery if their first health observation is unhealthy; an already
+        # healthy workload merely establishes the normal startup baseline.
+        self._startup_recovery_candidates: Set[str] = set()
         self._events: queue.Queue = queue.Queue()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -192,6 +197,19 @@ class WorkloadHealthWatcher:
     def snapshot(self) -> Dict[str, bool]:
         with self._lock:
             return dict(self._pod_healthy)
+
+    def seed_startup_recovery_candidates(
+        self, pod_names: Iterable[str]
+    ) -> None:
+        """Mark workloads with persisted streams as startup recovery candidates."""
+        candidates = {str(name) for name in pod_names if name}
+        with self._lock:
+            self._startup_recovery_candidates.update(candidates)
+        if candidates:
+            self.log.info(
+                "Seeded startup recovery candidates for saved workloads: %s",
+                sorted(candidates),
+            )
 
     def check_pod(self, pod_info: dict) -> bool:
         """One-shot probe; also updates tracked state and may emit a transition."""
@@ -319,6 +337,15 @@ class WorkloadHealthWatcher:
             )
             self._apply_result(pod, healthy)
 
+        # A saved workload absent from a successful inventory lookup is also
+        # genuinely unavailable at startup. Arm recovery without emitting a
+        # synthetic down event; when its stable pod name returns healthy, the
+        # consumer can reapply its persisted streams.
+        with self._lock:
+            absent_candidates = self._startup_recovery_candidates - seen
+            self._startup_recovery_candidates.difference_update(absent_candidates)
+            self._recovery_pending.update(absent_candidates)
+
         # Pods that disappeared from inventory are treated as down.
         with self._lock:
             missing = [name for name in list(self._pod_healthy) if name not in seen]
@@ -362,7 +389,14 @@ class WorkloadHealthWatcher:
                     self._recovery_pending.remove(pod_name)
                     transition = False
                 elif healthy:
+                    self._startup_recovery_candidates.discard(pod_name)
                     initial_baseline = True
+                elif pod_name in self._startup_recovery_candidates:
+                    # This workload had saved stream assignments when SDRC
+                    # started, and it is actually down. Arm its first later
+                    # healthy observation as a recovery so streams are reapplied.
+                    self._startup_recovery_candidates.remove(pod_name)
+                    self._recovery_pending.add(pod_name)
             elif previous and not healthy:
                 self._recovery_pending.add(pod_name)
                 transition = True

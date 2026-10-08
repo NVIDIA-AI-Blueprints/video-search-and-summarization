@@ -56,6 +56,53 @@ def test_health_gated_add_establishes_baseline_without_startup_recovery():
     assert watcher.is_pod_healthy(POD_NAME)
 
 
+def test_saved_workload_first_seen_down_recovers_and_reapplies_streams():
+    watcher = _watcher(lambda: [POD])
+    watcher.seed_startup_recovery_candidates([POD_NAME])
+
+    with patch(
+        "lib.podprovisioner.healthwatcher.probe_pod_health",
+        side_effect=[False, True],
+    ):
+        watcher.poll_once()
+        assert _events(watcher) == []
+        watcher.poll_once()
+
+    assert _events(watcher) == [(False, POD_NAME, POD_NAME)]
+
+
+def test_saved_workload_first_seen_healthy_only_establishes_baseline():
+    watcher = _watcher(lambda: [POD])
+    watcher.seed_startup_recovery_candidates([POD_NAME])
+
+    with patch(
+        "lib.podprovisioner.healthwatcher.probe_pod_health",
+        return_value=True,
+    ):
+        watcher.poll_once()
+        watcher.poll_once()
+
+    assert _events(watcher) == []
+
+
+def test_saved_workload_absent_at_startup_recovers_when_it_returns():
+    state = {"pods": []}
+    watcher = _watcher(lambda: state["pods"])
+    watcher.seed_startup_recovery_candidates([POD_NAME])
+
+    watcher.poll_once()
+    assert _events(watcher) == []
+
+    state["pods"] = [POD]
+    with patch(
+        "lib.podprovisioner.healthwatcher.probe_pod_health",
+        return_value=True,
+    ):
+        watcher.poll_once()
+
+    assert _events(watcher) == [(False, POD_NAME, POD_NAME)]
+
+
 def test_recovery_is_emitted_only_after_post_baseline_down_event():
     watcher = _watcher(lambda: [POD])
 

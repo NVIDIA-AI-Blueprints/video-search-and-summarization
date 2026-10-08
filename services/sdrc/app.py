@@ -4059,6 +4059,29 @@ def WorkloadHealthCheckWatcher():
     return health_watcher.start()
 
 
+def SeedSavedWorkloadRecoveryCandidates():
+    """Seed startup recovery only for workloads with persisted streams."""
+    if health_watcher is None or not _config_bool(
+        app.config.get("WDM_REAPPLY_ON_WL_RESTART"), False
+    ):
+        return []
+
+    try:
+        saved_pods = [
+            pod_name
+            for pod_name in (cfg.getpods() or [])
+            if cfg.getSpecCount(pod_name) > 0
+        ]
+    except Exception:
+        app.logger.exception(
+            "Couldn't load saved workload assignments for startup recovery"
+        )
+        return []
+
+    health_watcher.seed_startup_recovery_candidates(saved_pods)
+    return saved_pods
+
+
 def send_alive_status():
     external_service_url =  app.config['CONTROLLER_SERVICE_URL']
     hostname = socket.gethostname()
@@ -4102,6 +4125,11 @@ if __name__ == "__main__":  # Script executed directly?
             cfg.eraseSpecContent()
     except Exception as e:
         app.logger.exception("Couldn't clear WL spec file")
+
+    # Capture only assignments persisted before lifecycle listeners can reserve
+    # new workloads. This preserves saved-stream recovery without reintroducing
+    # false recovery events for newly added streams during startup.
+    SeedSavedWorkloadRecoveryCandidates()
     
     listners = False
     if bus is not None and is_message_bus_lifecycle_mode(app.config):

@@ -17,6 +17,8 @@
 Pytest tests for app.py Flask routes and helpers.
 Use the client and app_module fixtures from conftest; do not import app at module level.
 """
+from unittest.mock import MagicMock
+
 import pytest
 
 
@@ -434,3 +436,33 @@ class TestResolveWorkloadPodsForHealth:
         app_module.curr_cluster.getWorkloadObjects.side_effect = None
         app_module.curr_cluster.getWorkloadObjects.return_value = []
         assert app_module._resolve_workload_pods_for_health() == []
+
+
+class TestSeedSavedWorkloadRecoveryCandidates:
+    def test_seeds_only_pods_with_saved_streams(self, app_module, monkeypatch):
+        watcher = MagicMock()
+        monkeypatch.setattr(app_module, "health_watcher", watcher)
+        app_module.app.config["WDM_REAPPLY_ON_WL_RESTART"] = True
+        app_module.cfg.getpods.return_value = ["pod-with-stream", "empty-pod"]
+        app_module.cfg.getSpecCount.side_effect = lambda pod: {
+            "pod-with-stream": 1,
+            "empty-pod": 0,
+        }[pod]
+
+        result = app_module.SeedSavedWorkloadRecoveryCandidates()
+
+        assert result == ["pod-with-stream"]
+        watcher.seed_startup_recovery_candidates.assert_called_once_with(
+            ["pod-with-stream"]
+        )
+
+    def test_does_not_seed_when_reapply_is_disabled(
+        self, app_module, monkeypatch
+    ):
+        watcher = MagicMock()
+        monkeypatch.setattr(app_module, "health_watcher", watcher)
+        app_module.app.config["WDM_REAPPLY_ON_WL_RESTART"] = False
+
+        assert app_module.SeedSavedWorkloadRecoveryCandidates() == []
+        app_module.cfg.getpods.assert_not_called()
+        watcher.seed_startup_recovery_candidates.assert_not_called()
