@@ -257,6 +257,21 @@ def host_snapshot():
             out['native_access']=run(['openshell','sandbox','exec','--name',sandbox,'-g','nemoclaw-'+port,'--','sh','-lc','printf 1'],env=env,timeout=15)
             phase=run(['openshell','sandbox','get',sandbox,'-g','nemoclaw-'+port,'-o','json'],env=env,timeout=15)
             out['sandbox_phase']=phase.get('phase') if isinstance(phase,dict) and phase.get('phase') in {'Ready','Pending','Created','Creating','Starting','Error','Failed','Terminated'} else phase.get('category') if isinstance(phase,dict) else None
+            if out['sandbox_phase'] in {'Error','Failed','Terminated'}:
+                out['phase_schema_keys']=sorted(phase) if isinstance(phase,dict) else []
+                details=json.dumps(phase)
+                markers=('ImagePullBackOff','CrashLoopBackOff','OCI runtime','executable file not found','permission denied','Permission denied','authentication','config hash','managed config','No such file','no such file','address already in use','failed to create','certificate','nvidia','NVIDIA','landlock','seccomp','read-only','not permitted','failed to start','exit code','image','policy','mount','device','entrypoint','connection refused','sandbox-safety-net','ECONNREFUSED','ErrImagePull','CreateContainerConfigError')
+                out['phase_error_markers']=[marker for marker in markers if marker in details]
+                out['stopped_sandbox_containers']=[]
+                names=subprocess.run(['docker','ps','-a','--format','{{.Names}}'],capture_output=True,text=True,timeout=10).stdout.splitlines()
+                for name in names:
+                    if not name.startswith('openshell-') or sandbox not in name:continue
+                    info=run(['docker','inspect',name],timeout=10)
+                    if not isinstance(info,list) or not info:continue
+                    state=info[0].get('State',{})
+                    logs=subprocess.run(['docker','logs','--tail','100',name],capture_output=True,text=True,timeout=10)
+                    text=str(state.get('Error',''))+'\n'+logs.stdout+'\n'+logs.stderr
+                    out['stopped_sandbox_containers'].append({'status':state.get('Status'),'exit_code':state.get('ExitCode'),'oom':state.get('OOMKilled'),'restarts':info[0].get('RestartCount'),'error_markers':[marker for marker in markers if marker in text]})
             if out['sandbox_phase']=='Ready':
                 try:
                     audit=subprocess.run(['openshell','logs',sandbox,'-g','nemoclaw-'+port,'-n','1000','--source','all'],stdin=subprocess.DEVNULL,capture_output=True,text=True,env=env,timeout=20)
