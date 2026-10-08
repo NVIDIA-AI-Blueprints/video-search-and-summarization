@@ -39,28 +39,125 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 Operational specs use two independent routes. Their first `expects[]` task
 runs with the coding route and `/vss-build-vision-ai`; its query supplies the
 deployment intent and its checks supply the readiness verdict. Remaining tasks
-run with the operational route. When that route uses NemoClaw, Build Vision AI
-also attaches NemoClaw during the first task and the remaining entries run
-through the ready sandbox. Build Vision AI and other non-operational specs use
-the coding route throughout.
+run with the operational route. When that route uses NemoClaw, the first query
+also owns sandbox setup. Specs
+that require the in-stack agent bootstrap NemoClaw as a separate evaluation
+client with the checked-in notebook; they preserve the application backend
+and disable its UI adapter. Remaining entries run through the ready sandbox.
+Build Vision AI and other non-operational specs use the coding route throughout.
+
+Default setup runs use **Codex with Sol 6.1** (`azure/openai/gpt-6.1-sol`);
+operational queries use **NemoClaw with Opus 5.5**
+(`aws/anthropic/bedrock-claude-opus-5-5`). Both default to hosted NVIDIA
+Inference. These defaults apply to automatic PR evaluations and manual dispatch;
+manual inputs can override each role independently. Selecting `local-nim`
+requires replacing the hosted model ID with an available NIM image ID.
 
 Manual runs configure both routes without changing the coordinator or judge:
 
 | Workflow input | Meaning |
 |---|---|
-| `coding_harness` | Build Vision AI/setup runtime: `claude-code` or `codex` |
-| `coding_model` | Independent coding model from [`inference.nvidia.com`](https://inference.nvidia.com/); a blank value preserves its configured default |
-| `operational_harness` | Operational runtime: `claude-code`, `codex`, or `nemoclaw` |
-| `operational_model` | Independent operational model from [`inference.nvidia.com`](https://inference.nvidia.com/); a blank value preserves its configured default |
+| `coding_harness` | Build Vision AI/setup runtime: `codex` (default) or `claude-code` |
+| `coding_deployment` | `hosted-nvidia-inference` (default) or `local-nim` for coding/setup |
+| `coding_model` | Hosted: [Inference Hub](https://inference.nvidia.com/) model ID, such as `nvidia/nvidia/nemotron-3.5-lightning`. Local NIM: self-hosted NIM image ID from [build.nvidia.com](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b?nim=self-hosted), such as `nvidia/nemotron-3.5-lightning-30b-a3b`. Default `azure/openai/gpt-6.1-sol`; select a NIM image ID explicitly for `local-nim` |
+| `operational_harness` | Operational runtime: `nemoclaw` (default), `claude-code`, or `codex` |
+| `operational_deployment` | Independent `hosted-nvidia-inference` (default) or `local-nim` for operational tasks |
+| `operational_model` | Same ID rules as `coding_model`; default `aws/anthropic/bedrock-claude-opus-5-5`, independently selected for operational tasks |
+| `spark_runner` | Run on Brev external node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`); default false |
 
-The runner owns credentials. NVIDIA inference uses the fixed public
-`https://inference.nvidia.com/` source; manual runs cannot redirect a runner
-credential to another host. A blank model preserves the configured model, and
-neither route inherits a model override from the other. For NemoClaw, the
-operational values are passed to Build Vision AI as `NEMOCLAW_MODEL` and the
-fixed `NEMOCLAW_ENDPOINT_URL`; Build Vision AI's `custom` adapter name denotes
-that OpenAI-compatible NVIDIA inference endpoint. The setup task itself uses
-the independently selected coding route.
+
+The runner owns credentials. Hosted routes use the fixed
+`https://inference-api.nvidia.com/v1` endpoint. Local routes use a fixed,
+non-secret client placeholder, never the hosted inference key. No arbitrary endpoint
+input is exposed. Coordinator and judge routing stays unchanged.
+
+### Local NIM lifecycle
+
+Select `local-nim` independently for either role. Provide a model-specific NIM
+ID (`publisher/model`, optionally prefixed by `nvidia_nim/`) and configure
+`NGC_CLI_API_KEY` or `NGC_API_KEY` on the coordinator. Proprietary hosted-only
+models cannot run locally. For Nemotron 3.5 Lightning, enter
+`nvidia/nemotron-3.5-lightning-30b-a3b`, the ID of its
+[self-hosted NIM image](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b?nim=self-hosted),
+instead of the hosted Inference Hub ID `nvidia/nvidia/nemotron-3.5-lightning`.
+The workflow validates this format before selecting a GPU worker. The worker
+authenticates to `nvcr.io`, discovers released model-specific NIM tags, selects
+the newest release with a Linux image matching the worker CPU architecture,
+and pins its digest. Qwen3-32B on ARM64
+also resolves its documented `qwen3-32b-dgx-spark` packaging variant. There is
+no fallback to a different model, a model-free container, or hosted inference.
+A missing image, incompatible architecture, registry access failure, and
+startup failure are distinct errors. This checks architecture only; it does
+not estimate GPU capacity, memory, disk, or combined VSS/inference demand.
+When set, `NGC_API_KEY` is sent over the provisioning command's stdin; it is
+not written to a worker key file or forwarded into `~/.eval_env`.
+The existing VSS deploy path still forwards `NGC_CLI_API_KEY` to the evaluated
+agent because that agent performs the VSS deployment.
+
+After the existing first-task Docker reset, the worker starts one NIM per
+unique selected local model. Identical coding and operational models share
+one container; later tasks reuse that deployment. Different models run as
+separate containers. A pinned LiteLLM adapter provides Anthropic Messages,
+OpenAI Responses, and Chat Completions for NemoClaw. The ephemeral, job-owned
+adapter runs without authentication: its config has no `master_key`, and
+readiness/protocol probes send no API key. Clients that require a non-empty
+key receive the fixed, non-secret `local-nim` placeholder; the proxy does not
+validate it. Hosted and NGC credentials retain their existing authentication.
+NIM ports bind to loopback; NemoClaw reaches the adapter on the worker's private
+address.
+The worker exports that exact host in
+`NEMOCLAW_TRUSTED_PRIVATE_INFERENCE_HOSTS`, so NemoClaw's private-endpoint
+preflight admits the owned inference adapter without granting a subnet or
+relaxing other URL checks. Startup and reuse both restore this declaration.
+Startup and reuse smoke requests exercise each selected protocol.
+The NIM and VSS run on the same worker.
+
+Onboarding owns NemoClaw's provider binding; operational prompts do not rewrite
+it or refresh proxy credentials. The headless runner checks gateway health and
+collects the native OpenClaw session and token usage from the actual prompt.
+This provides evidence of inference through OpenShell, which a host smoke
+request does not cover. Failure stops the prompt and leaves its error in
+`agent.log`.
+
+Startup is bounded to 5,400 seconds within the existing environment deadline;
+cold downloads may exceed this and fail explicitly. The worker needs access
+to NGC, Docker Hub (`python:3.12-slim`), and PyPI (`litellm[proxy]==1.103.0`).
+The adapter listens on port 18400 and is advertised on the worker's private address.
+NIM ports 18410+ bind to loopback. Before the proxy starts, a job-owned IPv4
+INPUT policy allows port 18400 only through loopback or Docker bridge interfaces
+(`docker0` / `br+`), rejecting traffic from other interfaces. The worker requires
+passwordless `sudo iptables`; startup fails closed when enforcement is unavailable.
+Cleanup stops the owned containers before removing that job's firewall rules.
+Job-owned containers are removed when the leg ends or is cancelled. The next
+first-task Docker reset reconciles leftovers after an uncatchable SIGKILL.
+Weights persist under `~/.cache/skill-eval-nim-models/`, outside Docker volumes.
+Sanitized image/tag/digest, model, architecture, startup errors, and bounded
+container logs appear in each trial's `artifacts/local-nim` directory (under
+Harbor's collected `/logs/artifacts` tree). `model-deployments.json` records
+role choices and the actual worker at the leg results root.
+
+### Spark selection
+
+The checkbox selects the **Brev execution worker**, not the GitHub Actions
+coordinator. Spark is opt-in: with the checkbox off (including automatic PR
+evals), the plan excludes `DGX-SPARK` rows even when a skill spec supports that
+platform. Specs that support only Spark produce no eval jobs until it is
+selected. The runner also rejects Spark platform, hardware, or instance hints
+without the explicit selection, before acquiring a worker lock.
+`run_leg.py` resolves the registered node by external node ID
+(or the supplied name on older Brev versions), then holds the existing
+per-worker lock across all tasks and NIM cleanup. Missing nodes or conflicting
+explicit instance overrides fail; no other worker is selected. If Brev reports
+the selected node disconnected, a bounded SSH probe from the coordinator must
+succeed before proceeding. This handles stale registry status without accepting
+an unreachable worker.
+The coordinator needs its Brev SSH alias configured, just as for other
+registered workers. Spark must report ARM64. Existing GPU/memory/disk guards
+are bypassed for this explicit Spark override; normal pool runs retain their
+existing VSS resource checks. The manual plan selects only declared `DGX-SPARK`
+specs and fails if none exist; `machine.txt` records the actual worker. Selecting Spark
+does not rewrite a spec's deployment instructions or guarantee that all VSS
+images in that scenario support ARM64.
 
 ### API keys (`/home/ubuntu/eval-coordinator/.env` on the runner)
 
@@ -77,6 +174,17 @@ the independently selected coding route.
 | `GITHUB_TOKEN` | Issued to `gh pr comment` when the agent posts results |
 | `BREV_REGISTERED_POOL` | Comma/space-separated registered-node names approved for automatic pool selection |
 | `BREV_RTX4090_POOL` | Registered RTX 4090 workers; routed only to the proven tests in `run_leg.py::RTX4090_TESTS` / `RTX4090_ALL_TESTS` |
+
+Operational setup must finish successfully before later tasks reuse its
+deployment. The runner checks both the reward and Harbor's structured
+`result.json`: an agent timeout or other recorded exception stops the chain
+even if Harbor exits zero and the verifier awards full credit.
+
+Specs that require sample videos also declare fixture preparation in their
+setup query. When NemoClaw is selected, setup downloads the pinned bundle on
+the host, copies the needed MP4 files into the sandbox using NemoClaw's upload
+command, and verifies matching hashes. Later tasks use those sandbox files;
+NGC credentials stay on the host.
 
 ## Layout
 
@@ -147,34 +255,58 @@ Schema:
 
 For stock deployments, write the query in the same terms the skill routes on, such as "use the `/vss-build-vision-ai` stock Search workflow with remote LLM/VLM placement" or "use the stock Alerts workflow in verification mode (`MODE=2d_cv`)". Do not use legacy `-p` / `-m` command flags.
 
+Manual dispatch with `skills=operations` selects all runtime specs under `skills/operations/` and excludes Build Vision AI's own evals. Fleet sweeps run at most two legs concurrently. With `spark_runner=true`, matrix legs queue one at a time on the shared Spark worker.
+
+Worker preparation probes connectivity before repository sync. The probe, sync,
+and file transfers allow three attempts for transient transport failures, with
+exponential backoff and jitter. Authentication and command errors fail immediately;
+arbitrary remote commands are not automatically retried. Timed-out managed-worker
+commands retain their stderr tail for diagnosis.
+
+NIM container creation allows ten minutes per attempt within the existing overall
+startup budget. On timeout, the launcher inspects the deterministic container name:
+a running container with the expected job owner and pinned image proceeds to
+readiness checks; only a confirmed absent container is retried. Unknown ownership,
+unavailable inspection, or a stopped container fails explicitly. The model and
+LiteLLM readiness budgets are unchanged.
+
+The runner passes the selected runtime as `SKILLS_EVAL_OPERATIONAL_HARNESS` to the worker. Operational setup queries explicitly invoke `/vss-build-vision-ai` and specify conditional NemoClaw setup, skill installation, and readiness. Adapters include the declared Build Vision AI skill when generating tasks; `run_leg.py` never rewrites generated instructions.
+
+NemoClaw operational legs also receive a per-run/per-leg gateway, dashboard and
+relay port triplet. NemoClaw v0.0.127 uses the gateway port to scope its host
+registry and shared inference provider under `~/.nemoclaw/gateways/<port>/`.
+Docker cleanup alone leaves the default registry intact; a unique sandbox name
+does not prevent conflicts with its previous inference routes. Before setup,
+the coordinator allocates and claims an unused namespace on the locked worker
+before Harbor starts. It skips existing unowned state, another eval's receipt,
+and occupied ports without deleting registries or stopping listeners. A retry
+reuses its own receipt. Setup and all operational steps receive the selected
+triplet and keep the same deployment. Explicit port overrides remain strict:
+they must be distinct, available, and use a non-default gateway port.
+The image build persists the dashboard port from onboarding into OpenClaw's
+`gateway.port`. NemoClaw's canonical warm-up and pairing approval clear runtime
+port overrides, so an inherited default port would prevent scope approval.
+
+Before each operational prompt, `agent/readiness.json` records separate checks
+for sandbox access, gateway health, authenticated gateway health, and the
+sandbox-installed `vss configure check`. A listening HTTP endpoint alone does
+not establish successful pairing. Readiness failure stops before model work
+and records stage/exit metadata without gateway credentials or raw config.
+Pending pairing receives full probe budgets; when no full attempt fits, the
+report preserves the last pairing failure with a `pairing_deadline` reason.
+The same report and the initial namespace ownership/port receipt are included
+under `artifacts/logs/artifacts/nemoclaw/` so the workflow archive preserves
+them even though it excludes raw agent trajectories.
+
+The setup checks require trajectory evidence of Build Vision AI use and,
+when selected, a ready NemoClaw sandbox with its VSS CLI configured. An answer
+that only mentions the skill or sandbox does not satisfy those checks.
+
 ### Worked example — `skills/operations/vss-manage-video-io-storage/evals/vios_ops.json`
 
-13-query thread against VIOS / VST: upload, snapshot, clip, sensor info, recorder status, timelines, etc. There is no `/vss-build-vision-ai` prerequisite — the **first query** tells the agent to stand VIOS up standalone via the skill's bundled `references/deploy-vios-service.md` runbook, and folds the environment prerequisites (required env vars, ports) into that same query. Produces 13 chained tasks on the targeted platform.
+The first query explicitly asks `/vss-build-vision-ai` to deploy VIOS in SDRC-routed mode, without uploading the evaluation video. It also describes how to attach NemoClaw when selected. Later queries exercise upload, snapshot, clip, recording, and replay APIs on the preserved deployment.
 
-```json
-{
-  "skills": ["vss-manage-video-io-storage"],
-  "resources": {"platforms": {"L40S": {"gpu_count": 1}}},
-  "expects": [
-    {
-      "query": "Upload the sample warehouse video to VIOS with timestamp 2025-01-01T00:00:00.000Z.\n\n**Environment & prerequisites:** No VSS profile is pre-deployed. Probe http://localhost:30888/vst/api/v1/sensor/version first; if it fails, stand VIOS up standalone via this skill's bundled references/deploy-vios-service.md runbook (pre-authorized via SKILL.md § Pre-authorized autonomous mode). Required env vars: NGC_CLI_API_KEY, HOST_IP, VSS_DATA_DIR, VSS_APPS_DIR, plus the Brev secure-link env vars.",
-      "checks": [
-        "The upload PUT to /vst/api/v1/storage/file/<filename>?timestamp=... either returns HTTP 2xx OR returns the VST sensor-cap error",
-        "curl -sf http://localhost:30888/vst/api/v1/sensor/list returns a JSON array containing a sensor whose name matches the uploaded video's filename stem"
-      ]
-    },
-    // ... 12 more entries ...
-  ]
-}
-```
-
-Source: [`skills/operations/vss-manage-video-io-storage/evals/vios_ops.json`](../../skills/operations/vss-manage-video-io-storage/evals/vios_ops.json)
-
-What the agent derives from this spec:
-- `profile` is absent → **no `/vss-build-vision-ai` prerequisite is injected.** The trial runs on a bare Brev instance and the agent uses the skill's bundled deploy contract (documents direct-routing and SDRC-routed modes — either acceptable) when it finds VIOS missing.
-- `resources.platforms` is `{L40S: {gpu_count: 1}}` → one dataset, one platform. No fan-out.
-- `expects[]` has 13 entries → 13 chained `vss-manage-video-io-storage` tasks, each gated on `requires_previous_passed`.
-- `checks` use a mix of curl probes and trajectory-style assertions — the generic judge routes each to the right evaluator.
+The spec declares both `vss-manage-video-io-storage` and `vss-build-vision-ai` in `skills`. Its platform matrix determines the generated datasets; each `expects[]` entry becomes one task, gated on the preceding task passing. The adapter renders the spec query and keeps verifier checks separate from the agent instruction.
 
 ## Running a trial by hand
 
@@ -267,3 +399,35 @@ disown
 **Agent deployment fails with "pull access denied".** `NGC_CLI_API_KEY` missing or invalid — the agent needs it to pull VSS NIM containers from `nvcr.io`.
 
 **Orphan `harbor-*` Brev instances.** The harness no longer auto-provisions — every trial must use a `vss-eval-*` pool member. If you see `harbor-*` instances in `brev ls`, they're stragglers from before this change (or from someone running `uvx harbor` manually without `BREV_INSTANCE` set). Clean them up with `brev delete <name>`.
+
+### Codex scratch and trajectory isolation
+
+Each Codex invocation uses a fresh temporary home and credential directory.
+Harbor appends provider and MCP configuration, so an interrupted invocation's
+configuration must never be reused by a later invocation. Codex resume still
+restores the explicitly requested session through Harbor's resume mechanism.
+
+Before each trial, the Brev environment archives the full `/logs/agent/sessions`
+tree, including hidden entries, Codex date directories and Claude project
+directories, along with root agent outputs. Empty directories are harmless;
+an actual archive failure stops setup. A failed launch therefore cannot borrow prior-trial
+sessions, token counts, or deployment evidence. Archives remain under
+`~/.claude-archive/` for runner-side investigation.
+
+Specs can declare `sandbox_fixtures` as MP4 basenames from the pinned bundle
+at `/tmp/vss-sample-data/dev-profile-sample-data/`. For NemoClaw setup, after
+the coding agent succeeds and before grading, the harness first requires a
+`Ready` sandbox, successful sandbox execution, authenticated gateway access,
+and valid VSS CLI configuration. With local NIM, a separate native OpenClaw
+session must complete through the selected model; its response stays outside
+the graded trajectory. These checks also run when no fixtures are declared,
+and retain metadata in `nemoclaw/setup-readiness.json`. The harness then uploads
+only the declared files and requires matching SHA-256 checksums.
+Missing host files, upload failures and mismatches fail setup. It neither
+downloads fixtures nor registers them with VSS. Sanitized results are retained
+in `nemoclaw/fixtures.json` in the workflow artifacts.
+
+File uploads verify the worker destination's size and SHA-256 before returning
+success. Transient transport failures, absent destinations and size/checksum
+mismatches retry within the existing transfer deadline. Inaccessible or invalid
+destinations stop immediately; persistent mismatches still fail the upload.
