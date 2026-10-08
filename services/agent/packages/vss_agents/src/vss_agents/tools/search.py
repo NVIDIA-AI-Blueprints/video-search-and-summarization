@@ -638,12 +638,12 @@ async def _fusion_attribute_results(
             attr_params["query_embedding"] = attribute_embeddings
         try:
             attribute_results = await attribute_search_fn.ainvoke(attr_params)
-        except Exception as e:
-            logger.error(f"Attribute search failed for {embed_result.video_name}: {e}")
+        except Exception:
+            logger.exception(f"Attribute search failed for {embed_result.video_name}")
             attribute_results = None
         return embed_result, attribute_results
-    except Exception as e:
-        logger.error(f"Failed to process embed result {embed_result.video_name}: {e}")
+    except Exception:
+        logger.exception(f"Failed to process embed result {embed_result.video_name}")
         return embed_result, None
 
 

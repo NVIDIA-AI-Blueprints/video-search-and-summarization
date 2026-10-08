@@ -38,6 +38,7 @@ from vss_agents.embed.embed import EmbedClient
 from vss_agents.embed.rtvi_cv_embed import RTVICVEmbedClient
 from vss_agents.tools.vst.snapshot import build_screenshot_url
 from vss_agents.utils.es_client import VSSESClient
+from vss_agents.utils.time_convert import datetime_to_iso8601
 from vss_agents.utils.time_measure import TimeMeasure
 from vss_agents.utils.uuid_string import is_standard_uuid_string
 
@@ -1395,7 +1396,7 @@ async def _attach_fused_screenshot(
     try:
         from vss_agents.tools.vst.utils import get_stream_id
 
-        start_time = timestamp_start.isoformat().replace("+00:00", "Z")
+        start_time = datetime_to_iso8601(timestamp_start)
 
         # Get stream_id from sensor_id (accepts either camera name or UUID)
         # Use internal URL for stream resolution (agent needs internal access)
