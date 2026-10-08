@@ -113,6 +113,15 @@ def test_build_candidates_screenshot_uses_best_scoring_attribute():
     assert candidates[0].screenshot_url == "best_shot"
 
 
+def test_build_candidates_screenshot_skips_stronger_attribute_without_url():
+    attrs = [
+        _attr_result(object_id="1", behavior_score=0.9),
+        _attr_result(object_id="2", behavior_score=0.4, screenshot_url="available_shot"),
+    ]
+    candidates = _fusion.build_fusion_candidates([(_embed_result(), attrs)], attribute_count=2)
+    assert candidates[0].screenshot_url == "available_shot"
+
+
 def test_build_candidates_empty_attribute_payload():
     candidates = _fusion.build_fusion_candidates([(_embed_result(similarity=0.7), None)], attribute_count=2)
     assert candidates[0].normalised_attribute_score == 0.0
