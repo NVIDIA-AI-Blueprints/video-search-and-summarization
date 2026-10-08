@@ -16,7 +16,7 @@
 FROM node:18-alpine AS frontend-builder
 WORKDIR /client
 COPY calibration-toolkit/calibration/client/package*.json ./
-RUN npm ci --prefer-offline
+RUN npm ci
 COPY calibration-toolkit/calibration/client/ ./
 # Build React then run the NGC prod path post-processor (rewrites static
 # URLs in index.html so the app works when deployed at a sub-path).
