@@ -896,7 +896,7 @@ else:
         "WDM_WL_HEALTH_CHECK_WAIT_ENABLED=false; using legacy pod readiness "
         "(Docker container state for PodErrorWatcher; no HTTP health wait in add())"
     )
-startup_recovery_specs = {}
+startup_recovery_stream_ids = {}
 
 
 def should_handle_config_events():
@@ -1230,6 +1230,16 @@ def _workload_specs_list_for_pod(pod_name):
     if not isinstance(parsed, list):
         return []
     return parsed
+
+
+def _workload_stream_id(spec):
+    """Return a workload stream ID from a saved spec, or None if malformed."""
+    if not isinstance(spec, dict):
+        return None
+    event = spec.get(app.config["WDM_EVENT_OBJECT_FIELD"])
+    if not isinstance(event, dict):
+        return None
+    return event.get(app.config["WDM_WL_ID_FIELD"])
 
 
 @app.route('/current_distributed_streams_name_id_url', methods=["GET"])
@@ -4068,18 +4078,28 @@ def GetRecoveryWorkloadSpecs(pod_name, assignment_key=None):
         and health_watcher.consume_startup_recovery(pod_name)
     )
     if is_startup_recovery:
-        return startup_recovery_specs.pop(key, None)
+        startup_ids = startup_recovery_stream_ids.pop(key, set())
+        current_specs = _workload_specs_list_for_pod(key)
+        filtered_specs = [
+            spec
+            for spec in current_specs
+            if _workload_stream_id(spec) in startup_ids
+        ]
+        if not filtered_specs:
+            return None
+        # Preserve the double-encoded format expected by readdStreams().
+        return json.dumps(json.dumps(filtered_specs))
 
     # A candidate first seen healthy never produces a startup recovery. Drop
     # its stale snapshot before serving any later, normal runtime recovery.
-    startup_recovery_specs.pop(key, None)
+    startup_recovery_stream_ids.pop(key, None)
     return cfg.getworkLoadSpecs(key)
 
 
 def SeedSavedWorkloadRecoveryCandidates():
-    """Snapshot persisted streams and seed their startup recovery candidates."""
-    global startup_recovery_specs
-    startup_recovery_specs = {}
+    """Snapshot persisted stream IDs and seed startup recovery candidates."""
+    global startup_recovery_stream_ids
+    startup_recovery_stream_ids = {}
     if health_watcher is None or not _config_bool(
         app.config.get("WDM_REAPPLY_ON_WL_RESTART"), False
     ):
@@ -4087,19 +4107,21 @@ def SeedSavedWorkloadRecoveryCandidates():
 
     try:
         for pod_name in cfg.getpods() or []:
-            if cfg.getSpecCount(pod_name) <= 0:
-                continue
-            pod_specs = cfg.getworkLoadSpecs(pod_name)
-            if pod_specs:
-                startup_recovery_specs[pod_name] = pod_specs
+            stream_ids = {
+                _workload_stream_id(spec)
+                for spec in _workload_specs_list_for_pod(pod_name)
+            }
+            stream_ids.discard(None)
+            if stream_ids:
+                startup_recovery_stream_ids[pod_name] = stream_ids
     except Exception:
         app.logger.exception(
             "Couldn't load saved workload assignments for startup recovery"
         )
-        startup_recovery_specs = {}
+        startup_recovery_stream_ids = {}
         return []
 
-    saved_pods = list(startup_recovery_specs)
+    saved_pods = list(startup_recovery_stream_ids)
     health_watcher.seed_startup_recovery_candidates(saved_pods)
     return saved_pods
 

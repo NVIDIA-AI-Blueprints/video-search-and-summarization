@@ -17,6 +17,7 @@
 Pytest tests for app.py Flask routes and helpers.
 Use the client and app_module fixtures from conftest; do not import app at module level.
 """
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -444,11 +445,13 @@ class TestSeedSavedWorkloadRecoveryCandidates:
         monkeypatch.setattr(app_module, "health_watcher", watcher)
         app_module.app.config["WDM_REAPPLY_ON_WL_RESTART"] = True
         app_module.cfg.getpods.return_value = ["pod-with-stream", "empty-pod"]
-        app_module.cfg.getSpecCount.side_effect = lambda pod: {
-            "pod-with-stream": 1,
-            "empty-pod": 0,
-        }[pod]
-        app_module.cfg.getworkLoadSpecs.return_value = "startup-spec"
+        app_module.cfg.getworkLoadSpecs.side_effect = lambda pod: json.dumps(
+            json.dumps(
+                [{"event": {"camera_id": "saved-camera"}}]
+                if pod == "pod-with-stream"
+                else []
+            )
+        )
 
         result = app_module.SeedSavedWorkloadRecoveryCandidates()
 
@@ -456,8 +459,8 @@ class TestSeedSavedWorkloadRecoveryCandidates:
         watcher.seed_startup_recovery_candidates.assert_called_once_with(
             ["pod-with-stream"]
         )
-        assert app_module.startup_recovery_specs == {
-            "pod-with-stream": "startup-spec"
+        assert app_module.startup_recovery_stream_ids == {
+            "pod-with-stream": {"saved-camera"}
         }
 
     def test_does_not_seed_when_reapply_is_disabled(
@@ -473,24 +476,33 @@ class TestSeedSavedWorkloadRecoveryCandidates:
 
 
 class TestGetRecoveryWorkloadSpecs:
-    def test_startup_recovery_uses_only_the_startup_snapshot(
+    def test_startup_recovery_intersects_snapshot_ids_with_current_specs(
         self, app_module, monkeypatch
     ):
         watcher = MagicMock()
         watcher.consume_startup_recovery.return_value = True
         monkeypatch.setattr(app_module, "health_watcher", watcher)
-        app_module.startup_recovery_specs = {
-            "pod-0": "saved-before-startup"
+        app_module.startup_recovery_stream_ids = {
+            "pod-0": {"kept-camera", "deleted-camera"}
         }
-        app_module.cfg.getworkLoadSpecs.return_value = (
-            "saved-before-startup-plus-new-in-progress"
+        current_specs = [
+            {
+                "event": {
+                    "camera_id": "kept-camera",
+                    "camera_url": "rtsp://updated",
+                }
+            },
+            {"event": {"camera_id": "new-camera"}},
+        ]
+        app_module.cfg.getworkLoadSpecs.return_value = json.dumps(
+            json.dumps(current_specs)
         )
 
         result = app_module.GetRecoveryWorkloadSpecs("pod-0")
 
-        assert result == "saved-before-startup"
-        app_module.cfg.getworkLoadSpecs.assert_not_called()
-        assert app_module.startup_recovery_specs == {}
+        assert json.loads(json.loads(result)) == [current_specs[0]]
+        app_module.cfg.getworkLoadSpecs.assert_called_once_with("pod-0")
+        assert app_module.startup_recovery_stream_ids == {}
 
     def test_normal_recovery_uses_current_assignments(
         self, app_module, monkeypatch
@@ -498,11 +510,13 @@ class TestGetRecoveryWorkloadSpecs:
         watcher = MagicMock()
         watcher.consume_startup_recovery.return_value = False
         monkeypatch.setattr(app_module, "health_watcher", watcher)
-        app_module.startup_recovery_specs = {"pod-0": "stale-startup-copy"}
+        app_module.startup_recovery_stream_ids = {
+            "pod-0": {"startup-camera"}
+        }
         app_module.cfg.getworkLoadSpecs.return_value = "current-assignments"
 
         result = app_module.GetRecoveryWorkloadSpecs("pod-0")
 
         assert result == "current-assignments"
         app_module.cfg.getworkLoadSpecs.assert_called_once_with("pod-0")
-        assert app_module.startup_recovery_specs == {}
+        assert app_module.startup_recovery_stream_ids == {}
