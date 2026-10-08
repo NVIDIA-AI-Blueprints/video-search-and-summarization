@@ -127,12 +127,17 @@ def _wait_sandbox_ready(sandbox: str, row: dict[str, Any]) -> None:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise RuntimeError("sandbox_phase deadline exceeded")
-        result = subprocess.run(
-            ["openshell", "sandbox", "get", sandbox, "-o", "json"],
-            stdin=subprocess.DEVNULL, capture_output=True, text=True,
-            timeout=min(30, remaining), check=False,
-        )
         row["attempts"] = row.get("attempts", 0) + 1
+        try:
+            result = subprocess.run(
+                ["openshell", "sandbox", "get", sandbox, "-o", "json"],
+                stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                timeout=min(30, remaining), check=False,
+            )
+        except subprocess.TimeoutExpired:
+            row["timeouts"] = row.get("timeouts", 0) + 1
+            time.sleep(min(3, max(0, deadline - time.monotonic())))
+            continue
         row["exit_code"] = result.returncode
         if result.returncode != 0:
             raise RuntimeError("sandbox_phase lookup failed")

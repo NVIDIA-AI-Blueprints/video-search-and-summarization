@@ -426,6 +426,32 @@ def test_setup_waits_for_ready_with_a_bounded_deadline(runner, monkeypatch):
     assert clock[0] == 183
 
 
+@pytest.mark.parametrize("recover", [True, False])
+def test_setup_phase_lookup_timeout_uses_remaining_deadline(runner, monkeypatch, recover):
+    clock = [0.0]
+    calls = []
+    def probe(*args, **kwargs):
+        calls.append(kwargs["timeout"])
+        if recover and len(calls) == 2:
+            return subprocess.CompletedProcess(args, 0, '{"phase":"Ready"}', "")
+        clock[0] += kwargs["timeout"]
+        raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+    monkeypatch.setattr(runner.subprocess, "run", probe)
+    monkeypatch.setattr(runner.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(runner.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay))
+    row = {}
+    if recover:
+        runner._wait_sandbox_ready("se-test", row)
+        assert row["phase"] == "Ready"
+        assert row["timeouts"] == 1
+        assert row["attempts"] == 2
+    else:
+        with pytest.raises(RuntimeError, match="deadline"):
+            runner._wait_sandbox_ready("se-test", row)
+        assert clock[0] == 180
+        assert calls[-1] == 15
+
+
 
 @pytest.mark.parametrize("approve", [True, False])
 def test_pairing_uses_final_remaining_window(runner, monkeypatch, tmp_path, approve):

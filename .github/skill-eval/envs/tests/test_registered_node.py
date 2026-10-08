@@ -364,9 +364,11 @@ class PreparationRetries(unittest.IsolatedAsyncioTestCase):
     async def test_upload_attests_destination_and_retries_only_recoverable_failures(self):
         scenarios = (
             ("missing_then_present", 0, 0, 2),
+            ("checksum_then_present", 0, 0, 2),
+            ("truncated_then_present", 0, 0, 2),
             ("always_missing", 0, 0, 3),
             ("permission_denied", 1, 1, 1),
-            ("wrong_checksum", 0, 0, 1),
+            ("wrong_checksum", 0, 0, 3),
             ("parent_failed", 1, 1, 0),
         )
         for name, first_rc, next_rc, copies in scenarios:
@@ -380,9 +382,11 @@ class PreparationRetries(unittest.IsolatedAsyncioTestCase):
                     probes.append(command)
                     marker = command.rsplit(" ", 1)[-1]
                     absent = name == "always_missing" or (name == "missing_then_present" and len(probes) == 1)
+                    corrupt = name == "wrong_checksum" or (name == "checksum_then_present" and len(probes) == 1)
+                    truncated = name == "truncated_then_present" and len(probes) == 1
                     report = {"state": "absent"} if absent else {
-                        "state": "present", "bytes": source.stat().st_size,
-                        "sha256": "0" * 64 if name == "wrong_checksum" else digest,
+                        "state": "present", "bytes": 0 if truncated else source.stat().st_size,
+                        "sha256": "0" * 64 if corrupt else digest,
                     }
                     # Exercise a zero Brev exit for a missing remote file,
                     # mixed with transport text and harmless output.
@@ -397,7 +401,7 @@ class PreparationRetries(unittest.IsolatedAsyncioTestCase):
                      mock.patch.object(brev_env, "_run_brev_copy_once", new=mock.AsyncMock(return_value=brev_env.ExecResult(return_code=0))) as transfer, \
                      mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(side_effect=attestation)) as attest, \
                      mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()):
-                    if name == "missing_then_present":
+                    if name in ("missing_then_present", "checksum_then_present", "truncated_then_present"):
                         await env.upload_file(source, "/tmp/plan.json")
                     else:
                         with self.assertRaises(RuntimeError):

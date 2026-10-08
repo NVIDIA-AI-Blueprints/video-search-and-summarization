@@ -428,5 +428,6 @@ downloads fixtures nor registers them with VSS. Sanitized results are retained
 in `nemoclaw/fixtures.json` in the workflow artifacts.
 
 File uploads verify the worker destination's size and SHA-256 before returning
-success. Transient transport failures and absent destinations retry within the
-existing transfer deadline; permissions and checksum failures stop immediately.
+success. Transient transport failures, absent destinations and size/checksum
+mismatches retry within the existing transfer deadline. Inaccessible or invalid
+destinations stop immediately; persistent mismatches still fail the upload.

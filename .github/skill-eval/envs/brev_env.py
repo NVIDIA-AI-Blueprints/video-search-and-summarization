@@ -1040,11 +1040,13 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                                 raise RuntimeError("Uploaded file attestation response is missing or ambiguous")
                             report = json.loads(rows[0])
                             if report.get("state") == "present":
-                                if report.get("bytes") != size or report.get("sha256") != digest:
-                                    raise RuntimeError("Uploaded file size/checksum verification failed")
-                                return
-                            retry = report.get("state") == "absent"
-                            failure = "Uploaded file is absent on worker" if retry else "Uploaded file is inaccessible or invalid on worker"
+                                if report.get("bytes") == size and report.get("sha256") == digest:
+                                    return
+                                retry = True
+                                failure = "Uploaded file size/checksum verification failed"
+                            else:
+                                retry = report.get("state") == "absent"
+                                failure = "Uploaded file is absent on worker" if retry else "Uploaded file is inaccessible or invalid on worker"
                         else:
                             failure = "Uploaded file verification transport failed"
                             retry = _transient_transport_failure(result)
