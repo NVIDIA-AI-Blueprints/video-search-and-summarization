@@ -1,0 +1,207 @@
+# syntax=docker/dockerfile:1.4
+
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# DeepSeek Harness (dsh) base image — a plain Node base plus the pinned `dsh`
+# CLI, the vss CLI, and the vss_cli tool plugin baked into the `headless`
+# profile (dsh's one-shot, no-server, no-GUI runner: `dsh --profile headless
+# "<task>"`), but no VSS skills: a VSS-capable foundation a user still
+# extends with their own tools and plugins, not a blank harness.
+# tags: [dsh, deepseek-harness, base, vss-cli]
+#
+# Unlike ./.openclaw and ./.hermes, this does not `FROM` an externally
+# published managed runtime: dsh has no such thing (no official Docker image
+# in github.com/deepseek-ai/deepseek-harness, confirmed empty on a repo
+# search), and installing it is just `npm install -g @deepseek-ai/dsh`. So
+# this Dockerfile owns the whole base layer itself, the way ./.hermes owns
+# its own vss CLI venv rather than depending on anything external for it.
+#
+# dsh has no memory subsystem comparable to OpenClaw's memory-core or
+# Hermes' memory toggle (confirmed: no `@deepseek-ai/dsh-*memory*` package
+# in a real `npm install @deepseek-ai/dsh` tree) -- there is nothing to turn
+# on here, unlike the other two bases.
+#
+# The vss_cli tool plugin is baked directly into the `headless` profile's
+# own package.json (as a file: dependency) and cordis.patch.yml (an `insert:`
+# row), the profile-scoped equivalent of Hermes' bundled-plugin fix: it reads
+# at every `dsh --profile headless` invocation under this image's $DSH_HOME
+# (`/sandbox/.dsh`, i.e. $HOME/.dsh with HOME=/sandbox), not something an
+# operator has to install themselves. This covers the `headless` profile
+# only -- the one profile this image documents and ships skills-lessly for;
+# a different profile (`web`, `sdk`, ...) was not tested and is not wired.
+#
+#   docker build -f .dsh/Dockerfile.base -t <registry>/vss-harness-dsh:<tag> .dsh
+
+ARG BASE_IMAGE=node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc
+ARG BUILDER_IMAGE=node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc
+# uv 0.12.10, by index digest (multi-arch). Same pin as ../.hermes/Dockerfile.base's.
+ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500
+# DeepSeek Harness CLI. Developer preview: expect breaking changes between
+# releases; move this pin deliberately.
+ARG DSH_VERSION=0.2.0-rc.2
+# The vss CLI only -- this base ships no skills.
+ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
+ARG VSS_REF=develop
+
+# ── uv, for the vss CLI wheel build ────────────────────────────────────────────
+FROM ${UV_IMAGE} AS uv
+
+# ── VSS source checkout + CLI wheels only (no skills) ──────────────────────────
+FROM ${BUILDER_IMAGE} AS vss-src
+ARG VSS_REPO
+ARG VSS_REF
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=uv /uv /usr/local/bin/uv
+# Dev-loop override: see ../.openclaw/Dockerfile's vss-src stage for the full
+# rationale (a .vss-src/ working-tree snapshot wins over the pinned fetch).
+COPY --chown=root:root Dockerfil[e] .vss-sr[c] /opt/vss-src/
+RUN rm -f /opt/vss-src/Dockerfile \
+    && if [ -f /opt/vss-src/STAGED ]; then \
+         echo "vss-src: pre-staged working-tree snapshot" && cat /opt/vss-src/STAGED; \
+       else \
+         git init -q /opt/vss-src \
+         && git -C /opt/vss-src remote add origin "$VSS_REPO" \
+         && git -C /opt/vss-src fetch -q --filter=tree:0 --tags origin "$VSS_REF" \
+         && git -C /opt/vss-src checkout -q FETCH_HEAD; \
+       fi
+RUN set -eux; \
+    if [ -f /opt/vss-src/STAGED ]; then \
+      export SETUPTOOLS_SCM_PRETEND_VERSION="$(sed -n 's/^version=//p' /opt/vss-src/STAGED)"; \
+      test -n "$SETUPTOOLS_SCM_PRETEND_VERSION"; \
+    fi; \
+    mkdir -p /opt/vss-wheels \
+    && uv build --wheel --all-packages --project /opt/vss-src/libs/vss -o /opt/vss-wheels \
+    && ls /opt/vss-wheels
+
+# ── vss_cli tool plugin build ───────────────────────────────────────────────────
+FROM ${BUILDER_IMAGE} AS vss-plugin-builder
+WORKDIR /opt/vss-plugin
+COPY plugin/package.json plugin/tsconfig.json ./
+RUN npm install --no-audit --no-fund
+COPY plugin/src/ ./src/
+RUN npm run build \
+    && npm prune --omit=dev --no-audit --no-fund \
+    && test -f lib/index.js
+
+# ── Base runtime: dsh CLI, vss CLI, the plugin baked into the headless profile ──
+FROM ${BASE_IMAGE}
+ARG DSH_VERSION
+USER root
+
+# Harbor trial paths. Real world-writable directories, matching
+# ../.openclaw/Dockerfile and ../.hermes/Dockerfile's sandbox contract.
+RUN for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done
+
+# This base owns its whole runtime (see header): python3 for the vss CLI venv,
+# ca-certificates for npm/git/https.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Non-root sandbox user, matching the other two harnesses' final USER.
+RUN useradd --create-home --home-dir /sandbox --shell /bin/bash sandbox
+
+# DeepSeek Harness CLI (developer preview; pin moves deliberately -- see header).
+RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" \
+    && dsh --version
+
+# The vss CLI. Own venv, same wheel-install pattern as ../.hermes/Dockerfile.base.
+COPY --from=uv /uv /usr/local/bin/uv
+COPY --from=vss-src /opt/vss-wheels/ /opt/vss-wheels/
+RUN set -eux; \
+    uv venv --python /usr/bin/python3 /usr/local/vss; \
+    VIRTUAL_ENV=/usr/local/vss uv pip install /opt/vss-wheels/*.whl; \
+    ln -sf /usr/local/vss/bin/vss /usr/local/bin/vss; \
+    rm -rf /opt/vss-wheels; \
+    vss --version; \
+    su -s /bin/sh sandbox -c "vss --version"
+
+# The vss_cli tool plugin, built in vss-plugin-builder. Separate COPYs, not
+# one multi-source COPY: Docker flattens a directory source's *contents* into
+# the destination rather than nesting it, so a combined copy loses the lib/
+# subdirectory package.json's "main": "lib/index.js" expects.
+COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/package.json /opt/vss-plugin/package.json
+COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/lib/ /opt/vss-plugin/lib/
+COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/node_modules/ /opt/vss-plugin/node_modules/
+
+# Bake the plugin into the headless profile: `dsh --profile headless` on first
+# run scaffolds $DSH_HOME/profiles/headless/{package.json,cordis.patch.yml};
+# add our plugin as a file: dependency and an `insert:` patch row referencing
+# it by package name, matching Cordis's own config-layering model (see header
+# comment) rather than inventing a different mechanism per harness.
+#
+# The file: source (/opt/vss-plugin) must (a) live outside node_modules and
+# (b) survive for the life of the image -- `npm install` of a local file:
+# dependency creates a *symlink* to the source, not a copy. An earlier
+# attempt placed the source at node_modules/@nvidia-vss-dsh-plugin-src and
+# got a silently empty package (no error); a later attempt placed it under a
+# path this Dockerfile then `rm -rf`'d as scratch, which left the installed
+# dependency a dangling symlink that only failed at container run time, not
+# at build time (the build-time check below ran before that cleanup step).
+# This path is never deleted for exactly that reason.
+USER sandbox
+ENV HOME=/sandbox
+RUN set -eux; \
+    cd /sandbox \
+    && timeout 30 dsh --profile headless --dump-config > /tmp/dump-config-init.log 2>&1 || true; \
+    test -f /sandbox/.dsh/profiles/headless/package.json; \
+    test -f /sandbox/.dsh/profiles/headless/cordis.patch.yml; \
+    node -e '\
+      const fs = require("fs"); \
+      const p = "/sandbox/.dsh/profiles/headless/package.json"; \
+      const pkg = JSON.parse(fs.readFileSync(p, "utf8")); \
+      pkg.dependencies["@nvidia-vss/dsh-plugin"] = "file:/opt/vss-plugin"; \
+      fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + "\n"); \
+    '; \
+    printf '%s\n' \
+      '- insert:' \
+      '    - id: vss-cli-tool' \
+      "      name: '@nvidia-vss/dsh-plugin'" \
+      > /sandbox/.dsh/profiles/headless/cordis.patch.yml; \
+    cd /sandbox/.dsh/profiles/headless \
+    && npm install --no-audit --no-fund \
+    && test -e node_modules/@nvidia-vss/dsh-plugin/lib/index.js
+
+# Prove the plugin actually mounts at boot, not just that the files exist:
+# `--dump-config` composes without instantiating plugins (a schema error in
+# apply() would not show there -- this caught a real
+# "schema.required is not supported" bug during development), so this runs an
+# actual one-shot task. No model credentials are configured in this image, so
+# the expected failure is MISSING_CREDENTIAL *after* every plugin has loaded;
+# a plugin-activation failure ("did not activate", "JsonSchemaError", a
+# MODULE_NOT_FOUND) before that point is the thing this guards against.
+#
+# The failure-signature check below uses `grep ... && exit 1`, not
+# `! grep ...`: POSIX `set -e` does not abort on a *negated* command's
+# failure (a documented shell exemption, confirmed by direct test), so
+# `! grep -q pattern file` under `set -eux` silently does nothing when the
+# pattern IS found unless it happens to be the script's last statement --
+# which this would not have been, since the MISSING_CREDENTIAL check follows
+# it.
+RUN set -eux; \
+    cd /sandbox \
+    && dsh --profile headless --dump-config 2>&1 | grep -q "id: vss-cli-tool"; \
+    (timeout 20 dsh --profile headless "diagnostic: reply ok, call no tool" \
+      > /tmp/dsh-verify.log 2>&1 || true); \
+    cat /tmp/dsh-verify.log; \
+    if grep -qE "did not activate|JsonSchemaError|Cannot find module|MODULE_NOT_FOUND" /tmp/dsh-verify.log; then \
+      echo "vss_cli plugin failed to activate" >&2; exit 1; \
+    fi; \
+    grep -q "MISSING_CREDENTIAL" /tmp/dsh-verify.log
+
+USER root
+RUN rm -f /tmp/dump-config-init.log /tmp/dsh-verify.log
+
+USER sandbox
+WORKDIR /sandbox
+CMD ["sleep", "infinity"]
+
+LABEL harness.base="dsh-headless" \
+      harness.contract="harbor-trial-v1" \
+      harness.agent="dsh" \
+      harness.variant="base" \
+      harness.vss-cli="true" \
+      harness.vss-plugin="true" \
+      harness.vss-skills="false" \
+      harness.workspace-root="/sandbox"

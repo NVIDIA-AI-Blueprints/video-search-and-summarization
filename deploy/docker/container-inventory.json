@@ -429,6 +429,17 @@
       "compose_image_names": [],
       "tag_variables": [],
       "notes": "Base variant of vss-harness-hermes: NemoClaw's managed Hermes runtime plus the vss CLI and the vss_cli tool plugin (memory on by default), but no VSS skills and no workspace instruction docs beyond the empty /sandbox/AGENTS.md, for evaluating an agent users extend with their own skills and plugins. Shares the vss-harness-hermes GHCR repository with the -base tag suffix. Builds the vss CLI wheels from VSS_REF=<commit being built>, same as the full image, so source_path includes libs/vss and .hermes/plugin."
+    },
+    {
+      "name": "vss-harness-dsh",
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": [".dsh", "libs/vss"],
+      "context": ".dsh",
+      "dockerfile": ".dsh/Dockerfile.base",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": [],
+      "notes": "DeepSeek Harness (dsh) base image: a plain Node base (no externally published managed runtime, unlike vss-harness-openclaw/hermes) plus the pinned dsh CLI, the vss CLI, and the vss_cli tool plugin baked into the headless profile. No VSS skills, no full/non-base counterpart (none is built). Builds the vss CLI wheels from VSS_REF=<commit being built>, so source_path includes libs/vss."
     }
   ]
 }
