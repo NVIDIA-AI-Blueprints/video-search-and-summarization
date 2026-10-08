@@ -431,6 +431,14 @@ Missing host files, upload failures and mismatches fail setup. It neither
 downloads fixtures nor registers them with VSS. Sanitized results are retained
 in `nemoclaw/fixtures.json` in the workflow artifacts.
 
+Authenticated health and CLI configuration probes source the same NemoClaw
+runtime environment as native turns, so proxy policy failures cannot hide
+behind a successful plain-shell check. An explicit pending-pairing response
+triggers at most one bounded `nemoclaw <sandbox> connect --probe-only` recovery
+within the existing authentication deadline. NemoClaw retains ownership of
+device approval; the harness still requires a successful authenticated health
+response afterwards and never edits pairing stores or approves raw requests.
+
 A task can also declare `"host_fixture": {"nvstreamer_scan_file": "warehouse_sample.mp4"}`
 to test NvStreamer's filesystem scan from NemoClaw. Immediately before that
 native task, the host copies the pinned sample under a unique basename into

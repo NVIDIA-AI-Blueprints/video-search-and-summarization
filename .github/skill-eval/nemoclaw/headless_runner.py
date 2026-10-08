@@ -199,10 +199,13 @@ def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> No
                 else:
                     _ensure_gateway(sandbox)
             else:
+                if stage != "sandbox_access":
+                    row["execution_environment"] = "nemoclaw_runtime"
                 # Canonical device scope approval can settle asynchronously.
                 # Wait only for that explicit state; bad credentials and other
                 # failures are not disguised as slow gateway startup.
                 deadline = time.monotonic() + 90
+                pairing_recovery_attempted = False
                 while True:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
@@ -211,7 +214,8 @@ def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> No
                     timeout = min(30 if stage == "gateway_authentication" else 90, remaining)
                     row["attempts"] = row.get("attempts", 0) + 1
                     try:
-                        result = _sandbox_exec(sandbox, command, timeout=timeout)
+                        execute = _sandbox_exec if stage == "sandbox_access" else _nemoclaw_exec
+                        result = execute(sandbox, command, timeout=timeout)
                     except subprocess.TimeoutExpired:
                         if row.get("reason") != "pairing_pending":
                             raise
@@ -229,10 +233,32 @@ def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> No
                         row.pop("reason", None)
                     remaining = deadline - time.monotonic()
                     if not pending or remaining <= 0:
+                        if pending:
+                            row["reason"] = "pairing_deadline"
                         break
-                    time.sleep(min(3, remaining))
+                    if not pairing_recovery_attempted:
+                        # The watcher did not settle this explicit request.
+                        # NemoClaw owns allowlisted device approval; its probe
+                        # path repairs pending pairing without opening SSH.
+                        # Never approve raw requests or rewrite auth stores.
+                        pairing_recovery_attempted = True
+                        try:
+                            recovery = subprocess.run(
+                                ["nemoclaw", sandbox, "connect", "--probe-only"],
+                                stdin=subprocess.DEVNULL, capture_output=True,
+                                text=True, timeout=min(30, remaining), check=False,
+                            )
+                            row["pairing_recovery_exit_code"] = recovery.returncode
+                        except subprocess.TimeoutExpired:
+                            row["pairing_recovery_timeout"] = True
+                        remaining = deadline - time.monotonic()
+                    time.sleep(min(3, max(0, remaining)))
                 row["exit_code"] = result.returncode
                 if result.returncode != 0:
+                    if stage == "vss_configuration":
+                        output = ((result.stderr or "") + (result.stdout or "")).lower()
+                        if "403" in output and "tunnel" in output:
+                            row["reason"] = "proxy_tunnel_denied"
                     raise RuntimeError(f"NemoClaw readiness failed at {stage} (exit {result.returncode})")
                 if stage == "gateway_authentication" and _json_object(result.stdout).get("ok") is not True:
                     row["reason"] = "invalid_health_response"
