@@ -448,6 +448,7 @@ class TestSeedSavedWorkloadRecoveryCandidates:
             "pod-with-stream": 1,
             "empty-pod": 0,
         }[pod]
+        app_module.cfg.getworkLoadSpecs.return_value = "startup-spec"
 
         result = app_module.SeedSavedWorkloadRecoveryCandidates()
 
@@ -455,6 +456,9 @@ class TestSeedSavedWorkloadRecoveryCandidates:
         watcher.seed_startup_recovery_candidates.assert_called_once_with(
             ["pod-with-stream"]
         )
+        assert app_module.startup_recovery_specs == {
+            "pod-with-stream": "startup-spec"
+        }
 
     def test_does_not_seed_when_reapply_is_disabled(
         self, app_module, monkeypatch
@@ -466,3 +470,39 @@ class TestSeedSavedWorkloadRecoveryCandidates:
         assert app_module.SeedSavedWorkloadRecoveryCandidates() == []
         app_module.cfg.getpods.assert_not_called()
         watcher.seed_startup_recovery_candidates.assert_not_called()
+
+
+class TestGetRecoveryWorkloadSpecs:
+    def test_startup_recovery_uses_only_the_startup_snapshot(
+        self, app_module, monkeypatch
+    ):
+        watcher = MagicMock()
+        watcher.consume_startup_recovery.return_value = True
+        monkeypatch.setattr(app_module, "health_watcher", watcher)
+        app_module.startup_recovery_specs = {
+            "pod-0": "saved-before-startup"
+        }
+        app_module.cfg.getworkLoadSpecs.return_value = (
+            "saved-before-startup-plus-new-in-progress"
+        )
+
+        result = app_module.GetRecoveryWorkloadSpecs("pod-0")
+
+        assert result == "saved-before-startup"
+        app_module.cfg.getworkLoadSpecs.assert_not_called()
+        assert app_module.startup_recovery_specs == {}
+
+    def test_normal_recovery_uses_current_assignments(
+        self, app_module, monkeypatch
+    ):
+        watcher = MagicMock()
+        watcher.consume_startup_recovery.return_value = False
+        monkeypatch.setattr(app_module, "health_watcher", watcher)
+        app_module.startup_recovery_specs = {"pod-0": "stale-startup-copy"}
+        app_module.cfg.getworkLoadSpecs.return_value = "current-assignments"
+
+        result = app_module.GetRecoveryWorkloadSpecs("pod-0")
+
+        assert result == "current-assignments"
+        app_module.cfg.getworkLoadSpecs.assert_called_once_with("pod-0")
+        assert app_module.startup_recovery_specs == {}

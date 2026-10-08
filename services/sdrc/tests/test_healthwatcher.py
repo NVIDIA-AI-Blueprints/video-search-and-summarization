@@ -69,6 +69,8 @@ def test_saved_workload_first_seen_down_recovers_and_reapplies_streams():
         watcher.poll_once()
 
     assert _events(watcher) == [(False, POD_NAME, POD_NAME)]
+    assert watcher.consume_startup_recovery(POD_NAME)
+    assert not watcher.consume_startup_recovery(POD_NAME)
 
 
 def test_saved_workload_first_seen_healthy_only_establishes_baseline():
@@ -101,6 +103,7 @@ def test_saved_workload_absent_at_startup_recovers_when_it_returns():
         watcher.poll_once()
 
     assert _events(watcher) == [(False, POD_NAME, POD_NAME)]
+    assert watcher.consume_startup_recovery(POD_NAME)
 
 
 def test_recovery_is_emitted_only_after_post_baseline_down_event():
@@ -121,6 +124,7 @@ def test_recovery_is_emitted_only_after_post_baseline_down_event():
 
         watcher.poll_once()
         assert _events(watcher) == [(False, POD_NAME, POD_NAME)]
+        assert not watcher.consume_startup_recovery(POD_NAME)
 
 
 def test_lookup_error_keeps_snapshot_until_a_real_health_change():

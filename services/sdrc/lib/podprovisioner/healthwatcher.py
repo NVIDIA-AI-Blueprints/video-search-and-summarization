@@ -115,6 +115,10 @@ class WorkloadHealthWatcher:
         # recovery if their first health observation is unhealthy; an already
         # healthy workload merely establishes the normal startup baseline.
         self._startup_recovery_candidates: Set[str] = set()
+        # Preserve the origin of a pending/event recovery so the consumer can
+        # reapply only the assignments captured at startup.
+        self._startup_recovery_pending: Set[str] = set()
+        self._startup_recovery_events: Set[str] = set()
         self._events: queue.Queue = queue.Queue()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -210,6 +214,14 @@ class WorkloadHealthWatcher:
                 "Seeded startup recovery candidates for saved workloads: %s",
                 sorted(candidates),
             )
+
+    def consume_startup_recovery(self, pod_name: str) -> bool:
+        """Return whether the next recovery event came from the startup snapshot."""
+        with self._lock:
+            if pod_name not in self._startup_recovery_events:
+                return False
+            self._startup_recovery_events.remove(pod_name)
+            return True
 
     def check_pod(self, pod_info: dict) -> bool:
         """One-shot probe; also updates tracked state and may emit a transition."""
@@ -345,6 +357,7 @@ class WorkloadHealthWatcher:
             absent_candidates = self._startup_recovery_candidates - seen
             self._startup_recovery_candidates.difference_update(absent_candidates)
             self._recovery_pending.update(absent_candidates)
+            self._startup_recovery_pending.update(absent_candidates)
 
         # Pods that disappeared from inventory are treated as down.
         with self._lock:
@@ -387,6 +400,9 @@ class WorkloadHealthWatcher:
                     # The pod disappeared after a real down event and has now
                     # returned with the same name.
                     self._recovery_pending.remove(pod_name)
+                    if pod_name in self._startup_recovery_pending:
+                        self._startup_recovery_pending.remove(pod_name)
+                        self._startup_recovery_events.add(pod_name)
                     transition = False
                 elif healthy:
                     self._startup_recovery_candidates.discard(pod_name)
@@ -397,12 +413,16 @@ class WorkloadHealthWatcher:
                     # healthy observation as a recovery so streams are reapplied.
                     self._startup_recovery_candidates.remove(pod_name)
                     self._recovery_pending.add(pod_name)
+                    self._startup_recovery_pending.add(pod_name)
             elif previous and not healthy:
                 self._recovery_pending.add(pod_name)
                 transition = True
             elif (not previous) and healthy:
                 if pod_name in self._recovery_pending:
                     self._recovery_pending.remove(pod_name)
+                    if pod_name in self._startup_recovery_pending:
+                        self._startup_recovery_pending.remove(pod_name)
+                        self._startup_recovery_events.add(pod_name)
                     transition = False
                 else:
                     initial_baseline = True
