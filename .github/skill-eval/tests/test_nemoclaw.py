@@ -26,8 +26,93 @@ def runner():
     return _load_module("nemoclaw_test_runner", "headless_runner.py")
 
 
+def test_policy_denials_keep_failure_metadata_without_raw_commands(runner):
+    raw = "\n".join([
+        "HTTP:REQUEST [MED] DENIED /usr/bin/curl(42) -> GET http://host.openshell.internal:7777/vst?token=secret "
+        "[policy:vss-backend engine:opa] [reason:failed to resolve peer binary; credential=secret]",
+        "NET:OPEN [MED] DENIED /usr/bin/python3.13(43) -> host.openshell.internal:7777 "
+        "[policy:vss-backend engine:opa] [reason:binary integrity check failed]",
+        "NET:OPEN [INFO] ALLOWED /usr/bin/curl(44) -> host.openshell.internal:7777 token=secret",
+    ])
+    assert runner._policy_denials(raw) == [
+        {"host": "host.openshell.internal", "port": 7777, "binary": "/usr/bin/curl",
+         "policy": "vss-backend", "reason": "identity_resolution"},
+        {"host": "host.openshell.internal", "port": 7777, "binary": "/usr/bin/python3.13",
+         "policy": "vss-backend", "reason": "binary_integrity"},
+    ]
+    assert "secret" not in json.dumps(runner._policy_denials(raw))
+
+
+@pytest.mark.parametrize("failure", [FileNotFoundError(), subprocess.TimeoutExpired("openshell", 20)])
+def test_policy_diagnostics_preserve_trial_on_command_failure(runner, monkeypatch, tmp_path, failure):
+    def fail(*args, **kwargs):
+        raise failure
+    monkeypatch.setattr(runner.subprocess, "run", fail)
+    runner._capture_policy_denials("se-current", tmp_path / "agent")
+    report = json.loads((tmp_path / "artifacts/nemoclaw/network-denials.json").read_text())
+    assert report == {"exception_type": type(failure).__name__}
+
+
 gateway = _load_module("gateway_state", "gateway_state.py")
 fixtures = _load_module("fixture_staging", "stage_fixtures.py")
+
+
+def test_gateway_firewall_is_owned_reusable_and_removable(monkeypatch, tmp_path):
+    owner = "a" * 64
+    ports = free_ports()
+    gateway.claim(owner, ports, tmp_path)
+    receipt = tmp_path / ".nemoclaw/gateways" / str(ports[0]) / "network-policy.json"
+    created = linked = False
+    calls = []
+
+    def execute(argv, **kwargs):
+        nonlocal created, linked
+        args = argv[5:]
+        calls.append(args)
+        rc = 0
+        if args[0] == "-S":
+            rc = 0 if created else 1
+        elif args[0] == "-N":
+            assert json.loads(receipt.read_text())["owner"] == owner
+            created = True
+        elif args[0] == "-C" and args[1] == "INPUT":
+            rc = 0 if linked else 1
+        elif args[0] == "-I":
+            linked = True
+        elif args[0] == "-D":
+            linked = False
+        elif args[0] == "-X":
+            created = False
+        return subprocess.CompletedProcess(argv, rc, "", "")
+
+    monkeypatch.setattr(gateway.subprocess, "run", execute)
+    gateway.network_policy(owner, ports, tmp_path)
+    chain = "SE-NC-" + owner[:20]
+    assert [args for args in calls if args[0] == "-A"] == [
+        ["-A", chain, "-i", interface, "-j", "ACCEPT"] for interface in ("lo", "docker0", "br+")
+    ] + [["-A", chain, "-j", "RETURN"]]
+    assert calls[-1] == ["-I", "INPUT", "-p", "tcp", "--dport", str(ports[0]), "-j", chain]
+    before = len(calls)
+    gateway.network_policy(owner, ports, tmp_path)
+    assert not any(args[0] in {"-F", "-I", "-A"} for args in calls[before:])
+    gateway.cleanup_network_policy(owner, tmp_path)
+    assert not created and not linked and not receipt.exists()
+
+
+def test_gateway_firewall_refuses_foreign_state(monkeypatch, tmp_path):
+    ports = free_ports()
+    gateway.claim("a" * 64, ports, tmp_path)
+    calls = []
+    def execute(argv, **kwargs):
+        calls.append(argv[5:])
+        return subprocess.CompletedProcess(argv, 0, "", "")
+    monkeypatch.setattr(gateway.subprocess, "run", execute)
+    with pytest.raises(ValueError, match="unowned"):
+        gateway.network_policy("a" * 64, ports, tmp_path)
+    assert len(calls) == 1 and calls[0][0] == "-S"
+    with pytest.raises(ValueError, match="owned namespace"):
+        gateway.network_policy("b" * 64, ports, tmp_path)
+    assert len(calls) == 1
 
 
 

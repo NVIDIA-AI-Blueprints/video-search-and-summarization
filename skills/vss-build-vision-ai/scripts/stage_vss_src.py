@@ -19,7 +19,7 @@
 # --exclude-standard`), so .git, .venv, __pycache__ and friends never ride
 # along — matching NemoClaw's own build-context name filter, which drops them.
 #
-# A STAGED marker records provenance (HEAD sha, dirty flag, timestamp) plus a
+# A STAGED marker records provenance (HEAD sha, dirty flag, commit timestamp) plus a
 # PEP 440 `version=` the Dockerfiles export as SETUPTOOLS_SCM_PRETEND_VERSION:
 # the vss CLI's hatch-vcs versioning reads git metadata, and a snapshot has
 # none. The version mimics services/agent's no-guess-dev scheme (release tag,
@@ -85,8 +85,12 @@ def provenance(repo_root: Path) -> dict[str, str]:
         "sha": sha,
         "dirty": "true" if dirty else "false",
         "version": pretend_version(repo_root, sha, dirty),
-        "staged_at": datetime.datetime.now(datetime.timezone.utc)
-        .strftime("%Y-%m-%dT%H:%M:%SZ"),
+        # Wall-clock staging time would invalidate Docker's COPY cache on
+        # every retry. Source contents and git provenance already invalidate
+        # the snapshot when the checkout changes.
+        "source_timestamp": datetime.datetime.fromtimestamp(
+            int(git(repo_root, "show", "-s", "--format=%ct", "HEAD")), datetime.timezone.utc,
+        ).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
 

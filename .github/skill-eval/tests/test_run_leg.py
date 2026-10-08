@@ -2442,6 +2442,75 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
                  ):
                 self.assertEqual(run_leg.main(self._argv(tmp)), 42)
 
+    def test_nemoclaw_cancellation_cleans_firewall_before_releasing_worker(self):
+        held = False
+        @contextlib.contextmanager
+        def locked(*args, **kwargs):
+            nonlocal held
+            held = True
+            try:
+                yield "box-a"
+            finally:
+                held = False
+        def cleanup(instance, root):
+            self.assertTrue(held)
+            self.assertEqual(instance, "box-a")
+        with tempfile.TemporaryDirectory() as tmp:
+            self._dataset(tmp)
+            with mock.patch.dict(os.environ, {
+                "EVAL_SPEC_PATH": "skills/operations/vss-ask-video/evals/test.json",
+                "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
+            }), mock.patch.object(run_leg, "hold_pool_lock", locked), \
+                 mock.patch.object(run_leg, "run_invocations", side_effect=SystemExit(143)), \
+                 mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=cleanup) as remove:
+                with self.assertRaises(SystemExit):
+                    run_leg.main(self._argv(tmp))
+        remove.assert_called_once()
+        self.assertFalse(held)
+
+    def test_outer_agent_cleanup_reacquires_lock_and_validates_leg(self):
+        held = False
+        @contextlib.contextmanager
+        def locked(candidates, lock_dir, timeout):
+            nonlocal held
+            self.assertEqual(candidates(), ["Spark-ba-WiFi"])
+            self.assertEqual(timeout, 60)
+            held = True
+            try:
+                yield "Spark-ba-WiFi"
+            finally:
+                held = False
+        def cleanup(instance, root):
+            self.assertTrue(held)
+            self.assertEqual(instance, "Spark-ba-WiFi")
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {
+            "EVAL_SLUG": "vios__DGX-SPARK", "GITHUB_RUN_ID": "123",
+        }):
+            root = Path(tmp)
+            receipt = root / "machine.txt"
+            with mock.patch.object(run_leg, "hold_pool_lock", locked), \
+                 mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=cleanup) as remove:
+                self.assertEqual(run_leg.cleanup_after_agent_exit(root), "not_claimed")
+                for value in ("Spark-ba-WiFi\tvios__DGX-SPARK\t122\n", "box/path\tvios__DGX-SPARK\t123\n"):
+                    receipt.write_text(value)
+                    with self.assertRaises(ValueError):
+                        run_leg.cleanup_after_agent_exit(root)
+                remove.assert_not_called()
+                receipt.write_text("Spark-ba-WiFi\tvios__DGX-SPARK\t123\n")
+                self.assertEqual(run_leg.cleanup_after_agent_exit(root), "attempted")
+                remove.assert_called_once()
+            with mock.patch.object(run_leg, "hold_pool_lock", side_effect=run_leg.LockTimeoutError("busy")), \
+                 mock.patch.object(run_leg, "cleanup_gateway_network_policy") as remove:
+                self.assertEqual(run_leg.cleanup_after_agent_exit(root), "worker_busy")
+                remove.assert_not_called()
+            receipt.unlink()
+            source = root / "source"
+            source.write_text("Spark-ba-WiFi\tvios__DGX-SPARK\t123\n")
+            receipt.symlink_to(source)
+            with self.assertRaises(ValueError):
+                run_leg.cleanup_after_agent_exit(root)
+        self.assertFalse(held)
+
     def test_instrumentation_logging_swallows_a_broken_pipe(self):
         # BrokenPipeError on a closed stdout is the realistic version of this.
         # Scoped to the instrumentation path on purpose: run_leg's pre-existing

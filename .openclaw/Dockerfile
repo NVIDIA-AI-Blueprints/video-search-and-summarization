@@ -105,16 +105,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
 COPY --from=uv /uv /usr/local/bin/uv
 # Dev-loop override: a .vss-src/ snapshot in the build context (staged by
 # stage_vss_src.py) wins over the pinned fetch, so a local skill or CLI edit
-# reaches the image without a push. The Dockerfil[e] glob keeps this COPY
-# valid when nothing is staged — the Dockerfile itself always matches.
+# reaches the image without a push. The READM[E].md glob keeps this COPY
+# valid when nothing is staged — the README always matches.
+# Use the stable README as the fallback COPY match. Onboarding rewrites the
+# Dockerfile's model and port arguments for every sandbox; copying that file
+# here would rebuild the source, wheels and NGC CLI even when VSS is unchanged.
 # --chown=root:root: docker's COPY gives the files to root by default, kaniko
 # keeps the build context's owner. Built by the eval harness (kaniko, context
 # staged by a uid-10001 service) the directory arrived owned by 10001 while RUN
 # executes as root, and `git init` refused it: "detected dubious ownership in
 # repository at '/opt/vss-src'" (exit 128). Pinning the owner makes both
 # engines agree and keeps git's safe.directory check intact.
-COPY --chown=root:root Dockerfil[e] .vss-sr[c] /opt/vss-src/
-RUN rm -f /opt/vss-src/Dockerfile \
+COPY --chown=root:root READM[E].md .vss-sr[c] /opt/vss-src/
+RUN rm -f /opt/vss-src/README.md \
     && if [ -f /opt/vss-src/STAGED ]; then \
          echo "vss-src: pre-staged working-tree snapshot" && cat /opt/vss-src/STAGED; \
        else \
@@ -194,17 +197,14 @@ COPY workspace/ /tmp/vss-workspace/
 RUN ./stage-assets.sh /tmp/vss-skills /tmp/vss-workspace \
     && rm -rf /tmp/vss-skills /tmp/vss-workspace \
     && cp -R skills skills-active \
-    && test "$(ls skills-active | wc -l)" = "$(ls skills | wc -l)"
+    && test "$(ls skills-active | wc -l)" = "$(ls skills | wc -l)" \
+    && mkdir /opt/vss-runtime-plugin \
+    && cp -a package.json package-lock.json openclaw.plugin.json dist node_modules \
+         skills skills-active sync_skills.py workspace /opt/vss-runtime-plugin/
 
 # ── Managed runtime + vss CLI ──────────────────────────────────────────────────
 FROM ${BASE_IMAGE} AS nemoclaw-runtime
 USER root
-
-# Media operations verify downloaded clips and snapshots with `file`. Install
-# it in the image: the sandbox cannot apt-install a missing utility at runtime.
-RUN apt-get update && apt-get install -y --no-install-recommends file \
-    && rm -rf /var/lib/apt/lists/* \
-    && su -s /bin/sh sandbox -c "file --version"
 
 # Harbor trial paths. Harbor and its agent adapters address /task, /output,
 # /logs, /tests and /solution by name. They are REAL directories, not symlinks
@@ -214,7 +214,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends file \
 # before the agent started. World-writable like the openshell-community image,
 # so the harness can populate them as the sandbox user; the eval harness moves
 # files in and out with exec+tar, so they do not need to live in the workspace.
-RUN for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done
+# Media operations also need `file`, which the sandbox cannot apt-install at
+# runtime. Share this layer with the trial directories: the managed base already
+# has 103 filesystem layers, close to the legacy Docker builder's 125 limit.
+RUN apt-get update && apt-get install -y --no-install-recommends file \
+    && rm -rf /var/lib/apt/lists/* \
+    && su -s /bin/sh sandbox -c "file --version" \
+    && for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done
 
 # The vss CLI. nvidia-vss-cli is on no reachable index, so the vss-src stage
 # builds it as wheels from the same pinned checkout the skills came from (or
@@ -250,17 +256,10 @@ FROM nemoclaw-runtime AS vss-runtime
 # Re-declared here because build args are stage-scoped and this is the final stage.
 ARG NEMOCLAW_TOOL_DISCLOSURE=progressive
 ENV NEMOCLAW_TOOL_DISCLOSURE=${NEMOCLAW_TOOL_DISCLOSURE}
-COPY --from=vss-plugin-builder --chown=sandbox:sandbox \
-    /opt/vss-plugin/package.json \
-    /opt/vss-plugin/package-lock.json \
-    /opt/vss-plugin/openclaw.plugin.json \
-    /opt/vss-plugin/
-COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/dist/ /opt/vss-plugin/dist/
-COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/node_modules/ /opt/vss-plugin/node_modules/
-COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/skills/ /opt/vss-plugin/skills/
-COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/skills-active/ /opt/vss-plugin/skills-active/
-COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/sync_skills.py /opt/vss-plugin/sync_skills.py
-COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/workspace/ /opt/vss-plugin/workspace/
+# Copy the same runtime assets together, leaving source and build tools in the
+# builder. One copy leaves room for NemoClaw's session configuration and
+# Docker-backed startup patches within the legacy builder's layer limit.
+COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-runtime-plugin/ /opt/vss-plugin/
 
 # Staged outside the managed extensions dir and installed (copied) into it, per
 # the NemoClaw doc. The pre-check fails the build if npm kept a private
