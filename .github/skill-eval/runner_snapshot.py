@@ -64,6 +64,17 @@ if isinstance(config,dict):
     if parsed.hostname=='host.openshell.internal' and parsed.scheme=='http' and parsed.port in {7777,30888}:
         result=subprocess.run(['/usr/bin/curl','--connect-timeout','3','--max-time','10','-sS','-o','/dev/null','-w','%{http_code}',url.rstrip('/')+'/api/v1/sensor/list'],capture_output=True,text=True,timeout=15)
         out['read_only_vios_probe']={'exit_code':result.returncode,'http_status':result.stdout if re.fullmatch(r'[0-9]{3}',result.stdout) else None}
+out['producer_egress_probe']={}
+if PRODUCER_ORIGIN:
+    for label,target in [('published',PRODUCER_ORIGIN+'/vst/api/v1/sensor/version'),('configured',config.get('services',{}).get('vst',{}).get('url','').rstrip('/')+'/api/v1/sensor/version')]:
+        result=subprocess.run(['/usr/bin/curl','-sS','--max-time','8','-w','\\nDIAG_HTTP_STATUS:%{http_code}',target],capture_output=True,text=True,timeout=10)
+        body,_,status=result.stdout.rpartition('DIAG_HTTP_STATUS:')
+        row={'exit_code':result.returncode,'http_status':status if re.fullmatch(r'[0-9]{3}',status) else None}
+        try:
+            payload=json.loads(body.strip());value=payload.get('type');row['service_type']=value if value in {'vst','streamer'} else None
+        except Exception:pass
+        row['policy_message']=any(marker in body.lower() for marker in ('policy','not allowed','denied','forbidden'))
+        out['producer_egress_probe'][label]=row
 out['devices']={}
 for name in ('pending','paired'):
     devices=load('/sandbox/.openclaw/devices/'+name+'.json')
@@ -283,7 +294,20 @@ def host_snapshot():
                     words=line.split()
                     rows.append({'port':int(port),'accept':'ACCEPT' in words or 'ALLOW' in words,'reject':'REJECT' in words or 'DENY' in words,'bridge_interface':any(word in {'docker0','br+'} or word.startswith('br-') for word in words),'ip_operands':re.findall(r'(?<![0-9])[0-9]{1,3}(?:\.[0-9]{1,3}){3}(?:/[0-9]{1,2})?',line),'chain':words[1] if len(words)>1 and words[0]=='-A' and re.fullmatch(r'[A-Za-z0-9_-]{1,50}',words[1]) else None})
                 out['gateway_firewall'][name]={'exit_code':result.returncode,'port_rules':rows[:20],'input_policy_drop':bool(re.search(r'^-P INPUT DROP$',result.stdout,re.M))}
-        wrapped='import json\ntry:\n exec('+repr(SANDBOX_SCRIPT)+')\nexcept Exception as exc:\n print(json.dumps({"collector_error_type":type(exc).__name__}))'
+        producer_origin=''
+        if out.get('active_eval_run') in {'37744385620','37752059953','37754840797','37757505544','37757514212'}:
+            for publication in out['vios_publication']:
+                endpoint=publication.get('endpoint_settings',{}).get('VST_INGRESS_ENDPOINT',{})
+                host=endpoint.get('host','');producer_port=endpoint.get('port')
+                if publication['container']=='vss-vios-streamprocessing' and re.fullmatch(r'[0-9]+(?:\.[0-9]+){3}',host) and type(producer_port) is int and endpoint.get('path_is_vst'):
+                    producer_origin='http://'+host+':'+str(producer_port)
+                    result=subprocess.run(['/usr/bin/curl','-sS','--max-time','8','-w','\nDIAG_HTTP_STATUS:%{http_code}',producer_origin+'/vst/api/v1/sensor/version'],capture_output=True,text=True,timeout=10)
+                    body,_,status=result.stdout.rpartition('DIAG_HTTP_STATUS:')
+                    out['host_published_probe']={'exit_code':result.returncode,'http_status':status if re.fullmatch(r'[0-9]{3}',status) else None}
+                    try:out['host_published_probe']['service_type']=json.loads(body.strip()).get('type')
+                    except Exception:pass
+        sandbox_script='PRODUCER_ORIGIN='+repr(producer_origin)+'\n'+SANDBOX_SCRIPT
+        wrapped='import json\ntry:\n exec('+repr(sandbox_script)+')\nexcept Exception as exc:\n print(json.dumps({"collector_error_type":type(exc).__name__}))'
         command='python3 -c '+shlex.quote(wrapped)
         port=env.get('NEMOCLAW_GATEWAY_PORT','')
         if port.isdecimal() and 1024<=int(port)<=65535:
