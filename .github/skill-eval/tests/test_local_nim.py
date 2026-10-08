@@ -156,6 +156,24 @@ def test_readiness_request_cannot_outlive_reuse_deadline(monkeypatch):
     assert now[0] == 30
 
 
+def test_stalled_docker_inspection_uses_readiness_deadline(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr(nim.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(nim, "_START_DEADLINE", None)
+    monkeypatch.setattr(nim, "request_json", Mock(side_effect=urllib.error.URLError(ConnectionRefusedError())))
+
+    def inspect(*args, timeout, **kwargs):
+        assert args[0] == "inspect"
+        assert timeout == 7
+        now[0] += timeout
+        raise subprocess.TimeoutExpired(args, timeout)
+
+    monkeypatch.setattr(nim, "docker", inspect)
+    with pytest.raises(nim.NimError, match="ConnectionRefusedError; Docker inspection timed out"):
+        nim.wait_ready("http://127.0.0.1:18410/v1/health/ready", "", 7, "nim")
+    assert now[0] == 7
+
+
 @pytest.mark.parametrize("recover", [True, False])
 def test_readiness_retries_unavailable_http_and_retains_last_status(monkeypatch, recover):
     now, calls = [0.0], []
