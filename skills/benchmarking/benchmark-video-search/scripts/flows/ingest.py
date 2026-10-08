@@ -55,6 +55,10 @@ COMPLETE_FATAL = "fatal"
 #: before failing -- i.e. the work already landed.
 _DUPLICATE_CAMERA_MARKER = "duplicate camera id"
 
+_DEFAULT_VIDEO_TYPE = "video/mp4"
+_JSON_TYPE = "application/json"
+_TIMEOUT_ERROR = "Request timeout"
+
 
 def classify_complete_failure(status_code: int, body: str) -> str:
     """Decide what a failed ``/complete`` response means.
@@ -99,14 +103,14 @@ class LegacyPutIngest:
 
     def upload(self, video_path: Path) -> dict[str, Any]:
         record = base_record(video_path)
-        content_type = CONTENT_TYPES.get(video_path.suffix, "video/mp4")
+        content_type = CONTENT_TYPES.get(video_path.suffix, _DEFAULT_VIDEO_TYPE)
         try:
             with open(video_path, "rb") as f:
                 start = time.time()
                 resp = requests.put(
                     f"{self.endpoint}/api/v1/videos-for-search/{video_path.stem}",
                     data=f,
-                    headers={"Content-Type": content_type, "Accept": "application/json"},
+                    headers={"Content-Type": content_type, "Accept": _JSON_TYPE},
                     timeout=self.timeout,
                 )
                 latency = time.time() - start
@@ -120,7 +124,7 @@ class LegacyPutIngest:
             record["chunks_processed"] = payload.get("chunks_processed")
         except requests.Timeout:
             record["success"] = False
-            record["error"] = "Request timeout"
+            record["error"] = _TIMEOUT_ERROR
         except Exception as e:  # noqa: BLE001
             record["success"] = False
             record["error"] = f"{type(e).__name__}: {e}"
@@ -186,7 +190,7 @@ class AgentThreeStepIngest:
             resp = requests.post(
                 url,
                 json=body,
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": _JSON_TYPE},
                 timeout=COMPLETE_TIMEOUT,
             )
             if resp.ok:
@@ -214,7 +218,7 @@ class AgentThreeStepIngest:
     def upload(self, video_path: Path) -> dict[str, Any]:
         record = base_record(video_path)
         filename = video_path.name
-        content_type = CONTENT_TYPES.get(video_path.suffix, "video/mp4")
+        content_type = CONTENT_TYPES.get(video_path.suffix, _DEFAULT_VIDEO_TYPE)
         phases: dict[str, float] = {}
         overall_start = time.time()
 
@@ -224,7 +228,7 @@ class AgentThreeStepIngest:
             resp = requests.post(
                 f"{self.endpoint}/api/v1/videos",
                 json={"filename": filename},
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": _JSON_TYPE},
                 timeout=UPLOAD_URL_TIMEOUT,
             )
             resp.raise_for_status()
@@ -290,7 +294,7 @@ class AgentThreeStepIngest:
                     record["error"] = f"completion reported chunks_processed={chunks!r}"
         except requests.Timeout:
             record["success"] = False
-            record["error"] = "Request timeout"
+            record["error"] = _TIMEOUT_ERROR
             record["phases"] = phases
             finish_record(record, time.time() - overall_start)
         except Exception as e:  # noqa: BLE001
@@ -419,7 +423,7 @@ class VstDirectIngest:
     def upload(self, video_path: Path) -> dict[str, Any]:
         record = base_record(video_path)
         filename = video_path.name
-        content_type = CONTENT_TYPES.get(video_path.suffix, "video/mp4")
+        content_type = CONTENT_TYPES.get(video_path.suffix, _DEFAULT_VIDEO_TYPE)
         overall_start = time.time()
 
         try:
@@ -462,7 +466,7 @@ class VstDirectIngest:
             finish_record(record, time.time() - overall_start)
         except requests.Timeout:
             record["success"] = False
-            record["error"] = "Request timeout"
+            record["error"] = _TIMEOUT_ERROR
             finish_record(record, time.time() - overall_start)
         except Exception as e:  # noqa: BLE001
             record["success"] = False
