@@ -75,7 +75,8 @@ print(json.dumps(out))
 def run(args, *, env=None, timeout=30):
     result = subprocess.run(args, capture_output=True, text=True, env=env, timeout=timeout)
     if result.returncode:
-        return {'exit_code':result.returncode}
+        reason = next((name for name in ('FileNotFoundError','PermissionError','TimeoutExpired','ValueError') if name in result.stderr), None)
+        return {'exit_code':result.returncode, **({'error_type':reason} if reason else {})}
     try: return json.loads(result.stdout)
     except ValueError: return {'invalid_json':True}
 
@@ -90,6 +91,7 @@ def host_snapshot():
         state=info[0].get('State',{})
         out['containers'].append({'name':name,'status':state.get('Status'),'health':state.get('Health',{}).get('Status'),'oom':state.get('OOMKilled'),'restarts':info[0].get('RestartCount')})
     env=os.environ.copy()
+    env['PATH']=str(Path.home()/'.local/bin')+os.pathsep+env.get('PATH','/usr/local/bin:/usr/bin:/bin')
     lines=[]
     for path in (Path.home()/'.eval_env',Path('/tmp/skill-eval/nemoclaw/nemoclaw.env')):
         try:lines+=path.read_text().splitlines()
@@ -127,5 +129,6 @@ if __name__ == '__main__':
     else:
         if args.worker not in {'Spark-ba-WiFi','vss-eval-l40s','vss-eval-l40s-1g',*(f'vss-eval-l40s-{n}' for n in range(2,7))}:raise ValueError('unexpected worker')
         script=Path(__file__).read_text()
-        snapshot=run(['ssh','-T','-o','BatchMode=yes','-o','ConnectTimeout=10','-o','ConnectionAttempts=1',args.worker.lower(),'python3 -c '+shlex.quote(script)],timeout=150)
+        command='sh -lc '+shlex.quote('python3 -c '+shlex.quote(script))
+        snapshot=run(['ssh','-T','-o','BatchMode=yes','-o','ConnectTimeout=10','-o','ConnectionAttempts=1',args.worker.lower(),command],timeout=150)
         args.out.write_text(json.dumps(snapshot,indent=2)+'\n')
