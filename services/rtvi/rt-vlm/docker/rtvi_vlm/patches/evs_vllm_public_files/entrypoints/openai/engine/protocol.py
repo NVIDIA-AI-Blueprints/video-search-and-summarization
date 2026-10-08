@@ -11,7 +11,7 @@ import regex as re
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from vllm.entrypoints.chat_utils import make_tool_call_id
 from vllm.logger import init_logger
-from vllm.sampling_params import SamplingParams
+from vllm.sampling_params import SamplingParams, StructuredOutputsParams
 from vllm.utils import random_uuid
 from vllm.utils.import_utils import resolve_obj_by_qualname
 
@@ -384,6 +384,26 @@ class VideoSessionSamplingParams(OpenAIBaseModel):
     min_tokens: int | None = Field(default=None, ge=0)
     stop: list[str] | str | None = None
     stop_token_ids: list[int] | None = None
+    # Schema-constrained decoding for event-gated generations: the kwargs of
+    # vLLM ``StructuredOutputsParams`` (exactly one of json / regex / choice /
+    # grammar / json_object / structural_tag). Kept as a plain dict so the
+    # persisted config stays serializable; build_session_sampling_params turns
+    # it back into ``StructuredOutputsParams``.
+    structured_outputs: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _check_structured_outputs(self) -> "VideoSessionSamplingParams":
+        if self.structured_outputs is None:
+            return self
+        try:
+            StructuredOutputsParams(**self.structured_outputs)
+        except TypeError as exc:
+            raise ValueError(f"invalid structured_outputs: {exc}") from exc
+        # A constrained output must be able to stop at EOS once the schema is
+        # satisfied; ignore_eos would keep decoding past the closing brace.
+        if self.ignore_eos:
+            raise ValueError("structured_outputs cannot be combined with ignore_eos")
+        return self
 
     def to_sampling_params_config(
         self, default_max_tokens: int = 1024
@@ -414,7 +434,10 @@ def build_session_sampling_params(
     generate time. ``None``/empty (legacy sessions with no config) falls back to
     a bounded default so generation is always capped.
     """
-    return SamplingParams(**(config or {"max_tokens": default_max_tokens}))
+    cfg = dict(config or {"max_tokens": default_max_tokens})
+    if (structured := cfg.get("structured_outputs")) is not None:
+        cfg["structured_outputs"] = StructuredOutputsParams(**structured)
+    return SamplingParams(**cfg)
 
 
 class VideoSessionCreateRequest(OpenAIBaseModel):
