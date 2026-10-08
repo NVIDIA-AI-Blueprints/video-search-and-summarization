@@ -66,11 +66,10 @@ limitation. Only an explicit tagging request with a confirmed absent streaming
 tagging receiver and the provisioning prerequisites may use manual tagging.
 With unknown policy, report unconfirmed fan-out, never unavailable indexing,
 and do not start manual tagging.
-If the user only asks to search
-a named source and it is missing, report the missing name and the available
-sources, then ask for clarification or an explicit ingestion request; do not
-ingest, switch videos, or run an unrestricted search. If no supported source
-management workflow is available, report that blocker.
+If the user only asks to search a named source and it is missing, do not
+ingest, switch videos, or run an unrestricted search — answer with the reply
+[Search workflow step 1](#search-workflow) specifies for zero matches. If no
+supported source management workflow is available, report that blocker.
 
 ## Search workflow
 
@@ -81,6 +80,21 @@ normalized match; stop on zero or multiple matches. The listing is
 `{"count", "type", "sensors": [...]}`; preserve the matched entry's
 `.sensors[].name` and `.sensors[].sensor_id`, and never infer an identifier from
 the display name. Below, `.name` and `.sensor_id` mean those fields.
+
+Stopping is not the whole answer — the reply has to hand the decision back. On
+zero matches, the final reply states all three of:
+
+- the requested name is not registered;
+- the sources that *are* registered, from the listing;
+- a request that the user clarify which source they meant, or explicitly ask
+  for the missing one to be ingested.
+
+The third is as required as the first two. Refusing to substitute is correct
+but incomplete: a reply that reports the mismatch and then stops leaves the
+user with no stated next step. Ingesting, switching to another video, or
+dropping the source filter and searching everything are all still forbidden
+(see [Source management handoff](#source-management-handoff)). On multiple
+matches, name the candidates and ask which one.
 
 **2. Choose one retrieval path.** Preserve the user's exact original sentence for
 `--original-query` first — critic verification must receive that wording, while

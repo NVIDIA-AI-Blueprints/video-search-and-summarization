@@ -49,7 +49,9 @@
       "checks": [
         "The agent successfully listed available video sources from the prepared Docker deployment with vss vios list using recorded configuration before attempting search",
         "Because no registered source matched `airport`, the agent did not invoke `vss search run`, substitute another source, deploy, redeploy, or start an ingestion handshake",
-        "The final reply explicitly stated that no `airport` video was registered, listed the available registered sources, and asked the user to clarify the source or explicitly request ingestion"
+        "The final reply explicitly stated that no `airport` video was registered",
+        "The final reply listed the available registered sources",
+        "The final reply asked the user to clarify which source they meant or to explicitly request ingestion of the missing one"
       ]
     },
     {
