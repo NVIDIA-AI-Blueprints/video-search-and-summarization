@@ -382,6 +382,8 @@ jobs:
         if: always()
         env:
           EVAL_SLUG: ${{ matrix.slug }}
+          EVAL_SPEC_PATH: ${{ matrix.spec_path }}
+          OPERATIONAL_HARNESS: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'nemoclaw' }}
         run: |
           # This leg's harbor output lives under its own scratch scope,
           # /tmp/skill-eval/results/<slug>/<run_id>/, so the artifact
@@ -391,6 +393,24 @@ jobs:
           if [ ! -d "$LEG_RESULTS" ]; then
             echo "no results dir for this leg — blocked before running a trial (expected for blocker outcomes)"
             exit 0
+          fi
+          # Cancelling the outer SDK agent can kill run_leg's Bash tool before
+          # its finally runs. Reconcile only this leg's receipt, under the same
+          # worker lock, as a separate always() workflow step.
+          if [ "$OPERATIONAL_HARNESS" = nemoclaw ] && [[ "$EVAL_SPEC_PATH" == skills/operations/* ]]; then
+            cleanup_python="$SKILL_EVAL_VENV/bin/python"
+            cleanup_pythonpath="$PWD/.github/skill-eval"
+            cleanup_slug="$EVAL_SLUG"
+            cleanup_run_id="$GITHUB_RUN_ID"
+            set -a
+            source /home/ubuntu/eval-coordinator/.env
+            set +a
+            export EVAL_SLUG="$cleanup_slug" GITHUB_RUN_ID="$cleanup_run_id"
+            eval "$(ssh-agent -s)" > /dev/null
+            trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
+            PYTHONPATH="$cleanup_pythonpath:${PYTHONPATH:-}" "$cleanup_python" -c \
+              'import sys; from pathlib import Path; from run_leg import cleanup_after_agent_exit; print("Gateway cleanup:", cleanup_after_agent_exit(Path(sys.argv[1])))' "$LEG_RESULTS" || \
+              echo 'Gateway cleanup failed; continuing result collection'
           fi
           # Exclude per-trial agent/ trajectory subdirs from the tarball
           # (NOT from the on-disk tree the Harbor viewer serves). Those

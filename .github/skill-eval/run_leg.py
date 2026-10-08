@@ -1607,6 +1607,33 @@ def cleanup_gateway_network_policy(instance: str, results_root: Path) -> None:
         print(f"[run-leg] owned gateway network policy cleanup failed: {type(exc).__name__}", file=sys.stderr)
 
 
+
+def cleanup_after_agent_exit(results_root: Path, *, lock_dir: Path = Path("/tmp/brev")) -> str:
+    """Workflow fallback when the outer agent kills run_leg before its finally."""
+    slug = os.environ.get("EVAL_SLUG", "")
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    receipt = results_root / "machine.txt"
+    if not receipt.exists():
+        return "not_claimed"
+    if receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_size > 4096:
+        raise ValueError("invalid cleanup worker receipt")
+    fields = receipt.read_text().strip().split("\t")
+    if len(fields) != 3 or fields[1:] != [slug, run_id] or not slug or not run_id:
+        raise ValueError("cleanup worker receipt does not match this leg")
+    instance = fields[0]
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", instance):
+        raise ValueError("invalid cleanup worker name")
+    try:
+        # Never reconcile even an owned chain while a sibling holds the worker.
+        # A busy worker remains untouched; the fallback has a bounded CI budget.
+        with hold_pool_lock(lambda: [instance], lock_dir, 60):
+            cleanup_gateway_network_policy(instance, results_root)
+        return "attempted"
+    except LockTimeoutError:
+        print("[run-leg] gateway cleanup deferred: worker is busy", file=sys.stderr)
+        return "worker_busy"
+
+
 def spark_instance() -> str:
     """Resolve the operator-selected external node, never a cloud fallback."""
     from local_nim import SPARK_NODE_ID, SPARK_NODE_NAME
