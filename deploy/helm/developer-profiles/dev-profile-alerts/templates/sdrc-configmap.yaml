@@ -19,7 +19,15 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ required "infra.sdrc.config.configMapName is required" (get $config "configMapName") }}
+  {{- $cmName := required "infra.sdrc.config.configMapName is required" (get $config "configMapName") }}
+  {{- $global := .Values.global | default dict }}
+  {{- $usePrefix := false }}
+  {{- if and (hasKey $sdrc "useReleaseNamePrefix") (kindIs "bool" (get $sdrc "useReleaseNamePrefix")) }}
+  {{- $usePrefix = get $sdrc "useReleaseNamePrefix" }}
+  {{- else if and (hasKey $global "useReleaseNamePrefix") (kindIs "bool" (index $global "useReleaseNamePrefix")) }}
+  {{- $usePrefix = index $global "useReleaseNamePrefix" }}
+  {{- end }}
+  name: {{ ternary (printf "%s-%s" .Release.Name $cmName | trunc 63 | trimSuffix "-") $cmName $usePrefix }}
   labels:
     app.kubernetes.io/name: sdrc
     app.kubernetes.io/instance: {{ .Release.Name }}

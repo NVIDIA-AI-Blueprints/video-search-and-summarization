@@ -67,7 +67,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{- define "sdrc.configMapName" -}}
-{{- required "config.configMapName is required" .Values.config.configMapName -}}
+{{- $name := required "config.configMapName is required" .Values.config.configMapName -}}
+{{- $global := .Values.global | default dict -}}
+{{- $usePrefix := false -}}
+{{- if and (hasKey .Values "useReleaseNamePrefix") (kindIs "bool" .Values.useReleaseNamePrefix) -}}
+{{- $usePrefix = .Values.useReleaseNamePrefix -}}
+{{- else if and (hasKey $global "useReleaseNamePrefix") (kindIs "bool" (index $global "useReleaseNamePrefix")) -}}
+{{- $usePrefix = index $global "useReleaseNamePrefix" -}}
+{{- end -}}
+{{- if $usePrefix -}}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- $name -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "sdrc.configKey" -}}
