@@ -484,6 +484,7 @@ jobs:
             skills/vss-build-vision-ai/scripts/tests/test_check_credentials_gate.py \
             skills/benchmarking/benchmark-video-search/scripts/tests/test_search_eval_flows.py \
             skills/benchmarking/vss-benchmark-vlm-qa/scripts/tests/test_benchmark_vlm_qa.py \
+            skills/operations/vss-introspect-video/scripts/tests/test_evidence_ledger.py \
             -q
 
       - name: Skill eval harness contracts
@@ -498,6 +499,7 @@ jobs:
             .github/skill-eval/tests/test_leg_report.py \
             .github/skill-eval/tests/test_python_runtime_contract.py \
             .github/skill-eval/tests/test_skills_eval_agent_protocol.py \
+            .github/skill-eval/tests/test_vss_introspect_video_adapter.py \
             .github/skill-eval/envs/tests/test_cancellation_recovery.py \
             .github/skill-eval/tests/test_run_leg.py::HarborCommand \
             .github/skill-eval/tests/test_run_leg.py::PhaseBudgets \
