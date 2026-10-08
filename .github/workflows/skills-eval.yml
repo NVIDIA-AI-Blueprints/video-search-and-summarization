@@ -83,6 +83,10 @@ on:
         required: false
         default: ""
         type: string
+      diagnostic_worker:
+        description: "Temporary read-only runner snapshot for stability investigation."
+        type: string
+        default: ""
       spark_runner:
         description: "Run on the registered Brev Spark-ba-WiFi worker."
         type: boolean
@@ -133,8 +137,9 @@ jobs:
   plan:
     name: Plan eval matrix
     if: >-
-      startsWith(github.ref, 'refs/heads/pull-request/') ||
-      github.event_name == 'workflow_dispatch'
+      !inputs.diagnostic_worker &&
+      (startsWith(github.ref, 'refs/heads/pull-request/') ||
+      github.event_name == 'workflow_dispatch')
     runs-on: [self-hosted, vss-skill-eval-runner]
     timeout-minutes: 15
     outputs:
@@ -460,3 +465,20 @@ jobs:
           path: /tmp/skills-eval-results-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
           if-no-files-found: ignore
           retention-days: 28   # 4 weeks (was 7) — longer window for trend ingest + investigation
+
+  diagnostics:
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnostic_worker != ''
+    runs-on: [self-hosted, vss-skill-eval-runner]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read runner metadata over existing SSH
+        env:
+          DIAGNOSTIC_WORKER: ${{ inputs.diagnostic_worker }}
+        run: |
+          python3 .github/skill-eval/runner_snapshot.py --worker "$DIAGNOSTIC_WORKER" --out "$RUNNER_TEMP/runner-snapshot.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runner-snapshot-${{ inputs.diagnostic_worker }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/runner-snapshot.json
+          if-no-files-found: error
