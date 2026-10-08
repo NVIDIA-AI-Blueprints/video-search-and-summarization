@@ -157,6 +157,13 @@ def host_snapshot():
         if not isinstance(info,list) or not info:continue
         state=info[0].get('State',{})
         out['containers'].append({'name':name,'status':state.get('Status'),'health':state.get('Health',{}).get('Status'),'oom':state.get('OOMKilled'),'restarts':info[0].get('RestartCount')})
+    out['rt_vlm_decode_errors']=[]
+    if any(row['name']=='vss-rtvi-vlm' for row in out['containers']):
+        try:
+            logs=subprocess.run(['docker','logs','--since','30m','--tail','300','vss-rtvi-vlm'],capture_output=True,text=True,timeout=15)
+            body=logs.stdout+'\n'+logs.stderr
+            out['rt_vlm_decode_errors']=[word for word in ('gst-stream-error-quark','gst-resource-error-quark','gst-library-error-quark','not-negotiated','not-linked','no element','Could not decode stream','nvv4l2decoder','avdec_h264','h264parse','qtdemux','permission denied','HTTP 403','HTTP 404','HTTP 500') if word in body]
+        except Exception as exc:out['rt_vlm_log_error_type']=type(exc).__name__
     env=os.environ.copy()
     env['PATH']=str(Path.home()/'.local/bin')+os.pathsep+env.get('PATH','/usr/local/bin:/usr/bin:/bin')
     lines=[]
@@ -218,7 +225,7 @@ def coordinator_traces():
     from urllib.parse import urlsplit
     root=Path('/tmp/skill-eval/results/_viewer')
     out=[]
-    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838'):
+    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695'):
         for job in sorted(root.glob('*__'+run_id+'__*')):
             for path in sorted(job.glob('step-*/agent/openclaw.session.jsonl')):
                 calls={}; rows=[]
@@ -242,12 +249,17 @@ def coordinator_traces():
                                     if url.hostname and re.fullmatch(r'[a-z0-9.-]+',url.hostname):origins.append({'scheme':url.scheme,'host':url.hostname,'port':url.port})
                                 except ValueError:pass
                             return origins[:8]
-                        calls[block.get('id')]={'family':family,'request_origins':origins(args)}
+                        calls[block.get('id')]={'family':family,'request_origins':origins(args),
+                            'proxy_overrides':sorted(set(re.findall(r'\b(?:HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|NO_PROXY|http_proxy|https_proxy|all_proxy|no_proxy)\b',args))),
+                            'binary_paths':sorted(set(re.findall(r'/usr/(?:local/)?(?:bin|vss/bin)/(?:python3(?:\.[0-9]+)?|curl|node|vss)\b',args))),
+                            'proxy_bypass':any(marker in args for marker in ('--noproxy','unset HTTP_PROXY','unset HTTPS_PROXY'))}
                     if message.get('role')!='toolResult' or message.get('toolCallId') not in calls:continue
                     text=json.dumps(content); row=dict(calls[message['toolCallId']])
                     if re.search(r'\b403\b',text) or 'policy_denied' in text:
                         row['failure']='policy_denied' if 'policy_denied' in text else 'proxy_tunnel_denied' if 'tunnel' in text.lower() else 'http_403'
                         row['error_origins']=origins(text)
+                        row['reason_markers']=[marker for marker in ('no_matching_policy','no matching policy','no matching endpoint','binary','blocked','denied','CONNECT','connect tunnel','proxy','host','port','allowed_ips','protocol','IP address') if marker.lower() in text.lower()]
+                        row['response_keys']=sorted(set(re.findall(r'\\?"([a-z_]{2,40})\\?"\s*:',text)))[:30]
                     else:row['failure']=None
                     if row not in rows:rows.append(row)
                 result_path=path.parent.parent/'result.json'
@@ -255,6 +267,13 @@ def coordinator_traces():
                     result=json.loads(result_path.read_text());reward=result.get('verifier_result',{}).get('rewards',{}).get('reward')
                 except Exception:reward=None
                 out.append({'run':run_id,'trial':path.parent.parent.name,'spec':job.name.split('__')[1],'reward':reward,'calls':rows[:40]})
+            for trial in sorted(job.glob('step-*')):
+                for path in trial.glob('agent/*'):
+                    if path.name not in {'codex.txt','trajectory.json','openclaw.session.jsonl'} or path.stat().st_size>20_000_000:continue
+                    try:body=path.read_text()
+                    except (OSError,UnicodeError):continue
+                    markers=[word for word in ('gst-stream-error-quark','gst-resource-error-quark','gst-library-error-quark','not-negotiated','not-linked','no element','Could not decode stream','nvv4l2decoder','avdec_h264','h264parse','qtdemux','base64','video_url') if word in body]
+                    if any(word.startswith('gst-') for word in markers):out.append({'run':run_id,'trial':trial.name,'spec':job.name.split('__')[1],'decode_markers':markers})
     return {'viewer_exists':root.is_dir(),'traces':out}
 
 
