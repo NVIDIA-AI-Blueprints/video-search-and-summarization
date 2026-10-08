@@ -45,9 +45,16 @@ interface VssCliResult {
   truncated: boolean
 }
 
+// `??` only falls back on null/undefined, so a bare `timeoutSec ?? fallback`
+// would let 0 (and any non-positive value) through as a real timeoutMs of 0,
+// which disables execFile's timeout entirely. Require a positive value.
+function positiveSeconds(value: number | undefined): number | undefined {
+  return value !== undefined && Number.isFinite(value) && value > 0 ? value : undefined
+}
+
 export function apply(ctx: Context): void {
   const bin = process.env.VSS_BIN ?? '/usr/local/bin/vss'
-  const defaultTimeoutSec = Number(process.env.VSS_CLI_DEFAULT_TIMEOUT_SEC ?? 600)
+  const defaultTimeoutSec = positiveSeconds(Number(process.env.VSS_CLI_DEFAULT_TIMEOUT_SEC)) ?? 600
 
   ctx.tools.register(defineTool({
     name: 'vss_cli',

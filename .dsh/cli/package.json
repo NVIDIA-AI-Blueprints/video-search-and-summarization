@@ -1,0 +1,10 @@
+{
+  "name": "@nvidia-vss/dsh-cli",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Manifest pinning the DeepSeek Harness CLI for OSRB license-inventory visibility (see .dsh/Dockerfile.base).",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.2.0-rc.2"
+  }
+}

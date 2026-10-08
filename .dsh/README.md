@@ -66,8 +66,17 @@ docker build -f .dsh/Dockerfile.base -t <registry>/vss-harness-dsh:<tag> .dsh
 | Build arg | Default | What it pins |
 |---|---|---|
 | `BASE_IMAGE`, `BUILDER_IMAGE` | `node:24.18.1-trixie-slim@sha256:ac39…` | the Node runtime (same pin as `../.hermes`'s builder stages) |
-| `DSH_VERSION` | `0.2.0-rc.2` | the `dsh` CLI — developer preview, move deliberately |
 | `VSS_REPO`, `VSS_REF` | this repo, `develop` | the `vss` CLI only; this base ships no skills |
+
+The `dsh` CLI itself — developer preview, move deliberately — is pinned in
+`cli/package.json`/`cli/package-lock.json`, not a build arg: `npm ci` installs
+exactly what the lockfile says, so a second pin here would just be a second
+source of truth that could drift from it. Bump the version by editing
+`cli/package.json` and regenerating `cli/package-lock.json`
+(`npm install --package-lock-only` in `.dsh/cli/`). The lockfile also makes
+the CLI's own dependency tree visible to the OSRB license scanner, which
+reads `package.json`/`package-lock.json` by filename — a bare `npm install -g`
+would not be.
 
 ## Verification
 

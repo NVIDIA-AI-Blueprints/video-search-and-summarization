@@ -38,8 +38,11 @@ ARG BUILDER_IMAGE=node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e
 # uv 0.12.10, by index digest (multi-arch). Same pin as ../.hermes/Dockerfile.base's.
 ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500
 # DeepSeek Harness CLI. Developer preview: expect breaking changes between
-# releases; move this pin deliberately.
-ARG DSH_VERSION=0.2.0-rc.2
+# releases. The pin lives in cli/package.json (+ cli/package-lock.json) now,
+# not a build ARG -- npm ci installs exactly what the lockfile says
+# regardless of any ARG, so a second pin here would just be a second source
+# of truth that could silently drift from it. Move the pin deliberately by
+# editing cli/package.json and regenerating cli/package-lock.json.
 # The vss CLI only -- this base ships no skills.
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
 ARG VSS_REF=develop
@@ -78,8 +81,8 @@ RUN set -eux; \
 # ── vss_cli tool plugin build ───────────────────────────────────────────────────
 FROM ${BUILDER_IMAGE} AS vss-plugin-builder
 WORKDIR /opt/vss-plugin
-COPY plugin/package.json plugin/tsconfig.json ./
-RUN npm install --no-audit --no-fund
+COPY plugin/package.json plugin/package-lock.json plugin/tsconfig.json ./
+RUN npm ci --no-audit --no-fund
 COPY plugin/src/ ./src/
 RUN npm run build \
     && npm prune --omit=dev --no-audit --no-fund \
@@ -87,7 +90,6 @@ RUN npm run build \
 
 # ── Base runtime: dsh CLI, vss CLI, the plugin baked into the headless profile ──
 FROM ${BASE_IMAGE}
-ARG DSH_VERSION
 USER root
 
 # Harbor trial paths. Real world-writable directories, matching
@@ -102,8 +104,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 ca-cert
 # Non-root sandbox user, matching the other two harnesses' final USER.
 RUN useradd --create-home --home-dir /sandbox --shell /bin/bash sandbox
 
-# DeepSeek Harness CLI (developer preview; pin moves deliberately -- see header).
-RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" \
+# DeepSeek Harness CLI (developer preview; pin moves deliberately -- see
+# header). Installed from a committed manifest + lockfile (./cli/), not a
+# bare `npm install -g`: the OSRB license scanner reads package.json/
+# package-lock.json by filename, so an unmanifested global install is
+# invisible to license review -- this one is reviewable the same way the
+# plugin's own dependencies are.
+COPY cli/package.json cli/package-lock.json /opt/dsh-cli/
+RUN cd /opt/dsh-cli \
+    && npm ci --no-audit --no-fund \
+    && ln -sf /opt/dsh-cli/node_modules/.bin/dsh /usr/local/bin/dsh \
     && dsh --version
 
 # The vss CLI. Own venv, same wheel-install pattern as ../.hermes/Dockerfile.base.
