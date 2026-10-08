@@ -38,6 +38,44 @@ def _events(watcher):
             return events
 
 
+def test_health_gated_add_establishes_baseline_without_startup_recovery():
+    watcher = _watcher(lambda: [POD])
+
+    with patch(
+        "lib.podprovisioner.healthwatcher.probe_pod_health",
+        side_effect=[False, False, True],
+    ):
+        # Background startup polls see the pod before the application is ready.
+        watcher.poll_once()
+        watcher.poll_once()
+        # This is the exact path used immediately before SDRC issues /add.
+        assert watcher.wait_until_healthy(POD, timeout_sec=1)
+
+    assert _events(watcher) == []
+    assert watcher.is_pod_known(POD_NAME)
+    assert watcher.is_pod_healthy(POD_NAME)
+
+
+def test_recovery_is_emitted_only_after_post_baseline_down_event():
+    watcher = _watcher(lambda: [POD])
+
+    with patch(
+        "lib.podprovisioner.healthwatcher.probe_pod_health",
+        side_effect=[True, False, False, True],
+    ):
+        watcher.poll_once()
+        assert _events(watcher) == []
+
+        watcher.poll_once()
+        assert _events(watcher) == [(True, POD_NAME, POD_NAME)]
+
+        watcher.poll_once()
+        assert _events(watcher) == []
+
+        watcher.poll_once()
+        assert _events(watcher) == [(False, POD_NAME, POD_NAME)]
+
+
 def test_lookup_error_keeps_snapshot_until_a_real_health_change():
     state = {"pods": [POD], "fail": False}
 
@@ -105,3 +143,12 @@ def test_successful_empty_inventory_marks_pod_down_and_forgets_it():
     watcher.poll_once()
     assert _events(watcher) == [(True, POD_NAME, POD_NAME)]
     assert not watcher.is_pod_known(POD_NAME)
+
+    state["pods"] = [POD]
+    with patch(
+        "lib.podprovisioner.healthwatcher.probe_pod_health",
+        return_value=True,
+    ):
+        watcher.poll_once()
+    assert _events(watcher) == [(False, POD_NAME, POD_NAME)]
+    assert watcher.is_pod_healthy(POD_NAME)

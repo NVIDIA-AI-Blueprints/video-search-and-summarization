@@ -103,6 +103,13 @@ class WorkloadHealthWatcher:
         # podName -> bool; missing means not yet probed (treated as unhealthy)
         self._pod_healthy: Dict[str, bool] = {}
         self._pod_info: Dict[str, dict] = {}
+        # Pods enter this set only after a real healthy -> unhealthy
+        # transition emitted a down event. A later healthy observation emits
+        # recovery only for those pods, so initial application startup
+        # (unhealthy -> healthy) establishes a baseline without being mistaken
+        # for recovery. Keep the entry when inventory temporarily loses a pod
+        # so a StatefulSet pod returning with the same name can still recover.
+        self._recovery_pending = set()
         self._events: queue.Queue = queue.Queue()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -341,24 +348,41 @@ class WorkloadHealthWatcher:
         if not pod_name:
             return
 
+        transition = None
+        initial_baseline = False
         with self._lock:
             previous = self._pod_healthy.get(pod_name)
             self._pod_healthy[pod_name] = healthy
             self._pod_info[pod_name] = dict(pod_info)
 
-        if previous is None:
-            # First observation: emit down when starting unhealthy so watchers
-            # and downpodsArray stay aligned before any add/assignment.
-            if not healthy:
-                self._emit(True, pod_name)
-            return
+            if previous is None:
+                if healthy and pod_name in self._recovery_pending:
+                    # The pod disappeared after a real down event and has now
+                    # returned with the same name.
+                    self._recovery_pending.remove(pod_name)
+                    transition = False
+                elif healthy:
+                    initial_baseline = True
+            elif previous and not healthy:
+                self._recovery_pending.add(pod_name)
+                transition = True
+            elif (not previous) and healthy:
+                if pod_name in self._recovery_pending:
+                    self._recovery_pending.remove(pod_name)
+                    transition = False
+                else:
+                    initial_baseline = True
 
-        if previous and not healthy:
+        if transition is True:
             self.log.info("Pod %s marked unhealthy by health check", pod_name)
             self._emit(True, pod_name)
-        elif (not previous) and healthy:
+        elif transition is False:
             self.log.info("Pod %s recovered (health check passed)", pod_name)
             self._emit(False, pod_name)
+        elif initial_baseline:
+            self.log.info(
+                "Pod %s established initial healthy baseline", pod_name
+            )
 
     def _emit(self, is_down: bool, pod_name: str) -> None:
         # generate_name mirrors docker watchPodState (pod name used for both).
