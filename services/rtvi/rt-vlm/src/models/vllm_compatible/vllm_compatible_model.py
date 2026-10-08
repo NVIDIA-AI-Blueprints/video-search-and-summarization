@@ -3054,31 +3054,33 @@ class VllmCompatible(BaseVlmModel):
 
     def _close_evs_session(self, stream_id):
         """Delete the EVS session for a single stream."""
+        self.close_evs_session(stream_id)
+
+    def close_evs_session(self, stream_id=None):
+        """Delete matching sessions, retaining failed releases for a later close."""
         with self._evs_sessions_lock:
-            session_ids = [
-                self._evs_sessions.pop(cache_key)
-                for cache_key in list(self._evs_sessions.keys())
-                if _evs_session_cache_stream_id(cache_key) == stream_id
+            session_items = [
+                (cache_key, session_id)
+                for cache_key, session_id in self._evs_sessions.items()
+                if stream_id is None or _evs_session_cache_stream_id(cache_key) == stream_id
             ]
-        if session_ids and self._evs_handler is not None:
-
-            async def _delete_all():
-                for session_id in session_ids:
-                    await self._evs_handler.delete_session(session_id)
-
-            asyncio.run_coroutine_threadsafe(_delete_all(), self._event_loop).result()
-            logger.info("EVS sessions closed: %s (stream %s)", session_ids, stream_id)
-
-    def close_evs_session(self):
-        """Delete all EVS sessions."""
-        with self._evs_sessions_lock:
-            session_items = list(self._evs_sessions.items())
-            self._evs_sessions.clear()
         if session_items and self._evs_handler is not None:
 
             async def _delete_all():
-                for _cache_key, session_id in session_items:
-                    await self._evs_handler.delete_session(session_id)
+                first_error = None
+                for cache_key, session_id in session_items:
+                    try:
+                        await self._evs_handler.delete_session(session_id)
+                    except Exception as error:
+                        if first_error is None:
+                            first_error = error
+                        logger.warning("Failed to close EVS session %s", session_id, exc_info=True)
+                        continue
+                    with self._evs_sessions_lock:
+                        if self._evs_sessions.get(cache_key) == session_id:
+                            self._evs_sessions.pop(cache_key)
+                if first_error is not None:
+                    raise first_error
 
             asyncio.run_coroutine_threadsafe(_delete_all(), self._event_loop).result()
             logger.info(

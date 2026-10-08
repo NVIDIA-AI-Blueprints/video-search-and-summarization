@@ -2976,7 +2976,9 @@ class RTVIStreamHandler:
             and chunk_result.error == MODEL_BACKEND_UNAVAILABLE_MESSAGE
         )
         if chunk_result.error:
-            if not req_info.is_live or terminal_backend_error:
+            if (
+                not req_info.is_live or terminal_backend_error
+            ) and req_info.status != RequestInfo.Status.FAILED:
                 # Error was encountered while processing a chunk,
                 # mark the request as failed for files
                 # For live streams, continue processing new chunks
@@ -2992,12 +2994,7 @@ class RTVIStreamHandler:
                 else:
                     self._vlm_pipeline.abort_chunks(req_info.assets[0].asset_id)
                     req_info.status_event.set()
-                # The all-chunks-processed close below is unreachable now: the
-                # aborted chunks never arrive, so processed_chunk_list can never
-                # reach chunk_count. Without this the request's EVS sessions
-                # leak for the life of the process, until session creation
-                # fails with "max sessions reached". Threaded because
-                # send_command blocks on the worker's response queue.
+                    # Start cleanup on the first failure; send_command blocks.
                     Thread(
                         target=self._vlm_pipeline.close_evs_sessions,
                         args=(req_info.stream_id,),

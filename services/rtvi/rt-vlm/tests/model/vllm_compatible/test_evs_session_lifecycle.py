@@ -16,52 +16,191 @@
 """Unit tests for EVS session lifecycle ownership.
 
 These tests keep the scope small and avoid requiring a running vLLM engine:
-the vendored session manager is loaded directly, while the RTVI-side
+the installed native session modules are exercised, while the RTVI-side
 ``_ensure_evs_session`` test uses a tiny protocol/handler stub.
 """
 
 import asyncio
-import importlib.util
-import os
+import importlib
+import importlib.machinery
 import sys
 import threading
 import time
 from types import ModuleType, SimpleNamespace
 
-import pytest
-
 import models.vllm_compatible.vllm_compatible_model as vllm_compatible_model
+import pytest
 from models.vllm_compatible.vllm_compatible_model import VllmCompatible
-
-_VENDORED_VIDEO_SESSION = os.path.abspath(
-    os.path.join(
-        os.path.dirname(__file__),
-        "..",
-        "..",
-        "..",
-        "docker",
-        "rtvi_vlm",
-        "patches",
-        "evs_vllm_files",
-        "multimodal",
-        "video_session.py",
-    )
-)
 
 
 @pytest.fixture(scope="module")
 def evs_video_session():
-    """Load the vendored EVS video_session module under a private name."""
-    spec = importlib.util.spec_from_file_location(
-        "evs_video_session_vendored_under_test", _VENDORED_VIDEO_SESSION
+    """Exercise the compiled session module that ships in the RT-VLM image."""
+    module = importlib.import_module("vllm.multimodal.video_session")
+    assert module.__file__.endswith(tuple(importlib.machinery.EXTENSION_SUFFIXES))
+    return module
+
+
+@pytest.fixture
+def evs_serving(evs_video_session):
+    module = importlib.import_module("vllm.entrypoints.openai.serving_video_sessions")
+    assert module.__file__.endswith(tuple(importlib.machinery.EXTENSION_SUFFIXES))
+    return module.OpenAIServingVideoSessions
+
+
+async def _pending_evs_operation(serving_class, operation):
+    cache = set()
+    entered, resume = asyncio.Event(), asyncio.Event()
+    generating, finish_generation = asyncio.Event(), asyncio.Event()
+
+    async def free(hashes):
+        cache.difference_update(hashes)
+
+    handler = serving_class(SimpleNamespace(free_ec_caches=free, get_tokenizer=lambda: None))
+    sid = handler.manager.create_session(model="test-model", token_budget=1, prompt="describe")
+    session = handler.manager.get_session(sid)
+    mm_hash = "evs-merged-pending"
+
+    async def pause(*args, **kwargs):
+        session.record_merged_mm_hash(mm_hash)
+        cache.add(mm_hash)
+        entered.set()
+        await resume.wait()
+
+    async def merge(*args):
+        await pause()
+        return mm_hash, [1], [0.0]
+
+    async def generate(*args):
+        assert mm_hash in cache, "Encoder cache miss before generation admission"
+        generating.set()
+        await finish_generation.wait()
+        assert mm_hash in cache, "Encoder cache released during generation"
+        yield SimpleNamespace(outputs=[], prompt_token_ids=[])
+
+    async def encode(*args, **kwargs):
+        await pause()
+        raise ValueError("test encode failure")
+
+    if operation == "generate":
+        session.clips[0] = SimpleNamespace(mm_hash=None)
+        session.build_engine_prompt = lambda *args, **kwargs: {}
+        handler._compute_and_issue_merge = merge
+        handler._generate_client.generate = generate
+        request = SimpleNamespace(
+            messages=[{"role": "user", "content": "describe"}],
+            max_completion_tokens=1,
+            model="test-model",
+            to_sampling_params=lambda *args: None,
+        )
+        task = asyncio.create_task(handler.generate(sid, request))
+    else:
+        handler._local_encode = encode
+        task = asyncio.create_task(
+            handler.add_clip_tensors(sid, [], {"total_num_frames": 1}, chunk_id=0)
+        )
+    await asyncio.wait_for(entered.wait(), timeout=2)
+    return SimpleNamespace(
+        handler=handler,
+        sid=sid,
+        session=session,
+        cache=cache,
+        resume=resume,
+        task=task,
+        generating=generating,
+        finish_generation=finish_generation,
     )
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    try:
-        spec.loader.exec_module(module)
-        yield module
-    finally:
-        sys.modules.pop(spec.name, None)
+
+
+@pytest.mark.parametrize("operation", ["generate", "clip"])
+@pytest.mark.parametrize("cancel_delete", [False, True])
+def test_session_delete_drains_pending_evs_work(evs_serving, operation, cancel_delete):
+    async def run():
+        pending = await _pending_evs_operation(evs_serving, operation)
+        first = asyncio.create_task(pending.handler.delete_session(pending.sid))
+        second = None
+        try:
+            await asyncio.sleep(0)
+            assert not first.done(), "delete returned while EVS work still owns the embedding"
+            assert pending.cache == {"evs-merged-pending"}
+            with pytest.raises(KeyError):
+                pending.handler.manager.get_session(pending.sid)
+            second = asyncio.create_task(pending.handler.delete_session(pending.sid))
+            await asyncio.sleep(0)
+            assert not second.done(), "concurrent delete must share the drain"
+            if cancel_delete:
+                first.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await first
+            pending.resume.set()
+            if operation == "clip":
+                with pytest.raises(ValueError, match="test encode failure"):
+                    await pending.task
+            else:
+                await asyncio.wait_for(pending.generating.wait(), timeout=2)
+                assert not second.done(), "delete returned while generation was still pending"
+                assert pending.cache == {"evs-merged-pending"}
+                pending.finish_generation.set()
+                await pending.task
+            await asyncio.wait_for(second, timeout=2)
+            if not cancel_delete:
+                await first
+            assert not pending.cache
+        finally:
+            pending.resume.set()
+            pending.finish_generation.set()
+            await asyncio.gather(
+                pending.task,
+                first,
+                *([second] if second else []),
+                return_exceptions=True,
+            )
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("operation", ["generate", "clip"])
+def test_session_expiry_preserves_pending_evs_work(evs_serving, operation):
+    async def run():
+        pending = await _pending_evs_operation(evs_serving, operation)
+        manager = pending.handler.manager
+        manager._last_activity[pending.sid] = time.monotonic() - manager.session_timeout - 1
+        try:
+            assert manager.expire_stale_sessions() == []
+            assert pending.sid in manager._sessions
+        finally:
+            pending.resume.set()
+            pending.finish_generation.set()
+            await asyncio.gather(pending.task, return_exceptions=True)
+        assert "evs-merged-pending" in manager.expire_stale_sessions()
+        assert pending.sid not in manager._sessions
+
+    asyncio.run(run())
+
+
+def test_session_delete_retries_failed_cache_release(evs_serving):
+    async def run():
+        calls = []
+
+        async def free(hashes):
+            calls.append(hashes)
+            if len(calls) == 1:
+                raise RuntimeError("temporary cache release failure")
+
+        handler = evs_serving(SimpleNamespace(free_ec_caches=free))
+        sid = handler.manager.create_session(model="test-model", token_budget=1)
+        handler.manager.get_session(sid).record_merged_mm_hash("pending-release")
+        with pytest.raises(RuntimeError, match="temporary cache release failure"):
+            await handler.delete_session(sid)
+        with pytest.raises(KeyError):
+            handler.manager.get_session(sid)
+        handler.manager._last_activity[sid] = time.monotonic() - 9999
+        assert handler.manager.expire_stale_sessions() == []
+        await handler.delete_session(sid)
+        assert calls == [["pending-release"], ["pending-release"]]
+        assert sid not in handler.manager._sessions
+
+    asyncio.run(run())
 
 
 def test_stale_session_expiry_returns_merged_mm_hashes(evs_video_session):
@@ -196,6 +335,44 @@ def _make_evs_model(handler):
     model.model_dir_name = "cosmos-reason2-8b"
     model._ensure_evs_handler = lambda: handler
     return model
+
+
+@pytest.mark.parametrize("close_all", [False, True])
+def test_wrapper_retries_failed_release_and_closes_remaining_sessions(
+    monkeypatch, evs_serving, close_all
+):
+    calls = []
+
+    async def free(hashes):
+        calls.append(hashes)
+        if hashes == ["retry"] and calls.count(["retry"]) == 1:
+            raise RuntimeError("temporary cache release failure")
+
+    handler = evs_serving(SimpleNamespace(free_ec_caches=free))
+    model = _make_evs_model(handler)
+    for stream, prompt in [("stream-1", "retry"), ("stream-1", "ok"), ("stream-2", "other")]:
+        sid = handler.manager.create_session(model="test-model", token_budget=1)
+        handler.manager.get_session(sid).record_merged_mm_hash(prompt)
+        model._evs_sessions[(stream, prompt)] = sid
+    sessions = dict(model._evs_sessions)
+    monkeypatch.setattr(
+        vllm_compatible_model.asyncio,
+        "run_coroutine_threadsafe",
+        lambda coro, _loop: _CompletedFuture(asyncio.run(coro)),
+    )
+    close = model.close_evs_session if close_all else lambda: model._close_evs_session("stream-1")
+    with pytest.raises(RuntimeError, match="temporary cache release failure"):
+        close()
+    assert model._evs_sessions[("stream-1", "retry")] == sessions[("stream-1", "retry")]
+    assert ("stream-1", "ok") not in model._evs_sessions
+    assert sessions[("stream-1", "ok")] not in handler.manager._sessions
+    assert (("stream-2", "other") in model._evs_sessions) is not close_all
+    close()
+    assert calls.count(["retry"]) == 2
+    assert sessions[("stream-1", "retry")] not in handler.manager._sessions
+    assert model._evs_sessions == (
+        {} if close_all else {("stream-2", "other"): sessions[("stream-2", "other")]}
+    )
 
 
 def test_same_stream_different_prompt_uses_separate_evs_sessions(monkeypatch):
