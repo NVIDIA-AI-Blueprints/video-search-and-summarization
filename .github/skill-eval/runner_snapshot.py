@@ -3,6 +3,7 @@
 """Temporary read-only SSH metadata snapshot; no raw output is published."""
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -121,7 +122,7 @@ def run(args, *, env=None, timeout=30):
 def host_snapshot():
     out = {'containers':[], 'setup_processes':[]}
     for process in Path('/proc').iterdir():
-        if not process.name.isdigit():continue
+        if not process.name.isdigit() or int(process.name)==os.getpid():continue
         try: command=(process/'cmdline').read_bytes()
         except OSError:continue
         markers={'setup_notebook':b'run_setup_notebook.py','sandbox_build':b'openshell\x00sandbox\x00create','onboarding':b'nemoclaw\x00onboard'}
@@ -179,8 +180,13 @@ if __name__ == '__main__':
     if not args.worker:
         host_snapshot()
     else:
-        if args.worker not in {'Spark-ba-WiFi','vss-eval-l40s','vss-eval-l40s-1g',*(f'vss-eval-l40s-{n}' for n in range(2,7))}:raise ValueError('unexpected worker')
+        workers=args.worker.split(',')
+        allowed={'Spark-ba-WiFi','vss-eval-l40s','vss-eval-l40s-1g',*(f'vss-eval-l40s-{n}' for n in range(2,7))}
+        if not 1<=len(workers)<=4 or len(set(workers))!=len(workers) or any(worker not in allowed for worker in workers):raise ValueError('unexpected workers')
         script=Path(__file__).read_text()
         command='sh -lc '+shlex.quote('python3 -c '+shlex.quote(script))
-        snapshot=run(['ssh','-T','-o','BatchMode=yes','-o','ConnectTimeout=10','-o','ConnectionAttempts=1',args.worker.lower(),command],timeout=150)
-        args.out.write_text(json.dumps(snapshot,indent=2)+'\n')
+        def inspect(worker):
+            return run(['ssh','-T','-o','BatchMode=yes','-o','ConnectTimeout=10','-o','ConnectionAttempts=1',worker.lower(),command],timeout=150)
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            snapshots=dict(zip(workers,pool.map(inspect,workers)))
+        args.out.write_text(json.dumps(snapshots if len(workers)>1 else snapshots[workers[0]],indent=2)+'\n')
