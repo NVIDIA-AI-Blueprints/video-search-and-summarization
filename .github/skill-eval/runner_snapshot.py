@@ -71,8 +71,9 @@ for name in ('pending','paired'):
         rows.append(row)
     out['devices'][name]=rows
 out['vlm_errors']=[]
+out['vios_errors']=[]
 for session in sorted(Path('/sandbox/.openclaw/agents/main/sessions').glob('*.jsonl'),key=lambda p:p.stat().st_mtime,reverse=True)[:20]:
-    calls=set()
+    calls=set(); vios_calls={}
     try:
         for line in session.read_text().splitlines():
             try:message=json.loads(line).get('message',{})
@@ -80,9 +81,17 @@ for session in sorted(Path('/sandbox/.openclaw/agents/main/sessions').glob('*.js
             for block in message.get('content',[]) if isinstance(message.get('content'),list) else []:
                 if isinstance(block,dict) and block.get('type')=='toolCall' and 'vss vlm run' in json.dumps(block.get('arguments',{})):
                     calls.add(block.get('id'))
-            if message.get('role')!='toolResult' or message.get('toolCallId') not in calls:continue
+                if isinstance(block,dict) and block.get('type')=='toolCall':
+                    arguments=json.dumps(block.get('arguments',{}))
+                    if '/vst/' in arguments or 'vss vios ' in arguments:
+                        vios_calls[block.get('id')]=[endpoint(url) for url in re.findall(r'https?://[^\\\s"<>]+',arguments)][:5]
+            if message.get('role')!='toolResult':continue
             text=json.dumps(message.get('content',[]))
-            if '403' not in text:continue
+            if message.get('toolCallId') in vios_calls and (re.search(r'\b403\b',text) or 'policy_denied' in text):
+                out['vios_errors'].append({'kind':'policy_denied' if 'policy_denied' in text else 'http_403','request_origins':vios_calls[message.get('toolCallId')]})
+            if message.get('toolCallId') not in calls:continue
+            text=json.dumps(message.get('content',[]))
+            if not re.search(r'\b403\b',text):continue
             urls=[endpoint(url) for url in re.findall(r'https?://[^\\\s"<>]+',text)]
             out['vlm_errors'].append({'kind':'proxy_tunnel_denied' if 'tunnel' in text.lower() or 'connect' in text.lower() else 'http_403','origins':urls[:5]})
     except Exception:continue
@@ -98,7 +107,7 @@ def run(args, *, env=None, timeout=30):
     if result.returncode:
         output=result.stderr+'\n'+result.stdout
         reason = next((name for name in ('FileNotFoundError','PermissionError','TimeoutExpired','ValueError','SyntaxError') if name in output), None)
-        markers={'sandbox_not_found':'sandbox not found','connection_refused':'connection refused','pairing_pending':'pairing required','permission_denied':'permission denied','unknown_argument':'unexpected argument','gateway_missing':'no gateway'}
+        markers={'sandbox_not_found':'sandbox not found','connection_refused':'connection refused','pairing_pending':'pairing required','permission_denied':'permission denied','unknown_argument':'unexpected argument','gateway_missing':'no gateway','registry_missing':'is not registered'}
         category=next((name for name,marker in markers.items() if marker in output.lower()),None)
         return {'exit_code':result.returncode, **({'error_type':reason} if reason else {}), **({'category':category} if category else {})}
     try: return json.loads(result.stdout)
@@ -110,10 +119,17 @@ def run(args, *, env=None, timeout=30):
 
 
 def host_snapshot():
-    out = {'containers':[]}
+    out = {'containers':[], 'setup_processes':[]}
+    for process in Path('/proc').iterdir():
+        if not process.name.isdigit():continue
+        try: command=(process/'cmdline').read_bytes()
+        except OSError:continue
+        markers={'setup_notebook':b'run_setup_notebook.py','sandbox_build':b'openshell\x00sandbox\x00create','onboarding':b'nemoclaw\x00onboard'}
+        category=next((key for key,value in markers.items() if value in command),None)
+        if category:out['setup_processes'].append({'pid':int(process.name),'kind':category})
     listing = subprocess.run(['docker','ps','--format','{{.Names}}'],capture_output=True,text=True,timeout=10)
     for name in listing.stdout.splitlines():
-        if not (name.startswith('vss-vios-') or name.startswith('vss-rtvi-') or name.startswith('skill-eval-nim-')):continue
+        if not (name.startswith('vss-vios-') or name.startswith('vss-rtvi-') or name.startswith('skill-eval-nim-') or name.startswith('openshell-')):continue
         info=run(['docker','inspect',name],timeout=10)
         if not isinstance(info,list) or not info:continue
         state=info[0].get('State',{})
