@@ -654,6 +654,29 @@ class RunCommand(unittest.TestCase):
         self.assertEqual(rc, 128 + run_leg.signal.SIGTERM)
         cancel_tree.assert_called_once_with(proc, 4321, mock.ANY)
 
+    def test_cancel_removes_owned_gateway_rule_before_harbor_shutdown_grace(self):
+        proc = mock.Mock(pid=4321)
+        proc.wait.side_effect = run_leg._RunCommandInterrupted(signal.SIGTERM)
+        env = {**self.ENV, run_leg.GATEWAY_CANCEL_CLEANUP_ROOT_ENV: "/tmp/current-leg"}
+        events = []
+        with mock.patch.object(run_leg.subprocess, "Popen", return_value=proc), \
+             mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=lambda *a, **kw: events.append("firewall")) as cleanup, \
+             mock.patch.object(run_leg, "_cancel_process_tree", side_effect=lambda *a: events.append("tree") or True):
+            self.assertEqual(run_leg.run_command(self.COMMAND, env, 42), 143)
+        self.assertEqual(events, ["firewall", "tree"])
+        cleanup.assert_called_once_with("vss-eval-box", Path("/tmp/current-leg"), timeout_sec=20)
+        with mock.patch.object(run_leg.subprocess, "Popen", return_value=proc), \
+             mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=OSError("missing source")), \
+             mock.patch.object(run_leg, "_cancel_process_tree", return_value=True) as cancel:
+            self.assertEqual(run_leg.run_command(self.COMMAND, env, 42), 143)
+        cancel.assert_called_once()
+        proc.wait.side_effect = self._expired(42)
+        with mock.patch.object(run_leg.subprocess, "Popen", return_value=proc), \
+             mock.patch.object(run_leg, "cleanup_gateway_network_policy") as cleanup, \
+             mock.patch.object(run_leg, "_cancel_process_tree", return_value=True):
+            self.assertEqual(run_leg.run_command(self.COMMAND, env, 42), 124)
+        cleanup.assert_not_called()
+
     def test_reaped_strays_do_not_turn_a_finished_trial_into_a_timeout(self):
         """Harbor finished; only its transports lingered, and cleanup won.
 
@@ -1166,6 +1189,7 @@ class RunInvocations(unittest.TestCase):
                 )
 
         self.assertEqual(rc, 0)
+        self.assertTrue(all(e.get(run_leg.GATEWAY_CANCEL_CLEANUP_ROOT_ENV) == str(root / "results") for e in seen_env))
         self.assertEqual(command.call_args_list[0].args[4], "codex")
         self.assertEqual(command.call_args_list[1].args[4], "nemoclaw")
         self.assertEqual(seen_env[0]["SKILLS_EVAL_OPERATIONAL_HARNESS"], "nemoclaw")

@@ -490,3 +490,8 @@ The workflow's always-run result collection also reconciles the exact leg's gate
 firewall receipt under the worker lock. This covers an outer agent killing
 `run_leg.py` before its `finally`; mismatched receipts and busy workers are
 left untouched, with a bounded 60-second lock wait.
+
+An external cancellation also attempts the same owned-rule cleanup (20-second
+budget) at the beginning of `run_leg` shutdown, while its original worker lock
+is still held. This precedes Harbor's longer process-tree shutdown grace; it
+does not change timeout grace periods or skip process teardown.
