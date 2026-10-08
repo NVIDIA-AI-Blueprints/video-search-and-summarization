@@ -64,7 +64,7 @@ if isinstance(config,dict):
     if parsed.hostname=='host.openshell.internal' and parsed.scheme=='http' and parsed.port in {7777,30888}:
         result=subprocess.run(['/usr/bin/curl','--connect-timeout','3','--max-time','10','-sS','-o','/dev/null','-w','%{http_code}',url.rstrip('/')+'/api/v1/sensor/list'],capture_output=True,text=True,timeout=15)
         out['read_only_vios_probe']={'exit_code':result.returncode,'http_status':result.stdout if re.fullmatch(r'[0-9]{3}',result.stdout) else None}
-out['devices']={} 
+out['devices']={}
 for name in ('pending','paired'):
     devices=load('/sandbox/.openclaw/devices/'+name+'.json')
     if not isinstance(devices,dict): continue
@@ -76,6 +76,13 @@ for name in ('pending','paired'):
             if isinstance(device.get(k),str) and device[k] in allowed:row[k]=device[k]
         scopes=device.get('scopes',[])
         if isinstance(scopes,list):row['scopes']=[s for s in scopes if isinstance(s,str) and s in {'operator.read','operator.write','operator.pairing','operator.approvals','operator.admin'}]
+        for field in ('approvedScopes','requestedScopes'):
+            scopes=device.get(field,[])
+            if isinstance(scopes,list):row[field]=[s for s in scopes if s in {'operator.read','operator.write','operator.pairing','operator.approvals','operator.admin'}]
+        tokens=device.get('tokens',{})
+        if isinstance(tokens,dict):
+            token=tokens.get('operator',{})
+            if isinstance(token,dict):row['token_scopes']=[s for s in token.get('scopes',[]) if s in {'operator.read','operator.write','operator.pairing','operator.approvals','operator.admin'}]
         rows.append(row)
     out['devices'][name]=rows
 out['vlm_errors']=[]
@@ -128,13 +135,21 @@ def run(args, *, env=None, timeout=30):
 
 def host_snapshot():
     out = {'containers':[], 'setup_processes':[]}
+    try:
+        out['memory_available_mib']=int(re.search(r'^MemAvailable:\s+([0-9]+)',Path('/proc/meminfo').read_text(),re.M).group(1))//1024
+        space=os.statvfs(str(Path.home()));out['disk_free_gib']=round(space.f_bavail*space.f_frsize/2**30,1)
+    except Exception:pass
+    uptime=float(Path('/proc/uptime').read_text().split()[0]);ticks=os.sysconf('SC_CLK_TCK')
     for process in Path('/proc').iterdir():
         if not process.name.isdigit() or int(process.name)==os.getpid():continue
         try: command=(process/'cmdline').read_bytes()
         except OSError:continue
         markers={'setup_notebook':b'run_setup_notebook.py','sandbox_build':b'openshell\x00sandbox\x00create','onboarding':b'nemoclaw\x00onboard'}
         category=next((key for key,value in markers.items() if value in command),None)
-        if category:out['setup_processes'].append({'pid':int(process.name),'kind':category})
+        if category:
+            try:elapsed=round(uptime-float((process/'stat').read_text().rsplit(')',1)[1].split()[19])/ticks)
+            except Exception:elapsed=None
+            out['setup_processes'].append({'pid':int(process.name),'kind':category,'elapsed_seconds':elapsed})
     listing = subprocess.run(['docker','ps','--format','{{.Names}}'],capture_output=True,text=True,timeout=10)
     for name in listing.stdout.splitlines():
         if not (name.startswith('vss-vios-') or name.startswith('vss-rtvi-') or name.startswith('skill-eval-nim-') or name.startswith('openshell-')):continue
