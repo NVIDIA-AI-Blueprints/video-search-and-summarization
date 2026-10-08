@@ -73,7 +73,10 @@ print(json.dumps(out))
 
 
 def run(args, *, env=None, timeout=30):
-    result = subprocess.run(args, capture_output=True, text=True, env=env, timeout=timeout)
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, env=env, timeout=timeout)
+    except (subprocess.TimeoutExpired, FileNotFoundError, PermissionError) as exc:
+        return {'error_type':type(exc).__name__}
     if result.returncode:
         reason = next((name for name in ('FileNotFoundError','PermissionError','TimeoutExpired','ValueError') if name in result.stderr), None)
         return {'exit_code':result.returncode, **({'error_type':reason} if reason else {})}
