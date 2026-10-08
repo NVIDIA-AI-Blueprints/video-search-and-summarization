@@ -2,12 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """NemoClaw gateway isolation, media staging, and operational readiness."""
 
+import asyncio
 import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import socket
 import subprocess
+import shutil
+import sys
+from types import ModuleType
 
 import pytest
 
@@ -19,6 +23,48 @@ def _load_module(name, filename):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_agent_copyback_cannot_replace_current_instruction(monkeypatch, tmp_path):
+    modules = {}
+    for name in (
+        "harbor", "harbor.agents", "harbor.agents.installed",
+        "harbor.agents.installed.base", "harbor.agents.installed.openclaw",
+        "harbor.environments", "harbor.environments.base",
+        "harbor.models", "harbor.models.agent", "harbor.models.agent.context",
+    ):
+        modules[name] = ModuleType(name)
+        monkeypatch.setitem(sys.modules, name, modules[name])
+    modules["harbor.agents.installed.base"].with_prompt_template = lambda fn: fn
+    modules["harbor.agents.installed.openclaw"].OpenClaw = object
+    modules["harbor.environments.base"].BaseEnvironment = object
+    modules["harbor.models.agent.context"].AgentContext = object
+    path = NEMOCLAW.parent / "agents/nemoclaw.py"
+    spec = importlib.util.spec_from_file_location("nemoclaw_adapter_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    agent = module.NemoClaw()
+    agent.logs_dir = tmp_path / "local"
+    remote = tmp_path / "remote"
+    (remote / "agent").mkdir(parents=True)
+    (remote / "agent/instruction.txt").write_text("Deploy an unrelated alerts profile")
+
+    async def execute(environment, command, **kwargs):
+        # Run the adapter's real staging shell with temporary path prefixes;
+        # stop before inference, then model Harbor's log download/copyback.
+        staging = "mkdir -p" + command.split("mkdir -p", 1)[1].split(
+            "python3 .github/skill-eval/nemoclaw/headless_runner.py", 1,
+        )[0]
+        staging = staging.replace("/logs/agent", str(remote / "agent"))
+        staging = staging.replace("/tmp/skill-eval/nemoclaw", str(remote / "nemoclaw"))
+        subprocess.run(["bash", "-ec", staging], check=True)
+        shutil.copyfile(remote / "agent/instruction.txt", agent.logs_dir / "instruction.txt")
+
+    agent.exec_as_agent = execute
+    current = "Where did the worker put the 'box' down?\nUse the existing video."
+    asyncio.run(agent.run(current, object(), object()))
+    assert (agent.logs_dir / "instruction.txt").read_text() == current
+    assert (remote / "agent/instruction.txt").read_text() == current
 
 
 @pytest.fixture
