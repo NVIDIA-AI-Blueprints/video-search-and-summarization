@@ -156,11 +156,15 @@ free_ports() {
 # unwritable here and only sudo clears it, and the notebook reaches it after
 # the stack is up - so name it before the images pull rather than after.
 report_blockers() {
-  local f rc=0
+  local f bak rc=0
   for f in /tmp/nemoclaw-dashboard-relay.log /tmp/nemoclaw-dashboard-watchdog.log; do
     [[ -e "$f" && ! -w "$f" ]] || continue
+    # mv -n onto a name that already exists is a silent no-op, so a fixed
+    # .bak would hand back a command that leaves the log in place once an
+    # earlier occurrence has been cleared.
+    bak="$f.$(date +%Y%m%d-%H%M%S).bak"
     echo "ERROR: $f belongs to $(stat -c %U "$f") and is not writable; ask for:" \
-         "sudo mv -n $f $f.bak" >&2
+         "sudo mv -n $f $bak" >&2
     rc=3
   done
   return "$rc"
