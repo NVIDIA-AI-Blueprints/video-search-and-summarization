@@ -17,8 +17,9 @@ from typing import Any
 import check_fern_substitutions as check
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OPENAPI_PATH = Path(
-    "services/analytics/video-analytics-api/src/app/specification/openapi.json"
+OPENAPI_PATHS = (
+    Path("services/analytics/video-analytics-api/src/app/specification/openapi.json"),
+    Path("services/alert/openapi.json"),
 )
 COPY_DIRECTORIES = (Path("docs"), Path("fern"))
 MARKDOWN_SUFFIXES = frozenset({".md", ".mdx"})
@@ -78,7 +79,7 @@ def iter_tree_inputs(root: Path):
     """Yield the Fern inputs from a repository-shaped tree."""
     yield from check.iter_inputs(
         (root / "docs", root / "fern"),
-        (root / OPENAPI_PATH,),
+        tuple(root / path for path in OPENAPI_PATHS),
     )
 
 
@@ -112,9 +113,10 @@ def copy_inputs(source_root: Path, output_root: Path) -> None:
             ignore=ignored,
         )
 
-    openapi_output = output_root / OPENAPI_PATH
-    openapi_output.parent.mkdir(parents=True)
-    shutil.copy2(source_root / OPENAPI_PATH, openapi_output)
+    for openapi_path in OPENAPI_PATHS:
+        openapi_output = output_root / openapi_path
+        openapi_output.parent.mkdir(parents=True)
+        shutil.copy2(source_root / openapi_path, openapi_output)
 
 
 def transform_inputs(
