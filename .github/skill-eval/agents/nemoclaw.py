@@ -61,6 +61,10 @@ rm -f /logs/agent/openclaw.txt /logs/agent/openclaw.session.jsonl /logs/agent/re
   /logs/agent/trajectory.json /logs/agent/trajectory.jsonl \
   /logs/agent/claude-code.txt /logs/agent/codex.txt /logs/agent/agent.log
 printf %s {shlex.quote(prompt)} | base64 -d > {shlex.quote(prompt_path)}
+# Harbor copies host logs back before OpenClaw builds its trajectory. Replace
+# a prior trial's instruction so it cannot overwrite our current local copy
+# and attribute this session's tool calls to an unrelated user request.
+cp -- {shlex.quote(prompt_path)} /logs/agent/instruction.txt
 python3 .github/skill-eval/nemoclaw/headless_runner.py \
   --prompt-file {shlex.quote(prompt_path)} \
   --agent-log-dir /logs/agent \
