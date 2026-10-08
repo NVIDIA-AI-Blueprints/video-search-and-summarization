@@ -344,7 +344,7 @@ def coordinator_traces():
     from urllib.parse import urlsplit
     root=Path('/tmp/skill-eval/results/_viewer')
     out=[]
-    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338','37743611504','37744378089','37744385620','37744461082','37745938465','37749284519','37749293650','37752059953','37754840797'):
+    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338','37743611504','37744378089','37744385620','37744461082','37745938465','37749284519','37749293650','37752059953','37754840797','37757505544','37757514212'):
         for job in sorted(root.glob('*__'+run_id+'__*')):
             for path in sorted(job.glob('step-*/agent/openclaw.session.jsonl')):
                 calls={}; rows=[]; shapes=[]
@@ -476,7 +476,7 @@ def coordinator_traces():
     # Inspect only setup tool results for the failed startup, with token/URL/path
     # data removed before emitting a bounded excerpt.
     startup=[]
-    for job in [job for run_id in ('37743611504','37749284519','37749293650') for job in root.glob('*__'+run_id+'__*')]:
+    for job in [job for run_id in ('37743611504','37749284519','37749293650','37752059953','37754840797','37757505544','37757514212') for job in root.glob('*__'+run_id+'__*')]:
         for path in job.glob('step-1*/agent/codex.txt'):
             calls={}
             for line in path.read_text().splitlines():
@@ -499,7 +499,7 @@ def coordinator_traces():
                     selected.append(value[:500])
                 if selected:startup.append({'run':job.name.split('__')[-2] if '__' in job.name else None,'family':family,'exit_code':item.get('exit_code'),'lines':selected[:10]+selected[-10:]})
     firewall_commands=[]
-    for run_id in ('37743611504','37744461082','37745938465','37749284519','37749293650','37752059953','37754840797'):
+    for run_id in ('37743611504','37744461082','37745938465','37749284519','37749293650','37752059953','37754840797','37757505544','37757514212'):
         for job in root.glob('*__'+run_id+'__*'):
             for path in job.glob('step-1*/agent/codex.txt'):
                 for line in path.read_text().splitlines():
