@@ -18,12 +18,9 @@
 # elasticsearch.enabled / kibana.enabled / kafka.enabled / logstash.enabled.
 enabled: true
 
-# Defaults for the phoenix subchart. fullnameOverride keeps Service/Deployment
-# names as "phoenix" (no umbrella-release prefix).
+# Defaults for the phoenix subchart.
 phoenix:
   enabled: true
-  fullnameOverride: phoenix
-  useReleaseNamePrefix: false
   replicas: 1
   image:
     repository: docker.io/arizephoenix/phoenix
