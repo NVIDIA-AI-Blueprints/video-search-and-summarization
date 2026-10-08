@@ -123,7 +123,7 @@ kubectl get pods -n nim-operator
 
 ### Chart / tooling
 
-- **Helm** 3.x
+- **Helm** 3.7+
 - **kubectl**
 - **GPUs**: see [GPU Requirements](#gpu-requirements)
 - **NGC**: API key for image pull, model downloads, and NIM access
