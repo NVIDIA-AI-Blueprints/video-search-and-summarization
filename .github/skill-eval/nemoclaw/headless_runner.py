@@ -22,6 +22,67 @@ _SESSION_PATH = re.compile(
 )
 
 
+def _policy_denials(raw: str) -> list[dict[str, Any]]:
+    """Reduce OpenShell audit lines to metadata, never commands or raw reasons."""
+    rows: list[dict[str, Any]] = []
+    categories = {
+        "identity_resolution": ("resolve peer binary", "identity binding"),
+        "binary_integrity": ("binary integrity", "ancestor integrity"),
+        "binary_policy": ("not allowed in policy",),
+        "policy_changed": ("policy generation changed", "policy changed"),
+        "endpoint_policy": ("no matching endpoint", "no matching policy"),
+        "destination_policy": ("allowed_ips", "internal IP without"),
+    }
+    for line in raw.splitlines():
+        if "DENIED" not in line:
+            continue
+        row: dict[str, Any] = {}
+        target = re.search(
+            r"(?:->\s*(?:(?:GET|POST|PUT|DELETE|HEAD|CONNECT)\s+)?(?:https?://)?|CONNECT\s+)"
+            r"([a-zA-Z0-9.-]+):([0-9]{1,5})\b", line,
+        )
+        if target and 1 <= int(target[2]) <= 65535:
+            row.update(host=target[1], port=int(target[2]))
+        binary = re.search(r"DENIED (/usr/(?:local/)?(?:bin|vss/bin)/[a-zA-Z0-9_.+-]+)\([0-9]+\)", line)
+        if binary:
+            row["binary"] = binary[1]
+        policy = re.search(r"\[policy:([a-zA-Z0-9_-]+) engine:", line)
+        if policy:
+            row["policy"] = policy[1] if policy[1] in {
+                "vss-backend", "vss-k8s-ingress", "inference", "default-egress", "bypass-detect",
+            } else "other"
+        if not row:
+            continue
+        row["reason"] = next(
+            (name for name, markers in categories.items() if any(marker in line for marker in markers)),
+            "unspecified",
+        )
+        if row not in rows:
+            rows.append(row)
+    return rows[-20:]
+
+
+def _capture_policy_denials(sandbox: str, agent_log_dir: Path) -> None:
+    """Best-effort bounded diagnostics before the sandbox is cleaned up."""
+    report: dict[str, Any] = {}
+    try:
+        result = subprocess.run(
+            ["openshell", "logs", sandbox, "--source", "all", "-n", "200"],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=20, check=False,
+        )
+        report["exit_code"] = result.returncode
+        if result.returncode == 0:
+            report["denials"] = _policy_denials(result.stdout)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        report["exception_type"] = type(exc).__name__
+    artifact = agent_log_dir.parent / "artifacts" / "nemoclaw" / "network-denials.json"
+    try:
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        pass  # Diagnostics must not replace the original trial result.
+
+
 def _load_env_file(path: Path) -> None:
     if not path.exists():
         return
@@ -488,6 +549,8 @@ def main(argv: list[str] | None = None) -> int:
             session,
             encoding="utf-8",
         )
+        if "policy_denied" in session or re.search(r"\b403\b", session):
+            _capture_policy_denials(sandbox, agent_log_dir)
         return 0
     except Exception as exc:  # noqa: BLE001
         failure = f"NemoClaw/OpenClaw headless run failed: {type(exc).__name__}: {exc}"
@@ -495,6 +558,7 @@ def main(argv: list[str] | None = None) -> int:
         # Give Harbor and the judge this trial's failure evidence instead of
         # leaving them to discover a previous coding or operational raw log.
         (agent_log_dir / "agent.log").write_text(failure + "\n", encoding="utf-8")
+        _capture_policy_denials(sandbox, agent_log_dir)
         # Readiness failures name only the stage and exception type, so setup
         # never echoes a chained subprocess exception or raw gateway config.
         print(failure, file=sys.stderr)
