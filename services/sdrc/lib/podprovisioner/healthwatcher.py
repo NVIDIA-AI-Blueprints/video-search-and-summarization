@@ -285,12 +285,19 @@ class WorkloadHealthWatcher:
             yield event
 
     def poll_once(self) -> Dict[str, bool]:
-        """Probe all currently resolved pods once and return the snapshot."""
+        """Probe all currently resolved pods once and return the snapshot.
+
+        A failed lookup keeps the last snapshot. It is not an empty inventory,
+        so tracked pods are not marked down or forgotten. A successful empty
+        inventory still marks pods that disappeared as down.
+        """
         try:
             pods = self.resolve_pods() or []
         except Exception:
-            self.log.exception("Failed resolving pods for health poll")
-            pods = []
+            self.log.exception(
+                "Failed resolving pods for health poll; keeping last snapshot"
+            )
+            return self.snapshot()
 
         seen = set()
         for pod in pods:

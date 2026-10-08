@@ -418,3 +418,19 @@ class TestMaxReplicaException:
     def test_max_replica_exception_message(self, app_module):
         e = app_module.MaxReplicaException(5)
         assert "5" in str(e)
+
+
+class TestResolveWorkloadPodsForHealth:
+    def test_lookup_error_propagates(self, app_module):
+        app_module.curr_cluster.get_health_check_targets.return_value = None
+        app_module.curr_cluster.getWorkloadObjects.side_effect = RuntimeError(
+            "api down"
+        )
+        with pytest.raises(RuntimeError, match="api down"):
+            app_module._resolve_workload_pods_for_health()
+
+    def test_successful_empty_inventory_returns_empty_list(self, app_module):
+        app_module.curr_cluster.get_health_check_targets.return_value = None
+        app_module.curr_cluster.getWorkloadObjects.side_effect = None
+        app_module.curr_cluster.getWorkloadObjects.return_value = []
+        assert app_module._resolve_workload_pods_for_health() == []

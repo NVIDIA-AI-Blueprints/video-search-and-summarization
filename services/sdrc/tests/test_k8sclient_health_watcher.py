@@ -37,8 +37,8 @@ def test_watch_pod_state_uses_http_health_transitions_when_attached():
     health_watcher = MagicMock()
     health_watcher.iter_transitions.return_value = iter(
         [
-            (True, "vss-rtvi-cv-0", "vss-rtvi-cv"),
-            (False, "vss-rtvi-cv-0", "vss-rtvi-cv"),
+            (True, "vss-rtvi-cv-0", "vss-rtvi-cv-0"),
+            (False, "vss-rtvi-cv-0", "vss-rtvi-cv-0"),
         ]
     )
     client = _client(health_watcher)
@@ -49,9 +49,9 @@ def test_watch_pod_state_uses_http_health_transitions_when_attached():
     ):
         transitions = client.watchPodState()
 
-        assert next(transitions) == (True, "vss-rtvi-cv-0", "vss-rtvi-cv")
+        assert next(transitions) == (True, "vss-rtvi-cv-0", "vss-rtvi-cv-0")
         assert client.downpodsArray == ["vss-rtvi-cv-0"]
-        assert next(transitions) == (False, "vss-rtvi-cv-0", "vss-rtvi-cv")
+        assert next(transitions) == (False, "vss-rtvi-cv-0", "vss-rtvi-cv-0")
         assert client.downpodsArray == []
         with pytest.raises(StopIteration):
             next(transitions)

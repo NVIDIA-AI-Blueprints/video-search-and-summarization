@@ -860,18 +860,18 @@ def _resolve_workload_pods_for_health():
     Docker mode reads host:port from each entry's ``provisioning_address`` in
     ``docker_cluster_config.json``. Only ``WDM_WL_HEALTH_CHECK_URL`` (path) is
     configurable when building probe URLs. K8s falls back to live pod IPs.
+
+    Lookup failures propagate. ``WorkloadHealthWatcher.poll_once`` keeps the
+    last snapshot instead of treating the error as an empty inventory. A
+    successful empty result still means those pods are gone.
     """
-    try:
-        docker_targets = curr_cluster.get_health_check_targets()
-        if docker_targets is not None:
-            return docker_targets
-        wl_objs = curr_cluster.getWorkloadObjects()
-        if not wl_objs:
-            return []
-        return curr_cluster.getPodIps(wl_objs) or []
-    except Exception:
-        app.logger.exception("Failed resolving workload pods for health watcher")
+    docker_targets = curr_cluster.get_health_check_targets()
+    if docker_targets is not None:
+        return docker_targets
+    wl_objs = curr_cluster.getWorkloadObjects()
+    if not wl_objs:
         return []
+    return curr_cluster.getPodIps(wl_objs) or []
 
 
 def _config_bool(value, default=False):
