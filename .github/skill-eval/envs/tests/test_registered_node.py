@@ -14,6 +14,7 @@ Or directly:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import sys
@@ -358,6 +359,39 @@ class PreparationRetries(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await brev_env._run_brev_exec_retry("worker", "git fetch", 300)
             pause.assert_not_awaited()
+
+    async def test_upload_attests_destination_and_retries_only_recoverable_failures(self):
+        scenarios = (
+            ("missing_then_present", 44, 0, 2),
+            ("always_missing", 44, 44, 3),
+            ("permission_denied", 1, 1, 1),
+            ("wrong_checksum", 0, 0, 1),
+            ("parent_failed", 1, 1, 0),
+        )
+        for name, first_rc, next_rc, copies in scenarios:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                source = Path(directory) / "plan.json"
+                source.write_bytes(b'{"owner":"test"}')
+                digest = hashlib.sha256(source.read_bytes()).hexdigest()
+                output = f"{source.stat().st_size}\n{digest}  plan.json\n"
+                if name == "wrong_checksum":
+                    output = output.replace(digest, "0" * 64)
+                prepared = brev_env.ExecResult(return_code=1 if name == "parent_failed" else 0)
+                first = brev_env.ExecResult(return_code=first_rc, stdout=output, stderr="Permission denied" if name == "permission_denied" else "")
+                later = brev_env.ExecResult(return_code=next_rc, stdout=output)
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "worker"
+                with mock.patch.object(brev_env, "_run_brev_exec_retry", new=mock.AsyncMock(return_value=prepared)), \
+                     mock.patch.object(brev_env, "_run_brev_copy_once", new=mock.AsyncMock(return_value=brev_env.ExecResult(return_code=0))) as transfer, \
+                     mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(side_effect=[first, later, later])) as attest, \
+                     mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()):
+                    if name == "missing_then_present":
+                        await env.upload_file(source, "/tmp/plan.json")
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            await env.upload_file(source, "/tmp/plan.json")
+                self.assertEqual(transfer.await_count, copies)
+                self.assertEqual(attest.await_count, copies)
 
 
 if __name__ == "__main__":

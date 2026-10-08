@@ -5,11 +5,10 @@
 import argparse
 import hashlib
 import json
-from pathlib import Path
 import re
 import subprocess
 import time
-
+from pathlib import Path
 
 SOURCE = Path('/tmp/vss-sample-data/dev-profile-sample-data')
 DESTINATION = '/tmp/vss-sample-data/dev-profile-sample-data'
@@ -32,22 +31,30 @@ def call(args, *, deadline):
     return subprocess.run(args, check=True, capture_output=True, text=True, timeout=remaining).stdout
 
 
-def stage(sandbox, files, source=SOURCE):
+def stage(sandbox, files, source=SOURCE, *, report=None):
     files = validate_files(files)
     deadline = time.monotonic() + 30 + 300 * len(files)
     # Check every host input before uploading anything. Downloads remain the
     # setup workflow's job; this helper copies only the declared media files.
+    if report is not None:
+        report['stage'] = 'host_fixtures'
     inputs = []
     for name in files:
         path = source / name
         if not path.is_file() or path.stat().st_size == 0:
             raise ValueError(f'missing or empty host fixture: {name}')
         inputs.append((name, path, hashlib.sha256(path.read_bytes()).hexdigest()))
+    if report is not None:
+        report['stage'] = 'fixture_directory'
     call(['openshell', 'sandbox', 'exec', '-n', sandbox, '--', 'mkdir', '-p', DESTINATION], deadline=deadline)
     rows = []
     for name, path, digest in inputs:
         target = f'{DESTINATION}/{name}'
+        if report is not None:
+            report.update(stage='fixture_upload', file=name)
         call(['nemoclaw', sandbox, 'upload', str(path), target], deadline=deadline)
+        if report is not None:
+            report['stage'] = 'fixture_checksum'
         remote = call(['openshell', 'sandbox', 'exec', '-n', sandbox, '--', 'sha256sum', target], deadline=deadline).split()
         if not remote or remote[0] != digest:
             raise ValueError(f'sandbox fixture checksum mismatch: {name}')
@@ -62,8 +69,14 @@ def main():
     args = parser.parse_args()
     report = {'sandbox': args.sandbox, 'status': 'failed', 'files': []}
     try:
-        report['files'] = stage(args.sandbox, json.loads(args.files_json))
-        report['status'] = 'passed'
+        files = json.loads(args.files_json)
+        if files == []:
+            report['status'] = 'not_required'
+        else:
+            report['files'] = stage(args.sandbox, files, report=report)
+            report['status'] = 'passed'
+            report['stage'] = 'complete'
+            report.pop('file', None)
     except Exception as exc:
         # No CLI stdout/stderr or credentials enter the artifact.
         report['error_type'] = type(exc).__name__

@@ -381,6 +381,51 @@ def test_prompt_uses_native_inference_without_mutating_provider(runner, monkeypa
     assert not (logs / "agent.log").exists()
 
 
+@pytest.mark.parametrize("phase,model,access", [
+    ("Ready", "local-model", 0),
+    ("Error", "local-model", 0),
+    ("Ready", "wrong-model", 0),
+    ("Ready", "local-model", 1),
+])
+def test_setup_checks_phase_and_native_model_before_allowing_handoff(runner, monkeypatch, tmp_path, phase, model, access):
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    monkeypatch.setenv("SKILL_EVAL_LOCAL_NIM_API_KEY", "local-nim")
+    monkeypatch.setattr(runner, "_load_env_file", lambda _: None)
+    monkeypatch.setattr(runner.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 0, json.dumps({"phase": phase}), "secret"))
+    monkeypatch.setattr(runner, "_sandbox_exec", lambda *a, **kw: subprocess.CompletedProcess(a, access, '{"ok":true}', "secret"))
+    monkeypatch.setattr(runner, "_ensure_gateway", lambda _: pytest.fail("setup must not recover or recreate the sandbox"))
+    calls = []
+    def probe(sandbox, prompt, timeout):
+        calls.append(prompt)
+        return {"payloads": [{"text": "OK"}], "meta": {"aborted": False, "agentMeta": {"model": model, "usage": {"input": 10, "output": 1}}}}, "probe-session"
+    monkeypatch.setattr(runner, "_run_openclaw", probe)
+    logs = tmp_path / "agent"
+    assert runner.main(["--setup-check", "--agent-log-dir", str(logs)]) == (0 if phase == "Ready" and model == "local-model" and access == 0 else 1)
+    report = json.loads((logs / "setup-readiness.json").read_text())
+    failed = next((row["stage"] for row in report["stages"] if row["status"] == "failed"), None)
+    assert failed == ("sandbox_phase" if phase == "Error" else "sandbox_access" if access else "local_inference" if model != "local-model" else None)
+    assert len(calls) == (1 if phase == "Ready" and access == 0 else 0)
+    assert "secret" not in json.dumps(report)
+    assert not (logs / "openclaw.txt").exists()
+    assert not (logs / "openclaw.session.jsonl").exists()
+
+
+def test_setup_waits_for_ready_with_a_bounded_deadline(runner, monkeypatch):
+    clock = [0.0]
+    phases = iter(["Pending", "Ready"])
+    monkeypatch.setattr(runner.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(runner.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay))
+    monkeypatch.setattr(runner.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 0, json.dumps({"phase": next(phases)}), ""))
+    row = {}
+    runner._wait_sandbox_ready("se-test", row)
+    assert row["phase"] == "Ready"
+    assert row["attempts"] == 2
+    monkeypatch.setattr(runner.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 0, '{"phase":"Pending"}', ""))
+    with pytest.raises(RuntimeError, match="deadline"):
+        runner._wait_sandbox_ready("se-test", {})
+    assert clock[0] == 183
+
+
 
 @pytest.mark.parametrize("approve", [True, False])
 def test_pairing_uses_final_remaining_window(runner, monkeypatch, tmp_path, approve):

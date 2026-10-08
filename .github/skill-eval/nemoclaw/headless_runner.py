@@ -121,22 +121,78 @@ def _ensure_gateway(sandbox: str) -> None:
     )
 
 
-def _check_readiness(sandbox: str, evidence: Path) -> None:
+def _wait_sandbox_ready(sandbox: str, row: dict[str, Any]) -> None:
+    deadline = time.monotonic() + 180
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError("sandbox_phase deadline exceeded")
+        result = subprocess.run(
+            ["openshell", "sandbox", "get", sandbox, "-o", "json"],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            timeout=min(30, remaining), check=False,
+        )
+        row["attempts"] = row.get("attempts", 0) + 1
+        row["exit_code"] = result.returncode
+        if result.returncode != 0:
+            raise RuntimeError("sandbox_phase lookup failed")
+        phase = json.loads(result.stdout).get("phase")
+        if phase == "Ready":
+            row["phase"] = phase
+            return
+        if phase in ("Error", "Failed", "Terminated", "Deleted"):
+            row["phase"] = phase
+            raise RuntimeError(f"sandbox_phase is {phase}")
+        if not isinstance(phase, str) or not phase:
+            raise RuntimeError("sandbox_phase response is invalid")
+        time.sleep(min(3, max(0, deadline - time.monotonic())))
+
+
+def _probe_local_inference(sandbox: str, row: dict[str, Any]) -> None:
+    expected = os.environ["NEMOCLAW_MODEL"]
+    envelope, _ = _run_openclaw(
+        sandbox, "Reply with OK only. Do not use tools or change any files.", 120,
+    )
+    meta = envelope.get("meta", {})
+    agent_meta = meta.get("agentMeta", {})
+    if meta.get("aborted") is not False or agent_meta.get("model") != expected:
+        raise RuntimeError("sandbox inference did not complete through the selected local model")
+    if not any(payload.get("text") for payload in envelope.get("payloads", []) if isinstance(payload, dict)):
+        raise RuntimeError("sandbox inference returned no assistant response")
+    row["model"] = expected
+    row["provider"] = agent_meta.get("provider")
+    row["usage"] = {key: _int(agent_meta.get("usage", {}).get(key)) for key in ("input", "cacheRead", "output")}
+
+
+def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> None:
     """Prove sandbox access, authenticated gateway and CLI before a prompt."""
     stages: list[dict[str, Any]] = []
     artifact = evidence.parent.parent / "artifacts" / "nemoclaw" / evidence.name
     artifact.parent.mkdir(parents=True, exist_ok=True)
-    for stage, command in (
+    probes = [
         ("sandbox_access", "true"),
         ("gateway_health", None),
         ("gateway_authentication", "openclaw gateway call health --json"),
         ("vss_configuration", "vss configure check"),
-    ):
+    ]
+    if setup:
+        probes.insert(0, ("sandbox_phase", None))
+        if os.environ.get("SKILL_EVAL_LOCAL_NIM_API_KEY"):
+            probes.append(("local_inference", None))
+    for stage, command in probes:
         row: dict[str, Any] = {"stage": stage, "status": "failed"}
         stages.append(row)
         try:
-            if command is None:
-                _ensure_gateway(sandbox)
+            if stage == "sandbox_phase":
+                _wait_sandbox_ready(sandbox, row)
+            elif stage == "local_inference":
+                _probe_local_inference(sandbox, row)
+            elif command is None:
+                if setup:
+                    if not _gateway_healthy(sandbox):
+                        raise RuntimeError("gateway_health probe failed")
+                else:
+                    _ensure_gateway(sandbox)
             else:
                 # Canonical device scope approval can settle asynchronously.
                 # Wait only for that explicit state; bad credentials and other
@@ -179,6 +235,8 @@ def _check_readiness(sandbox: str, evidence: Path) -> None:
             row["status"] = "passed"
         except Exception as exc:
             row["exception_type"] = type(exc).__name__
+            if setup:
+                raise RuntimeError(f"NemoClaw readiness failed at {stage}: {type(exc).__name__}") from exc
             raise
         finally:
             # Metadata only: never store gateway tokens, config or raw output.
@@ -362,7 +420,9 @@ def _run_openclaw(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--prompt-file", required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--prompt-file")
+    mode.add_argument("--setup-check", action="store_true")
     parser.add_argument(
         "--env-file",
         default="/tmp/skill-eval/nemoclaw/nemoclaw.env",
@@ -379,9 +439,12 @@ def main(argv: list[str] | None = None) -> int:
     agent_log_dir = Path(args.agent_log_dir)
     agent_log_dir.mkdir(parents=True, exist_ok=True)
     sandbox = os.environ.get("NEMOCLAW_SANDBOX_NAME", "skill-eval")
-    prompt = Path(args.prompt_file).read_text(encoding="utf-8")
-
     try:
+        if args.setup_check:
+            _check_readiness(sandbox, agent_log_dir / "setup-readiness.json", setup=True)
+            print("NemoClaw setup handoff passed")
+            return 0
+        prompt = Path(args.prompt_file).read_text(encoding="utf-8")
         _check_readiness(sandbox, agent_log_dir / "readiness.json")
         # Onboarding owns the provider binding. The job's local proxy needs
         # no credential refresh; the native agent turn verifies inference.
@@ -396,13 +459,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
     except Exception as exc:  # noqa: BLE001
-        failure = (
-            f"NemoClaw/OpenClaw headless run failed: {type(exc).__name__}: {exc}"
-        )
+        failure = f"NemoClaw/OpenClaw headless run failed: {type(exc).__name__}: {exc}"
         # No session exists when gateway/inference fails before an answer.
         # Give Harbor and the judge this trial's failure evidence instead of
         # leaving them to discover a previous coding or operational raw log.
         (agent_log_dir / "agent.log").write_text(failure + "\n", encoding="utf-8")
+        # Readiness failures name only the stage and exception type, so setup
+        # never echoes a chained subprocess exception or raw gateway config.
         print(failure, file=sys.stderr)
         return 1
 

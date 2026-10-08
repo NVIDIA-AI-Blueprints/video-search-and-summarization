@@ -23,20 +23,20 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from enum import Enum
+import hashlib
 import json
 import logging
 import os
 import random
-from pathlib import Path
 import shlex
 import signal
 import subprocess
 import tempfile
 import uuid
+from enum import Enum
+from pathlib import Path
 
-from harbor.environments.base import BaseEnvironment
-from harbor.environments.base import ExecResult
+from harbor.environments.base import BaseEnvironment, ExecResult
 
 logger = logging.getLogger(__name__)
 
@@ -976,22 +976,56 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 
     async def upload_file(self, source_path: Path | str, target_path: str) -> None:
         assert self._instance_name
+        source = Path(source_path)
+        def fingerprint():
+            with source.open("rb") as handle:
+                return hashlib.file_digest(handle, "sha256").hexdigest(), os.fstat(handle.fileno()).st_size
         try:
             async with asyncio.timeout(BREV_TRANSFER_ACTIVE_TIMEOUT_SEC):
+                digest, size = await asyncio.to_thread(fingerprint)
                 # Ensure parent directory exists with correct ownership
                 parent = str(Path(target_path).parent)
                 if parent and parent != ".":
-                    await _run_brev_exec(
+                    prepared = await _run_brev_exec_retry(
                         self._instance_name,
                         f"sudo mkdir -p {shlex.quote(parent)} && "
                         f"sudo chown $(whoami):$(id -gn) {shlex.quote(parent)}",
                         timeout=30,
                     )
-                result = await _run_brev_copy(
-                    str(source_path), f"{self._instance_name}:{target_path}",
-                )
-                if result.return_code != 0:
-                    raise RuntimeError(f"Upload failed: {result.stderr}")
+                    if prepared.return_code != 0:
+                        raise RuntimeError("Upload parent-directory preparation failed")
+                target = shlex.quote(target_path)
+                for attempt in range(3):
+                    # One retry loop for copy + attestation, within the shared
+                    # transfer deadline. A successful Brev exit is insufficient.
+                    result = await _run_brev_copy_once(
+                        str(source), f"{self._instance_name}:{target_path}",
+                    )
+                    failure = "Upload transport failed"
+                    retry = _transient_transport_failure(result)
+                    if result.return_code == 0:
+                        result = await _run_brev_exec(
+                            self._instance_name,
+                            f"if [ ! -e {target} ]; then exit 44; fi; "
+                            f"[ -f {target} ] && [ ! -L {target} ] || exit 45; "
+                            f"stat -c %s -- {target} && sha256sum -- {target}",
+                            timeout=30,
+                        )
+                        if result.return_code == 0:
+                            lines = (result.stdout or "").splitlines()
+                            if len(lines) != 2 or lines[0] != str(size) or lines[1].split()[:1] != [digest]:
+                                raise RuntimeError("Uploaded file size/checksum verification failed")
+                            return
+                        failure = (
+                            "Uploaded file is absent on worker"
+                            if result.return_code == 44
+                            else "Uploaded file verification failed on worker"
+                        )
+                        retry = result.return_code == 44 or _transient_transport_failure(result)
+                    if not retry or attempt == 2:
+                        raise RuntimeError(f"{failure} (exit {result.return_code})")
+                    logger.warning("%s; retrying upload %s/2", failure, attempt + 1)
+                    await _transport_backoff(attempt)
         except TimeoutError as exc:
             raise RuntimeError(
                 "Upload file exceeded the "
@@ -1419,31 +1453,31 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                 full_cmd,
                 timeout=timeout_sec or BREV_EXEC_TIMEOUT,
             )
-            fixtures = os.environ.get("SKILL_EVAL_NEMOCLAW_FIXTURES")
+            fixtures = os.environ.get("SKILL_EVAL_NEMOCLAW_FIXTURES", "[]")
             if (
                 is_trial_agent and defer_agent_reap and result.return_code == 0
                 and os.environ.get("SKILLS_EVAL_OPERATIONAL_HARNESS") == "nemoclaw"
-                and fixtures
             ):
-                # Stage declared media after sandbox creation and before the
-                # verifier. This hook runs for either coding harness, only in
-                # setup; later operational steps never upload fixtures again.
+                # Prove the setup handoff even when no fixtures are declared.
+                # This runs before the verifier, only after coding setup.
                 sandbox = os.environ["NEMOCLAW_SANDBOX_NAME"]
                 staged = await _run_brev_exec(
                     self._instance_name,
                     f"export {REMOTE_AGENT_RUN_ENV}={shlex.quote(agent_run_marker)}; "
                     'export PATH="$HOME/.local/bin:$PATH"; source ~/.profile 2>/dev/null; '
+                    'python3 "$HOME/video-search-and-summarization/.github/skill-eval/nemoclaw/headless_runner.py" '
+                    '--setup-check && '
                     'python3 "$HOME/video-search-and-summarization/.github/skill-eval/nemoclaw/stage_fixtures.py" '
                     f"--sandbox {shlex.quote(sandbox)} --files-json {shlex.quote(fixtures)}",
-                    # Shared deadline covers mkdir, uploads and hashes; leave
-                    # transport headroom beyond the helper's own deadline.
-                    timeout=75 + 300 * len(json.loads(fixtures)),
+                    # Bound phase/exec/auth/inference checks and media staging
+                    # together, with transport headroom beyond each helper.
+                    timeout=900 + 300 * len(json.loads(fixtures)),
                 )
                 if staged.return_code != 0:
                     result = ExecResult(
                         return_code=staged.return_code,
                         stdout=result.stdout,
-                        stderr="Sandbox fixture staging failed: " + (staged.stderr or staged.stdout or "")[-2000:],
+                        stderr="NemoClaw setup handoff failed: " + (staged.stderr or staged.stdout or "")[-2000:],
                     )
             if agent_run_marker is not None and (
                 result.return_code != 0 or not defer_agent_reap
