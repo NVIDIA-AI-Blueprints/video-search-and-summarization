@@ -36,6 +36,7 @@ import re
 import shutil
 import shlex
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1112,13 +1113,14 @@ def _cancel_process_tree(
     proc: subprocess.Popen,
     pgid: int,
     registry_path: Path,
+    *, external: bool = False,
 ) -> bool:
     """Escalate INT → TERM → KILL across Harbor and detached transports."""
     exited = _signal_process_group_and_wait(
         proc,
         pgid,
         signal.SIGINT,
-        HARBOR_SIGINT_GRACE_SEC,
+        30 if external else HARBOR_SIGINT_GRACE_SEC,
         registry_path,
     )
     if not exited:
@@ -1130,7 +1132,7 @@ def _cancel_process_tree(
             proc,
             pgid,
             signal.SIGTERM,
-            HARBOR_SIGTERM_GRACE_SEC,
+            15 if external else HARBOR_SIGTERM_GRACE_SEC,
             registry_path,
         )
     if not exited:
@@ -1265,7 +1267,10 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
                 )
             except Exception as exc:
                 print(f"[run-leg] cancellation gateway cleanup failed: {type(exc).__name__}", file=sys.stderr)
-        exited = _cancel_process_tree(proc, pgid, registry_path)
+        if outcome >= 128:
+            exited = _cancel_process_tree(proc, pgid, registry_path, external=True)
+        else:
+            exited = _cancel_process_tree(proc, pgid, registry_path)
         if not exited:
             print(
                 "[run-leg] Harbor tree could not be reaped after SIGKILL; "
@@ -1620,7 +1625,80 @@ def cleanup_gateway_network_policy(instance: str, results_root: Path, *, timeout
 
 
 
-def cleanup_after_agent_exit(results_root: Path, *, lock_dir: Path = Path("/tmp/brev")) -> str:
+def _process_start_time(pid: int) -> str:
+    # comm can contain spaces and parentheses; field 22 follows the final ')'.
+    return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
+
+
+def _record_wrapper_owner(results_root: Path, instance: str, slug: str, run_id: str) -> None:
+    """Identify the locked wrapper, including PID reuse and workflow reruns."""
+    try:
+        value = {
+            "pid": os.getpid(), "start_time": _process_start_time(os.getpid()),
+            "run_id": run_id, "attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+            "slug": slug, "instance": instance,
+        }
+        fd, name = tempfile.mkstemp(prefix=".wrapper-owner-", dir=results_root)
+        try:
+            with os.fdopen(fd, "w") as stream:
+                json.dump(value, stream)
+            os.replace(name, results_root / "wrapper-owner.json")
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(name)
+    except OSError as exc:
+        print(f"[run-leg] wrapper owner receipt unavailable: {type(exc).__name__}", file=sys.stderr)
+
+
+def _signal_cancelled_wrapper(results_root: Path, instance: str, slug: str, run_id: str) -> bool:
+    """Signal only the recorded live wrapper from this exact cancelled attempt."""
+    pidfd = None
+    try:
+        with os.fdopen(os.open(results_root / "wrapper-owner.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "r") as stream:
+            metadata = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid()
+                    or metadata.st_nlink != 1 or stat.S_IMODE(metadata.st_mode) != 0o600
+                    or metadata.st_size > 4096):
+                return False
+            value = json.loads(stream.read(4097))
+        attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "")
+        if (not isinstance(value, dict) or not attempt
+                or any(value.get(k) != v for k, v in {
+                    "run_id": run_id, "attempt": attempt, "slug": slug, "instance": instance,
+                }.items())):
+            return False
+        pid = value.get("pid")
+        if type(pid) is not int or pid <= 1 or pid == os.getpid():
+            return False
+        # Pin the kernel process identity before validation. No raw-PID fallback:
+        # an unsupported host or a recycled PID must leave other legs untouched.
+        pidfd = os.pidfd_open(pid)
+        proc = Path(f"/proc/{pid}")
+        if proc.stat().st_uid != os.geteuid() or _process_start_time(pid) != value.get("start_time"):
+            return False
+        argv = (proc / "cmdline").read_bytes().split(b"\0")
+        if len(argv) < 2:
+            return False
+        script = Path(os.fsdecode(argv[1]))
+        if not script.is_absolute():
+            script = (proc / "cwd").resolve() / script
+        if script.resolve() != REPO_ROOT / ".github/skill-eval/run_leg.py":
+            return False
+        environment = dict(item.split(b"=", 1) for item in (proc / "environ").read_bytes().split(b"\0") if b"=" in item)
+        if any(environment.get(k.encode()) != v.encode() for k, v in {
+            "GITHUB_RUN_ID": run_id, "GITHUB_RUN_ATTEMPT": attempt, "EVAL_SLUG": slug,
+        }.items()):
+            return False
+        signal.pidfd_send_signal(pidfd, signal.SIGTERM)
+        return True
+    except (OSError, ValueError, AttributeError, IndexError):
+        return False
+    finally:
+        if pidfd is not None:
+            os.close(pidfd)
+
+
+def cleanup_after_agent_exit(results_root: Path, *, lock_dir: Path = Path("/tmp/brev"), cancelled: bool = False) -> str:
     """Workflow fallback when the outer agent kills run_leg before its finally."""
     slug = os.environ.get("EVAL_SLUG", "")
     run_id = os.environ.get("GITHUB_RUN_ID", "")
@@ -1635,10 +1713,13 @@ def cleanup_after_agent_exit(results_root: Path, *, lock_dir: Path = Path("/tmp/
     instance = fields[0]
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", instance):
         raise ValueError("invalid cleanup worker name")
+    if cancelled:
+        stopped = _signal_cancelled_wrapper(results_root, instance, slug, run_id)
+        print(f"[run-leg] cancelled wrapper signal delivered: {stopped}", flush=True)
     try:
         # Never reconcile even an owned chain while a sibling holds the worker.
         # A busy worker remains untouched; the fallback has a bounded CI budget.
-        with hold_pool_lock(lambda: [instance], lock_dir, 60):
+        with hold_pool_lock(lambda: [instance], lock_dir, 120 if cancelled else 60):
             cleanup_gateway_network_policy(instance, results_root)
         return "attempted"
     except LockTimeoutError:
@@ -1884,6 +1965,7 @@ def _run_invocations(
     env["SKILLS_EVAL_OPERATIONAL_HARNESS"] = operational_config.runtime
     env.pop(GATEWAY_CANCEL_CLEANUP_ROOT_ENV, None)
     if operational_eval and operational_config.runtime == "nemoclaw":
+        _record_wrapper_owner(results_root, instance, leg_slug, run_id)
         env[GATEWAY_CANCEL_CLEANUP_ROOT_ENV] = str(results_root)
         nemoclaw_setups = coding_setups
 

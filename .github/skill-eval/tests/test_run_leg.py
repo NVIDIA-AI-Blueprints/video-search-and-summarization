@@ -541,7 +541,13 @@ class RunCommand(unittest.TestCase):
             rc = run_leg.run_command(self.COMMAND, self.ENV, timeout_sec=42)
 
         self.assertEqual(rc, 128 + run_leg.signal.SIGTERM)
-        cancel_tree.assert_called_once_with(proc, 4321, mock.ANY)
+        cancel_tree.assert_called_once_with(proc, 4321, mock.ANY, external=True)
+
+    def test_external_cancellation_uses_short_grace_without_changing_timeout_grace(self):
+        proc = mock.Mock(pid=4321)
+        with mock.patch.object(run_leg, "_signal_process_group_and_wait", side_effect=[False, False, True]) as wait:
+            self.assertTrue(run_leg._cancel_process_tree(proc, 4321, Path("registry"), external=True))
+        self.assertEqual([call.args[3] for call in wait.call_args_list], [30, 15, 10])
 
     def test_timeout_uses_sigint_first_and_keeps_timeout_outcome(self):
         proc = mock.Mock(pid=4321)
@@ -652,7 +658,7 @@ class RunCommand(unittest.TestCase):
             rc = run_leg.run_command(self.COMMAND, self.ENV, timeout_sec=42)
 
         self.assertEqual(rc, 128 + run_leg.signal.SIGTERM)
-        cancel_tree.assert_called_once_with(proc, 4321, mock.ANY)
+        cancel_tree.assert_called_once_with(proc, 4321, mock.ANY, external=True)
 
     def test_cancel_removes_owned_gateway_rule_before_harbor_shutdown_grace(self):
         proc = mock.Mock(pid=4321)
@@ -661,7 +667,7 @@ class RunCommand(unittest.TestCase):
         events = []
         with mock.patch.object(run_leg.subprocess, "Popen", return_value=proc), \
              mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=lambda *a, **kw: events.append("firewall")) as cleanup, \
-             mock.patch.object(run_leg, "_cancel_process_tree", side_effect=lambda *a: events.append("tree") or True):
+             mock.patch.object(run_leg, "_cancel_process_tree", side_effect=lambda *a, **kw: events.append("tree") or True):
             self.assertEqual(run_leg.run_command(self.COMMAND, env, 42), 143)
         self.assertEqual(events, ["firewall", "tree"])
         cleanup.assert_called_once_with("vss-eval-box", Path("/tmp/current-leg"), timeout_sec=20)
@@ -754,7 +760,7 @@ class RunCommand(unittest.TestCase):
             rc = run_leg.run_command(self.COMMAND, self.ENV, timeout_sec=42)
 
         self.assertEqual(rc, 128 + run_leg.signal.SIGTERM)
-        cancel_tree.assert_called_once_with(proc, 4321, mock.ANY)
+        cancel_tree.assert_called_once_with(proc, 4321, mock.ANY, external=True)
 
     def test_repeated_signal_during_timeout_teardown_does_not_skip_cleanup(self):
         proc = mock.Mock(pid=4321)
@@ -2534,6 +2540,59 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
             with self.assertRaises(ValueError):
                 run_leg.cleanup_after_agent_exit(root)
         self.assertFalse(held)
+
+    def test_cancelled_workflow_stops_only_its_recorded_wrapper_then_locks_worker(self):
+        if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
+            self.skipTest("Linux pidfd required")
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            script = repo / ".github/skill-eval/run_leg.py"
+            script.parent.mkdir(parents=True)
+            locks = repo / "locks"
+            locks.mkdir()
+            lock_path = locks / "box-a.lock"
+            script.write_text("import fcntl,time\n"
+                              f"lock=open({str(lock_path)!r},'w')\n"
+                              "fcntl.flock(lock,fcntl.LOCK_EX)\n"
+                              "print('ready',flush=True)\ntime.sleep(60)\n")
+            env = {**os.environ, "EVAL_SLUG": "leg-a", "GITHUB_RUN_ID": "123",
+                   "GITHUB_RUN_ATTEMPT": "2"}
+            proc = subprocess.Popen([sys.executable, ".github/skill-eval/run_leg.py"],
+                                    cwd=repo, env=env, stdout=subprocess.PIPE, text=True)
+            try:
+                self.assertEqual(proc.stdout.readline().strip(), "ready")
+                root = repo / "results"
+                root.mkdir()
+                (root / "machine.txt").write_text("box-a\tleg-a\t123\n")
+                with mock.patch.dict(os.environ, env), mock.patch.object(run_leg, "REPO_ROOT", repo):
+                    run_leg._record_wrapper_owner(root, "box-a", "leg-a", "123")
+                    owner = root / "wrapper-owner.json"
+                    value = json.loads(owner.read_text())
+                    value.update(pid=proc.pid, start_time=run_leg._process_start_time(proc.pid))
+                    for field, wrong in (("attempt", "1"), ("start_time", "0"), ("run_id", "124")):
+                        owner.write_text(json.dumps({**value, field: wrong}))
+                        self.assertFalse(run_leg._signal_cancelled_wrapper(root, "box-a", "leg-a", "123"))
+                        self.assertIsNone(proc.poll())
+                    owner.write_text(json.dumps(value))
+                    owner.chmod(0o644)
+                    self.assertFalse(run_leg._signal_cancelled_wrapper(root, "box-a", "leg-a", "123"))
+                    owner.chmod(0o600)
+                    def cleanup(instance, results):
+                        self.assertEqual((instance, results), ("box-a", root))
+                        # A second descriptor cannot acquire the lock: fallback
+                        # owns it after the cancelled child released it.
+                        with lock_path.open("a") as stream:
+                            with self.assertRaises(BlockingIOError):
+                                run_leg.fcntl.flock(stream, run_leg.fcntl.LOCK_EX | run_leg.fcntl.LOCK_NB)
+                    with mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=cleanup) as remove:
+                        self.assertEqual(run_leg.cleanup_after_agent_exit(root, lock_dir=locks, cancelled=True), "attempted")
+                        remove.assert_called_once()
+                    self.assertEqual(proc.wait(timeout=5), -signal.SIGTERM)
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait(timeout=5)
+                proc.stdout.close()
 
     def test_instrumentation_logging_swallows_a_broken_pipe(self):
         # BrokenPipeError on a closed stdout is the realistic version of this.
