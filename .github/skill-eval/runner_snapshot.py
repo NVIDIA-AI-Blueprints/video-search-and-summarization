@@ -36,7 +36,9 @@ try:
     if re.fullmatch(r'#!/[A-Za-z0-9/_+.-]+',shebang):out['vss_shebang']=shebang
 except Exception: out['vss_missing']=True
 out['gateway_processes']=[]
-for p in Path('/proc').iterdir():
+try:processes=list(Path('/proc').iterdir())
+except OSError:processes=[];out['proc_unreadable']=True
+for p in processes:
     if not p.name.isdigit(): continue
     try:
         cmd=(p/'cmdline').read_bytes()
@@ -78,8 +80,11 @@ def run(args, *, env=None, timeout=30):
     except (subprocess.TimeoutExpired, FileNotFoundError, PermissionError) as exc:
         return {'error_type':type(exc).__name__}
     if result.returncode:
-        reason = next((name for name in ('FileNotFoundError','PermissionError','TimeoutExpired','ValueError') if name in result.stderr), None)
-        return {'exit_code':result.returncode, **({'error_type':reason} if reason else {})}
+        output=result.stderr+'\n'+result.stdout
+        reason = next((name for name in ('FileNotFoundError','PermissionError','TimeoutExpired','ValueError','SyntaxError') if name in output), None)
+        markers={'sandbox_not_found':'sandbox not found','connection_refused':'connection refused','pairing_pending':'pairing required','permission_denied':'permission denied','unknown_argument':'unexpected argument','gateway_missing':'no gateway'}
+        category=next((name for name,marker in markers.items() if marker in output.lower()),None)
+        return {'exit_code':result.returncode, **({'error_type':reason} if reason else {}), **({'category':category} if category else {})}
     try: return json.loads(result.stdout)
     except ValueError: return {'invalid_json':True}
 
@@ -111,7 +116,10 @@ def host_snapshot():
     if re.fullmatch(r'se-[0-9]+-[a-f0-9]+',sandbox):
         out['sandbox']=sandbox
         out['gateway_port']=env.get('NEMOCLAW_GATEWAY_PORT')
-        out['native']=run(['openshell','sandbox','exec','--name',sandbox,'--','python3','-c',SANDBOX_SCRIPT],env=env,timeout=45)
+        command='python3 -c '+shlex.quote(SANDBOX_SCRIPT)
+        port=env.get('NEMOCLAW_GATEWAY_PORT','')
+        if port.isdecimal() and 1024<=int(port)<=65535:
+            out['native']=run(['openshell','sandbox','exec','--name',sandbox,'-g','nemoclaw-'+port,'--','sh','-lc',command],env=env,timeout=45)
     out['readiness']=[]
     for path in Path('/logs/artifacts/nemoclaw').glob('*readiness.json'):
         try: report=json.loads(path.read_text())
