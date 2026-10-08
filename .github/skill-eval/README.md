@@ -485,3 +485,8 @@ File uploads verify the worker destination's size and SHA-256 before returning
 success. Transient transport failures, absent destinations and size/checksum
 mismatches retry within the existing transfer deadline. Inaccessible or invalid
 destinations stop immediately; persistent mismatches still fail the upload.
+
+The workflow's always-run result collection also reconciles the exact leg's gateway
+firewall receipt under the worker lock. This covers an outer agent killing
+`run_leg.py` before its `finally`; mismatched receipts and busy workers are
+left untouched, with a bounded 60-second lock wait.
