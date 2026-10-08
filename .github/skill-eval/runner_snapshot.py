@@ -182,6 +182,22 @@ def host_snapshot():
             out['native_access']=run(['openshell','sandbox','exec','--name',sandbox,'-g','nemoclaw-'+port,'--','sh','-lc','printf 1'],env=env,timeout=15)
             phase=run(['openshell','sandbox','get',sandbox,'-g','nemoclaw-'+port,'-o','json'],env=env,timeout=15)
             out['sandbox_phase']=phase.get('phase') if isinstance(phase,dict) and phase.get('phase') in {'Ready','Pending','Created','Creating','Starting','Error','Failed','Terminated'} else phase.get('category') if isinstance(phase,dict) else None
+            if out['sandbox_phase']=='Ready':
+                try:
+                    audit=subprocess.run(['openshell','logs',sandbox,'-g','nemoclaw-'+port,'-n','300'],stdin=subprocess.DEVNULL,capture_output=True,text=True,env=env,timeout=20)
+                    out['audit_exit_code']=audit.returncode
+                    out['denied_flows']=[]
+                    for line in audit.stdout.splitlines():
+                        if not any(marker in line for marker in ('NET:OPEN DENIED','policy_denied','DENIED')):continue
+                        flow={}
+                        match=re.search(r'(?:->|CONNECT)\s+([a-z0-9.-]+):([0-9]{1,5})\b',line)
+                        if match:
+                            flow['host']=match.group(1);flow['port']=int(match.group(2))
+                        binary=re.search(r'NET:OPEN DENIED (/[-A-Za-z0-9_./]+)\([0-9]+\)',line)
+                        if binary:flow['binary']=binary.group(1)
+                        if flow and flow not in out['denied_flows']:out['denied_flows'].append(flow)
+                    out['denied_flows']=out['denied_flows'][-20:]
+                except Exception as exc:out['audit_error_type']=type(exc).__name__
             invocation='if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi; '+shlex.join(['nemoclaw',sandbox,'exec','--no-tty','--no-stdin','--timeout','30','--','python3','-c',wrapped])
             out['native']=run(['bash','-lc',invocation],env=env,timeout=45)
             if isinstance(out['native'],dict) and out['native'].get('exit_code'):
