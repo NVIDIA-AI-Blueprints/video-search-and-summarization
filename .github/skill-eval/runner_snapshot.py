@@ -279,6 +279,11 @@ def host_snapshot():
             if parts:env[key]=parts[0]
     if re.fullmatch(r'[0-9]+',env.get('GITHUB_RUN_ID','')):out['active_eval_run']=env['GITHUB_RUN_ID']
     if re.fullmatch(r'[a-f0-9]{40}',env.get('PR_HEAD_SHA','')):out['active_eval_head']=env['PR_HEAD_SHA']
+    out['local_nim_probes']={}
+    if out.get('active_eval_run') in {'37763711360','37766151982'}:
+        for label,endpoint in [('adapter','http://127.0.0.1:18400/health/liveliness'),('nim','http://127.0.0.1:18410/v1/health/ready')]:
+            result=subprocess.run(['/usr/bin/curl','-sS','--max-time','5','-o','/dev/null','-w','%{http_code}',endpoint],capture_output=True,text=True,timeout=7)
+            out['local_nim_probes'][label]={'exit_code':result.returncode,'http_status':result.stdout if re.fullmatch(r'[0-9]{3}',result.stdout) else None}
     sandbox=env.get('NEMOCLAW_SANDBOX_NAME','')
     if re.fullmatch(r'se-[0-9]+-[a-f0-9]+',sandbox):
         out['sandbox']=sandbox
@@ -295,7 +300,7 @@ def host_snapshot():
                     rows.append({'port':int(port),'accept':'ACCEPT' in words or 'ALLOW' in words,'reject':'REJECT' in words or 'DENY' in words,'bridge_interface':any(word in {'docker0','br+'} or word.startswith('br-') for word in words),'ip_operands':re.findall(r'(?<![0-9])[0-9]{1,3}(?:\.[0-9]{1,3}){3}(?:/[0-9]{1,2})?',line),'chain':words[1] if len(words)>1 and words[0]=='-A' and re.fullmatch(r'[A-Za-z0-9_-]{1,50}',words[1]) else None})
                 out['gateway_firewall'][name]={'exit_code':result.returncode,'port_rules':rows[:20],'input_policy_drop':bool(re.search(r'^-P INPUT DROP$',result.stdout,re.M))}
         producer_origin=''
-        if out.get('active_eval_run') in {'37744385620','37752059953','37754840797','37757505544','37757514212','37763711360','37763719776'}:
+        if out.get('active_eval_run') in {'37744385620','37752059953','37754840797','37757505544','37757514212','37763711360','37763719776','37766151982','37767605818'}:
             for publication in out['vios_publication']:
                 endpoint=publication.get('endpoint_settings',{}).get('VST_INGRESS_ENDPOINT',{})
                 host=endpoint.get('host','');producer_port=endpoint.get('port')
@@ -312,6 +317,7 @@ def host_snapshot():
         port=env.get('NEMOCLAW_GATEWAY_PORT','')
         if port.isdecimal() and 1024<=int(port)<=65535:
             out['native_access']=run(['openshell','sandbox','exec','--name',sandbox,'-g','nemoclaw-'+port,'--','sh','-lc','printf 1'],env=env,timeout=15)
+            if out['native_access']==1:out['native_access']={'exit_code':0,'probe_output_valid':True}
             phase=run(['openshell','sandbox','get',sandbox,'-g','nemoclaw-'+port,'-o','json'],env=env,timeout=15)
             out['sandbox_phase']=phase.get('phase') if isinstance(phase,dict) and phase.get('phase') in {'Ready','Pending','Created','Creating','Starting','Error','Failed','Terminated'} else phase.get('category') if isinstance(phase,dict) else None
             if out['sandbox_phase'] in {'Error','Failed','Terminated'}:
@@ -368,7 +374,7 @@ def coordinator_traces():
     from urllib.parse import urlsplit
     root=Path('/tmp/skill-eval/results/_viewer')
     out=[]
-    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338','37743611504','37744378089','37744385620','37744461082','37745938465','37749284519','37749293650','37752059953','37754840797','37757505544','37757514212','37763711360','37763719776'):
+    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338','37743611504','37744378089','37744385620','37744461082','37745938465','37749284519','37749293650','37752059953','37754840797','37757505544','37757514212','37763711360','37763719776','37766151982','37767605818'):
         for job in sorted(root.glob('*__'+run_id+'__*')):
             for path in sorted(job.glob('step-*/agent/openclaw.session.jsonl')):
                 calls={}; rows=[]; shapes=[]
@@ -500,7 +506,7 @@ def coordinator_traces():
     # Inspect only setup tool results for the failed startup, with token/URL/path
     # data removed before emitting a bounded excerpt.
     startup=[]
-    for job in [job for run_id in ('37743611504','37749284519','37749293650','37752059953','37754840797','37757505544','37757514212','37763711360','37763719776') for job in root.glob('*__'+run_id+'__*')]:
+    for job in [job for run_id in ('37743611504','37749284519','37749293650','37752059953','37754840797','37757505544','37757514212','37763711360','37763719776','37766151982','37767605818') for job in root.glob('*__'+run_id+'__*')]:
         for path in job.glob('step-1*/agent/codex.txt'):
             calls={}
             for line in path.read_text().splitlines():
@@ -523,7 +529,7 @@ def coordinator_traces():
                     selected.append(value[:500])
                 if selected:startup.append({'run':job.name.split('__')[-2] if '__' in job.name else None,'family':family,'exit_code':item.get('exit_code'),'lines':selected[:10]+selected[-10:]})
     firewall_commands=[]
-    for run_id in ('37743611504','37744461082','37745938465','37749284519','37749293650','37752059953','37754840797','37757505544','37757514212','37763711360','37763719776'):
+    for run_id in ('37743611504','37744461082','37745938465','37749284519','37749293650','37752059953','37754840797','37757505544','37757514212','37763711360','37763719776','37766151982','37767605818'):
         for job in root.glob('*__'+run_id+'__*'):
             for path in job.glob('step-1*/agent/codex.txt'):
                 for line in path.read_text().splitlines():
