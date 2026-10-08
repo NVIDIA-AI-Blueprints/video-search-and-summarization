@@ -319,7 +319,7 @@ def coordinator_traces():
     from urllib.parse import urlsplit
     root=Path('/tmp/skill-eval/results/_viewer')
     out=[]
-    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338','37743611504','37744378089','37744385620','37744461082','37745938465','37750290842'):
+    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338','37743611504','37744378089','37744385620','37744461082','37745938465','37749284519','37749293650'):
         for job in sorted(root.glob('*__'+run_id+'__*')):
             for path in sorted(job.glob('step-*/agent/openclaw.session.jsonl')):
                 calls={}; rows=[]; shapes=[]
@@ -394,7 +394,8 @@ def coordinator_traces():
 
 
     scan_stream_evidence=[]
-    for job in root.glob('*__37743611504__*nvstreamer*'):
+    for job in root.glob('*__37743611504__*'):
+        if 'nvstreamer' not in job.name:continue
         for path in job.glob('step-4*/agent/openclaw.session.jsonl'):
             trial=path.parent.parent
             receipts=list(trial.glob('artifacts/**/host-fixture.json'))
