@@ -574,7 +574,19 @@ def coordinator_traces():
             try:fields=receipt.read_text().strip().split('\t')
             except OSError:continue
             if len(fields)==3 and fields[2]==run_id and re.fullmatch(r'[A-Za-z0-9_-]{1,64}',fields[0]) and re.fullmatch(r'[A-Za-z0-9_-]{1,180}',fields[1]):machines.append({'run':int(run_id),'worker':fields[0],'slug':fields[1]})
-    return {'machines':machines,'viewer_exists':root.is_dir(),'traces':out,'startup_failure_results':startup[:8]+startup[-25:],'scan_stream_evidence':scan_stream_evidence,'scan_order':scan_order,'firewall_commands':firewall_commands}
+    leg_processes=[]
+    for entry in Path('/proc').iterdir():
+        if not entry.name.isdecimal():continue
+        try:
+            argv=(entry/'cmdline').read_bytes().decode().split('\0')
+            if len(argv)<2 or not argv[1].endswith('/.github/skill-eval/run_leg.py'):continue
+            fields=dict(item.split('=',1) for item in (entry/'environ').read_bytes().decode().split('\0') if '=' in item)
+            run=fields.get('GITHUB_RUN_ID')
+            if run not in {'37770839464','37773243124','37774258173','37775381660','37768823981'}:continue
+            locks=[value.name for fd in (entry/'fd').iterdir() if str(value:=fd.resolve()).startswith('/tmp/brev/') and value.name.endswith('.lock')]
+            leg_processes.append({'run':int(run),'pid':int(entry.name),'worker_lock_files':locks,'attempt':fields.get('GITHUB_RUN_ATTEMPT')})
+        except (OSError,ValueError,UnicodeError):continue
+    return {'leg_processes':leg_processes,'machines':machines,'viewer_exists':root.is_dir(),'traces':out,'startup_failure_results':startup[:8]+startup[-25:],'scan_stream_evidence':scan_stream_evidence,'scan_order':scan_order,'firewall_commands':firewall_commands}
 
 
 if __name__ == '__main__':

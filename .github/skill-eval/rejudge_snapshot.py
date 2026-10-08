@@ -2,6 +2,7 @@
 import argparse
 import importlib.util
 import json
+import tempfile
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
@@ -26,7 +27,25 @@ evidence = {
     'trajectory_user_contains_selected_query': task['query'] in user_text,
     'trajectory_user_contains_unrelated_alerts': 'alerts profile' in user_text,
 }
-if not evidence['instruction_contains_selected_query'] or not evidence['trajectory_user_contains_selected_query']:
-    raise RuntimeError('Retained task and selected query do not match')
-evidence['replay'] = judge._run_checks(task['checks'], str(trajectory), 180, query=task['query'], step=11)
+native_users = []
+for line in (trajectory.parent / 'openclaw.session.jsonl').read_text().splitlines():
+    row = json.loads(line)
+    message = row.get('message', {})
+    if message.get('role') == 'user':
+        content = message.get('content', [])
+        native_users.append(content if isinstance(content, str) else ''.join(p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text'))
+evidence['native_user_contains_selected_query'] = any(task['query'] in value for value in native_users)
+args.out.write_text(json.dumps(evidence, indent=2) + '\n')
+if not evidence['native_user_contains_selected_query']:
+    raise RuntimeError('Native session does not contain the selected task')
+# This is a separate derived replay, not a replacement for the original trial.
+# Restore only its first user message from the actual native session, matching
+# what correct instruction staging makes Harbor's converter record.
+with tempfile.TemporaryDirectory(prefix='task-context-replay-') as folder:
+    first_user = next(row for row in data['steps'] if row.get('source') == 'user')
+    first_user['message'] = next(value for value in native_users if task['query'] in value)
+    corrected = Path(folder) / 'trajectory.json'
+    corrected.write_text(json.dumps(data))
+    evidence['replay_source'] = 'separate derived trajectory with native first user prompt'
+    evidence['replay'] = judge._run_checks(task['checks'], str(corrected), 180, query=task['query'], step=11)
 args.out.write_text(json.dumps(judge._scrub_tree(evidence), indent=2) + '\n')
