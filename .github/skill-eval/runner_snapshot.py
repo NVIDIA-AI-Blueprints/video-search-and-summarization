@@ -152,12 +152,16 @@ def host_snapshot():
             out['setup_processes'].append({'pid':int(process.name),'kind':category,'elapsed_seconds':elapsed})
     listing = subprocess.run(['docker','ps','--format','{{.Names}}'],capture_output=True,text=True,timeout=10)
     out['vios_publication']=[]
+    out['sandbox_image_layers']=[]
     for name in listing.stdout.splitlines():
         if not (name.startswith('vss-vios-') or name.startswith('vss-rtvi-') or name.startswith('skill-eval-nim-') or name.startswith('openshell-')):continue
         info=run(['docker','inspect',name],timeout=10)
         if not isinstance(info,list) or not info:continue
         state=info[0].get('State',{})
         out['containers'].append({'name':name,'status':state.get('Status'),'health':state.get('Health',{}).get('Status'),'oom':state.get('OOMKilled'),'restarts':info[0].get('RestartCount')})
+        if name.startswith('openshell-'):
+            image=run(['docker','image','inspect',info[0].get('Image','')],timeout=10)
+            if isinstance(image,list) and image:out['sandbox_image_layers'].append({'container':name,'layers':len(image[0].get('RootFS',{}).get('Layers',[]))})
         if name in {'vss-vios-streamprocessing','vss-vios-sensor'}:
             from urllib.parse import urlsplit
             publication={'container':name,'endpoint_settings':{}}
@@ -401,15 +405,15 @@ def coordinator_traces():
                 markers=('MainProcessExited','ContainerStartFailed','ReadyFalse','EADDRINUSE','EACCES','ENOENT','EXIT_CODE','Invalid config','Config validation failed','Missing env var','main process','exited with','startup','not found','Error:','error:','failed','FATAL','fatal','Permission denied','Unknown config','unrecognized','scope upgrade','pairing required','preflight','refused','identity deletion','atomic','cannot','Cannot')
                 selected=[]
                 for value in text.splitlines():
-                    if len(value)>1000 or not any(marker in value for marker in markers):continue
+                    if not any(marker in value for marker in markers):continue
                     value=re.sub(r'https?://\S+', '<origin>', value)
                     value=re.sub(r'/[-A-Za-z0-9_./]+','<path>',value)
                     value=re.sub(r'(?i)(token|key|secret|password|credential)(\s*[=:]\s*)\S+',r'\1\2<redacted>',value)
                     value=re.sub(r'[A-Za-z0-9_+/=.-]{30,}','<id>',value)
                     value=re.sub(r'"[^"\n]*"|\x1b\[[0-9;]*[a-zA-Z]','<quoted>',value)
                     selected.append(value[:500])
-                if selected:startup.append({'family':family,'exit_code':item.get('exit_code'),'lines':selected[-20:]})
-    return {'viewer_exists':root.is_dir(),'traces':out,'startup_failure_results':startup[-25:]}
+                if selected:startup.append({'family':family,'exit_code':item.get('exit_code'),'lines':selected[:10]+selected[-10:]})
+    return {'viewer_exists':root.is_dir(),'traces':out,'startup_failure_results':startup[:8]+startup[-25:]}
 
 
 if __name__ == '__main__':
