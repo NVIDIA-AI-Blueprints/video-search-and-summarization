@@ -2442,6 +2442,32 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
                  ):
                 self.assertEqual(run_leg.main(self._argv(tmp)), 42)
 
+    def test_nemoclaw_cancellation_cleans_firewall_before_releasing_worker(self):
+        held = False
+        @contextlib.contextmanager
+        def locked(*args, **kwargs):
+            nonlocal held
+            held = True
+            try:
+                yield "box-a"
+            finally:
+                held = False
+        def cleanup(instance, root):
+            self.assertTrue(held)
+            self.assertEqual(instance, "box-a")
+        with tempfile.TemporaryDirectory() as tmp:
+            self._dataset(tmp)
+            with mock.patch.dict(os.environ, {
+                "EVAL_SPEC_PATH": "skills/operations/vss-ask-video/evals/test.json",
+                "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
+            }), mock.patch.object(run_leg, "hold_pool_lock", locked), \
+                 mock.patch.object(run_leg, "run_invocations", side_effect=SystemExit(143)), \
+                 mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=cleanup) as remove:
+                with self.assertRaises(SystemExit):
+                    run_leg.main(self._argv(tmp))
+        remove.assert_called_once()
+        self.assertFalse(held)
+
     def test_instrumentation_logging_swallows_a_broken_pipe(self):
         # BrokenPipeError on a closed stdout is the realistic version of this.
         # Scoped to the instrumentation path on purpose: run_leg's pre-existing

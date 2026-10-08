@@ -287,6 +287,12 @@ and occupied ports without deleting registries or stopping listeners. A retry
 reuses its own receipt. Setup and all operational steps receive the selected
 triplet and keep the same deployment. Explicit port overrides remain strict:
 they must be distinct, available, and use a non-default gateway port.
+Before onboarding, the claimed namespace receives an owned INPUT chain allowing
+only Docker bridge and loopback traffic to its gateway port. Other traffic keeps
+the host's existing firewall policy. The leg removes only its own chain before
+releasing the worker lock, including cancellation; existing UFW rules and
+unowned chains are preserved. This prevents repeated onboarding attempts when
+an active host firewall blocks the newly selected gateway port.
 The image build persists the dashboard port from onboarding into OpenClaw's
 `gateway.port`. NemoClaw's canonical warm-up and pairing approval clear runtime
 port overrides, so an inherited default port would prevent scope approval.

@@ -1585,6 +1585,28 @@ def allocate_gateway_ports(instance: str, owner: str, preferred: list[int], env:
     return ports
 
 
+def cleanup_gateway_network_policy(instance: str, results_root: Path) -> None:
+    """Remove only this leg's gateway firewall chain while its worker lock is held."""
+    slug = os.environ.get("EVAL_SLUG") or results_root.parent.name
+    run_id = os.environ.get("GITHUB_RUN_ID") or results_root.name
+    owner = hashlib.sha256(f"{run_id}:{slug}".encode()).hexdigest()
+    script = (REPO_ROOT / ".github/skill-eval/nemoclaw/gateway_state.py").read_text()
+    command = "python3 -c " + shlex.quote(script) + " " + shlex.join([owner, "--cleanup-firewall"])
+    try:
+        result = subprocess.run(
+            ["uvx", "--python", sys.executable, "--from", HARBOR_REQUIREMENT, "python", "-c",
+             "import asyncio,sys; from envs.brev_env import _run_brev_exec_retry; "
+             "r=asyncio.run(_run_brev_exec_retry(sys.argv[1],sys.argv[2],timeout=90)); "
+             "print(r.stdout or ''); print(r.stderr or '',file=sys.stderr); sys.exit(r.return_code)",
+             instance, command],
+            cwd=REPO_ROOT, env=harbor_env(instance), timeout=120, check=False,
+        )
+        if result.returncode:
+            raise RuntimeError(f"cleanup exited {result.returncode}")
+    except Exception as exc:
+        print(f"[run-leg] owned gateway network policy cleanup failed: {type(exc).__name__}", file=sys.stderr)
+
+
 def spark_instance() -> str:
     """Resolve the operator-selected external node, never a cloud fallback."""
     from local_nim import SPARK_NODE_ID, SPARK_NODE_NAME
@@ -2244,17 +2266,24 @@ def main(argv: list[str] | None = None) -> int:
                     # phases below set their own labels.
                     leg_timing.set_phase(outer_phase)
                     dispatch_started = time.time()
-                    rc = run_invocations(
-                        invocations,
-                        instance,
-                        args.results_root,
-                        args.scratch,
-                        args.spec_stem,
-                        args.platform,
-                        args.harbor_timeout_sec,
-                        model_routes,
-                        work_deadline,
-                    )
+                    try:
+                        rc = run_invocations(
+                            invocations,
+                            instance,
+                            args.results_root,
+                            args.scratch,
+                            args.spec_stem,
+                            args.platform,
+                            args.harbor_timeout_sec,
+                            model_routes,
+                            work_deadline,
+                        )
+                    finally:
+                        if (
+                            model_routes.operational.runtime == "nemoclaw"
+                            and os.environ.get("EVAL_SPEC_PATH", "").startswith("skills/operations/")
+                        ):
+                            cleanup_gateway_network_policy(instance, args.results_root)
                     if rc == 0:
                         return rc
                     refusal = box_rejected_for_capacity(
