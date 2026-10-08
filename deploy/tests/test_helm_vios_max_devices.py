@@ -79,6 +79,32 @@ class MaxDevicesSupported(unittest.TestCase):
             {"vss-vios-sensor": 100, "vss-vios-streamprocessing": 100, "vss-vios-nvstreamer": 7},
         )
 
+    def test_anything_but_a_positive_integer_fails_the_render(self):
+        """`int` would turn a typo into 0, and VST would then refuse every sensor."""
+        for setting in ("global.vios.maxDevicesSupported", *(f"{s}.maxDevicesSupported" for s in SUBCHARTS)):
+            for bad in ("1000-devices", "0", "-5", "1.5", "abc"):
+                with self.subTest(setting=setting, value=bad):
+                    out = _render("--set-string", f"{setting}={bad}")
+                    self.assertNotEqual(out.returncode, 0, f"{setting}={bad} rendered")
+                    self.assertIn("must be a positive integer", out.stderr)
+
+    def test_nvstreamer_rolls_when_the_limit_changes(self):
+        """Its configs are subPath-mounted, so only a changed pod-template checksum
+        applies a new limit on `helm upgrade` (as sensor and streamprocessing already do)."""
+        def checksum(*overrides: str) -> str:
+            out = _render("--show-only", "charts/vss-vios-nvstreamer/templates/deployment.yaml", *overrides)
+            assert out.returncode == 0, out.stderr
+            deployment = yaml.safe_load(out.stdout)
+            return deployment["spec"]["template"]["metadata"]["annotations"]["checksum/config"]
+
+        self.assertNotEqual(checksum(), checksum("--set", "vss-vios-nvstreamer.maxDevicesSupported=500"))
+        self.assertEqual(checksum(), checksum())
+
+
+def _render(*args: str) -> subprocess.CompletedProcess:
+    command = ["helm", "template", "t", str(VIOS), "--set", "vss-vios-nvstreamer.enabled=true", *args]
+    return subprocess.run(command, capture_output=True, text=True, check=False)
+
 
 if __name__ == "__main__":
     unittest.main()

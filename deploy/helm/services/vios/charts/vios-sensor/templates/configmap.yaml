@@ -39,6 +39,15 @@ data:
 {{- $elasticsearchAddr := .Values.elasticsearchServerAddress | default (printf "%s:9200" $esH) }}
 {{- $viosGlobal := index $g "vios" | default dict }}
 {{- $maxDevices := .Values.maxDevicesSupported | default (index $viosGlobal "maxDevicesSupported") | default 100 }}
+{{- /* VST rejects every new sensor once its count reaches max_devices_supported, and
+       `int` turns a typo such as "1000-devices" into 0 -- so refuse anything but a
+       positive integer, in the subchart value and the shared global alike. Empty
+       (the default) falls through to the global, then to 100. */}}
+{{- range $key, $value := dict "maxDevicesSupported" .Values.maxDevicesSupported "global.vios.maxDevicesSupported" (index $viosGlobal "maxDevicesSupported") }}
+{{- if and (not (kindIs "invalid" $value)) (ne (toString $value) "") (not (regexMatch "^[1-9][0-9]*$" (toString $value))) }}
+{{- fail (printf "%s must be a positive integer (VST max_devices_supported), got %q" $key (toString $value)) }}
+{{- end }}
+{{- end }}
 {{- $notificationConfig := .Values.notificationConfig | default (index $viosGlobal "notificationConfig" | default "") | default (.Files.Get "configs/notification_config.json") }}
 {{- if kindIs "map" $notificationConfig }}
 {{- $notificationConfig = $notificationConfig | toPrettyJson }}
