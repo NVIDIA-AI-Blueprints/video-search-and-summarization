@@ -48,12 +48,6 @@ elasticsearchTransportPort: "9300"
 # Leave empty for the in-cluster Kafka service. Defaults to kafka-kafka:9092,
 # or <release>-kafka-kafka:9092 when global.useReleaseNamePrefix is enabled.
 kafkaBootstrapServers: ""
-# Set true when something outside the chart chooses the GPU: a Kubernetes device
-# plugin, or a DRA ResourceClaim. The chart then drops NVIDIA_VISIBLE_DEVICES
-# from the env below, which would otherwise override that choice from inside the
-# container. extraEnv cannot do this; it sets a value and never removes a name.
-pluginSelectsDevices: false
-
 env:
   - name: ARANGO_DB_HOST
     value: arango-db
@@ -123,8 +117,6 @@ env:
     value: /tmp/model_cache
   - name: NVIDIA_API_KEY
     value: ""
-  - name: NVIDIA_VISIBLE_DEVICES
-    value: "0"
   - name: VLM_MODEL_TO_USE
     value: openai-compat
   - name: VLM_SYSTEM_PROMPT

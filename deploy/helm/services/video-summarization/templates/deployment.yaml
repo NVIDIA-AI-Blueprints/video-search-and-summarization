@@ -136,15 +136,6 @@ spec:
             {{- $_ := set $envMap .name (tpl (.value | default "" | toString) $) }}
             {{- end }}
             {{- /*
-              NVIDIA_VISIBLE_DEVICES names GPUs from inside the container, which
-              overrides whatever assigned them from outside. Drop it when a
-              device plugin or a DRA claim is making that choice. extraEnv cannot
-              do this: it sets a value and never removes a name.
-            */}}
-            {{- if .Values.pluginSelectsDevices }}
-            {{- $_ := unset $envMap "NVIDIA_VISIBLE_DEVICES" }}
-            {{- end }}
-            {{- /*
               Emit alphabetically. Go's text/template already sorts map keys
               implicitly when ranging, but pinning the order explicitly with
               sortAlpha documents the intent and prevents accidental
