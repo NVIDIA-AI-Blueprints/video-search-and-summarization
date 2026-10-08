@@ -662,6 +662,58 @@ async def _fetch_object_embedding(
 # =============================================================================
 
 
+def _normalise_screenshot_bound(timestamp: datetime | None) -> datetime | None:
+    """Return one optional screenshot bound as a timezone-aware UTC datetime."""
+    if timestamp is None:
+        return None
+    return iso8601_to_datetime(datetime_to_iso8601(timestamp))
+
+
+def _screenshot_anchor(
+    metadata: AttributeSearchMetadata,
+    clamp_start: datetime | None,
+    clamp_end: datetime | None,
+) -> str | None:
+    """Choose the best screenshot timestamp and constrain it to the requested window."""
+    timestamp = metadata.frame_timestamp or metadata.start_time
+    timestamp_dt = safe_iso8601_to_datetime(timestamp)
+    if timestamp_dt is None:
+        return timestamp
+    if clamp_start is not None and timestamp_dt < clamp_start:
+        return datetime_to_iso8601(clamp_start)
+    if clamp_end is not None and timestamp_dt > clamp_end:
+        return datetime_to_iso8601(clamp_end)
+    return timestamp
+
+
+async def _enrich_attribute_result(
+    result: AttributeSearchResult,
+    resolution_base_url: str,
+    screenshot_base_url: str,
+    timelines: dict[str, tuple[str, str]],
+    clamp_start: datetime | None,
+    clamp_end: datetime | None,
+) -> None:
+    """Resolve one result's stream id and attach its bounded screenshot URL."""
+    if not (result.metadata and result.metadata.sensor_id and not result.screenshot_url):
+        return
+    try:
+        timestamp = _screenshot_anchor(result.metadata, clamp_start, clamp_end)
+        stream_id = await get_stream_id(result.metadata.sensor_id, resolution_base_url)
+        if stream_id:
+            if timestamp:
+                mapped_timestamp = _map_to_timeline(timestamp, stream_id, timelines)
+                if mapped_timestamp is not None:
+                    result.screenshot_url = build_screenshot_url(
+                        screenshot_base_url,
+                        stream_id,
+                        mapped_timestamp,
+                    )
+            result.metadata.sensor_id = stream_id
+    except Exception as e:
+        logger.warning(f"Failed to enrich result for sensor {result.metadata.sensor_id}: {e}")
+
+
 async def enrich_attribute_results(
     results: list[AttributeSearchResult],
     vst_internal_url: str | None,
@@ -679,33 +731,23 @@ async def enrich_attribute_results(
     if not resolution_base_url or not screenshot_base_url:
         return
 
-    clamp_start = iso8601_to_datetime(datetime_to_iso8601(timestamp_start)) if timestamp_start is not None else None
-    clamp_end = iso8601_to_datetime(datetime_to_iso8601(timestamp_end)) if timestamp_end is not None else None
+    clamp_start = _normalise_screenshot_bound(timestamp_start)
+    clamp_end = _normalise_screenshot_bound(timestamp_end)
     needs_screenshots = any(r.metadata and r.metadata.sensor_id and not r.screenshot_url for r in results)
     timelines = await _get_timelines_best_effort(resolution_base_url) if needs_screenshots else {}
-
-    async def _enrich(r: AttributeSearchResult) -> None:
-        if not (r.metadata and r.metadata.sensor_id and not r.screenshot_url):
-            return
-        try:
-            ts = r.metadata.frame_timestamp or r.metadata.start_time
-            ts_dt = safe_iso8601_to_datetime(ts)
-            if ts_dt is not None:
-                if clamp_start is not None and ts_dt < clamp_start:
-                    ts = datetime_to_iso8601(clamp_start)
-                elif clamp_end is not None and ts_dt > clamp_end:
-                    ts = datetime_to_iso8601(clamp_end)
-            stream_id = await get_stream_id(r.metadata.sensor_id, resolution_base_url)
-            if stream_id:
-                if ts:
-                    mapped_ts = _map_to_timeline(ts, stream_id, timelines)
-                    if mapped_ts is not None:
-                        r.screenshot_url = build_screenshot_url(screenshot_base_url, stream_id, mapped_ts)
-                r.metadata.sensor_id = stream_id
-        except Exception as e:
-            logger.warning(f"Failed to enrich result for sensor {r.metadata.sensor_id}: {e}")
-
-    await asyncio.gather(*(_enrich(r) for r in results))
+    await asyncio.gather(
+        *(
+            _enrich_attribute_result(
+                result,
+                resolution_base_url,
+                screenshot_base_url,
+                timelines,
+                clamp_start,
+                clamp_end,
+            )
+            for result in results
+        )
+    )
 
 
 async def _get_timelines_best_effort(vst_base_url: str) -> dict[str, tuple[str, str]]:
