@@ -1817,6 +1817,7 @@ def _run_invocations(
             coding_setups.setdefault(invocation.chain_key, invocation)
 
     nemoclaw_setups: dict[str, HarborInvocation] = {}
+    host_fixtures: dict[int, dict] = {}
     deferred_agent_marker: str | None = None
     operational_config = model_routes.operational
     env["SKILLS_EVAL_OPERATIONAL_HARNESS"] = operational_config.runtime
@@ -1852,9 +1853,15 @@ def _run_invocations(
         fixture_spec = REPO_ROOT / spec_path
         env.pop("SKILL_EVAL_NEMOCLAW_FIXTURES", None)
         if fixture_spec.is_file():
-            fixtures = json.loads(fixture_spec.read_text()).get("sandbox_fixtures", [])
+            fixture_declarations = json.loads(fixture_spec.read_text())
+            fixtures = fixture_declarations.get("sandbox_fixtures", [])
             if fixtures:
                 env["SKILL_EVAL_NEMOCLAW_FIXTURES"] = json.dumps(fixtures)
+            host_fixtures = {
+                step: task["host_fixture"]
+                for step, task in enumerate(fixture_declarations.get("expects", []), 1)
+                if "host_fixture" in task
+            }
         env.setdefault("NEMOCLAW_RECREATE_SANDBOX", "0")
         env.update(
             {
@@ -1966,6 +1973,9 @@ def _run_invocations(
             **command_kwargs,
         )
         invocation_env = env.copy()
+        invocation_env.pop("SKILL_EVAL_NEMOCLAW_HOST_FIXTURE", None)
+        if invocation_agent == "nemoclaw" and invocation.step_index in host_fixtures:
+            invocation_env["SKILL_EVAL_NEMOCLAW_HOST_FIXTURE"] = json.dumps(host_fixtures[invocation.step_index])
         if invocation_agent == "claude-code":
             # Harbor resolves the ${...} --ae templates from its process env,
             # then scopes the resulting ANTHROPIC_* values to agent setup/run.

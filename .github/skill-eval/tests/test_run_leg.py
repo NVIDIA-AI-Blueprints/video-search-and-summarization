@@ -1118,15 +1118,23 @@ class RunInvocations(unittest.TestCase):
                     include_task_name=f"step-{index}",
                     chain_key="alerts",
                     step_index=index,
-                    step_count=2,
+                    step_count=3,
                 )
-                for index in (1, 2)
+                for index in (1, 2, 3)
             ]
+            fixture = {"nvstreamer_scan_file": "warehouse_sample.mp4"}
+            spec_path = "skills/operations/vss-manage-alerts/evals/fixtures.json"
+            (root / spec_path).parent.mkdir(parents=True)
+            (root / spec_path).write_text(json.dumps({
+                "sandbox_fixtures": ["warehouse_safety_0001.mp4"],
+                "expects": [{}, {"host_fixture": fixture}, {}],
+            }))
             env = {
                 **self.ENV,
                 "EVAL_AGENT": "nemoclaw",
                 "EVAL_SKILL": "vss-manage-alerts",
-                "EVAL_SPEC_PATH": "skills/operations/vss-ask-video/evals/base_profile_video_understanding.json",
+                "EVAL_SPEC_PATH": spec_path,
+                "SKILL_EVAL_NEMOCLAW_HOST_FIXTURE": "inherited-stale-fixture",
             }
             for invocation in invocations:
                 task = invocation.harbor_root / invocation.include_task_name
@@ -1143,6 +1151,7 @@ class RunInvocations(unittest.TestCase):
 
             with (
                 mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "REPO_ROOT", root),
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
                 mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]) as command,
                 mock.patch.object(run_leg, "run_command", side_effect=run_command) as run,
@@ -1170,7 +1179,10 @@ class RunInvocations(unittest.TestCase):
             run_leg.NEMOCLAW_SETUP_AGENT_TIMEOUT_MULTIPLIER,
         )
         self.assertNotIn("agent_timeout_multiplier", command.call_args_list[1].kwargs)
-        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_count, 3)
+        self.assertNotIn("SKILL_EVAL_NEMOCLAW_HOST_FIXTURE", seen_env[0])
+        self.assertEqual(json.loads(seen_env[1]["SKILL_EVAL_NEMOCLAW_HOST_FIXTURE"]), fixture)
+        self.assertNotIn("SKILL_EVAL_NEMOCLAW_HOST_FIXTURE", seen_env[2])
         self.assertEqual(
             seen_env[0]["NEMOCLAW_SANDBOX_NAME"],
             seen_env[1]["NEMOCLAW_SANDBOX_NAME"],

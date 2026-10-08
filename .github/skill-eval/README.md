@@ -431,6 +431,16 @@ Missing host files, upload failures and mismatches fail setup. It neither
 downloads fixtures nor registers them with VSS. Sanitized results are retained
 in `nemoclaw/fixtures.json` in the workflow artifacts.
 
+A task can also declare `"host_fixture": {"nvstreamer_scan_file": "warehouse_sample.mp4"}`
+to test NvStreamer's filesystem scan from NemoClaw. Immediately before that
+native task, the host copies the pinned sample under a unique basename into
+the running VSS Compose NvStreamer's writable video bind mount and verifies
+its checksum. It uploads only a metadata manifest to the sandbox and retains
+`nemoclaw/host-fixture.json` for verification. The agent still performs the
+pre-scan absence check, scan, stream lookup and snapshot requests; fixture
+preparation never registers a sensor or grants Docker access to the sandbox.
+Other harnesses continue to perform the copy themselves.
+
 File uploads verify the worker destination's size and SHA-256 before returning
 success. Transient transport failures, absent destinations and size/checksum
 mismatches retry within the existing transfer deadline. Inaccessible or invalid
