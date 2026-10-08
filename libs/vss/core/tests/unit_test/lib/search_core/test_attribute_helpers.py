@@ -678,3 +678,61 @@ async def test_attach_screenshots_builds_url_on_success(monkeypatch):
     out = await ah._attach_screenshots([result], vst_internal_url=None, vst_external_url="http://vst", attr_query="q")
     assert out[0].metadata.sensor_id == "streamX"
     assert out[0].screenshot_url == "http://vst/streamX/2025-01-01T00:00:05Z"
+
+
+@pytest.mark.asyncio
+async def test_enrich_screenshot_prefers_frame_timestamp_without_mutating_metadata(monkeypatch):
+    async def _stream_id(sensor_id: str, base_url: str) -> str:
+        return "streamX"
+
+    async def _timelines(base_url: str) -> dict[str, tuple[str, str]]:
+        return {}
+
+    monkeypatch.setattr(ah, "get_stream_id", _stream_id)
+    monkeypatch.setattr(ah, "_get_timelines_best_effort", _timelines)
+    monkeypatch.setattr(ah, "build_screenshot_url", lambda base, stream_id, ts: f"{base}/{stream_id}/{ts}")
+    result = _enrichable("cam1", frame_ts="2025-01-01T00:00:05Z")
+
+    await ah.enrich_attribute_results([result], "http://internal", "http://external")
+
+    assert result.screenshot_url == "http://external/streamX/2025-01-01T00:00:05Z"
+    assert result.metadata.start_time == "2025-01-01T00:00:00Z"
+    assert result.metadata.end_time == "2025-01-01T00:00:10Z"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("frame_timestamp", "expected_anchor"),
+    [
+        (None, "2025-01-01T00:00:03Z"),
+        ("2025-01-01T00:00:01Z", "2025-01-01T00:00:03Z"),
+        ("2025-01-01T00:00:09Z", "2025-01-01T00:00:07Z"),
+    ],
+)
+async def test_enrich_screenshot_clamps_anchor_without_mutating_metadata(
+    monkeypatch,
+    frame_timestamp: str | None,
+    expected_anchor: str,
+):
+    async def _stream_id(sensor_id: str, base_url: str) -> str:
+        return "streamX"
+
+    async def _timelines(base_url: str) -> dict[str, tuple[str, str]]:
+        return {}
+
+    monkeypatch.setattr(ah, "get_stream_id", _stream_id)
+    monkeypatch.setattr(ah, "_get_timelines_best_effort", _timelines)
+    monkeypatch.setattr(ah, "build_screenshot_url", lambda base, stream_id, ts: f"{base}/{stream_id}/{ts}")
+    result = _enrichable("cam1", frame_ts=frame_timestamp)
+
+    await ah.enrich_attribute_results(
+        [result],
+        "http://internal",
+        "http://external",
+        timestamp_start=datetime(2025, 1, 1, 0, 0, 3, tzinfo=UTC),
+        timestamp_end=datetime(2025, 1, 1, 0, 0, 7, tzinfo=UTC),
+    )
+
+    assert result.screenshot_url == f"http://external/streamX/{expected_anchor}"
+    assert result.metadata.start_time == "2025-01-01T00:00:00Z"
+    assert result.metadata.end_time == "2025-01-01T00:00:10Z"

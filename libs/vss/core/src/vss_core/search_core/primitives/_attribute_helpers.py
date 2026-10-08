@@ -666,13 +666,21 @@ async def enrich_attribute_results(
     results: list[AttributeSearchResult],
     vst_internal_url: str | None,
     vst_external_url: str | None = None,
+    timestamp_start: datetime | None = None,
+    timestamp_end: datetime | None = None,
 ) -> None:
-    """Resolve stream ids and build screenshot URLs in place (best-effort)."""
+    """Resolve stream ids and build screenshot URLs in place (best-effort).
+
+    ``timestamp_start`` / ``timestamp_end`` constrain only the screenshot
+    anchor. Attribute metadata keeps the matched behavior's real interval.
+    """
     resolution_base_url = vst_internal_url or vst_external_url
     screenshot_base_url = vst_external_url or vst_internal_url
     if not resolution_base_url or not screenshot_base_url:
         return
 
+    clamp_start = iso8601_to_datetime(datetime_to_iso8601(timestamp_start)) if timestamp_start is not None else None
+    clamp_end = iso8601_to_datetime(datetime_to_iso8601(timestamp_end)) if timestamp_end is not None else None
     needs_screenshots = any(r.metadata and r.metadata.sensor_id and not r.screenshot_url for r in results)
     timelines = await _get_timelines_best_effort(resolution_base_url) if needs_screenshots else {}
 
@@ -680,7 +688,13 @@ async def enrich_attribute_results(
         if not (r.metadata and r.metadata.sensor_id and not r.screenshot_url):
             return
         try:
-            ts = r.metadata.start_time or r.metadata.frame_timestamp
+            ts = r.metadata.frame_timestamp or r.metadata.start_time
+            ts_dt = safe_iso8601_to_datetime(ts)
+            if ts_dt is not None:
+                if clamp_start is not None and ts_dt < clamp_start:
+                    ts = datetime_to_iso8601(clamp_start)
+                elif clamp_end is not None and ts_dt > clamp_end:
+                    ts = datetime_to_iso8601(clamp_end)
             stream_id = await get_stream_id(r.metadata.sensor_id, resolution_base_url)
             if stream_id:
                 if ts:
@@ -1041,7 +1055,13 @@ async def _fuse_multi_attribute(
     # several sensors, so relabeling every result with one sensor's stream id (and
     # sharing one screenshot) would misattribute matches on other sensors.
     if vst_external_url:
-        await enrich_attribute_results(all_results, vst_internal_url, vst_external_url)
+        await enrich_attribute_results(
+            all_results,
+            vst_internal_url,
+            vst_external_url,
+            timestamp_start=search_input.timestamp_start,
+            timestamp_end=search_input.timestamp_end,
+        )
 
     return all_results
 
