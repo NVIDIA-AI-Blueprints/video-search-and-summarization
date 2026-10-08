@@ -50,11 +50,41 @@ class AttributeSearchInput(BaseModel):
     min_similarity: float = Field(default=0.3, ge=0.0, le=1.0)
     fuse_multi_attribute: bool = True
     exclude_videos: list[dict[str, str]] = Field(default_factory=list)
+    # Precomputed query embeddings, parallel to :meth:`normalized_queries` (NVBug 6781021). When
+    # supplied, attribute search reuses these vectors instead of re-embedding the
+    # query text on every call — fusion's per-hit fan-out embeds each attribute once
+    # up front and passes the vectors through here, so the same attribute is not
+    # re-embedded for every candidate video.
+    query_embedding: list[float] | list[list[float]] | None = None
 
     def normalized_queries(self) -> list[str]:
         """Return the query as a list of non-blank, stripped attribute strings."""
         raw = [self.query] if isinstance(self.query, str) else list(self.query)
         return [q.strip() for q in raw if isinstance(q, str) and q.strip()]
+
+    def normalized_query_embeddings(self) -> list[list[float]] | None:
+        """Return precomputed embeddings aligned with :meth:`normalized_queries`.
+
+        Returns ``None`` when no embeddings were supplied. A single vector
+        (``list[float]``) is wrapped for a one-attribute query; a list of vectors
+        (``list[list[float]]``) must match the number of normalized queries.
+        Mismatched counts raise :class:`InvalidInputError` so a misaligned caller
+        fails loudly instead of silently pairing the wrong vector to a query.
+        """
+        if self.query_embedding is None:
+            return None
+        if not self.query_embedding:
+            return None
+        if isinstance(self.query_embedding[0], list):
+            # Multiple vectors, one per attribute.
+            vectors: list[list[float]] = [list(v) for v in self.query_embedding]
+        else:
+            # A single vector for a one-attribute query; wrap it.
+            vectors = [list(self.query_embedding)]
+        count = len(self.normalized_queries())
+        if len(vectors) != count:
+            raise InvalidInputError(f"query_embedding has {len(vectors)} vector(s) but query has {count} attribute(s)")
+        return vectors
 
     def validate_semantics(self) -> None:
         """Raise :class:`InvalidInputError` for cross-field problems.

@@ -69,6 +69,15 @@ class AttributeSearch:
         self._owns_es = owns_es
         self._owns_embed = owns_embed
 
+    @property
+    def embed_client(self) -> CVTextEmbedder:
+        """The RTVI-CV text embedder this primitive embeds attributes with (NVBug 6781021).
+
+        Exposed so fusion's embed-once precompute uses the same model/instance the
+        ``mdx-behavior-*`` vectors were built with.
+        """
+        return self._embed
+
     async def run(self, inp: AttributeSearchInput) -> AttributeSearchOutput:
         """Execute attribute search and return the ranked results."""
         inp.validate_semantics()

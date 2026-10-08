@@ -32,6 +32,7 @@ from vss_core.search_core.models.search import SearchInput
 from vss_core.search_core.models.tag_search import TagSearchOutput
 from vss_core.search_core.models.tag_search import TagSearchResultItem
 from vss_core.search_core.primitives._search_helpers import execute_core_search_wrapper
+from vss_core.search_core.primitives.attribute_search import AttributeSearch
 from vss_core.search_core.primitives.search import Search
 from vss_core.search_core.primitives.search import _coerce_attribute_payload
 from vss_core.search_core.primitives.search import _coerce_embed_payload
@@ -178,6 +179,63 @@ async def _run(inp: SearchInput, **kwargs: Any) -> Any:
     if inp.search_mode == "fusion" and "tag_search" not in kwargs:
         kwargs["tag_search"] = _FakeTag()
     return await execute_core_search_wrapper(search_input=inp, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_search_rrf_embeds_attributes_once_through_production_adapters() -> None:
+    """Exercise Search -> execute_core_search -> AttributeSearch, including ES vectors."""
+
+    class _VideoEmbed:
+        async def run(self, inp: Any) -> EmbedSearchOutput:
+            return _embed_output([_embed_item(video_name=f"v{i}", sensor_id=f"cam{i}") for i in range(3)])
+
+    class _AttributeEmbed:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def get_text_embedding(self, text: str) -> list[float]:
+            self.calls.append(text)
+            return [1.0, 0.0] if text == "red hat" else [0.0, 1.0]
+
+    class _BehaviorEs:
+        endpoint = "http://mock-es"
+
+        def __init__(self) -> None:
+            self.vectors: list[list[float]] = []
+
+        async def search(self, *, index: Any, body: Any = None, **_kwargs: Any) -> Any:
+            if body and "knn" in body:
+                self.vectors.append(body["knn"]["query_vector"])
+            return {"hits": {"hits": []}}
+
+    es = _BehaviorEs()
+    embed = _AttributeEmbed()
+    attribute = AttributeSearch(
+        es=es,  # type: ignore[arg-type]
+        embed=embed,  # type: ignore[arg-type]
+        behavior_index="behavior_index",
+        behavior_index_wildcard="mdx-behavior-*",
+        frames_index=None,
+        frames_index_wildcard="mdx-raw-*",
+        enable_frame_lookup=False,
+        default_max_results=10,
+        vst_external_url="",
+        vst_internal_url=None,
+    )
+    search = Search(
+        embed=_VideoEmbed(),  # type: ignore[arg-type]
+        attribute=attribute,
+        behavior_es=es,  # type: ignore[arg-type]
+        behavior_index="behavior_index",
+        fusion_method="rrf",
+        merge_adjacent=False,
+    )
+    out = await search.run(
+        SearchInput(query="red hat by a blue car", search_mode="fusion", attributes=[" red hat ", " ", "blue car"])
+    )
+    assert embed.calls == ["red hat", "blue car"]
+    assert es.vectors == [[1.0, 0.0], [0.0, 1.0]] * 3
+    assert {result.video_name for result in out.data} == {"v0", "v1", "v2"}
 
 
 # --------------------------------------------------------------------- tests

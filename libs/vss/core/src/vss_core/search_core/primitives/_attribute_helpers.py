@@ -662,36 +662,102 @@ async def _fetch_object_embedding(
 # =============================================================================
 
 
+def _normalise_screenshot_bound(timestamp: datetime | None) -> datetime | None:
+    """Return one optional screenshot bound as a timezone-aware UTC datetime."""
+    if timestamp is None:
+        return None
+    return iso8601_to_datetime(datetime_to_iso8601(timestamp))
+
+
+def _screenshot_anchor(
+    metadata: AttributeSearchMetadata,
+    clamp_start: datetime | None,
+    clamp_end: datetime | None,
+) -> str | None:
+    """Choose the best screenshot timestamp and constrain it to the returned clip."""
+    timestamp = metadata.frame_timestamp or metadata.start_time
+    timestamp_dt = safe_iso8601_to_datetime(timestamp)
+    if timestamp_dt is None:
+        return timestamp
+    reported_start = safe_iso8601_to_datetime(metadata.start_time)
+    reported_end = safe_iso8601_to_datetime(metadata.end_time)
+    effective_start = max(
+        (bound for bound in (reported_start, clamp_start) if bound is not None),
+        default=None,
+    )
+    effective_end = min(
+        (bound for bound in (reported_end, clamp_end) if bound is not None),
+        default=None,
+    )
+    if effective_start is not None and timestamp_dt < effective_start:
+        return datetime_to_iso8601(effective_start)
+    if effective_end is not None and timestamp_dt > effective_end:
+        return datetime_to_iso8601(effective_end)
+    return timestamp
+
+
+async def _enrich_attribute_result(
+    result: AttributeSearchResult,
+    resolution_base_url: str,
+    screenshot_base_url: str,
+    timelines: dict[str, tuple[str, str]],
+    clamp_start: datetime | None,
+    clamp_end: datetime | None,
+) -> None:
+    """Resolve one result's stream id and attach its bounded screenshot URL."""
+    if not (result.metadata and result.metadata.sensor_id and not result.screenshot_url):
+        return
+    try:
+        timestamp = _screenshot_anchor(result.metadata, clamp_start, clamp_end)
+        stream_id = await get_stream_id(result.metadata.sensor_id, resolution_base_url)
+        if stream_id:
+            if timestamp:
+                mapped_timestamp = _map_to_timeline(timestamp, stream_id, timelines)
+                if mapped_timestamp is not None:
+                    result.screenshot_url = build_screenshot_url(
+                        screenshot_base_url,
+                        stream_id,
+                        mapped_timestamp,
+                    )
+            result.metadata.sensor_id = stream_id
+    except Exception as e:
+        logger.warning(f"Failed to enrich result for sensor {result.metadata.sensor_id}: {e}")
+
+
 async def enrich_attribute_results(
     results: list[AttributeSearchResult],
     vst_internal_url: str | None,
     vst_external_url: str | None = None,
+    timestamp_start: datetime | None = None,
+    timestamp_end: datetime | None = None,
 ) -> None:
-    """Resolve stream ids and build screenshot URLs in place (best-effort)."""
+    """Resolve stream ids and build screenshot URLs in place (best-effort).
+
+    ``timestamp_start`` / ``timestamp_end`` constrain only the screenshot
+    anchor. Attribute metadata keeps the matched behavior's real interval.
+    """
     resolution_base_url = vst_internal_url or vst_external_url
     screenshot_base_url = vst_external_url or vst_internal_url
     if not resolution_base_url or not screenshot_base_url:
         return
 
+    clamp_start = _normalise_screenshot_bound(timestamp_start)
+    clamp_end = _normalise_screenshot_bound(timestamp_end)
     needs_screenshots = any(r.metadata and r.metadata.sensor_id and not r.screenshot_url for r in results)
     timelines = await _get_timelines_best_effort(resolution_base_url) if needs_screenshots else {}
-
-    async def _enrich(r: AttributeSearchResult) -> None:
-        if not (r.metadata and r.metadata.sensor_id and not r.screenshot_url):
-            return
-        try:
-            ts = r.metadata.start_time or r.metadata.frame_timestamp
-            stream_id = await get_stream_id(r.metadata.sensor_id, resolution_base_url)
-            if stream_id:
-                if ts:
-                    mapped_ts = _map_to_timeline(ts, stream_id, timelines)
-                    if mapped_ts is not None:
-                        r.screenshot_url = build_screenshot_url(screenshot_base_url, stream_id, mapped_ts)
-                r.metadata.sensor_id = stream_id
-        except Exception as e:
-            logger.warning(f"Failed to enrich result for sensor {r.metadata.sensor_id}: {e}")
-
-    await asyncio.gather(*(_enrich(r) for r in results))
+    await asyncio.gather(
+        *(
+            _enrich_attribute_result(
+                result,
+                resolution_base_url,
+                screenshot_base_url,
+                timelines,
+                clamp_start,
+                clamp_end,
+            )
+            for result in results
+        )
+    )
 
 
 async def _get_timelines_best_effort(vst_base_url: str) -> dict[str, tuple[str, str]]:
@@ -918,11 +984,18 @@ async def search_single_attribute(
     frames_index: str | list[str] | None,
     es: ElasticIndex,
     enable_frame_lookup: bool = True,
+    query_embedding: list[float] | None = None,
 ) -> list[AttributeSearchResult]:
-    """Embed a single attribute string and run the attribute search pipeline."""
+    """Embed a single attribute string and run the attribute search pipeline.
+
+    When ``query_embedding`` is supplied (e.g. precomputed once by a fusion caller
+    over every attribute), the embed round-trip is skipped so the same attribute
+    is not re-embedded on each per-hit fan-out (NVBug 6781021).
+    """
     assert search_input.top_k is not None
-    with TimeMeasure("attribute_search: generate text embedding"):
-        query_embedding = await embed_client.get_text_embedding(query_text)
+    if query_embedding is None:
+        with TimeMeasure("attribute_search: generate text embedding"):
+            query_embedding = await embed_client.get_text_embedding(query_text)
     return await search_by_attributes(
         query_embedding=query_embedding,
         index=index,
@@ -953,6 +1026,7 @@ async def search_attributes(
 ) -> list[AttributeSearchResult]:
     """Entry point: resolve indices by source_type, then fuse or append per attribute."""
     queries = search_input.normalized_queries()
+    embeddings = search_input.normalized_query_embeddings()
     logger.info(f"Searching {len(queries)} attribute(s) (fuse_multi_attribute={search_input.fuse_multi_attribute})")
 
     source_type = search_input.source_type
@@ -970,6 +1044,7 @@ async def search_attributes(
     if search_input.fuse_multi_attribute:
         return await _fuse_multi_attribute(
             queries=queries,
+            embeddings=embeddings,
             search_input=search_input,
             embed_client=embed_client,
             search_index=search_index,
@@ -981,6 +1056,7 @@ async def search_attributes(
         )
     return await _append_multi_attribute(
         queries=queries,
+        embeddings=embeddings,
         search_input=search_input,
         embed_client=embed_client,
         search_index=search_index,
@@ -994,6 +1070,7 @@ async def search_attributes(
 
 async def _fuse_multi_attribute(
     queries: list[str],
+    embeddings: list[list[float]] | None,
     search_input: AttributeSearchInput,
     embed_client: TextEmbedder,
     search_index: str | list[str],
@@ -1020,8 +1097,9 @@ async def _fuse_multi_attribute(
             frames_index=search_frames_index,
             es=es,
             enable_frame_lookup=enable_frame_lookup,
+            query_embedding=embeddings[i] if embeddings is not None else None,
         )
-        for q in queries
+        for i, q in enumerate(queries)
     ]
     results_list = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -1041,13 +1119,20 @@ async def _fuse_multi_attribute(
     # several sensors, so relabeling every result with one sensor's stream id (and
     # sharing one screenshot) would misattribute matches on other sensors.
     if vst_external_url:
-        await enrich_attribute_results(all_results, vst_internal_url, vst_external_url)
+        await enrich_attribute_results(
+            all_results,
+            vst_internal_url,
+            vst_external_url,
+            timestamp_start=search_input.timestamp_start,
+            timestamp_end=search_input.timestamp_end,
+        )
 
     return all_results
 
 
 async def _append_multi_attribute(
     queries: list[str],
+    embeddings: list[list[float]] | None,
     search_input: AttributeSearchInput,
     embed_client: TextEmbedder,
     search_index: str | list[str],
@@ -1061,7 +1146,7 @@ async def _append_multi_attribute(
     per_attr = search_input.model_copy(update={"fuse_multi_attribute": False})
 
     all_results: list[AttributeSearchResult] = []
-    for attr_query in queries:
+    for idx, attr_query in enumerate(queries):
         try:
             attr_results = await search_single_attribute(
                 query_text=attr_query,
@@ -1071,18 +1156,12 @@ async def _append_multi_attribute(
                 frames_index=search_frames_index,
                 es=es,
                 enable_frame_lookup=enable_frame_lookup,
+                query_embedding=embeddings[idx] if embeddings is not None else None,
             )
 
-            if attr_results and vst_internal_url:
-                for result in attr_results:
-                    await _extend_clip_to_one_second(result, vst_internal_url, vst_external_url)
-
-            if attr_results and vst_external_url:
-                all_results.extend(
-                    await _attach_screenshots(attr_results, vst_internal_url, vst_external_url, attr_query)
-                )
-            else:
-                all_results.extend(attr_results)
+            all_results.extend(
+                await _enrich_append_results(attr_results, vst_internal_url, vst_external_url, attr_query)
+            )
             logger.info(f"Attribute '{scrub_log(attr_query)}': found {len(attr_results)} result(s)")
         except LibraryError:
             # Systemic failures (missing index, backend unreachable, invalid input)
@@ -1107,6 +1186,21 @@ async def _append_multi_attribute(
     if top_k > 0 and len(all_results) > top_k:
         all_results = all_results[:top_k]
     return all_results
+
+
+async def _enrich_append_results(
+    attr_results: list[AttributeSearchResult],
+    vst_internal_url: str | None,
+    vst_external_url: str,
+    attr_query: str,
+) -> list[AttributeSearchResult]:
+    """Extend clips and attach screenshots before collecting append-mode results."""
+    if attr_results and vst_internal_url:
+        for result in attr_results:
+            await _extend_clip_to_one_second(result, vst_internal_url, vst_external_url)
+    if attr_results and vst_external_url:
+        return await _attach_screenshots(attr_results, vst_internal_url, vst_external_url, attr_query)
+    return attr_results
 
 
 def _append_rank_key(result: AttributeSearchResult) -> tuple[float, str, str]:
