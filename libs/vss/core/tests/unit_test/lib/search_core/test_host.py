@@ -81,6 +81,16 @@ class _Critic:
         )
 
 
+class _CappedCritic(_Critic):
+    def __init__(self, result: CriticAgentResult, cap: int) -> None:
+        super().__init__(result)
+        self.cap = cap
+
+    async def run(self, inp) -> CriticAgentOutput:
+        output = await super().run(inp)
+        return output.model_copy(update={"video_results": output.video_results[: self.cap]})
+
+
 class _CriteriaLessCritic(_Critic):
     async def run(self, inp) -> CriticAgentOutput:
         return CriticAgentOutput(
@@ -174,6 +184,33 @@ def test_search_leaves_invalid_or_unidentifiable_hits_unverified() -> None:
 
     assert critic.queries == []
     assert [item.critic_result for item in result.data] == [None, None]
+
+
+def test_search_leaves_skipped_and_past_cap_hits_without_critic_result() -> None:
+    critic = _CappedCritic(CriticAgentResult.CONFIRMED, cap=2)
+    vss = VSSSearch.from_runtime(_runtime(), critic=critic)  # type: ignore[arg-type]
+    vss._search = _SearchPrimitive(  # type: ignore[assignment]
+        SearchOutput(
+            data=[
+                _result(sensor_id="cam-1"),
+                _result(sensor_id=""),
+                _result(sensor_id="cam-3"),
+                _result(sensor_id="cam-4"),
+            ]
+        )
+    )
+
+    output = asyncio.run(vss.search(query="forklift"))
+
+    assert [item.critic_result and item.critic_result.result for item in output.data] == [
+        "confirmed",
+        None,
+        "confirmed",
+        None,
+    ]
+    assert output.search_messages == [
+        "Visual verification evaluated 2 of 3 retrieved hits; the rest remain unverified."
+    ]
 
 
 def test_search_stream_verifies_only_terminal_output() -> None:

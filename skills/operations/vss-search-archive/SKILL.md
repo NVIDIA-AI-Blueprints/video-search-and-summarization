@@ -179,7 +179,7 @@ if ! SEARCH_JSON=$("${SEARCH_COMMAND[@]}"); then
   exit 1
 fi
 printf '%s' "${SEARCH_JSON}" |
-  jq -e 'type == "object" and (.data | type == "array")' >/dev/null || {
+  jq -es '.[0] | type == "object" and (.data | type == "array")' >/dev/null || {
     echo "Search did not return a SearchOutput object with a data array" >&2
     exit 1
   }
@@ -208,8 +208,9 @@ visual evidence.
    - `unverified`: the critic attempted the hit but produced no usable verdict.
      This includes inaccessible media, a failed VLM call, and malformed or
      inconclusive output.
-   - `null`: the critic did not evaluate the hit (no VLM, a critic failure, or
-     bounds it could not check). Report it as `unverified`.
+   - `null`: the critic did not evaluate the hit (no VLM, a critic failure,
+     bounds it could not check, or a hit past `--critic-eval-count`). Report
+     it as `unverified`.
 
 The CLI is fail-open: verification failure must not discard or fail retrieval.
 Never derive a verdict from similarity, filenames, object IDs, or screenshot
