@@ -460,6 +460,12 @@ that trial's NemoClaw receipt. This preserves the readiness cause when Harbor
 classifies a failed setup command as a generic network error; it does not
 replace Harbor's exception or change the verdict. Raw probe output is omitted.
 
+Storage setup also verifies the published VIOS media origin from inside NemoClaw.
+The bridge API can answer while OpenShell denies the host/port embedded in
+snapshot and clip URLs. The spec requests an exact-host/port, GET `/vst/**`
+custom preset for the requesting curl/Python binaries, with explicit exact
+private-host trust when needed. It preserves the original published media URLs.
+
 A task can also declare `"host_fixture": {"nvstreamer_scan_file": "warehouse_sample.mp4"}`
 to test NvStreamer's filesystem scan from NemoClaw. Immediately before that
 native task, the host copies the pinned sample under a unique basename into
