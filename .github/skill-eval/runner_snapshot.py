@@ -259,7 +259,9 @@ def host_snapshot():
             out['sandbox_phase']=phase.get('phase') if isinstance(phase,dict) and phase.get('phase') in {'Ready','Pending','Created','Creating','Starting','Error','Failed','Terminated'} else phase.get('category') if isinstance(phase,dict) else None
             if out['sandbox_phase'] in {'Error','Failed','Terminated'}:
                 out['phase_schema_keys']=sorted(phase) if isinstance(phase,dict) else []
-                details=json.dumps(phase)
+                annotations=phase.get('annotations',{}) if isinstance(phase,dict) else {}
+                out['phase_annotation_keys']=sorted(annotations) if isinstance(annotations,dict) else []
+                details=json.dumps({key:value for key,value in annotations.items() if any(word in key.lower() for word in ('error','reason','status','condition'))}) if isinstance(annotations,dict) else ''
                 markers=('ImagePullBackOff','CrashLoopBackOff','OCI runtime','executable file not found','permission denied','Permission denied','authentication','config hash','managed config','No such file','no such file','address already in use','failed to create','certificate','nvidia','NVIDIA','landlock','seccomp','read-only','not permitted','failed to start','exit code','image','policy','mount','device','entrypoint','connection refused','sandbox-safety-net','ECONNREFUSED','ErrImagePull','CreateContainerConfigError')
                 out['phase_error_markers']=[marker for marker in markers if marker in details]
                 out['stopped_sandbox_containers']=[]
