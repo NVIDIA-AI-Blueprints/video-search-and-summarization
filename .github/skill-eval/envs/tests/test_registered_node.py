@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import types
@@ -362,8 +363,8 @@ class PreparationRetries(unittest.IsolatedAsyncioTestCase):
 
     async def test_upload_attests_destination_and_retries_only_recoverable_failures(self):
         scenarios = (
-            ("missing_then_present", 44, 0, 2),
-            ("always_missing", 44, 44, 3),
+            ("missing_then_present", 0, 0, 2),
+            ("always_missing", 0, 0, 3),
             ("permission_denied", 1, 1, 1),
             ("wrong_checksum", 0, 0, 1),
             ("parent_failed", 1, 1, 0),
@@ -373,17 +374,28 @@ class PreparationRetries(unittest.IsolatedAsyncioTestCase):
                 source = Path(directory) / "plan.json"
                 source.write_bytes(b'{"owner":"test"}')
                 digest = hashlib.sha256(source.read_bytes()).hexdigest()
-                output = f"{source.stat().st_size}\n{digest}  plan.json\n"
-                if name == "wrong_checksum":
-                    output = output.replace(digest, "0" * 64)
                 prepared = brev_env.ExecResult(return_code=1 if name == "parent_failed" else 0)
-                first = brev_env.ExecResult(return_code=first_rc, stdout=output, stderr="Permission denied" if name == "permission_denied" else "")
-                later = brev_env.ExecResult(return_code=next_rc, stdout=output)
+                probes = []
+                async def attestation(instance, command, **kwargs):
+                    probes.append(command)
+                    marker = command.rsplit(" ", 1)[-1]
+                    absent = name == "always_missing" or (name == "missing_then_present" and len(probes) == 1)
+                    report = {"state": "absent"} if absent else {
+                        "state": "present", "bytes": source.stat().st_size,
+                        "sha256": "0" * 64 if name == "wrong_checksum" else digest,
+                    }
+                    # Exercise a zero Brev exit for a missing remote file,
+                    # mixed with transport text and harmless output.
+                    return brev_env.ExecResult(
+                        return_code=first_rc if len(probes) == 1 else next_rc,
+                        stdout="Brev transport output\n" + marker + json.dumps(report) + "\nconnection closed\n",
+                        stderr="Permission denied" if name == "permission_denied" else "",
+                    )
                 env = brev_env.BrevEnvironment()
                 env._instance_name = "worker"
                 with mock.patch.object(brev_env, "_run_brev_exec_retry", new=mock.AsyncMock(return_value=prepared)), \
                      mock.patch.object(brev_env, "_run_brev_copy_once", new=mock.AsyncMock(return_value=brev_env.ExecResult(return_code=0))) as transfer, \
-                     mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(side_effect=[first, later, later])) as attest, \
+                     mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(side_effect=attestation)) as attest, \
                      mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()):
                     if name == "missing_then_present":
                         await env.upload_file(source, "/tmp/plan.json")
@@ -392,6 +404,24 @@ class PreparationRetries(unittest.IsolatedAsyncioTestCase):
                             await env.upload_file(source, "/tmp/plan.json")
                 self.assertEqual(transfer.await_count, copies)
                 self.assertEqual(attest.await_count, copies)
+
+    def test_attestation_runs_for_regular_absent_and_symlink_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "plan with spaces.json"
+            source.write_bytes(b'job-owned plan')
+            link = source.with_name("symlink.json")
+            link.symlink_to(source)
+            marker = "__UPLOAD_ATTEST_test__"
+            for path, state in ((source, "present"), (source.with_name("absent.json"), "absent"), (link, "invalid")):
+                result = subprocess.run(
+                    ["bash", "-c", brev_env._upload_attestation_command(str(path), marker)],
+                    check=True, capture_output=True, text=True,
+                )
+                report = json.loads(result.stdout.removeprefix(marker))
+                self.assertEqual(report["state"], state)
+                if state == "present":
+                    self.assertEqual(report["bytes"], source.stat().st_size)
+                    self.assertEqual(report["sha256"], hashlib.sha256(source.read_bytes()).hexdigest())
 
 
 if __name__ == "__main__":

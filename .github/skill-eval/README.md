@@ -416,8 +416,17 @@ sessions, token counts, or deployment evidence. Archives remain under
 
 Specs can declare `sandbox_fixtures` as MP4 basenames from the pinned bundle
 at `/tmp/vss-sample-data/dev-profile-sample-data/`. For NemoClaw setup, after
-the coding agent succeeds and before grading, the harness uploads only these
-files into the supplied sandbox and requires matching SHA-256 checksums.
+the coding agent succeeds and before grading, the harness first requires a
+`Ready` sandbox, successful sandbox execution, authenticated gateway access,
+and valid VSS CLI configuration. With local NIM, a separate native OpenClaw
+session must complete through the selected model; its response stays outside
+the graded trajectory. These checks also run when no fixtures are declared,
+and retain metadata in `nemoclaw/setup-readiness.json`. The harness then uploads
+only the declared files and requires matching SHA-256 checksums.
 Missing host files, upload failures and mismatches fail setup. It neither
 downloads fixtures nor registers them with VSS. Sanitized results are retained
 in `nemoclaw/fixtures.json` in the workflow artifacts.
+
+File uploads verify the worker destination's size and SHA-256 before returning
+success. Transient transport failures and absent destinations retry within the
+existing transfer deadline; permissions and checksum failures stop immediately.

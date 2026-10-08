@@ -103,6 +103,31 @@ def _resolve_rtsp_sample_url() -> str:
     return os.environ.get("RTSP_SAMPLE_URL") or DEFAULT_RTSP_SAMPLE_URL
 
 
+def _upload_attestation_command(target: str, marker: str) -> str:
+    # Emit one marked record, even when the file is absent. Brev can mix
+    # transport output with stdout and can obscure a remote shell exit code.
+    script = """import hashlib, json, os, stat, sys
+report = {"state": "invalid"}
+try:
+    fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as handle:
+        metadata = os.fstat(handle.fileno())
+        if stat.S_ISREG(metadata.st_mode):
+            digest = hashlib.sha256()
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+            report = {"state": "present", "bytes": metadata.st_size, "sha256": digest.hexdigest()}
+except FileNotFoundError:
+    report = {"state": "absent"}
+except PermissionError:
+    report = {"state": "permission_denied"}
+except OSError:
+    pass
+print(sys.argv[2] + json.dumps(report))
+"""
+    return f"python3 -c {shlex.quote(script)} {shlex.quote(target)} {shlex.quote(marker)}"
+
+
 class BrevEnvironmentType(str, Enum):
     BREV = "brev"
 
@@ -994,7 +1019,7 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                     )
                     if prepared.return_code != 0:
                         raise RuntimeError("Upload parent-directory preparation failed")
-                target = shlex.quote(target_path)
+                marker = f"__UPLOAD_ATTEST_{uuid.uuid4().hex}__"
                 for attempt in range(3):
                     # One retry loop for copy + attestation, within the shared
                     # transfer deadline. A successful Brev exit is insufficient.
@@ -1006,22 +1031,23 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                     if result.return_code == 0:
                         result = await _run_brev_exec(
                             self._instance_name,
-                            f"if [ ! -e {target} ]; then exit 44; fi; "
-                            f"[ -f {target} ] && [ ! -L {target} ] || exit 45; "
-                            f"stat -c %s -- {target} && sha256sum -- {target}",
+                            _upload_attestation_command(target_path, marker),
                             timeout=30,
                         )
                         if result.return_code == 0:
-                            lines = (result.stdout or "").splitlines()
-                            if len(lines) != 2 or lines[0] != str(size) or lines[1].split()[:1] != [digest]:
-                                raise RuntimeError("Uploaded file size/checksum verification failed")
-                            return
-                        failure = (
-                            "Uploaded file is absent on worker"
-                            if result.return_code == 44
-                            else "Uploaded file verification failed on worker"
-                        )
-                        retry = result.return_code == 44 or _transient_transport_failure(result)
+                            rows = [line[len(marker):] for line in (result.stdout or "").splitlines() if line.startswith(marker)]
+                            if len(rows) != 1:
+                                raise RuntimeError("Uploaded file attestation response is missing or ambiguous")
+                            report = json.loads(rows[0])
+                            if report.get("state") == "present":
+                                if report.get("bytes") != size or report.get("sha256") != digest:
+                                    raise RuntimeError("Uploaded file size/checksum verification failed")
+                                return
+                            retry = report.get("state") == "absent"
+                            failure = "Uploaded file is absent on worker" if retry else "Uploaded file is inaccessible or invalid on worker"
+                        else:
+                            failure = "Uploaded file verification transport failed"
+                            retry = _transient_transport_failure(result)
                     if not retry or attempt == 2:
                         raise RuntimeError(f"{failure} (exit {result.return_code})")
                     logger.warning("%s; retrying upload %s/2", failure, attempt + 1)
