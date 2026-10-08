@@ -193,6 +193,59 @@ def test_uploads_only_declared_media_and_checks_hash(monkeypatch, tmp_path):
 
 
 
+def test_nvstreamer_fixture_copies_before_manifest_and_never_registers(monkeypatch, tmp_path):
+    (tmp_path / 'warehouse_sample.mp4').write_bytes(b'video')
+    digest = hashlib.sha256(b'video').hexdigest()
+    info = {
+        'Id': 'a' * 64, 'State': {'Running': True},
+        'Config': {'Labels': {'com.docker.compose.service': 'nvstreamer'}, 'Env': ['SECRET=hidden']},
+        'Mounts': [{'Type': 'bind', 'RW': True, 'Destination': '/home/vst/vst_release/streamer_videos'}],
+    }
+    calls, manifests = [], []
+    def call(args, **kwargs):
+        calls.append(args)
+        if args[:2] == ['docker', 'inspect']:
+            return json.dumps([info])
+        if args[:2] == ['docker', 'exec']:
+            return digest + '  video\n'
+        if args[0] == 'nemoclaw':
+            manifests.append(Path(args[3]).read_bytes())
+        if args[0] == 'openshell':
+            return hashlib.sha256(manifests[-1]).hexdigest() + '  manifest\n'
+        return ''
+    monkeypatch.setattr(fixtures, 'call', call)
+    reports = [{}, {}]
+    rows = [fixtures.stage_nvstreamer_scan('se-current', 'warehouse_sample.mp4', tmp_path, report=r) for r in reports]
+    assert rows[0]['basename'] != rows[1]['basename']
+    assert json.loads(manifests[0]) == rows[0]
+    assert calls[1][:3] == ['docker', 'cp', str(tmp_path / 'warehouse_sample.mp4')]
+    assert calls[1][3] == 'a' * 64 + ':' + rows[0]['container_path']
+    assert calls[2][:3] == ['docker', 'exec', 'a' * 64]
+    assert calls[3][:3] == ['nemoclaw', 'se-current', 'upload']
+    assert 'hidden' not in json.dumps(reports)
+    assert all('curl' not in args for args in calls)
+
+
+@pytest.mark.parametrize('invalid', ['stopped', 'foreign', 'missing_mount', 'bad_checksum'])
+def test_nvstreamer_fixture_rejects_invalid_target_before_manifest(monkeypatch, tmp_path, invalid):
+    (tmp_path / 'a.mp4').write_bytes(b'video')
+    info = {
+        'Id': 'a' * 64, 'State': {'Running': invalid != 'stopped'},
+        'Config': {'Labels': {'com.docker.compose.service': 'foreign' if invalid == 'foreign' else 'nvstreamer'}},
+        'Mounts': [] if invalid == 'missing_mount' else [{'Type': 'bind', 'RW': True, 'Destination': '/videos/streamer_videos'}],
+    }
+    calls = []
+    def call(args, **kwargs):
+        calls.append(args)
+        return json.dumps([info]) if args[:2] == ['docker', 'inspect'] else 'incorrect  file\n'
+    monkeypatch.setattr(fixtures, 'call', call)
+    with pytest.raises(ValueError):
+        fixtures.stage_nvstreamer_scan('se-current', 'a.mp4', tmp_path, report={})
+    assert not any(args[0] == 'nemoclaw' for args in calls)
+    if invalid != 'bad_checksum':
+        assert len(calls) == 1
+
+
 def test_missing_host_fixture_never_uploads(monkeypatch, tmp_path):
     monkeypatch.setattr(fixtures, 'call', lambda args, **kwargs: pytest.fail('must validate before transport'))
     with pytest.raises(ValueError, match='missing or empty'):
