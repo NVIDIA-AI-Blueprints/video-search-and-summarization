@@ -16,6 +16,7 @@
 import base64
 import concurrent.futures
 import io
+import json
 import os
 import re
 import subprocess
@@ -23,7 +24,10 @@ import sys
 import threading
 import time as _time
 import uuid
+from dataclasses import dataclass, field
 from typing import List, Optional
+from urllib import error as urlerror
+from urllib import request as urlrequest
 
 import numpy
 import torch
@@ -43,6 +47,14 @@ from models.base_vlm_model import (
 OPENAI_RECONNECT_ATTEMPTS = 3
 DEFAULT_MAX_PARALLEL_REQUESTS = 10
 OPENAI_TOKEN_PARAM_ENV = "VIA_VLM_OPENAI_TOKEN_PARAM"
+
+
+@dataclass
+class _NimStreamingSession:
+    session_id: str
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    closed: bool = False
+    remote_deleted: bool = False
 
 _nvenc_probe_lock = threading.Lock()
 _nvenc_encode_lock = threading.Lock()
@@ -765,6 +777,145 @@ def tensor_to_base64_jpeg(numpy_arrays, idx=0):
 
 
 class CompOpenAIModel(BaseVlmModel):
+    def supports_streaming_vlm(self) -> bool:
+        return os.environ.get("VIA_VLM_STREAMING_NIM_ENABLED", "false").lower() == "true"
+
+    def _nim_streaming_request(
+        self, method: str, path: str, payload: dict | bytes | None = None
+    ) -> dict:
+        base = self._endpoint.rstrip("/")
+        if not base.startswith(("http://", "https://")) or not base.endswith("/v1"):
+            raise ValueError("VIA_VLM_ENDPOINT must be an HTTP(S) OpenAI /v1 URL")
+        if isinstance(payload, bytes) and getattr(self, "_nim_json_frame_transport", False):
+            body = json.dumps({"image_b64": base64.b64encode(payload).decode("ascii")}).encode()
+            content_type = "application/json"
+        elif isinstance(payload, bytes):
+            body = payload
+            content_type = "image/png" if payload.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg"
+        else:
+            body = json.dumps(payload).encode() if payload is not None else None
+            content_type = "application/json"
+        headers = {"Content-Type": content_type}
+        key = os.environ.get("VIA_VLM_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        req = urlrequest.Request(
+            f"{base}/streaming/{path}", data=body, headers=headers, method=method
+        )
+        timeout = 1800 if path.endswith("/frame") else 30
+        try:
+            with urlrequest.urlopen(req, timeout=timeout) as response:
+                return json.load(response)
+        except urlerror.HTTPError as error:
+            if (
+                error.code == 415
+                and method == "POST"
+                and path.endswith("/frame")
+                and isinstance(payload, bytes)
+                and content_type != "application/json"
+            ):
+                # Some NIM versions apply JSON-only middleware before the binary frame route.
+                error.close()
+                self._nim_json_frame_transport = True
+                return self._nim_streaming_request(method, path, payload)
+            raise
+
+    def start_streaming_vlm_session(
+        self, stream_id, query, generation_config=None, streaming_config=None, **kwargs
+    ):
+        if not self.supports_streaming_vlm():
+            raise ValueError("NIM streaming sessions are not enabled")
+        config = generation_config or VlmGenerationConfig()
+        options = streaming_config or {}
+        if options.get("question_on_decode"):
+            raise ValueError("NIM streaming only includes the question with the first frame")
+        response_type = (config.response_format or {}).get("type")
+        if response_type not in (None, "text"):
+            raise ValueError("NIM streaming does not support RTVI response_format")
+        created = self._nim_streaming_request(
+            "POST",
+            "sessions",
+            {
+                "system_prompt": config.system_prompt or "You are a video assistant.",
+                "question": query,
+                "sampling": {
+                    "max_tokens": config.max_new_tokens,
+                    "temperature": config.temperature,
+                    "top_p": config.top_p,
+                    "repetition_penalty": config.repetition_penalty,
+                },
+                "retention": {"max_video_segments": int(options.get("window_frames") or 8)},
+            },
+        )
+        session_id = created.get("session_id")
+        if not session_id:
+            raise ValueError("NIM streaming session creation returned no session_id")
+        return _NimStreamingSession(session_id=session_id)
+
+    def generate_streaming_vlm_step(
+        self,
+        session,
+        query,
+        chunks,
+        video_frames=None,
+        video_frames_times=None,
+        generation_config=None,
+        **kwargs,
+    ):
+        if not video_frames or len(video_frames) != 1 or len(video_frames[0]) != 1:
+            raise ValueError("NIM streaming requires exactly one frame per step")
+        frame = video_frames[0][0]
+
+        def send_frame():
+            with session.lock:
+                if session.closed:
+                    raise RuntimeError("NIM streaming session is closed")
+                pixels = frame.detach().cpu().numpy() if isinstance(frame, torch.Tensor) else frame
+                if isinstance(pixels, bytes):
+                    encoded = pixels
+                elif isinstance(pixels, numpy.ndarray) and pixels.ndim == 1:
+                    encoded = pixels.tobytes()
+                elif (
+                    isinstance(pixels, numpy.ndarray)
+                    and pixels.ndim == 3
+                    and pixels.shape[-1] == 3
+                    and pixels.dtype == numpy.uint8
+                ):
+                    buffer = io.BytesIO()
+                    Image.fromarray(pixels, mode="RGB").save(buffer, format="JPEG", quality=95)
+                    encoded = buffer.getvalue()
+                else:
+                    raise ValueError("NIM streaming requires RGB HWC pixels or encoded JPEG/PNG")
+                if not encoded.startswith((b"\xff\xd8", b"\x89PNG\r\n\x1a\n")):
+                    raise ValueError("NIM streaming requires an encoded JPEG or PNG frame")
+                if len(encoded) > 8 * 1024 * 1024:
+                    raise ValueError("NIM streaming frame exceeds the 8 MiB limit")
+                reply = self._nim_streaming_request(
+                    "POST",
+                    f"sessions/{session.session_id}/frame",
+                    encoded,
+                )
+                return [
+                    VlmModelOutput(
+                        output=reply["text"],
+                        output_tokens=reply.get("token_count", 0),
+                        streaming_metrics={
+                            key: reply[key]
+                            for key in ("ttft_s", "latency_s", "frame_index")
+                            if key in reply
+                        },
+                    )
+                ]
+
+        return self._output_tpool.submit(send_frame)
+
+    def end_streaming_vlm_session(self, stream_id, session):
+        with session.lock:
+            session.closed = True
+            if not session.remote_deleted:
+                self._nim_streaming_request("DELETE", f"sessions/{session.session_id}")
+                session.remote_deleted = True
+
     def configure_azure_openai(
         self, key=None, azureEndpointConfigured=False, nvSecretConfigured=False
     ):

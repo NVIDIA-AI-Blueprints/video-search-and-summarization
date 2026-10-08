@@ -1,0 +1,182 @@
+# Streaming Compose Deployments
+
+Run commands from `services/rtvi/rt-vlm/docker`. These recipes require Linux,
+Docker Compose with GPU support, NVIDIA Container Toolkit, registry access,
+and an RT-VLM image built from this branch. Build instructions are in
+../STREAMING_VLM.md. RTVI in OpenAI-compatible mode and NIM can use the same GPU:
+RTVI performs video decoding/preprocessing, while NIM loads the inference model.
+Set `NVIDIA_VISIBLE_DEVICES=0` in both environment files for GPU 0. Leave memory
+headroom for RTVI; NIM's default `NIM_GPU_MEMORY_UTILIZATION=0.75` is a starting
+point, not a capacity guarantee. Do not run native RTVI model inference alongside
+NIM on the same GPU with these recipes, because both load a model.
+
+## Native RTVI
+
+Copy `streaming.env.example` to `.env`, set `RTVI_IMAGE` to your native-enabled
+build, and configure model access with `NGC_API_KEY` or a local model mount.
+
+```bash
+docker compose -p rtvi-native -f compose.yaml -f compose.native-streaming.yaml up -d rtvi-server
+curl --fail http://localhost:18094/v1/health/ready
+```
+
+This loads the model inside RTVI. NIM is not needed.
+
+## Independent Turbo NIM
+
+In `turbo-nim`, copy `.env.example` to `.env`. Replace both absolute directory
+paths; the cache must be writable by NIM's runtime user. Authenticate to
+`nvcr.io` with your own NGC entitlement, without committing credentials.
+
+```bash
+cd turbo-nim
+docker compose -p rtvi-turbo up -d
+docker compose -p rtvi-turbo logs -f nim
+curl --fail http://localhost:18093/v1/health/ready
+curl --fail http://localhost:18093/v1/models
+```
+
+The pinned experimental Turbo container loads Nano BF16 weights. DFlash is
+disabled: this is an integration configuration, not the tuned throughput setup.
+The default loopback binding permits host-local clients only. For bridged RTVI
+or a different host, set `NIM_BIND_ADDRESS` to an appropriate host interface and
+restrict access with your firewall; use an authenticated gateway outside trusted
+test networks. Do not expose this unauthenticated service publicly.
+
+## RTVI Using NIM
+
+Back in `docker`, copy `streaming.env.example` to `.env`. Set `RTVI_IMAGE` to
+this branch's image (native build support is optional). Set `VIA_VLM_ENDPOINT`
+to the NIM address reachable **inside** the RTVI container and set
+`VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` to the ID returned by `/v1/models`.
+`host.docker.internal` resolves to the Linux host gateway, not its loopback.
+
+```bash
+docker compose -p rtvi-remote -f compose.yaml -f compose.nim-streaming.yaml up -d rtvi-server
+curl --fail http://localhost:18094/v1/health/ready
+```
+
+RTVI decodes the RTSP feed and sends frames to persistent NIM REST sessions.
+Do not use `localhost` in the endpoint unless RTVI shares the host network.
+The inherited Compose stack includes Kafka and Redis; ensure host ports 9094
+and `KAFKA_PORT` are free. Start only one RTVI recipe at a time.
+
+## Optional RTSP Source
+
+In `rtsp-test`, copy `.env.example` to `.env` and set `TEST_VIDEO` to an H.264
+MP4. The publisher loops it in real time without transcoding.
+
+```bash
+cd rtsp-test
+docker compose -p rtvi-rtsp-test up -d
+docker compose -p rtvi-rtsp-test logs publisher mediamtx
+```
+
+Use `rtsp://host.docker.internal:18554/smoke` from same-host RTVI, or replace
+the hostname with the RTSP host address. This unauthenticated test feed must
+stay on a trusted network. Then run the REST test from the source directory:
+
+```bash
+python3 scripts/smoke_rtsp_streaming.py --endpoint http://localhost:18094/v1 \
+  --rtsp-url rtsp://host.docker.internal:18554/smoke
+```
+
+The test registers a unique camera, requests ordered Streaming VLM captions,
+checks nonempty responses, stops inference, and removes the camera even on
+failure. It is a functional smoke test, not an accuracy or capacity benchmark.
+
+## Demonstrate the Caption API
+
+These commands use Bash, `curl`, and `jq`. Start the RTSP publisher and wait
+for both RTVI and NIM readiness first. For native mode, wait for RTVI readiness
+only; the request selects the same streaming inference mode. The NIM path is
+the live-tested configuration described below.
+
+In terminal 1, register a unique camera without starting automatic inference:
+
+```bash
+export API=http://localhost:18094/v1
+export RTSP_URL=rtsp://host.docker.internal:18554/smoke
+export CAMERA_ID="rtvi-caption-demo-$(date +%s)"
+export MODEL=$(curl --fail --silent --show-error "$API/models" | jq -er '.data[0].id')
+export ASSET_ID=$(jq -n --arg camera "$CAMERA_ID" --arg url "$RTSP_URL" \
+  '{key:"sensor",value:{camera_id:$camera,camera_url:$url,change:"camera_add"}}' | \
+  curl --fail --silent --show-error "$API/stream/add" \
+    -H 'Content-Type: application/json' --data-binary @- | jq -er '.asset_id')
+# Copy this printed export command into terminal 2 for cleanup:
+printf 'export API=%q CAMERA_ID=%q ASSET_ID=%q\n' "$API" "$CAMERA_ID" "$ASSET_ID"
+```
+
+Then request captions in terminal 1. `curl -N` displays SSE events as they arrive:
+
+```bash
+jq -n --arg id "$ASSET_ID" --arg model "$MODEL" '{
+  id:$id, model:$model, prompt:"Describe the visible scene briefly.",
+  stream:true, inference_mode:"streaming_vlm", streaming_frame_policy:"ordered",
+  chunk_duration:1, num_frames_per_second_or_fixed_frames_chunk:1,
+  use_fps_for_chunking:false, max_tokens:32, temperature:0
+}' | curl --fail --silent --show-error -N "$API/generate_captions" \
+  -H 'Content-Type: application/json' --data-binary @-
+```
+
+This uses one sampled frame per update, not every decoded camera frame. Captions
+arrive in `data:` events containing `chunk_responses`; SSE comment/heartbeat
+lines are not captions. An abbreviated example of the response shape is:
+
+```text
+data: {"chunk_responses":[{"chunk_id":0,"content":"A white bus is parked on the right side of the road...","frame_count":1,"streaming_metrics":{"frame_index":0}}]}
+```
+
+After several captions, use terminal 2 with the printed exports to stop inference
+**while terminal 1's SSE connection is still open**, then remove the camera:
+
+```bash
+curl --fail --silent --show-error -X DELETE "$API/generate_captions/$ASSET_ID"
+jq -n --arg camera "$CAMERA_ID" \
+  '{key:"sensor",value:{camera_id:$camera,change:"camera_remove"}}' | \
+  curl --fail --silent --show-error "$API/stream/remove" \
+    -H 'Content-Type: application/json' --data-binary @-
+curl --fail --silent --show-error "$API/stream/get-stream-info" | \
+  jq --arg camera "$CAMERA_ID" '[.stream_list[] | select(.camera_id == $camera)]'
+```
+
+Both cleanup calls should succeed, and the last command should print `[]`.
+The SSE request ends with `data: [DONE]`. Avoid Ctrl+C before the explicit stop:
+disconnecting also starts automatic teardown, so a simultaneous stop/remove can
+receive HTTP 409 while cleanup is in progress. The Python smoke client handles
+the demonstrated stop-before-disconnect ordering automatically.
+
+## Validation
+
+Validation status: both RTVI overrides and the standalone NIM configuration
+pass `docker compose config --quiet`. MediaMTX and FFmpeg were launched with
+Compose and an RTSP client confirmed H.264 at 1920x1080. The offline REST-client
+check passes success and failed-inference cleanup cases:
+`python3 -m unittest discover -s scripts -p test_smoke_rtsp_streaming.py`
+(run from the RT-VLM source directory).
+
+Full RTSP-to-RTVI-to-Turbo-NIM REST caption smoke validation passed on October 5,
+2026: five nonempty captions with frame indices 0-4, one sampled frame per
+update, successful stop and camera removal (HTTP 200), and zero remaining RTVI
+streams. No runtime ERROR logs or tracebacks were found in the final run. Owned
+containers were removed and GPU memory returned to 14 MiB.
+
+The test used an H100 PCIe 80 GB shared by RTVI decoding and NIM inference,
+the pinned Turbo image above, Nano BF16 weights, and speculation disabled.
+RTVI used this branch's source mounted onto foundation image
+`sha256:c8551f83f7abed6c89c597c4edffec587efc5cd9e52991bdb29d6c9d6e615fba`;
+it was not a clean Dockerfile rebuild. Startup plugin warnings remain in that
+foundation image. Native RTSP mode, sustained throughput, SOP accuracy, and
+action localization replacement are not validated by this smoke test. Cold
+initialization produced backlog, so these five captions are not latency
+benchmark evidence.
+
+Stop each deployment with its matching project name and Compose files:
+
+```bash
+docker compose -p rtvi-rtsp-test down
+# Run in turbo-nim:
+docker compose -p rtvi-turbo down
+# Run in docker, choosing the override you started:
+docker compose -p rtvi-remote -f compose.yaml -f compose.nim-streaming.yaml down
+```

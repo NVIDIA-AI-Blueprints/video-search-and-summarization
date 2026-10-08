@@ -1,0 +1,110 @@
+diff --git a/vllm/entrypoints/openai/streaming/chunking.py b/vllm/entrypoints/openai/streaming/chunking.py
+--- a/vllm/entrypoints/openai/streaming/chunking.py
++++ b/vllm/entrypoints/openai/streaming/chunking.py
+@@ -103,6 +103,7 @@ def build_messages(
+     system_prompt: str,
+     question: str,
+     is_first: bool,
++    include_question: bool,
+     previous_text: str,
+     start_time_s: float,
+     end_time_s: float,
+@@ -121,10 +122,13 @@ def build_messages(
+         "type": "text",
+         "text": f"Time={start_time_s:.1f}-{end_time_s:.1f}s",
+     }
+     if not is_first:
+-        return [{"role": "user", "content": [step_context, *video_parts]}]
++        user_content = [step_context, *video_parts]
++        if include_question and question:
++            user_content.append({"type": "text", "text": question})
++        return [{"role": "user", "content": user_content}]
+     user_content: list[dict] = [step_context, *video_parts]
+-    if question:
++    if include_question and question:
+         user_content.append({"type": "text", "text": question})
+     messages = [
+         {"role": "previous text", "content": previous_text},
+@@ -138,6 +142,7 @@ def build_temporal_video_items(
+     frames: list[Image.Image],
+     fps: float,
++    frame_index_offset: int = 0,
+ ) -> list[tuple[np.ndarray, dict]]:
+@@ -146,17 +151,17 @@ def build_temporal_video_items(
+ 
+     items = []
+-    for start in range(0, len(frames), 2):
+-        pair = frames[start : start + 2]
++    for offset in range(0, len(frames), 2):
++        pair = frames[offset : offset + 2]
+         video = np.stack(
+             [np.asarray(frame.convert("RGB"), dtype=np.uint8) for frame in pair]
+         )
+         duration = (len(pair) - 1) / fps
+         metadata = {
+-            "total_num_frames": len(pair),
+-            "frames_indices": list(range(len(pair))),
++            "total_num_frames": frame_index_offset + offset + len(pair),
++            "frames_indices": [
++                frame_index_offset + offset + i for i in range(len(pair))
++            ],
+             "fps": fps,
+             "duration": duration,
+         }
+@@ -175,6 +180,8 @@ async def build_frames_chunk(
+     end_time_s: float,
+     generate: bool = True,
+     mm_processor_kwargs: dict[str, object] | None = None,
++    question_on_decode: bool = False,
++    absolute_segment_timestamps: bool = False,
+ ) -> StreamingInput:
+@@ -181,7 +188,10 @@ async def build_frames_chunk(
+     The renderer contributes the model's video placeholder tokens; decoded
+     frames replace UUID-only placeholders in-memory without codec or HTTP work.
+     """
+-    video_items = build_temporal_video_items(frames, fps)
++    frame_index_offset = (
++        round(start_time_s * fps) if absolute_segment_timestamps else 0
++    )
++    video_items = build_temporal_video_items(frames, fps, frame_index_offset)
+     video_uuids = [str(uuid4()) for _ in video_items]
+@@ -190,6 +195,7 @@ async def build_frames_chunk(
+             system_prompt,
+             question,
+             is_first,
++            (not question_on_decode and is_first)
++            or (question_on_decode and generate),
+             previous_text,
+             start_time_s,
+             end_time_s,
+diff --git a/vllm/entrypoints/openai/streaming/session.py b/vllm/entrypoints/openai/streaming/session.py
+--- a/vllm/entrypoints/openai/streaming/session.py
++++ b/vllm/entrypoints/openai/streaming/session.py
+@@ -53,6 +53,8 @@ class StreamingSession:
+         previous_text: str = "",
+         time_offset_s: float = 0.0,
+         mm_processor_kwargs: dict[str, Any] | None = None,
++        question_on_decode: bool = False,
++        absolute_segment_timestamps: bool = False,
+     ) -> None:
+@@ -65,6 +67,8 @@ class StreamingSession:
+         self.previous_text = previous_text
+         self.time_offset_s = time_offset_s
+         self.mm_processor_kwargs = dict(mm_processor_kwargs or {})
++        self.question_on_decode = question_on_decode
++        self.absolute_segment_timestamps = absolute_segment_timestamps
+         self._in: asyncio.Queue = asyncio.Queue(maxsize=_MAX_INPUT_BACKLOG)
+@@ -205,6 +209,8 @@ class StreamingSession:
+                     end_time_s=end_time_s,
+                     generate=False,
+                     mm_processor_kwargs=self.mm_processor_kwargs,
++                    question_on_decode=self.question_on_decode,
++                    absolute_segment_timestamps=self.absolute_segment_timestamps,
+                 )
+@@ -228,6 +234,8 @@ class StreamingSession:
+                 end_time_s=end_time_s,
+                 generate=generate,
+                 mm_processor_kwargs=self.mm_processor_kwargs,
++                question_on_decode=self.question_on_decode,
++                absolute_segment_timestamps=self.absolute_segment_timestamps,
+             )
