@@ -61,11 +61,11 @@ k8s-workload-streamprocessing:
   WDM_PROVISION_ASYNC: false
 
 k8s-workload-rtvi-cv:
-  wl_obj_name: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-rtvi-cv") }}
+  wl_obj_name: {{ include "vss.alerts.rtviCvStatefulSetName" . }}
   port: 4004
   enable: true
   WDM_CLUSTER_TYPE: k8s
-  WDM_WL_OBJECT_NAME: {{ include "vss.alerts.serviceShort" (dict "root" . "short" "vss-rtvi-cv") }}
+  WDM_WL_OBJECT_NAME: {{ include "vss.alerts.rtviCvStatefulSetName" . }}
   WDM_CONSUMER_GRP_ID: sdr-rtvi-cv-cg
   WDM_REDIS_CACHE_OBJECT: rtvi-cv-data
   WDM_INITIALIZE_FROM_VST: false
