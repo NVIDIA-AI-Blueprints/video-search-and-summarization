@@ -32,6 +32,7 @@ import asyncio
 import json
 import multiprocessing
 import os
+from pathlib import Path
 import socket
 import tempfile
 import time
@@ -510,8 +511,9 @@ class TestFileEndpoints:
         assert data["object"] == "list"
         assert isinstance(data["data"], list)
 
+    @pytest.mark.parametrize("creation_time", [None, "2025-01-15T10:00:00Z", "2025-01-15T10:00:00.123Z"])
     def test_list_files_accepts_creation_time_without_milliseconds(
-        self, test_client, tmp_path, monkeypatch
+        self, test_client, tmp_path, monkeypatch, creation_time
     ):
         monkeypatch.setattr(rtvi_vlm_server, "_SKIP_INPUT_MEDIA_VERIFICATION", False)
         media_path = tmp_path / "clip.mp4"
@@ -522,7 +524,7 @@ class TestFileEndpoints:
                 "filename": (None, str(media_path)),
                 "purpose": (None, "vision"),
                 "media_type": (None, "video"),
-                "creation_time": (None, "2025-01-15T10:00:00Z"),
+                **({"creation_time": (None, creation_time)} if creation_time else {}),
             },
         )
         assert add_response.status_code == 200
@@ -532,7 +534,10 @@ class TestFileEndpoints:
 
         assert response.status_code == 200
         assert response.json()["data"][0]["id"] == asset_id
-        assert response.json()["data"][0]["creation_time"] == "2025-01-15T10:00:00Z"
+        assert response.json()["data"][0]["creation_time"] == creation_time
+        get_response = test_client.get(f"{API_PREFIX}/files/{asset_id}")
+        assert get_response.status_code == 200
+        assert get_response.json()["creation_time"] == creation_time
 
     def test_add_file_missing_params(self, test_client):
         """Test adding file with missing parameters"""
@@ -794,6 +799,141 @@ class TestLiveStreamEndpoints:
 
 class TestCaptionGeneration:
     """Test caption generation endpoint"""
+
+    @pytest.mark.parametrize("stream", [False, True])
+    @pytest.mark.parametrize("outcome", ["success", "inference_error", "setup_error"])
+    @pytest.mark.parametrize("from_url", [False, True])
+    def test_generate_captions_asset_lifetime(
+        self, test_client, rtvi_server, tmp_path, stream, outcome, from_url
+    ):
+        """Request-owned downloads are reclaimed; explicitly uploaded files remain reusable."""
+        media_path = tmp_path / "uploaded.mp4"
+        media_path.write_bytes(b"video")
+        uploaded_id = rtvi_server._asset_manager.add_file(str(media_path), "vision", "video")
+
+        async def download_file(**kwargs):
+            asset_id = kwargs["file_id"]
+            asset_dir = Path(rtvi_server._asset_manager._asset_dir) / asset_id
+            asset_dir.mkdir()
+            path = asset_dir / "download.mp4"
+            path.write_bytes(b"video" * 1024)
+            asset = rtvi_vlm_server.Asset(
+                asset_id, str(path), "vision", "video", str(asset_dir)
+            )
+            rtvi_server._asset_manager._publish_asset(asset)
+            return asset_id
+
+        rtvi_server._asset_manager.download_file = AsyncMock(side_effect=download_file)
+        rtvi_server._stream_handler.remove_video_file = MagicMock()
+
+        def generate(assets, *_args):
+            if outcome == "setup_error":
+                raise ServiceException("Setup failed", "BadParameters", 400)
+            request_id = str(uuid.uuid4())
+            req_info = RequestInfo(
+                request_id=request_id,
+                status=(RequestInfo.Status.FAILED if outcome == "inference_error"
+                        else RequestInfo.Status.SUCCESSFUL),
+                queue_time=time.time(),
+                assets=assets,
+                is_live=False,
+            )
+            req_info.start_time = time.time()
+            req_info.end_time = req_info.start_time + 1
+            req_info.start_timestamp = 0
+            req_info.end_timestamp = 1
+            req_info.error_status_code = 503
+            req_info.error_message = "Inference failed"
+            rtvi_server._stream_handler._request_info_map[request_id] = req_info
+            rtvi_server._stream_handler.get_response = MagicMock(return_value=(req_info, []))
+            return request_id
+
+        rtvi_server._stream_handler.generate_vlm_captions = MagicMock(side_effect=generate)
+        rtvi_server._stream_handler.wait_for_request_done = MagicMock()
+        downloaded_dirs = []
+        for _ in range(3):
+            asset_id = str(uuid.uuid4()) if from_url else uploaded_id
+            body = {"id": asset_id, "model": "test-model", "prompt": "Describe.", "stream": stream}
+            if from_url:
+                body["url"] = "https://93.184.216.34/download.mp4"
+            response = test_client.post(f"{API_PREFIX}/generate_captions", json=body)
+            expected_status = 400 if outcome == "setup_error" else (
+                503 if outcome == "inference_error" and not stream else 200
+            )
+            assert response.status_code == expected_status
+            if stream and outcome != "setup_error":
+                assert "data: [DONE]" in response.text
+            if from_url:
+                assert not rtvi_server._asset_manager.check_asset_exists(asset_id)
+                downloaded_dirs.append(Path(rtvi_server._asset_manager._asset_dir) / asset_id)
+            assert rtvi_server._asset_manager.check_asset_exists(uploaded_id)
+            assert media_path.exists()
+        rtvi_server._cleanup_executor.shutdown(wait=True)
+        assert all(not path.exists() for path in downloaded_dirs)
+
+    def test_generate_captions_duplicate_url_id_preserves_uploaded_file(
+        self, test_client, rtvi_server, tmp_path
+    ):
+        path = tmp_path / "uploaded.mp4"
+        path.write_bytes(b"video")
+        asset_id = rtvi_server._asset_manager.add_file(str(path), "vision", "video")
+        response = test_client.post(
+            f"{API_PREFIX}/generate_captions",
+            json={"id": asset_id, "url": "https://93.184.216.34/video.mp4",
+                  "model": "test-model", "prompt": "Describe."},
+        )
+        assert response.status_code == 400
+        assert rtvi_server._asset_manager.check_asset_exists(asset_id)
+        assert path.exists()
+
+    @pytest.mark.parametrize("cancel_cleanup", [False, True])
+    def test_generate_captions_stream_close_reclaims_url_asset(
+        self, rtvi_server, tmp_path, monkeypatch, cancel_cleanup
+    ):
+        """Closing SSE reclaims its URL asset even when cancellation precedes file release."""
+        monkeypatch.setenv("FILE_URL_ALLOWED_DIRS", str(tmp_path))
+        monkeypatch.setenv("RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC", "0")
+        media_path = tmp_path / "source.mp4"
+        media_path.write_bytes(b"video")
+        asset_id = str(uuid.uuid4())
+        request_id = str(uuid.uuid4())
+        rtvi_server._stream_handler.generate_vlm_captions = MagicMock(return_value=request_id)
+        rtvi_server._stream_handler.remove_video_file = MagicMock()
+        endpoint = next(route.endpoint for route in rtvi_server._app.routes
+                        if getattr(route, "path", "") == f"{API_PREFIX}/generate_captions")
+
+        async def exercise():
+            query = VlmQuery(id=asset_id, url=f"file://{media_path}", model="test-model",
+                             prompt="Describe.", stream=True)
+            request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
+            response = await endpoint(query, request)
+            asset = rtvi_server._asset_manager.get_asset(asset_id)
+            req_info = RequestInfo(request_id=request_id, status=RequestInfo.Status.PROCESSING,
+                                   queue_time=time.time(), assets=[asset], is_live=False)
+            chunk = PipelineChunkResult(chunk=ChunkInfo(chunkIdx=0, start_pts=0, end_pts=1),
+                                        vlm_model_output=VlmModelOutput(output="caption"))
+            rtvi_server._stream_handler._request_info_map[request_id] = req_info
+            rtvi_server._stream_handler.get_response = MagicMock(return_value=(req_info, [chunk]))
+            await anext(response.body_iterator)
+            if cancel_cleanup:
+                asset.lock()
+                close_task = asyncio.create_task(response.body_iterator.aclose())
+                while not rtvi_server._temporary_chat_asset_cleanup_tasks:
+                    await asyncio.sleep(0)
+                close_task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await close_task
+                assert rtvi_server._asset_manager.check_asset_exists(asset_id)
+                asset.unlock()
+                await asyncio.wait_for(asyncio.gather(
+                    *rtvi_server._temporary_chat_asset_cleanup_tasks), timeout=2)
+            else:
+                await response.body_iterator.aclose()
+            assert not rtvi_server._asset_manager.check_asset_exists(asset_id)
+            assert request_id not in rtvi_server._sse_active_clients
+            assert media_path.exists()
+
+        asyncio.run(asyncio.wait_for(exercise(), timeout=5))
 
     @pytest.mark.no_gpu
     @pytest.mark.parametrize("endpoint", ["generate_captions", "chat/completions"])
