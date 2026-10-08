@@ -674,15 +674,25 @@ def _screenshot_anchor(
     clamp_start: datetime | None,
     clamp_end: datetime | None,
 ) -> str | None:
-    """Choose the best screenshot timestamp and constrain it to the requested window."""
+    """Choose the best screenshot timestamp and constrain it to the returned clip."""
     timestamp = metadata.frame_timestamp or metadata.start_time
     timestamp_dt = safe_iso8601_to_datetime(timestamp)
     if timestamp_dt is None:
         return timestamp
-    if clamp_start is not None and timestamp_dt < clamp_start:
-        return datetime_to_iso8601(clamp_start)
-    if clamp_end is not None and timestamp_dt > clamp_end:
-        return datetime_to_iso8601(clamp_end)
+    reported_start = safe_iso8601_to_datetime(metadata.start_time)
+    reported_end = safe_iso8601_to_datetime(metadata.end_time)
+    effective_start = max(
+        (bound for bound in (reported_start, clamp_start) if bound is not None),
+        default=None,
+    )
+    effective_end = min(
+        (bound for bound in (reported_end, clamp_end) if bound is not None),
+        default=None,
+    )
+    if effective_start is not None and timestamp_dt < effective_start:
+        return datetime_to_iso8601(effective_start)
+    if effective_end is not None and timestamp_dt > effective_end:
+        return datetime_to_iso8601(effective_end)
     return timestamp
 
 

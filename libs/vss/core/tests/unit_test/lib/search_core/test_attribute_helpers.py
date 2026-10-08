@@ -705,6 +705,33 @@ def test_screenshot_anchor_preserves_unparseable_timestamp():
     assert ah._screenshot_anchor(result.metadata, None, None) == "not-a-time"
 
 
+@pytest.mark.parametrize(
+    ("search_start", "search_end", "frame_timestamp", "expected_anchor"),
+    [
+        # The search window is broader than the returned 00:00-00:10 behavior clip.
+        ("2024-12-31T23:59:00Z", "2025-01-01T00:01:00Z", "2024-12-31T23:59:50Z", "2025-01-01T00:00:00Z"),
+        ("2024-12-31T23:59:00Z", "2025-01-01T00:01:00Z", "2025-01-01T00:00:40Z", "2025-01-01T00:00:10Z"),
+        # The search window intersects only the latter half of the behavior clip.
+        ("2025-01-01T00:00:05Z", "2025-01-01T00:00:15Z", "2025-01-01T00:00:01Z", "2025-01-01T00:00:05Z"),
+        ("2025-01-01T00:00:05Z", "2025-01-01T00:00:15Z", "2025-01-01T00:00:12Z", "2025-01-01T00:00:10Z"),
+        # With no search bounds, the returned behavior clip remains authoritative.
+        (None, None, "2024-12-31T23:59:50Z", "2025-01-01T00:00:00Z"),
+        (None, None, "2025-01-01T00:00:40Z", "2025-01-01T00:00:10Z"),
+    ],
+)
+def test_screenshot_anchor_stays_within_search_and_reported_intersection(
+    search_start: str | None,
+    search_end: str | None,
+    frame_timestamp: str,
+    expected_anchor: str,
+):
+    result = _enrichable("cam1", frame_ts=frame_timestamp)
+    clamp_start = ah.safe_iso8601_to_datetime(search_start)
+    clamp_end = ah.safe_iso8601_to_datetime(search_end)
+
+    assert ah._screenshot_anchor(result.metadata, clamp_start, clamp_end) == expected_anchor
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("frame_timestamp", "expected_anchor"),
