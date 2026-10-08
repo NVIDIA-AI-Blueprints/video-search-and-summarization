@@ -210,6 +210,11 @@ def host_snapshot():
         state=subprocess.run(['sudo','-n','iptables','-S',chain],capture_output=True,text=True,timeout=15)
         rules=state.stdout.splitlines()
         out['owned_gateway_policies'].append({'port':port,'chain_present':state.returncode==0,'accept_interfaces':sorted(re.findall(r'-i (lo|docker0|br\+) -j ACCEPT',state.stdout)),'other_traffic_returns':any(line.endswith('-j RETURN') for line in rules),'rule_count':sum(line.startswith('-A ') for line in rules)})
+    # Verify teardown of the completed db7 hosted NvStreamer leg, read-only.
+    chain='SE-NC-3fa9cc781e015b0f89b5'
+    chain_state=subprocess.run(['sudo','-n','iptables','-S',chain],capture_output=True,text=True,timeout=15)
+    input_state=subprocess.run(['sudo','-n','iptables','-S','INPUT'],capture_output=True,text=True,timeout=15)
+    out['completed_gateway_cleanup']={'port':28608,'receipt_present':(Path.home()/'.nemoclaw/gateways/28608/network-policy.json').exists(),'chain_present':chain_state.returncode==0,'input_references':sum(('-j '+chain) in line for line in input_state.stdout.splitlines())}
     out['media_probe']={'status':'not_applicable'}
     sample=Path('/tmp/vss-sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4')
     if os.environ.get('SKILL_EVAL_DIAG_MEDIA_PROBE')=='1' and os.uname().machine=='aarch64' and sample.is_file() and 0<sample.stat().st_size<70_000_000 and any(row['name']=='vss-rtvi-vlm' for row in out['containers']):
@@ -339,7 +344,7 @@ def coordinator_traces():
     from urllib.parse import urlsplit
     root=Path('/tmp/skill-eval/results/_viewer')
     out=[]
-    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338','37743611504','37744378089','37744385620','37744461082','37745938465','37749284519','37749293650','37752059953'):
+    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338','37743611504','37744378089','37744385620','37744461082','37745938465','37749284519','37749293650','37752059953','37754840797'):
         for job in sorted(root.glob('*__'+run_id+'__*')):
             for path in sorted(job.glob('step-*/agent/openclaw.session.jsonl')):
                 calls={}; rows=[]; shapes=[]
@@ -439,6 +444,35 @@ def coordinator_traces():
                     if not url.path.endswith('/'+basename+'.mp4'):continue
                     scan_stream_evidence.append({'run':37743611504,'trial':trial.name,'basename':basename,'host':url.hostname,'port':url.port,'path_matches_fixture':True,'path_has_nvstream_prefix':url.path.startswith('/nvstream/'),'port_in_default_pool':31554<=url.port<=31561 if url.port else False})
 
+    scan_order=[]
+    for job in root.glob('*__37749284519__*'):
+        if 'nvstreamer' not in job.name:continue
+        for path in job.glob('step-4*/agent/openclaw.session.jsonl'):
+            trial=path.parent.parent
+            receipts=list(trial.glob('artifacts/**/host-fixture.json'))
+            if not receipts:continue
+            receipt=json.loads(receipts[0].read_text());basename=receipt.get('basename','')
+            if not re.fullmatch(r'sample-clip-[a-f0-9]{12}',basename):continue
+            rows=[];calls={}
+            for line in path.read_text().splitlines():
+                try:event=json.loads(line);message=event.get('message',{})
+                except ValueError:continue
+                content=message.get('content',[])
+                if not isinstance(content,list):continue
+                for block in content:
+                    if not isinstance(block,dict) or block.get('type')!='toolCall':continue
+                    args=json.dumps(block.get('arguments',{}))
+                    actions=[a for a in ('sensor/list','sensor/scan','sensor/streams','storage/file','nvstreamer_scan.json') if a in args]
+                    if actions:
+                        row={'actions':actions,'mentions_fixture':basename in args,'post':bool(re.search(r'POST|post\(',args)),'timestamp':event.get('timestamp') if re.fullmatch(r'[0-9T:Z.+-]{15,40}',str(event.get('timestamp',''))) else None}
+                        calls[block.get('id')]=row;rows.append(row)
+                if message.get('role')=='toolResult' and message.get('toolCallId') in calls:
+                    text=json.dumps(content);row=calls[message['toolCallId']]
+                    row['fixture_mentions']=text.count(basename)
+                    row['counts']=re.findall(r'(?:before[^:]{0,100}:|count[^:]{0,15}:)[^0-9]{0,5}([0-9]{1,3})',text,re.I)[:10]
+                    row['sensor_entry_mentions']=len(re.findall(r'(?:name|sensorId)[^A-Za-z0-9]{1,10}'+re.escape(basename),text))
+            scan_order.append({'run':37749284519,'trial':trial.name,'basename':basename,'receipt_status':receipt.get('status'),'actions':rows[:30]})
+
     # Inspect only setup tool results for the failed startup, with token/URL/path
     # data removed before emitting a bounded excerpt.
     startup=[]
@@ -465,7 +499,7 @@ def coordinator_traces():
                     selected.append(value[:500])
                 if selected:startup.append({'run':job.name.split('__')[-2] if '__' in job.name else None,'family':family,'exit_code':item.get('exit_code'),'lines':selected[:10]+selected[-10:]})
     firewall_commands=[]
-    for run_id in ('37743611504','37744461082','37745938465','37749284519','37749293650','37752059953'):
+    for run_id in ('37743611504','37744461082','37745938465','37749284519','37749293650','37752059953','37754840797'):
         for job in root.glob('*__'+run_id+'__*'):
             for path in job.glob('step-1*/agent/codex.txt'):
                 for line in path.read_text().splitlines():
@@ -474,7 +508,7 @@ def coordinator_traces():
                     command=item.get('command','')
                     if item.get('type')!='command_execution' or not ('ufw ' in command or 'iptables ' in command or 'NEMOCLAW_AUTO_FIX_FIREWALL' in command):continue
                     firewall_commands.append({'run':run_id,'exit_code':item.get('exit_code'),'ufw': 'ufw ' in command,'iptables':'iptables ' in command,'opt_in':'NEMOCLAW_AUTO_FIX_FIREWALL' in command,'ip_operands':re.findall(r'(?<![0-9])[0-9]{1,3}(?:\.[0-9]{1,3}){3}(?:/[0-9]{1,2})?',command)[:10],'ufw_allow':bool(re.search(r'ufw(?:[\s\\]+|[^a-zA-Z]{1,8})allow',command)),'ports':sorted(set(int(value) for value in re.findall(r'(?:--dport|port)[^0-9]{0,10}([0-9]{4,5})',command)))[:10]})
-    return {'viewer_exists':root.is_dir(),'traces':out,'startup_failure_results':startup[:8]+startup[-25:],'scan_stream_evidence':scan_stream_evidence,'firewall_commands':firewall_commands}
+    return {'viewer_exists':root.is_dir(),'traces':out,'startup_failure_results':startup[:8]+startup[-25:],'scan_stream_evidence':scan_stream_evidence,'scan_order':scan_order,'firewall_commands':firewall_commands}
 
 
 if __name__ == '__main__':
