@@ -164,7 +164,7 @@ class TestJudgeEndToEnd:
             "checks": [f"agent must not echo {FAKE_KEY}"],
         }]}))
         monkeypatch.setattr(judge, "locate_trajectory", lambda: None)
-        monkeypatch.setattr(judge, "_run_checks", lambda checks, traj, timeout: [
+        monkeypatch.setattr(judge, "_run_checks", lambda checks, traj, timeout, **context: [
             {"pass": False,
              "rationale": f"The key {FAKE_KEY} was exposed in the trajectory.",
              "matched": {FAKE_KEY: [f"curl -H 'Bearer {FAKE_KEY}'"]}},

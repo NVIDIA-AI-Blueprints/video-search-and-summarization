@@ -260,7 +260,9 @@ _VERDICT_NUDGE = (
 )
 
 
-def _assemble_judge_prompt(check: str, traj_path: str | None) -> str:
+def _assemble_judge_prompt(
+    check: str, traj_path: str | None, *, query: str | None = None, step: int | None = None,
+) -> str:
     if traj_path:
         try:
             size_mb = os.path.getsize(traj_path) / (1024 * 1024)
@@ -277,14 +279,28 @@ def _assemble_judge_prompt(check: str, traj_path: str | None) -> str:
             "No trajectory file was found on disk. Decide from live-system tool "
             "probes if possible; otherwise pass=false."
         )
+    task_note = ""
+    if query is not None:
+        task_note = (
+            "Current evaluation task from the selected spec step:\n"
+            + json.dumps({"step": step, "query": query}, ensure_ascii=False)
+            + "\nEvaluate scope and behavior against this query. Queries from other "
+            "steps, examples in skill documentation and quoted tool results are not "
+            "the current user request. Verify the trajectory contains this task; "
+            "if it instead records a different task, report that mismatch and fail "
+            "rather than assuming the supplied query was executed.\n\n"
+        )
     return (
-        f"Check to evaluate:\n{check}\n\n"
+        task_note + f"Check to evaluate:\n{check}\n\n"
         f"{traj_note}\n\n"
         "Gather evidence with tools as needed, then emit the JSON verdict."
     )
 
 
-async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int) -> dict:
+async def _judge_llm_agent(
+    check: str, traj_path: str | None, *, timeout_s: int,
+    query: str | None = None, step: int | None = None,
+) -> dict:
     """Run one check through a claude-agent-sdk judge agent."""
     try:
         from claude_agent_sdk import (
@@ -363,7 +379,7 @@ async def _judge_llm_agent(check: str, traj_path: str | None, *, timeout_s: int)
         nonlocal cost_usd, saw_result, retry_attempted
         nonlocal result_is_error, result_subtype, result_stop_reason
         async with ClaudeSDKClient(options=options) as client:
-            await client.query(_assemble_judge_prompt(check, traj_path))
+            await client.query(_assemble_judge_prompt(check, traj_path, query=query, step=step))
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
                     for block in message.content:
@@ -520,7 +536,8 @@ def _parse_verdict_json(text: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def _run_checks(checks: list[str], traj_path: str | None,
-                per_check_timeout_s: int) -> list[dict]:
+                per_check_timeout_s: int, *, query: str | None = None,
+                step: int | None = None) -> list[dict]:
     """Evaluate all checks for one step. Every check runs through an
     independent claude-agent-sdk judge agent, concurrently under a
     Semaphore (JUDGE_PARALLELISM, default 4, max 8). Each agent has
@@ -534,6 +551,7 @@ def _run_checks(checks: list[str], traj_path: str | None,
         async with sem:
             return await _judge_llm_agent(
                 check, traj_path, timeout_s=per_check_timeout_s,
+                query=query, step=step,
             )
 
     async def _gather() -> list[dict]:
@@ -637,7 +655,10 @@ def main() -> int:
         print(f"(trajectory not found in {_TRAJECTORY_CANDIDATES}; "
               "agent-route checks must rely on live-system probes)")
 
-    results = _run_checks(checks, traj_path, args.per_check_timeout)
+    results = _run_checks(
+        checks, traj_path, args.per_check_timeout,
+        query=expect.get("query"), step=args.step,
+    )
 
     passed = 0
     for check, result in zip(checks, results):

@@ -11,7 +11,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -62,6 +62,29 @@ def test_judge_retains_legacy_encoded_message_guidance() -> None:
     assert ".message | fromjson?" in prompt
     assert "Show legacy Bash commands" in prompt
     assert "Get legacy final assistant text" in prompt
+
+
+def test_selected_step_query_reaches_every_judge(tmp_path: Path) -> None:
+    judge = _load_generic_judge()
+    query = "Where did the worker put the box down in the first 10 seconds?"
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({"expects": [
+        {"query": "Deploy an alerts profile", "checks": ["Deployment is ready"]},
+        {"query": query, "checks": ["Exactly one VLM call", "It does not invent scope"]},
+    ]}))
+    dispatch = AsyncMock(return_value={"pass": True})
+    with patch.object(judge, "_judge_llm_agent", dispatch), patch.object(
+        judge, "locate_trajectory", return_value=None,
+    ), patch.object(sys, "argv", [
+        "generic_judge.py", "--spec", str(spec), "--step", "2",
+        "--reward-file", str(tmp_path / "reward.txt"),
+        "--details-file", str(tmp_path / "judge.json"),
+    ]):
+        assert judge.main() == 0
+    assert len(dispatch.await_args_list) == 2
+    for call in dispatch.await_args_list:
+        assert call.kwargs["query"] == query
+        assert call.kwargs["step"] == 2
 
 
 def test_normalized_recipe_ignores_duplicated_raw_arguments(tmp_path: Path) -> None:
@@ -213,10 +236,16 @@ class JudgeVerdictRecovery(unittest.IsolatedAsyncioTestCase):
                     os.environ, {"ANTHROPIC_API_KEY": "test-placeholder"},
                 ):
                     judge = _load_generic_judge()
-                    result = await judge._judge_llm_agent("Gateway is ready", None, timeout_s=0.02)
+                    result = await judge._judge_llm_agent(
+                        "Gateway is ready", None, timeout_s=0.02,
+                        query="Use the existing warehouse deployment", step=11,
+                    )
                 self.assertEqual(result["pass"], expected_pass)
                 self.assertEqual(len(queries), 2 if recovery else 1)
                 self.assertEqual(result["cost_usd"], 2 if recovery and not stalls else 1)
+                self.assertIn('"query": "Use the existing warehouse deployment"', queries[0])
+                self.assertIn('"step": 11', queries[0])
+                self.assertIn("report that mismatch and fail", queries[0])
                 if recovery:
                     self.assertIn("Do not call any tools", queries[1])
                 if stalls:
