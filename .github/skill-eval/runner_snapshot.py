@@ -110,7 +110,7 @@ for session in sorted(Path('/sandbox/.openclaw/agents/main/sessions').glob('*.js
     calls=set(); vios_calls={}
     try:
         for line in session.read_text().splitlines():
-            try:message=json.loads(line).get('message',{})
+            try:event=json.loads(line);message=event.get('message',{})
             except Exception:continue
             for block in message.get('content',[]) if isinstance(message.get('content'),list) else []:
                 if isinstance(block,dict) and block.get('type')=='toolCall' and 'vss vlm run' in json.dumps(block.get('arguments',{})):
@@ -181,7 +181,7 @@ def host_snapshot():
         info=run(['docker','inspect',name],timeout=10)
         if not isinstance(info,list) or not info:continue
         state=info[0].get('State',{})
-        out['containers'].append({'name':name,'status':state.get('Status'),'health':state.get('Health',{}).get('Status'),'oom':state.get('OOMKilled'),'restarts':info[0].get('RestartCount')})
+        out['containers'].append({'name':name,'status':state.get('Status'),'health':state.get('Health',{}).get('Status'),'oom':state.get('OOMKilled'),'restarts':info[0].get('RestartCount'),'started_at':state.get('StartedAt') if re.fullmatch(r'[0-9T:Z.+-]{15,40}',str(state.get('StartedAt',''))) else None,'recent_health_checks':[{'start':row.get('Start'),'end':row.get('End'),'exit_code':row.get('ExitCode')} for row in state.get('Health',{}).get('Log',[])[-5:]]})
         if name.startswith('openshell-'):
             image=run(['docker','image','inspect',info[0].get('Image','')],timeout=10)
             if isinstance(image,list) and image:out['sandbox_image_layers'].append({'container':name,'layers':len(image[0].get('RootFS',{}).get('Layers',[]))})
@@ -395,7 +395,7 @@ def coordinator_traces():
                 try:lines=path.read_text().splitlines()
                 except OSError:continue
                 for line in lines:
-                    try:message=json.loads(line).get('message',{})
+                    try:event=json.loads(line);message=event.get('message',{})
                     except Exception:continue
                     content=message.get('content',[])
                     if not isinstance(content,list):continue
@@ -415,6 +415,7 @@ def coordinator_traces():
                                 except ValueError:pass
                             return origins[:8]
                         calls[block.get('id')]={'family':family,'request_origins':origins(args),
+                            'version_paths':[name for name in ('sensor','live','record') if '/api/v1/'+name+'/version' in args],'wait_seconds':[int(value) for value in re.findall(r'sleep[^0-9]{0,8}([0-9]{1,3})',args)][:5],'timestamp':event.get('timestamp') if re.fullmatch(r'[0-9T:Z.+-]{15,40}',str(event.get('timestamp',''))) else None,
                             'proxy_overrides':sorted(set(re.findall(r'\b(?:HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|NO_PROXY|http_proxy|https_proxy|all_proxy|no_proxy)\b',args))),
                             'binary_paths':sorted(set(re.findall(r'/usr/(?:local/)?(?:bin|vss/bin)/(?:python3(?:\.[0-9]+)?|curl|node|vss)\b',args))),
                             'proxy_bypass':any(marker in args for marker in ('--noproxy','unset HTTP_PROXY','unset HTTPS_PROXY')),
@@ -435,6 +436,7 @@ def coordinator_traces():
                             for item in value.values():yield from strings(item)
                     text='\n'.join(strings(content)); row=dict(calls[message['toolCallId']])
                     row['result_markers']=[marker for marker in ('No such command','No such option','Invalid value','configuration error','window','recorded range','outside','beyond','cannot parse','invalid timestamp','ISO-8601','timed out','timeout','HTTP 500','HTTP 404','permission denied','failed','exit code','job_id','answer') if marker.lower() in text.lower()]
+                    row['http_status_mentions']=sorted(set(re.findall(r'(?<![0-9])[245][0-9]{2}(?![0-9])',text)))[:12]
                     row['exit_codes']=sorted(set(int(x) for x in re.findall(r'(?:exit(?:[_ ]code)?|Process exited with code)[^0-9]{0,12}([0-9]{1,3})\b',text,re.I)))[:5]
 
                     if re.search(r'\b403\b',text) or 'policy_denied' in text:
@@ -475,7 +477,7 @@ def coordinator_traces():
             if receipt.get('status')!='passed' or not re.fullmatch(r'sample-clip-[a-f0-9]{12}',basename):continue
             calls=set()
             for line in path.read_text().splitlines():
-                try:message=json.loads(line).get('message',{})
+                try:event=json.loads(line);message=event.get('message',{})
                 except ValueError:continue
                 content=message.get('content',[])
                 if not isinstance(content,list):continue
