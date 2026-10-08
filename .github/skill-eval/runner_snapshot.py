@@ -258,7 +258,7 @@ def coordinator_traces():
     from urllib.parse import urlsplit
     root=Path('/tmp/skill-eval/results/_viewer')
     out=[]
-    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695'):
+    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338'):
         for job in sorted(root.glob('*__'+run_id+'__*')):
             for path in sorted(job.glob('step-*/agent/openclaw.session.jsonl')):
                 calls={}; rows=[]; shapes=[]
