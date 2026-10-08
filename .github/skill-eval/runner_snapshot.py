@@ -157,6 +157,24 @@ def host_snapshot():
         if not isinstance(info,list) or not info:continue
         state=info[0].get('State',{})
         out['containers'].append({'name':name,'status':state.get('Status'),'health':state.get('Health',{}).get('Status'),'oom':state.get('OOMKilled'),'restarts':info[0].get('RestartCount')})
+    out['media_probe']={'status':'not_applicable'}
+    sample=Path('/tmp/vss-sample-data/dev-profile-sample-data/warehouse_sample.mp4')
+    if os.uname().machine=='aarch64' and sample.is_file() and 0<sample.stat().st_size<250_000_000 and any(row['name']=='vss-rtvi-vlm' for row in out['containers']):
+        import base64, urllib.request, urllib.error
+        origin='http://127.0.0.1:7777/rtvi-vlm/v1'
+        try:
+            opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open(origin+'/models',timeout=5) as response:models=json.load(response)
+            model=models['data'][0]['id']
+            payload={'model':model,'messages':[{'role':'user','content':[{'type':'video_url','video_url':{'url':'data:video/mp4;base64,'+base64.b64encode(sample.read_bytes()).decode()}},{'type':'text','text':'Describe the scene briefly.'}]}],'media_io_kwargs':{'video':{'num_frames':2}},'max_tokens':32,'temperature':0}
+            request=urllib.request.Request(origin+'/chat/completions',data=json.dumps(payload).encode(),headers={'Content-Type':'application/json'})
+            try:
+                with opener.open(request,timeout=45) as response:
+                    answer=json.load(response);out['media_probe']={'status':'completed','http_status':response.status,'has_choices':bool(answer.get('choices'))}
+            except urllib.error.HTTPError as exc:
+                body=exc.read(65536).decode('utf-8','replace')
+                out['media_probe']={'status':'failed','http_status':exc.code,'error_markers':[word for word in ('gst-stream-error-quark','Internal data stream error','not-negotiated','not-linked','no element','Could not decode stream','nvv4l2decoder','avdec_h264','h264parse','qtdemux','permission denied') if word in body]}
+        except Exception as exc:out['media_probe']={'status':'failed','exception_type':type(exc).__name__}
     out['rt_vlm_decode_errors']=[]
     if any(row['name']=='vss-rtvi-vlm' for row in out['containers']):
         try:
@@ -191,17 +209,18 @@ def host_snapshot():
             out['sandbox_phase']=phase.get('phase') if isinstance(phase,dict) and phase.get('phase') in {'Ready','Pending','Created','Creating','Starting','Error','Failed','Terminated'} else phase.get('category') if isinstance(phase,dict) else None
             if out['sandbox_phase']=='Ready':
                 try:
-                    audit=subprocess.run(['openshell','logs',sandbox,'-g','nemoclaw-'+port,'-n','300','--source','all'],stdin=subprocess.DEVNULL,capture_output=True,text=True,env=env,timeout=20)
+                    audit=subprocess.run(['openshell','logs',sandbox,'-g','nemoclaw-'+port,'-n','1000','--source','all'],stdin=subprocess.DEVNULL,capture_output=True,text=True,env=env,timeout=20)
                     out['audit_exit_code']=audit.returncode
                     out['denied_flows']=[]
                     for line in audit.stdout.splitlines():
                         if not any(marker in line for marker in ('NET:OPEN DENIED','policy_denied','DENIED')):continue
                         flow={}
-                        match=re.search(r'(?:->|CONNECT)\s+([a-z0-9.-]+):([0-9]{1,5})\b',line)
+                        match=re.search(r'(?:->\s*(?:(?:GET|POST|PUT|DELETE|HEAD|CONNECT)\s+)?(?:https?://)?|CONNECT\s+)([a-z0-9.-]+):([0-9]{1,5})\b',line)
                         if match:
                             flow['host']=match.group(1);flow['port']=int(match.group(2))
                         binary=re.search(r'DENIED (/[-A-Za-z0-9_./]+)\([0-9]+\)',line)
                         if binary:flow['binary']=binary.group(1)
+                        flow['reason_markers']=[word for word in ('resolve peer binary','identity binding','binary integrity','ancestor integrity','no matching','not allowed in policy','policy generation','policy changed','allowed_ips','internal IP','credential') if word in line]
                         if flow and flow not in out['denied_flows']:out['denied_flows'].append(flow)
                     out['denied_flows']=out['denied_flows'][-20:]
                 except Exception as exc:out['audit_error_type']=type(exc).__name__
@@ -274,7 +293,7 @@ def coordinator_traces():
                         row['error_origins']=origins(text)
                         row['reason_markers']=[marker for marker in ('no_matching_policy','no matching policy','no matching endpoint','binary','blocked','denied','CONNECT','connect tunnel','proxy','host','port','allowed_ips','protocol','IP address') if marker.lower() in text.lower()]
                         details=re.findall(r'\\?"detail\\?"\s*:\s*\\?"([^"\\]{1,300})',text)
-                        safe_words={'host','port','not','allowed','denied','by','policy','no','matching','endpoint','binary','process','identity','source','destination','network','address','ip','range','in','allowlist','found','resolved','private','unknown','missing','required','invalid','request','method','http','https','tcp','tls','protocol','connect','proxy','hostname','untrusted','blocked','loopback','does','match','the','configured','unauthorized','tunnel','a','for','this','and','or','rule','rules','access','is','with','permission','unauthenticated','credentials','authentication','list','defined','detected','unavailable','target','to'}
+                        safe_words={'host','port','not','allowed','denied','by','policy','no','matching','endpoint','binary','process','identity','source','destination','network','address','ip','range','in','allowlist','found','resolved','private','unknown','missing','required','invalid','request','method','http','https','tcp','tls','protocol','connect','proxy','hostname','untrusted','blocked','loopback','does','match','the','configured','unauthorized','tunnel','a','for','this','and','or','rule','rules','access','is','with','permission','unauthenticated','credentials','authentication','list','defined','detected','unavailable','target','to','permitted','get','post','put','head','delete'}
                         row['policy_details']=[value for value in details if all(word.lower() in safe_words or word in {'host.openshell.internal','localhost','127.0.0.1'} or word.isdecimal() and len(word)<=5 for word in re.findall(r'[a-zA-Z0-9_.]+',value))]
                         row['response_keys']=sorted(set(re.findall(r'\\?"([a-z_]{2,40})\\?"\s*:',text)))[:30]
                     else:row['failure']=None
