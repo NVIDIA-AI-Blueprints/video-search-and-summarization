@@ -217,9 +217,13 @@ retrieval. Do not inspect screenshots or call another verifier during this
 first turn. A media URL may be empty when VST is unavailable; when present it
 carries the scheme, host, and port of the origin `vss configure` recorded. Avoid
 a mandated heading or raw JSON dump, and keep the reply implementation-neutral
-— never expose a job ID, model or service name, endpoint, CLI flag, or a raw
-`sensor_id`; say "visual verification" and report only its verdict. The one
-exception: when the user asks which commands to run, show the commands.
+— never expose a job ID, model or service name, deployment service address, CLI
+flag, or a raw `sensor_id`; say "visual verification" and report only its
+verdict. The one exception: when the user asks which commands to run, show the
+commands.
+
+A media URL is returned data, not a service address: reproduce it whole rather
+than noting that one exists. Report criteria when present.
 
 **6. Offer a Verification Step only when the whole set is unverified.** If and
 only if every displayed result in the nonempty set is `unverified`, offer a
