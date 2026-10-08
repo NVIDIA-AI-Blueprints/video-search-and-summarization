@@ -26,13 +26,18 @@ records. The sweep is by port, not by build, so running it for a headless
 build destroys a sibling build's sandbox. Bring-up writes that file before the
 setup notebook, so a build whose harness setup *failed* has it too.
 
+A build deployed before that file existed carries only `nemoclaw-setup.log`,
+so take either as the record. Requiring the `sandbox` file alone skips the
+sweep for those, leaving a sandbox and its relay pointed at the stack Compose
+is about to stop; a headless build has neither and is still skipped.
+
 Run it **first**, so the sandbox is not left pointed at an origin that has
 stopped answering.
 
 ```bash
 REPO="$(git rev-parse --show-toplevel)"
 BUILD_DIR="$REPO/_builds/<name>"
-if [ -e "$BUILD_DIR/sandbox" ]; then
+if [ -e "$BUILD_DIR/sandbox" ] || [ -e "$BUILD_DIR/nemoclaw-setup.log" ]; then
   # The build's pair, or empty -> the script's defaults. A fresh shell has
   # neither exported, and would otherwise sweep another build's ports.
   for v in NEMOCLAW_DASHBOARD_PORT NEMOCLAW_DASHBOARD_RELAY_PORT; do
