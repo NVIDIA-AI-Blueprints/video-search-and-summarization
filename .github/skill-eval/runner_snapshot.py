@@ -86,7 +86,11 @@ def run(args, *, env=None, timeout=30):
         category=next((name for name,marker in markers.items() if marker in output.lower()),None)
         return {'exit_code':result.returncode, **({'error_type':reason} if reason else {}), **({'category':category} if category else {})}
     try: return json.loads(result.stdout)
-    except ValueError: return {'invalid_json':True}
+    except ValueError:
+        for line in reversed(result.stdout.splitlines()[-5:]):
+            try:return json.loads(line)
+            except ValueError:pass
+        return {'invalid_json':True}
 
 
 def host_snapshot():
@@ -123,7 +127,8 @@ def host_snapshot():
             out['native_access']=run(['openshell','sandbox','exec','--name',sandbox,'-g','nemoclaw-'+port,'--','sh','-lc','printf 1'],env=env,timeout=15)
             phase=run(['openshell','sandbox','get',sandbox,'-g','nemoclaw-'+port,'-o','json'],env=env,timeout=15)
             out['sandbox_phase']=phase.get('phase') if isinstance(phase,dict) and phase.get('phase') in {'Ready','Pending','Created','Creating','Starting','Error','Failed','Terminated'} else phase.get('category') if isinstance(phase,dict) else None
-            out['native']=run(['openshell','sandbox','exec','--name',sandbox,'-g','nemoclaw-'+port,'--','sh','-lc',command],env=env,timeout=45)
+            invocation='if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi; '+shlex.join(['nemoclaw',sandbox,'exec','--no-tty','--no-stdin','--timeout','30','--','python3','-c',wrapped])
+            out['native']=run(['bash','-lc',invocation],env=env,timeout=45)
     out['readiness']=[]
     for path in Path('/logs/artifacts/nemoclaw').glob('*readiness.json'):
         try: report=json.loads(path.read_text())
