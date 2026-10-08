@@ -1,0 +1,6 @@
+numpy>=1.24
+requests>=2.31
+click>=8.1
+pytest>=7
+# Install the same-checkout VSS CLI separately: pip install /path/to/repo/libs/vss/cli
+# The externally supplied embed_cosmos.py owns its CUDA/torch/transformers dependencies.
