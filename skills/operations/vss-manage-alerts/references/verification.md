@@ -26,7 +26,7 @@ Verified CV alerts carry an extended `info` block:
 | `confirmed` | VLM determined the alert is real |
 | `rejected` | VLM determined it is a false positive |
 | `verification-failed` | Verification could not complete — API/VLM error, media fetch failure, or a VLM response that could not be parsed into a confirmed/rejected verdict (`verificationResponseCode: 500`, status names the schema error) |
-| `""` (empty) | No verdict parsing ran. Either the **default `use_verdict: false` freestyle deploy** — the common case: the raw VLM text is stored in `reasoning` / `vlm_response` and no verdict is stamped — or a pluggable response parser replaced the verdict path. An empty verdict is a **valid success, not a failure**; report the VLM text, never invent a `confirmed`/`rejected`. |
+| `""` (empty) | No verdict parsing ran. Either **freestyle** (`alert_agent.media_download.use_verdict: false`, the default, which applies only to on-demand and media-URL requests): the raw VLM text is in `reasoning` and no verdict is stamped — or a pluggable response parser replaced the verdict path: its fields are in `vlm_response`, a JSON string (`response-parser.md`). A `vlm_response` field means a parser. An empty verdict is a **valid success, not a failure**; report the VLM text, never invent a `confirmed`/`rejected`. |
 
 - **`not-confirmed` is never a stored verdict.** Alert Bridge does not write it; it is only a `vlmVerdict` *filter* on the video-analytics API (`vss-query-analytics`) that matches `rejected` + `verification-failed`. Never search `info.verdict` for it or describe it as a parse failure.
 - Companion fields (camelCase, inside `info`): `verificationResponseCode` (HTTP-like; `200` = success), `verificationResponseStatus` (`OK` or an error description), `reasoning` (the VLM's explanation), and `vlm_response` (pluggable-parser output only).
@@ -101,7 +101,7 @@ curl -sf -X PUT "$AB/api/v1/verification/config/<alert_type>" \
 # POST "" creates a new alert_type (409 if it exists); DELETE removes one (404 if missing)
 ```
 
-Config fields: `alert_type`, `prompt`, `system_prompt`, `enrichment_prompt`, `vlm_params`, `output_category` (+ server-stamped `created_at`/`updated_at`). `PUT` is a partial update — only the fields you send change.
+Config fields: `alert_type`, `prompt`, `system_prompt`, `enrichment_prompt`, `vlm_params`, `output_category` (+ server-stamped `created_at`/`updated_at`). `PUT` is a partial update — only the fields you send change. On a deployment with a custom response parser (`docker logs vss-alert-bridge` shows `Pluggable response parser active`), every alert type's prompt feeds that parser: a new or edited prompt must still ask for the parser's JSON fields, or each alert of that type lands as `verification-failed` (`response-parser.md`).
 
 ### Config file (deploy-time)
 

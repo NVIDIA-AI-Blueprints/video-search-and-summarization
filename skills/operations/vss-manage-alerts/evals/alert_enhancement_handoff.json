@@ -1,0 +1,46 @@
+{
+  "skills": [
+    "vss-manage-alerts",
+    "vss-build-vision-ai",
+    "vss-manage-video-io-storage"
+  ],
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "modes": [
+          "remote-all"
+        ]
+      }
+    }
+  },
+  "deploy_mode": "verification",
+  "description": "Alert enhancement (custom VLM response parser) on a running verification (CV) deployment. Step 2 asks to add one: the parser is loaded once at Alert Bridge startup and has no runtime API, so the skill must route it to a vss-build-vision-ai rebuild behind a confirmation that names the global effect (every alert type's verdict is replaced), and must not substitute a verifier-prompt PUT, a Compose or config edit, or a container restart. Step 3 is explain-only: a document with verdict \"\" and a vlm_response string is a parser result, not a failure and not a confirmed alert. Neither step mutates the stack.",
+  "expects": [
+    {
+      "query": "Deploy the VSS alerts profile on {{platform}} in verification (CV) mode (`MODE=2d_cv`) (i.e. the `/vss-build-vision-ai` stock Alerts workflow in verification mode) using remote LLM and remote VLM endpoints. This deployment uses the in-stack agent: deploy `vss-agent` as part of the service set and do not substitute a host-side harness, so harness selection does not apply. Do NOT finish until Alert Bridge (`curl -sf http://localhost:9080/health`) and its verifier config (`curl -sf http://localhost:9080/api/v1/verification/config`) respond - wait and retry for a few minutes if a service is still starting.",
+      "checks": [
+        "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do curl -sf --max-time 10 http://localhost:9080/health >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (Alert Bridge responsive; polls up to ~2 min to absorb deploy readiness timing).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics` returns exit 0 (Behavior Analytics is the CV-only mode signal - its presence confirms the deployment is verification (CV), not VLM real-time).",
+        "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:9080/api/v1/verification/config 2>/dev/null | grep -q alert_type && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (the CV verifier-config API answers with alert-type configs).",
+        "`sh -c 'm=$(docker inspect -f \"{{range .Mounts}}{{println .Destination}}{{end}}\" vss-alert-bridge) || exit 1; ! echo \"$m\" | grep -qx /app/parsers'` returns exit 0 (Alert Bridge exists and the stock deployment carries no custom response-parser mount - the baseline the next steps must leave unchanged)."
+      ]
+    },
+    {
+      "query": "Add alert enhancement to this deployment: use a custom VLM response parser so `FOV Count Violation` alerts come back with `severity`, `description` and `confidence` fields instead of a yes/no verdict.",
+      "checks": [
+        "The reply treats this as a deploy-time change: Alert Bridge loads the parser once at startup and no API (including `PUT /api/v1/verification/config`) can add one, so it needs a rebuild through `/vss-build-vision-ai`.",
+        "Before any rebuild the reply asks the user to confirm, and it says the parser replaces the Yes/No verdict for every alert type, not only `FOV Count Violation`. Further detail (an empty `verdict`, fields in `vlm_response`) is welcome but not required. The trial stops at that question.",
+        "The trajectory makes no POST, PUT or DELETE whose path contains `/api/v1/verification/config` (whatever origin it uses: `$AB`, `HOST_IP`, `localhost` or the ingress), writes no file under `deploy/docker/` and no Alert Bridge config file, and runs no `docker restart`, `stop`, `rm`, `kill`, `docker compose up`, `restart` or `down`. Read-only calls (GETs, `docker ps`, `docker logs`, `docker inspect`) are fine.",
+        "`sh -c 'm=$(docker inspect -f \"{{range .Mounts}}{{println .Destination}}{{end}}\" vss-alert-bridge) || exit 1; ! echo \"$m\" | grep -qx /app/parsers'` returns exit 0 (Alert Bridge still exists and no parser was deployed in this step)."
+      ]
+    },
+    {
+      "query": "A verification result for a `FOV Count Violation` alert came back with `info.verdict` set to an empty string and `info.vlm_response` set to `{\"verdict\": true, \"severity\": \"high\", \"description\": \"worker on the ladder without a hardhat\", \"confidence\": 0.82}`. Was the alert confirmed, and did verification fail?",
+      "checks": [
+        "The reply explains that the result comes from a custom (pluggable) response parser: Alert Bridge leaves `verdict` empty by design and puts the parser's output in `vlm_response`. It reports the fields from `vlm_response` (severity high, confidence 0.82, the description).",
+        "The reply does not call the alert `confirmed` (nor `rejected`) as an Alert Bridge verdict: the `true` inside `vlm_response` is the parser's own field. It does not call the empty verdict a failure - a parser failure would carry `verdict: \"verification-failed\"` and `errorSource: \"pluggable_parser\"`.",
+        "This is an explain-only ask: the trajectory performs no mutation - no POST, PUT or DELETE whose path contains `/api/v1/verification/config` or `/api/v1/realtime` (whatever origin it uses), no `POST /generate`, and no redeploy, restart or teardown - and the reply does not ask the user to confirm a rebuild or start one (mentioning how a parser is enabled is fine)."
+      ]
+    }
+  ]
+}

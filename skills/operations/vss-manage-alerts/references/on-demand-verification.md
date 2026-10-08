@@ -56,7 +56,7 @@ curl -sf "$AB/api/v1/realtime/incidents?limit=50" \
 Validation checklist for a landed document (fields live in the `info` block):
 
 - `verificationResponseCode` — `200` = VLM call succeeded; 4xx/5xx = error path (fetch/VLM failure). Accept camelCase or snake_case.
-- `verdict` — populated (`confirmed`/`rejected`/…) only when the deploy runs verdict parsing (`use_verdict: true` or a pluggable parser). The default `use_verdict: false` is **freestyle**: the raw VLM text is stored (see `vlm_response`/`reasoning`) and `verdict` may be absent or empty — that is a valid success, not a failure.
+- `verdict` — populated (`confirmed`/`rejected`/…) only when the deploy runs verdict parsing (`use_verdict: true`). On-demand never runs a pluggable response parser — its handler is built without one — so even on a parser deployment the reply lands in `reasoning` (`response-parser.md`). The default `use_verdict: false` is **freestyle**: the raw VLM text is stored in `reasoning` and `verdict` may be absent or empty — that is a valid success, not a failure.
 - `reasoning` / `vlm_response` — the VLM's output; quote it rather than paraphrasing a verdict into existence.
 
 No document after the poll window: report that the result has not landed yet (grounded), suggest re-polling; do not fabricate one. Verdict meanings: see `references/verification.md`.

@@ -28,6 +28,9 @@ by `agent.md`; the SOP-report-specific patch is owned by `sop.md`.
   `override.env` — add `alert-bridge` to `COMPOSE_PROFILES` and point those
   mount-source vars at the checked-in alerts verifier configs (not inherited on a
   non-`alerts` Foundation); do **not** author an `alert-bridge.yml` patch.
+  **One exception:** a custom VLM response parser needs a bind mount the stock
+  definition does not have — see
+  [Custom VLM response parser](#custom-vlm-response-parser-alert-enhancement).
 - **CV verification** (`MODE=2d_cv`): RT-CV (`perception-alerts`) feeds Behavior
   Analytics (`vss-behavior-analytics-alerts`), which emits candidate incidents;
   `alert-bridge` verifies clips with a VLM. Requires RT-CV + Behavior Analytics
@@ -91,6 +94,102 @@ YAML and, when present, the optional realtime / always-on YAML into `/app/runtim
 `realtime-config.yml` — do not hardcode the model id. `ALWAYS_ON_RULES_CONFIG`
 points at the **rendered** file under `/app/runtime` when always-on is enabled.
 
+## Custom VLM response parser (alert enhancement)
+
+"Alert enhancement" swaps Alert Bridge's Yes/No verdict parsing for a generated
+class that turns the verification VLM's reply into structured fields. Alert
+Bridge loads it once at startup, so it is wired here, at build time. The
+contract, the generation steps, a worked example (parser and prompt) and the
+verifier settings are in
+[`vss-manage-alerts/references/response-parser.md`](../../../operations/vss-manage-alerts/references/response-parser.md);
+read it before writing the parser.
+
+**Check before composing:**
+
+- **CV verification only** (`MODE=2d_cv`, with `alert-bridge`). The real-time
+  path (`2d_vlm`) never calls a parser: say so and offer a CV build instead of
+  building a parser that would never run.
+- **Host coding agent only.** The build writes host files and recreates a
+  container; a NemoClaw sandbox can do neither, so hand the build to the user or
+  a host agent.
+- **Global.** One parser serves every alert type. It replaces the Yes/No verdict
+  for all of them, not only the one the request named: each verified alert gets
+  `info.verdict: ""` and its result in `info.vlm_response`, and none becomes
+  `confirmed` or `rejected`. The parser therefore has to accept the reply of
+  every alert type the deployment verifies.
+
+Removing a parser is a rebuild as well; response-parser.md's *Remove a parser*
+lists what to take out and the prompts to put back.
+
+**Artifacts.** A new bind mount is a service-definition change that env
+interpolation cannot express, so this is the one `alert-bridge.yml` patch. Write
+only under `_builds/<name>/` (never `deploy/docker/**` or
+`dev-profile-alerts/vlm-as-verifier/`):
+
+| File | Content |
+|---|---|
+| `patches/alert-bridge.yml` | Only `services.alert-bridge.volumes`, with one entry: `${BUILD_DIR:?set BUILD_DIR in override.env}/patches/parsers:/app/parsers:ro`. Compose merges volumes by target, so the stock config mounts stay. |
+| `patches/parsers/__init__.py` | Empty. |
+| `patches/parsers/<module>.py` | The generated parser. |
+| `patches/vlm-as-verifier/config.yml` | A copy of the file the Foundation's `VLM_AS_VERIFIER_CONFIG_FILE` resolves to (it honours `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX`), with the `vlm:` keys from response-parser.md's *Verifier settings* set — `response_parser: "parsers.<module>.<Class>"` among them. |
+| `patches/vlm-as-verifier/alert_type_config.json` | A copy of the Foundation's `VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE` with JSON prompts for every alert type the parser must accept. |
+
+`override.env` sets `BUILD_DIR`, then points `VLM_AS_VERIFIER_CONFIG_FILE` and
+`VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE` at the two copies with absolute
+`${BUILD_DIR}/patches/vlm-as-verifier/` sources. `compose.yml` lists
+`./patches/alert-bridge.yml` after the root Compose file. The container runs as
+uid `65532`, so make the payloads world-readable:
+`chmod -R a+rX "$BUILD_DIR"/patches/parsers* "$BUILD_DIR/patches/vlm-as-verifier"`.
+
+These are the first parser's paths. A revision goes to a new
+`patches/parsers-<n>/` and `patches/vlm-as-verifier/config-<n>.yml` (see
+*Apply and verify*); every step below acts on the paths the patch and
+`override.env` point at.
+
+A parser build is a **Delta build** even when its service set is stock: it
+changes the `alert-bridge` service definition.
+
+**Test before approval.** Step 6 comes before any build artifact is written,
+so draft the parser and its prompts in a temporary directory and run
+response-parser.md's *Test before deploying* there first; a non-zero exit is a
+blocker. The Step 6 approval then shows that tested `.py`, and the same file is
+written to the build's parser directory. If anything changes the `.py` after
+the approval, show it again and get a fresh approval before deploying. After
+resolving, confirm `resolved.yml` mounts that parser directory read-only at
+`/app/parsers` and that the `/app/configs/config.yml` and
+`/app/alert_type_config.json` sources are the build's current copies.
+
+**Approval (SKILL.md step 6).** Show the generated `.py` in full — it is code
+that runs inside Alert Bridge — and say that it replaces the verdict for every
+alert type, with what follows from that: no verified alert is `confirmed` or
+`rejected` any more, so confirmed-verdict protection (which skips re-verifying
+an incident already confirmed) stops applying, and the `confirmed` / `rejected`
+verdict filters (such as the Video Analytics API's `vlmVerdict`) match none of
+the successful results.
+
+**Confirmation — one rule for both skills.** On a stack that is already
+running, confirm that global effect with the user first — before any other
+build question (harness, models, intake) and before deploying — under
+autonomous execution too and whichever skill the request came through: the
+request usually names one alert type, and the parser changes the result of
+every alert type the user already relies on. For a new build, an autonomous
+instruction answers the Step 6 approval; the `.py` and the warning still go in
+the conversation and the final summary.
+
+**Apply and verify.** Deploy `resolved.yml` per
+[`deployment.md`](../deployment.md), as for any build; `docker compose restart`
+does not pick up a new mount. Compose recreates Alert Bridge only when its
+service definition changes, and a mounted file's contents are not part of it:
+a changed parser or config copy written over the same path leaves the old
+parser running. Write each revision to a new path — `patches/parsers-<n>/`,
+`patches/vlm-as-verifier/config-<n>.yml` — and point the patch and
+`override.env` at it. Then run response-parser.md's *Verify after deploying*: the
+`Pluggable response parser active: '<dotted path>'` log line, a JSON prompt
+stored for every alert type (prompts already in Elasticsearch win over the
+build's file), and one incident submitted through the pipeline whose
+`info.vlm_response` decodes to the schema. On-demand verification never runs
+the parser, so it cannot stand in for that last check.
+
 ## Configuration knobs
 
 | Environment variable | Use |
@@ -117,6 +216,9 @@ points at the **rendered** file under `/app/runtime` when always-on is enabled.
 - `deploy/docker/developer-profiles/dev-profile-alerts/overrides.env`
 - `deploy/docker/developer-profiles/dev-profile-alerts/vios/configs/notification_config_*.json`
 - `deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/`
+- `services/alert/src/schemas/base_response_parser.py`
+- `services/alert/src/schemas/pluggable_parser_runtime.py`
 - `skills/vss-build-vision-ai/references/profiles/alerts.md`
 - `skills/operations/vss-manage-alerts/references/integrate-alerts.md`
 - `skills/operations/vss-manage-alerts/references/deploy-alerts.md`
+- `skills/operations/vss-manage-alerts/references/response-parser.md`
