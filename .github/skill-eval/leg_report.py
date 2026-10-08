@@ -204,6 +204,40 @@ def _trial_metrics(trial_dir: Path) -> dict:
     return out
 
 
+def _harness_failure(trial_dir: Path) -> dict | None:
+    """Read this attempt's metadata receipt, never an exception's raw output."""
+    root = trial_dir / "artifacts" / "logs" / "artifacts" / "nemoclaw"
+    stages = {
+        "sandbox_phase", "sandbox_access", "gateway_health",
+        "gateway_authentication", "vss_configuration", "local_inference",
+        "hosted_inference", "nvstreamer_container", "nvstreamer_copy",
+        "fixture_manifest", "host_fixtures", "fixture_directory",
+        "fixture_upload", "fixture_checksum",
+    }
+    reasons = {
+        "pairing_pending", "pairing_deadline", "command_failed",
+        "invalid_health_response", "proxy_tunnel_denied",
+    }
+    for name in ("setup-readiness.json", "readiness.json", "host-fixture.json", "fixtures.json"):
+        report = _load_json(root / name)
+        if not isinstance(report, dict):
+            continue
+        rows = report.get("stages", [report])
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict) or row.get("status") != "failed":
+                continue
+            stage, reason = row.get("stage"), row.get("reason")
+            if not isinstance(stage, str) or stage not in stages:
+                continue
+            failure = {"stage": stage}
+            if isinstance(reason, str) and reason in reasons:
+                failure["reason"] = reason
+            return failure
+    return None
+
+
 class SpecError(Exception):
     """The spec was named but could not be used."""
 
@@ -301,6 +335,7 @@ def collect_leg(results_root: Path) -> dict:
             "query": (judge or {}).get("query") or "",
             "exception": bool(exc),
             "exception_type": (exc.get("exception_type") if isinstance(exc, dict) else None),
+            "harness_failure": _harness_failure(trial_dir),
             "cost_usd": agent_result.get("cost_usd"),
             "path": str(result_path.relative_to(results_root)),
             **metrics,
@@ -444,6 +479,11 @@ def _verdict_cell(trial: dict) -> str:
         return f"{MARK_FAIL} ambiguous ({why}){got}"
     if trial.get("exception"):
         kind = trial.get("exception_type") or "error"
+        failure = trial.get("harness_failure")
+        if failure:
+            kind += f": {failure['stage']}"
+            if failure.get("reason"):
+                kind += f" ({failure['reason']})"
         return f"{MARK_FAIL} {kind}{detail}{',' if got else ''}{got}"
     if reward == 1.0:
         # A perfect reward with a non-unanimous judge is confusing on its own
@@ -608,6 +648,7 @@ def leg_summary(leg: dict, *, declared: list[str], spec_path: str = "",
             "passed": t.get("passed"),
             "total": t.get("total"),
             "exception": t.get("exception_type") if t.get("exception") else None,
+            "harness_failure": t.get("harness_failure"),
             "attempts": t.get("attempts", 1),
             "attempt_path": t.get("path"),
             "any_attempt_undated": bool(t.get("any_undated")),

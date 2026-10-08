@@ -439,6 +439,11 @@ within the existing authentication deadline. NemoClaw retains ownership of
 device approval; the harness still requires a successful authenticated health
 response afterwards and never edits pairing stores or approves raw requests.
 
+Result comments and `leg-summary.json` include an allowlisted failed stage from
+that trial's NemoClaw receipt. This preserves the readiness cause when Harbor
+classifies a failed setup command as a generic network error; it does not
+replace Harbor's exception or change the verdict. Raw probe output is omitted.
+
 A task can also declare `"host_fixture": {"nvstreamer_scan_file": "warehouse_sample.mp4"}`
 to test NvStreamer's filesystem scan from NemoClaw. Immediately before that
 native task, the host copies the pinned sample under a unique basename into
