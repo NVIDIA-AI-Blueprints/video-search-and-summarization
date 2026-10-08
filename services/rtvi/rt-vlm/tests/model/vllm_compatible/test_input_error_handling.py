@@ -2005,3 +2005,47 @@ def test_evs_sampling_kwargs_omits_min_tokens_when_unset(monkeypatch):
     kwargs = vllm_compatible_model._build_evs_sampling_kwargs(100, {})
 
     assert "min_tokens" not in kwargs
+
+
+_EVENT_SCHEMA = {
+    "type": "object",
+    "properties": {"event": {"type": "string"}},
+    "required": ["event"],
+}
+
+
+@pytest.mark.parametrize(
+    ("response_format", "expected"),
+    [
+        ({"type": "json_object"}, {"json_object": True}),
+        (
+            {"type": "json_schema", "json_schema": {"name": "e", "schema": _EVENT_SCHEMA}},
+            {"json": _EVENT_SCHEMA},
+        ),
+        ({"type": "choice", "choices": ["yes", "no"]}, {"choice": ["yes", "no"]}),
+    ],
+)
+def test_evs_sampling_kwargs_forwards_structured_outputs(monkeypatch, response_format, expected):
+    # Event-gated generations have no request body: without this the schema is
+    # dropped and EVS returns unconstrained text.
+    monkeypatch.delenv("RTVI_VLLM_IGNORE_EOS", raising=False)
+    monkeypatch.setenv("VLLM_IGNORE_EOS", "true")
+
+    kwargs = vllm_compatible_model._build_evs_sampling_kwargs(
+        100, SimpleNamespace(response_format=response_format)
+    )
+
+    assert kwargs["structured_outputs"] == expected
+    # The constrained output must be able to stop once the JSON closes.
+    assert kwargs["ignore_eos"] is False
+
+
+def test_evs_sampling_kwargs_omits_structured_outputs_for_text(monkeypatch):
+    monkeypatch.delenv("VLLM_IGNORE_EOS", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_IGNORE_EOS", raising=False)
+
+    kwargs = vllm_compatible_model._build_evs_sampling_kwargs(
+        100, {"response_format": {"type": "text"}}
+    )
+
+    assert "structured_outputs" not in kwargs
