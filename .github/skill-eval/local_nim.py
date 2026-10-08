@@ -305,14 +305,28 @@ def wait_ready(url: str, token: str, timeout: int = 900, container: str | None =
             last_probe = type(reason).__name__
             if isinstance(reason, OSError) and reason.errno is not None:
                 last_probe += f" errno={reason.errno}"
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
         if container:
-            state = docker(
-                "inspect", "--format", "{{.State.Running}} {{.State.OOMKilled}} {{.State.ExitCode}}",
-                container, check=False,
-            )
+            try:
+                state = docker(
+                    "inspect", "--format", "{{.State.Running}} {{.State.OOMKilled}} {{.State.ExitCode}}",
+                    container, check=False, timeout=remaining,
+                )
+            except subprocess.TimeoutExpired:
+                last_probe += "; Docker inspection timed out"
+                break
             if state.returncode or not state.stdout.startswith("true "):
-                logs = docker("logs", "--tail", "40", container, check=False)
-                detail = (logs.stderr or logs.stdout or state.stderr or "")[-2500:]
+                detail = state.stderr or ""
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    try:
+                        logs = docker("logs", "--tail", "40", container, check=False, timeout=min(10, remaining))
+                        detail = logs.stderr or logs.stdout or detail
+                    except subprocess.TimeoutExpired:
+                        detail = "Docker log collection timed out"
+                detail = detail[-2500:]
                 for name in ("NGC_API_KEY", "NGC_CLI_API_KEY"):
                     if os.environ.get(name):
                         detail = detail.replace(os.environ[name], "[REDACTED]")
