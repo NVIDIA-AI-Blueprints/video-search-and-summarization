@@ -108,6 +108,26 @@ ${VST_STREAM_PROCESSOR_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,se
 @csstools/css-tokenizer,4.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @dabh/diagnostics,2.0.9,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 @date-fns/tz,1.5.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/cordis,4.0.4,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/cosmokit,1.8.5,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-agent,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-brand,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-invariants,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-llm,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-ptc-runtime,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-sandbox,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-sandbox-policy,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-scope,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-session,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-session-projection,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-system-prompt,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-timeout,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-tools,0.2.0-rc.2,MIT,.dsh,node,lockfile;manifest,.dsh/plugin/package-lock.json;.dsh/plugin/package.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-typert-protocol,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-user-approval,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-util-crypto,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/dsh-util-values,0.2.0-rc.2,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@deepseek-ai/schemastery,3.18.4,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 @earendil-works/pi-tui,0.80.3,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 @elastic/elasticsearch,9.4.3,Apache-2.0,services/analytics/video-analytics-api,node,lockfile;manifest,services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/src/web-api-core/package.json;services/analytics/video-analytics-api/test/package-lock.json;services/analytics/video-analytics-api/test/package.json,runtime,no,no,no,declared-manifest,None
 @elastic/transport,9.4.0,Apache-2.0,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -497,6 +517,7 @@ ${VST_STREAM_PROCESSOR_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,se
 @sinonjs/samsam,8.0.3,BSD-3-Clause,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 @so-ric/colorspace,1.1.6,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 @stablelib/base64,1.0.1,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+@standard-schema/spec,1.1.0,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 @svgdotjs/svg.draggable.js,3.0.6,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @svgdotjs/svg.filter.js,3.0.9,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @svgdotjs/svg.js,3.2.7,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -592,6 +613,7 @@ ${VST_STREAM_PROCESSOR_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,se
 @types/node,22.18.12,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @types/node,22.20.1,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 @types/node,22.20.3,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
+@types/node,22.20.5,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 @types/node,22.5.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 @types/node,24.13.3,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @types/node,26.1.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -949,6 +971,7 @@ byte-counter,0.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,r
 bytes,3.1.2,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 bytes,3.1.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 bytestreamjs,2.0.1,BSD-3-Clause,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+ca-certificates,UNKNOWN,UNKNOWN,.dsh,deb,container,.dsh/Dockerfile.base,runtime,no,no,yes,container-apt,Unknown
 ca-certificates,UNKNOWN,UNKNOWN,.hermes,deb,container,.hermes/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 ca-certificates,UNKNOWN,UNKNOWN,.openclaw,deb,container,.openclaw/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 ca-certificates,UNKNOWN,UNKNOWN,services/agent,deb,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
@@ -1640,6 +1663,7 @@ ghcr.io/astral-sh/uv,0.11.24,UNKNOWN,services/configurators/vss-configurator,con
 ghcr.io/astral-sh/uv,0.11.24,UNKNOWN,services/configurators/vss-rt-config-adaptor,container,container,services/configurators/vss-rt-config-adaptor/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,latest,UNKNOWN,services/agent,container,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,latest,UNKNOWN,services/video-summarization,container,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
+ghcr.io/astral-sh/uv,sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500,UNKNOWN,.dsh,container,container,.dsh/Dockerfile.base,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500,UNKNOWN,.hermes,container,container,.hermes/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500,UNKNOWN,.openclaw,container,container,.openclaw/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/google/cadvisor,0.60.5,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
@@ -1647,6 +1671,7 @@ ghcr.io/nvidia/nemoclaw/hermes-sandbox,sha256:26899bd091f7ad2d58ab7cf9fad33f1fcd
 ghcr.io/nvidia/nemoclaw/openclaw-sandbox,sha256:959d1255717b54f724248eb282dbb049d3cd785d5aa4eddb0da2a03839ad6fca,UNKNOWN,.openclaw,container,container,.openclaw/Dockerfile,runtime,no,no,yes,container-base,Unknown
 gherkin-official,29.0.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 git,1:2.47.3-0+deb13u1,UNKNOWN,libs/analytics/spatialai-data-utils,deb,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
+git,UNKNOWN,UNKNOWN,.dsh,deb,container,.dsh/Dockerfile.base,runtime,no,no,yes,container-apt,Unknown
 git,UNKNOWN,UNKNOWN,.hermes,deb,container,.hermes/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 git,UNKNOWN,UNKNOWN,.openclaw,deb,container,.openclaw/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 git,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,deb,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
@@ -2546,6 +2571,7 @@ nixl,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/dock
 nltk,3.10.3,Apache Software License,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 node,22.23.2,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
 node,22.23.3-trixie,UNKNOWN,services/analytics/video-analytics-api,container,container,services/analytics/video-analytics-api/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
+node,24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc,UNKNOWN,.dsh,container,container,.dsh/Dockerfile.base,runtime,no,no,yes,container-base,Unknown
 node,24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc,UNKNOWN,.hermes,container,container,.hermes/Dockerfile,runtime,no,no,yes,container-base,Unknown
 node,24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc,UNKNOWN,.openclaw,container,container,.openclaw/Dockerfile,runtime,no,no,yes,container-base,Unknown
 node-abi,4.33.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -2630,6 +2656,7 @@ nvcr.io/nvidia/tritonserver,26.03-py3,UNKNOWN,services/rtvi/rt-embed,container,c
 nvcr.io/nvidia/tritonserver,26.03-py3@sha256:72d1d796b49a17e6432d4908c95969be0dded2f4d06469fa0824a71ecf0b895b,UNKNOWN,services/rtvi/rt-vlm,container,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/vllm,26.03-py3@sha256:13e327dad79e6e417f6687fec2ba76b0386d597082ec0ee003c1e964ec6ad0e7,UNKNOWN,services/rtvi/rt-vlm,container,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/vllm,26.07-py3,UNKNOWN,deploy,container,compose,deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml,runtime,no,no,yes,container-image,Unknown
+NVIDIA-AI-Blueprints/video-search-and-summarization,UNKNOWN,UNKNOWN,.dsh,source,container,.dsh/Dockerfile.base,runtime,no,no,no,build-fetch,Unknown
 NVIDIA-AI-Blueprints/video-search-and-summarization,UNKNOWN,UNKNOWN,.hermes,source,container,.hermes/Dockerfile,runtime,no,no,no,build-fetch,Unknown
 NVIDIA-AI-Blueprints/video-search-and-summarization,UNKNOWN,UNKNOWN,.openclaw,source,container,.openclaw/Dockerfile,runtime,no,no,no,build-fetch,Unknown
 NVIDIA-AI-IOT/deepstream_python_apps,UNKNOWN,Apache-2.0,services/rtvi/rt-embed,source,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,no,build-fetch,None
@@ -3174,6 +3201,7 @@ python-multipart,0.0.32,Apache-2.0,services/agent,python,lockfile,services/agent
 python-multipart,0.0.32,Apache-2.0,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 python-rapidjson,1.23,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 python-redis-lock,4.0.0,BSD-2-Clause,services/sdrc,python,lockfile;manifest,services/sdrc/pyproject.toml;services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
+python3,UNKNOWN,UNKNOWN,.dsh,deb,container,.dsh/Dockerfile.base,runtime,no,no,yes,container-apt,Unknown
 python3,UNKNOWN,UNKNOWN,.hermes,deb,container,.hermes/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 python3,UNKNOWN,UNKNOWN,.openclaw,deb,container,.openclaw/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 python3,UNKNOWN,UNKNOWN,services/vios,deb,container,services/vios/cicd_files/x86_64/devel/Dockerfile.devel,runtime,no,no,yes,container-apt,Unknown
@@ -3819,6 +3847,7 @@ typer,0.27.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,n
 typer,0.27.1,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 typer,0.27.2,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 typescript,5.5.4,Apache-2.0,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
+typescript,5.9.3,Apache-2.0,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 typescript,5.9.3,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 typescript,5.9.3,Apache-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 typescript,6.0.3,Apache-2.0,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3858,6 +3887,7 @@ undici,7.29.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-l
 undici,7.29.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici,8.5.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici-types,6.19.8,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
+undici-types,6.21.0,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici-types,6.21.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici-types,6.21.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici-types,6.21.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -4094,6 +4124,7 @@ zipp,4.1.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,
 zipp,4.1.0,MIT,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 zmq,UNKNOWN,BSD-3-Clause,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/docker/rtvi_vlm/patches/evs_vllm_public_files/distributed/ec_transfer/ec_connector/cuda_ipc_connector.py,runtime,no,no,no,imported-only,None
 zod,4.4.3,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+zod,4.6.5,MIT,.dsh,node,lockfile,.dsh/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 zod-to-json-schema,3.25.2,ISC,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 zstandard,0.25.0,BSD-3-Clause,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 zstandard,0.25.0,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
