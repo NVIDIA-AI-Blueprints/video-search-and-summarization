@@ -151,12 +151,36 @@ def host_snapshot():
             except Exception:elapsed=None
             out['setup_processes'].append({'pid':int(process.name),'kind':category,'elapsed_seconds':elapsed})
     listing = subprocess.run(['docker','ps','--format','{{.Names}}'],capture_output=True,text=True,timeout=10)
+    out['vios_publication']=[]
     for name in listing.stdout.splitlines():
         if not (name.startswith('vss-vios-') or name.startswith('vss-rtvi-') or name.startswith('skill-eval-nim-') or name.startswith('openshell-')):continue
         info=run(['docker','inspect',name],timeout=10)
         if not isinstance(info,list) or not info:continue
         state=info[0].get('State',{})
         out['containers'].append({'name':name,'status':state.get('Status'),'health':state.get('Health',{}).get('Status'),'oom':state.get('OOMKilled'),'restarts':info[0].get('RestartCount')})
+        if name in {'vss-vios-streamprocessing','vss-vios-sensor'}:
+            from urllib.parse import urlsplit
+            publication={'container':name,'endpoint_settings':{}}
+            def public_endpoint(value):
+                try:
+                    parsed=urlsplit(value if '://' in value else 'http://'+value)
+                    return {'host':parsed.hostname,'port':parsed.port,'path_is_vst':parsed.path.rstrip('/')=='/vst'}
+                except Exception:return {'invalid':True}
+            for value in info[0].get('Config',{}).get('Env') or []:
+                key,_,val=value.partition('=')
+                if key in {'VST_INGRESS_ENDPOINT','VST_INTERNAL_IP'}:publication['endpoint_settings'][key]=public_endpoint(val)
+            config=run(['docker','exec',name,'cat','/home/vst/vst_release/configs/vst_config.json'],timeout=10)
+            if isinstance(config,dict):
+                def settings(value):
+                    if isinstance(value,dict):
+                        for key,item in value.items():
+                            if key=='reverse_proxy_server_address' and isinstance(item,str):publication[key]=public_endpoint(item)
+                            elif key=='use_reverse_proxy' and type(item) is bool:publication[key]=item
+                            else:settings(item)
+                    elif isinstance(value,list):
+                        for item in value:settings(item)
+                settings(config)
+            out['vios_publication'].append(publication)
     out['build_containers']=[]
     for container_id in subprocess.run(['docker','ps','--no-trunc','--format','{{.ID}}'],capture_output=True,text=True,timeout=10).stdout.splitlines()[:30]:
         info=run(['docker','inspect',container_id],timeout=10)
