@@ -1,0 +1,78 @@
+[
+  {
+    "id": "single-attribute-claim",
+    "question": "Create an evidence plan for question warehouse-ladder-q4: What was the last person who climbed the ladder wearing?",
+    "expected_skill": "vss-generate-evidence-plan",
+    "ground_truth": "Return one option-blind attribute claim with whole-video coverage so the last ladder climber can be identified before clothing is assessed.",
+    "expected_behavior": [
+      "Returns one initial claim, not separate claims for the ladder, climbing event, person identity, and clothing.",
+      "Classifies the primary evidence type as attribute and uses whole_video coverage.",
+      "Includes observable support and falsification tests without asserting what the person wore."
+    ]
+  },
+  {
+    "id": "two-independent-outcomes",
+    "question": "Create an evidence plan for question vehicle-summary-q2: How many vehicles entered the loading area, and what types were they?",
+    "expected_skill": "vss-generate-evidence-plan",
+    "ground_truth": "Return no more than two initial claims because the question independently asks for a count and vehicle types with different evidence tests.",
+    "expected_behavior": [
+      "Returns one or two claims and never three or more.",
+      "If split, uses one count claim and one object claim with whole_video coverage.",
+      "Does not use answer choices or observed vehicle types in the plan."
+    ]
+  },
+  {
+    "id": "multiple-choice-stem-sanitization",
+    "question": "Create an evidence plan for question ladder-q4. Raw question_text: What was the last person who climbed the ladder wearing? A. A red shirt B. A blue jacket C. A safety vest D. A black coat",
+    "expected_skill": "vss-generate-evidence-plan",
+    "ground_truth": "Remove the complete answer-choice block before prompt construction and plan only from the question stem.",
+    "expected_behavior": [
+      "Passes only 'What was the last person who climbed the ladder wearing?' as question_stem to the planning prompt.",
+      "Does not expose the four clothing options or their labels to the planner or output.",
+      "Returns one neutral attribute claim without naming a candidate garment."
+    ]
+  },
+  {
+    "id": "expand-one-missing-requirement",
+    "question": "Expand this evidence plan. question_id: cart-sequence-q1. question_stem: Did a person place a box on the cart, and did the cart later move? current_plan: {\"plan_version\":\"2.1\",\"mode\":\"initial\",\"question_id\":\"cart-sequence-q1\",\"question_stem\":\"Did a person place a box on the cart, and did the cart later move?\",\"asset_id\":\"warehouse-cart-01\",\"claims\":[{\"claim_id\":\"claim-box-placed-on-cart\",\"requirement\":\"Determine whether a person visibly places a box on the cart.\",\"evidence_type\":\"action\",\"coverage_requirement\":\"whole_video\",\"support_test\":\"A person visibly transfers a box onto the cart.\",\"falsification_test\":\"No person transfers a box onto the cart during complete coverage.\"}]}. claim_ledger: [{\"claim_id\":\"claim-box-placed-on-cart\",\"status\":\"sufficient\"}]. identified_insufficiency: No claim tests the independently requested outcome of whether the cart later moved.",
+    "expected_skill": "vss-generate-evidence-plan",
+    "ground_truth": "Return an expansion containing exactly one new movement claim while preserving prior claim IDs in the ledger.",
+    "expected_behavior": [
+      "Uses mode expansion and adds exactly one claim.",
+      "Leaves claim-box-placed-on-cart unchanged in the caller-owned ledger and does not reuse its ID.",
+      "Adds only the independently assessable cart-movement requirement."
+    ]
+  },
+  {
+    "id": "missing-evidence-is-gathering-gap",
+    "question": "The clothing claim is already in the evidence plan, but memory does not show the last ladder climber clearly. Should the plan add another claim?",
+    "expected_skill": "vss-generate-evidence-plan",
+    "ground_truth": "Do not expand the plan; report that the existing claim needs additional evidence gathering.",
+    "expected_behavior": [
+      "Returns a plan_version 2.1 gather_evidence outcome for the existing claim and does not create another claim.",
+      "Classifies the issue as a gathering gap for the existing claim.",
+      "Keeps planning separate from evidence binding and visual inspection."
+    ]
+  },
+  {
+    "id": "unavailable-modality-rejection",
+    "question": "Create an evidence plan for audio-q1: What did the driver say? Allowed modalities: visual frames only; no audio, ASR, transcript, or subtitles.",
+    "expected_skill": "vss-generate-evidence-plan",
+    "ground_truth": "Return a schema-valid rejection because the requested speech content cannot be observed through the allowed modalities.",
+    "expected_behavior": [
+      "Returns plan_version 2.1, decision reject, and reason_code unavailable_modality.",
+      "Lists audio or speech among unavailable_modalities.",
+      "Does not create a visual claim or infer dialogue from the video."
+    ]
+  },
+  {
+    "id": "direct-answer-non-activation",
+    "question": "Watch this clip and tell me which answer option is correct.",
+    "expected_skill": null,
+    "ground_truth": "This is a request to inspect and answer, not to generate an evidence plan; route to vss-ask-video.",
+    "expected_behavior": [
+      "Does not activate vss-generate-evidence-plan as the sole answering workflow.",
+      "Routes the request to vss-ask-video."
+    ]
+  }
+]
