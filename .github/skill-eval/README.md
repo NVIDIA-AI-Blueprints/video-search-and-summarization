@@ -466,8 +466,10 @@ native task, the host copies the pinned sample under a unique basename into
 the running VSS Compose NvStreamer's writable video bind mount and verifies
 its checksum. It uploads only a metadata manifest to the sandbox and retains
 `nemoclaw/host-fixture.json` for verification. The agent still performs the
-pre-scan absence check, scan, stream lookup and snapshot requests; fixture
-preparation never registers a sensor or grants Docker access to the sandbox.
+pre-scan list check, scan, stream lookup and snapshot requests; fixture
+preparation never calls a registration API or grants Docker access to the sandbox.
+Background discovery may register the copied file before the task starts; the
+eval still requires the explicit scan and matching stream/playability checks.
 Other harnesses continue to perform the copy themselves.
 
 File uploads verify the worker destination's size and SHA-256 before returning
