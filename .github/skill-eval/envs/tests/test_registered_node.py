@@ -58,8 +58,8 @@ class LocalNimCredentialDelivery(unittest.IsolatedAsyncioTestCase):
         uploads = []
         calls = []
 
-        async def upload(source, target):
-            uploads.append(target)
+        async def upload(source, target, *, reuse_if_identical=False):
+            uploads.append((target, reuse_if_identical))
 
         async def execute(instance, command, timeout=0, input_data=None):
             calls.append((command, input_data))
@@ -73,7 +73,8 @@ class LocalNimCredentialDelivery(unittest.IsolatedAsyncioTestCase):
             await env._start_local_nims()
 
         self.assertEqual(len(uploads), 2)
-        self.assertFalse(any(path.endswith(".key") for path in uploads))
+        self.assertFalse(any(path.endswith(".key") for path, _ in uploads))
+        self.assertTrue(all(reuse for _, reuse in uploads))
         self.assertEqual(calls[0][1], b"private-registry-key\n")
         self.assertNotIn("private-registry-key", calls[0][0])
 
@@ -302,6 +303,53 @@ class ClaudeTaskScratchCleanup(unittest.TestCase):
 
 
 class PreparationRetries(unittest.IsolatedAsyncioTestCase):
+    async def test_local_nim_upload_reuse_requires_exact_regular_file_bytes(self):
+        for state in ("matching", "absent", "checksum", "size", "invalid", "ambiguous"):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as directory:
+                source = Path(directory) / "plan.json"
+                source.write_bytes(b'{"owner":"test"}')
+                expected = {
+                    "state": "present", "bytes": source.stat().st_size,
+                    "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                }
+                probes = 0
+                async def attest(instance, command, **kwargs):
+                    nonlocal probes
+                    probes += 1
+                    marker = command.rsplit(" ", 1)[-1]
+                    report = expected.copy()
+                    if probes == 1:
+                        if state in ("absent", "invalid"):
+                            report = {"state": state}
+                        elif state == "checksum":
+                            report["sha256"] = "0" * 64
+                        elif state == "size":
+                            report["bytes"] = 0
+                    row = marker + json.dumps(report) + "\n"
+                    return brev_env.ExecResult(return_code=0, stdout=row * (2 if state == "ambiguous" and probes == 1 else 1))
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "worker"
+                with mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(side_effect=attest)), \
+                     mock.patch.object(brev_env, "_run_brev_exec_retry", new=mock.AsyncMock(return_value=brev_env.ExecResult(return_code=0))), \
+                     mock.patch.object(brev_env, "_run_brev_copy_once", new=mock.AsyncMock(return_value=brev_env.ExecResult(return_code=0))) as copy:
+                    await env.upload_file(source, "/tmp/plan.json", reuse_if_identical=True)
+                self.assertEqual(copy.await_count, 0 if state == "matching" else 1)
+                self.assertEqual(probes, 1 if state == "matching" else 2)
+
+    def test_transfer_error_categories_do_not_expose_raw_detail(self):
+        for detail, expected in (
+            ("Authentication failed token=private-value", "authentication"),
+            ("Permission denied: /private/path", "permission"),
+            ("No space left on device /private/path", "storage"),
+            ("No such file or directory /private/path", "missing_path"),
+            ("Connection reset by peer token=private-value", "transient_transport"),
+            ("Timeout, server worker.example not responding.", "transient_transport"),
+            ("Unrecognized failure token=private-value", "unknown"),
+        ):
+            with self.subTest(expected=expected):
+                result = brev_env.ExecResult(return_code=1, stderr=detail)
+                self.assertEqual(brev_env._transport_failure_category(result), expected)
+
     async def test_repo_sync_recovers_after_transport_timeout(self):
         env = object.__new__(brev_env.BrevEnvironment)
         env._instance_name = "vss-eval-l40s"
@@ -344,7 +392,7 @@ class PreparationRetries(unittest.IsolatedAsyncioTestCase):
                 pause.assert_not_awaited()
 
     async def test_transfer_recovers_from_transient_failures(self):
-        for message in ("Too many requests", "Connection closed by remote host", "client_loop: send disconnect: Broken pipe"):
+        for message in ("Too many requests", "Connection closed by remote host", "client_loop: send disconnect: Broken pipe", "Timeout, server worker.example not responding."):
             with self.subTest(message=message):
                 failure = brev_env.ExecResult(stderr=message, return_code=1)
                 success = brev_env.ExecResult(return_code=0)

@@ -139,6 +139,97 @@ def test_exited_nim_reports_oom_without_waiting_for_timeout(monkeypatch):
         nim.wait_ready("http://127.0.0.1:18410/v1/health/ready", "", 1800, "nim")
 
 
+def test_readiness_request_cannot_outlive_reuse_deadline(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr(nim.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(nim.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+    monkeypatch.setattr(nim, "_START_DEADLINE", None)
+
+    def blocked(url, headers, *, timeout):
+        assert timeout <= 30
+        now[0] += timeout
+        raise TimeoutError()
+
+    monkeypatch.setattr(nim, "request_json", blocked)
+    with pytest.raises(nim.NimError, match="last probe: TimeoutError"):
+        nim.wait_ready("http://127.0.0.1:18410/v1/health/ready", "", 30)
+    assert now[0] == 30
+
+
+def test_stalled_docker_inspection_uses_readiness_deadline(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr(nim.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(nim, "_START_DEADLINE", None)
+    monkeypatch.setattr(nim, "request_json", Mock(side_effect=urllib.error.URLError(ConnectionRefusedError())))
+
+    def inspect(*args, timeout, **kwargs):
+        assert args[0] == "inspect"
+        assert timeout == 7
+        now[0] += timeout
+        raise subprocess.TimeoutExpired(args, timeout)
+
+    monkeypatch.setattr(nim, "docker", inspect)
+    with pytest.raises(nim.NimError, match="ConnectionRefusedError; Docker inspection timed out"):
+        nim.wait_ready("http://127.0.0.1:18410/v1/health/ready", "", 7, "nim")
+    assert now[0] == 7
+
+
+@pytest.mark.parametrize("recover", [True, False])
+def test_readiness_retries_unavailable_http_and_retains_last_status(monkeypatch, recover):
+    now, calls = [0.0], []
+    monkeypatch.setattr(nim.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(nim.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+    monkeypatch.setattr(nim, "_START_DEADLINE", None)
+
+    def request(url, headers, *, timeout):
+        calls.append(timeout)
+        if recover and len(calls) == 2:
+            return {"ready": True}, {}
+        raise urllib.error.HTTPError(url, 503, "unavailable", {}, None)
+
+    monkeypatch.setattr(nim, "request_json", request)
+    if recover:
+        assert nim.wait_ready("http://127.0.0.1:18410/v1/health/ready", "", 7) == {"ready": True}
+    else:
+        with pytest.raises(nim.NimError, match="last probe: HTTP 503"):
+            nim.wait_ready("http://127.0.0.1:18410/v1/health/ready", "", 7)
+        assert now[0] == 7
+    assert calls == ([7, 4] if recover else [7, 4, 1])
+
+
+def test_container_diagnostics_keep_routing_and_oom_without_credentials(monkeypatch, tmp_path):
+    local_plan = plan()
+    name = "skill-eval-nim-" + local_plan["owner"] + "-0"
+    target = tmp_path / "artifacts"
+    target.mkdir()
+    original_path = Path
+    monkeypatch.setattr(nim, "Path", lambda value: target if value == "/logs/artifacts/local-nim" else original_path(value))
+    monkeypatch.setattr(nim, "owner_paths", lambda _: tmp_path)
+    monkeypatch.setattr(nim, "publish", lambda _: None)
+    monkeypatch.setenv("NGC_API_KEY", "secret-ngc")
+    ports = {"8000/tcp": [{"HostIp": "127.0.0.1", "HostPort": "18410"}]}
+
+    def docker(*args, **kwargs):
+        if args[0] == "ps":
+            output = name
+        elif args[0] == "logs":
+            output = "credential secret-ngc"
+        else:
+            output = json.dumps([{"Config": {"Env": ["NGC_API_KEY=secret-ngc"], "Image": "pinned-image"},
+                "State": {"OOMKilled": True, "Error": "secret-ngc", "Health": {"Status": "unhealthy", "Log": ["secret-ngc"]}},
+                "RestartCount": 2, "NetworkSettings": {"Ports": ports}, "HostConfig": {"PortBindings": ports}}])
+        return subprocess.CompletedProcess(args, 0, output, "")
+
+    monkeypatch.setattr(nim, "docker", docker)
+    nim.collect_logs(local_plan)
+    snapshot = json.loads((target / f"{name}.state.json").read_text())
+    assert snapshot["restart_count"] == 2
+    assert snapshot["state"]["OOMKilled"] is True
+    assert snapshot["published_ports"] == ports
+    assert snapshot["health"] == "unhealthy"
+    assert all("secret-ngc" not in path.read_text() for path in target.iterdir())
+
+
 @pytest.mark.parametrize(
     "code,message",
     [

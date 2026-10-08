@@ -135,6 +135,13 @@ Sanitized image/tag/digest, model, architecture, startup errors, and bounded
 container logs appear in each trial's `artifacts/local-nim` directory (under
 Harbor's collected `/logs/artifacts` tree). `model-deployments.json` records
 role choices and the actual worker at the leg results root.
+Readiness failures retain the last HTTP status or transport error class.
+Container snapshots include restart/OOM state and configured/published ports,
+without Docker environment variables, credentials or health-command output.
+Each readiness request is bounded by the remaining probe deadline.
+Fresh local-NIM task environments reuse launcher/plan files only after size and
+SHA-256 attestation; they still run the NIM readiness and protocol checks.
+Transfer failures retain a finite error category without raw transport output.
 
 ### Spark selection
 
@@ -283,6 +290,12 @@ and occupied ports without deleting registries or stopping listeners. A retry
 reuses its own receipt. Setup and all operational steps receive the selected
 triplet and keep the same deployment. Explicit port overrides remain strict:
 they must be distinct, available, and use a non-default gateway port.
+Before onboarding, the claimed namespace receives an owned INPUT chain allowing
+only Docker bridge and loopback traffic to its gateway port. Other traffic keeps
+the host's existing firewall policy. The leg removes only its own chain before
+releasing the worker lock, including cancellation; existing UFW rules and
+unowned chains are preserved. This prevents repeated onboarding attempts when
+an active host firewall blocks the newly selected gateway port.
 The image build persists the dashboard port from onboarding into OpenClaw's
 `gateway.port`. NemoClaw's canonical warm-up and pairing approval clear runtime
 port overrides, so an inherited default port would prevent scope approval.
@@ -297,6 +310,16 @@ report preserves the last pairing failure with a `pairing_deadline` reason.
 The same report and the initial namespace ownership/port receipt are included
 under `artifacts/logs/artifacts/nemoclaw/` so the workflow archive preserves
 them even though it excludes raw agent trajectories.
+For setup readiness assertions, the judge also reads the same-trial
+`setup-readiness.json` and binds its sandbox/port to the namespace receipt.
+The harness's successful native CLI probe remains valid execution evidence
+when setup uses a notebook rather than a literal CLI command. This evidence
+does not satisfy checks about the coding agent's own actions or call counts.
+When a turn reports HTTP403/policy denial, or the harness fails, a bounded
+OpenShell audit read also saves `network-denials.json` in that directory.
+It keeps target origins, executable paths, known policy names and classified
+reasons only; raw commands, request paths and credentials are discarded.
+Diagnostic collection never changes the trial verdict.
 
 The setup checks require trajectory evidence of Build Vision AI use and,
 when selected, a ready NemoClaw sandbox with its VSS CLI configured. An answer
@@ -418,8 +441,8 @@ Specs can declare `sandbox_fixtures` as MP4 basenames from the pinned bundle
 at `/tmp/vss-sample-data/dev-profile-sample-data/`. For NemoClaw setup, after
 the coding agent succeeds and before grading, the harness first requires a
 `Ready` sandbox, successful sandbox execution, authenticated gateway access,
-and valid VSS CLI configuration. With local NIM, a separate native OpenClaw
-session must complete through the selected model; its response stays outside
+and valid VSS CLI configuration. For local NIM and hosted inference, a separate
+native OpenClaw session must complete through the selected model; its response stays outside
 the graded trajectory. These checks also run when no fixtures are declared,
 and retain metadata in `nemoclaw/setup-readiness.json`. The harness then uploads
 only the declared files and requires matching SHA-256 checksums.
@@ -427,7 +450,48 @@ Missing host files, upload failures and mismatches fail setup. It neither
 downloads fixtures nor registers them with VSS. Sanitized results are retained
 in `nemoclaw/fixtures.json` in the workflow artifacts.
 
+Authenticated health and CLI configuration probes source the same NemoClaw
+runtime environment as native turns, so proxy policy failures cannot hide
+behind a successful plain-shell check. An explicit pending-pairing response
+triggers at most one bounded `nemoclaw <sandbox> connect --probe-only` recovery
+within the existing authentication deadline. NemoClaw retains ownership of
+device approval; the harness still requires a successful authenticated health
+response afterwards and never edits pairing stores or approves raw requests.
+
+Result comments and `leg-summary.json` include an allowlisted failed stage from
+that trial's NemoClaw receipt. This preserves the readiness cause when Harbor
+classifies a failed setup command as a generic network error; it does not
+replace Harbor's exception or change the verdict. Raw probe output is omitted.
+
+Storage setup also verifies the published VIOS media origin from inside NemoClaw.
+The bridge API can answer while OpenShell denies the host/port embedded in
+snapshot and clip URLs. The spec requests an exact-host/port, GET `/vst/**`
+custom preset for the requesting curl/Python binaries, with explicit exact
+private-host trust when needed. It preserves the original published media URLs.
+
+A task can also declare `"host_fixture": {"nvstreamer_scan_file": "warehouse_sample.mp4"}`
+to test NvStreamer's filesystem scan from NemoClaw. Immediately before that
+native task, the host copies the pinned sample under a unique basename into
+the running VSS Compose NvStreamer's writable video bind mount and verifies
+its checksum. It uploads only a metadata manifest to the sandbox and retains
+`nemoclaw/host-fixture.json` for verification. The agent still performs the
+pre-scan list check, scan, stream lookup and snapshot requests; fixture
+preparation never calls a registration API or grants Docker access to the sandbox.
+Background discovery may register the copied file before the task starts; the
+eval still requires the explicit scan and matching stream/playability checks.
+Other harnesses continue to perform the copy themselves.
+
 File uploads verify the worker destination's size and SHA-256 before returning
 success. Transient transport failures, absent destinations and size/checksum
 mismatches retry within the existing transfer deadline. Inaccessible or invalid
 destinations stop immediately; persistent mismatches still fail the upload.
+
+The workflow's always-run result collection also reconciles the exact leg's gateway
+firewall receipt under the worker lock. This covers an outer agent killing
+`run_leg.py` before its `finally`; mismatched receipts and busy workers are
+left untouched, with a bounded 60-second lock wait.
+
+An external cancellation also attempts the same owned-rule cleanup (20-second
+budget) at the beginning of `run_leg` shutdown, while its original worker lock
+is still held. This precedes Harbor's longer process-tree shutdown grace; it
+does not change timeout grace periods or skip process teardown.

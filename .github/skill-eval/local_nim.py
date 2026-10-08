@@ -98,10 +98,10 @@ def tool_parser_args(model: str) -> str | None:
     return None
 
 
-def request_json(url: str, headers: dict | None = None, payload: dict | None = None):
+def request_json(url: str, headers: dict | None = None, payload: dict | None = None, *, timeout: float = 60):
     body = None if payload is None else json.dumps(payload).encode()
     request = urllib.request.Request(url, data=body, headers=headers or {})
-    timeout = 60
+    timeout = min(timeout, 60)
     if _START_DEADLINE is not None:
         if time.monotonic() >= _START_DEADLINE:
             raise NimError(f"Local NIM startup exceeded its {STARTUP_BUDGET_SEC:,}-second budget")
@@ -289,25 +289,44 @@ def run_nim_container(args: list[str], owner: str, image: str, name: str) -> Non
 
 def wait_ready(url: str, token: str, timeout: int = 900, container: str | None = None):
     deadline = min(time.monotonic() + timeout, _START_DEADLINE or float("inf"))
+    last_probe = "not attempted"
     while time.monotonic() < deadline:
         try:
             headers = {"Authorization": f"Bearer {token}"} if token else {}
-            return request_json(url, headers)[0]
+            return request_json(url, headers, timeout=max(0.001, deadline - time.monotonic()))[0]
         except urllib.error.HTTPError as exc:
+            last_probe = f"HTTP {exc.code}"
             if exc.code in (401, 403):
                 raise NimError(
                     f"Local inference authentication failed: HTTP {exc.code}"
                 ) from None
-        except (urllib.error.URLError, TimeoutError, OSError):
-            pass
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+            last_probe = type(reason).__name__
+            if isinstance(reason, OSError) and reason.errno is not None:
+                last_probe += f" errno={reason.errno}"
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
         if container:
-            state = docker(
-                "inspect", "--format", "{{.State.Running}} {{.State.OOMKilled}} {{.State.ExitCode}}",
-                container, check=False,
-            )
+            try:
+                state = docker(
+                    "inspect", "--format", "{{.State.Running}} {{.State.OOMKilled}} {{.State.ExitCode}}",
+                    container, check=False, timeout=remaining,
+                )
+            except subprocess.TimeoutExpired:
+                last_probe += "; Docker inspection timed out"
+                break
             if state.returncode or not state.stdout.startswith("true "):
-                logs = docker("logs", "--tail", "40", container, check=False)
-                detail = (logs.stderr or logs.stdout or state.stderr or "")[-2500:]
+                detail = state.stderr or ""
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    try:
+                        logs = docker("logs", "--tail", "40", container, check=False, timeout=min(10, remaining))
+                        detail = logs.stderr or logs.stdout or detail
+                    except subprocess.TimeoutExpired:
+                        detail = "Docker log collection timed out"
+                detail = detail[-2500:]
                 for name in ("NGC_API_KEY", "NGC_CLI_API_KEY"):
                     if os.environ.get(name):
                         detail = detail.replace(os.environ[name], "[REDACTED]")
@@ -315,8 +334,8 @@ def wait_ready(url: str, token: str, timeout: int = 900, container: str | None =
                     f"Local NIM container stopped before readiness "
                     f"(state={state.stdout.strip() or 'missing'}): {detail}"
                 )
-        time.sleep(3)
-    raise NimError(f"Local NIM readiness timed out: {url}")
+        time.sleep(min(3, max(0, deadline - time.monotonic())))
+    raise NimError(f"Local NIM readiness timed out: {url} (last probe: {last_probe})")
 
 
 def proxy_network_policy(owner: str, *, remove=False):
@@ -708,6 +727,25 @@ def collect_logs(plan: dict):
             if value:
                 logs = logs.replace(value, "[REDACTED]")
         (target / f"{name}.log").write_text(logs)
+        inspection = docker("inspect", name, check=False)
+        if inspection.returncode:
+            continue
+        info = json.loads(inspection.stdout)[0]
+        state = info.get("State") or {}
+        # Full inspect output contains NGC credentials. Keep only lifecycle
+        # and port evidence needed to distinguish restart, OOM and routing.
+        snapshot = {
+            "name": name,
+            "image": (info.get("Config") or {}).get("Image"),
+            "restart_count": info.get("RestartCount"),
+            "state": {key: state.get(key) for key in (
+                "Status", "Running", "OOMKilled", "ExitCode", "StartedAt", "FinishedAt",
+            )},
+            "health": (state.get("Health") or {}).get("Status"),
+            "port_bindings": (info.get("HostConfig") or {}).get("PortBindings"),
+            "published_ports": (info.get("NetworkSettings") or {}).get("Ports"),
+        }
+        (target / f"{name}.state.json").write_text(json.dumps(snapshot, indent=2))
 
 
 def publish(root: Path):

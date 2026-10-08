@@ -22,6 +22,67 @@ _SESSION_PATH = re.compile(
 )
 
 
+def _policy_denials(raw: str) -> list[dict[str, Any]]:
+    """Reduce OpenShell audit lines to metadata, never commands or raw reasons."""
+    rows: list[dict[str, Any]] = []
+    categories = {
+        "identity_resolution": ("resolve peer binary", "identity binding"),
+        "binary_integrity": ("binary integrity", "ancestor integrity"),
+        "binary_policy": ("not allowed in policy",),
+        "policy_changed": ("policy generation changed", "policy changed"),
+        "endpoint_policy": ("no matching endpoint", "no matching policy"),
+        "destination_policy": ("allowed_ips", "internal IP without"),
+    }
+    for line in raw.splitlines():
+        if "DENIED" not in line:
+            continue
+        row: dict[str, Any] = {}
+        target = re.search(
+            r"(?:->\s*(?:(?:GET|POST|PUT|DELETE|HEAD|CONNECT)\s+)?(?:https?://)?|CONNECT\s+)"
+            r"([a-zA-Z0-9.-]+):([0-9]{1,5})\b", line,
+        )
+        if target and 1 <= int(target[2]) <= 65535:
+            row.update(host=target[1], port=int(target[2]))
+        binary = re.search(r"DENIED (/usr/(?:local/)?(?:bin|vss/bin)/[a-zA-Z0-9_.+-]+)\([0-9]+\)", line)
+        if binary:
+            row["binary"] = binary[1]
+        policy = re.search(r"\[policy:([a-zA-Z0-9_-]+) engine:", line)
+        if policy:
+            row["policy"] = policy[1] if policy[1] in {
+                "vss-backend", "vss-k8s-ingress", "inference", "default-egress", "bypass-detect",
+            } else "other"
+        if not row:
+            continue
+        row["reason"] = next(
+            (name for name, markers in categories.items() if any(marker in line for marker in markers)),
+            "unspecified",
+        )
+        if row not in rows:
+            rows.append(row)
+    return rows[-20:]
+
+
+def _capture_policy_denials(sandbox: str, agent_log_dir: Path) -> None:
+    """Best-effort bounded diagnostics before the sandbox is cleaned up."""
+    report: dict[str, Any] = {}
+    try:
+        result = subprocess.run(
+            ["openshell", "logs", sandbox, "--source", "all", "-n", "200"],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=20, check=False,
+        )
+        report["exit_code"] = result.returncode
+        if result.returncode == 0:
+            report["denials"] = _policy_denials(result.stdout)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        report["exception_type"] = type(exc).__name__
+    artifact = agent_log_dir.parent / "artifacts" / "nemoclaw" / "network-denials.json"
+    try:
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        pass  # Diagnostics must not replace the original trial result.
+
+
 def _load_env_file(path: Path) -> None:
     if not path.exists():
         return
@@ -153,7 +214,7 @@ def _wait_sandbox_ready(sandbox: str, row: dict[str, Any]) -> None:
         time.sleep(min(3, max(0, deadline - time.monotonic())))
 
 
-def _probe_local_inference(sandbox: str, row: dict[str, Any]) -> None:
+def _probe_inference(sandbox: str, row: dict[str, Any]) -> None:
     expected = os.environ["NEMOCLAW_MODEL"]
     envelope, _ = _run_openclaw(
         sandbox, "Reply with OK only. Do not use tools or change any files.", 120,
@@ -161,7 +222,7 @@ def _probe_local_inference(sandbox: str, row: dict[str, Any]) -> None:
     meta = envelope.get("meta", {})
     agent_meta = meta.get("agentMeta", {})
     if meta.get("aborted") is not False or agent_meta.get("model") != expected:
-        raise RuntimeError("sandbox inference did not complete through the selected local model")
+        raise RuntimeError("sandbox inference did not complete through the selected model")
     if not any(payload.get("text") for payload in envelope.get("payloads", []) if isinstance(payload, dict)):
         raise RuntimeError("sandbox inference returned no assistant response")
     row["model"] = expected
@@ -182,16 +243,16 @@ def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> No
     ]
     if setup:
         probes.insert(0, ("sandbox_phase", None))
-        if os.environ.get("SKILL_EVAL_LOCAL_NIM_API_KEY"):
-            probes.append(("local_inference", None))
+        inference_stage = "local_inference" if os.environ.get("SKILL_EVAL_LOCAL_NIM_API_KEY") else "hosted_inference"
+        probes.append((inference_stage, None))
     for stage, command in probes:
         row: dict[str, Any] = {"stage": stage, "status": "failed"}
         stages.append(row)
         try:
             if stage == "sandbox_phase":
                 _wait_sandbox_ready(sandbox, row)
-            elif stage == "local_inference":
-                _probe_local_inference(sandbox, row)
+            elif stage in ("local_inference", "hosted_inference"):
+                _probe_inference(sandbox, row)
             elif command is None:
                 if setup:
                     if not _gateway_healthy(sandbox):
@@ -199,10 +260,13 @@ def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> No
                 else:
                     _ensure_gateway(sandbox)
             else:
+                if stage != "sandbox_access":
+                    row["execution_environment"] = "nemoclaw_runtime"
                 # Canonical device scope approval can settle asynchronously.
                 # Wait only for that explicit state; bad credentials and other
                 # failures are not disguised as slow gateway startup.
                 deadline = time.monotonic() + 90
+                pairing_recovery_attempted = False
                 while True:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
@@ -211,7 +275,8 @@ def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> No
                     timeout = min(30 if stage == "gateway_authentication" else 90, remaining)
                     row["attempts"] = row.get("attempts", 0) + 1
                     try:
-                        result = _sandbox_exec(sandbox, command, timeout=timeout)
+                        execute = _sandbox_exec if stage == "sandbox_access" else _nemoclaw_exec
+                        result = execute(sandbox, command, timeout=timeout)
                     except subprocess.TimeoutExpired:
                         if row.get("reason") != "pairing_pending":
                             raise
@@ -229,10 +294,32 @@ def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> No
                         row.pop("reason", None)
                     remaining = deadline - time.monotonic()
                     if not pending or remaining <= 0:
+                        if pending:
+                            row["reason"] = "pairing_deadline"
                         break
-                    time.sleep(min(3, remaining))
+                    if not pairing_recovery_attempted:
+                        # The watcher did not settle this explicit request.
+                        # NemoClaw owns allowlisted device approval; its probe
+                        # path repairs pending pairing without opening SSH.
+                        # Never approve raw requests or rewrite auth stores.
+                        pairing_recovery_attempted = True
+                        try:
+                            recovery = subprocess.run(
+                                ["nemoclaw", sandbox, "connect", "--probe-only"],
+                                stdin=subprocess.DEVNULL, capture_output=True,
+                                text=True, timeout=min(30, remaining), check=False,
+                            )
+                            row["pairing_recovery_exit_code"] = recovery.returncode
+                        except subprocess.TimeoutExpired:
+                            row["pairing_recovery_timeout"] = True
+                        remaining = deadline - time.monotonic()
+                    time.sleep(min(3, max(0, remaining)))
                 row["exit_code"] = result.returncode
                 if result.returncode != 0:
+                    if stage == "vss_configuration":
+                        output = ((result.stderr or "") + (result.stdout or "")).lower()
+                        if "403" in output and "tunnel" in output:
+                            row["reason"] = "proxy_tunnel_denied"
                     raise RuntimeError(f"NemoClaw readiness failed at {stage} (exit {result.returncode})")
                 if stage == "gateway_authentication" and _json_object(result.stdout).get("ok") is not True:
                     row["reason"] = "invalid_health_response"
@@ -462,6 +549,8 @@ def main(argv: list[str] | None = None) -> int:
             session,
             encoding="utf-8",
         )
+        if "policy_denied" in session or re.search(r"\b403\b", session):
+            _capture_policy_denials(sandbox, agent_log_dir)
         return 0
     except Exception as exc:  # noqa: BLE001
         failure = f"NemoClaw/OpenClaw headless run failed: {type(exc).__name__}: {exc}"
@@ -469,6 +558,7 @@ def main(argv: list[str] | None = None) -> int:
         # Give Harbor and the judge this trial's failure evidence instead of
         # leaving them to discover a previous coding or operational raw log.
         (agent_log_dir / "agent.log").write_text(failure + "\n", encoding="utf-8")
+        _capture_policy_denials(sandbox, agent_log_dir)
         # Readiness failures name only the stage and exception type, so setup
         # never echoes a chained subprocess exception or raw gateway config.
         print(failure, file=sys.stderr)
