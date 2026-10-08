@@ -228,7 +228,7 @@ def coordinator_traces():
     for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695'):
         for job in sorted(root.glob('*__'+run_id+'__*')):
             for path in sorted(job.glob('step-*/agent/openclaw.session.jsonl')):
-                calls={}; rows=[]
+                calls={}; rows=[]; shapes=[]
                 try:lines=path.read_text().splitlines()
                 except OSError:continue
                 for line in lines:
@@ -239,6 +239,7 @@ def coordinator_traces():
                     for block in content:
                         if not isinstance(block,dict) or block.get('type')!='toolCall':continue
                         args=json.dumps(block.get('arguments',{}))
+                        shapes.append({'tool':block.get('name') if re.fullmatch(r'[a-zA-Z0-9_.]{1,60}',str(block.get('name',''))) else None,'argument_keys':sorted(block.get('arguments',{})) if isinstance(block.get('arguments'),dict) else []})
                         family=next((name for name,marker in [('vss_vlm','vss vlm '),('vss_vios','vss vios '),('vss_configure','vss configure '),('vios_curl','/vst/'),('curl','curl ')] if marker in args),None)
                         if not family:continue
                         def origins(text):
@@ -252,13 +253,18 @@ def coordinator_traces():
                         calls[block.get('id')]={'family':family,'request_origins':origins(args),
                             'proxy_overrides':sorted(set(re.findall(r'\b(?:HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|NO_PROXY|http_proxy|https_proxy|all_proxy|no_proxy)\b',args))),
                             'binary_paths':sorted(set(re.findall(r'/usr/(?:local/)?(?:bin|vss/bin)/(?:python3(?:\.[0-9]+)?|curl|node|vss)\b',args))),
-                            'proxy_bypass':any(marker in args for marker in ('--noproxy','unset HTTP_PROXY','unset HTTPS_PROXY'))}
+                            'proxy_bypass':any(marker in args for marker in ('--noproxy','unset HTTP_PROXY','unset HTTPS_PROXY')),
+                            'curl_modes':[flag for flag in ('-I','--head','-x','--proxy','--resolve','-L','--location','--connect-to','--unix-socket','-k','--insecure') if flag in args],
+                            'shell_forms':[form for form in ('python3','python ','bash -lc','sh -lc','sh -c','curl ') if form in args]}
                     if message.get('role')!='toolResult' or message.get('toolCallId') not in calls:continue
                     text=json.dumps(content); row=dict(calls[message['toolCallId']])
                     if re.search(r'\b403\b',text) or 'policy_denied' in text:
                         row['failure']='policy_denied' if 'policy_denied' in text else 'proxy_tunnel_denied' if 'tunnel' in text.lower() else 'http_403'
                         row['error_origins']=origins(text)
                         row['reason_markers']=[marker for marker in ('no_matching_policy','no matching policy','no matching endpoint','binary','blocked','denied','CONNECT','connect tunnel','proxy','host','port','allowed_ips','protocol','IP address') if marker.lower() in text.lower()]
+                        details=re.findall(r'\\?"detail\\?"\s*:\s*\\?"([^"\\]{1,300})',text)
+                        safe_words={'host','port','not','allowed','denied','by','policy','no','matching','endpoint','binary','process','identity','source','destination','network','address','ip','range','in','allowlist','found','resolved','private','unknown','missing','required','invalid','request','method','http','https','tcp','tls','protocol','connect','proxy','hostname','untrusted','blocked','loopback','does','match','the','configured','unauthorized','tunnel','a','for','this','and','or','rule','rules','access','is','with','permission','unauthenticated','credentials','authentication'}
+                        row['policy_details']=[value for value in details if all(word.lower() in safe_words or word in {'host.openshell.internal','localhost','127.0.0.1'} or word.isdecimal() and len(word)<=5 for word in re.findall(r'[a-zA-Z0-9_.]+',value))]
                         row['response_keys']=sorted(set(re.findall(r'\\?"([a-z_]{2,40})\\?"\s*:',text)))[:30]
                     else:row['failure']=None
                     if row not in rows:rows.append(row)
@@ -266,10 +272,10 @@ def coordinator_traces():
                 try:
                     result=json.loads(result_path.read_text());reward=result.get('verifier_result',{}).get('rewards',{}).get('reward')
                 except Exception:reward=None
-                out.append({'run':run_id,'trial':path.parent.parent.name,'spec':job.name.split('__')[1],'reward':reward,'calls':rows[:40]})
+                out.append({'run':run_id,'trial':path.parent.parent.name,'spec':job.name.split('__')[1],'reward':reward,'calls':rows[:40],'tool_shapes':shapes[:15] if not rows else []})
             for trial in sorted(job.glob('step-*')):
                 for path in trial.glob('agent/*'):
-                    if path.name not in {'codex.txt','trajectory.json','openclaw.session.jsonl'} or path.stat().st_size>20_000_000:continue
+                    if not path.is_file() or path.name not in {'codex.txt','trajectory.json','openclaw.session.jsonl','codex.jsonl','trajectory.jsonl'} or path.stat().st_size>20_000_000:continue
                     try:body=path.read_text()
                     except (OSError,UnicodeError):continue
                     markers=[word for word in ('gst-stream-error-quark','gst-resource-error-quark','gst-library-error-quark','not-negotiated','not-linked','no element','Could not decode stream','nvv4l2decoder','avdec_h264','h264parse','qtdemux','base64','video_url') if word in body]
