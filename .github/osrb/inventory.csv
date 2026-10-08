@@ -3622,8 +3622,7 @@ nise,6.1.5,BSD-3-Clause,services/analytics/video-analytics-api,node,lockfile,ser
 nixl,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/docker/rtvi_vlm/patches/evs_vllm_public_files/distributed/ec_transfer/ec_connector/nixl_connector.py,runtime,no,no,no,imported-only,Unknown
 nltk,3.10.3,Apache Software License,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 no-case,3.0.4,UNKNOWN,services/calibration-toolkit,node,lockfile,services/calibration-toolkit/calibration/client/package-lock.json,runtime,no,no,no,declared-manifest,Unknown
-node,18,UNKNOWN,services/calibration-toolkit,container,container,services/calibration-toolkit/calibration/client/Dockerfile,runtime,no,no,yes,container-base,Unknown
-node,18-alpine,UNKNOWN,services/calibration-toolkit,container,container,services/calibration-toolkit/Dockerfile,runtime,no,no,yes,container-base,Unknown
+node,18,UNKNOWN,services/calibration-toolkit,container,container,services/calibration-toolkit/Dockerfile,runtime,no,no,yes,container-base,Unknown
 node,22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbed6a12be2ada7517793cbfb0c2a29c,UNKNOWN,.hermes,container,container,.hermes/Dockerfile,runtime,no,no,yes,container-base,Unknown
 node,22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbed6a12be2ada7517793cbfb0c2a29c,UNKNOWN,.openclaw,container,container,.openclaw/Dockerfile,runtime,no,no,yes,container-base,Unknown
 node,22.23.2,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
