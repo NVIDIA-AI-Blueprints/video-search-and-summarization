@@ -21,11 +21,25 @@ next deploy re-downloads them.
 
 ## NemoClaw harness — before Compose
 
-Run this **first**, so the sandbox is not left pointed at an origin that has
+**Only for a build that was harnessed**, which `_builds/<name>/sandbox`
+records. The sweep is by port, not by build, so running it for a headless
+build destroys a sibling build's sandbox. Bring-up writes that file before the
+setup notebook, so a build whose harness setup *failed* has it too.
+
+Run it **first**, so the sandbox is not left pointed at an origin that has
 stopped answering.
 
 ```bash
-bash skills/vss-build-vision-ai/scripts/teardown-nemoclaw-resources.sh
+REPO="$(git rev-parse --show-toplevel)"
+BUILD_DIR="$REPO/_builds/<name>"
+if [ -e "$BUILD_DIR/sandbox" ]; then
+  # The build's pair, or empty -> the script's defaults. A fresh shell has
+  # neither exported, and would otherwise sweep another build's ports.
+  for v in NEMOCLAW_DASHBOARD_PORT NEMOCLAW_DASHBOARD_RELAY_PORT; do
+    export "$v=$(sed -n "s/^$v=//p" "$BUILD_DIR/override.env" | tr -d "\"'")"
+  done
+  bash "$REPO/skills/vss-build-vision-ai/scripts/teardown-nemoclaw-resources.sh"
+fi
 ```
 
 **It reclaims `NEMOCLAW_DASHBOARD_PORT` (`18789`) and
@@ -46,8 +60,6 @@ The script knows nothing about the checkout, so remove the detached worktree a
 build directory. Deleting `_builds/<name>/` alone leaves it registered.
 
 ```bash
-REPO="$(git rev-parse --show-toplevel)"
-BUILD_DIR="$REPO/_builds/<name>"
 if [ -d "$BUILD_DIR/harness-src" ]; then
   git -C "$REPO" worktree remove --force "$BUILD_DIR/harness-src"
 fi
