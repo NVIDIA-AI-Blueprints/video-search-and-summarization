@@ -201,6 +201,15 @@ def host_snapshot():
         if category:
             state=info[0].get('State',{})
             out['build_containers'].append({'category':category,'status':state.get('Status'),'oom':state.get('OOMKilled')})
+    out['owned_gateway_policies']=[]
+    for receipt in (Path.home()/'.nemoclaw/gateways').glob('*/network-policy.json'):
+        try:policy=json.loads(receipt.read_text())
+        except Exception:continue
+        chain=policy.get('chain','');port=policy.get('port')
+        if not re.fullmatch(r'SE-NC-[a-f0-9]{20}',chain) or type(port) is not int or not 1024<=port<=65535:continue
+        state=subprocess.run(['sudo','-n','iptables','-S',chain],capture_output=True,text=True,timeout=15)
+        rules=state.stdout.splitlines()
+        out['owned_gateway_policies'].append({'port':port,'chain_present':state.returncode==0,'accept_interfaces':sorted(re.findall(r'-i (lo|docker0|br\+) -j ACCEPT',state.stdout)),'other_traffic_returns':any(line.endswith('-j RETURN') for line in rules),'rule_count':sum(line.startswith('-A ') for line in rules)})
     out['media_probe']={'status':'not_applicable'}
     sample=Path('/tmp/vss-sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4')
     if os.environ.get('SKILL_EVAL_DIAG_MEDIA_PROBE')=='1' and os.uname().machine=='aarch64' and sample.is_file() and 0<sample.stat().st_size<70_000_000 and any(row['name']=='vss-rtvi-vlm' for row in out['containers']):
@@ -330,7 +339,7 @@ def coordinator_traces():
     from urllib.parse import urlsplit
     root=Path('/tmp/skill-eval/results/_viewer')
     out=[]
-    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338','37743611504','37744378089','37744385620','37744461082','37745938465','37749284519','37749293650'):
+    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338','37743611504','37744378089','37744385620','37744461082','37745938465','37749284519','37749293650','37752059953'):
         for job in sorted(root.glob('*__'+run_id+'__*')):
             for path in sorted(job.glob('step-*/agent/openclaw.session.jsonl')):
                 calls={}; rows=[]; shapes=[]
@@ -456,7 +465,7 @@ def coordinator_traces():
                     selected.append(value[:500])
                 if selected:startup.append({'run':job.name.split('__')[-2] if '__' in job.name else None,'family':family,'exit_code':item.get('exit_code'),'lines':selected[:10]+selected[-10:]})
     firewall_commands=[]
-    for run_id in ('37743611504','37744461082','37745938465','37749284519','37749293650'):
+    for run_id in ('37743611504','37744461082','37745938465','37749284519','37749293650','37752059953'):
         for job in root.glob('*__'+run_id+'__*'):
             for path in job.glob('step-1*/agent/codex.txt'):
                 for line in path.read_text().splitlines():
