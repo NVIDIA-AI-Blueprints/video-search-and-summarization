@@ -69,7 +69,11 @@ A port it cannot free exits `2`. `lsof` and `fuser` return nothing for a
 holder outside this user's reach, so the script prints the `sudo lsof` line to
 hand over rather than guessing at a process it cannot see.
 
-It also reports an unwritable relay `/tmp` log, which only `sudo` clears. The
+A sandbox it could not list or destroy exits `4`: the ports can bind and still
+leave one running, so the status says so rather than the port check.
+
+It also reports an unwritable relay `/tmp` log, which only `sudo` clears, and
+exits `3` for it. The
 same command runs before a deploy — see [Ports the harness
 claims](agent-harness.md#ports-the-harness-claims).
 

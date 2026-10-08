@@ -369,7 +369,9 @@ line the script printed. Any sandbox `nemoclaw list --json` registers on
 either port goes too: bring-up recreates it regardless.
 
 A port that still will not free is the hard blocker: the script exits `2`,
-and nothing on the host could stop the listener. Report it and stop. Stopping
+and nothing on the host could stop the listener. A sandbox the CLI could not
+list or destroy exits `4` and blocks the same way — bring-up would collide
+with one still holding the pair. Report it and stop. Stopping
 here costs nothing — Q3 precedes every build artifact.
 
 **No `openshell` on the host is a pass, not a failed probe.** Cell 3.1

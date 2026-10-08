@@ -25,9 +25,13 @@ Environment:
   NEMOCLAW_DASHBOARD_RELAY_PORT  default 18790
 
 Exit codes:
-  0  the ports are free and nothing needs sudo
+  0  the ports are free, no sandbox is left, and nothing needs sudo
   1  usage error
-  2  a port could not be freed, or a relay log needs sudo
+  2  a port could not be freed; only sudo can see or clear the holder
+  3  a relay log is not writable; only sudo can clear it
+  4  a sandbox could not be listed or destroyed, so one may still be running
+
+Each failure prints; when several stand at once the largest code is returned.
 EOF
 }
 
@@ -71,14 +75,24 @@ port_pids() {
 # Sandboxes whose dashboard port in `nemoclaw list --json` is one of the given
 # ports. The gateway never learns a local port, so that registry is the host's
 # only port -> sandbox index, and being recorded state it answers for a
-# forward that died or never came up.
+# forward that died or never came up. A host without the CLI has no sandboxes;
+# an installed CLI that cannot answer leaves the index unread, which the bind
+# checks cannot notice once the listeners are gone.
 sandboxes_on() {
-  nemoclaw list --json 2>/dev/null | python3 -c '
+  local listing
+  command -v nemoclaw >/dev/null 2>&1 || return 0
+  if ! listing=$(nemoclaw list --json 2>/dev/null); then
+    echo "ERROR: nemoclaw list --json failed; sandboxes on $* are unaccounted for" >&2
+    return 1
+  fi
+  python3 -c '
 import json, sys
 ports = set(map(int, sys.argv[1:]))
 for s in json.load(sys.stdin).get("sandboxes", []):
     if s.get("dashboardPort") in ports: print(s["name"])
-' "$@" 2>/dev/null
+' "$@" 2>/dev/null <<<"$listing" && return 0
+  echo "ERROR: could not read sandboxes out of nemoclaw list --json" >&2
+  return 1
 }
 
 # TERM, then KILL whatever survives it.
@@ -108,7 +122,7 @@ stop_pids() {
 # outside this user's reach is invisible to the scan: that is the exit-2 path,
 # and only sudo can clear it.
 free_ports() {
-  local port p rc=0
+  local port p listing rc=0
   local -a pids sandboxes=()
 
   # Watchdogs join the sweep because they hold no port, so no scan finds
@@ -116,19 +130,24 @@ free_ports() {
   mapfile -t pids < <(pgrep -f 'dashboard-forward-watchdog\.py'
                       port_pids "$dashboard_port"; port_pids "$relay_port")
 
-  mapfile -t sandboxes < <(sandboxes_on "$dashboard_port" "$relay_port")
+  if listing=$(sandboxes_on "$dashboard_port" "$relay_port"); then
+    [[ -z "$listing" ]] || mapfile -t sandboxes <<<"$listing"
+  else
+    (( rc = rc > 4 ? rc : 4 ))
+  fi
 
   stop_pids "${pids[@]}"
   for p in "${sandboxes[@]}"; do
     echo "  destroying sandbox $p"
-    nemoclaw "$p" destroy --yes --cleanup-gateway || echo "destroy failed: $p" >&2
+    nemoclaw "$p" destroy --yes --cleanup-gateway ||
+      { echo "ERROR: destroy failed: $p" >&2; (( rc = rc > 4 ? rc : 4 )); }
   done
 
   for port in "$dashboard_port" "$relay_port"; do
     port_free "$port" && { echo "$port free"; continue; }
     echo "ERROR: $port still held by something this scan cannot see or clear;" \
          "ask for: sudo lsof -i :$port -sTCP:LISTEN -P -n" >&2
-    rc=2
+    (( rc = rc > 2 ? rc : 2 ))
   done
   return "$rc"
 }
@@ -142,15 +161,15 @@ report_blockers() {
     [[ -e "$f" && ! -w "$f" ]] || continue
     echo "ERROR: $f belongs to $(stat -c %U "$f") and is not writable; ask for:" \
          "sudo mv -n $f $f.bak" >&2
-    rc=2
+    rc=3
   done
   return "$rc"
 }
 
 
 
-report_blockers
-status=$?
-free_ports || status=2
+status=0
+report_blockers || status=$?
+free_ports || { rc=$?; (( status = status > rc ? status : rc )); }
 
 exit "$status"
