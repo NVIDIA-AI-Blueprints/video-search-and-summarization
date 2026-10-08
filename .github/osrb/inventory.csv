@@ -1628,7 +1628,6 @@ get-intrinsic,1.3.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/pac
 get-nonce,1.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 get-package-type,0.1.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 get-package-type,0.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-get-pip.py,UNKNOWN,UNKNOWN,services/sdrc,source,container,services/sdrc/envoy/Dockerfile.wdm-router,runtime,no,no,no,build-fetch,Unknown
 get-proto,1.0.1,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 get-proto,1.0.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 get-proto,1.0.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3993,11 +3992,11 @@ whatwg-url,15.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,ru
 whatwg-url,16.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 whatwg-url,5.0.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 wheel,0.46.2,MIT,services/rtvi/rt-cv,python,container,services/rtvi/rt-cv/docker/Dockerfile,runtime,no,no,yes,container-pip,None
+wheel,0.46.2,MIT,services/sdrc,python,container,services/sdrc/envoy/Dockerfile.wdm-router,runtime,no,no,yes,container-pip,None
 wheel,0.47.0,MIT,libs/analytics/spatialai-data-utils,python,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-pip,None
 wheel,UNKNOWN,MIT,services/analytics/behavior-analytics,python,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-pip,None
 wheel,UNKNOWN,MIT,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,python,container,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Dockerfiles/measurement-fusion.Dockerfile,runtime,no,no,yes,container-pip,None
 wheel,UNKNOWN,MIT,services/rtvi/rt-cv-3d/rt-cv-config-init,python,container,services/rtvi/rt-cv-3d/rt-cv-config-init/Dockerfiles/mv3dt-config-init.Dockerfile,runtime,no,no,yes,container-pip,None
-wheel,UNKNOWN,MIT,services/sdrc,python,container,services/sdrc/envoy/Dockerfile.wdm-router,runtime,no,no,yes,container-pip,None
 which,2.0.2,ISC,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 which,2.0.2,ISC,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 which,2.0.2,ISC,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
