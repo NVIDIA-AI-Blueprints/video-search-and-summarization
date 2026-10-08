@@ -2,10 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """Regression tests for trajectory-inspection guidance used by the LLM judge."""
 
+import asyncio
 import importlib.util
 import json
+import os
 import subprocess
+import sys
+import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -14,9 +20,9 @@ NORMALIZED_CALLS_FILTER = """
 [.steps[]
  | select(.source == "agent")
  | (.tool_calls // [])[]
- | select(.function_name == "Bash")
- | select((.arguments.command // "") | contains($url))
- | {tool_call_id, command: .arguments.command}]
+ | select(.function_name == "Bash" or .function_name == "exec_command")
+ | {tool_call_id, command: (.arguments.command // .arguments.cmd // "")}
+ | select(.command | contains($url))]
 | unique_by(.tool_call_id)
 """
 LEGACY_COMMANDS_FILTER = """
@@ -73,6 +79,22 @@ def test_normalized_recipe_ignores_duplicated_raw_arguments(tmp_path: Path) -> N
                         "extra": {"raw_arguments": {"command": command}},
                     }
                 ],
+            },
+            {
+                "source": "agent",
+                "tool_calls": [{
+                    "tool_call_id": "call_codex",
+                    "function_name": "exec_command",
+                    "arguments": {"cmd": command},
+                }],
+            },
+            {
+                "source": "user",
+                "tool_calls": [{
+                    "tool_call_id": "not_an_agent_call",
+                    "function_name": "exec_command",
+                    "arguments": {"cmd": command},
+                }],
             }
         ]
     }
@@ -94,7 +116,10 @@ def test_normalized_recipe_ignores_duplicated_raw_arguments(tmp_path: Path) -> N
     )
 
     calls = json.loads(result.stdout)
-    assert calls == [{"tool_call_id": "toolu_1", "command": command}]
+    assert calls == [
+        {"tool_call_id": "call_codex", "command": command},
+        {"tool_call_id": "toolu_1", "command": command},
+    ]
 
 
 def test_legacy_recipe_reads_encoded_message(tmp_path: Path) -> None:
@@ -125,6 +150,77 @@ def test_legacy_recipe_reads_encoded_message(tmp_path: Path) -> None:
     )
 
     assert result.stdout.strip() == command
+
+
+class JudgeVerdictRecovery(unittest.IsolatedAsyncioTestCase):
+    async def test_only_explicit_turn_budget_errors_get_one_verdict_nudge(self):
+        class TextBlock:
+            def __init__(self, text):
+                self.text = text
+
+        class AssistantMessage:
+            def __init__(self, text):
+                self.content = [TextBlock(text)]
+
+        class ResultMessage:
+            def __init__(self, *, is_error=False, subtype="success", cost=1):
+                self.is_error = is_error
+                self.subtype = subtype
+                self.total_cost_usd = cost
+
+        for subtype, recovery, expected_pass, stalls in (
+            ("success", True, True, False),
+            ("error_max_turns", True, True, False),
+            ("error_during_execution", False, False, False),
+            ("error_max_turns", True, False, False),
+            ("error_max_turns", True, False, True),
+        ):
+            with self.subTest(subtype=subtype, expected_pass=expected_pass, stalls=stalls):
+                queries = []
+
+                class Client:
+                    def __init__(self, **kwargs):
+                        pass
+
+                    async def __aenter__(self):
+                        return self
+
+                    async def __aexit__(self, *args):
+                        pass
+
+                    async def query(self, prompt):
+                        queries.append(prompt)
+                        if len(queries) == 2 and stalls:
+                            await asyncio.Event().wait()
+
+                    async def receive_response(self):
+                        if len(queries) == 1:
+                            yield AssistantMessage("Observed authenticated health and a configured VSS route.")
+                            yield ResultMessage(is_error=subtype != "success", subtype=subtype)
+                        else:
+                            yield AssistantMessage(
+                                '{"pass":true,"matched":"health ok","rationale":"verified"}'
+                                if expected_pass else "No verdict."
+                            )
+                            yield ResultMessage(cost=2)
+
+                sdk = SimpleNamespace(
+                    AssistantMessage=AssistantMessage, TextBlock=TextBlock,
+                    ResultMessage=ResultMessage, ClaudeSDKClient=Client,
+                    ClaudeAgentOptions=lambda **kwargs: SimpleNamespace(**kwargs),
+                )
+                with patch.dict(sys.modules, {"claude_agent_sdk": sdk}), patch.dict(
+                    os.environ, {"ANTHROPIC_API_KEY": "test-placeholder"},
+                ):
+                    judge = _load_generic_judge()
+                    result = await judge._judge_llm_agent("Gateway is ready", None, timeout_s=0.02)
+                self.assertEqual(result["pass"], expected_pass)
+                self.assertEqual(len(queries), 2 if recovery else 1)
+                self.assertEqual(result["cost_usd"], 2 if recovery and not stalls else 1)
+                if recovery:
+                    self.assertIn("Do not call any tools", queries[1])
+                if stalls:
+                    self.assertIn("timed out", result["rationale"])
 
 
 def test_normalized_jsonl_recipe_reads_canonical_call(tmp_path: Path) -> None:
