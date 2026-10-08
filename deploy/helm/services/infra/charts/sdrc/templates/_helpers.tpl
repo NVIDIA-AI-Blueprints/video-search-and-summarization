@@ -156,10 +156,13 @@ nodePort: {{ .nodePort | int }}
 
 {{- define "sdrc.runtimeEnv" -}}
 {{- $env := .Values.runtimeEnv | default dict -}}
-{{- /* Redis is a sibling subchart: follow the global prefix its name follows, not sdrc's own override. */}}
-{{- $globalOnly := dict "Values" (dict "global" .Values.global) "Release" .Release -}}
+{{- $redis := required "runtimeEnv.WDM_WL_REDIS_SERVER is required" (get $env "WDM_WL_REDIS_SERVER") -}}
+{{- /* The default names this release's Redis, a sibling subchart, so it takes the global prefix Redis's own name takes (not sdrc's override); any other host is used as given. */}}
+{{- if and (eq $redis "redis") (default false (index (.Values.global | default dict) "useReleaseNamePrefix")) -}}
+{{- $redis = printf "%s-redis" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
 - name: WDM_WL_REDIS_SERVER
-  value: {{ include "sdrc.waitTarget" (dict "root" $globalOnly "target" (required "runtimeEnv.WDM_WL_REDIS_SERVER is required" (get $env "WDM_WL_REDIS_SERVER"))) | quote }}
+  value: {{ $redis | quote }}
 - name: WDM_WL_REDIS_PORT
   value: {{ required "runtimeEnv.WDM_WL_REDIS_PORT is required" (get $env "WDM_WL_REDIS_PORT") | quote }}
 - name: OTEL_SDK_DISABLED

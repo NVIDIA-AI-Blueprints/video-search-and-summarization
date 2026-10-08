@@ -39,6 +39,8 @@ SDRC_CASES = (
      "--set", "vios.vss-vios-sensor.peerUseReleaseNamePrefix.sdrc=true"),
     ("dev-profile-lvs", "--set", "infra.sdrc.useReleaseNamePrefix=false",
      "--set", "vios.vss-vios-sensor.peerUseReleaseNamePrefix.sdrc=false"),
+    ("dev-profile-lvs", "--set", "infra.redis.fullnameOverride=shared-redis",
+     "--set", "infra.sdrc.runtimeEnv.WDM_WL_REDIS_SERVER=shared-redis"),
 )
 LEGACY_INIT_NAMES = {
     ("ConfigMap", "vss-elasticsearch-init-scripts"),
