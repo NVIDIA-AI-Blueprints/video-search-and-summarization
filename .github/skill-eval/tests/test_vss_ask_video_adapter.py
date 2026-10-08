@@ -115,7 +115,7 @@ def test_specs_cover_markdown_and_introspection_state_routing() -> None:
 
     # Recall of what an earlier step persisted, rather than a supplied note.
     assert "answers from what VSS unified memory already holds" in contract
-    assert "It does not run vss vlm run a second time" in contract
+    assert "It does not invoke vss vlm run anywhere in this task's trajectory" in contract
 
     # The two introspection states are now stated as deployment facts.
     assert "Introspection is turned off on this deployment" in contract
