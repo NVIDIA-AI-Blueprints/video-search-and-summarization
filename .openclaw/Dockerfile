@@ -200,6 +200,12 @@ RUN ./stage-assets.sh /tmp/vss-skills /tmp/vss-workspace \
 FROM ${BASE_IMAGE} AS nemoclaw-runtime
 USER root
 
+# Media operations verify downloaded clips and snapshots with `file`. Install
+# it in the image: the sandbox cannot apt-install a missing utility at runtime.
+RUN apt-get update && apt-get install -y --no-install-recommends file \
+    && rm -rf /var/lib/apt/lists/* \
+    && su -s /bin/sh sandbox -c "file --version"
+
 # Harbor trial paths. Harbor and its agent adapters address /task, /output,
 # /logs, /tests and /solution by name. They are REAL directories, not symlinks
 # into /sandbox: the OpenShell policy engine chowns every read_write path at
