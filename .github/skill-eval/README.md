@@ -139,6 +139,9 @@ Readiness failures retain the last HTTP status or transport error class.
 Container snapshots include restart/OOM state and configured/published ports,
 without Docker environment variables, credentials or health-command output.
 Each readiness request is bounded by the remaining probe deadline.
+Fresh local-NIM task environments reuse launcher/plan files only after size and
+SHA-256 attestation; they still run the NIM readiness and protocol checks.
+Transfer failures retain a finite error category without raw transport output.
 
 ### Spark selection
 
