@@ -7,7 +7,7 @@ description: >-
   between builds", or "profile search latency" on a deployed VSS profile.
 license: Apache-2.0
 metadata:
-  version: "3.9.0"
+  version: "3.3.0-rc0"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint search retrieval benchmarking evaluation"
