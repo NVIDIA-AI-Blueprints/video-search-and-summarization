@@ -294,7 +294,7 @@ def coordinator_traces():
     from urllib.parse import urlsplit
     root=Path('/tmp/skill-eval/results/_viewer')
     out=[]
-    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338'):
+    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338','37743611504'):
         for job in sorted(root.glob('*__'+run_id+'__*')):
             for path in sorted(job.glob('step-*/agent/openclaw.session.jsonl')):
                 calls={}; rows=[]; shapes=[]
@@ -325,7 +325,9 @@ def coordinator_traces():
                             'binary_paths':sorted(set(re.findall(r'/usr/(?:local/)?(?:bin|vss/bin)/(?:python3(?:\.[0-9]+)?|curl|node|vss)\b',args))),
                             'proxy_bypass':any(marker in args for marker in ('--noproxy','unset HTTP_PROXY','unset HTTPS_PROXY')),
                             'curl_modes':[flag for flag in ('-I','--head','-x','--proxy','--resolve','-L','--location','--connect-to','--unix-socket','-k','--insecure') if flag in args],
-                            'shell_forms':[form for form in ('python3','python ','bash -lc','sh -lc','sh -c','curl ') if form in args]}
+                            'shell_forms':[form for form in ('python3','python ','bash -lc','sh -lc','sh -c','curl ') if form in args],
+                            'vss_flags':sorted(set(re.findall(r'--(?:sensor|start-time|end-time|fps|max-frames|no-persist|file|media-url)\b',args))),
+                            'numeric_time_bounds':bool(re.search(r'--(?:start-time|end-time)[^A-Za-z0-9]{1,10}[0-9]{1,6}[^A-Za-z0-9:-]',args+' '))}
                     if message.get('role')!='toolResult' or message.get('toolCallId') not in calls:continue
                     def strings(value):
                         if isinstance(value,str):
@@ -338,6 +340,9 @@ def coordinator_traces():
                         elif isinstance(value,dict):
                             for item in value.values():yield from strings(item)
                     text='\n'.join(strings(content)); row=dict(calls[message['toolCallId']])
+                    row['result_markers']=[marker for marker in ('No such command','No such option','Invalid value','configuration error','window','recorded range','outside','beyond','cannot parse','invalid timestamp','ISO-8601','timed out','timeout','HTTP 500','HTTP 404','permission denied','failed','exit code','job_id','answer') if marker.lower() in text.lower()]
+                    row['exit_codes']=sorted(set(int(x) for x in re.findall(r'(?:exit(?:[_ ]code)?|Process exited with code)[^0-9]{0,12}([0-9]{1,3})\b',text,re.I)))[:5]
+
                     if re.search(r'\b403\b',text) or 'policy_denied' in text:
                         row['failure']='policy_denied' if 'policy_denied' in text else 'proxy_tunnel_denied' if 'tunnel' in text.lower() else 'http_403'
                         row['error_origins']=origins(text)
