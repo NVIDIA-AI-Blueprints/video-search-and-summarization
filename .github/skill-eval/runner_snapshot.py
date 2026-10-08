@@ -267,7 +267,7 @@ def host_snapshot():
                 for line in result.stdout.splitlines():
                     if not re.search(r'(?<![0-9])'+port+r'(?![0-9])',line):continue
                     words=line.split()
-                    rows.append({'port':int(port),'accept':'ACCEPT' in words or 'ALLOW' in words,'reject':'REJECT' in words or 'DENY' in words,'bridge_interface':any(word in {'docker0','br+'} or word.startswith('br-') for word in words)})
+                    rows.append({'port':int(port),'accept':'ACCEPT' in words or 'ALLOW' in words,'reject':'REJECT' in words or 'DENY' in words,'bridge_interface':any(word in {'docker0','br+'} or word.startswith('br-') for word in words),'ip_operands':re.findall(r'(?<![0-9])[0-9]{1,3}(?:\.[0-9]{1,3}){3}(?:/[0-9]{1,2})?',line),'chain':words[1] if len(words)>1 and words[0]=='-A' and re.fullmatch(r'[A-Za-z0-9_-]{1,50}',words[1]) else None})
                 out['gateway_firewall'][name]={'exit_code':result.returncode,'port_rules':rows[:20],'input_policy_drop':bool(re.search(r'^-P INPUT DROP$',result.stdout,re.M))}
         wrapped='import json\ntry:\n exec('+repr(SANDBOX_SCRIPT)+')\nexcept Exception as exc:\n print(json.dumps({"collector_error_type":type(exc).__name__}))'
         command='python3 -c '+shlex.quote(wrapped)
@@ -433,7 +433,7 @@ def coordinator_traces():
     # Inspect only setup tool results for the failed startup, with token/URL/path
     # data removed before emitting a bounded excerpt.
     startup=[]
-    for job in root.glob('*__37743611504__*'):
+    for job in [job for run_id in ('37743611504','37749284519','37749293650') for job in root.glob('*__'+run_id+'__*')]:
         for path in job.glob('step-1*/agent/codex.txt'):
             calls={}
             for line in path.read_text().splitlines():
@@ -454,9 +454,9 @@ def coordinator_traces():
                     value=re.sub(r'[A-Za-z0-9_+/=.-]{30,}','<id>',value)
                     value=re.sub(r'"[^"\n]*"|\x1b\[[0-9;]*[a-zA-Z]','<quoted>',value)
                     selected.append(value[:500])
-                if selected:startup.append({'family':family,'exit_code':item.get('exit_code'),'lines':selected[:10]+selected[-10:]})
+                if selected:startup.append({'run':job.name.split('__')[-2] if '__' in job.name else None,'family':family,'exit_code':item.get('exit_code'),'lines':selected[:10]+selected[-10:]})
     firewall_commands=[]
-    for run_id in ('37743611504','37744461082','37745938465'):
+    for run_id in ('37743611504','37744461082','37745938465','37749284519','37749293650'):
         for job in root.glob('*__'+run_id+'__*'):
             for path in job.glob('step-1*/agent/codex.txt'):
                 for line in path.read_text().splitlines():
@@ -464,7 +464,7 @@ def coordinator_traces():
                     except ValueError:continue
                     command=item.get('command','')
                     if item.get('type')!='command_execution' or not ('ufw ' in command or 'iptables ' in command or 'NEMOCLAW_AUTO_FIX_FIREWALL' in command):continue
-                    firewall_commands.append({'run':run_id,'exit_code':item.get('exit_code'),'ufw': 'ufw ' in command,'iptables':'iptables ' in command,'opt_in':'NEMOCLAW_AUTO_FIX_FIREWALL' in command,'ufw_allow':bool(re.search(r'ufw(?:[\s\\]+|[^a-zA-Z]{1,8})allow',command)),'ports':sorted(set(int(value) for value in re.findall(r'(?:--dport|port)[^0-9]{0,10}([0-9]{4,5})',command)))[:10]})
+                    firewall_commands.append({'run':run_id,'exit_code':item.get('exit_code'),'ufw': 'ufw ' in command,'iptables':'iptables ' in command,'opt_in':'NEMOCLAW_AUTO_FIX_FIREWALL' in command,'ip_operands':re.findall(r'(?<![0-9])[0-9]{1,3}(?:\.[0-9]{1,3}){3}(?:/[0-9]{1,2})?',command)[:10],'ufw_allow':bool(re.search(r'ufw(?:[\s\\]+|[^a-zA-Z]{1,8})allow',command)),'ports':sorted(set(int(value) for value in re.findall(r'(?:--dport|port)[^0-9]{0,10}([0-9]{4,5})',command)))[:10]})
     return {'viewer_exists':root.is_dir(),'traces':out,'startup_failure_results':startup[:8]+startup[-25:],'scan_stream_evidence':scan_stream_evidence,'firewall_commands':firewall_commands}
 
 
