@@ -158,22 +158,36 @@ def host_snapshot():
         state=info[0].get('State',{})
         out['containers'].append({'name':name,'status':state.get('Status'),'health':state.get('Health',{}).get('Status'),'oom':state.get('OOMKilled'),'restarts':info[0].get('RestartCount')})
     out['media_probe']={'status':'not_applicable'}
-    sample=Path('/tmp/vss-sample-data/dev-profile-sample-data/warehouse_sample.mp4')
-    if os.uname().machine=='aarch64' and sample.is_file() and 0<sample.stat().st_size<250_000_000 and any(row['name']=='vss-rtvi-vlm' for row in out['containers']):
+    sample=Path('/tmp/vss-sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4')
+    if os.uname().machine=='aarch64' and sample.is_file() and 0<sample.stat().st_size<70_000_000 and any(row['name']=='vss-rtvi-vlm' for row in out['containers']):
         import base64, urllib.request, urllib.error
         origin='http://127.0.0.1:7777/rtvi-vlm/v1'
         try:
             opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
             with opener.open(origin+'/models',timeout=5) as response:models=json.load(response)
             model=models['data'][0]['id']
-            payload={'model':model,'messages':[{'role':'user','content':[{'type':'video_url','video_url':{'url':'data:video/mp4;base64,'+base64.b64encode(sample.read_bytes()).decode()}},{'type':'text','text':'Describe the scene briefly.'}]}],'media_io_kwargs':{'video':{'num_frames':2}},'max_tokens':32,'temperature':0}
+            video=sample.read_bytes();probe_metadata={'source':'warehouse_safety_0001.mp4','bytes':len(video)}
+            import shutil, tempfile
+            original=sample.with_name('warehouse_sample.mp4')
+            if shutil.which('ffmpeg') and original.is_file():
+                with tempfile.TemporaryDirectory(prefix='skill-eval-media-probe-') as directory:
+                    clip=Path(directory)/'clip.mp4'
+                    trimmed=subprocess.run(['ffmpeg','-nostdin','-v','error','-ss','0','-i',str(original),'-t','3','-c','copy','-an','-movflags','+faststart',str(clip)],capture_output=True,timeout=20)
+                    if trimmed.returncode==0 and clip.is_file() and 0<clip.stat().st_size<70_000_000:
+                        video=clip.read_bytes();probe_metadata={'source':'warehouse_sample.mp4','window_seconds':3,'bytes':len(video)}
+            payload={'model':model,'messages':[{'role':'user','content':[{'type':'text','text':'Describe the scene briefly.'},{'type':'video_url','video_url':{'url':'data:video/mp4;base64,'+base64.b64encode(video).decode()}}]}],'num_frames_per_second_or_fixed_frames_chunk':2,'use_fps_for_chunking':False,'max_tokens':32,'temperature':0}
             request=urllib.request.Request(origin+'/chat/completions',data=json.dumps(payload).encode(),headers={'Content-Type':'application/json'})
             try:
                 with opener.open(request,timeout=45) as response:
-                    answer=json.load(response);out['media_probe']={'status':'completed','http_status':response.status,'has_choices':bool(answer.get('choices'))}
+                    answer=json.load(response);out['media_probe']={'status':'completed','http_status':response.status,'has_choices':bool(answer.get('choices')),**probe_metadata}
             except urllib.error.HTTPError as exc:
                 body=exc.read(65536).decode('utf-8','replace')
-                out['media_probe']={'status':'failed','http_status':exc.code,'error_markers':[word for word in ('gst-stream-error-quark','Internal data stream error','not-negotiated','not-linked','no element','Could not decode stream','nvv4l2decoder','avdec_h264','h264parse','qtdemux','permission denied') if word in body]}
+                out['media_probe']={'status':'failed','http_status':exc.code,'error_markers':[word for word in ('gst-stream-error-quark','Internal data stream error','not-negotiated','not-linked','no element','Could not decode stream','nvv4l2decoder','avdec_h264','h264parse','qtdemux','permission denied') if word in body],**probe_metadata}
+                if exc.code==422:
+                    try:
+                        errors=json.loads(body).get('detail',[])
+                        out['media_probe']['validation_errors']=[{'type':e['type'],'location':[x for x in e.get('loc',[]) if type(x) is int or x in {'body','messages','content','video_url','url','model','media_io_kwargs','max_tokens','temperature'}]} for e in errors if isinstance(e,dict) and e.get('type') in {'string_too_long','extra_forbidden','missing','value_error','literal_error','less_than_equal','greater_than_equal'}]
+                    except Exception:pass
         except Exception as exc:out['media_probe']={'status':'failed','exception_type':type(exc).__name__}
     out['rt_vlm_decode_errors']=[]
     if any(row['name']=='vss-rtvi-vlm' for row in out['containers']):
