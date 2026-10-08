@@ -492,8 +492,10 @@ jobs:
           set +a
           if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"; fi
           export JUDGE_PARALLELISM=2
+          export PATH="$HOME/.local/bin:$PATH"
           uv run --isolated --no-project --python 3.12 --with claude-agent-sdk python .github/skill-eval/rejudge_snapshot.py --out "$RUNNER_TEMP/rejudge.json"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: runner-snapshot-${{ inputs.diagnostic_worker }}-${{ github.run_id }}
           path: |
