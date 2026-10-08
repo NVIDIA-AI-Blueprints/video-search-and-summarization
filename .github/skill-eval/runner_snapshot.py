@@ -311,7 +311,7 @@ def coordinator_traces():
     from urllib.parse import urlsplit
     root=Path('/tmp/skill-eval/results/_viewer')
     out=[]
-    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338','37743611504','37744378089','37744385620','37744461082'):
+    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338','37743611504','37744378089','37744385620','37744461082','37745938465'):
         for job in sorted(root.glob('*__'+run_id+'__*')):
             for path in sorted(job.glob('step-*/agent/openclaw.session.jsonl')):
                 calls={}; rows=[]; shapes=[]
@@ -383,7 +383,33 @@ def coordinator_traces():
                     except (OSError,UnicodeError):continue
                     markers=[word for word in ('gst-stream-error-quark','gst-resource-error-quark','gst-library-error-quark','not-negotiated','not-linked','no element','Could not decode stream','nvv4l2decoder','avdec_h264','h264parse','qtdemux','base64','video_url') if word in body]
                     if any(word.startswith('gst-') for word in markers):out.append({'run':run_id,'trial':trial.name,'spec':job.name.split('__')[1],'decode_markers':markers})
-    return {'viewer_exists':root.is_dir(),'traces':out}
+
+    # Inspect only setup tool results for the failed startup, with token/URL/path
+    # data removed before emitting a bounded excerpt.
+    startup=[]
+    for job in root.glob('*__37743611504__*'):
+        for path in job.glob('step-1*/agent/codex.txt'):
+            calls={}
+            for line in path.read_text().splitlines():
+                try: item=json.loads(line).get('item',{})
+                except ValueError:continue
+                if item.get('type')!='command_execution':continue
+                command=item.get('command','')
+                family=next((name for name,marker in [('container_logs','docker logs'),('native_logs','openshell logs'),('onboard','nemoclaw onboard'),('notebook','run_setup_notebook.py'),('container_inspect','docker inspect'),('sandbox_get','openshell sandbox get'),('sandbox_recovery','nemoclaw ')] if marker in command),None)
+                if not family or item.get('aggregated_output') is None:continue
+                text=item['aggregated_output']
+                markers=('MainProcessExited','ContainerStartFailed','ReadyFalse','EADDRINUSE','EACCES','ENOENT','EXIT_CODE','Invalid config','Config validation failed','Missing env var','main process','exited with','startup','not found','Error:','error:','failed','FATAL','fatal','Permission denied','Unknown config','unrecognized','scope upgrade','pairing required','preflight','refused','identity deletion','atomic','cannot','Cannot')
+                selected=[]
+                for value in text.splitlines():
+                    if len(value)>1000 or not any(marker in value for marker in markers):continue
+                    value=re.sub(r'https?://\S+', '<origin>', value)
+                    value=re.sub(r'/[-A-Za-z0-9_./]+','<path>',value)
+                    value=re.sub(r'(?i)(token|key|secret|password|credential)(\s*[=:]\s*)\S+',r'\1\2<redacted>',value)
+                    value=re.sub(r'[A-Za-z0-9_+/=.-]{30,}','<id>',value)
+                    value=re.sub(r'"[^"\n]*"|\x1b\[[0-9;]*[a-zA-Z]','<quoted>',value)
+                    selected.append(value[:500])
+                if selected:startup.append({'family':family,'exit_code':item.get('exit_code'),'lines':selected[-20:]})
+    return {'viewer_exists':root.is_dir(),'traces':out,'startup_failure_results':startup[-25:]}
 
 
 if __name__ == '__main__':
