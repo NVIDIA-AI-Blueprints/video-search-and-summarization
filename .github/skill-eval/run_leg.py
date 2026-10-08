@@ -169,6 +169,7 @@ DEFAULT_WHOLE_LEG_BUDGET_SEC = 12 * 60 * 60 - AGENT_VERDICT_RESERVE_SEC
 WORK_DEADLINE_ENV = "SKILL_EVAL_HARBOR_DEADLINE_MONOTONIC"
 SDK_DEADLINE_ENV = "SKILL_EVAL_WORK_DEADLINE_MONOTONIC"
 TRANSPORT_PGID_REGISTRY_ENV = "BREV_TRANSPORT_PGID_FILE"
+GATEWAY_CANCEL_CLEANUP_ROOT_ENV = "SKILL_EVAL_GATEWAY_CANCEL_CLEANUP_ROOT"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1253,6 +1254,17 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
         # process tree. A later SIGKILL remains the unavoidable hard ceiling.
         for sig in previous_handlers:
             signal.signal(sig, signal.SIG_IGN)
+        if outcome >= 128 and env.get(GATEWAY_CANCEL_CLEANUP_ROOT_ENV) and env.get("BREV_INSTANCE"):
+            # The locked leg is terminal. Remove its narrowly owned firewall
+            # rule before Harbor's long shutdown grace keeps the lock occupied
+            # and an outer CI agent can kill this wrapper before its finally.
+            try:
+                cleanup_gateway_network_policy(
+                    env["BREV_INSTANCE"], Path(env[GATEWAY_CANCEL_CLEANUP_ROOT_ENV]),
+                    timeout_sec=20,
+                )
+            except Exception as exc:
+                print(f"[run-leg] cancellation gateway cleanup failed: {type(exc).__name__}", file=sys.stderr)
         exited = _cancel_process_tree(proc, pgid, registry_path)
         if not exited:
             print(
@@ -1585,7 +1597,7 @@ def allocate_gateway_ports(instance: str, owner: str, preferred: list[int], env:
     return ports
 
 
-def cleanup_gateway_network_policy(instance: str, results_root: Path) -> None:
+def cleanup_gateway_network_policy(instance: str, results_root: Path, *, timeout_sec: int = 120) -> None:
     """Remove only this leg's gateway firewall chain while its worker lock is held."""
     slug = os.environ.get("EVAL_SLUG") or results_root.parent.name
     run_id = os.environ.get("GITHUB_RUN_ID") or results_root.name
@@ -1596,10 +1608,10 @@ def cleanup_gateway_network_policy(instance: str, results_root: Path) -> None:
         result = subprocess.run(
             ["uvx", "--python", sys.executable, "--from", HARBOR_REQUIREMENT, "python", "-c",
              "import asyncio,sys; from envs.brev_env import _run_brev_exec_retry; "
-             "r=asyncio.run(_run_brev_exec_retry(sys.argv[1],sys.argv[2],timeout=90)); "
+             "r=asyncio.run(_run_brev_exec_retry(sys.argv[1],sys.argv[2],timeout=int(sys.argv[3]))); "
              "print(r.stdout or ''); print(r.stderr or '',file=sys.stderr); sys.exit(r.return_code)",
-             instance, command],
-            cwd=REPO_ROOT, env=harbor_env(instance), timeout=120, check=False,
+             instance, command, str(min(90, max(1, timeout_sec - 10)))],
+            cwd=REPO_ROOT, env=harbor_env(instance), timeout=timeout_sec, check=False,
         )
         if result.returncode:
             raise RuntimeError(f"cleanup exited {result.returncode}")
@@ -1870,7 +1882,9 @@ def _run_invocations(
     deferred_agent_marker: str | None = None
     operational_config = model_routes.operational
     env["SKILLS_EVAL_OPERATIONAL_HARNESS"] = operational_config.runtime
+    env.pop(GATEWAY_CANCEL_CLEANUP_ROOT_ENV, None)
     if operational_eval and operational_config.runtime == "nemoclaw":
+        env[GATEWAY_CANCEL_CLEANUP_ROOT_ENV] = str(results_root)
         nemoclaw_setups = coding_setups
 
         derived_sandbox_name = nemoclaw_sandbox_name(run_id, leg_slug)
