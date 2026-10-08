@@ -136,6 +136,10 @@ def run(args, *, env=None, timeout=30):
 def host_snapshot():
     out = {'containers':[], 'setup_processes':[]}
     try:
+        firewall=subprocess.run(['sudo','-n','ufw','status'],capture_output=True,text=True,timeout=15)
+        out['ufw_status']='active' if 'Status: active' in firewall.stdout else 'inactive' if 'Status: inactive' in firewall.stdout else 'unavailable'
+    except Exception:out['ufw_status']='unavailable'
+    try:
         out['memory_available_mib']=int(re.search(r'^MemAvailable:\s+([0-9]+)',Path('/proc/meminfo').read_text(),re.M).group(1))//1024
         space=os.statvfs(str(Path.home()));out['disk_free_gib']=round(space.f_bavail*space.f_frsize/2**30,1)
     except Exception:pass
@@ -315,7 +319,7 @@ def coordinator_traces():
     from urllib.parse import urlsplit
     root=Path('/tmp/skill-eval/results/_viewer')
     out=[]
-    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338','37743611504','37744378089','37744385620','37744461082','37745938465'):
+    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838','37736233569','37736239578','37736245915','37720368695','37737621976','37739130338','37743611504','37744378089','37744385620','37744461082','37745938465','37750290842'):
         for job in sorted(root.glob('*__'+run_id+'__*')):
             for path in sorted(job.glob('step-*/agent/openclaw.session.jsonl')):
                 calls={}; rows=[]; shapes=[]
@@ -388,6 +392,32 @@ def coordinator_traces():
                     markers=[word for word in ('gst-stream-error-quark','gst-resource-error-quark','gst-library-error-quark','not-negotiated','not-linked','no element','Could not decode stream','nvv4l2decoder','avdec_h264','h264parse','qtdemux','base64','video_url') if word in body]
                     if any(word.startswith('gst-') for word in markers):out.append({'run':run_id,'trial':trial.name,'spec':job.name.split('__')[1],'decode_markers':markers})
 
+
+    scan_stream_evidence=[]
+    for job in root.glob('*__37743611504__*nvstreamer*'):
+        for path in job.glob('step-4*/agent/openclaw.session.jsonl'):
+            trial=path.parent.parent
+            receipts=list(trial.glob('artifacts/**/host-fixture.json'))
+            if not receipts:continue
+            try:receipt=json.loads(receipts[0].read_text())
+            except Exception:continue
+            basename=receipt.get('basename','')
+            if receipt.get('status')!='passed' or not re.fullmatch(r'sample-clip-[a-f0-9]{12}',basename):continue
+            calls=set()
+            for line in path.read_text().splitlines():
+                try:message=json.loads(line).get('message',{})
+                except ValueError:continue
+                content=message.get('content',[])
+                if not isinstance(content,list):continue
+                for block in content:
+                    if isinstance(block,dict) and block.get('type')=='toolCall' and '/api/v1/sensor/streams' in json.dumps(block.get('arguments',{})):calls.add(block.get('id'))
+                if message.get('role')!='toolResult' or message.get('toolCallId') not in calls:continue
+                for value in re.findall(r'rtsp://[^\s"<>\\]+',json.dumps(content)):
+                    try:url=urlsplit(value)
+                    except ValueError:continue
+                    if not url.path.endswith('/'+basename+'.mp4'):continue
+                    scan_stream_evidence.append({'run':37743611504,'trial':trial.name,'basename':basename,'host':url.hostname,'port':url.port,'path_matches_fixture':True,'path_has_nvstream_prefix':url.path.startswith('/nvstream/'),'port_in_default_pool':31554<=url.port<=31561 if url.port else False})
+
     # Inspect only setup tool results for the failed startup, with token/URL/path
     # data removed before emitting a bounded excerpt.
     startup=[]
@@ -413,7 +443,7 @@ def coordinator_traces():
                     value=re.sub(r'"[^"\n]*"|\x1b\[[0-9;]*[a-zA-Z]','<quoted>',value)
                     selected.append(value[:500])
                 if selected:startup.append({'family':family,'exit_code':item.get('exit_code'),'lines':selected[:10]+selected[-10:]})
-    return {'viewer_exists':root.is_dir(),'traces':out,'startup_failure_results':startup[:8]+startup[-25:]}
+    return {'viewer_exists':root.is_dir(),'traces':out,'startup_failure_results':startup[:8]+startup[-25:],'scan_stream_evidence':scan_stream_evidence}
 
 
 if __name__ == '__main__':
