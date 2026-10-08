@@ -422,8 +422,8 @@ Specs can declare `sandbox_fixtures` as MP4 basenames from the pinned bundle
 at `/tmp/vss-sample-data/dev-profile-sample-data/`. For NemoClaw setup, after
 the coding agent succeeds and before grading, the harness first requires a
 `Ready` sandbox, successful sandbox execution, authenticated gateway access,
-and valid VSS CLI configuration. With local NIM, a separate native OpenClaw
-session must complete through the selected model; its response stays outside
+and valid VSS CLI configuration. For local NIM and hosted inference, a separate
+native OpenClaw session must complete through the selected model; its response stays outside
 the graded trajectory. These checks also run when no fixtures are declared,
 and retain metadata in `nemoclaw/setup-readiness.json`. The harness then uploads
 only the declared files and requires matching SHA-256 checksums.
