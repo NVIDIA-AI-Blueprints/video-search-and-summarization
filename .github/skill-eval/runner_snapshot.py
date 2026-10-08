@@ -13,7 +13,7 @@ import subprocess
 
 
 SANDBOX_SCRIPT = r'''
-import json, os, re
+import json, os, re, subprocess
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -57,7 +57,14 @@ config=load('/sandbox/.vss/config.json')
 if isinstance(config,dict):
     out['vss_origin']=endpoint(config.get('base_url',''))
     out['vss_services']={k:endpoint(v.get('url','')) for k,v in config.get('services',{}).items() if k in {'vst','rt_vlm','elasticsearch','lvs','nvstreamer','video_analytics'} and isinstance(v,dict)}
-out['devices']={}
+out['read_only_vios_probe']={}
+if isinstance(config,dict):
+    url=config.get('services',{}).get('vst',{}).get('url','')
+    parsed=urlsplit(url)
+    if parsed.hostname=='host.openshell.internal' and parsed.scheme=='http' and parsed.port in {7777,30888}:
+        result=subprocess.run(['/usr/bin/curl','--connect-timeout','3','--max-time','10','-sS','-o','/dev/null','-w','%{http_code}',url.rstrip('/')+'/api/v1/sensor/list'],capture_output=True,text=True,timeout=15)
+        out['read_only_vios_probe']={'exit_code':result.returncode,'http_status':result.stdout if re.fullmatch(r'[0-9]{3}',result.stdout) else None}
+out['devices']={} 
 for name in ('pending','paired'):
     devices=load('/sandbox/.openclaw/devices/'+name+'.json')
     if not isinstance(devices,dict): continue
@@ -162,6 +169,9 @@ def host_snapshot():
             out['sandbox_phase']=phase.get('phase') if isinstance(phase,dict) and phase.get('phase') in {'Ready','Pending','Created','Creating','Starting','Error','Failed','Terminated'} else phase.get('category') if isinstance(phase,dict) else None
             invocation='if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi; '+shlex.join(['nemoclaw',sandbox,'exec','--no-tty','--no-stdin','--timeout','30','--','python3','-c',wrapped])
             out['native']=run(['bash','-lc',invocation],env=env,timeout=45)
+            if isinstance(out['native'],dict) and out['native'].get('exit_code'):
+                native_command='[ -r /tmp/nemoclaw-proxy-env.sh ] || exit 1; . /tmp/nemoclaw-proxy-env.sh || exit $?; unset OPENCLAW_GATEWAY_TOKEN; '+shlex.join(['python3','-c',wrapped])
+                out['native_runtime']=run(['openshell','sandbox','exec','--name',sandbox,'-g','nemoclaw-'+port,'--','sh','-lc',native_command],env=env,timeout=45)
     out['readiness']=[]
     for path in Path('/logs/artifacts/nemoclaw').glob('*readiness.json'):
         try: report=json.loads(path.read_text())
