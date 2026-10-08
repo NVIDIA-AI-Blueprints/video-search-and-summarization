@@ -52,8 +52,13 @@
         },
         "responses": {
           "200": {
-            "description": "Echo of posted payload",
-            "content": { "application/json": { "schema": { "type": "object" } } }
+            "description": "Fixed acknowledgement that the report was recorded. The response does not echo the posted payload.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ReportAcknowledgement" },
+                "example": { "status": "ok" }
+              }
+            }
           }
         }
       }
