@@ -381,15 +381,19 @@ def test_prompt_uses_native_inference_without_mutating_provider(runner, monkeypa
     assert not (logs / "agent.log").exists()
 
 
+@pytest.mark.parametrize("local", [True, False])
 @pytest.mark.parametrize("phase,model,access", [
     ("Ready", "local-model", 0),
     ("Error", "local-model", 0),
     ("Ready", "wrong-model", 0),
     ("Ready", "local-model", 1),
 ])
-def test_setup_checks_phase_and_native_model_before_allowing_handoff(runner, monkeypatch, tmp_path, phase, model, access):
+def test_setup_checks_phase_and_native_model_before_allowing_handoff(runner, monkeypatch, tmp_path, phase, model, access, local):
     monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
-    monkeypatch.setenv("SKILL_EVAL_LOCAL_NIM_API_KEY", "local-nim")
+    if local:
+        monkeypatch.setenv("SKILL_EVAL_LOCAL_NIM_API_KEY", "local-nim")
+    else:
+        monkeypatch.delenv("SKILL_EVAL_LOCAL_NIM_API_KEY", raising=False)
     monkeypatch.setattr(runner, "_load_env_file", lambda _: None)
     monkeypatch.setattr(runner.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 0, json.dumps({"phase": phase}), "secret"))
     monkeypatch.setattr(runner, "_sandbox_exec", lambda *a, **kw: subprocess.CompletedProcess(a, access, '{"ok":true}', "secret"))
@@ -403,7 +407,8 @@ def test_setup_checks_phase_and_native_model_before_allowing_handoff(runner, mon
     assert runner.main(["--setup-check", "--agent-log-dir", str(logs)]) == (0 if phase == "Ready" and model == "local-model" and access == 0 else 1)
     report = json.loads((logs / "setup-readiness.json").read_text())
     failed = next((row["stage"] for row in report["stages"] if row["status"] == "failed"), None)
-    assert failed == ("sandbox_phase" if phase == "Error" else "sandbox_access" if access else "local_inference" if model != "local-model" else None)
+    inference_stage = "local_inference" if local else "hosted_inference"
+    assert failed == ("sandbox_phase" if phase == "Error" else "sandbox_access" if access else inference_stage if model != "local-model" else None)
     assert len(calls) == (1 if phase == "Ready" and access == 0 else 0)
     assert "secret" not in json.dumps(report)
     assert not (logs / "openclaw.txt").exists()
