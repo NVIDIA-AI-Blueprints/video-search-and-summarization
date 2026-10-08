@@ -157,8 +157,9 @@ class VSSSearch:
         """Best-effort critic pass over retrieved intervals.
 
         Search never depends on verification succeeding. Missing dependencies,
-        invalid media bounds, or a critic/VLM failure leave the affected hits
-        without a ``critic_result``, i.e. unverified.
+        invalid media bounds, a critic run that raises, or the evaluation cap
+        leave the affected hits without a ``critic_result``. A per-hit media or
+        VLM failure is an evaluated ``unverified`` verdict instead.
         """
         if self._critic is None or not output.data:
             return output
@@ -201,9 +202,9 @@ class VSSSearch:
                 }
             )
         # `evaluation_count` can truncate the critic run below the candidate
-        # count; the hits it did not evaluate carry no `critic_result`. Surface
-        # that rather than silently dropping them -- the CLI passes no cap
-        # today, so this is a guard for callers that do.
+        # count (`vss search run --critic-eval-count`); the hits it did not
+        # evaluate carry no `critic_result`. Surface that rather than silently
+        # dropping them.
         if len(critic_output.video_results) < len(candidate_indices):
             extra_messages.append(
                 f"Visual verification evaluated {len(critic_output.video_results)} of "

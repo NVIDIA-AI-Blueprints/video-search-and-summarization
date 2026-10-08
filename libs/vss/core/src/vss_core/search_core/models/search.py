@@ -101,7 +101,8 @@ class SearchVerification(BaseModel):
 
     Retrieval is useful even when no VLM is deployed or verification fails.
     Consequently a hit carries no verdict until the critic evaluates that exact
-    interval; a hit without one is unverified.
+    interval; a hit without one is unverified. A per-hit media or VLM failure
+    is still an evaluated ``unverified`` verdict.
     """
 
     model_config = ConfigDict(extra="forbid")
