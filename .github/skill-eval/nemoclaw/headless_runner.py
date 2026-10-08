@@ -153,7 +153,7 @@ def _wait_sandbox_ready(sandbox: str, row: dict[str, Any]) -> None:
         time.sleep(min(3, max(0, deadline - time.monotonic())))
 
 
-def _probe_local_inference(sandbox: str, row: dict[str, Any]) -> None:
+def _probe_inference(sandbox: str, row: dict[str, Any]) -> None:
     expected = os.environ["NEMOCLAW_MODEL"]
     envelope, _ = _run_openclaw(
         sandbox, "Reply with OK only. Do not use tools or change any files.", 120,
@@ -161,7 +161,7 @@ def _probe_local_inference(sandbox: str, row: dict[str, Any]) -> None:
     meta = envelope.get("meta", {})
     agent_meta = meta.get("agentMeta", {})
     if meta.get("aborted") is not False or agent_meta.get("model") != expected:
-        raise RuntimeError("sandbox inference did not complete through the selected local model")
+        raise RuntimeError("sandbox inference did not complete through the selected model")
     if not any(payload.get("text") for payload in envelope.get("payloads", []) if isinstance(payload, dict)):
         raise RuntimeError("sandbox inference returned no assistant response")
     row["model"] = expected
@@ -182,16 +182,16 @@ def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> No
     ]
     if setup:
         probes.insert(0, ("sandbox_phase", None))
-        if os.environ.get("SKILL_EVAL_LOCAL_NIM_API_KEY"):
-            probes.append(("local_inference", None))
+        inference_stage = "local_inference" if os.environ.get("SKILL_EVAL_LOCAL_NIM_API_KEY") else "hosted_inference"
+        probes.append((inference_stage, None))
     for stage, command in probes:
         row: dict[str, Any] = {"stage": stage, "status": "failed"}
         stages.append(row)
         try:
             if stage == "sandbox_phase":
                 _wait_sandbox_ready(sandbox, row)
-            elif stage == "local_inference":
-                _probe_local_inference(sandbox, row)
+            elif stage in ("local_inference", "hosted_inference"):
+                _probe_inference(sandbox, row)
             elif command is None:
                 if setup:
                     if not _gateway_healthy(sandbox):
