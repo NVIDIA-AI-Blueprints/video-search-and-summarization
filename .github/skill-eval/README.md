@@ -135,6 +135,10 @@ Sanitized image/tag/digest, model, architecture, startup errors, and bounded
 container logs appear in each trial's `artifacts/local-nim` directory (under
 Harbor's collected `/logs/artifacts` tree). `model-deployments.json` records
 role choices and the actual worker at the leg results root.
+Readiness failures retain the last HTTP status or transport error class.
+Container snapshots include restart/OOM state and configured/published ports,
+without Docker environment variables, credentials or health-command output.
+Each readiness request is bounded by the remaining probe deadline.
 
 ### Spark selection
 
