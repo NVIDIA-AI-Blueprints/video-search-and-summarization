@@ -289,6 +289,25 @@ def _extract_json(text: str) -> str:
     return text
 
 
+def _explicit_verdict(normalized: str, criteria: dict[str, bool]) -> CriticAgentResult | None:
+    """Map a VLM-reported ``result`` string to a verdict, or None if unrecognized.
+
+    A self-reported verdict is honored only when the criteria back it up:
+    ``rejected`` with nothing to reject and ``confirmed`` with a failing
+    criterion both degrade to UNVERIFIED. An unrecognized string returns None
+    so the caller falls through to deriving the verdict from the criteria.
+    """
+    if normalized == CriticAgentResult.UNVERIFIED.value:
+        return CriticAgentResult.UNVERIFIED
+    if normalized == CriticAgentResult.REJECTED.value:
+        return CriticAgentResult.REJECTED if criteria else CriticAgentResult.UNVERIFIED
+    if normalized == CriticAgentResult.CONFIRMED.value:
+        if criteria and all(criteria.values()):
+            return CriticAgentResult.CONFIRMED
+        return CriticAgentResult.UNVERIFIED
+    return None
+
+
 def _parse_criteria(vlm_text: str) -> tuple[CriticAgentResult, dict[str, bool]]:
     """Parse the VLM's JSON response into (verdict, criteria_met).
 
@@ -319,17 +338,9 @@ def _parse_criteria(vlm_text: str) -> tuple[CriticAgentResult, dict[str, bool]]:
         # two negative ones) so a VLM that self-reports ``"confirmed"`` is trusted
         # even when a stray criterion parses False.
         if isinstance(explicit_result, str):
-            normalized = explicit_result.strip().lower()
-            if normalized == CriticAgentResult.UNVERIFIED.value:
-                return CriticAgentResult.UNVERIFIED, criteria
-            if normalized == CriticAgentResult.REJECTED.value and criteria:
-                return CriticAgentResult.REJECTED, criteria
-            if normalized == CriticAgentResult.REJECTED.value:
-                return CriticAgentResult.UNVERIFIED, criteria
-            if normalized == CriticAgentResult.CONFIRMED.value and criteria and all(criteria.values()):
-                return CriticAgentResult.CONFIRMED, criteria
-            if normalized == CriticAgentResult.CONFIRMED.value:
-                return CriticAgentResult.UNVERIFIED, criteria
+            explicit = _explicit_verdict(explicit_result.strip().lower(), criteria)
+            if explicit is not None:
+                return explicit, criteria
 
         if not criteria:
             return CriticAgentResult.UNVERIFIED, {}
