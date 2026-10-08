@@ -29,6 +29,17 @@
 {{- end }}
 {{- end }}
 
+{{- define "calibration-toolkit.image" -}}
+{{- $global := .Values.global | default dict -}}
+{{- $prefix := index $global "container_prefix" | default "" -}}
+{{- $repository := .Values.image.repository -}}
+{{- if $prefix -}}
+{{- $repository = printf "%s/vss-calibration-toolkit" (trimSuffix "/" $prefix) -}}
+{{- end -}}
+{{- $tag := index $global "container_tag" | default .Values.image.tag -}}
+{{- printf "%s:%s" $repository $tag -}}
+{{- end -}}
+
 {{- define "calibration-toolkit.labels" -}}
 app.kubernetes.io/name: {{ include "calibration-toolkit.fullname" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}

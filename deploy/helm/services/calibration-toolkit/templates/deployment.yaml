@@ -37,7 +37,7 @@ spec:
       {{- end }}
       containers:
         - name: calibration-toolkit
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: {{ include "calibration-toolkit.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["deploy.sh", "{{ .Values.service.port }}"]
           ports:

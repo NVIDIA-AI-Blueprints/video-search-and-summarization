@@ -17,8 +17,8 @@
 enabled: true
 
 image:
-  repository: nvcr.io/nvidia/vss-core/calibration
-  tag: "3.2.1"
+  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-calibration-toolkit
+  tag: develop-latest
   pullPolicy: IfNotPresent
 
 replicas: 1
