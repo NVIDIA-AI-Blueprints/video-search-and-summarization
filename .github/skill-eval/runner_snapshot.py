@@ -239,6 +239,7 @@ def coordinator_traces():
                     for block in content:
                         if not isinstance(block,dict) or block.get('type')!='toolCall':continue
                         args=json.dumps(block.get('arguments',{}))
+                        if block.get('name')=='vss_cli' and isinstance(block.get('arguments',{}).get('args'),list):args='vss '+shlex.join(block['arguments']['args'])
                         shapes.append({'tool':block.get('name') if re.fullmatch(r'[a-zA-Z0-9_.]{1,60}',str(block.get('name',''))) else None,'argument_keys':sorted(block.get('arguments',{})) if isinstance(block.get('arguments'),dict) else []})
                         family=next((name for name,marker in [('vss_vlm','vss vlm '),('vss_vios','vss vios '),('vss_configure','vss configure '),('vios_curl','/vst/'),('curl','curl ')] if marker in args),None)
                         if not family:continue
@@ -257,13 +258,23 @@ def coordinator_traces():
                             'curl_modes':[flag for flag in ('-I','--head','-x','--proxy','--resolve','-L','--location','--connect-to','--unix-socket','-k','--insecure') if flag in args],
                             'shell_forms':[form for form in ('python3','python ','bash -lc','sh -lc','sh -c','curl ') if form in args]}
                     if message.get('role')!='toolResult' or message.get('toolCallId') not in calls:continue
-                    text=json.dumps(content); row=dict(calls[message['toolCallId']])
+                    def strings(value):
+                        if isinstance(value,str):
+                            yield value
+                            try:parsed=json.loads(value)
+                            except (ValueError,TypeError):return
+                            if not isinstance(parsed,str):yield from strings(parsed)
+                        elif isinstance(value,list):
+                            for item in value:yield from strings(item)
+                        elif isinstance(value,dict):
+                            for item in value.values():yield from strings(item)
+                    text='\n'.join(strings(content)); row=dict(calls[message['toolCallId']])
                     if re.search(r'\b403\b',text) or 'policy_denied' in text:
                         row['failure']='policy_denied' if 'policy_denied' in text else 'proxy_tunnel_denied' if 'tunnel' in text.lower() else 'http_403'
                         row['error_origins']=origins(text)
                         row['reason_markers']=[marker for marker in ('no_matching_policy','no matching policy','no matching endpoint','binary','blocked','denied','CONNECT','connect tunnel','proxy','host','port','allowed_ips','protocol','IP address') if marker.lower() in text.lower()]
                         details=re.findall(r'\\?"detail\\?"\s*:\s*\\?"([^"\\]{1,300})',text)
-                        safe_words={'host','port','not','allowed','denied','by','policy','no','matching','endpoint','binary','process','identity','source','destination','network','address','ip','range','in','allowlist','found','resolved','private','unknown','missing','required','invalid','request','method','http','https','tcp','tls','protocol','connect','proxy','hostname','untrusted','blocked','loopback','does','match','the','configured','unauthorized','tunnel','a','for','this','and','or','rule','rules','access','is','with','permission','unauthenticated','credentials','authentication'}
+                        safe_words={'host','port','not','allowed','denied','by','policy','no','matching','endpoint','binary','process','identity','source','destination','network','address','ip','range','in','allowlist','found','resolved','private','unknown','missing','required','invalid','request','method','http','https','tcp','tls','protocol','connect','proxy','hostname','untrusted','blocked','loopback','does','match','the','configured','unauthorized','tunnel','a','for','this','and','or','rule','rules','access','is','with','permission','unauthenticated','credentials','authentication','list','defined','detected','unavailable','target','to'}
                         row['policy_details']=[value for value in details if all(word.lower() in safe_words or word in {'host.openshell.internal','localhost','127.0.0.1'} or word.isdecimal() and len(word)<=5 for word in re.findall(r'[a-zA-Z0-9_.]+',value))]
                         row['response_keys']=sorted(set(re.findall(r'\\?"([a-z_]{2,40})\\?"\s*:',text)))[:30]
                     else:row['failure']=None
@@ -274,6 +285,7 @@ def coordinator_traces():
                 except Exception:reward=None
                 out.append({'run':run_id,'trial':path.parent.parent.name,'spec':job.name.split('__')[1],'reward':reward,'calls':rows[:40],'tool_shapes':shapes[:15] if not rows else []})
             for trial in sorted(job.glob('step-*')):
+                out.append({'run':run_id,'trial':trial.name,'agent_files':[{'name':p.name,'size':p.stat().st_size} for p in (trial/'agent').glob('*') if p.is_file() and re.fullmatch(r'[a-zA-Z0-9_.-]{1,80}',p.name)]})
                 for path in trial.glob('agent/*'):
                     if not path.is_file() or path.name not in {'codex.txt','trajectory.json','openclaw.session.jsonl','codex.jsonl','trajectory.jsonl'} or path.stat().st_size>20_000_000:continue
                     try:body=path.read_text()
