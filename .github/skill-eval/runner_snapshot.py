@@ -213,6 +213,51 @@ def host_snapshot():
     print(json.dumps(out))
 
 
+
+def coordinator_traces():
+    from urllib.parse import urlsplit
+    root=Path('/tmp/skill-eval/results/_viewer')
+    out=[]
+    for run_id in ('37729097734','37728051451','37720370667','37729095977','37732351784','37732353838'):
+        for job in sorted(root.glob('*__'+run_id+'__*')):
+            for path in sorted(job.glob('step-*/agent/openclaw.session.jsonl')):
+                calls={}; rows=[]
+                try:lines=path.read_text().splitlines()
+                except OSError:continue
+                for line in lines:
+                    try:message=json.loads(line).get('message',{})
+                    except Exception:continue
+                    content=message.get('content',[])
+                    if not isinstance(content,list):continue
+                    for block in content:
+                        if not isinstance(block,dict) or block.get('type')!='toolCall':continue
+                        args=json.dumps(block.get('arguments',{}))
+                        family=next((name for name,marker in [('vss_vlm','vss vlm '),('vss_vios','vss vios '),('vss_configure','vss configure '),('vios_curl','/vst/'),('curl','curl ')] if marker in args),None)
+                        if not family:continue
+                        def origins(text):
+                            origins=[]
+                            for value in re.findall(r'https?://[^\\\s"<>]+',text):
+                                try:
+                                    url=urlsplit(value)
+                                    if url.hostname and re.fullmatch(r'[a-z0-9.-]+',url.hostname):origins.append({'scheme':url.scheme,'host':url.hostname,'port':url.port})
+                                except ValueError:pass
+                            return origins[:8]
+                        calls[block.get('id')]={'family':family,'request_origins':origins(args)}
+                    if message.get('role')!='toolResult' or message.get('toolCallId') not in calls:continue
+                    text=json.dumps(content); row=dict(calls[message['toolCallId']])
+                    if re.search(r'\b403\b',text) or 'policy_denied' in text:
+                        row['failure']='policy_denied' if 'policy_denied' in text else 'proxy_tunnel_denied' if 'tunnel' in text.lower() else 'http_403'
+                        row['error_origins']=origins(text)
+                    else:row['failure']=None
+                    if row not in rows:rows.append(row)
+                result_path=path.parent.parent/'result.json'
+                try:
+                    result=json.loads(result_path.read_text());reward=result.get('verifier_result',{}).get('rewards',{}).get('reward')
+                except Exception:reward=None
+                out.append({'run':run_id,'trial':path.parent.parent.name,'spec':job.name.split('__')[1],'reward':reward,'calls':rows[:40]})
+    return {'viewer_exists':root.is_dir(),'traces':out}
+
+
 if __name__ == '__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('--worker')
@@ -230,4 +275,5 @@ if __name__ == '__main__':
             return run(['ssh','-T','-o','BatchMode=yes','-o','ConnectTimeout=10','-o','ConnectionAttempts=1',worker.lower(),command],timeout=150)
         with ThreadPoolExecutor(max_workers=4) as pool:
             snapshots=dict(zip(workers,pool.map(inspect,workers)))
+        snapshots['coordinator']=coordinator_traces()
         args.out.write_text(json.dumps(snapshots if len(workers)>1 else snapshots[workers[0]],indent=2)+'\n')
