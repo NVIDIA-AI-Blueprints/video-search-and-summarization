@@ -30,6 +30,11 @@ on:
   # use the same per-(spec, platform) matrix dispatch.
   workflow_dispatch:
     inputs:
+      diagnostic_rejudge:
+        description: "Temporary retained-trial judge replay"
+        type: boolean
+        required: false
+        default: false
       skills:
         # `type: string` rather than `type: choice` because the skills/
         # tree has more than 10 entries — GitHub caps `choice` at 10.
@@ -477,8 +482,21 @@ jobs:
           DIAGNOSTIC_WORKER: ${{ inputs.diagnostic_worker }}
         run: |
           python3 .github/skill-eval/runner_snapshot.py --worker "$DIAGNOSTIC_WORKER" --out "$RUNNER_TEMP/runner-snapshot.json"
+      - name: Replay current-task context against retained evidence
+        if: inputs.diagnostic_rejudge
+        env:
+          CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -a
+          source /home/ubuntu/eval-coordinator/.env
+          set +a
+          if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"; fi
+          export JUDGE_PARALLELISM=2
+          uv run --isolated --no-project --python 3.12 --with claude-agent-sdk python .github/skill-eval/rejudge_snapshot.py --out "$RUNNER_TEMP/rejudge.json"
       - uses: actions/upload-artifact@v4
         with:
           name: runner-snapshot-${{ inputs.diagnostic_worker }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/runner-snapshot.json
+          path: |
+            ${{ runner.temp }}/runner-snapshot.json
+            ${{ runner.temp }}/rejudge.json
           if-no-files-found: error

@@ -568,7 +568,13 @@ def coordinator_traces():
                     command=item.get('command','')
                     if item.get('type')!='command_execution' or not ('ufw ' in command or 'iptables ' in command or 'NEMOCLAW_AUTO_FIX_FIREWALL' in command):continue
                     firewall_commands.append({'run':run_id,'exit_code':item.get('exit_code'),'ufw': 'ufw ' in command,'iptables':'iptables ' in command,'opt_in':'NEMOCLAW_AUTO_FIX_FIREWALL' in command,'ip_operands':re.findall(r'(?<![0-9])[0-9]{1,3}(?:\.[0-9]{1,3}){3}(?:/[0-9]{1,2})?',command)[:10],'ufw_allow':bool(re.search(r'ufw(?:[\s\\]+|[^a-zA-Z]{1,8})allow',command)),'ports':sorted(set(int(value) for value in re.findall(r'(?:--dport|port)[^0-9]{0,10}([0-9]{4,5})',command)))[:10]})
-    return {'viewer_exists':root.is_dir(),'traces':out,'startup_failure_results':startup[:8]+startup[-25:],'scan_stream_evidence':scan_stream_evidence,'scan_order':scan_order,'firewall_commands':firewall_commands}
+    machines=[]
+    for run_id in ('37770839464','37773243124','37774258173'):
+        for receipt in Path('/tmp/skill-eval/results').glob('*/'+run_id+'/machine.txt'):
+            try:fields=receipt.read_text().strip().split('\t')
+            except OSError:continue
+            if len(fields)==3 and fields[2]==run_id and re.fullmatch(r'[A-Za-z0-9_-]{1,64}',fields[0]) and re.fullmatch(r'[A-Za-z0-9_-]{1,180}',fields[1]):machines.append({'run':int(run_id),'worker':fields[0],'slug':fields[1]})
+    return {'machines':machines,'viewer_exists':root.is_dir(),'traces':out,'startup_failure_results':startup[:8]+startup[-25:],'scan_stream_evidence':scan_stream_evidence,'scan_order':scan_order,'firewall_commands':firewall_commands}
 
 
 if __name__ == '__main__':
