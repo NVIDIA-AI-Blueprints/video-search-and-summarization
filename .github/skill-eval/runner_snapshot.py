@@ -579,7 +579,7 @@ def coordinator_traces():
         if not entry.name.isdecimal():continue
         try:
             argv=(entry/'cmdline').read_bytes().decode().split('\0')
-            if len(argv)<2 or not argv[1].endswith('/.github/skill-eval/run_leg.py'):continue
+            if len(argv)<2 or not argv[1].endswith('.github/skill-eval/run_leg.py'):continue
             fields=dict(item.split('=',1) for item in (entry/'environ').read_bytes().decode().split('\0') if '=' in item)
             run=fields.get('GITHUB_RUN_ID')
             if run not in {'37770839464','37773243124','37774258173','37775381660','37768823981'}:continue
