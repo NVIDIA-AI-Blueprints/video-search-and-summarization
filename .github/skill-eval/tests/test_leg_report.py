@@ -433,6 +433,51 @@ def test_the_summary_gives_a_caller_everything_without_markdown(tmp_path: Path) 
                               "not-run", "ambiguous"} for s in summary["steps"])
 
 
+def test_nemoclaw_failure_stage_survives_harbor_network_classification(tmp_path: Path) -> None:
+    trial = _trial(tmp_path, "r", "step-1__aaa", reward=1.0, passed=7, total=7,
+                   start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
+                   exception="NetworkConnectionError")
+    receipts = trial / "artifacts/logs/artifacts/nemoclaw"
+    receipts.mkdir(parents=True)
+    (receipts / "setup-readiness.json").write_text(json.dumps({"stages": [
+        {"stage": "sandbox_phase", "status": "passed"},
+        {"stage": "gateway_authentication", "status": "failed", "reason": "pairing_deadline",
+         "stdout": "credential-must-not-be-rendered"},
+    ]}))
+    leg = leg_report.collect_leg(tmp_path)
+    body = leg_report.render_comment(leg, spec_path="s.json", platform="L40S", head_sha="0862faf3")
+    assert "NetworkConnectionError: gateway_authentication (pairing_deadline)" in body
+    assert "credential-must-not-be-rendered" not in body
+    summary = leg_report.leg_summary(leg, declared=["deploy"])
+    assert summary["steps"][0]["harness_failure"] == {
+        "stage": "gateway_authentication", "reason": "pairing_deadline"}
+    assert summary["steps"][0]["state"] == "recorded-fail"
+
+
+def test_nemoclaw_receipts_are_attempt_scoped_and_allowlisted(tmp_path: Path) -> None:
+    trial = _trial(tmp_path, "r", "step-2__aaa", reward=0.0,
+                   start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
+                   exception="RuntimeError")
+    receipts = trial / "artifacts/logs/artifacts/nemoclaw"
+    receipts.mkdir(parents=True)
+    report = receipts / "host-fixture.json"
+    report.write_text(json.dumps({"stage": "credential-must-not-be-rendered", "status": "failed"}))
+    assert leg_report._harness_failure(trial) is None
+    report.write_text(json.dumps({"stage": [], "status": "failed"}))
+    assert leg_report._harness_failure(trial) is None
+    report.write_text(json.dumps({"stage": "nvstreamer_copy", "status": "failed",
+                                  "reason": "credential-must-not-be-rendered"}))
+    assert leg_report._harness_failure(trial) == {"stage": "nvstreamer_copy"}
+    report.write_text(json.dumps({"stage": "nvstreamer_copy", "status": "passed"}))
+    assert leg_report._harness_failure(trial) is None
+    # A previous trial's failed receipt cannot explain a newer attempt.
+    older = tmp_path / "old/step-2__older/artifacts/logs/artifacts/nemoclaw"
+    older.mkdir(parents=True)
+    (older / "readiness.json").write_text(json.dumps({"stages": [
+        {"stage": "gateway_authentication", "status": "failed", "reason": "pairing_deadline"}]}))
+    assert leg_report._harness_failure(trial) is None
+
+
 # --- the posted format must not drift from what readers already know -------
 
 def test_whole_rewards_keep_one_decimal() -> None:
