@@ -307,6 +307,11 @@ report preserves the last pairing failure with a `pairing_deadline` reason.
 The same report and the initial namespace ownership/port receipt are included
 under `artifacts/logs/artifacts/nemoclaw/` so the workflow archive preserves
 them even though it excludes raw agent trajectories.
+For setup readiness assertions, the judge also reads the same-trial
+`setup-readiness.json` and binds its sandbox/port to the namespace receipt.
+The harness's successful native CLI probe remains valid execution evidence
+when setup uses a notebook rather than a literal CLI command. This evidence
+does not satisfy checks about the coding agent's own actions or call counts.
 When a turn reports HTTP403/policy denial, or the harness fails, a bounded
 OpenShell audit read also saves `network-denials.json` in that directory.
 It keeps target origins, executable paths, known policy names and classified
