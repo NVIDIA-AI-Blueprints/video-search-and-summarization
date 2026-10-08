@@ -70,6 +70,22 @@ for name in ('pending','paired'):
         if isinstance(scopes,list):row['scopes']=[s for s in scopes if isinstance(s,str) and s in {'operator.read','operator.write','operator.pairing','operator.approvals','operator.admin'}]
         rows.append(row)
     out['devices'][name]=rows
+out['vlm_errors']=[]
+for session in sorted(Path('/sandbox/.openclaw/agents/main/sessions').glob('*.jsonl'),key=lambda p:p.stat().st_mtime,reverse=True)[:20]:
+    calls=set()
+    try:
+        for line in session.read_text().splitlines():
+            try:message=json.loads(line).get('message',{})
+            except Exception:continue
+            for block in message.get('content',[]) if isinstance(message.get('content'),list) else []:
+                if isinstance(block,dict) and block.get('type')=='toolCall' and 'vss vlm run' in json.dumps(block.get('arguments',{})):
+                    calls.add(block.get('id'))
+            if message.get('role')!='toolResult' or message.get('toolCallId') not in calls:continue
+            text=json.dumps(message.get('content',[]))
+            if '403' not in text:continue
+            urls=[endpoint(url) for url in re.findall(r'https?://[^\\\s"<>]+',text)]
+            out['vlm_errors'].append({'kind':'proxy_tunnel_denied' if 'tunnel' in text.lower() or 'connect' in text.lower() else 'http_403','origins':urls[:5]})
+    except Exception:continue
 print(json.dumps(out))
 '''
 
