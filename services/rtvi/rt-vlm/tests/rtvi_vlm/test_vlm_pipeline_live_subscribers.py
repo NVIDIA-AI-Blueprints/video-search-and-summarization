@@ -34,6 +34,7 @@ def _make_pipeline():
     pipeline = object.__new__(VlmPipeline)
     pipeline._args = SimpleNamespace(num_gpus=1)
     pipeline._decoder_procs = [MagicMock()]
+    pipeline._vlm_procs = [MagicMock()]
     pipeline._live_stream_id_map = {}
     pipeline._live_stream_lock = Lock()
     return pipeline
@@ -435,3 +436,54 @@ def test_vlm_process_does_not_batch_live_stream_items():
         is False
     )
     process._model.can_batch.assert_not_called()
+
+
+def test_live_handoff_overflow_reports_code_and_accepts_later_chunk():
+    from queue import Queue
+    from threading import Lock
+
+    process = object.__new__(DecoderProcess)
+    process._live_output_handoff_lock = Lock()
+    process._live_output_handoff_pending = 1
+    process._output_queue = Queue(maxsize=1)
+    process._final_output_queue = Queue()
+    process._enqueue_live_output({"chunk": ChunkInfo(chunkIdx=1), "frames": ["frame"]}, 1)
+    dropped = process._final_output_queue.get_nowait()
+    assert dropped["error_code"] == "DecoderBacklogExceeded"
+    assert dropped["error_status_code"] == 503
+    assert "frames" not in dropped
+    process._live_output_handoff_pending = 0
+    recovered = {"chunk": ChunkInfo(chunkIdx=2), "frames": ["new frame"]}
+    process._enqueue_live_output(recovered, 1)
+    assert process._output_queue.get_nowait() is recovered
+
+
+def test_live_error_code_survives_pipeline_watcher_and_next_chunk_recovers():
+    pipeline = _make_pipeline()
+    stream_id = str(uuid.uuid4())
+    callback = MagicMock()
+    pipeline._processed_chunk_queue = Queue()
+    pipeline._processed_chunk_queue_watcher_stop_event = Event()
+    pipeline._live_stream_id_map[stream_id] = VlmPipeline._LiveStreamInfo(
+        subscribers={"request-1": VlmPipeline._LiveStreamSubscriber(callback)}, gpu_id=0
+    )
+    failed = _make_live_chunk_result(stream_id, "request-1", 0)
+    failed.update(
+        error="decoder overloaded", error_status_code=503, error_code="DecoderBacklogExceeded"
+    )
+    failed.pop("vlm_output")
+    watcher = Thread(target=pipeline._watch_processed_chunk_queue)
+    watcher.start()
+    try:
+        pipeline._processed_chunk_queue.put(failed)
+        pipeline._processed_chunk_queue.put(_make_live_chunk_result(stream_id, "request-1", 1))
+        _wait_for(lambda: callback.call_count == 2)
+        first, second = [call.args[0] for call in callback.call_args_list]
+        assert first.error_code == "DecoderBacklogExceeded"
+        assert first.error_status_code == 503
+        assert second.error is None
+        assert second.vlm_model_output.output == "ok"
+        assert stream_id in pipeline._live_stream_id_map
+    finally:
+        pipeline._processed_chunk_queue_watcher_stop_event.set()
+        watcher.join(timeout=2)

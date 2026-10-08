@@ -16,6 +16,8 @@
 
 import torch
 
+DECODER_BACKLOG_ERROR_CODE = "DecoderBacklogExceeded"
+
 CUDA_OOM_STATUS_CODE = 503
 CUDA_OOM_ERROR_PREFIX = "CUDA out of memory"
 

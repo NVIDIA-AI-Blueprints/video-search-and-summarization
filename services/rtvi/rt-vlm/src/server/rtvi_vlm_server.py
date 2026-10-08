@@ -45,6 +45,7 @@ from pydantic import Field, ValidationError
 from sse_starlette.sse import EventSourceResponse
 
 from api_models.captions import (
+    VlmCaptionChunkError,
     VlmCaptionResponse,
     VlmCaptionsCompletionResponse,
     VlmQuery,
@@ -1531,6 +1532,15 @@ class RTVIServer:
             "end_time": end_time,
             "content": resp.vlm_model_output.output if resp.vlm_model_output else "",
         }
+        if resp.error:
+            # Fatal backend errors terminate the request before reaching this response queue.
+            chunk_response["error"] = VlmCaptionChunkError(
+                code=resp.error_code,
+                message=resp.error,
+                status_code=resp.error_status_code,
+                recoverable=is_live,
+                stream_id=resp.chunk.streamId if is_live else None,
+            ).model_dump(exclude_none=True)
         if resp.decode_start_time and resp.decode_end_time:
             chunk_response["decode_latency_ms"] = round(
                 (resp.decode_end_time - resp.decode_start_time) * 1000,

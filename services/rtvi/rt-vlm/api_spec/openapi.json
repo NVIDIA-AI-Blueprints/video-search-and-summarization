@@ -6173,8 +6173,70 @@
                 "title": "ViosStreamRemoveRequest",
                 "description": "VIOS request body for POST /v1/stream/remove."
             },
+            "VlmCaptionChunkError": {
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "pattern": "^(.|\\n)*$",
+                        "title": "Code"
+                    },
+                    "message": {
+                        "type": "string",
+                        "maxLength": 100000,
+                        "pattern": "^(.|\\n)*$",
+                        "title": "Message"
+                    },
+                    "status_code": {
+                        "type": "integer",
+                        "maximum": 599.0,
+                        "minimum": 400.0,
+                        "format": "int32",
+                        "title": "Status Code"
+                    },
+                    "recoverable": {
+                        "type": "boolean",
+                        "title": "Recoverable",
+                        "description": "Later live chunks can still succeed. Do not retry the dropped live chunk."
+                    },
+                    "stream_id": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 128,
+                                "pattern": "^(.|\\n)*$"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Stream Id"
+                    }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                    "code",
+                    "message",
+                    "status_code",
+                    "recoverable"
+                ],
+                "title": "VlmCaptionChunkError",
+                "description": "A failed chunk; recoverable errors do not terminate the live request."
+            },
             "VlmCaptionResponse": {
                 "properties": {
+                    "error": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/VlmCaptionChunkError"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Per-chunk failure. On live overload, keep the connection open for later captions."
+                    },
                     "chunk_id": {
                         "type": "integer",
                         "maximum": 100000.0,
