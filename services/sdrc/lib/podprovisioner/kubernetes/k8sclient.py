@@ -360,6 +360,30 @@ class k8sclient:
     
 
     def watchPodState(self):
+        """Watch pod readiness for PodErrorWatcher.
+
+        When an HTTP health watcher is attached
+        (``WDM_WL_HEALTH_CHECK_WAIT_ENABLED``), consume its transitions.
+        Otherwise fall back to Kubernetes pod and container readiness.
+        """
+        if self.health_watcher is not None:
+            logger.info(
+                "Kubernetes pod watch using HTTP health checks at %s",
+                self.app_config.get("WDM_WL_HEALTH_CHECK_URL"),
+            )
+            for is_down, podname, generate_name in self.health_watcher.iter_transitions():
+                if is_down:
+                    if podname not in self.downpodsArray:
+                        self.downpodsArray.append(podname)
+                    yield True, podname, generate_name
+                else:
+                    if podname in self.downpodsArray:
+                        self.downpodsArray.remove(podname)
+                    yield False, podname, generate_name
+            return
+
+        # Legacy Kubernetes pod readiness watch when HTTP health is disabled.
+        logger.info("Kubernetes pod watch using pod readiness (HTTP health disabled)")
         t0 = time.time()
         error = False
         podname = None
@@ -598,4 +622,3 @@ class k8sclient:
     
     def get_podname_keys(self):
         return []
-

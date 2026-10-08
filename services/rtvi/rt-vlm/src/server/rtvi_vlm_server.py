@@ -1531,6 +1531,8 @@ class RTVIServer:
             "end_time": end_time,
             "content": resp.vlm_model_output.output if resp.vlm_model_output else "",
         }
+        if resp.error:
+            chunk_response["error"] = {"message": resp.error, "code": resp.error_status_code}
         if resp.decode_start_time and resp.decode_end_time:
             chunk_response["decode_latency_ms"] = round(
                 (resp.decode_end_time - resp.decode_start_time) * 1000,
@@ -3596,6 +3598,11 @@ class RTVIServer:
                                             }
                                         ],
                                     }
+                                    if resp.error:
+                                        response["error"] = {
+                                            "message": resp.error,
+                                            "code": resp.error_status_code,
+                                        }
                                     # EventSourceResponse adds "data: " prefix automatically
                                     yield json.dumps(response)
                                 try:

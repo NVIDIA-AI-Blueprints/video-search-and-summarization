@@ -112,6 +112,34 @@ describe("embedded agent adapter", () => {
     ]);
   });
 
+  it("passes CLI critic_result verdicts through the search artifact unchanged", () => {
+    const parser = new ArtifactStreamParser();
+    const hits = [
+      {
+        video_name: "evaluated.mp4",
+        critic_result: { result: "confirmed", criteria_met: { "subject:forklift": true } },
+      },
+      { video_name: "unevaluated.mp4", critic_result: null },
+    ];
+    const result = JSON.stringify({ job_id: "job-1", data: hits, search_messages: [] });
+    const completion = JSON.stringify({
+      event: "vss_job_completed",
+      group: "search",
+      status: "completed",
+      exit_hint: 0,
+      job_id: "job-1",
+    });
+    expect(parser.inspectComplete(`${result}\n${completion}`)).toEqual([
+      expect.objectContaining({
+        type: "artifact.created",
+        data: expect.objectContaining({
+          kind: "vss.search.results",
+          payload: expect.objectContaining({ data: hits }),
+        }),
+      }),
+    ]);
+  });
+
   it("derives same-origin image artifacts from snapshot tool results", () => {
     const parser = new ArtifactStreamParser();
     const cliSnapshot = JSON.stringify({

@@ -718,9 +718,15 @@ def _build_evs_sampling_kwargs(max_tokens, generation_config):
         seed=_gc("seed", 1),
     )
 
+    # Event-gated generations have no request body, so the schema constraint
+    # must ride on the session's sampling policy like everything else here.
+    structured_outputs = _structured_outputs_kwargs(_gc("response_format", None))
     env_ignore_eos = _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
     cfg_ignore_eos = _gc("ignore_eos", None)
-    if env_ignore_eos or cfg_ignore_eos is not None:
+    if structured_outputs is not None:
+        kwargs["structured_outputs"] = structured_outputs
+        kwargs["ignore_eos"] = False
+    elif env_ignore_eos or cfg_ignore_eos is not None:
         kwargs["ignore_eos"] = env_ignore_eos or bool(cfg_ignore_eos)
 
     min_tokens = _gc("min_tokens", None)
@@ -728,6 +734,23 @@ def _build_evs_sampling_kwargs(max_tokens, generation_config):
         kwargs["min_tokens"] = int(min_tokens)
 
     return kwargs
+
+
+def _structured_outputs_kwargs(response_format) -> dict | None:
+    """Map a ``response_format`` to ``StructuredOutputsParams`` kwargs.
+
+    Returns ``None`` for plain text. Shared by the regular and EVS paths so
+    both constrain decoding the same way.
+    """
+    response_format = response_format or {}
+    response_type = response_format.get("type")
+    if response_type == "json_object":
+        return {"json_object": True}
+    if response_type == "json_schema":
+        return {"json": response_format["json_schema"]["schema"]}
+    if response_type == "choice":
+        return {"choice": response_format["choices"]}
+    return None
 
 
 def _build_vllm_sampling_kwargs(config: VlmGenerationConfig) -> dict:
@@ -742,31 +765,15 @@ def _build_vllm_sampling_kwargs(config: VlmGenerationConfig) -> dict:
     }
     if config.min_tokens is not None:
         kwargs["min_tokens"] = config.min_tokens
-    response_format = config.response_format or {}
-    response_type = response_format.get("type")
-    is_structured_output = response_type in {"choice", "json_object", "json_schema"}
+    structured_outputs = _structured_outputs_kwargs(config.response_format)
     env_ignore_eos = _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
-    if is_structured_output:
+    if structured_outputs is not None:
+        from vllm.sampling_params import StructuredOutputsParams
+
+        kwargs["structured_outputs"] = StructuredOutputsParams(**structured_outputs)
         kwargs["ignore_eos"] = False
     elif env_ignore_eos or config.ignore_eos is not None:
         kwargs["ignore_eos"] = env_ignore_eos or bool(config.ignore_eos)
-    if response_type == "json_object":
-        from vllm.sampling_params import StructuredOutputsParams
-
-        kwargs["structured_outputs"] = StructuredOutputsParams(json_object=True)
-    elif response_type == "json_schema":
-        from vllm.sampling_params import StructuredOutputsParams
-
-        json_schema = response_format["json_schema"]
-        kwargs["structured_outputs"] = StructuredOutputsParams(
-            json=json_schema["schema"],
-        )
-    elif response_type == "choice":
-        from vllm.sampling_params import StructuredOutputsParams
-
-        kwargs["structured_outputs"] = StructuredOutputsParams(
-            choice=response_format["choices"],
-        )
     return kwargs
 
 
@@ -3054,31 +3061,33 @@ class VllmCompatible(BaseVlmModel):
 
     def _close_evs_session(self, stream_id):
         """Delete the EVS session for a single stream."""
+        self.close_evs_session(stream_id)
+
+    def close_evs_session(self, stream_id=None):
+        """Delete matching sessions, retaining failed releases for a later close."""
         with self._evs_sessions_lock:
-            session_ids = [
-                self._evs_sessions.pop(cache_key)
-                for cache_key in list(self._evs_sessions.keys())
-                if _evs_session_cache_stream_id(cache_key) == stream_id
+            session_items = [
+                (cache_key, session_id)
+                for cache_key, session_id in self._evs_sessions.items()
+                if stream_id is None or _evs_session_cache_stream_id(cache_key) == stream_id
             ]
-        if session_ids and self._evs_handler is not None:
-
-            async def _delete_all():
-                for session_id in session_ids:
-                    await self._evs_handler.delete_session(session_id)
-
-            asyncio.run_coroutine_threadsafe(_delete_all(), self._event_loop).result()
-            logger.info("EVS sessions closed: %s (stream %s)", session_ids, stream_id)
-
-    def close_evs_session(self):
-        """Delete all EVS sessions."""
-        with self._evs_sessions_lock:
-            session_items = list(self._evs_sessions.items())
-            self._evs_sessions.clear()
         if session_items and self._evs_handler is not None:
 
             async def _delete_all():
-                for _cache_key, session_id in session_items:
-                    await self._evs_handler.delete_session(session_id)
+                first_error = None
+                for cache_key, session_id in session_items:
+                    try:
+                        await self._evs_handler.delete_session(session_id)
+                    except Exception as error:
+                        if first_error is None:
+                            first_error = error
+                        logger.warning("Failed to close EVS session %s", session_id, exc_info=True)
+                        continue
+                    with self._evs_sessions_lock:
+                        if self._evs_sessions.get(cache_key) == session_id:
+                            self._evs_sessions.pop(cache_key)
+                if first_error is not None:
+                    raise first_error
 
             asyncio.run_coroutine_threadsafe(_delete_all(), self._event_loop).result()
             logger.info(

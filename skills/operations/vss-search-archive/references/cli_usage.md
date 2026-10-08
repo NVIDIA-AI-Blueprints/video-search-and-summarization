@@ -115,12 +115,16 @@ JSON on stdout (`SearchOutput.data`). `--raw` compact, `--pretty` indented.
 
 Search automatically attempts bounded visual verification through
 `vss_core.search_core.critic` when `vss configure` discovered both VST and an RT-VLM model.
-When those services are available, the critic attempts every returned hit.
-Every hit contains `verification.result`: `confirmed`, `rejected`, or
-`unverified`. Verification is fail-open: a missing VLM, inaccessible clip, or
-critic failure does not fail retrieval and leaves the affected hit
-`unverified`. There are no critic or VLM flags; deployment discovery remains
-the single source of endpoints and model ids.
+When those services are available, the critic attempts every returned hit,
+unless `--critic-eval-count N` caps it to the first N.
+Every hit the critic evaluated contains `critic_result.result`: `confirmed`,
+`rejected`, or `unverified`. Verification is fail-open and never fails
+retrieval: an inaccessible clip or a failed VLM call for an evaluated hit gives
+`result: "unverified"`. `critic_result: null` means the hit was not evaluated:
+no VST or RT-VLM route, an RT-VLM that fails the startup probe, a critic error,
+a hit with no sensor or invalid bounds, or a hit past the cap. Both read as
+unverified. `--critic-eval-count` is the only critic flag; deployment discovery
+remains the single source of endpoints and model ids.
 
 Only when every displayed hit is `unverified` may the host ask whether the user
 wants them checked through the separate `vss-ask-video` workflow. If even one

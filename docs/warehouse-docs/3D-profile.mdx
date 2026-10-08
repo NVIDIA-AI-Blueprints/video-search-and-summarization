@@ -152,12 +152,12 @@ ROI events provide the foundation for occupancy monitoring and safe-zone enforce
 
 | Platform | Profile | #Streams | FPS | Interval | (NvStreamer + VIOS + DeepStream) latency | Behavior-analytics latency | E2E latency |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| RTX 6000 PRO SE | Kafka | 4 | 30 | 0 | 48 ms | 22 ms | 70 ms |
-| RTX 6000 PRO SE | Redis | 4 | 30 | 0 | 48 ms | 11 ms | 59 ms |
-| IGX THOR | Kafka | 4 | 15 | 1 | 103 ms | 21 ms | 124 ms |
-| IGX THOR | Redis | 4 | 15 | 1 | 127 ms | 11 ms | 138 ms |
-| DGX SPARK | Kafka | 4 | 15 | 1 | 98 ms | 18 ms | 116 ms |
-| DGX SPARK | Redis | 4 | 15 | 1 | 90 ms | 11 ms | 101 ms |
+| RTX 6000 PRO SE | Kafka | 4 | 30 | 0 | 44 ms | 23 ms | 67 ms |
+| RTX 6000 PRO SE | Redis | 4 | 30 | 0 | 46 ms | 18 ms | 64 ms |
+| IGX THOR | Kafka | 4 | 15 | 1 | 145 ms | 28 ms | 173 ms |
+| IGX THOR | Redis | 4 | 15 | 1 | 145 ms | 17 ms | 162 ms |
+| DGX SPARK | Kafka | 4 | 15 | 1 | 95 ms | 20 ms | 115 ms |
+| DGX SPARK | Redis | 4 | 15 | 1 | 96 ms | 9 ms | 105 ms |
 
 <Note>
 The latency may vary based on the hardware, the number of objects in a scene, the number of ROIs and tripwires, and the machine's load.

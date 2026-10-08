@@ -29,6 +29,7 @@ Tests cover:
 
 import argparse
 import asyncio
+import json
 import multiprocessing
 import os
 import socket
@@ -793,6 +794,65 @@ class TestLiveStreamEndpoints:
 
 class TestCaptionGeneration:
     """Test caption generation endpoint"""
+
+    @pytest.mark.no_gpu
+    @pytest.mark.parametrize("endpoint", ["generate_captions", "chat/completions"])
+    @pytest.mark.parametrize(
+        "error", [None, "Live decoder backlog exceeded the bounded transport"]
+    )
+    def test_streaming_chunk_error_is_distinct_from_pending(
+        self, test_client, rtvi_server, tmp_path, endpoint, error
+    ):
+        media_path = tmp_path / "clip.mp4"
+        media_path.write_bytes(b"test-video")
+        asset_id = rtvi_server._asset_manager.add_file(str(media_path), "vision", "video")
+        asset = rtvi_server._asset_manager.get_asset(asset_id)
+        request_id = str(uuid.uuid4())
+        req_info = RequestInfo(
+            request_id=request_id,
+            status=RequestInfo.Status.SUCCESSFUL,
+            queue_time=time.time(),
+            assets=[asset],
+            is_live=False,
+        )
+        chunk = PipelineChunkResult(
+            chunk=ChunkInfo(chunkIdx=7, start_pts=0, end_pts=10_000_000_000),
+            vlm_model_output=None if error else VlmModelOutput(output=""),
+            error=error,
+            error_status_code=503,
+        )
+        responses = [[chunk]]
+        rtvi_server._process_vlm_request = AsyncMock(return_value=(request_id, asset, [asset]))
+        rtvi_server._stream_handler._request_info_map[request_id] = req_info
+        rtvi_server._stream_handler.get_response = MagicMock(
+            side_effect=lambda *_args: (req_info, responses.pop(0) if responses else [])
+        )
+        body = {"id": asset_id, "model": "test-model", "stream": True}
+        if endpoint == "generate_captions":
+            body["prompt"] = "Describe the video."
+        else:
+            body["messages"] = [{"role": "user", "content": "Describe the video."}]
+
+        with test_client.stream("POST", f"{API_PREFIX}/{endpoint}", json=body) as response:
+            events = [
+                json.loads(line[6:])
+                for line in response.iter_lines()
+                if line.startswith("data: ") and line != "data: [DONE]"
+            ]
+
+        assert response.status_code == 200
+        if endpoint == "generate_captions":
+            payload = next(
+                event["chunk_responses"][0] for event in events if "chunk_responses" in event
+            )
+            assert payload["content"] == ""
+        else:
+            payload = next(event for event in events if event.get("chunk_id") == 7)
+            assert payload["choices"][0]["delta"]["content"] == ""
+        if error:
+            assert payload["error"] == {"message": error, "code": 503}
+        else:
+            assert "error" not in payload
 
     def test_streaming_generate_captions_sends_request_id_before_events(self, rtvi_server):
         stream_id = uuid.uuid4()

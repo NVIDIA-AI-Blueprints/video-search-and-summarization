@@ -1,0 +1,245 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# OpenClaw base image — NemoClaw's managed OpenClaw runtime plus the vss CLI
+# and the VSS plugin's vss_cli tool (memory on by default), but no VSS skills
+# and no workspace instruction docs beyond the empty AGENTS.md: a VSS-capable
+# foundation a user still teaches with their own skills and plugins, not a
+# blank harness. Carries only the exec, process, read, write, edit,
+# apply_patch, memory_search, memory_get and vss_cli tools.
+# tags: [nemoclaw, openclaw, base, vss-cli]
+#
+# Tools are switched off by name, never allowlisted (base-config.py), so skills
+# and plugins a user installs later reach the agent:
+#   - skills: copy a skill directory into /sandbox/.openclaw/skills/<name>/ (or
+#     the workspace's skills/); OpenClaw lists it in the prompt.
+#   - plugins: `openclaw plugins install …`; plugin tools are not denied.
+#
+# The vss_cli tool comes from the same plugin ./Dockerfile installs, built
+# here with zero skills staged (see the vss-plugin-base-builder stage below)
+# and no workspace/ directory copied into the plugin package, so the plugin's
+# register-time seedWorkspace() finds no templates dir and no-ops — the base
+# never gains SOUL.md/IDENTITY.md/TOOLS.md/BOOTSTRAP.md content, only the one
+# empty AGENTS.md this file already seeded.
+#
+# The sandbox contract matches ./Dockerfile (Harbor trial paths and config
+# overlay, onboard's model args, no per-shell ulimit hooks, the nvm shim, sleep
+# infinity, USER sandbox, WORKDIR /sandbox). Keep BASE_IMAGE in lockstep with
+# ./Dockerfile's.
+#
+#   docker build -f .openclaw/Dockerfile.base -t <registry>/vss-harness-openclaw:<tag>-base .openclaw
+
+ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/openclaw-sandbox@sha256:959d1255717b54f724248eb282dbb049d3cd785d5aa4eddb0da2a03839ad6fca
+ARG OPENCLAW_VERSION=2026.7.1
+ARG BUILDER_IMAGE=node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc
+# uv 0.12.10, by index digest (multi-arch). Same pin as ./Dockerfile's.
+ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500
+# The vss CLI only — this base ships no skills, so the NGC CLI (which only the
+# operation skills shell out to) is not needed here. Keep in lockstep with
+# ./Dockerfile's.
+ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
+ARG VSS_REF=develop
+
+# The session values `onboard --from` rewrites; why they are declared here and
+# read in a separate stage is explained in ./Dockerfile.
+ARG NEMOCLAW_PRIMARY_MODEL_REF=
+ARG NEMOCLAW_MODEL=
+ARG NEMOCLAW_CONTEXT_WINDOW=
+ARG NEMOCLAW_MAX_TOKENS=
+ARG CHAT_UI_URL=
+
+# ── onboard's session values, out of the base image's ENV shadow ──────────────
+FROM ${BUILDER_IMAGE} AS onboard-args
+ARG NEMOCLAW_PRIMARY_MODEL_REF
+ARG NEMOCLAW_MODEL
+ARG NEMOCLAW_CONTEXT_WINDOW
+ARG NEMOCLAW_MAX_TOKENS
+ARG CHAT_UI_URL
+RUN mkdir -p /onboard \
+    && printf '%s' "$NEMOCLAW_PRIMARY_MODEL_REF" > /onboard/NEMOCLAW_PRIMARY_MODEL_REF \
+    && printf '%s' "$NEMOCLAW_MODEL" > /onboard/NEMOCLAW_MODEL \
+    && printf '%s' "$NEMOCLAW_CONTEXT_WINDOW" > /onboard/NEMOCLAW_CONTEXT_WINDOW \
+    && printf '%s' "$NEMOCLAW_MAX_TOKENS" > /onboard/NEMOCLAW_MAX_TOKENS \
+    && printf '%s' "$CHAT_UI_URL" > /onboard/CHAT_UI_URL
+
+# ── uv, for the vss CLI wheel build and venv ───────────────────────────────────
+FROM ${UV_IMAGE} AS uv
+
+# ── VSS source checkout + CLI wheels ───────────────────────────────────────────
+# Same stage as ./Dockerfile's vss-src, minus the NGC CLI fetch (unused here).
+FROM ${BUILDER_IMAGE} AS vss-src
+ARG VSS_REPO
+ARG VSS_REF
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=uv /uv /usr/local/bin/uv
+# Dev-loop override: see ./Dockerfile's vss-src stage for the full rationale.
+COPY --chown=root:root Dockerfil[e] .vss-sr[c] /opt/vss-src/
+RUN rm -f /opt/vss-src/Dockerfile \
+    && if [ -f /opt/vss-src/STAGED ]; then \
+         echo "vss-src: pre-staged working-tree snapshot" && cat /opt/vss-src/STAGED; \
+       else \
+         git init -q /opt/vss-src \
+         && git -C /opt/vss-src remote add origin "$VSS_REPO" \
+         && git -C /opt/vss-src fetch -q --filter=tree:0 --tags origin "$VSS_REF" \
+         && git -C /opt/vss-src checkout -q FETCH_HEAD; \
+       fi
+RUN set -eux; \
+    if [ -f /opt/vss-src/STAGED ]; then \
+      export SETUPTOOLS_SCM_PRETEND_VERSION="$(sed -n 's/^version=//p' /opt/vss-src/STAGED)"; \
+      test -n "$SETUPTOOLS_SCM_PRETEND_VERSION"; \
+    fi; \
+    mkdir -p /opt/vss-wheels \
+    && uv build --wheel --all-packages --project /opt/vss-src/libs/vss -o /opt/vss-wheels \
+    && ls /opt/vss-wheels
+
+# ── Plugin build (from its lockfile), zero skills staged ──────────────────────
+# Same as ./Dockerfile's vss-plugin-builder through `npm run build` (the
+# compiled tool code depends on neither skills nor workspace docs), but skips
+# stage-assets.sh entirely: that script hard-fails a zero-skill run on purpose
+# (it is the full image's guard against an accidentally empty build), which is
+# exactly the state this base wants, intentionally. skills/ and skills-active/
+# are created empty instead, and no workspace/ directory is staged at all —
+# see the top-of-file note on why that keeps seedWorkspace() a no-op.
+FROM ${BUILDER_IMAGE} AS vss-plugin-base-builder
+ARG OPENCLAW_VERSION
+ENV NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false NPM_CONFIG_UPDATE_NOTIFIER=false
+WORKDIR /opt/vss-plugin
+COPY plugin/package.json plugin/package-lock.json plugin/tsconfig.json ./
+RUN node -e 'const l=require("./package-lock.json"); const v=l.packages["node_modules/openclaw"].version; if (v!==process.argv[1]) { console.error(`plugin lockfile pins openclaw ${v}, base image carries ${process.argv[1]}`); process.exit(1); }' "$OPENCLAW_VERSION"
+RUN npm ci --ignore-scripts --no-audit --no-fund
+COPY plugin/openclaw.plugin.json ./
+COPY plugin/src/ ./src/
+RUN npm run build \
+    && npm prune --omit=dev --omit=peer --ignore-scripts --no-audit --no-fund \
+    && test ! -e node_modules/openclaw
+RUN mkdir -p skills skills-active \
+    && test "$(ls skills | wc -l)" = 0 \
+    && test "$(ls skills-active | wc -l)" = 0
+
+# ── Managed runtime + vss CLI, no skills ───────────────────────────────────────
+FROM ${BASE_IMAGE} AS nemoclaw-runtime-base
+USER root
+RUN for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done
+# OpenClaw's own bundled skills and the ones its bundled plugins ship — this
+# base carries no skills of any origin, VSS or otherwise.
+RUN set -eux; \
+    openclaw_root=/usr/local/lib/nemoclaw/openclaw-runtime/node_modules/openclaw; \
+    find "$openclaw_root/skills" -mindepth 1 -delete; \
+    find "$openclaw_root/dist/extensions" -mindepth 2 -maxdepth 2 -type d -name skills -exec rm -rf {} +; \
+    test -z "$(find "$openclaw_root/skills" "$openclaw_root/dist/extensions" -name SKILL.md)"
+# The vss CLI, same wheel-install pattern as ./Dockerfile (own venv, installed
+# by wheel path, never touching the runtime's python).
+COPY --from=uv /uv /usr/local/bin/uv
+COPY --from=vss-src /opt/vss-wheels/ /opt/vss-wheels/
+RUN set -eux; \
+    uv venv --python /usr/bin/python3 /usr/local/vss \
+    && VIRTUAL_ENV=/usr/local/vss uv pip install /opt/vss-wheels/*.whl \
+    && ln -sf /usr/local/vss/bin/vss /usr/local/bin/vss \
+    && rm -rf /opt/vss-wheels \
+    && vss --version \
+    && su -s /bin/sh sandbox -c "vss --version"
+
+# ── Extend with the vss_cli-only plugin (zero skills, no workspace docs) ──────
+FROM nemoclaw-runtime-base AS vss-runtime-base
+ARG NEMOCLAW_TOOL_DISCLOSURE=progressive
+ENV NEMOCLAW_TOOL_DISCLOSURE=${NEMOCLAW_TOOL_DISCLOSURE}
+COPY --from=vss-plugin-base-builder --chown=sandbox:sandbox \
+    /opt/vss-plugin/package.json \
+    /opt/vss-plugin/package-lock.json \
+    /opt/vss-plugin/openclaw.plugin.json \
+    /opt/vss-plugin/
+COPY --from=vss-plugin-base-builder --chown=sandbox:sandbox /opt/vss-plugin/dist/ /opt/vss-plugin/dist/
+COPY --from=vss-plugin-base-builder --chown=sandbox:sandbox /opt/vss-plugin/node_modules/ /opt/vss-plugin/node_modules/
+COPY --from=vss-plugin-base-builder --chown=sandbox:sandbox /opt/vss-plugin/skills/ /opt/vss-plugin/skills/
+COPY --from=vss-plugin-base-builder --chown=sandbox:sandbox /opt/vss-plugin/skills-active/ /opt/vss-plugin/skills-active/
+# No sync_skills.py and no workspace/ staged: there is nothing to select from
+# an empty skills/, and an absent workspace/ makes the plugin's register-time
+# seedWorkspace() a no-op (see ./plugin/src/index.ts) — this base never gains
+# instruction-doc content, only the empty AGENTS.md seeded below.
+USER sandbox
+RUN test ! -e /opt/vss-plugin/node_modules/openclaw \
+    && HOME=/sandbox openclaw plugins install /opt/vss-plugin \
+    && test -L /sandbox/.openclaw/extensions/vss/node_modules/openclaw \
+    && test "$(realpath /sandbox/.openclaw/extensions/vss/node_modules/openclaw)" = "$(realpath /usr/local/lib/node_modules/openclaw)" \
+    && HOME=/sandbox openclaw plugins enable vss \
+    && HOME=/sandbox openclaw plugins inspect vss --json > /dev/null \
+    && test ! -e /sandbox/.openclaw/extensions/vss/workspace \
+    && test "$(find /sandbox/.openclaw/extensions/vss/skills-active -mindepth 1 | wc -l)" = 0
+
+# ── Managed runtime, tool policy applied ───────────────────────────────────────
+FROM vss-runtime-base
+USER root
+COPY --from=onboard-args /onboard/ /etc/vss-onboard-args/
+COPY apply-onboard-config.py /usr/local/bin/vss-apply-onboard-config
+COPY base-config.py /usr/local/lib/vss-harness/base-config.py
+# In one layer:
+#  - onboard's model args, then the tool policy and Harbor overlay
+#    (base-config.py — keeps vss_cli, memory_search, memory_get enabled; see
+#    that file's docstring), then the config hash nemoclaw-start verifies.
+#  - Instruction docs: one empty workspace AGENTS.md. A non-empty workspace also
+#    stops nemoclaw-start seeding its templates; NEMOCLAW_MINIMAL_BOOTSTRAP
+#    below is the second guard.
+#  - NemoClaw's per-shell `ulimit -u 512` hooks removed (see ./Dockerfile).
+RUN set -eux; \
+    chmod 755 /usr/local/bin/vss-apply-onboard-config; \
+    NEMOCLAW_PRIMARY_MODEL_REF="$(cat /etc/vss-onboard-args/NEMOCLAW_PRIMARY_MODEL_REF)" \
+    NEMOCLAW_MODEL="$(cat /etc/vss-onboard-args/NEMOCLAW_MODEL)" \
+    NEMOCLAW_CONTEXT_WINDOW="$(cat /etc/vss-onboard-args/NEMOCLAW_CONTEXT_WINDOW)" \
+    NEMOCLAW_MAX_TOKENS="$(cat /etc/vss-onboard-args/NEMOCLAW_MAX_TOKENS)" \
+    CHAT_UI_URL="$(cat /etc/vss-onboard-args/CHAT_UI_URL)" \
+      python3 /usr/local/bin/vss-apply-onboard-config; \
+    python3 /usr/local/lib/vss-harness/base-config.py; \
+    chmod 644 /etc/openclaw-harness/config-overlay.json; \
+    su -s /bin/sh sandbox -c 'cd /sandbox && HOME=/sandbox openclaw config validate'; \
+    # config validate only checks the config is well-formed, not what the
+    # gateway actually resolves at runtime. Boot it, long enough to prove the
+    # vss plugin (and memory-core) actually load and zero skills are
+    # discovered -- the two things base-config.py's tool policy promises --
+    # rather than trusting that the deny list alone keeps that promise.
+    su -s /bin/sh sandbox -c '\
+      set -eu; cd /sandbox; export HOME=/sandbox; \
+      ( openclaw gateway run --bind loopback --auth none --force --port 19001 \
+          > /tmp/gateway-verify.log 2>&1 & echo $! > /tmp/gateway-verify.pid ); \
+      for i in $(seq 1 30); do grep -q "\[gateway\] ready" /tmp/gateway-verify.log && break; sleep 1; done; \
+      grep -q "\[gateway\] ready" /tmp/gateway-verify.log; \
+      grep -E "^\S+ \[gateway\] http server listening \([0-9]+ plugins: .*\bmemory-core\b.*\bvss\b.*\)" /tmp/gateway-verify.log \
+        || grep -E "^\S+ \[gateway\] http server listening \([0-9]+ plugins: .*\bvss\b.*\bmemory-core\b.*\)" /tmp/gateway-verify.log; \
+      ! grep -q "skill selection unavailable" /tmp/gateway-verify.log; \
+      kill "$(cat /tmp/gateway-verify.pid)" 2>/dev/null || true; \
+      openclaw doctor 2>&1 | grep -q "Eligible: 0"'; \
+    chown sandbox:sandbox /sandbox/.openclaw/openclaw.json; \
+    chmod 660 /sandbox/.openclaw/openclaw.json; \
+    sha256sum /sandbox/.openclaw/openclaw.json > /sandbox/.openclaw/.config-hash; \
+    chown sandbox:sandbox /sandbox/.openclaw/.config-hash; \
+    chmod 660 /sandbox/.openclaw/.config-hash; \
+    workspace=/sandbox/.openclaw/workspace; \
+    mkdir -p "$workspace"; \
+    : > "$workspace/AGENTS.md"; \
+    chown -R sandbox:sandbox "$workspace"; \
+    test "$(ls -A "$workspace")" = AGENTS.md; \
+    rm -f /etc/profile.d/nemoclaw-rlimits.sh; \
+    sed -i '/sandbox-rlimits/d; /NemoClaw sandbox resource limits/d' /etc/bash.bashrc; \
+    ! grep -rq "sandbox-rlimits" /etc/profile.d /etc/bash.bashrc
+
+# nemoclaw-start seeds OpenClaw's template docs into an empty workspace unless
+# this is 1. OpenShell mounts /proc read-only; 0 disables OpenClaw's optional
+# child OOM-score write (see ./Dockerfile).
+ENV NEMOCLAW_MINIMAL_BOOTSTRAP=1 \
+    OPENCLAW_CHILD_OOM_SCORE_ADJ=0
+
+# Harbor's openclaw adapter bootstraps node with nvm (see ./Dockerfile).
+COPY --chown=sandbox:sandbox nvm-shim.sh /sandbox/.nvm/nvm.sh
+
+USER sandbox
+WORKDIR /sandbox
+CMD ["sleep", "infinity"]
+
+LABEL harness.base="nemoclaw-openclaw-sandbox" \
+      harness.contract="harbor-trial-v1" \
+      harness.agent="openclaw" \
+      harness.variant="base" \
+      harness.vss-cli="true" \
+      harness.vss-plugin="true" \
+      harness.vss-skills="false" \
+      harness.workspace-root="/sandbox"

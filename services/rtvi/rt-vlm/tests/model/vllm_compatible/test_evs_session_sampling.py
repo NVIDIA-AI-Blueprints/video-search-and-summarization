@@ -15,8 +15,7 @@
 
 """Unit tests for the EVS session sampling-param conversion helpers.
 
-These cover the vendored vLLM patch
-``docker/rtvi_vlm/patches/evs_vllm_files/entrypoints/openai/engine/protocol.py``:
+These cover the EVS protocol compatibility types installed in the RT-VLM image:
 
 * ``VideoSessionSamplingParams.to_sampling_params_config`` — request model ->
   serializable SamplingParams-config dict (``exclude_none`` + ``max_tokens``
@@ -24,49 +23,18 @@ These cover the vendored vLLM patch
 * ``build_session_sampling_params`` — persisted config -> vLLM ``SamplingParams``
   at generate time (the inverse).
 
-The installed vLLM in the container still carries the *pre-patch* protocol module
-until the image is rebuilt, so the vendored file is loaded directly by path (it
-only imports public vLLM APIs, which are available). This tests the patch source,
-not whatever is currently installed.
+Run inside the built RT-VLM image so these checks use the same protocol types
+as the native EVS session modules.
 """
 
-import importlib.util
-import os
-import sys
+import importlib
 
 import pytest
-
-_VENDORED_PROTOCOL = os.path.abspath(
-    os.path.join(
-        os.path.dirname(__file__),
-        "..",
-        "..",
-        "..",
-        "docker",
-        "rtvi_vlm",
-        "patches",
-        "evs_vllm_files",
-        "entrypoints",
-        "openai",
-        "engine",
-        "protocol.py",
-    )
-)
 
 
 @pytest.fixture(scope="module")
 def evs_protocol():
-    """Load the vendored EVS protocol module under a private name."""
-    spec = importlib.util.spec_from_file_location(
-        "evs_protocol_vendored_under_test", _VENDORED_PROTOCOL
-    )
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    try:
-        spec.loader.exec_module(module)
-        yield module
-    finally:
-        sys.modules.pop(spec.name, None)
+    return importlib.import_module("vllm.entrypoints.openai.engine.protocol")
 
 
 # --- to_sampling_params_config -----------------------------------------------
