@@ -12,12 +12,14 @@ open-source, Cordis-based "everything is a plugin" agent harness from DeepSeek A
 > DeepSeek Harness is in developer preview. Expect compatibility-breaking changes
 > between releases.
 
-Unlike `../.openclaw` and `../.hermes`, this does not build on an externally published
-managed runtime — `dsh` ships no official Docker image at all (confirmed: zero
-Dockerfiles in its own repo). `Dockerfile.base` owns the whole base layer itself: a
-plain pinned Node image, `npm install -g @deepseek-ai/dsh`, the `vss` CLI (same
-wheel-install pattern as `../.hermes`), and the `vss_cli` tool plugin baked directly
-into the `headless` profile.
+Like `../.openclaw` and `../.hermes`, the runtime is an OpenShell sandbox image, so it
+runs under the OpenShell supervisor. `dsh` ships no official Docker image and has no
+NemoClaw sandbox of its own, so `Dockerfile.base` starts from the generic
+`ghcr.io/nvidia/openshell-community/sandboxes/base` (Ubuntu 24.04, Node 22, iproute2,
+user `sandbox` at `/sandbox`) and adds the pinned `dsh` CLI, the `vss` CLI (same
+wheel-install pattern as `../.hermes`, on the base's uv-managed Python 3.14 since the
+CLI needs >=3.13), and the `vss_cli` tool plugin baked directly into the `headless`
+profile.
 
 ## The `headless` profile
 
@@ -65,7 +67,8 @@ docker build -f .dsh/Dockerfile.base -t <registry>/vss-harness-dsh:<tag> .dsh
 
 | Build arg | Default | What it pins |
 |---|---|---|
-| `BASE_IMAGE`, `BUILDER_IMAGE` | `node:24.18.1-trixie-slim@sha256:ac39…` | the Node runtime (same pin as `../.hermes`'s builder stages) |
+| `BASE_IMAGE` | `ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef…` | the OpenShell sandbox runtime |
+| `BUILDER_IMAGE` | `node:24.18.1-trixie-slim@sha256:ac39…` | the plugin build stage (same pin as `../.hermes`'s builder stages) |
 | `VSS_REPO`, `VSS_REF` | this repo, `develop` | the `vss` CLI only; this base ships no skills |
 
 The `dsh` CLI itself — developer preview, move deliberately — is pinned in

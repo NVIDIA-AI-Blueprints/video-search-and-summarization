@@ -439,7 +439,7 @@
       "dockerfile": ".dsh/Dockerfile.base",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": [],
-      "notes": "DeepSeek Harness (dsh) base image: a plain Node base (no externally published managed runtime, unlike vss-harness-openclaw/hermes) plus the pinned dsh CLI, the vss CLI, and the vss_cli tool plugin baked into the headless profile. No VSS skills, no full/non-base counterpart (none is built). Builds the vss CLI wheels from VSS_REF=<commit being built>, so source_path includes libs/vss."
+      "notes": "DeepSeek Harness (dsh) base image: the OpenShell community sandbox base (dsh has no NemoClaw sandbox, unlike vss-harness-openclaw/hermes) plus the pinned dsh CLI, the vss CLI, and the vss_cli tool plugin baked into the headless profile. No VSS skills, no full/non-base counterpart (none is built). Builds the vss CLI wheels from VSS_REF=<commit being built>, so source_path includes libs/vss."
     }
   ]
 }
