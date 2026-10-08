@@ -821,6 +821,8 @@ class TestCaptionGeneration:
                 asset_id, str(path), "vision", "video", str(asset_dir)
             )
             rtvi_server._asset_manager._publish_asset(asset)
+            if kwargs.get("on_asset_created") is not None:
+                kwargs["on_asset_created"](asset_id)
             return asset_id
 
         rtvi_server._asset_manager.download_file = AsyncMock(side_effect=download_file)
@@ -932,6 +934,44 @@ class TestCaptionGeneration:
             assert not rtvi_server._asset_manager.check_asset_exists(asset_id)
             assert request_id not in rtvi_server._sse_active_clients
             assert media_path.exists()
+
+        asyncio.run(asyncio.wait_for(exercise(), timeout=5))
+
+    @pytest.mark.parametrize("scheme", ["https", "s3"])
+    def test_cancelled_download_reclaims_asset_published_before_return(
+        self, rtvi_server, scheme
+    ):
+        """Cancellation during downloader teardown must not orphan an already published file."""
+        asset_id = str(uuid.uuid4())
+        rtvi_server._stream_handler.remove_video_file = MagicMock()
+        endpoint = next(route.endpoint for route in rtvi_server._app.routes
+                        if getattr(route, "path", "") == f"{API_PREFIX}/generate_captions")
+
+        async def exercise():
+            published = asyncio.Event()
+
+            async def download(*args, on_asset_created=None):
+                file = SimpleNamespace(read=AsyncMock(side_effect=[b"video", b""]))
+                await rtvi_server._asset_manager.save_file(
+                    file, "download.mp4", "vision", "video", None,
+                    file_id=args[5], on_asset_created=on_asset_created,
+                )
+                published.set()
+                # Model the awaited temporary-file __aexit__ after save_file publishes the asset.
+                await asyncio.Event().wait()
+
+            method = "_download_file" if scheme == "https" else "_download_file_from_s3"
+            setattr(rtvi_server._asset_manager, method, AsyncMock(side_effect=download))
+            query = VlmQuery(id=asset_id, url=f"{scheme}://93.184.216.34/video.mp4",
+                             model="test-model", prompt="Describe.")
+            task = asyncio.create_task(endpoint(query, SimpleNamespace()))
+            await published.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert not rtvi_server._asset_manager.check_asset_exists(asset_id)
+            rtvi_server._cleanup_executor.shutdown(wait=True)
+            assert not (Path(rtvi_server._asset_manager._asset_dir) / asset_id).exists()
 
         asyncio.run(asyncio.wait_for(exercise(), timeout=5))
 

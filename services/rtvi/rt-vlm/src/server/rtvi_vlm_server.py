@@ -1361,6 +1361,7 @@ class RTVIServer:
                         creation_time=creation_time_val,
                         file_id=asset_id,
                         url_headers=vlm_query.url_headers,
+                        on_asset_created=(temp_asset_ids.append if temp_asset_ids is not None else None),
                     )
                 elif re.match(r"^s3://", url):
                     video_id_from_url = await self._asset_manager.download_file_from_s3(
@@ -1370,6 +1371,7 @@ class RTVIServer:
                         media_type=media_type,
                         creation_time=creation_time_val,
                         file_id=asset_id,
+                        on_asset_created=(temp_asset_ids.append if temp_asset_ids is not None else None),
                     )
                 elif url.startswith("file://"):
                     local_path = self._resolve_file_url(url)
@@ -1381,14 +1383,14 @@ class RTVIServer:
                         creation_time=creation_time_val,
                         file_id=asset_id,
                     )
+                    if temp_asset_ids is not None:
+                        temp_asset_ids.append(video_id_from_url)
                 else:
                     raise ServiceException(
                         f"Unsupported URL scheme: {url}",
                         "BadParameters",
                         400,
                     )
-                if temp_asset_ids is not None:
-                    temp_asset_ids.append(video_id_from_url)
                 logger.info(
                     "URL asset created: id=%s, url=%s",
                     video_id_from_url,
