@@ -5,6 +5,9 @@ license: Apache-2.0
 metadata:
   version: "0.0.0-experimental"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
+  # Deployment versions this skill supports. EXPERIMENTAL: same range as
+  # vss-benchmark-vlm-qa, the Cosmos Reason 3 RT-VLM stack this was measured on.
+  requires-vss: ">=3.3.0,<4.0.0"
   tags: "nvidia blueprint experimental"
   # The OpenClaw harness image ships and activates skills by this.
   vss-requires: "vlm"
