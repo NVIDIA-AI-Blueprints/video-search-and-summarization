@@ -22,7 +22,9 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ .Values.statefulSetName | quote }}
+  {{- $global := .Values.global | default dict }}
+  {{- $usePrefix := default false (coalesce .Values.useReleaseNamePrefix (index $global "useReleaseNamePrefix")) }}
+  name: {{ ternary (printf "%s-%s" .Release.Name .Values.statefulSetName | trunc 63 | trimSuffix "-") .Values.statefulSetName $usePrefix | quote }}
   labels:
     app.kubernetes.io/name: vss-rtvi-cv
     app.kubernetes.io/instance: {{ .Release.Name }}
