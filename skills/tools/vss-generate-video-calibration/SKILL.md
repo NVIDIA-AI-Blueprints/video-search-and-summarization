@@ -70,6 +70,8 @@ Mode-specific prerequisites (VIOS for `rtsp`, sample zip for `sample-dataset`) l
 
 The shared sequence is stage-linear-media → verify → VGGT (when ready) → post-process → AMC → post-process → results. After the mode-specific reference has uploaded videos / automatically ingested RTSP clips / uploaded the bundled sample, run this tail. Use [`references/calibration-tail.md`](references/calibration-tail.md) for the shared Python snippet.
 
+For a **new normal or sample run using defaults**, prepare its configuration before invoking the tail: fetch `GET /v1/config/defaults`, retain the confirmed dataset `layout_px_per_m` and explicitly requested overrides, then apply the complete configuration with `POST /v1/config/<project_id>`. Do this only while the backend is idle and no other client is changing settings; confirm `GET /v1/config` matches before calibration. Current service-wide settings may belong to a previous tuning attempt, not the defaults. Do not reset an existing project being resumed or overwrite user-selected settings from a file or the UI.
+
 AMC UI sequence: Step 1 Project Setup, Step 2 Video Configuration, Step 3 Parameters, Step 4 Rectification, Step 5 Manual Alignment, Step 6 Execute, Step 7 Results.
 
 ### Step A: Stage Linear Media
