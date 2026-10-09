@@ -27,7 +27,8 @@ k8s-workload-streamprocessing:
   WDM_WL_DELETE_URL: /api/v1/proxy/stream/
   WDM_WL_CHANGE_ID_ADD: camera_proxy
   WDM_WL_CHANGE_ID_DEL: camera_remove
-  WDM_WL_THRESHOLD: 100
+  # Max streams per streamprocessing pod. Empty override = max(100, global.numSensors).
+  WDM_WL_THRESHOLD: {{ $g := .Values.global | default dict }}{{ $sdrc := index (.Values.infra | default dict) "sdrc" | default dict }}{{ index $sdrc "streamprocessingWlThreshold" | default (max 100 (index $g "numSensors" | default 0 | int)) }}
   WDM_CONTROLLER_REPROVISION: true
   WDM_RESET_ON_WLOBJ_CRASH: false
   WDM_CLEAR_DATA_WL: true

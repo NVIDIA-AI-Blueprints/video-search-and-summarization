@@ -33,13 +33,15 @@ data:
 {{- $rtspBasePort := .Values.rtsp.basePort | default 31554 }}
 {{- $rtspInstanceCount := .Values.rtsp.instanceCount | default 8 }}
 {{- $turnServerUrl := .Values.turnServerUrl | default (index $g "turnServerUrl" | default "") }}
+{{- $numSensors := index $g "numSensors" | default "" | toString }}
+{{- $maxDevices := .Values.maxDevicesSupported | default (ternary (max 16 (int $numSensors)) 100 (ne $numSensors "")) }}
 {{- $turnUrls := list }}
 {{- if $turnServerUrl }}
 {{- range splitList "," $turnServerUrl }}
 {{- $turnUrls = append $turnUrls (trim .) }}
 {{- end }}
 {{- end }}
-{{ .Files.Get "configs/vst-config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "\"__SYNC_FILE_COUNT__\"" (printf "%d" (int $syncCount)) | replace "\"__SYNC_DATA_ARRIVAL_TIMEOUT_SECS__\"" (printf "%d" (int $syncDataArrivalTimeoutSecs)) | replace "\"__STATIC_TURNURL_LIST__\"" ($turnUrls | toJson) | replace "__SERVER_DOMAIN_NAME__" (include "vss-vios-nvstreamer.fullname" .) | replace "\"__RTSP_SERVER_PORT__\"" (printf "%d" (int $rtspBasePort)) | replace "\"__RTSP_SERVER_INSTANCES_COUNT__\"" (printf "%d" (int $rtspInstanceCount)) | indent 4 }}
+{{ .Files.Get "configs/vst-config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "\"__SYNC_FILE_COUNT__\"" (printf "%d" (int $syncCount)) | replace "\"__SYNC_DATA_ARRIVAL_TIMEOUT_SECS__\"" (printf "%d" (int $syncDataArrivalTimeoutSecs)) | replace "\"__STATIC_TURNURL_LIST__\"" ($turnUrls | toJson) | replace "__SERVER_DOMAIN_NAME__" (include "vss-vios-nvstreamer.fullname" .) | replace "\"__RTSP_SERVER_PORT__\"" (printf "%d" (int $rtspBasePort)) | replace "\"__RTSP_SERVER_INSTANCES_COUNT__\"" (printf "%d" (int $rtspInstanceCount)) | replace "\"__MAX_DEVICES_SUPPORTED__\"" (printf "%d" (int $maxDevices)) | indent 4 }}
   notification_config.json: |
 {{ .Files.Get "configs/notification-config.json" | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__REDIS_ADDRESS__" $redisAddr | indent 4 }}
   vst_storage.json: |
