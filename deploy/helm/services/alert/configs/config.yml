@@ -146,14 +146,14 @@ alert_agent:
   # 5s watchdog margin past the budget -- 65s at this default -- so size a
   # startup probe against that, not against the budget alone.
   startup_timeout_seconds: 60
-  async_dispatch_max_in_flight: 16    # Global in-flight bound, 2-4x max_vlm_concurrent
+  async_dispatch_max_in_flight: 64    # Global in-flight bound, 2-4x max_vlm_concurrent
   async_io:
     external_timeout_seconds: 30
     sink_warn_in_flight: 20
     # event_loop per-service caps. max_vlm_concurrent MUST be set explicitly
     # (default falls back to async_dispatch_workers) and MUST stay at or below
     # the benchmarked VLM backend ceiling.
-    max_vlm_concurrent: 4
+    max_vlm_concurrent: 16
     max_vst_concurrent: 8
   url_transform:
     enabled: true

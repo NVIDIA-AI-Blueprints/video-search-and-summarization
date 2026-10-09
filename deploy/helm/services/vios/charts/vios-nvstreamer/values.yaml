@@ -30,6 +30,8 @@ videoMetadataServerUrl: ""   # default: http://<release>-elasticsearch:9200/mdx-
 # Comma-separated static TURN URLs (username:password@host:port). Empty = STUN only,
 # so WebRTC playback fails off-network/behind NAT.
 turnServerUrl: ""
+# VST max_devices_supported. Empty = max(16, global.numSensors) when global.numSensors is set, else 100.
+maxDevicesSupported: ""
 
 # nv_streamer_sync_file_count. Compose gets this from the blueprint configurator
 # (final_stream_count); set it to the stream count or nvstreamer serves no media.

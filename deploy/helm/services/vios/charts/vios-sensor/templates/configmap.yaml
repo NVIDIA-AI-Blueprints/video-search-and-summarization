@@ -57,13 +57,15 @@ data:
 {{- $ingressEnabled := index $vssIngress "enabled" | default false }}
 {{- $analyticsAddr := .Values.analyticsServerAddress | default (ternary (ternary (printf "%s://%s:%s/video-analytics-api" $extScheme $extHost $extPort) (printf "%s://%s/video-analytics-api" $extScheme $extHost) (ne $extPort "")) "" (and (ne $extHost "") $ingressEnabled)) }}
 {{- $turnServerUrl := .Values.turnServerUrl | default (index $g "turnServerUrl" | default "") }}
+{{- $numSensors := index $g "numSensors" | default "" | toString }}
+{{- $maxDevices := .Values.maxDevicesSupported | default (ternary (max 16 (int $numSensors)) 100 (ne $numSensors "")) }}
 {{- $turnUrls := list }}
 {{- if $turnServerUrl }}
 {{- range splitList "," $turnServerUrl }}
 {{- $turnUrls = append $turnUrls (trim .) }}
 {{- end }}
 {{- end }}
-{{ .Files.Get "configs/vst_config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "__ANALYTICS_SERVER_ADDRESS__" $analyticsAddr | replace "\"__STATIC_TURNURL_LIST__\"" ($turnUrls | toJson) | indent 4 }}
+{{ .Files.Get "configs/vst_config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "__ANALYTICS_SERVER_ADDRESS__" $analyticsAddr | replace "\"__STATIC_TURNURL_LIST__\"" ($turnUrls | toJson) | replace "\"__MAX_DEVICES_SUPPORTED__\"" (printf "%d" (int $maxDevices)) | indent 4 }}
 {{- /* With an overlay ConfigMap (e.g. the Search profile's webhook config) the
        overlay is the ONLY source of notification_config.json: listing it here as
        well would put the same path in the pod's projected configs volume twice

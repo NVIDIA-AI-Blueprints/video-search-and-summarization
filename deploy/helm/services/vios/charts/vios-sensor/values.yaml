@@ -84,6 +84,8 @@ mqttBrokerAddress: ""
 # Comma-separated static TURN URLs (username:password@host:port). Empty = STUN only,
 # so WebRTC playback fails off-network/behind NAT.
 turnServerUrl: ""
+# VST max_devices_supported. Empty = max(16, global.numSensors) when global.numSensors is set, else 100.
+maxDevicesSupported: ""
 # Centralized DB: host matches vss-vios-postgres Service (same rules as global.useReleaseNamePrefix). Password from that chart's *-postgres-cm unless overridden.
 # Override when using external DB: centralizedDbHost, centralizedDbPort, centralizedDbPassword.
 # centralizedDbHost: ""

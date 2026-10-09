@@ -84,6 +84,8 @@ mqttBrokerAddress: ""
 # Comma-separated static TURN URLs (username:password@host:port). Empty = STUN only,
 # so WebRTC playback fails off-network/behind NAT.
 turnServerUrl: ""
+# VST max_devices_supported. Empty = max(16, global.numSensors) when global.numSensors is set, else 100.
+maxDevicesSupported: ""
 # Absolute HTTP URLs for overlay assets (video-analytics-api). Empty = skip download.
 # When either is set, configs are seeded into a writable emptyDir so downloads can
 # write calibration.json / Top.png under /home/vst/vst_release/configs/.

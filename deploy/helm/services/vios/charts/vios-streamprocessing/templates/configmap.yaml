@@ -61,6 +61,8 @@ data:
 {{- $analyticsAddr := .Values.analyticsServerAddress | default (ternary (ternary (printf "%s://%s:%s/video-analytics-api" $extScheme $extHost $extPort) (printf "%s://%s/video-analytics-api" $extScheme $extHost) (ne $extPort "")) "" (and (ne $extHost "") $ingressEnabled)) }}
 {{- $softwarePath := .Values.useSoftwarePath | default false }}
 {{- $turnServerUrl := .Values.turnServerUrl | default (index $g "turnServerUrl" | default "") }}
+{{- $numSensors := index $g "numSensors" | default "" | toString }}
+{{- $maxDevices := .Values.maxDevicesSupported | default (ternary (max 16 (int $numSensors)) 100 (ne $numSensors "")) }}
 {{- $turnUrls := list }}
 {{- if $turnServerUrl }}
 {{- range splitList "," $turnServerUrl }}
@@ -68,7 +70,7 @@ data:
 {{- end }}
 {{- end }}
 {{- $downloadTimeout := int64 .Values.downloadFilesTimeoutSecs }}
-{{ .Files.Get "configs/vst_config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "__ANALYTICS_SERVER_ADDRESS__" $analyticsAddr | replace "__CALIBRATION_FILE_ENDPOINT__" $calibEp | replace "__FLOORMAP_IMAGE_ENDPOINT__" $floorEp | replace "\"__USE_SOFTWARE_PATH__\"" ($softwarePath | toString) | replace "\"__STATIC_TURNURL_LIST__\"" ($turnUrls | toJson) | replace "__3D_OVERLAY_SENSOR_NAME__" $overlaySensorName | replace "\"__DOWNLOAD_FILES_TIMEOUT_SECS__\"" ($downloadTimeout | toString) | indent 4 }}
+{{ .Files.Get "configs/vst_config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "__ANALYTICS_SERVER_ADDRESS__" $analyticsAddr | replace "__CALIBRATION_FILE_ENDPOINT__" $calibEp | replace "__FLOORMAP_IMAGE_ENDPOINT__" $floorEp | replace "\"__USE_SOFTWARE_PATH__\"" ($softwarePath | toString) | replace "\"__STATIC_TURNURL_LIST__\"" ($turnUrls | toJson) | replace "__3D_OVERLAY_SENSOR_NAME__" $overlaySensorName | replace "\"__DOWNLOAD_FILES_TIMEOUT_SECS__\"" ($downloadTimeout | toString) | replace "\"__MAX_DEVICES_SUPPORTED__\"" (printf "%d" (int $maxDevices)) | indent 4 }}
 {{- /* With an overlay ConfigMap (e.g. the Search profile's webhook config) the
        overlay is the ONLY source of notification_config.json: listing it here as
        well would put the same path in the pod's projected configs volume twice
