@@ -163,7 +163,7 @@ Report every one of these that the build has, whenever the agent is removed:
 | Alerts tab, *Generate Report* | goes with the sidebar it drives. The incident list and rule CRUD stay, on `video-analytics-api` and Alert Bridge |
 | Web UI summarization on `lvs` | with no harness, gone: the UI ships no LVS client, so the capability is `vss summarize` from the host and the UI is a dashboard |
 | Ingress `/api`, `/chat`, `/websocket` | `503`. HAProxy still starts — `bk_vss_agent` is declared `init-addr none` — and the origin's root still serves the UI |
-| Search **ingestion and deletion** | no `vss` verb covers the RT-CV/RT-Embed fan-out the agent's `/complete` performs. Use the headless recipe below |
+| Search **ingestion and deletion** | use `vss vios add` / `delete` on Agent-backed and headless deployments; configured notification receivers perform fan-out and cleanup |
 | `vss-generate-video-report-rag` | unavailable: it drives the agent's `/v1/chat` and `/executions`. Route reports through `vss-generate-video-report`, which never calls the agent |
 
 Nothing else in the operate set needs it. No `vss` command group declares the
@@ -174,14 +174,16 @@ LVS, Elasticsearch, RT-Embed, RT-VLM, and VIOS directly. `vss-ui` holds the only
 profile calls the agent, so alerting, analytics, ingest, and summarization are
 unaffected.
 
-### Provisioning moves to the headless path
+### Source provisioning on every deployment
 
-With no agent route, source provisioning follows `vss-manage-video-io-storage`
+On Agent-backed and headless deployments, source provisioning follows
+`vss-manage-video-io-storage`
 [`provision-vios-source.md`](../../operations/vss-manage-video-io-storage/references/provision-vios-source.md):
-register one VIOS source, which its mounted notification config fans out. Its
-own gate — stop when an
-agent route answers — passes on any build with the agent removed, and it is the
-only path that gets a source to RT-CV and RT-Embed. Alert rules stay with `vss-manage-alerts`, which addresses Alert Bridge.
+register one source with `vss vios add`, which the mounted notification config
+fans out to enabled receivers. There is no Agent-presence gate or `/complete`
+prerequisite. Check the receivers for the requested capability before claiming
+indexing readiness. Alert rules stay with `vss-manage-alerts`, which addresses
+Alert Bridge.
 
 ### Ingress is still required
 

@@ -1,14 +1,14 @@
 [
   {
     "id": "search-archive",
-    "question": "Run a natural-language fusion search over archived VSS video, ingesting a clip first if needed.",
+    "question": "Ingest the loading-dock clip for search, then find up to three forklift instances in it.",
     "expected_skill": "vss-search-archive",
     "expected_script": null,
-    "ground_truth": "The agent searches the requested archived source with fusion retrieval, using the agent-backed ingestion lifecycle first only when the named source is absent and the user authorizes ingestion.",
+    "ground_truth": "A combined ingest-and-search request activates the search skill for retrieval and the VIOS skill for source registration. On Agent-backed and headless deployments, register once with `vss vios add`; the mounted notification config determines whether the needed search receiver can index it. Search starts only after the source is registered and the requested path is ready.",
     "expected_behavior": [
-      "The agent loads vss-search-archive and preserves the requested source and visual constraints.",
-      "The agent uses the supported search interface for the selected deployment.",
-      "The agent does not expose credentials, substitute another source, or mutate a backend directly."
+      "The agent loads vss-search-archive for the retrieval phase and preserves the requested source and visual constraints.",
+      "For the ingestion phase the agent uses vss-manage-video-io-storage and `vss vios add` once, checks the requested search receiver in the mounted notification config, and does not cycle between skills or claim that registration alone proves indexing.",
+      "The agent uses the supported search interface for the selected deployment and does not expose credentials, substitute another source, or mutate a backend directly."
     ]
   },
   {
@@ -76,11 +76,11 @@
     "question": "Search the live camera stream dock_cam_live for a person entering the restricted zone.",
     "expected_skill": "vss-search-archive",
     "expected_script": null,
-    "ground_truth": "The agent resolves the live stream, runs archive retrieval scoped to it with the rtsp source type, and proves readiness against the embedding family wildcard rather than a date-stamped index before reporting candidates.",
+    "ground_truth": "The agent resolves the live stream, runs archive retrieval scoped to it with the rtsp source type, and does not conflate live-stream documents with the uploads anchor.",
     "expected_behavior": [
       "The agent loads vss-search-archive and resolves dock_cam_live to its registered live-stream identity before search.",
       "The agent selects --source-type rtsp and scopes retrieval to the resolved live-stream identifier.",
-      "The agent proves searchable documents with a stream-scoped count against the embedding family wildcard, not a single 2025-01-01 anchor index, and does not treat an empty uploads anchor as a live-stream failure."
+      "The agent does not select the upload partition or a date-stamped anchor index, does not treat an empty uploads anchor as a live-stream failure, and does not poll a search index directly."
     ]
   },
   {
@@ -108,6 +108,42 @@
     ]
   },
   {
+    "id": "search-archive-exit6-partial",
+    "question": "My last `vss search run embed` for forklifts in warehouse_sample returned exit 6 with three hits but `\"persisted\": false`. What should I report, and should I rerun?",
+    "expected_skill": "vss-search-archive",
+    "expected_script": null,
+    "ground_truth": "Exit 6 is partial, not failure: the response carried usable hits but `\"persisted\": false`, so a later stage (persistence) failed. The agent reports the three hits once, discloses the persistence limitation, and does not rerun the search or discard the usable results.",
+    "expected_behavior": [
+      "The agent recognizes exit 6 as a partial result that still carries usable `data`, and reads `search_messages` when present.",
+      "The agent reports the three hits once with their source, interval, score, media URL when present, and verification verdict, and states the persistence limitation.",
+      "The agent does not rerun the search, does not treat exit 6 as a hard failure, and does not broaden scope or fall back to raw REST."
+    ]
+  },
+  {
+    "id": "search-archive-ingest-only",
+    "question": "Ingest the loading-dock camera feed into the search index so I can search it later.",
+    "expected_skill": null,
+    "expected_script": null,
+    "should_trigger": false,
+    "ground_truth": "A pure ingestion request does not activate the search skill. It uses vss-manage-video-io-storage and registers the source once with `vss vios add`; the deployment's mounted notification config determines which consumers receive it.",
+    "expected_behavior": [
+      "The agent does not load or activate vss-search-archive for an ingestion-only request.",
+      "The agent routes registration to vss-manage-video-io-storage, uses `vss vios add` once on Agent-backed or headless deployments, and does not claim that registration alone proves search indexing."
+    ]
+  },
+  {
+    "id": "search-archive-delete-only",
+    "question": "Delete the warehouse-ladder source from the search deployment.",
+    "expected_skill": null,
+    "expected_script": null,
+    "should_trigger": false,
+    "ground_truth": "A pure deletion request uses a source-management workflow supported by the deployment, not the search skill.",
+    "expected_behavior": [
+      "The agent does not load or activate vss-search-archive for a deletion-only request.",
+      "The agent routes source deletion to vss-manage-video-io-storage or an equivalent source-management workflow."
+    ]
+  },
+  {
     "id": "search-archive-negative-direct-video-qa",
     "question": "Watch /workspace/input/forklift.mp4 and tell me whether the driver is wearing a helmet.",
     "expected_skill": null,
@@ -129,6 +165,49 @@
     "expected_behavior": [
       "The agent does not load or activate vss-search-archive.",
       "The agent routes the long-recording summary request to vss-summarize-video or an equivalent summarization workflow."
+    ]
+  },
+  {
+    "id": "search-archive-exit6-without-data",
+    "question": "My search returned exit 6 with a supplied stage failure and no data field. What should I report?",
+    "expected_skill": "vss-search-archive",
+    "expected_script": null,
+    "ground_truth": "Exit 6 without data supplies a failure, not usable hits. Report that failure and search_messages if supplied, without inventing results or retrying an individual stage.",
+    "expected_behavior": [
+      "The agent checks for data before reporting hits and reports the supplied failure when data is absent.",
+      "The agent does not rerun or retry an individual stage or fall back to raw REST."
+    ]
+  },
+  {
+    "id": "search-archive-attribute-flags",
+    "question": "Find people wearing a white jacket in warehouse-ladder between 12:00 and 12:10 UTC on October 6, 2026.",
+    "expected_skill": "vss-search-archive",
+    "expected_script": null,
+    "ground_truth": "An attributes-only request selects vss search run attribute, passes the property with --attribute and the exact registered name as --video-source, and uses --timestamp-start/--timestamp-end for the requested bounds.",
+    "expected_behavior": [
+      "The agent uses --attribute, not --query, for this attributes-only path.",
+      "Before attribute search it checks the recorded raw-index inventory, refreshes once from the recorded origin if absent, and discloses missing enrichment if still absent.",
+      "The agent uses --timestamp-start and --timestamp-end, not invented time flags."
+    ]
+  },
+  {
+    "id": "search-archive-object-flags",
+    "question": "Find tracked object 42 in warehouse-ladder.",
+    "expected_skill": "vss-search-archive",
+    "expected_script": null,
+    "ground_truth": "An explicit tracked-object request selects vss search run object with --object-id 42 and the exact registered source name.",
+    "expected_behavior": [
+      "The agent selects the object path and passes --object-id instead of --query or --attribute."
+    ]
+  },
+  {
+    "id": "search-archive-exit2-help",
+    "question": "My selected search path returned exit 2 for invalid flags. How should I correct it?",
+    "expected_skill": "vss-search-archive",
+    "expected_script": null,
+    "ground_truth": "The agent reads that selected path's --help once and corrects the invalid invocation using its documented flags.",
+    "expected_behavior": [
+      "The agent reads the selected path's --help once after exit 2; it does not guess shared flags."
     ]
   }
 ]

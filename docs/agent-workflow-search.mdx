@@ -176,14 +176,14 @@ on-demand VIOS source. Confirm the source appears in VIOS's sensor list and
 that the configured consumers finish processing it.
 ```
 
-What the agent does on a deployment without the in-stack Agent:
+What the agent does on Agent-backed and headless deployments:
 
-1. Reads the [`vss-manage-video-io-storage`](/vss/vision-agent/agent-skills) skill and its headless provisioning reference. With no Agent there is no upload handshake to call, so it registers the source once with VIOS.
-2. Resolves the VIOS endpoint and registers the source.
+1. Reads the [`vss-manage-video-io-storage`](/vss/vision-agent/agent-skills) skill and its source provisioning reference.
+2. Uses the recorded deployment configuration and registers the source once with `vss vios add`.
 3. Lets VIOS's mounted notification configuration fan the source out asynchronously to the configured consumers, such as RTVI-CV, RTVI-Embed, and optional RTVI-VLM tagging. Their outputs feed the indices queried by search.
 4. Verifies the sensor is registered and online, then waits for the configured consumers to finish processing it.
 
-On the in-stack Agent deployment the prompt is the same but the ingestion path is not. The agent uses the [`vss-search-archive`](/vss/vision-agent/agent-skills) skill's three-step upload — register the video, upload the bytes, then call `/complete` — and that completion call is what drives the detection and embedding fan-out. Registering the source in VIOS is not a substitute for it.
+The in-stack Agent deployment uses the same registration path. VIOS notification receivers perform the detection, embedding, and optional tagging fan-out; no Agent `/complete` call is required. The search skill queries the resulting archive and hands source registration to `vss-manage-video-io-storage`.
 
 It may take up to a few minutes depending on the size of the video(s).
 
@@ -198,7 +198,7 @@ and the configured consumers have received it before reporting done.
 ```
 
 <Note>
-Provisioning writes through the deployment's own host ports rather than the public origin, so ingestion does not depend on the CLI being configured.
+Provisioning uses the origin `vss configure` recorded, so configure the CLI first.
 </Note>
 
 Before the CLI can search, it has to be pointed at the build's ingress, but this is not a step you need to run. The agent does it on the first query: it resolves the deployment's origin, runs `vss configure` against it, and repeats that after each ingestion, because the recorded index inventory is a snapshot and a freshly deployed stack records none.
@@ -235,7 +235,7 @@ Don't fetch screenshot pixels unless I opt in.
 What the agent does:
 
 1. Reads the [`vss-search-archive`](/vss/vision-agent/agent-skills) skill to determine the retrieval path.
-2. Confirms the source is registered in VIOS, and provisions it first if it is not.
+2. Confirms the source is registered in VIOS; if it is not, reports that and asks before ingesting.
 3. Chooses a retrieval route and runs it through `vss search run`, which takes no endpoint because the CLI resolves everything from what `vss configure` recorded. The four routes match the ones the chat interface selects between: `embed` for actions and events, `attribute` for visual descriptors, `fusion` for queries combining both, and `object` for identity lookup by tracked object id.
 4. Verifies the top results with the critic if the build includes RTVI-VLM. The CLI attempts this by default and skips it when the service is absent.
 5. Presents results as a table with time ranges, similarity scores, verification verdicts, and the per-criteria breakdown.
