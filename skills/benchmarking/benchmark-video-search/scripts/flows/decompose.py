@@ -66,8 +66,18 @@ MAX_TOKENS = 4096
 #: The agent decomposes with reasoning off (``reasoning_utils``). Nemotron chat
 #: templates default ``enable_thinking`` to true, and a thinking reply is
 #: reasoning text -- or ``content: null`` -- rather than the JSON object.
-#: Templates that do not read the kwarg ignore it.
 CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
+
+#: Models whose template reads that kwarg: the agent's
+#: ``_ENABLE_THINKING_MARKERS``, kept equal by a test. Any other model is sent
+#: nothing, since a strict OpenAI-compatible server rejects unknown fields.
+ENABLE_THINKING_MARKERS = ("nemotron-3.5-lightning", "nemotron-3-nano")
+
+
+def thinking_kwargs(model: str) -> dict[str, Any]:
+    """The ``chat_template_kwargs`` the agent would send this model, if any."""
+    name = (model or "").lower()
+    return dict(CHAT_TEMPLATE_KWARGS) if any(m in name for m in ENABLE_THINKING_MARKERS) else {}
 
 _THINK_BLOCK = re.compile(r"<think>.*?(?:</think>|$)", re.DOTALL)
 
@@ -163,7 +173,7 @@ class LiveDecomposer:
             "llm_url": self._url,
             "model": self._model,
             "temperature": TEMPERATURE,
-            "chat_template_kwargs": CHAT_TEMPLATE_KWARGS,
+            "chat_template_kwargs": thinking_kwargs(self._model) or None,
             "prompt_source": PROMPT_SOURCE,
         }
 
@@ -176,11 +186,10 @@ class LiveDecomposer:
         sources = (
             f"Video files: {', '.join(video_sources)}" if video_sources else "No specific sources available"
         )
-        body = {
+        body: dict[str, Any] = {
             "model": self._model,
             "temperature": TEMPERATURE,
             "max_tokens": MAX_TOKENS,
-            "chat_template_kwargs": CHAT_TEMPLATE_KWARGS,
             "messages": [
                 {"role": "system", "content": _SYSTEM},
                 {
@@ -193,6 +202,9 @@ class LiveDecomposer:
                 },
             ],
         }
+        template_kwargs = thinking_kwargs(self._model)
+        if template_kwargs:
+            body["chat_template_kwargs"] = template_kwargs
         started = time.perf_counter()
         try:
             resp = requests.post(
@@ -209,7 +221,7 @@ class LiveDecomposer:
             raise DecompositionError(
                 f"decomposition for {query!r} returned no content"
                 + (f" (only reasoning: {str(reasoning)[:120]!r})" if reasoning else "")
-                + "; the model is in thinking mode despite enable_thinking=false."
+                + "; the model answered in thinking mode."
             )
 
         try:

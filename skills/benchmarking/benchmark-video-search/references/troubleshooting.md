@@ -22,12 +22,24 @@ instead of querying if one is not.
 | raw `mdx-raw-2025-01-01` | RT-CV listed the stream and then dropped it, last frame ≥ end − `--raw-end-tolerance-s`, count ≥ frames − 15 |
 | behavior `mdx-behavior-2025-01-01` | raw is done and no count changed for `--ingest-quiet-s` (a heuristic, recorded as `behavior_check: quiet_window`) |
 
+Polling starts before the first upload and each video joins as its upload
+returns, so a short clip that RT-CV lists and drops while a later file is still
+uploading is still counted as seen. The deadline and the "querying held back"
+time (`waited_s`) both start when the last upload returns.
+
+If RT-CV never lists a video but its raw frames reach the last frame and the
+frame count and then stay unchanged for the quiet window, raw passes anyway.
+The video's `raw_check` is recorded as `rtcv_missing` and the summary prints a
+warning for it. A video that has raw documents but no behavior documents also
+passes with a warning: zero tracked objects is allowed, but on the stock
+datasets it usually means RT-CV's behavior output is misconfigured.
+
 The abort message lists every unfinished video with each index's count against
 its target and the reason it is not done:
 
 | Reason in the abort | Fix |
 |---|---|
-| `RT-CV never listed the stream` | check `webhooks.enabled` in the VIOS notification config and that `RTVI_EMBED_MODEL` matches the webhook's model string |
+| `RT-CV never listed the stream` (no raw frames either) | check `webhooks.enabled` in the VIOS notification config and that `RTVI_EMBED_MODEL` matches the webhook's model string |
 | `RT-CV is still processing` / counts short | perception is slow; raise `--ingest-deadline-s` |
 | `last frame at Xs, needs >= Ys` after RT-CV dropped the stream | the video may end in frames RT-CV writes nothing for; raise `--raw-end-tolerance-s` |
 | `no tag documents` | the profile has no RT-VLM; pass `--ingest-require embed,raw,behavior` |
@@ -92,6 +104,7 @@ regression.
 | `Duplicate Camera id` | RTVI-CV already has that stream | treated as done — embeddings still generate |
 | Everything scores 0.0 | possibly empty or unscoped search indices | check Step 3's Elasticsearch index counts and `flow.ingest_readiness`; a VST listing alone is insufficient |
 | Header says `fallback_path` | routing is active; that is the path for unrouted queries | look at `planned_paths` |
+| `planned_paths: decided per query` | live decomposition picks each query's path at run time | read the actual split under `Search paths` in the final summary |
 
 ---
 
