@@ -211,21 +211,21 @@ llms:
     _type: nim
     model_name: ${LLM_NAME}
     base_url: ${LLM_BASE_URL}/v1
-    max_tokens: 16384
+    max_tokens: 32768
     temperature: 0.0
 
   openai_llm:
     _type: openai
     model_name: ${LLM_NAME}
     base_url: ${LLM_BASE_URL}/v1
-    max_tokens: 16384
+    max_tokens: 32768
     temperature: 0.0
 
   vllm_llm:
     _type: openai
     model_name: ${LLM_NAME}
     base_url: ${LLM_BASE_URL}/v1
-    max_tokens: 16384
+    max_tokens: 32768
     temperature: 0.0
     model_kwargs:
       extra_body:
