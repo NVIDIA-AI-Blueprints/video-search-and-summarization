@@ -42,7 +42,7 @@ from pydantic import (
     model_validator,
 )
 
-from .alert_config import AlertRuleConfig
+from .alert_config import AlertRuleConfig, require_streaming_mode_for_options
 
 
 # Fields populated by the always-on service from the camera event or
@@ -53,6 +53,17 @@ _DERIVED_RULE_FIELDS = frozenset({"live_stream_url", "alert_type", "sensor_name"
 # Fields that have defaults in AlertRuleConfig but must be explicitly
 # provided in the always-on YAML config (cannot be left out or blank).
 _ALWAYS_ON_REQUIRED_FIELDS = frozenset({"prompt", "system_prompt", "model"})
+
+
+@model_validator(mode="after")
+def _streaming_options_validator(self: BaseModel) -> BaseModel:
+    require_streaming_mode_for_options(
+        self.inference_mode,  # type: ignore[attr-defined]
+        self.streaming_frame_policy,  # type: ignore[attr-defined]
+        self.streaming_window_frames,  # type: ignore[attr-defined]
+        self.streaming_question_on_decode,  # type: ignore[attr-defined]
+    )
+    return self
 
 
 def _build_always_on_params_model() -> Type[BaseModel]:
@@ -86,6 +97,7 @@ def _build_always_on_params_model() -> Type[BaseModel]:
     return create_model(  # type: ignore[call-overload]
         "AlwaysOnRuleParams",
         __config__=ConfigDict(extra="forbid"),
+        __validators__={"_streaming_options": _streaming_options_validator},
         **pydantic_fields,
     )
 
