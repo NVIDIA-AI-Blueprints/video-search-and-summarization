@@ -516,6 +516,7 @@ def ingest_videos(
     video_dir: Path,
     skip_existing_from: str | None = None,
     before_upload: Any = None,
+    after_upload: Any = None,
 ) -> dict[str, Any]:
     """Upload every fixture through the selected ingest backend.
 
@@ -525,7 +526,8 @@ def ingest_videos(
     creates a duplicate sensor for the same video.
 
     ``before_upload`` receives the files about to be uploaded, after skipping,
-    and may abort before any bytes are sent.
+    and may abort before any bytes are sent. ``after_upload`` receives each
+    successful upload's record as soon as it returns.
     """
     video_files = sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv"))
     if not video_files:
@@ -580,6 +582,8 @@ def ingest_videos(
                 )
             suffix = f"  |  {'  |  '.join(extras)}" if extras else ""
             print(f"    OK  {record['upload_latency_s']}s{suffix}  (sensor: {record.get('sensor_id')})")
+            if after_upload is not None:
+                after_upload(record)
         else:
             print(f"    FAILED: {record.get('error')}")
 
@@ -653,42 +657,52 @@ def check_stale_documents(
         )
 
 
-def expected_ingest_videos(
-    upload_stats: dict[str, Any],
-    video_dir: Path,
-    vst_url: str,
-    ingest_backend: Any,
-) -> list[Any]:
-    """What the gate waits for: this run's uploads plus the skipped sources.
-
-    The registered name (raw/behavior key) and sensor id (embedding/tag key)
-    are read from VST rather than rebuilt from the file name, since VST keeps
-    the extension for some sources and not others.
-    """
+def _registered_streams(vst_url: str) -> dict[str, str]:
     try:
-        streams = flows.list_sensor_streams(vst_url)
+        return flows.list_sensor_streams(vst_url)
     except Exception as e:
         raise SystemExit(f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})") from e
 
-    videos: list[Any] = []
-    for record in upload_stats.get("per_file", []):
-        if not record.get("success"):
-            continue
-        sensor_id = record.get("sensor_id")
-        videos.append(flows.ExpectedVideo(
-            name=streams.get(sensor_id) or record["video_name"],
-            sensor_id=sensor_id,
-            duration_s=record.get("duration_s"),
-            fps=record.get("fps"),
-            uploaded_this_run=True,
-            upload_start_mono=record.get("upload_start_mono"),
-            upload_start_utc=record.get("upload_start_utc"),
-            video_name=record["video_name"],
-            file_size_mb=record.get("file_size_mb"),
-            upload_s=record.get("upload_latency_s"),
-        ))
 
-    for stem in upload_stats.get("skipped_existing") or []:
+def _fill_duration(video: Any, ingest_backend: Any) -> Any:
+    anchor_check = getattr(ingest_backend, "verify_anchor", None)
+    if video.duration_s is None and video.sensor_id and anchor_check:
+        video.duration_s = flows.timeline_duration_s(anchor_check(video.sensor_id))
+    return video
+
+
+def uploaded_ingest_video(record: dict[str, Any], vst_url: str, ingest_backend: Any) -> Any:
+    """The gate's view of one upload, built the moment it returns.
+
+    The registered name (raw/behavior key) is read from VST rather than
+    rebuilt from the file name, since VST keeps the extension for some
+    sources and not others; the sensor id (embedding/tag key) is the upload's.
+    """
+    sensor_id = record.get("sensor_id")
+    streams = _registered_streams(vst_url)
+    return _fill_duration(flows.ExpectedVideo(
+        name=streams.get(sensor_id) or record["video_name"],
+        sensor_id=sensor_id,
+        duration_s=record.get("duration_s"),
+        fps=record.get("fps"),
+        uploaded_this_run=True,
+        upload_start_mono=record.get("upload_start_mono"),
+        upload_start_utc=record.get("upload_start_utc"),
+        video_name=record["video_name"],
+        file_size_mb=record.get("file_size_mb"),
+        upload_s=record.get("upload_latency_s"),
+    ), ingest_backend)
+
+
+def skipped_ingest_videos(
+    stems: list[str], video_dir: Path, vst_url: str, ingest_backend: Any,
+) -> list[Any]:
+    """``--skip-existing`` sources: still searched, so still checked, never timed."""
+    if not stems:
+        return []
+    streams = _registered_streams(vst_url)
+    videos = []
+    for stem in stems:
         variants = flows.name_variants(stem)
         sensor_id, name = next(
             ((sid, n) for sid, n in streams.items() if str(n).lower() in variants), (None, stem)
@@ -696,61 +710,80 @@ def expected_ingest_videos(
         local = next((p for p in (video_dir / f"{stem}.mp4", video_dir / f"{stem}.mkv") if p.exists()), None)
         media = flows.probe_media(local) if local else {"duration_s": None, "fps": None}
         size_mb = round(local.stat().st_size / (1024 * 1024), 2) if local else None
-        videos.append(flows.ExpectedVideo(
+        videos.append(_fill_duration(flows.ExpectedVideo(
             name=name, sensor_id=sensor_id, duration_s=media["duration_s"], fps=media["fps"],
             uploaded_this_run=False, video_name=stem, file_size_mb=size_mb,
-        ))
-
-    anchor_check = getattr(ingest_backend, "verify_anchor", None)
-    for video in videos:
-        if video.duration_s is None and video.sensor_id and anchor_check:
-            video.duration_s = flows.timeline_duration_s(anchor_check(video.sensor_id))
+        ), ingest_backend))
     return videos
 
 
-def run_ingest_gate(
-    args: argparse.Namespace,
-    ingest_backend: Any,
-    upload_stats: dict[str, Any],
-    video_dir: Path,
-    vst_url: str,
-    ingress_url: str,
-) -> dict[str, Any]:
-    """Block until every expected video is fully indexed; abort otherwise."""
-    expected = expected_ingest_videos(upload_stats, video_dir, vst_url, ingest_backend)
-    deadline = args.ingest_deadline_s
-    print(
-        f"\nWaiting for ingestion of {len(expected)} video(s) via {ingress_url} "
-        f"(require: {','.join(sorted(args.ingest_require))}, poll {args.ingest_poll_s}s, "
-        f"quiet {args.ingest_quiet_s}s)..."
-    )
-    result = flows.wait_for_ingest_complete(
+def build_ingest_watcher(args: argparse.Namespace, ingress_url: str) -> Any:
+    return flows.IngestWatcher(
         ingress_url,
-        expected,
         require=args.ingest_require,
         chunk_s=args.chunk_s,
         poll_s=args.ingest_poll_s,
         quiet_s=args.ingest_quiet_s,
-        deadline_s=deadline,
         raw_end_tolerance_s=args.raw_end_tolerance_s,
         upload_timestamp=args.upload_timestamp,
     )
+
+
+def run_ingest_gate(
+    args: argparse.Namespace,
+    watcher: Any,
+    upload_stats: dict[str, Any],
+    video_dir: Path,
+    vst_url: str,
+    ingest_backend: Any,
+) -> dict[str, Any]:
+    """Block until every expected video is fully indexed; abort otherwise.
+
+    This run's uploads were handed to ``watcher`` as each returned; the
+    skipped sources join here, and sealing the set starts the deadline.
+    """
+    for video in skipped_ingest_videos(
+        list(upload_stats.get("skipped_existing") or []), video_dir, vst_url, ingest_backend
+    ):
+        watcher.add(video)
+    watcher.start()
+    print(
+        f"\nWaiting for ingestion via {watcher.ingress_url} "
+        f"(require: {','.join(sorted(args.ingest_require))}, poll {args.ingest_poll_s}s, "
+        f"quiet {args.ingest_quiet_s}s)..."
+    )
+    result = watcher.wait(args.ingest_deadline_s)
     result["ingest"] = flows.aggregate_ingest_stats(result)
-    flows.print_ingest_summary(result["ingest"])
     if result["outcome"] != flows.INGEST_CONFIRMED:
+        flows.print_ingest_summary(result["ingest"])
         raise SystemExit(flows.format_ingest_failure(result))
-    for report in result["per_video"]:
-        if report["over_target"]:
-            print(
-                f"  WARNING: {report['sensor']} has more documents than one ingest writes "
-                f"({report['over_target']}): it may have been processed twice."
-            )
+    print(
+        f"  All {len(result['per_video'])} video(s) ingested; queries held back "
+        f"{result['waited_s']:.1f}s after the last upload (INGESTION SUMMARY below)."
+    )
     return result
 
 
 # =============================================================================
 # Evaluation
 # =============================================================================
+
+
+def decomposition_sources(annotations: dict[str, Any], vst_url: str | None) -> list[str]:
+    """The source list the decomposition prompt shows, as the agent builds it.
+
+    The agent lists every video file VST has registered, in VST's spelling --
+    not only the ones holding an answer, which would hand the model a shortlist
+    a real user never gets. Falls back to the dataset's names, and says so,
+    when VST cannot be read.
+    """
+    if vst_url:
+        try:
+            return sorted(set(flows.list_sensor_streams(vst_url).values()))
+        except Exception as e:  # noqa: BLE001
+            print(f"  WARNING: could not list VST sources for decomposition ({type(e).__name__}: {e});")
+            print("           the prompt lists only the dataset's annotated videos.")
+    return sorted({s["video_name"] for segs in annotations.values() for s in segs if s.get("video_name")})
 
 
 def run_evaluation(
@@ -799,13 +832,17 @@ def run_evaluation(
 
     # Compute the planned split over the ACTUAL query list, so the header
     # states what will run rather than only the fallback.
+    # Under live decomposition nothing is planned yet -- every query would
+    # read as the fallback path -- so the header says so instead of a split.
     planned_paths: dict[str, int] = {}
-    if hasattr(query_backend, "plan_for_query"):
+    if hasattr(query_backend, "plan_for_query") and decomposer is None:
         planned_paths = flows.path_distribution([query_backend.plan_for_query(q) for q in queries])
 
     described = describe_query_flow(query_backend, decomposer, fallback=decompose_fallback)
     if planned_paths:
         described["planned_paths"] = "  ".join(f"{k}={v}" for k, v in planned_paths.items())
+    elif decomposer is not None:
+        described["planned_paths"] = "decided per query by live decomposition (see Search paths below)"
 
     print(f"\n{'=' * 60}")
     print("SEARCH PROFILE EVALUATION (pluggable flow)")
@@ -817,10 +854,7 @@ def run_evaluation(
     print(f"{'concurrency:':<22}{concurrency}")
     print(f"{'=' * 60}\n")
 
-    # The prompt asks which sources exist so it can fill `video_sources`; the
-    # dataset already knows, which beats asking VST for an inventory that may
-    # include unrelated uploads.
-    video_names = {s["video_name"] for segs in annotations.values() for s in segs if s.get("video_name")}
+    video_names = decomposition_sources(annotations, vst_url) if decomposer is not None else []
     all_results: list[dict[str, Any] | None] = [None] * len(queries)
     print_lock = threading.Lock()
     completed = [0]
@@ -837,7 +871,7 @@ def run_evaluation(
         # keys per thread, so the shared dict needs no lock.
         decompose_s = 0.0
         if decomposer is not None:
-            decomposition, decompose_s = decomposer.decompose(query, video_sources=sorted(video_names))
+            decomposition, decompose_s = decomposer.decompose(query, video_sources=video_names)
             query_backend.decompositions[query] = decomposition
 
         raw_results, latency_s = query_backend.search(query)
@@ -1871,9 +1905,12 @@ def main() -> None:
         and not args.legacy_index_probe
     )
     ingress_url = args.ingress_url or flows.ingress_url_for(args.endpoint, args.vss_origin_port)
+    watcher = build_ingest_watcher(args, ingress_url) if gate_ingest else None
 
-    def _reject_stale(video_files: list[Path]) -> None:
-        if gate_ingest:
+    def _before_upload(video_files: list[Path]) -> None:
+        # Polling starts before the first byte is sent, so a short clip that
+        # RT-CV finishes during a later upload is still seen in its stream list.
+        if watcher is not None:
             check_stale_documents(
                 ingress_url,
                 video_files,
@@ -1881,6 +1918,11 @@ def main() -> None:
                 grace_s=CLEANUP_GRACE_S if cleared else 0.0,
                 poll_s=args.ingest_poll_s,
             )
+            watcher.start()
+
+    def _after_upload(record: dict[str, Any]) -> None:
+        if watcher is not None:
+            watcher.add(uploaded_ingest_video(record, vst_url, ingest_backend))
 
     if args.skip_ingest:
         print("Skipping ingest (--skip-ingest)")
@@ -1892,11 +1934,12 @@ def main() -> None:
             ingest_backend,
             video_dir,
             skip_existing_from=vst_url if args.skip_existing else None,
-            before_upload=_reject_stale,
+            before_upload=_before_upload,
+            after_upload=_after_upload,
         )
-        flows.print_upload_summary(upload_stats)
 
         if upload_stats.get("failed"):
+            flows.print_upload_summary(upload_stats)
             raise SystemExit(
                 f"ABORTED: {upload_stats['failed']} upload(s) failed. "
                 "Scoring against a partial index would misreport retrieval quality."
@@ -1954,9 +1997,9 @@ def main() -> None:
             else:
                 print(f"  (anchor unverified: {anchor})")
 
-        if gate_ingest:
+        if watcher is not None:
             ingest_readiness = run_ingest_gate(
-                args, ingest_backend, upload_stats, video_dir, vst_url, ingress_url
+                args, watcher, upload_stats, video_dir, vst_url, ingest_backend
             )
         elif args.legacy_index_probe and not ingest_backend.proves_indexing and not args.skip_index_probe:
             print(f"\nProbing index coverage for {len(expected)} source(s) (--legacy-index-probe)...")

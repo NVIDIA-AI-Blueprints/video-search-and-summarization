@@ -27,6 +27,7 @@ routing, and VST name matching.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -495,7 +496,9 @@ def test_live_decomposer_warns_when_model_discovery_is_ambiguous(monkeypatch: py
     assert decomposer.model == "first"
 
 
-def _decompose_with(monkeypatch: pytest.MonkeyPatch, message: dict[str, Any]) -> tuple[Any, list[dict[str, Any]]]:
+def _decompose_with(
+    monkeypatch: pytest.MonkeyPatch, message: dict[str, Any], model: str = "nvidia/nemotron-3-nano",
+) -> tuple[Any, list[dict[str, Any]]]:
     sent: list[dict[str, Any]] = []
 
     class _Response:
@@ -510,7 +513,7 @@ def _decompose_with(monkeypatch: pytest.MonkeyPatch, message: dict[str, Any]) ->
         return _Response()
 
     monkeypatch.setattr("flows.decompose.requests.post", fake_post)
-    decomposer = flows.LiveDecomposer("https://llm", repo_root=flows.REPO_ROOT, model="nvidia/nemotron-3-nano")
+    decomposer = flows.LiveDecomposer("https://llm", repo_root=flows.REPO_ROOT, model=model)
     return decomposer, sent
 
 
@@ -520,6 +523,46 @@ def test_decomposition_turns_thinking_off_like_the_agent(monkeypatch: pytest.Mon
     assert decomposition == {"query": "forklift", "has_action": True}
     assert sent[0]["chat_template_kwargs"] == {"enable_thinking": False}
     assert decomposer.describe()["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_decomposition_sends_no_template_kwargs_to_other_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A strict OpenAI-compatible server may reject the unknown field."""
+    decomposer, sent = _decompose_with(
+        monkeypatch, {"content": '{"query": "forklift"}'}, model="meta/llama-3.1-70b-instruct"
+    )
+    decomposer.decompose("a forklift moving")
+    assert "chat_template_kwargs" not in sent[0]
+    assert decomposer.describe()["chat_template_kwargs"] is None
+
+
+def test_decomposition_lists_every_vst_video_like_the_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    import run_eval_flows as rf
+
+    annotations = {"q": [{"video_name": "answer_clip"}]}
+    monkeypatch.setattr(
+        rf.flows, "list_sensor_streams",
+        lambda _url: {"answer_clip": "answer_clip", "other_clip": "Other_Clip"},
+    )
+    assert rf.decomposition_sources(annotations, "http://vst") == ["Other_Clip", "answer_clip"]
+
+    def unreachable(_url: str) -> dict[str, str]:
+        raise OSError("down")
+
+    monkeypatch.setattr(rf.flows, "list_sensor_streams", unreachable)
+    assert rf.decomposition_sources(annotations, "http://vst") == ["answer_clip"]
+
+
+def test_thinking_markers_match_the_agent() -> None:
+    source = (
+        flows.REPO_ROOT
+        / "services/agent/packages/vss_agents/src/vss_agents/utils/reasoning_utils.py"
+    )
+    if not source.is_file():
+        pytest.skip("agent source not in this checkout")
+    match = re.search(r"_ENABLE_THINKING_MARKERS\s*=\s*\(([^)]*)\)", source.read_text())
+    assert match, "the agent no longer defines _ENABLE_THINKING_MARKERS"
+    agent_markers = tuple(re.findall(r"[\"']([^\"']+)[\"']", match.group(1)))
+    assert agent_markers == flows.decompose.ENABLE_THINKING_MARKERS
 
 
 def test_a_null_thinking_reply_is_a_decomposition_error_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2220,18 +2263,115 @@ def test_embeddings_reach_their_target_long_before_raw() -> None:
 
 
 def test_rtcv_never_listing_the_video_times_out_with_the_webhook_hint() -> None:
+    """No RT-CV listing and no frames: the webhook never reached RT-CV."""
     clock = _FakeClock(1.2)
-    full = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42, behavior=8)
-    result = _gate([_warehouse()], lambda: full, clock, deadline_s=30.0)
+    no_frames = _snap(cv=False, embed=42, tags=42)
+    result = _gate([_warehouse()], lambda: no_frames, clock, deadline_s=30.0)
 
     assert result["outcome"] == "timed_out"
     report = result["per_video"][0]
     assert report["outcome"] == "timed_out"
     assert report["cv_seen"] is False
-    assert any("RT-CV never listed" in c for c in report["causes"])
-    message = flows.format_ingest_failure(result)
-    assert "webhooks.enabled" in message
-    assert "raw 6298/6285" in message
+    assert any("RT-CV never listed the stream" in c for c in report["causes"])
+    assert "webhooks.enabled" in flows.format_ingest_failure(result)
+
+
+def test_rtcv_never_listing_a_short_clip_still_confirms_on_complete_stable_frames() -> None:
+    """RT-CV can finish a clip between polls; complete, stable raw stands in."""
+    clock = _FakeClock(1.2)
+    full = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42, behavior=8)
+    result = _gate([_warehouse()], lambda: full, clock, deadline_s=60.0)
+
+    assert result["outcome"] == "confirmed"
+    report = result["per_video"][0]
+    assert report["raw_check"] == "rtcv_missing"
+    assert any("RT-CV never listed" in w for w in report["warnings"])
+
+
+def test_rtcv_never_listing_with_partial_frames_keeps_waiting() -> None:
+    clock = _FakeClock(1.2)
+    partial = _snap(cv=False, raw=3000, last_s=100.0, embed=42, tags=42)
+    result = _gate([_warehouse()], lambda: partial, clock, deadline_s=30.0)
+
+    assert result["outcome"] == "timed_out"
+    causes = result["per_video"][0]["causes"]
+    assert any("waiting for frames to settle" in c for c in causes)
+
+
+def test_raw_without_behavior_passes_with_a_warning() -> None:
+    clock = _FakeClock(1.2)
+    no_behavior = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42)
+    result = _gate([_warehouse()], lambda: no_behavior, clock, deadline_s=60.0)
+
+    assert result["outcome"] == "confirmed"
+    report = result["per_video"][0]
+    assert any("no behavior documents" in w for w in report["warnings"])
+
+
+def test_ingest_summary_prints_na_and_warnings(capsys: pytest.CaptureFixture[str]) -> None:
+    clock = _FakeClock(1.2)
+    no_behavior = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42)
+    result = _gate([_warehouse()], lambda: no_behavior, clock, deadline_s=60.0)
+
+    flows.print_ingest_summary(flows.aggregate_ingest_stats(result))
+    out = capsys.readouterr().out
+    assert "behavior=n/a" in out
+    assert "Nones" not in out
+    assert "WARNING: raw documents but no behavior documents" in out
+
+
+def test_watcher_polls_before_videos_are_added_and_waits_for_seal() -> None:
+    """A clip RT-CV lists and drops mid-upload is remembered; nothing confirms unsealed."""
+    clock = _FakeClock(0.0)
+    snaps = iter([_snap(cv=True), _snap(cv=False)])
+    full = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42, behavior=8)
+    seen: list[list[str]] = []
+
+    def poll(videos: list[Any]) -> Any:
+        seen.append([v.name for v in videos])
+        return next(snaps, full)
+
+    watcher = flows.IngestWatcher(
+        "https://host:7777", poll_fn=poll, clock=clock, sleep=clock.sleep, log=lambda _line: None,
+    )
+    assert watcher._step() is None  # listed while the upload is still in flight
+    clock.sleep(2.0)
+    assert watcher._step() is None  # already dropped
+    watcher.add(_warehouse(upload_start_mono=0.0))
+    for _ in range(20):
+        clock.sleep(2.0)
+        assert watcher._step() is None  # complete, but the set is not sealed
+    assert seen[0] == [] and seen[-1] == [_NAME]
+
+    clock.sleep(1.0)
+    watcher.seal(deadline_s=30.0)
+    sealed_at = clock.t
+    result = watcher.wait()
+
+    assert result["outcome"] == "confirmed"
+    report = result["per_video"][0]
+    assert report["cv_seen"] is True
+    assert report["raw_check"] == "rtcv_released"
+    assert result["waited_s"] == pytest.approx(clock.t - sealed_at)
+    assert result["polled_s"] > result["waited_s"]
+
+
+def test_watcher_deadline_counts_from_seal_not_from_start() -> None:
+    clock = _FakeClock(0.0)
+    empty = _snap()
+    watcher = flows.IngestWatcher(
+        "https://host:7777", poll_fn=lambda _v: empty, clock=clock, sleep=clock.sleep,
+        log=lambda _line: None,
+    )
+    watcher.add(_warehouse())
+    for _ in range(50):  # 100 s of uploading, well past the deadline below
+        assert watcher._step() is None
+        clock.sleep(2.0)
+    watcher.seal(deadline_s=10.0)
+    result = watcher.wait()
+
+    assert result["outcome"] == "timed_out"
+    assert result["waited_s"] == pytest.approx(10.0, abs=2.0)
 
 
 def test_rtcv_dropping_the_stream_is_not_enough_while_raw_is_short() -> None:
