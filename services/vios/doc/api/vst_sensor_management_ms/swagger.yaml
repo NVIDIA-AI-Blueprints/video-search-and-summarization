@@ -808,6 +808,15 @@ paths:
                     type: string
                     pattern: ".*"
                     maxLength: 128
+        '501':
+          description: Network information is not supported for local non-ONVIF sensors, including RTSP sensors. ONVIF and remote sensors use their respective adaptors.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error_code: VMSNotSupportedError
+                error_message: Sensor network information is not supported for this sensor type
         default:
           description: Unexpected error
           content:
