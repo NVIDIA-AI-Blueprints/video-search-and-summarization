@@ -10,9 +10,34 @@ Ingestion failures, CLI exit codes, and the gaps this benchmark does not cover.
 
 The runner uploads to VIOS, which fans the video out to perception services
 through webhooks. There is no `/complete` call or `chunks_processed` count.
-After upload, the runner waits for VST registration and probes the search index;
-registration alone does not prove that embedding or indexing finished. Check
-`webhooks.enabled` and the RT-Embed model mapping if the index probe fails.
+After upload, the runner waits for VST registration, then runs the **ingest
+gate**: it polls Elasticsearch and RT-CV's stream list through the ingress
+(`:7777`, `--ingress-url`) until every video is fully indexed, and aborts
+instead of querying if one is not.
+
+| Index | Done when |
+|---|---|
+| embeddings `mdx-embed-filtered-2025-01-01` | count ≥ ⌈duration / `--chunk-s`⌉ |
+| tags `default_<sensor uuid>` | count ≥ the same chunk count |
+| raw `mdx-raw-2025-01-01` | RT-CV listed the stream and then dropped it, last frame ≥ end − `--raw-end-tolerance-s`, count ≥ frames − 15 |
+| behavior `mdx-behavior-2025-01-01` | raw is done and no count changed for `--ingest-quiet-s` (a heuristic, recorded as `behavior_check: quiet_window`) |
+
+The abort message lists every unfinished video with each index's count against
+its target and the reason it is not done:
+
+| Reason in the abort | Fix |
+|---|---|
+| `RT-CV never listed the stream` | check `webhooks.enabled` in the VIOS notification config and that `RTVI_EMBED_MODEL` matches the webhook's model string |
+| `RT-CV is still processing` / counts short | perception is slow; raise `--ingest-deadline-s` |
+| `last frame at Xs, needs >= Ys` after RT-CV dropped the stream | the video may end in frames RT-CV writes nothing for; raise `--raw-end-tolerance-s` |
+| `no tag documents` | the profile has no RT-VLM; pass `--ingest-require embed,raw,behavior` |
+| `stale documents for X` (before upload) | an earlier ingest of the same name left documents behind; delete the source and let the cleanup webhooks empty the indexes, or use `--clear` / `--only-dataset` |
+| `duration unknown` | install ffprobe on the runner host; the VST timeline fallback also failed |
+
+Results record the gate under `flow.ingest_readiness` and the batch figures
+under `summary.ingest`. `--legacy-index-probe` restores the old one-hit
+coverage probe for one release; it passes ~20 s after upload while RT-CV is
+still writing, so do not quote numbers from it.
 
 ### `agent-3step` (explicit alternative)
 
@@ -41,8 +66,9 @@ pipeline internally, so it is not more reliable — just less observable.
 
 Neither a successful `vst-direct` upload nor a 200 from the optional
 `agent-3step` `/complete` call proves readiness. The runner polls VST for
-registration; for `vst-direct` it also probes index coverage before scoring.
-Querying early returns empty results that look like a retrieval regression.
+registration; for `vst-direct` it also waits on the ingest gate before scoring.
+Querying early scores a half-built index, which looks like a retrieval
+regression.
 
 ### On a shared deployment
 
@@ -64,7 +90,7 @@ Querying early returns empty results that look like a retrieval regression.
 | `vss exited 5` | nothing ingested | drop `--skip-ingest` |
 | `/complete` 502 | known flakiness | retried automatically; raise `--complete-retries` |
 | `Duplicate Camera id` | RTVI-CV already has that stream | treated as done — embeddings still generate |
-| Everything scores 0.0 | possibly empty or unscoped search indices | check Step 3's Elasticsearch index counts and the index-probe result; a VST listing alone is insufficient |
+| Everything scores 0.0 | possibly empty or unscoped search indices | check Step 3's Elasticsearch index counts and `flow.ingest_readiness`; a VST listing alone is insufficient |
 | Header says `fallback_path` | routing is active; that is the path for unrouted queries | look at `planned_paths` |
 
 ---

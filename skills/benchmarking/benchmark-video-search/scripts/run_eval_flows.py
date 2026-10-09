@@ -515,6 +515,7 @@ def ingest_videos(
     backend: Any,
     video_dir: Path,
     skip_existing_from: str | None = None,
+    before_upload: Any = None,
 ) -> dict[str, Any]:
     """Upload every fixture through the selected ingest backend.
 
@@ -522,6 +523,9 @@ def ingest_videos(
     registered there are left alone -- necessary on a shared deployment, where
     re-uploading someone else's fixture is at best wasteful and at worst
     creates a duplicate sensor for the same video.
+
+    ``before_upload`` receives the files about to be uploaded, after skipping,
+    and may abort before any bytes are sent.
     """
     video_files = sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv"))
     if not video_files:
@@ -550,6 +554,9 @@ def ingest_videos(
         stats["skipped_existing"] = skipped
         return stats
 
+    if before_upload is not None:
+        before_upload(video_files)
+
     print(f"  Ingesting {len(video_files)} video(s) via '{backend.name}'")
     per_file: list[dict[str, Any]] = []
 
@@ -561,6 +568,8 @@ def ingest_videos(
 
         if record.get("success"):
             extras = []
+            if record.get("duration_s") is not None:
+                extras.append(f"{record['duration_s']}s @ {record.get('fps') or '? '}fps")
             if record.get("chunks_processed") is not None:
                 extras.append(f"{record['chunks_processed']} chunks")
             if record.get("upload_speed_mbps") is not None:
@@ -581,6 +590,165 @@ def ingest_videos(
 
 
 # =============================================================================
+# Ingest gate: wait for perception to finish before any query
+# =============================================================================
+
+#: How long a just-run --clear / --only-dataset gets for its cleanup webhooks
+#: to empty the indexes before leftover documents count as stale.
+CLEANUP_GRACE_S = 60.0
+
+
+def vst_spellings(video_file: Path) -> list[str]:
+    """Every name VST might register this file as, in the case ES stores.
+
+    ES ``.keyword`` terms are case-sensitive and VST keeps the extension for
+    some sources and not others, so both and their lowercase forms are asked.
+    """
+    stem = video_file.stem
+    names = {stem, video_file.name, f"{stem}.mp4", f"{stem}.mkv"}
+    return sorted(names | {n.lower() for n in names})
+
+
+def check_stale_documents(
+    ingress_url: str,
+    video_files: list[Path],
+    require: Any,
+    grace_s: float = 0.0,
+    poll_s: float = flows.DEFAULT_INGEST_POLL_S,
+) -> None:
+    """Abort if a video about to be uploaded already has documents indexed.
+
+    They would satisfy the completion check before perception started on the
+    new upload, and every timing measured against them would be wrong.
+    ``grace_s`` lets a cleanup that just ran finish deleting first.
+    """
+    spellings = {vf.stem: vst_spellings(vf) for vf in video_files}
+    give_up = time.monotonic() + grace_s
+    while True:
+        try:
+            stale = flows.stale_documents(ingress_url, spellings, require)
+        except (requests.RequestException, ValueError) as e:
+            raise SystemExit(
+                f"ABORTED: could not read Elasticsearch through the ingress at {ingress_url} "
+                f"({type(e).__name__}: {e}).\n"
+                "  The ingest gate reads completion from there. Pass --ingress-url, or "
+                "--legacy-index-probe for the old coverage probe."
+            ) from e
+        if not stale or time.monotonic() >= give_up:
+            break
+        time.sleep(poll_s)
+    if stale:
+        detail = "\n".join(
+            f"    {video}: " + ", ".join(f"{index} {count}" for index, count in counts.items())
+            for video, counts in stale.items()
+        )
+        raise SystemExit(
+            f"ABORTED: stale documents for {len(stale)} video(s) this run is about to upload:\n"
+            f"{detail}\n"
+            "  They would pass the completion check before ingestion started, so timings "
+            "would be wrong.\n"
+            "  Delete the source (vss vios delete --type video --sensor <name>) and let the "
+            "cleanup webhooks\n"
+            "  empty the indexes, or rerun with --clear / --only-dataset --confirm-delete."
+        )
+
+
+def expected_ingest_videos(
+    upload_stats: dict[str, Any],
+    video_dir: Path,
+    vst_url: str,
+    ingest_backend: Any,
+) -> list[Any]:
+    """What the gate waits for: this run's uploads plus the skipped sources.
+
+    The registered name (raw/behavior key) and sensor id (embedding/tag key)
+    are read from VST rather than rebuilt from the file name, since VST keeps
+    the extension for some sources and not others.
+    """
+    try:
+        streams = flows.list_sensor_streams(vst_url)
+    except Exception as e:
+        raise SystemExit(f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})") from e
+
+    videos: list[Any] = []
+    for record in upload_stats.get("per_file", []):
+        if not record.get("success"):
+            continue
+        sensor_id = record.get("sensor_id")
+        videos.append(flows.ExpectedVideo(
+            name=streams.get(sensor_id) or record["video_name"],
+            sensor_id=sensor_id,
+            duration_s=record.get("duration_s"),
+            fps=record.get("fps"),
+            uploaded_this_run=True,
+            upload_start_mono=record.get("upload_start_mono"),
+            upload_start_utc=record.get("upload_start_utc"),
+            video_name=record["video_name"],
+            file_size_mb=record.get("file_size_mb"),
+            upload_s=record.get("upload_latency_s"),
+        ))
+
+    for stem in upload_stats.get("skipped_existing") or []:
+        variants = flows.name_variants(stem)
+        sensor_id, name = next(
+            ((sid, n) for sid, n in streams.items() if str(n).lower() in variants), (None, stem)
+        )
+        local = next((p for p in (video_dir / f"{stem}.mp4", video_dir / f"{stem}.mkv") if p.exists()), None)
+        media = flows.probe_media(local) if local else {"duration_s": None, "fps": None}
+        size_mb = round(local.stat().st_size / (1024 * 1024), 2) if local else None
+        videos.append(flows.ExpectedVideo(
+            name=name, sensor_id=sensor_id, duration_s=media["duration_s"], fps=media["fps"],
+            uploaded_this_run=False, video_name=stem, file_size_mb=size_mb,
+        ))
+
+    anchor_check = getattr(ingest_backend, "verify_anchor", None)
+    for video in videos:
+        if video.duration_s is None and video.sensor_id and anchor_check:
+            video.duration_s = flows.timeline_duration_s(anchor_check(video.sensor_id))
+    return videos
+
+
+def run_ingest_gate(
+    args: argparse.Namespace,
+    ingest_backend: Any,
+    upload_stats: dict[str, Any],
+    video_dir: Path,
+    vst_url: str,
+    ingress_url: str,
+) -> dict[str, Any]:
+    """Block until every expected video is fully indexed; abort otherwise."""
+    expected = expected_ingest_videos(upload_stats, video_dir, vst_url, ingest_backend)
+    deadline = args.ingest_deadline_s
+    print(
+        f"\nWaiting for ingestion of {len(expected)} video(s) via {ingress_url} "
+        f"(require: {','.join(sorted(args.ingest_require))}, poll {args.ingest_poll_s}s, "
+        f"quiet {args.ingest_quiet_s}s)..."
+    )
+    result = flows.wait_for_ingest_complete(
+        ingress_url,
+        expected,
+        require=args.ingest_require,
+        chunk_s=args.chunk_s,
+        poll_s=args.ingest_poll_s,
+        quiet_s=args.ingest_quiet_s,
+        deadline_s=deadline,
+        raw_end_tolerance_s=args.raw_end_tolerance_s,
+        upload_timestamp=args.upload_timestamp,
+    )
+    result["ingest"] = flows.aggregate_ingest_stats(result)
+    flows.print_ingest_summary(result["ingest"])
+    if result["outcome"] != flows.INGEST_CONFIRMED:
+        raise SystemExit(flows.format_ingest_failure(result))
+    for report in result["per_video"]:
+        if report["over_target"]:
+            print(
+                f"  WARNING: {report['sensor']} has more documents than one ingest writes "
+                f"({report['over_target']}): it may have been processed twice."
+            )
+    return result
+
+
+# =============================================================================
 # Evaluation
 # =============================================================================
 
@@ -597,6 +765,7 @@ def run_evaluation(
     ingest_description: dict[str, Any] | None = None,
     readiness: dict[str, Any] | None = None,
     index_probe: dict[str, Any] | None = None,
+    ingest_readiness: dict[str, Any] | None = None,
     cleared: dict[str, Any] | None = None,
     vst_url: str | None = None,
     decomposer: Any = None,
@@ -813,6 +982,8 @@ def run_evaluation(
             else None
         ),
     )
+    if ingest_readiness and ingest_readiness.get("ingest"):
+        summary["ingest"] = ingest_readiness["ingest"]
     _print_summary(summary)
 
     if output_file is None:
@@ -856,6 +1027,8 @@ def run_evaluation(
     }
     if upload_stats:
         output["flow"]["upload_stats"] = upload_stats
+    if ingest_readiness:
+        output["flow"]["ingest_readiness"] = ingest_readiness
 
     with open(out_path, "w") as f:
         json.dump(output, f, indent=2)
@@ -1177,6 +1350,8 @@ def _print_summary(summary: dict[str, Any]) -> None:
 
     if summary.get("upload"):
         flows.print_upload_summary(summary["upload"])
+    if summary.get("ingest"):
+        flows.print_ingest_summary(summary["ingest"])
     print(f"{'=' * 60}\n")
 
 
@@ -1201,7 +1376,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "How fixtures are uploaded (default: vst-direct, what the UI does "
             "-- upload to VIOS and let its webhooks drive perception). "
             "'agent-3step' is the older agent-mediated flow; it returns a chunk "
-            "count, which vst-direct replaces with a post-ingest index probe."
+            "count, which vst-direct replaces with the ingest gate: Elasticsearch "
+            "counts per video against targets from its duration and frame rate."
         ),
     )
     flow.add_argument(
@@ -1345,10 +1521,71 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--skip-index-probe",
         action="store_true",
         help=(
-            "Do not check that anything is searchable before scoring. Only the "
-            "ingest flows that report no chunk count are probed at all, and "
-            "skipping it means an unindexed deployment scores 0.0 across the "
-            "board and reads as a retrieval collapse."
+            "Do not wait for ingestion to finish before scoring (neither the "
+            "ingest gate nor --legacy-index-probe). Only the ingest flows that "
+            "report no chunk count are gated at all, and skipping it means a "
+            "half-built index is scored as a retrieval result."
+        ),
+    )
+    ingest.add_argument(
+        "--ingress-url",
+        help=(
+            "Unified ingress the ingest gate reads Elasticsearch and RT-CV through "
+            f"(default: --endpoint's host on port {flows.DEFAULT_VSS_ORIGIN_PORT})."
+        ),
+    )
+    ingest.add_argument(
+        "--ingest-require",
+        default=",".join(flows.INGEST_INDEXES),
+        help=(
+            "Comma list of indexes that must be complete before querying "
+            f"(default: {','.join(flows.INGEST_INDEXES)}). Drop 'tags' for a "
+            "profile without RT-VLM, 'raw,behavior' for one without RT-CV."
+        ),
+    )
+    ingest.add_argument(
+        "--ingest-poll-s",
+        type=float,
+        default=flows.DEFAULT_INGEST_POLL_S,
+        help="Seconds between ingest polls; every timing is late by at most this (default: 2).",
+    )
+    ingest.add_argument(
+        "--ingest-quiet-s",
+        type=float,
+        default=flows.DEFAULT_INGEST_QUIET_S,
+        help=(
+            "Seconds with no count changing before behavior counts as done "
+            "(default: 15). The one heuristic in the gate: behavior has no "
+            "predictable count."
+        ),
+    )
+    ingest.add_argument(
+        "--ingest-deadline-s",
+        type=float,
+        help="Give up on ingestion after this many seconds (default: max(600, 2 x total video duration)).",
+    )
+    ingest.add_argument(
+        "--chunk-s",
+        type=float,
+        default=flows.DEFAULT_INGEST_CHUNK_S,
+        help="Embedding chunk length the deployment uses; sets the embed and tag targets (default: 5).",
+    )
+    ingest.add_argument(
+        "--raw-end-tolerance-s",
+        type=float,
+        default=flows.DEFAULT_RAW_END_TOLERANCE_S,
+        help=(
+            "How far before the video's end RT-CV's last raw frame may fall (default: 1). "
+            "Raise it for videos ending in frames RT-CV writes nothing for."
+        ),
+    )
+    ingest.add_argument(
+        "--legacy-index-probe",
+        action="store_true",
+        help=(
+            "Use the old coverage probe (one embedding hit per source) instead of "
+            "the ingest gate. It passes ~20s after upload while RT-CV is still "
+            "writing for minutes; kept for one release to reproduce older runs."
         ),
     )
     ingest.add_argument("--index-probe-attempts", type=int, default=10)
@@ -1467,6 +1704,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.error("destructive cleanup cannot be combined with --skip-ingest")
     if args.confirm_delete and not (args.only_dataset or args.clear):
         p.error("--confirm-delete requires --only-dataset or --clear")
+    require = {part.strip() for part in str(args.ingest_require).split(",") if part.strip()}
+    unknown = require - set(flows.INGEST_INDEXES)
+    if unknown:
+        p.error(f"--ingest-require: unknown index(es) {sorted(unknown)}; choose from {','.join(flows.INGEST_INDEXES)}")
+    if not require:
+        p.error("--ingest-require needs at least one index; use --skip-index-probe to skip the gate")
+    if "behavior" in require and "raw" not in require:
+        p.error("--ingest-require: 'behavior' is judged complete relative to 'raw'; require both or neither")
+    args.ingest_require = frozenset(require)
+    if args.ingest_poll_s <= 0 or args.chunk_s <= 0 or args.ingest_quiet_s < 0:
+        p.error("--ingest-poll-s and --chunk-s must be positive, --ingest-quiet-s non-negative")
     return args
 
 
@@ -1613,15 +1861,38 @@ def main() -> None:
     upload_stats: dict[str, Any] | None = None
     readiness: dict[str, Any] | None = None
     index_probe: dict[str, Any] | None = None
+    ingest_readiness: dict[str, Any] | None = None
+
+    # The upload flow cannot prove indexing, so completion is read from what
+    # perception wrote. Decided before upload: the stale check has to run first.
+    gate_ingest = (
+        not ingest_backend.proves_indexing
+        and not args.skip_index_probe
+        and not args.legacy_index_probe
+    )
+    ingress_url = args.ingress_url or flows.ingress_url_for(args.endpoint, args.vss_origin_port)
+
+    def _reject_stale(video_files: list[Path]) -> None:
+        if gate_ingest:
+            check_stale_documents(
+                ingress_url,
+                video_files,
+                args.ingest_require,
+                grace_s=CLEANUP_GRACE_S if cleared else 0.0,
+                poll_s=args.ingest_poll_s,
+            )
 
     if args.skip_ingest:
         print("Skipping ingest (--skip-ingest)")
     else:
         print(f"\nIngesting videos from {video_dir}")
+        if gate_ingest:
+            print(f"Ingress origin: {ingress_url}")
         upload_stats = ingest_videos(
             ingest_backend,
             video_dir,
             skip_existing_from=vst_url if args.skip_existing else None,
+            before_upload=_reject_stale,
         )
         flows.print_upload_summary(upload_stats)
 
@@ -1683,8 +1954,12 @@ def main() -> None:
             else:
                 print(f"  (anchor unverified: {anchor})")
 
-        if not ingest_backend.proves_indexing and not args.skip_index_probe:
-            print(f"\nProbing index coverage for {len(expected)} source(s)...")
+        if gate_ingest:
+            ingest_readiness = run_ingest_gate(
+                args, ingest_backend, upload_stats, video_dir, vst_url, ingress_url
+            )
+        elif args.legacy_index_probe and not ingest_backend.proves_indexing and not args.skip_index_probe:
+            print(f"\nProbing index coverage for {len(expected)} source(s) (--legacy-index-probe)...")
             index_probe = probe_index_coverage(
                 query_backend,
                 expected,
@@ -1733,6 +2008,7 @@ def main() -> None:
         ingest_description=ingest_backend.describe(),
         readiness=readiness,
         index_probe=index_probe,
+        ingest_readiness=ingest_readiness,
         cleared=cleared,
         vst_url=vst_url,
     )

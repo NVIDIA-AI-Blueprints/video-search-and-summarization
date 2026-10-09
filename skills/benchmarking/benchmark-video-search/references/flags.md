@@ -30,6 +30,24 @@ of their scores. That changes the number of scored segments — the denominator
 of precision — so this script passes `--no-merge-adjacent` by default to stay
 comparable with the REST baseline. `--merge-adjacent` opts back in.
 
+## Ingest gate
+
+`vst-direct` runs are gated on ingestion being complete, not on the first
+searchable hit. Two flags change what the gate means:
+
+- `--ingest-require` (default `embed,tags,raw,behavior`) names the indexes that
+  must finish. Narrow it only for a profile that lacks a service — no RT-VLM,
+  drop `tags`; no RT-CV, drop `raw,behavior` — never to make a slow run pass.
+- `--ingest-quiet-s` (default 15) is the only heuristic: behavior has no
+  predictable count, so it is done when nothing has changed for this long.
+
+Timings are measured from each video's upload start and are late by at most
+`--ingest-poll-s`. `per_index_done_s.embed` is comparable with the docs'
+existing upload "Avg (s)"; `ingest_s` is full ingestion.
+
+`--legacy-index-probe` swaps the gate for the old coverage probe, for one
+release. Its pass point is ~20 s into a ~220 s ingest.
+
 ---
 
 
@@ -44,7 +62,9 @@ URLs, preflight skips -- and are described by `--help`:
 --upload-timestamp       --complete-backoff     --complete-retries
 --readiness-timeout      --skip-readiness-wait  --skip-vss-preflight
 --skip-vss-configure     --vst-port             --vst-url
---vss-origin-port        --vss-base-url
+--vss-origin-port        --vss-base-url         --ingress-url
+--ingest-poll-s          --ingest-deadline-s    --chunk-s
+--raw-end-tolerance-s
 ```
 
 Reach for them when a default is wrong for your deployment, not routinely: each
@@ -84,8 +104,11 @@ one moves a run further from the baseline everything else is compared against.
 # The older agent-mediated ingest, when deployed VIOS webhooks are off
 --ingest-flow agent-3step
 
-# Longer wait for webhook-driven perception to populate the index
---index-probe-attempts 20 --index-probe-backoff 30
+# Longer wait for webhook-driven perception to finish
+--ingest-deadline-s 1800
+
+# A profile without RT-VLM: no tag index to wait for
+--ingest-require embed,raw,behavior
 
 # Name the results file, for comparing two runs deliberately
 --dataset warehouse --skip-download --name embed-baseline
