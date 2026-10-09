@@ -19,20 +19,35 @@ instead of querying if one is not.
 |---|---|
 | embeddings `mdx-embed-filtered-2025-01-01` | count ≥ ⌈duration / `--chunk-s`⌉ |
 | tags `default_<sensor uuid>` | count ≥ the same chunk count |
-| raw `mdx-raw-2025-01-01` | RT-CV listed the stream and then dropped it, last frame ≥ end − `--raw-end-tolerance-s`, count ≥ frames − 15 |
+| raw `mdx-raw-2025-01-01` | RT-CV listed the stream and then dropped it, and the raw count has not changed for `--ingest-quiet-s` since the drop (`raw_check: rtcv_released`) |
 | behavior `mdx-behavior-2025-01-01` | raw is done and no count changed for `--ingest-quiet-s` (a heuristic, recorded as `behavior_check: quiet_window`) |
+
+RT-CV writes a raw document only for a frame with at least one detection. On
+sparse footage the raw count is far below the frame count (18 of 381 frames on
+`Normal_Videos779`), and the last document is the last detection, not the end
+of the video. So the frame count and the video's end are reported as coverage,
+for example `raw=18/381 frames (5%)  last detection 3.77s of 12.7s`, and never
+required. A low coverage figure is not a stall.
 
 Polling starts before the first upload and each video joins as its upload
 returns, so a short clip that RT-CV lists and drops while a later file is still
 uploading is still counted as seen. The deadline and the "querying held back"
 time (`waited_s`) both start when the last upload returns.
 
-If RT-CV never lists a video but its raw frames reach the last frame and the
-frame count and then stay unchanged for the quiet window, raw passes anyway.
-The video's `raw_check` is recorded as `rtcv_missing` and the summary prints a
-warning for it. A video that has raw documents but no behavior documents also
-passes with a warning: zero tracked objects is allowed, but on the stock
-datasets it usually means RT-CV's behavior output is misconfigured.
+The other ways raw can finish:
+
+- RT-CV never listed a video, but it has raw documents and the count stays
+  unchanged for the quiet window: raw passes as `rtcv_missing`, with a warning.
+  With no raw documents at all it does not pass. That looks the same as a
+  webhook that never fired, so failing is the safe default.
+- A `--skip-existing` source passes as `existing` once it has raw documents and
+  the count stays unchanged for the quiet window after the first poll.
+- RT-CV released the stream but wrote no raw documents: raw passes, with a
+  warning that nothing was detected.
+
+A video that has raw documents but no behavior documents also passes with a
+warning: zero tracked objects is allowed, but on the stock datasets it usually
+means RT-CV's behavior output is misconfigured.
 
 The abort message lists every unfinished video with each index's count against
 its target and the reason it is not done:
@@ -40,8 +55,9 @@ its target and the reason it is not done:
 | Reason in the abort | Fix |
 |---|---|
 | `RT-CV never listed the stream` (no raw frames either) | check `webhooks.enabled` in the VIOS notification config and that `RTVI_EMBED_MODEL` matches the webhook's model string |
-| `RT-CV is still processing` / counts short | perception is slow; raise `--ingest-deadline-s` |
-| `last frame at Xs, needs >= Ys` after RT-CV dropped the stream | the video may end in frames RT-CV writes nothing for; raise `--raw-end-tolerance-s` |
+| `RT-CV is still processing` / embed or tag counts short | perception is slow; raise `--ingest-deadline-s` |
+| `N frame docs (frames with detections), still changing` | RT-CV or Logstash is still writing; raise `--ingest-deadline-s` if it never settles |
+| `no frame docs, and the source was not uploaded this run` | a `--skip-existing` source with nothing in `mdx-raw`; re-upload it |
 | `no tag documents` | the profile has no RT-VLM; pass `--ingest-require embed,raw,behavior` |
 | `stale documents for X` (before upload) | an earlier ingest of the same name left documents behind; delete the source and let the cleanup webhooks empty the indexes, or use `--clear` / `--only-dataset` |
 | `duration unknown` | install ffprobe on the runner host; the VST timeline fallback also failed |

@@ -2273,13 +2273,12 @@ def _gate(expected: list[Any], poll_fn: Any, clock: _FakeClock, **kw: Any) -> di
 
 def test_targets_come_from_duration_and_frame_rate() -> None:
     st = _state()
-    assert st.targets == {"embed": 42, "tags": 42, "raw": 6285}
-    assert st.raw_end_s == 209.0
+    assert st.targets == {"embed": 42, "tags": 42, "raw": 6300}
     # A container duration a hair past the boundary is not an extra chunk.
     assert flows.ingest_readiness.chunk_target(210.033, 5.0) == 42
     assert flows.ingest_readiness.chunk_target(25.0, 5.0) == 5
-    # 10 fps safety clip: 244 of 250 frames were written; the slack accepts it.
-    assert flows.ingest_readiness.raw_count_target(25.0, 10.0) == 235
+    assert flows.ingest_readiness.frame_count(25.0, 10.0) == 250
+    assert flows.ingest_readiness.raw_coverage(18, 381) == "18/381 frames (5%)"
     assert _warehouse().tag_index == "default_11111111_2222_3333_4444_555555555555"
 
 
@@ -2319,14 +2318,20 @@ def test_rtcv_never_listing_a_short_clip_still_confirms_on_complete_stable_frame
     assert any("RT-CV never listed" in w for w in report["warnings"])
 
 
-def test_rtcv_never_listing_with_partial_frames_keeps_waiting() -> None:
+def test_rtcv_never_listing_with_a_growing_count_keeps_waiting() -> None:
     clock = _FakeClock(1.2)
-    partial = _snap(cv=False, raw=3000, last_s=100.0, embed=42, tags=42)
-    result = _gate([_warehouse()], lambda: partial, clock, deadline_s=30.0)
+
+    def growing() -> Any:
+        return _snap(cv=False, raw=int(clock.t * 10), last_s=clock.t, embed=42, tags=42)
+
+    result = _gate([_warehouse()], growing, clock, deadline_s=30.0)
 
     assert result["outcome"] == "timed_out"
     causes = result["per_video"][0]["causes"]
-    assert any("waiting for frames to settle" in c for c in causes)
+    assert any(
+        "RT-CV never listed the stream" in c and "frame docs (frames with detections), still changing" in c
+        for c in causes
+    )
 
 
 def test_raw_without_behavior_passes_with_a_warning() -> None:
@@ -2405,29 +2410,111 @@ def test_watcher_deadline_counts_from_seal_not_from_start() -> None:
     assert result["waited_s"] == pytest.approx(10.0, abs=2.0)
 
 
-def test_rtcv_dropping_the_stream_is_not_enough_while_raw_is_short() -> None:
-    st = _state()
+def test_dense_video_finishes_raw_once_the_count_holds_after_release() -> None:
+    st = _state(quiet_s=15.0)
     st.observe(_snap(cv=True, raw=100, last_s=3.0, embed=5), now=5.0)
-    st.observe(_snap(cv=False, raw=6000, last_s=209.9, embed=42, tags=42), now=216.0)
-    assert st.cv_dropped
-    assert not st.index_done["raw"], "6000 < 6285: the last frames are still in flight"
     st.observe(_snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42), now=218.2)
+    assert st.cv_dropped
+    assert not st.index_done["raw"], "released, but Logstash may still be flushing"
+    st.observe(_snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42), now=233.2)
+    assert st.index_done["raw"]
+    assert st.raw_check == "rtcv_released"
+    assert st.per_index_done_s()["raw"] == pytest.approx(218.2)
+    assert st.report("confirmed")["raw_coverage"] == pytest.approx(1.0, abs=0.01)
+
+
+# Normal_Videos779 on vad-r1-v2: RT-CV writes a raw document only for a frame
+# with a detection, so 18 of 381 frames, the last at 3.77 s of ~12.7 s.
+def _sparse(uploaded: bool = True) -> Any:
+    return _warehouse(uploaded=uploaded, duration_s=12.7, fps=30.0)
+
+
+def _sparse_snap(*, cv: bool, raw: int = 18) -> Any:
+    return _snap(cv=cv, raw=raw, last_s=3.77, embed=3, tags=3, behavior=2)
+
+
+def test_sparse_video_released_by_rtcv_confirms_once_the_count_holds() -> None:
+    st = _state(_sparse(), quiet_s=15.0)
+    st.observe(_sparse_snap(cv=True, raw=5), now=2.0)
+    st.observe(_sparse_snap(cv=False), now=36.0)
+    st.observe(_sparse_snap(cv=False), now=50.0)
+    assert not st.index_done["raw"], "14 s since the drop; the window is 15 s"
+    st.observe(_sparse_snap(cv=False), now=51.0)
+    assert st.done
+    assert st.raw_check == "rtcv_released"
+    report = st.report("confirmed")
+    assert report["targets"]["raw"] == 381
+    assert report["raw_last_s"] == pytest.approx(3.77)
+    assert report["targets"]["raw_last_s"] == pytest.approx(12.7)
+    assert report["raw_coverage"] == pytest.approx(0.047)
+
+
+def test_sparse_video_still_listed_by_rtcv_is_not_done_even_when_flat() -> None:
+    st = _state(_sparse(), quiet_s=15.0)
+    for now in (2.0, 36.0, 100.0, 600.0):
+        st.observe(_sparse_snap(cv=True), now=now)
+    assert not st.index_done["raw"]
+    assert any("RT-CV is still processing the stream; 18 frame docs" in c for c in st.causes())
+
+
+def test_released_but_count_still_growing_is_not_done() -> None:
+    st = _state(_sparse(), quiet_s=15.0)
+    st.observe(_sparse_snap(cv=True, raw=5), now=2.0)
+    st.observe(_sparse_snap(cv=False, raw=10), now=30.0)
+    st.observe(_sparse_snap(cv=False, raw=14), now=40.0)
+    st.observe(_sparse_snap(cv=False, raw=18), now=50.0)
+    assert not st.index_done["raw"]
+    cause = next(c for c in st.causes() if c.startswith("raw:"))
+    assert cause == (
+        "raw: RT-CV released the stream; 18 frame docs (frames with detections), "
+        "still changing within the 15s quiet window"
+    )
+    st.observe(_sparse_snap(cv=False), now=65.0)
     assert st.index_done["raw"]
 
 
-def test_a_last_frame_short_of_the_end_keeps_raw_open() -> None:
-    st = _state()
-    st.observe(_snap(cv=True, raw=10, last_s=0.3), now=3.0)
-    st.observe(_snap(cv=False, raw=6290, last_s=205.0, embed=42, tags=42), now=216.0)
+def test_sparse_gate_end_to_end_reports_coverage_not_a_stall() -> None:
+    clock = _FakeClock(1.2)
+
+    def timeline() -> Any:
+        return _sparse_snap(cv=clock.t < 36.0)
+
+    result = _gate([_sparse()], timeline, clock, quiet_s=15.0, deadline_s=120.0)
+    assert result["outcome"] == "confirmed"
+    stats = flows.aggregate_ingest_stats(result)
+    assert stats["per_video"][0]["raw_coverage"] == pytest.approx(0.047)
+
+
+def test_skipped_source_with_sparse_raw_confirms_once_the_count_holds() -> None:
+    st = _state(_sparse(uploaded=False), quiet_s=15.0)
+    st.observe(_sparse_snap(cv=False), now=0.0)
+    assert not st.index_done["raw"], "first reading is the baseline"
+    st.observe(_sparse_snap(cv=False), now=15.0)
+    assert st.done
+    assert st.raw_check == "existing"
+
+
+def test_skipped_source_with_no_raw_docs_never_passes() -> None:
+    st = _state(_sparse(uploaded=False), quiet_s=15.0)
+    st.observe(_snap(embed=3, tags=3), now=0.0)
+    st.observe(_snap(embed=3, tags=3), now=60.0)
     assert not st.index_done["raw"]
-    assert any("last frame at 205.0s, needs >= 209.0s" in c for c in st.causes())
+    assert any("not uploaded this run" in c for c in st.causes())
+
+
+def test_released_with_no_detections_passes_with_a_warning() -> None:
+    st = _state(_sparse(), quiet_s=15.0)
+    st.observe(_snap(cv=True, embed=3, tags=3), now=2.0)
+    st.observe(_snap(cv=False, embed=3, tags=3), now=30.0)
+    st.observe(_snap(cv=False, embed=3, tags=3), now=45.0)
+    assert st.done
+    assert any("wrote no frame docs" in w for w in st.warnings())
 
 
 def test_behavior_waits_out_the_quiet_window_while_counts_move() -> None:
     st = _state(quiet_s=15.0)
     st.observe(_snap(cv=True, raw=10, last_s=0.3), now=3.0)
     st.observe(_snap(raw=6298, last_s=209.966, embed=42, tags=42, behavior=4), now=218.0)
-    assert st.index_done["raw"]
     st.observe(_snap(raw=6298, last_s=209.966, embed=42, tags=42, behavior=8), now=220.0)
     st.observe(_snap(raw=6298, last_s=209.966, embed=42, tags=42, behavior=8), now=230.0)
     assert not st.index_done["behavior"], "changed 10 s ago; the window is 15 s"
@@ -2486,14 +2573,15 @@ def test_a_transient_elasticsearch_error_keeps_polling() -> None:
     assert result["poll_errors"] == 2
 
 
-def test_a_skipped_existing_video_passes_at_once_with_no_timings() -> None:
-    """Never uploaded this run, so never in RT-CV: counts and last frame decide."""
+def test_a_skipped_existing_video_passes_once_the_count_holds_with_no_timings() -> None:
+    """Never uploaded this run, so never in RT-CV: a stable non-zero count decides."""
     clock = _FakeClock(50.0)
     full = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42, behavior=8)
-    result = _gate([_warehouse(uploaded=False)], lambda: full, clock, quiet_s=15.0)
+    result = _gate([_warehouse(uploaded=False)], lambda: full, clock, poll_s=2.0, quiet_s=15.0)
 
     assert result["outcome"] == "confirmed"
-    assert result["polls"] == 1
+    assert result["polls"] == 9, "baseline at 50 s, then 15 s unchanged"
+    assert result["per_video"][0]["raw_check"] == "existing"
     report = result["per_video"][0]
     assert report["per_index_done_s"] == {}
     assert report["ingest_s"] is None
@@ -2508,8 +2596,10 @@ def test_a_skipped_video_still_being_written_is_not_waved_through() -> None:
     st = _state(_warehouse(uploaded=False), quiet_s=15.0)
     st.observe(_snap(raw=6290, last_s=209.5, embed=42, tags=42, behavior=4), now=0.0)
     st.observe(_snap(raw=6298, last_s=209.966, embed=42, tags=42, behavior=8), now=2.0)
-    assert st.index_done["raw"]
-    assert not st.index_done["behavior"], "a count moved, so the quiet window applies"
+    assert not st.index_done["raw"], "the raw count moved, so the quiet window applies"
+    assert not st.index_done["behavior"]
+    st.observe(_snap(raw=6298, last_s=209.966, embed=42, tags=42, behavior=8), now=17.0)
+    assert st.done
 
 
 def test_double_processing_is_flagged_not_failed() -> None:

@@ -90,7 +90,6 @@ from .ingest_readiness import DEFAULT_CHUNK_S as DEFAULT_INGEST_CHUNK_S
 from .ingest_readiness import DEFAULT_POLL_S as DEFAULT_INGEST_POLL_S
 from .ingest_readiness import DEFAULT_QUIET_S as DEFAULT_INGEST_QUIET_S
 from .ingest_readiness import (
-    DEFAULT_RAW_END_TOLERANCE_S,
     DEFAULT_REQUIRE,
     INGEST_INDEXES,
     ExpectedVideo,
@@ -205,7 +204,6 @@ __all__ = [
     "DEFAULT_INGEST_CHUNK_S",
     "DEFAULT_INGEST_POLL_S",
     "DEFAULT_INGEST_QUIET_S",
-    "DEFAULT_RAW_END_TOLERANCE_S",
     "DEFAULT_REQUIRE",
     "DEFAULT_UPLOAD_TIMESTAMP",
     "DEFAULT_VSS_ORIGIN_PORT",
