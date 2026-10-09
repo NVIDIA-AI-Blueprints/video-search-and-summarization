@@ -255,6 +255,8 @@ Save a concise Markdown report and machine-readable JSON summary containing:
 
 Do not fabricate unavailable metrics or overwrite a user's existing configuration. Ask before using the recommendation for a separate production calibration.
 
+Report the service-wide settings left active separately from the recommended configuration; the last attempt need not be the winner. For a subsequent run using defaults, follow the [shared calibration setup](../SKILL.md#shared-calibration-tail) to apply defaults plus that dataset's confirmed inputs. Do not reset completed projects merely to change the service-wide settings.
+
 ## Project Retention
 
 Retain projects by default so the user can review them in the UI. In the final report, list the session's project IDs, external artifact locations, and any failed or superseded projects eligible for cleanup. Keep the selected result, preserved baseline alternative, and any reused normal project unless the user explicitly includes them in a cleanup request.
