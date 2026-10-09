@@ -11,6 +11,7 @@ without coupling to deleted lifecycle recipes or scripted command copying.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,8 +19,12 @@ import re
 import shlex
 import subprocess
 import sys
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from types import ModuleType
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[6]  # libs/vss/cli/tests/unit_test/cli -> repo root
 SEARCH_SKILL = REPOSITORY_ROOT / "skills" / "operations" / "vss-search-archive"
@@ -38,6 +43,16 @@ def _stamped_version() -> str:
     match = re.search(r'^VSS_VERSION="([^"$\n]+)"', env, re.MULTILINE)
     assert match, "deploy/docker/containers.env has no stamped VSS_VERSION line"
     return match.group(1)
+
+
+def _load_adapter(path: Path, name: str) -> ModuleType:
+    """Import an adapter so assertions run against what it actually emits, not
+    against where implicit string concatenation happens to wrap in the source."""
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _check_matching(checks: list[str], needle: str) -> str:
@@ -360,6 +375,8 @@ def test_search_harbor_eval_has_roles_and_unrevealing_search_prompts(tmp_path: P
     spec = json.loads((SEARCH_SKILL / "evals" / "search.json").read_text(encoding="utf-8"))
     serialized = json.dumps(spec)
     adapter = SEARCH_ADAPTER.read_text(encoding="utf-8")
+    adapter_module = _load_adapter(SEARCH_ADAPTER, "search_archive_adapter")
+    operation_preamble = adapter_module.OPERATION_PREAMBLE
     deployment_query = spec["expects"][0]["query"]
     ingestion_query = spec["expects"][1]["query"]
     deployment_checks = spec["expects"][0]["checks"]
@@ -421,19 +438,22 @@ def test_search_harbor_eval_has_roles_and_unrevealing_search_prompts(tmp_path: P
     # removes any incentive to repair/redeploy midway through source setup.
     assert "Do not ingest sample media in this step" in deployment_query
     assert "Download files here only for the NemoClaw fixture staging" in deployment_query
-    assert "initial `/vss-build-vision-ai` workflow" in _check_matching(deployment_checks, "select_brev_origin.sh")
+    assert "initial workflow Compose activity was allowed" in _check_matching(deployment_checks, "select_brev_origin.sh")
     assert "already deployed, healthy, configured" in ingestion_query
     assert "invoking `/vss-build-vision-ai`" in ingestion_query
     assert "fail rather than running `docker compose`" in ingestion_query
-    assert any("one bounded source-setup deadline" in check for check in ingestion_checks)
+    assert any("deadline-reset recovery loop" in check for check in ingestion_checks)
 
     # Current search indices use the VST sensor ID for embed/fusion source
     # scoping and the source name for attribute/object; source_type selects the
     # upload/live partition independently.
     for step in (3, 4, 5):
-        assert "sensor ID" in spec["expects"][step]["query"]
-        assert "--source-type video_file" in spec["expects"][step]["query"]
-    assert "sensor ID as `--video-source` for `embed` and `fusion`" in adapter
+        step_checks = " ".join(spec["expects"][step]["checks"])
+        assert "sensor ID" in step_checks
+        assert "--source-type video_file" in step_checks
+    skill_text = (SEARCH_SKILL / "SKILL.md").read_text(encoding="utf-8")
+    assert "| `embed` | preserved `.sensor_id` |" in skill_text
+    assert "| `fusion` | preserved `.sensor_id`" in skill_text
 
     # search_group._runtime_from sets vst_external_url to deployment.base_url, so
     # the host CLI stamps the `vss configure` origin into every screenshot_url.
@@ -443,14 +463,16 @@ def test_search_harbor_eval_has_roles_and_unrevealing_search_prompts(tmp_path: P
         media_check = _check_matching(spec["expects"][step]["checks"], "media URL")
         assert "origin recorded by `vss configure`" in media_check
         assert "VST_EXTERNAL_URL" not in media_check
-    assert "host-reachable origin" in _check_matching(spec["expects"][3]["checks"], "media URL")
+    assert "same scheme, host, and effective port as the origin recorded by `vss configure`" in _check_matching(
+        spec["expects"][3]["checks"], "media URL"
+    )
 
     origin_check = _check_matching(deployment_checks, "select_brev_origin.sh")
-    assert "`vss configure` recorded the selected origin" in origin_check
-    assert "neither edited `VST_EXTERNAL_URL` nor looped on routing" in origin_check
-    assert "documented host-reachable fallback" in adapter
-    assert "explicitly label the media URLs host-local" in adapter
-    assert "disables redirects" in deployment_query
+    assert "`vss configure --base-url` with the returned origin" in origin_check
+    assert "No post-deployment VST_EXTERNAL_URL edits or routing loops occurred" in origin_check
+    assert "exactly once" in deployment_query and "empty string when none" in deployment_query
+    assert "report media_scope and the host-local media limitation" in deployment_query
+    assert "nonredirecting" in deployment_query
     assert len(spec["expects"][1]["checks"]) == 3
     assert not any("evaluation verifier" in check.lower() for check in spec["expects"][1]["checks"])
 
