@@ -2729,7 +2729,8 @@
                     "streaming_frame_policy": {
                         "anyOf": [
                             {
-                                "type": "string"
+                                "type": "string",
+                                "minLength": 1
                             },
                             {
                                 "type": "null"
@@ -3156,7 +3157,11 @@
                     "inference_mode": {
                         "anyOf": [
                             {
-                                "type": "string"
+                                "type": "string",
+                                "enum": [
+                                    "chunked",
+                                    "streaming_vlm"
+                                ]
                             },
                             {
                                 "type": "null"
@@ -3167,7 +3172,8 @@
                     "streaming_frame_policy": {
                         "anyOf": [
                             {
-                                "type": "string"
+                                "type": "string",
+                                "minLength": 1
                             },
                             {
                                 "type": "null"
@@ -3178,7 +3184,8 @@
                     "streaming_window_frames": {
                         "anyOf": [
                             {
-                                "type": "integer"
+                                "type": "integer",
+                                "minimum": 1.0
                             },
                             {
                                 "type": "null"

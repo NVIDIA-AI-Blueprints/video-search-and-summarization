@@ -30,6 +30,29 @@ from pydantic import Field, StrictBool, StrictInt
 # types, so `true` or "8" is rejected instead of quietly becoming 1 or 8.
 InferenceMode = Literal["chunked", "streaming_vlm"]
 StreamingWindowFrames = Annotated[StrictInt, Field(ge=1)]
+# Non-empty only: the accepted policy names are owned and validated by RTVI.
+StreamingFramePolicy = Annotated[str, Field(min_length=1)]
+
+
+def require_streaming_mode_for_options(
+    inference_mode: Optional[str],
+    streaming_frame_policy: Optional[str],
+    streaming_window_frames: Optional[int],
+    streaming_question_on_decode: Optional[bool],
+) -> None:
+    """Raise ValueError if a ``streaming_*`` option is set without
+    ``inference_mode="streaming_vlm"`` (RTVI would reject or ignore it)."""
+    if inference_mode != "streaming_vlm" and any(
+        v is not None
+        for v in (
+            streaming_frame_policy,
+            streaming_window_frames,
+            streaming_question_on_decode,
+        )
+    ):
+        raise ValueError(
+            "streaming_* options require inference_mode='streaming_vlm'"
+        )
 
 
 # Single source of truth for the optional RTVI VLM fields that are omitted
@@ -157,7 +180,7 @@ class AlertRuleConfig:
     # incremental VLM session per live stream instead of independent
     # per-chunk requests. streaming_frame_policy is validated by RTVI.
     inference_mode: Optional[InferenceMode] = None
-    streaming_frame_policy: Optional[str] = None
+    streaming_frame_policy: Optional[StreamingFramePolicy] = None
     streaming_window_frames: Optional[StreamingWindowFrames] = None
     # Repeat the prompt on every streaming step; by default the session only
     # sees it once, at session start.
