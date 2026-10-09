@@ -76,7 +76,10 @@ another retry or timeout loop.
 
 An empty result such as `{"count":0,"incidents":[]}` or
 `{"count":0,"sensors":[]}` is a successful answer at exit 0. Report it as no
-matching data; do not retry it or treat it as an outage.
+matching records in the scope you queried, naming the command and its filters;
+do not retry it, treat it as an outage, or attribute it to the pipeline or event
+generation. An empty incident list takes one more step first: see
+[Empty incident lists on alert deployments](#empty-incident-lists-on-alert-deployments).
 
 ## Commands
 
@@ -96,10 +99,34 @@ Use `--source-type place` when `--source` is an analytics place. The source and
 source type are paired. Time bounds are paired and the end cannot precede the
 start.
 
+Without `--vlm-verdict`, `vss analytics incidents` reads the Behavior Analytics
+incident index. `--vlm-verdict <verdict>` reads the VLM incident index instead,
+filtered by verdict (`all` for every verdict); on a real-time VLM deployment
+that index holds one record per positive chunk, not consolidated events.
+
 For a count question, use the returned `count` only when `has_more` is false.
 When `has_more` is true, say there are at least `count` matching incidents; do
 not treat `count` as an exact total. Do not invent or estimate incidents when
 the array is empty.
+
+#### Empty incident lists on alert deployments
+
+A real-time (VLM) alerts deployment runs no Behavior Analytics, so the default
+incident index is normally empty there and its alerts are in the VLM incident
+index. When `vss analytics incidents` without `--vlm-verdict` returns no
+incidents for all sensors or for one sensor, and `vss-manage-alerts` is among
+your skills, hand the incident part of the question to it (Workflow C) instead
+of reporting the zero; its answer stands without a cross-check. Rerun once with
+`--vlm-verdict all --include category` and the same scope instead when the
+empty query was place-scoped, when `vss-manage-alerts` is not among your skills,
+or when it hands the question to you for any reason (for example a failed Alert
+Bridge health probe), and report both results with their scope. A question that
+`vss-manage-alerts` hands to you starts with the default query and is never
+handed off again. RT-VLM records usually carry the stored sensor name; a rule
+created without `sensor_name` stores the VIOS UUID instead, so when the name
+returns nothing, try the UUID from `vss vios list`. This step does not apply
+when another skill specified the command (the report skill's incident-range
+mode already passes `--vlm-verdict all`).
 
 ### Sensors and places
 
@@ -167,5 +194,6 @@ a memory record.
   do not improvise an Elasticsearch query.
 - Exit 5 from `incident`: verify the ID from an incident listing.
 - Exit 7: report the timeout and let the caller decide whether to retry.
-- Exit 0 with empty arrays/counts: report that no matching analytics data is
-  indexed.
+- Exit 0 with empty arrays/counts: report that the queried scope has no
+  matching records (for incidents, after the empty-incident-list step); do not
+  suggest that the pipeline or event generation is broken.
