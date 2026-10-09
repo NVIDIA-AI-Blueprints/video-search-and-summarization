@@ -12,14 +12,16 @@ open-source, Cordis-based "everything is a plugin" agent harness from DeepSeek A
 > DeepSeek Harness is in developer preview. Expect compatibility-breaking changes
 > between releases.
 
-Like `../.openclaw` and `../.hermes`, the runtime is an OpenShell sandbox image, so it
-runs under the OpenShell supervisor. `dsh` ships no official Docker image and has no
-NemoClaw sandbox of its own, so `Dockerfile.base` starts from the generic
-`ghcr.io/nvidia/openshell-community/sandboxes/base` (Ubuntu 24.04, Node 22, iproute2,
-user `sandbox` at `/sandbox`) and adds the pinned `dsh` CLI, the `vss` CLI (same
-wheel-install pattern as `../.hermes`, on the base's uv-managed Python 3.14 since the
-CLI needs >=3.13), and the `vss_cli` tool plugin baked directly into the `headless`
-profile.
+A thin OpenShell sandbox. `dsh` ships no official Docker image and has no NemoClaw
+sandbox of its own, so `Dockerfile.base` owns the whole base layer: a plain pinned
+Node image, `npm install -g @deepseek-ai/dsh`, the `vss` CLI (same wheel-install
+pattern as `../.hermes`), and the `vss_cli` tool plugin baked directly into the
+`headless` profile. The OpenShell supervisor is injected into the pod by OpenShell, so
+all the image adds for it is its contract: `iproute2` (the supervisor refuses to start
+a sandbox without `ip`) and the non-root `sandbox` user with `HOME=/sandbox`. The
+generic `openshell-community/sandboxes/base` also meets that contract but is ~3.4 GB,
+two-thirds of it other agents' CLIs that dsh never runs; this image is ~1.1 GB
+(~450 MB compressed).
 
 ## The `headless` profile
 
@@ -67,8 +69,7 @@ docker build -f .dsh/Dockerfile.base -t <registry>/vss-harness-dsh:<tag> .dsh
 
 | Build arg | Default | What it pins |
 |---|---|---|
-| `BASE_IMAGE` | `ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef…` | the OpenShell sandbox runtime |
-| `BUILDER_IMAGE` | `node:24.18.1-trixie-slim@sha256:ac39…` | the plugin build stage (same pin as `../.hermes`'s builder stages) |
+| `BASE_IMAGE`, `BUILDER_IMAGE` | `node:24.18.1-trixie-slim@sha256:ac39…` | the Node runtime (same pin as `../.hermes`'s builder stages) |
 | `VSS_REPO`, `VSS_REF` | this repo, `develop` | the `vss` CLI only; this base ships no skills |
 
 The `dsh` CLI itself — developer preview, move deliberately — is pinned in

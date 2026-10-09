@@ -3,19 +3,22 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# DeepSeek Harness (dsh) base image — the OpenShell community sandbox base plus the pinned `dsh`
+# DeepSeek Harness (dsh) base image — a thin OpenShell sandbox: a plain Node base plus the pinned `dsh`
 # CLI, the vss CLI, and the vss_cli tool plugin baked into the `headless`
 # profile (dsh's one-shot, no-server, no-GUI runner: `dsh --profile headless
 # "<task>"`), but no VSS skills: a VSS-capable foundation a user still
 # extends with their own tools and plugins, not a blank harness.
 # tags: [dsh, deepseek-harness, base, vss-cli]
 #
-# Like ./.openclaw and ./.hermes, the runtime stage is an OpenShell sandbox
-# image, so it runs under the OpenShell supervisor (non-root `sandbox` user at
-# /sandbox, iproute2 for the network namespace, the proxy-mode contract).
-# dsh has no NemoClaw sandbox of its own (no official Docker image in
-# github.com/deepseek-ai/deepseek-harness), so this uses the generic
-# openshell-community base and adds dsh, the vss CLI and the vss_cli plugin.
+# Unlike ./.openclaw and ./.hermes, this does not `FROM` an externally
+# published managed runtime: dsh has no such thing (no official Docker image
+# in github.com/deepseek-ai/deepseek-harness), and installing it is just
+# `npm install -g @deepseek-ai/dsh`. It is still an OpenShell sandbox image:
+# the supervisor is injected into the pod by OpenShell, so all the image owes
+# it is the contract below (iproute2 for the sandbox network namespace, the
+# non-root `sandbox` user with HOME=/sandbox). The openshell-community base
+# also satisfies that contract but is ~3.4 GB, two-thirds of it other agents'
+# CLIs (codex, opencode, copilot, claude) that dsh never runs.
 #
 # dsh has no memory subsystem comparable to OpenClaw's memory-core or
 # Hermes' memory toggle (confirmed: no `@deepseek-ai/dsh-*memory*` package
@@ -33,9 +36,7 @@
 #
 #   docker build -f .dsh/Dockerfile.base -t <registry>/vss-harness-dsh:<tag> .dsh
 
-# OpenShell community sandbox base (Ubuntu 24.04, Node 22, python3, iproute2,
-# user `sandbox` at /sandbox), by index digest (multi-arch).
-ARG BASE_IMAGE=ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e
+ARG BASE_IMAGE=node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc
 ARG BUILDER_IMAGE=node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc
 # uv 0.12.10, by index digest (multi-arch). Same pin as ../.hermes/Dockerfile.base's.
 ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500
@@ -98,9 +99,16 @@ USER root
 # ../.openclaw/Dockerfile and ../.hermes/Dockerfile's sandbox contract.
 RUN for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done
 
-# The OpenShell base already provides python3, ca-certificates, iproute2 and
-# the non-root `sandbox` user (HOME=/sandbox) the supervisor runs agents as.
-RUN command -v ip python3 node npm && id sandbox
+# This base owns its whole runtime (see header): python3 (3.13 on trixie, which
+# the vss CLI requires) for the vss CLI venv, ca-certificates for npm/git/https,
+# and iproute2 -- the OpenShell supervisor refuses to start a sandbox without
+# `ip` ("trusted ip helper not found").
+RUN apt-get update && apt-get install -y --no-install-recommends python3 ca-certificates iproute2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ip -V
+
+# Non-root sandbox user, matching the other two harnesses' final USER.
+RUN useradd --create-home --home-dir /sandbox --shell /bin/bash sandbox
 
 # DeepSeek Harness CLI (developer preview; pin moves deliberately -- see
 # header). Installed from a committed manifest + lockfile (./cli/), not a
@@ -115,15 +123,13 @@ RUN cd /opt/dsh-cli \
     && dsh --version
 
 # The vss CLI. Own venv, same wheel-install pattern as ../.hermes/Dockerfile.base.
-# It needs Python >=3.13: the base's system python3 is 3.12, so this uses the
-# uv-managed interpreter the base already ships (UV_PYTHON_INSTALL_DIR).
-COPY --from=uv /uv /usr/local/bin/uv
-COPY --from=vss-src /opt/vss-wheels/ /opt/vss-wheels/
-RUN set -eux; \
-    uv venv --no-python-downloads --python '>=3.13' /usr/local/vss; \
-    VIRTUAL_ENV=/usr/local/vss uv pip install /opt/vss-wheels/*.whl; \
+# uv and the wheels are mounted for this step only, so neither ships in the image.
+RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
+    --mount=from=vss-src,source=/opt/vss-wheels,target=/opt/vss-wheels \
+    set -eux; \
+    uv venv --python /usr/bin/python3 /usr/local/vss; \
+    VIRTUAL_ENV=/usr/local/vss uv pip install --no-cache /opt/vss-wheels/*.whl; \
     ln -sf /usr/local/vss/bin/vss /usr/local/bin/vss; \
-    rm -rf /opt/vss-wheels; \
     vss --version; \
     su -s /bin/sh sandbox -c "vss --version"
 
