@@ -42,7 +42,7 @@ ships rather than a REST endpoint that is being retired.
 |---|---|
 | User asks to benchmark the OpenClaw chat route | This runner does not measure it; explain the gap instead of presenting CLI timings as chat timings |
 | User asks to benchmark the retired agent REST search endpoint | This runner does not measure it; for historical comparison, use the external legacy `run_eval.py` noted in `references/troubleshooting.md` |
-| No search profile deployed in this session | Use `vss-build-vision-ai` to deploy the **stock search profile with its in-stack agent REST API and in-stack LLM retained**. Explicitly name both requirements in the build request so it skips the harness question (which would remove the agent and possibly the LLM); do not select a NemoClaw-only or CLI-only harness. Record the reachable agent endpoint and unified origin, then return here. Check agent `/health` and LLM `/v1/models`, run Step 3 to inspect indices, and complete Step 4 ingestion and its index probe before scoring |
+| No search profile deployed in this session | Use `vss-build-vision-ai` to deploy the **stock search profile with its in-stack agent REST API and in-stack LLM retained**. Explicitly name both requirements in the build request so it skips the harness question (which would remove the agent and possibly the LLM); do not select a NemoClaw-only or CLI-only harness. Record the reachable agent endpoint and unified origin, then return here. Check agent `/health` and LLM `/v1/models`, run Step 3 to inspect indices, and complete Step 4 ingestion and its ingest gate before scoring |
 | User did not give an endpoint | Ask for it. Do not guess, and do not default to localhost |
 | Endpoint uses `localhost` or `127.0.0.1` | This is valid when the runner is on the deployment host. Verify the actual VST clip URL is reachable from RT-VLM before trusting critic-filtered metrics |
 | User did not give a dataset | Ask which dataset and where its `--data-dir` is. Do not invent one |
@@ -108,17 +108,22 @@ Five defaults, each load-bearing:
 
   What `agent-3step` gave for free was proof: `/complete` returns
   `chunks_processed`, and a zero failed the upload. `vst-direct` has no such
-  step, so a **post-ingest index probe** replaces it — one embed query, retried,
-  before the real run starts. Registered in VST is not the same as indexed in
-  Elasticsearch, and without this check an unindexed deployment scores 0.0
-  across the board and reads as a retrieval collapse.
+  step, so an **ingest gate** replaces it: the runner reads Elasticsearch and
+  RT-CV through the `:7777` ingress until every video's embeddings, tags, raw
+  frames and behavior are complete against targets from its own duration and
+  frame rate, then queries. If any video is incomplete at the deadline it
+  aborts with each index's count against its target — it never queries a
+  half-built index. One searchable hit arrives ~20 s after upload; RT-CV is
+  still writing for minutes after that.
 
-  If the probe aborts a run, check the deployed VIOS notification config and
-  that `RTVI_EMBED_MODEL` matches the webhook's model string — RT-Embed answers
-  a mismatch with HTTP 200 and `inference: false`. The Docker and Helm search
-  profiles enable webhooks; generic VIOS chart defaults may not. If the
-  deployed webhooks are disabled, use `--ingest-flow agent-3step`.
-  Never pass `--skip-index-probe` on a run whose numbers you intend to quote.
+  If the gate reports `RT-CV never listed the stream`, check the deployed VIOS
+  notification config and that `RTVI_EMBED_MODEL` matches the webhook's model
+  string — RT-Embed answers a mismatch with HTTP 200 and `inference: false`.
+  The Docker and Helm search profiles enable webhooks; generic VIOS chart
+  defaults may not. If the deployed webhooks are disabled, use
+  `--ingest-flow agent-3step`. For a profile without RT-VLM or RT-CV, narrow
+  `--ingest-require`. Never pass `--skip-index-probe` or `--legacy-index-probe`
+  on a run whose numbers you intend to quote.
 - **Concurrency stays at 1** (the script's default). Concurrent queries contend
   for the same VLM and embedding services, so per-stage latencies inflate and
   stop describing a single query.
@@ -146,8 +151,8 @@ eval. Both measure a different flow; the result records the routing mode.
 | Critic clip URL reachable **from RT-VLM** | Inspect a returned VST `videoUrl` and test that exact URL from the RT-VLM container. The CLI uses `video_url_scope="internal"`; CLI ORIGIN may legitimately be localhost on the host |
 
 Agent `/health` confirms the process is reachable, not that VIOS and the search
-indices are ready. Step 3 and the post-ingest index probe are the retrieval
-readiness gates.
+indices are ready. Step 3 and the ingest gate are the retrieval readiness
+gates.
 
 ## Step 1 — Configure the CLI
 
@@ -194,8 +199,8 @@ is missing, only `embed` can score. If the indices are absent, go to Step 4.
 
 The default `vst-direct` flow uploads to VIOS and lets its webhooks trigger
 perception. It does not call the agent's `/complete` endpoint or receive a
-`chunks_processed` count. The runner waits for VST registration, then probes
-the search index before scoring. Use `--ingest-flow agent-3step` only when the
+`chunks_processed` count. The runner waits for VST registration, then waits on
+the ingest gate until every index is complete. Use `--ingest-flow agent-3step` only when the
 deployment cannot run the webhook flow; see `references/troubleshooting.md`.
 
 ```bash
@@ -205,8 +210,11 @@ uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:
 
 Expect this to be slow while the webhook pipeline indexes the videos:
 
-- A registered source is not necessarily indexed. The post-ingest index probe
-  must pass before treating zero hits as a retrieval result.
+- A registered source is not necessarily indexed. The ingest gate must confirm
+  every video before scoring; a 210 s video takes about 220 s. It prints an
+  `INGESTION SUMMARY` with embedding-done and full-ingestion times per video.
+- Leftover documents under a name about to be uploaded abort the run before
+  upload (`stale documents for X`): they would satisfy the gate instantly.
 - If webhooks are disabled, select `--ingest-flow agent-3step` explicitly. That
   flow calls `/complete`, which can return a transient 502 and is retried.
 - `--skip-existing` is the default: ingest what is missing and delete nothing.
