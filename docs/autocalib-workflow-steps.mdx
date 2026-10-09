@@ -850,19 +850,19 @@ View calibration results, draw optional ROIs/tripwires on linear (rectified) fra
 
 ### Results Availability
 
-The **Results** step is available when at least one calibration path has completed successfully:
+**Calibration results** (overlays, evaluation metrics, camera parameters, and world-coordinate verification and export) are available when at least one calibration path has completed successfully:
 
 - **AMC completed successfully**, or
 - **VGGT completed successfully** (even if AMC was never run or failed)
 
 For multi-camera trajectory / virtual-GT overlays and evaluation metrics, run **Layout Post-processing** on Execute after calibration.
 
-**If No Results Are Available Yet**
+**If No Calibration Results Are Available Yet**
 - **Running**: "Calibration is still running — Please wait for calibration to complete."
 - **Error**: "Calibration failed — Please check your input files and try again." (if neither AMC nor VGGT has completed)
 - **Init/Ready**: "Please run calibration in the Execute step"
 
-> **Annotations do not need calibration:** The **ROI & Tripwire Drawing** editor and **Export image-mode JSON** (pixel coordinates) are available on Results as soon as the project has uploaded videos and linear media (Rectification completed, or **Videos Are Already Linear** selected), even if AMC and VGGT have not run. The editor is locked while calibration is running. World-coordinate verification and export still require a completed calibration.
+> **Annotations do not need calibration:** The **ROI & Tripwire Drawing** editor and **Export image-mode JSON** (pixel coordinates) are available on Results as soon as the project has uploaded videos and linear media (Rectification completed, or **Videos Are Rectified** selected), even if AMC and VGGT have not run. The editor is locked while calibration is running. World-coordinate verification and export still require a completed calibration.
 
 ![Results Not Ready](/assets/images/vss-autocalib-ui/step6_if_amc_is_running.jpg)
 
