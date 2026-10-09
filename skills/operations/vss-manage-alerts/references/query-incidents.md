@@ -40,6 +40,14 @@ empty, for scope) and run the block again; they are not a message for the user. 
 blocks in `set -e`, which (with `pipefail`) would abort the `grep`-no-match branch (an unknown
 sensor) before it can tell the user what exists.
 
+An Alert Bridge failure during a raw list or lookup ((a), (b), step 3) is not the VIOS-down
+`exit 2` fallback. Re-run the health probe (`curl -sf --max-time 5 "$AB/health"`): if it fails
+and `vss-query-analytics` is among your skills, hand the lookup to it; otherwise report the
+Alert Bridge error and stop. Never offer or run a deploy from inside Workflow C. If the probe
+passes, rerun the request without `-f` to read the HTTP status: a 4xx means the request is
+wrong, so fix it; a 5xx means its Elasticsearch backend failed, so report that and stop. An
+event count ((c)) cannot be answered without the Alert Bridge.
+
 **Chunks are not events.** RT-VLM writes one document per positive chunk, so one long incident
 is several rows. `GET /api/v1/realtime/incidents` has two views — pick one before you query:
 

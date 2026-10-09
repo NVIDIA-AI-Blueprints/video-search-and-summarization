@@ -66,9 +66,9 @@ reads no process env for endpoints by design, so the same input behaves the same
 way on any host. A command that exits 4 saying a service is missing is fixed by
 `vss configure`, not by a flag.
 
-**An empty result is not a failure.** `{"count": 0}` at exit 0 means the
-deployment genuinely has nothing matching; a backend problem exits 3. Never
-treat the two as the same.
+**An empty result is not a failure.** `{"count": 0}` at exit 0 means nothing
+matched the queried scope (the command, its filters and the index it reads); a
+backend problem exits 3. Never treat the two as the same.
 
 **Pipe carefully.** `vss … | jq` hides the CLI's exit code behind `jq`'s, so a
 failed command with empty stdout reads as an empty answer. Use `set -o
