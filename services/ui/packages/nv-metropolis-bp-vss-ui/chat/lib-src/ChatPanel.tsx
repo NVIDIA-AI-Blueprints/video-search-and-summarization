@@ -390,7 +390,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     if (!lastUser) return;
     // Drop the previous answer (and the user turn we are about to re-add).
     const tail = messages.length - messages.lastIndexOf(lastUser);
-    void send(lastUser.content, { deleteCount: tail, params: lastUser.params });
+    void send(lastUser.content, { deleteCount: tail, savedParams: lastUser.params });
   }, [messages, send]);
 
   const handleEdit = useCallback(

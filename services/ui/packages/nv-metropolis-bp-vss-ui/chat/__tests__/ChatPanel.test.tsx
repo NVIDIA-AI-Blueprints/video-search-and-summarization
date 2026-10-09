@@ -1029,7 +1029,7 @@ describe('ChatPanel', () => {
     fireEvent.click(screen.getByRole('switch'));
     rerender(
       <ChatPanel
-        endpoint={{ ...configuredEndpoint, extraParams: { ...configuredEndpoint.extraParams, top_k: 10 } }}
+        endpoint={{ ...configuredEndpoint, extraParams: { ...configuredEndpoint.extraParams, top_k: 10, threshold: 0.4 } }}
         features={noHeader}
         customAgentParamsJson={customAgentParamsJson}
       />,
@@ -1056,7 +1056,7 @@ describe('ChatPanel', () => {
     jest.mocked(loadConversations).mockResolvedValueOnce(saved);
     render(
       <ChatPanel
-        endpoint={{ ...endpoint, extraParams: { search_source_type: 'video_file', use_critic: true } }}
+        endpoint={{ ...endpoint, extraParams: { search_source_type: 'video_file', use_critic: true, top_k: 10 } }}
         features={noHeader}
       />,
     );
@@ -1064,6 +1064,35 @@ describe('ChatPanel', () => {
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Regenerate response' })));
 
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual(JSON.parse(fetchMock.mock.calls[0][1].body));
+  });
+
+  it.each([
+    { label: 'saved empty parameters', params: {}, expected: {} },
+    { label: 'legacy messages without saved parameters', params: undefined, expected: { search_source_type: 'rtsp', top_k: 10 } },
+  ])('regenerates $label with the appropriate defaults', async ({ params, expected }) => {
+    const fetchMock = jest.fn().mockImplementation(async () => sseResponse(['data: [DONE]\n\n']));
+    global.fetch = fetchMock as any;
+    jest.mocked(loadConversations).mockResolvedValueOnce([{
+      id: 'saved-thread',
+      name: 'Saved search',
+      messages: [
+        { id: 'saved-user', role: 'user', content: 'find forklifts', params },
+        { id: 'saved-answer', role: 'assistant', content: 'Original results' },
+      ],
+    }]);
+    render(
+      <ChatPanel
+        endpoint={{ ...endpoint, extraParams: { search_source_type: 'rtsp', top_k: 10 } }}
+        features={noHeader}
+      />,
+    );
+    await screen.findByTestId('chat-message-user');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Regenerate response' })));
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      ...expected,
+      messages: [{ role: 'user', content: 'find forklifts' }],
+    });
   });
 
   it('lets an embedder submit a message without the user typing', async () => {
