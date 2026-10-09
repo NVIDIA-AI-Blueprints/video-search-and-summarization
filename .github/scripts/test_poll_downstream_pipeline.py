@@ -63,13 +63,19 @@ class Run:
         self.ticks_read = ticks_read
 
 
-def drive(ticks: list[tuple[list[dict[str, Any]], str]], *, env: dict[str, str] | None = None) -> Run:
+def drive(
+    ticks: list[tuple[list[dict[str, Any]], str]],
+    *,
+    env: dict[str, str] | None = None,
+    traces: dict[str, str] | None = None,
+) -> Run:
     """Run ``main()`` against ``ticks``, a list of ``(jobs, pipeline_status)``.
 
     The last tick repeats forever, which is what lets a test assert the
     timeout path without waiting for it.
     """
     reads = {"n": 0, "current": 0}
+    job_names = {item["id"]: item["name"] for jobs, _ in ticks for item in jobs}
 
     def fake_fetch_all_jobs(*_args, **_kwargs):
         # main() fetches jobs first, then the pipeline, once per tick.
@@ -80,6 +86,9 @@ def drive(ticks: list[tuple[list[dict[str, Any]], str]], *, env: dict[str, str] 
 
     def fake_fetch_pipeline(*_args, **_kwargs):
         return {"status": ticks[reads["current"]][1]}
+
+    def fake_fetch_job_trace(_base, _token, _project, job_id):
+        return (traces or {}).get(job_names.get(job_id, ""))
 
     # Advance the clock by the poll interval on each sleep so a test that
     # never reaches a terminal state still hits MAX_POLL_DURATION_SECONDS.
@@ -96,6 +105,7 @@ def drive(ticks: list[tuple[list[dict[str, Any]], str]], *, env: dict[str, str] 
             mock.patch.dict(os.environ, full_env, clear=False),
             mock.patch.object(module, "fetch_all_jobs", fake_fetch_all_jobs),
             mock.patch.object(module, "fetch_pipeline", fake_fetch_pipeline),
+            mock.patch.object(module, "fetch_job_trace", fake_fetch_job_trace, create=True),
             mock.patch.object(module.time, "sleep", fake_sleep),
             mock.patch.object(module.time, "monotonic", lambda: clock["t"]),
             contextlib.redirect_stdout(out),
@@ -342,6 +352,25 @@ class BlockingJobsTest(unittest.TestCase):
     def test_status_case_is_ignored(self):
         failed, _ = module.blocking_jobs([job("a", "FAILED")])
         self.assertEqual([j["name"] for j in failed], ["a"])
+
+
+class InfraClassificationTest(unittest.TestCase):
+    def test_explicit_runner_failure_is_not_a_product_failure(self):
+        failed = job("test-search", "failed", failure_reason="runner_system_failure")
+        run = drive([([failed], "failed")])
+        self.assertEqual(run.exit_code, 0)
+        self.assertIn("DOWNSTREAM_INFRA", run.stdout)
+
+    def test_failure_before_step_script_is_infrastructure(self):
+        failed = job("test-search", "failed", job_id=7, failure_reason="script_failure")
+        trace = "section_start:1:get_sources\nfatal: checkout failed\n"
+        run = drive([([failed], "failed")], traces={"test-search": trace})
+        self.assertEqual(run.exit_code, 0)
+
+    def test_unproven_infrastructure_fails_closed(self):
+        failed = job("test-search", "failed", job_id=8, failure_reason="script_failure")
+        run = drive([([failed], "failed")])
+        self.assertEqual(run.exit_code, 1)
 
 
 class DescribeJobTest(unittest.TestCase):

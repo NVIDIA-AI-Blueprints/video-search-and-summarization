@@ -243,6 +243,51 @@ spec:
             - name: http
               containerPort: {{ .Values.httpPort }}
               protocol: TCP
+          {{- /*
+            Only DS_VISION_ENCODER profiles build the text embedder. Its generic
+            readiness endpoint becomes ready before embeddings are available.
+          */}}
+          {{- $visionEncoder := eq (.Values.env.DS_VISION_ENCODER | default "false" | toString) "true" }}
+          {{- if $visionEncoder }}
+          startupProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - >-
+                  import json, sys, urllib.request;
+                  body = json.dumps({'text_input': 'healthcheck', 'model': ''}).encode();
+                  req = urllib.request.Request(
+                  'http://localhost:{{ .Values.httpPort }}/api/v1/generate_text_embeddings',
+                  data=body, headers={'Content-Type': 'application/json'});
+                  data = json.load(urllib.request.urlopen(req, timeout=10)).get('data');
+                  sys.exit(0 if isinstance(data, list) and len(data) > 0 else 1)
+            periodSeconds: 30
+            failureThreshold: 40
+            timeoutSeconds: 15
+          readinessProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - >-
+                  import json, sys, urllib.request;
+                  body = json.dumps({'text_input': 'healthcheck', 'model': ''}).encode();
+                  req = urllib.request.Request(
+                  'http://localhost:{{ .Values.httpPort }}/api/v1/generate_text_embeddings',
+                  data=body, headers={'Content-Type': 'application/json'});
+                  data = json.load(urllib.request.urlopen(req, timeout=10)).get('data');
+                  sys.exit(0 if isinstance(data, list) and len(data) > 0 else 1)
+            periodSeconds: 30
+            failureThreshold: 5
+            timeoutSeconds: 15
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.httpPort }}
+            periodSeconds: 30
+            failureThreshold: 5
+            timeoutSeconds: 5
+          {{- else }}
           startupProbe:
             tcpSocket:
               port: {{ .Values.httpPort }}
@@ -262,6 +307,7 @@ spec:
             periodSeconds: 30
             failureThreshold: 5
             timeoutSeconds: 5
+          {{- end }}
           {{- end }}
           env:
             - name: DS_MODEL_FAMILY
