@@ -174,6 +174,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   pendingInteractionRef.current = pendingInteraction;
 
   const messages = selected?.messages ?? [];
+  // Memoized message views retain this handler; read current controls and
+  // messages without changing its identity on every streamed token.
+  const editStateRef = useRef({ messages, paramFields });
+  editStateRef.current = { messages, paramFields };
   const logRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<string | undefined>(selected?.id);
@@ -399,11 +403,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     (message: { id: string; content: string }) => {
       // Count from the real array: hidden messages sit between the visible
       // ones, so a count derived from the rendered list truncates too little.
-      const at = messages.findIndex((m) => m.id === message.id);
+      const current = editStateRef.current;
+      const at = current.messages.findIndex((m) => m.id === message.id);
       if (at < 0) return;
-      void send(message.content, { deleteCount: messages.length - at, params: fieldsToParams(paramFields) });
+      void send(message.content, {
+        deleteCount: current.messages.length - at,
+        params: fieldsToParams(current.paramFields),
+      });
     },
-    [messages, paramFields, send],
+    [send],
   );
 
   const handleDelete = useCallback(
