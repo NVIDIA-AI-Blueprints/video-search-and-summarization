@@ -603,6 +603,37 @@ def test_missing_has_action_defaults_to_fusion_not_attribute() -> None:
     assert flows.route({"attributes": ["person in red"]}) == "fusion"
 
 
+def test_action_query_copied_into_attributes_routes_to_embed() -> None:
+    """The attribute only repeats the action, so there is nothing to re-rank by."""
+    decomposition = {
+        "query": "person dropping a box",
+        "attributes": ["person dropping a box"],
+        "has_action": True,
+    }
+    assert flows.route(decomposition) == "embed"
+    assert flows.plan_for("person dropping a box", decomposition)["attributes"] == []
+
+
+def test_copied_query_with_appearance_words_stays_on_fusion() -> None:
+    decomposition = {
+        "query": "worker in a hi-vis vest lifting a box",
+        "attributes": ["worker in a hi-vis vest lifting a box"],
+        "has_action": True,
+    }
+    assert flows.route(decomposition) == "fusion"
+    plan = flows.plan_for("worker in a hi-vis vest lifting a box", decomposition)
+    assert plan["attributes"] == ["worker in a hi-vis vest lifting a box"]
+
+
+def test_single_word_attributes_are_pruned_like_the_agent() -> None:
+    decomposition = {"query": "person walking", "attributes": ["red"], "has_action": True}
+    assert flows.route(decomposition) == "embed"
+    assert flows.plan_for("person walking", decomposition)["attributes"] == []
+    assert flows.effective_attributes({"attributes": ["red", "hi-vis", "red.jacket"]}) == [
+        "hi-vis", "red.jacket",
+    ]
+
+
 def test_plan_without_decomposition_reproduces_fixed_flags() -> None:
     """An un-annotated dataset must behave exactly as before."""
     plan = flows.plan_for("a person walking", None, default_path="embed", default_attributes=["x"])
