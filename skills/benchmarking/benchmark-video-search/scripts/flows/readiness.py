@@ -133,10 +133,9 @@ def wait_for_sources(
 ) -> dict[str, Any]:
     """Block until VST lists every expected source, or the budget runs out.
 
-    Only VST registration is checked. The upstream skill also checks the three
-    Elasticsearch indices directly, which this deliberately does not do --
-    reaching past the public origin into ES is what the skill's hard boundaries
-    forbid.
+    Only VST registration is checked. Whether perception has finished is
+    :mod:`.ingest_readiness`'s question, answered from Elasticsearch through
+    the unified ingress rather than from VST.
 
     Note VST registration is not a complete readiness signal: an aborted ingest
     can leave embedding documents in Elasticsearch with no VST sensor, which

@@ -2086,3 +2086,460 @@ def test_the_absent_sentinel_is_not_mistaken_for_a_real_source() -> None:
     assert _summary(
         {flows.VERIFICATION_ABSENT, "verification"}, {"confirmed": 5}
     )["critic"]["status"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Ingest gate: completion read from what perception wrote
+# ---------------------------------------------------------------------------
+
+_SID = "11111111-2222-3333-4444-555555555555"
+_NAME = "warehouse_sample"
+_ANCHOR_MS = flows.ingest_readiness.anchor_epoch_ms()
+
+
+def _warehouse(uploaded: bool = True, **overrides: Any) -> Any:
+    """The measured 210 s, 30 fps copy of warehouse_sample, uploaded at t=0."""
+    fields: dict[str, Any] = {
+        "name": _NAME, "sensor_id": _SID, "duration_s": 210.0, "fps": 30.0,
+        "uploaded_this_run": uploaded, "upload_start_mono": 0.0 if uploaded else None,
+        "video_name": _NAME, "file_size_mb": 150.0, "upload_s": 1.2 if uploaded else None,
+    }
+    fields.update(overrides)
+    return flows.ExpectedVideo(**fields)
+
+
+def _snap(
+    *, cv: bool = False, raw: int = 0, last_s: float | None = None,
+    embed: int = 0, tags: int = 0, behavior: int = 0,
+) -> Any:
+    tag_index = "default_" + _SID.replace("-", "_")
+    return flows.Snapshot(
+        cv_active={_NAME, "rtsp://vst/whatever"} if cv else {"some-other-camera"},
+        raw={_NAME: (raw, _ANCHOR_MS + last_s * 1000 if last_s is not None else None)} if raw else {},
+        embed={_SID: embed} if embed else {},
+        tags={tag_index: tags} if tags else {},
+        behavior={_NAME: behavior} if behavior else {},
+    )
+
+
+def _state(video: Any = None, **kw: Any) -> Any:
+    return flows.VideoState(video or _warehouse(), anchor_ms=_ANCHOR_MS, **kw)
+
+
+def _measured_timeline(t: float) -> Any:
+    """Each index finishing when it did on the deployment (seconds after upload)."""
+    frac = min(1.0, t / 218.2)
+    return _snap(
+        cv=2.4 <= t < 216.0,
+        raw=min(6298, int(frac * 6298)) if t > 0 else 0,
+        last_s=frac * 209.966,
+        embed=min(42, int(t / 26.3 * 42)),
+        tags=42 if t >= 8.9 else 0,
+        behavior=8 if t >= 185.5 else (3 if t >= 100 else 0),
+    )
+
+
+class _FakeClock:
+    def __init__(self, start: float = 0.0) -> None:
+        self.t = start
+
+    def __call__(self) -> float:
+        return self.t
+
+    def sleep(self, seconds: float) -> None:
+        self.t += seconds
+
+
+def _gate(expected: list[Any], poll_fn: Any, clock: _FakeClock, **kw: Any) -> dict[str, Any]:
+    return flows.wait_for_ingest_complete(
+        "https://host:7777", expected, poll_fn=poll_fn, clock=clock, sleep=clock.sleep,
+        log=lambda _line: None, **kw,
+    )
+
+
+def test_targets_come_from_duration_and_frame_rate() -> None:
+    st = _state()
+    assert st.targets == {"embed": 42, "tags": 42, "raw": 6285}
+    assert st.raw_end_s == 209.0
+    # A container duration a hair past the boundary is not an extra chunk.
+    assert flows.ingest_readiness.chunk_target(210.033, 5.0) == 42
+    assert flows.ingest_readiness.chunk_target(25.0, 5.0) == 5
+    # 10 fps safety clip: 244 of 250 frames were written; the slack accepts it.
+    assert flows.ingest_readiness.raw_count_target(25.0, 10.0) == 235
+    assert _warehouse().tag_index == "default_11111111_2222_3333_4444_555555555555"
+
+
+def test_embeddings_reach_their_target_long_before_raw() -> None:
+    """The old probe's pass point: 42/42 embeddings while RT-CV is mid-file."""
+    st = _state()
+    st.observe(_snap(cv=True, raw=3000, last_s=100.0, embed=42, tags=42), now=26.3)
+    assert st.index_done["embed"] and st.index_done["tags"]
+    assert not st.index_done["raw"]
+    assert not st.done
+    assert st.per_index_done_s()["embed"] == pytest.approx(26.3)
+
+
+def test_rtcv_never_listing_the_video_times_out_with_the_webhook_hint() -> None:
+    clock = _FakeClock(1.2)
+    full = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42, behavior=8)
+    result = _gate([_warehouse()], lambda: full, clock, deadline_s=30.0)
+
+    assert result["outcome"] == "timed_out"
+    report = result["per_video"][0]
+    assert report["outcome"] == "timed_out"
+    assert report["cv_seen"] is False
+    assert any("RT-CV never listed" in c for c in report["causes"])
+    message = flows.format_ingest_failure(result)
+    assert "webhooks.enabled" in message
+    assert "raw 6298/6285" in message
+
+
+def test_rtcv_dropping_the_stream_is_not_enough_while_raw_is_short() -> None:
+    st = _state()
+    st.observe(_snap(cv=True, raw=100, last_s=3.0, embed=5), now=5.0)
+    st.observe(_snap(cv=False, raw=6000, last_s=209.9, embed=42, tags=42), now=216.0)
+    assert st.cv_dropped
+    assert not st.index_done["raw"], "6000 < 6285: the last frames are still in flight"
+    st.observe(_snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42), now=218.2)
+    assert st.index_done["raw"]
+
+
+def test_a_last_frame_short_of_the_end_keeps_raw_open() -> None:
+    st = _state()
+    st.observe(_snap(cv=True, raw=10, last_s=0.3), now=3.0)
+    st.observe(_snap(cv=False, raw=6290, last_s=205.0, embed=42, tags=42), now=216.0)
+    assert not st.index_done["raw"]
+    assert any("last frame at 205.0s, needs >= 209.0s" in c for c in st.causes())
+
+
+def test_behavior_waits_out_the_quiet_window_while_counts_move() -> None:
+    st = _state(quiet_s=15.0)
+    st.observe(_snap(cv=True, raw=10, last_s=0.3), now=3.0)
+    st.observe(_snap(raw=6298, last_s=209.966, embed=42, tags=42, behavior=4), now=218.0)
+    assert st.index_done["raw"]
+    st.observe(_snap(raw=6298, last_s=209.966, embed=42, tags=42, behavior=8), now=220.0)
+    st.observe(_snap(raw=6298, last_s=209.966, embed=42, tags=42, behavior=8), now=230.0)
+    assert not st.index_done["behavior"], "changed 10 s ago; the window is 15 s"
+    st.observe(_snap(raw=6298, last_s=209.966, embed=42, tags=42, behavior=8), now=235.0)
+    assert st.done
+    assert st.per_index_done_s()["behavior"] == pytest.approx(220.0)
+
+
+def test_zero_behavior_objects_is_done_with_no_done_time() -> None:
+    st = _state(quiet_s=15.0)
+    st.observe(_snap(cv=True, raw=10, last_s=0.3), now=3.0)
+    st.observe(_snap(raw=6298, last_s=209.966, embed=42, tags=42), now=218.0)
+    st.observe(_snap(raw=6298, last_s=209.966, embed=42, tags=42), now=233.0)
+    assert st.done
+    assert st.per_index_done_s()["behavior"] is None
+    assert st.report("confirmed")["ingest_s"] == pytest.approx(218.0)
+
+
+def test_done_time_is_the_last_change_not_the_end_of_the_quiet_window() -> None:
+    """The measured run end to end: raw last changes at the first poll after 218.2 s."""
+    clock = _FakeClock(1.2)
+    result = _gate([_warehouse()], lambda: _measured_timeline(clock.t), clock, poll_s=2.0, quiet_s=15.0)
+
+    assert result["outcome"] == "confirmed"
+    report = result["per_video"][0]
+    done = report["per_index_done_s"]
+    assert done["tags"] == pytest.approx(9.2)
+    assert done["embed"] == pytest.approx(27.2)
+    assert done["behavior"] == pytest.approx(187.2)
+    assert done["raw"] == pytest.approx(219.2)
+    assert report["ingest_s"] == pytest.approx(219.2), "not 234.2, when the window closed"
+    assert result["waited_s"] >= 15.0 + 219.2 - 1.2 - 1e-6
+    assert report["counts"] == {"raw": 6298, "embed": 42, "tags": 42, "behavior": 8}
+    assert report["over_target"] == []
+
+
+def test_a_transient_elasticsearch_error_keeps_polling() -> None:
+    import requests
+
+    clock = _FakeClock(300.0)
+    finished = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42, behavior=8)
+    responses: list[Any] = [
+        _snap(cv=True, raw=10, last_s=0.3),
+        requests.ConnectionError("ingress reset"),
+        flows.ingest_readiness.IngestPollError("_msearch returned None"),
+    ]
+
+    def poll() -> Any:
+        item = responses.pop(0) if responses else finished
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    result = _gate([_warehouse()], poll, clock, quiet_s=4.0, deadline_s=600.0)
+    assert result["outcome"] == "confirmed"
+    assert result["poll_errors"] == 2
+
+
+def test_a_skipped_existing_video_passes_at_once_with_no_timings() -> None:
+    """Never uploaded this run, so never in RT-CV: counts and last frame decide."""
+    clock = _FakeClock(50.0)
+    full = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42, behavior=8)
+    result = _gate([_warehouse(uploaded=False)], lambda: full, clock, quiet_s=15.0)
+
+    assert result["outcome"] == "confirmed"
+    assert result["polls"] == 1
+    report = result["per_video"][0]
+    assert report["per_index_done_s"] == {}
+    assert report["ingest_s"] is None
+    assert report["cv_seen"] is None
+    stats = flows.aggregate_ingest_stats(result)
+    assert stats["wall_s"] is None
+    assert stats["ingest_s"] is None
+    assert stats["chunks"] == {"total": 42, "avg_per_video": 42.0}
+
+
+def test_a_skipped_video_still_being_written_is_not_waved_through() -> None:
+    st = _state(_warehouse(uploaded=False), quiet_s=15.0)
+    st.observe(_snap(raw=6290, last_s=209.5, embed=42, tags=42, behavior=4), now=0.0)
+    st.observe(_snap(raw=6298, last_s=209.966, embed=42, tags=42, behavior=8), now=2.0)
+    assert st.index_done["raw"]
+    assert not st.index_done["behavior"], "a count moved, so the quiet window applies"
+
+
+def test_double_processing_is_flagged_not_failed() -> None:
+    st = _state()
+    st.observe(_snap(cv=True, raw=10, last_s=0.3), now=3.0)
+    st.observe(_snap(raw=6298, last_s=209.966, embed=84, tags=42, behavior=8), now=218.0)
+    st.observe(_snap(raw=6298, last_s=209.966, embed=84, tags=42, behavior=8), now=240.0)
+    assert st.done
+    assert st.report("confirmed")["over_target"] == ["embed"]
+
+
+def test_an_unknown_duration_fails_fast_instead_of_waiting_out_the_deadline() -> None:
+    clock = _FakeClock()
+    result = _gate([_warehouse(duration_s=None)], lambda: pytest.fail("must not poll"), clock)
+    assert result["outcome"] == "failed"
+    assert "duration unknown" in result["per_video"][0]["causes"][0]
+
+
+def test_required_indexes_can_be_narrowed_for_profiles_without_vlm_or_cv() -> None:
+    st = _state(require={"embed"})
+    st.observe(_snap(embed=42), now=27.0)
+    assert st.done
+    with pytest.raises(ValueError):
+        flows.wait_for_ingest_complete("https://h", [_warehouse()], require={"behavior"})
+
+
+def test_missing_tags_say_why_and_how_to_opt_out() -> None:
+    st = _state(require={"embed", "tags"})
+    st.observe(_snap(embed=42), now=27.0)
+    assert not st.done
+    assert any("--ingest-require" in c for c in st.causes())
+
+
+def test_a_poll_is_three_requests_with_counts_from_search_not_cat(monkeypatch: Any) -> None:
+    import requests
+
+    calls: list[tuple[str, str]] = []
+
+    class _Resp:
+        def __init__(self, payload: Any) -> None:
+            self._payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> Any:
+            return self._payload
+
+    def fake_get(url: str, **_kw: Any) -> Any:
+        calls.append(("GET", url))
+        return _Resp({"stream-info": {"stream-count": 1, "stream-info": [
+            {"camera_id": _SID, "camera_name": _NAME, "source_id": 0}
+        ]}})
+
+    def fake_post(url: str, **kw: Any) -> Any:
+        calls.append(("POST", url))
+        if url.endswith("/_msearch"):
+            lines = [json.loads(line) for line in kw["data"].strip().splitlines()]
+            assert [h["index"] for h in lines[::2]] == [
+                flows.RAW_INDEX, flows.EMBED_INDEX, flows.BEHAVIOR_INDEX,
+            ]
+            # Filtered to the expected sensors, sized to cover them all.
+            raw_body = lines[1]
+            assert raw_body["query"] == {"terms": {"sensorId.keyword": [_NAME]}}
+            assert raw_body["aggs"]["by"]["terms"]["size"] == 1
+            assert lines[3]["query"] == {"terms": {"sensor.id.keyword": [_SID]}}
+            return _Resp({"responses": [
+                {"aggregations": {"by": {"buckets": [
+                    {"key": _NAME, "doc_count": 6298, "last": {"value": _ANCHOR_MS + 209966.0}}
+                ]}}},
+                {"aggregations": {"by": {"buckets": [{"key": _SID, "doc_count": 42}]}}},
+                {"aggregations": {"by": {"buckets": [{"key": _NAME, "doc_count": 8}]}}},
+            ]})
+        assert "/elasticsearch/default_*/_search" in url
+        assert kw["params"] == {"ignore_unavailable": "true"}
+        return _Resp({"aggregations": {"by": {"buckets": [
+            {"key": "default_" + _SID.replace("-", "_"), "doc_count": 42}
+        ]}}})
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr(requests, "post", fake_post)
+    snap = flows.poll_ingest("https://host:7777/", [_warehouse()])
+
+    assert [m for m, _ in calls] == ["GET", "POST", "POST"]
+    assert calls[0][1] == "https://host:7777/rtvi-cv/api/v1/stream/get-stream-info"
+    assert _NAME in snap.cv_active and _SID in snap.cv_active
+    assert snap.raw[_NAME] == (6298, _ANCHOR_MS + 209966.0)
+    assert snap.embed == {_SID: 42}
+    assert snap.behavior == {_NAME: 8}
+    assert snap.tags == {"default_" + _SID.replace("-", "_"): 42}
+
+
+def test_an_elasticsearch_error_inside_msearch_is_a_poll_failure(monkeypatch: Any) -> None:
+    import requests
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> Any:
+            return {"responses": [{"error": {"type": "search_phase_execution_exception"}}]}
+
+    monkeypatch.setattr(requests, "post", lambda *_a, **_k: _Resp())
+    with pytest.raises(ValueError, match="search_phase_execution_exception"):
+        flows.poll_ingest("https://h:7777", [_warehouse()], require={"embed"})
+
+
+def test_stale_documents_before_upload_abort_the_run(monkeypatch: Any, tmp_path: Path) -> None:
+    import requests
+
+    import run_eval_flows as rf
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> Any:
+            return {"responses": [
+                {"aggregations": {"by": {"buckets": [{"key": _NAME, "doc_count": 6298}]}}},
+                {"aggregations": {"by": {"buckets": []}}},
+            ]}
+
+    sent: list[dict[str, Any]] = []
+
+    def fake_post(_url: str, **kw: Any) -> Any:
+        sent.extend(json.loads(line) for line in kw["data"].strip().splitlines())
+        return _Resp()
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    with pytest.raises(SystemExit, match="stale documents") as exc:
+        rf.check_stale_documents(
+            "https://h:7777", [tmp_path / f"{_NAME}.mp4"], flows.DEFAULT_REQUIRE
+        )
+    assert "raw 6298" in str(exc.value)
+    # Both VST spellings are asked, in the case ES stores them.
+    assert {_NAME, f"{_NAME}.mp4"} <= set(sent[1]["query"]["terms"]["sensorId.keyword"])
+
+
+def test_clean_indexes_let_the_upload_proceed(monkeypatch: Any, tmp_path: Path) -> None:
+    import requests
+
+    import run_eval_flows as rf
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> Any:
+            return {"responses": [{"aggregations": {"by": {"buckets": []}}}] * 2}
+
+    monkeypatch.setattr(requests, "post", lambda *_a, **_k: _Resp())
+    rf.check_stale_documents("https://h:7777", [tmp_path / "clip.mp4"], flows.DEFAULT_REQUIRE)
+
+
+def test_batch_stats_fill_the_doc_table() -> None:
+    clock = _FakeClock(1.2)
+    long_video = _warehouse()
+    short_video = _warehouse(
+        name="warehouse_safety_0001", sensor_id="99999999-2222-3333-4444-555555555555",
+        duration_s=25.0, fps=10.0, upload_start_mono=1.5, video_name="warehouse_safety_0001",
+        file_size_mb=6.6,
+    )
+
+    def poll() -> Any:
+        snap = _measured_timeline(clock.t)
+        t = clock.t - 1.5
+        short_tag = "default_" + short_video.sensor_id.replace("-", "_")
+        if t > 0:
+            snap.cv_active |= {short_video.name} if t < 30 else set()
+            snap.raw[short_video.name] = (244 if t >= 31 else 10, _ANCHOR_MS + (24.6 if t >= 31 else 1.0) * 1000)
+            snap.embed[short_video.sensor_id] = 5 if t >= 10 else 1
+            snap.tags[short_tag] = 5
+        return snap
+
+    result = _gate([long_video, short_video], poll, clock)
+    assert result["outcome"] == "confirmed"
+    stats = flows.aggregate_ingest_stats(result)
+
+    assert stats["videos"] == 2
+    assert stats["duration_range_s"] == [25.0, 210.0]
+    assert stats["total_size_mb"] == 156.6
+    assert stats["chunks"] == {"total": 47, "avg_per_video": 23.5}
+    assert stats["behavior_check"] == "quiet_window"
+    assert stats["poll_interval_s"] == 2.0
+    assert stats["wall_s"] == pytest.approx(219.2)
+    assert stats["video_min_per_min"] == pytest.approx(235.0 / 219.2, abs=1e-3)
+    assert set(stats["embed_done_s"]) == {"mean", "p90"}
+    assert stats["ingest_s"]["p90"] == pytest.approx(219.2)
+    assert {r["sensor"] for r in stats["per_video"]} == {_NAME, "warehouse_safety_0001"}
+
+
+def test_ingest_gate_options_and_their_validation() -> None:
+    import run_eval_flows as rf
+
+    parsed = rf.parse_args(["--endpoint", "https://host:8000"])
+    assert parsed.ingest_require == flows.DEFAULT_REQUIRE
+    assert parsed.ingest_poll_s == 2.0
+    assert parsed.ingest_quiet_s == 15.0
+    assert parsed.chunk_s == 5.0
+    assert parsed.ingest_deadline_s is None
+    assert parsed.legacy_index_probe is False
+    assert flows.ingress_url_for("https://host:8000") == "https://host:7777"
+
+    narrowed = rf.parse_args(["--endpoint", "https://h:8000", "--ingest-require", "embed, raw"])
+    assert narrowed.ingest_require == frozenset({"embed", "raw"})
+    for bad in ("embed,bogus", "behavior", ""):
+        with pytest.raises(SystemExit):
+            rf.parse_args(["--endpoint", "https://h:8000", "--ingest-require", bad])
+
+
+def test_upload_records_carry_what_the_gate_times_from(tmp_path: Path, monkeypatch: Any) -> None:
+    import requests
+
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"x")
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {"sensorId": "abc-123"}
+
+    monkeypatch.setattr(requests, "post", lambda *_a, **_k: _Resp())
+    monkeypatch.setattr(flows.ingest, "probe_media", lambda _p: {"duration_s": 25.0, "fps": 10.0})
+    record = flows.VstDirectIngest("https://host:30888").upload(video)
+
+    assert record["duration_s"] == 25.0
+    assert record["fps"] == 10.0
+    assert isinstance(record["upload_start_mono"], float)
+    assert record["upload_start_utc"]
+
+
+def test_frame_rate_parsing_handles_ntsc_and_unknown() -> None:
+    assert flows.ingest._parse_rate("30000/1001") == pytest.approx(29.97)
+    assert flows.ingest._parse_rate("30/1") == 30.0
+    assert flows.ingest._parse_rate("0/0") is None
+    assert flows.ingest._parse_rate(None) is None
+
+
+def test_timeline_duration_is_the_fallback_when_ffprobe_is_missing() -> None:
+    timeline = {"start_time": "2025-01-01T00:00:00.000Z", "end_time": "2025-01-01T00:03:30.000Z"}
+    assert flows.timeline_duration_s(timeline) == 210.0
+    assert flows.timeline_duration_s({"checked": False}) is None

@@ -40,6 +40,15 @@ VST_LIST_TIMEOUT = 15
 # capture time is unknown; the eval's ground truth is expressed relative to it.
 DEFAULT_UPLOAD_TIMESTAMP = "2025-01-01T00:00:00"
 
+# Perception writes file uploads into indexes dated by the upload anchor, not by
+# wall clock. The VIOS camera_remove cleanup webhooks name the same three, so a
+# different anchor would also leave them behind on delete.
+EMBED_INDEX = "mdx-embed-filtered-2025-01-01"
+RAW_INDEX = "mdx-raw-2025-01-01"
+BEHAVIOR_INDEX = "mdx-behavior-2025-01-01"
+#: RT-VLM tags land in one index per sensor: ``default_<uuid, '-' -> '_'>``.
+TAG_INDEX_PREFIX = "default_"
+
 CONTENT_TYPES = {".mp4": "video/mp4", ".mkv": "video/x-matroska"}
 
 
@@ -69,11 +78,16 @@ def base_record(video_path: Path) -> dict[str, Any]:
         file_size_mb: float | None = video_path.stat().st_size / (1024 * 1024)
     except OSError:
         file_size_mb = None
+    started_utc = datetime.now(timezone.utc).isoformat()
     return {
         "video_name": video_path.stem,
         "video_path": str(video_path),
         "file_size_mb": round(file_size_mb, 2) if file_size_mb is not None else None,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": started_utc,
+        # Ingest timings are measured from here, so it must be monotonic:
+        # a wall-clock step during a 4-minute ingest would corrupt them.
+        "upload_start_mono": time.monotonic(),
+        "upload_start_utc": started_utc,
     }
 
 
