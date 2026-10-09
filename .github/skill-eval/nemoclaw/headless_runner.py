@@ -50,7 +50,7 @@ def _sandbox_exec(
             "--",
             "sh",
             "-lc",
-            script,
+            'export PATH="$HOME/.local/bin:/sandbox/.local/bin:$PATH"; ' + script,
         ],
         stdin=subprocess.DEVNULL,
         capture_output=True,

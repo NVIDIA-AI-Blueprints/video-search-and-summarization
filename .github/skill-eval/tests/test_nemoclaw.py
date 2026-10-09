@@ -529,3 +529,14 @@ def test_yielded_parent_is_not_reported_as_completed(runner, monkeypatch):
                         subprocess.CompletedProcess([], 0, session, ""))
     with pytest.raises(RuntimeError, match="detached work"):
         runner._run_openclaw("se-test", "Operate", 60)
+
+
+def test_sandbox_exec_finds_user_installed_vss(runner, monkeypatch):
+    calls = []
+    def run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(runner.subprocess, "run", run)
+    runner._sandbox_exec("se-test", "vss configure check", timeout=30)
+    assert calls[0][-1] == 'export PATH="$HOME/.local/bin:/sandbox/.local/bin:$PATH"; vss configure check'
+    assert calls[0][-3:-1] == ["sh", "-lc"]
