@@ -245,6 +245,8 @@ env:
     value: ""
   - name: VSS_SKIP_INPUT_MEDIA_VERIFICATION
     value: ""
+  - name: REMOTE_VIDEO_INPUT
+    value: "true"
   # Enable native audio for Omni models (replaces ENABLE_AUDIO); disables Riva ASR.
   - name: VLM_MODEL_SUPPORTS_AUDIO
     value: "false"
