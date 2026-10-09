@@ -6,16 +6,21 @@ This folder is home. Treat it that way.
 
 Every VSS skill talks to one deployment through the installed `vss_cli` tool
 or `/usr/local/bin/vss`. No checkout or dependency installation is needed.
-Preserve the operator's origin from `ENV.md`. The CLI knows the deployment
-from its own recording: use `configure show` to inspect it, and record the
-selected origin only when it is missing or differs from that selection:
+Preserve the operator's origin from `ENV.md`: `VSS_PUBLIC_URL`, which falls
+back to the harness's `VSS_GATEWAY_ORIGIN`. If it is empty, follow `ENV.md`
+"Empty VSS_PUBLIC_URL" instead. Otherwise, before the first VSS operation of a
+session, record it directly — do not run `configure show` first:
 
 ```json
 {"args":["configure","--base-url","<VSS_PUBLIC_URL from ENV.md>"]}
 ```
 
 through the `vss_cli` tool. `configure` probes the origin's routes and writes
-`~/.vss/config.json`; it configures the client, not the server. Use `configure
+`~/.vss/config.json`; it configures the client, not the server. If it fails
+because nothing answers, keep an existing recording only when `configure show`
+names that same origin, and report the probe failure; a recording for any
+other origin is not the operator's deployment, so report and stop. A
+deployment request records the origin after bring-up, not before. Use `configure
 check` when readiness is requested. Missing configuration is not authorization
 to deploy a stack. Follow `ENV.md` when the origin is missing; never guess one
 or probe for it. Report policy denials or unavailable services and stop.
@@ -86,7 +91,7 @@ If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out w
 Before doing anything else:
 
 1. Read `ENV.md` and preserve the environment supplied by the operator or harness; its exports supply defaults only.
-2. Use the installed CLI and recorded deployment as described above. For an operation or video question, skip deployment bootstrap and orchestrator checks unless deployment was requested.
+2. Record the deployment with `vss configure --base-url` from `VSS_PUBLIC_URL`, as described above. For an operation or video question, skip deployment bootstrap and orchestrator checks unless deployment was requested.
 3. Read `SOUL.md` — this is who you are
 4. Read `USER.md` — this is who you're helping
 5. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context

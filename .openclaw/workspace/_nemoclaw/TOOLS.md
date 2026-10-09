@@ -223,8 +223,11 @@ it, and never replace it with raw HTTP.
 If the baked executable fails or is missing, report the image problem and stop.
 Development-checkout instructions in a skill do not apply to this image.
 
-The CLI operates whatever deployment it has recorded. Inspect `vss configure
-show`; record the operator's selected origin only when it is missing or differs:
+The CLI operates whatever deployment it has recorded. If `VSS_PUBLIC_URL` is
+empty, follow `ENV.md` "Empty VSS_PUBLIC_URL" first. Otherwise record the
+operator's origin once per session, before the first VSS operation, without a
+`configure show` first (if nothing answers, keep an existing recording only
+when `configure show` names that same origin; otherwise report and stop):
 
 ```bash
 vss configure --base-url "${VSS_PUBLIC_URL}"
@@ -233,9 +236,8 @@ vss configure --base-url "${VSS_PUBLIC_URL}"
 `configure` probes the path routes behind the origin (`/api`, `/vst`,
 `/lvs`, ...) and records what answered; Alert Bridge is not one of them (see
 AGENTS.md). Use `configure check` when readiness is requested. Re-run
-`configure` after an intended deployment change; do not repair a failed evaluation's deployment. If
-`VSS_PUBLIC_URL` is empty, stop and follow `ENV.md` "Empty VSS_PUBLIC_URL" -
-ask the user for the origin instead of guessing one; keep the port in it.
+`configure` after an intended deployment change; do not repair a failed evaluation's deployment.
+Never guess an origin; keep the port in it.
 
 A supplied video URL uses `vss-ask-video`'s direct media path; do not ingest it
 or register a sensor unless the request explicitly calls for it.
