@@ -509,6 +509,7 @@ jobs:
             .github/skill-eval/envs/tests/test_registered_node.py::NemoClawNamespaceClaim \
             .github/skill-eval/tests/test_run_leg.py::HarborCommand \
             .github/skill-eval/tests/test_run_leg.py::SparkSelection \
+            .github/skill-eval/tests/test_run_leg.py::SparkReachability \
             .github/skill-eval/tests/test_run_leg.py::PhaseBudgets \
             .github/skill-eval/tests/test_run_leg.py::HarborEnvironment \
             .github/skill-eval/tests/test_run_leg.py::RunCommand \

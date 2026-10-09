@@ -952,14 +952,22 @@ the PR-driven path.
 
 ## Output requirements
 
+Spark selection retries transient SSH disconnects at most three times, waiting
+10s and then 20s, within the existing work deadline. Only the read-only
+reachability probe is retried; authentication and node-identity failures stop
+immediately. A persistent disconnect remains a failing blocker.
+
 - Stream prose freely to stdout — the GitHub Actions log is your
   audit trail. Tool calls get a one-line breadcrumb automatically.
 - **Mandatory final marker.** Your last printed line MUST start with
   either `DONE:` or `BLOCKED:`. A `DONE:` marker MUST report a positive
   complete count as `DONE: N/N specs passed; ...`. The Python wrapper fails
   malformed markers with exit code 4 and completed partial/zero-pass outcomes
-  with exit code 5. Neither a missing verdict nor a reported eval failure can
-  produce a green check.
+  with exit code 5. A valid `BLOCKED:` marker fails with exit code 7, including
+  worker disconnects, exhausted capacity, authentication failures, and adapter
+  updates awaiting a rerun. Preserve the blocker reason in the final marker.
+  Neither a missing verdict, a reported eval failure, nor a blocker can produce
+  a green check.
   Examples:
     - `DONE: 3/3 specs passed; 0 blockers`
     - `DONE: 0/1 specs passed; timeout` (valid syntax, failing exit code 5)

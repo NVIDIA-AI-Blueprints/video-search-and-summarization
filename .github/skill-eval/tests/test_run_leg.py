@@ -64,9 +64,50 @@ class SparkReachability(unittest.TestCase):
 
     def test_timed_out_probe_blocks_selection(self):
         with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Disconnected")]), \
-             mock.patch.object(run_leg.subprocess, "run", side_effect=subprocess.TimeoutExpired("ssh", 20)):
+             mock.patch.object(run_leg.subprocess, "run", side_effect=subprocess.TimeoutExpired("ssh", 20)) as probe, \
+             mock.patch.object(run_leg.time, "sleep") as sleep:
             with self.assertRaisesRegex(ValueError, "TimeoutExpired"):
                 run_leg.spark_instance()
+        self.assertEqual(probe.call_count, 3)
+        self.assertEqual(sleep.call_args_list, [mock.call(10), mock.call(20)])
+
+    def test_transient_disconnect_recovers_on_retry(self):
+        failure = subprocess.CompletedProcess([], 255, stderr="Connection reset by peer")
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Disconnected")]), \
+             mock.patch.object(run_leg.subprocess, "run", side_effect=[failure, subprocess.CompletedProcess([], 0)]) as probe, \
+             mock.patch.object(run_leg.time, "sleep") as sleep:
+            self.assertEqual(run_leg.spark_instance(), "Spark-ba-WiFi")
+        self.assertEqual(probe.call_count, 2)
+        sleep.assert_called_once_with(10)
+
+    def test_persistent_disconnect_exhausts_retries(self):
+        failure = subprocess.CompletedProcess([], 255, stderr="Connection refused")
+        with mock.patch.object(run_leg.subprocess, "run", return_value=failure) as probe, \
+             mock.patch.object(run_leg.time, "sleep") as sleep:
+            with self.assertRaisesRegex(ValueError, "SSH probe failed"):
+                run_leg._probe_spark_ssh("Spark-ba-WiFi", "Disconnected")
+        self.assertEqual(probe.call_count, 3)
+        self.assertEqual(sleep.call_args_list, [mock.call(10), mock.call(20)])
+
+    def test_authentication_error_is_not_retried(self):
+        failure = subprocess.CompletedProcess([], 255, stderr="Permission denied (publickey)")
+        with mock.patch.object(run_leg.subprocess, "run", return_value=failure) as probe, \
+             mock.patch.object(run_leg.time, "sleep") as sleep:
+            with self.assertRaisesRegex(ValueError, "SSH probe failed"):
+                run_leg._probe_spark_ssh("Spark-ba-WiFi", "Disconnected")
+        probe.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_retry_preserves_work_deadline(self):
+        failure = subprocess.CompletedProcess([], 255, stderr="Connection reset by peer")
+        with mock.patch.object(run_leg, "resolve_work_deadline", return_value=125), \
+             mock.patch.object(run_leg.time, "monotonic", return_value=100), \
+             mock.patch.object(run_leg.subprocess, "run", return_value=failure) as probe, \
+             mock.patch.object(run_leg.time, "sleep") as sleep:
+            with self.assertRaisesRegex(ValueError, "work deadline exhausted"):
+                run_leg._probe_spark_ssh("Spark-ba-WiFi", "Disconnected")
+        probe.assert_called_once()
+        sleep.assert_not_called()
 
     def test_wrong_node_identity_never_uses_ssh_fallback(self):
         node = self.node("Disconnected")
