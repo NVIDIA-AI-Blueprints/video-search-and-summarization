@@ -116,21 +116,6 @@ This requirement does not apply to VGGT. For multi-camera calibration with VGGT 
 
 The Auto Calibration UI supports only a two-point tripwire: a start point and an end point. Users cannot add intermediate vertices to create a polyline. UI annotations represent a single line segment, and the raw exported calibration stores only `wire.p1` and `wire.p2`. Polyline tripwire authoring and export are currently unsupported.
 
-### Image mode calibration
-
-VSS warehouse blueprint has mainly been used for use cases where the
-locations of objects are tracked and analyzed in a global coordinate system.
-It also supports all functionalities in image pixel coordinates — called
-**image mode** — using a calibration file typed `"calibrationType": "image"`.
-
-Image-mode calibration considerations:
-
-- Use a calibration file with `"calibrationType": "image"`.
-- Auto Calibration's AMC workflow supports ROI/tripwire authoring and
-  [Export Image-Mode JSON](/vss/system-components/calibration/auto-calibration/workflow-steps#export-image-mode-json),
-  which exports annotations in pixel coordinates without world-coordinate conversion.
-- AMC annotations are drawn on rectified frames or the layout map in the Results
-  step. Use the corresponding pixel coordinate space when reviewing the export.
 
 ## Brev Launchable
 
