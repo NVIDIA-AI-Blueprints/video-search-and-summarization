@@ -40,8 +40,8 @@ from typing import Any, Mapping, MutableMapping, Optional
 _handlers = importlib.import_module("logging.handlers")
 RotatingFileHandler = _handlers.RotatingFileHandler
 
-_log_context: contextvars.ContextVar[dict] = contextvars.ContextVar(
-    "sdrc_log_context", default={}
+_log_context: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "sdrc_log_context", default=None
 )
 
 # Third-party / library loggers that spam INFO during steady-state polls.
