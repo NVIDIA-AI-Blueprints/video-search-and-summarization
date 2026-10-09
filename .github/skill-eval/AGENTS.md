@@ -952,6 +952,11 @@ the PR-driven path.
 
 ## Output requirements
 
+Spark selection retries transient SSH disconnects at most three times, waiting
+10s and then 20s, within the existing work deadline. Only the read-only
+reachability probe is retried; authentication and node-identity failures stop
+immediately. A persistent disconnect remains a failing blocker.
+
 - Stream prose freely to stdout — the GitHub Actions log is your
   audit trail. Tool calls get a one-line breadcrumb automatically.
 - **Mandatory final marker.** Your last printed line MUST start with
