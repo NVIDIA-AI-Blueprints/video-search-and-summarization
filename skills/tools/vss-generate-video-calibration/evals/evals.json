@@ -35,6 +35,31 @@
     ]
   },
   {
+    "id": "amc-tune-videos",
+    "question": "Tune the AMC configuration for this custom video dataset; I do not know which detector or settings to use.",
+    "expected_skill": "vss-generate-video-calibration",
+    "ground_truth": "Routes through the tuning reference and uses the video reference only for source preparation. It compares both detector baselines, performs an evidence-driven follow-up when safe, and preserves VGGT and AMC results separately.",
+    "expected_behavior": [
+      "Does not ask the user to choose a detector and budgets no more than five accepted AMC attempts.",
+      "Uses one stable readable dataset slug for new attempt projects and keeps ordinary calibration naming unchanged.",
+      "Applies the complete attempt configuration through /v1/config/<project_id>, verifies its readback, then follows the explicit stage, verify, VGGT, AMC, polling, post-processing, and artifact retrieval sequence.",
+      "For every eligible attempt project, safely sets up VGGT when missing, runs it, post-processes and preserves it, then runs AMC, post-processes and preserves it separately.",
+      "Selects from complete evidence, preserves the incumbent after a failed or degraded attempt, and labels a no-GT recommendation heuristic."
+    ]
+  },
+  {
+    "id": "amc-tune-existing-project",
+    "question": "The normal AMC calibration finished. Continue tuning its configuration.",
+    "expected_skill": "vss-generate-video-calibration",
+    "ground_truth": "Reuses the valid normal project as attempt 1 without renaming it, preserves its existing results, and follows the tuning workflow for later attempts.",
+    "expected_behavior": [
+      "Keeps the existing server project name and ID and maps them to a canonical attempt label only in tuning output and reporting.",
+      "Recovers the project's exact persisted configuration and detector, verifies configuration equivalence, and creates a fresh attempt 1 when either cannot be proven.",
+      "Preserves existing AMC and VGGT artifacts before another workload can reset shared post-processing results.",
+      "When reuse checks pass, counts the completed normal AMC run as attempt 1 instead of repeating it only to begin tuning."
+    ]
+  },
+  {
     "id": "non-amc-camera-calibration",
     "question": "Calibrate a single camera for OpenCV chessboard intrinsics.",
     "expected_skill": null,
@@ -52,6 +77,36 @@
     "expected_behavior": [
       "Does not load or invoke vss-generate-video-calibration.",
       "Routes to the relevant VSS runtime analytics or deployment workflow."
+    ]
+  },
+  {
+    "id": "sibling-video-summarization-request",
+    "question": "Summarize activity in these warehouse-security videos and identify safety incidents.",
+    "expected_skill": "vss-summarize-video",
+    "ground_truth": "Routes to the VSS video-summarization skill. This is post-deployment video understanding, not AutoMagicCalib camera calibration.",
+    "expected_behavior": [
+      "Does not load or invoke vss-generate-video-calibration.",
+      "Routes to vss-summarize-video or asks for the deployed VSS summarization endpoint when needed."
+    ]
+  },
+  {
+    "id": "sibling-alerts-request",
+    "question": "Create an alert when a person enters zone A in my live camera streams.",
+    "expected_skill": "vss-manage-alerts",
+    "ground_truth": "Routes to the VSS alerts skill. The request configures runtime alerting, not AMC camera calibration.",
+    "expected_behavior": [
+      "Does not load or invoke vss-generate-video-calibration.",
+      "Routes to vss-manage-alerts and asks for alert-policy details if required."
+    ]
+  },
+  {
+    "id": "target-stereo-calibration-request",
+    "question": "Calibrate this stereo camera pair with checkerboard targets for OpenCV depth estimation.",
+    "expected_skill": null,
+    "ground_truth": "Does not use the VSS AMC skill because target-based stereo calibration is a separate non-AMC workflow.",
+    "expected_behavior": [
+      "Does not load or invoke vss-generate-video-calibration.",
+      "Routes to an appropriate target-based stereo calibration workflow or asks for the intended tool."
     ]
   }
 ]

@@ -1,4 +1,4 @@
-# vss-generate-video-calibration — Videos Mode (pre-recorded MP4s)
+# vss-generate-video-calibration Videos Mode (pre-recorded MP4s)
 
 Load this reference when the user has **local MP4 files** to calibrate. Skip to the [Shared Calibration Tail](../SKILL.md#shared-calibration-tail) in SKILL.md once videos + alignment + layout are uploaded.
 
@@ -7,7 +7,7 @@ For live RTSP streams, see `rtsp.md`. For verifying the install with the bundled
 ## What to Ask the User
 
 ### Required
-1. **Videos directory** — a folder containing non-empty, readable, time-synchronized MP4 files at the required 1920×1080 resolution with a supported codec and pixel format. The skill uploads them in explicit sorted order; filenames need not be `cam_*.mp4`.
+1. **Videos directory** — a folder containing non-empty, readable, time-synchronized MP4 files at the required 1920×1080 resolution with a supported codec and pixel format. Upload in overlapping-FOV order, consistent with the alignment data; filenames need not be `cam_*.mp4`.
 2. **Microservice URL** — e.g. `http://<HOST_IP>:8010`.
 3. **Project name** — short descriptive string.
 
@@ -23,40 +23,39 @@ The skill scans the **videos directory** and its **parent directory** for these 
 | Alignment JSON | `alignment_data.json` |
 | Layout PNG | `layout.png` |
 
-See the [Settings File + Detector Pattern](../SKILL.md#settings-file--detector-pattern) section in SKILL.md for the parsing rule.
+See the [Settings File + Detector Pattern](../SKILL.md#settings-file-and-detector-pattern) section in SKILL.md for the parsing rule.
 
 ### Required when no calibration-settings file is provided
-4. **Detector type** — see [SKILL.md § Step D — Start AMC Calibration](../SKILL.md#step-d--start-amc-calibration) for the `resnet` vs `transformer` choice and the
+4. **Detector type** — see [SKILL.md § Step D — Start AMC Calibration](../SKILL.md#step-d-start-amc-calibration) for the `resnet` vs `transformer` choice and the
    AskUserQuestion fallback. When a config file is provided, the script extracts
    the detector automatically.
-5. **Parameter tuning** — also ask whether to proceed with the default calibration parameters or tune them in the UI (Step 3: Parameters) first. See [SKILL.md § Step D](../SKILL.md#step-d--start-amc-calibration) for the exact prompt.
+5. **Parameter tuning** — also ask whether to proceed with the default calibration parameters or tune them in the UI (Step 3: Parameters) first. See [SKILL.md § Step D](../SKILL.md#step-d-start-amc-calibration) for the exact prompt.
 
 ### Optional
 5. **Ground truth zip** — `GT.zip` with `_World_Cameras_Camera_XX/` folders (enables evaluation metrics).
 6. **Focal lengths** — one per camera, e.g. `1269.0, 1099.5, 1099.5`.
 
-Independent VGGT calibration is handled before AMC by [SKILL.md Step C](../SKILL.md#step-c--independent-vggt-calibration). VGGT is default when ready; missing VGGT must not block AMC.
+Independent VGGT calibration is handled before AMC by [SKILL.md Step C](../SKILL.md#step-c-independent-vggt-calibration). VGGT is default when ready; missing VGGT must not block AMC.
 
-Root `README.md` "Custom Dataset" section documents input-video guidelines and ground-truth format.
+See [Custom Dataset](../../../../docs/autocalib-custom-dataset.mdx) for input-video guidelines and ground-truth format. Tracklet-based AMC requires moving people in the footage; VGGT does not depend on people tracklets.
 
 ## API Call Sequence (videos mode)
 
-### Step 0 — Platform Preflight
+### Step 0 Platform Preflight
 
-Run [`deploy-auto-calibration-service.md` Step 0](deploy-auto-calibration-service.md#step-0--platform-preflight) before project creation, upload, or calibration, even if the AMC service is already running. If Step 0 fails, report the unmet host requirement and stop; ask the user to provide existing calibration artifacts or run calibration on a supported host.
+Run [`deploy-auto-calibration-service.md` Step 0](deploy-auto-calibration-service.md#step-0-platform-preflight) before project creation, upload, or calibration, even if the AMC service is already running. If Step 0 fails, report the unmet host requirement and stop; ask the user to provide existing calibration artifacts or run calibration on a supported host.
 
-### Step 1 — Initialize Videos Run
+### Step 1 Initialize Videos Run
 
 Create the project with the shared request in [`common-steps.md`](common-steps.md#create-project), then keep `project_id` for the upload calls.
 
-### Step 2 — Upload Videos (required)
+### Step 2 Upload Videos (required)
 
 See [`common-steps.md` § Upload videos](common-steps.md#upload-videos).
 
-> **Important**: upload sorted alphabetically — the server assigns camera
-> indices by upload order. The `multipart/form-data` part name is `files`.
+> **Important**: the server assigns camera indices by upload order. Use alphabetical order only when it matches the overlapping-FOV and alignment order; otherwise supply an explicit ordered list. The `multipart/form-data` part name is `files`.
 
-### Step 3 — Resolve Local Files (Auto-Scan, Ask, or UI)
+### Step 3 Resolve Local Files (Auto-Scan, Ask, or UI)
 
 For each of calibration-settings, alignment, and layout, run this resolution:
 
@@ -65,7 +64,7 @@ For each of calibration-settings, alignment, and layout, run this resolution:
 3. If **zero or multiple matches**, ask the user for an explicit path via `AskUserQuestion`. If they don't have the file, mark it for UI fallback.
 4. **UI fallback**: see [SKILL.md UI Fallback Pattern](../SKILL.md#ui-fallback-pattern).
 
-### Step 4 — Upload Resolved Files
+### Step 4 Upload Resolved Files
 
 For each file that was resolved locally:
 
@@ -77,7 +76,7 @@ Content-Type: application/json
 <file contents, posted as-is>
 ```
 
-After a successful POST, also parse the file for `"detector"` / `"detector_type"` and override `DETECTOR_TYPE` for the `/calibrate` call (see [Settings File + Detector Pattern](../SKILL.md#settings-file--detector-pattern)).
+After a successful POST, also parse the file for `"detector"` / `"detector_type"` and override `DETECTOR_TYPE` for the `/calibrate` call (see [Settings File + Detector Pattern](../SKILL.md#settings-file-and-detector-pattern)).
 
 **Alignment JSON**:
 ```
@@ -103,9 +102,9 @@ POST /v1/upload_focal_length/<project_id>
 focal_length=1269.0&focal_length=1099.5&...
 ```
 
-### Step 5 — Hand off to the Shared Calibration Tail
+### Step 5 Hand off to the Shared Calibration Tail
 
-Once uploads are done (and any UI fallback confirmed on disk), ask whether every input is already linear/pinhole. Set `MEDIA_MODE=linear` only when confirmed; otherwise set `MEDIA_MODE=rectified`, complete/review/commit AMC UI Rectification, then continue with [SKILL.md Step A onward](../SKILL.md#step-a--stage-linear-media) (stage linear media → verify → VGGT/post-process when available → AMC/post-process → compare results). If `MEDIA_MODE` is empty, `calibration-tail.md` prompts for this decision rather than defaulting unsafely.
+After upload, resolve media preparation before any interactive alignment fallback: ask whether every input is already linear/pinhole. Set `MEDIA_MODE=linear` only when confirmed; otherwise set `MEDIA_MODE=rectified`, complete/review/commit AMC UI Rectification. Once alignment and layout are saved, continue with [SKILL.md Step A onward](../SKILL.md#step-a-stage-linear-media) (stage linear media → verify → VGGT/post-process when available → AMC/post-process → compare results). The tail reuses completed media preparation. If `MEDIA_MODE` is empty, it prompts for this decision rather than defaulting unsafely.
 
 ---
 
@@ -144,7 +143,7 @@ if ALIGNMENT_COORD_SPACE not in {"original", "rectified"}:
 VSS_APPS_DIR = Path(os.environ.get("VSS_APPS_DIR", Path.cwd()))
 PROJECTS_DIR = Path(os.environ.get("PROJECTS_DIR", VSS_APPS_DIR / "services" / "auto-calibration" / "projects"))
 
-VIDEO_FILES = sorted(VIDEO_DIR.glob("*.mp4"))
+VIDEO_FILES = sorted(VIDEO_DIR.glob("*.mp4"))  # replace with an explicit list if FOV/alignment order differs
 assert VIDEO_FILES, f"No MP4 files under {VIDEO_DIR}"
 if not re.fullmatch(r"[A-Za-z0-9_-]{3,50}", PROJECT_NAME):
     raise ValueError("PROJECT_NAME must be 3-50 characters using only letters, digits, '_' or '-'")
@@ -190,7 +189,7 @@ r.raise_for_status()
 project_id = r.json()["project_id"]
 print(f"[1] Created project: {project_id}")
 
-# Upload videos alphabetically so camera indices are stable
+# Upload videos in the confirmed camera order
 files, handles = [], []
 for v in VIDEO_FILES:
     f = open(v, "rb"); handles.append(f)
@@ -256,7 +255,7 @@ if FOCAL_LENGTHS:
 # Step 5 — UI fallback for anything not resolved
 ui_tasks = []
 if not CONFIG_FILE:
-    ui_tasks.append("Step 3 (Parameters): tune settings or accept defaults, then Save.")
+    ui_tasks.append("Step 3 (Parameters): review settings and enter or measure the layout scale (px/m), then Save.")
     # Agent should ask via AskUserQuestion; the input() is the direct-run fallback.
     if DETECTOR_TYPE == "resnet":
         _choice = input("    Detector [resnet/transformer] (default resnet): ").strip().lower()
@@ -264,7 +263,7 @@ if not CONFIG_FILE:
             DETECTOR_TYPE = _choice
         print(f"    Using detector: {DETECTOR_TYPE}")
 if not ALIGNMENT_JSON or not LAYOUT_PNG:
-    ui_tasks.append("Step 2 (Video Configuration): upload layout.png only — videos already uploaded via API, do not re-upload. Then Save. Step 5 (Manual Alignment): upload alignment_data.json or mark correspondence points, then Save.")
+    ui_tasks.append("Complete these in order: Step 2, upload layout.png if missing (do not re-upload videos); Step 3, confirm or measure layout scale; Step 4, review and complete Rectification (Videos Are Rectified only for confirmed linear media); Step 5, upload original-coordinate alignment or draw at least four correspondence sets on rectified views, then Save. Reuse files already uploaded.")
 if ui_tasks:
     print(f"\n[5] UI action required for project {project_id}:")
     for t in ui_tasks:
@@ -293,4 +292,4 @@ print(f"Final camera parameters: ${{VSS_APPS_DIR}}/services/auto-calibration/pro
 | Upload returns 413 | Raise server upload limit, or split files. Most user videos are <500 MB so this is unusual. |
 | Auto-scan finds multiple settings files | Disambiguate by passing `CONFIG_FILE = Path("...")` explicitly. |
 
-See the [Cross-cutting Troubleshooting](../SKILL.md#cross-cutting-troubleshooting) table in SKILL.md for issues that span all modes.
+See the [Troubleshooting](../SKILL.md#troubleshooting) table in SKILL.md for issues that span all modes.

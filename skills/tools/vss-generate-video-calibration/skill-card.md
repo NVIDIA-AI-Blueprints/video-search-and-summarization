@@ -33,6 +33,8 @@ Mitigation: Review and scan skill before deployment. <br>
 - [Videos Input Mode](references/videos.md) <br>
 - [Sample Dataset](references/sample-dataset.md) <br>
 - [Common Steps](references/common-steps.md) <br>
+- [Tuning Workflow](references/tuning.md) <br>
+- [Calibration Parameters](references/calibration-parameters.md) <br>
 
 
 ## Skill Output: <br>
@@ -48,7 +50,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-Evaluated against 3 internal evaluation tasks (all positive skill-activation cases) in the NVSkills-Eval external profile. <br>
+Full evaluation is pending against 10 internal cases: 5 AMC activation cases and 5 AMC non-activation cases, including sibling-skill routing decoys. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -70,13 +72,7 @@ Underlying evaluation signals used in this run: <br>
 
 
 ## Evaluation Results: <br>
-| Dimension | Num | `claude-code` | `codex` |
-|---|---:|---:|---:|
-| Security | 3 | 100% (+0%) | 100% (+0%) |
-| Correctness | 3 | 60% (+32%) | 68% (+42%) |
-| Discoverability | 3 | 73% (+26%) | 86% (+43%) |
-| Effectiveness | 3 | 31% (+24%) | 33% (+26%) |
-| Efficiency | 3 | 64% (+12%) | 77% (+27%) |
+Pending full NVSkills-Eval re-evaluation. [BENCHMARK.md](BENCHMARK.md) defines the required with-skill and without-skill arms, three-attempt minimum, token and wall-clock measurements, and publication threshold. <br>
 
 ## Skill Version(s): <br>
 3.3.0 (source: frontmatter) <br>

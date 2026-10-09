@@ -1,4 +1,4 @@
-# vss-generate-video-calibration — Sample-Dataset Mode (verify install)
+# vss-generate-video-calibration Sample-Dataset Mode (verify install)
 
 Load this reference when the user wants to **verify a fresh AMC install** by running calibration on the bundled sample dataset (`sdg_08_2_sample_data_010926.zip`, 4 synthetic warehouse cameras with ground truth). Useful before throwing real data at it.
 
@@ -8,7 +8,7 @@ The sample includes GT, so the run produces evaluation metrics (L2 distance, rep
 
 ## Mode-specific Prerequisites
 
-- **AMC platform preflight passes** — run [`deploy-auto-calibration-service.md` Step 0](deploy-auto-calibration-service.md#step-0--platform-preflight) before sample upload/calibration, even if the AMC service is already running. If Step 0 fails, report the unmet host requirement, stop instead of continuing the sample run, and ask the user to provide existing/generated calibration artifacts or run AMC on a supported calibration host.
+- **AMC platform preflight passes** — run [`deploy-auto-calibration-service.md` Step 0](deploy-auto-calibration-service.md#step-0-platform-preflight) before sample upload/calibration, even if the AMC service is already running. If Step 0 fails, report the unmet host requirement, stop instead of continuing the sample run, and ask the user to provide existing/generated calibration artifacts or run AMC on a supported calibration host.
 - **Sample zip present at `assets/sdg_08_2_sample_data_010926.zip`** — **the VSS repo does not ship this file.** See [Obtain the sample zip](#obtain-the-sample-zip) below.
 - **Python 3 with `requests` available** — or use the [Swagger UI walkthrough](#alternative-swagger-ui-walkthrough) below.
   - The inline run block self-heals: if `requests` is missing it creates a throwaway venv under `${TMPDIR:-/tmp}/amc-sample-test-venv` (nothing written to the repo).
@@ -89,7 +89,7 @@ ls -lh "$TARGET"
 
 > The VSS repo deliberately doesn't bundle the zip (size + version-skew across AMC releases). Don't commit it here — `assets/sdg_08_2_sample_data_010926.zip` should stay gitignored if you copy it in.
 
-### Locate + Extract Sample Data (idempotent)
+### Locate and Extract Sample Data (idempotent)
 
 ```bash
 export REPO_ROOT=$(git rev-parse --show-toplevel)
@@ -110,7 +110,7 @@ ls "$SAMPLE_DIR"
 
 ## Run Inline (No File Written)
 
-Run the test on the fly — pipe Python into `python3` via heredoc so nothing is saved into the user's repo. The block below is fully self-contained: it resolves `REPO_ROOT` via `git rev-parse`, reads `MS_PORT` and `HOST_IP` from the warehouse runtime override env, picks (or creates) a Python with `requests` installed, and then pipes the inline script. Safe to copy/paste verbatim. Each invocation creates a fresh project.
+Run the test on the fly — pipe Python into `python3` via heredoc so nothing is saved into the user's repo. Before running the block below, insert the Python snippet from [`calibration-tail.md`](calibration-tail.md) at the marked location, in the same Python process. Without it, the block only uploads inputs and does not calibrate. The block resolves `REPO_ROOT`, loads the runtime environment, and picks (or creates) a Python with `requests` installed. Each invocation creates a fresh project.
 
 ```bash
 # Resolve env
@@ -297,7 +297,7 @@ The microservice exposes an interactive OpenAPI UI at **`http://<HOST_IP>:<MS_PO
    | 6 | `POST /v1/linear_media/{project_id}` | only for confirmed linear bundled media; expect `rectification_state: COMPLETED` |
    | 7 | `POST /v1/verify_project/{project_id}` | — (expect `project_state: READY`) |
    | 8 | `GET /v1/get_project_info/{project_id}` | Inspect `vggt_state`; continue with AMC for `MODEL_MISSING` or `ERROR` |
-   | 9 | `POST /v1/vggt/calibrate/{project_id}` | When `vggt_state` is `READY`; resume polling when already `RUNNING` |
+   | 9 | `POST /v1/vggt/calibrate/{project_id}` | Start from `READY` or resume from `RUNNING`; poll project info until `vggt_state` is terminal before continuing |
    | 10 | `POST /v1/postprocess/{project_id}` | After every completed VGGT run; poll `postprocess_state` to `COMPLETED` |
    | 11 | `GET /v1/vggt_results/{project_id}/evaluation_statistics` | Read VGGT metrics when available |
    | 12 | `POST /v1/calibrate/{project_id}` | JSON: `{"detector_type": "resnet"}` or `{"detector_type": "transformer"}` |
@@ -309,11 +309,11 @@ This is the same sequence the Python script runs, just executed manually.
 
 ## Success Criteria
 
-- `amc_state == "COMPLETED"`; when VGGT ran, `vggt_state == "COMPLETED"`.
+- `amc_state == "COMPLETED"` for a successful AMC sample run; report `vggt_state` independently.
 - `postprocess_state == "COMPLETED"` after each completed multi-camera calibration method.
 - `/v1/result/{id}/evaluation_statistics` returns non-empty `statistics` (GT was uploaded).
-- When VGGT ran, compare its statistics and Results-page overlay with AMC before selecting the export.
-- No `ERROR` state encountered.
+- When VGGT completed, compare its statistics and available Results-page visualizations with AMC before selecting the export.
+- Report any failed method separately; it does not invalidate the other method's completed result.
 
 Representative metrics for the sample (yours should be similar):
 
@@ -352,4 +352,4 @@ docker logs -f vss-auto-calibration
 | Upload returns 413 | Raise server upload limit, or split files (sample files are <200 MB total so this is unusual). |
 | Port scan finds no backend | Backend not running — walk `deploy-auto-calibration-service.md` first. |
 
-See the [Cross-cutting Troubleshooting](../SKILL.md#cross-cutting-troubleshooting) table in SKILL.md for issues that span all modes.
+See the [Troubleshooting](../SKILL.md#troubleshooting) table in SKILL.md for issues that span all modes.

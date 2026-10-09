@@ -105,7 +105,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Port or integrate a custom VLM into RT-VLM | [`rtvi-byom-porting`](deployment/rtvi-byom-porting/SKILL.md) |
 | Benchmark RT-VLM stream capacity, correctness, latency, or throughput | [`rtvi-vlm-perf-testing`](benchmarking/rtvi-vlm-perf-testing/SKILL.md) |
 | Generate semantic video embeddings as a standalone service | [`vss-deploy-video-embedding`](deployment/vss-deploy-video-embedding/SKILL.md) |
-| Calibrate a multi-camera dataset (often a prerequisite for 3D) | [`vss-generate-video-calibration`](tools/vss-generate-video-calibration/SKILL.md) |
+| Calibrate or tune a multi-camera dataset (often a prerequisite for 3D) | [`vss-generate-video-calibration`](tools/vss-generate-video-calibration/SKILL.md) |
 | Deploy behavior analytics on its own | [`vss-setup-behavior-analytics`](deployment/vss-setup-behavior-analytics/SKILL.md) |
 | Deploy the video-analytics REST API on its own | [`vss-setup-video-analytics-api`](deployment/vss-setup-video-analytics-api/SKILL.md) |
 | Benchmark VLM video Q&A accuracy and latency (`vss vlm`) | [`vss-benchmark-vlm-qa`](benchmarking/vss-benchmark-vlm-qa/SKILL.md) |
@@ -171,7 +171,7 @@ repository organisation only and never appears in the installed path or in the
 
 | Skill | Layer | Description |
 |---|---|---|
-| [vss-generate-video-calibration](tools/vss-generate-video-calibration/SKILL.md) | middleware | Run AutoMagicCalib (AMC) camera calibration on local MP4s, RTSP streams, or the bundled sample dataset; deploy the `vss-auto-calibration` microservice when needed. Usually reached automatically as a prerequisite of 3D tracking. |
+| [vss-generate-video-calibration](tools/vss-generate-video-calibration/SKILL.md) | middleware | Run or tune AutoMagicCalib (AMC) camera calibration on local MP4s, RTSP streams, or the bundled sample dataset; deploy the `vss-auto-calibration` microservice when needed. Usually reached automatically as a prerequisite of 3D tracking. |
 
 ### `benchmarking/` — measure a deployment
 
