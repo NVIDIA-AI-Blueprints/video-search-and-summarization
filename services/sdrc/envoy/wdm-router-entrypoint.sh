@@ -23,6 +23,8 @@ if [ ! -f "$CONFIG" ] || [ ! -r "$CONFIG" ]; then
   exit 1
 fi
 GEN_OUT="${ENVOY_GENERATED_CONFIG:-/tmp/envoy-wdm-generated.yaml}"
+# python3 resolves to /opt/bootstrap/bin/python3. jinja2 and ruamel.yaml
+# are installed in that environment, not in /usr/bin/python3.
 python3 /opt/wdm-runtime/envoy/generate_envoy_config_xds_mw.py \
     --config "$CONFIG" \
     --out "$GEN_OUT"
