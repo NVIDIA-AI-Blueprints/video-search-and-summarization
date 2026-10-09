@@ -323,7 +323,7 @@ def aggregate_ingest_stats(readiness: dict[str, Any]) -> dict[str, Any]:
             {k: r.get(k) for k in (
                 "sensor", "video_name", "uploaded_this_run", "duration_s", "fps", "upload_s",
                 "per_index_done_s", "ingest_s", "counts", "targets", "raw_last_s",
-                "over_target", "outcome", "causes",
+                "raw_check", "over_target", "warnings", "outcome", "causes",
             )}
             for r in per_video
         ],
@@ -352,10 +352,16 @@ def print_ingest_summary(stats: dict[str, Any]) -> None:
     print(f"Poll interval:      {stats['poll_interval_s']}s (timings late by at most this)")
     if stats.get("behavior_check"):
         print(f"Behavior check:     {stats['behavior_check']} ({stats['quiet_s']}s, heuristic)")
+
+    def _s(value: float | None) -> str:
+        return f"{value}s" if value is not None else "n/a"
+
     for r in stats["per_video"]:
-        done = "  ".join(f"{k}={v}s" for k, v in (r.get("per_index_done_s") or {}).items())
+        done = "  ".join(f"{k}={_s(v)}" for k, v in (r.get("per_index_done_s") or {}).items())
         flag = f"  OVER TARGET: {r['over_target']}" if r.get("over_target") else ""
-        print(f"  {r['sensor']}: {r['outcome']}  ingest={r.get('ingest_s')}s  {done}{flag}")
+        print(f"  {r['sensor']}: {r['outcome']}  ingest={_s(r.get('ingest_s'))}  {done}{flag}")
+        for warning in r.get("warnings") or []:
+            print(f"    WARNING: {warning}")
     print(f"{'=' * 60}\n")
 
 
