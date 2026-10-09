@@ -6,6 +6,9 @@
   and alert APIs.
 - `2d_vlm`: continuous RT-VLM inspection and real-time alert APIs.
 - Choose for alert verification, incident reporting, or live VLM alerts.
+- Alert enhancement — a custom VLM response parser returning structured fields
+  instead of a Yes/No verdict: `2d_cv` only, wired per
+  [`services/alerts.md`](../services/alerts.md#custom-vlm-response-parser-alert-enhancement).
 - RTX PRO 4500 Blackwell (`RTXPRO4500BW`) is supported only with a remote LLM.
 
 ## Profile Service Set

@@ -156,5 +156,27 @@
       "Treats an HTTP 400 `validation_failed` as a missing time window (fix the request), not as Alert Bridge being unreachable, and never falls back to the unfiltered incidents list for it.",
       "Does not route this request to POST /generate and does not call the bare GET /api/v1/realtime (rules inventory)."
     ]
+  },
+  {
+    "id": "alerts-enhancement-parser-handoff",
+    "question": "Add alert enhancement to my alerts deployment: a custom VLM response parser so FOV Count Violation alerts return severity, description and confidence.",
+    "expected_skill": "vss-manage-alerts",
+    "ground_truth": "Alert Bridge loads a response parser once at startup and has no runtime API for it, so this is a rebuild through vss-build-vision-ai, confirmed first because the parser replaces the verdict for every alert type.",
+    "expected_behavior": [
+      "Loads vss-manage-alerts and routes the request to the alert-enhancement handoff, not to Workflow B prompt customization.",
+      "Asks for confirmation before any rebuild and says the parser applies to every alert type: verdict \"\" with the parser's fields in vlm_response, never confirmed or rejected.",
+      "Hands off to /vss-build-vision-ai only after the user says yes; until then it does not PUT /api/v1/verification/config, edit Compose or config files, or restart Alert Bridge."
+    ]
+  },
+  {
+    "id": "alerts-explain-parser-result",
+    "question": "My FOV Count Violation verification result has an empty verdict and a vlm_response saying verdict true, severity high. Was the alert confirmed?",
+    "expected_skill": "vss-manage-alerts",
+    "ground_truth": "An empty verdict with a vlm_response string is a pluggable-parser result: a success whose fields live in the decoded vlm_response, not an Alert Bridge confirmed verdict.",
+    "expected_behavior": [
+      "Loads vss-manage-alerts and answers from Workflow B background without mutating anything.",
+      "Explains that vlm_response is a JSON string holding the parser's fields and reports them as the parser's output.",
+      "Does not call the alert confirmed or the empty verdict a failure."
+    ]
   }
 ]

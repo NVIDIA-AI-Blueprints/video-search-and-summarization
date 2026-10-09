@@ -118,5 +118,16 @@
       "Does not ask for a harness ref, create a harness worktree, or run stage_vss_src.py.",
       "Runs the NemoClaw notebook with VSS_REPO_DIR set to the checkout root."
     ]
+  },
+  {
+    "id": "build-alerts-cv-response-parser",
+    "question": "Deploy alerts in verification mode with alert enhancement for FOV Count Violation: a custom VLM response parser that returns verdict, people_on_ladder, missing_ppe and confidence. Register the sample-warehouse-ladder sample as a source, then check the parser end to end.",
+    "expected_skill": "vss-build-vision-ai",
+    "ground_truth": "A new CV-verification build whose Alert Bridge loads a parser the agent generates for the requested fields: one alert-bridge.yml patch mounting the build's parsers/ directory read-only at /app/parsers, and copies of the verifier config.yml and alert_type_config.json under patches/ selected through override.env.",
+    "expected_behavior": [
+      "Activates vss-build-vision-ai and follows the custom VLM response parser section of references/services/alerts.md, adapting the worked example to the requested fields instead of deploying it as-is.",
+      "Tests the generated parser before showing it in full for approval, and says it replaces the Yes/No verdict for every alert type.",
+      "Writes only under _builds/<name>/, deploys per deployment.md, and verifies the parser through an incident submitted to POST /api/v1/incidents, not on-demand verification."
+    ]
   }
 ]
