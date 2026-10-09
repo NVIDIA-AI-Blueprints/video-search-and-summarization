@@ -5,6 +5,21 @@ import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 
 const STORAGE_KEY = 'vss-nemoclaw-gateway-token';
 export const GATEWAY_TOKEN_HEADER = 'X-VSS-Gateway-Token';
 
+const tokenFromFragment = (): string | null => {
+  if (!window.location.hash.startsWith('#token=')) return null;
+  return new URLSearchParams(window.location.hash.slice(1)).get('token') ?? '';
+};
+
+const clearTokenFragment = (): void => {
+  if (tokenFromFragment() !== null) {
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${window.location.pathname}${window.location.search}`,
+    );
+  }
+};
+
 type ConnectionState = 'checking' | 'connected' | 'token_required' | 'authentication_failed' | 'unreachable';
 
 export interface NemoClawConnection {
@@ -49,16 +64,35 @@ export function useNemoClawConnection(enabled: boolean): NemoClawConnection {
 
   useEffect(() => {
     if (!enabled) return;
-    let saved = '';
-    try { saved = sessionStorage.getItem(STORAGE_KEY) ?? ''; } catch { /* Private browsing may deny storage. */ }
-    setToken(saved);
-    void check(saved);
-    return () => { requestNumber.current += 1; };
+    const applyFragment = (): boolean => {
+      const fragmentToken = tokenFromFragment();
+      if (fragmentToken === null) return false;
+      const next = fragmentToken.trim();
+      if (!next || next.length > 4_096 || /[\r\n]/u.test(next)) return false;
+      try {
+        sessionStorage.setItem(STORAGE_KEY, next);
+      } catch { /* Private browsing may deny storage. */ }
+      setToken(next);
+      void check(next);
+      return true;
+    };
+    if (!applyFragment()) {
+      let saved = '';
+      try { saved = sessionStorage.getItem(STORAGE_KEY) ?? ''; } catch { /* Private browsing may deny storage. */ }
+      setToken(saved);
+      void check(saved);
+    }
+    window.addEventListener('hashchange', applyFragment);
+    return () => {
+      window.removeEventListener('hashchange', applyFragment);
+      requestNumber.current += 1;
+    };
   }, [enabled, check]);
 
   const connect = useCallback(async (value: string) => {
     const next = value.trim();
     if (!next) return;
+    clearTokenFragment();
     try { sessionStorage.setItem(STORAGE_KEY, next); } catch { /* This tab still keeps the token in memory. */ }
     setToken(next);
     await check(next);
@@ -67,6 +101,7 @@ export function useNemoClawConnection(enabled: boolean): NemoClawConnection {
   const retry = useCallback(() => check(token), [check, token]);
   const changeToken = useCallback(() => {
     requestNumber.current += 1;
+    clearTokenFragment();
     try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* Storage is optional. */ }
     setToken('');
     setHasConnected(false);
@@ -100,7 +135,7 @@ export function NemoClawConnectionPanel({ connection }: { connection: NemoClawCo
           <p role="alert" className="mt-3 text-sm">The gateway rejected the connection. Check the token and gateway access settings.</p>
         ) : null}
         {state === 'token_required' ? (
-          <p className="mt-3 text-sm">On the deployment host, run <code>nemoclaw &lt;sandbox&gt; gateway-token --quiet</code> and enter the token here.</p>
+          <p className="mt-3 text-sm">On the deployment host, run <code>nemoclaw &lt;sandbox&gt; gateway-token --quiet</code> and enter the token here, or open a link ending in <code>#token=&lt;URL-encoded token&gt;</code>.</p>
         ) : null}
         {state !== 'checking' ? (
           <form className="mt-4 flex flex-col gap-3" onSubmit={(event) => { event.preventDefault(); void connect(draft); setDraft(''); }}>
@@ -121,7 +156,7 @@ export function NemoClawConnectionPanel({ connection }: { connection: NemoClawCo
             </div>
           </form>
         ) : null}
-        <p className="mt-4 text-xs text-gray-500 dark:text-gray-400">The token stays in this browser tab session and is sent only to this UI's agent API.</p>
+        <p className="mt-4 text-xs text-gray-500 dark:text-gray-400">The token is sent only to this UI's agent API. A token in a shared URL stays in the address bar until you change it; anyone with that link can use the token.</p>
       </div>
     </div>
   );
