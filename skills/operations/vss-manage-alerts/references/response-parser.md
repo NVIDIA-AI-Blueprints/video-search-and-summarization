@@ -127,8 +127,9 @@ Bridge record a ``verification-failed`` event with ``errorSource: pluggable_pars
 ``verdict`` is required: a missing or unrecognised value raises. The other
 fields are deliberately lenient: an unparseable ``confidence`` becomes 0.0 (and
 values are clamped to 0.0-1.0), an unknown ``severity`` becomes "unknown", and
-a missing ``description``/``reasoning`` becomes "". The prose fallback expects a
-single JSON object; text holding several objects raises.
+a missing ``description``/``reasoning`` becomes "". The prose fallback takes the
+text from the first ``{`` to the last ``}``, so prose that holds another
+``{...}`` pair besides the object raises.
 
 Expected VLM output (the prompt must ask for exactly these fields)::
 
@@ -302,7 +303,9 @@ PY
 ## Verify after deploying
 
 `$AB` is the Alert Bridge origin, resolved as in vss-manage-alerts SKILL.md
-*Deployment prerequisite* (`http://${HOST_IP}:9080` on Docker).
+*Deployment prerequisite* (`http://${HOST_IP}:9080` on Docker). A build that
+publishes Alert Bridge on another host port answers on the port
+`docker port vss-alert-bridge` reports; use that one.
 
 1. **Loaded, by this deploy.** The container must have started after the
    deploy — an older one still runs the previous parser — and its log names
@@ -334,9 +337,9 @@ PY
    stored one, so to drop a key send `"vlm_params": null` first, then the
    build's values.
    The configs that were stored before the parser build deployed are in
-   `patches/vlm-as-verifier/stored-configs.before.json` (saved from the running
-   stack before the deploy; absent on a fresh host); *Remove a parser* restores
-   prompts from it.
+   `patches/vlm-as-verifier/stored-configs.before.json` (saved from the Alert
+   Bridge that was running before the deploy; absent when none was);
+   *Remove a parser* restores prompts from it.
    A stored alert type with no JSON prompt in the build is a blocker: write one,
    or tell the user its alerts will land as `verification-failed`.
 3. **End to end, through the pipeline.** On-demand verification cannot check
@@ -410,17 +413,24 @@ and the built-in parser cannot read a JSON reply, so every one of those alerts
 would land as `verification-failed`. Put each alert type's earlier prompt back
 with `PUT $AB/api/v1/verification/config/<alert_type>`:
 
-- its entry in `stored-configs.before.json`, unless the file is absent (a
-  fresh host) or that entry asks for a JSON reply — a list first saved before
-  a revision holds the earlier revision's JSON prompts and `vlm_params`;
+- its entry in `stored-configs.before.json`, unless the file is absent (no
+  Alert Bridge was running when the parser build deployed) or that entry asks
+  for a JSON reply — a list first saved before a revision holds the earlier
+  revision's JSON prompts and `vlm_params`;
 - otherwise, for a stock alert type, its prompts and `vlm_params` (where the
-  Foundation sets them) from the Foundation's `alert_type_config.json`; for an
-  alert type you created, ask the user what it should be.
+  Foundation sets them) from the Foundation's `alert_type_config.json`, and
+  tell the user these are the Foundation's defaults, not settings stored
+  before the parser; for an alert type you created, ask the user what it
+  should be.
 
-For every alert type the build gave `vlm_params` (the example's `max_tokens`
-included), send `"vlm_params": null` first and then the restored values, if
-any; a `vlm_params` object is merged into the stored one, so the build's keys
-outlive a prompt-only `PUT`. Keep `patches/vlm-as-verifier/`, which holds
+Each `PUT` body takes only the writable fields: `prompt`, `system_prompt`,
+`enrichment_prompt`, `vlm_params` and `output_category`. From a saved entry,
+copy them as saved, nulls included (`null` clears a field), and leave out its
+`alert_type`, `created_at` and `updated_at`: the `PUT` body rejects any field
+it does not take (422). For every alert type the build gave `vlm_params` (the
+example's `max_tokens` included), send `"vlm_params": null` first and then the
+restored values, if any; a `vlm_params` object is merged into the stored one,
+so the build's keys outlive a prompt-only `PUT`. Keep `patches/vlm-as-verifier/`, which holds
 `stored-configs.before.json`, until these `PUT`s are done.
 
 ## Not supported

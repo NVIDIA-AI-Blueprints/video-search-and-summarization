@@ -177,12 +177,39 @@ every alert type the user already relies on. For a new build, an autonomous
 instruction answers the Step 6 approval; the `.py` and the warning still go in
 the conversation and the final summary.
 
-**Apply and verify.** On a stack that is already running, first save the
-reply of `curl -sf http://localhost:9080/api/v1/verification/config` (the
-Alert Bridge still running) to
-`patches/vlm-as-verifier/stored-configs.before.json` — only if that file does
-not exist yet, so a later revision never overwrites it; a fresh host has
-nothing to save. Then deploy `resolved.yml` per
+**Apply and verify.** When an Alert Bridge is already running (a
+`vss-alert-bridge` container), first save the stored verifier configs from it
+— only if the build has no saved copy yet, so a later revision never
+overwrites it. Take the host port from the running container, not the
+default, and keep the file only when the reply is the full list:
+
+```bash
+SAVED="$BUILD_DIR/patches/vlm-as-verifier/stored-configs.before.json"
+if docker ps --format '{{.Names}}' | grep -qx vss-alert-bridge && [ ! -e "$SAVED" ]; then
+  AB_PORT=$(docker port vss-alert-bridge | sed -n '1s/.*://p')
+  curl -sf "http://localhost:${AB_PORT:?Alert Bridge publishes no port}/api/v1/verification/config" > "$SAVED.tmp" &&
+    python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("status")=="success" and isinstance(d.get("configs"),list)' "$SAVED.tmp" &&
+    mv "$SAVED.tmp" "$SAVED"
+fi
+```
+
+If that fails, stop before deploying: without the saved list, removing the
+parser cannot put the user's earlier settings back. The one exception is an
+Alert Bridge from this build that keeps restarting because its parser fails
+to import: its `/app/parsers` source
+(`docker inspect -f '{{range .Mounts}}{{if eq .Destination "/app/parsers"}}{{.Source}}{{end}}{{end}}' vss-alert-bridge`)
+is under `$BUILD_DIR/patches/`, it holds nothing earlier to save, and the fix
+deploys without the save.
+
+With no Alert Bridge running nothing can be saved. If, in that case, the build
+has no saved copy yet and `$VSS_DATA_DIR/data_log/elastic/data` is not empty,
+an earlier stack's verifier configs may still be stored there, and the new
+Alert Bridge serves them over the build's file. Tell the user before deploying
+that removing the parser would then put back the Foundation's prompts for
+stock alert types, and ask about any others, rather than restore their
+earlier settings.
+
+Then deploy `resolved.yml` per
 [`deployment.md`](../deployment.md), as for any build; `docker compose restart`
 does not pick up a new mount. Compose recreates Alert Bridge only when its
 service definition changes, and a mounted file's contents are not part of it:
