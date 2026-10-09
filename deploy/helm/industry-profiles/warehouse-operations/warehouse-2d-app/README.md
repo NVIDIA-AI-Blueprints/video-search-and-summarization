@@ -430,6 +430,8 @@ Start the Auto Calibration service, then follow the Auto Calibration workflow. C
 - **Image coordinates**: Use **Export Image-Mode JSON** to export ROIs and tripwires in pixel coordinates with `"calibrationType": "image"`.
 - **Cartesian coordinates**: Export a calibration with `"calibrationType": "cartesian"` to map camera image coordinates to a global coordinate system.
 
+For image-coordinate calibration (`"calibrationType": "image"`) only, add ROIs or tripwires to the sensors that require them. If only one sensor needs an ROI or tripwire, annotate that sensor and proceed with the export. Sensors that need neither ROIs nor tripwires do not need to be included in the image-coordinate `calibration.json`. This omission does not apply to Cartesian calibration.
+
 ##### Apply the calibration
 
 For either calibration type, host the exported `calibration.json` at a reachable URL and set **`calibration-import.calibrationFileSource`** to that URL. Configure the image-metadata and floor-plan image sources using the table below. Keep `requireCalibration` and `requireImages` at their default `true` so a broken source URL fails the Job.
@@ -455,8 +457,10 @@ When deploying with an image-coordinate or Cartesian calibration file:
 | `calibration-import.imageBaseSource` | base URL for your floor-plan images | Base URL each `fileName` above is fetched from. |
 | `calibration-import.requireCalibration` / `requireImages` | keep default `true` | A broken URL fails the Job instead of deploying with no calibration. |
 
-Each `camera_name` registered above must match the corresponding sensor name
-in `calibration.json` — the importer doesn't check this for you.
+Each sensor included in `calibration.json` must have a name matching the
+corresponding `camera_name` registered above — the importer doesn't check this
+for you. For image-coordinate calibration only, cameras that need neither ROIs nor
+tripwires do not need an entry in `calibration.json`.
 
 Also configure, outside `global`:
 

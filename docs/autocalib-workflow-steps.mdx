@@ -958,7 +958,7 @@ Choose **Camera** or **Global ROIs / tripwires** at the top left of the card bef
 1. Select **Camera** in the annotation target toggle
 2. Choose a stream from the **Select Camera** dropdown
 3. The first frame of the selected **linear (rectified)** video loads on the canvas
-4. Switch between cameras to draw ROIs, tripwire lines, and tripwire directions on each one
+4. Switch between cameras to draw ROIs, tripwire lines, and tripwire directions as needed
 
 ![Camera Selection](/assets/images/vss-autocalib-ui/cam_selection.jpg)
 
@@ -1075,6 +1075,8 @@ The right panel shows all annotations for the active target—the selected **Cam
 
 Use this when you need ROIs and tripwires in **pixel coordinates** without world-coordinate conversion.
 
+For image-coordinate calibration (`"calibrationType": "image"`) only, include the sensors that require ROIs or tripwires in `calibration.json`. If only one sensor needs an ROI or tripwire, annotate and include only that sensor. Sensors that need neither do not need to be added to the calibration file. This omission does not apply to Cartesian calibration.
+
 **How to Export**
 
 1. In the right panel, open the **Export image-mode JSON** card
@@ -1085,7 +1087,7 @@ Use this when you need ROIs and tripwires in **pixel coordinates** without world
 
 **What Is Exported**
 
-- ROIs and tripwires from all cameras plus any **global** layout annotations, in **pixel space**
+- ROIs and tripwires drawn on cameras plus any **global** layout annotations, in **pixel space**
 - `calibrationType` is **image** (same JSON shape as cartesian export)
 - Drawn on **linear (rectified)** frames / layout map on the Results step
 
