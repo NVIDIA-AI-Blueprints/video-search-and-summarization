@@ -2709,6 +2709,60 @@
                         ],
                         "title": "Mm Processor Kwargs",
                         "description": "RTVI: additional multimodal processor kwargs"
+                    },
+                    "inference_mode": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "enum": [
+                                    "chunked",
+                                    "streaming_vlm"
+                                ]
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Inference Mode",
+                        "description": "RTVI: inference strategy. 'chunked' sends independent per-chunk requests; 'streaming_vlm' keeps one persistent VLM session per live stream"
+                    },
+                    "streaming_frame_policy": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "minLength": 1
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Streaming Frame Policy",
+                        "description": "RTVI: StreamingVLM frame policy (e.g. 'ordered')"
+                    },
+                    "streaming_window_frames": {
+                        "anyOf": [
+                            {
+                                "type": "integer",
+                                "minimum": 1.0
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Streaming Window Frames",
+                        "description": "RTVI: decoded frames retained by the StreamingVLM session"
+                    },
+                    "streaming_question_on_decode": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Streaming Question On Decode",
+                        "description": "RTVI: repeat the prompt on every StreamingVLM decode step instead of only at session start"
                     }
                 },
                 "type": "object",
@@ -3099,6 +3153,56 @@
                             }
                         ],
                         "title": "Mm Processor Kwargs"
+                    },
+                    "inference_mode": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "enum": [
+                                    "chunked",
+                                    "streaming_vlm"
+                                ]
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Inference Mode"
+                    },
+                    "streaming_frame_policy": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "minLength": 1
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Streaming Frame Policy"
+                    },
+                    "streaming_window_frames": {
+                        "anyOf": [
+                            {
+                                "type": "integer",
+                                "minimum": 1.0
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Streaming Window Frames"
+                    },
+                    "streaming_question_on_decode": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Streaming Question On Decode"
                     }
                 },
                 "type": "object",
