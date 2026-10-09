@@ -261,7 +261,7 @@ registry tags, not package versions — the rc marker never appears in docs.
   the GitLab promotion, derived from commits and trees, not from the version.
 - Version-shaped image *coordinates* that stay hand-pinned because the images
   are built elsewhere: `vssAgentVersion: "3.3.0-65576357eb80"` (NGC staging
-  tag), `VSS_AUTO_CALIBRATION_TAG=3.3.0-6`, `VSS_REID_EMBED_TAG=3.3.0-26.09.2`.
+  tag), `VSS_AUTO_CALIBRATION_TAG=3.3.0-7`, `VSS_REID_EMBED_TAG=3.3.0-26.09.2`.
 - The NGC release image tag format assumed by the docs publish (`X.Y.Z`,
   `X.Y.Z-sbsa`) was inferred from `containers.env` conventions when this was
   written; confirm against the promotion pipeline before the first release

@@ -236,7 +236,8 @@ class SearchTuning(BaseModel):
         ge=1,
         description=(
             "Cap how many retrieved hits the VLM critic verifies. The critic is"
-            " best-effort and fail-open: hits beyond this cap stay `unverified`."
+            " best-effort and fail-open: hits beyond this cap carry a null"
+            " `critic_result` (unverified)."
             " Omit to verify every hit (bounded by --top-k). Bounds latency and"
             " remote-VLM cost on large result sets."
         ),
@@ -358,9 +359,9 @@ async def _critic_from(
     """Build the reusable critic stack when this deployment exposes one.
 
     RT-VLM is optional for archive search. Returning ``(None, None, reason)``
-    keeps retrieval available and leaves the result model's fail-open
-    ``unverified`` state untouched; ``reason`` names why verification is off so
-    the caller can surface it instead of leaving a silent wall of ``unverified``.
+    keeps retrieval available, and hits carry no ``critic_result``; ``reason``
+    names why verification is off so the caller can surface it instead of
+    leaving a silent wall of unverified hits.
     """
     rt_vlm = deployment.services.get("rt_vlm")
     if not deployment.has("vst"):
@@ -410,7 +411,7 @@ async def _critic_from(
     # map once per candidate. offset would force that redundant fetch.
     # Cap how many hits the VLM verifies; None = verify every hit (bounded by
     # --top-k). Bounding this caps latency and remote-VLM cost on large result
-    # sets; hits beyond the cap keep their model default of `unverified`.
+    # sets; hits beyond the cap carry no `critic_result`.
     return (
         CriticAgent(
             vlm_analyzer=vlm,
@@ -625,10 +626,10 @@ class SearchGroup(CommandGroup):
             finally:
                 if vlm is not None:
                     await vlm.aclose()
-            # The critic failing to build must be visible: without this the hits
-            # come back ``unverified`` with no distinction from "critic ran but
-            # the VLM could not decide". Surface the reason so the caller (and the
-            # vss-search-archive skill, which reads search_messages) can explain it.
+            # The critic failing to build must be visible: without this every hit
+            # comes back with a null ``critic_result`` and no reason. Surface the
+            # reason so the caller (and the vss-search-archive skill, which reads
+            # search_messages) can explain it.
             if critic is None and disabled_reason:
                 output = output.model_copy(
                     update={

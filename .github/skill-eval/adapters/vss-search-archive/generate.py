@@ -79,38 +79,6 @@ PREAMBLE = (
     "for confirmation on `/vss-build-vision-ai` or any other setup action the trial requires."
 )
 
-DEPLOYMENT_PREAMBLE = (
-    PREAMBLE
-    + " This step deploys and validates the search profile only; do not download or ingest sample "
-    "media. Work from the validated project checkout and use the `/vss-build-vision-ai` stock "
-    "Search workflow in remote-all mode. Compose commands executed by that deployment workflow are expected. Once it "
-    "returns, require local Agent and VST health, the project-local `vss search run --help`, the "
-    "running `vss-rtvi-vlm` proxy, and a nonempty bounded `/v1/models` response. On Brev, let the "
-    "deployment workflow mint the public secure-link origin from environment-provided values. Use "
-    "the bundled `scripts/select_brev_origin.sh` to make the single public-origin decision and do not issue "
-    "a public-origin curl yourself. Let that request, with redirects disabled, select the documented "
-    "host-reachable fallback only when semantic validation fails, and record the final origin with "
-    "`vss configure --base-url`. Do not edit `VST_EXTERNAL_URL` or loop on routing. Initial profile "
-    "deployment activity is not a routing violation. Stop after deployment validation; fixture "
-    "ingestion belongs to the next persisted step."
-)
-
-INGESTION_PREAMBLE = (
-    PREAMBLE
-    + " The preceding step already deployed, validated, and configured the search profile. Reuse "
-    "that state. Read the origin from `vss configure show`; do not invoke `/vss-build-vision-ai`, "
-    "`docker compose up`, restart or recreate containers, edit routing, or repeat public-origin "
-    "selection. If the prepared deployment is unavailable, report the prerequisite failure and stop "
-    "instead of repairing it. Initialize the source-lifecycle deadline once at the start of this "
-    "ingestion step. Make fixture setup idempotent through Agent-backed deletion, download the exact "
-    "pinned NGC bundle into a fresh directory, derive both upload paths only from that extraction rather "
-    "than a cached host file, and ingest only the two named files through the "
-    "three-step Agent workflow. Reconfigure once after ingestion so lazy indexes are discovered, "
-    "then require both canonical VST sources and the exact embedding, behavior, and raw index tuples. "
-    "Logs are diagnostics only. If bounded readiness expires, print diagnostics and fail; do not "
-    "reset the deadline, redeploy, restart, or re-ingest."
-)
-
 OPERATION_PREAMBLE = (
     PREAMBLE
     + " The search profile "
@@ -142,8 +110,9 @@ OPERATION_PREAMBLE = (
     "may legitimately return zero and must report the exact count without failing. Always "
     "assert that the number of successfully validated hits equals its length. Parse that compact JSON "
     "internally. The CLI automatically attempts critic verification when the configured deployment "
-    "exposes VST and RT-VLM; preserve each hit's `verification.result` as confirmed, rejected, or "
-    "unverified. A missing or failed verifier is fail-open and must not fail retrieval. Do not download "
+    "exposes VST and RT-VLM; preserve each hit's `critic_result.result` as confirmed, rejected, or "
+    "unverified, reporting a null `critic_result` as unverified. "
+    "A missing or failed verifier is fail-open and must not fail retrieval. Do not download "
     "or visually inspect screenshot pixels during the search query. Offer a `Verification Step` only "
     "when every hit in the nonempty displayed result set remains unverified; if any hit is confirmed "
     "or rejected, do not offer fallback verification. Never paste raw JSON "
@@ -411,10 +380,9 @@ def generate_task(platform: str, profile: str, spec: dict, output_root: Path,
         step_dir.mkdir(parents=True, exist_ok=True)
 
         # instruction.md — query + env notes only. Never leak checks[].
-        if expect.get("scenario") == "deploy-search-profile":
-            preamble = DEPLOYMENT_PREAMBLE
-        elif expect.get("scenario") == "ingest-search-fixtures":
-            preamble = INGESTION_PREAMBLE
+        if expect.get("scenario") in {"deploy-search-profile", "ingest-search-fixtures"}:
+            # Deployment and fixture requirements belong to the reviewed spec.
+            preamble = PREAMBLE
         elif expect.get("scenario") == "kubernetes-ingress-contract":
             preamble = KUBERNETES_INGRESS_CONTRACT_PREAMBLE
         elif expect.get("scenario") == "rtsp-live-stream-search-contract":

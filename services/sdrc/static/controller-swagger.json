@@ -52,8 +52,13 @@
         },
         "responses": {
           "200": {
-            "description": "Echo of posted payload",
-            "content": { "application/json": { "schema": { "type": "object" } } }
+            "description": "Report accepted",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ReportAcknowledgement" },
+                "example": { "status": "ok" }
+              }
+            }
           }
         }
       }
@@ -120,6 +125,14 @@
           "port": { "type": "string", "description": "Agent port", "example": "4000" }
         },
         "required": ["service"]
+      },
+      "ReportAcknowledgement": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": { "type": "string", "enum": ["ok"], "example": "ok" }
+        },
+        "required": ["status"]
       }
     }
   }

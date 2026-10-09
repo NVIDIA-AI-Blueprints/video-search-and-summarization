@@ -210,7 +210,7 @@ RUN set -eux; \
       grep -q "\[gateway\] ready" /tmp/gateway-verify.log || { cat /tmp/gateway-verify.log; exit 1; }; \
       grep -E "^\S+ \[gateway\] http server listening \([0-9]+ plugins: .*\bmemory-core\b.*\bvss\b.*\)" /tmp/gateway-verify.log \
         || grep -E "^\S+ \[gateway\] http server listening \([0-9]+ plugins: .*\bvss\b.*\bmemory-core\b.*\)" /tmp/gateway-verify.log; \
-      ! grep -q "skill selection unavailable" /tmp/gateway-verify.log; \
+      if grep -q "skill selection unavailable" /tmp/gateway-verify.log; then exit 1; fi; \
       kill "$(cat /tmp/gateway-verify.pid)" 2>/dev/null || true; \
       openclaw doctor 2>&1 | grep -q "Eligible: 0"'; \
     chown sandbox:sandbox /sandbox/.openclaw/openclaw.json; \

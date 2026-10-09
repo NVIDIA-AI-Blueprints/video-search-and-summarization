@@ -1,0 +1,90 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""Stage spec-declared media through NemoClaw's upload transport."""
+
+import argparse
+import hashlib
+import json
+import re
+import subprocess
+import time
+from pathlib import Path
+
+SOURCE = Path('/tmp/vss-sample-data/dev-profile-sample-data')
+DESTINATION = '/tmp/vss-sample-data/dev-profile-sample-data'
+REPORT = Path('/logs/artifacts/nemoclaw/fixtures.json')
+
+
+def validate_files(files):
+    if not isinstance(files, list) or not files or any(
+        not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*\.mp4', name)
+        for name in files
+    ) or len(files) != len(set(files)):
+        raise ValueError('fixtures must be distinct MP4 basenames')
+    return files
+
+
+def call(args, *, deadline):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("sandbox fixture staging deadline exceeded")
+    return subprocess.run(args, check=True, capture_output=True, text=True, timeout=remaining).stdout
+
+
+def stage(sandbox, files, source=SOURCE, *, report=None):
+    files = validate_files(files)
+    deadline = time.monotonic() + 30 + 300 * len(files)
+    # Check every host input before uploading anything. Downloads remain the
+    # setup workflow's job; this helper copies only the declared media files.
+    if report is not None:
+        report['stage'] = 'host_fixtures'
+    inputs = []
+    for name in files:
+        path = source / name
+        if not path.is_file() or path.stat().st_size == 0:
+            raise ValueError(f'missing or empty host fixture: {name}')
+        inputs.append((name, path, hashlib.sha256(path.read_bytes()).hexdigest()))
+    if report is not None:
+        report['stage'] = 'fixture_directory'
+    call(['openshell', 'sandbox', 'exec', '-n', sandbox, '--', 'mkdir', '-p', DESTINATION], deadline=deadline)
+    rows = []
+    for name, path, digest in inputs:
+        target = f'{DESTINATION}/{name}'
+        if report is not None:
+            report.update(stage='fixture_upload', file=name)
+        call(['nemoclaw', sandbox, 'upload', str(path), target], deadline=deadline)
+        if report is not None:
+            report['stage'] = 'fixture_checksum'
+        remote = call(['openshell', 'sandbox', 'exec', '-n', sandbox, '--', 'sha256sum', target], deadline=deadline).split()
+        if not remote or remote[0] != digest:
+            raise ValueError(f'sandbox fixture checksum mismatch: {name}')
+        rows.append({'file': name, 'bytes': path.stat().st_size, 'sha256': digest, 'status': 'verified'})
+    return rows
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--sandbox', required=True)
+    parser.add_argument('--files-json', required=True)
+    args = parser.parse_args()
+    report = {'sandbox': args.sandbox, 'status': 'failed', 'files': []}
+    try:
+        files = json.loads(args.files_json)
+        if files == []:
+            report['status'] = 'not_required'
+        else:
+            report['files'] = stage(args.sandbox, files, report=report)
+            report['status'] = 'passed'
+            report['stage'] = 'complete'
+            report.pop('file', None)
+    except Exception as exc:
+        # No CLI stdout/stderr or credentials enter the artifact.
+        report['error_type'] = type(exc).__name__
+        raise
+    finally:
+        REPORT.parent.mkdir(parents=True, exist_ok=True)
+        REPORT.write_text(json.dumps(report, indent=2) + '\n')
+
+
+if __name__ == '__main__':
+    main()

@@ -175,32 +175,32 @@ ${VST_STREAM_PROCESSOR_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,se
 @humanwhocodes/object-schema,2.0.3,BSD-3-Clause,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @humanwhocodes/retry,0.4.3,Apache-2.0,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 @img/colour,1.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@img/sharp-darwin-arm64,0.35.4,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@img/sharp-darwin-x64,0.35.4,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@img/sharp-freebsd-wasm32,0.35.4,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@img/sharp-libvips-darwin-arm64,1.3.3,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
-@img/sharp-libvips-darwin-x64,1.3.3,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
-@img/sharp-libvips-linux-arm,1.3.3,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
-@img/sharp-libvips-linux-arm64,1.3.3,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
-@img/sharp-libvips-linux-ppc64,1.3.3,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
-@img/sharp-libvips-linux-riscv64,1.3.3,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
-@img/sharp-libvips-linux-s390x,1.3.3,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
-@img/sharp-libvips-linux-x64,1.3.3,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
-@img/sharp-libvips-linuxmusl-arm64,1.3.3,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
-@img/sharp-libvips-linuxmusl-x64,1.3.3,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
-@img/sharp-linux-arm,0.35.4,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@img/sharp-linux-arm64,0.35.4,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@img/sharp-linux-ppc64,0.35.4,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@img/sharp-linux-riscv64,0.35.4,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@img/sharp-linux-s390x,0.35.4,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@img/sharp-linux-x64,0.35.4,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@img/sharp-linuxmusl-arm64,0.35.4,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@img/sharp-linuxmusl-x64,0.35.4,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@img/sharp-wasm32,0.35.4,Apache-2.0 AND LGPL-3.0-or-later AND MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
-@img/sharp-webcontainers-wasm32,0.35.4,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@img/sharp-win32-arm64,0.35.4,Apache-2.0 AND LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
-@img/sharp-win32-ia32,0.35.4,Apache-2.0 AND LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
-@img/sharp-win32-x64,0.35.4,Apache-2.0 AND LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+@img/sharp-darwin-arm64,0.35.5,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@img/sharp-darwin-x64,0.35.5,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@img/sharp-freebsd-wasm32,0.35.5,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@img/sharp-libvips-darwin-arm64,1.3.4,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+@img/sharp-libvips-darwin-x64,1.3.4,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+@img/sharp-libvips-linux-arm,1.3.4,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+@img/sharp-libvips-linux-arm64,1.3.4,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+@img/sharp-libvips-linux-ppc64,1.3.4,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+@img/sharp-libvips-linux-riscv64,1.3.4,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+@img/sharp-libvips-linux-s390x,1.3.4,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+@img/sharp-libvips-linux-x64,1.3.4,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+@img/sharp-libvips-linuxmusl-arm64,1.3.4,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+@img/sharp-libvips-linuxmusl-x64,1.3.4,LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+@img/sharp-linux-arm,0.35.5,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@img/sharp-linux-arm64,0.35.5,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@img/sharp-linux-ppc64,0.35.5,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@img/sharp-linux-riscv64,0.35.5,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@img/sharp-linux-s390x,0.35.5,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@img/sharp-linux-x64,0.35.5,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@img/sharp-linuxmusl-arm64,0.35.5,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@img/sharp-linuxmusl-x64,0.35.5,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@img/sharp-wasm32,0.35.5,Apache-2.0 AND LGPL-3.0-or-later AND MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+@img/sharp-webcontainers-wasm32,0.35.5,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@img/sharp-win32-arm64,0.35.5,Apache-2.0 AND LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+@img/sharp-win32-ia32,0.35.5,Apache-2.0 AND LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+@img/sharp-win32-x64,0.35.5,Apache-2.0 AND LGPL-3.0-or-later,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
 @isaacs/cliui,8.0.2,ISC,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @isaacs/cliui,8.0.2,ISC,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 @isaacs/fs-minipass,4.0.1,ISC,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -296,23 +296,20 @@ ${VST_STREAM_PROCESSOR_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,se
 @napi-rs/nice-win32-ia32-msvc,1.1.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @napi-rs/nice-win32-x64-msvc,1.1.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @napi-rs/wasm-runtime,1.2.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@next/env,16.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@next/swc-darwin-arm64,16.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@next/swc-darwin-x64,16.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@next/swc-linux-arm64-gnu,16.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@next/swc-linux-arm64-musl,16.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@next/swc-linux-x64-gnu,16.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@next/swc-linux-x64-musl,16.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@next/swc-win32-arm64-msvc,16.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@next/swc-win32-x64-msvc,16.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@next/env,16.4.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@next/swc-darwin-arm64,16.4.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@next/swc-darwin-x64,16.4.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@next/swc-linux-arm64-gnu,16.4.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@next/swc-linux-arm64-musl,16.4.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@next/swc-linux-x64-gnu,16.4.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@next/swc-linux-x64-musl,16.4.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@next/swc-win32-arm64-msvc,16.4.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@next/swc-win32-x64-msvc,16.4.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @noble/hashes,1.4.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @noble/hashes,1.8.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 @noble/hashes,2.2.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@nodelib/fs.scandir,2.1.5,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @nodelib/fs.scandir,2.1.5,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@nodelib/fs.stat,2.0.5,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @nodelib/fs.stat,2.0.5,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-@nodelib/fs.walk,1.2.8,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @nodelib/fs.walk,1.2.8,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @nolyfill/domexception,1.0.28,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 @nvidia/foundations-react-core,0.607.4,Apache-2.0,services/ui,node,lockfile;manifest,services/ui/package-lock.json;services/ui/packages/nv-metropolis-bp-vss-ui/alerts/package.json;services/ui/packages/nv-metropolis-bp-vss-ui/dashboard/package.json;services/ui/packages/nv-metropolis-bp-vss-ui/search/package.json;services/ui/packages/nv-metropolis-bp-vss-ui/video-management/package.json,runtime,no,no,no,declared-manifest,None
@@ -533,6 +530,21 @@ ${VST_STREAM_PROCESSOR_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,se
 @tabby_ai/hijri-converter,1.0.5,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @tabler/icons,3.46.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @tabler/icons-react,3.46.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@tailwindcss/node,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@tailwindcss/oxide,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@tailwindcss/oxide-android-arm64,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@tailwindcss/oxide-darwin-arm64,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@tailwindcss/oxide-darwin-x64,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@tailwindcss/oxide-freebsd-x64,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@tailwindcss/oxide-linux-arm-gnueabihf,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@tailwindcss/oxide-linux-arm64-gnu,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@tailwindcss/oxide-linux-arm64-musl,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@tailwindcss/oxide-linux-x64-gnu,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@tailwindcss/oxide-linux-x64-musl,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@tailwindcss/oxide-wasm32-wasi,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@tailwindcss/oxide-win32-arm64-msvc,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@tailwindcss/oxide-win32-x64-msvc,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+@tailwindcss/postcss,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @tanstack/query-core,5.102.8,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @tanstack/react-query,5.102.8,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 @testing-library/dom,10.4.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -712,10 +724,10 @@ aiohappyeyeballs,2.7.1,PSF-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime
 aiohappyeyeballs,2.7.1,PSF-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 aiohappyeyeballs,2.7.1,PSF-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 aiohappyeyeballs,2.7.1,PSF-2.0,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
-aiohttp,3.13.3,Apache-2.0 AND MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
-aiohttp,3.13.3,Apache-2.0 AND MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 aiohttp,3.14.3,Apache-2.0 AND MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 aiohttp,3.14.3,Apache-2.0 AND MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+aiohttp,3.14.3,Apache-2.0 AND MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+aiohttp,3.14.3,Apache-2.0 AND MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 aiohttp,3.14.3,Apache-2.0 AND MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 aiohttp,UNKNOWN,Apache-2.0 AND MIT,services/alert,python,manifest,services/alert/requirements.txt,runtime,no,no,no,declared-manifest,None
 aiohttp-cors,0.8.1,Apache Software License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -770,7 +782,6 @@ anthropic,UNKNOWN,UNKNOWN,.github,python,usage,.github/scripts/release_notes/cla
 antlr4-python3-runtime,4.9.3,BSD-3-Clause,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 antlr4-python3-runtime,4.9.3,BSD-3-Clause,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 antlr4-python3-runtime,4.9.3,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
-any-promise,1.3.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 anyio,4.10.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 anyio,4.14.2,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 anyio,4.14.2,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -793,7 +804,6 @@ apt-transport-https,UNKNOWN,UNKNOWN,services/vios,deb,container,services/vios/te
 arabic-reshaper,3.0.1,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 arango,UNKNOWN,UNKNOWN,libs/vss,python,usage,libs/vss/core/src/vss_core/knowledge/adapters/arango_graph.py,runtime,no,no,no,imported-only,Unknown
 archy,1.0.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-arg,5.0.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 argon2-cffi,25.1.0,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 argon2-cffi,25.1.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 argon2-cffi-bindings,25.1.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
@@ -839,7 +849,6 @@ authlib,1.7.2,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock
 autoconf,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,deb,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 autoconf,UNKNOWN,UNKNOWN,services/vios,deb,container,services/vios/cicd_files/x86_64/devel/Dockerfile.devel,runtime,no,no,yes,container-apt,Unknown
 automake,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,deb,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
-autoprefixer,10.5.4,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 av,16.0.1,BSD-3-Clause,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 av,UNKNOWN,BSD-3-Clause,services/rtvi/rt-embed,python,usage,services/rtvi/rt-embed/src/models/openai_compat/openai_compat_model.py,runtime,no,no,no,imported-only,None
 av,UNKNOWN,BSD-3-Clause,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/src/models/openai_compat/openai_compat_model.py,runtime,no,no,no,imported-only,None
@@ -881,7 +890,6 @@ betterproto,2.0.0b6,MIT,services/sdrc,python,lockfile,services/sdrc/uv.lock,runt
 bidi-js,1.0.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 bignumber.js,9.3.1,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 binary-extensions,2.3.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-binary-extensions,2.3.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 binary-version,7.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 binary-version-check,6.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 binutils,UNKNOWN,UNKNOWN,services/agent,deb,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
@@ -912,13 +920,12 @@ botocore,1.43.79,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,services/
 bottleneck,2.19.5,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 brace-expansion,1.1.18,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 brace-expansion,1.1.21,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-brace-expansion,2.1.4,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 brace-expansion,2.1.4,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 brace-expansion,2.1.7,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
+brace-expansion,2.1.7,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 brace-expansion,5.0.7,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 brace-expansion,5.0.9,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 braces,3.0.3,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-braces,3.0.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 braces,3.0.3,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 browser-stdout,1.3.1,ISC,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 browserslist,4.28.8,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -974,7 +981,6 @@ camelcase,5.3.1,MIT,services/analytics/video-analytics-api,node,lockfile,service
 camelcase,5.3.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 camelcase,6.3.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 camelcase,6.3.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-camelcase-css,2.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 caniuse-lite,1.0.30001810,CC-BY-4.0,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,Unknown
 caniuse-lite,1.0.30001810,CC-BY-4.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Unknown
 cbor2,5.9.0,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -1020,7 +1026,6 @@ charset-normalizer,3.5.1,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,n
 charset-normalizer,3.5.1,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 check-error,1.0.3,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 chokidar,3.6.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-chokidar,3.6.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 chokidar,5.0.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 chokidar,5.0.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 chownr,3.0.0,BlueOak-1.0.0,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,Unknown
@@ -1094,8 +1099,8 @@ combined-stream,1.0.8,MIT,services/analytics/video-analytics-api,node,lockfile,s
 combined-stream,1.0.8,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 comma-separated-tokens,2.0.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 commander,15.0.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+commander,15.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 commander,2.20.3,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-commander,4.1.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 commander,5.1.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 commander,6.2.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 commander,8.3.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1172,7 +1177,6 @@ css-select,5.2.2,BSD-2-Clause,.openclaw,node,lockfile,.openclaw/plugin/package-l
 css-tree,3.2.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 css-what,6.2.2,BSD-2-Clause,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 css.escape,1.5.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-cssesc,3.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 cssom,0.5.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 cssselect2,0.9.0,BSD License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 cssstyle,4.6.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1291,7 +1295,6 @@ detect-node,2.1.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/packa
 detect-node-es,1.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 devlop,1.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 dezalgo,1.0.4,ISC,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-didyoumean,1.2.2,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 diff,5.2.2,BSD-3-Clause,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 diff,9.0.0,BSD-3-Clause,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 dijkstrajs,1.0.3,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1304,7 +1307,6 @@ distro,1.9.0,"Apache License, Version 2.0",libs/vss,python,lockfile,libs/vss/uv.
 distro,1.9.0,"Apache License, Version 2.0",services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 distro,1.9.0,"Apache License, Version 2.0",services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 distro,1.9.0,"Apache License, Version 2.0",services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
-dlv,1.1.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 dmg-builder,26.15.7,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 dnspython,2.7.0,ISC,services/sdrc,python,lockfile;manifest,services/sdrc/pyproject.toml;services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 dnspython,2.8.0,ISC License (ISCL),services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,Unknown
@@ -1337,7 +1339,7 @@ dom-lib,3.3.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtim
 dom-serializer,2.0.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 domelementtype,2.3.0,BSD-2-Clause,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 domhandler,5.0.3,BSD-2-Clause,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
-dompurify,3.4.14,(MPL-2.0 OR Apache-2.0),services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+dompurify,3.4.16,(MPL-2.0 OR Apache-2.0),services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
 domutils,3.2.2,BSD-2-Clause,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 dorny/paths-filter,fbd0ab8f3e69293af611ebaee6363fc25e6d187d,MIT,.github,github-action,ci,.github/workflows/helm-sync.yml,ci,no,no,no,ci-tooling,None
 dotenv,16.6.1,BSD-2-Clause,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1390,6 +1392,7 @@ enabled,2.0.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/
 encodeurl,2.0.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 encodeurl,2.0.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 end-of-stream,1.4.5,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+enhanced-resolve,5.26.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 entities,4.5.0,BSD-2-Clause,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 entities,4.5.0,BSD-2-Clause,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 entities,6.0.1,BSD-2-Clause,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1407,7 +1410,6 @@ es-define-property,1.0.1,MIT,services/analytics/video-analytics-api,node,lockfil
 es-define-property,1.0.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 es-errors,1.3.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 es-errors,1.3.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-es-errors,1.3.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 es-errors,1.3.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 es-object-atoms,1.1.2,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 es-object-atoms,1.1.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1478,7 +1480,6 @@ fast-deep-equal,3.1.3,MIT,services/analytics/video-analytics-api,node,lockfile,s
 fast-deep-equal,3.1.3,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 fast-equals,5.4.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 fast-fifo,1.3.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-fast-glob,3.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 fast-glob,3.3.3,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 fast-json-stable-stringify,2.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 fast-json-stable-stringify,2.1.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1498,7 +1499,6 @@ fastapi,0.141.1,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/
 fastapi,UNKNOWN,MIT,services/alert,python,manifest,services/alert/requirements.txt,runtime,no,no,no,declared-manifest,None
 fastapi,UNKNOWN,MIT,services/video-summarization,python,usage,services/video-summarization/src/via_server.py,runtime,no,no,no,imported-only,None
 fastapi,UNKNOWN,MIT,skills/operations,python,manifest,skills/operations/vss-manage-alerts/scripts/alert-notify/requirements.txt,runtime,no,no,no,declared-manifest,None
-fastq,1.20.1,ISC,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 fastq,1.20.1,ISC,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 fastrlock,0.8.3,MIT License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 fastrlock,0.8.3,MIT License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -1526,7 +1526,6 @@ filenamify,7.0.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,run
 filetype,1.2.0,MIT License,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 fill-keys,1.0.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 fill-range,7.1.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-fill-range,7.1.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 fill-range,7.1.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 finalhandler,1.3.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 finalhandler,2.1.1,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1570,7 +1569,6 @@ formdata-polyfill,4.0.10,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lo
 formidable,3.5.4,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 forwarded,0.2.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 forwarded,0.2.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-fraction.js,5.3.4,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 fraction.js,5.3.4,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 framer-motion,11.18.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 fresh,0.5.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1599,7 +1597,6 @@ fsspec,2026.7.0,BSD-3-Clause,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,n
 fsspec,2026.7.0,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 function-bind,1.1.2,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 function-bind,1.1.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-function-bind,1.1.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 function-bind,1.1.2,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 function-timeout,1.0.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 fvcore,0.1.5.post20221221,Apache-2.0,libs/analytics/spatialai-data-utils,python,lockfile;manifest,libs/analytics/spatialai-data-utils/Pipfile.lock;libs/analytics/spatialai-data-utils/release/pyproject.toml,runtime,no,no,no,declared-manifest,None
@@ -1661,9 +1658,7 @@ glob,7.2.3,ISC,services/ui,node,lockfile,services/ui/package-lock.json,runtime,n
 glob,7.2.3,ISC,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 glob,8.1.0,ISC,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 glob-parent,5.1.2,ISC,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-glob-parent,5.1.2,ISC,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 glob-parent,5.1.2,ISC,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-glob-parent,6.0.2,ISC,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 glob-parent,6.0.2,ISC,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 global-agent,3.0.0,BSD-3-Clause,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 globals,13.24.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1752,7 +1747,6 @@ hasha,5.2.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/an
 hasown,2.0.2,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 hasown,2.0.4,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 hasown,2.0.4,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-hasown,2.0.4,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 hasown,2.0.4,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 hast-util-from-parse5,8.0.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 hast-util-parse-selector,4.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1793,8 +1787,8 @@ html-url-attributes,3.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock
 html-void-elements,3.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 html5lib,1.1,MIT License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 htmlparser2,10.1.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
-http-cache-semantics,4.2.0,BSD-2-Clause,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 http-cache-semantics,4.2.0,BSD-2-Clause,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+http-cache-semantics,4.3.0,BSD-2-Clause,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 http-errors,2.0.1,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 http-errors,2.0.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 http-proxy-agent,7.0.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1904,16 +1898,13 @@ is-alphanumerical,2.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.j
 is-arrayish,0.2.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-arrayish,0.2.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-binary-path,2.1.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-is-binary-path,2.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-buffer,1.1.6,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-core-module,2.15.1,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-core-module,2.16.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-is-core-module,2.16.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-core-module,2.16.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-decimal,2.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-docker,2.2.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-extglob,2.1.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-is-extglob,2.1.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-extglob,2.1.1,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-fullwidth-code-point,3.0.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-fullwidth-code-point,3.0.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1921,12 +1912,10 @@ is-fullwidth-code-point,3.0.0,MIT,services/ui,node,lockfile,services/ui/package-
 is-fullwidth-code-point,3.0.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-generator-fn,2.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-glob,4.0.3,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-is-glob,4.0.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-glob,4.0.3,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-hexadecimal,2.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-module,1.0.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-number,7.0.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-is-number,7.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-number,7.0.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-object,1.0.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 is-path-inside,3.0.3,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -2019,8 +2008,8 @@ jinja2,3.1.6,BSD-3-Clause,services/vios,python,lockfile,services/vios/test/bdd_t
 jiter,0.10.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 jiter,0.16.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 jiter,0.16.0,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
-jiti,1.21.7,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 jiti,2.7.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+jiti,2.7.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 jiti,2.7.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 jmespath,1.0.1,MIT License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 jmespath,1.1.0,MIT,libs/analytics/spatialai-data-utils,python,lockfile,libs/analytics/spatialai-data-utils/Pipfile.lock,runtime,no,no,no,declared-manifest,None
@@ -2107,7 +2096,7 @@ kafka-python,2.3.2,Apache-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,serv
 kafka-python,3.0.11,Apache-2.0,services/video-summarization,python,lockfile;manifest,services/video-summarization/docker/base/py_deps/pyproject.toml;services/video-summarization/docker/base/py_deps/uv.lock,runtime,no,no,no,declared-manifest,None
 kafka-python,UNKNOWN,Apache-2.0,services/rtvi/rt-cv,python,container,services/rtvi/rt-cv/docker/Dockerfile,runtime,no,no,yes,container-pip,None
 kafkajs,2.2.4,MIT,services/analytics/video-analytics-api,node,lockfile;manifest,services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/src/web-api-core/package.json;services/analytics/video-analytics-api/test/package-lock.json;services/analytics/video-analytics-api/test/package.json,runtime,no,no,no,declared-manifest,None
-katex,0.16.47,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+katex,0.19.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 keyv,4.5.4,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 keyv,5.6.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 kind-of,6.0.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -2248,19 +2237,30 @@ libxml2-dev,UNKNOWN,UNKNOWN,services/vios,deb,container,services/vios/cicd_files
 libyuv,UNKNOWN,UNKNOWN,services/vios,c,vendored,services/vios/src/framework/webrtc_streamer/inc/webrtc_headers/src/third_party/libyuv,runtime,yes,UNKNOWN,no,vendored-source,Unknown
 lie,3.1.1,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 lie,3.3.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
+lightningcss,1.32.0,MPL-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
 lightningcss,1.33.0,MPL-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+lightningcss-android-arm64,1.32.0,MPL-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
 lightningcss-android-arm64,1.33.0,MPL-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+lightningcss-darwin-arm64,1.32.0,MPL-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
 lightningcss-darwin-arm64,1.33.0,MPL-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+lightningcss-darwin-x64,1.32.0,MPL-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
 lightningcss-darwin-x64,1.33.0,MPL-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+lightningcss-freebsd-x64,1.32.0,MPL-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
 lightningcss-freebsd-x64,1.33.0,MPL-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+lightningcss-linux-arm-gnueabihf,1.32.0,MPL-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
 lightningcss-linux-arm-gnueabihf,1.33.0,MPL-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+lightningcss-linux-arm64-gnu,1.32.0,MPL-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
 lightningcss-linux-arm64-gnu,1.33.0,MPL-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+lightningcss-linux-arm64-musl,1.32.0,MPL-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
 lightningcss-linux-arm64-musl,1.33.0,MPL-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+lightningcss-linux-x64-gnu,1.32.0,MPL-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
 lightningcss-linux-x64-gnu,1.33.0,MPL-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+lightningcss-linux-x64-musl,1.32.0,MPL-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
 lightningcss-linux-x64-musl,1.33.0,MPL-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+lightningcss-win32-arm64-msvc,1.32.0,MPL-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
 lightningcss-win32-arm64-msvc,1.33.0,MPL-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
+lightningcss-win32-x64-msvc,1.32.0,MPL-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
 lightningcss-win32-x64-msvc,1.33.0,MPL-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,Medium
-lilconfig,3.1.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 lines-and-columns,1.2.4,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 lines-and-columns,1.2.4,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 linkedom,0.18.12,ISC,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -2316,6 +2316,7 @@ lxml,6.1.1,BSD-3-Clause,services/analytics/behavior-analytics,python,lockfile,se
 lycheeverse/lychee-action,8646ba30535128ac92d33dfc9133794bfdd9b411,Apache-2.0,.github,github-action,ci,.github/workflows/fern-docs-preflight.yml,ci,no,no,no,ci-tooling,None
 lz-string,1.5.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 m4,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,deb,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
+magic-string,0.30.21,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 magic-string,0.30.21,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 make,UNKNOWN,UNKNOWN,services/sdrc,deb,container,services/sdrc/envoy/Dockerfile.wdm-router,runtime,no,no,yes,container-apt,Unknown
 make,UNKNOWN,UNKNOWN,services/vios,deb,container,services/vios/cicd_files/aarch64/devel/Dockerfile,runtime,no,no,yes,container-apt,Unknown
@@ -2388,7 +2389,6 @@ memoize-one,5.2.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,ru
 merge-descriptors,1.0.3,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 merge-descriptors,2.0.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 merge-stream,2.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-merge2,1.4.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 merge2,1.4.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 meson,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,deb,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 meson-python,0.20.0,MIT,libs/analytics/spatialai-data-utils,python,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-pip,None
@@ -2422,7 +2422,6 @@ micromark-util-sanitize-uri,2.0.1,MIT,services/ui,node,lockfile,services/ui/pack
 micromark-util-subtokenize,2.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 micromark-util-symbol,2.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 micromark-util-types,2.0.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-micromatch,4.0.8,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 micromatch,4.0.8,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 milvus-lite,3.2.1,Apache Software License,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 milvusdb/milvus,v2.5.12,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-mv3dt,container,compose,services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml,runtime,no,no,yes,container-image,Unknown
@@ -2506,7 +2505,6 @@ multidict,6.7.1,Apache License 2.0,services/rtvi/rt-vlm,python,lockfile;manifest
 multidict,6.7.1,Apache-2.0,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 mypy-extensions,1.1.0,UNKNOWN,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 mypy-extensions,1.1.0,UNKNOWN,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,Unknown
-mz,2.7.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 nanoid,3.3.17,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 nanoid,3.3.18,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 napi-postinstall,0.3.4,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -2529,7 +2527,7 @@ networkx,3.5,BSD License,services/rtvi/rt-vlm,python,lockfile;manifest,services/
 networkx,3.6.1,BSD-3-Clause,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 networkx,3.6.1,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 networkx,3.6.1,BSD-3-Clause,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
-next,16.3.3,MIT,services/ui,node,lockfile;manifest,services/ui/apps/nv-metropolis-bp-vss-ui/package.json;services/ui/apps/vss-chat/package.json;services/ui/package-lock.json;services/ui/package.json,runtime,no,no,no,declared-manifest,None
+next,16.4.0,MIT,services/ui,node,lockfile;manifest,services/ui/apps/nv-metropolis-bp-vss-ui/package.json;services/ui/apps/vss-chat/package.json;services/ui/package-lock.json;services/ui/package.json,runtime,no,no,no,declared-manifest,None
 next-i18next,16.0.11,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 next-runtime-env,1.8.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 ngc_cli,4.10.0,UNKNOWN,.hermes,source,container,.hermes/Dockerfile,runtime,no,no,no,build-fetch,Unknown
@@ -2544,7 +2542,7 @@ ninja-build,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,deb,container,services/rtvi/rt-
 nise,6.1.5,BSD-3-Clause,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 nixl,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/docker/rtvi_vlm/patches/evs_vllm_public_files/distributed/ec_transfer/ec_connector/nixl_connector.py,runtime,no,no,no,imported-only,Unknown
 nltk,3.10.3,Apache Software License,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
-node,22.23.2,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
+node,22.23.3,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
 node,22.23.3-trixie,UNKNOWN,services/analytics/video-analytics-api,container,container,services/analytics/video-analytics-api/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 node,24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc,UNKNOWN,.hermes,container,container,.hermes/Dockerfile,runtime,no,no,yes,container-base,Unknown
 node,24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc,UNKNOWN,.openclaw,container,container,.openclaw/Dockerfile,runtime,no,no,yes,container-base,Unknown
@@ -2611,9 +2609,9 @@ nvcr.io/nvidia/deepstream,rtvi_ds9.1.1-sbsa-262,UNKNOWN,services/rtvi/rt-cv,cont
 nvcr.io/nvidia/deepstream,rtvi_ds9.1.1-triton-dev111,UNKNOWN,services/rtvi/rt-embed,container,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/deepstream,rtvi_ds9.1.1-triton-dev111@sha256:de434d6dc97158b64bb6ee04fcc79796b0321932548742d0299c2b61541f063f,UNKNOWN,services/rtvi/rt-vlm,container,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/deepstream,rtvi_ds9.1.1-triton-dev135,UNKNOWN,services/rtvi/rt-cv,container,container,services/rtvi/rt-cv/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
-nvcr.io/nvidia/distroless/node,22-v4.1.4,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
-nvcr.io/nvidia/distroless/node,22-v4.1.4-dev,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/node,22-v4.1.6,UNKNOWN,services/analytics/video-analytics-api,container,container,services/analytics/video-analytics-api/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
+nvcr.io/nvidia/distroless/node,22-v4.1.6,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
+nvcr.io/nvidia/distroless/node,22-v4.1.6-dev,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.5,UNKNOWN,services/configurators/vss-rt-config-adaptor,container,container,services/configurators/vss-rt-config-adaptor/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.6,UNKNOWN,libs/analytics/spatialai-data-utils,container,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.8,UNKNOWN,services/video-summarization,container,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
@@ -2621,8 +2619,8 @@ nvcr.io/nvidia/distroless/python,3.13-v4.0.9,UNKNOWN,services/rtvi/rt-cv-3d/rt-c
 nvcr.io/nvidia/distroless/python,3.13-v4.0.9,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-config-init,container,container,services/rtvi/rt-cv-3d/rt-cv-config-init/Dockerfiles/mv3dt-config-init.Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.1.2,UNKNOWN,services/agent,container,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.1.4,UNKNOWN,services/alert,container,container,services/alert/Dockerfile,runtime,no,no,yes,container-base,Unknown
-nvcr.io/nvidia/distroless/python,3.13-v4.1.5,UNKNOWN,services/configurators/vss-configurator,container,container,services/configurators/vss-configurator/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.1.6,UNKNOWN,services/analytics/behavior-analytics,container,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
+nvcr.io/nvidia/distroless/python,3.13-v4.1.6,UNKNOWN,services/configurators/vss-configurator,container,container,services/configurators/vss-configurator/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/k8s/dcgm-exporter,4.2.0-4.1.0-ubuntu22.04,UNKNOWN,services/rtvi/rt-vlm,container,compose,services/rtvi/rt-vlm/docker/compose.perf.yaml,runtime,no,no,yes,container-image,Unknown
 nvcr.io/nvidia/k8s/dcgm-exporter,4.2.3-4.1.3-ubuntu22.04,UNKNOWN,services/rtvi/rt-embed,container,compose,services/rtvi/rt-embed/docker/compose.yaml,runtime,no,no,yes,container-image,Unknown
 nvcr.io/nvidia/pytorch,26.03-py3,UNKNOWN,services/rtvi/rt-embed,container,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
@@ -2677,7 +2675,6 @@ oauthlib,3.3.1,BSD-3-Clause,services/sdrc,python,lockfile,services/sdrc/uv.lock,
 object-assign,4.1.1,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 object-assign,4.1.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 object-assign,4.1.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-object-hash,3.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 object-inspect,1.13.4,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 object-inspect,1.13.4,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 object-keys,1.1.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -2880,7 +2877,6 @@ path-key,3.1.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runti
 path-key,3.1.1,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 path-key,4.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 path-parse,1.0.7,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-path-parse,1.0.7,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 path-parse,1.0.7,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 path-scurry,1.11.1,BlueOak-1.0.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,Unknown
 path-scurry,1.11.1,BlueOak-1.0.0,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,Unknown
@@ -2924,7 +2920,7 @@ pipenv,UNKNOWN,MIT License,services/analytics/behavior-analytics,python,containe
 pipenv,UNKNOWN,MIT License,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,python,container,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Dockerfiles/measurement-fusion.Dockerfile,runtime,no,no,yes,container-pip,None
 pipenv,UNKNOWN,MIT License,services/rtvi/rt-cv-3d/rt-cv-config-init,python,container,services/rtvi/rt-cv-3d/rt-cv-config-init/Dockerfiles/mv3dt-config-init.Dockerfile,runtime,no,no,yes,container-pip,None
 pirates,4.0.7,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-piscina,4.9.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+piscina,4.9.4,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 pkce,1.0.3,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pkce-challenge,5.0.1,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 pkg-config,UNKNOWN,UNKNOWN,services/agent,deb,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
@@ -2952,12 +2948,6 @@ portalocker,3.2.0,BSD-3-Clause,services/configurators/vss-configurator,python,lo
 portalocker,3.2.0,BSD-3-Clause,services/video-summarization,python,lockfile;manifest,services/video-summarization/docker/base/py_deps/pyproject.toml;services/video-summarization/docker/base/py_deps/uv.lock,runtime,no,no,no,declared-manifest,None
 postcss,8.5.25,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 postcss,8.5.26,MIT,services/ui,node,lockfile;manifest,services/ui/package-lock.json;services/ui/package.json,runtime,no,no,no,declared-manifest,None
-postcss-import,15.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-postcss-js,4.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-postcss-load-config,6.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-postcss-nested,6.2.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-postcss-selector-parser,6.1.4,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-postcss-value-parser,4.2.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 postgresql,UNKNOWN,UNKNOWN,services/vios,c,vendored,services/vios/include/3rdparty/postgresql,runtime,yes,UNKNOWN,no,vendored-source,Unknown
 postject,1.0.0-alpha.6,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 pqxx,UNKNOWN,BSD-3-Clause,services/vios,c,usage;vendored,services/vios/include/3rdparty/pqxx;services/vios/src/framework/database/postgresql/postgresql_helper.h,runtime,yes,UNKNOWN,no,imported-only;vendored-source,None
@@ -3231,7 +3221,6 @@ quay.io/pypa/manylinux_2_28_aarch64,UNKNOWN,UNKNOWN,libs/analytics/spatialai-dat
 quay.io/pypa/manylinux_2_28_aarch64,UNKNOWN,UNKNOWN,services/analytics/behavior-analytics,container,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 quay.io/pypa/manylinux_2_28_x86_64,UNKNOWN,UNKNOWN,libs/analytics/spatialai-data-utils,container,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 quay.io/pypa/manylinux_2_28_x86_64,UNKNOWN,UNKNOWN,services/analytics/behavior-analytics,container,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
-queue-microtask,1.2.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 queue-microtask,1.2.3,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 quick-lru,5.1.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 quick-lru,5.1.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3276,12 +3265,10 @@ react-transition-group,4.4.5,BSD-3-Clause,services/vios,node,lockfile,services/v
 react-use-set,1.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 react-window,1.8.11,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 read-binary-file-arch,1.0.6,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-read-cache,1.0.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 readable-stream,2.3.8,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 readable-stream,2.3.8,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 readable-stream,3.6.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 readdirp,3.6.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-readdirp,3.6.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 readdirp,5.0.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 readdirp,5.0.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 recharts,2.15.4,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3357,7 +3344,6 @@ require-main-filename,2.0.0,ISC,.openclaw,node,lockfile,.openclaw/plugin/package
 require-main-filename,2.0.0,ISC,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 resedit,1.7.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 resolve,1.22.12,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-resolve,1.22.12,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 resolve,1.22.12,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 resolve,1.22.8,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 resolve-alpn,1.2.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3371,7 +3357,6 @@ responselike,4.0.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,r
 retry,0.12.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 retry,0.12.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 retry,0.13.1,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
-reusify,1.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 reusify,1.1.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 rich,14.1.0,MIT License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 rich,14.3.4,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -3406,7 +3391,6 @@ ruamel-yaml-clib,0.2.15,MIT,services/sdrc,python,lockfile,services/sdrc/uv.lock,
 ruamel.yaml,0.18.15,MIT License,services/configurators/vss-configurator,python,manifest,services/configurators/vss-configurator/pyproject.toml,runtime,no,no,no,declared-manifest,None
 ruamel.yaml,0.18.15,MIT License,services/configurators/vss-rt-config-adaptor,python,manifest,services/configurators/vss-rt-config-adaptor/pyproject.toml,runtime,no,no,no,declared-manifest,None
 ruamel.yaml,0.18.6,MIT License,services/sdrc,python,container;manifest,services/sdrc/envoy/Dockerfile.wdm-router;services/sdrc/pyproject.toml,runtime,no,no,no,container-pip;declared-manifest,None
-run-parallel,1.2.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 run-parallel,1.2.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 rxjs,7.8.2,Apache-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 s2wrapper,0.1,UNKNOWN,services/rtvi/rt-embed,python,lockfile,services/rtvi/rt-embed/docker/py_deps/pdm.lock,runtime,no,no,no,declared-manifest,Unknown
@@ -3497,7 +3481,7 @@ setuptools,UNKNOWN,MIT,services/rtvi/rt-cv-3d/rt-cv-config-init,python,container
 shapely,2.0.7,BSD-3-Clause,libs/analytics/spatialai-data-utils,python,lockfile;manifest,libs/analytics/spatialai-data-utils/Pipfile.lock;libs/analytics/spatialai-data-utils/release/pyproject.toml,runtime,no,no,no,declared-manifest,None
 shapely,2.0.7,BSD-3-Clause,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 shapely,2.1.2,BSD-3-Clause,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
-sharp,0.35.4,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+sharp,0.35.5,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 shebang-command,2.0.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 shebang-command,2.0.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 shebang-command,2.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3640,7 +3624,6 @@ style-to-js,1.1.21,MIT,services/ui,node,lockfile,services/ui/package-lock.json,r
 style-to-object,1.0.14,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 styled-jsx,5.1.6,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 stylis,4.2.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-sucrase,3.35.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 sudo,UNKNOWN,UNKNOWN,services/vios,deb,container,services/vios/cicd_files/aarch64/devel/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 sumchecker,3.0.1,Apache-2.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 super-regex,1.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3653,7 +3636,6 @@ supports-color,8.1.1,MIT,services/analytics/video-analytics-api,node,lockfile,se
 supports-color,8.1.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 supports-color,8.1.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 supports-preserve-symlinks-flag,1.0.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-supports-preserve-symlinks-flag,1.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 supports-preserve-symlinks-flag,1.0.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json;services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 svglib,2.0.2,LGPL-3.0-or-later,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,Medium
 symbol-tree,3.2.4,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3668,7 +3650,8 @@ tabulate,0.9.0,MIT,libs/analytics/spatialai-data-utils,python,lockfile;manifest,
 tabulate,0.9.0,MIT,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 tabulate,0.9.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 tabulate,0.9.0,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
-tailwindcss,3.4.19,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+tailwindcss,4.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+tapable,2.3.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 tar,7.5.19,BlueOak-1.0.0,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,Unknown
 tar,7.5.22,BlueOak-1.0.0,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,Unknown
 tar,UNKNOWN,UNKNOWN,deploy,deb,container,deploy/docker/services/infra/Dockerfiles/elasticsearch-gpu.Dockerfile,runtime,no,no,yes,container-apt,Unknown
@@ -3692,8 +3675,6 @@ test-exclude,6.0.0,ISC,services/ui,node,lockfile,services/ui/package-lock.json,r
 text-decoder,1.2.7,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 text-hex,1.0.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 text-table,0.2.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-thenify,3.3.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-thenify-all,1.6.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 threadpoolctl,3.6.0,BSD-3-Clause,libs/analytics/spatialai-data-utils,python,lockfile,libs/analytics/spatialai-data-utils/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 threadpoolctl,3.6.0,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 threadpoolctl,3.6.0,BSD-3-Clause,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -3720,7 +3701,6 @@ tmp,0.2.7,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.
 tmp-promise,3.0.3,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 tmpl,1.0.5,BSD-3-Clause,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 to-regex-range,5.0.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-to-regex-range,5.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 to-regex-range,5.0.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 toidentifier,1.0.1,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 toidentifier,1.0.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3789,7 +3769,6 @@ truststore,0.10.4,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no
 ts-algebra,2.0.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 ts-api-utils,1.4.3,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 ts-api-utils,2.5.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
-ts-interface-checker,0.1.13,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 ts-jest,29.4.12,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 tslib,2.7.0,0BSD,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 tslib,2.8.1,0BSD,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3854,9 +3833,9 @@ uint8array-extras,1.5.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-loc
 uint8array-extras,1.5.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 unbzip2-stream,1.4.3,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici,6.28.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-undici,7.29.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici,7.29.0,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici,7.29.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
+undici,7.30.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici,8.5.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici-types,6.19.8,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 undici-types,6.21.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3907,7 +3886,6 @@ use-sync-external-store,1.6.0,MIT,services/vios,node,lockfile,services/vios/ui/v
 utf8-byte-length,1.0.5,(WTFPL OR MIT),services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,Unknown
 util-deprecate,1.0.2,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 util-deprecate,1.0.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
-util-deprecate,1.0.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 util-deprecate,1.0.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 utils-merge,1.0.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 uuid,11.1.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None

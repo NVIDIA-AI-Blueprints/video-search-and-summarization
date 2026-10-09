@@ -221,6 +221,56 @@ class SubprocessCancellationTest(unittest.IsolatedAsyncioTestCase):
             run.await_args_list[1].args[1],
         )
 
+    async def test_fixture_staging_runs_before_setup_verifier_and_fails_closed(self):
+        for staging_rc in (0, 1):
+            env = brev_env.BrevEnvironment()
+            env._instance_name = "vss-eval-test"
+            outputs = [brev_env.ExecResult(return_code=0), brev_env.ExecResult(return_code=staging_rc)]
+            if staging_rc:
+                outputs.append(brev_env.ExecResult(return_code=0))
+            with mock.patch.dict(os.environ, {
+                brev_env.DEFER_AGENT_REAP_ENV: "1",
+                "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
+                "SKILL_EVAL_NEMOCLAW_FIXTURES": '["warehouse_safety_0001.mp4"]',
+                "NEMOCLAW_SANDBOX_NAME": "se-current",
+            }), mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(side_effect=outputs)) as run:
+                result = await env.exec("codex exec --json")
+            self.assertEqual(result.return_code, staging_rc)
+            self.assertIn("stage_fixtures.py", run.await_args_list[1].args[1])
+            self.assertIn("--setup-check &&", run.await_args_list[1].args[1])
+            marker = self._agent_marker_from_command(run.await_args_list[0].args[1])
+            self.assertIn(f"{brev_env.REMOTE_AGENT_RUN_ENV}={marker}", run.await_args_list[1].args[1])
+            self.assertIn("se-current", run.await_args_list[1].args[1])
+            self.assertEqual(run.await_args_list[1].kwargs["timeout"], 1200)
+            self.assertEqual(run.await_count, 3 if staging_rc else 2)
+
+    async def test_two_fixture_files_receive_sufficient_transfer_budget(self):
+        env = brev_env.BrevEnvironment()
+        env._instance_name = "vss-eval-test"
+        with mock.patch.dict(os.environ, {
+            brev_env.DEFER_AGENT_REAP_ENV: "1",
+            "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
+            "SKILL_EVAL_NEMOCLAW_FIXTURES": '["warehouse_sample.mp4", "sample-warehouse-ladder.mp4"]',
+            "NEMOCLAW_SANDBOX_NAME": "se-current",
+        }), mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(return_value=brev_env.ExecResult(return_code=0))) as run:
+            result = await env.exec("codex exec --json")
+        self.assertEqual(result.return_code, 0)
+        self.assertEqual(run.await_args_list[1].kwargs["timeout"], 1500)
+
+    async def test_setup_handoff_also_runs_without_fixtures(self):
+        env = brev_env.BrevEnvironment()
+        env._instance_name = "vss-eval-test"
+        with mock.patch.dict(os.environ, {
+            brev_env.DEFER_AGENT_REAP_ENV: "1",
+            "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
+            "NEMOCLAW_SANDBOX_NAME": "se-current",
+        }), mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(return_value=brev_env.ExecResult(return_code=0))) as run:
+            os.environ.pop("SKILL_EVAL_NEMOCLAW_FIXTURES", None)
+            result = await env.exec("codex exec --json")
+        self.assertEqual(result.return_code, 0)
+        self.assertIn("--setup-check &&", run.await_args_list[1].args[1])
+        self.assertIn("--files-json '[]'", run.await_args_list[1].args[1])
+
     async def test_nonzero_codex_exec_is_marked_and_reaped(self):
         env = brev_env.BrevEnvironment()
         env._instance_name = "vss-eval-test"
@@ -511,6 +561,9 @@ class PriorAgentOutputIsolationTest(unittest.TestCase):
         subprocess.run(["bash", "-n", "-c", command], check=True)
         for output in (
             "claude-code.txt",
+            "codex.txt",
+            "openclaw.txt",
+            "openclaw.session.jsonl",
             "trajectory.json",
             "trajectory.jsonl",
             "agent.log",
@@ -521,8 +574,113 @@ class PriorAgentOutputIsolationTest(unittest.TestCase):
             'mv "$ROOT/$name" "$ARCHIVE/root-output/"',
             command,
         )
-        self.assertIn('mv "$PROJ"/* "$ARCHIVE/sessions/"', command)
         self.assertIn("-mtime +7", command)
+
+    def test_session_archive_handles_empty_hidden_and_mixed_entries(self):
+        for case in ("missing", "empty", "hidden", "mixed"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / "agent"
+                root.mkdir()
+                sessions = root / "sessions"
+                archive = Path(tmp) / "archive"
+                entries = {}
+                if case != "missing":
+                    sessions.mkdir()
+                if case in ("hidden", "mixed"):
+                    entries[".session marker"] = "hidden marker"
+                    entries[".state/nested.jsonl"] = "hidden session"
+                    (sessions / ".dangling").symlink_to("missing-target")
+                if case == "mixed":
+                    entries["-session\nwith space.jsonl"] = "visible session"
+                    entries["2026/10/07/rollout.jsonl"] = "nested session"
+                    entries["skills/retired-skill/SKILL.md"] = "stale routing instructions"
+                for name, content in entries.items():
+                    path = sessions / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(content)
+                command = brev_env._prior_agent_output_archive_command()
+                command = command.replace("/logs/agent", str(root)).replace(
+                    "$HOME/.claude-archive", str(archive)
+                )
+                subprocess.run(["sh", "-c", command], check=True, capture_output=True)
+                if sessions.exists():
+                    self.assertEqual(list(sessions.iterdir()), [])
+                if entries:
+                    saved = list(archive.glob("*/sessions"))
+                    self.assertEqual(len(saved), 1)
+                    for name, content in entries.items():
+                        self.assertEqual((saved[0] / name).read_text(), content)
+                    self.assertTrue((saved[0] / ".dangling").is_symlink())
+                    self.assertEqual(os.readlink(saved[0] / ".dangling"), "missing-target")
+                else:
+                    self.assertFalse(archive.exists())
+                # A second trial with no new session files must be harmless.
+                subprocess.run(["sh", "-c", command], check=True, capture_output=True)
+
+    def test_session_archive_still_fails_on_real_move_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "agent"
+            sessions = root / "sessions"
+            sessions.mkdir(parents=True)
+            marker = sessions / ".session"
+            marker.write_text("prior evidence")
+            shim = Path(tmp) / "bin"
+            shim.mkdir()
+            (shim / "mv").write_text("#!/bin/sh\necho 'archive move refused' >&2\nexit 5\n")
+            (shim / "mv").chmod(0o755)
+            command = brev_env._prior_agent_output_archive_command()
+            command = command.replace("/logs/agent", str(root)).replace(
+                "$HOME/.claude-archive", str(Path(tmp) / "archive")
+            )
+            env = dict(os.environ, PATH=f"{shim}:{os.environ['PATH']}")
+            result = subprocess.run(["sh", "-c", command], env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("archive move refused", result.stderr)
+            self.assertEqual(marker.read_text(), "prior evidence")
+
+    def test_mixed_harness_outputs_are_archived_before_failed_next_trial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "agent"
+            root.mkdir()
+            outputs = {
+                "codex.txt": "previous coding setup",
+                "openclaw.txt": "previous operational envelope",
+                "openclaw.session.jsonl": "previous operational session",
+                "trajectory.json": "previous trajectory",
+                "agent.log": "previous failure",
+            }
+            for name, content in outputs.items():
+                (root / name).write_text(content)
+            command = brev_env._prior_agent_output_archive_command()
+            command = command.replace("/logs/agent", str(root)).replace(
+                "$HOME/.claude-archive", str(Path(tmp) / "archive")
+            )
+            subprocess.run(["bash", "-c", command], check=True, capture_output=True)
+            self.assertEqual(list(root.iterdir()), [])
+            for name, content in outputs.items():
+                copies = list((Path(tmp) / "archive").glob(f"*/root-output/{name}"))
+                self.assertEqual(len(copies), 1)
+                self.assertEqual(copies[0].read_text(), content)
+
+    def test_codex_sessions_are_archived_even_when_next_launch_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "agent"
+            sessions = root / "sessions"
+            for name in ("2026/10/06/rollout-old.jsonl", "projects/project/old.jsonl"):
+                path = sessions / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("previous successful setup")
+            (root / "trajectory.json").write_text("previous trajectory")
+            command = brev_env._prior_agent_output_archive_command()
+            command = command.replace("/logs/agent", str(root)).replace(
+                "$HOME/.claude-archive", str(Path(tmp) / "archive")
+            )
+            subprocess.run(["bash", "-c", command], check=True, capture_output=True)
+            # A failed next launch produces no sessions: neither mapper can
+            # discover the previous trial's deployment or token counts.
+            self.assertEqual(list(sessions.rglob("*.jsonl")), [])
+            self.assertFalse((root / "trajectory.json").exists())
+            self.assertEqual(len(list((Path(tmp) / "archive").rglob("*.jsonl"))), 2)
 
     def test_transfer_wall_budget_includes_active_and_reap_windows(self):
         self.assertEqual(brev_env.BREV_TRANSFER_ACTIVE_TIMEOUT_SEC, 600)

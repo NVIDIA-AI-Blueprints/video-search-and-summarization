@@ -37,6 +37,105 @@ import leg_timing  # noqa: E402 - must follow the sys.path insert above
 import model_config  # noqa: E402 - must follow the sys.path insert above
 
 
+class SparkReachability(unittest.TestCase):
+    def node(self, status):
+        import local_nim
+        return {"id": local_nim.SPARK_NODE_ID,
+                "name": local_nim.SPARK_NODE_NAME, "status": status}
+
+    def test_connected_worker_needs_no_fallback(self):
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Connected")]), \
+             mock.patch.object(run_leg.subprocess, "run") as probe:
+            self.assertEqual(run_leg.spark_instance(), "Spark-ba-WiFi")
+        probe.assert_not_called()
+
+    def test_disconnected_worker_with_working_ssh_is_selected(self):
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Disconnected")]), \
+             mock.patch.object(run_leg.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as probe:
+            self.assertEqual(run_leg.spark_instance(), "Spark-ba-WiFi")
+        self.assertEqual(probe.call_args.args[0][-2:], ["spark-ba-wifi", "true"])
+        self.assertEqual(probe.call_args.kwargs["timeout"], 20)
+
+    def test_failed_ssh_probe_blocks_selection(self):
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Disconnected")]), \
+             mock.patch.object(run_leg.subprocess, "run", return_value=subprocess.CompletedProcess([], 255)):
+            with self.assertRaisesRegex(ValueError, "SSH probe failed"):
+                run_leg.spark_instance()
+
+    def test_timed_out_probe_blocks_selection(self):
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Disconnected")]), \
+             mock.patch.object(run_leg.subprocess, "run", side_effect=subprocess.TimeoutExpired("ssh", 20)):
+            with self.assertRaisesRegex(ValueError, "TimeoutExpired"):
+                run_leg.spark_instance()
+
+    def test_wrong_node_identity_never_uses_ssh_fallback(self):
+        node = self.node("Disconnected")
+        node["id"] = "different-node"
+        with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[node]), \
+             mock.patch.object(run_leg.subprocess, "run") as probe:
+            with self.assertRaisesRegex(ValueError, "different Brev node ID"):
+                run_leg.spark_instance()
+        probe.assert_not_called()
+
+
+class SparkSelection(unittest.TestCase):
+    def test_unselected_spark_job_stops_before_worker_lock_or_trial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset = Path(tmp) / "dataset" / "spark" / "step-1"
+            dataset.mkdir(parents=True)
+            (dataset / "task.toml").write_text('step_count = 1\n[metadata]\ngpu_type = "GB10"\n')
+            with mock.patch.dict(os.environ, RunInvocations.ENV, clear=True), \
+                 mock.patch.object(run_leg, "SKILL_EVAL_PYTHON_VERSION", sys.version_info[:2]), \
+                 mock.patch.object(leg_timing, "start_heartbeat", return_value=(mock.Mock(), mock.Mock())), \
+                 mock.patch.object(run_leg, "hold_pool_lock") as lock, \
+                 mock.patch.object(run_leg, "run_invocations") as trial, \
+                 mock.patch.object(run_leg, "spark_instance") as spark:
+                rc = run_leg.main([
+                    "--dataset-root", str(Path(tmp) / "dataset"),
+                    "--results-root", str(Path(tmp) / "results"),
+                    "--scratch", str(Path(tmp) / "scratch"),
+                    "--spec-stem", "spec", "--platform", "DGX-SPARK",
+                ])
+        self.assertEqual(rc, 1)
+        lock.assert_not_called()
+        trial.assert_not_called()
+        spark.assert_not_called()
+
+    def test_platform_support_cannot_select_spark(self):
+        for env in ({}, {"SKILLS_EVAL_SPARK_RUNNER": "false"}):
+            with self.subTest(env=env), mock.patch.dict(os.environ, env, clear=True), \
+                 mock.patch.object(run_leg, "spark_instance") as spark:
+                with self.assertRaisesRegex(ValueError, "select the Spark checkbox"):
+                    run_leg.selected_instance(None, {}, "DGX-SPARK")
+                spark.assert_not_called()
+
+    def test_instance_or_hardware_hints_cannot_bypass_selection(self):
+        cases = [("Spark-ba-WiFi", {}, "L40S"),
+                 (None, {"brev_instance": "spark-ba-wifi"}, "L40S"),
+                 (None, {"gpu_type": "GB10"}, "")]
+        with mock.patch.dict(os.environ, {}, clear=True):
+            for instance, metadata, platform in cases:
+                with self.subTest(instance=instance, metadata=metadata), \
+                     self.assertRaisesRegex(ValueError, "select the Spark checkbox"):
+                    run_leg.selected_instance(instance, metadata, platform)
+
+    def test_explicit_selection_resolves_registered_spark(self):
+        with mock.patch.dict(os.environ, {"SKILLS_EVAL_SPARK_RUNNER": "true"}, clear=True), \
+             mock.patch.object(run_leg, "spark_instance", return_value="Spark-renamed") as spark:
+            self.assertEqual(run_leg.selected_instance(None, {}, "DGX-SPARK"), "Spark-renamed")
+            with self.assertRaisesRegex(ValueError, "conflicts"):
+                run_leg.selected_instance("vss-eval-l40s", {}, "DGX-SPARK")
+        self.assertEqual(spark.call_count, 2)
+
+    def test_unselected_normal_worker_precedence_is_preserved(self):
+        with mock.patch.dict(os.environ, {}, clear=True), \
+             mock.patch.object(run_leg, "spark_instance") as spark:
+            self.assertIsNone(run_leg.selected_instance(None, {}, "L40S"))
+            self.assertEqual(run_leg.selected_instance(None, {"brev_instance": "vss-eval-l40s"}, "L40S"), "vss-eval-l40s")
+            self.assertEqual(run_leg.selected_instance("vss-eval-h100", {"brev_instance": "vss-eval-l40s"}, "H100"), "vss-eval-h100")
+        spark.assert_not_called()
+
+
 class DiscoverInvocations(unittest.TestCase):
     def test_discover_single_step_invocation(self):
         with tempfile.TemporaryDirectory() as td:
@@ -124,7 +223,9 @@ class HarborCommand(unittest.TestCase):
         )
         self.assertIn("--include-task-name", cmd)
         self.assertEqual(cmd[cmd.index("--include-task-name") + 1], "rtxpro6000bw")
-        self.assertEqual(cmd[cmd.index("-a") + 1], "claude-code")
+        self.assertEqual(
+            cmd[cmd.index("-a") + 1], "agents.nv_claude_code:NvClaudeCode"
+        )
         self.assertEqual(cmd[cmd.index("--model") + 1], "aws/anthropic/bedrock-claude-opus-4-6")
         self.assertEqual(
             cmd[cmd.index("--ak") + 1],
@@ -149,6 +250,29 @@ class HarborCommand(unittest.TestCase):
         self.assertEqual(
             cmd[cmd.index("--verifier-timeout-multiplier") + 1],
             str(run_leg.HARBOR_VERIFIER_TIMEOUT_MULTIPLIER),
+        )
+
+    def test_local_nim_gets_cold_start_budget(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base"),
+            include_task_name="rtxpro6000bw",
+            chain_key="base_rtxpro6000bw",
+        )
+        cmd = run_leg.build_harbor_command(
+            invocation, Path("/tmp/results"), "meta/test", "http://localhost:18400/v1",
+            local_nim=True,
+        )
+        self.assertEqual(
+            cmd[cmd.index("--environment-build-timeout-multiplier") + 1],
+            str(run_leg.LOCAL_NIM_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER),
+        )
+        self.assertLess(
+            600 * run_leg.LOCAL_NIM_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
+            + run_leg.HARBOR_AGENT_SETUP_BUDGET_SEC
+            + run_leg.HARBOR_AGENT_BUDGET_SEC
+            + run_leg.HARBOR_VERIFIER_BUDGET_SEC
+            + run_leg.HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC,
+            run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
         )
 
     def test_build_command_codex_agent(self):
@@ -245,12 +369,20 @@ class PhaseBudgets(unittest.TestCase):
             + run_leg.HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC,
         )
         self.assertEqual(run_leg.MIN_HARBOR_BACKSTOP_SEC, 11880)
-        self.assertEqual(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC, 13800)
+        self.assertEqual(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC, 17400)
+        self.assertGreater(
+            run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+            600 * run_leg.LOCAL_NIM_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
+            + run_leg.HARBOR_AGENT_SETUP_BUDGET_SEC
+            + run_leg.HARBOR_AGENT_BUDGET_SEC
+            + run_leg.HARBOR_VERIFIER_BUDGET_SEC
+            + run_leg.HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC,
+        )
         self.assertEqual(run_leg.HARBOR_SIGINT_GRACE_SEC, 1380)
         self.assertEqual(run_leg.HARBOR_SHUTDOWN_GRACE_SEC, 1420)
         self.assertEqual(
             run_leg.invocation_reserve_sec(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC),
-            15280,
+            18880,
         )
         self.assertGreater(
             run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
@@ -754,6 +886,11 @@ time.sleep(30)
 
 
 class RunInvocations(unittest.TestCase):
+    def setUp(self):
+        allocator = mock.patch.object(run_leg, "allocate_gateway_ports", side_effect=lambda instance, owner, preferred, env, **kwargs: preferred)
+        self.allocator = allocator.start()
+        self.addCleanup(allocator.stop)
+
     ENV = {
         "ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-opus-4-6",
         "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
@@ -762,6 +899,40 @@ class RunInvocations(unittest.TestCase):
 
     def config(self, env=None):
         return run_leg.resolve_model_routes(env or self.ENV)
+
+    def test_local_proxy_uses_placeholder_and_preserves_hosted_route(self):
+        env = {
+            **self.ENV,
+            "NGC_API_KEY": "registry-secret",
+            "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
+            "SKILLS_EVAL_OPERATIONAL_DEPLOYMENT": "local-nim",
+            "SKILLS_EVAL_OPERATIONAL_MODEL": "nvidia/nemotron-3.5-lightning-30b-a3b",
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.object(run_leg, "_run_invocations", return_value=0) as execute,
+                mock.patch.object(run_leg, "cleanup_local_nims") as cleanup,
+            ):
+                rc = run_leg.run_invocations(
+                    [], "Spark-ba-WiFi", root / "results", root / "scratch",
+                    "base", "DGX-SPARK", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                    self.config(env),
+                )
+            routes = execute.call_args.args[7]
+            self.assertEqual(routes.coding.api_key, "test-secret")
+            self.assertEqual(routes.operational.api_key, "local-nim")
+            plan = execute.call_args.kwargs["nim_plan"]
+            self.assertNotIn("token", plan)
+            self.assertEqual(plan["routes"], [{
+                "role": "operational", "runtime": "nemoclaw",
+                "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+            }])
+            cleanup.assert_called_once_with("Spark-ba-WiFi", plan["owner"])
+            evidence = (root / "results" / "model-deployments.json").read_text()
+            self.assertNotIn("test-secret", evidence)
+            self.assertNotIn("registry-secret", evidence)
+        self.assertEqual(rc, 0)
 
     def test_timeout_stops_all_single_step_invocations(self):
         invocations = [
@@ -820,7 +991,7 @@ class RunInvocations(unittest.TestCase):
                 )
 
         self.assertEqual(rc, 0)
-        self.assertEqual(command.call_args.args[4], "claude-code")
+        self.assertEqual(command.call_args.args[4], "codex")
         run.assert_called_once()
 
     def test_daily_codex_selection_routes_non_operational_task_to_codex(self):
@@ -876,6 +1047,7 @@ class RunInvocations(unittest.TestCase):
         )
         env = {
             **self.ENV,
+            "SKILLS_EVAL_CODING_HARNESS": "claude-code",
             "EVAL_AGENT": "claude-code",
             "SKILLS_EVAL_CODING_MODEL": "selected/model",
             "SKILLS_EVAL_CODING_API_KEY": "route-secret",
@@ -936,6 +1108,8 @@ class RunInvocations(unittest.TestCase):
         )
 
     def test_operational_nemoclaw_leg_uses_first_expect_for_setup(self):
+        self.allocator.side_effect = None
+        self.allocator.return_value = [45000, 45001, 45002]
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             invocations = [
@@ -952,18 +1126,24 @@ class RunInvocations(unittest.TestCase):
                 **self.ENV,
                 "EVAL_AGENT": "nemoclaw",
                 "EVAL_SKILL": "vss-manage-alerts",
-                "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/alerts.json",
+                "EVAL_SPEC_PATH": "skills/operations/vss-ask-video/evals/base_profile_video_understanding.json",
             }
+            for invocation in invocations:
+                task = invocation.harbor_root / invocation.include_task_name
+                task.mkdir(parents=True, exist_ok=True)
+                (task / "instruction.md").write_text("Spec-owned task\n")
             seen_env = []
 
             def run_command(_cmd, child_env, _timeout):
+                for invocation in invocations:
+                    instruction = invocation.harbor_root / invocation.include_task_name / "instruction.md"
+                    self.assertEqual(instruction.read_text(), "Spec-owned task\n")
                 seen_env.append(child_env.copy())
                 return 0
 
             with (
                 mock.patch.dict(run_leg.os.environ, env, clear=True),
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
-                mock.patch.object(run_leg, "prepare_nemoclaw_setup_task") as prepare,
                 mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]) as command,
                 mock.patch.object(run_leg, "run_command", side_effect=run_command) as run,
                 mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
@@ -977,9 +1157,14 @@ class RunInvocations(unittest.TestCase):
                 )
 
         self.assertEqual(rc, 0)
-        prepare.assert_called_once_with(invocations[0], "vss-manage-alerts")
-        self.assertEqual(command.call_args_list[0].args[4], "claude-code")
+        self.assertEqual(command.call_args_list[0].args[4], "codex")
         self.assertEqual(command.call_args_list[1].args[4], "nemoclaw")
+        self.assertEqual(seen_env[0]["SKILLS_EVAL_OPERATIONAL_HARNESS"], "nemoclaw")
+        self.allocator.assert_called_once()
+        self.assertEqual(self.allocator.call_args.args[0], "vss-eval-box")
+        self.assertEqual(json.loads(seen_env[0]["SKILL_EVAL_NEMOCLAW_FIXTURES"]), ["warehouse_safety_0001.mp4"])
+        self.assertEqual(command.call_args_list[0].args[2], "azure/openai/gpt-6.1-sol")
+        self.assertEqual(command.call_args_list[1].args[2], "aws/anthropic/bedrock-claude-opus-5-5")
         self.assertEqual(
             command.call_args_list[0].kwargs["agent_timeout_multiplier"],
             run_leg.NEMOCLAW_SETUP_AGENT_TIMEOUT_MULTIPLIER,
@@ -992,6 +1177,12 @@ class RunInvocations(unittest.TestCase):
         )
         self.assertNotEqual(seen_env[0]["NEMOCLAW_SANDBOX_NAME"], "skill-eval")
         self.assertEqual(seen_env[0]["NEMOCLAW_RECREATE_SANDBOX"], "0")
+        ports = [seen_env[0][key] for key in ("NEMOCLAW_GATEWAY_PORT", "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_DASHBOARD_RELAY_PORT")]
+        self.assertEqual(ports, ["45000", "45001", "45002"])
+        self.assertEqual(len(set(ports)), 3)
+        self.assertNotEqual(ports[0], "8080")
+        for key in ("NEMOCLAW_GATEWAY_PORT", "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_DASHBOARD_RELAY_PORT", "SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER"):
+            self.assertEqual(seen_env[0][key], seen_env[1][key])
         self.assertEqual(
             seen_env[0]["BREV_EXEC_TIMEOUT"],
             str(run_leg.NEMOCLAW_SETUP_BREV_EXEC_TIMEOUT_SEC),
@@ -1039,9 +1230,6 @@ class RunInvocations(unittest.TestCase):
                 mock.patch.dict(run_leg.os.environ, env, clear=True),
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
                 mock.patch.object(
-                    run_leg, "prepare_nemoclaw_setup_task"
-                ) as prepare,
-                mock.patch.object(
                     run_leg, "build_harbor_command", return_value=["harbor"]
                 ) as command,
                 mock.patch.object(
@@ -1066,19 +1254,12 @@ class RunInvocations(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         self.assertEqual(
-            prepare.call_args_list,
-            [
-                mock.call(invocations[0], "vss-manage-alerts"),
-                mock.call(invocations[2], "vss-manage-alerts"),
-            ],
-        )
-        self.assertEqual(
             [call.args[2] for call in command.call_args_list],
             ["coding/model", "operational/model", "coding/model", "operational/model"],
         )
         self.assertEqual(
             [call.args[4] for call in command.call_args_list],
-            ["claude-code", "nemoclaw", "claude-code", "nemoclaw"],
+            ["codex", "nemoclaw", "codex", "nemoclaw"],
         )
         self.assertEqual(
             [item.get("SKILL_EVAL_PRESERVE_DEPLOYMENT") for item in seen_env],
@@ -1108,6 +1289,7 @@ class RunInvocations(unittest.TestCase):
             ]
             env = {
                 **self.ENV,
+                "SKILLS_EVAL_OPERATIONAL_HARNESS": "claude-code",
                 "EVAL_SPEC_PATH": (
                     "skills/operations/vss-manage-alerts/evals/alerts.json"
                 ),
@@ -1196,7 +1378,6 @@ class RunInvocations(unittest.TestCase):
                         "COMPATIBLE_API_KEY": "stale-compatible-key",
                     },
                 ),
-                mock.patch.object(run_leg, "prepare_nemoclaw_setup_task"),
                 mock.patch.object(
                     run_leg, "build_harbor_command", return_value=["harbor"]
                 ),
@@ -1219,6 +1400,7 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(seen_env[0]["NEMOCLAW_PROVIDER"], "custom")
         self.assertEqual(seen_env[0]["COMPATIBLE_API_KEY"], "route-specific-key")
+        self.assertNotIn("SKILL_EVAL_LOCAL_NIM_API_KEY", seen_env[0])
         self.assertEqual(seen_env[0]["NVIDIA_API_KEY"], "runner-global-key")
 
     def test_operational_claude_uses_independent_models(self):
@@ -1236,6 +1418,8 @@ class RunInvocations(unittest.TestCase):
             ]
             env = {
                 **self.ENV,
+                "SKILLS_EVAL_CODING_HARNESS": "claude-code",
+                "SKILLS_EVAL_OPERATIONAL_HARNESS": "claude-code",
                 "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/alerts.json",
                 "SKILLS_EVAL_CODING_MODEL": "coding/model",
                 "SKILLS_EVAL_OPERATIONAL_MODEL": "operational/model",
@@ -1307,7 +1491,6 @@ class RunInvocations(unittest.TestCase):
             with (
                 mock.patch.dict(run_leg.os.environ, env, clear=True),
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
-                mock.patch.object(run_leg, "prepare_nemoclaw_setup_task"),
                 mock.patch.object(
                     run_leg, "build_harbor_command", return_value=["harbor"]
                 ) as command,
@@ -1369,7 +1552,6 @@ class RunInvocations(unittest.TestCase):
             with (
                 mock.patch.dict(run_leg.os.environ, env, clear=True),
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
-                mock.patch.object(run_leg, "prepare_nemoclaw_setup_task"),
                 mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]),
                 mock.patch.object(run_leg, "run_command", return_value=0) as run,
                 mock.patch.object(run_leg, "latest_reward", return_value="0.5"),
@@ -1387,38 +1569,74 @@ class RunInvocations(unittest.TestCase):
             cleanup.assert_called_once()
             self.assertTrue((root / "scratch" / "skipped-alerts-L40S-step-2.txt").is_file())
 
-    def test_prepare_nemoclaw_setup_task_preserves_query_and_adds_build_vision(self):
+    def test_trial_timeout_with_passing_reward_stops_setup_and_operational_chains(self):
+        for coding_setup, failed_step in ((True, 1), (False, 2)):
+            with self.subTest(coding_setup=coding_setup), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                invocations = [
+                    run_leg.HarborInvocation(
+                        harbor_root=root / "dataset",
+                        include_task_name=f"step-{index}",
+                        chain_key="alerts",
+                        step_index=index,
+                        step_count=failed_step + 1,
+                    )
+                    for index in (failed_step, failed_step + 1)
+                ]
+                env = dict(self.ENV)
+                if coding_setup:
+                    env.update({
+                        "EVAL_AGENT": "nemoclaw",
+                        "EVAL_SKILL": "vss-manage-alerts",
+                        "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/alerts.json",
+                    })
+                child_envs = []
+
+                def timed_out_trial(_cmd, child_env, _timeout):
+                    child_envs.append(child_env.copy())
+                    result = root / "results" / "job" / f"step-{failed_step}__trial" / "result.json"
+                    result.parent.mkdir(parents=True)
+                    result.write_text(json.dumps({
+                        "exception_info": {"exception_type": "AgentTimeoutError"},
+                        "verifier_result": {"rewards": {"reward": 1.0}},
+                    }))
+                    # Harbor reports a completed job even though its agent timed out.
+                    return 0
+
+                with (
+                    mock.patch.dict(run_leg.os.environ, env, clear=True),
+                    mock.patch.object(run_leg, "harbor_env", return_value={}),
+                    mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]),
+                    mock.patch.object(run_leg, "run_command", side_effect=timed_out_trial) as run,
+                    mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
+                    mock.patch.object(run_leg, "publish_trace", return_value=None),
+                    mock.patch.object(run_leg, "cleanup_deferred_agent_run") as cleanup,
+                ):
+                    rc = run_leg.run_invocations(
+                        invocations, "vss-eval-box", root / "results", root / "scratch",
+                        "alerts", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                        self.config(env),
+                    )
+
+                self.assertEqual(rc, 1)
+                self.assertEqual(run.call_count, 1)
+                self.assertNotEqual(child_envs[0].get("SKILL_EVAL_PRESERVE_DEPLOYMENT"), "1")
+                marker = root / "scratch" / f"skipped-alerts-L40S-step-{failed_step + 1}.txt"
+                self.assertTrue(marker.is_file())
+                self.assertIn("reward=1.0", marker.read_text())
+                if coding_setup:
+                    cleanup.assert_called_once()
+
+    def test_trial_exception_ignores_old_results_and_other_steps(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            task = root / "dataset" / "step-1"
-            task.mkdir(parents=True)
-            (task / "instruction.md").write_text("Deploy the requested system.\n")
-            build_skill = root / "repo" / "skills" / "vss-build-vision-ai"
-            build_skill.mkdir(parents=True)
-            (build_skill / "SKILL.md").write_text("# Build Vision AI\n")
-            invocation = run_leg.HarborInvocation(
-                harbor_root=task.parent,
-                include_task_name="step-1",
-                chain_key="spec",
-            )
-
-            with mock.patch.object(run_leg, "REPO_ROOT", root / "repo"):
-                run_leg.prepare_nemoclaw_setup_task(invocation, "vss-ask-video")
-
-            instruction = (task / "instruction.md").read_text()
-            self.assertTrue(instruction.startswith("Deploy the requested system.\n"))
-            self.assertIn(
-                "The evaluation query above is the complete deployment/setup intent",
-                instruction,
-            )
-            self.assertIn("/vss-build-vision-ai", instruction)
-            self.assertIn("/vss-ask-video", instruction)
-            self.assertIn(
-                'openshell sandbox get "$NEMOCLAW_SANDBOX_NAME"',
-                instruction,
-            )
-            self.assertNotIn("HARBOR_SKILL_EVAL_AGENT_RUN", instruction)
-            self.assertTrue((task / "skills" / "vss-build-vision-ai" / "SKILL.md").is_file())
+            for trial in ("step-1__old", "step-2__other"):
+                result = root / "job" / trial / "result.json"
+                result.parent.mkdir(parents=True)
+                result.write_text(json.dumps({"exception_info": {"exception_type": "AgentTimeoutError"}}))
+                if trial.endswith("old"):
+                    os.utime(result, (10, 10))
+            self.assertIsNone(run_leg.latest_trial_exception(root, "step-1", 20))
 
     def test_passing_step_lets_the_chain_continue(self):
         """reward 1.0 and rc 0 must run step 2 and write no skip markers.
@@ -2463,6 +2681,29 @@ class NemoClawSandboxName(unittest.TestCase):
         )
         self.assertTrue(first.startswith("se-027479-"))
         self.assertLessEqual(len(first), 19)
+
+
+class GatewayAllocation(unittest.TestCase):
+    def test_remote_selection_is_validated_and_returned(self):
+        owner = "a" * 64
+        selected = [24000, 24001, 24002]
+        result = subprocess.CompletedProcess([], 0, 'NEMOCLAW_GATEWAY_ALLOCATION=' + json.dumps({'owner': owner, 'ports': selected}) + '\n', '')
+        with mock.patch.object(run_leg.subprocess, 'run', return_value=result) as execute:
+            self.assertEqual(run_leg.allocate_gateway_ports('vss-eval-box', owner, [23000,23001,23002], {}), selected)
+        self.assertIn('--allocate', execute.call_args.args[0][-1])
+        self.assertEqual(execute.call_args.kwargs['timeout'], 150)
+
+    def test_receipt_errors_and_explicit_port_changes_fail_closed(self):
+        owner = "a" * 64
+        for data in ({'owner': 'b' * 64, 'ports': [24000,24001,24002]}, {'owner': owner, 'ports': [8080,24001,24002]}, {'owner': owner, 'ports': [24000,24000,24002]}, {'owner': owner, 'ports': [24000,24001,24002]}):
+            result = subprocess.CompletedProcess([], 0, 'NEMOCLAW_GATEWAY_ALLOCATION=' + json.dumps(data), '')
+            with mock.patch.object(run_leg.subprocess, 'run', return_value=result), self.assertRaises(RuntimeError):
+                run_leg.allocate_gateway_ports('vss-eval-box', owner, [23000,23001,23002], {}, exact=True)
+
+    def test_transport_failure_is_not_a_port_collision(self):
+        result = subprocess.CompletedProcess([], 1, '', 'connection unavailable')
+        with mock.patch.object(run_leg.subprocess, 'run', return_value=result), self.assertRaisesRegex(RuntimeError, 'allocation failed'):
+            run_leg.allocate_gateway_ports('vss-eval-box', 'a' * 64, [23000,23001,23002], {})
 
 
 if __name__ == "__main__":

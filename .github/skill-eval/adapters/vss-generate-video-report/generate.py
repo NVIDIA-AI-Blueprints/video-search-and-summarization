@@ -182,7 +182,7 @@ def generate_task(
             "",
             f"## Query {idx} of {len(expects)}",
             "",
-            expect.get("query", ""),
+            expect.get("query", "").replace("{{platform}}", platform),
             "",
             "Run autonomously without prompting for confirmation.",
             "",
