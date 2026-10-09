@@ -29,6 +29,7 @@ global:
   # VIOS-only SDRC mode. true -> the VIOS pods get SDRC enabled.
   vios:
     useSdrc: true
+    maxDevicesSupported: 100
     # Compose equivalent: developer-profiles/dev-profile-search/vios/configs/notification_config.json.
     # The Search chart loads that file (Helm placeholders) into one ConfigMap
     # per VIOS service. Separate rendering preserves each service's broker and

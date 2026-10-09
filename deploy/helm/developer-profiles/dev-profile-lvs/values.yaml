@@ -51,6 +51,7 @@ global:
   # Enable SDRC mode for the VIOS pods.
   vios:
     useSdrc: true
+    maxDevicesSupported: 100
     # Register direct VST camera additions with RT-VLM before caption generation.
     # Both the sensor and streamprocessing charts consume this shared config.
     notificationConfig: |-
