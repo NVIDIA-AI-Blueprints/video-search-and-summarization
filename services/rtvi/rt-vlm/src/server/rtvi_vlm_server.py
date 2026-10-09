@@ -30,6 +30,7 @@ import re
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import aclosing
 from datetime import datetime, timezone
 from typing import Annotated, List, Optional, Union
 from uuid import UUID, uuid4
@@ -1066,6 +1067,7 @@ class RTVIServer:
         return asset_id, file_path
 
     async def _cleanup_temporary_chat_assets(self, temp_asset_ids: list[str]) -> None:
+        """Reclaim request-owned media from chat completions and URL caption queries."""
         if not temp_asset_ids:
             return
 
@@ -1078,7 +1080,9 @@ class RTVIServer:
 
             try:
                 asset = self._asset_manager.get_asset(temp_asset_id)
-                await _await_file_release(asset, temp_asset_id)
+                # Cleanup runs in a shielded task; keep ownership until inference releases the file.
+                while asset.use_count > 0:
+                    await asyncio.sleep(0.1)
             except ServiceException as e:
                 logger.warning(
                     "Failed to inspect temporary chat asset %s before cleanup: %s",
@@ -1314,6 +1318,7 @@ class RTVIServer:
         video_id_list: List[str],
         log_prefix: str = "VLM",
         is_chat_completion: bool = False,
+        temp_asset_ids: Optional[List[str]] = None,
     ) -> tuple[str, Asset, List[Asset]]:
         """
         Common helper method to process VLM requests (validate, get assets, generate request ID).
@@ -1356,6 +1361,7 @@ class RTVIServer:
                         creation_time=creation_time_val,
                         file_id=asset_id,
                         url_headers=vlm_query.url_headers,
+                        on_asset_created=(temp_asset_ids.append if temp_asset_ids is not None else None),
                     )
                 elif re.match(r"^s3://", url):
                     video_id_from_url = await self._asset_manager.download_file_from_s3(
@@ -1365,6 +1371,7 @@ class RTVIServer:
                         media_type=media_type,
                         creation_time=creation_time_val,
                         file_id=asset_id,
+                        on_asset_created=(temp_asset_ids.append if temp_asset_ids is not None else None),
                     )
                 elif url.startswith("file://"):
                     local_path = self._resolve_file_url(url)
@@ -1376,6 +1383,8 @@ class RTVIServer:
                         creation_time=creation_time_val,
                         file_id=asset_id,
                     )
+                    if temp_asset_ids is not None:
+                        temp_asset_ids.append(video_id_from_url)
                 else:
                     raise ServiceException(
                         f"Unsupported URL scheme: {url}",
@@ -2804,14 +2813,20 @@ class RTVIServer:
 
             # Use common helper to process VLM request
             # ServiceException from _process_vlm_request will be caught by exception handler
+            temp_asset_ids = []
             try:
                 request_id, asset, assetList = await self._process_vlm_request(
-                    query, videoIdList, log_prefix="generate_captions"
+                    query, videoIdList, log_prefix="generate_captions", temp_asset_ids=temp_asset_ids
                 )
+            except asyncio.CancelledError:
+                await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
+                raise
             except ServiceException:
+                await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
                 # Re-raise ServiceException to be handled by FastAPI exception handler
                 raise
             except Exception as ex:
+                await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
                 # Wrap unexpected exceptions
                 logger.error("Unexpected error in _process_vlm_request: %s", str(ex), exc_info=True)
                 raise ServiceException(
@@ -2826,6 +2841,7 @@ class RTVIServer:
                 # Allow only one SSE reader for this request. Multiple requests
                 # may independently target the same file or live stream asset.
                 if time.time() - self._sse_active_clients.get(sse_client_key, 0) < 3:
+                    await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
                     raise ServiceException(
                         "Another client is already connected to live stream", "Conflict", 409
                     )
@@ -2990,14 +3006,23 @@ class RTVIServer:
                             pass
                     yield "[DONE]"
 
+                async def message_generator_with_cleanup():
+                    try:
+                        async with aclosing(message_generator()) as events:
+                            async for event in events:
+                                yield event
+                    finally:
+                        await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
+
                 try:
                     return EventSourceResponse(
-                        message_generator(),
+                        message_generator_with_cleanup(),
                         send_timeout=5,
                         ping=1,
                         headers={"X-Request-ID": request_id},
                     )
                 except Exception as ex:
+                    await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
                     self._stream_handler._send_error_message_to_kafka(
                         VLM_CAPTIONS_ERROR_MESSAGE % str(ex),
                         videoId,
@@ -3090,6 +3115,8 @@ class RTVIServer:
                     raise ServiceException(
                         "Failed to generate VLM captions.", "InternalServerError", 500
                     ) from ex
+                finally:
+                    await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
 
         # ======================= Summarize API
         # ======================= Stop Live Stream VLM API
@@ -3412,7 +3439,7 @@ class RTVIServer:
                         get_frame_sampling_params_from_media_io_kwargs(request_body.media_io_kwargs)
                     )
                 except (ValueError, TypeError) as e:
-                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
+                    await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
                     raise ServiceException(
                         f"Invalid media_io_kwargs.video value: {e}",
                         "InvalidParameters",
@@ -3422,7 +3449,7 @@ class RTVIServer:
                 vlm_query = _create_vlm_query(vlm_query_dict)
                 vlm_query._prompt_driven_reasoning = _prompt_requests_reasoning(request_body)
             except Exception:
-                await self._cleanup_temporary_chat_assets(temp_asset_ids)
+                await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
                 raise
 
             # Use common helper to process VLM request
@@ -3435,11 +3462,11 @@ class RTVIServer:
                     is_chat_completion=True,
                 )
             except ServiceException:
-                await self._cleanup_temporary_chat_assets(temp_asset_ids)
+                await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
                 # Re-raise ServiceException to be handled by FastAPI exception handler
                 raise
             except Exception as ex:
-                await self._cleanup_temporary_chat_assets(temp_asset_ids)
+                await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
                 # Wrap unexpected exceptions
                 logger.error("Unexpected error in _process_vlm_request: %s", str(ex), exc_info=True)
                 raise ServiceException(
@@ -3459,7 +3486,7 @@ class RTVIServer:
                 # Allow only one SSE reader for this request. Multiple requests
                 # may independently target the same file or live stream asset.
                 if time.time() - self._sse_active_clients.get(sse_client_key, 0) < 3:
-                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
+                    await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
                     raise ServiceException(
                         "Another client is already connected to live stream", "Conflict", 409
                     )
@@ -3637,10 +3664,10 @@ class RTVIServer:
                 try:
                     return EventSourceResponse(chat_message_generator(), send_timeout=5, ping=1)
                 except ServiceException:
-                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
+                    await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
                     raise
                 except Exception as ex:
-                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
+                    await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
                     self._stream_handler._send_error_message_to_kafka(
                         VLM_CAPTIONS_ERROR_MESSAGE % str(ex),
                         videoId,
@@ -3730,7 +3757,7 @@ class RTVIServer:
                         "Failed to generate chat completion.", "InternalServerError", 500
                     ) from ex
                 finally:
-                    await self._cleanup_temporary_chat_assets(temp_asset_ids)
+                    await self._cleanup_temporary_chat_assets_after_stream_close(temp_asset_ids)
 
         @self._app.post(
             f"{API_PREFIX}/completions",
