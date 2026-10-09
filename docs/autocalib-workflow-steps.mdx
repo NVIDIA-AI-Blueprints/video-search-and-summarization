@@ -844,23 +844,25 @@ At the bottom of the AMC panel, you'll see a summary:
 
 ## Step 7: Results
 
-View calibration results, draw optional ROIs/tripwires on rectified frames, evaluate accuracy, and export calibration data.
+View calibration results, draw optional ROIs/tripwires on linear (rectified) frames, evaluate accuracy, and export calibration data.
 
 ![Results Step](/assets/images/vss-autocalib-ui/results_step.jpg)
 
 ### Results Availability
 
-The **Results** step is available when at least one calibration path has completed successfully:
+**Calibration results** (overlays, evaluation metrics, camera parameters, and world-coordinate verification and export) are available when at least one calibration path has completed successfully:
 
 - **AMC completed successfully**, or
 - **VGGT completed successfully** (even if AMC was never run or failed)
 
 For multi-camera trajectory / virtual-GT overlays and evaluation metrics, run **Layout Post-processing** on Execute after calibration.
 
-**If No Results Are Available Yet**
+**If No Calibration Results Are Available Yet**
 - **Running**: "Calibration is still running — Please wait for calibration to complete."
 - **Error**: "Calibration failed — Please check your input files and try again." (if neither AMC nor VGGT has completed)
 - **Init/Ready**: "Please run calibration in the Execute step"
+
+> **Annotations do not need calibration:** The **ROI & Tripwire Drawing** editor and **Export image-mode JSON** (pixel coordinates) are available on Results as soon as the project has uploaded videos and linear media (Rectification completed, or **Videos Are Rectified** selected), even if AMC and VGGT have not run. The editor is locked while calibration is running. World-coordinate verification and export still require a completed calibration.
 
 ![Results Not Ready](/assets/images/vss-autocalib-ui/step6_if_amc_is_running.jpg)
 
@@ -943,7 +945,7 @@ The YAML file contains:
 
 ### ROI & Tripwire Drawing (Optional)
 
-ROI and tripwire editing is an **optional post-calibration** activity on Results. Draw on **rectified** camera frames or the layout map. Annotations save automatically.
+ROI and tripwire editing is an **optional** activity on Results and does not require calibration. Draw on **linear (rectified)** camera frames or the layout map. Annotations save automatically; the editor is locked while AMC or VGGT is running.
 
 #### Annotation Target
 
@@ -955,7 +957,7 @@ Choose **Camera** or **Global ROIs / tripwires** at the top left of the card bef
 
 1. Select **Camera** in the annotation target toggle
 2. Choose a stream from the **Select Camera** dropdown
-3. The first frame of the selected **rectified** video loads on the canvas
+3. The first frame of the selected **linear (rectified)** video loads on the canvas
 4. Switch between cameras to draw ROIs, tripwire lines, and tripwire directions on each one
 
 ![Camera Selection](/assets/images/vss-autocalib-ui/cam_selection.jpg)
@@ -1034,9 +1036,11 @@ Tripwire directions are used for unidirectional counting with an arrow indicator
 3. Click again to set the end point (direction of arrow)
 4. The tripwire direction is automatically saved with a yellow color and arrow
 
+> **Point order matters:** Draw the arrow across the tripwire line from **inside to outside**. The first point (first click) is inside; the second point (second click) is outside.
+
 **Tripwire Direction Features**
 - **Color**: Yellow (#ffff00)
-- **Arrow**: Shows direction from start to end
+- **Arrow**: Shows direction from start to end; the start (first click) is inside and the end (second click) is outside
 - **Points**: Exactly 2 (start and end)
 - **Auto-save**: Saved immediately upon completion
 - **Use Case**: Unidirectional counting (e.g., entry/exit)
@@ -1083,7 +1087,7 @@ Use this when you need ROIs and tripwires in **pixel coordinates** without world
 
 - ROIs and tripwires from all cameras plus any **global** layout annotations, in **pixel space**
 - `calibrationType` is **image** (same JSON shape as cartesian export)
-- Drawn on **rectified** frames / layout map on the Results step
+- Drawn on **linear (rectified)** frames / layout map on the Results step
 
 
 ### ROI & Tripwire Verification
