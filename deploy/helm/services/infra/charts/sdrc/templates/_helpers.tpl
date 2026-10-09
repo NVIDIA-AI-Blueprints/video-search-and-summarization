@@ -67,7 +67,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{- define "sdrc.configMapName" -}}
-{{- required "config.configMapName is required" .Values.config.configMapName -}}
+{{- $name := required "config.configMapName is required" .Values.config.configMapName -}}
+{{- $global := .Values.global | default dict -}}
+{{- $usePrefix := false -}}
+{{- if and (hasKey .Values "useReleaseNamePrefix") (kindIs "bool" .Values.useReleaseNamePrefix) -}}
+{{- $usePrefix = .Values.useReleaseNamePrefix -}}
+{{- else if and (hasKey $global "useReleaseNamePrefix") (kindIs "bool" (index $global "useReleaseNamePrefix")) -}}
+{{- $usePrefix = index $global "useReleaseNamePrefix" -}}
+{{- end -}}
+{{- if $usePrefix -}}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- $name -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "sdrc.configKey" -}}
@@ -144,8 +156,13 @@ nodePort: {{ .nodePort | int }}
 
 {{- define "sdrc.runtimeEnv" -}}
 {{- $env := .Values.runtimeEnv | default dict -}}
+{{- $redis := required "runtimeEnv.WDM_WL_REDIS_SERVER is required" (get $env "WDM_WL_REDIS_SERVER") -}}
+{{- /* The default names this release's Redis, a sibling subchart, so it takes the global prefix Redis's own name takes (not sdrc's override); any other host is used as given. */}}
+{{- if and (eq $redis "redis") (default false (index (.Values.global | default dict) "useReleaseNamePrefix")) -}}
+{{- $redis = printf "%s-redis" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
 - name: WDM_WL_REDIS_SERVER
-  value: {{ required "runtimeEnv.WDM_WL_REDIS_SERVER is required" (get $env "WDM_WL_REDIS_SERVER") | quote }}
+  value: {{ $redis | quote }}
 - name: WDM_WL_REDIS_PORT
   value: {{ required "runtimeEnv.WDM_WL_REDIS_PORT is required" (get $env "WDM_WL_REDIS_PORT") | quote }}
 - name: OTEL_SDK_DISABLED

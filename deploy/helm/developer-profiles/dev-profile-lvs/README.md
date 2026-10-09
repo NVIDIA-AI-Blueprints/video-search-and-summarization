@@ -152,7 +152,7 @@ Remote VLM + RTVI: RTVI-VLM also supports remote VLM endpoints when `global.vlmB
 
 ### Chart / tooling
 
-- **Helm** 3.x
+- **Helm** 3.7+
 - **Kubectl**
 - **GPUs**: see [GPU requirements](#gpu-requirements) (3 with defaults).
 - **NVIDIA NIM** (if using NIM subcharts): NIM Operator on the cluster (see [Prerequisites](#prerequisites) above).
