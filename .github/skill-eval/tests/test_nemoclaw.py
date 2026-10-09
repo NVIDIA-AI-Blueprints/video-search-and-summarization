@@ -515,3 +515,17 @@ def test_operational_prompt_rejects_missing_skill_install(runner, monkeypatch):
                         subprocess.CompletedProcess([], 1, "", "missing directory"))
     with pytest.raises(RuntimeError, match="No installed VSS skill"):
         runner._operational_prompt("se-test", "Operate")
+
+
+def test_yielded_parent_is_not_reported_as_completed(runner, monkeypatch):
+    session_path = "/sandbox/.openclaw/agents/main/sessions/test.jsonl"
+    monkeypatch.setattr(runner, "_nemoclaw_exec", lambda *args, **kwargs:
+        subprocess.CompletedProcess([], 0, json.dumps({"meta": {"agentMeta": {"sessionFile": session_path}}}), ""))
+    session = json.dumps({"message": {
+        "role": "assistant", "content": [{"type": "toolCall", "name": "sessions_yield", "arguments": {}}],
+        "usage": {"input": 5, "output": 2},
+    }})
+    monkeypatch.setattr(runner, "_sandbox_exec", lambda *args, **kwargs:
+                        subprocess.CompletedProcess([], 0, session, ""))
+    with pytest.raises(RuntimeError, match="detached work"):
+        runner._run_openclaw("se-test", "Operate", 60)

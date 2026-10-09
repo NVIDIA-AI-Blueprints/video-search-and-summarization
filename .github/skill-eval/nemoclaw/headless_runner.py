@@ -447,6 +447,23 @@ def _run_openclaw(
     if session.returncode != 0:
         raise RuntimeError("OpenClaw session could not be collected")
     normalized, totals = _normalize_session(session.stdout)
+    # A yielded parent is not a completed operational task. Harbor collects
+    # only this session, so never present detached work as a successful run.
+    last_assistant = {}
+    for line in normalized.splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        message = record.get("message") if isinstance(record, dict) else None
+        if isinstance(message, dict) and message.get("role") == "assistant":
+            last_assistant = message
+    content = last_assistant.get("content")
+    if isinstance(content, list) and any(
+        isinstance(part, dict) and part.get("type") == "toolCall"
+        and part.get("name") == "sessions_yield" for part in content
+    ):
+        raise RuntimeError("OpenClaw yielded to detached work instead of completing the foreground task")
     _set_native_usage(envelope, totals)
     return envelope, normalized
 
