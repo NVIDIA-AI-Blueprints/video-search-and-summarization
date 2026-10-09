@@ -2151,6 +2151,7 @@ class TestAlwaysOnConfigErrors:
         """The YAML config rejects bad streaming options at load, like the REST request."""
         always_on_service.reset()
         rule = _sample_rule()
+        rule["always_on_params"]["inference_mode"] = "streaming_vlm"
         rule["always_on_params"][field] = value
         bad = tmp_path / "bad-streaming.yaml"
         bad.write_text(yaml.safe_dump({"always_on_rules": [rule]}))
