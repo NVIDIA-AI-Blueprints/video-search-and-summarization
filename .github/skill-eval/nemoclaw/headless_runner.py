@@ -388,6 +388,34 @@ def _set_native_usage(envelope: dict[str, Any], totals: dict[str, int]) -> None:
             usage[key] = totals[key]
 
 
+def _operational_prompt(sandbox: str, prompt: str) -> str:
+    """Supply installed skill locations without assuming the host CLI layout."""
+    result = _sandbox_exec(
+        sandbox,
+        "find /sandbox/.openclaw/extensions/vss/skills "
+        "/sandbox/.openclaw/workspace/skills -name SKILL.md -type f 2>/dev/null",
+        timeout=30,
+    )
+    paths = sorted({
+        path for path in result.stdout.splitlines()
+        if re.fullmatch(
+            r"/sandbox/\.openclaw/(?:extensions/vss/skills|workspace/skills)/"
+            r"[A-Za-z0-9_./-]+/SKILL\.md", path
+        ) and "/../" not in path
+    })
+    if not paths:
+        raise RuntimeError("No installed VSS skill files found in the sandbox")
+    return (
+        "Headless execution: complete this request in the current foreground "
+        "session. Do not spawn subagents or use sessions_spawn/sessions_yield: "
+        "this runner collects only this session. Read the relevant SKILL.md "
+        "from the installed paths below, including its references. These are "
+        "sandbox paths; do not search the host NemoClaw installation.\n\n"
+        "Installed VSS skills:\n" + "\n".join(paths) +
+        "\n\nUser request:\n" + prompt
+    )
+
+
 def _run_openclaw(
     sandbox: str,
     prompt: str,
@@ -453,7 +481,9 @@ def main(argv: list[str] | None = None) -> int:
         _check_readiness(sandbox, agent_log_dir / "readiness.json")
         # Onboarding owns the provider binding. The job's local proxy needs
         # no credential refresh; the native agent turn verifies inference.
-        envelope, session = _run_openclaw(sandbox, prompt, args.timeout)
+        envelope, session = _run_openclaw(
+            sandbox, _operational_prompt(sandbox, prompt), args.timeout,
+        )
         (agent_log_dir / "openclaw.txt").write_text(
             json.dumps(envelope, separators=(",", ":")) + "\n",
             encoding="utf-8",
