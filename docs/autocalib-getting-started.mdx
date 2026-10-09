@@ -26,6 +26,8 @@ Required calibration inputs and detailed method-specific requirements are docume
 
 These steps deploy the Auto Calibration service using the VSS repository. They are separate from running Auto Calibration as a Warehouse Blueprint profile.
 
+To use a coding agent instead, see the [Agent Skills walkthrough](#agent-skills-walkthrough).
+
 <Note>
 **Running Auto Calibration as a Warehouse Blueprint profile**
 
@@ -137,6 +139,113 @@ docker compose \
   --profile "vss-auto-calibration-ui" \
   down
 ```
+
+## Agent Skills Walkthrough
+
+Use the `vss-generate-video-calibration` skill for the workflows below. Each includes example prompts and what the agent does in response. Follow [Installing Skills](/vss/vision-agent/agent-skills#installing-skills) first; see [Agent Harnesses](/vss/vision-agent/agent-harnesses) for how supported agents load them.
+
+The agent may ask for deployment paths, host and ports, video paths or RTSP URLs, a layout image, and the measured layout scale. Settings files, existing alignment files, ground truth, and focal-length overrides are optional. Missing scale or alignment can be supplied through the UI. Enter NGC and Hugging Face credentials securely in the terminal, never in chat. For normal calibration, the agent confirms the detector and plan; explicit tuning compares supported detectors automatically.
+
+### Deploy Auto Calibration
+
+**Example prompts:**
+
+- `Start the Auto Calibration service.`
+- `Set up AMC with VGGT so I can calibrate videos.`
+
+**What the agent does:**
+
+1. Checks platform requirements, Docker/GPU access, repository and data paths, host address, and service ports. It reuses a healthy stack or guides setup when needed.
+2. Verifies NGC image access and configures the deployment environment and writable projects directory, asking for any required host-permission approval.
+3. When VGGT is requested, checks the Hugging Face CLI and model availability, guides license acceptance and secure authentication, and stages the model before starting calibration.
+4. Starts the backend and UI, verifies service readiness, and returns their URLs. A deployment-only request does not create projects or run calibration; a combined setup-and-calibration request continues to the requested input workflow.
+
+### Run the bundled sample dataset
+
+**Example prompts:**
+
+- `Calibrate the sample dataset.`
+- `Verify the AMC install with the bundled sample dataset.`
+
+**What the agent does:**
+
+1. Checks the host and deploys AMC if it is not already running.
+2. Obtains the bundled sample and uploads its ordered videos, layout, alignment, and ground truth.
+3. Stages the sample's already-linear media and verifies the project. It runs VGGT first when ready, then AMC with the sample's default `resnet` detector, polling each independently and post-processing each completed multi-camera method.
+4. Reports progress, evaluation metrics, and any failures, then returns the UI URL and available output paths for review.
+
+### Calibrate local video files
+
+**Example prompts:**
+
+- `Calibrate local video files at <path/to/files>.`
+- `Calibrate videos at <path/to/files> using the transformer detector.`
+- `Calibrate videos at <path/to/files> and run VGGT too.`
+
+**What the agent does:**
+
+1. Checks the host and reuses or deploys AMC, then discovers synchronized MP4s in overlapping-FOV order and collects the layout, scale, alignment, and optional settings, ground truth, and focal lengths.
+2. Uploads the inputs and guides any missing UI actions: layout in Step 2, measured scale in Step 3, completed media preparation in Step 4, and interactive alignment in Step 5. Already-linear videos are staged directly; distorted videos require reviewed rectification before alignment and calibration.
+3. Resolves the detector (`resnet` or `transformer`) and optional settings, confirms the single-run plan, and verifies the project.
+4. Runs VGGT first when available for multi-camera input, then AMC, post-processing each completed method before another calibration starts. Single-camera AMC uses its single-view output path. It reports progress and errors using each method's state and logs.
+5. Returns results and output paths, then offers bounded tuning after a completed result or a potentially tunable failure. Missing inputs or infrastructure problems must be resolved before tuning.
+
+### Tune a custom dataset
+
+**Example prompts:**
+
+- `Calibrate and tune the custom dataset at <path/to/files>.`
+- `Tune the calibration for project <project-name>.`
+
+**What the agent does:**
+
+1. Reuses a healthy AMC service and UI or sets them up first, prepares VGGT for eligible multi-camera input, and collects the dataset inputs. If layout scale or alignment is missing, it guides you through the appropriate UI steps, including media preparation before interactive alignment.
+2. Starts from the current service defaults, compares supported detectors automatically, and runs no more than five AMC configuration attempts without further approval. A settings file is optional. Videos, camera order, scale, alignment, and media preparation remain unchanged across attempts.
+3. Runs VGGT and AMC sequentially in each eligible multi-camera attempt, post-processes each completed method, and preserves their results separately. VGGT does not consume an AMC attempt. Logs and metrics guide parameter adjustments while the best completed AMC result is retained.
+4. Reports every attempt and relevant trade-offs. Without ground truth, the recommendation is heuristic and requires visual review. A completed normal project can be reused as attempt 1 only when its inputs and effective baseline configuration are verified.
+
+The agent explains the runtime before starting: up to five AMC attempts with VGGT and post-processing can take several hours. Settings are service-wide, so tuning requires exclusive backend use without competing configuration changes or workloads. Projects are retained for review; cleanup requires approval after their artifacts are preserved outside the server project directory.
+
+### Calibrate live RTSP streams
+
+**Example prompts:**
+
+- `Calibrate RTSP streams <rtsp-url-1>, <rtsp-url-2>, ...`
+- `Calibrate these live RTSP streams using the transformer detector.`
+
+**What the agent does:**
+
+1. Checks the host and AMC service, confirms VIOS availability, and collects source RTSP URLs, capture duration, camera order, layout, scale, and optional calibration files.
+2. Captures all cameras together in one synchronized session, then waits for automatic ingest to finish. It does not mix file uploads with active RTSP capture or record camera subsets separately.
+3. Follows the same media preparation, alignment, detector confirmation, calibration, and post-processing steps as [local video calibration](#calibrate-local-video-files).
+4. Reports progress, results, and an optional tuning offer. If tuning is requested, it uses the same captured clips across attempts rather than recapturing each time.
+
+### Review results and exports
+
+**Example prompts:**
+
+- `Show me the calibration results for project warehouse_calibration.`
+- `Export calibration.json and the MV3DT ZIP for this project.`
+
+**What the agent does:**
+
+1. Checks AMC, VGGT, and post-processing states separately and retrieves available logs, camera parameters, visualizations, and evaluation metrics. GT-based metrics are available only when ground truth was supplied.
+2. Returns the project UI URL and available artifact paths, identifies missing results, and compares completed methods without treating one method's failure as failure of both.
+3. Explains that VGGT visualizations are separate from AMC overlays. A VGGT-only result may lack trajectory overlays because those require AMC tracklet artifacts; available virtual-object visualizations, camera parameters, and exports can still be reviewed.
+4. Exports the requested method's calibration JSON or MV3DT ZIP when available. These describe rectified camera geometry; downstream inputs must use matching rectified media or distortion remapping.
+
+### Stop the service
+
+**Example prompts:**
+
+- `Stop the Auto Calibration service.`
+- `Tear down AMC but keep my calibration projects.`
+
+**What the agent does:**
+
+1. Identifies the deployed AMC backend and UI and confirms any interruption of active calibration work before stopping them.
+2. Preserves project data, downloaded models, and other host-mounted state unless removal was explicitly requested.
+3. Requests confirmation before deleting any project or model data; stopping the service alone does not authorize cleanup.
 
 ## Next Steps
 
