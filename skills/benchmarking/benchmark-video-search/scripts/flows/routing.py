@@ -47,6 +47,7 @@ differences.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,33 @@ EMBED = "embed"
 ATTRIBUTE = "attribute"
 FUSION = "fusion"
 OBJECT = "object"
+
+APPEARANCE = re.compile(
+    r"\b(wearing|wears|dressed|in (a|an|the)|with (a|an)|hi-vis|uniform|vest|hardhat|helmet|"
+    r"jacket|shirt|hoodie|coat|hat|cap|beard|hair|tattoo|backpack|gloves|boots|sneakers|"
+    r"overalls|sunglasses|mask|suit|dress|sweater|raincoat)\b"
+)
+
+
+def _normalized(text: str) -> str:
+    return " ".join(re.sub(r"[^\w\s-]", " ", text.lower()).split())
+
+
+def effective_attributes(decomposition: dict[str, Any]) -> list[str]:
+    """The attributes the retrieval actually uses.
+
+    Applies the agent's single-word pruning, then drops an attribute that only
+    repeats an action query, unless it carries appearance words.
+    """
+    attributes = [a for a in decomposition.get("attributes") or [] if isinstance(a, str)]
+    attributes = [a for a in attributes if any(sep in a.strip() for sep in (" ", "-", "."))]
+    if decomposition.get("has_action"):
+        whole_query = _normalized(decomposition.get("query") or "")
+        attributes = [
+            a for a in attributes
+            if _normalized(a) != whole_query or APPEARANCE.search(_normalized(a))
+        ]
+    return attributes
 
 
 def route(decomposition: dict[str, Any]) -> str:
@@ -79,7 +107,7 @@ def route(decomposition: dict[str, Any]) -> str:
     if decomposition.get("object_ids"):
         return OBJECT
 
-    attributes = decomposition.get("attributes") or []
+    attributes = effective_attributes(decomposition)
     if not attributes:
         return EMBED
 
@@ -125,7 +153,7 @@ def plan_for(
         # wearing beige shirt"). Feeding the raw text instead would embed the
         # time range and source name as if they were visual content.
         "query": decomposition.get("query") or query,
-        "attributes": list(decomposition.get("attributes") or []),
+        "attributes": effective_attributes(decomposition),
         "source_type": decomposition.get("source_type") or default_source_type,
         "video_sources": list(decomposition.get("video_sources") or []),
         "timestamp_start": decomposition.get("timestamp_start"),
