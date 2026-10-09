@@ -416,7 +416,7 @@ cartesian calibration):
 - **Cartesian** (`calibrationType: "cartesian"`) — full image-to-global
   calibration; ROI/tripwire authoring fully supported.
 - **Image coordinates, with a calibration file** (`calibrationType:
-  "image"`) — pixel-coordinate calibration exported from AMC, with
+  "image"`) — pixel-coordinate calibration exported from Auto Calibration, with
   ROI/tripwire authoring and no image-to-global transform.
 - **Running 2D without calibration** — detection/tracking still runs in
   image (pixel) coordinates; ROI/tripwire events are unavailable. See below.
@@ -425,7 +425,7 @@ cartesian calibration):
 
 Auto Calibration supports two types of calibrations in 2D profile: image-coordinate calibration and Cartesian calibration.
 
-Start the Auto Calibration service, then follow the AMC workflow. Choose the appropriate export for your use case:
+Start the Auto Calibration service, then follow the Auto Calibration workflow. Choose the appropriate export for your use case:
 
 - **Image coordinates**: Use **Export Image-Mode JSON** to export ROIs and tripwires in pixel coordinates with `"calibrationType": "image"`.
 - **Cartesian coordinates**: Export a calibration with `"calibrationType": "cartesian"` to map camera image coordinates to a global coordinate system.

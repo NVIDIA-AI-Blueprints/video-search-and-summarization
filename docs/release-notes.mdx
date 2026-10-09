@@ -86,7 +86,7 @@ These Release Notes describe the key features, software enhancements and improve
     - Added `behaviorEmitOnce` to emit a final behavior when a track ends, with per-sensor event-time handling, behavior holdback, and shutdown flushing. Real-time emission remains the default, and `isComplete` identifies completed behaviors.
     - Added configurable ROI ENTRY / EXIT detection based on bounding-box overlap.
 
-  - Auto Calibration: Added AMC support for image-mode calibration
+  - Auto Calibration: Added support for image-mode calibration
   - Video IO & Storage (VIOS): Added DASH live-stream playback as an alternative to WebRTC.
   - MV3DT: Integrated ReID embeddings with Kafka and Elasticsearch ingestion support.
 
@@ -650,7 +650,7 @@ single tag serves `linux/amd64` (x86_64) and `linux/arm64`
 * Added RTSP stream recording and injection using VIOS for input.
 * Added support for global tripwires and ROIs for the 3D use case, including Global ROIs and TWs under the Parameters tab.
 
-* Updated the AMC pipeline to use Model Runner for lens distortion estimation and video rectification.
+* Updated the Auto Calibration pipeline to use Model Runner for lens distortion estimation and video rectification.
 * Integrated Model Runner to improve focal length estimation using models.
 * Added VGGT auto frame selection.
 * Added image coordinate calibration file export. Users can download ROIs and TWs in pixel format under the Parameters tab by clicking `Export image-mode JSON`.
