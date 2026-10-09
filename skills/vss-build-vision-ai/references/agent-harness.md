@@ -298,9 +298,10 @@ with no way to drive it.
   Dockerfile (`--from`), so the skills and docs arrive baked rather than
   installed. Do not build a sandbox image of your own for this.
 - **`NEMOCLAW_DASHBOARD_PORT` (`18789`) and `NEMOCLAW_DASHBOARD_RELAY_PORT`
-  (`18790`) free, or held by this build's own sandbox.** See [Ports the harness
-  claims](#ports-the-harness-claims) — the one prerequisite whose remedy is the
-  user's to run, because clearing it destroys someone else's sandbox.
+  (`18790`) free, or freeable.** See [Ports the harness
+  claims](#ports-the-harness-claims) —
+  `scripts/teardown-nemoclaw-resources.sh` reclaims a held port and destroys
+  any sandbox registered on it.
 
 Preflight the selected provider's row below and no other — a credential check
 that fires for every build rejects the supported paths that need no key:
@@ -337,68 +338,55 @@ working chat.
 ### Ports the harness claims
 
 The gateway forward binds `NEMOCLAW_DASHBOARD_PORT` (`18789`) and the section
-3.5 relay binds `NEMOCLAW_DASHBOARD_RELAY_PORT` (`18790`). Neither is ever
-taken from its holder — a held `18789` [stops onboard or moves the sandbox
-elsewhere](#troubleshooting-port-18789-is-not-available), and the relay cell
-stops on a foreign listener on `18790` — and every sandbox defaults to the
-same two ports, so any sandbox still running on this host holds them.
+3.5 relay binds `NEMOCLAW_DASHBOARD_RELAY_PORT` (`18790`). Every sandbox on
+the host defaults to the same two ports, so any sandbox still running on this
+host holds them.
 
-Probe both on a **yes** to Q3, before accepting it and with the rest of the
-prerequisites — a build with no harness claims neither port. Probe the values
-this build will bind: an override from the environment or the request, which
-Step 7 records, or the defaults when there is none. The bind test decides
-free or held and needs only `python3`; `lsof` or `ss` only names the holder,
-and a host may lack both:
+Clear both on a **yes** to Q3, before accepting it and with the rest of the
+prerequisites; skip it entirely for a build with no harness, which binds
+neither port. The ports this build will bind are an override from the
+environment or the request, which
+Step 7 records, or the defaults when there is none; export the override before
+running the script so it clears the pair the build will actually use.
 
 ```bash
 # Absent until notebook cell 3.1 installs it, so do not let it fail the probe.
-command -v openshell >/dev/null \
-  && openshell sandbox list                         # compare against NEMOCLAW_SANDBOX_NAME
-# A name is not a claim. Print which build claimed which name: a sibling build
-# holding the default name is as foreign here as a stranger's sandbox.
+command -v openshell >/dev/null && openshell sandbox list
+# Which build claimed which sandbox name — the recreate question below, not
+# the port one.
 grep -H . "$(git rev-parse --show-toplevel)"/_builds/*/sandbox 2>/dev/null
-for port in "${NEMOCLAW_DASHBOARD_PORT:-18789}" "${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"; do
-  python3 -c 'import socket,sys; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(("",int(sys.argv[1])))' "$port" 2>/dev/null \
-    && { echo "$port free"; continue; }
-  # The holder's own command line is what names its sandbox: the forward is an
-  # `openshell ... forward service <name>` process, so no --sandbox pattern
-  # finds it, and the PID alone says nothing about ownership.
-  echo "$port held by:"
-  for pid in $(lsof -tnP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null \
-    || ss -Hltnp "sport = :$port" 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2); do
-    printf '  %s: ' "$pid"; tr '\0' ' ' 2>/dev/null <"/proc/$pid/cmdline"; echo
-  done
-done
-# stderr first: a process that exits mid-scan makes the shell's own open fail.
-# `--sandbox` is required, not decoration: the echo below carries the relay path
-# in this block's own command line, which `[d]` does not hide from the scan.
-for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' 2>/dev/null <"$f"; echo; done \
-  | grep -E '[d]ashboard-(relay|forward-watchdog)\.py .*--sandbox '  # --sandbox names the owner
-# A relay must carry this path to count as ours, not just the sandbox name. Set
-# it from the ref decision: VSS_REPO_DIR is not exported until bring-up, so
-# reading it here silently names the wrong checkout.
-HARNESS_SRC="$(git rev-parse --show-toplevel)"      # ref build: <that>/_builds/<name>/harness-src
-echo "this build's relay: $HARNESS_SRC/deploy/docker/scripts/nemoclaw/dashboard-relay.py"
+bash skills/vss-build-vision-ai/scripts/teardown-nemoclaw-resources.sh
 ```
 
-**No `openshell` on the host is a pass, not a failed probe.** Cell 3.1 installs
-it, so the fresh host Q3 supports has none — and with none, no sandbox is
-running to hold either port. Both ports free and no relay or watchdog in the
-process list is the whole preflight satisfied: accept the yes and continue. A
-held port still blocks even when nothing can name its holder.
+**The script takes a held port rather than reporting it.** It kills whatever
+listens on either port plus every forward watchdog, without asking who started
+them: every sandbox defaults to the same pair and shares the same scripts, so
+attribution is unreliable and the port is needed either way. The cost of being
+wrong is bounded — the holder is a host-side tunnel, so a foreign sandbox
+keeps running and loses only its dashboard forward, which its owner can
+reconnect. **Say in the summary when a holder was killed**, naming the command
+line the script printed. Any sandbox `nemoclaw list --json` registers on
+either port goes too: bring-up recreates it regardless.
 
-**Read ownership off the holder's command line, never off the port.** The
-forward prints `forward service <name>`, the relay and watchdog print
-`--sandbox <name>`, and the name to match is
-`${NEMOCLAW_SANDBOX_NAME:-vss-harness-sandbox}`. With several sandboxes on the
-host, the listing and the PID settle nothing on their own.
+A port that still will not free is the hard blocker: the script exits `2`,
+and nothing on the host could stop the listener. A sandbox the CLI could not
+list or destroy exits `4` and blocks the same way — bring-up would collide
+with one still holding the pair. Report it and stop. Stopping
+here costs nothing — Q3 precedes every build artifact.
+
+**No `openshell` on the host is a pass, not a failed probe.** Cell 3.1
+installs it, so the fresh host Q3 supports has none — and with none, no
+sandbox is running to hold either port.
+
+**A sandbox that holds neither port is a separate question.** The script
+never sees it, yet bring-up passes `NEMOCLAW_RECREATE_SANDBOX=1`, so section
+3.1 still discards whatever answers to `NEMOCLAW_SANDBOX_NAME`.
 
 **A matching name is not ownership; this build's own `_builds/<name>/sandbox`
 record is.** Written before bring-up runs, it is the only thing that says
 which sandbox this build may replace. The default name proves nothing on its
 own: `deploy_nemoclaw.ipynb` run by hand names its sandbox
-`vss-harness-sandbox` too, and [Teardown](#teardown) leaves exactly that one
-standing as unowned. **A sibling build's record is not this build's claim
+`vss-harness-sandbox` too. **A sibling build's record is not this build's claim
 either** — several builds in one checkout take the same default, and the
 notebook recreates by name without reading any record, so accepting another
 `_builds/*/sandbox` here is how a build discards a sandbox and sessions
@@ -407,71 +395,15 @@ only the one written under the build being deployed. A build on its first
 deploy has no record and so owns nothing, which is right — it has onboarded
 nothing yet. A re-onboard of that same build is what the record makes owned.
 
-**The relay must match the bring-up's own script path as well as the name.**
-Section 3.5 keeps a relay only when its command line carries the resolved
-`deploy/docker/scripts/nemoclaw/dashboard-relay.py` under `VSS_REPO_DIR`, so a
-same-name relay from a second clone is foreign however familiar its name looks.
-Apply that test here or the build deploys and then fails at 3.5 with `Port
-<relay-port> is held by pid …, which is not '<sandbox>'s dashboard relay` — the
-conflict Q3 exists to catch, surfacing after the cost.
-
-**Take that path from the ref decision, never from `VSS_REPO_DIR`.** The export
-does not exist until bring-up, and a [harness source ref](#harness-source-ref)
-points it at the `_builds/<name>/harness-src` worktree rather than the
-checkout. So on a ref build the checkout's own relay is foreign — reading the
-unset variable at Q3 would adopt it as this build's and approve its port.
-A re-onboard of the same build is the one case a worktree relay is owned,
-because that worktree survives for exactly that purpose.
-
-The unset case is not the checkout either: the notebook defaults
-`VSS_REPO_DIR` to `$HOME/video-search-and-summarization`, so a checkout
-anywhere else must export it — the [Bring-up](#bring-up) block does — or
-bring-up reads its assets and its relay from a path the probe never looked at.
-
-A holder this build owns is not a conflict: `NEMOCLAW_RECREATE_SANDBOX=1`
-replaces the sandbox named `NEMOCLAW_SANDBOX_NAME`, and the relay cell replaces
-that name's relay from this checkout. Do not assume that case — ownership is
-this build's own record naming the holder, and for a relay the resolved script
-path as well, so a deployment that named itself leaves a sandbox and a relay
-foreign to the next run, as do a sibling build's sandbox and a same-name relay
-from another checkout.
-
-**A holder this build's own record does not name is the one case to ask about
-rather than hand over.** The notebook takes the name regardless: section 3.1
-adds `--recreate-sandbox` for it and discards that sandbox's agent sessions.
-So put the choice before the deploy, not in the final summary — say which name
-is held, which build recorded it or that none did, and whose sessions a yes
-discards. Take either a yes to recreate it, or another `NEMOCLAW_SANDBOX_NAME`
-with a free port pair to go with it, which leaves that sandbox running and
-onboards beside it. Two ordinary situations land here: a fresh checkout on a
-host that has built before — an eval box — and a second build beside one whose
-harness is still up. Both are the question doing its job, not a false positive
-to wave through.
-
-**Anything else is a hard blocker**, including a held port nothing could name —
-report it as held by an unidentified listener. Report what holds which port, hand the
-block below over, and **do not proceed until no foreign holder remains** —
-destroy nothing and kill nothing on the user's behalf. A port the sandbox in
-this build's own record still holds is not what that waits on, nor is one the
-user has just agreed to recreate; `NEMOCLAW_RECREATE_SANDBOX=1` replaces
-either. Stopping here costs nothing: Q3 precedes every build artifact.
-
-```bash
-# Watchdog first: it answers a dying forward with `nemoclaw recover`. Relay
-# last: `destroy` releases the forward, never the relay. Drop the `destroy`
-# when `openshell sandbox list` no longer shows <other>.
-OTHER='<other>'
-# pkill -f compiles an extended regex, so escape every metacharacter in the
-# name: an unescaped one matches other sandboxes' processes too, and these
-# scripts are shared by every sandbox on the host.
-OTHER_RE="$(printf '%s' "$OTHER" | sed 's/[][(){}.*+?^$|\\]/\\&/g')"
-pkill -f -- "dashboard-forward-watchdog\.py --sandbox ${OTHER_RE}( |$)"
-nemoclaw "$OTHER" destroy --yes --cleanup-gateway
-pkill -f -- "dashboard-relay\.py --sandbox ${OTHER_RE}( |$)"
-```
-
-Re-probe both ports and resume once each is free or back to a holder this
-build owns.
+**A sandbox this build's own record does not name is the one case to ask about
+rather than take.** Put the choice before the deploy, not in the final summary
+— say which name is held, which build recorded it or that none did, and whose
+sessions a yes discards. Take either a yes to recreate it, or another
+`NEMOCLAW_SANDBOX_NAME` with a free port pair to go with it, which leaves that
+sandbox running and onboards beside it. Two ordinary situations land here: a
+fresh checkout on a host that has built before — an eval box — and a second
+build beside one whose harness is still up. Both are the question doing its
+job, not a false positive to wave through.
 
 ## Default provider
 
@@ -848,18 +780,17 @@ The report names the blocking process and offers
 recognize the holder as its own, the run continues and the new sandbox takes
 the next free port in `18789`-`18799` instead — quieter, and worse, because
 the notebook's later cells still address the port it was given. Neither
-outcome takes the port from its holder, which is why Q3 probes it first.
+outcome takes the port from its holder, which is why Q3 clears it first.
 
-A deploy recreates the sandbox, so its state is expendable: destroy the
-sandboxes this deploy owns - the failed one and any left by earlier runs -
-confirm `18789` is free, and rerun the notebook. A sandbox someone else owns
-holding `18789` is not yours to destroy; it means this host cannot run the
-deploy until they release it.
+A deploy recreates the sandbox, so its state is expendable: run the script
+to take `18789` back from whatever holds it, destroying whichever sandbox the
+registry maps to that port, and rerun the notebook.
 
 ```bash
 openshell sandbox list
 nemoclaw <name> destroy             # each sandbox of this deploy
-lsof -nP -iTCP:18789 -sTCP:LISTEN   # must print nothing
+# Takes 18789/18790 from any holder:
+bash skills/vss-build-vision-ai/scripts/teardown-nemoclaw-resources.sh
 ```
 
 ### Troubleshooting: "OpenClaw onboarding for '<name>' is incomplete"
@@ -889,10 +820,10 @@ guards — is NemoClaw's domain: see the
 The harness and the build are independent lifecycles: nothing in Compose
 reaches the sandbox. Tearing down a build therefore starts with
 [`teardown.md`](teardown.md) →
-[NemoClaw harness](teardown.md#nemoclaw-harness--before-compose), which
-stops the dashboard-forward watchdog, destroys the sandbox, stops the dashboard
-relay the destroy leaves behind, and removes the `harness-src` worktree when the
-build has one.
+[NemoClaw harness](teardown.md#nemoclaw-harness--before-compose), run as
+`scripts/teardown-nemoclaw-resources.sh`: it reclaims `18789` and
+`18790` and destroys every sandbox `nemoclaw list --json` registers on either.
+That section then removes the `harness-src` worktree when the build has one.
 
 Destroy the sandbox **before** the Compose project when doing both, so the
 harness is not left pointed at an origin that has stopped answering. Removing
