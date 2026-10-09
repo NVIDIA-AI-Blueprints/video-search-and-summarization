@@ -724,7 +724,6 @@ def build_ingest_watcher(args: argparse.Namespace, ingress_url: str) -> Any:
         chunk_s=args.chunk_s,
         poll_s=args.ingest_poll_s,
         quiet_s=args.ingest_quiet_s,
-        raw_end_tolerance_s=args.raw_end_tolerance_s,
         upload_timestamp=args.upload_timestamp,
     )
 
@@ -1603,15 +1602,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=float,
         default=flows.DEFAULT_INGEST_CHUNK_S,
         help="Embedding chunk length the deployment uses; sets the embed and tag targets (default: 5).",
-    )
-    ingest.add_argument(
-        "--raw-end-tolerance-s",
-        type=float,
-        default=flows.DEFAULT_RAW_END_TOLERANCE_S,
-        help=(
-            "How far before the video's end RT-CV's last raw frame may fall (default: 1). "
-            "Raise it for videos ending in frames RT-CV writes nothing for."
-        ),
     )
     ingest.add_argument(
         "--legacy-index-probe",
