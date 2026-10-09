@@ -264,6 +264,23 @@ class TestPostRealtimeAlert:
 
     # ── Sad paths: value-level validation ────────────────────────────
 
+    @pytest.mark.parametrize("field,value", [
+        ("inference_mode", "streming_vlm"),
+        ("streaming_window_frames", 0),
+        ("streaming_window_frames", True),
+        ("streaming_window_frames", "8"),
+        ("streaming_question_on_decode", "off"),
+        ("streaming_question_on_decode", 1),
+    ])
+    def test_invalid_streaming_option_returns_422(self, client, field, value):
+        resp = client.post("/api/v1/realtime", json={
+            "live_stream_url": "rtsp://host/stream",
+            "alert_type": "collision",
+            "prompt": "test",
+            field: value,
+        })
+        assert resp.status_code == 422
+
     def test_invalid_rtsp_url_returns_422(self, client):
         resp = client.post("/api/v1/realtime", json={
             "live_stream_url": "http://not-rtsp",
@@ -2065,6 +2082,28 @@ class TestAlwaysOnConfigErrors:
         monkeypatch.setenv("ALWAYS_ON_RULES_CONFIG", str(no_key))
         resp = client.post("/api/v1/realtime/always-on", json=_streaming_event())
         assert resp.status_code == 503
+
+    @pytest.mark.parametrize("field,value", [
+        ("inference_mode", "streming_vlm"),
+        ("streaming_window_frames", 0),
+        ("streaming_window_frames", True),
+        ("streaming_window_frames", "8"),
+        ("streaming_question_on_decode", "off"),
+        ("streaming_question_on_decode", 1),
+    ])
+    def test_invalid_streaming_option_returns_503(
+        self, client, always_on, monkeypatch, tmp_path, always_on_service, field, value
+    ):
+        """The YAML config rejects bad streaming options at load, like the REST request."""
+        always_on_service.reset()
+        rule = _sample_rule()
+        rule["always_on_params"][field] = value
+        bad = tmp_path / "bad-streaming.yaml"
+        bad.write_text(yaml.safe_dump({"always_on_rules": [rule]}))
+        monkeypatch.setenv("ALWAYS_ON_RULES_CONFIG", str(bad))
+        resp = client.post("/api/v1/realtime/always-on", json=_streaming_event())
+        assert resp.status_code == 503
+        assert resp.json()["reason"] == "CONFIG_ERROR"
 
     def test_shipped_sample_yaml_loads_cleanly(
         self, client, mocks, always_on, monkeypatch, always_on_service

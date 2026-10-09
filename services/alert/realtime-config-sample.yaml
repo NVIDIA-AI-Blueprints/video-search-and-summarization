@@ -63,10 +63,15 @@ always_on_rules:
       # "streaming_vlm" keeps one persistent VLM session per live stream instead
       # of independent per-chunk requests. Pair it with short chunks, e.g.
       # chunk_duration: 1, chunk_overlap_duration: 0, 1 FPS.
+      # The prompt is sent only at session start unless
+      # streaming_question_on_decode is true, so put the task in system_prompt.
+      # Rules on the same camera share one RTVI stream and must use the same
+      # chunk_duration and sampling settings; otherwise RTVI rejects all but
+      # one of them, and which one starts depends on timing.
       # inference_mode: "streaming_vlm"         # optional — "chunked" | "streaming_vlm"
-      # streaming_frame_policy: "ordered"       # optional — frame ordering policy
-      # streaming_window_frames: 8              # optional — decoded frames retained by the session
-      # streaming_question_on_decode: true      # optional — repeat the prompt on every streaming step
+      # streaming_frame_policy: "ordered"       # optional — frame ordering policy, validated by RTVI
+      # streaming_window_frames: 8              # optional — decoded frames retained by the session (>= 1)
+      # streaming_question_on_decode: false     # optional — true repeats the prompt on every step
 
       # ── API type ──────────────────────────────────────────────────────────────
       api_type: "internal"                      # optional — forwarded verbatim to RTVI (e.g. "internal")

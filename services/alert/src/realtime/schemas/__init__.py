@@ -21,6 +21,8 @@ from .alert_config import (
     AlertRuleConfig,
     EXTENDED_OPTIONAL_FIELDS,
     STREAM_IDENTITY_OPTIONAL_FIELDS,
+    InferenceMode,
+    StreamingWindowFrames,
 )
 from .always_on_config import (
     AlwaysOnRuleEntry,
@@ -32,6 +34,8 @@ __all__ = [
     "AlertRuleConfig",
     "EXTENDED_OPTIONAL_FIELDS",
     "STREAM_IDENTITY_OPTIONAL_FIELDS",
+    "InferenceMode",
+    "StreamingWindowFrames",
     "AlwaysOnRuleEntry",
     "AlwaysOnRuleParams",
     "AlwaysOnRulesFile",

@@ -950,7 +950,8 @@ import sys, json
 rule = json.load(sys.stdin).get('rule', {})
 leaked = [f for f in ['api_type','response_format','stream_options','max_tokens',
     'temperature','top_p','top_k','ignore_eos','seed','media_info',
-    'enable_audio','mm_processor_kwargs'] if f in rule]
+    'enable_audio','mm_processor_kwargs','inference_mode','streaming_frame_policy',
+    'streaming_window_frames','streaming_question_on_decode'] if f in rule]
 print('leaked:' + ','.join(leaked) if leaked else 'ok')
 " 2>/dev/null || echo "error")
 
