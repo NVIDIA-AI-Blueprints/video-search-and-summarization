@@ -355,8 +355,8 @@ Refer to [RT-DETR Real-Time Performance](/vss/system-components/models/rt-detr-2
   below.
 - **Image coordinates, with a calibration file** (`"calibrationType":
   "image"`): a pixel-coordinate calibration file exported from Auto
-  Calibration's AMC workflow, without an image-to-global
-  transform. AMC supports ROI/tripwire authoring and image-mode JSON export.
+  Calibration workflow, without an image-to-global
+  transform. Auto Calibration supports ROI/tripwire authoring and image-mode JSON export.
   Follow **Image coordinate calibration** below.
 - **Running 2D without calibration**: skip calibration entirely. Detection/
   tracking still runs in image (pixel) coordinates; ROI/tripwire events are
@@ -385,7 +385,7 @@ sudo chown -R 1000:1000 ${VSS_APPS_DIR}/services/auto-calibration/projects
 
 Configure `industry-profiles/warehouse-operations/overrides.env` using the **Auto-Calibration** tab under [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection), then follow [Deploy the Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint) to start the Auto-Calibration profile.
 
-Follow the [Auto Calibration workflow steps](/vss/system-components/calibration/auto-calibration/workflow-steps) for AMC using the warehouse dataset and VST stack. The workflow supports both calibration types; choose the appropriate export for your use case.
+Follow the [Auto Calibration workflow steps](/vss/system-components/calibration/auto-calibration/workflow-steps) using the warehouse dataset and VST stack. The workflow supports both calibration types; choose the appropriate export for your use case.
 
 ##### Image coordinate calibration
 
