@@ -7,7 +7,7 @@ For live RTSP streams, see `rtsp.md`. For verifying the install with the bundled
 ## What to Ask the User
 
 ### Required
-1. **Videos directory** — a folder containing non-empty, readable, time-synchronized MP4 files at the required 1920×1080 resolution with a supported codec and pixel format. The skill uploads them in explicit sorted order; filenames need not be `cam_*.mp4`.
+1. **Videos directory** — a folder containing non-empty, readable, time-synchronized MP4 files at the required 1920×1080 resolution with a supported codec and pixel format. Upload in overlapping-FOV order, consistent with the alignment data; filenames need not be `cam_*.mp4`.
 2. **Microservice URL** — e.g. `http://<HOST_IP>:8010`.
 3. **Project name** — short descriptive string.
 
@@ -37,7 +37,7 @@ See the [Settings File + Detector Pattern](../SKILL.md#settings-file-and-detecto
 
 Independent VGGT calibration is handled before AMC by [SKILL.md Step C](../SKILL.md#step-c-independent-vggt-calibration). VGGT is default when ready; missing VGGT must not block AMC.
 
-Root `README.md` "Custom Dataset" section documents input-video guidelines and ground-truth format.
+See [Custom Dataset](../../../../docs/autocalib-custom-dataset.mdx) for input-video guidelines and ground-truth format. Tracklet-based AMC requires moving people in the footage; VGGT does not depend on people tracklets.
 
 ## API Call Sequence (videos mode)
 
@@ -53,8 +53,7 @@ Create the project with the shared request in [`common-steps.md`](common-steps.m
 
 See [`common-steps.md` § Upload videos](common-steps.md#upload-videos).
 
-> **Important**: upload sorted alphabetically — the server assigns camera
-> indices by upload order. The `multipart/form-data` part name is `files`.
+> **Important**: the server assigns camera indices by upload order. Use alphabetical order only when it matches the overlapping-FOV and alignment order; otherwise supply an explicit ordered list. The `multipart/form-data` part name is `files`.
 
 ### Step 3 Resolve Local Files (Auto-Scan, Ask, or UI)
 
@@ -105,7 +104,7 @@ focal_length=1269.0&focal_length=1099.5&...
 
 ### Step 5 Hand off to the Shared Calibration Tail
 
-Once uploads are done (and any UI fallback confirmed on disk), ask whether every input is already linear/pinhole. Set `MEDIA_MODE=linear` only when confirmed; otherwise set `MEDIA_MODE=rectified`, complete/review/commit AMC UI Rectification, then continue with [SKILL.md Step A onward](../SKILL.md#step-a-stage-linear-media) (stage linear media → verify → VGGT/post-process when available → AMC/post-process → compare results). If `MEDIA_MODE` is empty, `calibration-tail.md` prompts for this decision rather than defaulting unsafely.
+After upload, resolve media preparation before any interactive alignment fallback: ask whether every input is already linear/pinhole. Set `MEDIA_MODE=linear` only when confirmed; otherwise set `MEDIA_MODE=rectified`, complete/review/commit AMC UI Rectification. Once alignment and layout are saved, continue with [SKILL.md Step A onward](../SKILL.md#step-a-stage-linear-media) (stage linear media → verify → VGGT/post-process when available → AMC/post-process → compare results). The tail reuses completed media preparation. If `MEDIA_MODE` is empty, it prompts for this decision rather than defaulting unsafely.
 
 ---
 
@@ -144,7 +143,7 @@ if ALIGNMENT_COORD_SPACE not in {"original", "rectified"}:
 VSS_APPS_DIR = Path(os.environ.get("VSS_APPS_DIR", Path.cwd()))
 PROJECTS_DIR = Path(os.environ.get("PROJECTS_DIR", VSS_APPS_DIR / "services" / "auto-calibration" / "projects"))
 
-VIDEO_FILES = sorted(VIDEO_DIR.glob("*.mp4"))
+VIDEO_FILES = sorted(VIDEO_DIR.glob("*.mp4"))  # replace with an explicit list if FOV/alignment order differs
 assert VIDEO_FILES, f"No MP4 files under {VIDEO_DIR}"
 if not re.fullmatch(r"[A-Za-z0-9_-]{3,50}", PROJECT_NAME):
     raise ValueError("PROJECT_NAME must be 3-50 characters using only letters, digits, '_' or '-'")
@@ -190,7 +189,7 @@ r.raise_for_status()
 project_id = r.json()["project_id"]
 print(f"[1] Created project: {project_id}")
 
-# Upload videos alphabetically so camera indices are stable
+# Upload videos in the confirmed camera order
 files, handles = [], []
 for v in VIDEO_FILES:
     f = open(v, "rb"); handles.append(f)
@@ -256,7 +255,7 @@ if FOCAL_LENGTHS:
 # Step 5 — UI fallback for anything not resolved
 ui_tasks = []
 if not CONFIG_FILE:
-    ui_tasks.append("Step 3 (Parameters): tune settings or accept defaults, then Save.")
+    ui_tasks.append("Step 3 (Parameters): review settings and enter or measure the layout scale (px/m), then Save.")
     # Agent should ask via AskUserQuestion; the input() is the direct-run fallback.
     if DETECTOR_TYPE == "resnet":
         _choice = input("    Detector [resnet/transformer] (default resnet): ").strip().lower()
@@ -264,7 +263,7 @@ if not CONFIG_FILE:
             DETECTOR_TYPE = _choice
         print(f"    Using detector: {DETECTOR_TYPE}")
 if not ALIGNMENT_JSON or not LAYOUT_PNG:
-    ui_tasks.append("Step 2 (Video Configuration): upload layout.png only — videos already uploaded via API, do not re-upload. Then Save. Step 5 (Manual Alignment): upload alignment_data.json or mark correspondence points, then Save.")
+    ui_tasks.append("Complete these in order: Step 2, upload layout.png if missing (do not re-upload videos); Step 3, confirm or measure layout scale; Step 4, review and complete Rectification (Videos Are Rectified only for confirmed linear media); Step 5, upload original-coordinate alignment or draw at least four correspondence sets on rectified views, then Save. Reuse files already uploaded.")
 if ui_tasks:
     print(f"\n[5] UI action required for project {project_id}:")
     for t in ui_tasks:
