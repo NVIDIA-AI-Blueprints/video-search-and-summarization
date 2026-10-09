@@ -162,8 +162,9 @@ resolving, confirm `resolved.yml` mounts that parser directory read-only at
 **Approval (SKILL.md step 6).** Show the generated `.py` in full — it is code
 that runs inside Alert Bridge — and say that it replaces the verdict for every
 alert type, with what follows from that: no verified alert is `confirmed` or
-`rejected` any more, so confirmed-verdict protection (which skips re-verifying
-an incident already confirmed) stops applying, and the `confirmed` / `rejected`
+`rejected` any more, so no new incident is marked confirmed and
+confirmed-verdict protection (which skips re-verifying an incident already
+confirmed) covers only markers set before the parser, until they expire; and the `confirmed` / `rejected`
 verdict filters (such as the Video Analytics API's `vlmVerdict`) match none of
 the successful results.
 
@@ -176,7 +177,12 @@ every alert type the user already relies on. For a new build, an autonomous
 instruction answers the Step 6 approval; the `.py` and the warning still go in
 the conversation and the final summary.
 
-**Apply and verify.** Deploy `resolved.yml` per
+**Apply and verify.** On a stack that is already running, first save the
+reply of `curl -sf http://localhost:9080/api/v1/verification/config` (the
+Alert Bridge still running) to
+`patches/vlm-as-verifier/stored-configs.before.json` — only if that file does
+not exist yet, so a later revision never overwrites it; a fresh host has
+nothing to save. Then deploy `resolved.yml` per
 [`deployment.md`](../deployment.md), as for any build; `docker compose restart`
 does not pick up a new mount. Compose recreates Alert Bridge only when its
 service definition changes, and a mounted file's contents are not part of it:

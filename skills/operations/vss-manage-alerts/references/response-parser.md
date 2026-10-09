@@ -82,7 +82,7 @@ to what the user asked for.
    example's fields or dotted path by default. The parser is global, so every alert
    type the deployment verifies must produce a reply it accepts: give them the
    same field set, or make the parser accept each shape in use.
-2. **Write the prompt** in the build's `alert_type_config.json` copy, one entry
+2. **Write the prompt** in the draft copy of `alert_type_config.json`, one entry
    per alert type, naming exactly the fields the parser reads. The system prompt
    asks for one valid JSON object only. `alert_type` must equal the `category`
    the producer emits (Behavior Analytics, `POST /api/v1/alerts`, or `POST
@@ -93,8 +93,8 @@ to what the user asked for.
    does, and never paste a JSON sample with single braces into it; write a
    literal brace as `{{` or `}}`. The system prompt is not templated.
 3. **Write the parser**: take the `<answer>` payload or drop `<think>` blocks,
-   strip a Markdown code fence, `json.loads` (falling back to the first object
-   in prose), coerce each field, and **raise** when there is no JSON object or a
+   strip a Markdown code fence, `json.loads` (falling back to a single JSON
+   object embedded in prose), coerce each field, and **raise** when there is no JSON object or a
    required field is invalid. Alert Bridge then records `verification-failed`
    with `errorSource: "pluggable_parser"`, which an operator can see. A fallback
    that stores the raw text as a success hides a broken prompt or a reply cut at
@@ -123,6 +123,12 @@ Alert Bridge creates ONE instance at startup and shares it across all workers,
 so ``parse()`` must not mutate ``self``. The returned dict is JSON-encoded into
 ``info["vlm_response"]``; ``info["verdict"]`` is left empty. Raising makes Alert
 Bridge record a ``verification-failed`` event with ``errorSource: pluggable_parser``.
+
+``verdict`` is required: a missing or unrecognised value raises. The other
+fields are deliberately lenient: an unparseable ``confidence`` becomes 0.0 (and
+values are clamped to 0.0-1.0), an unknown ``severity`` becomes "unknown", and
+a missing ``description``/``reasoning`` becomes "". The prose fallback expects a
+single JSON object; text holding several objects raises.
 
 Expected VLM output (the prompt must ask for exactly these fields)::
 
@@ -275,7 +281,9 @@ else:
 PY
 ```
 
-A non-zero exit is a blocker: fix the parser before resolving the build.
+A non-zero exit is a blocker: fix the parser before resolving the build. If
+the user asked for a fallback, replace the malformed-reply check with one that
+asserts the fallback's output instead.
 
 Then list the placeholders left in the user prompts. Each name printed must be
 a field of the alert payload (`place.name`, `sensorId`, …); anything else is a
@@ -319,13 +327,16 @@ PY
    prompt shadows the build's JSON prompt, and the parser raises on every one of
    those alerts. List every stored alert type with `GET
    $AB/api/v1/verification/config` — the parser sees all of them — and where a
-   stored `prompt` or `system_prompt` differs from the build's JSON prompt, set
-   it with `PUT $AB/api/v1/verification/config/<alert_type>` (the `alert_type`
-   as the list returns it, URL-encoded; Workflow B, `references/verification.md`).
-   Before the first `PUT`, save the list to
-   `patches/vlm-as-verifier/stored-configs.before.json` in the build — only if
-   that file does not exist yet, so a later parser change never overwrites it.
-   Removing the parser restores the alert types you created from it.
+   stored `prompt`, `system_prompt` or `vlm_params` differs from the build's
+   entry, set it with `PUT $AB/api/v1/verification/config/<alert_type>` (the
+   `alert_type` as the list returns it, URL-encoded; Workflow B,
+   `references/verification.md`). A `vlm_params` object is merged into the
+   stored one, so to drop a key send `"vlm_params": null` first, then the
+   build's values.
+   The configs that were stored before the parser build deployed are in
+   `patches/vlm-as-verifier/stored-configs.before.json` (saved from the running
+   stack before the deploy; absent on a fresh host); *Remove a parser* restores
+   prompts from it.
    A stored alert type with no JSON prompt in the build is a blocker: write one,
    or tell the user its alerts will land as `verification-failed`.
 3. **End to end, through the pipeline.** On-demand verification cannot check
@@ -333,7 +344,9 @@ PY
    Bridge consumes from Kafka like a Behavior Analytics one: the alert type as
    `category`, the VIOS sensor **name** of a stream that is recording as
    `sensorId`, a 10–30 s `timestamp`–`end` window that stream has already
-   recorded, and a unique marker in `info`. Mark it in `info`, not with `id`:
+   recorded, a unique marker in `info`, and every field the user prompts'
+   placeholders read (the listing in *Test before deploying* printed them, for
+   example `"place": {"name": "<…>"}`). Mark it in `info`, not with `id`:
    the request accepts an `id`, but it only becomes the Kafka key — the
    `nv.Incident` message Alert Bridge verifies has no `id` field — while
    `info` is carried into the stored result. Alert Bridge fetches
@@ -361,7 +374,10 @@ PY
    `info.parserCheck`. Pass: `verificationResponseCode` `200`, `verdict` `""`, and
    `vlm_response` decodes to the schema. `verification-failed` with
    `errorSource: "pluggable_parser"` means the parser raised;
-   `verificationResponseStatus` names the exception.
+   `verificationResponseStatus` names the exception. No document at all, with
+   `Missing placeholder path` in `docker logs vss-alert-bridge`, means the
+   incident (or a real producer) lacks a field a prompt reads: the alert is
+   dropped before the VLM call and leaves nothing in the store.
 
    With no stream recording — a fresh build has no source — run steps 1 and 2
    and report that the end-to-end check was not run, and why. Do not register a
@@ -394,14 +410,18 @@ and the built-in parser cannot read a JSON reply, so every one of those alerts
 would land as `verification-failed`. Put each alert type's earlier prompt back
 with `PUT $AB/api/v1/verification/config/<alert_type>`:
 
-- its entry in `stored-configs.before.json`, unless that entry asks for a JSON
-  reply — a prompt from this or any earlier parser revision. On a fresh host
-  every saved entry does, because the build's file was seeded before the list
-  was saved, and a list first saved during a revision holds the earlier
-  revision's JSON prompts;
+- its entry in `stored-configs.before.json`, unless the file is absent (a
+  fresh host) or that entry asks for a JSON reply — a list first saved before
+  a revision holds the earlier revision's JSON prompts and `vlm_params`;
 - otherwise, for a stock alert type, its prompts and `vlm_params` (where the
   Foundation sets them) from the Foundation's `alert_type_config.json`; for an
   alert type you created, ask the user what it should be.
+
+For every alert type the build gave `vlm_params` (the example's `max_tokens`
+included), send `"vlm_params": null` first and then the restored values, if
+any; a `vlm_params` object is merged into the stored one, so the build's keys
+outlive a prompt-only `PUT`. Keep `patches/vlm-as-verifier/`, which holds
+`stored-configs.before.json`, until these `PUT`s are done.
 
 ## Not supported
 
