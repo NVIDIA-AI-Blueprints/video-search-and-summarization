@@ -43,6 +43,8 @@ export interface ChatMessage {
   id: string;
   role: ChatRole;
   content: string;
+  /** Parameters used for this user turn, retained for regeneration. */
+  params?: CustomAgentParamsValues;
   /** Validated UI artifacts rendered separately and excluded from agent history. */
   artifacts?: string[];
   /** Populated for assistant messages that reported tool activity. */

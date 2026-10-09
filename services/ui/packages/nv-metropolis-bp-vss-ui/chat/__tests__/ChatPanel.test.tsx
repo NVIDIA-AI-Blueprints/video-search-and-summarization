@@ -13,7 +13,7 @@ import React from 'react';
 
 import { ChatPanel } from '../lib-src/ChatPanel';
 import { VssUiArtifact } from '../lib-src/markdown/components';
-import { saveConversations } from '../lib-src/storage';
+import { loadConversations, saveConversations } from '../lib-src/storage';
 import { AGENT_RETRY_DELAY_MS } from '../lib-src/useChatStream';
 
 jest.mock('common', () => ({
@@ -959,6 +959,111 @@ describe('ChatPanel', () => {
     expect(sent).toContain('summarise');
     // Chips apply to one turn only.
     await waitFor(() => expect(screen.queryByText('Camera 3')).not.toBeInTheDocument());
+  });
+
+  it.each([
+    ['chat-sse', 'rtsp'],
+    ['chat-sse', 'video_file'],
+    ['agent-api', 'rtsp'],
+    ['agent-api', 'video_file'],
+  ] as const)('regenerates %s searches with the original %s parameters', async (transport, sourceType) => {
+    sessionStorage.removeItem('vss-chat-custom-agent-params');
+    const fetchMock = jest.fn().mockImplementation(async (url: string) => {
+      if (url.endsWith('/runs')) {
+        return {
+          ok: true,
+          json: async () => ({
+            run_id: 'run_1',
+            events_url: '/api/agent/runs/run_1/events',
+            cancel_url: '/api/agent/runs/run_1/cancel',
+          }),
+        };
+      }
+      return transport === 'agent-api'
+        ? sseResponse([agentApiFrame('run.completed', {}, 1)])
+        : sseResponse(['data: [DONE]\n\n']);
+    });
+    global.fetch = fetchMock as any;
+    const configuredEndpoint = {
+      url: transport === 'agent-api' ? '/api/agent' : endpoint.url,
+      transport,
+      conversationId: 'thread_1',
+      extraParams: { top_k: 5, search_source_type: 'video_file', use_critic: true },
+    };
+    const customAgentParamsJson = JSON.stringify({
+      params: [
+        {
+          name: 'search_source_type',
+          label: 'Search media source type',
+          type: 'select',
+          'default-value': 'video_file',
+          options: ['video_file', 'rtsp'],
+        },
+        { name: 'use_critic', label: 'Enable Critic', type: 'boolean', 'default-value': true },
+      ],
+    });
+    const { rerender } = render(
+      <ChatPanel endpoint={configuredEndpoint} features={noHeader} customAgentParamsJson={customAgentParamsJson} />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Agent parameters' }));
+    fireEvent.change(screen.getByLabelText('Search media source type'), { target: { value: sourceType } });
+    fireEvent.click(screen.getByRole('switch'));
+    await act(async () => typeAndSend('find forklifts'));
+
+    const requestBodies = () => fetchMock.mock.calls
+      .filter(([, init]) => init?.method === 'POST')
+      .map(([, init]) => JSON.parse(init.body));
+    const original = requestBodies()[0];
+    expect(transport === 'agent-api' ? original.metadata : original).toMatchObject({
+      search_source_type: sourceType,
+      use_critic: false,
+      top_k: 5,
+    });
+
+    // Changing controls and endpoint defaults should apply to future turns.
+    fireEvent.click(screen.getByRole('button', { name: 'Agent parameters' }));
+    fireEvent.change(screen.getByLabelText('Search media source type'), {
+      target: { value: sourceType === 'rtsp' ? 'video_file' : 'rtsp' },
+    });
+    fireEvent.click(screen.getByRole('switch'));
+    rerender(
+      <ChatPanel
+        endpoint={{ ...configuredEndpoint, extraParams: { ...configuredEndpoint.extraParams, top_k: 10 } }}
+        features={noHeader}
+        customAgentParamsJson={customAgentParamsJson}
+      />,
+    );
+
+    for (let repeat = 0; repeat < 2; repeat += 1) {
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Regenerate response' })));
+      expect(requestBodies()[repeat + 1]).toEqual(original);
+      expect(screen.getAllByTestId('chat-message-user')).toHaveLength(1);
+    }
+  });
+
+  it('regenerates a saved turn with its parameters after remounting', async () => {
+    const fetchMock = jest.fn().mockImplementation(async () => sseResponse(['data: [DONE]\n\n']));
+    global.fetch = fetchMock as any;
+    const originalParams = { search_source_type: 'rtsp', use_critic: false };
+    const { unmount } = render(
+      <ChatPanel endpoint={{ ...endpoint, extraParams: originalParams }} features={noHeader} />,
+    );
+    await act(async () => typeAndSend('find forklifts'));
+    unmount();
+
+    const saved = jest.mocked(saveConversations).mock.calls.at(-1)![0];
+    jest.mocked(loadConversations).mockResolvedValueOnce(saved);
+    render(
+      <ChatPanel
+        endpoint={{ ...endpoint, extraParams: { search_source_type: 'video_file', use_critic: true } }}
+        features={noHeader}
+      />,
+    );
+    await screen.findByTestId('chat-message-user');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Regenerate response' })));
+
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual(JSON.parse(fetchMock.mock.calls[0][1].body));
   });
 
   it('lets an embedder submit a message without the user typing', async () => {

@@ -184,10 +184,12 @@ export function useChatStream(
       const trimmed = body.trim();
       if (!trimmed || busyRef.current) return;
 
+      const requestParams = { ...(endpointRef.current.extraParams ?? {}), ...(params ?? {}) };
       const userMsg: ChatMessage = {
         id: nextId(),
         role: 'user',
         content: trimmed,
+        params: requestParams,
         hidden,
         uploadConversationId,
         timestamp: Date.now(),
@@ -305,10 +307,7 @@ export function useChatStream(
                 input: [{ role: 'user', content: trimmed }],
                 history: chatHistory ? history : [],
                 surface: agentEndpoint.surface ?? 'vss-ui',
-                metadata: {
-                  ...(agentEndpoint.extraParams ?? {}),
-                  ...(params ?? {}),
-                },
+                metadata: requestParams,
               }),
             });
             if (!createResponse.ok) {
@@ -403,8 +402,7 @@ export function useChatStream(
             body: JSON.stringify({
               // Custom params first so fixed fields win: a param named
               // `messages` must not shadow the turn.
-              ...(endpointRef.current.extraParams ?? {}),
-              ...(params ?? {}),
+              ...requestParams,
               messages: chatHistory
                 ? [...history, { role: 'user', content: trimmed }]
                 : [{ role: 'user', content: trimmed }],
