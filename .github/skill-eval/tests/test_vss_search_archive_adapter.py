@@ -150,6 +150,15 @@ def test_generated_deployment_instruction_allows_host_local_origin(
     assert "A pull still in progress does not complete this task" in instruction
 
 
+def test_operation_preamble_requires_missing_source_clarification() -> None:
+    preamble = _load_adapter().OPERATION_PREAMBLE
+    assert (
+        "end by asking the user to clarify the source or explicitly request ingestion"
+        in preamble
+    )
+    assert "not a request for setup confirmation" in preamble
+
+
 def test_peer_video_io_skill_resolves_across_categories() -> None:
     adapter = _load_adapter()
     resolved = adapter._peer_skill_dir(
@@ -164,7 +173,8 @@ def test_deploy_step_names_selector_inputs_without_undefined_variables() -> None
     step = _search_spec()["expects"][0]
     query = step["query"]
     assert "scripts/select_brev_origin.sh" in query
-    assert "exactly once" in query and "empty string" in query
+    assert "exactly once and whether or not a 7777 link was published" in query
+    assert "empty string when none" in query
     for undefined in ("PUBLIC_7777_ORIGIN", "${HOST_ORIGIN}", "ORIGIN_JSON"):
         assert undefined not in query
     assert "$HOST_IP:$HAPROXY_HOST_PORT" in query
@@ -186,6 +196,18 @@ def test_host_local_search_eval_bypasses_browser_only_brev_gates() -> None:
     branch = brev.split('<a id="host-local-search-eval"></a>', 1)[1].split(
         "## Setup flow", 1
     )[0]
+    flat = " ".join(branch.split())
+    assert (
+        "only when the caller explicitly authorizes a host-side Search Harbor eval"
+        in flat
+    )
+    assert (
+        "When the 7777 link is not published or the context is unreadable, skip the browser-only "
+        "secure-link overrides" in flat
+    )
+    assert "do not skip the browser-only" not in flat.lower()
+    assert "Resolve links from the context file only" in flat
+    assert "**always** run the selector" in flat
     assert "during preflight" in branch
     assert "skip the browser-only secure-link overrides" in branch
     assert "external browser verification" in branch
@@ -257,6 +279,43 @@ def test_build_skill_routes_agent_backed_source_registration_to_vios() -> None:
     )
 
 
+def test_deployment_reference_routes_every_build_through_vios_provisioning() -> None:
+    deployment = (
+        REPO_ROOT / "skills/vss-build-vision-ai/references/deployment.md"
+    ).read_text()
+    flat = " ".join(deployment.split())
+    assert "Confirm the build is headless" not in flat
+    assert "For both Agent-backed and headless builds" in flat
+    assert "provision-vios-source.md" in flat
+
+
+def test_main_bundles_video_io_skill_when_only_skill_dir_is_given(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "dataset"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(ADAPTER_PATH),
+            "--skill-dir",
+            str(REPO_ROOT / "skills/operations/vss-search-archive"),
+            "--output-dir",
+            str(out),
+            "--platform",
+            "RTXPRO6000BW",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    bundled = (
+        out / "search/rtxpro6000bw/step-2/skills/vss-manage-video-io-storage/SKILL.md"
+    )
+    assert bundled.is_file()
+
+
 def _generated_dataset(tmp_path: Path) -> Path:
     adapter = _load_adapter()
     spec = _search_spec()
@@ -302,12 +361,18 @@ def test_generated_instructions_do_not_supply_dispatcher_answers(
         ("ingest-search-fixtures", "backend-error", False),
         ("ingest-search-fixtures", "list-error", False),
         ("ingest-search-fixtures", "missing-raw", False),
+        ("ingest-search-fixtures", "embed-lag", False),
+        ("ingest-search-fixtures", "behavior-lag", False),
+        ("ingest-search-fixtures", "raw-lag", False),
         ("delete-search-fixture", "success", True),
         ("delete-search-fixture", "converge", True),
         ("delete-search-fixture", "source-present", False),
         ("delete-search-fixture", "nonconvergence", False),
         ("delete-search-fixture", "backend-error", False),
         ("delete-search-fixture", "list-error", False),
+        ("delete-search-fixture", "embed-lag", False),
+        ("delete-search-fixture", "behavior-lag", False),
+        ("delete-search-fixture", "raw-lag", False),
     ],
 )
 def test_generated_fixture_scripts_gate_the_judge(
@@ -333,8 +398,9 @@ def test_generated_fixture_scripts_gate_the_judge(
     import hashlib
 
     key = hashlib.sha256(b"https://vss.example\0test-run\0test-leg").hexdigest()
-    (state_root / key).mkdir()
-    (state_root / key / "ladder.uuid").write_text("ladder-uuid\n")
+    if scenario == "delete-search-fixture":
+        (state_root / key).mkdir()
+        (state_root / key / "ladder.uuid").write_text("ladder-uuid\n")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     stub = """#!/usr/bin/python3
@@ -373,7 +439,12 @@ else:
     counter = Path(os.environ['COUNT_FILE'])
     calls = int(counter.read_text()) if counter.exists() else 0
     counter.write_text(str(calls + 1))
-    ready = mode != 'nonconvergence' and (mode != 'converge' or calls >= 1)
+    lagging = {'embed-lag': 'mdx-embed', 'behavior-lag': 'mdx-behavior', 'raw-lag': 'mdx-raw'}.get(mode)
+    ready = (
+        mode != 'nonconvergence'
+        and (mode != 'converge' or calls >= 1)
+        and not (lagging and index.startswith(lagging))
+    )
     count = int(ready) if scenario == 'ingest-search-fixtures' else int(not ready)
     print(json.dumps({'count': count}))
 """

@@ -198,7 +198,7 @@ and the configured consumers have received it before reporting done.
 ```
 
 <Note>
-Provisioning writes through the deployment's own host ports rather than the public origin, so ingestion does not depend on the CLI being configured.
+Provisioning uses the origin `vss configure` recorded, so configure the CLI first.
 </Note>
 
 Before the CLI can search, it has to be pointed at the build's ingress, but this is not a step you need to run. The agent does it on the first query: it resolves the deployment's origin, runs `vss configure` against it, and repeats that after each ingestion, because the recorded index inventory is a snapshot and a freshly deployed stack records none.
@@ -235,7 +235,7 @@ Don't fetch screenshot pixels unless I opt in.
 What the agent does:
 
 1. Reads the [`vss-search-archive`](/vss/vision-agent/agent-skills) skill to determine the retrieval path.
-2. Confirms the source is registered in VIOS, and provisions it first if it is not.
+2. Confirms the source is registered in VIOS; if it is not, reports that and asks before ingesting.
 3. Chooses a retrieval route and runs it through `vss search run`, which takes no endpoint because the CLI resolves everything from what `vss configure` recorded. The four routes match the ones the chat interface selects between: `embed` for actions and events, `attribute` for visual descriptors, `fusion` for queries combining both, and `object` for identity lookup by tracked object id.
 4. Verifies the top results with the critic if the build includes RTVI-VLM. The CLI attempts this by default and skips it when the service is absent.
 5. Presents results as a table with time ranges, similarity scores, verification verdicts, and the per-criteria breakdown.

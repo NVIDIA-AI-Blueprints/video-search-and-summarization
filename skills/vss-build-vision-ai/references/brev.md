@@ -135,8 +135,8 @@ still requires the links in the profile table; a host-local eval result does
 not establish public browser access.
 
 Select this branch **during preflight**, only when the caller explicitly
-authorizes a host-side Search Harbor eval. When required published links are
-missing or the context is unreadable, skip the browser-only secure-link overrides
+authorizes a host-side Search Harbor eval. When the 7777 link is not published
+or the context is unreadable, skip the browser-only secure-link overrides
 in *Setup flow* and the external browser verification below. Keep the
 deployment's local `HOST_IP` / `EXTERNAL_IP` settings and their dependent-value
 closure from [`composition.md`](composition.md); do not replace them with an

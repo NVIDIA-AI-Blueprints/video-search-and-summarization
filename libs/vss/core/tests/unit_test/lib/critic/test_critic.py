@@ -161,6 +161,20 @@ class TestCriticVerdict:
         assert out.video_results[0].criteria_met == {"running": False}
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "vlm_text",
+        [
+            '{"result": "rejected", "criteria_met": {"subject:man": true, "blue shirt": true}}',
+            '{"result": " Rejected ", "subject:man": true}',
+        ],
+    )
+    async def test_explicit_rejected_with_all_true_criteria_is_unverified(self, vlm_text):
+        c = CriticAgent(vlm_analyzer=_FakeVLM(vlm_text), vst=_FakeVST())
+        out = await c.run(CriticAgentInput(query="q", videos=[_video()]))
+        assert out.video_results[0].result == CriticAgentResult.UNVERIFIED
+        assert all(out.video_results[0].criteria_met.values())
+
+    @pytest.mark.asyncio
     async def test_explicit_rejected_without_criteria_is_unverified(self):
         vlm = _FakeVLM('{"result": "rejected"}')
         c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())

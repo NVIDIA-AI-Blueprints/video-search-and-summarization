@@ -237,7 +237,7 @@ to its FQDN, and sets `BREV_ENV_ID` in `/etc/environment`. On a hit,
 its secure-link values are mandatory, and no LAN or public/elastic IP is offered
 as an option. For an explicitly authorized host-side Search Harbor eval,
 select [`the host-local eval branch`](brev.md#host-local-search-eval) during
-preflight when links are missing or unreadable: keep the deployment's local
+preflight when the 7777 link is not published or unreadable: keep the deployment's local
 host settings and skip the browser-only address selection below. Public links
 are not a prerequisite for that branch; local reachability and readiness still
 apply.

@@ -293,14 +293,14 @@ def _explicit_verdict(normalized: str, criteria: dict[str, bool]) -> CriticAgent
     """Map a VLM-reported ``result`` string to a verdict, or None if unrecognized.
 
     A self-reported verdict is honored only when the criteria back it up:
-    ``rejected`` with nothing to reject and ``confirmed`` with a failing
-    criterion both degrade to UNVERIFIED. An unrecognized string returns None
+    ``rejected`` needs at least one false criterion and ``confirmed`` needs
+    nonempty, all-true criteria; otherwise both degrade to UNVERIFIED. An unrecognized string returns None
     so the caller falls through to deriving the verdict from the criteria.
     """
     if normalized == CriticAgentResult.UNVERIFIED.value:
         return CriticAgentResult.UNVERIFIED
     if normalized == CriticAgentResult.REJECTED.value:
-        return CriticAgentResult.REJECTED if criteria else CriticAgentResult.UNVERIFIED
+        return CriticAgentResult.REJECTED if criteria and not all(criteria.values()) else CriticAgentResult.UNVERIFIED
     if normalized == CriticAgentResult.CONFIRMED.value:
         if criteria and all(criteria.values()):
             return CriticAgentResult.CONFIRMED
@@ -312,9 +312,9 @@ def _parse_criteria(vlm_text: str) -> tuple[CriticAgentResult, dict[str, bool]]:
     """Parse the VLM's JSON response into (verdict, criteria_met).
 
     On parse failure, returns (UNVERIFIED, {}). An explicit ``"result"`` verdict
-    (``confirmed`` / ``rejected`` / ``unverified``) is honored when present;
-    otherwise the verdict is derived from ``criteria_met`` — any criterion False
-    yields REJECTED, else CONFIRMED.
+    is honored only as ``_explicit_verdict`` allows; otherwise the verdict is
+    derived from ``criteria_met`` — any criterion False yields REJECTED, else
+    CONFIRMED.
     """
     try:
         payload = json.loads(_extract_json(vlm_text))
@@ -334,9 +334,7 @@ def _parse_criteria(vlm_text: str) -> tuple[CriticAgentResult, dict[str, bool]]:
             raise TypeError("criteria values must be JSON booleans")
         criteria = {str(k): value for k, value in raw_criteria.items()}
 
-        # Honor an explicit verdict for all three vocabulary values (not just the
-        # two negative ones) so a VLM that self-reports ``"confirmed"`` is trusted
-        # even when a stray criterion parses False.
+        # An explicit verdict is checked against the criteria by _explicit_verdict.
         if isinstance(explicit_result, str):
             explicit = _explicit_verdict(explicit_result.strip().lower(), criteria)
             if explicit is not None:

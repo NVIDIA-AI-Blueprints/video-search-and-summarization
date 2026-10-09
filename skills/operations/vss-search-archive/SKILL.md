@@ -179,7 +179,7 @@ invocation — the contract above is the whole invocation.
 **4. Interpret the result by exit status.**
 
 - Exit 0 — interpret `data` and `search_messages`.
-- Exit 6 — partial (a persistence stage after retrieval failed; a critic failure is exit 0 with `search_messages`): report hits only when the payload contains `data`, disclosing the supplied limitation. Without `data`, report the supplied failure; do not claim retrieval succeeded. Do not rerun or retry an individual stage.
+- Exit 6 — partial (usually a persistence stage after retrieval failed; a critic failure is exit 0 with `search_messages`): report hits only when the payload contains `data`, disclosing the supplied limitation. Without `data`, report the supplied failure; do not claim retrieval succeeded. Do not rerun or retry an individual stage.
 - Exit 2 — read `vss search run <path> --help` once; correct invalid flags or values only from that help, then stop if the corrected command fails.
 - Other nonzero — report the typed failure (3 backend unreachable, 4 configuration or missing service, 5 not found) and stop.
 
@@ -218,12 +218,14 @@ first turn. A media URL may be empty when VST is unavailable; when present it
 carries the scheme, host, and port of the origin `vss configure` recorded. Avoid
 a mandated heading or raw JSON dump, and keep the reply implementation-neutral
 — never expose a job ID, model or service name, deployment service address, CLI
-flag, or a raw `sensor_id`; say "visual verification" and report only its
+flag, or a raw `sensor_id`; say "visual verification" and report its
 verdict. The one exception: when the user asks which commands to run, show the
 commands.
 
-A media URL is returned data, not a service address: reproduce it whole rather
-than noting that one exists. Report criteria when present.
+A media URL is returned data, not a service address: reproduce it whole,
+including the source ID in its path; the `sensor_id` rule is about how you name
+the source in prose. Report each hit's verdict, and its `critic_result.criteria_met`
+when nonempty, without reading a verdict into the criteria.
 
 **6. Offer a Verification Step only when the whole set is unverified.** If and
 only if every displayed result in the nonempty set is `unverified`, offer a

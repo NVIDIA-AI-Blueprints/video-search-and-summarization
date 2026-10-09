@@ -21,7 +21,6 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING
 
-import pytest
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -210,6 +209,29 @@ vss() {
         ]
         assert ("Frame enrichment unavailable" in result.stderr) is not raw_present
 
+    # A raw index recorded on the first read needs no refresh at all.
+    calls = tmp_path / "already-recorded"
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            r"""set -euo pipefail
+vss() {
+  printf '%s\n' "$*" >> "$CALLS"
+  printf '{"base_url":"https://public.example","services":{"elasticsearch":{"indices":["mdx-raw-2026"]}}}\n'
+}
+"""
+            + recipe,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "CALLS": str(calls)},
+    )
+    assert result.returncode == 0, result.stderr
+    assert calls.read_text().splitlines() == ["configure show"]
+    assert "Frame enrichment unavailable" not in result.stderr
+
 
 def test_zero_candidates_may_not_be_reported_as_absence() -> None:
     """An empty result set is a fact about retrieval, not about the recording.
@@ -256,6 +278,10 @@ def test_search_handoff_resolves_bounded_clip_for_existing_ask_video(tmp_path: P
     assert "map_interval_to_timeline" in blocks[0]
     assert "vios clip --sensor" in blocks[0]
     assert "VST_API_BASE" not in blocks[0], "clip resolution is the CLI's job now"
+    # `vss vios clip` already normalises the URL onto the configured origin, so
+    # the recipe needs no config read and exports nothing but VIDEO_URL.
+    assert "configure show" not in blocks[0]
+    assert "VSS_PUBLIC_URL" not in blocks[0]
 
     # A stub `vss` on PATH with a `python` beside it, laid out like an installed
     # CLI's venv bin/: the recipe finds vss_core through the CLI's own
@@ -269,10 +295,6 @@ def test_search_handoff_resolves_bounded_clip_for_existing_ask_video(tmp_path: P
     stub.write_text(
         """#!/bin/sh
 case "$*" in
-  'configure show')
-    if [ "${CONFIG_FAIL:-0}" -ne 0 ]; then exit 4; fi
-    printf '%s\n' '{"base_url":"https://public.example"}'
-    ;;
   'vios timeline --sensor sensor-1')
     printf '%s\n' '{"recorded":true,"segments":[{"start_time":"2026-08-01T12:00:00.000Z","end_time":"2026-08-01T12:01:00.000Z"}]}'
     ;;
@@ -286,7 +308,6 @@ esac
     stub.chmod(0o755)
     script = (
         """set -euo pipefail
-unset VST_URL
 HIT_SENSOR_ID=sensor-1
 HIT_START=2025-01-01T00:00:00Z
 HIT_END=2025-01-01T00:00:10Z
@@ -294,7 +315,6 @@ HIT_END=2025-01-01T00:00:10Z
         + blocks[0]
         + """
 test "${VIDEO_URL}" = 'https://public.example/vst/storage/temp_files/clip.mp4?token=a'
-test "${VSS_PUBLIC_URL}" = 'https://public.example'
 """
     )
     subprocess.run(
@@ -304,15 +324,6 @@ test "${VSS_PUBLIC_URL}" = 'https://public.example'
         text=True,
         env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"},
     )
-    failed = subprocess.run(
-        ["bash", "-c", script],
-        check=False,
-        capture_output=True,
-        text=True,
-        env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "CONFIG_FAIL": "1"},
-    )
-    assert failed.returncode == 4
-    assert "Deployment configuration unavailable (exit 4)" in failed.stderr
 
 
 def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
@@ -438,7 +449,9 @@ def test_search_harbor_eval_has_roles_and_unrevealing_search_prompts(tmp_path: P
     # removes any incentive to repair/redeploy midway through source setup.
     assert "Do not ingest sample media in this step" in deployment_query
     assert "Download files here only for the NemoClaw fixture staging" in deployment_query
-    assert "initial workflow Compose activity was allowed" in _check_matching(deployment_checks, "select_brev_origin.sh")
+    assert "initial workflow Compose activity was allowed" in _check_matching(
+        deployment_checks, "select_brev_origin.sh"
+    )
     assert "already deployed, healthy, configured" in ingestion_query
     assert "invoking `/vss-build-vision-ai`" in ingestion_query
     assert "fail rather than running `docker compose`" in ingestion_query
@@ -460,11 +473,12 @@ def test_search_harbor_eval_has_roles_and_unrevealing_search_prompts(tmp_path: P
     # VST_EXTERNAL_URL drives the Agent-served path only: telling the agent to
     # edit it, or to recreate services, cannot change CLI media URLs at all.
     for step in (3, 4):
-        media_check = _check_matching(spec["expects"][step]["checks"], "media URL")
-        assert "origin recorded by `vss configure`" in media_check
-        assert "VST_EXTERNAL_URL" not in media_check
-    assert "same scheme, host, and effective port as the origin recorded by `vss configure`" in _check_matching(
-        spec["expects"][3]["checks"], "media URL"
+        media_checks = [check for check in spec["expects"][step]["checks"] if "media URL" in check]
+        assert any("origin recorded by `vss configure`" in check for check in media_checks)
+        assert not any("VST_EXTERNAL_URL" in check for check in media_checks)
+    assert any(
+        "same scheme, host, and effective port as the origin recorded by `vss configure`" in check
+        for check in spec["expects"][3]["checks"]
     )
 
     origin_check = _check_matching(deployment_checks, "select_brev_origin.sh")

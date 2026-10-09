@@ -16,8 +16,11 @@ answer, never a direct call to make up the lag.
 When the caller needs indexing or perception, inspect the notification policy
 actually mounted by the deployment for the corresponding `camera_streaming`
 receiver and its `camera_remove` partner. Compose selects the policy through
-`VST_NOTIFICATION_CONFIG_PATH`; Helm selects it through `notificationConfigFile`
-(for example, in `deploy/helm/developer-profiles/dev-profile-search/values.yaml`).
+`VST_NOTIFICATION_CONFIG_PATH`. Helm's default is `notificationConfigFile`, but
+`global.vios.notificationConfig` (or a per-subchart `notificationConfig`) replaces
+it, so read the rendered ConfigMap named by `sensorNotificationConfigMapName` (see
+`deploy/helm/developer-profiles/dev-profile-search/values.yaml`), not the values
+file alone.
 The resolved service set must include the receiver's consumer.
 [`vss-build-vision-ai`'s VIOS reference](../../../vss-build-vision-ai/references/services/vios.md)
 lists the receiver IDs. For search, check the RT-Embed, RT-CV, and RT-VLM
@@ -39,11 +42,15 @@ Record each required receiver as **enabled**, **absent**, or **unknown**:
 - **Unknown**: the mounted policy or resolved service set cannot be read or
   confirmed, as is common from a harness with only a published origin. Report
   that automatic fan-out cannot be confirmed; do not call it unavailable or
-  assume a receiver is absent. Register through VIOS, inspect available
-  ingestion readiness evidence, and do not start a manual tagging leg.
+  assume a receiver is absent. Register through VIOS, report that indexing
+  readiness cannot be confirmed, and do not start a manual tagging leg.
 
-A source registration alone does not prove searchable readiness. Do not use
-manual calls as a fallback for enabled or unknown receivers.
+A source registration alone does not prove searchable readiness. Indexing
+finishes asynchronously after registration, so a search issued right after
+`vss vios add` can return nothing. This skill has no index-readiness signal
+beyond `vss vios add` returning; say so in the reply instead of reporting zero
+candidates as a fact about the video, and search again later. Do not use manual
+calls as a fallback for enabled or unknown receivers.
 
 ## One registration; the deployment owns the fan-out
 
@@ -60,7 +67,7 @@ On SDRC-routed deployments (warehouse and LVS Docker profiles, all Helm
 profiles) the single-registration rule still holds: do **not** also register the
 source as an SDRC workload — SDRC auto-fan-in plus a second provisioning path
 provisions the same stream twice. Keep SDRC for VST recording/playback only.
-Webhook-driven builds run VIOS in direct mode, with no SDRC chain.
+Webhook-driven Compose builds run VIOS in direct mode, with no SDRC chain.
 
 The consumer set follows the build's resolved capabilities, not any profile.
 **VIOS is the mandatory base** — every build registers exactly one source. Which
@@ -141,7 +148,7 @@ live path, a read-back that doubles as the readiness gate.
 
 **Stored file (upload).** `vss vios add` stores the bytes, pins the timeline
 anchor at `2025-01-01T00:00:00.000Z` (see the date rule), and returns only once
-VIOS has indexed the recording — exit 7 if it never does, rather than a sensor
+VIOS has indexed the recording — exit 7 if it has not within its 60 s wait, rather than a sensor
 nothing can use. That wait **is** this origin's readiness gate:
 
 ```bash
@@ -150,8 +157,9 @@ vss vios add clip.mp4 --name site-a  # register under a name other than the file
 vss vios timeline --sensor <name>  # re-check a source registered earlier
 ```
 
-Exit 7 means the recording was stored but never became indexable: report it and
-confirm once with `vss vios list`; do not re-add the same file.
+Exit 7 means VIOS stored the file but had not indexed it within the CLI's 60 s
+wait; it may still finish. Re-check once with `vss vios timeline --sensor <name>`,
+and do not re-add the file.
 
 The equivalent raw call is
 `PUT /vst/api/v1/storage/file/<filename>?timestamp=…` without the wait

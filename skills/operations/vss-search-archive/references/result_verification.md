@@ -19,23 +19,10 @@ timeline through the CLI, and request only the hit interval. Quote each
 timestamp argument so its text is data rather than shell syntax:
 
 ```bash
-if CONFIG_JSON=$(vss configure show); then
-  CONFIG_STATUS=0
-else
-  CONFIG_STATUS=$?
-  echo "Deployment configuration unavailable (exit ${CONFIG_STATUS})" >&2
-  exit "${CONFIG_STATUS}"
-fi
-VST_URL=$(printf '%s' "${CONFIG_JSON}" |
-  jq -er '.base_url | select(type == "string" and length > 0)') || {
-  echo "Deployment configuration has no nonempty base_url" >&2
-  exit 1
-}
 : "${HIT_SENSOR_ID:?exact CLI sensor_id}"
 : "${HIT_START:?exact CLI start_time}"
 : "${HIT_END:?exact CLI end_time}"
 [[ "${HIT_SENSOR_ID}" =~ ^[A-Za-z0-9_-]+$ ]] || exit 1
-VSS_PUBLIC_URL="${VST_URL%/}"
 
 # The recorded timeline. `vios timeline` resolves the sensor and its main
 # stream itself, so there is no /sensor/<id>/streams call to make.
@@ -69,7 +56,7 @@ CLIP=$(vss vios clip --sensor "${HIT_SENSOR_ID}" \
   --start-time "${MAPPED_BOUNDS[0]}" --end-time "${MAPPED_BOUNDS[1]}") || exit 1
 VIDEO_URL=$(printf '%s' "${CLIP}" |
   jq -er '.media_url | select(type == "string" and length > 0)') || exit 1
-export VIDEO_URL VSS_PUBLIC_URL
+export VIDEO_URL
 ```
 
 The mapping preserves the exact search-hit duration, including intervals that
