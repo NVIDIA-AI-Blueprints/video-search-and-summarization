@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -71,8 +72,9 @@ RAW_COUNT_SLACK = 15
 #: A container duration a few ms past a chunk boundary (210.033 s) does not
 #: produce an extra chunk; 42 were written for that file, not 43.
 CHUNK_TAIL_S = 0.1
-#: Above this multiple of its target a count is flagged, not failed: the
-#: agent's duplicate-asset bug processes a file twice.
+#: Above this multiple of its target a count is flagged, not failed. Current
+#: RT-Embed and RT-VLM refuse a duplicate asset, so this should not fire; it
+#: is what would show a file processed twice if that guard ever regressed.
 OVER_TARGET_RATIO = 1.5
 
 POLL_TIMEOUT = 15
@@ -202,6 +204,9 @@ class VideoState:
         self.raw_last_ms: float | None = None
         self.cv_seen = False
         self.cv_listed = False
+        #: Which rule completed raw: ``rtcv_released``, ``rtcv_missing`` (RT-CV
+        #: never listed it, so frames alone decided) or ``existing``.
+        self.raw_check: str | None = None
 
     @property
     def cv_dropped(self) -> bool:
@@ -228,7 +233,7 @@ class VideoState:
             return "no VST sensor id, so its embedding and tag documents cannot be found"
         return None
 
-    def _cv_identities(self) -> set[str]:
+    def cv_identities(self) -> set[str]:
         v = self.video
         stem = v.name.rsplit(".", 1)[0]
         ids = {v.name, stem, v.video_name}
@@ -267,14 +272,14 @@ class VideoState:
                 self.done_at[index] = now
 
         if snap.cv_active is not None and v.uploaded_this_run:
-            self.cv_listed = bool(self._cv_identities() & snap.cv_active)
+            self.cv_listed = bool(self.cv_identities() & snap.cv_active)
             self.cv_seen |= self.cv_listed
 
         for index in ("embed", "tags"):
             if index in self.require:
                 self.index_done[index] = index in self.done_at
         if "raw" in self.require:
-            self.index_done["raw"] = self._raw_complete()
+            self.index_done["raw"] = self._raw_complete(now)
         if "behavior" in self.require:
             latest = self.latest_change()
             quiet = latest is None or now - latest >= self.quiet_s
@@ -288,9 +293,22 @@ class VideoState:
         target = self.targets["raw"]
         return target is None or self.counts.get("raw", 0) >= target
 
-    def _raw_complete(self) -> bool:
-        released = self.cv_dropped or not self.video.uploaded_this_run
-        return released and self._raw_last_frame_ok() and self._raw_count_ok()
+    def _raw_complete(self, now: float) -> bool:
+        if not (self._raw_last_frame_ok() and self._raw_count_ok()):
+            self.raw_check = None
+            return False
+        if not self.video.uploaded_this_run:
+            self.raw_check = "existing"
+        elif self.cv_dropped:
+            self.raw_check = "rtcv_released"
+        elif not self.cv_seen and now - self.last_change.get("raw", now) >= self.quiet_s:
+            # RT-CV can finish a short clip between two polls, and an
+            # un-listed stream is not evidence of anything still running.
+            # Frames complete and stable stand in, and the report says so.
+            self.raw_check = "rtcv_missing"
+        else:
+            self.raw_check = None
+        return self.raw_check is not None
 
     def per_index_done_s(self) -> dict[str, float | None]:
         """Seconds from upload start, per index. Empty for a skipped video."""
@@ -320,8 +338,10 @@ class VideoState:
                 out.append(line)
         if "raw" in self.require and not self.index_done.get("raw"):
             parts = []
-            if v.uploaded_this_run and not self.cv_seen:
+            if v.uploaded_this_run and not self.cv_seen and not self.counts.get("raw"):
                 parts.append("RT-CV never listed the stream")
+            elif v.uploaded_this_run and not self.cv_seen:
+                parts.append("RT-CV never listed the stream; waiting for frames to settle")
             elif self.cv_listed:
                 parts.append("RT-CV is still processing the stream")
             if not self._raw_last_frame_ok():
@@ -334,6 +354,18 @@ class VideoState:
                 out.append("behavior: waiting for raw")
             else:
                 out.append(f"behavior: counts still changing within the {self.quiet_s:g}s quiet window")
+        return out
+
+    def warnings(self) -> list[str]:
+        """Outcomes that pass but deserve a look in the summary."""
+        out = []
+        if "behavior" in self.require and self.counts.get("raw") and not self.counts.get("behavior"):
+            out.append(
+                "raw documents but no behavior documents (allowed: a video can have "
+                "no tracked objects, but the same video has produced them before)"
+            )
+        if self.raw_check == "rtcv_missing":
+            out.append("RT-CV never listed the stream; raw was accepted on complete, stable frames")
         return out
 
     def report(self, outcome: str) -> dict[str, Any]:
@@ -364,7 +396,9 @@ class VideoState:
             "targets": targets,
             "raw_last_s": self.raw_last_s if "raw" in self.require else None,
             "cv_seen": self.cv_seen if v.uploaded_this_run else None,
+            "raw_check": self.raw_check if "raw" in self.require else None,
             "over_target": over,
+            "warnings": self.warnings(),
             "outcome": outcome,
             "causes": [] if outcome == CONFIRMED else self.causes(),
         }
@@ -529,6 +563,208 @@ def stale_documents(
 # ---------------------------------------------------------------------------
 
 
+class IngestWatcher:
+    """Polls from before the first upload until every video is ingested.
+
+    Started before the upload loop and fed each video as its upload returns,
+    so nothing perception does between uploads is missed: a short clip that
+    RT-CV lists and drops while a later file is still uploading is remembered
+    as seen, and every video's timings start from its own upload rather than
+    from the end of the batch. :meth:`seal` says the set is complete; only
+    then can the run be confirmed, and only then does the deadline run.
+
+    Run :meth:`start` for a background thread, or call :meth:`wait` alone to
+    poll inline (what tests do, with a fake clock).
+    """
+
+    def __init__(
+        self,
+        ingress_url: str,
+        *,
+        require: Iterable[str] = DEFAULT_REQUIRE,
+        chunk_s: float = DEFAULT_CHUNK_S,
+        poll_s: float = DEFAULT_POLL_S,
+        quiet_s: float = DEFAULT_QUIET_S,
+        raw_end_tolerance_s: float = DEFAULT_RAW_END_TOLERANCE_S,
+        upload_timestamp: str = DEFAULT_UPLOAD_TIMESTAMP,
+        poll_fn: Callable[[list[ExpectedVideo]], Snapshot] | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] | None = None,
+        log: Callable[[str], None] = print,
+        progress_every: int = 10,
+    ) -> None:
+        self.require = frozenset(require)
+        unknown = self.require - DEFAULT_REQUIRE
+        if unknown:
+            raise ValueError(f"unknown ingest index(es): {sorted(unknown)}")
+        if "behavior" in self.require and "raw" not in self.require:
+            raise ValueError("'behavior' completion is defined relative to 'raw'; require both")
+        self.ingress_url = ingress_url
+        self.chunk_s = chunk_s
+        self.poll_s = poll_s
+        self.quiet_s = quiet_s
+        self.raw_end_tolerance_s = raw_end_tolerance_s
+        self.anchor_ms = anchor_epoch_ms(upload_timestamp)
+        self._poll_fn = poll_fn or (lambda videos: poll_ingest(ingress_url, videos, self.require))
+        self._clock = clock
+        self._stop = threading.Event()
+        self._sleep = sleep or self._stop.wait
+        self._log = log
+        self._progress_every = progress_every
+
+        self._lock = threading.Lock()
+        self._states: list[VideoState] = []
+        self._cv_ever: set[str] = set()
+        self._thread: threading.Thread | None = None
+        self._result: dict[str, Any] | None = None
+        self.started_at: float | None = None
+        self.sealed_at: float | None = None
+        self.deadline_s: float | None = None
+        self.polls = 0
+        self.poll_errors = 0
+        self.last_error: str | None = None
+
+    @property
+    def started(self) -> bool:
+        return self.started_at is not None
+
+    def add(self, video: ExpectedVideo) -> None:
+        state = VideoState(
+            video, require=self.require, chunk_s=self.chunk_s, quiet_s=self.quiet_s,
+            raw_end_tolerance_s=self.raw_end_tolerance_s, anchor_ms=self.anchor_ms,
+        )
+        with self._lock:
+            if video.uploaded_this_run and state.cv_identities() & self._cv_ever:
+                state.cv_seen = True
+            self._states.append(state)
+
+    def seal(self, deadline_s: float | None = None) -> None:
+        with self._lock:
+            if self.sealed_at is not None:
+                return
+            self.deadline_s = deadline_s if deadline_s is not None else default_deadline_s(
+                st.video for st in self._states
+            )
+            self.sealed_at = self._clock()
+
+    def start(self) -> None:
+        if self._thread is None:
+            self.started_at = self._clock()
+            self._thread = threading.Thread(target=self._run, name="ingest-watcher", daemon=True)
+            self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def wait(self, deadline_s: float | None = None) -> dict[str, Any]:
+        """Seal the set and block until confirmed, timed out or failed."""
+        self.seal(deadline_s)
+        if self._thread is not None:
+            self._thread.join()
+        else:
+            self._run()
+        assert self._result is not None
+        return self._result
+
+    def _run(self) -> None:
+        if self.started_at is None:
+            self.started_at = self._clock()
+        try:
+            while not self._stop.is_set():
+                result = self._step()
+                if result is not None:
+                    self._result = result
+                    return
+                self._sleep(self.poll_s)
+        except Exception as exc:  # noqa: BLE001
+            # A bug here must still end the wait with a reason, not hang it.
+            with self._lock:
+                reports = [st.report(FAILED) for st in self._states]
+            self._result = self._finish(FAILED, reports, self._clock(), error=f"{type(exc).__name__}: {exc}")
+        if self._result is None:
+            with self._lock:
+                reports = [st.report(TIMED_OUT) for st in self._states]
+            self._result = self._finish(TIMED_OUT, reports, self._clock(), error="stopped")
+
+    def _step(self) -> dict[str, Any] | None:
+        now = self._clock()
+        if self.started_at is None:
+            self.started_at = now
+        with self._lock:
+            videos = [st.video for st in self._states]
+            sealed = self.sealed_at is not None
+        if sealed:
+            failed = self._unverifiable_result(now)
+            if failed is not None:
+                return failed
+        try:
+            snap = self._poll_fn(videos)
+        except (requests.RequestException, ValueError) as exc:
+            self.poll_errors += 1
+            self.last_error = f"{type(exc).__name__}: {exc}"[:300]
+            self._log(f"  ingest poll failed ({self.last_error}); retrying")
+        else:
+            self.polls += 1
+            with self._lock:
+                if snap.cv_active:
+                    self._cv_ever |= snap.cv_active
+                for st in self._states:
+                    st.observe(snap, now)
+                if sealed:
+                    states = list(self._states)
+                    latest = max((t for st in states if (t := st.latest_change()) is not None), default=None)
+                    if all(st.done for st in states) and (latest is None or now - latest >= self.quiet_s):
+                        return self._finish(CONFIRMED, [st.report(CONFIRMED) for st in states], now)
+                    if self._progress_every and self.polls % self._progress_every == 1:
+                        self._log(_progress_line(states, now - self.sealed_at))
+        if sealed and now - self.sealed_at >= self.deadline_s:
+            with self._lock:
+                reports = [st.report(CONFIRMED if st.done else TIMED_OUT) for st in self._states]
+            return self._finish(TIMED_OUT, reports, now, error=self.last_error)
+        return None
+
+    def _unverifiable_result(self, now: float) -> dict[str, Any] | None:
+        with self._lock:
+            states = list(self._states)
+        unverifiable = {st.video.name: reason for st in states if (reason := st.unverifiable())}
+        if not unverifiable:
+            return None
+        reports = []
+        for st in states:
+            report = st.report(FAILED)
+            report["causes"] = [
+                unverifiable.get(st.video.name)
+                or "not polled: another video's completion cannot be decided"
+            ]
+            reports.append(report)
+        return self._finish(FAILED, reports, now, error="completion cannot be decided for some videos")
+
+    def _finish(
+        self, outcome: str, reports: list[dict[str, Any]], now: float, error: str | None = None,
+    ) -> dict[str, Any]:
+        result = {
+            "outcome": outcome,
+            "require": sorted(self.require),
+            "chunk_s": self.chunk_s,
+            "poll_interval_s": self.poll_s,
+            "quiet_s": self.quiet_s,
+            "deadline_s": self.deadline_s,
+            "raw_end_tolerance_s": self.raw_end_tolerance_s,
+            "behavior_check": "quiet_window" if "behavior" in self.require else None,
+            "ingress_url": self.ingress_url,
+            "polls": self.polls,
+            "poll_errors": self.poll_errors,
+            # From the last upload returning: how long querying was held back.
+            "waited_s": round(now - (self.sealed_at if self.sealed_at is not None else now), 3),
+            # From before the first upload: how long the poll log covers.
+            "polled_s": round(now - (self.started_at if self.started_at is not None else now), 3),
+            "per_video": reports,
+        }
+        if error:
+            result["error"] = error
+        return result
+
+
 def wait_for_ingest_complete(
     ingress_url: str,
     expected: list[ExpectedVideo],
@@ -546,81 +782,20 @@ def wait_for_ingest_complete(
     log: Callable[[str], None] = print,
     progress_every: int = 10,
 ) -> dict[str, Any]:
-    """Poll until every expected video is fully ingested, or the deadline passes.
+    """Poll inline until a known, complete set of videos is ingested.
 
     Returns the result rather than raising: the caller decides to abort, and
     the per-video report is what it aborts with.
     """
-    require = frozenset(require)
-    unknown = require - DEFAULT_REQUIRE
-    if unknown:
-        raise ValueError(f"unknown ingest index(es): {sorted(unknown)}")
-    if "behavior" in require and "raw" not in require:
-        raise ValueError("'behavior' completion is defined relative to 'raw'; require both")
-    if deadline_s is None:
-        deadline_s = default_deadline_s(expected)
-    anchor_ms = anchor_epoch_ms(upload_timestamp)
-    states = [
-        VideoState(
-            v, require=require, chunk_s=chunk_s, quiet_s=quiet_s,
-            raw_end_tolerance_s=raw_end_tolerance_s, anchor_ms=anchor_ms,
-        )
-        for v in expected
-    ]
-    if poll_fn is None:
-        def poll_fn() -> Snapshot:
-            return poll_ingest(ingress_url, expected, require)
-
-    settings = {
-        "require": sorted(require),
-        "chunk_s": chunk_s,
-        "poll_interval_s": poll_s,
-        "quiet_s": quiet_s,
-        "deadline_s": deadline_s,
-        "raw_end_tolerance_s": raw_end_tolerance_s,
-        "behavior_check": "quiet_window" if "behavior" in require else None,
-        "ingress_url": ingress_url,
-    }
-
-    unverifiable = {st.video.name: st.unverifiable() for st in states if st.unverifiable()}
-    if unverifiable:
-        reports = []
-        for st in states:
-            report = st.report(FAILED)
-            report["causes"] = [
-                unverifiable.get(st.video.name)
-                or "not polled: another video's completion cannot be decided"
-            ]
-            reports.append(report)
-        return _result(FAILED, reports, settings, polls=0, poll_errors=0, waited_s=0.0,
-                       error="completion cannot be decided for some videos")
-
-    started = clock()
-    polls = errors = 0
-    last_error: str | None = None
-    while True:
-        now = clock()
-        try:
-            snap = poll_fn()
-        except (requests.RequestException, ValueError) as exc:
-            errors += 1
-            last_error = f"{type(exc).__name__}: {exc}"[:300]
-            log(f"  ingest poll failed ({last_error}); retrying")
-        else:
-            polls += 1
-            for st in states:
-                st.observe(snap, now)
-            latest = max((t for st in states if (t := st.latest_change()) is not None), default=None)
-            if all(st.done for st in states) and (latest is None or now - latest >= quiet_s):
-                return _result(CONFIRMED, [st.report(CONFIRMED) for st in states], settings,
-                               polls=polls, poll_errors=errors, waited_s=now - started)
-            if progress_every and polls % progress_every == 1:
-                log(_progress_line(states, now - started))
-        if now - started >= deadline_s:
-            reports = [st.report(CONFIRMED if st.done else TIMED_OUT) for st in states]
-            return _result(TIMED_OUT, reports, settings, polls=polls, poll_errors=errors,
-                           waited_s=now - started, error=last_error)
-        sleep(poll_s)
+    watcher = IngestWatcher(
+        ingress_url, require=require, chunk_s=chunk_s, poll_s=poll_s, quiet_s=quiet_s,
+        raw_end_tolerance_s=raw_end_tolerance_s, upload_timestamp=upload_timestamp,
+        poll_fn=(lambda _videos: poll_fn()) if poll_fn else None,
+        clock=clock, sleep=sleep, log=log, progress_every=progress_every,
+    )
+    for video in expected:
+        watcher.add(video)
+    return watcher.wait(deadline_s)
 
 
 def _progress_line(states: list[VideoState], elapsed: float) -> str:
@@ -632,29 +807,6 @@ def _progress_line(states: list[VideoState], elapsed: float) -> str:
         )
         parts.append(f"{st.video.name}[{'done' if st.done else counts}]")
     return f"  {elapsed:6.1f}s  " + "  ".join(parts)
-
-
-def _result(
-    outcome: str,
-    reports: list[dict[str, Any]],
-    settings: dict[str, Any],
-    *,
-    polls: int,
-    poll_errors: int,
-    waited_s: float,
-    error: str | None = None,
-) -> dict[str, Any]:
-    result = {
-        "outcome": outcome,
-        **settings,
-        "polls": polls,
-        "poll_errors": poll_errors,
-        "waited_s": round(waited_s, 3),
-        "per_video": reports,
-    }
-    if error:
-        result["error"] = error
-    return result
 
 
 def format_ingest_failure(result: dict[str, Any]) -> str:
