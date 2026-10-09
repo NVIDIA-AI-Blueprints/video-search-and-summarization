@@ -39,6 +39,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StrictBool,
     field_validator,
 )
 
@@ -49,6 +50,7 @@ from realtime import (
     ResponseStatus,
     RuleStatus,
 )
+from realtime.schemas import InferenceMode, StreamingWindowFrames
 
 
 class RealtimeAlertRequest(BaseModel):
@@ -300,8 +302,8 @@ class RealtimeAlertRequest(BaseModel):
         description="RTVI: additional multimodal processor kwargs",
     )
     # Native StreamingVLM options — require an RTVI build with streaming
-    # session support; stock RTVI builds reject unknown values.
-    inference_mode: Optional[Literal["chunked", "streaming_vlm"]] = Field(
+    # session support; stock RTVI builds reject them.
+    inference_mode: Optional[InferenceMode] = Field(
         default=None,
         description=(
             "RTVI: inference strategy. 'chunked' sends independent per-chunk "
@@ -313,13 +315,11 @@ class RealtimeAlertRequest(BaseModel):
         default=None,
         description="RTVI: StreamingVLM frame policy (e.g. 'ordered')",
     )
-    streaming_window_frames: Optional[int] = Field(
+    streaming_window_frames: Optional[StreamingWindowFrames] = Field(
         default=None,
-        ge=1,
-        le=256,
         description="RTVI: decoded frames retained by the StreamingVLM session",
     )
-    streaming_question_on_decode: Optional[bool] = Field(
+    streaming_question_on_decode: Optional[StrictBool] = Field(
         default=None,
         description=(
             "RTVI: repeat the prompt on every StreamingVLM decode step instead "

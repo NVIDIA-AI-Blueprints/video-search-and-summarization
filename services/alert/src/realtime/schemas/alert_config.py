@@ -19,7 +19,17 @@ Typed configuration dataclass for real-time VLM alert rules.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, Literal, Optional, Tuple
+from typing import Annotated, Any, Dict, Literal, Optional, Tuple
+
+from pydantic import Field, StrictBool, StrictInt
+
+
+# StreamingVLM field types, shared with the REST schemas so the REST API and
+# the always-on YAML (generated from this dataclass) validate them alike.
+# The window has no upper bound here: RTVI enforces its own maximum. Strict
+# types, so `true` or "8" is rejected instead of quietly becoming 1 or 8.
+InferenceMode = Literal["chunked", "streaming_vlm"]
+StreamingWindowFrames = Annotated[StrictInt, Field(ge=1)]
 
 
 # Single source of truth for the optional RTVI VLM fields that are omitted
@@ -145,10 +155,10 @@ class AlertRuleConfig:
     # Native StreamingVLM options — only understood by RTVI builds that
     # ship the persistent streaming session. "streaming_vlm" keeps one
     # incremental VLM session per live stream instead of independent
-    # per-chunk requests.
-    inference_mode: Optional[Literal["chunked", "streaming_vlm"]] = None
+    # per-chunk requests. streaming_frame_policy is validated by RTVI.
+    inference_mode: Optional[InferenceMode] = None
     streaming_frame_policy: Optional[str] = None
-    streaming_window_frames: Optional[int] = None
+    streaming_window_frames: Optional[StreamingWindowFrames] = None
     # Repeat the prompt on every streaming step; by default the session only
     # sees it once, at session start.
-    streaming_question_on_decode: Optional[bool] = None
+    streaming_question_on_decode: Optional[StrictBool] = None
