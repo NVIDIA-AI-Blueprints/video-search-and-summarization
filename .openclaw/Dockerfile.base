@@ -197,17 +197,17 @@ RUN set -eux; \
     # vss plugin (and memory-core) actually load and zero skills are
     # discovered -- the two things base-config.py's tool policy promises --
     # rather than trusting that the deny list alone keeps that promise.
+    # The wait is generous because the multi-arch build runs the arm64 stage
+    # under QEMU, where the gateway starts ~7x slower than natively (amd64
+    # logs ready in ~3 s; 30 s was not enough on arm64). The loop exits as
+    # soon as the gateway is ready, so native builds are no slower. On a
+    # timeout the gateway log is printed, since nothing else shows why.
     su -s /bin/sh sandbox -c '\
       set -eu; cd /sandbox; export HOME=/sandbox; \
       ( openclaw gateway run --bind loopback --auth none --force --port 19001 \
           > /tmp/gateway-verify.log 2>&1 & echo $! > /tmp/gateway-verify.pid ); \
-      # 180s, not 30s: arm64 CI builds this under QEMU emulation (see
-      # build-dev-images.yml), where even `openclaw config validate` above
-      # alone takes ~25s -- a native amd64 boot finishes in a few seconds,
-      # but emulation is not a fixed multiple slower, so pad generously
-      # rather than tune to one observed run.
-      for i in $(seq 1 180); do grep -q "\[gateway\] ready" /tmp/gateway-verify.log && break; sleep 1; done; \
-      grep -q "\[gateway\] ready" /tmp/gateway-verify.log; \
+      for i in $(seq 1 300); do grep -q "\[gateway\] ready" /tmp/gateway-verify.log && break; sleep 1; done; \
+      grep -q "\[gateway\] ready" /tmp/gateway-verify.log || { cat /tmp/gateway-verify.log; exit 1; }; \
       grep -E "^\S+ \[gateway\] http server listening \([0-9]+ plugins: .*\bmemory-core\b.*\bvss\b.*\)" /tmp/gateway-verify.log \
         || grep -E "^\S+ \[gateway\] http server listening \([0-9]+ plugins: .*\bvss\b.*\bmemory-core\b.*\)" /tmp/gateway-verify.log; \
       if grep -q "skill selection unavailable" /tmp/gateway-verify.log; then exit 1; fi; \
