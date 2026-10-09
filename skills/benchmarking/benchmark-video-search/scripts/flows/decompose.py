@@ -63,6 +63,14 @@ PROMPT_SOURCE = "services/agent/packages/vss_agents/src/vss_agents/tools/search.
 TEMPERATURE = 0.0
 MAX_TOKENS = 4096
 
+#: The agent decomposes with reasoning off (``reasoning_utils``). Nemotron chat
+#: templates default ``enable_thinking`` to true, and a thinking reply is
+#: reasoning text -- or ``content: null`` -- rather than the JSON object.
+#: Templates that do not read the kwarg ignore it.
+CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
+
+_THINK_BLOCK = re.compile(r"<think>.*?(?:</think>|$)", re.DOTALL)
+
 _SYSTEM = (
     "You are a helpful assistant that extracts search parameters from natural "
     "language queries. Return only valid JSON."
@@ -93,8 +101,12 @@ def load_prompt(repo_root: Path) -> tuple[str, str]:
 
 
 def _strip_fences(text: str) -> str:
-    """Undo markdown fencing. Mirrors what ``decompose_query`` does upstream."""
-    stripped = text.strip()
+    """Undo markdown fencing. Mirrors what ``decompose_query`` does upstream.
+
+    A ``<think>`` block is dropped first, for servers that ignore
+    :data:`CHAT_TEMPLATE_KWARGS` and reason inline anyway.
+    """
+    stripped = _THINK_BLOCK.sub("", text).strip()
     if "```json" in stripped:
         return stripped.split("```json", 1)[1].split("```", 1)[0].strip()
     if "```" in stripped:
@@ -151,6 +163,7 @@ class LiveDecomposer:
             "llm_url": self._url,
             "model": self._model,
             "temperature": TEMPERATURE,
+            "chat_template_kwargs": CHAT_TEMPLATE_KWARGS,
             "prompt_source": PROMPT_SOURCE,
         }
 
@@ -167,6 +180,7 @@ class LiveDecomposer:
             "model": self._model,
             "temperature": TEMPERATURE,
             "max_tokens": MAX_TOKENS,
+            "chat_template_kwargs": CHAT_TEMPLATE_KWARGS,
             "messages": [
                 {"role": "system", "content": _SYSTEM},
                 {
@@ -185,10 +199,18 @@ class LiveDecomposer:
                 f"{self._url}/v1/chat/completions", json=body, timeout=self._timeout
             )
             resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
-        except (requests.RequestException, KeyError, IndexError, ValueError) as e:
+            message = resp.json()["choices"][0]["message"]
+            content = message["content"]
+        except (requests.RequestException, KeyError, IndexError, TypeError, ValueError) as e:
             raise DecompositionError(f"decomposition request failed for {query!r}: {e}") from e
         elapsed = time.perf_counter() - started
+        if not isinstance(content, str) or not content.strip():
+            reasoning = message.get("reasoning_content") or message.get("reasoning") or ""
+            raise DecompositionError(
+                f"decomposition for {query!r} returned no content"
+                + (f" (only reasoning: {str(reasoning)[:120]!r})" if reasoning else "")
+                + "; the model is in thinking mode despite enable_thinking=false."
+            )
 
         try:
             decomposition = json.loads(_strip_fences(content))

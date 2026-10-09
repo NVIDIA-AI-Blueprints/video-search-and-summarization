@@ -495,6 +495,46 @@ def test_live_decomposer_warns_when_model_discovery_is_ambiguous(monkeypatch: py
     assert decomposer.model == "first"
 
 
+def _decompose_with(monkeypatch: pytest.MonkeyPatch, message: dict[str, Any]) -> tuple[Any, list[dict[str, Any]]]:
+    sent: list[dict[str, Any]] = []
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {"choices": [{"message": message}]}
+
+    def fake_post(_url: str, *, json: dict[str, Any], **_kw: Any) -> _Response:
+        sent.append(json)
+        return _Response()
+
+    monkeypatch.setattr("flows.decompose.requests.post", fake_post)
+    decomposer = flows.LiveDecomposer("https://llm", repo_root=flows.REPO_ROOT, model="nvidia/nemotron-3-nano")
+    return decomposer, sent
+
+
+def test_decomposition_turns_thinking_off_like_the_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    decomposer, sent = _decompose_with(monkeypatch, {"content": '{"query": "forklift", "has_action": true}'})
+    decomposition, _ = decomposer.decompose("a forklift moving")
+    assert decomposition == {"query": "forklift", "has_action": True}
+    assert sent[0]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert decomposer.describe()["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_a_null_thinking_reply_is_a_decomposition_error_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nemotron in thinking mode put everything in reasoning_content and returned content: null."""
+    decomposer, _ = _decompose_with(monkeypatch, {"content": None, "reasoning_content": "Let me think..."})
+    with pytest.raises(flows.DecompositionError, match="no content.*Let me think"):
+        decomposer.decompose("a forklift moving")
+
+
+def test_an_inline_think_block_is_stripped_before_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
+    reply = '<think>\nThe user wants a forklift.\n</think>\n```json\n{"query": "forklift"}\n```'
+    decomposer, _ = _decompose_with(monkeypatch, {"content": reply})
+    assert decomposer.decompose("a forklift")[0] == {"query": "forklift"}
+
+
 def test_routing_rule_matches_the_four_cli_paths() -> None:
     """Derived from the paths' input models, not invented.
 
