@@ -352,6 +352,8 @@ Follow the [Auto Calibration workflow steps](/vss/system-components/calibration/
 
 Use [Export Image-Mode JSON](/vss/system-components/calibration/auto-calibration/workflow-steps#export-image-mode-json) to export ROIs and tripwires in pixel coordinates with `"calibrationType": "image"`.
 
+For image-coordinate calibration (`"calibrationType": "image"`) only, add ROIs or tripwires to the sensors that require them. If only one sensor needs an ROI or tripwire, annotate that sensor and proceed with the export. Sensors that need neither ROIs nor tripwires do not need to be included in the image-coordinate `calibration.json`. This omission applies only to image-coordinate calibration, not Cartesian calibration.
+
 ##### Cartesian coordinate calibration
 
 Export a Cartesian calibration with `"calibrationType": "cartesian"` to map camera image coordinates to a global coordinate system.
@@ -363,7 +365,7 @@ Bring the Docker Compose stack down after exporting the calibration. Save the ex
 <Note>
 - Maintain a single `calibration.json` file per deployment.
 - Each sensor name in `calibration.json` must match the corresponding `camera_name` in `camera_info.json` or the name of the corresponding video placed in `${VSS_DATA_DIR}/videos`.
-- For 2D profile use cases that require ROIs or tripwires, draw them for each camera view.
+- For 2D profile use cases that require ROIs or tripwires, draw them only in the camera views that need them.
 - Add new camera information following the schema defined in [Calibration Schema](/vss/system-components/calibration/calibration-schema).
 - The `imageMetadata` file needs to be generated manually.
 - Manually add any other attributes that are missing from the generated calibration file but are required for your use case.
