@@ -49,6 +49,7 @@ from pydantic import model_validator
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core._foundation.errors import ConfigurationError
 from vss_core._foundation.time import datetime_to_iso8601
+from vss_core._foundation.time_measure import TimeMeasure
 from vss_core.vios.client import map_interval_to_timeline
 
 if TYPE_CHECKING:
@@ -288,13 +289,32 @@ def _extract_json(text: str) -> str:
     return text
 
 
+def _explicit_verdict(normalized: str, criteria: dict[str, bool]) -> CriticAgentResult | None:
+    """Map a VLM-reported ``result`` string to a verdict, or None if unrecognized.
+
+    A self-reported verdict is honored only when the criteria back it up:
+    ``rejected`` needs at least one false criterion and ``confirmed`` needs
+    nonempty, all-true criteria; otherwise both degrade to UNVERIFIED. An unrecognized string returns None
+    so the caller falls through to deriving the verdict from the criteria.
+    """
+    if normalized == CriticAgentResult.UNVERIFIED.value:
+        return CriticAgentResult.UNVERIFIED
+    if normalized == CriticAgentResult.REJECTED.value:
+        return CriticAgentResult.REJECTED if criteria and not all(criteria.values()) else CriticAgentResult.UNVERIFIED
+    if normalized == CriticAgentResult.CONFIRMED.value:
+        if criteria and all(criteria.values()):
+            return CriticAgentResult.CONFIRMED
+        return CriticAgentResult.UNVERIFIED
+    return None
+
+
 def _parse_criteria(vlm_text: str) -> tuple[CriticAgentResult, dict[str, bool]]:
     """Parse the VLM's JSON response into (verdict, criteria_met).
 
     On parse failure, returns (UNVERIFIED, {}). An explicit ``"result"`` verdict
-    (``confirmed`` / ``rejected`` / ``unverified``) is honored when present;
-    otherwise the verdict is derived from ``criteria_met`` — any criterion False
-    yields REJECTED, else CONFIRMED.
+    is honored only as ``_explicit_verdict`` allows; otherwise the verdict is
+    derived from ``criteria_met`` — any criterion False yields REJECTED, else
+    CONFIRMED.
     """
     try:
         payload = json.loads(_extract_json(vlm_text))
@@ -314,19 +334,11 @@ def _parse_criteria(vlm_text: str) -> tuple[CriticAgentResult, dict[str, bool]]:
             raise TypeError("criteria values must be JSON booleans")
         criteria = {str(k): value for k, value in raw_criteria.items()}
 
-        # Honor an explicit verdict for all three vocabulary values (not just the
-        # two negative ones) so a VLM that self-reports ``"confirmed"`` is trusted
-        # even when a stray criterion parses False.
+        # An explicit verdict is checked against the criteria by _explicit_verdict.
         if isinstance(explicit_result, str):
-            normalized = explicit_result.strip().lower()
-            if normalized == CriticAgentResult.UNVERIFIED.value:
-                return CriticAgentResult.UNVERIFIED, criteria
-            if normalized == CriticAgentResult.REJECTED.value:
-                return CriticAgentResult.REJECTED, criteria
-            if normalized == CriticAgentResult.CONFIRMED.value and criteria and all(criteria.values()):
-                return CriticAgentResult.CONFIRMED, criteria
-            if normalized == CriticAgentResult.CONFIRMED.value:
-                return CriticAgentResult.UNVERIFIED, criteria
+            explicit = _explicit_verdict(explicit_result.strip().lower(), criteria)
+            if explicit is not None:
+                return explicit, criteria
 
         if not criteria:
             return CriticAgentResult.UNVERIFIED, {}
@@ -528,13 +540,14 @@ class CriticAgent:
                 async with semaphore:
                     # offset-time: convert ISO timestamps to seconds-since-stream-start
                     # using VST's timeline endpoint.
-                    stream_id = await self._vst.resolve_stream_id(video.sensor_id)
-                    if stream_id is None:
-                        raise BackendUnreachableError(
-                            "vst",
-                            f"stream_id resolution failed for sensor {video.sensor_id}",
-                        )
-                    clip_start_iso, clip_end_iso = await self._vst.get_timeline(stream_id)
+                    with TimeMeasure("critic: resolve VST timeline"):
+                        stream_id = await self._vst.resolve_stream_id(video.sensor_id)
+                        if stream_id is None:
+                            raise BackendUnreachableError(
+                                "vst",
+                                f"stream_id resolution failed for sensor {video.sensor_id}",
+                            )
+                        clip_start_iso, clip_end_iso = await self._vst.get_timeline(stream_id)
                     clip_start_dt = _parse_iso(clip_start_iso)
                     # File-search hits use a synthetic midnight-anchored date,
                     # while VST records the same file at ingestion wall-clock,

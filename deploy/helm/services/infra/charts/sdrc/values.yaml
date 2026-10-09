@@ -74,6 +74,8 @@ config:
   rolloutVersion: ""
 
 runtimeEnv:
+  # "redis" names this release's Redis and becomes <release>-redis when
+  # global.useReleaseNamePrefix is true; any other host is used as given.
   WDM_WL_REDIS_SERVER: redis
   WDM_WL_REDIS_PORT: "6379"
   OTEL_SDK_DISABLED: "true"

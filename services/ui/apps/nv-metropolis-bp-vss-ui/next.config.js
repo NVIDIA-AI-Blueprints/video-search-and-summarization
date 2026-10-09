@@ -12,6 +12,8 @@ const nextConfig = {
   // Next 16 writes AGENTS.md and CLAUDE.md here on every dev run; this repo
   // keeps its agent guidance at the root instead.
   agentRules: false,
+  // Dev assets are loaded from this hostname, not localhost.
+  allowedDevOrigins: ['akshaya-ubuntu-hq-vm'],
   // Transpile packages from source for hot reload during development
   transpilePackages: [
     'common',

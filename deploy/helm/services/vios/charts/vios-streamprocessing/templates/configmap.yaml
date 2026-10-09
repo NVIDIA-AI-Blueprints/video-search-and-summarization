@@ -38,6 +38,16 @@ data:
 {{- $rtviVlmAddr := .Values.rtviVlmServerAddress | default (printf "%s:8000" $rtviVlmH) }}
 {{- $elasticsearchAddr := .Values.elasticsearchServerAddress | default (printf "%s:9200" $esH) }}
 {{- $viosGlobal := index $g "vios" | default dict }}
+{{- $maxDevices := .Values.maxDevicesSupported | default (index $viosGlobal "maxDevicesSupported") | default 100 }}
+{{- /* VST rejects every new sensor once its count reaches max_devices_supported, and
+       `int` turns a typo such as "1000-devices" into 0 -- so refuse anything but a
+       positive integer, in the subchart value and the shared global alike. Empty
+       (the default) falls through to the global, then to 100. */}}
+{{- range $key, $value := dict "maxDevicesSupported" .Values.maxDevicesSupported "global.vios.maxDevicesSupported" (index $viosGlobal "maxDevicesSupported") }}
+{{- if and (not (kindIs "invalid" $value)) (ne (toString $value) "") (not (regexMatch "^[1-9][0-9]*$" (toString $value))) }}
+{{- fail (printf "%s must be a positive integer (VST max_devices_supported), got %q" $key (toString $value)) }}
+{{- end }}
+{{- end }}
 {{- $notificationConfig := .Values.notificationConfig | default (index $viosGlobal "notificationConfig" | default "") | default (.Files.Get "configs/notification_config.json") }}
 {{- if kindIs "map" $notificationConfig }}
 {{- $notificationConfig = $notificationConfig | toPrettyJson }}
@@ -68,7 +78,7 @@ data:
 {{- end }}
 {{- end }}
 {{- $downloadTimeout := int64 .Values.downloadFilesTimeoutSecs }}
-{{ .Files.Get "configs/vst_config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "__ANALYTICS_SERVER_ADDRESS__" $analyticsAddr | replace "__CALIBRATION_FILE_ENDPOINT__" $calibEp | replace "__FLOORMAP_IMAGE_ENDPOINT__" $floorEp | replace "\"__USE_SOFTWARE_PATH__\"" ($softwarePath | toString) | replace "\"__STATIC_TURNURL_LIST__\"" ($turnUrls | toJson) | replace "__3D_OVERLAY_SENSOR_NAME__" $overlaySensorName | replace "\"__DOWNLOAD_FILES_TIMEOUT_SECS__\"" ($downloadTimeout | toString) | indent 4 }}
+{{ .Files.Get "configs/vst_config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "\"__MAX_DEVICES_SUPPORTED__\"" (printf "%d" (int $maxDevices)) | replace "__ANALYTICS_SERVER_ADDRESS__" $analyticsAddr | replace "__CALIBRATION_FILE_ENDPOINT__" $calibEp | replace "__FLOORMAP_IMAGE_ENDPOINT__" $floorEp | replace "\"__USE_SOFTWARE_PATH__\"" ($softwarePath | toString) | replace "\"__STATIC_TURNURL_LIST__\"" ($turnUrls | toJson) | replace "__3D_OVERLAY_SENSOR_NAME__" $overlaySensorName | replace "\"__DOWNLOAD_FILES_TIMEOUT_SECS__\"" ($downloadTimeout | toString) | indent 4 }}
 {{- /* With an overlay ConfigMap (e.g. the Search profile's webhook config) the
        overlay is the ONLY source of notification_config.json: listing it here as
        well would put the same path in the pod's projected configs volume twice

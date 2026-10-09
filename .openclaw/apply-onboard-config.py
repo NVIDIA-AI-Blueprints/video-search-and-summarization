@@ -12,16 +12,16 @@ attestation allowlist forbids it), so it inherits the base image's config -- and
 every ARG the custom Dockerfile does not declare is dropped by a regex
 `String.replace` that matches nothing and reports nothing.
 
-The user-visible bug that comes from that silence is the model: the sandbox keeps
-the base image's model, context window and max tokens, so the agent caps output
-and compacts against the wrong model's limits. This script closes it -- the
-Dockerfile declares the ARGs, and this applies them to the inherited config at
-build, before the config hash is recomputed.
+The user-visible bug that comes from that silence is the model and endpoint:
+the sandbox keeps the base image's model, limits, and inference URL. This script
+applies the session's ARGs to the inherited config at build, before the config
+hash is recomputed.
 
 controlUi.allowedOrigins is always a wildcard: the gateway binds loopback, the
 gates are the token and (for a loopback UI host) device auth rather than the
 origin, and an origin derived from CHAT_UI_URL could miss
-the one the browser sends (onboard rewrites its port). CHAT_UI_URL only sets the
+the one the browser sends (onboard rewrites its port). CHAT_UI_URL selects the
+gateway's explicit unprivileged port and sets the
 auth flags: allowInsecureAuth is scheme == http; device auth is disabled for a
 non-loopback UI host. `config set` refuses gateway.*, so this is the only place
 to set them.
@@ -69,6 +69,21 @@ def apply(config: str | None = None, env: dict | None = None) -> list[str]:
         cfg = json.load(handle)
     changes: list[str] = []
 
+    endpoint = (env.get("NEMOCLAW_INFERENCE_BASE_URL") or "").strip()
+    parsed_endpoint = urlparse(endpoint)
+    if (
+        parsed_endpoint.scheme in ("http", "https")
+        and parsed_endpoint.hostname
+        and not parsed_endpoint.username
+        and not parsed_endpoint.password
+        and not parsed_endpoint.query
+        and not parsed_endpoint.fragment
+    ):
+        inference = cfg.setdefault("models", {}).setdefault("providers", {}).setdefault("inference", {})
+        if inference.get("baseUrl") != endpoint:
+            inference["baseUrl"] = endpoint
+            changes.append("inference.baseUrl -> onboard endpoint")
+
     # --- model identity: onboard supplies the session's model -----------------
     model = (env.get("NEMOCLAW_PRIMARY_MODEL_REF") or env.get("NEMOCLAW_MODEL") or "").strip()
     if model and len(model) <= 256 and not re.search(r"[\x00-\x1f\x7f]", model):
@@ -103,12 +118,29 @@ def apply(config: str | None = None, env: dict | None = None) -> list[str]:
                 del models[0][cfg_key]
                 changes.append(f"{cfg_key} dropped (baked for another model, none supplied)")
 
-    # --- control UI: any origin; onboard's CHAT_UI_URL sets the auth flags ---
-    current = cfg.setdefault("gateway", {}).setdefault("controlUi", {})
+    # --- control UI: onboard supplies the gateway port and auth flags --------
+    gateway = cfg.setdefault("gateway", {})
+    port = gateway.get("port") if isinstance(gateway.get("port"), int) else 18789
+    chat_ui_url = (env.get("CHAT_UI_URL") or "").strip()
+    # Onboard rewrites CHAT_UI_URL to its selected sandbox dashboard port.
+    # Persist it before the image's config hash is computed: NemoClaw's
+    # canonical warm-up and approval calls deliberately clear env overrides
+    # and must reach the same gateway as PID 1, including on custom ports.
+    try:
+        parsed_chat = urlparse(chat_ui_url)
+        selected_port = parsed_chat.port
+    except ValueError:
+        selected_port = None
+    if selected_port is not None and parsed_chat.scheme in ("http", "https") and parsed_chat.hostname and 1024 <= selected_port <= 65535:
+        if port != selected_port:
+            gateway["port"] = port = selected_port
+            changes.append(f"gateway.port -> {port}")
+    # Preserve develop's wildcard origins independently of the selected port.
+    current = gateway.setdefault("controlUi", {})
     if current.get("allowedOrigins") != ["*"]:
         changes.append(f"allowedOrigins {current.get('allowedOrigins')} -> ['*']")
         current["allowedOrigins"] = ["*"]
-    for key, value in (control_ui_auth((env.get("CHAT_UI_URL") or "").strip()) or {}).items():
+    for key, value in (control_ui_auth(chat_ui_url) or {}).items():
         if current.get(key) != value:
             changes.append(f"{key} {current.get(key)} -> {value}")
             current[key] = value

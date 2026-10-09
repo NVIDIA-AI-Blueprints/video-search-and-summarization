@@ -156,10 +156,17 @@ def test_full_onboard_arg_set(cfg):
     assert changes  # reported to the build log
 
 
+@pytest.mark.parametrize("endpoint", ["http://localhost:18410/v1", "https://inference.example.test/v1"])
+def test_custom_image_preserves_onboarded_inference_endpoint(cfg, endpoint):
+    # Configuration fixtures only: apply writes JSON and makes no request.
+    mod.apply(str(cfg), {"NEMOCLAW_INFERENCE_BASE_URL": endpoint})
+    assert read(cfg)["models"]["providers"]["inference"]["baseUrl"] == endpoint
+
+
 # --- how .openclaw/Dockerfile delivers the values to this script ---------------
 
 ONBOARD_ARGS = ("NEMOCLAW_PRIMARY_MODEL_REF", "NEMOCLAW_MODEL", "NEMOCLAW_CONTEXT_WINDOW",
-                "NEMOCLAW_MAX_TOKENS", "CHAT_UI_URL")
+                "NEMOCLAW_MAX_TOKENS", "CHAT_UI_URL", "NEMOCLAW_INFERENCE_BASE_URL")
 DOCKERFILE = (REPO_ROOT / ".openclaw" / "Dockerfile").read_text()
 
 
@@ -184,3 +191,19 @@ def test_every_value_reaches_this_script_as_a_file():
         assert re.search(rf'{name}="\$\(cat /etc/vss-onboard-args/{name}\)"', DOCKERFILE), (
             f"{name} is not read from /etc/vss-onboard-args/ into "
             "vss-apply-onboard-config — the base image's ENV would shadow it")
+
+
+@pytest.mark.parametrize("origin", ["http://127.0.0.1:22430", "https://chat.example.com:22430"])
+def test_custom_onboard_port_survives_cleared_runtime_overrides(cfg, origin):
+    changes = mod.apply(str(cfg), {"CHAT_UI_URL": origin})
+    d = read(cfg)
+    assert d["gateway"]["port"] == 22430
+    assert d["gateway"]["controlUi"]["allowedOrigins"] == ["*"]
+    assert "gateway.port -> 22430" in changes
+    assert mod.apply(str(cfg), {"CHAT_UI_URL": origin}) == []
+
+
+@pytest.mark.parametrize("origin", ["https://chat.example.com", "http://127.0.0.1:80", "https://chat.example.com:443"])
+def test_public_default_or_privileged_port_keeps_configured_gateway(cfg, origin):
+    mod.apply(str(cfg), {"CHAT_UI_URL": origin})
+    assert read(cfg)["gateway"]["port"] == 18789

@@ -466,7 +466,7 @@ jobs:
       - name: Video summarization contracts
         working-directory: ${{ github.workspace }}
         run: |
-          uv run --project services/agent pytest \
+          uv run --project services/agent --with requests pytest \
             .github/skill-eval/tests/test_generic_judge_trajectory_guidance.py \
             .github/skill-eval/tests/test_lvs_deployment_config.py \
             .github/skill-eval/tests/test_vss_summarize_eval_contract.py \
@@ -482,6 +482,8 @@ jobs:
             skills/vss-build-vision-ai/scripts/tests/test_container_tag_override.py \
             skills/vss-build-vision-ai/scripts/tests/test_script_help.py \
             skills/vss-build-vision-ai/scripts/tests/test_check_credentials_gate.py \
+            skills/benchmarking/benchmark-video-search/scripts/tests/test_search_eval_flows.py \
+            skills/benchmarking/vss-benchmark-vlm-qa/scripts/tests/test_benchmark_vlm_qa.py \
             -q
 
       - name: Skill eval harness contracts
@@ -491,18 +493,28 @@ jobs:
         run: |
           uvx --python 3.12 --from "pytest==9.1.1" pytest \
             .github/skill-eval/tests/test_adapter_agent_timeout.py \
+            .github/skill-eval/tests/test_vss_search_archive_adapter.py \
             .github/skill-eval/tests/test_eval_env_forwarding.py \
             .github/skill-eval/tests/test_leg_timing.py \
             .github/skill-eval/tests/test_leg_report.py \
+            .github/skill-eval/tests/test_local_nim.py \
+            .github/skill-eval/tests/test_model_config.py \
+            .github/skill-eval/tests/test_nemoclaw.py \
+            .github/skill-eval/tests/test_vss_ask_video_adapter.py \
             .github/skill-eval/tests/test_python_runtime_contract.py \
+            .github/skill-eval/tests/test_plan_matrix.py \
             .github/skill-eval/tests/test_skills_eval_agent_protocol.py \
             .github/skill-eval/envs/tests/test_cancellation_recovery.py \
+            .github/skill-eval/envs/tests/test_registered_node.py::PreparationRetries \
+            .github/skill-eval/envs/tests/test_registered_node.py::NemoClawNamespaceClaim \
             .github/skill-eval/tests/test_run_leg.py::HarborCommand \
+            .github/skill-eval/tests/test_run_leg.py::SparkSelection \
             .github/skill-eval/tests/test_run_leg.py::PhaseBudgets \
             .github/skill-eval/tests/test_run_leg.py::HarborEnvironment \
             .github/skill-eval/tests/test_run_leg.py::RunCommand \
             .github/skill-eval/tests/test_run_leg.py::ProcessGroupShutdown \
             .github/skill-eval/tests/test_run_leg.py::RunInvocations \
+            .github/skill-eval/tests/test_run_leg.py::GatewayAllocation \
             .github/skill-eval/tests/test_run_leg.py::TheHeartbeatNamesTheRightPhase \
             .github/skill-eval/tests/test_run_leg.py::InstrumentationNeverChangesTheVerdict \
             -q
@@ -971,6 +983,9 @@ jobs:
     timeout-minutes: 150
     env:
       COMPOSE_TIMEOUT: "1800"
+      # The integration stack already uses host networking for its builds.
+      # Keep Compose's direct builder: Bake requires a separate entitlement.
+      COMPOSE_BAKE: "false"
       BUILD_SERVICE_IMAGE: ${{ needs.prepare-source.outputs.build-behavior-analytics }}
       CURRENT_BEHAVIOR_ANALYTICS_IMAGE: ${{ needs.prepare-source.outputs.current-behavior-analytics-image }}
     defaults:
@@ -1020,6 +1035,8 @@ jobs:
     timeout-minutes: 150
     env:
       COMPOSE_TIMEOUT: "300"
+      # Match the behavior analytics stack's host-network build policy.
+      COMPOSE_BAKE: "false"
       BUILD_TIMEOUT: "600"
       NPM_CONFIG_AUDIT: "false"
       NPM_CONFIG_FUND: "false"

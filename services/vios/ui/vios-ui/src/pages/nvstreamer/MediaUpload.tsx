@@ -99,8 +99,8 @@ const MediaUpload = () => {
     const [bitrate, setBitrate] = useState('');
     const [keyframeInterval, setKeyframeInterval] = useState('');
     const [tags, setTags] = useState('');
-    const [enableChunkUpload, setEnableChunkUpload] = useState(false);
-    const [chunkSize, setChunkSize] = useState<number>(50);
+    const [enableChunkUpload, setEnableChunkUpload] = useState(true);
+    const [chunkSize, setChunkSize] = useState<number>(25);
     const [isDragging, setIsDragging] = useState(false);
     const [selectedSensor, setSelectedSensor] = useState<Sensor | null>(null);
     const [totalFiles, setTotalFiles] = useState<number>(0);
@@ -441,8 +441,10 @@ const MediaUpload = () => {
         fd.append('mediaFile', file.slice(start, start + chunkSizeBytes));
         fd.append('filename', file.name);
 
-        // Add metadata to the first chunk
-        if (chunkNumber === 1) {
+        // Include metadata on the first and final chunks. The backend handles
+        // each chunk as an independent request and only reads metadata when
+        // processing the last chunk, so it must be present there.
+        if (chunkNumber === 1 || isLastChunk) {
             fd.append('metadata', JSON.stringify(params.metadata));
         }
 

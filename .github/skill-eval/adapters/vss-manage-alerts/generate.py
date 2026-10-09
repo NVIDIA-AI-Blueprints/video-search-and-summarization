@@ -89,6 +89,12 @@ PLATFORMS: dict[str, dict] = {
         "min_vram_per_gpu": 96,
         "brev_search": "RTX PRO",
     },
+    "DGX-SPARK": {
+        "short_name": "spark",
+        "gpu_type": "GB10",
+        "min_vram_per_gpu": 96,
+        "brev_search": "GB10",
+    },
 }
 
 DEFAULT_PLATFORM = "L40S"

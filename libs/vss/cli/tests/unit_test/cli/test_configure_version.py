@@ -98,3 +98,28 @@ def test_an_unreportable_version_does_not_fail_the_check(monkeypatch: pytest.Mon
     result = _check(monkeypatch, _Response(404))
 
     assert result.exit_code == 0, result.output
+
+
+@pytest.mark.usefixtures("configured")
+def test_check_does_not_present_saved_inventory_as_live_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
+    deployment = config_mod.load()
+    config_mod.save(
+        config_mod.Deployment(
+            base_url=deployment.base_url,
+            services={
+                "elasticsearch": config_mod.Service(
+                    url="http://example/elasticsearch", indices=["mdx-embed-old", "mdx-raw-old"]
+                ),
+                "rt_vlm": config_mod.Service(url="http://example/rtvi-vlm", models=["stale-model"]),
+            },
+        )
+    )
+    monkeypatch.setattr(configure_mod, "_deployment_version", lambda *_: (None, "HTTP 404"))
+    result = CliRunner().invoke(configure_mod.configure, ["check"])
+
+    assert result.exit_code == 0, result.output
+    assert "elasticsearch" in result.output and "rt_vlm" in result.output
+    assert "HTTP 200" in result.output
+    assert "stale-model" not in result.output
+    assert "mdx-embed-old" not in result.output
+    assert "indices:" not in result.output

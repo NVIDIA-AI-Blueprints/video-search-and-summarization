@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import ValidationError
 import pytest
 
+from vss_core._foundation.time_measure import collect_timings
 from vss_core.search_core.agent_chunks import AgentMessageChunk
 from vss_core.search_core.agent_chunks import AgentMessageChunkType
 from vss_core.search_core.errors import BackendUnreachableError
@@ -31,6 +32,7 @@ from vss_core.search_core.models.search import SearchInput
 from vss_core.search_core.models.tag_search import TagSearchOutput
 from vss_core.search_core.models.tag_search import TagSearchResultItem
 from vss_core.search_core.primitives._search_helpers import execute_core_search_wrapper
+from vss_core.search_core.primitives.attribute_search import AttributeSearch
 from vss_core.search_core.primitives.search import Search
 from vss_core.search_core.primitives.search import _coerce_attribute_payload
 from vss_core.search_core.primitives.search import _coerce_embed_payload
@@ -179,10 +181,89 @@ async def _run(inp: SearchInput, **kwargs: Any) -> Any:
     return await execute_core_search_wrapper(search_input=inp, **kwargs)
 
 
+@pytest.mark.asyncio
+async def test_search_rrf_embeds_attributes_once_through_production_adapters() -> None:
+    """Exercise Search -> execute_core_search -> AttributeSearch, including ES vectors."""
+
+    class _VideoEmbed:
+        async def run(self, inp: Any) -> EmbedSearchOutput:
+            return _embed_output([_embed_item(video_name=f"v{i}", sensor_id=f"cam{i}") for i in range(3)])
+
+    class _AttributeEmbed:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def get_text_embedding(self, text: str) -> list[float]:
+            self.calls.append(text)
+            return [1.0, 0.0] if text == "red hat" else [0.0, 1.0]
+
+    class _BehaviorEs:
+        endpoint = "http://mock-es"
+
+        def __init__(self) -> None:
+            self.vectors: list[list[float]] = []
+
+        async def search(self, *, index: Any, body: Any = None, **_kwargs: Any) -> Any:
+            if body and "knn" in body:
+                self.vectors.append(body["knn"]["query_vector"])
+            return {"hits": {"hits": []}}
+
+    es = _BehaviorEs()
+    embed = _AttributeEmbed()
+    attribute = AttributeSearch(
+        es=es,  # type: ignore[arg-type]
+        embed=embed,  # type: ignore[arg-type]
+        behavior_index="behavior_index",
+        behavior_index_wildcard="mdx-behavior-*",
+        frames_index=None,
+        frames_index_wildcard="mdx-raw-*",
+        enable_frame_lookup=False,
+        default_max_results=10,
+        vst_external_url="",
+        vst_internal_url=None,
+    )
+    search = Search(
+        embed=_VideoEmbed(),  # type: ignore[arg-type]
+        attribute=attribute,
+        behavior_es=es,  # type: ignore[arg-type]
+        behavior_index="behavior_index",
+        fusion_method="rrf",
+        merge_adjacent=False,
+    )
+    out = await search.run(
+        SearchInput(query="red hat by a blue car", search_mode="fusion", attributes=[" red hat ", " ", "blue car"])
+    )
+    assert embed.calls == ["red hat", "blue car"]
+    assert es.vectors == [[1.0, 0.0], [0.0, 1.0]] * 3
+    assert {result.video_name for result in out.data} == {"v0", "v1", "v2"}
+
+
 # --------------------------------------------------------------------- tests
 
 
 class TestExecutionPaths:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("fusion_method", "attributes"),
+        [("rrf", []), ("rrf", ["white jacket"]), ("weighted_rrf", [])],
+        ids=["rrf-embed-only", "rrf-with-attributes", "weighted-rrf"],
+    )
+    async def test_fusion_score_combination_is_timed_once(self, fusion_method, attributes):
+        with collect_timings() as timings:
+            await _run(
+                SearchInput(
+                    query="person in white jacket",
+                    source_type="video_file",
+                    attributes=attributes,
+                    search_mode="fusion",
+                ),
+                embed_search=_FakeEmbed([_embed_output([_embed_item()])]),
+                attribute_search_fn=_FakeAttr([_attr_result()]),
+                config=_config(fusion_method=fusion_method),
+            )
+
+        assert timings["search: fusion score combination"]["calls"] == 1
+
     @pytest.mark.asyncio
     async def test_fusion_requires_tag_provider(self):
         with pytest.raises(ConfigurationError, match="tag_search must be pre-loaded"):
@@ -1013,6 +1094,23 @@ class TestTagOnlyDeploymentAndFusionWeights:
         )
         assert [r.video_name for r in out.data] == ["e1", "e2"]
         assert out.data[0].similarity == pytest.approx(1.0 / 61)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("attributes", [[], ["white jacket"]], ids=["no-attributes", "with-attributes"])
+    async def test_legacy_rrf_rejects_zero_weight_embedding_leg(self, attributes: list[str]) -> None:
+        # Legacy RRF uses embedding hits as its candidate pool and rank term,
+        # so it cannot honor w_embed=0 even when attribute lookup is active.
+        embed = _FakeEmbed([_embed_output([_embed_item()])])
+
+        with pytest.raises(InvalidInputError, match="embedding weight"):
+            await _run(
+                SearchInput(query="person", source_type="video_file", attributes=attributes, search_mode="fusion"),
+                embed_search=embed,
+                attribute_search_fn=_FakeAttr([_attr_result()]),
+                config=_config(fusion_method="rrf", w_tag=0, w_embed=0, w_attribute=1),
+            )
+
+        assert not embed.calls, "invalid fusion configuration must fail before retrieval"
 
     @pytest.mark.asyncio
     async def test_tag_mode_applies_top_percent_filter(self) -> None:
