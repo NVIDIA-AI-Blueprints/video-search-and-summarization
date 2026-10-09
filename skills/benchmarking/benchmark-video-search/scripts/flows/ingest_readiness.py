@@ -27,9 +27,14 @@ stream list for whether the frame pipeline has let go of the file.
 
     embed     count >= ceil(duration / chunk_s)                    deterministic
     tags      count >= the same chunk count                        as observed
-    raw       RT-CV listed then dropped the stream, last frame
-              >= end - tolerance, count >= frames - slack          deterministic
+    raw       RT-CV listed then dropped the stream, and the raw
+              count unchanged for quiet_s                          RT-CV's signal
     behavior  raw done and no count changed for quiet_s            heuristic
+
+RT-CV writes a raw document only for a frame with at least one detection, so
+on sparse footage the raw count is far below the frame count and the last
+document is the last detection, not the end of the video. Both are reported
+as coverage, never required.
 
 Indexing time is not recorded anywhere in the documents (``mdx-*`` carry the
 video's own timestamps), so every timing comes from this poll log and is late
@@ -63,12 +68,8 @@ DEFAULT_REQUIRE = frozenset(INGEST_INDEXES)
 DEFAULT_CHUNK_S = 5.0
 DEFAULT_POLL_S = 2.0
 DEFAULT_QUIET_S = 15.0
-DEFAULT_RAW_END_TOLERANCE_S = 1.0
 MIN_DEADLINE_S = 600.0
 
-#: Frames RT-CV may drop and still count as complete: 6,297/6,300 at 30 fps
-#: and 244/250 at 10 fps were observed on fully processed files.
-RAW_COUNT_SLACK = 15
 #: A container duration a few ms past a chunk boundary (210.033 s) does not
 #: produce an extra chunk; 42 were written for that file, not 43.
 CHUNK_TAIL_S = 0.1
@@ -149,10 +150,18 @@ def chunk_target(duration_s: float | None, chunk_s: float) -> int | None:
     return max(1, math.ceil((duration_s - CHUNK_TAIL_S) / chunk_s))
 
 
-def raw_count_target(duration_s: float | None, fps: float | None) -> int | None:
+def frame_count(duration_s: float | None, fps: float | None) -> int | None:
+    """Frames in the video: the most raw documents RT-CV can write for it."""
     if not duration_s or not fps:
         return None
-    return max(1, math.ceil(duration_s * fps) - RAW_COUNT_SLACK)
+    return max(1, math.ceil(duration_s * fps))
+
+
+def raw_coverage(count: int, frames: int | None) -> str:
+    """``18/381 frames (5%)``: raw documents against the frames they could cover."""
+    if not frames:
+        return f"{count} frame docs"
+    return f"{count}/{frames} frames ({100.0 * count / frames:.0f}%)"
 
 
 def timeline_duration_s(timeline: dict[str, Any]) -> float | None:
@@ -181,7 +190,6 @@ class VideoState:
         require: Iterable[str] = DEFAULT_REQUIRE,
         chunk_s: float = DEFAULT_CHUNK_S,
         quiet_s: float = DEFAULT_QUIET_S,
-        raw_end_tolerance_s: float = DEFAULT_RAW_END_TOLERANCE_S,
         anchor_ms: float | None = None,
     ) -> None:
         self.video = video
@@ -189,14 +197,14 @@ class VideoState:
         self.quiet_s = quiet_s
         self.anchor_ms = anchor_epoch_ms() if anchor_ms is None else anchor_ms
         chunks = chunk_target(video.duration_s, chunk_s)
+        #: ``raw`` is the frame count: reported as coverage, never required.
         self.targets: dict[str, int | None] = {
             "embed": chunks,
             "tags": chunks,
-            "raw": raw_count_target(video.duration_s, video.fps),
+            "raw": frame_count(video.duration_s, video.fps),
         }
-        self.raw_end_s = (
-            max(0.0, video.duration_s - raw_end_tolerance_s) if video.duration_s else None
-        )
+        self.first_observed: float | None = None
+        self.cv_dropped_at: float | None = None
         self.counts: dict[str, int] = {}
         self.last_change: dict[str, float] = {}
         self.done_at: dict[str, float] = {}
@@ -205,7 +213,7 @@ class VideoState:
         self.cv_seen = False
         self.cv_listed = False
         #: Which rule completed raw: ``rtcv_released``, ``rtcv_missing`` (RT-CV
-        #: never listed it, so frames alone decided) or ``existing``.
+        #: never listed it, so a stable non-zero count decided) or ``existing``.
         self.raw_check: str | None = None
 
     @property
@@ -243,6 +251,8 @@ class VideoState:
 
     def observe(self, snap: Snapshot, now: float) -> None:
         v = self.video
+        if self.first_observed is None:
+            self.first_observed = now
         seen: dict[str, int] = {}
         if "raw" in self.require:
             count, last_ms = snap.raw.get(v.name, (0, None))
@@ -274,6 +284,8 @@ class VideoState:
         if snap.cv_active is not None and v.uploaded_this_run:
             self.cv_listed = bool(self.cv_identities() & snap.cv_active)
             self.cv_seen |= self.cv_listed
+        if self.cv_dropped and self.cv_dropped_at is None:
+            self.cv_dropped_at = now
 
         for index in ("embed", "tags"):
             if index in self.require:
@@ -285,30 +297,35 @@ class VideoState:
             quiet = latest is None or now - latest >= self.quiet_s
             self.index_done["behavior"] = self.index_done.get("raw", True) and quiet
 
-    def _raw_last_frame_ok(self) -> bool:
-        last_s = self.raw_last_s
-        return last_s is not None and self.raw_end_s is not None and last_s >= self.raw_end_s
-
-    def _raw_count_ok(self) -> bool:
-        target = self.targets["raw"]
-        return target is None or self.counts.get("raw", 0) >= target
+    def _raw_quiet(self, now: float, *since: float | None) -> bool:
+        """The raw count has not changed for quiet_s since every given moment."""
+        moments = [t for t in (self.last_change.get("raw"), *since) if t is not None]
+        return not moments or now - max(moments) >= self.quiet_s
 
     def _raw_complete(self, now: float) -> bool:
-        if not (self._raw_last_frame_ok() and self._raw_count_ok()):
-            self.raw_check = None
-            return False
+        # The count and last frame cannot decide this: RT-CV writes a document
+        # only for a frame with a detection, so sparse footage never reaches
+        # the frame count or the end of the video.
+        count = self.counts.get("raw", 0)
         if not self.video.uploaded_this_run:
-            self.raw_check = "existing"
-        elif self.cv_dropped:
-            self.raw_check = "rtcv_released"
-        elif not self.cv_seen and now - self.last_change.get("raw", now) >= self.quiet_s:
-            # RT-CV can finish a short clip between two polls, and an
-            # un-listed stream is not evidence of anything still running.
-            # Frames complete and stable stand in, and the report says so.
-            self.raw_check = "rtcv_missing"
-        else:
+            ok = count > 0 and self._raw_quiet(now, self.first_observed)
+            self.raw_check = "existing" if ok else None
+        elif self.cv_listed:
             self.raw_check = None
+        elif self.cv_dropped:
+            # Logstash may still be flushing after RT-CV lets go.
+            self.raw_check = "rtcv_released" if self._raw_quiet(now, self.cv_dropped_at) else None
+        else:
+            # RT-CV can finish a short clip between two polls. A stable,
+            # non-zero count stands in; zero is indistinguishable from a
+            # webhook that never fired, so it stays undone.
+            ok = count > 0 and self._raw_quiet(now)
+            self.raw_check = "rtcv_missing" if ok else None
         return self.raw_check is not None
+
+    def raw_coverage(self) -> float | None:
+        frames = self.targets["raw"]
+        return round(self.counts.get("raw", 0) / frames, 3) if frames else None
 
     def per_index_done_s(self) -> dict[str, float | None]:
         """Seconds from upload start, per index. Empty for a skipped video."""
@@ -337,18 +354,22 @@ class VideoState:
                     line += " (no tag documents: index missing or empty -- drop 'tags' from --ingest-require if this profile has no RT-VLM)"
                 out.append(line)
         if "raw" in self.require and not self.index_done.get("raw"):
-            parts = []
-            if v.uploaded_this_run and not self.cv_seen and not self.counts.get("raw"):
-                parts.append("RT-CV never listed the stream")
-            elif v.uploaded_this_run and not self.cv_seen:
-                parts.append("RT-CV never listed the stream; waiting for frames to settle")
+            count = self.counts.get("raw", 0)
+            docs = f"{count} frame docs (frames with detections)"
+            settling = f"{docs}, still changing within the {self.quiet_s:g}s quiet window"
+            if not v.uploaded_this_run:
+                reason = settling if count else (
+                    "no frame docs, and the source was not uploaded this run, so nothing will write them"
+                )
             elif self.cv_listed:
-                parts.append("RT-CV is still processing the stream")
-            if not self._raw_last_frame_ok():
-                parts.append(f"last frame at {self.raw_last_s}s, needs >= {self.raw_end_s}s")
-            if not self._raw_count_ok():
-                parts.append(f"{self.counts.get('raw', 0)}/{self.targets['raw']} frames")
-            out.append(f"raw: {'; '.join(parts) or 'not complete'}")
+                reason = f"RT-CV is still processing the stream; {docs} so far"
+            elif self.cv_dropped:
+                reason = f"RT-CV released the stream; {settling}"
+            elif count:
+                reason = f"RT-CV never listed the stream; {settling}"
+            else:
+                reason = "RT-CV never listed the stream and no frame docs were written"
+            out.append(f"raw: {reason}")
         if "behavior" in self.require and not self.index_done.get("behavior"):
             if not self.index_done.get("raw", True):
                 out.append("behavior: waiting for raw")
@@ -365,7 +386,9 @@ class VideoState:
                 "no tracked objects, but the same video has produced them before)"
             )
         if self.raw_check == "rtcv_missing":
-            out.append("RT-CV never listed the stream; raw was accepted on complete, stable frames")
+            out.append("RT-CV never listed the stream; raw was accepted on a stable, non-zero count")
+        if self.raw_check == "rtcv_released" and not self.counts.get("raw"):
+            out.append("RT-CV processed the stream but wrote no frame docs (nothing detected)")
         return out
 
     def report(self, outcome: str) -> dict[str, Any]:
@@ -374,7 +397,8 @@ class VideoState:
         timed = [s for s in done_s.values() if s is not None]
         targets = {k: t for k, t in self.targets.items() if k in self.require}
         if "raw" in self.require:
-            targets["raw_last_s"] = self.raw_end_s
+            # The video's end, against which raw_last_s (the last detection) reads.
+            targets["raw_last_s"] = v.duration_s
         over = [
             k for k, t in self.targets.items()
             if k in self.require and t and self.counts.get(k, 0) > OVER_TARGET_RATIO * t
@@ -395,6 +419,7 @@ class VideoState:
             "counts": dict(self.counts),
             "targets": targets,
             "raw_last_s": self.raw_last_s if "raw" in self.require else None,
+            "raw_coverage": self.raw_coverage() if "raw" in self.require else None,
             "cv_seen": self.cv_seen if v.uploaded_this_run else None,
             "raw_check": self.raw_check if "raw" in self.require else None,
             "over_target": over,
@@ -585,7 +610,6 @@ class IngestWatcher:
         chunk_s: float = DEFAULT_CHUNK_S,
         poll_s: float = DEFAULT_POLL_S,
         quiet_s: float = DEFAULT_QUIET_S,
-        raw_end_tolerance_s: float = DEFAULT_RAW_END_TOLERANCE_S,
         upload_timestamp: str = DEFAULT_UPLOAD_TIMESTAMP,
         poll_fn: Callable[[list[ExpectedVideo]], Snapshot] | None = None,
         clock: Callable[[], float] = time.monotonic,
@@ -603,7 +627,6 @@ class IngestWatcher:
         self.chunk_s = chunk_s
         self.poll_s = poll_s
         self.quiet_s = quiet_s
-        self.raw_end_tolerance_s = raw_end_tolerance_s
         self.anchor_ms = anchor_epoch_ms(upload_timestamp)
         self._poll_fn = poll_fn or (lambda videos: poll_ingest(ingress_url, videos, self.require))
         self._clock = clock
@@ -631,7 +654,7 @@ class IngestWatcher:
     def add(self, video: ExpectedVideo) -> None:
         state = VideoState(
             video, require=self.require, chunk_s=self.chunk_s, quiet_s=self.quiet_s,
-            raw_end_tolerance_s=self.raw_end_tolerance_s, anchor_ms=self.anchor_ms,
+            anchor_ms=self.anchor_ms,
         )
         with self._lock:
             if video.uploaded_this_run and state.cv_identities() & self._cv_ever:
@@ -749,7 +772,7 @@ class IngestWatcher:
             "poll_interval_s": self.poll_s,
             "quiet_s": self.quiet_s,
             "deadline_s": self.deadline_s,
-            "raw_end_tolerance_s": self.raw_end_tolerance_s,
+            "raw_check": "rtcv_signal_and_quiet_window" if "raw" in self.require else None,
             "behavior_check": "quiet_window" if "behavior" in self.require else None,
             "ingress_url": self.ingress_url,
             "polls": self.polls,
@@ -774,7 +797,6 @@ def wait_for_ingest_complete(
     poll_s: float = DEFAULT_POLL_S,
     quiet_s: float = DEFAULT_QUIET_S,
     deadline_s: float | None = None,
-    raw_end_tolerance_s: float = DEFAULT_RAW_END_TOLERANCE_S,
     upload_timestamp: str = DEFAULT_UPLOAD_TIMESTAMP,
     poll_fn: Callable[[], Snapshot] | None = None,
     clock: Callable[[], float] = time.monotonic,
@@ -789,7 +811,7 @@ def wait_for_ingest_complete(
     """
     watcher = IngestWatcher(
         ingress_url, require=require, chunk_s=chunk_s, poll_s=poll_s, quiet_s=quiet_s,
-        raw_end_tolerance_s=raw_end_tolerance_s, upload_timestamp=upload_timestamp,
+        upload_timestamp=upload_timestamp,
         poll_fn=(lambda _videos: poll_fn()) if poll_fn else None,
         clock=clock, sleep=sleep, log=log, progress_every=progress_every,
     )
@@ -800,11 +822,15 @@ def wait_for_ingest_complete(
 
 def _progress_line(states: list[VideoState], elapsed: float) -> str:
     parts = []
+    def _count(st: VideoState, k: str) -> str:
+        if k == "raw":
+            return raw_coverage(st.counts.get(k, 0), st.targets["raw"])
+        if k == "behavior":
+            return str(st.counts.get(k, 0))
+        return f"{st.counts.get(k, 0)}/{st.targets.get(k)}"
+
     for st in states:
-        counts = " ".join(
-            f"{k}={st.counts.get(k, 0)}/{st.targets.get(k) if k != 'behavior' else '?'}"
-            for k in INGEST_INDEXES if k in st.require
-        )
+        counts = " ".join(f"{k}={_count(st, k)}" for k in INGEST_INDEXES if k in st.require)
         parts.append(f"{st.video.name}[{'done' if st.done else counts}]")
     return f"  {elapsed:6.1f}s  " + "  ".join(parts)
 
@@ -821,6 +847,7 @@ def format_ingest_failure(result: dict[str, Any]) -> str:
     for report in bad:
         targets = report.get("targets", {})
         counts = ", ".join(
+            f"raw {raw_coverage(report['counts'].get(k, 0), targets.get(k))}" if k == "raw" else
             f"{k} {report['counts'].get(k, 0)}" + (f"/{targets[k]}" if targets.get(k) is not None else "")
             for k in INGEST_INDEXES if k in targets or k in report.get("counts", {})
         )

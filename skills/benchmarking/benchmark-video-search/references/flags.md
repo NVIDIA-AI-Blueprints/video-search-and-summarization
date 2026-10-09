@@ -64,7 +64,6 @@ URLs, preflight skips -- and are described by `--help`:
 --skip-vss-configure     --vst-port             --vst-url
 --vss-origin-port        --vss-base-url         --ingress-url
 --ingest-poll-s          --ingest-deadline-s    --chunk-s
---raw-end-tolerance-s
 ```
 
 Reach for them when a default is wrong for your deployment, not routinely: each

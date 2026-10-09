@@ -109,9 +109,12 @@ Five defaults, each load-bearing:
   What `agent-3step` gave for free was proof: `/complete` returns
   `chunks_processed`, and a zero failed the upload. `vst-direct` has no such
   step, so an **ingest gate** replaces it: the runner reads Elasticsearch and
-  RT-CV through the `:7777` ingress until every video's embeddings, tags, raw
-  frames and behavior are complete against targets from its own duration and
-  frame rate, then queries. If any video is incomplete at the deadline it
+  RT-CV through the `:7777` ingress until every video is complete, then
+  queries. Embeddings and tags are checked against chunk targets from the
+  video's duration. Raw frames and behavior are done once RT-CV has released
+  the stream and the counts stop changing. RT-CV writes raw only for frames
+  with detections, so sparse footage legitimately ends far below its frame
+  count. If any video is incomplete at the deadline it
   aborts with each index's count against its target — it never queries a
   half-built index. One searchable hit arrives ~20 s after upload; RT-CV is
   still writing for minutes after that.
