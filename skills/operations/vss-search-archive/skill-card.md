@@ -1,94 +1,84 @@
 ## Description: <br>
+Use this skill when a user wants to search archived VSS video that is already registered in a configured deployment — by natural-language, similarity, attribute, object-ID, or lexical tag query; not for fresh clip Q&A, live captioning, video summarization, deployment, or source ingestion/deletion. <br>
 
-Use this skill to search archived VSS video that is already registered in a configured deployment — by natural-language, similarity, attribute, object-ID, or lexical tag query. <br>
-
-This skill is for demonstration purposes and not for production usage. <br>
+This skill is ready for commercial/non-commercial use. <br>
 
 ## Owner
-
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-
-Apache-2.0 <br>
-
+Apache 2.0 <br>
 ## Use Case: <br>
-
-Developers and engineers who need to search already-registered archived video content using natural-language, similarity, attribute, object-ID, or lexical tag queries. <br>
+Developers and operators of an NVIDIA Video Search and Summarization (VSS) deployment use this skill to have an agent search already-registered archived video through the `vss` CLI, using embed, attribute, fusion, object-ID, or tag retrieval, and report each hit with its interval, media URL, and visual-verification verdict. <br>
 
 ### Deployment Geography for Use: <br>
-
 Global <br>
 
 ## Requirements / Dependencies: <br>
-
-**Requires API Key or External Credential:** [Environment-dependent; No for ordinary local search] <br>
-**Credential Type(s):** [Deployment/operator credential when required] <br>
+**Requires API Key or External Credential:** [Not Specified] <br>
+**Credential Type(s):** [None identified] <br>
 
 Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
 
 ## Known Risks and Mitigations: <br>
-
 Risk: Review before execution as proposals could introduce incorrect or misleading guidance into skills. <br>
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
+- [vss search run reference](references/cli_usage.md) <br>
+- [Search-result verification](references/result_verification.md) <br>
+- [NVIDIA AI Blueprint: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
+- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 
-- [NVIDIA AI Blueprints: Video Search and Summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 ## Skill Output: <br>
-
-**Output Type(s):** [API Calls, Shell commands, Analysis] <br>
+**Output Type(s):** [Shell commands, Analysis] <br>
 **Output Format:** [Markdown with inline bash code blocks] <br>
 **Output Parameters:** [1D] <br>
-**Other Properties Related to Output:** [None] <br>
+**Other Properties Related to Output:** [Per-hit reports include source, bounded interval, retrieval score, media URL when present, and a confirmed/rejected/unverified visual-verification verdict.] <br>
 
 ## Evaluation Agents Used: <br>
+- Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`) <br>
+- Codex (`openai/openai/gpt-5.5`) <br>
 
-- claude-code <br>
-- codex <br>
+
 
 ## Evaluation Tasks: <br>
-
-Evaluated against 1 evaluation task in the NVSkills-Eval external profile (astra-sandbox environment). <br>
+18 evaluation tasks (14 positive, 4 negative), one attempt per task, each run in an isolated sandbox pod in the `k8s-sandbox` environment (evaluator version 1.5.6, evaluated 2026-10-09). <br>
 
 ## Evaluation Metrics Used: <br>
-
 Reported benchmark dimensions: <br>
-
-- Security: Checks whether skill-assisted execution avoids unsafe behavior such as secret leakage, destructive commands, or unauthorized access. <br>
-- Correctness: Checks whether the agent follows the expected workflow and produces the correct final output. <br>
-- Discoverability: Checks whether the agent loads the skill when relevant and avoids using it when irrelevant. <br>
-- Effectiveness: Checks whether the agent performs measurably better with the skill than without it. <br>
-- Efficiency: Checks whether the agent uses fewer tokens and avoids redundant work. <br>
+- Security: Is it safe to use? Scored from the `security` signal. <br>
+- Correctness: Is the answer correct? Scored from the `accuracy` signal. <br>
+- Discoverability: Was the right skill loaded when needed? Scored from the `skill_execution` signal. <br>
+- Effectiveness: Did the skill help complete the task? Equal-weight mean of `goal_accuracy` and `behavior_check`. <br>
+- Efficiency: Did it avoid wasted tool calls and token usage? Equal-weight mean of `skill_efficiency` and `token_efficiency`. <br>
 
 Underlying evaluation signals used in this run: <br>
+- `security`: Unsafe operations, secret leakage, and unauthorized access. <br>
+- `skill_execution`: Whether the expected skill was selected, decoys were avoided, and the workflow executed. <br>
+- `skill_efficiency`: Tool-call productivity (legacy wire id; routing is scored under Discoverability). <br>
+- `accuracy`: Final-answer correctness against the reference answer. <br>
+- `goal_accuracy`: Whether the user's goal was achieved. <br>
+- `behavior_check`: Whether the expected workflow behavior was followed. <br>
+- `token_efficiency`: Actual uncached prompt plus completion usage. <br>
 
-- `security`: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
-- `skill_execution`: Verifies that the agent loaded the expected skill and workflow. <br>
-- `skill_efficiency`: Checks routing quality, decoy avoidance, and redundant tool usage. <br>
-- `accuracy`: Grades final-answer correctness against the reference answer. <br>
-- `goal_accuracy`: Checks whether the overall user task completed successfully. <br>
-- `behavior_check`: Verifies expected behavior steps, including safety expectations. <br>
-- `token_efficiency`: Compares token usage with and without the skill. <br>
+
 
 ## Evaluation Results: <br>
-
-| Dimension | Num | `claude-code` | `codex` |
-| --- | ---: | ---: | ---: |
-| Security | 1 | 100% (+0%) | 100% (+0%) |
-| Correctness | 1 | 100% (+75%) | 71% (+47%) |
-| Discoverability | 1 | 88% (+62%) | 84% (+48%) |
-| Effectiveness | 1 | 62% (+38%) | 50% (+26%) |
-| Efficiency | 1 | 71% (+48%) | 83% (+47%) |
+| Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
+|---|---:|---:|
+| Overall | Not available | 66.2% — baseline ran, but no comparable score was available; uplift unavailable |
+| Security | Not available | 63.9% → 88.9% (+25.0 points) |
+| Correctness | Not available | 31.1% → 48.9% (+17.8 points) |
+| Discoverability | Not available | 76.4% — baseline ran, but no comparable score was available; uplift unavailable |
+| Effectiveness | Not available | 30.5% → 25.2% (-5.3 points) |
+| Efficiency | Not available | 91.8% — baseline ran, but no comparable score was available; uplift unavailable |
 
 ## Skill Version(s): <br>
-
-Current skill: 3.4.0. Published benchmark below: 3.3.0; it must not be treated
-as validation of the current operational workflow until rerun. <br>
+3.3.0-rc0 (source: frontmatter) <br>
 
 ## Ethical Considerations: <br>
-
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>
 
 (For Release on NVIDIA Platforms Only) <br>

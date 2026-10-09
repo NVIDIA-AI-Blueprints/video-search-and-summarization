@@ -1,5 +1,5 @@
 ## Description: <br>
-Answers questions about previously analyzed or freshly scoped VSS video by routing through conversation context, agent memory, VSS structured memory, introspection, or direct VLM inspection via the `vss` CLI. <br>
+Answers questions about previously analyzed or freshly scoped VSS video by routing through hot conversation context, agent Markdown notes, stored VSS memory (`vss memory get` / `vss memory query`), `vss memory introspect`, or an exact-window `vss vlm run`, using the `vss` CLI against a configured VSS deployment. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,13 +9,13 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache 2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to answer visual questions about VSS video streams, retrieve stored VSS memory jobs and records, run introspection queries against a deployed VSS stack, and perform direct VLM inspection of sensor windows, URLs, or local files. <br>
+Developers, operators, and agent users of an NVIDIA Video Search and Summarization (VSS) deployment use this skill to answer ad-hoc questions about recorded or analyzed video, read stored VSS memory jobs and records by id, run memory introspection, or perform a bounded visual inspection of a sensor window, URL, or local file. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
 
 ## Requirements / Dependencies: <br>
-**Requires API Key or External Credential:** [Yes] <br>
+**Requires API Key or External Credential:** [Optional] <br>
 **Credential Type(s):** [API key] <br>
 
 Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
@@ -25,16 +25,16 @@ Risk: Review before execution as proposals could introduce incorrect or misleadi
 Mitigation: Review and scan skill before deployment. <br>
 
 ## Reference(s): <br>
-- [NVIDIA AI Blueprint: Video Search and Summarization](https://build.nvidia.com/nvidia/video-search-and-summarization) <br>
-- [GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
-- [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [VSS CLI bootstrap and rules (AGENTS.md)](../../../AGENTS.md) <br>
+- [NVIDIA VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
+- [NVIDIA AI Blueprint: Video Search and Summarization (GitHub)](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 
 
 ## Skill Output: <br>
 **Output Type(s):** [Analysis, Shell commands] <br>
-**Output Format:** [Markdown with inline bash code blocks] <br>
+**Output Format:** [Natural-language answer in Markdown, grounded in JSON results from `vss` CLI commands, with cited job/record handles and exit codes] <br>
 **Output Parameters:** [1D] <br>
-**Other Properties Related to Output:** [None] <br>
+**Other Properties Related to Output:** [One `vss vlm run` per grounded scope; VLM sampling capped at 60 frames per window; failures reported with the CLI exit code rather than retried] <br>
 
 ## Evaluation Agents Used: <br>
 - Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`) <br>
@@ -43,36 +43,38 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-17 evaluation tasks (16 positive, 1 negative) from skill-evaluator-dataset-snapshot/1, each run in an isolated sandbox pod. <br>
+17 evaluation tasks (16 positive, 1 negative), one attempt per task, each in an isolated k8s sandbox pod, compared against a no-skill baseline (evaluator version 1.5.6, evaluated 2026-10-09). <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
-- Security: Whether the skill avoids unsafe operations, secret leakage, and unauthorized access. <br>
-- Correctness: Whether the final answer is correct against the reference answer. <br>
-- Discoverability: Whether the expected skill was selected, decoys were avoided, and the workflow executed. <br>
-- Effectiveness: Whether the skill helped complete the user's goal (goal completion and expected workflow adherence). <br>
-- Efficiency: Whether the skill avoided wasted tool calls and token usage. <br>
+- Security: Is it safe to use? Checks for unsafe operations, secret leakage, and unauthorized access. <br>
+- Correctness: Is the answer correct? Final-answer correctness against the reference answer. <br>
+- Discoverability: Was the right skill loaded when needed? <br>
+- Effectiveness: Did the skill help complete the task? Equal-weight mean of goal completion and expected workflow adherence. <br>
+- Efficiency: Did it avoid wasted tool calls and token usage? Equal-weight mean of tool-call productivity and token efficiency. <br>
 
 Underlying evaluation signals used in this run: <br>
-- `security`: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
-- `skill_execution`: Whether the expected skill was selected and the workflow executed. <br>
+- `security`: Unsafe operations, secret leakage, and unauthorized access. <br>
+- `skill_execution`: Whether the expected skill was selected, decoys were avoided, and the workflow executed. <br>
+- `skill_efficiency`: Tool-call productivity. <br>
 - `accuracy`: Final-answer correctness against the reference answer. <br>
 - `goal_accuracy`: Whether the user's goal was achieved. <br>
 - `behavior_check`: Whether the expected workflow behavior was followed. <br>
-- `skill_efficiency`: Tool-call productivity (routing scored under Discoverability). <br>
 - `token_efficiency`: Actual uncached prompt plus completion token usage. <br>
 
 
 
 ## Evaluation Results: <br>
-| Measure | Claude Code | Codex |
+| Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 87.4% | 86.1% |
-| Security | 94.1% | 100.0% |
-| Correctness | 94.1% | 78.8% |
-| Discoverability | 80.1% | 94.4% |
-| Effectiveness | 78.5% | 62.6% |
-| Efficiency | 90.4% | 94.6% |
+| Overall | 85.6% — uplift unavailable | 87.2% — uplift unavailable |
+| Security | 100.0% → 94.1% (-5.9 points) | 52.9% → 100.0% (+47.1 points) |
+| Correctness | 21.2% → 92.9% (+71.7 points) | 43.5% → 81.2% (+37.7 points) |
+| Discoverability | 79.7% — uplift unavailable | 94.4% — uplift unavailable |
+| Effectiveness | 36.3% → 71.8% (+35.5 points) | 46.0% → 63.7% (+17.7 points) |
+| Efficiency | 89.5% — uplift unavailable | 96.9% — uplift unavailable |
+
+Overall verdict: PASS — Recommended for publication.
 
 ## Skill Version(s): <br>
 3.3.0-rc0 (source: frontmatter) <br>
