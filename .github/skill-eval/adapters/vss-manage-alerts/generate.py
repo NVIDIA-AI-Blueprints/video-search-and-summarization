@@ -285,11 +285,20 @@ def generate_platform_mode(
                 "`LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` / `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL`.",
             ]
         else:
-            leading = [
-                f"Use the `/vss-manage-alerts` skill on this `{platform}` host.",
-                f"The VSS **alerts** profile is already deployed in **{mode_label}** mode "
-                f"with `{mode}` placement (deployed by step 1).",
-            ]
+            # A `skill-routing` step names neither a skill nor the alert mode:
+            # it grades which installed skill the agent picks and where it
+            # finds the records, as a user's question would leave it to.
+            if expect.get("scenario") == "skill-routing":
+                leading = [
+                    f"Answer with the VSS skills installed on this `{platform}` host.",
+                    "A VSS deployment is already running on it (deployed by step 1).",
+                ]
+            else:
+                leading = [
+                    f"Use the `/vss-manage-alerts` skill on this `{platform}` host.",
+                    f"The VSS **alerts** profile is already deployed in **{mode_label}** mode "
+                    f"with `{mode}` placement (deployed by step 1).",
+                ]
 
         instruction_lines = [
             PREAMBLE,
