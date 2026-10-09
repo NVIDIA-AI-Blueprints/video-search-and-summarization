@@ -1,0 +1,24 @@
+version: 2
+
+# SkillSpector suppression baseline for skills/operations/vss-search-archive.
+# Entries are scoped to one file and one matched-text pattern; line numbers are
+# not used, so doc edits do not invalidate them.
+
+rules:
+  # --- Reviewed scanner false positives (temporary) -------------------------
+  - id: "TM1"
+    path: "references/source_lifecycle.md"
+    message: "DELETE /api/v1/*"
+    reason: &tm1_rest >-
+      Reviewed false positive (temporary until the SkillSpector TM1 fix ships).
+      These are VSS agent REST routes for removing an ingested source
+      (DELETE /api/v1/videos/<id>, DELETE /api/v1/rtsp-streams/delete/<name>),
+      not file deletion commands. The skill resolves the exact id first and
+      refuses to delete an ambiguous source.
+
+  - id: "TM1"
+    path: "evals/search.json"
+    message: "DELETE /api/v1/*"
+    reason: *tm1_rest
+
+fingerprints: []
