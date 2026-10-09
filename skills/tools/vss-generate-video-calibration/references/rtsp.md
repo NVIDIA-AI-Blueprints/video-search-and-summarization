@@ -7,7 +7,7 @@ For local MP4s instead, see `videos.md`. For verifying the install with the bund
 ## Mode-specific Prerequisites
 
 - **AMC platform preflight passes** — Step 1 runs the deploy reference Step 0 first. The host used for calibration needs Ubuntu 24.04 on `x86_64`, NVIDIA Driver 590 or newer, NVIDIA GPU access, NVIDIA Container Toolkit, and NVENC support. If the preflight fails, stop before VIOS probing/capture and ask the user to provide existing calibration artifacts or run calibration on a supported `x86_64` dGPU host. DGX Spark is `aarch64`, so use existing/generated artifacts for this flow.
-- **VIOS is running and reachable** — Step 1 probes the default port `30888` first, then falls back to `VIOS_BASE_URL` from the MS container env / compose files. If none work, point the user at the ``vss-manage-video-io-storage`` (see `../../vss-manage-video-io-storage/SKILL.md`) skill, else ask them to deploy VIOS.
+- **VIOS is running and reachable** — Step 1 probes the default port `30888` first, then falls back to `VIOS_BASE_URL` from the MS container env / compose files. If none work, point the user at the [vss-manage-video-io-storage](../../../operations/vss-manage-video-io-storage/SKILL.md) skill, else ask them to deploy VIOS.
 - **MS knows where VIOS is** — `VIOS_BASE_URL` is set in the MS container's environment (auto-wired from `${VST_INTERNAL_URL}` under `bp_wh_*` blueprints; otherwise set explicitly in `deploy/docker/industry-profiles/warehouse-operations/generated.env`). Required at runtime; Step 1 only uses the 30888 probe to detect whether VIOS is up locally.
 - **RTSP URLs reachable from the VIOS host** — verify with the user before starting capture.
 
@@ -63,7 +63,7 @@ fi
 ### Required
 1. **RTSP URLs** — one per camera. Example: `rtsp://<nvstreamer-host>:31556/stream/cam_00.mp4` or `rtsp://user:pass@<cam-ip>:554/stream`.
 2. **Camera names** — short label per stream (used as `camera_name` in the capture request), e.g. `cam_00`, `cam_01`, …
-3. **Duration seconds** — recording window (minimum `60`). Pick at least 2–3 min of moving objects for decent calibration.
+3. **Duration seconds** — recording window between `60` and `1200`. For tracklet-based AMC, prefer at least five minutes with moving people; see [Custom Dataset](../../../../docs/autocalib-custom-dataset.mdx).
 4. **Microservice URL** — e.g. `http://<HOST_IP>:8010`.
 5. **Project name** — short descriptive string.
 
@@ -96,6 +96,8 @@ For nvstreamer setup details and sensor pre-registration, see your VIOS deployme
 Before capture, allocate an AMC project using [`common-steps.md`](common-steps.md#create-project). The RTSP capture request uses that `project_id`.
 
 ## Step 4 Start RTSP Capture
+
+Submit all cameras in one capture request for a synchronized recording window, in overlapping-FOV order. Use the source camera or NVStreamer RTSP URLs, not VIOS proxy URLs.
 
 ```
 POST /v1/rtsp/capture/<project_id>
@@ -131,7 +133,7 @@ GET /v1/rtsp/capture/<project_id>/<session_id>
 
 AMC ingests recorded clips automatically. Do not call a separate ingest endpoint; once `INGESTED`, the project has the clips attached.
 
-**Need to stop early?** `POST /v1/rtsp/capture/<project_id>/<session_id>/stop` — the partial clip can still be ingested.
+**Need to stop early?** After at least 60 seconds in `RECORDING`, call `POST /v1/rtsp/capture/<project_id>/<session_id>/stop`; continue polling through `INGESTED` before using the clips.
 
 **Other session endpoints:**
 - `GET /v1/rtsp/sessions/<project_id>` — list all sessions for a project.
@@ -322,7 +324,7 @@ if FOCAL_LENGTHS:
 
 | Issue | Fix |
 |---|---|
-| VIOS `/vst/api/v1/sensor/list` returns connection refused | VIOS isn't running. Look for the ``vss-manage-video-io-storage`` (see `../../vss-manage-video-io-storage/SKILL.md`) skill; if none, ask user to deploy VIOS and retry. |
+| VIOS `/vst/api/v1/sensor/list` returns connection refused | VIOS isn't running. Use [vss-manage-video-io-storage](../../../operations/vss-manage-video-io-storage/SKILL.md), or ask the user to deploy VIOS and retry. |
 | Capture endpoint returns 503 / "VIOS not configured" | `VIOS_BASE_URL` not set in MS container env. Either deploy alongside a `bp_wh_*` blueprint (which auto-wires it), or set it in `deploy/docker/industry-profiles/warehouse-operations/generated.env` and re-run `docker compose --env-file ... up -d` from `deploy/docker/`. |
 | Session stuck in `STARTING` | VIOS received the request but sensors aren't online. Check `curl ${VIOS_BASE_URL}/vst/api/v1/sensor/list` — look for `status: "online"`. Wait 20–30 s after any `sensor-ms` restart. |
 | Session stuck in `RECORDING` past `duration_seconds` | VIOS timer still running; call `POST /v1/rtsp/capture/<pid>/<sid>/stop` to end early. |

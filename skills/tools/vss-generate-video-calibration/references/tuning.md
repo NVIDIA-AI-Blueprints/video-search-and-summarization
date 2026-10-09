@@ -18,7 +18,7 @@ For an explicit request such as "tune configs", "tune calibration", "optimize se
 - Do not ask the user to choose `resnet`, `transformer`, or whether to include VGGT.
 - Run both supported AMC detector baselines by default.
 - For eligible multi-camera projects, run VGGT in every attempt project. VGGT does not consume an AMC attempt.
-- State the bounded plan and expected runtime as a progress update without pausing for confirmation.
+- Before starting, state the bounded plan and explain that up to five AMC attempts plus VGGT and post-processing per eligible attempt can take several hours. Runtime depends on clip duration, camera count, detector, settings, and hardware. Refine the remaining-time estimate after the baseline; an estimate is not a timeout. Respect any user-specified time budget without asking again to approve the default plan.
 
 Without GT, the two detector baselines are not normally enough to finish tuning. Run at least one safe, evidence-driven follow-up after them when the logs and artifacts support a documented change. Continue through attempt 5 while safe, meaningful changes remain.
 
@@ -34,10 +34,10 @@ Never submit a sixth AMC attempt without asking the user.
 
 1. Run the shared platform preflight and probe the configured `/v1/ready` endpoint and UI root. Reuse a healthy stack. If the stack is unavailable, follow `references/deploy-auto-calibration-service.md` before discussing calibration inputs.
 2. For multi-camera tuning, require VGGT support in the running service. Explicit tuning counts as a request for VGGT when following the deployment reference. Resolve `MODEL_MISSING` through its safe VGGT setup flow rather than silently switching to AMC-only tuning. VGGT is not available for single-camera input; record that and continue with AMC.
-3. Discover the running schema at `/openapi.yaml`, then `/openapi.json`; use `/docs` or service logs only if neither schema endpoint works.
+3. Discover the running schema at `/openapi.yaml` on the service root (without `/v1`); use `/docs` or service logs if it is unavailable. Do not guess API paths or payloads when the contract cannot be established.
 4. Fetch `GET /v1/config/defaults` and retain the complete runtime `config_params` object as the attempt-1 baseline.
 5. Resolve and freeze:
-   - sorted, synchronized videos and camera order;
+   - synchronized videos in confirmed overlapping-FOV order, consistent with the alignment data;
    - `layout.png` and exact `layout_px_per_m`;
    - alignment data and its coordinate space;
    - focal lengths, when provided;
@@ -51,6 +51,14 @@ If `layout_px_per_m` is unknown, create attempt 1, upload its videos and layout,
 If alignment is missing, finish media preparation, then direct the user to UI Step 5 to create and save it against the staged rectified frames. Freeze and reuse the saved alignment. External alignment made on original videos uses `coord_space=original`; UI alignment made on rectified frames uses `coord_space=rectified`.
 
 Use the same videos, layout, scale, alignment, camera order, focal lengths, GT, and media preparation for every attempt. Changing any of them silently invalidates the comparison.
+
+## Configuration Isolation
+
+`GET /v1/config` returns mutable service-wide settings, even though settings are submitted through `POST /v1/config/<project_id>`. It is a snapshot of the current service configuration, not a readback of settings committed to a particular project.
+
+Reserve the backend for the tuning session before applying settings. No other UI session, API client, or agent may change configuration or start workloads on that backend during the session. Viewing results and logs is safe. If exclusive use cannot be established, pause tuning or use a separate backend; separate project IDs do not isolate global configuration.
+
+Keep the complete submitted `config.json` for each attempt. Under exclusive use, compare the service-wide snapshot immediately after applying settings and immediately before calibration submission. On a mismatch, pause and resolve the interference before continuing. Preserve the project's generated configuration under `output/config_AutoMagicCalib/` when available and compare its effective tunable values with the intended configuration. A current global snapshot cannot establish what a completed run used; exclude a run from configuration comparisons if its settings cannot be attributed reliably.
 
 ## Reuse a Normal Project
 
@@ -128,15 +136,15 @@ Use the API paths exposed by the running schema. `<MS_URL>` below includes the `
 1. Create the canonical project and upload the frozen assets using the applicable input-mode reference.
 2. For confirmed-linear media, call `POST <MS_URL>/linear_media/<project_id>`. Otherwise complete Rectification through the UI or running rectification API. Poll project/rectification state and require `rectification_state == COMPLETED`.
 3. Build the complete attempt configuration from runtime defaults, the frozen `layout_px_per_m`, explicit dataset-required overrides, and only this attempt's intentional delta. Save that exact JSON as `config.json`.
-4. Apply it with `POST <MS_URL>/config/<project_id>`. Require a successful response, immediately call `GET <MS_URL>/config`, and compare its normalized `config_params` with every submitted field. Stop without consuming an attempt if any value differs or the running schema has no reliable readback.
+4. With [exclusive configuration access](#configuration-isolation), apply it with `POST <MS_URL>/config/<project_id>`. Require a successful response, then compare `GET <MS_URL>/config`'s normalized `config_params` with every submitted field. Save this service-wide snapshot separately from `config.json`; it is not project-specific validation. Stop before submission if any value differs or the current settings cannot be checked.
 5. Call `POST <MS_URL>/verify_project/<project_id>`, then `GET <MS_URL>/get_project_info/<project_id>` and require the project and result-specific states to be ready.
 6. For eligible multi-camera input, call `POST <MS_URL>/vggt/calibrate/<project_id>` and poll `GET <MS_URL>/get_project_info/<project_id>` until `vggt_state` reaches a terminal state. Fetch the VGGT calibration log while running or on failure.
 7. When VGGT completes, call `POST <MS_URL>/postprocess/<project_id>` and poll project info until `postprocess_state == COMPLETED`.
 8. Immediately preserve the complete VGGT result under `artifacts/vggt/` using the artifact mappings below.
-9. Reapply the same complete attempt configuration and repeat the `GET <MS_URL>/config` equality check immediately before AMC.
+9. Reapply the same complete attempt configuration and repeat the service-wide snapshot check immediately before AMC, with no intervening configuration changes.
 10. Call `POST <MS_URL>/calibrate/<project_id>` with `{"detector_type":"<detector>"}`. Increment the AMC-attempt count only after this request is accepted.
 11. Poll `GET <MS_URL>/get_project_info/<project_id>` until `amc_state` reaches a terminal state. Fetch `GET <MS_URL>/amc/calibrate/<project_id>/log` while running and on failure.
-12. When AMC completes, call post-processing again because AMC resets the shared `postprocess_state`; require it to reach `COMPLETED`.
+12. When multi-camera AMC completes, call post-processing again because AMC resets the shared `postprocess_state`; require it to reach `COMPLETED`. For single-camera AMC, review the single-view outputs; do not call shared multi-camera post-processing or require its state to complete.
 13. Preserve the complete AMC result under `artifacts/amc/` without overwriting VGGT.
 14. Compare the result with the incumbent before planning another attempt.
 
@@ -183,6 +191,7 @@ Use these result-specific mappings when the running schema exposes them, and sav
 | Result | API or project source |
 |---|---|
 | State | `GET <MS_URL>/get_project_info/<project_id>` |
+| Effective AMC configuration | Copy the project's `output/config_AutoMagicCalib/` when available; retain the intended request and service-wide snapshots separately. |
 | AMC log | `GET <MS_URL>/amc/calibrate/<project_id>/log` |
 | VGGT log | `GET <MS_URL>/vggt/calibrate/<project_id>/log` |
 | AMC evaluation | `GET <MS_URL>/result/<project_id>/evaluation_metrics` and `/evaluation_statistics` |
@@ -196,9 +205,13 @@ Also preserve camera-parameter and full-export responses exposed by the running 
 
 AMC trajectory overlays and VGGT calibration visualizations are separate result types. VGGT is not automatically composited onto AMC trajectory overlays, so seeing only AMC trajectories does not mean VGGT failed. Evaluate each result through its own state, post-processing output, camera parameters, metrics, overlays, and exports.
 
+A VGGT-only result may have no trajectory overlay because that visualization requires AMC tracklet artifacts. Review available virtual-object overlays, camera parameters, and exports instead. After AMC and the subsequent shared post-processing complete, preserve any newly available VGGT visualizations separately without overwriting the earlier VGGT snapshot. GT evaluation metrics are absent when no GT was supplied.
+
 ## Diagnose and Adjust
 
 Read `references/calibration-parameters.md` before choosing a numeric change.
+
+For single-camera input, use single-view evidence and controls; cross-camera matching and multi-view bundle-adjustment controls do not apply.
 
 1. Identify the failing stage and weakest camera pair from logs and artifacts.
 2. Select only a documented parameter whose stage matches that evidence.
@@ -222,7 +235,7 @@ For every completed AMC and VGGT result, record what is available:
 
 Select the AMC incumbent using complete evidence, in this order:
 
-1. Completed calibration and post-processing.
+1. Completed calibration and, for multi-camera input, completed shared post-processing.
 2. GT-backed metrics when GT exists.
 3. Camera-pair coverage, outliers, L2 metrics, and reprojection distribution.
 4. Bundle-adjustment cost, valid artifacts, and warnings.
@@ -241,3 +254,11 @@ Save a concise Markdown report and machine-readable JSON summary containing:
 - recommended configuration JSON and manual next action when no result is acceptable.
 
 Do not fabricate unavailable metrics or overwrite a user's existing configuration. Ask before using the recommendation for a separate production calibration.
+
+## Project Retention
+
+Retain projects by default so the user can review them in the UI. In the final report, list the session's project IDs, external artifact locations, and any failed or superseded projects eligible for cleanup. Keep the selected result, preserved baseline alternative, and any reused normal project unless the user explicitly includes them in a cleanup request.
+
+Offer cleanup of the remaining projects created by this tuning session. Before deletion, verify that their available configurations, logs, results, and exports were copied outside the server project tree and that no capture, rectification, calibration, or post-processing is active. Explain that deletion permanently removes the project and its server-side data, then obtain approval for the exact project IDs.
+
+For each approved ID, call `DELETE /v1/delete_project/<project_id>` and verify success. Record deleted and retained IDs in the report. Leave unrelated projects, source datasets, and preserved artifacts untouched; do not use bulk deletion.

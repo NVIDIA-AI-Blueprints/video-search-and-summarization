@@ -62,7 +62,7 @@ Match the user's request to a mode, then load that mode's reference for input co
 - AMC microservice + UI running. If not, walk [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) first.
 - Microservice reachable at `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_HOST_PORT:-8010}/v1/ready` → `{"code":0,...}`.
 - Projects directory writable by the container user. If you didn't just deploy (so Step 5 of the deploy reference hasn't run), confirm the write test in [`references/deploy-auto-calibration-service.md` § Step 5](references/deploy-auto-calibration-service.md#step-5-confirm-the-projects-directory-is-writable) — otherwise the first `create_project` returns `[Errno 13] Permission denied`.
-- Python 3 with `requests` installed (each input-mode reference includes a self-healing venv fallback for direct runs).
+- Python 3 with `requests` installed.
 
 Mode-specific prerequisites (VIOS for `rtsp`, sample zip for `sample-dataset`) live in the respective references. The platform preflight applies even when an AMC service is already running.
 
@@ -77,9 +77,9 @@ AMC UI sequence: Step 1 Project Setup, Step 2 Video Configuration, Step 3 Parame
 AMC v3.3.0 cannot calibrate raw media. After the mode-specific workflow has uploaded videos or completed RTSP ingest, explicitly choose one path before verification:
 
 - **Already-linear/pinhole media** — call `POST /v1/linear_media/<project_id>` and require `rectification_state == "COMPLETED"`.
-- **Distorted media** — open AMC UI Step 4: Rectification; select Auto, Manual, or Videos Are Rectified; review the estimate; then click Generate Rectified Videos. Auto supports `simple_divisional` (default), `simple_radial`, and `radial`; Manual supports per-camera `model`, `k1`, and `k2` for `radial`. `READY_FOR_REVIEW` is not complete: require `rectification_state == "COMPLETED"` before continuing. Re-rectification invalidates verification, calibration, and post-processing outputs.
+- **Distorted media** — open AMC UI Step 4: Rectification; select Auto or Manual; review the estimate; then click Generate Rectified Videos. Auto supports `simple_divisional` (default), `simple_radial`, and `radial`; Manual supports per-camera `model`, `k1`, and `k2` for `radial`. `READY_FOR_REVIEW` is not complete: require `rectification_state == "COMPLETED"` before continuing. Use Videos Are Rectified only for confirmed already-linear media. Re-rectification invalidates verification, calibration, and post-processing outputs.
 
-For REST-only rectification, use the running AMC service contract exposed by `<MS_URL>/docs` (OpenAPI: `<MS_URL>/openapi.yaml`):
+For REST-only rectification, use the running AMC service contract at the service-root `/openapi.yaml` (without `/v1`); the interactive API reference is at `/docs`:
 
 1. **Auto** — `POST /v1/rectification/<project_id>` starts frame-0 estimation. Poll `GET /v1/rectification/<project_id>` until `READY_FOR_REVIEW`; then `GET /v1/rectification/<project_id>/cameras`, review every `auto_estimate`, and commit all camera parameters with `POST /v1/rectification/<project_id>/manual` using `{"cameras":{"cam_00":{"model":"...","k1":0.0,"k2":0.0},...}}`. This explicit commit generates full rectified videos.
 2. **Manual** — `POST /v1/rectification/<project_id>/manual/start`; optionally preview each adjustment through `POST /v1/rectification/<project_id>/preview/<camera_id>`; then commit a complete per-camera `cameras` map to `POST /v1/rectification/<project_id>/manual`.
@@ -97,7 +97,7 @@ Response: `{"project_state": "READY"}` — must be `READY` before calibrating. I
 
 ### Step C: Independent VGGT Calibration
 
-After verification and before AMC, inspect `vggt_state`. Start VGGT by default from `READY`, resume and wait from `RUNNING`, and always post-process a `COMPLETED` multi-camera result, including one completed before the current invocation. `MODEL_MISSING` or `ERROR` is reported as an AMC-only fallback. Check `amc_state`, `vggt_state`, and `postprocess_state` independently.
+After verification and before AMC, inspect `vggt_state`. VGGT is available only for multi-camera projects. Start VGGT by default from `READY`, resume and wait from `RUNNING`, and always post-process a `COMPLETED` multi-camera result, including one completed before the current invocation. `MODEL_MISSING` or `ERROR` is reported as an AMC-only fallback unless the error indicates a shared input or infrastructure problem. Check `amc_state`, `vggt_state`, and `postprocess_state` independently; wait for each workload to finish before starting another.
 
 ```
 POST /v1/vggt/calibrate/<project_id>
@@ -160,7 +160,7 @@ Typical time: **10–60 min** (your-own videos), **10–30 min** (bundled sample
 
 ### Step F: AMC Post-process and Results
 
-For multi-camera projects, run layout post-processing after AMC calibration. VGGT, when available, runs first and is post-processed before AMC.
+For multi-camera projects, run layout post-processing after AMC calibration. VGGT, when available, runs first and is post-processed before AMC. Single-camera AMC uses its single-view output path; do not require shared multi-camera post-processing.
 
 ```
 POST /v1/postprocess/<project_id>
@@ -178,6 +178,8 @@ GET /v1/amc/calibrate/<project_id>/log                   # calibration log
 
 Evaluation response includes `Average L2 distance(m)` and `Average reprojection error 0(px)`. Evaluation metrics are produced **only when a ground-truth `GT.zip` was uploaded** — a missing `evaluation_statistics` result is normal otherwise and is not the end of result reporting. When VGGT also completed, compare both methods' metrics and Results-page overlays, then select the more accurate calibration for export.
 
+VGGT visualizations are separate from AMC overlays. A VGGT-only result may have no trajectory overlay because those images require AMC tracklet artifacts; review available virtual-object overlays, camera parameters, and exports instead. If AMC fails, report the completed VGGT result separately rather than treating both methods as failed.
+
 After `COMPLETED`, always give the user a way to review the result for that exact project, regardless of whether metrics exist:
 
 - **UI** — `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_HOST_PORT:-5000}`; open the project, then the Results page to view the overlay.
@@ -192,7 +194,7 @@ If the user accepts, read [`references/tuning.md`](references/tuning.md). Reuse 
 
 ## Settings File and Detector Pattern
 
-Optional across all three modes. Before using a JSON settings file, retrieve `GET /v1/config/defaults` and inspect `<MS_URL>/openapi.yaml` (or `<MS_URL>/docs`) from the running AMC version. Parse the file, reject known-invalid legacy `skip` rather than silently translating it to `skip_frame`, then submit the JSON unchanged in meaning. Do not treat `/config/defaults` as a complete allow-list: the running API is the authoritative schema validator.
+Optional across all three modes. Before using a JSON settings file, retrieve `GET /v1/config/defaults` and inspect the service-root `/openapi.yaml` (without `/v1`), or `/docs`, from the running AMC version. Parse the file, reject known-invalid legacy `skip` rather than silently translating it to `skip_frame`, then submit the JSON unchanged in meaning. Do not treat `/config/defaults` as a complete allow-list: the running API is the authoritative schema validator.
 
 ```
 POST /v1/config/<project_id>
@@ -207,11 +209,12 @@ Non-2xx is surfaced — do not silently fall back. Skip this call entirely if th
 
 ## UI Fallback Pattern
 
-When alignment / layout files aren't on disk, direct the user to the appropriate AMC UI step:
+When alignment / layout files aren't on disk, direct the user to the appropriate AMC UI step. Complete the required UI actions in step order:
 
 - **Settings missing** → "Open UI project `<project_id>`, go to **Step 3: Parameters**, tune via the settings dialog (or accept defaults), click Save." **Also**: before the `/calibrate` call, ask the user via `AskUserQuestion` whether to use the `resnet` or `transformer` detector — Step 3 doesn't cover detector choice.
 - **Layout missing** → "Open UI project `<project_id>`, go to **Step 2: Video Configuration**, upload `layout.png` only (do NOT re-upload videos — they're already attached via API/RTSP), click Save."
-- **Alignment missing** → "Open UI project `<project_id>`, go to **Step 5: Manual Alignment**, either upload `alignment_data.json` or mark correspondence points on the layout, click Save."
+- **Layout scale unknown** → "In **Step 3: Parameters**, enter the known `layout_px_per_m` or measure a known two-point distance on the layout, then Save." Do not accept an unconfirmed default scale.
+- **Alignment missing** → Complete **Step 4: Rectification** first, then open **Step 5: Manual Alignment**, mark at least four correspondence sets on the rectified camera views and layout, and Save. Alternatively, upload an external alignment file: UI file upload expects original-frame coordinates; use the API with `coord_space=rectified` for a file already in rectified coordinates.
 
 Wait for user confirmation. For alignment/layout, verify on disk before continuing:
 
@@ -227,10 +230,11 @@ ls "$HOST_PROJECTS/project_<project_id>/manual_adjustment/"
 
 ## Success Criteria
 
-- `amc_state == "COMPLETED"` after polling; if VGGT ran, `vggt_state == "COMPLETED"` too.
+- `amc_state == "COMPLETED"` for a successful AMC run; report `vggt_state` independently. A failed method does not invalidate the other method's completed result.
+- For each completed multi-camera method, require successful post-processing and inspect its available artifacts before recommending an export.
 - If manual alignment was used: `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/manual_adjustment/` contains `alignment_data.json` + `layout.png`.
 - If GT was uploaded: fetch both available methods' evaluation statistics and compare their metrics plus overlays before selecting the result to export. Typical thresholds are `Average L2 distance(m)` < 1.5 and `Average reprojection error 0(px)` < 5 for your data or < 10 for the bundled sample.
-- No `ERROR` state.
+- Report failed or unavailable methods and missing artifacts explicitly. Without GT, label quality assessment heuristic and require visual review.
 
 ## Key Output Files
 
@@ -261,10 +265,10 @@ Mode-specific issues live in each reference's own troubleshooting table.
 |---|---|
 | `verify_project` state not `READY` | Confirm videos uploaded/ingested and alignment + layout are present (either via API or via UI manual alignment). Mode-specific upload steps in the reference. |
 | Manual alignment files missing after UI step | User didn't click Save; also verify `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/manual_adjustment/` exists. |
-| Calibration stuck `RUNNING` > 90 min | `GET /v1/amc/calibrate/<id>/log` — usually insufficient tracklets (scene too static). See "Custom Dataset" guidelines in root `README.md`. |
+| Calibration remains `RUNNING` longer than expected | Inspect `GET /v1/amc/calibrate/<id>/log`, progress, and host resources. Runtime varies with inputs and settings; elapsed time alone does not establish failure or insufficient tracklets. See [Custom Dataset](../../../docs/autocalib-custom-dataset.mdx). |
 | Immediate `ERROR` state | Check video readability, synchronization, overlapping fields of view, and camera order; upload order defines indices. |
 | Low L2 but high reprojection | Provide explicit `focal_length` override during input upload (see videos / rtsp references). |
-| VGGT `INIT`, never `READY` | VGGT model not loaded — see [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) Step 2. |
+| VGGT `INIT`, never `READY` | Confirm multi-camera input, completed media preparation, and successful verification. For `MODEL_MISSING`, follow [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) Step 2. |
 | Upload timeout | Large videos — bump `timeout=300` to e.g. `600` in the per-mode Python script. |
 | Port scan finds no backend | Backend not running — walk [`references/deploy-auto-calibration-service.md`](references/deploy-auto-calibration-service.md) first. |
 | REST call returns connection refused | Target microservice is not running. Probe `/docs` or `/health`; deploy or repair it with `vss-build-vision-ai` or the applicable `vss-deploy-*` skill. |
@@ -272,6 +276,8 @@ Mode-specific issues live in each reference's own troubleshooting table.
 | Container OOM or model load failure | GPU memory is insufficient for selected profile. Choose smaller variant or free GPU memory before retrying. |
 
 ## For Downstream Skills: MV3DT Export
+
+Exports describe rectified camera geometry. Downstream video must use the corresponding rectified media or matching distortion remapping; see [Custom Dataset](../../../docs/autocalib-custom-dataset.mdx).
 
 Downstream consumers (e.g. a Multi-View 3D Tracking skill owned by another team) fetch the MV3DT-format calibration output directly from the microservice. This skill returns the `project_id`; the downstream skill calls:
 
@@ -297,4 +303,4 @@ Downstream skill flow:
 
 - [`vss-manage-video-io-storage`](../../operations/vss-manage-video-io-storage/SKILL.md) — VIOS API skill; only the `rtsp` calibration mode depends on VIOS being reachable.
 
-Root `README.md` "Custom Dataset" and "Calibration Workflow (UI)" sections document input-video guidelines and the UI-driven alternative to this API flow.
+See [Custom Dataset](../../../docs/autocalib-custom-dataset.mdx) for input requirements and [Calibration Workflow](../../../docs/autocalib-workflow-steps.mdx) for the UI-driven alternative to this API flow.

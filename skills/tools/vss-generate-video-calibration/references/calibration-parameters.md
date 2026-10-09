@@ -7,7 +7,7 @@ Use this reference only when choosing an evidence-driven change during explicit 
 Treat the running service as authoritative for field availability and defaults:
 
 1. Fetch `GET /v1/config/defaults` before attempt 1 and read its `config_params` object.
-2. Confirm field names and types in `/openapi.yaml`, falling back to `/openapi.json`.
+2. Confirm field names and types in the service-root `/openapi.yaml` (without `/v1`); consult `/docs` or service logs if unavailable.
 3. Tune only a field that is both returned by the running service and documented below. Leave an unknown field unchanged and report it rather than guessing.
 4. Build every request from the complete runtime-default `config_params` object plus frozen dataset inputs and the current intentional changes.
 
