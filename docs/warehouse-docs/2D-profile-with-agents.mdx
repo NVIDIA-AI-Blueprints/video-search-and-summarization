@@ -362,15 +362,9 @@ Refer to [RT-DETR Real-Time Performance](/vss/system-components/models/rt-detr-2
   tracking still runs in image (pixel) coordinates; ROI/tripwire events are
   unavailable. See below.
 
-##### Image coordinate calibration
+##### Auto Calibration setup
 
-Follow Auto Calibration's AMC [image-mode calibration workflow](/vss/system-components/calibration/auto-calibration/workflow-steps#export-image-mode-json) to define ROIs and tripwires in pixel coordinates and export a calibration file with `"calibrationType": "image"`.
-
-Save the exported file as `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`, then proceed to Step 4 to redeploy with the new calibration.
-
-##### Cartesian coordinate calibration
-
-For Cartesian calibration, use Auto Calibration's AMC workflow below to map camera image coordinates to a global coordinate system.
+Auto Calibration supports two types of calibrations in 2D profile with Agents: image-coordinate calibration and Cartesian calibration.
 
 Before deploying the stack and generating a calibration, create the projects directory:
 
@@ -389,7 +383,21 @@ sudo chown -R 1000:1000 ${VSS_DATA_DIR}/auto-calib
 sudo chown -R 1000:1000 ${VSS_APPS_DIR}/services/auto-calibration/projects
 ```
 
-Configure `industry-profiles/warehouse-operations/overrides.env` using the **Auto-Calibration** tab under [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection), then follow [Deploy the Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint) to start the Auto-Calibration profile. Use it to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [Auto Calibration workflow steps](/vss/system-components/calibration/auto-calibration/workflow-steps). After generating and storing the calibration, bring the Docker Compose stack down and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
+Configure `industry-profiles/warehouse-operations/overrides.env` using the **Auto-Calibration** tab under [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection), then follow [Deploy the Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint) to start the Auto-Calibration profile.
+
+Follow the [Auto Calibration workflow steps](/vss/system-components/calibration/auto-calibration/workflow-steps) for AMC using the warehouse dataset and VST stack. The workflow supports both calibration types; choose the appropriate export for your use case.
+
+##### Image coordinate calibration
+
+Use [Export Image-Mode JSON](/vss/system-components/calibration/auto-calibration/workflow-steps#export-image-mode-json) to export ROIs and tripwires in pixel coordinates with `"calibrationType": "image"`.
+
+##### Cartesian coordinate calibration
+
+Export a Cartesian calibration with `"calibrationType": "cartesian"` to map camera image coordinates to a global coordinate system.
+
+##### Save and apply the calibration
+
+Bring the Docker Compose stack down after exporting the calibration. Save the exported file as `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`, then proceed to Step 4 to redeploy with the new calibration.
 
 <Note>
 - Maintain a single `calibration.json` file per deployment.
