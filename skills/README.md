@@ -88,6 +88,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 
 | I want to… | Use this skill |
 |---|---|
+| Build a GPU-accelerated computer vision inference pipeline with DeepStream | [`vss-build-vision-pipeline`](vss-build-vision-pipeline/SKILL.md) — foundational guidelines and model-integration workflow; remaining sections are placeholders |
 | Add vision capabilities to an app or agent, or build a stack from a description | [`vss-build-vision-ai`](vss-build-vision-ai/SKILL.md) |
 | Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-build-vision-ai`](vss-build-vision-ai/SKILL.md) |
 | Deploy the warehouse blueprint on Kubernetes via Helm (not Docker Compose) | [`vss-deploy-warehouse-helm`](deployment/vss-deploy-warehouse-helm/SKILL.md) |
