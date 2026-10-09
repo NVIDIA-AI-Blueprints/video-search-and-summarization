@@ -174,10 +174,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   pendingInteractionRef.current = pendingInteraction;
 
   const messages = selected?.messages ?? [];
-  // Memoized message views retain this handler; read current controls and
-  // messages without changing its identity on every streamed token.
-  const editStateRef = useRef({ messages, paramFields });
-  editStateRef.current = { messages, paramFields };
   const logRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<string | undefined>(selected?.id);
@@ -231,6 +227,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     isConversationStale,
     onInteraction: features.hitl ? requestInteraction : undefined,
   });
+
+  // Memoized message views retain this handler; read current controls,
+  // messages, and send options without changing its identity while streaming.
+  const editStateRef = useRef({ messages, paramFields, send });
+  editStateRef.current = { messages, paramFields, send };
 
   // Only the conversation that asked may answer: the prompt is hidden while
   // another one is selected, and re-checked here so a stale render cannot
@@ -406,12 +407,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       const current = editStateRef.current;
       const at = current.messages.findIndex((m) => m.id === message.id);
       if (at < 0) return;
-      void send(message.content, {
+      void current.send(message.content, {
         deleteCount: current.messages.length - at,
         params: fieldsToParams(current.paramFields),
       });
     },
-    [send],
+    [],
   );
 
   const handleDelete = useCallback(

@@ -1152,6 +1152,41 @@ describe('ChatPanel', () => {
     },
   );
 
+  it.each([
+    ['chat-sse', true], ['chat-sse', false], ['agent-api', true], ['agent-api', false],
+  ] as const)('edits with the latest history setting on %s (initial history %s)', async (transport, initialHistory) => {
+    const fetchMock = jest.fn().mockImplementation(async (url: string) => {
+      if (url.endsWith('/runs')) return { ok: true, json: async () => ({
+        run_id: 'run_1', events_url: '/api/agent/runs/run_1/events', cancel_url: '/api/agent/runs/run_1/cancel',
+      }) };
+      return transport === 'agent-api'
+        ? sseResponse([agentApiFrame('run.completed', {}, 1)]) : sseResponse(['data: [DONE]\n\n']);
+    });
+    global.fetch = fetchMock as any;
+    render(<ChatPanel
+      endpoint={{ url: transport === 'agent-api' ? '/api/agent' : endpoint.url, transport, conversationId: 'thread_1' }}
+      features={{ ...noHeader, headerMenu: true, messageEdit: true, chatHistory: initialHistory }}
+    />);
+    await act(async () => typeAndSend('first question'));
+    await act(async () => typeAndSend('second question'));
+    fireEvent.click(screen.getByRole('switch', { name: 'Chat History' }));
+    const second = screen.getAllByTestId('chat-message-user')[1];
+    fireEvent.click(within(second).getByRole('button', { name: 'Edit message' }));
+    fireEvent.change(within(second).getByRole('textbox'), { target: { value: 'edited second question' } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save & Submit' })));
+    const bodies = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST').map(([, init]) => JSON.parse(init.body));
+    const edited = bodies.at(-1);
+    const previous = [{ role: 'user', content: 'first question' }, { role: 'assistant', content: '' }];
+    if (transport === 'agent-api') {
+      expect(edited.input).toEqual([{ role: 'user', content: 'edited second question' }]);
+      expect(edited.history).toEqual(initialHistory ? [] : previous);
+    } else {
+      expect(edited.messages).toEqual([
+        ...(initialHistory ? [] : previous), { role: 'user', content: 'edited second question' },
+      ]);
+    }
+  });
+
   it('lets an embedder submit a message without the user typing', async () => {
     const fetchMock = jest.fn().mockResolvedValue(sseResponse(['data: [DONE]\n\n']));
     global.fetch = fetchMock as any;
