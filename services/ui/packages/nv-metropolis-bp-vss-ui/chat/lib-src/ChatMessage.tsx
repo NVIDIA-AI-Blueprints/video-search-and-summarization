@@ -438,6 +438,7 @@ export const ChatMessageView: React.FC<ChatMessageProps> = memo(
   },
   // Re-render only when something visible changed. Without this every message
   // in a long thread re-renders on each token of the newest answer.
-  (prev, next) => prev.message === next.message && prev.features === next.features,
+  (prev, next) =>
+    prev.message === next.message && prev.features === next.features && prev.onEdit === next.onEdit,
 );
 ChatMessageView.displayName = 'ChatMessageView';

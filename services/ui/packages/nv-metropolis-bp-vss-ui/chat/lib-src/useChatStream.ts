@@ -60,8 +60,6 @@ export interface SendOptions {
   uploadConversationId?: string;
   /** Merged into the request body for this turn. */
   params?: Record<string, string | number | boolean>;
-  /** Saved effective parameters to reuse without adding current defaults. */
-  savedParams?: Record<string, string | number | boolean>;
   /** Chips to fold into the message as a `[Context: …]` prefix. */
   context?: QueryDataContext[];
 }
@@ -179,21 +177,17 @@ export function useChatStream(
 
   const send = useCallback(
     async (text: string, sendOptions: SendOptions = {}) => {
-      const { deleteCount = 0, hidden, uploadConversationId, params, savedParams, context = [] } = sendOptions;
+      const { deleteCount = 0, hidden, uploadConversationId, params, context = [] } = sendOptions;
 
       const prefix = buildContextPrefix(context);
       const body = prefix ? (text.trim() ? `${prefix}\n\n${text}` : prefix) : text;
       const trimmed = body.trim();
       if (!trimmed || busyRef.current) return;
 
-      const requestParams = savedParams === undefined
-        ? { ...(endpointRef.current.extraParams ?? {}), ...(params ?? {}) }
-        : { ...savedParams };
       const userMsg: ChatMessage = {
         id: nextId(),
         role: 'user',
         content: trimmed,
-        params: requestParams,
         hidden,
         uploadConversationId,
         timestamp: Date.now(),
@@ -311,7 +305,10 @@ export function useChatStream(
                 input: [{ role: 'user', content: trimmed }],
                 history: chatHistory ? history : [],
                 surface: agentEndpoint.surface ?? 'vss-ui',
-                metadata: requestParams,
+                metadata: {
+                  ...(agentEndpoint.extraParams ?? {}),
+                  ...(params ?? {}),
+                },
               }),
             });
             if (!createResponse.ok) {
@@ -406,7 +403,8 @@ export function useChatStream(
             body: JSON.stringify({
               // Custom params first so fixed fields win: a param named
               // `messages` must not shadow the turn.
-              ...requestParams,
+              ...(endpointRef.current.extraParams ?? {}),
+              ...(params ?? {}),
               messages: chatHistory
                 ? [...history, { role: 'user', content: trimmed }]
                 : [{ role: 'user', content: trimmed }],
