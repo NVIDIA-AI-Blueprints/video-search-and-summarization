@@ -181,6 +181,8 @@ ambiguity:
 
 **No results available** — Results is available when AMC **or** VGGT completes successfully. For multi-camera trajectory / virtual-GT overlays, also run **Layout Post-processing** on Execute.
 
+**Results annotation editor is not shown** — the editor appears once the project has uploaded videos and linear media (Rectification COMPLETED, or **Videos Are Already Linear**). Calibration is not required for ROI/tripwire drawing or image-mode JSON export; it is only needed for world-coordinate verification and export. The editor is locked while AMC or VGGT is running.
+
 **Export fails** — check browser download settings, popup blocker, disk space; try a different browser; check `docker compose logs | grep -i export`
 
 **ROI verification not working or BEV looks wrong**
