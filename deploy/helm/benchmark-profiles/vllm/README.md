@@ -74,6 +74,63 @@ base values and enabled by the Qwen profile. `requestPolicy.maxBodyBytes` bounds
 buffered request bodies; oversized requests receive HTTP 413. The base limit is
 16 MiB, while the long-video Qwen profile raises it to 64 MiB.
 
+## Cosmos Reason 3 benchmark profile
+
+`values-cosmos-reason3.yaml` serves `nvidia/Cosmos3-Nano` using the generic
+vLLM runtime. Deploy it with:
+
+```bash
+helm upgrade --install cosmos-reason3 \
+  deploy/helm/benchmark-profiles/vllm \
+  --namespace cosmos-reason3 \
+  --create-namespace \
+  -f deploy/helm/benchmark-profiles/vllm/values-cosmos-reason3.yaml \
+  --wait \
+  --timeout 30m
+```
+
+The preset requests one GPU and retains the Qwen benchmark's BF16 precision,
+262,144-token context, 2 FPS sampling, 8,192-frame cap, 16 GiB multimodal
+processor cache and 16,384-token output limit. It enables prefix caching and
+Cosmos's asynchronous scheduling and data-parallel visual encoder settings.
+The one-GPU smoke test used an H200; these resource settings are not a claim
+that other GPU models fit the same context or video lengths.
+
+The generation policy uses Cosmos's recommended reasoning settings:
+temperature 0.6, top-p 0.95, top-k 20, repetition penalty 1 and presence
+penalty 0. It does not pass Qwen's `enable_thinking` or `preserve_thinking`:
+the Cosmos checkpoint's chat template ignores those fields. To request
+reasoning, append this instruction to each question:
+
+```text
+Answer the question using the following format:
+<think>
+Your reasoning.
+</think>
+Write your final answer immediately after the </think> tag.
+```
+
+Reasoning and the final answer appear together in `message.content`. For
+multiple-choice evaluation, validate the closing tag and extract the final
+answer after `</think>` before grading. Literal tags are a requested output
+format, not a separate hidden-reasoning API contract. See the
+[NVIDIA Cosmos prompting guide](https://github.com/NVIDIA/cosmos/blob/main/cookbooks/cosmos3/reasoner/reasoner_prompt_guide.md).
+
+An isolated Helm smoke deployment reached Ready with zero restarts. Three
+questions over a three-second video returned correct final answers and
+complete reasoning blocks; the multiple-choice answer extracted as `C`.
+Multimodal and prefix cache hits were observed across independent requests.
+Full-length LVBench inference and accuracy remain untested. Startup can take
+several minutes for download, compilation and multimodal warmup.
+
+For the evaluation harness UI, upload a package of this chart, select the
+`cosmos-reason3` preset when registering the environment, then deploy it under
+a GPU lease. Configure a direct-VLM agent to use the resulting endpoint.
+The chart serves inference only; it does not modify multi-step task
+instructions or prepare video memories. Direct multi-step tasks must avoid
+summary preparation and pass the video before the changing question for a
+shared cacheable prefix. Keep a video's questions on the same replica.
+
 ## Test the API
 
 ```bash
