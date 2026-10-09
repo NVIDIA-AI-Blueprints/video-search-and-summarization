@@ -22,6 +22,12 @@ delete_backup_files="true"
 revert_from_oldest_backup="true"
 env_file="${script_dir}/../.env"
 
+# CI containers run as root but intentionally do not install sudo. Keep the
+# existing command sites usable in both CI and interactive host deployments.
+if ! command -v sudo >/dev/null 2>&1 && [[ "$(id -u)" -eq 0 ]]; then
+  sudo() { "$@"; }
+fi
+
 function usage() {
   echo "Usage: ${script_name} (-h|--help)"
   echo "   or: ${script_name} [options]"
