@@ -25,7 +25,7 @@
         "postcss": "8.5.26"
     },
     "devDependencies": {
-        "turbo": "^2.10.12"
+        "turbo": "^2.11.7"
     },
     "overrides": {
         "preact": "10.29.8",
