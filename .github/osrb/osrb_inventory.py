@@ -779,15 +779,15 @@ def attribution_licenses(ref: str, paths: list[str]) -> dict[tuple[str, str, str
     return merged
 
 
-def previous_licenses(path: str) -> dict[tuple[str, str], str]:
-    """Return {(name, version): license} from a previously committed inventory.
+def previous_licenses(path: str) -> dict[tuple[str, str, str], str]:
+    """Return {(name, version, language): license} from a previous inventory.
 
     See the module docstring: this is the no-network carry-forward, keyed on
-    the (package, version) pair so a version bump can never inherit the old
+    the (package, version, language) key so another ecosystem cannot supply the
     release's licence. UNKNOWN is not carried forward — there is nothing to
     carry.
     """
-    out: dict[tuple[str, str], str] = {}
+    out: dict[tuple[str, str, str], str] = {}
     with open(path, newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
             license_expr = (row.get("license") or "").strip()
@@ -795,7 +795,7 @@ def previous_licenses(path: str) -> dict[tuple[str, str], str]:
             version = (row.get("version") or "").strip()
             if not package or not license_expr or license_expr == UNKNOWN:
                 continue
-            out.setdefault((package.lower(), version), license_expr)
+            out.setdefault((package.lower(), version, row.get("language", "")), license_expr)
     return out
 
 
@@ -818,8 +818,8 @@ def previous_licenses_by_language(path: str) -> dict[tuple[str, str], set[str]]:
     return out
 
 
-def unanimous_parser_licenses(entries: list[_Entry]) -> dict[tuple[str, str], str]:
-    """{(name, version): license} for releases every parser in the tree agrees on.
+def unanimous_parser_licenses(entries: list[_Entry]) -> dict[tuple[str, str, str], str]:
+    """{(name, version, language): license} for releases parsers agree on.
 
     npm records a licence per package, but not every lockfile in this repo
     carries the field: `deepmerge 4.3.1` is bare in one service's
@@ -832,11 +832,11 @@ def unanimous_parser_licenses(entries: list[_Entry]) -> dict[tuple[str, str], st
     which module was walked first — the exact non-determinism this file cannot
     have.
     """
-    candidates: dict[tuple[str, str], set[str]] = {}
+    candidates: dict[tuple[str, str, str], set[str]] = {}
     for entry in entries:
         if not entry.licenses:
             continue
-        candidates.setdefault((entry.package.lower(), entry.version), set()).update(
+        candidates.setdefault((entry.package.lower(), entry.version, entry.language), set()).update(
             entry.licenses
         )
     return {key: next(iter(values)) for key, values in candidates.items() if len(values) == 1}
@@ -891,8 +891,8 @@ def unanimous_package_licenses(
 def resolve_license(
     entry: _Entry,
     attribution: dict[tuple[str, str, str], str],
-    previous: dict[tuple[str, str], str],
-    in_tree: dict[tuple[str, str], str] | None = None,
+    previous: dict[tuple[str, str, str], str],
+    in_tree: dict[tuple[str, str, str], str] | None = None,
     across_versions: dict[tuple[str, str], str] | None = None,
 ) -> tuple[str, str]:
     """Pick a licence for one entry, or UNKNOWN. Never guesses.
@@ -921,10 +921,10 @@ def resolve_license(
     shared = attribution.get(("", name, entry.version))
     if shared:
         return shared, "attribution"
-    elsewhere = (in_tree or {}).get((name, entry.version))
+    elsewhere = (in_tree or {}).get((name, entry.version, entry.language))
     if elsewhere:
         return elsewhere, "another-parser"
-    carried = previous.get((name, entry.version))
+    carried = previous.get((name, entry.version, entry.language))
     if carried:
         return carried, "carried-forward"
     across = (across_versions or {}).get((name, entry.language))
