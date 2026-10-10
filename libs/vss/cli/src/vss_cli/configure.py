@@ -58,6 +58,27 @@ def _probe(base_url: str, probe_path: str, timeout: float) -> tuple[bool, str]:
     return routed, f"HTTP {response.status_code}"
 
 
+def _lvs_readiness(base_url: str, timeout: float) -> tuple[str, str]:
+    """How ``/lvs/v1/ready`` answers. Informational: a 503 is warmup, not absence.
+
+    The route itself is recorded on ``/v1/live`` (see ``INGRESS_SERVICES``).
+    Readiness stays 503 for minutes while the model loads, so folding it into
+    that probe would drop a deployment that is only still starting.
+    """
+    import httpx
+
+    url = f"{base_url.rstrip('/')}/lvs/v1/ready"
+    try:
+        response = httpx.get(url, timeout=timeout, follow_redirects=True)
+    except httpx.HTTPError as exc:
+        return "not ready", f"{type(exc).__name__}: {exc}"
+    if response.status_code == 200:
+        return "ready", "HTTP 200"
+    if response.status_code == 503:
+        return "warming", "HTTP 503"
+    return "not ready", f"HTTP {response.status_code}"
+
+
 #: Where a deployment reports its version. Served by the agent; see
 #: services/agent/README.md for the contract and vss_core.version for how the
 #: value is resolved deployment-side.
@@ -1162,6 +1183,11 @@ def check() -> None:
 
     click.echo(f"configured {deployment.written_at or 'unknown'} against {deployment.base_url}", err=True)
     stale = _recheck_services(deployment)
+    # Readiness is informational. A 503 is warmup, not a missing route, so it
+    # must not mark the check stale.
+    if deployment.has("lvs"):
+        state, detail = _lvs_readiness(deployment.base_url, _PROBE_TIMEOUT_SECONDS)
+        click.echo(f"  {'lvs ready':<14} {state:<12} {deployment.endpoint('lvs').rstrip('/')}/v1/ready  {detail}")
     if not deployment.is_direct_vlm:
         # A bare endpoint has no agent behind it to report a version.
         version, version_detail = _deployment_version(deployment.base_url, _PROBE_TIMEOUT_SECONDS)
