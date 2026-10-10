@@ -89,7 +89,7 @@ Packages under the MIT License:
   - prettier-plugin-tailwindcss           @ 0.4.1
   - tailwindcss                           @ 4.3.3
   - ts-jest                               @ 29.4.12
-  - turbo                                 @ 2.10.12
+  - turbo                                 @ 2.11.7
   - typescript                            @ 5.9.3
   - whatwg-fetch                          @ 3.6.20
   - ws                                    @ 8.21.3
