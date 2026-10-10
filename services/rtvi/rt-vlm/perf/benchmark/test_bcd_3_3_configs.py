@@ -33,6 +33,64 @@ def without_setup_bindings(value):
 
 
 class PlatformConfigTest(unittest.TestCase):
+    def test_platform_model_selection_resolves_exact_artifact(self):
+        # Exercise setup's real model-selection block without deployment side effects.
+        setup = (HERE.parent / "setup_perf_env.sh").read_text()
+        selection = setup[
+            setup.index("apply_model_preset() {"):
+            setup.index('if [[ "${VLLM_ENABLE_PREFIX_CACHING,,}')
+        ]
+        expected = {
+            "h100_sxm": ("super", "fp8"),
+            "rtx_pro_6000_se": ("super", "nvfp4"),
+            "rtx_pro_4500": ("super", "nvfp4"),
+            "b200_sxm": ("super", "nvfp4"),
+            "l40s": ("nano", "fp8"),
+            "agx_thor_t5000": ("nano", "nvfp4"),
+            "dgx_spark": ("nano", "nvfp4"),
+            "agx_orin": ("edge", "bf16"),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "benchmark.yaml"
+            for platform, (model, precision) in expected.items():
+                config.write_text(render(SOURCE.read_text(), platform, *PROFILES[platform]))
+                version = {
+                    "fp8": "modelopt-fp8-final_format_fix",
+                    "nvfp4": "modelopt-nvfp4-full-quantize-final_format_fix",
+                    "bf16": "344d602b128d1bbdacb43b08d0a3626f46343e29",
+                }[precision]
+                result = subprocess.run(
+                    ["bash", "-c", 'set -e; die() { echo "$*" >&2; exit 1; };\n'
+                     + selection + '\nprintf "%s\\n%s\\n" "$VLM_MODEL_TO_USE" "$MODEL_PATH"'],
+                    env={"PATH": "/usr/bin:/bin", "BENCHMARK_CONFIG": str(config),
+                         "VLM_MODEL_TO_USE": "cosmos-reason2", "MODEL_PATH": "stale-cr2-path"},
+                    capture_output=True, text=True, check=False, timeout=10,
+                )
+                with self.subTest(platform=platform):
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    expected_model = [
+                        "cosmos-reason3", f"ngc:nim/nvidia/cosmos3-{model}-reasoner:{version}",
+                    ] if model != "edge" else [
+                        "vllm-compatible", f"git:https://huggingface.co/nvidia/Cosmos3-Edge@{version}",
+                    ]
+                    self.assertEqual(result.stdout.splitlines(), expected_model)
+
+    def test_explicit_super_path_infers_cr3_backend(self):
+        setup = (HERE.parent / "setup_perf_env.sh").read_text()
+        function = setup[
+            setup.index("infer_vlm_model_from_model_path() {"):
+            setup.index('[[ -f "${BENCHMARK_CONFIG}" ]]')
+        ]
+        for version in ("modelopt-fp8-final_format_fix", "modelopt-nvfp4-full-quantize-final_format_fix"):
+            with self.subTest(version=version):
+                result = subprocess.run(
+                    ["bash", "-c", function + '\ninfer_vlm_model_from_model_path\nprintf "%s" "$VLM_MODEL_TO_USE"'],
+                    env={"PATH": "/usr/bin:/bin", "VLM_MODEL_TO_USE": "cosmos-reason2",
+                         "MODEL_PATH": f"ngc:nim/nvidia/cosmos3-super-reasoner:{version}"},
+                    capture_output=True, text=True, check=True, timeout=10,
+                )
+                self.assertEqual(result.stdout, "cosmos-reason3")
+
     def test_tegrastats_fallback_disables_nvml_and_dcgm_but_keeps_node_exporter(self):
         setup = (HERE.parent / "setup_perf_env.sh").read_text()
         validator = re.search(r"python3 -c '([^']+)' \"\$\{BENCHMARK_CONFIG\}\"", setup)

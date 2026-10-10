@@ -289,7 +289,7 @@ class LicenseResolutionTest(unittest.TestCase):
     def test_parser_metadata_wins(self) -> None:
         entry = self.entry(licenses={"MIT"})
         resolved = osrb_inventory.resolve_license(
-            entry, {("", "widget", "1.0.0"): "Apache-2.0"}, {("widget", "1.0.0"): "BSD-3-Clause"}
+            entry, {("", "widget", "1.0.0"): "Apache-2.0"}, {("widget", "1.0.0", "python"): "BSD-3-Clause"}
         )
         self.assertEqual(resolved, ("MIT", "parser"))
 
@@ -319,6 +319,32 @@ class LicenseResolutionTest(unittest.TestCase):
             ("MIT", "another-parser"),
         )
 
+    def test_minio_sdk_does_not_inherit_cpp_license(self) -> None:
+        entries = [
+            self.entry(package="minio", version="UNKNOWN", language="c",
+                       licenses={"Apache-2.0;MIT"}),
+            self.entry(package="minio", version="UNKNOWN"),
+        ]
+        in_tree = osrb_inventory.unanimous_parser_licenses(entries)
+        self.assertEqual(
+            osrb_inventory.resolve_license(entries[1], {}, {}, in_tree),
+            ("UNKNOWN", "unresolved"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "previous.csv")
+            with open(path, "w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=osrb_inventory.COLUMNS)
+                writer.writeheader()
+                writer.writerow({"package": "minio", "version": "UNKNOWN",
+                                 "language": "c", "license": "Apache-2.0;MIT"})
+                writer.writerow({"package": "minio", "version": "UNKNOWN",
+                                 "language": "python", "license": "Apache-2.0"})
+            self.assertEqual(
+                osrb_inventory.resolve_license(
+                    entries[1], {}, osrb_inventory.previous_licenses(path), in_tree),
+                ("Apache-2.0", "carried-forward"),
+            )
+
     def test_parsers_that_disagree_do_not_answer_for_each_other(self) -> None:
         entries = [
             self.entry(licenses={"MIT"}),
@@ -333,7 +359,7 @@ class LicenseResolutionTest(unittest.TestCase):
         )
 
     def test_carry_forward_only_for_the_same_version(self) -> None:
-        previous = {("widget", "1.0.0"): "MIT"}
+        previous = {("widget", "1.0.0", "python"): "MIT"}
         self.assertEqual(
             osrb_inventory.resolve_license(self.entry(), {}, previous), ("MIT", "carried-forward")
         )
@@ -357,9 +383,9 @@ class LicenseResolutionTest(unittest.TestCase):
                 writer = csv.DictWriter(handle, fieldnames=osrb_inventory.COLUMNS)
                 writer.writeheader()
                 writer.writerow({"package": "widget", "version": "1.0.0", "license": "UNKNOWN"})
-                writer.writerow({"package": "gadget", "version": "2.0.0", "license": "MIT"})
+                writer.writerow({"package": "gadget", "version": "2.0.0", "license": "MIT", "language": "python"})
             self.assertEqual(
-                osrb_inventory.previous_licenses(path), {("gadget", "2.0.0"): "MIT"}
+                osrb_inventory.previous_licenses(path), {("gadget", "2.0.0", "python"): "MIT"}
             )
 
 

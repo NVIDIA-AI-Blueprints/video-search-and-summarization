@@ -7,7 +7,7 @@ Performance benchmarking suite for VSS RTVI VLM Microservice video caption and a
 > This file lives at `perf/benchmark/PERF_GUIDE.RTVI_VLM.md` — navigate up two levels before running anything:
 > ```bash
 > cd /path/to/video-search-and-summarization/services/rtvi/rt-vlm
-> bash perf/setup_perf_env.sh
+> # Select the BCD platform config below before running setup.
 > ```
 
 ---
@@ -45,34 +45,73 @@ Performance benchmarking suite for VSS RTVI VLM Microservice video caption and a
 
 ---
 
-## Quick Start (3-Step Workflow)
+## BCD 3.3 model selection
+
+Use **CR3**, not CR2, for BCD 3.3. Select the platform YAML **before setup**;
+its `global.model_preset` selects the model below and replaces saved model values.
+Setup rejects explicit `MODEL_PATH` / `VLM_MODEL_TO_USE` overrides or a conflicting
+`VLM_MODEL_PRESET` for these platform profiles.
+
+| Platform | Config under `perf/benchmark/` | Model / precision | Preset | Model artifact |
+| --- | --- | --- | --- | --- |
+| L40S | `rtvi_vlm_bcd_3_3_l40s_config.yaml` | CR3 Nano FP8 | `cr3-nano-reasoner-fp8` | [NGC Nano FP8](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner/versions/modelopt-fp8-final_format_fix) |
+| AGX Thor T5000 | `rtvi_vlm_bcd_3_3_agx_thor_t5000_config.yaml` | CR3 Nano NVFP4 | `cr3-nano-reasoner-nvfp4` | [NGC Nano NVFP4](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner/versions/modelopt-nvfp4-full-quantize-final_format_fix) |
+| DGX Spark | `rtvi_vlm_bcd_3_3_dgx_spark_config.yaml` | CR3 Nano NVFP4 | `cr3-nano-reasoner-nvfp4` | [NGC Nano NVFP4](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-nano-reasoner/versions/modelopt-nvfp4-full-quantize-final_format_fix) |
+| H100 SXM | `rtvi_vlm_bcd_3_3_h100_sxm_config.yaml` | CR3 Super FP8 | `cr3-super-reasoner-fp8` | [NGC Super FP8](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/versions/modelopt-fp8-final_format_fix) |
+| RTX Pro 6000 SE | `rtvi_vlm_bcd_3_3_rtx_pro_6000_se_config.yaml` | CR3 Super NVFP4 | `cr3-super-reasoner-nvfp4` | [NGC Super NVFP4](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/versions/modelopt-nvfp4-full-quantize-final_format_fix) |
+| RTX Pro 4500 | `rtvi_vlm_bcd_3_3_rtx_pro_4500_config.yaml` | CR3 Super NVFP4 | `cr3-super-reasoner-nvfp4` | [NGC Super NVFP4](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/versions/modelopt-nvfp4-full-quantize-final_format_fix) |
+| B200 SXM | `rtvi_vlm_bcd_3_3_b200_sxm_config.yaml` | CR3 Super NVFP4 | `cr3-super-reasoner-nvfp4` | [NGC Super NVFP4](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/versions/modelopt-nvfp4-full-quantize-final_format_fix) |
+| AGX Orin | `rtvi_vlm_bcd_3_3_agx_orin_config.yaml` | CR3 Edge BF16 | `cosmos3-edge-bf16` | [Hugging Face Cosmos3-Edge](https://huggingface.co/nvidia/Cosmos3-Edge/tree/344d602b128d1bbdacb43b08d0a3626f46343e29) |
+
+NGC paths use `ngc:nim/nvidia/<model>:<version>` with the exact model and version
+linked above. Nano/Super Reasoner use `VLM_MODEL_TO_USE=cosmos-reason3`; Edge uses
+`vllm-compatible` and the pinned Hugging Face revision above. Metadata access is
+not runtime validation: verify model entitlement, image support, memory headroom,
+and a canary on the target GPU before benchmarking. The existing P1 GB200 seed
+remains Nano NVFP4; its model selection is not covered by this platform update.
+CR2 presets remain available for explicitly selected legacy experiments only.
+
+### BCD 3.3 quick start
+
+Run from `services/rtvi/rt-vlm`, after completing the system and NGC prerequisites
+in this guide. Choose the YAML from the table; L40S is only the example here.
+
+```bash
+export NGC_API_KEY=nvapi-XXXXXX
+export NVIDIA_VISIBLE_DEVICES=0
+export BENCHMARK_CONFIG=perf/benchmark/rtvi_vlm_bcd_3_3_l40s_config.yaml
+unset VLM_MODEL_PRESET VLM_MODEL_TO_USE MODEL_PATH
+# L40S only: reserve memory for decode and service overhead.
+export VLLM_GPU_MEMORY_UTILIZATION=0.45
+bash perf/setup_perf_env.sh
+source ~/rtvi-vlm-perf-env/bin/activate
+python3 perf/benchmark/rtvi_perf_benchmark.py --config "$BENCHMARK_CONFIG" \
+  --scenario file_burst_1_token_2k
+```
+
+Use that same config for subsequent scenarios; do not switch to a legacy YAML
+after setup. On Orin, follow this guide's `GPU_TELEMETRY_BACKEND=tegrastats`
+fallback instructions when DCGM is unavailable. Counts are search seeds, not
+validated capacity. This selection does not change the scientific workload.
+
+## Quick Start (legacy platform-tuned scenarios)
 
 This is the minimal path from bare hardware to running benchmarks.
-`setup_perf_env.sh` handles everything end-to-end: VST download, nvstreamer + VST startup,
+`setup_perf_env.sh` handles everything end-to-end: VST staging, nvstreamer + VST startup,
 `.env.perf` generation, RTVI VLM deployment, Python venv creation, and RTSP URL injection.
 
 ### Step 1 — Export required variables, then run the setup script
 
-#### Artifactory Access (one-time setup)
+Install the [NGC CLI](https://org.ngc.nvidia.com/setup/installers/cli) for your
+host architecture and ensure `ngc` is on `PATH` (`ngc --version`). Fresh media
+preparation requires access to
+`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`, in addition to
+your selected model and container images. The media helper authenticates with
+`NGC_API_KEY` (or `NGC_CLI_API_KEY` if explicitly set); an API key alone does not
+grant access to every NGC resource. Already prepared, valid local BCD clips can
+be reused without downloading the warehouse resource.
 
-`ARTIFACTORY_USER` and `ARTIFACTORY_TOKEN` are required when setup must download
-the VST package or any benchmark video. If you check in `perf/vst_package.tar.gz`
-and already have all benchmark videos in `PERF_VIDEOS_DIR`, setup can run without
-Artifactory credentials. If any video is missing, credentials are required. If
-you do need access:
-
-1. **Request DL membership** — join the `it-aws-artifactory-users` distribution
-   list at <https://dlrequest.nvidia.com>. Access is typically granted within one
-   business day.
-2. **Log in to Artifactory** — once the DL is approved, visit
-   <https://artifactory.nvidia.com/ui/repos/tree/General/sw-ds-generic-bld-local>
-   and sign in with NVIDIA SSO.
-3. **Generate an API token** — click **Set Me Up** (top-right corner), then
-   click **Generate Token & Create Instructions**.
-4. **Set the variables** — use your NVIDIA username as `ARTIFACTORY_USER` and
-   the generated token as `ARTIFACTORY_TOKEN`.
-
-The setup script patches the extracted VST package to run
+The setup script configures VST to run
 `nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:3.2.0`,
 `nvcr.io/nvidia/vss-core/vss-vios-sensor:3.2.0`,
 `nvcr.io/nvidia/vss-core/vss-vios-ingress:3.2.0`, and
@@ -80,11 +119,10 @@ The setup script patches the extracted VST package to run
 different VST build, override `VST_IMAGE_REGISTRY`, `VST_IMAGE_TAG`, or one of
 the full-image variables shown by `bash perf/setup_perf_env.sh -h`.
 
-For pinned package testing, check in the VST tarball as `perf/vst_package.tar.gz`
-or set `VST_LOCAL_PACKAGE=/path/to/vst_package.tar.gz`. Setup stages that local
-tarball before considering the cached `VST_DIR/vst_package.tar.gz` or downloading
-`VST_PKG_URL`. Missing benchmark videos require Artifactory credentials so setup
-can download them.
+For pinned package testing, explicitly set
+`VST_LOCAL_PACKAGE=/path/to/vst_package.tar.gz`. Setup uses that local tarball
+instead of repository deployment files; an invalid path fails setup. Cached
+tarballs are not selected implicitly. Container images are pulled from `nvcr.io`.
 
 The script reads an existing `docker/.env.perf` as defaults
 before validation, including `export KEY=value` lines. Exported shell variables
@@ -96,22 +134,18 @@ exports those variables in the shell for a non-standard experiment.
 
 ```bash
 # ── Required ─────────────────────────────────────────────────────────────────
-export ARTIFACTORY_USER=your_username          # Artifactory username
-export ARTIFACTORY_TOKEN=your_token            # Artifactory API token
 export NGC_API_KEY=nvapi-XXXXXX                # NGC API key for model download
 export NVIDIA_VISIBLE_DEVICES=0                # GPU index
 
 # ── Optional (override defaults if needed) ───────────────────────────────────
+export VST_DIR="${HOME}/rtvi-perf/vst-run-01"  # fresh deployment directory
 export RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
 # DGX Spark default: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest-sbsa
 export BACKEND_PORT=8010          # RTVI VLM host port          (default: 8010)
 export REDIS_PORT=6379            # VST Redis port               (default: 6379)
-export VLM_MODEL_TO_USE=cosmos-reason2
-export MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-static-kv8
-# Or use a setup preset:
-# export VLM_MODEL_PRESET=cr3-nano-reasoner-fp8
-# export VLM_MODEL_PRESET=cr3-nano-reasoner-nvfp4  # Blackwell platforms
-# export VLM_MODEL_PRESET=cosmos3-edge-bf16        # AGX Orin BCD 3.3 candidate
+# Model example for the legacy H100 config below; use the table for other GPUs.
+export VLM_MODEL_PRESET=cr3-super-reasoner-fp8
+unset VLM_MODEL_TO_USE MODEL_PATH
 # export HF_TOKEN=hf_...          # only needed for private HuggingFace repos
 
 
@@ -136,7 +170,7 @@ sudo bash perf/apply_vss_sysctl.sh
 
 bash perf/setup_perf_env.sh
 # Runs all 12 setup steps:
-#   Downloads VST package → starts nvstreamer → starts VST →
+#   Stages repository VST files → starts nvstreamer → starts VST →
 #   downloads benchmark videos → auto-generates .env.perf →
 #   starts RTVI VLM + DCGM + Node Exporter + Prometheus →
 #   creates Python venv → injects live RTSP URL into config
@@ -275,15 +309,10 @@ RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
 # DGX Spark/SBSA: use ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest-sbsa
 NVIDIA_VISIBLE_DEVICES=0
 
-# Model Configuration
-VLM_MODEL_TO_USE=cosmos-reason2
-MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-static-kv8
-# For CR3 Nano Reasoner FP8, use:
-# VLM_MODEL_TO_USE=cosmos-reason3
-# MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix
-# For CR3 Nano Reasoner NVFP4 on Blackwell platforms, use:
-# VLM_MODEL_TO_USE=cosmos-reason3
-# MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix
+# Model example: H100 CR3 Super FP8. Use the model table for other platforms.
+# Direct Compose needs these resolved values; VLM_MODEL_PRESET is setup-only.
+VLM_MODEL_TO_USE=cosmos-reason3
+MODEL_PATH=ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix
 NGC_API_KEY=nvapi-XXXXXX
 
 # BCD benchmark required settings
@@ -351,25 +380,22 @@ Expected response:
 
 ### Prepare Test Videos
 
-#### Benchmark Videos (downloaded automatically by setup_perf_env.sh)
+#### BCD Videos (prepared automatically)
 
-`perf/setup_perf_env.sh` downloads the four benchmark videos to `PERF_VIDEOS_DIR`
-(default: `~/rtvi-perf/vst_package/videos/`).
+Setup downloads the NGC warehouse source when needed and generates the following
+1920×1080, 10 FPS clips in `PERF_VIDEOS_DIR` (default: `${VST_DIR}/videos`).
+The default and platform-specific file scenarios use these generated files.
 `compose.perf.yaml` mounts that directory into the container at `/opt/nvidia/rtvi/streams/perf/`.
 
 | File | Duration | Used by |
 |------|----------|---------|
-| `warehouse_gopro_10s.mp4` | 10 s | BCD 3 (file_burst) + BCD 4 (e2e_latency 10 s baseline) |
-| `warehouse_gopro_1m.mp4` | 60 s | nvstreamer source for VST live RTSP stream |
-| `warehouse_gopro_10m.mp4` | 600 s | BCD 4 (e2e_latency 10-min point) |
-| `warehouse_gopro_60m.mp4` | 3600 s | BCD 4 (e2e_latency 60-min point) |
+| `FPS10_Res1080p_Dur10sec_1.mp4` | 10 s | File burst and 10 s E2E latency |
+| `warehouse_gopro_10m_10fps.mp4` | 600 s | 10 min E2E latency |
+| `warehouse_gopro_60m_10fps.mp4` | 3600 s | 60 min E2E latency and VST live stream source |
 
-If `warehouse_gopro_10s.mp4` is not available on Artifactory, extract it locally:
-
-```bash
-ffmpeg -i "${PERF_VIDEOS_DIR}/warehouse_gopro_1m.mp4" \
-       -t 10 -c copy "${PERF_VIDEOS_DIR}/warehouse_gopro_10s.mp4"
-```
+These replace the legacy media in the generic profiles; results should not be
+compared with earlier legacy-media runs as if the inputs were unchanged. Custom
+profiles that still use legacy filenames require those exact files locally.
 
 #### RTSP Stream Setup via VST (For Live Stream Tests)
 
@@ -377,9 +403,8 @@ Use `perf/setup_perf_env.sh` to automate this entirely (see **Quick Start** abov
 All live-stream benchmarks use VST-managed streams at `rtsp://<HOST>/live/<stream_id>`.
 
 ```bash
-# Run setup script (downloads VST, starts it, polls for streams, injects URL)
-export ARTIFACTORY_USER=your_username
-export ARTIFACTORY_TOKEN=your_token
+# Run setup script (stages VST, starts it, polls for streams, injects URL)
+# Export NGC_API_KEY and NVIDIA_VISIBLE_DEVICES as in Quick Start above.
 bash perf/setup_perf_env.sh
 
 # Or manually start VST if already installed:
@@ -747,7 +772,7 @@ file_burst_1_token:
     vlm_input_height: 448
     max_tokens: 1
   videos:
-    - filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10s.mp4"
+    - filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
       chunk_sizes: [10]
       concurrency_levels: [1, 2, 4, 8, 16, 32, 64]
 ```
@@ -777,15 +802,15 @@ e2e_latency_1_token:
     max_tokens: 1
   videos:
     - name: "warehouse_10s"       # 10 s — 1 chunk per request
-      filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10s.mp4"
+      filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
       chunk_sizes: [10]
       concurrency_levels: [1, 2, 4, 8, 16, 32]
     - name: "warehouse_10min"     # 600 s — 60 chunks per request
-      filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10m.mp4"
+      filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10m_10fps.mp4"
       chunk_sizes: [10]
       concurrency_levels: [1]
     - name: "warehouse_60min"     # 3600 s — 360 chunks per request
-      filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_60m.mp4"
+      filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_60m_10fps.mp4"
       chunk_sizes: [10]
       concurrency_levels: [1]
 ```
@@ -1286,8 +1311,8 @@ docker compose -f docker/compose.perf.yaml logs -f rtvi-server
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `VLM_MODEL_PRESET` | `cr3-nano-reasoner-fp8` or `cr3-nano-reasoner-nvfp4` | Optional `perf/setup_perf_env.sh` preset. The FP8 preset fills `VLM_MODEL_TO_USE=cosmos-reason3` and `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix`; the Blackwell NVFP4 preset fills `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix`. Explicit exports take precedence. |
-| `VLM_MODEL_PRESET` (AGX Orin) | `cosmos3-edge-bf16` | BCD 3.3 candidate: selects `vllm-compatible` and the [Cosmos3-Edge](https://huggingface.co/nvidia/Cosmos3-Edge) BF16 model at pinned commit `344d602b128d1bbdacb43b08d0a3626f46343e29`. Requires an RTVI image with Edge support; preflight on Orin before any capacity claim. |
+| `VLM_MODEL_PRESET` | `cr3-nano-reasoner-fp8`, `cr3-nano-reasoner-nvfp4`, `cr3-super-reasoner-fp8`, `cr3-super-reasoner-nvfp4` | Setup-only preset; see the [platform model table](#bcd-33-model-selection) for exact artifacts. BCD platform YAMLs select this automatically and reject conflicting shell overrides. For other configs, explicit model exports take precedence. |
+| `VLM_MODEL_PRESET` (AGX Orin) | `cosmos3-edge-bf16` | BCD 3.3 selection: `vllm-compatible` and [Cosmos3-Edge BF16](https://huggingface.co/nvidia/Cosmos3-Edge/tree/344d602b128d1bbdacb43b08d0a3626f46343e29). Requires an RTVI image with Edge support; preflight on Orin before any capacity claim. |
 | `VLM_MODEL_TO_USE` | `cosmos-reason3` | Model name |
 | `MODEL_PATH` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` or `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` | Model path |
 | `VLM_MAX_MODEL_LEN` | `32768` | Maximum model context length; raise only if the prompt/video token budget requires it |
@@ -1431,10 +1456,8 @@ placeholder `RTSP_STREAM_URL` instead of a real `rtsp://` URL. This happens when
 - The config was pulled/reset from git after `setup_perf_env.sh` had already patched it, or
 - `setup_perf_env.sh` was never run on this machine.
 
-**Fix:** Tear down and re-run setup to regenerate the patched config:
-```bash
-bash perf/teardown_perf_env.sh && bash perf/setup_perf_env.sh
-```
+**Fix:** Follow the fresh-directory recovery sequence below to tear down and
+regenerate the patched config.
 
 The setup script replaces `RTSP_STREAM_URL` with the live RTSP URL discovered from the VST API.
 
@@ -1447,24 +1470,20 @@ serving RTSP streams. The recommended recovery is a clean teardown followed by
 a fresh setup:
 
 ```bash
+# Preserve both caches before changing the deployment directory.
+export PERF_VIDEOS_DIR="${PERF_VIDEOS_DIR:-${VST_DIR:-${HOME}/rtvi-perf/vst_package}/videos}"
+export LVS_VIDEO_DATA_DIR="${LVS_VIDEO_DATA_DIR:-${VST_DIR:-${HOME}/rtvi-perf/vst_package}/lvs-benchmark-data}"
 bash perf/teardown_perf_env.sh   # stops all services started by setup_perf_env.sh
-bash perf/setup_perf_env.sh      # re-runs all 12 setup steps
+export VST_DIR="$(mktemp -d "${PWD}/vst-retry.XXXXXX")"
+bash perf/setup_perf_env.sh     # stages a fresh deployment and runs all 12 steps
 ```
 
-The setup script is **idempotent** — tarballs and videos already on disk are
-skipped, VST patches are not applied twice, and any existing containers are
-stopped before new ones are started. A re-run is always safe.
-
-If nvstreamer fails on the first attempt without a full teardown, re-running
-the setup script alone is also sufficient:
-
-```bash
-bash perf/setup_perf_env.sh
-```
-
-The script will re-download nothing (tarballs and videos are cached), re-patch VST
-(the patch markers prevent double-patching), stop any dangling containers, and retry
-the full nvstreamer → VST → RTVI VLM startup sequence.
+Run teardown with the original `VST_DIR` and `VST_COMPOSE_PROJECT` before changing
+directories. Default repository staging refuses to overwrite an existing
+deployment; use a fresh `VST_DIR` for every retry, including after a partial setup
+failure. Existing videos in `PERF_VIDEOS_DIR` can be reused. An explicit
+`VST_LOCAL_PACKAGE` retains the local-tarball extraction path instead of repository
+staging. Keep the failed deployment's logs for diagnosis.
 
 If nvstreamer fails repeatedly, check its logs before re-running:
 
@@ -1478,17 +1497,16 @@ curl -v http://localhost:31000
 # Verify the video files nvstreamer serves are present
 ls -lh ~/rtvi-perf/vst_package/videos/
 
-# Manually stop everything, then re-run the setup script
-bash perf/teardown_perf_env.sh
-bash perf/setup_perf_env.sh
 ```
 
 If the VST stream poll times out (Step 9), increase the timeout and re-run:
 
 ```bash
 export STREAM_POLL_TIMEOUT=600   # wait up to 10 minutes for streams
-bash perf/setup_perf_env.sh
 ```
+
+Then follow the fresh-directory recovery sequence above; do not rerun setup
+against the already staged directory.
 
 ### Prometheus / Node Exporter / DCGM Exporter Fail to Start
 
@@ -1502,12 +1520,14 @@ re-running:
 # Check which ports are occupied
 ss -tlnp | grep -E "9100|9400|9090"
 
-# Override whichever port(s) are in use and re-run
+# Override whichever port(s) are in use
 export NODE_EXPORTER_PORT=9101   # default 9100
 export DCGM_EXPORTER_PORT=9401   # default 9400
 export PROMETHEUS_PORT=9091      # default 9090
-bash perf/setup_perf_env.sh
 ```
+
+Retry using the fresh-directory recovery sequence above if staging already
+occurred. If setup stopped before staging, the same empty `VST_DIR` can be reused.
 
 The overridden ports are written into `.env.perf` automatically and picked up by
 `compose.perf.yaml`.
