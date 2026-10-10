@@ -22,14 +22,15 @@ shell to avoid conflicting overrides. CR2 examples are for legacy runs only.
 
 > **Recommended:** Use `perf/setup_perf_env.sh` (see
 > [PERF_GUIDE.RTVI_VLM.md](PERF_GUIDE.RTVI_VLM.md)) which automates all
-> steps below end-to-end — VST download, nvstreamer/VST startup, `.env.perf`
+> steps below end-to-end — repository VST staging, nvstreamer/VST startup, `.env.perf`
 > generation, RTVI VLM deployment, Python venv creation, and RTSP URL
 > injection.
 
 ### Step 1 — Run the environment setup script
 
-The script downloads VST + benchmark videos, starts nvstreamer/VST, creates a
-Python venv, and injects the live RTSP URL into the benchmark config. It reads
+The script stages repository VST/NVStreamer deployment files, prepares benchmark
+videos from NGC or local sources, starts nvstreamer/VST, creates a Python venv,
+and injects the live RTSP URL into the benchmark config. It reads
 the service-root `.env` and existing `docker/.env.perf` as defaults
 before validation, including `export KEY=value` lines. `.env.perf` can override
 `.env`; exported shell variables override both files.
@@ -38,12 +39,9 @@ and `VLLM_DISABLE_MM_PREPROCESSOR_CACHE=true` unless those keys are explicitly
 exported in the shell for a non-standard experiment.
 
 ```bash
-export ARTIFACTORY_USER=<your-username>  # required when VST must download
-export ARTIFACTORY_TOKEN=<your-api-token>
-
 # Optional overrides (defaults shown):
 # export REDIS_PORT=6379          # change if 6379 is already in use
-# export VST_LOCAL_PACKAGE=perf/vst_package.tar.gz
+# export VST_LOCAL_PACKAGE=perf/vst_package.tar.gz  # explicit local tarball override
 # export VST_IMAGE_TAG=3.2.0
 # export PERF_VIDEOS_DIR=~/rtvi-perf/vst_package/videos
 # export VLM_MODEL_PRESET=cr3-nano-reasoner-fp8
@@ -56,12 +54,13 @@ export ARTIFACTORY_TOKEN=<your-api-token>
 bash perf/setup_perf_env.sh
 ```
 
-If `perf/vst_package.tar.gz` exists, the setup script uses that checked-in
-package instead of downloading VST from Artifactory. Set `VST_LOCAL_PACKAGE` to
-point at a different local tarball. Artifactory credentials are only required
-when the VST package must be downloaded.
+By default, setup stages the repository deployment files without Artifactory
+credentials. Set `VST_LOCAL_PACKAGE` explicitly to use a local VST tarball;
+setup does not automatically select cached tarballs. NGC CLI, media entitlement,
+and registry/model access prerequisites are documented in
+[PERF_GUIDE.RTVI_VLM.md](PERF_GUIDE.RTVI_VLM.md#bcd-33-quick-start).
 
-By default, the setup script patches the extracted VST package to use
+The setup script configures the staged deployment or explicit local package to use
 `nvcr.io/nvidia/vss-core` images tagged `3.2.0` for
 `vss-vios-streamprocessing`, `vss-vios-sensor`, `vss-vios-ingress`, and
 `vss-vios-nvstreamer`. Override
