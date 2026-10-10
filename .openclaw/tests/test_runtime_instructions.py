@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 import textwrap
 import unittest
 from pathlib import Path
@@ -30,11 +31,7 @@ class EnvironmentInstructions(unittest.TestCase):
                 "--noprofile",
                 "--norc",
                 "-c",
-                (
-                    script
-                    if script is not None
-                    else bash_block(WORKSPACE / "ENV.md", "## Exports")
-                )
+                (script if script is not None else bash_block(WORKSPACE / "ENV.md", "## Exports"))
                 + '\nprintf "%s\\n" '
                 + " ".join(f'"${name}"' for name in names),
             ],
@@ -70,9 +67,7 @@ class EnvironmentInstructions(unittest.TestCase):
         self.assertEqual(self.exports({}, ("HITL_ENABLED",)), ["false"])
         for value in ("true", "false", ""):
             with self.subTest(value=value):
-                self.assertEqual(
-                    self.exports({"HITL_ENABLED": value}, ("HITL_ENABLED",)), [value]
-                )
+                self.assertEqual(self.exports({"HITL_ENABLED": value}, ("HITL_ENABLED",)), [value])
 
     def test_explicit_empty_origin_and_host_remain_empty(self):
         self.assertEqual(
@@ -86,30 +81,89 @@ class EnvironmentInstructions(unittest.TestCase):
             ["", ""],
         )
 
-    def test_direct_url_does_not_require_memory_configuration(self):
-        script = (
-            bash_block(SKILL, "## Prerequisites")
-            + "\n"
-            + bash_block(SKILL, "For a trusted bounded URL")
+    def test_video_qa_skill_has_one_full_video_vlm_call(self):
+        text = SKILL.read_text()
+        blocks = re.findall(r"```bash\n(.*?)\n```", text, re.DOTALL)
+        calls = [block for block in blocks if "vss vlm run" in block]
+        self.assertEqual(len(calls), 1)
+        for command in calls:
+            self.assertEqual(command.count("vss vlm run"), 1)
+            self.assertIn('--prompt "$VLM_PROMPT"', command)
+            self.assertNotIn("--start", command)
+            self.assertNotIn("--end", command)
+            self.assertNotIn("vss memory", command)
+        self.assertNotIn("--sensor", text)
+        self.assertNotIn("$VSS_SENSOR_ID", text)
+        self.assertIn("3.3.0-single-call", text)
+        self.assertIn("/output/answer.json", text)
+
+    def test_video_qa_example_preserves_prompt_and_requires_supplied_url(self):
+        question = "What did the driver do after hearing 'stop'?"
+        choices = "A. Waited for the officer\nB. Drove away\nC. Raised their hands"
+        prompt_script = (
+            bash_block(SKILL, "## Inference prompt")
+            .replace("<exact benchmark question>", question)
+            .replace(
+                "<every original labeled answer choice, in its original order>",
+                choices,
+            )
         )
-        result = self.exports(
-            {
-                "VIDEO_URL": "https://media.example/video.mp4",
-                "USER_QUESTION": "What happened?",
-            },
-            names=(),
-            script="""set -e
-            vss() {
-              case "$*" in
-                'configure check') return 0 ;;
-                'vlm run '*) printf 'direct-url-answer' ;;
-                *) echo 'memory is not configured' >&2; return 2 ;;
-              esac
-            }
-            """
-            + script,
+        expected_prompt = (
+            f"{question}\n\n{choices}\n\n"
+            "Answer with only the selected option letter. Do not include an explanation."
         )
-        self.assertIn("direct-url-answer", result)
+        url = (
+            "http://rustfs.media.svc.cluster.local:9000/eval-videos/"
+            "datasets/example/1/videos/2019-0000048.mp4?versionId=one&part=two"
+        )
+        sensor = "bound-sensor-distinct-from-video-id"
+        # Capture the actual shell examples' CLI argv without calling a backend.
+        capture = (
+            "vss() { "
+            + shlex.quote(sys.executable)
+            + " -c "
+            + shlex.quote("import json,sys; print(json.dumps(sys.argv[1:]))")
+            + ' "$@"; }\n'
+        )
+        cases = (
+            {"VIDEO_URL": url},
+            {"VIDEO_URL": ""},
+            {},
+        )
+        for values in cases:
+            with self.subTest(environment=values):
+                result = subprocess.run(
+                    [
+                        "bash",
+                        "--noprofile",
+                        "--norc",
+                        "-c",
+                        "set -eu\n"
+                        + capture
+                        + prompt_script
+                        + "\n"
+                        + bash_block(SKILL, "## Video source"),
+                    ],
+                    env={
+                        "PATH": "/usr/bin:/bin",
+                        "VSS_SENSOR_ID": sensor,
+                        **values,
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if not values.get("VIDEO_URL"):
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout, "")
+                    continue
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = result.stdout.splitlines()
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(
+                    json.loads(calls[0]),
+                    ["vlm", "run", "--media-url", url, "--prompt", expected_prompt],
+                )
 
     def notebook_script(self, origin, hitl):
         path = ROOT / "deploy/docker/scripts/deploy_nemoclaw.ipynb"
