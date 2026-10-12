@@ -453,6 +453,9 @@ def describe_query_flow(
     return described
 
 
+#: Share of queries (percent) whose live decomposition may fail before the run aborts.
+DEFAULT_MAX_DECOMPOSE_FAILED_PCT = 20.0
+
 #: Cleanup flags from before every run wiped the index; parsed, then ignored.
 IGNORED_CLEANUP_FLAGS = ("--only-dataset", "--clear", "--confirm-delete")
 #: How long deleted sources' documents get to disappear before the wipe gives up.
@@ -899,6 +902,7 @@ def run_evaluation(
     decomposer: Any = None,
     decompose_fallback: dict[str, Any] | None = None,
     tolerate_unanswered: int = 0,
+    max_decompose_failed_pct: float = DEFAULT_MAX_DECOMPOSE_FAILED_PCT,
     use_dataset_decompositions: bool = True,
 ) -> dict[str, Any]:
     """Score every dataset query through ``query_backend``.
@@ -965,8 +969,16 @@ def run_evaluation(
         # integration -- path choice, attributes and top_k all follow. Distinct
         # keys per thread, so the shared dict needs no lock.
         decompose_s = 0.0
+        decompose_error: str | None = None
         if decomposer is not None:
-            decomposition, decompose_s = decomposer.decompose(query, video_sources=video_names)
+            # The agent searches the original query on embed when decomposition
+            # fails, so this query does too. It is counted, not hidden: enough
+            # of these and the run measures embed, not routing.
+            try:
+                decomposition, decompose_s = decomposer.decompose(query, video_sources=video_names)
+            except flows.DecompositionError as e:
+                decomposition, decompose_s = {"query": query}, 0.0
+                decompose_error = str(e)[:300]
             query_backend.decompositions[query] = decomposition
 
         raw_results, latency_s = query_backend.search(query)
@@ -989,6 +1001,8 @@ def run_evaluation(
             result["decompose_s"] = round(decompose_s, 4)
             result["total_latency_s"] = round(decompose_s + latency_s, 4)
             result["decomposition"] = query_backend.decompositions.get(query)
+            if decompose_error is not None:
+                result["decompose_failed"] = decompose_error
 
         # Present only when the deployment carries the search_core timings
         # change. Absent means nobody collected -- not that stages took no time.
@@ -1007,6 +1021,8 @@ def run_evaluation(
             completed[0] += 1
             print(f'[{completed[0]}/{len(queries)}] "{query}"  ({len(expected)} ground truth segments)')
             print(f"  {flows.format_inline(result, latency_s=latency_s)}")
+            if decompose_error is not None:
+                print(f"  [decomposition failed -> embed] {decompose_error[:160]}")
             if num_rejected:
                 print(
                     f"  [critic-filtered] rejected={num_rejected}  "
@@ -1093,6 +1109,17 @@ def run_evaluation(
                 "below would describe\n"
                 f"  {len(results)} queries under a {len(queries)}-query label. "
                 "Raise the tolerance to accept that."
+            )
+
+    fell_back = sum(1 for r in results if r.get("decompose_failed"))
+    if fell_back:
+        print(f"\nWARNING: {fell_back}/{len(results)} queries fell back to embed: decomposition failed.")
+        if 100 * fell_back / len(results) > max_decompose_failed_pct:
+            raise SystemExit(
+                f"ABORTED: {fell_back}/{len(results)} queries fell back to embed, above "
+                f"--max-decompose-failed-pct {max_decompose_failed_pct:g}.\n"
+                "  The numbers would measure embed, not the agent's routing. Fix the "
+                "decomposition LLM, or raise the limit to accept that."
             )
 
     summary = _summarize(
@@ -1352,24 +1379,33 @@ def _summarize(
             3,
         )
 
-    decompose_times = [r["decompose_s"] for r in results if r.get("decompose_s") is not None]
-    if decompose_times:
+    decomposed = [r for r in results if r.get("decompose_s") is not None]
+    if decomposed:
         # Reported next to, not inside, the search latency: decomposition is an
         # LLM call the CLI never makes, so folding it into latency_s would make
-        # runs with and without it incomparable.
+        # runs with and without it incomparable. A failed call's 0 s is kept
+        # out of the timings; it is counted under `failed` instead.
+        timed = [r for r in decomposed if not r.get("decompose_failed")]
+        times = [r["decompose_s"] for r in timed]
+        failed = [r for r in decomposed if r.get("decompose_failed")]
         summary["decomposition"] = {
-            "queries": len(decompose_times),
-            "mean_s": round(statistics.mean(decompose_times), 3),
-            "median_s": round(statistics.median(decompose_times), 3),
-            "max_s": round(max(decompose_times), 3),
-            "total_s": round(sum(decompose_times), 3),
+            "queries": len(decomposed),
+            "failed": len(failed),
+            "mean_s": round(statistics.mean(times), 3) if times else None,
+            "median_s": round(statistics.median(times), 3) if times else None,
+            "max_s": round(max(times), 3) if times else None,
+            "total_s": round(sum(times), 3),
             "share_of_query_pct": round(
-                100 * sum(decompose_times) / max(sum(r["latency_s"] + r["decompose_s"] for r in results if r.get("decompose_s") is not None), 1e-9), 1
+                100 * sum(times) / max(sum(r["latency_s"] + r["decompose_s"] for r in timed), 1e-9), 1
             ),
             "routed_to": flows.path_distribution(
-                [flows.plan_for(r["query"], r.get("decomposition")) for r in results if r.get("decomposition")]
+                [flows.plan_for(r["query"], r.get("decomposition")) for r in decomposed if r.get("decomposition")]
             ),
         }
+        if failed:
+            summary["decomposition"]["failed_queries"] = [
+                {"query": r["query"], "error": r["decompose_failed"]} for r in failed[:50]
+            ]
 
     summary["throughput"] = {
         "wall_clock_s": round(wall_clock_s, 3),
@@ -1410,6 +1446,9 @@ def _print_summary(summary: dict[str, Any]) -> None:
     degraded = _degraded_line(summary)
     if degraded:
         print(degraded)
+    fell_back = (summary.get("decomposition") or {}).get("failed")
+    if fell_back:
+        print(f"WARNING:            {fell_back} queries fell back to embed: decomposition failed")
 
     cf = summary.get("critic_filtered")
     if cf:
@@ -1462,9 +1501,12 @@ def _print_summary(summary: dict[str, Any]) -> None:
     dec = summary.get("decomposition")
     if dec:
         print(f"\nQuery decomposition ({dec['queries']} queries, live)")
-        print(f"  {'Mean:':<18}{dec['mean_s']:.3f}s")
-        print(f"  {'Median:':<18}{dec['median_s']:.3f}s")
-        print(f"  {'Max:':<18}{dec['max_s']:.3f}s")
+        if dec.get("failed"):
+            print(f"  {'Failed -> embed:':<18}{dec['failed']}")
+        if dec["mean_s"] is not None:
+            print(f"  {'Mean:':<18}{dec['mean_s']:.3f}s")
+            print(f"  {'Median:':<18}{dec['median_s']:.3f}s")
+            print(f"  {'Max:':<18}{dec['max_s']:.3f}s")
         print(f"  {'Share of query:':<18}{dec['share_of_query_pct']:.1f}%")
         print(f"  {'Routed to:':<18}{dec['routed_to']}")
 
@@ -1829,6 +1871,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "whether a partial run is allowed to publish numbers."
         ),
     )
+    p.add_argument(
+        "--max-decompose-failed-pct",
+        type=float,
+        default=DEFAULT_MAX_DECOMPOSE_FAILED_PCT,
+        help=(
+            "A query whose live decomposition fails is searched on embed with "
+            "its original text, as the agent does. Abort when more than this "
+            f"share of queries fell back (default: {DEFAULT_MAX_DECOMPOSE_FAILED_PCT:g}); "
+            "100 disables the check."
+        ),
+    )
     p.add_argument("--llm-model", help="Decomposition model id (default: ask the endpoint).")
     p.add_argument(
         "--name",
@@ -2144,6 +2197,7 @@ def main() -> None:
         decomposer=decomposer,
         decompose_fallback=decompose_fallback,
         tolerate_unanswered=args.tolerate_unanswered,
+        max_decompose_failed_pct=args.max_decompose_failed_pct,
         use_dataset_decompositions=not args.fixed_search_path,
         output_file=args.output_file,
         run_name=args.name,
