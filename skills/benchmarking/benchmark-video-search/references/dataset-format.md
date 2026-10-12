@@ -92,20 +92,21 @@ the same `--search-path` to every query. The contract is
 
 ### How the path is chosen
 
-Derived from the decomposition — no guessing:
+Routing mirrors the agent's `execute_core_search` exactly, so a stored
+decomposition takes the path the agent would take:
 
 | `object_ids` | `attributes` | `has_action` | → path |
 |---|---|---|---|
 | present | — | — | `object` |
 | — | present | `true` | `fusion` |
 | — | present | `false` | `attribute` |
+| — | present | missing | `attribute` |
 | — | empty | — | `embed` |
 
-`attribute` is the no-action case because that path cannot express an action.
-`fusion` is the both case: the embedding leg carries the action, the attribute
-leg re-ranks by appearance. A decomposition missing `has_action` routes to
-`fusion`, because fusion still returns the embedding leg's candidates while
-`attribute` would silently drop every action-based match.
+`attributes` are counted after the agent's single-word pruning: an attribute
+with no space, `-` or `.` is dropped, so `["red"]` routes as empty. Nothing
+else is pruned; an attribute that repeats an action query is kept, as the
+agent keeps it. A missing `has_action` means attribute-only, as in the agent.
 
 > **Attributes are matched semantically, not literally.** Attribute search
 > embeds your attribute text with RTVI-CV and runs kNN against per-object visual
