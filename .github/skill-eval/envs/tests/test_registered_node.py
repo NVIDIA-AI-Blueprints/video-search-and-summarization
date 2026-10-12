@@ -78,6 +78,50 @@ class LocalNimCredentialDelivery(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("private-registry-key", calls[0][0])
 
 
+class TeardownEnvironment(unittest.IsolatedAsyncioTestCase):
+    async def test_teardown_without_preservation_fails_before_touching_worker(self):
+        env = brev_env.BrevEnvironment()
+        with mock.patch.dict(os.environ, {}, clear=True), \
+             mock.patch.object(env, "_read_task_metadata", return_value={"phase": "teardown"}), \
+             mock.patch.object(brev_env, "_run_brev_exec") as execute:
+            with self.assertRaisesRegex(RuntimeError, "deployment to be preserved"):
+                await env.start(False)
+        execute.assert_not_called()
+
+    async def test_teardown_keeps_failed_setup_and_forwards_its_owned_identifiers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = brev_env.BrevEnvironment()
+            env.environment_dir = Path(tmp) / "teardown/environment"
+            calls = []
+
+            async def execute(instance, command, timeout=0):
+                calls.append(command)
+                return brev_env.ExecResult(stdout="harbor-ready", return_code=0)
+
+            with mock.patch.dict(os.environ, {
+                "SKILL_EVAL_PRESERVE_DEPLOYMENT": "1",
+                "SKILL_EVAL_BUILD_DIR": "_builds/skill-eval-owned",
+                "COMPOSE_PROJECT_NAME": "skill-eval-owned",
+                "SKILL_EVAL_LOCAL_NIM_PLAN": "unused-during-teardown",
+            }, clear=True), \
+                 mock.patch.object(env, "_read_task_metadata", return_value={"phase": "teardown"}), \
+                 mock.patch.object(env, "_resolve_instance_name", return_value="vss-eval-owned"), \
+                 mock.patch.object(brev_env, "_find_brev_instance", return_value={}), \
+                 mock.patch.object(brev_env, "_check_live_resources") as capacity, \
+                 mock.patch.object(brev_env, "_run_brev_exec", side_effect=execute), \
+                 mock.patch.object(env, "_reset_docker_runtime") as reset, \
+                 mock.patch.object(env, "_purge_host_data_dirs") as purge, \
+                 mock.patch.object(env, "_sync_repo_to_pr_head") as sync, \
+                 mock.patch.object(env, "_probe_bind_mount"), \
+                 mock.patch.object(env, "_start_local_nims") as nims:
+                await env.start(False)
+            for action in (capacity, reset, purge, sync, nims):
+                action.assert_not_called()
+            bootstrap = next(command for command in calls if "cat > ~/.eval_env" in command)
+            self.assertIn("export SKILL_EVAL_BUILD_DIR=_builds/skill-eval-owned", bootstrap)
+            self.assertIn("export COMPOSE_PROJECT_NAME=skill-eval-owned", bootstrap)
+
+
 class RtspSampleUrlResolution(unittest.TestCase):
     def test_uses_public_default_when_unset(self):
         with mock.patch.dict(os.environ, {"RTSP_SAMPLE_URL": ""}):

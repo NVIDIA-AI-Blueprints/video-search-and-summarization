@@ -243,6 +243,8 @@ def collect_leg(results_root: Path) -> dict:
     trials: list[dict] = []
     unreadable: list[str] = []
     for result_path in sorted(results_root.rglob("result.json")):
+        if result_path.relative_to(results_root).parts[0] == "teardown":
+            continue
         trial_dir = result_path.parent
         data = _load_json(result_path)
         if data is None:
@@ -367,6 +369,7 @@ def collect_leg(results_root: Path) -> dict:
         "phases": phases if isinstance(phases, dict) else {},
         "first_started": min(starts) if starts else None,
         "last_finished": max(ends) if ends else None,
+        "teardown": _load_json(results_root / "teardown.json") or [],
     }
 
 
@@ -571,6 +574,23 @@ def render_comment(leg: dict, *, spec_path: str, platform: str, head_sha: str,
         lines.append("")
         lines.append("Unreadable result files (NOT reflected above): "
                      + ", ".join(f"`{p}`" for p in leg["unreadable"]))
+    cleanup = leg.get("teardown")
+    if isinstance(cleanup, list) and cleanup:
+        lines.extend(["", "### Deployment teardown", "",
+                      "Reported separately from the operational skill checks.", ""])
+        for entry in cleanup:
+            if not isinstance(entry, dict):
+                continue
+            state = entry.get("state", "unknown")
+            detail = entry.get("reason") or entry.get("exception")
+            text = f"- `{entry.get('chain', 'unknown')}`: **{state}**"
+            if detail:
+                text += f" ({detail})"
+            if entry.get("trace_url"):
+                text += f" · [teardown trace]({entry['trace_url']})"
+            lines.append(text)
+    elif leg.get("teardown_declared"):
+        lines.extend(["", "### Deployment teardown", "", "**not-run**: no teardown result was recorded."])
     lines.append("")
     return "\n".join(lines)
 
@@ -622,6 +642,8 @@ def leg_summary(leg: dict, *, declared: list[str], spec_path: str = "",
         "declared_steps": len(declared),
         "steps": steps,
         "collection_errors": list(leg.get("unreadable") or []),
+        "teardown": leg.get("teardown") or [],
+        "teardown_declared": bool(leg.get("teardown_declared")),
     }
 
 
@@ -674,6 +696,8 @@ def main(argv: list[str] | None = None) -> int:
         # partial chain look complete, so this is a hard error.
         print(f"spec error: {exc}", file=sys.stderr)
         return 3
+    if spec_file:
+        leg["teardown_declared"] = json.loads(spec_file.read_text()).get("teardown") is not None
     body = render_comment(leg, spec_path=args.spec_path, platform=args.platform,
                           head_sha=args.head_sha, spec_sha=args.spec_sha,
                           declared=declared)

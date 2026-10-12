@@ -199,6 +199,9 @@ class BrevEnvironment(BaseEnvironment):
             return
 
         meta = self._read_task_metadata()
+        is_teardown = meta.get("phase") == "teardown"
+        if is_teardown and os.environ.get("SKILL_EVAL_PRESERVE_DEPLOYMENT") != "1":
+            raise RuntimeError("teardown requires the current deployment to be preserved")
         requirements = {
             "gpu_type": meta.get("gpu_type"),
             "gpu_count": int(meta.get("gpu_count", 1)),
@@ -219,7 +222,7 @@ class BrevEnvironment(BaseEnvironment):
                     f"Brev instance '{self._instance_name}' not found "
                     f"(is it deleted? wrong org?)"
                 )
-            if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") != "true":
+            if not is_teardown and os.environ.get("SKILLS_EVAL_SPARK_RUNNER") != "true":
                 await _check_instance_matches(instance, requirements)
         else:
             raise RuntimeError(
@@ -253,7 +256,11 @@ class BrevEnvironment(BaseEnvironment):
         # the checks catch silent regressions (e.g. a driver downgrade or
         # a box where the big volume mounts on /ephemeral and / is only
         # ~100 GB — which OOMs on local NIM pulls).
-        if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
+        if is_teardown:
+            # A failed deployment may have filled the disk or lost its GPU.
+            # Cleanup reuses the locked worker; it does not need deploy capacity.
+            pass
+        elif os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
             result = await _run_brev_exec(self._instance_name, "uname -m", timeout=30)
             if result.return_code or (result.stdout or "").strip() not in {"aarch64", "arm64"}:
                 raise RuntimeError("Selected Spark worker must have arm64 architecture")
@@ -464,6 +471,7 @@ class BrevEnvironment(BaseEnvironment):
             # setup. Forward its provider and lifecycle inputs exactly as
             # supplied by CI; the harness invokes the worker's NemoClaw CLI.
             "SKILLS_EVAL_OPERATIONAL_HARNESS",
+            "SKILL_EVAL_BUILD_DIR", "COMPOSE_PROJECT_NAME",
             "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_RECREATE_SANDBOX",
             "NEMOCLAW_GATEWAY_PORT",
             "SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER",
@@ -632,7 +640,7 @@ class BrevEnvironment(BaseEnvironment):
         # env provider. The previous `_ensure_prerequisite_deployed`
         # hook + `/tmp/skill-eval/active-deploy.txt` marker are gone.
 
-        if os.environ.get("SKILL_EVAL_LOCAL_NIM_PLAN"):
+        if not is_teardown and os.environ.get("SKILL_EVAL_LOCAL_NIM_PLAN"):
             await self._start_local_nims()
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)

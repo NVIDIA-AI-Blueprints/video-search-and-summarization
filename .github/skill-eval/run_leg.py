@@ -48,8 +48,9 @@ import urllib.parse
 # command should not have to scroll past it. Read the phase label through
 # leg_timing.current_phase(); importing the global copies it once.
 import leg_timing
+import teardown
 from leg_timing import HEARTBEAT_SEC, leg_log, phase
-from model_config import SkillEvalModelRoutes, resolve_model_routes
+from model_config import SkillEvalModelConfig, SkillEvalModelRoutes, resolve_model_routes
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -331,6 +332,8 @@ def build_harbor_command(
     agent: str = "claude-code",
     agent_timeout_multiplier: float = HARBOR_AGENT_TIMEOUT_MULTIPLIER,
     local_nim: bool = False,
+    environment_timeout_multiplier: float | None = None,
+    verifier_timeout_multiplier: float = HARBOR_VERIFIER_TIMEOUT_MULTIPLIER,
 ) -> list[str]:
     environment_import_path = "envs.brev_env:BrevEnvironment"
     environment_build_timeout_multiplier = (
@@ -376,6 +379,8 @@ def build_harbor_command(
             f"unsupported agent {agent!r} "
             "(expected claude-code | codex | nemoclaw)"
         )
+    if environment_timeout_multiplier is not None:
+        environment_build_timeout_multiplier = environment_timeout_multiplier
     return [
         "uvx",
         "--python",
@@ -396,7 +401,7 @@ def build_harbor_command(
         "--agent-timeout-multiplier",
         str(agent_timeout_multiplier),
         "--verifier-timeout-multiplier",
-        str(HARBOR_VERIFIER_TIMEOUT_MULTIPLIER),
+        str(verifier_timeout_multiplier),
         "--max-retries",
         "0",
         "-n",
@@ -1708,7 +1713,7 @@ def run_invocations(
         if r.provider == "local-nim"
     ]
     if not routes:
-        return _run_invocations(
+        return _run_owned_invocations(
             invocations,
             instance,
             results_root,
@@ -1755,7 +1760,7 @@ def run_invocations(
         )
     )
     try:
-        return _run_invocations(
+        return _run_owned_invocations(
             invocations,
             instance,
             results_root,
@@ -1777,6 +1782,152 @@ def run_invocations(
             )
 
 
+def teardown_reserve_sec(config: dict) -> int:
+    """Reserve a bounded host task, verification, artifact recovery and shutdown."""
+    timeout = (
+        2 * HARBOR_BASE_PHASE_TIMEOUT_SEC + HARBOR_AGENT_SETUP_BUDGET_SEC
+        + config["timeout_sec"] + HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC
+    )
+    return invocation_reserve_sec(timeout)
+
+
+def run_teardown(
+    config: dict, setup: HarborInvocation, instance: str, results_root: Path,
+    env: dict[str, str], coding_route: SkillEvalModelConfig, work_deadline: float | None,
+) -> dict:
+    """Grade teardown separately, without changing any operational rewards."""
+    record = {"chain": setup.chain_key, **{key: env[key] for key in (
+        "COMPOSE_PROJECT_NAME", "SKILL_EVAL_BUILD_DIR",
+    )}, "state": "failed"}
+    if work_deadline is not None and work_deadline - time.monotonic() < teardown_reserve_sec(config):
+        return {**record, "state": "skipped", "reason": "whole-leg-deadline"}
+    root = results_root / "teardown" / _safe_part(setup.chain_key)
+    try:
+        task = teardown.generate_task(
+            config, setup.harbor_root / setup.include_task_name,
+            root / "dataset" / "teardown", REPO_ROOT,
+        )
+        invocation = HarborInvocation(task.parent, task.name, setup.chain_key)
+        child_env = env.copy()
+        # Even a failed setup must remain intact for the build skill to inspect
+        # and clean it. Teardown never starts/re-probes the eval-owned NIMs.
+        child_env["SKILL_EVAL_PRESERVE_DEPLOYMENT"] = "1"
+        for key in (AGENT_RUN_MARKER_OVERRIDE_ENV, DEFER_AGENT_REAP_ENV, "SKILL_EVAL_LOCAL_NIM_PLAN"):
+            child_env.pop(key, None)
+        child_env[AGENT_ROUTE_API_KEY_ENV] = coding_route.api_key
+        child_env[AGENT_ROUTE_BASE_URL_ENV] = (
+            coding_route.endpoint_url.removesuffix("/v1")
+            if coding_route.runtime == "claude-code" and coding_route.provider == "local-nim"
+            else _api_base_v1(coding_route.endpoint_url)
+        )
+        cmd = build_harbor_command(
+            invocation, root, coding_route.model, coding_route.endpoint_url,
+            coding_route.runtime, agent_timeout_multiplier=1.0,
+            environment_timeout_multiplier=1.0, verifier_timeout_multiplier=1.0,
+        )
+        started = time.time() - 1
+        timeout = teardown_reserve_sec(config) - HARBOR_SHUTDOWN_GRACE_SEC - HARBOR_POSTPROCESS_HEADROOM_SEC
+        with phase(f"teardown:{setup.chain_key}"):
+            rc = run_command(cmd, child_env, timeout)
+        reward = latest_reward(root, "teardown", started)
+        exception = latest_trial_exception(root, "teardown", started)
+        record.update(return_code=rc, reward=reward, exception=exception)
+        record["state"] = "passed" if rc == 0 and _reward_value(reward) == 1.0 and exception is None else "failed"
+        try:
+            url = publish_trace(
+                root, invocation, started,
+                f"{results_root.parent.name}__teardown_{_safe_part(setup.chain_key)}",
+                os.environ.get("GITHUB_RUN_ID") or results_root.name,
+            )
+            if url:
+                record["trace_url"] = url
+        except Exception as exc:
+            print(f"[run-leg] teardown trace publish failed: {type(exc).__name__}", flush=True)
+    except Exception as exc:
+        record["exception"] = type(exc).__name__
+    print(f"[run-leg] teardown {setup.chain_key}: {record['state']}", flush=True)
+    return record
+
+
+def record_teardown(results_root: Path, records: list[dict]) -> None:
+    """Reporting failure must not replace the primary failure or skip reaping."""
+    try:
+        results_root.mkdir(parents=True, exist_ok=True)
+        (results_root / "teardown.json").write_text(json.dumps(records, indent=2) + "\n")
+    except OSError as exc:
+        print(f"[run-leg] teardown result write failed: {type(exc).__name__}", file=sys.stderr)
+
+
+def _run_owned_invocations(
+    invocations: list[HarborInvocation], instance: str, results_root: Path,
+    scratch: Path, spec_stem: str, platform: str, harbor_timeout_sec: int,
+    model_routes: SkillEvalModelRoutes, work_deadline: float | None = None,
+    nim_plan: dict | None = None,
+) -> int:
+    spec_path = os.environ.get("EVAL_SPEC_PATH", "")
+    config = teardown.load_teardown(REPO_ROOT / spec_path) if spec_path.startswith("skills/operations/") else None
+    if config is None:
+        return _run_invocations(
+            invocations, instance, results_root, scratch, spec_stem, platform,
+            harbor_timeout_sec, model_routes, work_deadline, nim_plan=nim_plan,
+        )
+    chains: dict[str, list[HarborInvocation]] = {}
+    for invocation in invocations:
+        chains.setdefault(invocation.chain_key, []).append(invocation)
+    records = []
+    overall_rc = 0
+    for chain, tasks in chains.items():
+        lifecycle_env = teardown.deployment_environment(results_root, chain)
+        record = {"chain": chain, **lifecycle_env, "state": "not-run"}
+        # Refuse a new deployment unless its cleanup phase also fits. The
+        # original per-invocation gate retains this reserve for later steps.
+        reserve = teardown_reserve_sec(config)
+        if work_deadline is not None and work_deadline - time.monotonic() < invocation_reserve_sec(harbor_timeout_sec) + reserve:
+            record["reason"] = "setup-not-started: whole-leg-deadline"
+            records.append(record)
+            overall_rc = overall_rc or 124
+            break
+        rc = 1
+        cancelled = False
+        try:
+            rc = _run_invocations(
+                tasks, instance, results_root, scratch, spec_stem, platform,
+                harbor_timeout_sec, model_routes,
+                work_deadline - reserve if work_deadline is not None else None,
+                nim_plan=nim_plan, lifecycle_env=lifecycle_env,
+            )
+            cancelled = rc >= 128
+        except (KeyboardInterrupt, SystemExit):
+            cancelled = True
+            raise
+        finally:
+            try:
+                if cancelled:
+                    record.update(state="skipped", reason="cancelled")
+                else:
+                    record = run_teardown(
+                        config, tasks[0], instance, results_root, lifecycle_env,
+                        model_routes.coding, work_deadline,
+                    )
+                record["operational_return_code"] = rc
+                records.append(record)
+                record_teardown(results_root, records)
+            finally:
+                if model_routes.operational.runtime == "nemoclaw":
+                    cleanup_deferred_agent_run(instance, deferred_agent_run_marker(
+                        os.environ.get("GITHUB_RUN_ID") or results_root.name,
+                        os.environ.get("EVAL_SLUG") or results_root.parent.name,
+                    ))
+        overall_rc = overall_rc or rc or (0 if record["state"] == "passed" else 1)
+        if record.get("return_code", 0) >= 128:
+            return record["return_code"]
+        if rc == 124 or rc >= 128:
+            break
+    if records:
+        record_teardown(results_root, records)
+    return overall_rc
+
+
 def _run_invocations(
     invocations: list[HarborInvocation],
     instance: str,
@@ -1788,8 +1939,11 @@ def _run_invocations(
     model_routes: SkillEvalModelRoutes,
     work_deadline: float | None = None,
     nim_plan: dict | None = None,
+    lifecycle_env: dict[str, str] | None = None,
 ) -> int:
     env = harbor_env(instance)
+    if lifecycle_env is not None:
+        env.update(lifecycle_env)
     if nim_plan is not None:
         env["SKILL_EVAL_LOCAL_NIM_PLAN"] = json.dumps(nim_plan)
 
@@ -1884,9 +2038,11 @@ def _run_invocations(
         deferred_agent_marker = deferred_agent_run_marker(run_id, leg_slug)
     skipped_after: dict[str, int] = {}
     overall_rc = 0
+    if lifecycle_env is not None:
+        lifecycle_env.update(env)
 
     def finish(rc: int) -> int:
-        if deferred_agent_marker is not None:
+        if deferred_agent_marker is not None and lifecycle_env is None:
             cleanup_deferred_agent_run(instance, deferred_agent_marker)
         return rc
 

@@ -136,6 +136,35 @@ container logs appear in each trial's `artifacts/local-nim` directory (under
 Harbor's collected `/logs/artifacts` tree). `model-deployments.json` records
 role choices and the actual worker at the leg results root.
 
+### Deployment teardown
+
+Operational specs declare a separate `teardown` object with `query`, `checks`,
+and `timeout_sec` (60–1800 seconds; default 600). All operational specs request
+`/vss-build-vision-ai` for this phase. It is not an entry in `expects`: it runs
+after the chain's last operational trial has been graded and its logs copied,
+including when setup or a scenario fails and later scenarios are skipped.
+
+Setup receives a unique `COMPOSE_PROJECT_NAME` and repo-relative
+`SKILL_EVAL_BUILD_DIR`. Its spec query requires the resolved model, override,
+build-owned data directory, and supplied sandbox record there. Teardown uses
+those records with the build skill's existing teardown workflow. The host
+**coding** harness/model performs it, so destroying NemoClaw does not destroy
+the agent doing the cleanup. Its environment preserves the existing deployment
+and skips the first-trial Docker reset/repo sync. Eval-owned inference remains
+available until this phase finishes; the runner cleans up its local NIMs last.
+
+The wrapper reserves teardown time before starting work and holds the worker
+lock throughout. Cancellation skips new model work and reaps owned setup
+processes; the next first-trial reset still reconciles leftovers after a
+timeout, cancellation, or SIGKILL. No phase stops or deletes the Brev instance.
+
+`teardown.json`, separate Harbor traces under `teardown/`, and the report's
+**Deployment teardown** section record cleanup independently of operational
+rewards. A failed or missing declared teardown makes the leg fail without
+rewriting the operational grades. The build skill removes project volumes
+and recorded application data by default; Docker images and eval-owned
+inference outside that Compose project are preserved during skill teardown.
+
 ### Spark selection
 
 The checkbox selects the **Brev execution worker**, not the GitHub Actions
