@@ -146,6 +146,16 @@ See [Warehouse Known Limitations](/vss/vision-agent/agent-workflows/industry-spe
 
 ### Known Issues and Limitations
 
+- **Video Management does not refresh after adding an RTSP stream through
+  chat:** In the Search profile, a stream added through the VSS UI chat
+  sidebar may not appear in Video Management until the browser tab is
+  refreshed. Workaround: after the agent confirms that the stream was added,
+  refresh the browser tab to update the stream list.
+- **Human-in-the-Loop (HITL) dialog content is clipped when zoomed in:**
+  The in-stack VSS Agent's HITL dialog may not resize to fit the available
+  viewport when browser zoom is increased, leaving content clipped or
+  truncated. Suggested workaround: reduce browser zoom until the full dialog
+  is visible.
 - **Empty structured-event results during file summarization:** CA-RAG may
   fail to parse RT-VLM output that does not match the expected event schema,
   leaving empty event results even when captions are generated and stored
