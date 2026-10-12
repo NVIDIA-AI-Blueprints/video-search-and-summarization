@@ -102,6 +102,17 @@ next build's own record does not name is one it reports and asks about rather
 than recreates.
 Never destroy a sandbox this build does not own.
 
+**On a shared host the deploying user is the only one who can run this**, from
+the checkout that deployed: `pkill` does not signal another user's watchdog or
+relay, `nemoclaw destroy` does not see their sandbox, and `down -v` needs that
+build's own `resolved.yml`. Left undone, the deployment holds
+`NEMOCLAW_GATEWAY_PORT`, `NEMOCLAW_DASHBOARD_RELAY_PORT` and the project's
+volumes against the next user, whose [Q3
+preflight](agent-harness.md#ports-the-harness-claims) can only report the
+block. Delete `/tmp/nemoclaw-dashboard-relay.log` and
+`/tmp/nemoclaw-dashboard-watchdog.log` by hand as well: nothing below removes
+them, and at `0600` they fail the next user's section 3.5.
+
 A harness built from a [harness source
 ref](agent-harness.md#harness-source-ref) also left a detached worktree under
 the build directory. Remove it here: deleting `_builds/<name>/` alone leaves

@@ -300,7 +300,9 @@ with no way to drive it.
   Dockerfile (`--from`), so the skills and docs arrive baked rather than
   installed. Do not build a sandbox image of your own for this.
 - **`NEMOCLAW_DASHBOARD_PORT` (`18789`) and `NEMOCLAW_DASHBOARD_RELAY_PORT`
-  (`18790`) free, or held by this build's own sandbox.** See [Ports the harness
+  (`18790`) free, or held by this build's own sandbox; `NEMOCLAW_GATEWAY_PORT`
+  (`8080`) free, or held by this user's own gateway; and both
+  `/tmp/nemoclaw-dashboard-*.log` paths writable.** See [Ports the harness
   claims](#ports-the-harness-claims) — the one prerequisite whose remedy is the
   user's to run, because clearing it destroys someone else's sandbox.
 
@@ -345,12 +347,20 @@ elsewhere](#troubleshooting-port-18789-is-not-available), and the relay cell
 stops on a foreign listener on `18790` — and every sandbox defaults to the
 same two ports, so any sandbox still running on this host holds them.
 
-Probe both on a **yes** to Q3, before accepting it and with the rest of the
-prerequisites — a build with no harness claims neither port. Probe the values
-this build will bind: an override from the environment or the request, which
-Step 7 records, or the defaults when there is none. The bind test decides
-free or held and needs only `python3`; `lsof` or `ss` only names the holder,
-and a host may lack both:
+The gateway behind the forward binds `NEMOCLAW_GATEWAY_PORT` (`8080`), one per
+user rather than per sandbox, and cell 3.1 aborts when it cannot attribute that
+listener — so another user's gateway fails onboard before any sandbox exists.
+This user's own `openshell-gateway` there is the reuse case, not a conflict.
+Section 3.5 then appends to two fixed paths, `/tmp/nemoclaw-dashboard-relay.log`
+and `/tmp/nemoclaw-dashboard-watchdog.log`, which another user's `0600` log
+makes unwritable.
+
+Probe all three ports and both paths on a **yes** to Q3, before accepting it and
+with the rest of the prerequisites — a build with no harness claims any of them.
+Probe the values this build will bind: an override from the environment or the
+request, which Step 7 records, or the defaults when there is none. The bind test
+decides free or held and needs only `python3`; `lsof` or `ss` only names the
+holder, and a host may lack both:
 
 ```bash
 # Absent until notebook cell 3.1 installs it, so do not let it fail the probe.
@@ -359,7 +369,7 @@ command -v openshell >/dev/null \
 # A name is not a claim. Print which build claimed which name: a sibling build
 # holding the default name is as foreign here as a stranger's sandbox.
 grep -H . "$(git rev-parse --show-toplevel)"/_builds/*/sandbox 2>/dev/null
-for port in "${NEMOCLAW_DASHBOARD_PORT:-18789}" "${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"; do
+for port in "${NEMOCLAW_GATEWAY_PORT:-8080}" "${NEMOCLAW_DASHBOARD_PORT:-18789}" "${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"; do
   python3 -c 'import socket,sys; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(("",int(sys.argv[1])))' "$port" 2>/dev/null \
     && { echo "$port free"; continue; }
   # The holder's own command line is what names its sandbox: the forward is an
@@ -381,13 +391,30 @@ for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' 2>/dev/null <"$f"; echo; done \
 # reading it here silently names the wrong checkout.
 HARNESS_SRC="$(git rev-parse --show-toplevel)"      # ref build: <that>/_builds/<name>/harness-src
 echo "this build's relay: $HARNESS_SRC/deploy/docker/scripts/nemoclaw/dashboard-relay.py"
+# Absent is a pass: 3.5 creates them. An existing one must be writable by us.
+for log in /tmp/nemoclaw-dashboard-relay.log /tmp/nemoclaw-dashboard-watchdog.log; do
+  if [ -e "$log" ] && [ ! -w "$log" ]; then ls -l "$log"; else echo "$log writable"; fi
+done
 ```
 
 **No `openshell` on the host is a pass, not a failed probe.** Cell 3.1 installs
 it, so the fresh host Q3 supports has none — and with none, no sandbox is
-running to hold either port. Both ports free and no relay or watchdog in the
-process list is the whole preflight satisfied: accept the yes and continue. A
-held port still blocks even when nothing can name its holder.
+running to hold any of the three. All three free, both logs writable, and no
+relay or watchdog in the process list is the whole preflight satisfied: accept
+the yes and continue. A held port still blocks even when nothing can name its
+holder.
+
+**A held port with no named holder leaves the owner unknown.** Unprivileged,
+`lsof` and `ss` list only this user's sockets, and a host lacking both names
+nothing at all — not even this user's own reusable gateway on `8080`. Report the
+port and ask the user who holds it rather than reading an owner out of the
+silence. Where a check does establish another user, the remedy block below
+cannot clear it — `pkill` does not signal their relay or watchdog, and
+`nemoclaw destroy` does not see their sandbox — so ask them to have the
+deploying user run [Teardown](teardown.md#nemoclaw-harness--before-compose)
+from the checkout that deployed. An unwritable
+`/tmp/nemoclaw-dashboard-*.log` names its owner outright and goes straight
+there.
 
 **Read ownership off the holder's command line, never off the port.** The
 forward prints `forward service <name>`, the relay and watchdog print
@@ -603,6 +630,7 @@ Set the environment, then run the notebook:
 | `NEMOCLAW_SANDBOX_NAME` | `vss-harness-sandbox` unless already set | a new build replaces the sandbox of the same name, which is why Q3 settles first whether that name is this build's to take |
 | `NEMOCLAW_RECREATE_SANDBOX` | `1` | onboard is the only step that applies the provider, endpoint, model and key, so a reused sandbox would run on whatever it was onboarded with. Section 3.1 adds `--recreate-sandbox` when a sandbox of that name exists, discarding it and its agent sessions |
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
+| `NEMOCLAW_GATEWAY_PORT` | leave unset (`8080`) | the gateway behind the forward, one per user rather than per sandbox; a non-default value keeps its state under `~/.nemoclaw/gateways/<port>` |
 | `NEMOCLAW_DASHBOARD_PORT` | selected port; default `18789` | NemoClaw's own forward, loopback only |
 | `NEMOCLAW_DASHBOARD_RELAY_PORT` | selected port; default `18790` | the section 3.5 relay the UI adapter backend URL must use (`ws://host.docker.internal:<relay-port>`); the Brev secure link and `CHAT_UI_URL` publish this port |
 | `VSS_AGENT_ADAPTER_ENABLED` | `true` when connecting `vss-ui` to OpenClaw | the relay is what makes the gateway reachable from the container; this flag turns the UI's adapter on |
