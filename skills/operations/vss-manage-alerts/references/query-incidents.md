@@ -22,8 +22,8 @@ the window: the declared names are `start_time` and `end_time` (ISO-8601 UTC); `
 swallowed by a `| jq` pipe, and `jq` exits `0` on empty input — so an unreachable Alert
 Bridge yields empty/zero output that reads back as a real `count: 0`. Guard each call so an
 empty or non-200 body fails loudly instead of being reported as an answer — `jq -e` plus
-`|| { echo "...unreachable..."; exit N; }`, where N is the branch's code: `exit 2` where the
-unfiltered raw fallback applies ((a), (b), step 3), `exit 1` in (c), where no raw fallback can
+`|| { echo "...unreachable..."; exit N; }`, where N is the branch's code: `exit 3` in the raw
+paths ((a), (b), step 3, the unfiltered fallback), `exit 1` in (c), where no raw fallback can
 answer an events question.
 
 **Keep step 1's resolution and the step 2/3 queries in ONE shell session** so `$NAME`/`$UUID`
@@ -33,20 +33,24 @@ ONE of the step-2 queries per the prose ((a) unscoped, (b) name-scoped, or (c) c
 run step 3 **only** when the scoped count is 0, and take the unfiltered fallback **only** when
 VIOS is unreachable. The exit code says which branch: `exit 1` / a failed `${VAR:?}` = stop
 and tell the user (in (c) this includes an unreachable Alert Bridge); the VIOS-down `exit 2` =
-switch to the unfiltered `/incidents` fallback (do **not** report it as an error). The no-colon
+switch to the unfiltered `/incidents` fallback (do **not** report it as an error); `exit 3` =
+the Alert Bridge failed during a raw list or lookup (paragraph below). The no-colon
 `${VAR?}` guards in (c) — and its `${START:?}`/`${END:?}` — are different: they mean *you have
 not decided this yet* — resolve the scope or the period from what the user said (possibly to
 empty, for scope) and run the block again; they are not a message for the user. The explicit guards do the failure detection — do NOT wrap the
 blocks in `set -e`, which (with `pipefail`) would abort the `grep`-no-match branch (an unknown
 sensor) before it can tell the user what exists.
 
-An Alert Bridge failure during a raw list or lookup ((a), (b), step 3) is not the VIOS-down
-`exit 2` fallback. Re-run the health probe (`curl -sf --max-time 5 "$AB/health"`): if it fails
-and `vss-query-analytics` is among your skills, hand the lookup to it; otherwise report the
-Alert Bridge error and stop. Never offer or run a deploy from inside Workflow C. If the probe
-passes, rerun the request without `-f` to read the HTTP status: a 4xx means the request is
-wrong, so fix it; a 5xx means its Elasticsearch backend failed, so report that and stop. An
-event count ((c)) cannot be answered without the Alert Bridge.
+**Alert Bridge failure paragraph (`exit 3`).** An Alert Bridge failure during a raw list or
+lookup ((a), (b), step 3, the unfiltered fallback) exits 3. Re-run the health probe
+(`curl -sf --max-time 5 "$AB/health"`). If it fails: with `vss-query-analytics` among your
+skills, hand the list or lookup to it, saying what the Alert Bridge did not answer (for example
+"the alternate-identity check did not run"); without it, report the Alert Bridge error and stop.
+If it passes: rerun the request without `-f` to read the HTTP status; a 4xx means the request is
+wrong, so fix it; a 5xx means its Elasticsearch backend failed, so report that and stop. Either
+way, a failure in the middle of Workflow C never leads to a deploy, offered or run; only the
+first probe in SKILL.md *Deployment prerequisite* can, and only without `vss-query-analytics`.
+An event count ((c)) cannot be answered without the Alert Bridge.
 
 **Chunks are not events.** RT-VLM writes one document per positive chunk, so one long incident
 is several rows. `GET /api/v1/realtime/incidents` has two views — pick one before you query:
@@ -93,7 +97,7 @@ different camera, and its count looks exactly as valid as the right one. Feeding
 to the query is worse, because the joined value matches nothing and reads back as `count: 0`.
 
 Fall back to an unfiltered `/incidents` response only when VIOS is unavailable — and fetch it
-with the cap, not the browse default: `ALL=$(curl -sf "$AB/api/v1/realtime/incidents?limit=1000" | jq -e .) || { echo "Alert Bridge unreachable — cannot answer"; exit 2; }`.
+with the cap, not the browse default: `ALL=$(curl -sf "$AB/api/v1/realtime/incidents?limit=1000" | jq -e .) || { echo "Alert Bridge unreachable — follow the Alert Bridge failure paragraph"; exit 3; }`.
 (The `?limit=20` call in (a) below is for the no-sensor recent-list case; here you need the
 whole store to count client-side, so `count == total` can actually hold.) It carries
 the same strings, so the values already in it are the candidate list —
@@ -129,7 +133,7 @@ against VIOS.
 
 # (a) the ask named NO sensor — recent incidents across every sensor
 curl -sfG "$AB/api/v1/realtime/incidents" --data-urlencode "limit=20" | jq -e . \
-  || { echo "Alert Bridge unreachable — no incidents to report; do NOT read this as empty"; exit 2; }
+  || { echo "Alert Bridge unreachable — follow the Alert Bridge failure paragraph; do NOT read this as empty"; exit 3; }
 # windowed ask with no sensor (a period, phrased as incidents/alerts) → add the same window as (b):
 #   --data-urlencode "start_time=$START" --data-urlencode "end_time=$END"   (never an invented one)
 
@@ -143,7 +147,7 @@ curl -sfG "$AB/api/v1/realtime/incidents" --data-urlencode "limit=20" | jq -e . 
 # never the literal `<ISO>` (which 422s). A window you invent answers about a different period.
 curl -sfG "$AB/api/v1/realtime/incidents" \
   --data-urlencode "sensor_id=$NAME" | jq -e . \
-  || { echo "Alert Bridge unreachable — no answer; do NOT read this as count 0"; exit 2; }
+  || { echo "Alert Bridge unreachable — follow the Alert Bridge failure paragraph; do NOT read this as count 0"; exit 3; }
 # windowed ask → add:  --data-urlencode "start_time=$START" --data-urlencode "end_time=$END"
 
 # (c) the ask is HOW MANY EVENTS / TIMES something happened in a STATED period — consolidated
@@ -244,7 +248,7 @@ UUID=$(vss vios list --type stream --sensor "$NAME" | jq -r 'first(.sensors[] | 
 # "today" ask, and a raw retry after (c) counts chunks where the user asked for events.
 TOTAL=$(curl -sfG "$AB/api/v1/realtime/incidents" \
   --data-urlencode "sensor_id=$UUID" | jq -e '.total') \
-  || { echo "Alert Bridge unreachable — the alternate-identity check did not run; do NOT report a zero"; exit 2; }
+  || { echo "Alert Bridge unreachable — the alternate-identity check did not run; follow the Alert Bridge failure paragraph; do NOT report a zero"; exit 3; }
 # windowed ask → add the same:  --data-urlencode "start_time=$START" --data-urlencode "end_time=$END"
 # jq -e exits non-zero on null/absent output, so an empty body (Alert Bridge down) fails the
 # assignment rather than yielding "" that reads back as a checked zero.

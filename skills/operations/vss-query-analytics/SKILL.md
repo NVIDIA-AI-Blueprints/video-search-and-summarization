@@ -113,20 +113,32 @@ the array is empty.
 
 A real-time (VLM) alerts deployment runs no Behavior Analytics, so the default
 incident index is normally empty there and its alerts are in the VLM incident
-index. When `vss analytics incidents` without `--vlm-verdict` returns no
-incidents for all sensors or for one sensor, and `vss-manage-alerts` is among
-your skills, hand the incident part of the question to it (Workflow C) instead
-of reporting the zero; its answer stands without a cross-check. Rerun once with
+index. The default query here is `vss analytics incidents` without
+`--vlm-verdict`, with the question's sensor or place and window. A question
+about one kind of incident (for example PPE violations) adds
+`--include category`, and its result counts as empty when no row is of that
+kind and `has_more` is false; with `has_more` true, raise `--limit` first. The
+same kind test applies to the rerun below. When the kind matches no stored
+category, list the categories that exist.
+
+When the default query is empty for all sensors or for one sensor and
+`vss-manage-alerts` is among your skills, hand the incident part of the
+question to it (Workflow C) instead of reporting the zero alone. The reply
+names both sources, for example "Behavior Analytics: none for X in that
+window; Alert Bridge: <total> records", or says why the Alert Bridge gave none
+("no Alert Bridge store answered on this deployment", "no VIOS sensor named
+X"). It does not cross-check Workflow C's answer against the VLM index. Rerun once with
 `--vlm-verdict all --include category` and the same scope instead when the
-empty query was place-scoped, when `vss-manage-alerts` is not among your skills,
-or when it hands the question to you for any reason (for example a failed Alert
-Bridge health probe), and report both results with their scope. A question that
-`vss-manage-alerts` hands to you starts with the default query and is never
-handed off again. RT-VLM records usually carry the stored sensor name; a rule
-created without `sensor_name` stores the VIOS UUID instead, so when the name
-returns nothing, try the UUID from `vss vios list`. This step does not apply
-when another skill specified the command (the report skill's incident-range
-mode already passes `--vlm-verdict all`).
+empty query was place-scoped, when `vss-manage-alerts` is not among your
+skills, or when it hands the question back, and report both results with their
+scope. A question that started in `vss-manage-alerts` and is handed to you runs
+the default query first and, if that is empty, goes to the rerun; one you
+handed off and got back goes straight to the rerun. Neither is handed off
+again. RT-VLM records usually carry the stored sensor name; a rule created
+without `sensor_name` stores the VIOS UUID instead, so when the name returns
+nothing, try the UUID from `vss vios list`. This step does not apply when
+another skill specified the command (the report skill's incident-range mode
+already passes `--vlm-verdict all`).
 
 ### Sensors and places
 

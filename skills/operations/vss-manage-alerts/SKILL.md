@@ -111,8 +111,8 @@ fi
 
 If the Alert Bridge probe fails on a Workflow C request (list, lookup or event
 count) and `vss-query-analytics` is among your skills, do not offer a deploy:
-say the health probe failed and hand a list or lookup to it; an event count
-needs the consolidated view, so say it cannot be answered now. Otherwise, if the probe fails, ask which mode to deploy and hand off to
+hand a list or lookup to it, saying no Alert Bridge store answered on this
+deployment; event counts are unavailable for the same reason, so say that. Otherwise, if the probe fails, ask which mode to deploy and hand off to
 `the `/vss-build-vision-ai` stock Alerts workflow in the matching mode` (decline → stop; pre-authorized
 autonomous deploy → run directly with `verification` by default). If it
 passes, detect the mode per Step 1.
