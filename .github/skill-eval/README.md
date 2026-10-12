@@ -157,6 +157,9 @@ The wrapper reserves teardown time before starting work and holds the worker
 lock throughout. Cancellation skips new model work and reaps owned setup
 processes; the next first-trial reset still reconciles leftovers after a
 timeout, cancellation, or SIGKILL. No phase stops or deletes the Brev instance.
+Owned application data lives under `$HOME/vss-data/data_log/<project>`, so the
+existing first-trial host-state purge also removes it if skill teardown fails
+or the job is cancelled before cleanup.
 
 `teardown.json`, separate Harbor traces under `teardown/`, and the report's
 **Deployment teardown** section record cleanup independently of operational
