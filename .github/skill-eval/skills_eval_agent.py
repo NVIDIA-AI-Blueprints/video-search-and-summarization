@@ -398,7 +398,12 @@ def build_user_prompt(*, eval_kind: str, eval_skill: str, eval_spec_path: str,
     verdict_block = f"""After a zero renderer exit, read `{summary_path}` for the verdict. The leg
 passed only if every entry in `steps[]` has `state == "recorded-pass"`;
 `recorded-fail`, `no-verdict`, `not-run` and `ambiguous` all mean it did not.
-A non-empty `collection_errors` also means it did not."""
+A non-empty `collection_errors` also means it did not.
+If `teardown_declared` is true, the leg also requires a non-empty `teardown[]`
+with every entry's `state == "passed"`. Report teardown separately from the
+operational checks; do not change any operational row or step count. When
+operational checks pass but teardown fails or is missing, end with
+`DONE: 0/1 specs passed; deployment teardown failed (operational checks passed)`."""
 
     if eval_kind == "missing_adapter":
         target = f"PR #{pr_number}" if pr_number else "Manual sweep"

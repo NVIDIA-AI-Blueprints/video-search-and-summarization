@@ -887,6 +887,11 @@ time.sleep(30)
 
 class RunInvocations(unittest.TestCase):
     def setUp(self):
+        # These fixtures isolate operational dispatch; test_teardown.py covers
+        # the spec's separate cleanup phase with complete generated task inputs.
+        lifecycle = mock.patch.object(run_leg.teardown, "load_teardown", return_value=None)
+        lifecycle.start()
+        self.addCleanup(lifecycle.stop)
         allocator = mock.patch.object(run_leg, "allocate_gateway_ports", side_effect=lambda instance, owner, preferred, env, **kwargs: preferred)
         self.allocator = allocator.start()
         self.addCleanup(allocator.stop)

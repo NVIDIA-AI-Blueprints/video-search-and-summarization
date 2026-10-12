@@ -123,6 +123,17 @@ The canonical harbor command is in § Harbor invocation.
    pre-authorized to deploy autonomously (see the PREAMBLE that every
    adapter renders into the trial prompt).
 
+   Operational specs can also declare `teardown: {query, checks, timeout_sec}`.
+   This is a separate lifecycle phase, not an extra operational `expects`
+   entry. The wrapper renders that query into a Harbor task with the bundled
+   `vss-build-vision-ai` skill and uses the selected host coding harness/model
+   to execute it after grading the operational chain, including failed chains.
+   The setup query records its resolved model, override, build-owned data, and
+   supplied sandbox under the unique `SKILL_EVAL_BUILD_DIR`, using the supplied
+   `COMPOSE_PROJECT_NAME`. Never replace this phase with coordinator shell
+   cleanup or dispatch it to the sandbox it will destroy. The default agent
+   budget is 600 seconds (spec overrides must be 60–1800).
+
    Skills with no specs at all are runtime libraries — skip them.
 
 3. **For each evaluable skill × spec, ensure an adapter exists under
@@ -411,10 +422,14 @@ The canonical harbor command is in § Harbor invocation.
    `/logs/artifacts` + `/logs/verifier` working dirs, so a prior run's
    arbitrarily-named files are never re-collected as this trial's output
    (observed: 3-day-old `nemoclaw/` artifacts surfacing in an unrelated trial).
-   You still do **not** tear anything down on *exit* — no `atexit`, no signal
-   handler — and you never `brev stop` / `brev delete`; the *next* spec's
-   `start()` is what cleans up, on every exit path (happy, `BLOCKED`, cancel,
-   max-turns, crash, SIGKILL, reboot). One consequence: wiping all volumes
+   A spec declaring `teardown` now asks the build skill to remove its recorded
+   VSS deployment, sandbox and relays at the end of the chain. The wrapper
+   owns this phase, its deadline reserve and the worker lock; do not add ad hoc
+   exit hooks or coordinator-side VSS teardown. It preserves eval-owned NIMs
+   until the host coding agent completes teardown, then cleans them up last.
+   Cancellation skips new model work; the *next* spec's `start()` still
+   reconciles leftovers after cancellation, timeout, crash, SIGKILL or reboot.
+   You never `brev stop` / `brev delete`. Wiping all volumes
    drops the `rtvi-hf-cache` / `rtvi-ngc-model-cache` model-weight volumes, so
    a spec's first deploy is cold (~20 min weight download vs ~55 s warm) under
    the canonical `-n 1 --max-retries 0` invocation — paid once per spec; an
@@ -866,7 +881,12 @@ format needs to change, change `leg_report.py` and its tests.
 | `ambiguous` | evidence is contradictory or unreadable — never treat as a pass |
 
 The leg passed only if **every** entry is `recorded-pass` and
-`collection_errors` is empty. Each entry also carries `reward`, `judge`
+`collection_errors` is empty. When `teardown_declared` is true, require a
+nonempty `teardown[]` whose entries all have `state == "passed"` too. Its
+separate Deployment teardown section and trace do not change the operational
+step counts or rewards. Report a teardown failure explicitly; even if all
+operational rows are green, end with `DONE: 0/1 specs passed; deployment teardown
+failed (operational checks passed)`. Each entry also carries `reward`, `judge`
 (`absent`/`valid`/`unreadable`), `passed`/`total`, `exception`, `attempts`,
 `attempt_path` and `any_attempt_undated`, so nothing requires parsing the
 rendered markdown.

@@ -497,6 +497,7 @@ jobs:
             .github/skill-eval/tests/test_eval_env_forwarding.py \
             .github/skill-eval/tests/test_leg_timing.py \
             .github/skill-eval/tests/test_leg_report.py \
+            .github/skill-eval/tests/test_teardown.py \
             .github/skill-eval/tests/test_local_nim.py \
             .github/skill-eval/tests/test_model_config.py \
             .github/skill-eval/tests/test_nemoclaw.py \
@@ -507,6 +508,7 @@ jobs:
             .github/skill-eval/envs/tests/test_cancellation_recovery.py \
             .github/skill-eval/envs/tests/test_registered_node.py::PreparationRetries \
             .github/skill-eval/envs/tests/test_registered_node.py::NemoClawNamespaceClaim \
+            .github/skill-eval/envs/tests/test_registered_node.py::TeardownEnvironment \
             .github/skill-eval/tests/test_run_leg.py::HarborCommand \
             .github/skill-eval/tests/test_run_leg.py::SparkSelection \
             .github/skill-eval/tests/test_run_leg.py::PhaseBudgets \
