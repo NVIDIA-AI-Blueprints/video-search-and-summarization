@@ -1512,6 +1512,7 @@ fetch-blob,3.2.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,
 ffmpeg,8.0.1,UNKNOWN,services/agent,UNKNOWN,vendored,services/agent/3rdparty/ffmpeg,runtime,yes,UNKNOWN,no,vendored-source,Unknown
 ffmpeg,UNKNOWN,UNKNOWN,services/vios,deb,container,services/vios/test/bdd_tests/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 figures,6.1.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+file,UNKNOWN,UNKNOWN,.openclaw,deb,container,.openclaw/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 file-entry-cache,6.0.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 file-entry-cache,8.0.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 file-type,21.3.4,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
