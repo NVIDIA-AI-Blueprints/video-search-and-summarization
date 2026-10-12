@@ -47,7 +47,6 @@ differences.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -57,44 +56,28 @@ ATTRIBUTE = "attribute"
 FUSION = "fusion"
 OBJECT = "object"
 
-APPEARANCE = re.compile(
-    r"\b(wearing|wears|dressed|in (a|an|the)|with (a|an)|hi-vis|uniform|vest|hardhat|helmet|"
-    r"jacket|shirt|hoodie|coat|hat|cap|beard|hair|tattoo|backpack|gloves|boots|sneakers|"
-    r"overalls|sunglasses|mask|suit|dress|sweater|raincoat)\b"
-)
-
-
-def _normalized(text: str) -> str:
-    return " ".join(re.sub(r"[^\w\s-]", " ", text.lower()).split())
-
-
 def effective_attributes(decomposition: dict[str, Any]) -> list[str]:
-    """The attributes the retrieval actually uses.
+    """The attributes the agent's search uses: single-word ones pruned.
 
-    Applies the agent's single-word pruning, then drops an attribute that only
-    repeats an action query, unless it carries appearance words.
+    Same rule as the agent's ``_is_single_word``. The route and the CLI
+    arguments both come from this list, so they cannot disagree.
     """
     attributes = [a for a in decomposition.get("attributes") or [] if isinstance(a, str)]
-    attributes = [a for a in attributes if any(sep in a.strip() for sep in (" ", "-", "."))]
-    if decomposition.get("has_action"):
-        whole_query = _normalized(decomposition.get("query") or "")
-        attributes = [
-            a for a in attributes
-            if _normalized(a) != whole_query or APPEARANCE.search(_normalized(a))
-        ]
-    return attributes
+    return [a for a in attributes if any(sep in a.strip() for sep in (" ", "-", "."))]
 
 
 def route(decomposition: dict[str, Any]) -> str:
     """Pick the retrieval path a decomposition implies.
 
-    Derived from the four paths' own input models rather than invented here:
+    Mirrors the agent's ``execute_core_search``, so the eval routes every
+    decomposition the way the agent does:
 
     ============================  ===========  ==========  =========
     attributes                    has_action   object_ids  path
     ============================  ===========  ==========  =========
     --                            --           present     object
     present                       false        --          attribute
+    present                       missing      --          attribute
     present                       true         --          fusion
     empty                         --           --          embed
     ============================  ===========  ==========  =========
@@ -111,13 +94,11 @@ def route(decomposition: dict[str, Any]) -> str:
     if not attributes:
         return EMBED
 
-    # `has_action` is REQUIRED in the prompt, but a hand-written decomposition
-    # may omit it. Absent means "unknown", and fusion is the safer default: it
-    # still returns the embedding leg's candidates, whereas `attribute` would
-    # silently drop every action-based match.
-    if decomposition.get("has_action", True):
-        return FUSION
-    return ATTRIBUTE
+    # `has_action` is required in the prompt, but a hand-written decomposition
+    # may omit it. The agent treats a missing one as attribute-only.
+    if decomposition.get("has_action") is None:
+        return ATTRIBUTE
+    return FUSION if decomposition["has_action"] else ATTRIBUTE
 
 
 def plan_for(

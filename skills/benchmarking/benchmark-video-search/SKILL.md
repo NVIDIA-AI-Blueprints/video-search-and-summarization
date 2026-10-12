@@ -85,9 +85,9 @@ Five defaults, each load-bearing:
   `--clear`, `--confirm-delete` and `--skip-existing` are still accepted but
   ignored.
 - **Live decomposition is on by default.** The LLM origin is derived from
-  `--endpoint` (same host, port 30081), so there is no flag to forget. Every
-  query is decomposed the way the deployed agent decomposes it, and that choice
-  picks the retrieval path. Override with `--llm-url` / `--llm-port`; turn it
+  `--endpoint` (same host, port 30081), so there is no flag to forget.   Every
+  query is decomposed the way the deployed agent decomposes it, and routed the
+  way the agent routes it (`references/dataset-format.md`). Override with `--llm-url` / `--llm-port`; turn it
   off with `--no-decompose` (replays stored routes) or `--fixed-search-path`
   (ignores stored routes for a single-path baseline).
 
@@ -95,6 +95,14 @@ Five defaults, each load-bearing:
   otherwise it falls back to `embed`, which needs nothing but the query text.
   The fallback records `flow.query.live_decomposition.fell_back_to` in the
   result file. Check that field and `Search paths:` before quoting numbers.
+
+  If decomposition fails for one query mid-run, that query is searched on
+  `embed` with its original text, as the agent does. It is not marked
+  unanswered. The result records `decompose_failed` on that query and
+  `summary.decomposition.failed`, and the summary prints `N queries fell back
+  to embed: decomposition failed`. More than 20% of queries falling back
+  aborts the run (`--max-decompose-failed-pct`): the numbers would measure
+  embed, not routing. Report the count next to any number you quote.
 
   `--no-decompose` also replays dataset routes when present; it does not force
   one path. Use `--fixed-search-path` only for a deliberately single-path
@@ -284,8 +292,9 @@ State these alongside any number, because each one changes what it means:
 
 - **Which paths ran.** `Search paths:` in the summary. A run that was all
   `embed` says nothing about `attribute`.
-- **Whether decomposition was live.** If so, give its share of query time and
-  what it `Routed to:` — a routing shift changes what was measured.
+- **Whether decomposition was live.** If so, give its share of query time,
+  what it `Routed to:` — a routing shift changes what was measured — and how
+  many queries fell back to embed because it failed.
 - **Whether the critic ran.** Critic-filtered metrics print `NA` when the
   response carried no verification block. `NA` is not `0`.
 
