@@ -31,6 +31,22 @@ With default **`values.yaml`** and typical overrides (LLM NIM + RT-VLM + **`vss-
 | **Total** | **3** |
 
 
+## RT-VLM frame cap
+
+Integrated RT-VLM keeps at most **256 frames per inference chunk** by default.
+Override the cap without replacing the complete environment-variable list:
+
+```yaml
+rtvi:
+  vss-rtvi-vlm:
+    envOverrides:
+      RTVI_VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES: "8192"
+```
+
+This is a server-side cap, not a sampling rate or a guarantee that 8192 frames
+fit in GPU memory. Validate the model's context and GPU-memory budget before
+raising it. It does not reconfigure an external VLM in shared-NIM mode.
+
 ## Prerequisites
 
 - **Kubernetes cluster**

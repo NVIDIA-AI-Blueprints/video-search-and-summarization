@@ -593,6 +593,9 @@ rtvi:
         value: ""
       - name: VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK
         value: "1"
+      # Maximum frames per inference chunk; envOverrides can raise the existing cap.
+      - name: RTVI_VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES
+        value: "256"
       - name: VLM_INPUT_WIDTH
         value: ""
       - name: VLM_INPUT_HEIGHT
