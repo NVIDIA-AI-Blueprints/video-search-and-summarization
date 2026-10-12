@@ -53,6 +53,20 @@ NOTEBOOK_PARAMETERS: dict[str, tuple[str, ...]] = {
         "VLM_ENDPOINT_URL",
         "VLM_MODEL_TYPE",
     ),
+    # `ROUTER_BIND` is absent on purpose: the routing path derives it from
+    # `ROUTE_NEMOCLAW` below the marker, so an injected value never survives.
+    "deploy_vss_switchyard.ipynb": (
+        "UPSTREAM_BASE_URL",
+        "ROUTE_NEMOCLAW",
+        "ROUTER_PORT",
+        "ROUTER_NETWORK",
+        "ROUTER_CONTAINER",
+        "ROUTER_ROUTE",
+        "ROUTER_TARGET_CAPABLE",
+        "ROUTER_TARGET_EFFICIENT",
+        "ROUTER_TEARDOWN",
+        "VSS_FOUNDATION_PROFILE",
+    ),
 }
 
 _MINIMUM_TIMEOUT_SEC = 60

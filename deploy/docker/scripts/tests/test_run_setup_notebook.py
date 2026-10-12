@@ -82,6 +82,7 @@ class ParameterContractTests(unittest.TestCase):
                 "deploy_nemo_relay.ipynb",
                 "deploy_nemoclaw.ipynb",
                 "deploy_vss_orchestrator.ipynb",
+                "deploy_vss_switchyard.ipynb",
             ],
         )
         for name in runner.NOTEBOOK_PARAMETERS:
