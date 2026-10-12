@@ -68,15 +68,19 @@ Five defaults, each load-bearing:
 - **Every run starts from an empty index.** Before uploading, the runner reads
   VST and the indexes search reads (`mdx-embed-filtered-*`, `mdx-raw-*`,
   `mdx-behavior-*`, `default_*`) through the `:7777` ingress. If anything is
-  there, it deletes every VST source and every document in those indexes. It
-  does this even when the index holds exactly this dataset. It uploads only
-  once VST and every index read empty on two polls in a row, then ingests
-  every dataset video. Anything else left indexed would be searched too, and
-  every hit on it scores as a false positive. Report what the run deleted
-  (`flow.cleared`). The deployment may be shared, but nobody else may use it
-  while an eval runs. The wipe aborts if VST, the ingress and `--endpoint` are
-  on different hosts, if a source will not delete, or if the index is not
-  empty within 180 s.
+  there, it deletes every VST source, even when the index holds exactly this
+  dataset. Each deletion's cleanup webhooks empty that source's documents;
+  the runner never deletes documents itself, because the ingress refuses
+  deletes. It uploads only once VST and every index read empty on two polls
+  in a row, then ingests every dataset video. Anything else left indexed would
+  be searched too, and every hit on it scores as a false positive. Report what
+  the run deleted (`flow.cleared`). The deployment may be shared, but nobody
+  else may use it while an eval runs. The wipe aborts if VST, the ingress and
+  `--endpoint` are on different hosts, or if a source will not delete. It also
+  aborts if documents remain that no source owns, usually left by an earlier
+  aborted ingest: no webhook will remove them, so the abort names the indexes
+  to clear on the Elasticsearch host. When there are no sources at all, it
+  aborts at once; otherwise after 180 s.
 
   `--skip-ingest` is the only way to keep what is there. It deletes nothing
   and uploads nothing. It aborts unless every dataset video is already
@@ -85,7 +89,7 @@ Five defaults, each load-bearing:
   `--clear`, `--confirm-delete` and `--skip-existing` are still accepted but
   ignored.
 - **Live decomposition is on by default.** The LLM origin is derived from
-  `--endpoint` (same host, port 30081), so there is no flag to forget.   Every
+  `--endpoint` (same host, port 30081), so there is no flag to forget. Every
   query is decomposed the way the deployed agent decomposes it, and routed the
   way the agent routes it (`references/dataset-format.md`). Override with `--llm-url` / `--llm-port`; turn it
   off with `--no-decompose` (replays stored routes) or `--fixed-search-path`

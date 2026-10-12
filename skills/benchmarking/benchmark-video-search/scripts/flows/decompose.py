@@ -234,8 +234,7 @@ class LiveDecomposer:
             raise DecompositionError(
                 f"decomposition for {query!r} was {type(decomposition).__name__}, expected object"
             )
-        # The prompt marks has_action REQUIRED, but the model omits it often
-        # enough that routing would silently fall through to `fusion` for
-        # attribute-only queries. Absent stays absent -- routing treats it as
-        # unknown and says so -- rather than being invented here.
+        # The prompt marks has_action REQUIRED, but the model sometimes omits
+        # it. Absent stays absent rather than being invented here; routing
+        # then treats it as attribute-only, as the agent does.
         return decomposition, elapsed
