@@ -80,6 +80,11 @@ position: 2
   - Fixed incorrect 3D bounding-box overlays caused by projecting boxes behind the camera.
   - Fixed missing overlays in downloaded recordings when Elasticsearch throttles metadata requests.
 
+### Known Limitations
+
+- On GB300, incident report generation can fail when LLM reasoning is enabled. Incident retrieval and video analysis complete, then the LLM call that fills the report times out and the agent returns no report. See [Why does incident report generation time out when LLM reasoning is enabled?](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq#why-does-incident-report-generation-time-out-when-llm-reasoning-is-enabled).
+- When LLM reasoning is enabled, incident report generation can generate an incomplete report with missing sections due to hitting `max_tokens` budget. Issue is resolved when `max_tokens` is increased or LLM reasoning is disabled. See [Why is incident report generation missing the report body?](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq#why-is-incident-report-generation-missing-the-report-body).
+
 ## Version 3.2.1
 
 ### Features
