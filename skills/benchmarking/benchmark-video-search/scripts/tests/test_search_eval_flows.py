@@ -1658,10 +1658,14 @@ _EMPTY_COUNTS = {"embed": 0, "raw": 0, "behavior": 0, "tags": 0}
 
 
 def _wipe_fakes(monkeypatch: Any, states: list[tuple[dict[str, str], dict[str, int]]]) -> dict[str, Any]:
-    """Each _index_state read pops the next state; the last one repeats."""
+    """Each _index_state read pops the next state; the last one repeats.
+
+    Any POST fails the test: the ingress answers ``_delete_by_query`` with 403,
+    so the wipe must only delete sources and wait.
+    """
     import run_eval_flows as rf
 
-    calls: dict[str, Any] = {"cleared": 0, "purged": 0, "reads": 0}
+    calls: dict[str, Any] = {"cleared": 0, "reads": 0}
 
     def _state(*_a: Any) -> tuple[dict[str, str], dict[str, int]]:
         calls["reads"] += 1
@@ -1671,13 +1675,9 @@ def _wipe_fakes(monkeypatch: Any, states: list[tuple[dict[str, str], dict[str, i
         calls["cleared"] += 1
         return {"found": 2, "deleted": 2, "failed": [], "names": ["a", "b"]}
 
-    def _purge(*_a: Any) -> dict[str, int]:
-        calls["purged"] += 1
-        return {"embed": 5, "raw": 0, "behavior": 0, "tags": 1}
-
     monkeypatch.setattr(rf, "_index_state", _state)
     monkeypatch.setattr(rf, "clear_all_videos", _clear)
-    monkeypatch.setattr(rf.flows, "delete_all_documents", _purge)
+    monkeypatch.setattr(rf.requests, "post", lambda *_a, **_k: pytest.fail("the ingress refuses deletes"))
     return calls
 
 
@@ -1689,44 +1689,57 @@ def test_wipe_deletes_nothing_when_the_index_is_already_clean(monkeypatch: Any) 
 
     assert out["clean_before"] is True
     assert calls["cleared"] == 0
-    assert calls["purged"] == 0
 
 
-def test_wipe_counts_documents_without_a_source_as_dirty(monkeypatch: Any) -> None:
-    """An aborted ingest leaves documents no VST source owns; search returns them."""
+def test_wipe_aborts_at_once_on_documents_no_source_owns(monkeypatch: Any) -> None:
+    """No webhook will ever delete them, so waiting would only delay the abort."""
     import run_eval_flows as rf
 
-    calls = _wipe_fakes(monkeypatch, [({}, {**_EMPTY_COUNTS, "raw": 40}), ({}, dict(_EMPTY_COUNTS))])
-    out = rf.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
+    calls = _wipe_fakes(monkeypatch, [({}, {**_EMPTY_COUNTS, "raw": 40})])
+    with pytest.raises(SystemExit, match="no source") as exc:
+        rf.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
 
-    assert out["clean_before"] is False
-    assert calls["purged"] >= 1
+    assert "raw=40" in str(exc.value)
+    assert "mdx-raw-*" in str(exc.value)
+    assert calls["cleared"] == 0
 
 
-def test_wipe_waits_for_two_empty_reads_in_a_row(monkeypatch: Any) -> None:
-    """A late webhook write can land after one empty read; the purge repeats."""
+def test_wipe_deletes_sources_and_waits_for_their_webhooks(monkeypatch: Any) -> None:
+    """Documents drain after the sources go; a late write resets the count."""
     import run_eval_flows as rf
 
     dirty = (_fake_streams(), {**_EMPTY_COUNTS, "embed": 9})
+    draining = ({}, {**_EMPTY_COUNTS, "embed": 4})
     empty = ({}, dict(_EMPTY_COUNTS))
     late = ({}, {**_EMPTY_COUNTS, "tags": 3})
-    calls = _wipe_fakes(monkeypatch, [dirty, empty, late, empty, empty])
+    calls = _wipe_fakes(monkeypatch, [dirty, draining, empty, late, empty, empty])
     out = rf.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
 
     assert calls["cleared"] == 1
-    assert calls["purged"] == 4
+    assert calls["reads"] == 6
     assert out["deleted"] == 2
     assert out["sources_before"] == 4
     assert out["documents_before"]["embed"] == 9
-    assert out["documents_deleted"] == {"embed": 20, "raw": 0, "behavior": 0, "tags": 4}
 
 
-def test_wipe_aborts_when_the_index_never_empties(monkeypatch: Any) -> None:
+def test_wipe_names_leftover_documents_when_they_never_drain(monkeypatch: Any) -> None:
     import run_eval_flows as rf
 
-    _wipe_fakes(monkeypatch, [({}, {**_EMPTY_COUNTS, "raw": 1})])
+    _wipe_fakes(monkeypatch, [(_fake_streams(), dict(_EMPTY_COUNTS)), ({}, {**_EMPTY_COUNTS, "raw": 1})])
     clock = _FakeClock()
-    with pytest.raises(SystemExit, match="still not empty"):
+    with pytest.raises(SystemExit, match="documents with no source"):
+        rf.wipe_index(
+            "https://h:8000", "https://h:30888", "https://h:7777",
+            timeout_s=30, poll_s=5, clock=clock, sleep=clock.sleep,
+        )
+
+
+def test_wipe_aborts_when_sources_keep_registering(monkeypatch: Any) -> None:
+    import run_eval_flows as rf
+
+    _wipe_fakes(monkeypatch, [(_fake_streams(), dict(_EMPTY_COUNTS))])
+    clock = _FakeClock()
+    with pytest.raises(SystemExit, match="still registered"):
         rf.wipe_index(
             "https://h:8000", "https://h:30888", "https://h:7777",
             timeout_s=30, poll_s=5, clock=clock, sleep=clock.sleep,
@@ -1739,9 +1752,6 @@ def test_wipe_aborts_when_a_source_will_not_delete(monkeypatch: Any) -> None:
     _wipe_fakes(monkeypatch, [(_fake_streams(), dict(_EMPTY_COUNTS))])
     monkeypatch.setattr(
         rf, "clear_all_videos", lambda *_a: {"found": 4, "deleted": 3, "failed": ["x"], "names": []}
-    )
-    monkeypatch.setattr(
-        rf.flows, "delete_all_documents", lambda *_a: pytest.fail("must abort before purging")
     )
     with pytest.raises(SystemExit, match="could not be deleted"):
         rf.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
@@ -1832,25 +1842,6 @@ def test_indexed_counts_rejects_a_malformed_response(monkeypatch: Any) -> None:
     monkeypatch.setattr(ir.requests, "get", lambda *_a, **_k: _EsResp({"error": "nope"}))
     with pytest.raises(ir.IngestPollError):
         ir.indexed_counts("https://h:7777")
-
-
-def test_delete_all_documents_matches_everything_and_reports_failures(monkeypatch: Any) -> None:
-    from flows import ingest_readiness as ir
-
-    bodies: list[dict[str, Any]] = []
-
-    def _post(url: str, params: dict[str, str], json: dict[str, Any], **_k: Any) -> _EsResp:
-        bodies.append(json)
-        assert params["conflicts"] == "proceed"
-        return _EsResp({"deleted": 2})
-
-    monkeypatch.setattr(ir.requests, "post", _post)
-    assert ir.delete_all_documents("https://h:7777") == {"embed": 2, "raw": 2, "behavior": 2, "tags": 2}
-    assert all(b == {"query": {"match_all": {}}} for b in bodies)
-
-    monkeypatch.setattr(ir.requests, "post", lambda *_a, **_k: _EsResp({"deleted": 0, "failures": [{"x": 1}]}))
-    with pytest.raises(ir.IngestPollError, match="failures"):
-        ir.delete_all_documents("https://h:7777")
 
 
 # ---------------------------------------------------------------------------
