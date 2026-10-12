@@ -2334,26 +2334,134 @@ def test_rtcv_never_listing_with_a_growing_count_keeps_waiting() -> None:
     )
 
 
-def test_raw_without_behavior_passes_with_a_warning() -> None:
+def test_raw_without_behavior_passes_with_a_warning_when_strict() -> None:
+    clock = _FakeClock(1.2)
+    no_behavior = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42)
+    result = _gate([_warehouse()], lambda: no_behavior, clock, deadline_s=60.0, absent_grace_s=None)
+
+    assert result["outcome"] == "confirmed"
+    assert result["absent"] == {} and result["degraded"] is False
+    report = result["per_video"][0]
+    assert any("no behavior documents" in w for w in report["warnings"])
+
+
+def test_behavior_empty_for_every_video_is_marked_absent_at_confirmation() -> None:
     clock = _FakeClock(1.2)
     no_behavior = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42)
     result = _gate([_warehouse()], lambda: no_behavior, clock, deadline_s=60.0)
 
     assert result["outcome"] == "confirmed"
+    assert result["degraded"] is True
+    assert list(result["absent"]) == ["behavior"]
+    assert "analytics app" in result["absent"]["behavior"]
+    assert "behavior" in result["require"]
     report = result["per_video"][0]
-    assert any("no behavior documents" in w for w in report["warnings"])
+    assert report["absent"] == ["behavior"]
+    assert not any("no behavior documents" in w for w in report["warnings"])
 
 
 def test_ingest_summary_prints_na_and_warnings(capsys: pytest.CaptureFixture[str]) -> None:
     clock = _FakeClock(1.2)
     no_behavior = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42)
-    result = _gate([_warehouse()], lambda: no_behavior, clock, deadline_s=60.0)
+    result = _gate([_warehouse()], lambda: no_behavior, clock, deadline_s=60.0, absent_grace_s=None)
 
     flows.print_ingest_summary(flows.aggregate_ingest_stats(result))
     out = capsys.readouterr().out
     assert "behavior=n/a" in out
     assert "Nones" not in out
     assert "WARNING: raw documents but no behavior documents" in out
+    assert "(degraded)" not in out
+
+
+def test_ingest_summary_marks_a_degraded_run(capsys: pytest.CaptureFixture[str]) -> None:
+    clock = _FakeClock(1.2)
+    no_behavior = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42)
+    result = _gate([_warehouse()], lambda: no_behavior, clock, deadline_s=60.0)
+
+    flows.print_ingest_summary(flows.aggregate_ingest_stats(result))
+    out = capsys.readouterr().out
+    assert "Outcome:            confirmed (degraded)" in out
+    assert "WARNING: behavior: no documents for any of 1 video(s)" in out
+
+
+def test_tags_empty_for_every_video_are_dropped_after_the_grace() -> None:
+    clock = _FakeClock(1.2)
+    untagged = _snap(cv=False, raw=6298, last_s=209.966, embed=42, behavior=8)
+    result = _gate([_warehouse()], lambda: untagged, clock, deadline_s=600.0)
+
+    assert result["outcome"] == "confirmed"
+    assert list(result["absent"]) == ["tags"]
+    assert "RT-VLM tagging looks off" in result["absent"]["tags"]
+    # Not before the grace: embeddings are in from the first poll.
+    assert result["waited_s"] >= flows.DEFAULT_INGEST_ABSENT_GRACE_S
+
+
+def test_tags_empty_for_every_video_time_out_when_strict() -> None:
+    clock = _FakeClock(1.2)
+    untagged = _snap(cv=False, raw=6298, last_s=209.966, embed=42, behavior=8)
+    result = _gate([_warehouse()], lambda: untagged, clock, deadline_s=120.0, absent_grace_s=None)
+
+    assert result["outcome"] == "timed_out"
+    assert result["absent"] == {}
+
+
+def test_raw_absent_everywhere_takes_behavior_with_it() -> None:
+    clock = _FakeClock(1.2)
+    no_cv = _snap(cv=False, embed=42, tags=42)
+    result = _gate([_warehouse()], lambda: no_cv, clock, deadline_s=120.0)
+
+    assert result["outcome"] == "confirmed"
+    assert sorted(result["absent"]) == ["behavior", "raw"]
+    assert "RT-CV never listed any of 1 video(s)" in result["absent"]["raw"]
+    report = result["per_video"][0]
+    assert report["absent"] == ["behavior", "raw"]
+    assert report["raw_check"] is None
+
+
+def test_an_index_one_video_has_stays_required_for_every_video() -> None:
+    """Tags for one video prove tagging is on, so the untagged one is slow, not absent."""
+    clock = _FakeClock(1.2)
+    other_sid = "99999999-8888-7777-6666-555555555555"
+    other = _warehouse(name="other_sample", video_name="other_sample", sensor_id=other_sid)
+    snap = flows.Snapshot(
+        cv_active={"some-other-camera"},
+        raw={_NAME: (6298, _ANCHOR_MS + 209_966), "other_sample": (6298, _ANCHOR_MS + 209_966)},
+        embed={_SID: 42, other_sid: 42},
+        tags={_warehouse().tag_index: 42},
+        behavior={_NAME: 8, "other_sample": 8},
+    )
+    result = _gate([_warehouse(), other], lambda: snap, clock, deadline_s=120.0)
+
+    assert result["outcome"] == "timed_out"
+    assert result["absent"] == {}
+    timed_out = [r for r in result["per_video"] if r["outcome"] == "timed_out"]
+    assert [r["video_name"] for r in timed_out] == ["other_sample"]
+
+
+def test_degraded_paths_names_only_queries_that_read_an_absent_index() -> None:
+    raw_absent = {"raw": "r", "behavior": "b"}
+    assert flows.degraded_paths(raw_absent, {"embed": 10, "attribute": 3, "fusion": 2}) == {
+        "absent": ["behavior", "raw"],
+        "affected_paths": {"attribute": 3, "fusion": 2},
+    }
+    assert flows.degraded_paths(raw_absent, {"embed": 10}) is None
+    assert flows.degraded_paths({"tags": "t"}, {"embed": 10, "fusion": 2}) is None
+    assert flows.degraded_paths({}, {"fusion": 2}) is None
+    assert flows.degraded_paths(raw_absent, None) is None
+
+
+def test_ingest_strict_disables_the_absent_grace() -> None:
+    import run_eval_flows as rf
+
+    default = rf.parse_args(["--endpoint", "https://host:8000"])
+    assert default.ingest_absent_grace_s == flows.DEFAULT_INGEST_ABSENT_GRACE_S
+    assert rf.build_ingest_watcher(default, "https://host:7777").absent_grace_s == default.ingest_absent_grace_s
+
+    strict = rf.parse_args(["--endpoint", "https://host:8000", "--ingest-strict"])
+    assert rf.build_ingest_watcher(strict, "https://host:7777").absent_grace_s is None
+
+    with pytest.raises(SystemExit):
+        rf.parse_args(["--endpoint", "https://host:8000", "--ingest-absent-grace-s", "-1"])
 
 
 def test_watcher_polls_before_videos_are_added_and_waits_for_seal() -> None:

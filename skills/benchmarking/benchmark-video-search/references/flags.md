@@ -40,6 +40,15 @@ searchable hit. Two flags change what the gate means:
   drop `tags`; no RT-CV, drop `raw,behavior` — never to make a slow run pass.
 - `--ingest-quiet-s` (default 15) is the only heuristic: behavior has no
   predictable count, so it is done when nothing has changed for this long.
+- `--ingest-absent-grace-s` (default 60) covers an index this deployment
+  never produces. If tags or raw have no documents for any video this long
+  after embeddings finish, the gate drops the index and continues (raw takes
+  behavior with it). It also drops behavior at confirmation if raw exists
+  but behavior is zero everywhere. The run is marked degraded, and the
+  summary names the attribute and fusion queries that read the missing index.
+  Embeddings are never dropped, and an index that has documents for even one
+  video is still required for every video. `--ingest-strict` turns this off
+  and times out instead.
 
 Timings are measured from each video's upload start and are late by at most
 `--ingest-poll-s`. `per_index_done_s.embed` is comparable with the docs'

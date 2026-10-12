@@ -86,6 +86,7 @@ from .ingest import (
     probe_media,
 )
 from .ingest_readiness import CONFIRMED as INGEST_CONFIRMED
+from .ingest_readiness import DEFAULT_ABSENT_GRACE_S as DEFAULT_INGEST_ABSENT_GRACE_S
 from .ingest_readiness import DEFAULT_CHUNK_S as DEFAULT_INGEST_CHUNK_S
 from .ingest_readiness import DEFAULT_POLL_S as DEFAULT_INGEST_POLL_S
 from .ingest_readiness import DEFAULT_QUIET_S as DEFAULT_INGEST_QUIET_S
@@ -96,6 +97,7 @@ from .ingest_readiness import (
     IngestWatcher,
     Snapshot,
     VideoState,
+    degraded_paths,
     format_ingest_failure,
     poll_ingest,
     stale_documents,
@@ -201,6 +203,7 @@ __all__ = [
     "CONTENT_TYPES",
     "DATASETS",
     "DEFAULT_DATA_DIR",
+    "DEFAULT_INGEST_ABSENT_GRACE_S",
     "DEFAULT_INGEST_CHUNK_S",
     "DEFAULT_INGEST_POLL_S",
     "DEFAULT_INGEST_QUIET_S",
@@ -250,6 +253,7 @@ __all__ = [
     "compare_inventory",
     "configured_base_url",
     "default_vss_cmd",
+    "degraded_paths",
     "download_from_dss",
     "effective_attributes",
     "ensure_vss_configured",

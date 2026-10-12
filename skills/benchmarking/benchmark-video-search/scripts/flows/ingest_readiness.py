@@ -36,6 +36,15 @@ on sparse footage the raw count is far below the frame count and the last
 document is the last detection, not the end of the video. Both are reported
 as coverage, never required.
 
+An index with no documents for any video is a service that is off, not a slow
+one: RT-VLM tagging disabled, or RT-CV never sent the uploads. Once every
+video's embeddings are in, tags or raw still empty everywhere after
+``absent_grace_s`` stop being required, and the run continues marked degraded.
+Raw absent takes behavior with it, which is built from raw; behavior empty
+everywhere is recorded the same way at confirmation. Embeddings feed every
+search path, so they are always required. ``absent_grace_s=None`` restores the
+strict gate, where any of these times out instead.
+
 Indexing time is not recorded anywhere in the documents (``mdx-*`` carry the
 video's own timestamps), so every timing comes from this poll log and is late
 by at most one poll interval.
@@ -69,6 +78,15 @@ DEFAULT_CHUNK_S = 5.0
 DEFAULT_POLL_S = 2.0
 DEFAULT_QUIET_S = 15.0
 MIN_DEADLINE_S = 600.0
+#: How long after every video's embeddings are in an index may stay empty for
+#: every video before it is treated as not produced by this deployment.
+DEFAULT_ABSENT_GRACE_S = 60.0
+#: In decision order: raw before behavior, since behavior is built from raw.
+#: Embeddings are never here -- every search path reads them.
+ABSENT_OK = ("tags", "raw", "behavior")
+#: The search paths that read each index the gate can find absent. Tags feed
+#: only `tag` mode, which this eval never routes to.
+PATHS_READING = {"tags": (), "raw": ("attribute", "fusion"), "behavior": ("attribute", "fusion")}
 
 #: A container duration a few ms past a chunk boundary (210.033 s) does not
 #: produce an extra chunk; 42 were written for that file, not 43.
@@ -215,6 +233,16 @@ class VideoState:
         #: Which rule completed raw: ``rtcv_released``, ``rtcv_missing`` (RT-CV
         #: never listed it, so a stable non-zero count decided) or ``existing``.
         self.raw_check: str | None = None
+        #: Indexes the deployment never produced, no longer required.
+        self.absent: set[str] = set()
+
+    def drop(self, index: str) -> None:
+        """Stop requiring ``index``: the watcher found it empty for every video."""
+        self.require = self.require - {index}
+        self.index_done.pop(index, None)
+        self.absent.add(index)
+        if index == "raw":
+            self.raw_check = None
 
     @property
     def cv_dropped(self) -> bool:
@@ -351,7 +379,10 @@ class VideoState:
                 where = EMBED_INDEX if index == "embed" else v.tag_index
                 line = f"{index}: {count}/{target} documents in {where}"
                 if index == "tags" and count == 0:
-                    line += " (no tag documents: index missing or empty -- drop 'tags' from --ingest-require if this profile has no RT-VLM)"
+                    line += (
+                        " (no tag documents: index missing or empty -- RT-VLM tagging may be off; "
+                        "drop 'tags' from --ingest-require if this profile has no tagging)"
+                    )
                 out.append(line)
         if "raw" in self.require and not self.index_done.get("raw"):
             count = self.counts.get("raw", 0)
@@ -382,8 +413,8 @@ class VideoState:
         out = []
         if "behavior" in self.require and self.counts.get("raw") and not self.counts.get("behavior"):
             out.append(
-                "raw documents but no behavior documents (allowed: a video can have "
-                "no tracked objects, but the same video has produced them before)"
+                "raw documents but no behavior documents (allowed: expected only if "
+                "nothing in the video was tracked)"
             )
         if self.raw_check == "rtcv_missing":
             out.append("RT-CV never listed the stream; raw was accepted on a stable, non-zero count")
@@ -423,6 +454,7 @@ class VideoState:
             "cv_seen": self.cv_seen if v.uploaded_this_run else None,
             "raw_check": self.raw_check if "raw" in self.require else None,
             "over_target": over,
+            "absent": sorted(self.absent),
             "warnings": self.warnings(),
             "outcome": outcome,
             "causes": [] if outcome == CONFIRMED else self.causes(),
@@ -610,6 +642,7 @@ class IngestWatcher:
         chunk_s: float = DEFAULT_CHUNK_S,
         poll_s: float = DEFAULT_POLL_S,
         quiet_s: float = DEFAULT_QUIET_S,
+        absent_grace_s: float | None = DEFAULT_ABSENT_GRACE_S,
         upload_timestamp: str = DEFAULT_UPLOAD_TIMESTAMP,
         poll_fn: Callable[[list[ExpectedVideo]], Snapshot] | None = None,
         clock: Callable[[], float] = time.monotonic,
@@ -623,10 +656,15 @@ class IngestWatcher:
             raise ValueError(f"unknown ingest index(es): {sorted(unknown)}")
         if "behavior" in self.require and "raw" not in self.require:
             raise ValueError("'behavior' completion is defined relative to 'raw'; require both")
+        #: What the caller asked for; ``require`` shrinks as indexes turn out absent.
+        self.requested = self.require
         self.ingress_url = ingress_url
         self.chunk_s = chunk_s
         self.poll_s = poll_s
         self.quiet_s = quiet_s
+        self.absent_grace_s = absent_grace_s
+        #: index -> why it was found absent.
+        self.absent: dict[str, str] = {}
         self.anchor_ms = anchor_epoch_ms(upload_timestamp)
         self._poll_fn = poll_fn or (lambda videos: poll_ingest(ingress_url, videos, self.require))
         self._clock = clock
@@ -735,8 +773,10 @@ class IngestWatcher:
                     st.observe(snap, now)
                 if sealed:
                     states = list(self._states)
+                    self._check_absent(states, now)
                     latest = max((t for st in states if (t := st.latest_change()) is not None), default=None)
                     if all(st.done for st in states) and (latest is None or now - latest >= self.quiet_s):
+                        self._check_behavior_absent(states)
                         return self._finish(CONFIRMED, [st.report(CONFIRMED) for st in states], now)
                     if self._progress_every and self.polls % self._progress_every == 1:
                         self._log(_progress_line(states, now - self.sealed_at))
@@ -745,6 +785,67 @@ class IngestWatcher:
                 reports = [st.report(CONFIRMED if st.done else TIMED_OUT) for st in self._states]
             return self._finish(TIMED_OUT, reports, now, error=self.last_error)
         return None
+
+    def _absent_reference(self, states: list[VideoState]) -> float | None:
+        """When perception had demonstrably run: every video's embeddings in.
+
+        Without embeddings required, sealing stands in. None while waiting.
+        """
+        if "embed" not in self.require:
+            return self.sealed_at
+        if not all(st.index_done.get("embed") for st in states):
+            return None
+        return max(self.sealed_at or 0.0, *(st.done_at.get("embed", 0.0) for st in states))
+
+    def _mark_absent(self, states: list[VideoState], index: str, reason: str) -> None:
+        self.absent[index] = reason
+        self.require = self.require - {index}
+        for st in states:
+            st.drop(index)
+        self._log(f"  WARNING: {reason}")
+
+    def _check_absent(self, states: list[VideoState], now: float) -> None:
+        """Stop waiting for tags or raw that no video has, once embeddings are long in."""
+        if self.absent_grace_s is None or not states:
+            return
+        reference = self._absent_reference(states)
+        if reference is None or now - reference < self.absent_grace_s:
+            return
+        waited = f"{now - reference:.0f}s after every video's embeddings were in"
+        n = len(states)
+        if "tags" in self.require and not any(st.counts.get("tags") for st in states):
+            self._mark_absent(
+                states, "tags",
+                f"tags: no documents for any of {n} video(s) {waited} -- RT-VLM tagging looks off; "
+                "not required, and no eval search path reads tags",
+            )
+        if (
+            "raw" in self.require
+            and not any(st.counts.get("raw") for st in states)
+            and not any(st.cv_seen for st in states)
+        ):
+            self._mark_absent(
+                states, "raw",
+                f"raw: RT-CV never listed any of {n} video(s) and wrote no documents {waited} -- "
+                f"RT-CV looks off or not receiving the webhook ({WEBHOOK_HINT})",
+            )
+            if "behavior" in self.require:
+                self._mark_absent(states, "behavior", "behavior: not produced, since it is built from raw")
+
+    def _check_behavior_absent(self, states: list[VideoState]) -> None:
+        """At confirmation: raw arrived, yet no video has a single behavior document."""
+        if (
+            self.absent_grace_s is None
+            or "behavior" not in self.require
+            or not any(st.counts.get("raw") for st in states)
+            or any(st.counts.get("behavior") for st in states)
+        ):
+            return
+        self._mark_absent(
+            states, "behavior",
+            f"behavior: no documents for any of {len(states)} video(s), though raw arrived -- "
+            "the analytics app may not be running, or nothing was tracked",
+        )
 
     def _unverifiable_result(self, now: float) -> dict[str, Any] | None:
         with self._lock:
@@ -767,7 +868,10 @@ class IngestWatcher:
     ) -> dict[str, Any]:
         result = {
             "outcome": outcome,
-            "require": sorted(self.require),
+            "require": sorted(self.requested),
+            "absent": dict(self.absent),
+            "degraded": bool(self.absent),
+            "absent_grace_s": self.absent_grace_s,
             "chunk_s": self.chunk_s,
             "poll_interval_s": self.poll_s,
             "quiet_s": self.quiet_s,
@@ -777,7 +881,8 @@ class IngestWatcher:
             "ingress_url": self.ingress_url,
             "polls": self.polls,
             "poll_errors": self.poll_errors,
-            # From the last upload returning: how long querying was held back.
+            # From sealing (uploads returned, every source registered in VST):
+            # how long querying was held back.
             "waited_s": round(now - (self.sealed_at if self.sealed_at is not None else now), 3),
             # From before the first upload: how long the poll log covers.
             "polled_s": round(now - (self.started_at if self.started_at is not None else now), 3),
@@ -797,6 +902,7 @@ def wait_for_ingest_complete(
     poll_s: float = DEFAULT_POLL_S,
     quiet_s: float = DEFAULT_QUIET_S,
     deadline_s: float | None = None,
+    absent_grace_s: float | None = DEFAULT_ABSENT_GRACE_S,
     upload_timestamp: str = DEFAULT_UPLOAD_TIMESTAMP,
     poll_fn: Callable[[], Snapshot] | None = None,
     clock: Callable[[], float] = time.monotonic,
@@ -811,13 +917,31 @@ def wait_for_ingest_complete(
     """
     watcher = IngestWatcher(
         ingress_url, require=require, chunk_s=chunk_s, poll_s=poll_s, quiet_s=quiet_s,
-        upload_timestamp=upload_timestamp,
+        absent_grace_s=absent_grace_s, upload_timestamp=upload_timestamp,
         poll_fn=(lambda _videos: poll_fn()) if poll_fn else None,
         clock=clock, sleep=sleep, log=log, progress_every=progress_every,
     )
     for video in expected:
         watcher.add(video)
     return watcher.wait(deadline_s)
+
+
+def degraded_paths(absent: dict[str, str], path_counts: dict[str, int] | None) -> dict[str, Any] | None:
+    """Which executed queries read an index the deployment never produced.
+
+    None when nothing absent touches a path that ran. Their scores measure a
+    missing index, not retrieval quality, so the summary says so beside them.
+    """
+    if not absent:
+        return None
+    affected: dict[str, int] = {}
+    for index in absent:
+        for path in PATHS_READING.get(index, ()):
+            if (path_counts or {}).get(path):
+                affected[path] = path_counts[path]
+    if not affected:
+        return None
+    return {"absent": sorted(absent), "affected_paths": dict(sorted(affected.items()))}
 
 
 def _progress_line(states: list[VideoState], elapsed: float) -> str:

@@ -724,6 +724,7 @@ def build_ingest_watcher(args: argparse.Namespace, ingress_url: str) -> Any:
         chunk_s=args.chunk_s,
         poll_s=args.ingest_poll_s,
         quiet_s=args.ingest_quiet_s,
+        absent_grace_s=None if args.ingest_strict else args.ingest_absent_grace_s,
         upload_timestamp=args.upload_timestamp,
     )
 
@@ -760,6 +761,11 @@ def run_ingest_gate(
         f"  All {len(result['per_video'])} video(s) ingested; queries held back "
         f"{result['waited_s']:.1f}s after the last upload (INGESTION SUMMARY below)."
     )
+    if result.get("absent"):
+        print(
+            f"  DEGRADED: not produced by this deployment: {', '.join(sorted(result['absent']))}. "
+            "Queries on paths that read them are flagged in RESULTS SUMMARY; --ingest-strict aborts instead."
+        )
     return result
 
 
@@ -1017,6 +1023,10 @@ def run_evaluation(
     )
     if ingest_readiness and ingest_readiness.get("ingest"):
         summary["ingest"] = ingest_readiness["ingest"]
+    if ingest_readiness:
+        degraded = flows.degraded_paths(ingest_readiness.get("absent") or {}, summary.get("search_paths"))
+        if degraded:
+            summary["ingest_degraded"] = degraded
     _print_summary(summary)
 
     if output_file is None:
@@ -1281,6 +1291,17 @@ def _summarize(
     return summary
 
 
+def _degraded_line(summary: dict[str, Any]) -> str | None:
+    degraded = summary.get("ingest_degraded")
+    if not degraded:
+        return None
+    affected = "  ".join(f"{k}={v}" for k, v in degraded["affected_paths"].items())
+    return (
+        f"WARNING:            {affected} queries read {', '.join(degraded['absent'])}, which this "
+        "deployment never produced; their scores measure the missing index, not retrieval."
+    )
+
+
 def _print_summary(summary: dict[str, Any]) -> None:
     print(f"{'=' * 60}")
     print("RESULTS SUMMARY")
@@ -1291,6 +1312,10 @@ def _print_summary(summary: dict[str, Any]) -> None:
     if summary.get("search_paths"):
         split = "  ".join(f"{k}={v}" for k, v in summary["search_paths"].items())
         print(f"Search paths:       {split}")
+
+    degraded = _degraded_line(summary)
+    if degraded:
+        print(degraded)
 
     cf = summary.get("critic_filtered")
     if cf:
@@ -1593,6 +1618,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     ingest.add_argument(
+        "--ingest-absent-grace-s",
+        type=float,
+        default=flows.DEFAULT_INGEST_ABSENT_GRACE_S,
+        help=(
+            "Seconds after every video's embeddings are in before tags or raw that no "
+            "video has are treated as not produced by this deployment: no longer "
+            "required, and the run is marked degraded (default: 60). Embeddings are "
+            "always required."
+        ),
+    )
+    ingest.add_argument(
+        "--ingest-strict",
+        action="store_true",
+        help="Never treat an index as absent: an index with no documents times out the gate, as before.",
+    )
+    ingest.add_argument(
         "--ingest-deadline-s",
         type=float,
         help="Give up on ingestion after this many seconds (default: max(600, 2 x total video duration)).",
@@ -1739,6 +1780,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args.ingest_require = frozenset(require)
     if args.ingest_poll_s <= 0 or args.chunk_s <= 0 or args.ingest_quiet_s < 0:
         p.error("--ingest-poll-s and --chunk-s must be positive, --ingest-quiet-s non-negative")
+    if args.ingest_absent_grace_s < 0:
+        p.error("--ingest-absent-grace-s must be non-negative")
     return args
 
 

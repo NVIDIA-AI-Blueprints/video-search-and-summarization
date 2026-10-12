@@ -303,6 +303,7 @@ def aggregate_ingest_stats(readiness: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "outcome": readiness.get("outcome"),
+        "absent": dict(readiness.get("absent") or {}),
         "videos": len(per_video),
         "uploaded_this_run": len(uploaded),
         "duration_range_s": [min(durations), max(durations)] if durations else None,
@@ -325,7 +326,7 @@ def aggregate_ingest_stats(readiness: dict[str, Any]) -> dict[str, Any]:
             {k: r.get(k) for k in (
                 "sensor", "video_name", "uploaded_this_run", "duration_s", "fps", "upload_s",
                 "per_index_done_s", "ingest_s", "counts", "targets", "raw_last_s",
-                "raw_coverage", "raw_check", "over_target", "warnings", "outcome", "causes",
+                "raw_coverage", "raw_check", "over_target", "absent", "warnings", "outcome", "causes",
             )}
             for r in per_video
         ],
@@ -343,7 +344,10 @@ def print_ingest_summary(stats: dict[str, Any]) -> None:
     print(f"\n{'=' * 60}")
     print("INGESTION SUMMARY")
     print(f"{'=' * 60}")
-    print(f"Outcome:            {stats['outcome']}")
+    absent = stats.get("absent") or {}
+    print(f"Outcome:            {stats['outcome']}{' (degraded)' if absent else ''}")
+    for reason in absent.values():
+        print(f"  WARNING: {reason}")
     print(f"Videos:             {stats['videos']} ({stats['uploaded_this_run']} uploaded this run)")
     if stats.get("chunks"):
         print(f"Chunks:             {stats['chunks']['total']} (avg {stats['chunks']['avg_per_video']}/video)")
@@ -362,7 +366,7 @@ def print_ingest_summary(stats: dict[str, Any]) -> None:
         done = "  ".join(f"{k}={_s(v)}" for k, v in (r.get("per_index_done_s") or {}).items())
         flag = f"  OVER TARGET: {r['over_target']}" if r.get("over_target") else ""
         print(f"  {r['sensor']}: {r['outcome']}  ingest={_s(r.get('ingest_s'))}  {done}{flag}")
-        if "raw" in (r.get("counts") or {}):
+        if "raw" in (r.get("counts") or {}) and "raw" not in (r.get("absent") or []):
             frames = (r.get("targets") or {}).get("raw")
             print(
                 f"    raw={raw_coverage(r['counts']['raw'], frames)}  last detection "
