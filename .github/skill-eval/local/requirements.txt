@@ -1,2 +1,0 @@
-harbor==0.20.0
-claude-agent-sdk==0.2.128
