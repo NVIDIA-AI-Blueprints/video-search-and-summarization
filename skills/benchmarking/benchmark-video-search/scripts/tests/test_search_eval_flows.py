@@ -594,24 +594,21 @@ def test_object_ids_win_over_attributes() -> None:
     assert flows.route({"object_ids": [7], "attributes": ["person in red"]}) == "object"
 
 
-def test_missing_has_action_defaults_to_fusion_not_attribute() -> None:
-    """Fusion still returns the embedding leg; attribute would drop it.
-
-    has_action is REQUIRED in the agent's prompt, but a hand-written
-    decomposition may omit it, and the safer default keeps candidates.
-    """
-    assert flows.route({"attributes": ["person in red"]}) == "fusion"
+def test_missing_has_action_defaults_to_attribute_like_the_agent() -> None:
+    """execute_core_search treats a missing has_action as attribute-only."""
+    assert flows.route({"attributes": ["person in red"]}) == "attribute"
+    assert flows.route({"attributes": ["person in red"], "has_action": None}) == "attribute"
 
 
-def test_action_query_copied_into_attributes_routes_to_embed() -> None:
-    """The attribute only repeats the action, so there is nothing to re-rank by."""
+def test_action_query_copied_into_attributes_stays_on_fusion() -> None:
+    """The agent has no copied-query guard; only single-word pruning."""
     decomposition = {
         "query": "person dropping a box",
         "attributes": ["person dropping a box"],
         "has_action": True,
     }
-    assert flows.route(decomposition) == "embed"
-    assert flows.plan_for("person dropping a box", decomposition)["attributes"] == []
+    assert flows.route(decomposition) == "fusion"
+    assert flows.plan_for("person dropping a box", decomposition)["attributes"] == ["person dropping a box"]
 
 
 def test_copied_query_with_appearance_words_stays_on_fusion() -> None:
@@ -2039,6 +2036,64 @@ def test_stored_route_replay_and_fixed_path_are_distinct(
     )
     assert paths == [expected_path]
     assert result["flow"]["query"]["planned_paths"] == f"{expected_path}=1"
+
+
+class _FlakyDecomposer(_Decomposer):
+    """Decomposes every query as fusion, except those in ``failing``."""
+
+    def __init__(self, failing: set[str]) -> None:
+        self.failing = failing
+
+    def decompose(self, query: str, video_sources: list[str] | None = None) -> tuple[dict[str, Any], float]:
+        if query in self.failing:
+            raise flows.DecompositionError(f"decomposition request failed for {query!r}: 503")
+        return {"query": query, "attributes": ["person in a hardhat"], "has_action": True}, 0.5
+
+
+def _run_with_decomposer(tmp_path: Path, queries: list[str], failing: set[str], **kw: Any) -> tuple[dict[str, Any], dict[str, str]]:
+    import run_eval_flows as rf
+
+    dataset_dir = tmp_path / "warehouse"
+    dataset_dir.mkdir()
+    (dataset_dir / "dataset.json").write_text(json.dumps({"queries": {q: [] for q in queries}}))
+    backend = flows.CliQueryBackend(["vss"], search_path="embed")
+    sent: dict[str, str] = {}
+
+    def search(query: str) -> tuple[list[dict[str, Any]], float]:
+        plan = backend.plan_for_query(query)
+        sent[query] = plan["path"]
+        return [], 0.01
+
+    backend.search = search  # type: ignore[method-assign]
+    result = rf.run_evaluation(
+        backend, tmp_path, "warehouse", "", output_file=str(tmp_path / "result.json"),
+        decomposer=_FlakyDecomposer(failing), **kw,
+    )
+    return result, sent
+
+
+def test_a_failed_decomposition_falls_back_to_embed_like_the_agent(tmp_path: Path) -> None:
+    """The agent searches the original query on embed; the run still finishes."""
+    queries = [f"a person running {i}" for i in range(5)]
+    result, sent = _run_with_decomposer(tmp_path, queries, {queries[2]})
+
+    assert sent[queries[2]] == "embed"
+    assert all(sent[q] == "fusion" for q in queries if q != queries[2])
+    failed = [r for r in result["query_results"] if r.get("decompose_failed")]
+    assert [r["query"] for r in failed] == [queries[2]]
+    assert failed[0]["decomposition"] == {"query": queries[2]}
+    dec = result["summary"]["decomposition"]
+    assert dec["failed"] == 1
+    assert dec["queries"] == 5
+    assert dec["mean_s"] == 0.5
+    assert dec["failed_queries"][0]["query"] == queries[2]
+
+
+def test_too_many_failed_decompositions_abort_the_run(tmp_path: Path) -> None:
+    """Past the limit the numbers measure embed, not the agent's routing."""
+    queries = ["a person running", "a person walking"]
+    with pytest.raises(SystemExit, match="fell back to embed"):
+        _run_with_decomposer(tmp_path, queries, {queries[0]})
 
 
 def test_the_fallback_path_needs_nothing_a_decomposition_would_supply() -> None:

@@ -138,6 +138,8 @@ an eval.
 | Everything scores 0.0 | possibly empty or unscoped search indices | check Step 3's Elasticsearch index counts and `flow.ingest_readiness`; a VST listing alone is insufficient |
 | Header says `fallback_path` | routing is active; that is the path for unrouted queries | look at `planned_paths` |
 | `planned_paths: decided per query` | live decomposition picks each query's path at run time | read the actual split under `Search paths` in the final summary |
+| `N queries fell back to embed: decomposition failed` | the decomposition LLM errored, replied empty, or replied unparseable JSON for those queries; each was searched on `embed` with its original text, as the agent does | check the LLM; the errors are in `summary.decomposition.failed_queries` |
+| `ABORTED: ... fell back to embed, above --max-decompose-failed-pct` | more than 20% of decompositions failed, so the run would measure embed rather than routing | fix the LLM, or raise `--max-decompose-failed-pct` to accept it |
 
 ---
 
