@@ -211,12 +211,18 @@ jobs:
             # (LVS dev backend, LAN media server) that do not serve TLS, so the
             # S5332 clear-text-protocol hotspots on these two files are accepted.
             # Scoped to exactly these files so new http usage elsewhere still flags.
+            # The search benchmark's offline eval driver and its tests are long
+            # orchestration functions, not shipped runtime code; S3776 there is
+            # accepted, as for the UI (services/vios). Scoped to this one skill
+            # so complexity in the rest of skills/ still flags.
             {
-              echo "sonar.issue.ignore.multicriteria=lvsbench1,lvsbench2"
+              echo "sonar.issue.ignore.multicriteria=lvsbench1,lvsbench2,searchbench1"
               echo "sonar.issue.ignore.multicriteria.lvsbench1.ruleKey=python:S5332"
               echo "sonar.issue.ignore.multicriteria.lvsbench1.resourceKey=skills/benchmarking/vss-benchmark-video-summarization/scripts/base.py"
               echo "sonar.issue.ignore.multicriteria.lvsbench2.ruleKey=shell:S5332"
               echo "sonar.issue.ignore.multicriteria.lvsbench2.resourceKey=skills/benchmarking/vss-benchmark-video-summarization/scripts/fetch-videos.sh"
+              echo "sonar.issue.ignore.multicriteria.searchbench1.ruleKey=python:S3776"
+              echo "sonar.issue.ignore.multicriteria.searchbench1.resourceKey=skills/benchmarking/benchmark-video-search/scripts/**/*"
             } >> sonar-project.properties
           fi
 

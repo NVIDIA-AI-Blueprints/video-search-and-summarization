@@ -504,6 +504,15 @@ class NemoClawNotebookContractTests(unittest.TestCase):
         namespace, _ = self._run_settings_cell({})
         self.assertIs(namespace["VSS_AGENT_ADAPTER_ENABLED"], False)
 
+    def test_eval_proxy_key_overrides_unauthenticated_nim_placeholder(self) -> None:
+        namespace, _ = self._run_settings_cell(
+            {
+                "COMPATIBLE_API_KEY": "EMPTY",
+                "SKILL_EVAL_LOCAL_NIM_API_KEY": "per-leg-proxy-key",
+            }
+        )
+        self.assertEqual(namespace["COMPATIBLE_API_KEY"], "per-leg-proxy-key")
+
     def test_the_shell_can_turn_the_adapter_flag_on(self) -> None:
         # The harness documentation tells operators to export this before running the
         # notebook, so the settings cell has to read it the way HITL_ENABLED does.

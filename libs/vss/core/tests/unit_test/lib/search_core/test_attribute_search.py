@@ -11,6 +11,7 @@ import pytest
 from vss_core.search_core.errors import IndexNotFoundError
 from vss_core.search_core.errors import InvalidInputError
 from vss_core.search_core.models.attribute_search import AttributeSearchInput
+from vss_core.search_core.primitives import _attribute_helpers as ah
 from vss_core.search_core.primitives.attribute_search import AttributeSearch
 from vss_core.search_core.runtime import BEHAVIOR_INDEX_ANCHOR
 
@@ -71,6 +72,7 @@ def make_attr():
         behavior_hits: list[dict] | None = None,
         raise_not_found: bool = False,
         behavior_index: str = "behavior_index",
+        vst_external_url: str = "",
     ):
         es = _MockEs(behavior_hits, raise_not_found=raise_not_found)
         embed = _MockEmbed()
@@ -83,7 +85,7 @@ def make_attr():
             frames_index_wildcard="mdx-raw-*",
             enable_frame_lookup=False,  # keep tests to the behavior path
             default_max_results=10,
-            vst_external_url="",  # skip VST screenshot resolution (no HTTP in tests)
+            vst_external_url=vst_external_url,
             vst_internal_url=None,
         )
         return attr, es, embed
@@ -93,6 +95,11 @@ def make_attr():
 
 def _behavior_body(es: _MockEs) -> dict:
     return next(call["body"] for call in es.calls if call["body"] and "knn" in call["body"])
+
+
+def _knn_vectors(es: _MockEs) -> list[list[float]]:
+    """Return the kNN query_vector reaching ES, in request order (zac-wang-nv, NVBug 6781021)."""
+    return [c["body"]["knn"]["query_vector"] for c in es.calls if c["body"] and "knn" in c["body"]]
 
 
 # --------------------------------------------------------------------- tests
@@ -164,6 +171,35 @@ class TestAttributeSearchContract:
         assert embed.calls == 2
 
     @pytest.mark.asyncio
+    async def test_fuse_mode_forwards_window_to_enrichment(self, make_attr, monkeypatch):
+        captured: dict[str, Any] = {}
+
+        async def _capture_enrichment(
+            results: Any,
+            vst_internal_url: str | None,
+            vst_external_url: str | None,
+            timestamp_start: Any = None,
+            timestamp_end: Any = None,
+        ) -> None:
+            captured["timestamp_start"] = timestamp_start
+            captured["timestamp_end"] = timestamp_end
+
+        monkeypatch.setattr(ah, "enrich_attribute_results", _capture_enrichment)
+        attr, _es, _embed = make_attr(vst_external_url="http://vst")
+        search_input = AttributeSearchInput(
+            query=["person", "red hat"],
+            source_type="video_file",
+            timestamp_start="2025-01-01T00:00:03Z",
+            timestamp_end="2025-01-01T00:00:07Z",
+            fuse_multi_attribute=True,
+        )
+
+        await attr.run(search_input)
+
+        assert captured["timestamp_start"] == search_input.timestamp_start
+        assert captured["timestamp_end"] == search_input.timestamp_end
+
+    @pytest.mark.asyncio
     async def test_append_mode_embeds_each_attribute_and_dedups(self, make_attr):
         attr, _es, embed = make_attr()
         out = await attr.run(
@@ -172,6 +208,63 @@ class TestAttributeSearchContract:
         assert embed.calls == 2
         # both attributes match the same (sensor, object), so dedup collapses to one.
         assert len(out.results) == 1
+
+    @pytest.mark.asyncio
+    async def test_precomputed_query_embedding_skips_embed_fuse(self, make_attr):
+        attr, _es, embed = make_attr()
+        await attr.run(
+            AttributeSearchInput(
+                query=["person", "red hat"],
+                source_type="video_file",
+                fuse_multi_attribute=True,
+                query_embedding=[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+            )
+        )
+        assert embed.calls == 0
+        # zac-wang-nv: prove the supplied vectors are the ones searched with (not just that embed was skipped).
+        assert _knn_vectors(_es) == [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+
+    @pytest.mark.asyncio
+    async def test_precomputed_query_embedding_skips_embed_append(self, make_attr):
+        attr, _es, embed = make_attr()
+        await attr.run(
+            AttributeSearchInput(
+                query=["person", "red hat"],
+                source_type="video_file",
+                fuse_multi_attribute=False,
+                query_embedding=[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+            )
+        )
+        assert embed.calls == 0
+        # zac-wang-nv: the supplied vectors reach ES in attribute order (pairing is correct).
+        assert _knn_vectors(_es) == [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+
+    @pytest.mark.asyncio
+    async def test_precomputed_single_vector_wraps_for_one_attribute(self, make_attr):
+        attr, _es, embed = make_attr()
+        await attr.run(
+            AttributeSearchInput(
+                query="red hat",
+                source_type="video_file",
+                fuse_multi_attribute=False,
+                query_embedding=[0.1, 0.2, 0.3],
+            )
+        )
+        assert embed.calls == 0
+        # zac-wang-nv: a single supplied vector is wrapped and reaches ES for the one attribute.
+        assert _knn_vectors(_es) == [[0.1, 0.2, 0.3]]
+
+    @pytest.mark.asyncio
+    async def test_precomputed_embedding_count_mismatch_raises(self, make_attr):
+        attr, _es, _embed = make_attr()
+        with pytest.raises(InvalidInputError):
+            await attr.run(
+                AttributeSearchInput(
+                    query=["a", "b"],
+                    source_type="video_file",
+                    query_embedding=[[0.1, 0.2]],
+                )
+            )
 
     @pytest.mark.asyncio
     async def test_append_mode_continues_on_single_attribute_error(self):

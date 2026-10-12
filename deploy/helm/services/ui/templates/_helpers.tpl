@@ -109,7 +109,11 @@ Create the name of the service account to use
 */}}
 {{- define "agents.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "agents.fullname" .) .Values.serviceAccount.name }}
+{{- if .Values.serviceAccount.name }}
+{{- include "agents.k8sSvcHost" (dict "root" . "short" .Values.serviceAccount.name) | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- include "agents.fullname" . }}
+{{- end }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}

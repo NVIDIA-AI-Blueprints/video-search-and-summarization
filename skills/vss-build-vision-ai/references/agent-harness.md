@@ -163,7 +163,7 @@ Report every one of these that the build has, whenever the agent is removed:
 | Alerts tab, *Generate Report* | goes with the sidebar it drives. The incident list and rule CRUD stay, on `video-analytics-api` and Alert Bridge |
 | Web UI summarization on `lvs` | with no harness, gone: the UI ships no LVS client, so the capability is `vss summarize` from the host and the UI is a dashboard |
 | Ingress `/api`, `/chat`, `/websocket` | `503`. HAProxy still starts — `bk_vss_agent` is declared `init-addr none` — and the origin's root still serves the UI |
-| Search **ingestion and deletion** | no `vss` verb covers the RT-CV/RT-Embed fan-out the agent's `/complete` performs. Use the headless recipe below |
+| Search **ingestion and deletion** | use `vss vios add` / `delete` on Agent-backed and headless deployments; configured notification receivers perform fan-out and cleanup |
 | `vss-generate-video-report-rag` | unavailable: it drives the agent's `/v1/chat` and `/executions`. Route reports through `vss-generate-video-report`, which never calls the agent |
 
 Nothing else in the operate set needs it. No `vss` command group declares the
@@ -174,14 +174,16 @@ LVS, Elasticsearch, RT-Embed, RT-VLM, and VIOS directly. `vss-ui` holds the only
 profile calls the agent, so alerting, analytics, ingest, and summarization are
 unaffected.
 
-### Provisioning moves to the headless path
+### Source provisioning on every deployment
 
-With no agent route, source provisioning follows `vss-manage-video-io-storage`
+On Agent-backed and headless deployments, source provisioning follows
+`vss-manage-video-io-storage`
 [`provision-vios-source.md`](../../operations/vss-manage-video-io-storage/references/provision-vios-source.md):
-register one VIOS source, which its mounted notification config fans out. Its
-own gate — stop when an
-agent route answers — passes on any build with the agent removed, and it is the
-only path that gets a source to RT-CV and RT-Embed. Alert rules stay with `vss-manage-alerts`, which addresses Alert Bridge.
+register one source with `vss vios add`, which the mounted notification config
+fans out to enabled receivers. There is no Agent-presence gate or `/complete`
+prerequisite. Check the receivers for the requested capability before claiming
+indexing readiness. Alert rules stay with `vss-manage-alerts`, which addresses
+Alert Bridge.
 
 ### Ingress is still required
 
@@ -308,7 +310,7 @@ that fires for every build rejects the supported paths that need no key:
 | Provider | Required at Q3 | Not required |
 |---|---|---|
 | (a) public OpenAI-compatible endpoint — the skill default | `NEMOCLAW_ENDPOINT_URL`, `NEMOCLAW_MODEL`, `COMPATIBLE_API_KEY` | `NVIDIA_API_KEY` |
-| (a) self-hosted endpoint, or one on a private address — including the build's own LLM NIM | `NEMOCLAW_ENDPOINT_URL`, `NEMOCLAW_MODEL`, `COMPATIBLE_API_KEY=EMPTY`, `NEMOCLAW_INFERENCE_PROXY=0` | a real bearer token — the server ignores the value |
+| (a) self-hosted endpoint, or one on a private address — including the build's own LLM NIM | `NEMOCLAW_ENDPOINT_URL`, `NEMOCLAW_MODEL`, `NEMOCLAW_INFERENCE_PROXY=0`; use the supplied `COMPATIBLE_API_KEY`, or `EMPTY` only when the endpoint has no authentication | `NVIDIA_API_KEY` |
 | (b) NemoClaw-managed local model | `NEMOCLAW_PROVIDER` (`install-vllm`, `ollama`, `nim-local`, …) | any API key; `HF_TOKEN` only for a gated `install-vllm` model |
 | (c) build.nvidia.com hosted model | `NVIDIA_API_KEY` | `COMPATIBLE_API_KEY`, `NEMOCLAW_ENDPOINT_URL` |
 
@@ -637,8 +639,9 @@ export NEMOCLAW_ENDPOINT_URL="${NEMOCLAW_ENDPOINT_URL:-https://inference-api.nvi
 : "${COMPATIBLE_API_KEY:?bearer token for NEMOCLAW_ENDPOINT_URL is required}"
 export COMPATIBLE_API_KEY
 
-# Against the build's own LLM NIM, replace all four outright — plain
-# assignment, and never an inherited bearer token:
+# Against the build's own unauthenticated LLM NIM, replace the endpoint, model,
+# and key outright. A different endpoint that requires authentication (such
+# as the skill eval's local NIM proxy) must use that endpoint's supplied key:
 #   export NEMOCLAW_ENDPOINT_URL="http://host.openshell.internal:<LLM_PORT>/v1"
 #   export NEMOCLAW_MODEL="<NIM_SERVED_MODEL_NAME from resolved.yml>"
 #   export COMPATIBLE_API_KEY=EMPTY

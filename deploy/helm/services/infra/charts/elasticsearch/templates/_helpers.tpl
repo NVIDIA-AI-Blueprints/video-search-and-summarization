@@ -43,11 +43,21 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "http://%s:%d" $host (int .Values.service.port) }}
 {{- end }}
 
-{{/* Stable names (legacy vss-elasticsearch-init chart); one init Job per namespace. */}}
+{{- define "elasticsearch.releaseScopedName" -}}
+{{- $root := index . "root" }}
+{{- $g := $root.Values.global | default dict }}
+{{- $usePrefix := default false (coalesce $root.Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+{{- if $usePrefix }}
+{{- printf "%s-%s" $root.Release.Name (index . "name") | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- index . "name" }}
+{{- end }}
+{{- end }}
+
 {{- define "elasticsearch.initJobName" -}}
-vss-elasticsearch-init
+{{- include "elasticsearch.releaseScopedName" (dict "root" . "name" "vss-elasticsearch-init") }}
 {{- end }}
 
 {{- define "elasticsearch.initScriptsConfigMapName" -}}
-vss-elasticsearch-init-scripts
+{{- include "elasticsearch.releaseScopedName" (dict "root" . "name" "vss-elasticsearch-init-scripts") }}
 {{- end }}

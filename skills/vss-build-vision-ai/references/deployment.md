@@ -88,6 +88,13 @@ docker compose -f "$BUILD_DIR/resolved.yml" pull --ignore-buildable \
   && docker compose -f "$BUILD_DIR/resolved.yml" up -d --build
 ```
 
+Wait for this command to finish and check its exit status before proceeding.
+If the execution tool returns a running session or background task, continue
+waiting on that same task until it completes; an image pull still in progress
+is not a completed deployment. After successful bring-up, perform the readiness
+checks below before ending the deployment task. On failure, report the failing
+command and diagnostics.
+
 Deploy with **only** `-f "$BUILD_DIR/resolved.yml"` (plus optional
 `-p <project>` and `--build`). Do **not** pass `--env-file` — not even the
 build's own `override.env` — and do **not** pass `--profile`: `resolved.yml` is
@@ -136,8 +143,8 @@ serve no query. A build holding no sources is finished, not half-finished:
 neither path below runs unless the request asks for it, and provisioning a
 source to prove the stack works is not a readiness check.
 
-- **Write path (provisioning), when a source was requested.** Confirm the build is
-  headless (no `vss-agent`), then follow `vss-manage-video-io-storage`
+- **Write path (provisioning), when a source was requested.** For both Agent-backed
+  and headless builds, follow `vss-manage-video-io-storage`
   [`provision-vios-source.md`](../../operations/vss-manage-video-io-storage/references/provision-vios-source.md)
   to register one VIOS source. The build's mounted notification config fans it
   out, asynchronously, so registration ends the write path.

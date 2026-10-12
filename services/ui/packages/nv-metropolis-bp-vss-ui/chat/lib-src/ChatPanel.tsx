@@ -3,6 +3,7 @@
 import { IconMenu2 } from '@tabler/icons-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { fieldsToParams, useParamFields } from './AgentParams';
 import { ChatHeader } from './ChatHeader';
 import { ChatInput } from './ChatInput';
 import { ChatMessageView } from './ChatMessage';
@@ -144,6 +145,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     [featuresProp, showSteps],
   );
 
+  const [paramFields, setParamFields] = useParamFields(customAgentParamsJson);
   const conversations = useConversations(storageKeyPrefix);
   const {
     selected,
@@ -226,6 +228,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     onInteraction: features.hitl ? requestInteraction : undefined,
   });
 
+  // Memoized message views retain this handler; read current controls,
+  // messages, and send options without changing its identity while streaming.
+  const editStateRef = useRef({ messages, paramFields, send });
+  editStateRef.current = { messages, paramFields, send };
+
   // Only the conversation that asked may answer: the prompt is hidden while
   // another one is selected, and re-checked here so a stale render cannot
   // route the reply to the wrong execution.
@@ -287,9 +294,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       if (items.length) setContextItems([]);
       titleIfUntitled(text);
       onSubmit?.(text);
-      void send(text, { params, context: items });
+      void send(text, { params: params ?? fieldsToParams(paramFields), context: items });
     },
-    [contextItems, onSubmit, send, titleIfUntitled],
+    [contextItems, onSubmit, paramFields, send, titleIfUntitled],
   );
 
   // Programmatic submit for the Search / Alerts tabs. Registered once —
@@ -390,18 +397,22 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     if (!lastUser) return;
     // Drop the previous answer (and the user turn we are about to re-add).
     const tail = messages.length - messages.lastIndexOf(lastUser);
-    void send(lastUser.content, { deleteCount: tail });
-  }, [messages, send]);
+    void send(lastUser.content, { deleteCount: tail, params: fieldsToParams(paramFields) });
+  }, [messages, paramFields, send]);
 
   const handleEdit = useCallback(
     (message: { id: string; content: string }) => {
       // Count from the real array: hidden messages sit between the visible
       // ones, so a count derived from the rendered list truncates too little.
-      const at = messages.findIndex((m) => m.id === message.id);
+      const current = editStateRef.current;
+      const at = current.messages.findIndex((m) => m.id === message.id);
       if (at < 0) return;
-      void send(message.content, { deleteCount: messages.length - at });
+      void current.send(message.content, {
+        deleteCount: current.messages.length - at,
+        params: fieldsToParams(current.paramFields),
+      });
     },
-    [messages, send],
+    [],
   );
 
   const handleDelete = useCallback(
@@ -448,7 +459,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             uploadHiddenMessageTemplate={uploadHiddenMessageTemplate}
             getActiveConversationId={() => selectedIdRef.current}
             onSendHiddenMessage={(message, uploadConversationId) =>
-              void send(message, { hidden: true, uploadConversationId })
+              void send(message, { hidden: true, uploadConversationId, params: fieldsToParams(paramFields) })
             }
             onChatVideoUploadComplete={onChatVideoUploadComplete}
             onUploadFlowActiveChange={setUploadFlowActive}
@@ -496,7 +507,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           canRegenerate={visibleMessages.length > 1}
           workflowName={workflowName}
           features={features}
-          customAgentParamsJson={customAgentParamsJson}
+          paramFields={paramFields}
+          onParamFieldsChange={setParamFields}
           contextItems={contextItems}
           onRemoveContext={(id) => setContextItems((prev) => prev.filter((c) => c.id !== id))}
           uploadUrlBase={endpoint.uploadUrlBase}
@@ -504,7 +516,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           uploadHiddenMessageTemplate={uploadHiddenMessageTemplate}
           getActiveConversationId={() => selectedIdRef.current}
           onSendHiddenMessage={(message, uploadConversationId) =>
-            void send(message, { hidden: true, uploadConversationId })
+            void send(message, { hidden: true, uploadConversationId, params: fieldsToParams(paramFields) })
           }
           onChatVideoUploadComplete={onChatVideoUploadComplete}
           onUploadFlowActiveChange={setUploadFlowActive}

@@ -80,3 +80,7 @@ def test_prebake_flag_is_wired_end_to_end():
     """The specific knob this test file was added for, asserted both sides."""
     assert "VSS_VIOS_PREBAKE_PACKAGES" in _workflow_env_keys()
     assert "VSS_VIOS_PREBAKE_PACKAGES" in _forwarded_keys()
+
+
+def test_nim_registry_key_is_not_persisted_in_agent_environment():
+    assert "NGC_API_KEY" not in _forwarded_keys()

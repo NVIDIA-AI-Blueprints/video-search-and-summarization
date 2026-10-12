@@ -18,6 +18,7 @@ import importlib.util
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -527,6 +528,18 @@ class ListChangedFiles(unittest.TestCase):
                                  "skills/operations/vss-manage-alerts/evals/b.json"])
         self.assertEqual(calls, [])  # manual mode never invokes git
 
+    def test_manual_operations_filter_excludes_build_vision_ai(self):
+        from unittest import mock
+
+        with mock.patch.dict(os.environ, {"MANUAL_SKILLS_FILTER": "operations"}), \
+             mock.patch.object(plan_matrix.subprocess, "run") as git:
+            os.environ.pop("CHANGED_FILES", None)
+            files = plan_matrix.list_changed_files()
+        self.assertTrue(files)
+        self.assertTrue(all(path.startswith("skills/operations/") for path in files))
+        self.assertFalse(any(path.startswith("skills/vss-build-vision-ai/") for path in files))
+        git.assert_not_called()
+
     def test_manual_filter_unknown_skill_raises(self):
         """A typo'd / non-existent skill filter fails the plan loudly instead
         of emitting a silent empty matrix the eval job skips."""
@@ -581,6 +594,47 @@ class EmitSlugSafety(unittest.TestCase):
         finally:
             if orig is not None:
                 os.environ["GITHUB_OUTPUT"] = orig
+
+
+class SparkDispatch(unittest.TestCase):
+    def test_unselected_spark_is_excluded_from_push_and_manual_sweeps(self):
+        rows = [{"platform": "L40S"}, {"platform": "DGX-SPARK"},
+                {"platform": "ANY"}, {"platform": "", "kind": "missing_adapter"}]
+        for value in (None, "false"):
+            for daily in (None, "*"):
+                env = {}
+                if value is not None:
+                    env["SKILLS_EVAL_SPARK_RUNNER"] = value
+                if daily is not None:
+                    env["DAILY_RUN"] = daily
+                with self.subTest(selection=value, daily=daily), \
+                     patch.dict(os.environ, env, clear=True), \
+                     patch.object(plan_matrix, "list_changed_files", return_value=[]), \
+                     patch.object(plan_matrix, "list_skill_file_paths", return_value=[]), \
+                     patch.object(plan_matrix, "build_matrix", return_value=rows), \
+                     patch.object(plan_matrix, "emit") as emit:
+                    self.assertEqual(plan_matrix.main(), 0)
+                emit.assert_called_once_with([rows[0], rows[2], rows[3]])
+
+    def test_spark_selection_excludes_other_hardware(self):
+        rows = [{"platform": "L40S"}, {"platform": "DGX-SPARK"},
+                {"platform": "", "kind": "missing_adapter"},
+                {"platform": "", "kind": "missing_platform"}]
+        with patch.dict(os.environ, {"SKILLS_EVAL_SPARK_RUNNER": "true"}, clear=True), \
+             patch.object(plan_matrix, "list_changed_files", return_value=[]), \
+             patch.object(plan_matrix, "build_matrix", return_value=rows), \
+             patch.object(plan_matrix, "emit") as emit:
+            self.assertEqual(plan_matrix.main(), 0)
+        emit.assert_called_once_with(rows[1:])
+
+    def test_spark_selection_rejects_unsupported_specs(self):
+        with patch.dict(os.environ, {"SKILLS_EVAL_SPARK_RUNNER": "true"}, clear=True), \
+             patch.object(plan_matrix, "list_changed_files", return_value=[]), \
+             patch.object(plan_matrix, "build_matrix", return_value=[{"platform": "L40S"}]), \
+             patch.object(plan_matrix, "emit") as emit:
+            with self.assertRaisesRegex(ValueError, "no DGX-SPARK"):
+                plan_matrix.main()
+        emit.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -40,6 +40,13 @@ app.kubernetes.io/name: vss-rtvi-cv
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{/* profileMode alerts StatefulSet; SDRC addresses it by this exact name (dev-profile-alerts sdrc config). */}}
+{{- define "vss-rtvi-cv.statefulSetName" -}}
+{{- $global := .Values.global | default dict }}
+{{- $usePrefix := default false (coalesce .Values.useReleaseNamePrefix (index $global "useReleaseNamePrefix")) }}
+{{- ternary (printf "%s-%s" .Release.Name .Values.statefulSetName | trunc 63 | trimSuffix "-") .Values.statefulSetName $usePrefix }}
+{{- end }}
+
 {{/* Headless Service for StatefulSet pod DNS; must differ from ClusterIP Service (vss-rtvi-cv.fullname). */}}
 {{- define "vss-rtvi-cv.headlessServiceName" -}}
 {{- printf "%s-headless" (include "vss-rtvi-cv.fullname" .) | trunc 63 | trimSuffix "-" }}

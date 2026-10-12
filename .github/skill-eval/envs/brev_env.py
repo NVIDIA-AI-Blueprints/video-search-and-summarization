@@ -23,19 +23,20 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from enum import Enum
+import hashlib
 import json
 import logging
 import os
-from pathlib import Path
+import random
 import shlex
 import signal
 import subprocess
 import tempfile
 import uuid
+from enum import Enum
+from pathlib import Path
 
-from harbor.environments.base import BaseEnvironment
-from harbor.environments.base import ExecResult
+from harbor.environments.base import BaseEnvironment, ExecResult
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,31 @@ DEFAULT_RTSP_SAMPLE_URL = (
 def _resolve_rtsp_sample_url() -> str:
     """Return the operator-provided RTSP sample URL or the public default."""
     return os.environ.get("RTSP_SAMPLE_URL") or DEFAULT_RTSP_SAMPLE_URL
+
+
+def _upload_attestation_command(target: str, marker: str) -> str:
+    # Emit one marked record, even when the file is absent. Brev can mix
+    # transport output with stdout and can obscure a remote shell exit code.
+    script = """import hashlib, json, os, stat, sys
+report = {"state": "invalid"}
+try:
+    fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as handle:
+        metadata = os.fstat(handle.fileno())
+        if stat.S_ISREG(metadata.st_mode):
+            digest = hashlib.sha256()
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+            report = {"state": "present", "bytes": metadata.st_size, "sha256": digest.hexdigest()}
+except FileNotFoundError:
+    report = {"state": "absent"}
+except PermissionError:
+    report = {"state": "permission_denied"}
+except OSError:
+    pass
+print(sys.argv[2] + json.dumps(report))
+"""
+    return f"python3 -c {shlex.quote(script)} {shlex.quote(target)} {shlex.quote(marker)}"
 
 
 class BrevEnvironmentType(str, Enum):
@@ -193,7 +219,8 @@ class BrevEnvironment(BaseEnvironment):
                     f"Brev instance '{self._instance_name}' not found "
                     f"(is it deleted? wrong org?)"
                 )
-            await _check_instance_matches(instance, requirements)
+            if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") != "true":
+                await _check_instance_matches(instance, requirements)
         else:
             raise RuntimeError(
                 "No BREV_INSTANCE set and no `brev_instance` in task.toml "
@@ -226,7 +253,12 @@ class BrevEnvironment(BaseEnvironment):
         # the checks catch silent regressions (e.g. a driver downgrade or
         # a box where the big volume mounts on /ephemeral and / is only
         # ~100 GB — which OOMs on local NIM pulls).
-        await _check_live_resources(self._instance_name, requirements)
+        if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
+            result = await _run_brev_exec(self._instance_name, "uname -m", timeout=30)
+            if result.return_code or (result.stdout or "").strip() not in {"aarch64", "arm64"}:
+                raise RuntimeError("Selected Spark worker must have arm64 architecture")
+        else:
+            await _check_live_resources(self._instance_name, requirements)
 
         preserve_deployment = (
             os.environ.get("SKILL_EVAL_PRESERVE_DEPLOYMENT") == "1"
@@ -339,7 +371,8 @@ class BrevEnvironment(BaseEnvironment):
                 (venv_reset_result.stdout or "").strip().splitlines()[-1:] or ["no output"],
             )
 
-        # Archive session JSONLs and root-level agent outputs left by
+        # Archive the full sessions tree (projects, Codex dates, and skills)
+        # and root-level agent outputs left by
         # prior trials on this warm-pool box. Without this, harbor's claude-code
         # mapper merges every
         # `*.jsonl` file under `/logs/agent/sessions/projects/<project>/`
@@ -430,11 +463,16 @@ class BrevEnvironment(BaseEnvironment):
             # The Build Vision AI provisioning task owns host-side NemoClaw
             # setup. Forward its provider and lifecycle inputs exactly as
             # supplied by CI; the harness invokes the worker's NemoClaw CLI.
+            "SKILLS_EVAL_OPERATIONAL_HARNESS",
             "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_RECREATE_SANDBOX",
             "NEMOCLAW_GATEWAY_PORT",
+            "SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER",
+            "NEMOCLAW_DASHBOARD_RELAY_PORT",
             "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_POLICY_MODE",
             "NEMOCLAW_PROVIDER", "NEMOCLAW_ENDPOINT_URL",
             "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
+            "SKILL_EVAL_LOCAL_NIM_API_KEY",
+            "NEMOCLAW_INFERENCE_PROXY",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
             # and resets $REPO to that SHA. Without them, the adapter's
@@ -522,6 +560,7 @@ class BrevEnvironment(BaseEnvironment):
             # purging first would race the writers and the dirs would be
             # dirty again by the time the trial starts.
             await self._purge_host_data_dirs()
+            await self._claim_nemoclaw_gateway()
         else:
             logger.info(
                 "Skipping docker reset, host purge, and repo sync on %s — %s "
@@ -593,8 +632,62 @@ class BrevEnvironment(BaseEnvironment):
         # env provider. The previous `_ensure_prerequisite_deployed`
         # hook + `/tmp/skill-eval/active-deploy.txt` marker are gone.
 
+        if os.environ.get("SKILL_EVAL_LOCAL_NIM_PLAN"):
+            await self._start_local_nims()
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
+
+    async def _start_local_nims(self) -> None:
+        """Start after Docker reset; reuse the same services across role changes."""
+        plan = json.loads(os.environ["SKILL_EVAL_LOCAL_NIM_PLAN"])
+        # Validate the owner without creating coordinator-side directories.
+        import re
+        if not re.fullmatch(r"[a-f0-9]{24}", plan["owner"]):
+            raise ValueError("Invalid local NIM owner")
+        remote = f"/tmp/skill-eval-nim-{plan['owner']}"
+        await self.upload_file(Path(__file__).resolve().parents[1] / "local_nim.py", remote + ".py")
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory) / "plan.json"
+            local.write_text(json.dumps(plan))
+            local.chmod(0o600)
+            await self.upload_file(local, remote + ".json")
+        # Send NGC_API_KEY on command stdin. A staged worker file could
+        # survive if the coordinator died before the startup shell ran.
+        ngc_key = os.environ.get("NGC_API_KEY")
+        if ngc_key and ("\n" in ngc_key or "\r" in ngc_key):
+            raise ValueError("NGC_API_KEY must be a single line")
+        key_setup = (
+            'IFS= read -r NGC_API_KEY && test -n "$NGC_API_KEY" && '
+            'export NGC_API_KEY && '
+            if ngc_key else ""
+        )
+        result = await _run_brev_exec(
+            self._instance_name,
+            f"{key_setup}chmod 600 {remote}.json && "
+            f"python3 {remote}.py start --plan {remote}.json",
+            timeout=5500,
+            input_data=(ngc_key + "\n").encode() if ngc_key else None,
+        )
+        if result.return_code:
+            raise RuntimeError(f"Local NIM deployment failed: {(result.stderr or result.stdout or '')[-2000:]}")
+
+    async def _claim_nemoclaw_gateway(self) -> None:
+        """Claim only this leg's isolated NemoClaw host namespace."""
+        owner = os.environ.get("SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER")
+        if not owner:
+            return
+        script = (Path(__file__).resolve().parents[1] / "nemoclaw" / "gateway_state.py").read_text()
+        args = [owner, *(os.environ[key] for key in (
+            "NEMOCLAW_GATEWAY_PORT", "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_DASHBOARD_RELAY_PORT",
+        ))]
+        result = await _run_brev_exec(
+            self._instance_name,
+            "python3 -c " + shlex.quote(script) + " " + shlex.join(args),
+            timeout=30,
+        )
+        if result.return_code != 0:
+            # The helper emits only non-secret ownership/port diagnostics.
+            raise RuntimeError("NemoClaw gateway namespace claim failed: " + (result.stderr or result.stdout or "")[-500:])
 
     async def _reset_docker_runtime(self) -> None:
         """Wipe the warm-pool box's docker runtime before the trial.
@@ -825,7 +918,15 @@ fi
 echo "synced $REPO to $(git rev-parse --short HEAD)"
 """
         logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
-        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        probe = await _run_brev_exec_retry(
+            self._instance_name, "printf 'skill-eval-worker-ready\\n'", timeout=45,
+        )
+        if probe.return_code != 0:
+            raise RuntimeError(
+                f"worker connectivity preflight failed on {self._instance_name}: "
+                f"exit {probe.return_code}; tail:\n{(probe.stderr or probe.stdout or '')[-500:]}"
+            )
+        result = await _run_brev_exec_retry(self._instance_name, cmd, timeout=300)
         if result.return_code != 0:
             tail = (result.stderr or result.stdout or "")[-500:]
             raise RuntimeError(
@@ -900,22 +1001,59 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 
     async def upload_file(self, source_path: Path | str, target_path: str) -> None:
         assert self._instance_name
+        source = Path(source_path)
+        def fingerprint():
+            with source.open("rb") as handle:
+                return hashlib.file_digest(handle, "sha256").hexdigest(), os.fstat(handle.fileno()).st_size
         try:
             async with asyncio.timeout(BREV_TRANSFER_ACTIVE_TIMEOUT_SEC):
+                digest, size = await asyncio.to_thread(fingerprint)
                 # Ensure parent directory exists with correct ownership
                 parent = str(Path(target_path).parent)
                 if parent and parent != ".":
-                    await _run_brev_exec(
+                    prepared = await _run_brev_exec_retry(
                         self._instance_name,
                         f"sudo mkdir -p {shlex.quote(parent)} && "
                         f"sudo chown $(whoami):$(id -gn) {shlex.quote(parent)}",
                         timeout=30,
                     )
-                result = await _run_brev_copy(
-                    str(source_path), f"{self._instance_name}:{target_path}",
-                )
-                if result.return_code != 0:
-                    raise RuntimeError(f"Upload failed: {result.stderr}")
+                    if prepared.return_code != 0:
+                        raise RuntimeError("Upload parent-directory preparation failed")
+                marker = f"__UPLOAD_ATTEST_{uuid.uuid4().hex}__"
+                for attempt in range(3):
+                    # One retry loop for copy + attestation, within the shared
+                    # transfer deadline. A successful Brev exit is insufficient.
+                    result = await _run_brev_copy_once(
+                        str(source), f"{self._instance_name}:{target_path}",
+                    )
+                    failure = "Upload transport failed"
+                    retry = _transient_transport_failure(result)
+                    if result.return_code == 0:
+                        result = await _run_brev_exec(
+                            self._instance_name,
+                            _upload_attestation_command(target_path, marker),
+                            timeout=30,
+                        )
+                        if result.return_code == 0:
+                            rows = [line[len(marker):] for line in (result.stdout or "").splitlines() if line.startswith(marker)]
+                            if len(rows) != 1:
+                                raise RuntimeError("Uploaded file attestation response is missing or ambiguous")
+                            report = json.loads(rows[0])
+                            if report.get("state") == "present":
+                                if report.get("bytes") == size and report.get("sha256") == digest:
+                                    return
+                                retry = True
+                                failure = "Uploaded file size/checksum verification failed"
+                            else:
+                                retry = report.get("state") == "absent"
+                                failure = "Uploaded file is absent on worker" if retry else "Uploaded file is inaccessible or invalid on worker"
+                        else:
+                            failure = "Uploaded file verification transport failed"
+                            retry = _transient_transport_failure(result)
+                    if not retry or attempt == 2:
+                        raise RuntimeError(f"{failure} (exit {result.return_code})")
+                    logger.warning("%s; retrying upload %s/2", failure, attempt + 1)
+                    await _transport_backoff(attempt)
         except TimeoutError as exc:
             raise RuntimeError(
                 "Upload file exceeded the "
@@ -1343,6 +1481,32 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                 full_cmd,
                 timeout=timeout_sec or BREV_EXEC_TIMEOUT,
             )
+            fixtures = os.environ.get("SKILL_EVAL_NEMOCLAW_FIXTURES", "[]")
+            if (
+                is_trial_agent and defer_agent_reap and result.return_code == 0
+                and os.environ.get("SKILLS_EVAL_OPERATIONAL_HARNESS") == "nemoclaw"
+            ):
+                # Prove the setup handoff even when no fixtures are declared.
+                # This runs before the verifier, only after coding setup.
+                sandbox = os.environ["NEMOCLAW_SANDBOX_NAME"]
+                staged = await _run_brev_exec(
+                    self._instance_name,
+                    f"export {REMOTE_AGENT_RUN_ENV}={shlex.quote(agent_run_marker)}; "
+                    'export PATH="$HOME/.local/bin:$PATH"; source ~/.profile 2>/dev/null; '
+                    'python3 "$HOME/video-search-and-summarization/.github/skill-eval/nemoclaw/headless_runner.py" '
+                    '--setup-check && '
+                    'python3 "$HOME/video-search-and-summarization/.github/skill-eval/nemoclaw/stage_fixtures.py" '
+                    f"--sandbox {shlex.quote(sandbox)} --files-json {shlex.quote(fixtures)}",
+                    # Bound phase/exec/auth/inference checks and media staging
+                    # together, with transport headroom beyond each helper.
+                    timeout=900 + 300 * len(json.loads(fixtures)),
+                )
+                if staged.return_code != 0:
+                    result = ExecResult(
+                        return_code=staged.return_code,
+                        stdout=result.stdout,
+                        stderr="NemoClaw setup handoff failed: " + (staged.stderr or staged.stdout or "")[-2000:],
+                    )
             if agent_run_marker is not None and (
                 result.return_code != 0 or not defer_agent_reap
             ):
@@ -1503,7 +1667,7 @@ async def reap_remote_agent_run(instance: str, agent_run_marker: str) -> None:
 def _prior_agent_output_archive_command() -> str:
     """Archive every prior output that Harbor could mistake for this trial.
 
-    Session projects are consumed by Claude's trajectory mapper. Root-level
+    Session directories are consumed by Claude's and Codex's trajectory mappers. Root-level
     outputs are uploaded back by Harbor after a completed trial and are also
     recognized by our fallback/judge paths. Leaving either class in place can
     make a pre-agent failure inherit the previous trial's evidence. Move both
@@ -1521,34 +1685,28 @@ def _prior_agent_output_archive_command() -> str:
     """
     return (
         "ts=$(date +%Y%m%d-%H%M%S)-$$; "
-        "PROJ=/logs/agent/sessions/projects; "
-        "SKILLS=/logs/agent/sessions/skills; "
+        "PROJ=/logs/agent/sessions; "
         "ROOT=/logs/agent; "
-        "OUTPUTS='claude-code.txt trajectory.json trajectory.jsonl agent.log'; "
+        "OUTPUTS='claude-code.txt codex.txt openclaw.txt openclaw.session.jsonl "
+        "trajectory.json trajectory.jsonl agent.log'; "
         "HAS_SESSIONS=0; "
-        "HAS_SKILLS=0; "
         "HAS_OUTPUT=0; "
         'if [ -d "$PROJ" ] && [ -n "$(ls -A "$PROJ" 2>/dev/null)" ]; then '
         "  HAS_SESSIONS=1; "
         "fi; "
-        'if [ -d "$SKILLS" ] && [ -n "$(ls -A "$SKILLS" 2>/dev/null)" ]; then '
-        "  HAS_SKILLS=1; "
-        "fi; "
         'for name in $OUTPUTS; do [ -e "$ROOT/$name" ] && HAS_OUTPUT=1; done; '
-        'if [ "$HAS_SESSIONS" -eq 1 ] || [ "$HAS_SKILLS" -eq 1 ] || [ "$HAS_OUTPUT" -eq 1 ]; then '
+        'if [ "$HAS_SESSIONS" -eq 1 ] || [ "$HAS_OUTPUT" -eq 1 ]; then '
         '  ARCHIVE="$HOME/.claude-archive/$ts"; '
         '  mkdir -p "$ARCHIVE" || exit 1; '
         "fi; "
         'if [ "$HAS_SESSIONS" -eq 1 ]; then '
         '  mkdir -p "$ARCHIVE/sessions" || exit 1; '
-        '  mv "$PROJ"/* "$ARCHIVE/sessions/" || exit 1; '
+        # Enumerate immediate entries, including dotfiles and dangling symlinks.
+        # Unlike the shell glob, find includes everything ls -A detected
+        # and tolerates a directory emptied between detection and movement.
+        '  find "$PROJ" -mindepth 1 -maxdepth 1 '
+        '    -exec mv -t "$ARCHIVE/sessions/" -- {} + || exit 1; '
         '  echo "[trajectory-isolation] archived prior sessions to $ARCHIVE/sessions"; '
-        "fi; "
-        'if [ "$HAS_SKILLS" -eq 1 ]; then '
-        '  mkdir -p "$ARCHIVE/skills" || exit 1; '
-        '  find "$SKILLS" -mindepth 1 -maxdepth 1 '
-        '    -exec mv -t "$ARCHIVE/skills/" {} + || exit 1; '
-        '  echo "[trajectory-isolation] archived prior session skills to $ARCHIVE/skills"; '
         "fi; "
         'if [ "$HAS_OUTPUT" -eq 1 ]; then '
         '  mkdir -p "$ARCHIVE/root-output" || exit 1; '
@@ -1853,6 +2011,7 @@ async def _run_ssh_exec(
     alias: str,
     command: str,
     timeout: int = BREV_EXEC_TIMEOUT,
+    input_data: bytes | None = None,
 ) -> ExecResult:
     """Run `ssh <alias> <command>` — for registered nodes."""
     cmd = [
@@ -1875,7 +2034,7 @@ async def _run_ssh_exec(
     try:
         stdout, stderr = await _communicate_with_cancellation_cleanup(
             proc,
-            input_data=b"",
+            input_data=input_data if input_data is not None else b"",
             timeout=timeout,
         )
     except asyncio.TimeoutError:
@@ -1942,6 +2101,7 @@ async def _run_brev_exec(
     instance: str,
     command: str,
     timeout: int = BREV_EXEC_TIMEOUT,
+    input_data: bytes | None = None,
 ) -> ExecResult:
     """Run ``brev exec <instance> <command>`` and return result.
 
@@ -1949,15 +2109,17 @@ async def _run_brev_exec(
     falls back to direct ``ssh <alias>`` since brev exec can't reach them.
 
     Uses ``bash -c`` wrapping via a shell so that ``brev exec`` receives
-    a single command string.  Stdin is piped with empty input so the
-    brev CLI doesn't enter interactive mode.
+    a single command string. Stdin is piped explicitly so the brev CLI
+    doesn't enter interactive mode.
     """
     if await _is_registered_node(instance):
         # ssh command-execs run NON-LOGIN shells: ~/.profile (and thus the
         # forwarded ~/.eval_env) is never sourced, silently dropping
         # PR_HEAD_SHA/NGC keys/etc from every exec. Source it inline.
         command = f". ~/.eval_env 2>/dev/null || true; {command}"
-        return await _run_ssh_exec(_ssh_alias_for(instance), command, timeout)
+        return await _run_ssh_exec(
+            _ssh_alias_for(instance), command, timeout, input_data=input_data,
+        )
     # brev exec also spawns a NON-LOGIN shell — ~/.profile is never sourced,
     # so the forwarded env vars in ~/.eval_env (PR_HEAD_SHA, NGC keys, etc.)
     # are invisible to every command. Source it inline, same as SSH nodes.
@@ -1978,7 +2140,7 @@ async def _run_brev_exec(
     try:
         stdout, stderr = await _communicate_with_cancellation_cleanup(
             proc,
-            input_data=b"\n",
+            input_data=input_data if input_data is not None else b"\n",
             timeout=timeout,
         )
     except asyncio.TimeoutError:
@@ -1986,7 +2148,7 @@ async def _run_brev_exec(
         stdout, stderr = await proc.communicate()
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
-            stderr="Command timed out",
+            stderr=(stderr.decode() if stderr else "")[-2000:] + "\nCommand timed out",
             return_code=124,
         )
 
@@ -1995,6 +2157,37 @@ async def _run_brev_exec(
         stderr=stderr.decode() if stderr else None,
         return_code=proc.returncode or 0,
     )
+
+
+def _transient_transport_failure(result: ExecResult) -> bool:
+    """Retry only transport failures, never authentication or command errors."""
+    detail = ((result.stderr or "") + "\n" + (result.stdout or "")).lower()
+    if any(term in detail for term in (
+        "permission denied", "authentication failed", "invalid token", "unauthorized",
+    )):
+        return False
+    return result.return_code == 124 or any(term in detail for term in (
+        "deadline_exceeded", "context deadline exceeded", "rate limit", "too many requests",
+        "connection reset", "connection refused", "connection timed out",
+        "connection closed", "connection lost", "broken pipe",
+        "connection failed", "connection corrupted", "bad packet length",
+        "no route to host", "temporary failure in name resolution",
+    ))
+
+
+async def _transport_backoff(attempt: int) -> None:
+    await asyncio.sleep(10 * 2 ** attempt + random.uniform(0, 5))
+
+
+async def _run_brev_exec_retry(instance: str, command: str, timeout: int) -> ExecResult:
+    """For explicitly idempotent preparation only; arbitrary exec is never retried."""
+    for attempt in range(3):
+        result = await _run_brev_exec(instance, command, timeout=timeout)
+        if result.return_code == 0 or not _transient_transport_failure(result) or attempt == 2:
+            return result
+        logger.warning("Worker preparation transport failed on %s; retry %s/2", instance, attempt + 1)
+        await _transport_backoff(attempt)
+    raise AssertionError("unreachable")
 
 
 async def _run_brev_copy(
@@ -2010,11 +2203,11 @@ async def _run_brev_copy(
     result = None
     for attempt in range(3):
         result = await _run_brev_copy_once(src, dst, timeout)
-        if result.return_code == 0:
+        if result.return_code == 0 or not _transient_transport_failure(result) or attempt == 2:
             return result
         logger.warning("brev copy failed (attempt %s): %s",
                        attempt + 1, (result.stderr or "")[-200:])
-        await asyncio.sleep(10)
+        await _transport_backoff(attempt)
     return result
 
 

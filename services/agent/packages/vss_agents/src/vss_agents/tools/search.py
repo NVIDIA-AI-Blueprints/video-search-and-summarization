@@ -553,6 +553,138 @@ def _apply_rrf_fusion_with_attribute_rank(
     return [result for _, result in reranked_results]
 
 
+def _attribute_embed_client(attribute_search_fn: Any) -> Any:
+    """The RTVI-CV embedder the attribute_search tool was built with, or None.
+
+    Same model/instance the attribute leg embeds with, so fusion's precompute uses
+    identical vectors (NVBug 6781021). The NAT builder wraps the registered closure
+    in a LambdaFunction whose ``_info.single_fn`` is the original closure we
+    attached ``embed_client`` to in build_attribute_search.
+    """
+    info = getattr(attribute_search_fn, "_info", None)
+    single = getattr(info, "single_fn", None) if info is not None else None
+    return getattr(single, "embed_client", None) if single is not None else None
+
+
+async def _precompute_attribute_embeddings(embed_client: Any, attributes: list[str]) -> list[list[float]] | None:
+    """Embed once, draining all sibling tasks before returning or propagating cancellation."""
+    tasks: list[asyncio.Task[list[float]]] = [
+        asyncio.create_task(embed_client.get_text_embedding(attribute)) for attribute in attributes
+    ]
+    try:
+        with TimeMeasure("fusion: generate attribute embeddings (once)"):
+            return await asyncio.gather(*tasks)
+    except Exception as e:
+        # Precomputation is an optimization; retain the per-candidate error handling.
+        logger.warning("Attribute embedding precomputation failed; using per-candidate search: %s", e)
+        return None
+    finally:
+        # gather propagates the first exception without cancelling its siblings.
+        # Finish their cleanup before fallback reuses the same embedding client.
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def _fusion_sensor_id(embed_result: "SearchResult", vst_internal_url: str | None) -> str:
+    """Resolve the VST sensor name used by attribute search, retaining the existing fallback."""
+    if embed_result.sensor_id and vst_internal_url:
+        try:
+            from vss_agents.tools.vst.utils import get_sensor_id_from_stream_id
+
+            sensor_id = await get_sensor_id_from_stream_id(embed_result.sensor_id, vst_internal_url)
+            if sensor_id:
+                if sensor_id != embed_result.sensor_id:
+                    logger.info(f"Converted stream_id '{embed_result.sensor_id}' to sensor_id '{sensor_id}'")
+                return sensor_id
+        except Exception as e:
+            logger.warning(f"VST conversion failed: {e}. Using fallback")
+    return embed_result.video_name or embed_result.sensor_id or ""
+
+
+async def _fusion_attribute_results(
+    embed_result: "SearchResult",
+    attributes: list[str],
+    attribute_search_fn: Any,
+    vst_internal_url: str | None,
+    source_type: str,
+    attribute_embeddings: list[list[float]] | None,
+) -> tuple["SearchResult", Any]:
+    """Look up attributes for one candidate, isolating failures to that candidate."""
+    try:
+        start_dt = iso8601_to_datetime(embed_result.start_time)
+        end_dt = iso8601_to_datetime(embed_result.end_time)
+        if end_dt <= start_dt:
+            original_start = start_dt
+            start_dt = original_start - timedelta(seconds=2.5)
+            end_dt = original_start + timedelta(seconds=2.5)
+            logger.info(
+                f"Extended 0-duration clip to ±2.5 seconds: {embed_result.start_time} -> "
+                f"[{datetime_to_iso8601(start_dt)}, {datetime_to_iso8601(end_dt)}]"
+            )
+        filter_sensor_id = await _fusion_sensor_id(embed_result, vst_internal_url)
+        attr_params: dict[str, Any] = {
+            "query": attributes,
+            "source_type": source_type,
+            "video_sources": [filter_sensor_id] if filter_sensor_id else None,
+            "timestamp_start": start_dt,
+            "timestamp_end": end_dt,
+            "top_k": 1,
+            "min_similarity": 0.4,
+            "fuse_multi_attribute": True,
+        }
+        if attribute_embeddings is not None:
+            attr_params["query_embedding"] = attribute_embeddings
+        try:
+            attribute_results = await attribute_search_fn.ainvoke(attr_params)
+        except Exception:
+            logger.exception(f"Attribute search failed for {embed_result.video_name}")
+            attribute_results = None
+        return embed_result, attribute_results
+    except Exception:
+        logger.exception(f"Failed to process embed result {embed_result.video_name}")
+        return embed_result, None
+
+
+def _fusion_video_data(embed_result: "SearchResult", attribute_results: Any, attribute_count: int) -> dict[str, Any]:
+    """Validate matches and collect the scores and overlay metadata for fusion."""
+    from vss_agents.tools.attribute_search import AttributeSearchResult
+
+    validated_results = []
+    if attribute_results and isinstance(attribute_results, list):
+        validated_results = [
+            item if isinstance(item, AttributeSearchResult) else AttributeSearchResult.model_validate(item)
+            for item in attribute_results
+        ]
+    attribute_scores = []
+    object_ids = []
+    # Fuse mode can return fewer matches than attributes; count every returned match.
+    for result in validated_results:
+        frame_score = result.metadata.frame_score
+        behavior_score = result.metadata.behavior_score
+        score = float(frame_score) if (frame_score is not None and frame_score > 0.0) else float(behavior_score)
+        attribute_scores.append(score)
+        object_id = result.metadata.object_id
+        if object_id and str(object_id) not in object_ids:
+            object_ids.append(str(object_id))
+    # Divide by attributes searched, penalizing videos with missing matches.
+    attribute_score = sum(attribute_scores) / attribute_count if attribute_count > 0 else 0.0
+    screenshot_url = validated_results[0].screenshot_url if validated_results else None
+    logger.debug(
+        f"Collecting scores: {embed_result.video_name} ({embed_result.start_time} to {embed_result.end_time}), "
+        f"embed={embed_result.similarity:.3f}, normalised_attribute_score={attribute_score:.3f} "
+        f"({len(attribute_scores)}/{attribute_count} matched)"
+    )
+    return {
+        "embed_result": embed_result,
+        "embed_score": embed_result.similarity,
+        "normalised_attribute_score": attribute_score,
+        "screenshot_url": screenshot_url or embed_result.screenshot_url,
+        "object_ids": object_ids,
+    }
+
+
 async def fusion_search_rerank(
     embed_results: list["SearchResult"],
     attributes: list[str],
@@ -564,9 +696,22 @@ async def fusion_search_rerank(
     rrf_w: float = 0.5,
     w_attribute: float = 0.55,
     w_embed: float = 0.35,
+    attribute_embed_client: Any = None,
 ) -> list["SearchResult"]:
     """
     Rerank embed_search results using either Weighted Linear Fusion or Reciprocal Rank Fusion (RRF).
+
+    ``attribute_embed_client`` precomputes each attribute's vector ONCE and threads it
+    through the per-video fan-out so the same attribute is not re-embedded for every
+    candidate (NVBug 6781021). It must be the same embedder ``attribute_search_fn`` uses
+    (the RTVI-CV ``RTVICVEmbedClient`` the ``mdx-behavior-*`` vectors were built with);
+    passing a different model yields an ES dims error or silently wrong similarity.
+    When ``None``, the per-hit attribute adapter re-embeds on each call (legacy behavior).
+
+    This bounds embedder method calls per request independently of cache capacity.
+    The RTVI-CV client's existing LRU cache also coalesces concurrent HTTP requests
+    for repeated text, so fewer method calls do not imply fewer HTTP requests or
+    establish a latency improvement without measuring the workload and cache state.
 
     For each video:
     1. Run attribute_search for each attribute
@@ -577,135 +722,27 @@ async def fusion_search_rerank(
 
     returns reranked list of SearchResult with fused scores
     """
+    # Drop blank/whitespace-only attributes once and strip survivors so the precomputed
+    # vectors stay aligned with the blank-stripping downstream (NVBug 6781021, Greptile).
+    attributes = [a.strip() for a in attributes if a and a.strip()]
 
     logger.info(
         f"{fusion_method.upper()} fusion reranking {len(embed_results)} videos using {len(attributes)} attributes"
     )
 
-    # Prepare attribute search tasks for all embed results (run in parallel)
-    async def _get_attribute_results(embed_result: "SearchResult") -> tuple["SearchResult", Any]:
-        """Prepare and call attribute search for one embed result."""
-        try:
-            # Convert ISO timestamp strings to datetime objects
-            start_dt = iso8601_to_datetime(embed_result.start_time)
-            end_dt = iso8601_to_datetime(embed_result.end_time)
+    attribute_embeddings = None
+    if attribute_embed_client is not None and attributes and embed_results:
+        attribute_embeddings = await _precompute_attribute_embeddings(attribute_embed_client, attributes)
 
-            # If start and end times are the same or end is before/at start (single timestamp or 0-duration clip),
-            # expand to ±2.5 seconds for attribute search
-            if end_dt <= start_dt:
-                original_start = start_dt
-                start_dt = original_start - timedelta(seconds=2.5)
-                end_dt = original_start + timedelta(seconds=2.5)
-                logger.info(
-                    f"Extended 0-duration clip to ±2.5 seconds: {embed_result.start_time} -> [{datetime_to_iso8601(start_dt)}, {datetime_to_iso8601(end_dt)}]"
-                )
-
-            # Convert stream_id (from embed_result.sensor_id) to sensor_id (sensor name) for attribute_search
-            # attribute_search filters by sensor.id.keyword which expects camera names like "warehouse_sample_test"
-            filter_sensor_id = ""
-
-            # Try VST conversion if sensor_id exists
-            if embed_result.sensor_id and vst_internal_url:
-                try:
-                    from vss_agents.tools.vst.utils import get_sensor_id_from_stream_id
-
-                    filter_sensor_id = await get_sensor_id_from_stream_id(embed_result.sensor_id, vst_internal_url)
-                    if filter_sensor_id != embed_result.sensor_id:
-                        logger.info(f"Converted stream_id '{embed_result.sensor_id}' to sensor_id '{filter_sensor_id}'")
-                except Exception as e:
-                    logger.warning(f"VST conversion failed: {e}. Using fallback")
-
-            # Fallback chain: video_name -> sensor_id -> ""
-            if not filter_sensor_id:
-                filter_sensor_id = embed_result.video_name or embed_result.sensor_id or ""
-
-            # Call attribute_search once with all attributes (will generate one video with all overlays)
-            # Use fuse_multi_attribute=True for fusion path (combines object IDs)
-            # Convert sensor_id to video_sources format (supports wildcard matching)
-            attr_params = {
-                "query": attributes,
-                "source_type": source_type,
-                "video_sources": [filter_sensor_id] if filter_sensor_id else None,
-                "timestamp_start": start_dt,
-                "timestamp_end": end_dt,
-                "top_k": 1,
-                "min_similarity": 0.4,
-                "fuse_multi_attribute": True,
-            }
-
-            try:
-                attribute_results = await attribute_search_fn.ainvoke(attr_params)
-            except Exception as e:
-                logger.error(f"Attribute search failed for {embed_result.video_name}: {e}")
-                attribute_results = None
-
-            return embed_result, attribute_results
-        except Exception as e:
-            logger.error(f"Failed to process embed result {embed_result.video_name}: {e}")
-            return embed_result, None
-
-    # Run all attribute searches in parallel
-    results_list = await asyncio.gather(*[_get_attribute_results(er) for er in embed_results])
-
-    # First pass: collect all scores
-    video_data: list[dict[str, Any]] = []
-
-    for embed_result, attribute_results in results_list:
-        embed_score = embed_result.similarity
-
-        # Collect similarity scores, screenshot URL, and object IDs from attribute search results
-        attribute_scores = []
-        attribute_screenshot_url = None
-        object_ids = []
-
-        # Process and validate the attribute search result
-        if attribute_results and isinstance(attribute_results, list):
-            from vss_agents.tools.attribute_search import AttributeSearchResult
-
-            validated_results = [
-                item if isinstance(item, AttributeSearchResult) else AttributeSearchResult.model_validate(item)
-                for item in attribute_results
-            ]
-        else:
-            validated_results = []
-
-        # Iterate over all returned results (fuse mode may return fewer results than attributes
-        # when some attributes have no matches, so we must NOT zip with attributes).
-        if validated_results:
-            for result in validated_results:
-                # Prioritize frame_score, fall back to behavior_score
-                frame_score = result.metadata.frame_score
-                behavior_score = result.metadata.behavior_score
-                score = float(frame_score) if (frame_score is not None and frame_score > 0.0) else float(behavior_score)
-                attribute_scores.append(score)
-
-                # Extract object_id from metadata
-                object_id = result.metadata.object_id
-                if object_id and str(object_id) not in object_ids:
-                    object_ids.append(str(object_id))
-
-            # Extract screenshot URL from first result (all results have the same URL)
-            attribute_screenshot_url = validated_results[0].screenshot_url or ""
-
-        # Compute normalized attribute score (normalised_attribute_score)
-        # Divide by number of attributes searched (not matched) to penalize videos that don't match all attributes
-        normalised_attribute_score = sum(attribute_scores) / len(attributes) if len(attributes) > 0 else 0.0
-
-        video_data.append(
-            {
-                "embed_result": embed_result,
-                "embed_score": embed_score,
-                "normalised_attribute_score": normalised_attribute_score,
-                "screenshot_url": attribute_screenshot_url if attribute_screenshot_url else embed_result.screenshot_url,
-                "object_ids": object_ids,
-            }
+    results_list = await asyncio.gather(
+        *(
+            _fusion_attribute_results(
+                result, attributes, attribute_search_fn, vst_internal_url, source_type, attribute_embeddings
+            )
+            for result in embed_results
         )
-
-        logger.debug(
-            f"Collecting scores: {embed_result.video_name} ({embed_result.start_time} to {embed_result.end_time}), "
-            f"embed={embed_score:.3f}, normalised_attribute_score={normalised_attribute_score:.3f} "
-            f"({len(attribute_scores)}/{len(attributes)} matched)"
-        )
+    )
+    video_data = [_fusion_video_data(result, matches, len(attributes)) for result, matches in results_list]
 
     # Second pass: Apply fusion method
     if fusion_method == "weighted_linear":
@@ -1284,6 +1321,7 @@ async def execute_core_search(
                                 rrf_w=config.rrf_w,
                                 w_attribute=config.w_attribute,
                                 w_embed=config.w_embed,
+                                attribute_embed_client=_attribute_embed_client(attribute_search_fn),
                             )
 
                         # Use reranked results for critic verification if enabled

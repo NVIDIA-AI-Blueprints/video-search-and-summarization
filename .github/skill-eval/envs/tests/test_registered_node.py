@@ -14,7 +14,10 @@ Or directly:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
+import subprocess
 import sys
 import tempfile
 import types
@@ -44,6 +47,35 @@ ENVS_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENVS_DIR))
 
 import brev_env  # noqa: E402
+
+
+class LocalNimCredentialDelivery(unittest.IsolatedAsyncioTestCase):
+    async def test_ngc_key_is_sent_on_stdin_without_worker_key_file(self):
+        env = brev_env.BrevEnvironment()
+        env._instance_name = "SPARK"
+        owner = "a" * 24
+        plan = {"owner": owner, "token": "leg-token", "routes": []}
+        uploads = []
+        calls = []
+
+        async def upload(source, target):
+            uploads.append(target)
+
+        async def execute(instance, command, timeout=0, input_data=None):
+            calls.append((command, input_data))
+            return brev_env.ExecResult(return_code=0)
+
+        with mock.patch.dict(os.environ, {
+            "SKILL_EVAL_LOCAL_NIM_PLAN": json.dumps(plan),
+            "NGC_API_KEY": "private-registry-key",
+        }), mock.patch.object(env, "upload_file", side_effect=upload), \
+             mock.patch.object(brev_env, "_run_brev_exec", side_effect=execute):
+            await env._start_local_nims()
+
+        self.assertEqual(len(uploads), 2)
+        self.assertFalse(any(path.endswith(".key") for path in uploads))
+        self.assertEqual(calls[0][1], b"private-registry-key\n")
+        self.assertNotIn("private-registry-key", calls[0][0])
 
 
 class RtspSampleUrlResolution(unittest.TestCase):
@@ -269,5 +301,205 @@ class ClaudeTaskScratchCleanup(unittest.TestCase):
         self.assertNotIn("rm -rf {} + 2>/dev/null", cmd)
 
 
+class PreparationRetries(unittest.IsolatedAsyncioTestCase):
+    async def test_repo_sync_recovers_after_transport_timeout(self):
+        env = object.__new__(brev_env.BrevEnvironment)
+        env._instance_name = "vss-eval-l40s"
+        failure = brev_env.ExecResult(stderr="Command timed out", return_code=124)
+        success = brev_env.ExecResult(stdout="synced repo", return_code=0)
+        with mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(side_effect=[success, failure, success])) as execute, \
+             mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()) as pause:
+            await env._sync_repo_to_pr_head()
+        self.assertEqual(execute.await_count, 3)
+        self.assertEqual(execute.await_args_list[1], execute.await_args_list[2])
+        pause.assert_awaited_once_with(0)
+
+    async def test_failed_preflight_stops_before_repo_sync(self):
+        env = object.__new__(brev_env.BrevEnvironment)
+        env._instance_name = "vss-eval-l40s"
+        failure = brev_env.ExecResult(stderr="Connection timed out", return_code=124)
+        with mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(return_value=failure)) as execute, \
+             mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()):
+            with self.assertRaisesRegex(RuntimeError, "connectivity preflight failed"):
+                await env._sync_repo_to_pr_head()
+        self.assertEqual(execute.await_count, 3)
+        self.assertTrue(all("git" not in call.args[1] for call in execute.await_args_list))
+
+    async def test_transport_failure_is_bounded(self):
+        failure = brev_env.ExecResult(stderr="context deadline exceeded", return_code=1)
+        with mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(return_value=failure)) as execute, \
+             mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()) as pause:
+            result = await brev_env._run_brev_exec_retry("worker", "git fetch", timeout=300)
+        self.assertIs(result, failure)
+        self.assertEqual(execute.await_count, 3)
+        self.assertEqual(pause.await_count, 2)
+
+    async def test_authentication_and_command_errors_are_not_retried(self):
+        for message in ("Permission denied", "authentication failed", "fatal: bad revision"):
+            failure = brev_env.ExecResult(stderr=message, return_code=1)
+            with mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(return_value=failure)) as execute, \
+                 mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()) as pause:
+                self.assertIs(await brev_env._run_brev_exec_retry("worker", "git fetch", 300), failure)
+                execute.assert_awaited_once()
+                pause.assert_not_awaited()
+
+    async def test_transfer_recovers_from_transient_failures(self):
+        for message in ("Too many requests", "Connection closed by remote host", "client_loop: send disconnect: Broken pipe"):
+            with self.subTest(message=message):
+                failure = brev_env.ExecResult(stderr=message, return_code=1)
+                success = brev_env.ExecResult(return_code=0)
+                with mock.patch.object(brev_env, "_run_brev_copy_once", new=mock.AsyncMock(side_effect=[failure, success])) as transfer, \
+                     mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()) as pause:
+                    self.assertIs(await brev_env._run_brev_copy("src", "worker:dst"), success)
+                self.assertEqual(transfer.await_count, 2)
+                pause.assert_awaited_once_with(0)
+
+    async def test_cancellation_does_not_trigger_retry(self):
+        with mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(side_effect=asyncio.CancelledError)), \
+             mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()) as pause:
+            with self.assertRaises(asyncio.CancelledError):
+                await brev_env._run_brev_exec_retry("worker", "git fetch", 300)
+            pause.assert_not_awaited()
+
+    async def test_upload_attests_destination_and_retries_only_recoverable_failures(self):
+        scenarios = (
+            ("missing_then_present", 0, 0, 2),
+            ("checksum_then_present", 0, 0, 2),
+            ("truncated_then_present", 0, 0, 2),
+            ("always_missing", 0, 0, 3),
+            ("permission_denied", 1, 1, 1),
+            ("wrong_checksum", 0, 0, 3),
+            ("parent_failed", 1, 1, 0),
+        )
+        for name, first_rc, next_rc, copies in scenarios:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                source = Path(directory) / "plan.json"
+                source.write_bytes(b'{"owner":"test"}')
+                digest = hashlib.sha256(source.read_bytes()).hexdigest()
+                prepared = brev_env.ExecResult(return_code=1 if name == "parent_failed" else 0)
+                probes = []
+                async def attestation(instance, command, **kwargs):
+                    probes.append(command)
+                    marker = command.rsplit(" ", 1)[-1]
+                    absent = name == "always_missing" or (name == "missing_then_present" and len(probes) == 1)
+                    corrupt = name == "wrong_checksum" or (name == "checksum_then_present" and len(probes) == 1)
+                    truncated = name == "truncated_then_present" and len(probes) == 1
+                    report = {"state": "absent"} if absent else {
+                        "state": "present", "bytes": 0 if truncated else source.stat().st_size,
+                        "sha256": "0" * 64 if corrupt else digest,
+                    }
+                    # Exercise a zero Brev exit for a missing remote file,
+                    # mixed with transport text and harmless output.
+                    return brev_env.ExecResult(
+                        return_code=first_rc if len(probes) == 1 else next_rc,
+                        stdout="Brev transport output\n" + marker + json.dumps(report) + "\nconnection closed\n",
+                        stderr="Permission denied" if name == "permission_denied" else "",
+                    )
+                env = brev_env.BrevEnvironment()
+                env._instance_name = "worker"
+                with mock.patch.object(brev_env, "_run_brev_exec_retry", new=mock.AsyncMock(return_value=prepared)), \
+                     mock.patch.object(brev_env, "_run_brev_copy_once", new=mock.AsyncMock(return_value=brev_env.ExecResult(return_code=0))) as transfer, \
+                     mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(side_effect=attestation)) as attest, \
+                     mock.patch.object(brev_env, "_transport_backoff", new=mock.AsyncMock()):
+                    if name in ("missing_then_present", "checksum_then_present", "truncated_then_present"):
+                        await env.upload_file(source, "/tmp/plan.json")
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            await env.upload_file(source, "/tmp/plan.json")
+                self.assertEqual(transfer.await_count, copies)
+                self.assertEqual(attest.await_count, copies)
+
+    def test_attestation_runs_for_regular_absent_and_symlink_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "plan with spaces.json"
+            source.write_bytes(b'job-owned plan')
+            link = source.with_name("symlink.json")
+            link.symlink_to(source)
+            marker = "__UPLOAD_ATTEST_test__"
+            for path, state in ((source, "present"), (source.with_name("absent.json"), "absent"), (link, "invalid")):
+                result = subprocess.run(
+                    ["bash", "-c", brev_env._upload_attestation_command(str(path), marker)],
+                    check=True, capture_output=True, text=True,
+                )
+                report = json.loads(result.stdout.removeprefix(marker))
+                self.assertEqual(report["state"], state)
+                if state == "present":
+                    self.assertEqual(report["bytes"], source.stat().st_size)
+                    self.assertEqual(report["sha256"], hashlib.sha256(source.read_bytes()).hexdigest())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class LocalNimStartupOrder(unittest.IsolatedAsyncioTestCase):
+    async def test_spark_starts_nim_after_reset_without_capacity_checks(self):
+        events = []
+
+        async def record_reset():
+            events.append("reset")
+
+        async def record_nim():
+            events.append("nim")
+
+        async def execute(instance, command, **kwargs):
+            return brev_env.ExecResult(
+                stdout="aarch64" if command == "uname -m" else "harbor-ready",
+                return_code=0,
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            env = brev_env.BrevEnvironment()
+            env.environment_dir = Path(directory) / "step-1" / "environment"
+            env.environment_dir.mkdir(parents=True)
+            with (
+                mock.patch.dict(os.environ, {
+                    "SKILLS_EVAL_SPARK_RUNNER": "true",
+                    "SKILL_EVAL_LOCAL_NIM_PLAN": "{}",
+                    "SKILL_EVAL_PRESERVE_DEPLOYMENT": "0",
+                }),
+                mock.patch.object(env, "_read_task_metadata", return_value={}),
+                mock.patch.object(env, "_resolve_instance_name", return_value="Spark-ba-WiFi"),
+                mock.patch.object(brev_env, "_find_brev_instance", new=mock.AsyncMock(return_value={"_registered": True})),
+                mock.patch.object(brev_env, "_check_instance_matches", new=mock.AsyncMock()) as matches,
+                mock.patch.object(brev_env, "_check_live_resources", new=mock.AsyncMock()) as resources,
+                mock.patch.object(brev_env, "_run_brev_exec", side_effect=execute),
+                mock.patch.object(env, "_reset_docker_runtime", side_effect=record_reset),
+                mock.patch.object(env, "_purge_host_data_dirs", new=mock.AsyncMock()),
+                mock.patch.object(env, "_probe_bind_mount", new=mock.AsyncMock()),
+                mock.patch.object(env, "_sync_repo_to_pr_head", new=mock.AsyncMock()),
+                mock.patch.object(env, "_start_local_nims", side_effect=record_nim),
+            ):
+                await env.start(False)
+                matches.assert_not_called()
+                resources.assert_not_called()
+                self.assertEqual(events, ["reset", "nim"])
+                self.assertTrue(env._started)
+
+
+class NemoClawNamespaceClaim(unittest.IsolatedAsyncioTestCase):
+    async def test_namespace_conflict_stops_before_agent(self):
+        env = brev_env.BrevEnvironment()
+        env._instance_name = "vss-eval-test"
+        with (
+            mock.patch.dict(os.environ, {
+                "SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER": "a" * 64,
+                "NEMOCLAW_GATEWAY_PORT": "45000",
+                "NEMOCLAW_DASHBOARD_PORT": "45001",
+                "NEMOCLAW_DASHBOARD_RELAY_PORT": "45002",
+            }),
+            mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock(return_value=brev_env.ExecResult(return_code=1, stderr="gateway namespace belongs to a different evaluation"))) as execute,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "different evaluation"):
+                await env._claim_nemoclaw_gateway()
+        self.assertEqual(execute.call_count, 1)
+
+    async def test_non_nemoclaw_trial_does_not_claim_namespace(self):
+        env = brev_env.BrevEnvironment()
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(brev_env, "_run_brev_exec", new=mock.AsyncMock()) as execute:
+            await env._claim_nemoclaw_gateway()
+            execute.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -24,6 +24,9 @@ ANTHROPIC_API_KEY's value as OPENAI_API_KEY into the subprocess env (and the
 endpoint as `--ak api_base=${ANTHROPIC_BASE_URL}`), so no separate
 OPENAI_API_KEY / OPENAI_BASE_URL needs to be configured.
 """
+from pathlib import PurePosixPath
+from uuid import uuid4
+
 from harbor.agents.installed.codex import Codex
 
 
@@ -40,6 +43,16 @@ class _WholeModel(str):
 
 
 class NvCodex(Codex):
+    async def run(self, instruction, environment, context):
+        # Harbor appends provider/MCP settings before its best-effort cleanup.
+        # Cancellation can leave that config behind on a warm worker. Give
+        # every invocation fresh scratch, including retries on this object;
+        # resume still restores its sessions from Harbor's agent log directory.
+        scratch = PurePosixPath("/tmp") / f"skill-eval-codex-{uuid4().hex}"
+        self._REMOTE_CODEX_HOME = scratch / "home"
+        self._REMOTE_CODEX_SECRETS_DIR = scratch / "secrets"
+        await super().run(instruction, environment, context)
+
     @property
     def model_name(self):
         return self._nv_model_name

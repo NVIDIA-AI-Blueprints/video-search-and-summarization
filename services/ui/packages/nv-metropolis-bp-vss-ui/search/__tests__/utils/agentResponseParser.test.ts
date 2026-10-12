@@ -224,6 +224,24 @@ describe('extractSearchResultsFromAgentResponse', () => {
       expect(result![0].critic_result).toBeUndefined();
     });
 
+    it('sets critic_result to undefined when the CLI sends null for an unevaluated hit', () => {
+      const text = JSON.stringify({
+        data: [
+          {
+            video_name: 'evaluated.mp4',
+            critic_result: { result: 'confirmed', criteria_met: { 'subject:forklift': true } },
+          },
+          { video_name: 'unevaluated.mp4', critic_result: null },
+        ],
+      });
+      const result = extractSearchResultsFromAgentResponse(text);
+      expect(result![0].critic_result).toEqual({
+        result: 'confirmed',
+        criteria_met: { 'subject:forklift': true },
+      });
+      expect(result![1].critic_result).toBeUndefined();
+    });
+
     it('handles all critic result types (confirmed, rejected, unverified)', () => {
       const data = {
         data: [

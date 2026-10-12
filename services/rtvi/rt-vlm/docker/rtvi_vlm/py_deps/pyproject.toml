@@ -58,7 +58,7 @@ dependencies = [
     "onnxscript==0.5.7",
     "redis==7.1.0",
     "langchain-core==0.3.81",
-    "aiohttp==3.13.3",
+    "aiohttp==3.14.3",
     "fonttools==4.61.1",
     "nvidia-nvshmem-cu13",
     "librosa==0.11.0",
