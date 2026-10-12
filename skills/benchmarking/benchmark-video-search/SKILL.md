@@ -47,7 +47,7 @@ ships rather than a REST endpoint that is being retired.
 | Endpoint uses `localhost` or `127.0.0.1` | This is valid when the runner is on the deployment host. Verify the actual VST clip URL is reachable from RT-VLM before trusting critic-filtered metrics |
 | User did not give a dataset | Ask which dataset and where its `--data-dir` is. Do not invent one |
 | Elasticsearch has no `mdx-*` indices | Ingestion has not completed. Run **Step 4**; do not report zero scores as a quality result |
-| User asks to reuse what is already ingested | Add `--skip-ingest`. It cannot be combined with `--clear` or `--only-dataset` |
+| User asks not to ingest, to reuse what is indexed, or to "just run the evals" | Add `--skip-ingest`: nothing is deleted or uploaded. Any other request gets the default wipe and fresh ingest |
 | User asks to analyse an existing result file | Skip to **Step 6**; read the JSON, run nothing |
 | Every query returns 0 hits | Stop. Diagnose with **Step 3** before reporting anything — this is nearly always missing indices, not poor retrieval |
 | Critic-filtered metrics are all `NA` | The critic never ran. Check the clip-URL prerequisite below before concluding anything about verification quality |
@@ -60,16 +60,30 @@ if missing, which deployment endpoint to target.
 ```bash
 uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
     --data-dir /path/to/datasets --dataset DATASET \
-    --skip-download --skip-existing --name RUN_NAME
+    --skip-download --name RUN_NAME
 ```
 
 Five defaults, each load-bearing:
 
-- **`--skip-existing`** is non-destructive and avoids duplicate uploads on a
-  shared deployment. `--only-dataset` and `--clear` are explicit destructive
-  maintenance modes. Both require `--confirm-delete` in the same invocation;
-  there is no interactive prompt. Use either only when the user requested
-  deletion, and report the printed deletion inventory.
+- **Every run starts from an empty index.** Before uploading, the runner reads
+  VST and the indexes search reads (`mdx-embed-filtered-*`, `mdx-raw-*`,
+  `mdx-behavior-*`, `default_*`) through the `:7777` ingress. If anything is
+  there, it deletes every VST source and every document in those indexes. It
+  does this even when the index holds exactly this dataset. It uploads only
+  once VST and every index read empty on two polls in a row, then ingests
+  every dataset video. Anything else left indexed would be searched too, and
+  every hit on it scores as a false positive. Report what the run deleted
+  (`flow.cleared`). The deployment may be shared, but nobody else may use it
+  while an eval runs. The wipe aborts if VST, the ingress and `--endpoint` are
+  on different hosts, if a source will not delete, or if the index is not
+  empty within 180 s.
+
+  `--skip-ingest` is the only way to keep what is there. It deletes nothing
+  and uploads nothing. It aborts unless every dataset video is already
+  registered in VST. Other sources stay searchable, so it warns about them and
+  records them in `flow.reused_index.other_sources`. `--only-dataset`,
+  `--clear`, `--confirm-delete` and `--skip-existing` are still accepted but
+  ignored.
 - **Live decomposition is on by default.** The LLM origin is derived from
   `--endpoint` (same host, port 30081), so there is no flag to forget. Every
   query is decomposed the way the deployed agent decomposes it, and that choice
@@ -131,8 +145,7 @@ Five defaults, each load-bearing:
   for the same VLM and embedding services, so per-stage latencies inflate and
   stop describing a single query.
 
-Deviate only on request: `--skip-ingest` to reuse what is there, `--clear` to
-wipe the whole deployment, `--subset` to narrow the slice, `--concurrency N` to
+Deviate only on request: `--skip-ingest` to reuse what is there, `--subset` to narrow the slice, `--concurrency N` to
 trade latency fidelity for wall-clock, `--no-decompose` to replay stored routes,
 or `--fixed-search-path` for a single-path baseline.
 
@@ -208,7 +221,7 @@ deployment cannot run the webhook flow; see `references/troubleshooting.md`.
 
 ```bash
 uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
-    --data-dir /path/to/datasets --dataset DATASET --skip-download --skip-existing
+    --data-dir /path/to/datasets --dataset DATASET --skip-download
 ```
 
 Expect this to be slow while the webhook pipeline indexes the videos:
@@ -216,19 +229,13 @@ Expect this to be slow while the webhook pipeline indexes the videos:
 - A registered source is not necessarily indexed. The ingest gate must confirm
   every video before scoring; a 210 s video takes about 220 s. It prints an
   `INGESTION SUMMARY` with embedding-done and full-ingestion times per video.
-- Leftover documents under a name about to be uploaded abort the run before
-  upload (`stale documents for X`): they would satisfy the gate instantly.
+- The wipe runs first and prints what it found and deleted (`Not clean: ...`,
+  then `Index empty after Ns`). A clean index prints `Index is clean`.
+- Documents that reappear under a name about to be uploaded abort the run
+  before upload (`stale documents for X`): something wrote them after the
+  wipe, and they would satisfy the gate instantly.
 - If webhooks are disabled, select `--ingest-flow agent-3step` explicitly. That
   flow calls `/complete`, which can return a transient 502 and is retried.
-- `--skip-existing` is the default: ingest what is missing and delete nothing.
-- `--only-dataset` deletes foreign sources only when explicitly requested with
-  `--confirm-delete`; report its candidate inventory before it runs.
-- `--clear --confirm-delete` deletes **every** source including other people's.
-  Use it only on explicit request.
-- `--clear` and `--only-dataset` list sources via `--vst-url` but delete through
-  the agent endpoint. If those URLs have different hosts, verify they belong
-  to the **same deployment** before deletion; otherwise source IDs from one
-  stack could be sent to another.
 
 Then re-run Step 3. Indices are lazy; they appear after webhook processing,
 not immediately after upload. See `references/flags.md` for ingest options.
@@ -241,8 +248,9 @@ uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:
     --skip-download --skip-ingest --name RUN_NAME
 ```
 
-`--skip-ingest` reuses an already-indexed dataset; it cannot be combined with
-`--clear` or `--only-dataset`. See `references/flags.md` before changing flags
+`--skip-ingest` reuses an already-indexed dataset without wiping it. It aborts
+if a dataset video is not registered, and warns about sources outside the
+dataset. See `references/flags.md` before changing flags
 that affect run meaning.
 
 Decomposition needs no flag. An LLM turns the sentence into

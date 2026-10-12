@@ -41,6 +41,13 @@ Two caveats worth internalising:
 - **The critic is an LLM and is not deterministic.** Raw metrics repeat exactly
   run to run; critic-filtered ones move by a few points. Gate on Raw, or use
   repeats and a tolerance band.
+- **Check what else was indexed.** A normal run wipes the index first.
+  `flow.cleared` records what it found (`clean_before`, `sources_before`,
+  `documents_before`) and what it deleted. A `--skip-ingest` run keeps the
+  index as it was. `flow.reused_index.other_sources` lists the sources outside
+  the dataset that search could also return. Any hit on one of them scores as
+  a false positive. If that list is not empty, the numbers are not comparable
+  with a wiped run.
 
 ### Where query latency goes
 
