@@ -33,9 +33,9 @@ comparable with the REST baseline. `--merge-adjacent` opts back in.
 ## Index state
 
 Every run wipes the index before it ingests, unless `--skip-ingest` is passed.
-The wipe deletes every VST source and every document in `mdx-embed-filtered-*`,
-`mdx-raw-*`, `mdx-behavior-*` and `default_*`, then uploads the whole dataset.
-If the index is already empty, it deletes nothing. `--skip-ingest` deletes
+The wipe deletes every VST source, then waits for the cleanup webhooks to empty
+`mdx-embed-filtered-*`, `mdx-raw-*`, `mdx-behavior-*` and `default_*`, then
+uploads the whole dataset. If the index is already empty, it deletes nothing. `--skip-ingest` deletes
 nothing and uploads nothing, and aborts unless every dataset video is
 registered. Sources outside the dataset that `--skip-ingest` leaves in place
 can be returned by search and score as false positives. The run warns about

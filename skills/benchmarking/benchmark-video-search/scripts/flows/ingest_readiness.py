@@ -607,29 +607,6 @@ def indexed_counts(ingress_url: str, timeout: int = POLL_TIMEOUT) -> dict[str, i
     return counts
 
 
-def delete_all_documents(ingress_url: str, timeout: int = 300) -> dict[str, int]:
-    """Empty every searched index family; returns documents deleted per family.
-
-    Deleting a VST source only asks its cleanup webhooks to do this, and an
-    aborted ingest leaves documents no source owns, which search still returns.
-    """
-    base = ingress_url.rstrip("/")
-    deleted: dict[str, int] = {}
-    for label, pattern in SEARCHED_INDEXES.items():
-        resp = requests.post(
-            f"{base}/elasticsearch/{pattern}/_delete_by_query",
-            params={**_WILDCARD_PARAMS, "conflicts": "proceed", "refresh": "true"},
-            json={"query": {"match_all": {}}},
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        body = resp.json() or {}
-        if body.get("failures"):
-            raise IngestPollError(f"{label}: delete_by_query failures {str(body['failures'])[:300]}")
-        deleted[label] = int(body.get("deleted", 0))
-    return deleted
-
-
 def stale_documents(
     ingress_url: str,
     spellings: dict[str, list[str]],
