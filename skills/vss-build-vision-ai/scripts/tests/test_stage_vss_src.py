@@ -43,8 +43,12 @@ def repo(tmp_path):
     (root / "skills" / "vss-x").mkdir(parents=True)
     (root / "skills" / "vss-x" / "SKILL.md").write_text('---\nvss-requires: "always"\n---\n')
     (root / ".openclaw" / "workspace" / "_nemoclaw").mkdir(parents=True)
+    (root / ".openclaw" / "workspace" / "_hermes").mkdir(parents=True)
     (root / ".openclaw" / "workspace" / "AGENTS.md").write_text("# agents\n")
     (root / ".openclaw" / "workspace" / "_nemoclaw" / "ENV.md").write_text("# env\n")
+    (root / ".openclaw" / "workspace" / "_hermes" / "VSS_ROUTING.md").write_text(
+        "# hermes routing\n"
+    )
     (root / "services" / "agent").mkdir(parents=True)
     (root / "services" / "agent" / "pyproject.toml").write_text('[project]\nname = "nvidia-vss"\n')
     (root / "libs" / "vss" / "core").mkdir(parents=True)
@@ -76,6 +80,9 @@ def test_stages_all_roots_into_both_default_harness_dirs(repo):
         assert (dest / "skills" / "vss-x" / "SKILL.md").is_file()
         assert (dest / ".openclaw" / "workspace" / "AGENTS.md").is_file()
         assert (dest / ".openclaw" / "workspace" / "_nemoclaw" / "ENV.md").is_file()
+        assert (
+            dest / ".openclaw" / "workspace" / "_hermes" / "VSS_ROUTING.md"
+        ).is_file()
         # libs/vss (nvidia-vss-cli + nvidia-vss-core) is the images' whole
         # install surface; the agent service package is deliberately not staged.
         assert (dest / "libs" / "vss" / "core" / "pyproject.toml").is_file()
