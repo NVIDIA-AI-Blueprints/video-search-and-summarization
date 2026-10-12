@@ -30,6 +30,20 @@ of their scores. That changes the number of scored segments — the denominator
 of precision — so this script passes `--no-merge-adjacent` by default to stay
 comparable with the REST baseline. `--merge-adjacent` opts back in.
 
+## Index state
+
+Every run wipes the index before it ingests, unless `--skip-ingest` is passed.
+The wipe deletes every VST source and every document in `mdx-embed-filtered-*`,
+`mdx-raw-*`, `mdx-behavior-*` and `default_*`, then uploads the whole dataset.
+If the index is already empty, it deletes nothing. `--skip-ingest` deletes
+nothing and uploads nothing, and aborts unless every dataset video is
+registered. Sources outside the dataset that `--skip-ingest` leaves in place
+can be returned by search and score as false positives. The run warns about
+them and records them in `flow.reused_index.other_sources`.
+
+`--only-dataset`, `--clear`, `--confirm-delete` and `--skip-existing` are
+accepted and ignored.
+
 ## Ingest gate
 
 `vst-direct` runs are gated on ingestion being complete, not on the first
@@ -82,23 +96,14 @@ one moves a run further from the baseline everything else is compared against.
 ## Cookbook
 
 ```bash
-# Everything: ingest + routed CLI queries
+# Everything: wipe the index, ingest fresh, routed CLI queries
 --dataset warehouse
 
-# Query only
+# Query only: keep what is indexed, delete and upload nothing
 --dataset warehouse --skip-download --skip-ingest
 
 # Use a local dataset instead of DSS
 --data-dir ~/Desktop/vss-eval-datasets --dataset warehouse --skip-download
-
-# Isolate this dataset by deleting foreign sources (explicit and destructive)
---dataset warehouse --only-dataset --confirm-delete
-
-# Fresh index, wipes everyone's data (destructive)
---dataset warehouse --clear --confirm-delete
-
-# Default/shared box — do not touch others' data
---dataset warehouse --skip-existing
 
 # One fixed path instead of routing (baseline only -- not an eval)
 --fixed-search-path --search-path fusion --attribute "person wearing a hardhat"

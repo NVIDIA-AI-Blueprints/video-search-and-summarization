@@ -40,8 +40,6 @@ The other ways raw can finish:
   unchanged for the quiet window: raw passes as `rtcv_missing`, with a warning.
   With no raw documents at all it does not pass. That looks the same as a
   webhook that never fired, so failing is the safe default.
-- A `--skip-existing` source passes as `existing` once it has raw documents and
-  the count stays unchanged for the quiet window after the first poll.
 - RT-CV released the stream but wrote no raw documents: raw passes, with a
   warning that nothing was detected.
 
@@ -68,10 +66,9 @@ its target and the reason it is not done:
 | `RT-CV never listed the stream` (no raw frames either) | check `webhooks.enabled` in the VIOS notification config and that `RTVI_EMBED_MODEL` matches the webhook's model string |
 | `RT-CV is still processing` / embed or tag counts short | perception is slow; raise `--ingest-deadline-s` |
 | `N frame docs (frames with detections), still changing` | RT-CV or Logstash is still writing; raise `--ingest-deadline-s` if it never settles |
-| `no frame docs, and the source was not uploaded this run` | a `--skip-existing` source with nothing in `mdx-raw`; re-upload it |
 | `no tag documents` (some videos tagged, this one not) | RT-VLM is slow or failed on this video; raise `--ingest-deadline-s`. If no video is tagged, the gate drops tags after the grace instead of aborting. |
 | `raw: RT-CV never listed any of N video(s)` (degraded, not an abort) | the RT-CV webhook never fired; same fix as `RT-CV never listed the stream` |
-| `stale documents for X` (before upload) | an earlier ingest of the same name left documents behind; delete the source and let the cleanup webhooks empty the indexes, or use `--clear` / `--only-dataset` |
+| `stale documents for X` (before upload) | something wrote documents after the pre-ingest wipe emptied the indexes; stop whatever else feeds the deployment and rerun |
 | `duration unknown` | install ffprobe on the runner host; the VST timeline fallback also failed |
 
 Results record the gate under `flow.ingest_readiness` and the batch figures
@@ -110,12 +107,20 @@ registration; for `vst-direct` it also waits on the ingest gate before scoring.
 Querying early scores a half-built index, which looks like a retrieval
 regression.
 
-### On a shared deployment
+### Before ingest: the wipe
 
-```bash
---skip-existing    # do not re-upload what VST already lists
---clear --confirm-delete  # deletes ALL sources; only on explicit request
-```
+Every run without `--skip-ingest` empties the index first: all VST sources and
+all documents in `mdx-embed-filtered-*`, `mdx-raw-*`, `mdx-behavior-*` and
+`default_*`. The deployment may be shared, but nobody else may use it during
+an eval.
+
+| Abort | Cause | Fix |
+|---|---|---|
+| `... are on different hosts` | `--vst-url` or `--ingress-url` points at another host than `--endpoint` | pass URLs on the endpoint's host |
+| `source(s) could not be deleted` | the agent refused a DELETE | delete them by hand and rerun |
+| `could not count/delete documents through the ingress` | `:7777` unreachable, or no `/elasticsearch` route | pass `--ingress-url` |
+| `still not empty 180s after deleting everything` | something keeps writing (a live RTSP source, another run) | stop it and rerun |
+| `--skip-ingest reuses the index, but N dataset video(s) are not registered` | the index does not hold this dataset | drop `--skip-ingest` |
 
 ---
 

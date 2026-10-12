@@ -43,13 +43,10 @@ Examples
     python run_eval_flows.py --endpoint http://HOST:8000 --data-dir ~/datasets \
         --dataset warehouse --skip-download
 
-    # Query only, against what is already indexed
+    # Every run above first wipes the index (VST sources and searched
+    # documents) and ingests fresh. Query only, reusing what is indexed:
     python run_eval_flows.py --endpoint http://HOST:8000 --data-dir ~/datasets \
         --dataset warehouse --skip-download --skip-ingest
-
-    # Shared deployment: do not re-upload what is already registered
-    python run_eval_flows.py --endpoint http://HOST:8000 \
-        --skip-download --skip-existing
 
     # Show what would run, touching nothing
     python run_eval_flows.py --endpoint http://HOST:8000 --dry-run
@@ -70,6 +67,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -201,8 +199,7 @@ def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
 
     Lists and deletes against the SAME resolved origins the rest of the run
     uses, so ``--vst-url`` cannot list one host and delete from another.
-    Prints the full inventory first: ``--clear`` is destructive and shared
-    deployments carry other people's fixtures.
+    Prints the full inventory first, so the log shows what the wipe removed.
     """
     try:
         streams = flows.list_sensor_streams(vst_url)
@@ -456,59 +453,157 @@ def describe_query_flow(
     return described
 
 
-def prune_foreign_videos(agent_endpoint: str, vst_url: str, video_dir: Path) -> dict[str, Any]:
-    """Delete every registered source that is NOT one of this dataset's videos.
+#: Cleanup flags from before every run wiped the index; parsed, then ignored.
+IGNORED_CLEANUP_FLAGS = ("--only-dataset", "--clear", "--confirm-delete")
+#: How long deleted sources' documents get to disappear before the wipe gives up.
+WIPE_TIMEOUT_S = 180.0
+WIPE_POLL_S = 5.0
 
-    The narrow form of ``--clear``. A run is only interpretable if the index
-    holds what the dataset says it holds: a foreign source cannot be retrieved
-    for any query in the dataset, so it contributes nothing but the chance of a
-    false positive and a longer ingest. Removing exactly the foreign ones keeps
-    the deployment reproducible without wiping fixtures the dataset does need.
 
-    Membership uses :func:`flows.name_variants` -- the same normalisation
-    ``--skip-existing`` uses to decide a video is already present. Sharing one
-    matcher is what stops this deleting a video the very next step re-uploads.
+def check_cleanup_hosts(agent_endpoint: str, vst_url: str, ingress_url: str) -> None:
+    """Abort unless VST, the ingress and the agent are on one host.
+
+    Sources are listed from VST and deleted through the agent, documents through
+    the ingress. On two hosts, what was read from one stack would be deleted
+    from another.
     """
+    host = urlparse(agent_endpoint).hostname
+    for flag, url in (("--vst-url", vst_url), ("--ingress-url", ingress_url)):
+        if urlparse(url).hostname != host:
+            raise SystemExit(
+                f"ABORTED: {flag} ({url}) and --endpoint ({agent_endpoint}) are on different hosts, "
+                "so the wipe could delete from the wrong deployment. Pass a "
+                f"{flag} on the endpoint's host."
+            )
+
+
+def _index_state(vst_url: str, ingress_url: str) -> tuple[dict[str, str], dict[str, int]]:
     try:
-        streams = flows.list_sensor_streams(vst_url)
+        sources = flows.list_sensor_streams(vst_url)
     except Exception as e:
         raise SystemExit(f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})") from e
-
-    ours: set[str] = set()
-    for vf in sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv")):
-        ours |= flows.name_variants(vf.name)
-    if not ours:
+    try:
+        counts = flows.indexed_counts(ingress_url)
+    except (requests.RequestException, ValueError) as e:
         raise SystemExit(
-            f"ABORTED: no video files (.mp4 or .mkv) under {video_dir}, so every source looks foreign. "
-            f"Refusing to delete the whole deployment -- pass --clear if that is what you meant."
+            f"ABORTED: could not count documents through the ingress at {ingress_url} "
+            f"({type(e).__name__}: {e}). Pass --ingress-url."
+        ) from e
+    return sources, counts
+
+
+def wipe_index(
+    agent_endpoint: str,
+    vst_url: str,
+    ingress_url: str,
+    timeout_s: float = WIPE_TIMEOUT_S,
+    poll_s: float = WIPE_POLL_S,
+    clock: Any = time.monotonic,
+    sleep: Any = time.sleep,
+) -> dict[str, Any]:
+    """Leave no VST source and no searched document, so the ingest is fresh.
+
+    Clean means both: VST alone misses documents an aborted ingest left with
+    no source, and search returns those. Deleting a source only starts its
+    cleanup webhooks, so documents are deleted directly and the state re-read
+    until it is empty on two polls in a row -- one empty read can land between
+    a late write and its cleanup.
+    """
+    sources, counts = _index_state(vst_url, ingress_url)
+    record: dict[str, Any] = {"clean_before": not sources and not any(counts.values()),
+                              "sources_before": len(sources), "documents_before": counts}
+    if record["clean_before"]:
+        print("  Index is clean: no sources, no documents. Ingesting fresh.")
+        return {**record, "deleted": 0, "documents_deleted": {}, "waited_s": 0.0}
+
+    detail = "  ".join(f"{k}={v}" for k, v in counts.items())
+    print(f"  Not clean: {len(sources)} source(s); documents {detail}. Deleting everything.")
+    cleared = clear_all_videos(agent_endpoint, vst_url)
+    if cleared.get("failed"):
+        raise SystemExit(
+            f"ABORTED: {len(cleared['failed'])} source(s) could not be deleted: {cleared['failed'][:10]}\n"
+            "  They would stay searchable next to the fresh ingest. Delete them by hand and rerun."
         )
 
-    foreign = {sid: n for sid, n in streams.items() if str(n).lower() not in ours}
-    kept = len(streams) - len(foreign)
-    print(f"  {len(streams)} source(s) registered: {kept} belong to this dataset, {len(foreign)} do not")
-    if not foreign:
-        print("  Nothing to prune.")
-        return {"found": len(streams), "kept": kept, "deleted": 0, "names": []}
-
-    for stream_id, name in foreign.items():
-        print(f"    - {name}  ({stream_id})")
-
-    deleted, failed = 0, []
-    for stream_id, name in foreign.items():
+    started = clock()
+    documents_deleted = dict.fromkeys(counts, 0)
+    empty_reads = 0
+    while True:
         try:
-            resp = requests.delete(f"{agent_endpoint.rstrip('/')}/api/v1/videos/{stream_id}", timeout=60)
-            resp.raise_for_status()
-            deleted += 1
-            print(f"    deleted {name} -> {resp.status_code}")
-        except Exception as e:  # noqa: BLE001
-            failed.append(name)
-            print(f"    FAILED {name}: {e}")
+            for label, n in flows.delete_all_documents(ingress_url).items():
+                documents_deleted[label] = documents_deleted.get(label, 0) + n
+        except (requests.RequestException, ValueError) as e:
+            raise SystemExit(
+                f"ABORTED: could not delete documents through the ingress at {ingress_url} "
+                f"({type(e).__name__}: {e}).\n"
+                "  They would be searched next to the fresh ingest and scored as false positives."
+            ) from e
+        sources, counts = _index_state(vst_url, ingress_url)
+        empty_reads = empty_reads + 1 if not sources and not any(counts.values()) else 0
+        if empty_reads >= 2:
+            break
+        if clock() - started >= timeout_s:
+            raise SystemExit(
+                f"ABORTED: the index is still not empty {timeout_s:.0f}s after deleting everything: "
+                f"{len(sources)} source(s), documents {counts}.\n"
+                "  Something is still writing. Stop the sources feeding it and rerun."
+            )
+        sleep(poll_s)
 
-    print(f"  Pruned {deleted}/{len(foreign)} foreign video(s); kept {kept}")
-    return {
-        "found": len(streams), "kept": kept, "deleted": deleted,
-        "failed": failed, "names": list(foreign.values()),
-    }
+    waited = round(clock() - started, 1)
+    print(f"  Index empty after {waited}s; deleted {cleared['deleted']} source(s) and "
+          f"{sum(documents_deleted.values())} document(s).")
+    return {**record, "deleted": cleared["deleted"], "names": cleared.get("names", []),
+            "documents_deleted": documents_deleted, "waited_s": waited}
+
+
+def dataset_video_names(video_dir: Path, data_dir: Path, dataset: str, subset: str) -> list[str]:
+    """The dataset's video stems: its local files, else its ground truth's names."""
+    files = sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv")) if video_dir.is_dir() else []
+    if files:
+        return [f.stem for f in files]
+    annotations, _ = flows.unpack_dataset(flows.load_dataset_file(data_dir, dataset, subset))
+    return sorted({
+        str(s["video_name"]).rsplit(".", 1)[0]
+        for segs in annotations.values() for s in segs if s.get("video_name")
+    })
+
+
+def check_reused_index(vst_url: str, names: list[str]) -> dict[str, Any]:
+    """For --skip-ingest: every dataset video must already be registered.
+
+    A missing one would score as "nothing found" rather than "never indexed".
+    Other sources are left in place, so they are reported: search can return
+    them, and every such hit is a false positive.
+    """
+    try:
+        registered = flows.list_sensor_names(vst_url)
+    except Exception as e:
+        raise SystemExit(f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})") from e
+    missing = [n for n in names if not flows.is_registered(n, registered)]
+    if missing:
+        raise SystemExit(
+            f"ABORTED: --skip-ingest reuses the index, but {len(missing)} dataset video(s) are not "
+            f"registered: {missing[:10]}\n"
+            "  Their queries would score zero. Drop --skip-ingest to wipe and ingest fresh."
+        )
+    ours: set[str] = set()
+    for n in names:
+        ours |= flows.name_variants(n)
+    others = sorted(r for r in registered if r not in ours)
+    if others:
+        print("\n" + "!" * 60)
+        print(f"WARNING: {len(others)} registered source(s) are not in this dataset, and --skip-ingest keeps them.")
+        for name in others[:10]:
+            print(f"  - {name}")
+        if len(others) > 10:
+            print(f"  ... and {len(others) - 10} more")
+        print("  Search can return them, and every such hit is a false positive.")
+        print("  Drop --skip-ingest to wipe and ingest fresh.")
+        print("!" * 60 + "\n")
+    else:
+        print(f"  Reusing the index: all {len(names)} dataset video(s) registered, nothing else.")
+    return {"dataset_sources": len(names), "other_sources": others}
 
 
 def ingest_videos(
@@ -597,11 +692,6 @@ def ingest_videos(
 # Ingest gate: wait for perception to finish before any query
 # =============================================================================
 
-#: How long a just-run --clear / --only-dataset gets for its cleanup webhooks
-#: to empty the indexes before leftover documents count as stale.
-CLEANUP_GRACE_S = 60.0
-
-
 def vst_spellings(video_file: Path) -> list[str]:
     """Every name VST might register this file as, in the case ES stores.
 
@@ -651,9 +741,8 @@ def check_stale_documents(
             f"{detail}\n"
             "  They would pass the completion check before ingestion started, so timings "
             "would be wrong.\n"
-            "  Delete the source (vss vios delete --type video --sensor <name>) and let the "
-            "cleanup webhooks\n"
-            "  empty the indexes, or rerun with --clear / --only-dataset --confirm-delete."
+            "  The pre-ingest wipe had emptied the indexes, so something wrote them since.\n"
+            "  Stop whatever else is feeding this deployment and rerun."
         )
 
 
@@ -805,6 +894,7 @@ def run_evaluation(
     index_probe: dict[str, Any] | None = None,
     ingest_readiness: dict[str, Any] | None = None,
     cleared: dict[str, Any] | None = None,
+    reused_index: dict[str, Any] | None = None,
     vst_url: str | None = None,
     decomposer: Any = None,
     decompose_fallback: dict[str, Any] | None = None,
@@ -1053,7 +1143,11 @@ def run_evaluation(
             # None when the ingest flow proved indexing itself (a chunk count),
             # so a reader can tell "not checked here" from "checked, and empty".
             "index_probe": index_probe,
+            # What the pre-ingest wipe found and deleted; None with --skip-ingest.
             "cleared": cleared,
+            # --skip-ingest only: dataset sources found, and every other source
+            # that stayed searchable next to them.
+            "reused_index": reused_index,
             "inventory": inventory,
             # Phoenix is absent by construction on the CLI query path:
             # search_core and vss_cli carry no OpenTelemetry instrumentation,
@@ -1511,15 +1605,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     dataset.add_argument("--subset", default="", help="Dataset subset (default: '')")
     dataset.add_argument("--data-dir", type=Path, default=flows.DEFAULT_DATA_DIR)
     dataset.add_argument("--skip-download", action="store_true", help="Use the local dataset as-is")
-    dataset.add_argument("--skip-ingest", action="store_true", help="Assume videos are already indexed")
+    dataset.add_argument(
+        "--skip-ingest",
+        action="store_true",
+        help=(
+            "Reuse what is indexed: delete nothing, upload nothing. Aborts unless "
+            "every dataset video is registered; warns about other sources. "
+            "Without it, every run wipes the index and ingests fresh."
+        ),
+    )
     dataset.add_argument(
         "--skip-existing",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help=(
-            "Do not re-upload fixtures VST already lists (default: enabled). "
-            "Use --no-skip-existing only on an isolated deployment."
-        ),
+        default=None,
+        help="Ignored: every run wipes the index unless --skip-ingest.",
     )
 
     query = p.add_argument_group("query parameters")
@@ -1672,29 +1771,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=15.0,
         help="Seconds between index probes (default: 15). Webhook-driven perception is async.",
     )
-    destructive = ingest.add_mutually_exclusive_group()
-    destructive.add_argument(
-        "--only-dataset",
-        action="store_true",
-        help=(
-            "Delete every source that is NOT one of this dataset's videos, then "
-            "ingest. Leaves the dataset's own sources alone. Safer than --clear "
-            "on a shared deployment, and enough to make a run reproducible."
-        ),
-    )
-    destructive.add_argument(
-        "--clear",
-        action="store_true",
-        help=(
-            "Delete ALL videos on the endpoint before ingest -- including any "
-            "you did not upload. Do not use on a shared deployment."
-        ),
-    )
-    ingest.add_argument(
-        "--confirm-delete",
-        action="store_true",
-        help="Required with --only-dataset or --clear to acknowledge the printed deletion inventory.",
-    )
+    for flag in IGNORED_CLEANUP_FLAGS:
+        ingest.add_argument(
+            flag,
+            action="store_true",
+            help="Ignored: every run wipes the index unless --skip-ingest.",
+        )
 
     p.add_argument(
         "--output-file",
@@ -1763,12 +1845,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.error("--fixed-search-path cannot be combined with --decompositions")
     if args.fixed_search_path:
         args.no_decompose = True
-    if (args.only_dataset or args.clear) and not args.confirm_delete:
-        p.error("--only-dataset and --clear require --confirm-delete")
-    if (args.only_dataset or args.clear) and args.skip_ingest:
-        p.error("destructive cleanup cannot be combined with --skip-ingest")
-    if args.confirm_delete and not (args.only_dataset or args.clear):
-        p.error("--confirm-delete requires --only-dataset or --clear")
     require = {part.strip() for part in str(args.ingest_require).split(",") if part.strip()}
     unknown = require - set(flows.INGEST_INDEXES)
     if unknown:
@@ -1899,31 +1975,30 @@ def main() -> None:
     # VST is a separate origin from the agent. run_eval.py's convention (swap
     # the port on the same host) is reused so both scripts resolve it the same
     # way; --vst-url overrides it for deployments that route differently.
-    # Resolved BEFORE --clear so the destructive path uses the same origin.
     vst_url = args.vst_url or flows.vst_url_for(args.endpoint, args.vst_port)
     print(f"VST origin:     {vst_url}")
+    ingress_url = args.ingress_url or flows.ingress_url_for(args.endpoint, args.vss_origin_port)
 
+    ignored = [f for f in IGNORED_CLEANUP_FLAGS if getattr(args, f[2:].replace("-", "_"))]
+    if args.skip_existing is not None:
+        ignored.append("--skip-existing" if args.skip_existing else "--no-skip-existing")
+    if ignored:
+        print(f"Ignoring {' '.join(ignored)}: every run wipes the index unless --skip-ingest.")
+
+    # Every run measures this dataset alone: anything else indexed is searched
+    # too, and each hit on it scores as a false positive.
     cleared: dict[str, Any] | None = None
+    reused_index: dict[str, Any] | None = None
     video_dir = args.data_dir / args.dataset / "videos"
-    if args.clear:
-        print("\nClearing ALL existing videos (--clear)...")
-        cleared = clear_all_videos(args.endpoint, vst_url)
-    elif args.only_dataset:
-        print("\nPruning sources that are not in this dataset (--only-dataset)...")
-        cleared = prune_foreign_videos(args.endpoint, vst_url, video_dir)
-
-    # A source that would not delete is still searchable, so it still answers
-    # queries and still counts as a false positive. Continuing would score a run
-    # that claims to isolate this dataset against an index that does not.
-    if cleared and cleared.get("failed"):
-        raise SystemExit(
-            f"ABORTED: {len(cleared['failed'])} source(s) could not be deleted: "
-            f"{cleared['failed'][:10]}\n"
-            "  They remain searchable and would be scored as false positives, so "
-            "this run cannot claim\n"
-            "  to measure the selected dataset in isolation. Delete them by hand, "
-            "or use --skip-existing."
+    if args.skip_ingest:
+        print("\nSkipping ingest (--skip-ingest): reusing the index as it is.")
+        reused_index = check_reused_index(
+            vst_url, dataset_video_names(video_dir, args.data_dir, args.dataset, args.subset)
         )
+    else:
+        check_cleanup_hosts(args.endpoint, vst_url, ingress_url)
+        print(f"\nChecking the index before ingest (VST {vst_url}, Elasticsearch via {ingress_url})...")
+        cleared = wipe_index(args.endpoint, vst_url, ingress_url)
 
     upload_stats: dict[str, Any] | None = None
     readiness: dict[str, Any] | None = None
@@ -1937,7 +2012,6 @@ def main() -> None:
         and not args.skip_index_probe
         and not args.legacy_index_probe
     )
-    ingress_url = args.ingress_url or flows.ingress_url_for(args.endpoint, args.vss_origin_port)
     watcher = build_ingest_watcher(args, ingress_url) if gate_ingest else None
 
     def _before_upload(video_files: list[Path]) -> None:
@@ -1948,7 +2022,7 @@ def main() -> None:
                 ingress_url,
                 video_files,
                 args.ingest_require,
-                grace_s=CLEANUP_GRACE_S if cleared else 0.0,
+                grace_s=0.0,
                 poll_s=args.ingest_poll_s,
             )
             watcher.start()
@@ -1957,16 +2031,13 @@ def main() -> None:
         if watcher is not None:
             watcher.add(uploaded_ingest_video(record, vst_url, ingest_backend))
 
-    if args.skip_ingest:
-        print("Skipping ingest (--skip-ingest)")
-    else:
+    if not args.skip_ingest:
         print(f"\nIngesting videos from {video_dir}")
         if gate_ingest:
             print(f"Ingress origin: {ingress_url}")
         upload_stats = ingest_videos(
             ingest_backend,
             video_dir,
-            skip_existing_from=vst_url if args.skip_existing else None,
             before_upload=_before_upload,
             after_upload=_after_upload,
         )
@@ -1983,9 +2054,6 @@ def main() -> None:
         expected = expected_sources_from_upload(upload_stats)
 
         if not args.skip_readiness_wait:
-            # Every fixture must be queryable, not just the ones uploaded this
-            # run -- with --skip-existing the rest were skipped precisely
-            # because they are already there, and they still get searched.
             print(f"\nWaiting for {len(expected)} source(s) to register in VST...")
             readiness = flows.wait_for_sources(
                 vst_url, expected, timeout_s=args.readiness_timeout
@@ -2086,6 +2154,7 @@ def main() -> None:
         index_probe=index_probe,
         ingest_readiness=ingest_readiness,
         cleared=cleared,
+        reused_index=reused_index,
         vst_url=vst_url,
     )
 
