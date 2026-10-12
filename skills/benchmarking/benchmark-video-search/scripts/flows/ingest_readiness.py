@@ -578,6 +578,58 @@ def poll_ingest(
     return snap
 
 
+#: Every index family search reads. Wildcards, not the upload-anchored names:
+#: search queries every day an RTSP source wrote, so a leftover in any of
+#: them can be returned.
+SEARCHED_INDEXES = {
+    "embed": "mdx-embed-filtered-*",
+    "raw": "mdx-raw-*",
+    "behavior": "mdx-behavior-*",
+    "tags": f"{TAG_INDEX_PREFIX}*",
+}
+_WILDCARD_PARAMS = {"ignore_unavailable": "true", "allow_no_indices": "true"}
+
+
+def indexed_counts(ingress_url: str, timeout: int = POLL_TIMEOUT) -> dict[str, int]:
+    """Documents in each searched index family, whatever source wrote them.
+
+    ``_count``, not ``_cat/indices``: the latter counts nested documents.
+    """
+    base = ingress_url.rstrip("/")
+    counts: dict[str, int] = {}
+    for label, pattern in SEARCHED_INDEXES.items():
+        resp = requests.get(f"{base}/elasticsearch/{pattern}/_count", params=_WILDCARD_PARAMS, timeout=timeout)
+        resp.raise_for_status()
+        count = (resp.json() or {}).get("count")
+        if not isinstance(count, int):
+            raise IngestPollError(f"{label}: malformed _count response {str(resp.text)[:200]}")
+        counts[label] = count
+    return counts
+
+
+def delete_all_documents(ingress_url: str, timeout: int = 300) -> dict[str, int]:
+    """Empty every searched index family; returns documents deleted per family.
+
+    Deleting a VST source only asks its cleanup webhooks to do this, and an
+    aborted ingest leaves documents no source owns, which search still returns.
+    """
+    base = ingress_url.rstrip("/")
+    deleted: dict[str, int] = {}
+    for label, pattern in SEARCHED_INDEXES.items():
+        resp = requests.post(
+            f"{base}/elasticsearch/{pattern}/_delete_by_query",
+            params={**_WILDCARD_PARAMS, "conflicts": "proceed", "refresh": "true"},
+            json={"query": {"match_all": {}}},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        body = resp.json() or {}
+        if body.get("failures"):
+            raise IngestPollError(f"{label}: delete_by_query failures {str(body['failures'])[:300]}")
+        deleted[label] = int(body.get("deleted", 0))
+    return deleted
+
+
 def stale_documents(
     ingress_url: str,
     spellings: dict[str, list[str]],

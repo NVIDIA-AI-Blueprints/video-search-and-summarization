@@ -1073,30 +1073,19 @@ def test_the_default_ingest_flow_is_the_one_the_product_uses() -> None:
     parsed = rf.parse_args(["--endpoint", "https://host:8000"])
     assert parsed.ingest_flow == "vst-direct"
     assert parsed.skip_index_probe is False
-    assert parsed.skip_existing is True
+    assert parsed.skip_ingest is False
 
 
-@pytest.mark.parametrize("flag", ["--only-dataset", "--clear"])
-def test_destructive_modes_require_confirmation(flag: str) -> None:
+@pytest.mark.parametrize(
+    "flags",
+    [["--only-dataset"], ["--clear", "--confirm-delete"], ["--skip-existing"], ["--no-skip-existing"],
+     ["--clear", "--only-dataset", "--skip-ingest"]],
+)
+def test_old_cleanup_flags_still_parse(flags: list[str]) -> None:
+    """Scripts that pass them keep working; every run wipes regardless."""
     import run_eval_flows as rf
 
-    with pytest.raises(SystemExit):
-        rf.parse_args(["--endpoint", "https://host:8000", flag])
-    parsed = rf.parse_args(["--endpoint", "https://host:8000", flag, "--confirm-delete"])
-    assert getattr(parsed, flag.removeprefix("--").replace("-", "_")) is True
-
-
-def test_destructive_modes_are_mutually_exclusive_and_cannot_skip_ingest() -> None:
-    import run_eval_flows as rf
-
-    with pytest.raises(SystemExit):
-        rf.parse_args(
-            ["--endpoint", "https://host:8000", "--clear", "--only-dataset", "--confirm-delete"]
-        )
-    with pytest.raises(SystemExit):
-        rf.parse_args(
-            ["--endpoint", "https://host:8000", "--clear", "--confirm-delete", "--skip-ingest"]
-        )
+    rf.parse_args(["--endpoint", "https://host:8000", *flags])
 
 
 def test_expected_sources_exist_even_when_readiness_wait_is_skipped() -> None:
@@ -1668,81 +1657,203 @@ def _fake_streams() -> dict[str, str]:
     }
 
 
-def _dataset_dir(tmp_path: Path) -> Path:
+_EMPTY_COUNTS = {"embed": 0, "raw": 0, "behavior": 0, "tags": 0}
+
+
+def _wipe_fakes(monkeypatch: Any, states: list[tuple[dict[str, str], dict[str, int]]]) -> dict[str, Any]:
+    """Each _index_state read pops the next state; the last one repeats."""
+    import run_eval_flows as rf
+
+    calls: dict[str, Any] = {"cleared": 0, "purged": 0, "reads": 0}
+
+    def _state(*_a: Any) -> tuple[dict[str, str], dict[str, int]]:
+        calls["reads"] += 1
+        return states.pop(0) if len(states) > 1 else states[0]
+
+    def _clear(*_a: Any) -> dict[str, Any]:
+        calls["cleared"] += 1
+        return {"found": 2, "deleted": 2, "failed": [], "names": ["a", "b"]}
+
+    def _purge(*_a: Any) -> dict[str, int]:
+        calls["purged"] += 1
+        return {"embed": 5, "raw": 0, "behavior": 0, "tags": 1}
+
+    monkeypatch.setattr(rf, "_index_state", _state)
+    monkeypatch.setattr(rf, "clear_all_videos", _clear)
+    monkeypatch.setattr(rf.flows, "delete_all_documents", _purge)
+    return calls
+
+
+def test_wipe_deletes_nothing_when_the_index_is_already_clean(monkeypatch: Any) -> None:
+    import run_eval_flows as rf
+
+    calls = _wipe_fakes(monkeypatch, [({}, dict(_EMPTY_COUNTS))])
+    out = rf.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
+
+    assert out["clean_before"] is True
+    assert calls["cleared"] == 0
+    assert calls["purged"] == 0
+
+
+def test_wipe_counts_documents_without_a_source_as_dirty(monkeypatch: Any) -> None:
+    """An aborted ingest leaves documents no VST source owns; search returns them."""
+    import run_eval_flows as rf
+
+    calls = _wipe_fakes(monkeypatch, [({}, {**_EMPTY_COUNTS, "raw": 40}), ({}, dict(_EMPTY_COUNTS))])
+    out = rf.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
+
+    assert out["clean_before"] is False
+    assert calls["purged"] >= 1
+
+
+def test_wipe_waits_for_two_empty_reads_in_a_row(monkeypatch: Any) -> None:
+    """A late webhook write can land after one empty read; the purge repeats."""
+    import run_eval_flows as rf
+
+    dirty = (_fake_streams(), {**_EMPTY_COUNTS, "embed": 9})
+    empty = ({}, dict(_EMPTY_COUNTS))
+    late = ({}, {**_EMPTY_COUNTS, "tags": 3})
+    calls = _wipe_fakes(monkeypatch, [dirty, empty, late, empty, empty])
+    out = rf.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
+
+    assert calls["cleared"] == 1
+    assert calls["purged"] == 4
+    assert out["deleted"] == 2
+    assert out["sources_before"] == 4
+    assert out["documents_before"]["embed"] == 9
+    assert out["documents_deleted"] == {"embed": 20, "raw": 0, "behavior": 0, "tags": 4}
+
+
+def test_wipe_aborts_when_the_index_never_empties(monkeypatch: Any) -> None:
+    import run_eval_flows as rf
+
+    _wipe_fakes(monkeypatch, [({}, {**_EMPTY_COUNTS, "raw": 1})])
+    clock = _FakeClock()
+    with pytest.raises(SystemExit, match="still not empty"):
+        rf.wipe_index(
+            "https://h:8000", "https://h:30888", "https://h:7777",
+            timeout_s=30, poll_s=5, clock=clock, sleep=clock.sleep,
+        )
+
+
+def test_wipe_aborts_when_a_source_will_not_delete(monkeypatch: Any) -> None:
+    import run_eval_flows as rf
+
+    _wipe_fakes(monkeypatch, [(_fake_streams(), dict(_EMPTY_COUNTS))])
+    monkeypatch.setattr(
+        rf, "clear_all_videos", lambda *_a: {"found": 4, "deleted": 3, "failed": ["x"], "names": []}
+    )
+    monkeypatch.setattr(
+        rf.flows, "delete_all_documents", lambda *_a: pytest.fail("must abort before purging")
+    )
+    with pytest.raises(SystemExit, match="could not be deleted"):
+        rf.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
+
+
+def test_wipe_refuses_endpoints_on_different_hosts() -> None:
+    import run_eval_flows as rf
+
+    rf.check_cleanup_hosts("https://h:8000", "https://h:30888", "https://h:7777")
+    with pytest.raises(SystemExit, match="--ingress-url"):
+        rf.check_cleanup_hosts("https://h:8000", "https://h:30888", "https://other:7777")
+    with pytest.raises(SystemExit, match="--vst-url"):
+        rf.check_cleanup_hosts("https://h:8000", "https://other:30888", "https://h:7777")
+
+
+def test_skip_ingest_aborts_when_a_dataset_video_is_not_registered(monkeypatch: Any) -> None:
+    """Its queries would score zero, read as "nothing found" not "never indexed"."""
+    import run_eval_flows as rf
+
+    monkeypatch.setattr(rf.flows, "list_sensor_names", lambda *_a, **_k: {"1219"})
+    with pytest.raises(SystemExit, match="not registered"):
+        rf.check_reused_index("https://h:30888", ["1219", "video_00570"])
+
+
+def test_skip_ingest_records_sources_outside_the_dataset(monkeypatch: Any) -> None:
+    import run_eval_flows as rf
+
+    monkeypatch.setattr(
+        rf.flows, "list_sensor_names",
+        lambda *_a, **_k: {n.lower() for n in _fake_streams().values()},
+    )
+    out = rf.check_reused_index("https://h:30888", ["1219", "video_00570"])
+
+    assert out == {"dataset_sources": 2, "other_sources": ["someone_elses_clip", "warehouse_sample"]}
+
+
+def test_dataset_video_names_fall_back_to_ground_truth(tmp_path: Path, monkeypatch: Any) -> None:
+    """--skip-ingest with --skip-download may have no local videos at all."""
+    import run_eval_flows as rf
+
     videos = tmp_path / "videos"
     videos.mkdir()
     (videos / "1219.mp4").write_bytes(b"")
-    (videos / "video_00570.mp4").write_bytes(b"")
-    return videos
+    assert rf.dataset_video_names(videos, tmp_path, "warehouse", "") == ["1219"]
 
-
-def test_prune_deletes_only_foreign_sources(tmp_path: Path, monkeypatch: Any) -> None:
-    """The dataset's own videos survive; everything else goes.
-
-    Both spellings VST uses -- stem and stem.mp4 -- must be recognised as ours,
-    or the prune deletes a fixture that ingest then re-uploads.
-    """
-    import run_eval_flows as rf
-
-    deleted: list[str] = []
-
-    class _Resp:
-        status_code = 200
-
-        @staticmethod
-        def raise_for_status() -> None:
-            return None
-
-    monkeypatch.setattr(rf.flows, "list_sensor_streams", lambda *_a, **_k: _fake_streams())
+    monkeypatch.setattr(rf.flows, "load_dataset_file", lambda *_a: {})
     monkeypatch.setattr(
-        rf.requests, "delete",
-        lambda url, **_k: (deleted.append(url.rsplit("/", 1)[-1]), _Resp())[1],
+        rf.flows, "unpack_dataset",
+        lambda _d: ({"q": [{"video_name": "a.mp4"}, {"video_name": "b"}]}, {}),
     )
-
-    out = rf.prune_foreign_videos("https://agent:8000", "https://vst:30888", _dataset_dir(tmp_path))
-
-    assert sorted(deleted) == ["id-theirs", "id-theirs2"]
-    assert out["kept"] == 2
-    assert out["deleted"] == 2
-    assert out["found"] == 4
+    assert rf.dataset_video_names(tmp_path / "missing", tmp_path, "warehouse", "") == ["a", "b"]
 
 
-def test_prune_refuses_when_the_dataset_has_no_videos(tmp_path: Path, monkeypatch: Any) -> None:
-    """An empty video dir makes every source look foreign.
+class _EsResp:
+    def __init__(self, body: dict[str, Any]) -> None:
+        self._body = body
+        self.text = json.dumps(body)
 
-    Without this guard --only-dataset silently becomes --clear, which is the
-    one thing it exists to avoid.
-    """
-    import run_eval_flows as rf
+    def raise_for_status(self) -> None:
+        return None
 
-    monkeypatch.setattr(rf.flows, "list_sensor_streams", lambda *_a, **_k: _fake_streams())
-    monkeypatch.setattr(
-        rf.requests, "delete",
-        lambda *_a, **_k: pytest.fail("must not delete anything when the dataset is empty"),
-    )
-
-    empty = tmp_path / "videos"
-    empty.mkdir()
-    with pytest.raises(SystemExit, match="no video files"):
-        rf.prune_foreign_videos("https://agent:8000", "https://vst:30888", empty)
+    def json(self) -> dict[str, Any]:
+        return self._body
 
 
-def test_prune_is_a_noop_when_every_source_belongs_to_the_dataset(
-    tmp_path: Path, monkeypatch: Any
-) -> None:
-    import run_eval_flows as rf
+def test_indexed_counts_reads_every_searched_index_family(monkeypatch: Any) -> None:
+    from flows import ingest_readiness as ir
 
-    monkeypatch.setattr(
-        rf.flows, "list_sensor_streams",
-        lambda *_a, **_k: {"id-ours-1": "1219", "id-ours-2": "video_00570.mp4"},
-    )
-    monkeypatch.setattr(
-        rf.requests, "delete",
-        lambda *_a, **_k: pytest.fail("nothing foreign, so nothing should be deleted"),
-    )
+    seen: list[tuple[str, dict[str, str]]] = []
 
-    out = rf.prune_foreign_videos("https://agent:8000", "https://vst:30888", _dataset_dir(tmp_path))
-    assert out == {"found": 2, "kept": 2, "deleted": 0, "names": []}
+    def _get(url: str, params: dict[str, str], **_k: Any) -> _EsResp:
+        seen.append((url, params))
+        return _EsResp({"count": 3 if "mdx-raw-" in url else 0})
+
+    monkeypatch.setattr(ir.requests, "get", _get)
+    counts = ir.indexed_counts("https://h:7777/")
+
+    assert counts == {"embed": 0, "raw": 3, "behavior": 0, "tags": 0}
+    assert [u for u, _ in seen] == [
+        f"https://h:7777/elasticsearch/{p}/_count" for p in ir.SEARCHED_INDEXES.values()
+    ]
+    assert all(p["allow_no_indices"] == "true" for _, p in seen)
+
+
+def test_indexed_counts_rejects_a_malformed_response(monkeypatch: Any) -> None:
+    from flows import ingest_readiness as ir
+
+    monkeypatch.setattr(ir.requests, "get", lambda *_a, **_k: _EsResp({"error": "nope"}))
+    with pytest.raises(ir.IngestPollError):
+        ir.indexed_counts("https://h:7777")
+
+
+def test_delete_all_documents_matches_everything_and_reports_failures(monkeypatch: Any) -> None:
+    from flows import ingest_readiness as ir
+
+    bodies: list[dict[str, Any]] = []
+
+    def _post(url: str, params: dict[str, str], json: dict[str, Any], **_k: Any) -> _EsResp:
+        bodies.append(json)
+        assert params["conflicts"] == "proceed"
+        return _EsResp({"deleted": 2})
+
+    monkeypatch.setattr(ir.requests, "post", _post)
+    assert ir.delete_all_documents("https://h:7777") == {"embed": 2, "raw": 2, "behavior": 2, "tags": 2}
+    assert all(b == {"query": {"match_all": {}}} for b in bodies)
+
+    monkeypatch.setattr(ir.requests, "post", lambda *_a, **_k: _EsResp({"deleted": 0, "failures": [{"x": 1}]}))
+    with pytest.raises(ir.IngestPollError, match="failures"):
+        ir.delete_all_documents("https://h:7777")
 
 
 # ---------------------------------------------------------------------------
