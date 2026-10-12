@@ -534,7 +534,7 @@ Answer the original question using accepted evidence and follow the caller’s r
 
 If the question supplies answer options and explicitly asks you to select one, select the best available option. Compare the full meaning of each option against the evidence, rather than matching isolated words. If evidence is incomplete, still make the requested selection, but preserve unresolved evidence status and gaps. State uncertainty when the requested response format permits it; otherwise retain that uncertainty in the introspection artifacts.
 
-If the question does not ask for an option selection, answer naturally without inventing options or labels. Report supported partial findings and remaining uncertainty when appropriate. If no answer is supported, say it cannot be determined.
+If the question does not ask for an option selection, answer naturally without inventing options or labels. Report supported partial findings and remaining uncertainty when appropriate. If no answer is supported and the question does not explicitly request an option selection, omit `--answer` and abstain.
 
 Only the top-level agent synthesizes the answer and performs any requested option selection. Planning and inspection remain option-blind.
 
@@ -546,9 +546,9 @@ stopped by `budget_exhausted`, `no_progress`, and `tool_failure`. The command
 persists a budget stop when no inspection budget remains, then writes the
 file. It refuses an in-progress ledger that still has budget; create the next
 task instead of writing a synthesis note. `merge-round` also writes
-`final-result.json` when the merged ledger is unresolved. Rerun `final-result`
-with `--answer` only when accepted observations support that text. Without
-supporting observations, omit `--answer`. Every unresolved run reports each claim gap using only:
+`final-result.json` when the merged ledger is unresolved. When the question supplies answer options and explicitly requests a selection, always select the best available option and pass its complete option text with `--answer`, even when the evidence remains incomplete, conflicting, not visible, or the inspection budget is exhausted. Cite the accepted observations used to compare the options, preserve all unresolved gaps, and keep `evidence_status: unresolved`. Do not omit `--answer` solely because the ledger is unresolved.
+
+When the question does not explicitly request an option selection, pass `--answer` only when accepted observations support an answer. If no answer is supported, omit `--answer` and abstain. Never pass an empty string. Every unresolved run reports each claim gap using only:
 
 - `insufficient_coverage`;
 - `not_visible`;
