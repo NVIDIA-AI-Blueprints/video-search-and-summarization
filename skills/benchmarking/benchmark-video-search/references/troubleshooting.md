@@ -45,9 +45,20 @@ The other ways raw can finish:
 - RT-CV released the stream but wrote no raw documents: raw passes, with a
   warning that nothing was detected.
 
-A video that has raw documents but no behavior documents also passes with a
-warning: zero tracked objects is allowed, but on the stock datasets it usually
-means RT-CV's behavior output is misconfigured.
+A video that has raw documents but no behavior documents, while another video
+in the run does have them, also passes with a warning: zero tracked objects is
+allowed, but on the stock datasets it usually means RT-CV's behavior output is
+misconfigured. If no video has behavior documents, behavior is treated as
+absent instead (below).
+
+An index with no documents for any video is treated as not produced by this
+deployment. Once embeddings are done and `--ingest-absent-grace-s` has passed,
+the gate drops it and confirms as `confirmed (degraded)`. For behavior this
+happens at confirmation. The summary prints `DEGRADED:` with the reason and a
+`WARNING:` that names the attribute and fusion queries affected, and the results
+record `flow.ingest_readiness.absent` and `summary.ingest_degraded`. Those
+scores reflect the missing index, not retrieval quality, so do not quote them.
+Fix the deployment, or pass `--ingest-strict` to fail instead.
 
 The abort message lists every unfinished video with each index's count against
 its target and the reason it is not done:
@@ -58,7 +69,8 @@ its target and the reason it is not done:
 | `RT-CV is still processing` / embed or tag counts short | perception is slow; raise `--ingest-deadline-s` |
 | `N frame docs (frames with detections), still changing` | RT-CV or Logstash is still writing; raise `--ingest-deadline-s` if it never settles |
 | `no frame docs, and the source was not uploaded this run` | a `--skip-existing` source with nothing in `mdx-raw`; re-upload it |
-| `no tag documents` | the profile has no RT-VLM; pass `--ingest-require embed,raw,behavior` |
+| `no tag documents` (some videos tagged, this one not) | RT-VLM is slow or failed on this video; raise `--ingest-deadline-s`. If no video is tagged, the gate drops tags after the grace instead of aborting. |
+| `raw: RT-CV never listed any of N video(s)` (degraded, not an abort) | the RT-CV webhook never fired; same fix as `RT-CV never listed the stream` |
 | `stale documents for X` (before upload) | an earlier ingest of the same name left documents behind; delete the source and let the cleanup webhooks empty the indexes, or use `--clear` / `--only-dataset` |
 | `duration unknown` | install ffprobe on the runner host; the VST timeline fallback also failed |
 
