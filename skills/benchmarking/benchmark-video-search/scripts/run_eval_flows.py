@@ -466,9 +466,9 @@ WIPE_POLL_S = 5.0
 def check_cleanup_hosts(agent_endpoint: str, vst_url: str, ingress_url: str) -> None:
     """Abort unless VST, the ingress and the agent are on one host.
 
-    Sources are listed from VST and deleted through the agent, documents through
-    the ingress. On two hosts, what was read from one stack would be deleted
-    from another.
+    Sources are listed from VST and deleted through the agent, and the ingress
+    confirms their documents are gone. On two hosts, what was read from one
+    stack would be deleted from, or checked against, another.
     """
     host = urlparse(agent_endpoint).hostname
     for flag, url in (("--vst-url", vst_url), ("--ingress-url", ingress_url)):
@@ -507,20 +507,24 @@ def wipe_index(
     """Leave no VST source and no searched document, so the ingest is fresh.
 
     Clean means both: VST alone misses documents an aborted ingest left with
-    no source, and search returns those. Deleting a source only starts its
-    cleanup webhooks, so documents are deleted directly and the state re-read
-    until it is empty on two polls in a row -- one empty read can land between
-    a late write and its cleanup.
+    no source, and search returns those. Only sources can be deleted from
+    here -- the ingress refuses ``_delete_by_query`` -- and each deletion's
+    cleanup webhooks empty that source's documents. The state is re-read until
+    it is empty on two polls in a row: one empty read can land between a late
+    write and its cleanup.
     """
     sources, counts = _index_state(vst_url, ingress_url)
     record: dict[str, Any] = {"clean_before": not sources and not any(counts.values()),
                               "sources_before": len(sources), "documents_before": counts}
     if record["clean_before"]:
         print("  Index is clean: no sources, no documents. Ingesting fresh.")
-        return {**record, "deleted": 0, "documents_deleted": {}, "waited_s": 0.0}
+        return {**record, "deleted": 0, "waited_s": 0.0}
 
     detail = "  ".join(f"{k}={v}" for k, v in counts.items())
-    print(f"  Not clean: {len(sources)} source(s); documents {detail}. Deleting everything.")
+    if not sources:
+        raise SystemExit(_orphans_message(counts, "no VST source owns them"))
+
+    print(f"  Not clean: {len(sources)} source(s); documents {detail}. Deleting every source.")
     cleared = clear_all_videos(agent_endpoint, vst_url)
     if cleared.get("failed"):
         raise SystemExit(
@@ -529,35 +533,36 @@ def wipe_index(
         )
 
     started = clock()
-    documents_deleted = dict.fromkeys(counts, 0)
     empty_reads = 0
     while True:
-        try:
-            for label, n in flows.delete_all_documents(ingress_url).items():
-                documents_deleted[label] = documents_deleted.get(label, 0) + n
-        except (requests.RequestException, ValueError) as e:
-            raise SystemExit(
-                f"ABORTED: could not delete documents through the ingress at {ingress_url} "
-                f"({type(e).__name__}: {e}).\n"
-                "  They would be searched next to the fresh ingest and scored as false positives."
-            ) from e
         sources, counts = _index_state(vst_url, ingress_url)
         empty_reads = empty_reads + 1 if not sources and not any(counts.values()) else 0
         if empty_reads >= 2:
             break
         if clock() - started >= timeout_s:
-            raise SystemExit(
-                f"ABORTED: the index is still not empty {timeout_s:.0f}s after deleting everything: "
-                f"{len(sources)} source(s), documents {counts}.\n"
-                "  Something is still writing. Stop the sources feeding it and rerun."
-            )
+            if sources:
+                raise SystemExit(
+                    f"ABORTED: {len(sources)} source(s) still registered {timeout_s:.0f}s after "
+                    f"deleting every source: {sorted(sources.values())[:10]}\n"
+                    "  Something is registering sources. Stop it and rerun."
+                )
+            raise SystemExit(_orphans_message(counts, f"still there {timeout_s:.0f}s after deleting every source"))
         sleep(poll_s)
 
     waited = round(clock() - started, 1)
-    print(f"  Index empty after {waited}s; deleted {cleared['deleted']} source(s) and "
-          f"{sum(documents_deleted.values())} document(s).")
-    return {**record, "deleted": cleared["deleted"], "names": cleared.get("names", []),
-            "documents_deleted": documents_deleted, "waited_s": waited}
+    print(f"  Index empty after {waited}s; deleted {cleared['deleted']} source(s).")
+    return {**record, "deleted": cleared["deleted"], "names": cleared.get("names", []), "waited_s": waited}
+
+
+def _orphans_message(counts: dict[str, int], why: str) -> str:
+    detail = "  ".join(f"{k}={v}" for k, v in counts.items() if v)
+    patterns = " ".join(flows.SEARCHED_INDEXES.values())
+    return (
+        f"ABORTED: documents with no source are left in the searched indexes ({detail}); {why}.\n"
+        "  Search would return them next to the fresh ingest, and the ingress refuses deletes.\n"
+        "  Usually an earlier ingest aborted. If it is still writing, wait and rerun; otherwise\n"
+        f"  delete them on the Elasticsearch host (_delete_by_query, match_all) from: {patterns}"
+    )
 
 
 def dataset_video_names(video_dir: Path, data_dir: Path, dataset: str, subset: str) -> list[str]:

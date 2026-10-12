@@ -109,17 +109,20 @@ regression.
 
 ### Before ingest: the wipe
 
-Every run without `--skip-ingest` empties the index first: all VST sources and
-all documents in `mdx-embed-filtered-*`, `mdx-raw-*`, `mdx-behavior-*` and
-`default_*`. The deployment may be shared, but nobody else may use it during
-an eval.
+Every run without `--skip-ingest` empties the index first. It deletes every
+VST source, then waits until the cleanup webhooks have emptied
+`mdx-embed-filtered-*`, `mdx-raw-*`, `mdx-behavior-*` and `default_*`. It
+never deletes documents itself: the `:7777` ingress answers
+`_delete_by_query` with 403. The deployment may be shared, but nobody else may
+use it during an eval.
 
 | Abort | Cause | Fix |
 |---|---|---|
 | `... are on different hosts` | `--vst-url` or `--ingress-url` points at another host than `--endpoint` | pass URLs on the endpoint's host |
 | `source(s) could not be deleted` | the agent refused a DELETE | delete them by hand and rerun |
-| `could not count/delete documents through the ingress` | `:7777` unreachable, or no `/elasticsearch` route | pass `--ingress-url` |
-| `still not empty 180s after deleting everything` | something keeps writing (a live RTSP source, another run) | stop it and rerun |
+| `could not count documents through the ingress` | `:7777` unreachable, or no `/elasticsearch` route | pass `--ingress-url` |
+| `documents with no source are left in the searched indexes` | an earlier ingest aborted after its source was deleted, so no webhook will clean them up. With no sources at all this fires at once; otherwise after 180 s | if that ingest is still writing, wait and rerun; otherwise run `_delete_by_query` with `match_all` on the Elasticsearch host for the indexes named |
+| `source(s) still registered 180s after deleting every source` | something keeps registering sources (another run, a live RTSP feed) | stop it and rerun |
 | `--skip-ingest reuses the index, but N dataset video(s) are not registered` | the index does not hold this dataset | drop `--skip-ingest` |
 
 ---
