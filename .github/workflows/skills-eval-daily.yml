@@ -16,7 +16,7 @@ on:
   # deliberately no per-PR `push:` trigger, because a full GPU sweep is far
   # too heavy to run on every pull-request mirror push.
   schedule:
-    - cron: "30 1 * * *"
+    - cron: "30 23 * * *"
       timezone: "America/Los_Angeles"
   # On-demand sweep. The "Run workflow" button only appears when
   # `workflow_dispatch:` is configured on the repo's default branch (`main`),
