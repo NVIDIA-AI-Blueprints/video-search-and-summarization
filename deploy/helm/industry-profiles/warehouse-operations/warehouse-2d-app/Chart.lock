@@ -1,36 +1,36 @@
 dependencies:
 - name: common
   repository: file://../../../services/common
-  version: 3.3.0
+  version: 3.4.0
 - name: vios
   repository: file://../../../services/vios
-  version: 3.3.0
+  version: 3.4.0
 - name: infra
   repository: file://../../../services/infra
-  version: 3.3.0
+  version: 3.4.0
 - name: bp-configurator
   repository: file://../../../services/bp-configurator
-  version: 3.3.0
+  version: 3.4.0
 - name: calibration-import
   repository: file://../../../services/calibration-import
-  version: 3.3.0
+  version: 3.4.0
 - name: rtvi
   repository: file://../../../services/rtvi
-  version: 3.3.0
+  version: 3.4.0
 - name: analytics
   repository: file://../../../services/analytics
-  version: 3.3.0
+  version: 3.4.0
 - name: vss-alert-bridge
   repository: file://../../../services/alert
-  version: 3.3.0
+  version: 3.4.0
 - name: agent
   repository: file://../../../services/agent
-  version: 3.3.0
+  version: 3.4.0
 - name: vss-agent-ui
   repository: file://../../../services/ui
-  version: 3.3.0
+  version: 3.4.0
 - name: monitoring
   repository: file://../../../services/monitoring
-  version: 3.3.0
-digest: sha256:93358de8309354453cfa46339658da294d2d368626a047360a9e03e39760fe11
-generated: "2026-09-28T12:40:00.991421729-07:00"
+  version: 3.4.0
+digest: sha256:b24aee4befff8bd95a100d22f76542ce52350ddf08d578ec7d997a69c8378bdc
+generated: "2026-10-13T09:48:56.911238+05:30"
