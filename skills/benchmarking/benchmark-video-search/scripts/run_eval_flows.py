@@ -566,6 +566,29 @@ def _orphans_message(counts: dict[str, int], why: str) -> str:
     )
 
 
+def check_inputs_before_wipe(video_dir: Path, data_dir: Path, dataset: str, subset: str) -> None:
+    """Abort before deleting anything if this run could not ingest and score.
+
+    The wipe deletes every source, so a missing video folder or unreadable
+    dataset file found after it would leave the deployment empty for nothing.
+    """
+    try:
+        annotations, _ = flows.unpack_dataset(flows.load_dataset_file(data_dir, dataset, subset))
+    except (OSError, ValueError) as e:
+        raise SystemExit(
+            f"ABORTED before deleting anything: could not read the {dataset} dataset under {data_dir} "
+            f"({type(e).__name__}: {e})."
+        ) from e
+    if not annotations:
+        raise SystemExit(f"ABORTED before deleting anything: the {dataset} dataset has no queries.")
+    files = sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv")) if video_dir.is_dir() else []
+    if not files:
+        raise SystemExit(
+            f"ABORTED before deleting anything: no .mp4 or .mkv files under {video_dir}, so there is "
+            "nothing to ingest. Run without --skip-download, or pass --skip-ingest to reuse the index."
+        )
+
+
 def dataset_video_names(video_dir: Path, data_dir: Path, dataset: str, subset: str) -> list[str]:
     """The dataset's video stems: its local files, else its ground truth's names."""
     files = sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv")) if video_dir.is_dir() else []
@@ -980,10 +1003,11 @@ def run_evaluation(
             # The agent searches the original query on embed when decomposition
             # fails, so this query does too. It is counted, not hidden: enough
             # of these and the run measures embed, not routing.
+            started = time.monotonic()
             try:
                 decomposition, decompose_s = decomposer.decompose(query, video_sources=video_names)
             except flows.DecompositionError as e:
-                decomposition, decompose_s = {"query": query}, 0.0
+                decomposition, decompose_s = {"query": query}, time.monotonic() - started
                 decompose_error = str(e)[:300]
             query_backend.decompositions[query] = decomposition
 
@@ -1389,8 +1413,9 @@ def _summarize(
     if decomposed:
         # Reported next to, not inside, the search latency: decomposition is an
         # LLM call the CLI never makes, so folding it into latency_s would make
-        # runs with and without it incomparable. A failed call's 0 s is kept
-        # out of the timings; it is counted under `failed` instead.
+        # runs with and without it incomparable. A failed call's time is in
+        # its query's total_latency_s but kept out of these stats, which
+        # describe successful decompositions; it is counted under `failed`.
         timed = [r for r in decomposed if not r.get("decompose_failed")]
         times = [r["decompose_s"] for r in timed]
         failed = [r for r in decomposed if r.get("decompose_failed")]
@@ -2057,6 +2082,7 @@ def main() -> None:
             vst_url, dataset_video_names(video_dir, args.data_dir, args.dataset, args.subset)
         )
     else:
+        check_inputs_before_wipe(video_dir, args.data_dir, args.dataset, args.subset)
         check_cleanup_hosts(args.endpoint, vst_url, ingress_url)
         print(f"\nChecking the index before ingest (VST {vst_url}, Elasticsearch via {ingress_url})...")
         cleared = wipe_index(args.endpoint, vst_url, ingress_url)
