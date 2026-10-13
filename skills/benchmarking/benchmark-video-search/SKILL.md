@@ -324,9 +324,12 @@ Critic-filtered `NA` means verification was not available, not zero quality. Use
 - A non-zero CLI exit aborts the run rather than scoring 0.0. A stale virtualenv
   exits 1 on every invocation, and scoring that as "no results" would report a
   broken environment as an accuracy regression.
-- Queries do not merge adjacent windows by default. Upstream merging averages
-  the scores of merged windows and changes the precision denominator, so a
-  merged run is not comparable to an unmerged baseline.
+- Queries merge adjacent windows by default, as the agent does. Merging is
+  also what makes the search fetch the agent's doubled candidate pool;
+  unmerged runs search a smaller pool and score lower recall. Result files
+  captured before this default were unmerged. Their precision and mAP are not
+  comparable with a merged run, because merged windows span more segments.
+  Check `config.merge_adjacent` before comparing two runs.
 - The critic is an LLM and is not deterministic. Raw metrics repeat exactly;
   critic-filtered ones move a few points between runs. Gate on raw.
 - Live decomposition is not deterministic either. The same query can route

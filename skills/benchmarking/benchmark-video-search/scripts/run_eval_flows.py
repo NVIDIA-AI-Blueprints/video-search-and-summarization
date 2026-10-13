@@ -27,10 +27,11 @@ stay comparable with baselines captured by the old runner.
 
 Several defaults here look arbitrary and are load-bearing:
 
-* ``--no-merge-adjacent`` is ON by default in this script, because upstream
-  merging averages the scores of merged windows and changes the precision
-  denominator. The historical baseline has unmerged windows; keeping them
-  unmerged is what makes the comparison mean anything.
+* ``--merge-adjacent`` is ON by default, as in the agent. The search library
+  only fetches the agent's doubled candidate pool when merging is on, so an
+  unmerged run searches a smaller pool than the agent does. Merged windows
+  span more segments, so precision and mAP are not comparable with result
+  files captured unmerged; ``--no-merge-adjacent`` reproduces those.
 * Critic-filtered metrics are suppressed rather than zeroed when no
   verification block is present, so an unfiltered run can never be mistaken
   for a filtered one.
@@ -1675,11 +1676,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     query.add_argument("--concurrency", type=int, default=1)
     query.add_argument(
         "--merge-adjacent",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
-            "Let the CLI merge contiguous same-sensor windows (upstream default). "
-            "OFF here by default: merging averages scores and changes the precision "
-            "denominator, breaking comparability with the REST baseline."
+            "Let the CLI merge contiguous same-sensor windows (default: on, as the "
+            "agent does). Merging is also what makes the search fetch the agent's "
+            "doubled candidate pool. --no-merge-adjacent reproduces unmerged result "
+            "files; their precision and mAP are not comparable with merged runs."
         ),
     )
 

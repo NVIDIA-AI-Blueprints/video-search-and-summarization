@@ -169,10 +169,17 @@ def test_fusion_path_carries_both_legs() -> None:
     assert "--query" in argv and "--attribute" in argv
 
 
-def test_merging_is_off_by_default_for_comparability() -> None:
-    """Upstream merges by default; the eval must not, or the baseline breaks."""
-    assert "--no-merge-adjacent" in flows.CliQueryBackend(["vss"]).build_argv("q")
-    assert "--no-merge-adjacent" not in flows.CliQueryBackend(["vss"], merge_adjacent=True).build_argv("q")
+def test_merging_is_on_by_default_like_the_agent() -> None:
+    """Merging is what makes the search fetch the agent's doubled pool."""
+    assert "--no-merge-adjacent" not in flows.CliQueryBackend(["vss"]).build_argv("q")
+    assert "--no-merge-adjacent" in flows.CliQueryBackend(["vss"], merge_adjacent=False).build_argv("q")
+
+
+def test_merge_adjacent_flag_defaults_on_and_can_be_turned_off() -> None:
+    import run_eval_flows as rf
+
+    assert rf.parse_args(["--endpoint", "https://host:8000"]).merge_adjacent is True
+    assert rf.parse_args(["--endpoint", "https://host:8000", "--no-merge-adjacent"]).merge_adjacent is False
 
 
 def test_invalid_search_path_rejected_before_any_request() -> None:
