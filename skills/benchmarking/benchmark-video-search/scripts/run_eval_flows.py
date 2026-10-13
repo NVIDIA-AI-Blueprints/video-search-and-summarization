@@ -566,6 +566,16 @@ def _orphans_message(counts: dict[str, int], why: str) -> str:
     )
 
 
+VIDEO_SUFFIXES = (".mp4", ".mkv")
+
+
+def local_videos(video_dir: Path) -> list[Path]:
+    """The fixture videos under ``video_dir``, mp4 first, each group sorted."""
+    if not video_dir.is_dir():
+        return []
+    return [f for suffix in VIDEO_SUFFIXES for f in sorted(video_dir.glob(f"*{suffix}"))]
+
+
 def check_inputs_before_wipe(video_dir: Path, data_dir: Path, dataset: str, subset: str) -> None:
     """Abort before deleting anything if this run could not ingest and score.
 
@@ -581,8 +591,7 @@ def check_inputs_before_wipe(video_dir: Path, data_dir: Path, dataset: str, subs
         ) from e
     if not annotations:
         raise SystemExit(f"ABORTED before deleting anything: the {dataset} dataset has no queries.")
-    files = sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv")) if video_dir.is_dir() else []
-    if not files:
+    if not local_videos(video_dir):
         raise SystemExit(
             f"ABORTED before deleting anything: no .mp4 or .mkv files under {video_dir}, so there is "
             "nothing to ingest. Run without --skip-download, or pass --skip-ingest to reuse the index."
@@ -591,7 +600,7 @@ def check_inputs_before_wipe(video_dir: Path, data_dir: Path, dataset: str, subs
 
 def dataset_video_names(video_dir: Path, data_dir: Path, dataset: str, subset: str) -> list[str]:
     """The dataset's video stems: its local files, else its ground truth's names."""
-    files = sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv")) if video_dir.is_dir() else []
+    files = local_videos(video_dir)
     if files:
         return [f.stem for f in files]
     annotations, _ = flows.unpack_dataset(flows.load_dataset_file(data_dir, dataset, subset))
@@ -656,7 +665,7 @@ def ingest_videos(
     and may abort before any bytes are sent. ``after_upload`` receives each
     successful upload's record as soon as it returns.
     """
-    video_files = sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv"))
+    video_files = local_videos(video_dir)
     if not video_files:
         print(f"  No video files found in {video_dir}")
         return flows.aggregate_upload_stats([])
