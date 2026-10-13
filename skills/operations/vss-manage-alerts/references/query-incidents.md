@@ -58,7 +58,12 @@ is several rows. `GET /api/v1/realtime/incidents` has two views — pick one bef
 - **Raw** (default) → **chunks**. Lists, counts with no period, counts phrased as *incidents /
   alerts*, forensics (`chunk_ids`, on-demand results), and every ask on a CV deployment. On VLM
   real-time report the number as chunks; on CV the rows are verifier / on-demand results —
-  report them as incident records, never as chunks or events.
+  report them as incident records, never as chunks or events, with each row's `info.verdict`
+  (a `rejected` row is a candidate the verifier dismissed, not a triggered alert). An alert count
+  on CV is counted the way Workflow B step 2 counts — its query (`limit=1000`; the all-pages
+  recipe once when `complete` is false) and the program in `references/verification.md` — as `by_verdict.confirmed`
+  (the `by_category` entry for a named kind) with its rejected / verification-failed / empty
+  counts; never `verified` or `total` alone, never by hand, and never from an (a)/(b) page below.
 - **Consolidated** (`consolidate=true`; needs `start_time` + `end_time`, else 400) → **events**:
   *consecutive* confirmed RT-VLM chunks with the same `sensorId` + `category` folded together
   (`info.isConsolidated`, `info.chunkCount`, `chunk_ids`). Only for *how many events / times* in
@@ -126,7 +131,8 @@ against VIOS.
 
 ```bash
 # Each block is its own shell; define what it uses.
-# 2. query — run ONE ANSWERING query of these three, never more: the unscoped call answers a
+# 2. query — run ONE ANSWERING query of these three, never more (on CV, an alert count uses
+#    Workflow B's step-2 query instead — see the raw-view note above): the unscoped call answers a
 #    different question, and its count is the one that gets misreported as a single sensor's;
 #    the consolidated call counts events, the raw calls count chunks. ((c)'s category lookup
 #    is a lookup, not an answer.)
@@ -285,6 +291,6 @@ TOTAL=$(curl -sfG "$AB/api/v1/realtime/incidents" \
 > tell you it was a typo. This is the opposite of Workflow D, where the rule-create payload's
 > `sensor_id` **must** be the VIOS UUID.
 
-Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }` (the schema also declares `truncated`, default `false`; raw responses omit it). In the raw view `total` is Elasticsearch's thresholded hit count: exact below 10000, saturating at it, and nothing in the raw response tells those two apart — so exactly 10000 is a lower bound, not a count. Summarize each incident's timestamp, sensor (report `sensorId` as returned — usually the name, no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer once it has been checked** — when the ask named a sensor, a zero scoped by the NAME means *not under this identity*, so run step 3 before reporting it; a zero already scoped by the UUID (step 3 or (c)'s category lookup switched you) is the checked answer — do not run step 3 again. Then report "none found / count 0" and STOP; do not fall back to listing rules. When the ask named a sensor, the count you report is the **scoped** one: quote **`total`** from the response you filtered by the identity you confirmed — the name, or the UUID that step 3 or (c)'s category lookup matched; or the 0 that (c)'s category lookup established under both identities — and say which sensor, and which identity, it belongs to. `total` is how many matched; `count` is how many came back in the page you asked for, and it stops at `limit` (100 by default), so quoting it turns 500 incidents into 100 without any sign that it did. A `0` read off the unfiltered query answers a different question — and it is also what a mistyped name returns, so neither you nor the reader can tell the two apart afterwards.
+Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }` (the schema also declares `truncated`, default `false`; raw responses omit it). In the raw view `total` is Elasticsearch's thresholded hit count: exact below 10000, saturating at it, and nothing in the raw response tells those two apart — so exactly 10000 is a lower bound, not a count. Summarize each incident's timestamp, sensor (report `sensorId` as returned — usually the name, no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer once it has been checked** — when the ask named a sensor, a zero scoped by the NAME means *not under this identity*, so run step 3 before reporting it; a zero already scoped by the UUID (step 3 or (c)'s category lookup switched you) is the checked answer — do not run step 3 again. Then report "none found / count 0" and STOP; do not fall back to listing rules. (On CV, an alert count comes from the Workflow B program as above, not from `total`.) When the ask named a sensor, the count you report is the **scoped** one: quote **`total`** from the response you filtered by the identity you confirmed — the name, or the UUID that step 3 or (c)'s category lookup matched; or the 0 that (c)'s category lookup established under both identities — and say which sensor, and which identity, it belongs to. `total` is how many matched; `count` is how many came back in the page you asked for, and it stops at `limit` (100 by default), so quoting it turns 500 incidents into 100 without any sign that it did. A `0` read off the unfiltered query answers a different question — and it is also what a mistyped name returns, so neither you nor the reader can tell the two apart afterwards.
 
 With `consolidate=true` the same envelope carries `truncated`, and the numbers change meaning: `total` is the number of **events** in the window (exact whenever `truncated` is `false`), `count` the events on the page, and each event carries `info.isConsolidated: "true"`, `info.chunkCount` (a string), `chunk_ids`, and a `timestamp`..`end` span. Report it as events and name the window — "2 intrusion events on `warehouse_sample` between 10:00 and 10:30 UTC (4 chunks)" — never as a chunk count, and never mix the two views in one figure. `truncated: true` makes `total` a lower bound; say so.

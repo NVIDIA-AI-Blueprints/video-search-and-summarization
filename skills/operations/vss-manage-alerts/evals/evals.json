@@ -103,13 +103,13 @@
     "id": "alerts-verification-verdict-routing",
     "question": "The alerts deployment is in CV verification mode. Was the ladder-safety alert on sample-warehouse-ladder confirmed?",
     "expected_skill": "vss-manage-alerts",
-    "ground_truth": "The agent routes a 'was it confirmed / show verdicts' ask to Workflow B (Verification Results & Verdicts) on a CV verification deployment. It reads verdicts from the mdx-vlm-alerts-* Elasticsearch store via the interim :9200 probe (that store has no REST query endpoint yet), never from the active-rules list, the /incidents endpoint, or the mdx-vlm-incidents-* incident store. An empty hit list is a valid 'no verification results yet' answer.",
+    "ground_truth": "The agent routes a 'was it confirmed / show verdicts' ask to Workflow B (Verification Results & Verdicts) on a CV verification deployment. Stock Behavior Analytics candidates are incident-kind, so Alert Bridge writes their verified results to mdx-vlm-incidents-*; the agent reads them through Alert Bridge GET /api/v1/realtime/incidents (raw view, scoped to the sensor) and keeps the documents carrying info.verificationResponseCode — never the active-rules list, and never an empty mdx-vlm-alerts-* taken as 'no verdicts'. No verifier result is a valid 'no verification results yet' answer.",
     "expected_behavior": [
-      "Loads vss-manage-alerts and recognizes a 'was it confirmed / show verdicts' ask as Workflow B verification, not a rules-list or historical-incident query.",
-      "Sources the verdict answer from Elasticsearch mdx-vlm-alerts-* (e.g. GET http://${HOST_IP}:9200/mdx-vlm-alerts-*/_search), the store CV verification writes to.",
-      "Does not answer the verdict question from Alert Bridge GET /api/v1/realtime (active rules), from GET /api/v1/realtime/incidents, or from the mdx-vlm-incidents-* incident store — those carry no verification verdicts.",
-      "Reports info.verdict and info.reasoning grounded in returned documents, accepting camelCase or snake_case on the verification response-code field.",
-      "Treats an empty result as a valid 'no verification results yet' answer and does not fabricate a verdict.",
+      "Loads vss-manage-alerts and recognizes a 'was it confirmed / show verdicts' ask as Workflow B verification, not a rules-list or historical-incident listing.",
+      "Sources the verdict answer from Alert Bridge GET /api/v1/realtime/incidents in the raw view (no consolidate=true), scoped with sensor_id=sample-warehouse-ladder, keeping the documents that carry info.verificationResponseCode.",
+      "Does not answer the verdict question from Alert Bridge GET /api/v1/realtime (active rules), from RT-VLM chunks (info.chunkIdx), or from an empty mdx-vlm-alerts-* store.",
+      "Reports info.verdict, info.verificationResponseCode (a string, \"200\" = success) and info.reasoning (stated as empty when empty) grounded in returned documents.",
+      "Treats no verifier result as a valid 'no verification results yet' answer and does not fabricate a verdict.",
       "Does not route this request to the VSS Agent POST /generate."
     ]
   },
