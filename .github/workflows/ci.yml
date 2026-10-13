@@ -1087,10 +1087,7 @@ jobs:
     name: Security Scan (detect-secrets)
     needs: prepare-source
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: services/agent
+    timeout-minutes: 20
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
@@ -1114,12 +1111,34 @@ jobs:
       - name: Install detect-secrets
         run: python -m pip install detect-secrets==1.5.0
 
+      # tracked-files.txt is git ls-files output: paths from the repository
+      # root. detect-secrets opens those paths from the working directory and
+      # skips a path it cannot open, so this step must run at the root. A
+      # services/agent working directory left the required check green while
+      # it read four files.
       - name: detect-secrets
+        working-directory: ${{ github.workspace }}
         run: |
+          list="$GITHUB_WORKSPACE/.ci/tracked-files.txt"
+          missing=0
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+              echo "::error::detect-secrets cannot open tracked file: $path"
+              missing=$((missing + 1))
+            fi
+          done < "$list"
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Refusing a green scan: $missing tracked files were not opened from the repository root."
+            exit 1
+          fi
+          # Git LFS paths are excluded. This job's source archive stores
+          # services/vios blobs as pointers and smudges the other LFS files.
+          # A baseline built from pointer text would not match that archive.
           detect-secrets-hook --no-verify \
-            --exclude-files '(gitleaks-baseline\.json|^deploy/docker/MANIFEST$)' \
-            --exclude-files '(\.secrets\.baseline|gitleaks-baseline\.json|^deployments/MANIFEST$)' \
-            $(cat "$GITHUB_WORKSPACE/.ci/tracked-files.txt")
+            --baseline .secrets.baseline \
+            --exclude-files '(\.secrets\.baseline|gitleaks-baseline\.json|^deploy/docker/MANIFEST$|^deployments/MANIFEST$|deploy/docker/services/infra/elk/logstash/gems/|services/agent/3rdparty/ffmpeg/|services/alert/warmup/test\.mp4|services/analytics/behavior-analytics/tests/integration/docker_compose/apps_data/playback/|services/analytics/behavior-analytics/tests/integration/expected_output/|services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/|services/rtvi/rt-cv/TritonGdino/prebuilts/|services/rtvi/rt-cv/TritonMaskGdino/prebuilts/|services/rtvi/rt-cv/prebuilts/|services/rtvi/rt-embed/docker/binaries/|services/rtvi/rt-vlm/artifacts/|services/vios/prebuilts/|services/vios/LICENSE\.3rdparty$|services/vios/test/bdd_tests/data/test_video\.mp4$|services/vios/tools/)' \
+            $(cat "$list")
 
   # ---------------------------------------------------------------------------
   # Job 5: Frontend lint + typecheck
