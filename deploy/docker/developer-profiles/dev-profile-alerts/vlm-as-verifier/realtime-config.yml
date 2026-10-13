@@ -9,5 +9,5 @@ always_on_rules:
     alert_type: "Ladder PPE Violation"
     always_on_params:
       system_prompt: "You are a helpful assistant."
-      prompt: "Is anyone on the ladder without a hardhat or safety vest? Answer yes or no."
+      prompt: "Is there a ladder in the scene, if no you must always answer no. If there is a ladder, determine if anyone on the ladder without a hardhat or safety vest? Answer yes or no."
       model: "${VLM_NAME}"
