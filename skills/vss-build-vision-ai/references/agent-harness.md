@@ -301,7 +301,7 @@ with no way to drive it.
   installed. Do not build a sandbox image of your own for this.
 - **`NEMOCLAW_DASHBOARD_PORT` (`18789`) and `NEMOCLAW_DASHBOARD_RELAY_PORT`
   (`18790`) free, or held by this build's own sandbox; `NEMOCLAW_GATEWAY_PORT`
-  (`8080`) free, or held by this user's own gateway; and both
+  (`8080`) free; and both
   `/tmp/nemoclaw-dashboard-*.log` paths writable.** See [Ports the harness
   claims](#ports-the-harness-claims) — the one prerequisite whose remedy is the
   user's to run, because clearing it destroys someone else's sandbox.
@@ -350,7 +350,9 @@ same two ports, so any sandbox still running on this host holds them.
 The gateway behind the forward binds `NEMOCLAW_GATEWAY_PORT` (`8080`), one per
 user rather than per sandbox, and cell 3.1 aborts when it cannot attribute that
 listener — so another user's gateway fails onboard before any sandbox exists.
-This user's own `openshell-gateway` there is the reuse case, not a conflict.
+A gateway already there is torn down rather than reused: it carries one live
+inference route, and onboarding onto it re-points that route for every sandbox
+on it, moving the user's other harness to this build's model with a warning.
 Section 3.5 then appends to two fixed paths, `/tmp/nemoclaw-dashboard-relay.log`
 and `/tmp/nemoclaw-dashboard-watchdog.log`, which another user's `0600` log
 makes unwritable.
@@ -398,18 +400,18 @@ done
 ```
 
 **No `openshell` on the host is a pass, not a failed probe.** Cell 3.1 installs
-it, so the fresh host Q3 supports has none — and with none, no sandbox is
-running to hold any of the three. All three free, both logs writable, and no
-relay or watchdog in the process list is the whole preflight satisfied: accept
-the yes and continue. A held port still blocks even when nothing can name its
-holder.
+it under `~/.local/bin`, so the fresh host Q3 supports has none — and with none,
+no sandbox *of this user's* is running to hold any of the three. Another user's
+gateway and sandbox are invisible to that check, and the bind test is what
+catches them. All three free, both logs writable, and no relay or watchdog in
+the process list is the whole preflight satisfied: accept the yes and continue.
+A held port still blocks even when nothing can name its holder.
 
 **A held port with no named holder leaves the owner unknown.** Unprivileged,
 `lsof` and `ss` list only this user's sockets, and a host lacking both names
-nothing at all — not even this user's own reusable gateway on `8080`. Report the
-port and ask the user who holds it rather than reading an owner out of the
-silence. Where a check does establish another user, the remedy block below
-cannot clear it — `pkill` does not signal their relay or watchdog, and
+nothing at all, a gateway on `8080` included. Report the port and ask the user
+who holds it rather than reading an owner out of the silence. Where a check does
+establish another user, the remedy block below cannot clear it — `pkill` does not signal their relay or watchdog, and
 `nemoclaw destroy` does not see their sandbox — so ask them to have the
 deploying user run [Teardown](teardown.md#nemoclaw-harness--before-compose)
 from the checkout that deployed. An unwritable
@@ -470,12 +472,13 @@ rather than hand over.** The notebook takes the name regardless: section 3.1
 adds `--recreate-sandbox` for it and discards that sandbox's agent sessions.
 So put the choice before the deploy, not in the final summary — say which name
 is held, which build recorded it or that none did, and whose sessions a yes
-discards. Take either a yes to recreate it, or another `NEMOCLAW_SANDBOX_NAME`
-with a free port pair to go with it, which leaves that sandbox running and
-onboards beside it. Two ordinary situations land here: a fresh checkout on a
-host that has built before — an eval box — and a second build beside one whose
-harness is still up. Both are the question doing its job, not a false positive
-to wave through.
+discards. Take a yes to recreate it, or its owner's own
+[Teardown](teardown.md#nemoclaw-harness--before-compose); onboarding beside it
+under another name is not on offer, because both sandboxes would share the one
+gateway. Two ordinary situations land here: a fresh checkout on a host that has
+built before — an eval box — and a second build beside one whose harness is
+still up. Both are the question doing its job, not a false positive to wave
+through.
 
 **Anything else is a hard blocker**, including a held port nothing could name —
 report it as held by an unidentified listener. Report what holds which port, hand the
@@ -497,10 +500,13 @@ OTHER_RE="$(printf '%s' "$OTHER" | sed 's/[][(){}.*+?^$|\\]/\\&/g')"
 pkill -f -- "dashboard-forward-watchdog\.py --sandbox ${OTHER_RE}( |$)"
 nemoclaw "$OTHER" destroy --yes --cleanup-gateway
 pkill -f -- "dashboard-relay\.py --sandbox ${OTHER_RE}( |$)"
+# With the `destroy` dropped, this is what frees the port instead.
+openshell gateway remove nemoclaw                   # `nemoclaw-<port>` off 8080
 ```
 
-Re-probe both ports and resume once each is free or back to a holder this
-build owns.
+Re-probe all three ports and both log paths, and resume once each is free or
+back to a holder this build owns. `--cleanup-gateway` does not prove `8080` was
+released, so the probe settles it rather than the command's exit.
 
 ## Default provider
 
