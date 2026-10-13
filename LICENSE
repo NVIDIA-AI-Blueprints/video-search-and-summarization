@@ -19,6 +19,14 @@ File-level exceptions:
     libnvjpeg redistribution and is retained verbatim per the IJG license's
     notice-preservation requirement; the file's embedded text governs.
 
+  - LIVE555-derived headers under services/vios/src/framework/live555/inc/live/
+    and the modified LIVE555 shared libraries at
+    services/vios/prebuilts/*/liblivemedia.so are provided under
+    LGPL-3.0-or-later. NVIDIA-authored integration code under
+    services/vios/src/framework/live555/rtsp_client/ and
+    services/vios/src/framework/live555/inc/live555helper/ remains licensed
+    under Apache-2.0 as stated in those files.
+
   - The following NVIDIA proprietary license text documents are retained in
     the repository so they can be packaged into the container images built
     from this repository. Each is provided under LicenseRef-NvidiaProprietary,
@@ -28,6 +36,10 @@ File-level exceptions:
       - assets/NVIDIA-Software-License-Agreement.pdf
       - services/rtvi/rt-embed/docker/NVIDIA-Software-License-Agreement.pdf
       - services/rtvi/rt-vlm/docker/NVIDIA-Software-License-Agreement.pdf
+
+Third-party copyright and license notices for components distributed with
+VIOS are recorded in services/vios/LICENSE.3rdparty, which is the authoritative
+third-party inventory for services/vios.
 
 This project also contains Elasticsearch, Kibana and Redis configuration files, which are dual-licensed and may be used under your choice of either:
    - Server Side Public License v1 (SSPLv1)
