@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # Multi-architecture Dockerfile for production builds (AMD64/ARM64)
 ARG USER_ID=1000
 ARG GROUP_ID=1000
