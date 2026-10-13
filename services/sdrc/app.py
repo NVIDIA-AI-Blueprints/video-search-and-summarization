@@ -4067,7 +4067,8 @@ def WorkloadHealthCheckWatcher():
         app.config.get("WDM_WL_HEALTH_CHECK_URL"),
         app.config.get("WDM_HEALTH_CHECK_INTERVAL"),
     )
-    return health_watcher.start()
+    health_watcher.start()
+    return True
 
 
 def GetRecoveryWorkloadSpecs(pod_name, assignment_key=None):
@@ -4234,5 +4235,7 @@ if __name__ == "__main__":  # Script executed directly?
             "gRPC ADS listener disabled in this process; REST CDS/RDS xDS "
             "endpoints remain registered for compatibility"
         )
-    app.logger.info("application start on port %s" % (app.config["PORT"]))
-    app.run(host="0.0.0.0", port=app.config["PORT"], use_reloader=False)
+    app.logger.info(
+        "application start on %s:%s" % (app.config["BIND_HOST"], app.config["PORT"])
+    )
+    app.run(host=app.config["BIND_HOST"], port=app.config["PORT"], use_reloader=False)

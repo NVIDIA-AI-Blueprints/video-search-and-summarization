@@ -1,6 +1,6 @@
 ---
 name: vss-search-archive
-description: Use this skill when a user wants to search archived VSS video or ingest or delete a source for search. Do not use it for visual Q&A, live captioning, or video summarization.
+description: Use this skill when a user wants to search archived VSS video that is already registered in a configured deployment — by natural-language, similarity, attribute, object-ID, or lexical tag query. Not for fresh clip Q&A, live captioning, video summarization, deployment, or source ingestion/deletion.
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
@@ -14,263 +14,224 @@ metadata:
   vss-requires: "search"
 ---
 
-# VSS Search Archive
-
-## Purpose
-
-Operate archive search from the caller's host. Compose and Kubernetes use the
-same `vss configure` and `vss search run` commands; only the deployment origin
-differs. Source ingestion and deletion are Agent-backed **when the deployment has
-an agent `/api` route**; on a build without one, they belong to
-`vss-manage-video-io-storage` `references/provision-vios-source.md`.
+# Search archived VSS video
 
 ## When to Use
 
-- Search archived VSS video by natural-language or similarity query
-- Ingest a source for search, or delete a previously ingested source (Agent-backed when an agent `/api` route exists)
+- Search archived VSS video that is already registered in a configured deployment, by natural-language, similarity, attribute, object-ID, or lexical tag query.
 
-Not for visual Q&A, live captioning, or video summarization.
+Not for:
 
-## Hard boundaries
+- A fresh visual question about a supplied local clip — `vss-ask-video`.
+- Long-form summarization of a recording — `vss-summarize-video`.
+- Deploying or changing a profile — `/vss-build-vision-ai`.
+- Ingesting or deleting a source — use the deployment's source-management workflow.
 
-- Run the project-local CLI on the host. Never use `docker exec`, `kubectl
-  exec`, a pod shell, or a globally installed `vss` as a substitute.
-- Never improvise a mutation against Elasticsearch, RTVI-CV, RTVI-Embed,
-  storage-ms, or VST. Two paths are sanctioned, and the deployment picks which:
-  the Agent upload/delete lifecycle where an agent `/api` route answers, and
-  `vss-manage-video-io-storage` `references/provision-vios-source.md` where none
-  does. That recipe owns VIOS registration and the hand-driven RT-VLM legs;
-  nothing sanctions a direct call to RTVI-CV or RTVI-Embed, which receive every
-  source from VIOS.
-- Never remove, broaden, or silently substitute a requested source constraint.
-- Similarity is retrieval evidence, not proof of visual presence.
-- The CLI attempts critic verification by default. Do not separately inspect
-  screenshots or call another verifier during the initial search turn.
-- Offer delegated verification only when every displayed result is
-  `unverified`, and only after displaying them and receiving explicit user
-  confirmation. If any result is `confirmed` or `rejected`, do not hand off
-  any result to another verifier.
+Answer from the configured deployment through the installed `vss` CLI. Do not
+fall back to raw REST when a CLI command fails.
+
+> **Hard rule — use the `vss` CLI for retrieval.** `vss configure` has already
+> pointed the CLI at the deployment, so every search action goes through
+> `vss search run` and nothing reaches the deployment any other way.
+>
+> Four things follow:
+>
+> - use the `vss` on PATH (see Prerequisites); never `docker exec`, `kubectl
+>   exec`, a pod shell, or a hand-built `/api/v1/search` call;
+> - a named source is resolved with `vss vios list` before search — never
+>   inferred from a display name, and never substituted when missing;
+> - capture stdout and the exit status separately — never put the command
+>   behind `if !`, which hides the real exit code, and never discard usable
+>   exit-6 results;
+> - a failing command is a finding: report the exit code rather than routing
+>   around it, repairing the deployment, or retrying with broadened scope.
 
 ## Prerequisites
 
-- A running VSS `search` profile and its host-reachable Compose or Ingress
-  origin.
-- The `vss` CLI on `PATH`. The OpenClaw and Hermes harness images ship it; anywhere else, install it from the same checkout as this skill so the CLI and the skill match: `uv tool install <checkout>/libs/vss/cli`.
-- `curl` and `jq`.
-- `vss vios list` for source listing and inspection (same CLI, same recorded origin).
+- A running VSS `search` profile with `vss configure` already run against its origin. Refresh configuration after first ingestion, once source provisioning has established readiness; lazy raw indexes enable frame enrichment for attribute/fusion.
+- The `vss` CLI on PATH. The OpenClaw and Hermes harness images ship it; anywhere else, install it from the same checkout as this skill so the CLI and the skill match: `uv tool install <checkout>/libs/vss/cli`.
 
-Check the CLI once:
+Bootstrap, exit codes, and common CLI rules live in [AGENTS.md](../../../AGENTS.md).
 
-```bash
-vss search run --help >/dev/null || exit 1
-```
+## Source management handoff
 
-Resolve the deployment through its one public/host origin:
+For an explicit request to ingest or delete a source, use
+`vss-manage-video-io-storage` for `vss vios add` or `vss vios delete`, then
+return to archive search once the source is available. The deployment's mounted
+notification config owns consumer fan-out; the presence of an Agent tier does
+not change the VIOS registration path. Check the requested receiver as enabled,
+absent, or unknown under source management's policy contract. With an enabled
+receiver, use fan-out; with confirmed absent lifecycle support, report that
+limitation. Only an explicit tagging request with a confirmed absent streaming
+tagging receiver and the provisioning prerequisites may use manual tagging.
+With unknown policy, report unconfirmed fan-out, never unavailable indexing,
+and do not start manual tagging.
+If the user only asks to search a named source and it is missing, do not
+ingest, switch videos, or run an unrestricted search — answer with the reply
+[Search workflow step 1](#search-workflow) specifies for zero matches. If no
+supported source management workflow is available, report that blocker.
 
-```bash
-if [ -z "${VSS_ORIGIN:-}" ]; then
-  VSS_ORIGIN=$(vss configure show 2>/dev/null |
-    jq -er '.base_url | select(type == "string" and length > 0)') || {
-      echo "Provide the Compose or Ingress origin" >&2
-      exit 1
-    }
-fi
-VSS_ORIGIN="${VSS_ORIGIN%/}"
-VST_URL="${VSS_ORIGIN}"
-VSS_VIOS_URL="${VSS_ORIGIN}/vst"
-vss configure --base-url "${VSS_ORIGIN}" || exit 1
-```
+## Search workflow
 
-In a persisted multi-step workflow, reuse the origin recorded by the prepared
-deployment as above. Do not repeat public-origin selection, edit routing, or
-redeploy merely because the next agent turn did not inherit shell variables.
+**1. Resolve a named source.** If the request names a file, camera, or sensor,
+resolve it with `vss vios list` (it reads the origin `vss configure` recorded,
+so it takes no endpoint). Accept an exact name or sensor ID, or one unambiguous
+normalized match; stop on zero or multiple matches. The listing is
+`{"count", "type", "sensors": [...]}`; preserve the matched entry's
+`.sensors[].name` and `.sensors[].sensor_id`, and never infer an identifier from
+the display name. Below, `.name` and `.sensor_id` mean those fields.
 
-See [deployment resolution](../../vss-build-vision-ai/references/deployment_resolution.md)
-for the deployment-owned `VSS_PUBLIC_URL` contract. On Kubernetes, never use
-port-forwarding, Service DNS, NodePorts, or a guessed Helm release. Routes not
-exposed through the Ingress are recorded as absent and a search path needing
-one exits 4.
+Stopping is not the whole answer — the reply has to hand the decision back. On
+zero matches, the final reply states all three of:
 
-For deployment readiness, ingestion, fixture cleanup, index checks, RTSP, or
-deletion, read [source lifecycle](references/source_lifecycle.md) completely
-before acting. Re-run `vss configure` after the first ingestion: the recorded
-raw family is what enables frame-level lookups (it gates `frames_index`, which
-attribute and fusion need for frame enrichment). Only source-type selection is
-independent of the index inventory.
+- the requested name is not registered;
+- the sources that *are* registered, from the listing;
+- a request that the user clarify which source they meant, or explicitly ask
+  for the missing one to be ingested.
 
-## Mandatory search workflow
+The third is as required as the first two. Refusing to substitute is correct
+but incomplete: a reply that reports the mismatch and then stops leaves the
+user with no stated next step. Ingesting, switching to another video, or
+dropping the source filter and searching everything are all still forbidden
+(see [Source management handoff](#source-management-handoff)). On multiple
+matches, name the candidates and ask which one.
 
-1. Confirm the selected deployment is the `search` profile. If required routes
-   are unavailable, ask whether to reconnect or deploy it with
-   the `/vss-build-vision-ai` stock Search workflow; do not target another profile.
+**2. Choose one retrieval path.** Preserve the user's exact original sentence for
+`--original-query` first — critic verification must receive that wording, while
+retrieval may use the decomposed query, attributes, or object IDs. Then choose
+exactly one path:
 
-2. When the user names a file, camera, or sensor, list registered sources with
-   `vss vios list` before invoking the search CLI — it reads the origin
-   `vss configure` recorded, so it takes no endpoint. Accept only an exact
-   source, stream ID, or one unambiguous normalized substring match.
+- `object` — explicit tracked object IDs;
+- `tag` — explicit lexical tag/keyword intent (BM25 over indexed VLM tags), not semantic free text;
+- `attribute` — detectable properties only, no action or relation;
+- `fusion` — a detectable property combined with an action or relation;
+- otherwise `embed` — semantic free text.
 
-   - No match: report the missing source, list available names, and ask the
-     user to clarify or explicitly request ingestion. Stop without probing the
-     search CLI, deploying, or ingesting. **Never continue with a different
-     source.** Answering about `warehouse_sample` when the request named
-     `warehouse-ladder` returns a confident answer about the wrong video, and
-     nothing downstream can tell it was substituted.
-   - Several matches: ask the user to choose and stop.
-   - Never substitute another video or run an unrestricted search as a probe.
+`--attribute` is for properties RT-CV detects on a subject (attire, PPE,
+color-on-person), not object identity or an object's own color — keep `red
+forklift` wholly in `--query`. `worker in a hard hat carrying a cone` has a
+property (`hard hat`) and an action (`carrying a cone`): `run fusion`. Reserve
+`embed` for genuinely attribute-free intent, and `tag` for keyword/tag queries
+that name no detectable property.
 
-   Preserve both the matched source's `.sensorId` and `.name`. The
-   `--video-source` value depends on the search path, not the source type (optional for every path):
-   `embed` matches the sensor ID literally; `attribute` and `object` match the
-   name literally; only `tag` resolves a source name to its VST sensor ID (passing an already-id through). `fusion` does **not** resolve — its embedding leg filters by sensor ID literally — so hand fusion the preserved sensor ID (the tag leg accepts IDs too). For every path an unknown source yields an empty, narrowed result, not an error.
-   Set `--source-type video_file` for uploads or `--source-type rtsp` for live
-   streams. This selects the index partition for that media kind from a fixed
-   uploads anchor (not a discovered index), independently of the identifier, so
-   it is correct regardless of ingestion order.
+The `--video-source` value differs by path while the CLI's paths need different
+identifiers:
 
-3. Decompose the request before choosing a path; do not pick by surface form.
-   Before changing or splitting it, preserve the user's exact sentence as
-   `ORIGINAL_QUERY`. Retrieval may use the decomposed query, attributes, or
-   object IDs, but critic verification must receive this original wording.
-   `run embed` accepts any sentence, so being one sentence is not evidence for
-   embed. Separate each specific detectable property (`white jacket`, `red hard
-   hat`) from the actions/relations only embeddings capture, then choose:
+| path | `--video-source` takes |
+| --- | --- |
+| `embed` | preserved `.sensor_id` |
+| `attribute` | preserved `.name` |
+| `object` | preserved `.name` |
+| `tag` | `.name` (the CLI resolves it to the VST sensor ID; an already-id passes through) |
+| `fusion` | preserved `.sensor_id` (the tag leg accepts IDs too) |
 
-   - a detectable property plus an action or relation is present → `run fusion` (even within one sentence)
-   - free-text intent with no detectable property → `run embed`
-   - detectable properties only, no action or relation → `run attribute`
-   - explicit tracked object IDs → `run object`
-   - explicit keyword or tag intent — lexical (BM25) match against indexed VLM tags, with no detectable property and no semantic free-text → `run tag`
+For every path an unknown source yields an empty, narrowed result, not an error.
 
-   `--attribute` is for specific detectable properties, not generic nouns or
-   actions. A property counts only when RT-CV detects it on the subject (attire,
-   PPE, color-on-person), not object identity or an object's own color; keep
-   `red forklift` wholly in `--query`. `worker in a hard hat carrying a cone` has
-   a property (`hard hat`) and an action (`carrying a cone`): `run fusion --query
-   "worker in a hard hat carrying a cone" --attribute "hard hat"`. Reserve embed
-   for genuinely attribute-free intent. `run tag` is for explicit lexical
-   intent — matching indexed VLM tag keywords by BM25 — not semantic similarity;
-   reserve it for keyword/tag queries that name no detectable property.
+Before `attribute` or `fusion`, inspect `vss configure show`'s
+`services.elasticsearch.indices`. If no entry starts with `mdx-raw-`, refresh
+once with `vss configure --base-url` using that same record's nonempty
+`base_url`, then inspect again. Stop on a configuration failure; if the raw
+family is still absent, disclose that frame enrichment is unavailable and
+continue the requested retrieval. Do not construct an origin or poll indexes.
 
-4. Construct the invocation as a Bash array and validate only its exact
-   stdout. Read [CLI usage](references/cli_usage.md) for every supported flag.
+**3. Invoke the CLI.** Use `--query` for embed/fusion/tag, repeatable
+`--attribute` for attribute/fusion, and repeatable `--object-id` for object.
+Use `--timestamp-start` / `--timestamp-end` for time bounds. Set `--source-type video_file` for an uploaded recording
+or `rtsp` for a live stream. Source type selects the fixed uploads anchor or
+the live family wildcard excluding that uploads anchor, independently of source
+identity and ingestion order. Carry
+the requested time bounds and `--top-k`, and
+run `vss search run <path>` with no endpoint, index, model, or profile flag —
+`vss configure` owns those. Build the invocation as a Bash array and capture
+stdout and the exit status separately; never clear a previously resolved source
+array or hide the exit code behind `if !`:
 
 ```bash
 : "${SEARCH_PATH:?set embed|attribute|fusion|object|tag}"
 : "${SOURCE_TYPE:?set video_file or rtsp}"
 : "${ORIGINAL_QUERY:?set the exact pre-decomposition user question}"
 TOP_K="${TOP_K:-3}"
-VIDEO_SOURCES=() # sensor IDs for embed/fusion; names for attribute/object/tag
+# Set VIDEO_SOURCES from step 1 for a named source. Explicitly set it to () only
+# for a request that was unrestricted from the start; never reset a resolved scope.
+declare -p VIDEO_SOURCES >/dev/null 2>&1 || { echo "Set VIDEO_SOURCES before search" >&2; exit 1; }
 : "${SOURCE_SCOPED:?set true for a resolved scope; false only when unrestricted}"
 if [ "${SOURCE_SCOPED}" = true ] && [ "${#VIDEO_SOURCES[@]}" -eq 0 ]; then
   echo "Resolved source scope is empty; refusing an unrestricted search" >&2
   exit 1
 fi
-SEARCH_COMMAND=(
-  vss search run "${SEARCH_PATH}"
-  --source-type "${SOURCE_TYPE}" --top-k "${TOP_K}"
-  --original-query "${ORIGINAL_QUERY}" --raw
-)
+SEARCH_COMMAND=(vss search run "${SEARCH_PATH}" --source-type "${SOURCE_TYPE}" \
+  --top-k "${TOP_K}" --original-query "${ORIGINAL_QUERY}" --raw)
 for source in "${VIDEO_SOURCES[@]}"; do
   SEARCH_COMMAND+=(--video-source "${source}")
 done
-# Append --query, repeatable --attribute, --object-id, and time bounds as needed.
-if ! SEARCH_JSON=$("${SEARCH_COMMAND[@]}"); then
-  echo "Search command failed" >&2
-  exit 1
+# Append only the selected path's fields and --timestamp-start/--timestamp-end.
+if SEARCH_JSON=$("${SEARCH_COMMAND[@]}"); then
+  STATUS=0
+else
+  STATUS=$?
 fi
-printf '%s' "${SEARCH_JSON}" |
-  jq -es '.[0] | type == "object" and (.data | type == "array")' >/dev/null || {
-    echo "Search did not return a SearchOutput object with a data array" >&2
-    exit 1
-  }
 ```
 
-Do not pass endpoint, index, model, deployment, profile, or base-URL flags to
-`search run`; `vss configure` owns those values. Do not replace a failed CLI
-call with `/api/v1/search` or private backend access.
+Read [CLI usage](references/cli_usage.md) only when tuning retrieval weights
+(`--fusion-method`, `--w-tag`, etc.); do not open it for a standard search
+invocation — the contract above is the whole invocation.
 
-1. Validate each nonempty hit's exact returned `screenshot_url` with a bounded
-GET for availability only. Its normalized scheme, host, and effective port
-always match the origin recorded by `vss configure`, because the CLI stamps
-that origin into every hit — a localhost media URL means the deployment was
-configured against a localhost origin, not that the URL is malformed. On Brev,
-prefer the public HTTPS secure-link origin. If setup used the documented
-host-reachable fallback after its one bounded public probe failed, accept only
-that exact recorded origin and label its media URLs host-local; do not restart
-routing diagnosis. Reject credentials in the URL and never rewrite the URL or
-add a `streamId` routing header. Discard the response body; availability is not
-visual evidence.
+**4. Interpret the result by exit status.**
 
-2. Read every hit's `critic_result`:
+- Exit 0 — interpret `data` and `search_messages`.
+- Exit 6 — partial (usually a persistence stage after retrieval failed; a critic failure is exit 0 with `search_messages`): report hits only when the payload contains `data`, disclosing the supplied limitation. Without `data`, report the supplied failure; do not claim retrieval succeeded. Do not rerun or retry an individual stage.
+- Exit 2 — read `vss search run <path> --help` once; correct invalid flags or values only from that help, then stop if the corrected command fails.
+- Other nonzero — report the typed failure (3 backend unreachable, 4 configuration or missing service, 5 not found) and stop.
 
-   - `confirmed`: the critic found all requested visual criteria in that clip.
-   - `rejected`: the critic found a visual criterion was not met.
-   - `unverified`: the critic attempted the hit but produced no usable verdict.
-     This includes inaccessible media, a failed VLM call, and malformed or
-     inconclusive output.
-   - `null`: the critic did not evaluate the hit (no VLM, a critic failure,
-     bounds it could not check, or a hit past `--critic-eval-count`). Report
-     it as `unverified`.
+Routes not exposed through ingress are recorded as absent by `vss configure`;
+a search path requiring one exits 4. Report the missing capability and ask the
+operator to expose its supported ingress and
+refresh configuration. Never create a port-forward or use private endpoints.
+After exit 5 following first ingestion, hand readiness back to source management
+and refresh recorded configuration once when it is ready; never ingest implicitly.
 
-The CLI is fail-open: verification failure must not discard or fail retrieval.
-Never derive a verdict from similarity, filenames, object IDs, or screenshot
-availability. Treat boolean `criteria_met` values as critic evidence only.
+An empty `data` array means zero retrieved candidates — a fact about retrieval,
+not about the video; a threshold or embedding gap yields the same empty result
+as a genuine absence, so do not describe what the footage contains or argue it
+is not something you would expect there. If `search_messages` indicate degraded
+retrieval, include that limitation. Do not retry, broaden scope, or use raw REST.
 
-1. Format nonempty results without raw JSON. The final reply is user-facing,
-   not a diagnostic trace: identify a hit by the source name the user supplied
-   or its display filename, never a raw `sensor_id` or stream UUID. Never expose
-   a job ID, model or service name, endpoint, CLI flag, or implementation terms
-   such as "VLM" or "critic". Say "visual verification" when it is relevant,
-   and report only its `confirmed`, `rejected`, or `unverified` result.
+For each hit, read its `critic_result`:
 
-```text
-## Video Search Results
-<each hit's exact source, start/end, similarity, complete media URL,
-verification result, and criteria when present>
+- `confirmed`: the critic found all requested visual criteria in that clip.
+- `rejected`: the critic found a visual criterion was not met.
+- `unverified`: the critic attempted the hit but produced no usable verdict.
+  This includes inaccessible media, a failed VLM call, and malformed or
+  inconclusive output.
+- `null`: the critic did not evaluate the hit (no VLM, a critic failure,
+  bounds it could not check, or a hit past `--critic-eval-count`). Report
+  it as `unverified`.
 
-Similarity scores are retrieval evidence; the separate verification result
-records whether the bounded clip satisfied the visual request.
+**5. Report each hit honestly.** For each hit, report the registered/display
+source, bounded interval, retrieval score where present, the returned media
+URL **if present**, and the exact `confirmed` / `rejected` / `unverified`
+verdict. Retrieval score, filename, source ID, and media availability are not
+visual proof. The CLI attempts critic verification by default and is fail-open:
+a missing VLM or inaccessible media leaves a hit `unverified` and does not fail
+retrieval. Do not inspect screenshots or call another verifier during this
+first turn. A media URL may be empty when VST is unavailable; when present it
+carries the scheme, host, and port of the origin `vss configure` recorded. Avoid
+a mandated heading or raw JSON dump, and keep the reply implementation-neutral
+— never expose a job ID, model or service name, deployment service address, CLI
+flag, or a raw `sensor_id`; say "visual verification" and report its
+verdict. The one exception: when the user asks which commands to run, show the
+commands.
 
-## Verification Step
-Would you like me to verify the unverified search results?
-```
+A media URL is returned data, not a service address: reproduce it whole,
+including the source ID in its path; the `sensor_id` rule is about how you name
+the source in prose. Report each hit's verdict, and its `critic_result.criteria_met`
+when nonempty, without reading a verdict into the criteria.
 
-Include `## Verification Step` only when the nonempty displayed result set is
-entirely `unverified`. If any displayed result is `confirmed` or `rejected`,
-omit it even when other hits are unverified. Never deploy a VLM or call
-`vss-ask-video` automatically during this results turn.
-
-1. If the user explicitly confirms, read
-[search-result verification](references/result_verification.md) completely and
-delegate the displayed hits only after confirming again that every one is
-still `unverified`. Preserve their exact bounded intervals and the complete
-original visual intent. Keep at most three delegations in flight. Never hand
-off a partially verified result set.
-
-2. If `.data` is empty, report zero candidates faithfully — a fact about
-retrieval, not about the video. Do not claim the object is absent, describe
-what the footage contains, or argue it is not something you would expect
-there: a threshold or embedding gap yields the same empty result as a genuine
-absence. Offer a specific query or similarity-threshold refinement while
-preserving the source. Never broaden the search silently.
-
-## Natural-language Agent responses
-
-Use the host CLI for deterministic structured search. If a caller explicitly
-requires the deployment Agent to decompose a natural-language request, its
-`/api/v1/search` response is conversational text, not `SearchOutput`. Validate
-the known text field and present it as prose; never run `.data[]`, screenshot,
-or verification parsing against that response or invent structured hit rows.
-
-## Troubleshooting
-
-- CLI unavailable: `vss` is not on `PATH`; install it as *Prerequisites* says, or report the image problem, and stop.
-- Exit 2: read the selected path's `--help`; do not guess flags.
-- Exit 3: a recorded backend is unreachable; repair routing and reconfigure.
-- Exit 4: run `vss configure --base-url <origin>` or choose a path whose
-  required services are actually routed.
-- Exit 5: ingest the source, wait for readiness, and re-run `vss configure`.
-- Missing/ambiguous source: stop for clarification; never substitute.
-- Missing RT-VLM: retrieval remains valid and results remain `unverified`.
-- Authentication: use the operator-approved route. Never place secrets in
-  prompts, flags, generated files, logs, or skill output.
+**6. Offer a Verification Step only when the whole set is unverified.** If and
+only if every displayed result in the nonempty set is `unverified`, offer a
+`Verification Step` by asking whether the user wants the hits checked through
+`vss-ask-video`. If any hit is
+`confirmed` or `rejected`, offer nothing and hand off nothing. On explicit
+confirmation, load [search-result verification](references/result_verification.md)
+and hand off only the displayed, bounded hits, preserving the original question;
+do not rerun search. Never hand off a partially verified result set.

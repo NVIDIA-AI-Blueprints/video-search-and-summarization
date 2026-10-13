@@ -1,9 +1,9 @@
 dependencies:
 - name: nemotron-3.5-lightning-30b-a3b
   repository: file://./charts/nemotron-3.5-lightning-30b-a3b
-  version: 3.3.0
+  version: 3.4.0
 - name: cosmos3-reasoner
   repository: file://./charts/cosmos3-reasoner
-  version: 3.3.0
-digest: sha256:9f6e44a2a89920eebe70a57ecdfd674fdf06c73484f1e36a2f7092bcd8eee600
-generated: "2026-09-03T19:49:31.931818643+05:30"
+  version: 3.4.0
+digest: sha256:888a40a00482da97decf00a751b108764d5922c8f000426eedcc17641d58d8e0
+generated: "2026-10-13T09:48:55.148609+05:30"

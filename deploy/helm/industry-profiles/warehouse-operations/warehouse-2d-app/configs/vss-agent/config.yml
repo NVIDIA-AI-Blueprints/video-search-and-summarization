@@ -173,7 +173,7 @@ llms:
     _type: ${LLM_MODEL_TYPE:-nim}
     model_name: ${LLM_NAME}
     base_url: ${LLM_BASE_URL}/v1
-    max_tokens: 16384
+    max_tokens: 32768
     temperature: 0.0
 
   # --- VLM profiles (selected by VLM_MODEL_TYPE) ---

@@ -17,7 +17,7 @@ apiVersion: v2
 name: vss-reid-embed
 description: ReID embedding service and its Milvus gallery backends for appearance-based re-association
 type: application
-version: 3.3.0
+version: 3.4.0
 appVersion: "3.3.0"
 maintainers:
   - name: NVIDIA

@@ -143,11 +143,11 @@ class WorkloadHealthWatcher:
             self.app_config.get("WDM_HEALTH_CHECK_TIMEOUT", 2.0)
         )
 
-    def start(self) -> bool:
+    def start(self) -> None:
         """Start the background polling thread (idempotent)."""
         with self._lock:
             if self._started and self._thread is not None and self._thread.is_alive():
-                return True
+                return
             self._stop.clear()
             # Warm the inventory immediately so assignment / ifPodDown do not
             # treat every pod as unknown until the first background tick.
@@ -168,7 +168,6 @@ class WorkloadHealthWatcher:
                 self.interval,
                 self.timeout,
             )
-            return True
 
     def stop(self, join_timeout: float = 2.0) -> None:
         self._stop.set()
