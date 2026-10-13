@@ -48,6 +48,19 @@ If your issue is not addressed on this page, please raise it on [GitHub Issues](
 - [Bridge-network container cannot reach a VSS service on the host](/vss/appendix/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host)
 - [FAQ](/vss/appendix/faq#put-api-v1-videos-for-search-filename-returns-400-from-a-missing-content-type)
 
+**Security and deployment**
+
+- [What security configuration should I review before deploying VSS?](/vss/appendix/faq#what-security-configuration-should-i-review-before-deploying-vss)
+- [Should I add guardrails to prompts and model responses?](/vss/appendix/faq#should-i-add-guardrails-to-prompts-and-model-responses)
+- [How should I protect follow-up Q&A and shared API access?](/vss/appendix/faq#how-should-i-protect-follow-up-qa-and-shared-api-access)
+- [How should I protect VLM tags, embeddings, and search indexes?](/vss/appendix/faq#how-should-i-protect-vlm-tags-embeddings-and-search-indexes)
+- [How should I secure ingestion webhooks?](/vss/appendix/faq#how-should-i-secure-ingestion-webhooks)
+- [How should I limit resource usage on shared GPU deployments?](/vss/appendix/faq#how-should-i-limit-resource-usage-on-shared-gpu-deployments)
+- [What should I configure for Hermes and split-Brev deployments?](/vss/appendix/faq#what-should-i-configure-for-hermes-and-split-brev-deployments)
+- [How should I protect OpenTelemetry and agent traces?](/vss/appendix/faq#how-should-i-protect-opentelemetry-and-agent-traces)
+- [How should I restrict agent-selected tools with NemoClaw or OpenShell?](/vss/appendix/faq#how-should-i-restrict-agent-selected-tools-with-nemoclaw-or-openshell)
+- [How should I secure service networking and remote model endpoints?](/vss/appendix/faq#how-should-i-secure-service-networking-and-remote-model-endpoints)
+
 ## VIOS
 
 ### Why do large file uploads to VIOS fail?
@@ -281,3 +294,45 @@ Yes. For NVIDIA RTX PRO 4500 Blackwell, add or update the following values in th
 RTVI_VLM_MAX_MODEL_LEN=20480
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8
 ```
+
+## Security and deployment
+
+### What security configuration should I review before deploying VSS?
+
+VSS provides a reference architecture that can be adapted to your environment. Review the [Secure Deployment guide](/vss/appendix/additional-deployments/secure-deployment) and align your configuration with your organization's security and data-handling policies.
+
+### Should I add guardrails to prompts and model responses?
+
+For production use, consider application-appropriate guardrails for prompts and responses. A separate guardrail model is optional; choose an approach that fits your use case and organizational policies. For more information, see [NeMo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails)
+
+### How should I protect follow-up Q&A and shared API access?
+
+Use your organization's identity and access-management practices, and establish appropriate policies for conversation history and data retention.
+
+### How should I protect VLM tags, embeddings, and search indexes?
+
+Manage access to search data and associated metadata according to your organization's data-governance policies. Use trusted data sources and maintain appropriate operational oversight.
+
+### How should I secure ingestion webhooks?
+
+Follow your organization's standard practices for authenticated integrations and controlled service access. Configure webhook connectivity to suit your deployment environment.
+
+### How should I limit resource usage on shared GPU deployments?
+
+Plan capacity and workload management for your expected usage. Apply resource-management policies appropriate to your infrastructure and deployment profile.
+
+### What should I configure for Hermes and split-Brev deployments?
+
+Follow the upstream [Hermes Agent security guide](https://hermes-agent.nousresearch.com/docs/user-guide/security) and [Docker deployment guide](https://hermes-agent.nousresearch.com/docs/user-guide/docker). Align connectivity, access, and lifecycle management with your organization's deployment practices.
+
+### How should I protect OpenTelemetry and agent traces?
+
+Configure observability in accordance with your organization's policies for sensitive data, access, and retention. Collect and retain information appropriate to your operational needs.
+
+### How should I restrict agent-selected tools with NemoClaw or OpenShell?
+
+Follow the [NemoClaw security best practices](https://docs.nvidia.com/nemoclaw/latest/user-guide/openclaw/security/best-practices) and [OpenShell security best practices](https://docs.nvidia.com/openshell/latest/security/best-practices) for your deployed versions. Scope tool access and approvals to the intended workflow. For more information, see [NVIDIA Agent Safety](https://www.nvidia.com/en-us/solutions/ai/agent-safety/).
+
+### How should I secure service networking and remote model endpoints?
+
+Review the [Secure Deployment guide](/vss/appendix/additional-deployments/secure-deployment) and use your organization's approved networking and model-service practices. Align connectivity, access, and data handling with the requirements of your deployment.
