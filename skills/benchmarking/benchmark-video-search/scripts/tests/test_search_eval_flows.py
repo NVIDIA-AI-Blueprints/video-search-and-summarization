@@ -550,13 +550,13 @@ def test_decomposition_lists_every_vst_video_like_the_agent(monkeypatch: pytest.
         rf.flows, "list_sensor_streams",
         lambda _url: {"answer_clip": "answer_clip", "other_clip": "Other_Clip"},
     )
-    assert rf.decomposition_sources(annotations, "http://vst") == ["Other_Clip", "answer_clip"]
+    assert rf.decomposition_sources(annotations, "https://vst") == ["Other_Clip", "answer_clip"]
 
     def unreachable(_url: str) -> dict[str, str]:
         raise OSError("down")
 
     monkeypatch.setattr(rf.flows, "list_sensor_streams", unreachable)
-    assert rf.decomposition_sources(annotations, "http://vst") == ["answer_clip"]
+    assert rf.decomposition_sources(annotations, "https://vst") == ["answer_clip"]
 
 
 def test_thinking_markers_match_the_agent() -> None:

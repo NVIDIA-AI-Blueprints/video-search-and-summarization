@@ -156,9 +156,14 @@ class Snapshot:
     tags: dict[str, int] = field(default_factory=dict)
 
 
+def _parse_iso(ts: str) -> datetime:
+    """``fromisoformat`` that also takes a trailing ``Z``, which 3.10 rejects."""
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+
 def anchor_epoch_ms(upload_timestamp: str = DEFAULT_UPLOAD_TIMESTAMP) -> float:
     """The upload anchor as epoch ms; an offset-less timestamp is UTC."""
-    parsed = datetime.fromisoformat(upload_timestamp.replace("Z", "+00:00"))
+    parsed = _parse_iso(upload_timestamp)
     return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc).timestamp() * 1000.0
 
 
@@ -185,8 +190,8 @@ def raw_coverage(count: int, frames: int | None) -> str:
 def timeline_duration_s(timeline: dict[str, Any]) -> float | None:
     """Seconds between a VST timeline's start and end, as ``verify_anchor`` reads them."""
     try:
-        start = datetime.fromisoformat(str(timeline["start_time"]).replace("Z", "+00:00"))
-        end = datetime.fromisoformat(str(timeline["end_time"]).replace("Z", "+00:00"))
+        start = _parse_iso(str(timeline["start_time"]))
+        end = _parse_iso(str(timeline["end_time"]))
     except (KeyError, ValueError):
         return None
     seconds = (end - start).total_seconds()
