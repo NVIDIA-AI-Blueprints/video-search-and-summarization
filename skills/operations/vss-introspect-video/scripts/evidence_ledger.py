@@ -1165,6 +1165,8 @@ def final_result(
 
     The caller supplies the complete answer text. This function does not add a
     letter, infer options, or change the ledger's resolved or unresolved state.
+    An unresolved ledger may still carry that text as a best-available answer
+    without observation citations.
     """
     ledger = prepare_for_final_result(ledger)
     if ledger["status"] == "in_progress":
@@ -1218,11 +1220,6 @@ def final_result(
             }
         )
     if answer_text is not None:
-        if not cited:
-            _fail(
-                "evidence_ids",
-                "a best-available answer must cite the observations it uses",
-            )
         return {
             "status": "answered",
             "evidence_status": "unresolved",
@@ -1293,17 +1290,11 @@ def validate_terminal_pair(
     if status == "answered":
         _nonempty(answer, "final_result.answer")
         source = terminal_result.get("decision_source")
-        evidence = terminal_result.get("evidence")
         if ledger["status"] == "unresolved":
             if source != "best_available_answer":
                 _fail(
                     "final_result.decision_source",
                     "an unresolved ledger may answer only as a best-available answer",
-                )
-            if not evidence:
-                _fail(
-                    "final_result.evidence",
-                    "a best-available answer must cite the observations it uses",
                 )
         elif source != "introspection":
             _fail(
@@ -1425,7 +1416,7 @@ def _parser() -> argparse.ArgumentParser:
     finish.add_argument("--artifact-dir", required=True)
     finish.add_argument(
         "--answer",
-        help="Complete answer text supplied by the caller. Omit to abstain; do not pass an empty string.",
+        help="Complete answer text supplied by the caller. Omit only when the question does not ask for a choice; do not pass an empty string.",
     )
     finish.add_argument("--evidence-id", action="append")
     finish.add_argument("--output")

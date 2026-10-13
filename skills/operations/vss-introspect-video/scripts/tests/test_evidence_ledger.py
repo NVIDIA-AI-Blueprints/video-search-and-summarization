@@ -782,7 +782,7 @@ def test_final_unresolved_result_uses_allowed_reason() -> None:
     assert final["unresolved_gaps"][0]["reason"] == "not_visible"
 
 
-def test_unresolved_answer_requires_real_citations_and_rejects_blanks() -> None:
+def test_unresolved_answer_allows_missing_citations_and_rejects_blanks() -> None:
     ledger = initialized()
     tasks = create_tasks(ledger)
     before = copy.deepcopy(ledger)
@@ -791,12 +791,15 @@ def test_unresolved_answer_requires_real_citations_and_rejects_blanks() -> None:
         tasks,
         [result(tasks[0], coverage="none", gap="The person is not visible.")],
     )
-    with pytest.raises(ledger_mod.LedgerValidationError, match="must cite"):
-        ledger_mod.final_result(
-            ledger,
-            "runs/question-1",
-            "C is the closest option; the vest color was not directly visible.",
-        )
+    supplied = "C is the closest option; the vest color was not directly visible."
+    final = ledger_mod.final_result(ledger, "runs/question-1", supplied)
+    assert final["answer"] == supplied
+    assert final["status"] == "answered"
+    assert final["decision_source"] == "best_available_answer"
+    assert final["evidence_status"] == "unresolved"
+    assert final["evidence"] == []
+    assert final["unresolved_gaps"]
+    ledger_mod.validate_terminal_pair(ledger, final)
     with pytest.raises(ledger_mod.LedgerValidationError, match="empty answer"):
         ledger_mod.final_result(ledger, "runs/question-1", "  ")
     assert ledger["status"] == "unresolved"
