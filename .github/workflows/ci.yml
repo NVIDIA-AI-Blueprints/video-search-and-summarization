@@ -224,12 +224,6 @@ jobs:
           rm -rf .archive-license
           gzip -n source.tar
           git ls-files > tracked-files.txt
-          # LFS paths are not committed as an exclude list. This job has the
-          # checkout; the secret scan later does not. Pointer text and the
-          # smudged archive bytes disagree, so those paths are skipped.
-          git check-attr --stdin filter < tracked-files.txt \
-            | awk -F': filter: ' '$2 == "lfs" { print $1 }' \
-            > lfs-files.txt
           ls -lh source.tar.gz
 
       # Assert the notice and exclusion did what we think. Without this a silent
@@ -270,7 +264,6 @@ jobs:
           path: |
             source.tar.gz
             tracked-files.txt
-            lfs-files.txt
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
@@ -1094,22 +1087,13 @@ jobs:
     name: Security Scan (detect-secrets)
     needs: prepare-source
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
-          name: source-${{ github.sha }}
-          path: .source-artifact
-
-      - name: Unpack source artifact
-        working-directory: ${{ github.workspace }}
-        run: |
-          find . -mindepth 1 -maxdepth 1 ! -name .source-artifact -exec rm -rf {} +
-          tar -xzf .source-artifact/source.tar.gz --strip-components=1
-          mkdir -p .ci
-          mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
-          mv .source-artifact/lfs-files.txt .ci/lfs-files.txt
-          rm -rf .source-artifact
+          # The scan compares each changed file with its base commit copy.
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
@@ -1119,38 +1103,13 @@ jobs:
       - name: Install detect-secrets
         run: python -m pip install detect-secrets==1.5.0
 
-      # tracked-files.txt is git ls-files output: paths from the repository
-      # root. detect-secrets opens those paths from the working directory and
-      # skips a path it cannot open, so this step must run at the root. A
-      # services/agent working directory left the required check green while
-      # it read four files.
+      - name: Unit-test the secret scan
+        run: python .github/scripts/test_scan_new_secrets.py
+
       - name: detect-secrets
-        working-directory: ${{ github.workspace }}
-        run: |
-          list="$GITHUB_WORKSPACE/.ci/tracked-files.txt"
-          missing=0
-          while IFS= read -r path; do
-            [ -n "$path" ] || continue
-            if [ ! -e "$path" ] && [ ! -L "$path" ]; then
-              echo "::error::detect-secrets cannot open tracked file: $path"
-              missing=$((missing + 1))
-            fi
-          done < "$list"
-          if [ "$missing" -ne 0 ]; then
-            echo "::error::Refusing a green scan: $missing tracked files were not opened from the repository root."
-            exit 1
-          fi
-          # lfs-files.txt is produced by prepare-source from git check-attr.
-          # Those blobs are pointers in some checkouts and real files in the
-          # archive, so they are not handed to the scanner.
-          sort "$list" > "$GITHUB_WORKSPACE/.ci/tracked.sorted"
-          sort "$GITHUB_WORKSPACE/.ci/lfs-files.txt" > "$GITHUB_WORKSPACE/.ci/lfs.sorted"
-          comm -23 "$GITHUB_WORKSPACE/.ci/tracked.sorted" "$GITHUB_WORKSPACE/.ci/lfs.sorted" \
-            > "$GITHUB_WORKSPACE/.ci/scan-files.txt"
-          detect-secrets-hook --no-verify \
-            --baseline .secrets.baseline \
-            --exclude-files '(\.secrets\.baseline|gitleaks-baseline\.json|^deploy/docker/MANIFEST$|^deployments/MANIFEST$)' \
-            $(cat "$GITHUB_WORKSPACE/.ci/scan-files.txt")
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: python .github/scripts/scan_new_secrets.py
 
   # ---------------------------------------------------------------------------
   # Job 5: Frontend lint + typecheck
