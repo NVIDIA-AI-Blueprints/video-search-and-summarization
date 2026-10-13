@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""RT-VLM frame-cap and context overrides survive profiles' complete env lists."""
+"""RT-VLM frame, context and output limits survive profiles' complete env lists."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import yaml
 HELM_DIR = Path(__file__).resolve().parents[1] / "helm"
 FRAME_CAP = "RTVI_VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES"
 CONTEXT_LENGTH = "VLM_MAX_MODEL_LEN"
+OUTPUT_TOKENS = "VLM_MAX_GENERATION_TOKENS"
 TARGETS = ("rtvi-vlm", "dev-profile-base", "dev-profile-lvs")
 
 helm_required = unittest.skipUnless(
@@ -43,7 +44,12 @@ def _dependencies(chart: str) -> None:
 
 
 @cache
-def _env(chart: str, override: str | None = None, context_length: str | None = None) -> list[dict]:
+def _env(
+    chart: str,
+    override: str | None = None,
+    context_length: str | None = None,
+    output_tokens: str | None = None,
+) -> list[dict]:
     _dependencies(chart)
     command = ["helm", "template", "frame-cap-test", str(_chart(chart))]
     if chart == "rtvi-vlm":
@@ -56,7 +62,11 @@ def _env(chart: str, override: str | None = None, context_length: str | None = N
             "global.ngcApiSecret.key=NGC_API_KEY",
         ]
     prefix = "" if chart == "rtvi-vlm" else "rtvi.vss-rtvi-vlm."
-    for name, value in ((FRAME_CAP, override), (CONTEXT_LENGTH, context_length)):
+    for name, value in (
+        (FRAME_CAP, override),
+        (CONTEXT_LENGTH, context_length),
+        (OUTPUT_TOKENS, output_tokens),
+    ):
         if value is not None:
             command += ["--set-string", f"{prefix}envOverrides.{name}={value}"]
     result = subprocess.run(command, capture_output=True, text=True, check=False)
@@ -166,6 +176,60 @@ class ContextLengthRendering(unittest.TestCase):
                         if entry["name"] not in {FRAME_CAP, CONTEXT_LENGTH}
                     ],
                     unchanged,
+                )
+
+
+class OutputTokenDeclarations(unittest.TestCase):
+    def test_every_values_list_declares_the_existing_default_once(self):
+        for chart in TARGETS:
+            with self.subTest(chart=chart):
+                values = yaml.safe_load((_chart(chart) / "values.yaml").read_text())
+                if chart != "rtvi-vlm":
+                    values = values["rtvi"]["vss-rtvi-vlm"]
+                entries = [entry for entry in values["env"] if entry["name"] == OUTPUT_TOKENS]
+                self.assertEqual(entries, [{"name": OUTPUT_TOKENS, "value": "16384"}])
+
+
+@helm_required
+class OutputTokenRendering(unittest.TestCase):
+    def test_default_renders_16384_once_in_every_chart(self):
+        for chart in TARGETS:
+            with self.subTest(chart=chart):
+                entries = [entry for entry in _env(chart) if entry["name"] == OUTPUT_TOKENS]
+                self.assertEqual(entries, [{"name": OUTPUT_TOKENS, "value": "16384"}])
+
+    def test_override_renders_249000_once_in_every_chart(self):
+        for chart in TARGETS:
+            with self.subTest(chart=chart):
+                entries = [
+                    entry
+                    for entry in _env(chart, output_tokens="249000")
+                    if entry["name"] == OUTPUT_TOKENS
+                ]
+                self.assertEqual(entries, [{"name": OUTPUT_TOKENS, "value": "249000"}])
+
+    def test_override_preserves_every_other_environment_entry(self):
+        for chart in TARGETS:
+            with self.subTest(chart=chart):
+                default = [entry for entry in _env(chart) if entry["name"] != OUTPUT_TOKENS]
+                overridden = [
+                    entry
+                    for entry in _env(chart, output_tokens="249000")
+                    if entry["name"] != OUTPUT_TOKENS
+                ]
+                self.assertEqual(overridden, default)
+
+    def test_output_context_and_frame_limits_can_be_overridden_together(self):
+        limits = {FRAME_CAP: "8192", CONTEXT_LENGTH: "262144", OUTPUT_TOKENS: "249000"}
+        for chart in TARGETS:
+            with self.subTest(chart=chart):
+                overridden = _env(chart, "8192", "262144", "249000")
+                for name, value in limits.items():
+                    entries = [entry for entry in overridden if entry["name"] == name]
+                    self.assertEqual(entries, [{"name": name, "value": value}])
+                self.assertEqual(
+                    [entry for entry in overridden if entry["name"] not in limits],
+                    [entry for entry in _env(chart) if entry["name"] not in limits],
                 )
 
 

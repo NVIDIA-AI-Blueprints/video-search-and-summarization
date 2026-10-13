@@ -599,6 +599,9 @@ rtvi:
       # Integrated engine context (input + output tokens); preserve the runtime default.
       - name: VLM_MAX_MODEL_LEN
         value: "32768"
+      # API cap on output tokens; preserve the runtime default.
+      - name: VLM_MAX_GENERATION_TOKENS
+        value: "16384"
       - name: VLM_INPUT_WIDTH
         value: ""
       - name: VLM_INPUT_HEIGHT
