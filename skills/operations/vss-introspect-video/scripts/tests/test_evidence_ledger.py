@@ -1377,6 +1377,55 @@ def test_unresolved_no_progress_merge_writes_final_result(tmp_path: Path) -> Non
     assert merged["stop_reason"] == "no_progress"
     assert final["status"] == "unresolved"
     assert final["answer"] is None
+    marker = json.loads((tmp_path / "terminal-commit.json").read_text(encoding="utf-8"))
+    assert marker["provisional"] is True
+    assert marker["status"] == "unresolved"
+
+
+def test_explicit_final_result_overwrite_is_not_provisional(tmp_path: Path) -> None:
+    tasks = create_tasks(initialized())
+    merged, _final = _run_merge(
+        tmp_path,
+        [result(tasks[0], coverage="none", gap="No useful view was found.")],
+    )
+    assert json.loads((tmp_path / "terminal-commit.json").read_text())["provisional"] is True
+    (tmp_path / "ledger.json").write_text(json.dumps(merged), encoding="utf-8")
+    assert ledger_mod.main(
+        [
+            "final-result",
+            "--ledger",
+            str(tmp_path / "ledger.json"),
+            "--artifact-dir",
+            str(tmp_path),
+            "--answer",
+            "C. yellow",
+            "--output",
+            str(tmp_path / "final-result.json"),
+        ]
+    ) == 0
+    marker = json.loads((tmp_path / "terminal-commit.json").read_text(encoding="utf-8"))
+    final = json.loads((tmp_path / "final-result.json").read_text(encoding="utf-8"))
+    assert "provisional" not in marker
+    assert final["status"] == "answered"
+    assert final["decision_source"] == "best_available_answer"
+    assert final["answer"] == "C. yellow"
+
+
+def test_answered_commit_cannot_be_marked_provisional(tmp_path: Path) -> None:
+    ledger = initialized()
+    tasks = create_tasks(ledger)
+    answered = ledger_mod.merge_round_results(
+        ledger, tasks, [result(tasks[0], (observation(),))]
+    )
+    final = finalize(answered, str(tmp_path), "Visible result")
+    with pytest.raises(ledger_mod.LedgerValidationError, match="provisional"):
+        ledger_mod.atomic_commit_terminal(
+            tmp_path / "ledger.json",
+            answered,
+            tmp_path / "final-result.json",
+            final,
+            provisional=True,
+        )
 
 
 def test_tool_failure_merge_writes_final_result(tmp_path: Path) -> None:
