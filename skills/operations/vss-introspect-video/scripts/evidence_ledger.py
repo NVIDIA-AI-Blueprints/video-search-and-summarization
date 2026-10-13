@@ -1317,9 +1317,22 @@ def atomic_commit_terminal(
     ledger: Mapping[str, Any],
     final_path: str | os.PathLike[str],
     terminal_result: Mapping[str, Any],
+    *,
+    provisional: bool = False,
 ) -> None:
-    """Commit a terminal pair and publish a revision/hash marker last."""
+    """Commit a terminal pair and publish a revision/hash marker last.
+
+    ``provisional=True`` is the merge-round crash-safety fallback: the pair is
+    hash-valid, but it is not a finished choice. Consumers must wait for an
+    explicit ``final-result`` overwrite or for the session to go idle.
+    """
     validate_terminal_pair(ledger, terminal_result)
+    if provisional:
+        if terminal_result.get("status") != "unresolved" or terminal_result.get("answer") is not None:
+            _fail(
+                "terminal-commit",
+                "only an unanswered unresolved result may be marked provisional",
+            )
     ledger_destination = Path(ledger_path)
     final_destination = Path(final_path)
     if ledger_destination.resolve().parent != final_destination.resolve().parent:
@@ -1336,6 +1349,8 @@ def atomic_commit_terminal(
         "final_result": final_destination.name,
         "final_result_sha256": _digest(terminal_result),
     }
+    if provisional:
+        marker["provisional"] = True
     context_path = Path(
         os.environ.get(ATTEMPT_CONTEXT_ENV, str(DEFAULT_ATTEMPT_CONTEXT_PATH))
     )
@@ -1466,6 +1481,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 merged,
                 Path(artifact_dir) / "final-result.json",
                 terminal,
+                provisional=True,
             )
         else:
             _emit(merged, args.output)

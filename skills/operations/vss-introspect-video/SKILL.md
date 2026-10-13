@@ -579,10 +579,13 @@ stopped by `budget_exhausted`, `no_progress`, and `tool_failure`. The command
 persists a budget stop when no inspection budget remains, then writes the
 file. It refuses an in-progress ledger that still has budget; create the next
 task instead of writing a synthesis note. `merge-round` also writes
-`final-result.json` when the merged ledger is unresolved. When the question
-asks for a choice, that file is not the answer: rerun `final-result` with
-`--answer` and the complete option text. Do not omit `--answer` for a choice
-question.
+`final-result.json` and a **provisional** `terminal-commit.json` when the
+merged ledger is unresolved. That pair is a crash-safety fallback, not a
+finished choice. Rerun `final-result` with `--answer` and the complete option
+text; that overwrite publishes a non-provisional marker. Do not omit
+`--answer` for a choice question. Consumers must not harvest a provisional
+marker while the agent is still working. If the session goes idle with no
+overwrite, harvest the provisional pair as an abstention.
 
 When the question does not ask for a choice, pass `--answer` only when
 accepted observations support an answer. If no answer is supported, omit
@@ -603,5 +606,7 @@ full provenance for every cited observation.
 Terminal finalization commits the revision-matched `ledger.json` and
 `final-result.json`, then publishes `terminal-commit.json` last. Consumers trust
 a terminal result only when the marker's revision and hashes match both files.
-If finalization is interrupted, rerun the same command to repair the pair
-without advancing the ledger or consuming additional calls.
+A marker with `"provisional": true` is hash-valid but not done: wait for a
+non-provisional overwrite or idle. If finalization is interrupted, rerun the
+same command to repair the pair without advancing the ledger or consuming
+additional calls.

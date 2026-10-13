@@ -107,7 +107,8 @@
     "expected_behavior": [
       "Keeps the option text out of planning and inspection.",
       "The top-level agent compares each option's full meaning and passes the selected text with --answer while evidence remains unresolved.",
-      "Does not omit --answer when the question asks for a choice, even if no accepted observation exists."
+      "Does not omit --answer when the question asks for a choice, even if no accepted observation exists.",
+      "Does not treat a merge-round unresolved terminal-commit as the finished choice; overwrites it with final-result --answer."
     ]
   },
   {
