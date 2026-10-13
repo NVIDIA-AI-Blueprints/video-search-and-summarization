@@ -109,7 +109,7 @@ if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
 fi
 ```
 
-If the Alert Bridge probe fails, ask which mode to deploy and hand off to
+If the Alert Bridge probe fails on a Workflow C request (list, lookup or event count) and `vss-query-analytics` is among your skills, do not offer a deploy: hand a list or lookup to it, saying no Alert Bridge store answered on this deployment; event counts are unavailable for the same reason, so say that. Otherwise, if the probe fails, ask which mode to deploy and hand off to
 `the `/vss-build-vision-ai` stock Alerts workflow in the matching mode` (decline → stop; pre-authorized
 autonomous deploy → run directly with `verification` by default). If it
 passes, detect the mode per Step 1.
@@ -453,7 +453,7 @@ alternate-identity check, the VIOS-down fallback) and the response contract. Its
 
 > **Do NOT list subscription rules for an incident query.** The **bare** `GET /api/v1/realtime` (no `/incidents`) lists *rules* (Workflow D) and is wrong for "what happened".
 
-**Scope — real-time incident-kind results only.** CV / Behavior-Analytics verified alerts (PPE, ladder, proximity, restricted-area) are stored in a separate `mdx-vlm-alerts-*` index with **no REST query endpoint**, so this call does **not** surface them — in a CV deployment it typically returns empty for those. For occupancy / PPE / CV behaviour-alert metrics use the **`vss-query-analytics` skill** (VA-MCP :9901); a period-bounded real-time event count stays here (query (c)).
+**Scope — real-time incident-kind results only.** CV / Behavior-Analytics verified alerts (PPE, ladder, proximity, restricted-area) are stored in a separate `mdx-vlm-alerts-*` index with **no REST query endpoint**, so this call does **not** surface them — in a CV deployment it typically returns empty for those. For occupancy / PPE / CV behaviour-alert metrics use the **`vss-query-analytics` skill** (`vss analytics` CLI); a period-bounded real-time event count stays here (query (c)).
 
 ---
 
@@ -464,7 +464,7 @@ alternate-identity check, the VIOS-down fallback) and the response contract. Its
 | Deploy, redeploy, or switch alert mode | **`vss-build-vision-ai`** — the stock Alerts workflow in verification or real-time mode |
 | Add alert enhancement (a custom VLM response parser) | **`vss-build-vision-ai`** — its `references/services/alerts.md` § Custom VLM response parser; contract and example in this skill's `references/response-parser.md` |
 | Add an RTSP/IP camera, list sensors, snapshots, clips | **`vss-manage-video-io-storage`** (Section 6 for Add Sensor) |
-| Occupancy / PPE / CV behaviour-alert metrics from Elasticsearch (not real-time incident counts — those are Workflow C) | **`vss-query-analytics`** (VA-MCP :9901) |
+| Occupancy / PPE / CV behaviour-alert metrics from Elasticsearch (not real-time incident counts — those are Workflow C) | **`vss-query-analytics`** (`vss analytics` CLI) |
 | Detailed incident report from an alert | **`vss-generate-video-report`** |
 | Subscriptions / Slack sub-workflows | `references/alert-subscriptions.md`, `references/alert-notify.md` (code in `scripts/alert-notify/`) |
 | Incident query procedure (Workflow C) | `references/query-incidents.md` |
