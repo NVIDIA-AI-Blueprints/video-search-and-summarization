@@ -102,8 +102,11 @@ def scan_new_secrets(repo: Path, base: str) -> int:
             dest.write_bytes(git(repo, "show", f"{base}:{old}"))
             base_files.append(new)
 
+        # -P keeps the scanned tree off sys.path: a changed file named like a
+        # module (copy.py, json.py) would otherwise shadow it and crash the hook.
         hook = [
             sys.executable,
+            "-P",
             "-m",
             "detect_secrets.pre_commit_hook",
             "--no-verify",
@@ -116,6 +119,7 @@ def scan_new_secrets(repo: Path, base: str) -> int:
                 subprocess.run(
                     [
                         sys.executable,
+                        "-P",
                         "-m",
                         "detect_secrets",
                         "scan",

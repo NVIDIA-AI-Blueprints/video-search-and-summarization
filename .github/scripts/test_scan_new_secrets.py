@@ -8,7 +8,8 @@ python3 .github/scripts/test_scan_new_secrets.py
 
 from __future__ import annotations
 
-import os
+import contextlib
+import io
 import subprocess
 import sys
 import tempfile
@@ -53,13 +54,16 @@ class ScanNewSecretsTest(unittest.TestCase):
         return self.git("rev-parse", "HEAD")
 
     def scan(self) -> int:
-        with open(os.devnull, "w") as devnull:
-            stdout = sys.stdout
-            sys.stdout = devnull
-            try:
-                return sns.scan_new_secrets(self.repo, self.base)
-            finally:
-                sys.stdout = stdout
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = sns.scan_new_secrets(self.repo, self.base)
+        self.output = out.getvalue()
+        return rc
+
+    def assert_flags(self, path: str) -> None:
+        """Exit 1 alone also means the hook crashed; require the finding itself."""
+        self.assertEqual(self.scan(), 1)
+        self.assertIn(f"Location:    {path}:", self.output)
 
     def test_no_change_passes(self) -> None:
         self.commit("empty")
@@ -73,12 +77,12 @@ class ScanNewSecretsTest(unittest.TestCase):
     def test_new_secret_in_existing_file_fails(self) -> None:
         self.write("config.py", "import os\n" + OLD + NEW)
         self.commit("add")
-        self.assertEqual(self.scan(), 1)
+        self.assert_flags("config.py")
 
     def test_new_file_with_secret_fails(self) -> None:
         self.write("pkg/new.py", NEW)
         self.commit("add")
-        self.assertEqual(self.scan(), 1)
+        self.assert_flags("pkg/new.py")
 
     def test_removed_secret_passes(self) -> None:
         self.write("config.py", "import os\n")
@@ -91,9 +95,10 @@ class ScanNewSecretsTest(unittest.TestCase):
         self.assertEqual(self.scan(), 0)
 
     def test_copied_secret_in_new_file_fails(self) -> None:
+        # copy.py also shadows the stdlib module if the tree is on sys.path.
         self.write("copy.py", OLD)
         self.commit("copy")
-        self.assertEqual(self.scan(), 1)
+        self.assert_flags("copy.py")
 
     def test_lfs_and_symlink_paths_are_skipped(self) -> None:
         self.write("blob.bin", NEW)
