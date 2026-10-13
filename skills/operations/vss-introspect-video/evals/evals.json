@@ -106,7 +106,8 @@
     "ground_truth": "Select the best available option from incomplete evidence without resolving the ledger.",
     "expected_behavior": [
       "Keeps the option text out of planning and inspection.",
-      "The top-level agent compares each option's full meaning and passes the selected text with --answer while evidence remains unresolved."
+      "The top-level agent compares each option's full meaning and passes the selected text with --answer while evidence remains unresolved.",
+      "Does not omit --answer when the question asks for a choice, even if no accepted observation exists."
     ]
   },
   {
