@@ -1795,6 +1795,60 @@ def test_skip_ingest_records_sources_outside_the_dataset(monkeypatch: Any) -> No
     assert out == {"dataset_sources": 2, "other_sources": ["someone_elses_clip", "warehouse_sample"]}
 
 
+def test_bad_inputs_abort_before_the_wipe_deletes_anything(tmp_path: Path, monkeypatch: Any) -> None:
+    """The wipe deletes every source; finding the inputs unusable after it is too late."""
+    import run_eval_flows as rf
+
+    monkeypatch.setattr(rf.flows, "load_dataset_file", lambda *_a: {"queries": {"q": []}})
+    with pytest.raises(SystemExit, match="before deleting anything: no .mp4"):
+        rf.check_inputs_before_wipe(tmp_path / "missing", tmp_path, "warehouse", "")
+
+    monkeypatch.setattr(rf.flows, "load_dataset_file", lambda *_a: {"queries": {}})
+    with pytest.raises(SystemExit, match="no queries"):
+        rf.check_inputs_before_wipe(tmp_path, tmp_path, "warehouse", "")
+
+    def _broken(*_a: Any) -> dict[str, Any]:
+        raise json.JSONDecodeError("bad", "{", 0)
+
+    monkeypatch.setattr(rf.flows, "load_dataset_file", _broken)
+    with pytest.raises(SystemExit, match="could not read"):
+        rf.check_inputs_before_wipe(tmp_path, tmp_path, "warehouse", "")
+
+    videos = tmp_path / "videos"
+    videos.mkdir()
+    (videos / "1219.mp4").write_bytes(b"")
+    monkeypatch.setattr(rf.flows, "load_dataset_file", lambda *_a: {"queries": {"q": []}})
+    rf.check_inputs_before_wipe(videos, tmp_path, "warehouse", "")
+
+
+def test_a_failed_decomposition_keeps_its_elapsed_time(tmp_path: Path, monkeypatch: Any) -> None:
+    """A timed-out call took time; total_latency_s must not report it as instant."""
+    import run_eval_flows as rf
+
+    clock = _FakeClock(100.0)
+
+    class _SlowFailure(_FlakyDecomposer):
+        def decompose(self, query: str, video_sources: list[str] | None = None) -> tuple[dict[str, Any], float]:
+            clock.sleep(4.0)
+            raise flows.DecompositionError("timed out")
+
+    monkeypatch.setattr(rf.time, "monotonic", clock)
+    dataset_dir = tmp_path / "warehouse"
+    dataset_dir.mkdir()
+    (dataset_dir / "dataset.json").write_text(json.dumps({"queries": {"a person running": []}}))
+    backend = flows.CliQueryBackend(["vss"], search_path="embed")
+    backend.search = lambda _q: ([], 0.01)  # type: ignore[method-assign]
+    result = rf.run_evaluation(
+        backend, tmp_path, "warehouse", "", output_file=str(tmp_path / "result.json"),
+        decomposer=_SlowFailure(set()), max_decompose_failed_pct=100,
+    )
+
+    row = result["query_results"][0]
+    assert row["decompose_s"] == pytest.approx(4.0)
+    assert row["total_latency_s"] == pytest.approx(4.01)
+    assert result["summary"]["decomposition"]["mean_s"] is None
+
+
 def test_dataset_video_names_fall_back_to_ground_truth(tmp_path: Path, monkeypatch: Any) -> None:
     """--skip-ingest with --skip-download may have no local videos at all."""
     import run_eval_flows as rf
