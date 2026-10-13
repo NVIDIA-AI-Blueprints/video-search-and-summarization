@@ -137,8 +137,10 @@ The printed minimum is arithmetic on the floor and the cooldowns; it knows
 nothing about latency, and the `critic_eval_count: null` half of the matrix
 runs a VLM call per hit, so expect well above it.
 
-`uv run scripts/plot_results.py <results dir>` draws the latency, throughput,
-CPU and GPU charts afterwards (into `<results dir>/plots/`).
+`uv run scripts/plot_results.py <results dir>` draws the charts afterwards
+(into `<results dir>/plots/`): throughput and latency per path; CPU, memory,
+GPU and GPU memory per service against path, critic, top_k and concurrency;
+the same resources over the whole sweep's timeline; and latency per CLI stage.
 `uv run scripts/make_report.py <results dir>` writes the per-path throughput
 report and its charts into `<results dir>/report/`; it can be re-run while the
 sweep is still going.
@@ -273,8 +275,16 @@ subprocess instead of a corpus.
 
 ## Step 2 — Put a corpus in place
 
-The corpus is **one video uploaded five times**. Set
-`corpus.ingest.video` to the file and run with `--ingest`.
+The corpus is **one video uploaded five times**. Set `video` in
+`dataset/videos.yaml` to the file and run with `--ingest`.
+
+The dataset lives apart from the harness settings in `dataset/`:
+`queries.yaml` holds the questions (one per path), `videos.yaml` the file to
+upload, its copy count and the upload timestamp. `config.yaml` only says where
+that directory is (`dataset.dir`, relative to the config file); `--dataset <dir>`
+swaps in another directory with the same two files. Both are merged into the config at load
+time, so each results directory's `config.yaml` still records the questions and
+videos that run measured.
 
 This is deliberate. Every upload is renamed `searchbench-<timestamp>-<n>-<stem>.mp4`,
 so VST mints a fresh `sensorId` per request and the embed service — which keys

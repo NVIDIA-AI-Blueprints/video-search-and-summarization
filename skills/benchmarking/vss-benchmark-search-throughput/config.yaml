@@ -200,22 +200,7 @@ corpus:
     # Off by default: a sweep normally runs against a corpus loaded once.
     enabled: false
 
-    # ONE source file, uploaded `copies` times.
-    #
-    # This is deliberate and it is the whole corpus design. Every upload is
-    # renamed `searchbench-<timestamp>-<stem>.mp4`, so VST mints a fresh
-    # sensorId per request and the embed service -- which keys on that id, not
-    # on content -- has nothing to collapse. Five uploads of one file are five
-    # independent sensors.
-    #
-    # What it costs: the five copies put their vectors on the same points in
-    # embedding space, so absolute top-K recall is not comparable with a corpus
-    # of five distinct videos. This benchmark does not measure recall, and the
-    # PATH-to-PATH ratios it does measure are unaffected. Point `video` at a
-    # directory of distinct files and set `copies: 1` if a recall-comparable
-    # corpus is ever wanted.
-    video: "/localhome/local-gduong/workspace/vss-benchmarking/corpus/Camera_01_looped_500m_ndi1nb.mp4"
-    copies: 5
+    # The file(s) to upload and how many copies: <dataset.dir>/videos.yaml.
 
     # Abort when ANY upload fails, not only when all do. A sweep that lost its
     # fifth video to an HTTP 502 was once compared against a five-video sweep
@@ -255,11 +240,6 @@ corpus:
     # content -- and then the file list claims N videos while the corpus holds
     # fewer.
     require_unique_sensor_ids: true
-
-    # Capture time for the uploads. VIOS reads it from the `metadata` field of
-    # the upload itself, and every VSS harness anchors ground truth to this
-    # exact constant, so changing it shifts every timestamp in the results.
-    upload_timestamp: "2025-01-01T00:00:00"
 
     # How many videos go up at once. Defaults to all of them. This shortens
     # the transfer, not the indexing: perception runs at roughly real time per
@@ -353,50 +333,18 @@ corpus:
       timeout_sec: 14400
 
 # ---------------------------------------------------------------------------
-# Query set -- one query per path. Do not modify after official runs start.
+# Dataset -- questions and video files, kept apart from the harness settings
 # ---------------------------------------------------------------------------
-#
-# expected_path is an expectation, not a fact. Each query is decomposed once
-# before the sweep and the resulting path is what runs; a mismatch is reported
-# and analysis groups by the RESOLVED path, written to query_plans.json.
-#
-# Three fixed queries make the text-embedding step free, which has to be known
-# before reading any number here as a production figure. Both search paths embed
-# the query text on a separate service first (embed_search on vss-rtvi-embed,
-# attribute_search on vss-rtvi-cv), and both clients keep the vector in an LRU
-# keyed on that text, in a cache that outlives the sweep. Three queries cost
-# three calls, once: a measured sweep of 2,160 requests made exactly three POSTs
-# to vss-rtvi-embed, all within four seconds, then nothing for two hours.
-#
-# This is what `--disable-embedding-cache` on the deploy side exists to defeat.
-# Quote resource figures for those two services only from a run that had it off.
-query_set:
-  # Attributes, no action verb -> attribute search alone.
-  - id: "q1"
-    query: "A person wearing a white T-shirt"
-    expected_path: "attribute"
-
-  # Names no concrete entity, and that is the point. The agent routes on the
-  # `attributes` the decomposition LLM returns, and the LLM builds an attribute
-  # around any entity a query mentions -- "vehicle" and "people" alike, whatever
-  # the verb form. Measured against the live model at concurrency 10, 100
-  # samples each: "When do you see a vehicle moving?" went to fusion 24% of the
-  # time and "When does a vehicle move?" 26%, while this wording returned no
-  # attributes 100 times out of 100.
-  #
-  # Do not reintroduce a noun to make it read better. Temperature is already 0
-  # and the prompt is fixed, so the variation is the server batching requests
-  # differently and no wording that names an entity survives it.
-  #
-  # No attributes at all -> embedding search alone.
-  - id: "q2"
-    query: "When is there activity in the scene?"
-    expected_path: "event"
-
-  # Attributes plus an action -> both, fused.
-  - id: "q3"
-    query: "A person wearing a yellow hat carrying a box"
-    expected_path: "fusion"
+# The directory holds two files with fixed names:
+#   queries.yaml  the questions (`queries:`), one per path
+#   videos.yaml   `video`, `copies`, `upload_timestamp` for the ingest stage
+# Relative paths resolve against this file. Both are merged into the config
+# when it loads -- queries become query_set, the video fields land in
+# corpus.ingest -- so each results directory's config.yaml still records
+# exactly which questions and videos it measured. Point `dir` elsewhere (or
+# pass --dataset DIR) to swap datasets without touching anything else.
+dataset:
+  dir: "dataset"
 
 # ---------------------------------------------------------------------------
 # Sweep matrix

@@ -1,0 +1,23 @@
+# The corpus the ingest stage uploads (`--ingest` or corpus.ingest.enabled).
+#
+# ONE source file, uploaded `copies` times.
+#
+# This is deliberate and it is the whole corpus design. Every upload is
+# renamed `searchbench-<timestamp>-<stem>.mp4`, so VST mints a fresh
+# sensorId per request and the embed service -- which keys on that id, not
+# on content -- has nothing to collapse. Five uploads of one file are five
+# independent sensors.
+#
+# What it costs: the five copies put their vectors on the same points in
+# embedding space, so absolute top-K recall is not comparable with a corpus
+# of five distinct videos. This benchmark does not measure recall, and the
+# PATH-to-PATH ratios it does measure are unaffected. Point `video` at a
+# directory of distinct files and set `copies: 1` if a recall-comparable
+# corpus is ever wanted.
+video: "/localhome/local-gduong/workspace/vss-benchmarking/corpus/Camera_01_looped_500m_ndi1nb.mp4"
+copies: 5
+
+# Capture time for the uploads. VIOS reads it from the `metadata` field of
+# the upload itself, and every VSS harness anchors ground truth to this
+# exact constant, so changing it shifts every timestamp in the results.
+upload_timestamp: "2025-01-01T00:00:00"

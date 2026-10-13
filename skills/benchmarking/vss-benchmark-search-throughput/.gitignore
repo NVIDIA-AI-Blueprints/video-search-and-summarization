@@ -1,4 +1,12 @@
+# Written by every run, smoke and plot: results, the per-sweep CLI config,
+# reports, transcripts, and pod logs (which can carry credentials).
 results/
-.ruff_cache/
+plots/
+report/
+
+# Python and tool caches.
 __pycache__/
+*.pyc
 .pytest_cache/
+.ruff_cache/
+.venv/

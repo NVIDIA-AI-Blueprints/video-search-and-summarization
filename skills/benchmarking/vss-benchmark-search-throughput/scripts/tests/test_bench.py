@@ -126,6 +126,55 @@ def test_shipped_config_covers_three_distinct_paths():
     assert all(p in SEARCH_PATHS for p in paths)
 
 
+def test_shipped_dataset_lands_in_query_set_and_ingest():
+    config = load_config(CONFIG_PATH)
+    ingest = config["corpus"]["ingest"]
+    assert ingest["copies"] == 5
+    assert ingest["video"].endswith(".mp4")
+    assert ingest["upload_timestamp"] == "2025-01-01T00:00:00"
+    assert Path(config["dataset"]["dir"]).is_absolute()
+
+
+def _write_dataset(root: Path, queries: str, videos: str) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "queries.yaml").write_text(queries, encoding="utf-8")
+    (root / "videos.yaml").write_text(videos, encoding="utf-8")
+    return root
+
+
+def test_dataset_dir_replaces_the_configured_dataset(tmp_path):
+    other = _write_dataset(
+        tmp_path / "other",
+        'queries:\n  - {id: z1, query: "a red car", expected_path: attribute}\n',
+        'video: "/data/x.mp4"\ncopies: 1\n',
+    )
+    config = load_config(CONFIG_PATH, other)
+    assert [q.id for q in build_query_set(config)] == ["z1"]
+    assert config["corpus"]["ingest"]["video"] == "/data/x.mp4"
+
+
+def test_a_dataset_value_also_set_in_the_config_is_rejected(tmp_path):
+    data = _write_dataset(tmp_path / "d", 'queries: []\n', 'video: "/v.mp4"\n')
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        'dataset: {dir: d}\n'
+        'corpus: {ingest: {video: "/other.mp4"}}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="both"):
+        load_config(config_file)
+    assert data.exists()
+
+
+def test_an_unknown_video_field_is_rejected(tmp_path):
+    data = _write_dataset(tmp_path / "d", 'queries: []\n', 'vidoe: "/v.mp4"\n')
+    with pytest.raises(ValueError, match="unknown field"):
+        load_config(CONFIG_PATH, data)
+
+
+def test_a_missing_dataset_file_is_named(tmp_path):
+    with pytest.raises(ValueError, match="not found"):
+        load_config(CONFIG_PATH, tmp_path / "nowhere")
+
+
 def test_a_query_expecting_a_nonexistent_path_is_rejected():
     """``PATH 1`` was the old taxonomy; a stale config must not route silently."""
     with pytest.raises(ValueError, match="PATH 1"):
@@ -466,19 +515,28 @@ def test_ndjson_output_is_read_past_the_lifecycle_events():
         '{"event": "progress", "percent": 50}\n'
         '{"data": [{"id": 1}, {"id": 2}], "search_messages": ["ok"]}\n'
     )
-    hits, messages = parse_cli_output(stdout)
+    hits, messages, _ = parse_cli_output(stdout)
     assert len(hits) == 2
     assert messages == ["ok"]
 
 
 def test_a_single_document_response_still_parses():
-    hits, _ = parse_cli_output('{"data": [{"id": 1}]}')
+    hits, _, _ = parse_cli_output('{"data": [{"id": 1}]}')
     assert len(hits) == 1
 
 
 def test_an_empty_result_is_a_result_not_a_parse_failure():
-    hits, _ = parse_cli_output('{"event": "done"}\n{"data": []}')
+    hits, _, _ = parse_cli_output('{"event": "done"}\n{"data": []}')
     assert hits == []
+
+
+def test_stage_timings_are_read_and_absent_ones_are_empty():
+    stdout = ('{"data": [], "timings": {"stages": {"vlm: inference": '
+              '{"total_s": 1.5, "self_s": 1.5, "calls": 5}}, "total_s": 2.0}}')
+    _, _, timings = parse_cli_output(stdout)
+    assert timings["total_s"] == 2.0
+    assert timings["stages"]["vlm: inference"]["calls"] == 5
+    assert parse_cli_output('{"data": []}')[2] == {}
 
 
 def test_output_with_no_data_document_is_an_error():

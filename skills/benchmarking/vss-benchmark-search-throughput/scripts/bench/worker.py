@@ -152,11 +152,13 @@ def send_search_request(
 
         if proc.returncode == 0:
             try:
-                hits, messages = parse_cli_output(proc.stdout)
+                hits, messages, timings = parse_cli_output(proc.stdout)
             except ValueError as e:
                 record.error = f"unreadable CLI output: {e}"
             else:
                 record.search_messages = messages
+                record.stage_timings = timings.get("stages") or {}
+                record.search_total_sec = timings.get("total_s")
                 _extract_hit_evidence(hits, record)
         else:
             detail = (proc.stderr or proc.stdout or "").strip()

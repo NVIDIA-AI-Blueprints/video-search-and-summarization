@@ -451,8 +451,13 @@ def build_argv(
     return argv
 
 
-def parse_cli_output(stdout: str) -> tuple[list[dict[str, Any]], list[str]]:
-    """Read ``(hits, search_messages)`` out of ``--raw`` output.
+def parse_cli_output(
+    stdout: str,
+) -> tuple[list[dict[str, Any]], list[str], dict[str, Any]]:
+    """Read ``(hits, search_messages, timings)`` out of ``--raw`` output.
+
+    ``timings`` is ``SearchOutput.timings``: per-stage wall clock measured
+    inside the CLI process, ``{}`` from a CLI too old to report it.
 
     The output is **NDJSON**: one JSON document per line, with lifecycle events
     interleaved before the result. Parsing the buffer as a single document
@@ -491,7 +496,12 @@ def parse_cli_output(stdout: str) -> tuple[list[dict[str, Any]], list[str]]:
             continue
         hits = payload.get("data") or []
         messages = [str(m) for m in (payload.get("search_messages") or [])]
-        return (hits if isinstance(hits, list) else []), messages
+        timings = payload.get("timings")
+        return (
+            hits if isinstance(hits, list) else [],
+            messages,
+            timings if isinstance(timings, dict) else {},
+        )
 
     raise ValueError(
         f"no CLI output document carried a 'data' field: {text[:200]!r}"
