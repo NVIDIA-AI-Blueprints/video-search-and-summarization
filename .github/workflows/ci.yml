@@ -224,6 +224,12 @@ jobs:
           rm -rf .archive-license
           gzip -n source.tar
           git ls-files > tracked-files.txt
+          # LFS paths are not committed as an exclude list. This job has the
+          # checkout; the secret scan later does not. Pointer text and the
+          # smudged archive bytes disagree, so those paths are skipped.
+          git check-attr --stdin filter < tracked-files.txt \
+            | awk -F': filter: ' '$2 == "lfs" { print $1 }' \
+            > lfs-files.txt
           ls -lh source.tar.gz
 
       # Assert the notice and exclusion did what we think. Without this a silent
@@ -264,6 +270,7 @@ jobs:
           path: |
             source.tar.gz
             tracked-files.txt
+            lfs-files.txt
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
@@ -1101,6 +1108,7 @@ jobs:
           tar -xzf .source-artifact/source.tar.gz --strip-components=1
           mkdir -p .ci
           mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
+          mv .source-artifact/lfs-files.txt .ci/lfs-files.txt
           rm -rf .source-artifact
 
       - name: Set up Python
@@ -1132,13 +1140,17 @@ jobs:
             echo "::error::Refusing a green scan: $missing tracked files were not opened from the repository root."
             exit 1
           fi
-          # Git LFS paths are excluded. This job's source archive stores
-          # services/vios blobs as pointers and smudges the other LFS files.
-          # A baseline built from pointer text would not match that archive.
+          # lfs-files.txt is produced by prepare-source from git check-attr.
+          # Those blobs are pointers in some checkouts and real files in the
+          # archive, so they are not handed to the scanner.
+          sort "$list" > "$GITHUB_WORKSPACE/.ci/tracked.sorted"
+          sort "$GITHUB_WORKSPACE/.ci/lfs-files.txt" > "$GITHUB_WORKSPACE/.ci/lfs.sorted"
+          comm -23 "$GITHUB_WORKSPACE/.ci/tracked.sorted" "$GITHUB_WORKSPACE/.ci/lfs.sorted" \
+            > "$GITHUB_WORKSPACE/.ci/scan-files.txt"
           detect-secrets-hook --no-verify \
             --baseline .secrets.baseline \
-            --exclude-files '(\.secrets\.baseline|gitleaks-baseline\.json|^deploy/docker/MANIFEST$|^deployments/MANIFEST$|deploy/docker/services/infra/elk/logstash/gems/|services/agent/3rdparty/ffmpeg/|services/alert/warmup/test\.mp4|services/analytics/behavior-analytics/tests/integration/docker_compose/apps_data/playback/|services/analytics/behavior-analytics/tests/integration/expected_output/|services/analytics/video-analytics-api/test/integration-test/elasticsearch_data_dump/|services/rtvi/rt-cv/TritonGdino/prebuilts/|services/rtvi/rt-cv/TritonMaskGdino/prebuilts/|services/rtvi/rt-cv/prebuilts/|services/rtvi/rt-embed/docker/binaries/|services/rtvi/rt-vlm/artifacts/|services/vios/prebuilts/|services/vios/LICENSE\.3rdparty$|services/vios/test/bdd_tests/data/test_video\.mp4$|services/vios/tools/aarch64/testWebrtcTool$|services/vios/tools/x86_64/testWebrtcTool$|services/vios/tools/x86_64/tokkioTestClient$)' \
-            $(cat "$list")
+            --exclude-files '(\.secrets\.baseline|gitleaks-baseline\.json|^deploy/docker/MANIFEST$|^deployments/MANIFEST$)' \
+            $(cat "$GITHUB_WORKSPACE/.ci/scan-files.txt")
 
   # ---------------------------------------------------------------------------
   # Job 5: Frontend lint + typecheck
