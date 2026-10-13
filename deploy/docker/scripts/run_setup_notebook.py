@@ -53,6 +53,21 @@ NOTEBOOK_PARAMETERS: dict[str, tuple[str, ...]] = {
         "VLM_ENDPOINT_URL",
         "VLM_MODEL_TYPE",
     ),
+    # `ROUTER_BIND` is absent on purpose: the runner reaches this notebook on
+    # the NemoClaw route, where `ROUTE_NEMOCLAW` rewrites the bind below the
+    # marker. Off that route section 5 honours an injected address.
+    "deploy_vss_switchyard.ipynb": (
+        "UPSTREAM_BASE_URL",
+        "ROUTE_NEMOCLAW",
+        "ROUTER_PORT",
+        "ROUTER_NETWORK",
+        "ROUTER_CONTAINER",
+        "ROUTER_ROUTE",
+        "ROUTER_TARGET_CAPABLE",
+        "ROUTER_TARGET_EFFICIENT",
+        "ROUTER_TEARDOWN",
+        "VSS_FOUNDATION_PROFILE",
+    ),
 }
 
 _MINIMUM_TIMEOUT_SEC = 60

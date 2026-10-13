@@ -82,10 +82,28 @@ class ParameterContractTests(unittest.TestCase):
                 "deploy_nemo_relay.ipynb",
                 "deploy_nemoclaw.ipynb",
                 "deploy_vss_orchestrator.ipynb",
+                "deploy_vss_switchyard.ipynb",
             ],
         )
         for name in runner.NOTEBOOK_PARAMETERS:
             self.assertTrue((SCRIPTS_DIR / name).is_file(), name)
+
+    def test_every_parameter_is_bound_above_the_injection_point(self) -> None:
+        # The injected default reads the notebook's own name, so a parameter
+        # none of the cells above the marker bind raises NameError there.
+        for name, parameters in runner.NOTEBOOK_PARAMETERS.items():
+            path = SCRIPTS_DIR / name
+            notebook = json.loads(path.read_text(encoding="utf-8"))
+            bound: set[str] = set()
+            for cell in notebook["cells"]:
+                if cell.get("cell_type") != "code":
+                    continue
+                source = "".join(cell["source"])
+                above = source.split(runner.DERIVED_SETTINGS_MARKER)[0]
+                bound |= notebook_names(above)[1]
+                if above != source:
+                    break
+            self.assertEqual(sorted(set(parameters) - bound), [], name)
 
     def test_repo_root_resolves_to_the_checkout(self) -> None:
         self.assertEqual(runner.repo_root(), SCRIPTS_DIR.parents[2])
