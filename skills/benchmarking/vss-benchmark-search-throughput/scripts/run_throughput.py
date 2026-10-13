@@ -150,6 +150,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="benchmark config (default: the skill's own config.yaml)",
     )
     parser.add_argument(
+        "--dataset", type=Path,
+        help="directory holding queries.yaml and videos.yaml; overrides "
+             "dataset.dir in the config (default: the skill's own dataset/)",
+    )
+    parser.add_argument(
         "--output-dir", type=Path,
         help="where to create the timestamped results directory "
              "(default: output.base_dir from the config)",
@@ -659,6 +664,9 @@ def _print_banner(
         say("  stage runs, far too few to say anything about latency.")
     say(f"  Started:    {utc_now_iso()}")
     say(f"  Config:     {args.config}")
+    dataset_dir = (config.get("dataset") or {}).get("dir")
+    if dataset_dir:
+        say(f"  Dataset:    {dataset_dir}")
     say(f"  Output:     {output_dir.resolve()}")
     say(f"  Queries:    {len(query_set)} ({', '.join(q.id for q in query_set)})")
     swept_paths = [p for p in dict.fromkeys(r.path for r in runs) if p]
@@ -1036,7 +1044,10 @@ def execute(args: argparse.Namespace, lock: RunLock | None) -> int:
 
 
 def _execute(args: argparse.Namespace, lock: RunLock | None) -> int:
-    config = load_config(args.config)
+    try:
+        config = load_config(args.config, args.dataset)
+    except (OSError, ValueError) as e:
+        raise _fail(2, str(e)) from e
     apply_setup_overrides(config, args)
     query_set, runs = _build_plan(config, args)
     output_dir = _output_dir(config, args)
@@ -1124,7 +1135,7 @@ def main(argv: list[str] | None = None) -> int:
             return execute(args, None)
 
         try:
-            lock_probe_config = load_config(args.config)
+            lock_probe_config = load_config(args.config, args.dataset)
         except (OSError, ValueError) as e:
             print(f"ERROR: {e}", file=sys.stderr)
             return 2

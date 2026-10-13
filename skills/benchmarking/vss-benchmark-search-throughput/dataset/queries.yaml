@@ -1,0 +1,43 @@
+# Query set -- one query per path. Do not modify after official runs start.
+#
+# expected_path is an expectation, not a fact. Each query is decomposed once
+# before the sweep and the resulting path is what runs; a mismatch is reported
+# and analysis groups by the RESOLVED path, written to query_plans.json.
+#
+# Three fixed queries make the text-embedding step free, which has to be known
+# before reading any number here as a production figure. Both search paths embed
+# the query text on a separate service first (embed_search on vss-rtvi-embed,
+# attribute_search on vss-rtvi-cv), and both clients keep the vector in an LRU
+# keyed on that text, in a cache that outlives the sweep. Three queries cost
+# three calls, once: a measured sweep of 2,160 requests made exactly three POSTs
+# to vss-rtvi-embed, all within four seconds, then nothing for two hours.
+#
+# This is what `--disable-embedding-cache` on the deploy side exists to defeat.
+# Quote resource figures for those two services only from a run that had it off.
+queries:
+  # Attributes, no action verb -> attribute search alone.
+  - id: "q1"
+    query: "A person wearing a white T-shirt"
+    expected_path: "attribute"
+
+  # Names no concrete entity, and that is the point. The agent routes on the
+  # `attributes` the decomposition LLM returns, and the LLM builds an attribute
+  # around any entity a query mentions -- "vehicle" and "people" alike, whatever
+  # the verb form. Measured against the live model at concurrency 10, 100
+  # samples each: "When do you see a vehicle moving?" went to fusion 24% of the
+  # time and "When does a vehicle move?" 26%, while this wording returned no
+  # attributes 100 times out of 100.
+  #
+  # Do not reintroduce a noun to make it read better. Temperature is already 0
+  # and the prompt is fixed, so the variation is the server batching requests
+  # differently and no wording that names an entity survives it.
+  #
+  # No attributes at all -> embedding search alone.
+  - id: "q2"
+    query: "When is there activity in the scene?"
+    expected_path: "event"
+
+  # Attributes plus an action -> both, fused.
+  - id: "q3"
+    query: "A person wearing a yellow hat carrying a box"
+    expected_path: "fusion"

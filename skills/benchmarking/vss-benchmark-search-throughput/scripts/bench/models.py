@@ -137,6 +137,11 @@ class RequestRecord:
     critic_rejected: int = 0
     critic_unverified: int = 0
     search_messages: list[str] = field(default_factory=list)
+    #: ``{label: {total_s, self_s, calls, concurrent_children}}`` from the CLI.
+    #: ``latency_sec`` minus ``search_total_sec`` is process startup, config
+    #: and client setup: time no stage label accounts for.
+    stage_timings: dict[str, dict[str, float]] = field(default_factory=dict)
+    search_total_sec: float | None = None
 
     @property
     def succeeded(self) -> bool:

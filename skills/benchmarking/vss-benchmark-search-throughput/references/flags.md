@@ -5,6 +5,14 @@ Flags that only change where files land are in `--help`.
 
 ## Choosing what to measure
 
+### `--dataset <dir>`
+
+A directory holding `queries.yaml` (the questions) and `videos.yaml` (the
+file to upload, `copies`, `upload_timestamp`), overriding the config's
+`dataset.dir`. Default: the skill's own `dataset/`.
+Changing it changes what every number means, so compare only sweeps that ran
+the same dataset -- the results' `config.yaml` records it under `dataset`.
+
 ### `--path attribute event fusion`
 
 Which search paths to measure, one per run. Default: the config's

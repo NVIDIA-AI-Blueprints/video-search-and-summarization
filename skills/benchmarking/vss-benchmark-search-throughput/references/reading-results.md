@@ -6,8 +6,25 @@
 GPU per service, `query_plans.json` to find out which path each query took.
 Group everything by **`resolved_path`**.
 
-For charts: `uv run scripts/plot_results.py <results dir>` writes
-`latency.png`, `throughput.png`, `cpu.png` and `gpu.png` into `plots/`.
+For charts: `uv run scripts/plot_results.py <results dir>` writes into `plots/`:
+
+| File | Shows |
+|---|---|
+| `throughput.png`, `throughput_<path>.png`, `latency.png` | queries/sec and p50/p95 vs concurrency |
+| `resources_{cpu,memory,gpu,gpu_memory}.png` | per-service mean over each run's window; rows = path, columns = critic, line style = top_k |
+| `resources_timeline.png` | the same four resources across the whole sweep, each run's window shaded by path (darker = critic on) |
+| `latency_breakdown_<path>.png` | mean self time per CLI stage, stacked, with the wall clock as a tick |
+
+## Latency per stage
+
+Each request record carries `stage_timings` -- the CLI's own
+`SearchOutput.timings`, keyed by stage label (`embed_search: ES search
+execution`, `attribute_search: frame lookups`, `vlm: inference`, ...) -- and
+`search_total_sec`. `latency_sec - search_total_sec` is what no stage
+accounts for: interpreter startup, config load, client setup. Stages that run
+concurrently (fusion's legs, per-hit attribute lookups and critic calls) sum
+to more than the wall clock; their stacked bar is work, not elapsed time.
+Sweeps recorded before this field existed have no breakdown.
 
 ## `summary.csv` — one row per run
 

@@ -26,9 +26,64 @@ from .models import QueryItem, RunConfig
 from .routing import EVENT, FUSION, SEARCH_PATHS, TAG
 
 
-def load_config(config_path: Path) -> dict[str, Any]:
+#: What a dataset's videos file may set; each lands in ``corpus.ingest``.
+VIDEO_FIELDS = ("video", "copies", "upload_timestamp")
+QUERIES_FILE = "queries.yaml"
+VIDEOS_FILE = "videos.yaml"
+
+
+def load_config(config_path: Path, dataset_dir: Path | None = None) -> dict[str, Any]:
+    """Read the config and merge in the dataset directory it points at.
+
+    ``<dataset.dir>/queries.yaml`` becomes ``query_set`` and
+    ``<dataset.dir>/videos.yaml`` fills ``corpus.ingest``, so everything
+    downstream -- and the copy of the config written beside the results --
+    sees one self-contained config. A value set in both places is an error
+    rather than a silent precedence rule. ``dataset_dir`` overrides
+    ``dataset.dir``.
+    """
+    config_path = Path(config_path)
     with open(config_path, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        config = yaml.safe_load(f) or {}
+    raw_dir = dataset_dir if dataset_dir is not None else (config.get("dataset") or {}).get("dir")
+    if not raw_dir:
+        return config
+    root = Path(raw_dir)
+    if not root.is_absolute():
+        root = config_path.resolve().parent / root
+    root = root.resolve()
+    queries_file, videos_file = root / QUERIES_FILE, root / VIDEOS_FILE
+
+    if config.get("query_set"):
+        raise ValueError(f"queries are set in both config.query_set and {queries_file}; "
+                         "keep them in one place")
+    config["query_set"] = _read_yaml(queries_file).get("queries") or []
+
+    videos = _read_yaml(videos_file)
+    unknown = sorted(set(videos) - set(VIDEO_FIELDS))
+    if unknown:
+        raise ValueError(f"{videos_file}: unknown field(s) {', '.join(unknown)} "
+                         f"(expected: {', '.join(VIDEO_FIELDS)})")
+    ingest = config.setdefault("corpus", {}).setdefault("ingest", {})
+    clash = sorted(k for k in videos if k in ingest)
+    if clash:
+        raise ValueError(f"{', '.join(clash)} set in both corpus.ingest and {videos_file}; "
+                         "keep them in one place")
+    ingest.update(videos)
+
+    config["dataset"] = {"dir": str(root)}
+    return config
+
+
+def _read_yaml(path: Path) -> dict[str, Any]:
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        raise ValueError(f"dataset file not found: {path}") from None
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} must be a YAML mapping")
+    return data
 
 
 def dump_config(config: dict[str, Any]) -> str:

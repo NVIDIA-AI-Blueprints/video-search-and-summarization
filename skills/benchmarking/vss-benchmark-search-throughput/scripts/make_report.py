@@ -39,11 +39,18 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from plot_results import latency_breakdown  # noqa: E402
 from plot_results import main as plot_main  # noqa: E402
 
 PATH_ORDER = ["attribute", "event", "fusion", "tag", "object"]
 CPU_METRIC = "cpu_core_seconds_total:mean_rate"
 SATURATED = 0.9
+RESOURCE_PICTURES = (
+    ("resources_cpu.png", "CPU"),
+    ("resources_memory.png", "Memory"),
+    ("resources_gpu.png", "GPU utilisation"),
+    ("resources_gpu_memory.png", "GPU memory"),
+)
 
 
 def _read(path: Path) -> list[dict[str, str]]:
@@ -95,6 +102,29 @@ def _top_usage(resources: list[dict[str, str]], run_id: str) -> str:
         svc, val = max(busy.items(), key=lambda x: x[1])
         parts.append(f"GPU: {svc} {val:.0f}%")
     return "; ".join(parts) or "không có số liệu tài nguyên"
+
+
+def _breakdown_table(rows: list[dict], top_k: int | None) -> list[str]:
+    """One row per (path, critic, concurrency) at ``top_k``; stages as columns."""
+    rows = [r for r in rows if top_k is None or r["top_k"] == top_k]
+    totals: dict[str, float] = defaultdict(float)
+    for r in rows:
+        for label, value in r["stages"].items():
+            totals[label] += value
+    labels = [lbl for lbl, v in sorted(totals.items(), key=lambda kv: -kv[1]) if v > 0.0005]
+    rows.sort(key=lambda r: (PATH_ORDER.index(r["path"]) if r["path"] in PATH_ORDER else 99,
+                             r["critic"], r["concurrency"]))
+    out = [
+        f"Bảng ở top_k {top_k} (giây):" if top_k is not None else "Bảng (giây):",
+        "",
+        "| Path | Critic | c | Tổng | " + " | ".join(labels) + " | other |",
+        "|---|---|---|---|" + "---|" * (len(labels) + 1),
+    ]
+    for r in rows:
+        cells = [_num(r["stages"].get(lbl), 3) if lbl in r["stages"] else "-" for lbl in labels]
+        out.append(f"| {r['path']} | {r['critic']} | {r['concurrency']} | "
+                   f"{r['wall_sec']:.3f} | " + " | ".join(cells) + f" | {r['other_sec']:.3f} |")
+    return out + [""]
 
 
 def build(results: Path) -> str:
@@ -215,11 +245,51 @@ def build(results: Path) -> str:
                 out.append(f"| {path} | {k} | " + " | ".join(vals) + " |")
         out.append("")
 
-    pictures = [n for n in ("cpu.png", "gpu.png") if (results / "report" / n).exists()]
+    report = results / "report"
+    pictures = [(n, title) for n, title in RESOURCE_PICTURES if (report / n).exists()]
     if pictures:
-        out += ["## Tài nguyên", ""]
-        out += [f"![{n[:-4]}]({n})" for n in pictures]
-        out.append("")
+        out += [
+            "## Tài nguyên theo path, critic, top_k và concurrency",
+            "",
+            "Mỗi hàng là một path, mỗi cột là critic off/on, mỗi màu là một service "
+            "(3 service dùng nhiều nhất trong từng ô), kiểu nét là top_k. Giá trị là "
+            "trung bình trong cửa sổ đo của run.",
+            "",
+        ]
+        for n, title in pictures:
+            out += [f"### {title}", "", f"![{title}]({n})", ""]
+    if (report / "resources_timeline.png").exists():
+        out += [
+            "## Tài nguyên theo thời gian",
+            "",
+            "Toàn bộ sweep theo trục thời gian (chỉ cửa sổ đo; khoảng trống là warmup, "
+            "cooldown). Nền mỗi run tô theo màu path, đậm hơn khi critic on.",
+            "",
+            "![resources timeline](resources_timeline.png)",
+            "",
+        ]
+
+    out += ["## Latency theo từng bước", ""]
+    breakdown = latency_breakdown(results, summary)
+    if not breakdown:
+        out += [
+            "Sweep này **không có số liệu theo bước**: nó chạy trước khi harness lưu "
+            "`timings` mà CLI trả về, nên mỗi request chỉ có tổng latency. Các sweep "
+            "chạy từ bây giờ sẽ có biểu đồ và bảng ở đây.",
+            "",
+        ]
+    else:
+        out += [
+            "Thời gian trung bình mỗi request cho từng bước (self time, giây). "
+            "\"other\" = tổng latency trừ thời gian CLI tự đo: khởi động process, đọc "
+            "config, tạo client. Các bước chạy song song (hai nhánh của fusion, VLM "
+            "verify từng hit) có thể cộng lại lớn hơn tổng latency (vạch đen).",
+            "",
+        ]
+        out += [line for path in paths
+                if (report / f"latency_breakdown_{path}.png").exists()
+                for line in (f"![latency breakdown {path}](latency_breakdown_{path}.png)", "")]
+        out += _breakdown_table(breakdown, k0)
 
     out += [
         "## Lưu ý",
