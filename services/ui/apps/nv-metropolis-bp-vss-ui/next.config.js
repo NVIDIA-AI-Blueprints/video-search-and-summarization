@@ -9,6 +9,11 @@ const nextConfig = {
   },
   i18n,
   output: 'standalone',
+  // The UI does not use next/image; disabling the optimizer keeps sharp/libvips
+  // off the request path of the /_next/image route.
+  images: {
+    unoptimized: true,
+  },
   // Next 16 writes AGENTS.md and CLAUDE.md here on every dev run; this repo
   // keeps its agent guidance at the root instead.
   agentRules: false,
