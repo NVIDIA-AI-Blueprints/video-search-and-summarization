@@ -47,6 +47,26 @@ This is a server-side cap, not a sampling rate or a guarantee that 8192 frames
 fit in GPU memory. Validate the model's context and GPU-memory budget before
 raising it. It does not reconfigure an external VLM in shared-NIM mode.
 
+## RT-VLM context length
+
+Integrated RT-VLM preserves its **32768-token model context** default. This is
+the total capacity for text/video input tokens and generated output, separate
+from the frame cap and the request's output-token limit. Override it without
+replacing the complete environment-variable list:
+
+```yaml
+rtvi:
+  vss-rtvi-vlm:
+    envOverrides:
+      VLM_MAX_MODEL_LEN: "262144"
+```
+
+This becomes the integrated engine's `max_model_len` at startup; redeploy the
+service after changing it. Choose a value supported by the checkpoint and
+validate GPU-memory fit with a representative request. This does not configure
+an external shared NIM, and sandbox `VSS_VLM_*` request settings cannot raise
+this server limit.
+
 ## Prerequisites
 
 - **Kubernetes cluster**

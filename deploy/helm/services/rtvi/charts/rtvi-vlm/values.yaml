@@ -238,6 +238,9 @@ env:
   # Maximum frames per inference chunk; envOverrides can raise the existing cap.
   - name: RTVI_VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES
     value: "256"
+  # Integrated engine context (input + output tokens); preserve the runtime default.
+  - name: VLM_MAX_MODEL_LEN
+    value: "32768"
   - name: VLM_INPUT_WIDTH
     value: ""
   - name: VLM_INPUT_HEIGHT
