@@ -45,14 +45,6 @@ never derive or search for a path from the skill name. In this NemoClaw image,
 invoke the skill's `vss` arguments through the `vss_cli` tool. Do not look for a
 repository checkout or replace the CLI with raw HTTP.
 
-Never route a named-video PPE question (what the footage shows) to analytics or
-VA-MCP. A question about PPE violations already recorded for a sensor over a
-period ("any PPE violations on warehouse_sample in the last hour?") is an
-incident lookup instead: when `vss-query-analytics` is active, route it by the
-incidents rule below; otherwise answer from the footage with `vss-ask-video`.
-When every incident query you ran came back empty or its store did not answer,
-say so and offer to check the footage with `vss-ask-video`.
-
 Resolve names from the sensor listing; if one unambiguous result corrects a typo, state the
 correction and use the listed identifier. Obtain the sensor's exact recorded
 timeline before time-based requests; never substitute the current date.
