@@ -36,8 +36,10 @@ twice: once on everything (**Raw**), once with critic-rejected hits removed
 Two caveats worth internalising:
 
 - **Recall is identical across retrieval paths when they find the same
-  material.** If Raw recall matches between CLI and REST but mAP differs, that
-  is usually the merge asymmetry, not a quality difference.
+  material.** If Raw recall matches between two runs but mAP differs, check
+  `config.merge_adjacent` in both. Merged windows span more segments, so a
+  merged and an unmerged run differ in precision and mAP without any
+  difference in retrieval quality.
 - **The critic is an LLM and is not deterministic.** Raw metrics repeat exactly
   run to run; critic-filtered ones move by a few points. Gate on Raw, or use
   repeats and a tolerance band.

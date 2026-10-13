@@ -25,10 +25,16 @@ read as a retrieval collapse.
 
 ### Merging
 
-Upstream merges contiguous same-sensor windows by default and reports the mean
-of their scores. That changes the number of scored segments — the denominator
-of precision — so this script passes `--no-merge-adjacent` by default to stay
-comparable with the REST baseline. `--merge-adjacent` opts back in.
+Merging is on by default, as in the agent. The search merges contiguous
+same-sensor windows and reports the mean of their scores. With merging on it
+also fetches twice `--top-k` candidates and cuts back to `--top-k`, which is
+the agent's candidate pool. Unmerged, it fetches only `--top-k`, so fusion can
+only reorder what embed found, and recall drops.
+
+Merged windows span more 5-second segments, which changes the precision
+denominator. Precision and mAP are therefore not comparable between a merged
+and an unmerged run. Result files captured before merging became the default
+were unmerged; `--no-merge-adjacent` reproduces them.
 
 ## Index state
 
