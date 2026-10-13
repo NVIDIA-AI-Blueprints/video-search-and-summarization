@@ -1,12 +1,12 @@
 dependencies:
 - name: vss-behavior-analytics
   repository: file://./charts/behavior-analytics
-  version: 3.3.0
+  version: 3.4.0
 - name: vss-video-analytics-api
   repository: file://./charts/video-analytics-api
-  version: 3.3.0
+  version: 3.4.0
 - name: video-analytics-ui
   repository: file://./charts/video-analytics-ui
-  version: 3.3.0
-digest: sha256:0baf90307f1e4dbb9adeaf8012b5967516259a81e57a877a1ada75e30d1cd993
-generated: "2026-08-19T11:18:54.870487+05:30"
+  version: 3.4.0
+digest: sha256:532687d6db65e072b7af3e430e42c37d8d1c6019a68406cc1971bbf9bc223fa8
+generated: "2026-10-13T09:48:54.745459+05:30"

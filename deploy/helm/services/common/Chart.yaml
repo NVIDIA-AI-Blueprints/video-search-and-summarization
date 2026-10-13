@@ -17,6 +17,6 @@ apiVersion: v2
 name: common
 description: "VSS shared Helm library - canonical ingress route table"
 type: library
-version: 3.3.0
+version: 3.4.0
 appVersion: "1.0"
 maintainers: []

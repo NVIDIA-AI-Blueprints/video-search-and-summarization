@@ -1,15 +1,15 @@
 dependencies:
 - name: vss-rtvi-cv
   repository: file://./charts/rtvi-cv
-  version: 3.3.0
+  version: 3.4.0
 - name: vss-rtvi-vlm
   repository: file://./charts/rtvi-vlm
-  version: 3.3.0
+  version: 3.4.0
 - name: vss-rtvi-embed
   repository: file://./charts/rtvi-embed
-  version: 3.3.0
+  version: 3.4.0
 - name: vss-reid-embed
   repository: file://./charts/reid-embed
-  version: 3.3.0
-digest: sha256:810270b8ec3d4be92560af6224571f1275c3159566f7cbf6f223781f1b4ea543
-generated: "2026-09-04T07:18:11.360611412Z"
+  version: 3.4.0
+digest: sha256:c94d9f272b8e362f19545cf3d241cc3a9542d5a1edbcb54cbe291351c56e5633
+generated: "2026-10-13T09:48:55.340902+05:30"

@@ -1,27 +1,27 @@
 dependencies:
 - name: common
   repository: file://../../../services/common
-  version: 3.3.0
+  version: 3.4.0
 - name: vios
   repository: file://../../../services/vios
-  version: 3.3.0
+  version: 3.4.0
 - name: infra
   repository: file://../../../services/infra
-  version: 3.3.0
+  version: 3.4.0
 - name: bp-configurator
   repository: file://../../../services/bp-configurator
-  version: 3.3.0
+  version: 3.4.0
 - name: calibration-import
   repository: file://../../../services/calibration-import
-  version: 3.3.0
+  version: 3.4.0
 - name: rtvi
   repository: file://../../../services/rtvi
-  version: 3.3.0
+  version: 3.4.0
 - name: analytics
   repository: file://../../../services/analytics
-  version: 3.3.0
+  version: 3.4.0
 - name: monitoring
   repository: file://../../../services/monitoring
-  version: 3.3.0
-digest: sha256:cb62c2c5af56e8cba2185ed50b18348cb0951dbfb2776125153434272ee43955
-generated: "2026-09-28T12:55:55.317571928-07:00"
+  version: 3.4.0
+digest: sha256:1a4d826200d427ccd6c6f70d05f43599cc1de3a2b61a72f103bfb2ca72db5e42
+generated: "2026-10-13T09:48:57.41073+05:30"

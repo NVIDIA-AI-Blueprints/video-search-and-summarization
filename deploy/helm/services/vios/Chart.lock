@@ -1,18 +1,18 @@
 dependencies:
 - name: vss-vios-postgres
   repository: file://./charts/vios-postgres
-  version: 3.3.0
+  version: 3.4.0
 - name: vss-vios-sensor
   repository: file://./charts/vios-sensor
-  version: 3.3.0
+  version: 3.4.0
 - name: vss-vios-streamprocessing
   repository: file://./charts/vios-streamprocessing
-  version: 3.3.0
+  version: 3.4.0
 - name: vss-vios-ingress
   repository: file://./charts/vios-ingress
-  version: 3.3.0
+  version: 3.4.0
 - name: vss-vios-nvstreamer
   repository: file://./charts/vios-nvstreamer
-  version: 3.3.0
-digest: sha256:2049d2a530d8eaee4854cfd4f0451f906bafd00cf86c91f60c4ea7344feb03a4
-generated: "2026-08-19T11:18:55.131734+05:30"
+  version: 3.4.0
+digest: sha256:4d49b0ff343d5d8231fedf91986510d1895e42883dbdeb1cb63fff0123432435
+generated: "2026-10-13T09:48:55.522254+05:30"
