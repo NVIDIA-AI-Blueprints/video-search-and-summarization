@@ -109,10 +109,7 @@ if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
 fi
 ```
 
-If the Alert Bridge probe fails on a Workflow C request (list, lookup or event
-count) and `vss-query-analytics` is among your skills, do not offer a deploy:
-hand a list or lookup to it, saying no Alert Bridge store answered on this
-deployment; event counts are unavailable for the same reason, so say that. Otherwise, if the probe fails, ask which mode to deploy and hand off to
+If the Alert Bridge probe fails on a Workflow C request (list, lookup or event count) and `vss-query-analytics` is among your skills, do not offer a deploy: hand a list or lookup to it, saying no Alert Bridge store answered on this deployment; event counts are unavailable for the same reason, so say that. Otherwise, if the probe fails, ask which mode to deploy and hand off to
 `the `/vss-build-vision-ai` stock Alerts workflow in the matching mode` (decline → stop; pre-authorized
 autonomous deploy → run directly with `verification` by default). If it
 passes, detect the mode per Step 1.
