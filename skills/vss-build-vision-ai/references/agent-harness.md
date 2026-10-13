@@ -500,13 +500,14 @@ OTHER_RE="$(printf '%s' "$OTHER" | sed 's/[][(){}.*+?^$|\\]/\\&/g')"
 pkill -f -- "dashboard-forward-watchdog\.py --sandbox ${OTHER_RE}( |$)"
 nemoclaw "$OTHER" destroy --yes --cleanup-gateway
 pkill -f -- "dashboard-relay\.py --sandbox ${OTHER_RE}( |$)"
-# With the `destroy` dropped, this is what frees the port instead.
-openshell gateway remove nemoclaw                   # `nemoclaw-<port>` off 8080
 ```
 
 Re-probe all three ports and both log paths, and resume once each is free or
 back to a holder this build owns. `--cleanup-gateway` does not prove `8080` was
-released, so the probe settles it rather than the command's exit.
+released, so the probe settles it rather than the command's exit. A gateway
+still holding the port after its last sandbox is gone — what a hand-run
+`destroy --yes` leaves on Linux — is one the block cannot name: report it and
+leave the release to the user.
 
 ## Default provider
 
