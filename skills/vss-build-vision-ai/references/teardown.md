@@ -72,6 +72,15 @@ stop_sandbox_process() {  # <script> <label>
 stop_sandbox_process 'dashboard-forward-watchdog\.py' "dashboard-forward watchdog"
 nemoclaw "$SANDBOX" destroy --yes --cleanup-gateway
 stop_sandbox_process 'dashboard-relay\.py' "dashboard relay"
+
+# Keep the logs while another of this user's relays or watchdogs still appends
+# to them. Same scan as the Q3 preflight: `[d]` and `--sandbox` keep a shell
+# carrying the pattern in its own command line out of the match.
+if ! pgrep -u "$(id -u)" -f '[d]ashboard-(relay|forward-watchdog)\.py .*--sandbox ' >/dev/null; then
+  for log in /tmp/nemoclaw-dashboard-relay.log /tmp/nemoclaw-dashboard-watchdog.log; do
+    [ -O "$log" ] && rm -f "$log"   # -O leaves another user's file alone
+  done
+fi
 ```
 
 A name recorded by a run that failed *before* onboarding belongs to a sandbox
@@ -106,12 +115,12 @@ Never destroy a sandbox this build does not own.
 the checkout that deployed: `pkill` does not signal another user's watchdog or
 relay, `nemoclaw destroy` does not see their sandbox, and `down -v` needs that
 build's own `resolved.yml`. Left undone, the deployment holds
-`NEMOCLAW_GATEWAY_PORT`, `NEMOCLAW_DASHBOARD_RELAY_PORT` and the project's
-volumes against the next user, whose [Q3
+`NEMOCLAW_GATEWAY_PORT`, `NEMOCLAW_DASHBOARD_PORT`,
+`NEMOCLAW_DASHBOARD_RELAY_PORT`, the two `0600` `/tmp/nemoclaw-dashboard-*.log`
+paths that fail section 3.5, and the project's volumes
+against the next user, whose [Q3
 preflight](agent-harness.md#ports-the-harness-claims) can only report the
-block. Delete `/tmp/nemoclaw-dashboard-relay.log` and
-`/tmp/nemoclaw-dashboard-watchdog.log` by hand as well: nothing below removes
-them, and at `0600` they fail the next user's section 3.5.
+block.
 
 A harness built from a [harness source
 ref](agent-harness.md#harness-source-ref) also left a detached worktree under
