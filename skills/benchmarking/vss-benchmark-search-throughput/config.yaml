@@ -1,0 +1,642 @@
+# VSS Search Throughput Benchmark -- defaults.
+#
+# Every key here can be overridden on the command line; `--help` lists them.
+# Comments record *why* a value is what it is, because most of these numbers
+# were measured rather than chosen.
+
+# Addresses below are for running on the cluster node itself, which is the
+# intended setup: the load generator spawns a Python interpreter per query, so
+# it is a measurable CPU consumer, and on a single-node cluster it contends
+# with the services wherever it runs -- the node has no Job manifest to build.
+#
+# Consequence: the host's resolver is not CoreDNS, so *.svc.cluster.local does
+# NOT resolve here. ClusterIP addresses do work, because kube-proxy's rules
+# apply to locally-originated traffic. Hence raw addresses where the CLI and
+# this script connect directly, and the ingress host where a name is needed.
+# Re-read them after anything recreates a Service:
+#   kubectl get svc -n vss-search
+services:
+  # The agent's own origin, used only for ingest (POST /api/v1/videos). NOT
+  # for search: POST /api/v1/search no longer exists in services/agent, so
+  # every search goes through the vss CLI; see the `cli` block below.
+  #
+  # The ingress rather than the agent's ClusterIP, because the agent answers
+  # that POST with the VST upload URL built from its own vst_external_url --
+  # an ingress address. Reaching the agent directly would still send the bytes
+  # through the ingress, so the two halves may as well agree. Ingest is
+  # outside the measured window, so the hop costs nothing that is reported.
+  vss_agent_url: "http://vss-search.10.86.7.90.nip.io"
+
+  # OpenAI-compatible endpoint used to decompose each query once before the
+  # sweep.
+  #
+  # REQUIRED, and never inferred. A sibling skill derives this as port 30081
+  # on the agent's host, the NIM's NodePort under Docker Compose. Here the NIM
+  # Operator gives it a ClusterIP Service named after the NIMService -- a
+  # different host, not a different port, and the name depends on which model
+  # the profile deploys. Note the name has no dots: nemotron-35-..., not
+  # nemotron-3.5-..., which is how the model is written everywhere else.
+  #
+  #   kubectl get svc -n vss-search | grep -iE 'nemotron|nim|llm'
+  llm_url: "http://10.105.154.19:8000"
+
+  # Read outside the measured window.
+  #
+  # Not the ingress route, deliberately: /elasticsearch through HAProxy is
+  # guarded against PUT and DELETE, and purge_before_ingest deletes indices.
+  # Through the ingress the purge fails and the sweep then measures the
+  # previous corpus alongside the new one, which no later count can separate.
+  elasticsearch_url: "http://10.108.105.199:9200"
+  # Blank disables resource collection; the run still produces latency numbers
+  # and says in the log that it has nothing to explain them with -- which is
+  # half of what this skill exists to report, so fill it in.
+  prometheus_url: "http://10.107.183.71:9090"
+
+# ---------------------------------------------------------------------------
+# The search interface under test
+# ---------------------------------------------------------------------------
+# Every measured request is `vss search run <path> ... --raw` as a subprocess.
+# That means a Python interpreter start per query -- measured at the start of
+# each sweep and published as cli_spawn_cost_sec, because at concurrency 20
+# this host is running twenty interpreters at once and part of the throughput
+# figure belongs to the load generator rather than to the cluster.
+cli:
+  # Blank auto-detects: cli.vss_repo_root if set, else a VSS checkout found by
+  # walking up from this skill, else `vss` on PATH.
+  vss_cmd: ""
+  vss_repo_root: ""
+
+  # The unified path-prefix origin (/vst, /elasticsearch, /rtvi-embed, ...).
+  # The agent's own port does not route those prefixes: a CLI pointed there
+  # finds one service of seven and every search exits 4.
+  #
+  # REQUIRED, and never inferred. A sibling skill derives this as port 7777
+  # on the agent's host, because that is where HAProxy listens under Docker
+  # Compose. Helm puts the same prefixes behind the profile's Ingress at
+  # global.externalHost, which shares neither host nor port with the agent's
+  # Service -- so a derived value would be an address nothing serves, and the
+  # sweep would only find that out after ingest.
+  #
+  # On this cluster the Ingress serves exactly the prefixes the CLI probes
+  # (/api, /vst, /video-analytics-api, /elasticsearch, /rtvi-embed,
+  # /rtvi-cv). Change the node IP to match your install.
+  #
+  # Confirm before a sweep -- both must return 200:
+  #   curl -sf <origin>/elasticsearch/_cat/indices
+  #   curl -sf <origin>/vst/api/v1/sensor/version
+  origin_url: "http://vss-search.10.86.7.90.nip.io"
+
+  # Repoint individual services after discovery, so measured requests skip the
+  # ingress and reach the service directly.
+  #
+  # Discovery has to go through the one origin above, but the CLI reads each
+  # service's URL verbatim from its config rather than re-deriving it, so they
+  # can be swapped afterwards. The swap is written into the sweep's own
+  # <results>/vss_config/config.json; ~/.vss is never changed. Worth doing here
+  # for two reasons: this
+  # benchmark looks for a saturation point, and a ceiling imposed by a shared
+  # HAProxy would be read as a ceiling of the services; and from inside the
+  # cluster the ingress host hairpins out to the node and back.
+  #
+  # Names must match what discovery found, or the run stops -- a typo would
+  # otherwise leave that one leg crossing the proxy while the report read as a
+  # clean direct measurement.
+  #
+  # Empty means measure through the ingress, which is also a legitimate thing
+  # to measure; it is just a different question.
+  #
+  # ClusterIP addresses rather than Service DNS names, because this is run
+  # from the node and the host's resolver is not CoreDNS -- *.svc.cluster.local
+  # does not resolve here, while the ClusterIP range is reachable through
+  # kube-proxy's rules. Re-read them after anything recreates a Service:
+  #   kubectl get svc -n vss-search
+  #
+  # Stage 1 opens a TCP connection to each one and exits 3 if any does not
+  # answer, so a stale address cannot quietly measure the wrong thing.
+  #
+  # Note rtvi_cv is 9000, not 8000. Keys are the CLI's own service names, not
+  # the k8s ones: agent, vst, video_analytics, elasticsearch, rt_embed,
+  # rtvi_cv, rt_vlm, lvs.
+  service_urls:
+    elasticsearch: "http://10.108.105.199:9200"
+    rt_embed: "http://10.106.86.166:8000"
+    rtvi_cv: "http://10.109.99.42:9000"
+
+  # Off matches what the agent's search returned, and keeps the hit count
+  # comparable with the top_k that was asked for. On, the CLI collapses
+  # contiguous same-sensor windows and returns fewer rows than requested.
+  merge_adjacent: false
+
+  # Retrieval ignores it; the critic reads it. Without it the critic verifies
+  # hits against the decomposed arguments, which make a good search request and
+  # a poor question to judge against.
+  pass_original_query: true
+
+  # Blank leaves the CLI default. Only applies to embed and fusion.
+  min_cosine_similarity: null
+
+# ---------------------------------------------------------------------------
+# Query decomposition
+# ---------------------------------------------------------------------------
+# The agent decomposes a query before retrieving; the CLI takes the decomposed
+# arguments directly, so this script has to do it. Run once per query before
+# the measured window -- not per request -- which keeps the LLM call out of the
+# reported latency and keeps each query on one path for the whole sweep.
+decomposition:
+  # Blank discovers the first model the endpoint serves.
+  model: ""
+  timeout_sec: 120
+
+  # query id -> CLI path, skipping the LLM for that query. The only way to
+  # measure `tag`: nothing in the decomposition contract asks for keyword
+  # retrieval over VLM tag documents, so a tag run has to be requested.
+  pin_paths: {}
+  #  q4: tag
+
+# Which deployment to measure. This skill never installs, upgrades or uninstalls
+# anything -- deploy with vss-search-deploy-script first. These two names are
+# read-only: the namespace scopes `kubectl logs` and the Prometheus queries, and
+# the release name is passed to `helm get values` once, to record what was
+# running beside the results.
+deployment:
+  namespace: "vss-search"
+  helm_release: "vss-search"
+
+# ---------------------------------------------------------------------------
+# Corpus
+# ---------------------------------------------------------------------------
+corpus:
+  # Patterns whose document counts are recorded before and after the sweep, so
+  # two runs can be *proven* to have queried the same index rather than assumed
+  # to have. mdx-raw is never queried by this benchmark but stays in the list
+  # because the list doubles as the corpus fingerprint.
+  es_index_patterns:
+    - "mdx-embed-filtered-*"
+    - "mdx-behavior-*"
+    - "mdx-raw-*"
+
+  # Gate: refuse to sweep unless the indices hold at least this many documents.
+  # A kNN query against an empty index returns almost instantly, so without this
+  # an unpopulated corpus reads as excellent latency instead of a broken setup.
+  #
+  # Counted through _cat/count, which counts root documents -- NOT the docs.count
+  # column of _cat/indices, which also counts Lucene's nested subdocuments and
+  # reads about 2x higher on these mappings (16x on mdx-raw).
+  #
+  # Floors sit near one video's measured yield rather than near the whole corpus,
+  # so they catch "empty" and "almost nothing indexed" without encoding how many
+  # videos a given sweep happens to ingest.
+  require_min_docs:
+    "mdx-embed-filtered-*": 300
+    # The attribute leg reads mdx-behavior-*, so the attribute, fusion and
+    # object paths return nothing
+    # without it -- and return it fast, which is exactly the misreading this
+    # gate exists to prevent. Low because the behaviour yield is not
+    # deterministic: identical input has produced 492 and 486, and a
+    # single-video ingest settled at 96.
+    "mdx-behavior-*": 50
+
+  ingest:
+    # Off by default: a sweep normally runs against a corpus loaded once.
+    enabled: false
+
+    # ONE source file, uploaded `copies` times.
+    #
+    # This is deliberate and it is the whole corpus design. Every upload is
+    # renamed `searchbench-<timestamp>-<stem>.mp4`, so VST mints a fresh
+    # sensorId per request and the embed service -- which keys on that id, not
+    # on content -- has nothing to collapse. Five uploads of one file are five
+    # independent sensors.
+    #
+    # What it costs: the five copies put their vectors on the same points in
+    # embedding space, so absolute top-K recall is not comparable with a corpus
+    # of five distinct videos. This benchmark does not measure recall, and the
+    # PATH-to-PATH ratios it does measure are unaffected. Point `video` at a
+    # directory of distinct files and set `copies: 1` if a recall-comparable
+    # corpus is ever wanted.
+    video: "/localhome/local-gduong/workspace/vss-benchmarking/corpus/Camera_01_looped_500m_ndi1nb.mp4"
+    copies: 5
+
+    # Abort when ANY upload fails, not only when all do. A sweep that lost its
+    # fifth video to an HTTP 502 was once compared against a five-video sweep
+    # with nothing in either report saying the corpora differed.
+    require_all_uploads: true
+
+    # Delete es_index_patterns before uploading, so the sweep measures this
+    # ingest and nothing else. Needed because every upload gets a fresh
+    # sensor_id: ingesting the same file twice leaves ten sensors, every floor
+    # is cleared, and each search scores against a corpus holding each video
+    # twice. Counts cannot detect that afterwards.
+    purge_before_ingest: true
+
+    # Refuse to purge unless an index template still covers each pattern. The
+    # templates are applied by the Elasticsearch init Job, not by logstash, so
+    # if they are missing the recreated index gets dynamic mappings: the nested
+    # vision embeddings the event path needs become plain objects and every
+    # query returns nothing, quickly, from an index that looks populated.
+    purge_requires_templates: true
+
+    # After deleting, wait this long and count again -- the indices must still
+    # be empty. Logstash commits its Kafka offsets in Kafka, so deleting
+    # documents in Elasticsearch does nothing to stop an aborted run's messages
+    # from still arriving.
+    purge_settle_sec: 30
+
+    # With the purge off, abort rather than ingest on top of existing documents.
+    require_empty_before_ingest: true
+
+    # After ingest, abort if any embed document carries a sensor id this sweep
+    # did not upload. Catches a Kafka backlog draining into the fresh index, or
+    # a second ingest against the same cluster.
+    require_exclusive_corpus: true
+
+    # Abort when two uploads come back with the same sensor_id. With unique
+    # filenames a shared id can only mean the embed service deduplicated by
+    # content -- and then the file list claims N videos while the corpus holds
+    # fewer.
+    require_unique_sensor_ids: true
+
+    # Capture time for the uploads. VIOS reads it from the `metadata` field of
+    # the upload itself, and every VSS harness anchors ground truth to this
+    # exact constant, so changing it shifts every timestamp in the results.
+    upload_timestamp: "2025-01-01T00:00:00"
+
+    # How many videos go up at once. Defaults to all of them. This shortens
+    # the transfer, not the indexing: perception runs at roughly real time per
+    # stream, so whether five concurrent uploads finish indexing in thirty
+    # minutes or in two and a half hours depends on whether the deployment can
+    # run five streams side by side. The gate waits for documents either way.
+    #
+    # Drop to 1 if uploading the same content five times at once starts
+    # tripping the embed service's content dedup (DuplicateAsset).
+    upload_concurrency: 5
+
+    timeout_sec: 3600
+    # Step 1 only asks the agent for a URL, so it answers in milliseconds or
+    # not at all; it does not need the upload's timeout.
+    url_timeout_sec: 30
+    upload_chunk_size_bytes: 1048576
+    max_retries: 1
+    retry_backoff_sec: 5.0
+    # Longer than the generic backoff. A DuplicateAsset rejection means the
+    # embed service still holds in-flight state for the previous upload;
+    # retrying quickly is how a sensor id ends up reused across uploads.
+    duplicate_asset_backoff_sec: 30.0
+
+    readiness:
+      poll_interval_sec: 5
+
+      # ---- What "ingest finished" means ----------------------------------
+      #
+      # Every uploaded video must hold its own document count in every index
+      # below, counted under its own sensorId. Nothing in the upload path can
+      # tell us this: the agent answers with a URL, VST answers with a
+      # sensorId, and the perception fan-out that actually writes these
+      # documents is a fire-and-forget webhook that reports to nobody. The
+      # counts are the only evidence there is.
+      #
+      # Per video rather than per index, because an index total is satisfied
+      # by five videos' worth of documents belonging to four sensors, and
+      # nothing afterwards can detect that.
+      #
+      # The field name differs per index and is NOT interchangeable:
+      # mdx-raw-* documents carry `sensorId`, the embed index carries
+      # `sensor.id`. Using one for both counts zero forever on the other.
+      #
+      # mdx-behavior-* is deliberately absent. Its yield is not deterministic
+      # -- identical input has produced 492 and 486 -- so gating on it would
+      # fail runs over noise. It is still counted and recorded.
+      # Each entry can be a bare field name (shorthand, defaults sensor_key to
+      # the filename stem that nvstreamer writes) or a `{field, sensor_key}`
+      # dict. The two gated indices in this chart need both forms: mdx-raw-*
+      # keys documents by filename stem, mdx-embed-filtered-* by VST's REST
+      # UUID. Guessing from the field name is wrong -- mdx-behavior-* uses
+      # `sensor.id` with filename stems, so a one-size-fits-all mapping would
+      # silently count zero for one of them.
+      gate_indices:
+        "mdx-raw-*": "sensorId.keyword"
+        "mdx-embed-filtered-*":
+          field: "sensor.id.keyword"
+          sensor_key: "vst_uuid"
+
+      # What one video owes each gated index. Measured on a 500 MB / 1800 s
+      # video: 360 embed documents and 53,998 mdx-raw (1800 s x 30 fps, less a
+      # few boundary frames).
+      #
+      # Leave empty and the videos check each other instead: they are the same
+      # file, so whichever copy gets furthest sets the bar for the rest, and a
+      # copy that stalls stands out against its siblings. That is weaker -- it
+      # cannot tell five finished videos from five stalled in step, which is
+      # what the quiet window below is for. Set it once you have measured it.
+      expected_docs_per_video: {}
+      #  "mdx-raw-*": 54000
+      #  "mdx-embed-filtered-*": 360
+
+      # Fraction of the expected count that counts as complete. 1.0 means all
+      # of it, which is what "ingest finished" should mean. Lower it only for
+      # a pipeline you know drops a frame or two at a boundary, and expect to
+      # explain the number in the report.
+      min_ratio: 1.0
+
+      # Which of the gated indices the foreign-document check runs against.
+      embed_index_pattern: "mdx-embed-filtered-*"
+      # Fail fast and name the field rather than burning the whole timeout when
+      # the mapping is wrong and every per-video query matches nothing.
+      sensor_field_grace_sec: 180
+
+      # Tail check, started only once every video is complete. Catches the
+      # ungated indices still finishing, and a video still producing *past*
+      # its expected count. It is also the only thing standing between a
+      # converged (unconfigured) target and five copies that stalled in step,
+      # so do not shorten it when expected_docs_per_video is empty.
+      stable_for_sec: 300
+      timeout_sec: 14400
+
+# ---------------------------------------------------------------------------
+# Query set -- one query per path. Do not modify after official runs start.
+# ---------------------------------------------------------------------------
+#
+# expected_path is an expectation, not a fact. Each query is decomposed once
+# before the sweep and the resulting path is what runs; a mismatch is reported
+# and analysis groups by the RESOLVED path, written to query_plans.json.
+#
+# Three fixed queries make the text-embedding step free, which has to be known
+# before reading any number here as a production figure. Both search paths embed
+# the query text on a separate service first (embed_search on vss-rtvi-embed,
+# attribute_search on vss-rtvi-cv), and both clients keep the vector in an LRU
+# keyed on that text, in a cache that outlives the sweep. Three queries cost
+# three calls, once: a measured sweep of 2,160 requests made exactly three POSTs
+# to vss-rtvi-embed, all within four seconds, then nothing for two hours.
+#
+# This is what `--disable-embedding-cache` on the deploy side exists to defeat.
+# Quote resource figures for those two services only from a run that had it off.
+query_set:
+  # Attributes, no action verb -> attribute search alone.
+  - id: "q1"
+    query: "A person wearing a white T-shirt"
+    expected_path: "attribute"
+
+  # Names no concrete entity, and that is the point. The agent routes on the
+  # `attributes` the decomposition LLM returns, and the LLM builds an attribute
+  # around any entity a query mentions -- "vehicle" and "people" alike, whatever
+  # the verb form. Measured against the live model at concurrency 10, 100
+  # samples each: "When do you see a vehicle moving?" went to fusion 24% of the
+  # time and "When does a vehicle move?" 26%, while this wording returned no
+  # attributes 100 times out of 100.
+  #
+  # Do not reintroduce a noun to make it read better. Temperature is already 0
+  # and the prompt is fixed, so the variation is the server batching requests
+  # differently and no wording that names an entity survives it.
+  #
+  # No attributes at all -> embedding search alone.
+  - id: "q2"
+    query: "When is there activity in the scene?"
+    expected_path: "event"
+
+  # Attributes plus an action -> both, fused.
+  - id: "q3"
+    query: "A person wearing a yellow hat carrying a box"
+    expected_path: "fusion"
+
+# ---------------------------------------------------------------------------
+# Sweep matrix
+# ---------------------------------------------------------------------------
+sweep:
+  # Critic on or off. off runs the CLI against a copy of its config without
+  # the RT-VLM route (VSS_CONFIG_HOME), the only way the CLI skips the critic.
+  # off is first: critic is the outermost loop, so the cheap half completes
+  # before the expensive half and a sweep cut short still leaves a whole block.
+  critic: [off, on]
+  # How many hits an "on" run verifies. null verifies every hit, the CLI
+  # default and what a caller gets. A list such as [1, null] makes one "on"
+  # setting per value.
+  critic_eval_count: [null]
+  top_k: [5, 10, 20]
+  concurrency: [1, 5, 10, 20]
+  # One run per path per cell, each cycling only the query that routes there
+  # (q1 attribute, q2 event, q3 fusion), instead of mixing all three in one
+  # run. Remove for the round-robin mix. --path overrides this.
+  paths: [attribute, event, fusion]
+
+  # Where the path loop sits relative to the rest of the matrix. Only matters
+  # when paths (or --path) is set, and it cannot avoid both distortions:
+  #
+  #   interleaved  the paths of a cell run back to back, so comparing paths at
+  #                one cell is free of cluster drift. But every event run then
+  #                starts seconds after an attribute run that left vss-rtvi-cv
+  #                at ~130 cores, and cpu_cores is a rate over 30s while these
+  #                cells last 21-28s -- so their per-service CPU is the previous
+  #                run's. One sweep reported 12-31 cv cores on event cells
+  #                whose pod log shows zero calls to that service.
+  #
+  #   grouped      a whole path finishes before the next begins, so one cell per
+  #                path inherits anything instead of twelve. The cost is drift:
+  #                two paths at the same cell are a whole matrix apart.
+  #
+  # grouped by default because per-service CPU is the harder question and the
+  # paths are 20-70x apart in latency, so an hour of drift cannot change which
+  # is faster.
+  path_order: grouped
+
+source_type: "video_file"
+
+# ---------------------------------------------------------------------------
+# Execution
+# ---------------------------------------------------------------------------
+execution:
+  # One benchmark per namespace, enforced where every participant can see it.
+  #
+  # A host-local lock file is not enough: another user, another host, or a
+  # direct script invocation is invisible to it. A second sweep once emptied
+  # Elasticsearch nine hours into a running one, and neither sweep's artifacts
+  # recorded the collision. So the lock is a document in Elasticsearch --
+  # reachable from an in-cluster Job and from any host on the network.
+  run_lock:
+    enabled: true
+    index: "vss-search-benchmark-lock"
+    # Generous against the heartbeat: losing the lock to one slow Elasticsearch
+    # response would be worse than waiting out a dead run.
+    ttl_sec: 300
+    heartbeat_sec: 30
+    preempt_stale: true
+
+  # One full cycle of the query set per worker, discarded.
+  warmup_rounds: 1
+
+  # Measured budget per run. Two request floors, the larger wins, then divided
+  # by however many queries the run cycles through.
+  #
+  # The measured window opens at full concurrency on the barrier but closes by
+  # draining: each worker stops once it has spent its share, so the tail runs at
+  # falling concurrency while the clock keeps going. The loss is worth about one
+  # round however large the budget, so the error goes as 1/rounds. Measured:
+  # time-weighted concurrency reaches 67% of nominal at 2.5 rounds per worker,
+  # 82% at 4, 92% at 7, 100% at 31.
+  min_rounds_per_worker: 10
+  # The low-concurrency floor, and it is a statistics limit rather than a
+  # concurrency one: c1 holds full concurrency with a single round, but a
+  # 10-request run puts the 95% interval on the mean past +/-400% and a p95 over
+  # 10 samples is just their maximum.
+  min_measured_requests_per_run: 200
+  # Only used when neither of the two above is set.
+  min_samples_per_query: 90
+
+  # Third floor, on the clock. A run keeps sending until this many seconds have
+  # passed since the measured window opened, even after both request floors are
+  # met. 0 disables.
+  #
+  # The request floors size a run in the right unit for statistics and the wrong
+  # one for anything read off a time series. One measured cell spent its whole
+  # 200-request budget in 21 s -- 1.4 Prometheus scrapes at a 15 s interval, so
+  # its GPU and CPU figures were one or two instantaneous readings that may not
+  # even fall inside the window. 300 s is 20 scrapes.
+  #
+  # A floor never shortens a run, so slow cells pay nothing. And the time is not
+  # spent idling: requests past the budget are recorded like any other, so fast
+  # cells gain samples instead. Read measured_requests rather than assuming the
+  # budget.
+  min_run_duration_sec: 300
+
+  request_timeout_sec: 300
+  inter_request_delay_sec: 0
+
+  # Stop the sweep rather than measure a service that has stopped answering.
+  # A wedged VLM once left the agent returning 200 on /health while every search
+  # hung to the full 300 s timeout; five consecutive runs then collected nothing
+  # across 4.1 hours, because a timed-out request spends the sample budget just
+  # as well as a successful one.
+  abort_on_empty_run: true
+  # Before each run, one request at concurrency 1 carrying that run's own
+  # critic setting and top_k. Catches the same failure a whole run earlier, for
+  # about 8 s per run when healthy. Keep it well under request_timeout_sec --
+  # measurement should give the service every chance, a gate should find out
+  # quickly. 0 disables.
+  health_gate_timeout_sec: 120
+
+  # Wait between runs until the previous run's work has left the pods.
+  #
+  # A run ends when its own requests have been answered, which is not when the
+  # cluster goes quiet. Work the agent already dispatched keeps burning CPU, so
+  # without this the next run opens its window on a busy cluster and charges
+  # that CPU to itself. Polling rather than sleeping, because the drain scales
+  # with the run that produced it.
+  cooldown:
+    enabled: true
+    # Against the busiest pod in the namespace, read through the same expression
+    # as the cpu_cores metric so the number means the same thing in both places.
+    idle_cores: 5.0
+    poll_interval_sec: 5
+    # A ceiling, after which the run proceeds and the log says it is
+    # contaminated. A pod busy forever is a wedge, and the health gate plus
+    # abort_on_empty_run are what handle wedges; this must not become a slower
+    # second version of them.
+    max_wait_sec: 180
+    # Namespace-wide on purpose. CV is only the pod that made the contamination
+    # visible; the same leak applies to any service on the query path, and a
+    # namespace-wide query needs no edit when the profile gains one.
+    query: >-
+      max(sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="vss-search",container!="",container!="POD"}[30s])))
+
+# ---------------------------------------------------------------------------
+# Resource metrics
+# ---------------------------------------------------------------------------
+# Every query is namespace-wide and grouped by pod, so a service added to the
+# chart later needs no edit here.
+#
+# DCGM label trap: the exporter runs in its own namespace, so its `namespace`,
+# `pod` and `container` labels describe the EXPORTER. The workload holding the
+# GPU is named by exported_namespace / exported_pod / exported_container.
+# Selecting on namespace="vss-search" matches the exporter and returns nothing.
+#
+# range_step_sec must match the Prometheus scrapeInterval. query_range asks on a
+# grid of this width, so a finer step collects nothing extra -- Prometheus
+# repeats the last scrape and the sample count then reads higher than the
+# evidence behind it.
+metrics:
+  range_step_sec: 15
+  range_queries:
+    gpu_utilization: 'max by (exported_pod, gpu) (DCGM_FI_DEV_GPU_UTIL{exported_namespace="vss-search"})'
+    # Preferred over GPU_UTIL, which is an instantaneous sample and misses short
+    # bursts: during ingest it read 4% on a GPU drawing 488 W while this read
+    # 0.75.
+    gpu_engine_active: 'max by (exported_pod, gpu) (DCGM_FI_PROF_GR_ENGINE_ACTIVE{exported_namespace="vss-search"})'
+    gpu_power_watts: 'max by (exported_pod, gpu) (DCGM_FI_DEV_POWER_USAGE{exported_namespace="vss-search"})'
+    gpu_memory_used: 'max by (exported_pod, gpu) (DCGM_FI_DEV_FB_USED{exported_namespace="vss-search"})'
+    # Both label filters matter: cAdvisor emits a pod-level aggregate row with
+    # container="" and a pause-container row, so without them every pod counts
+    # about twice.
+    cpu_cores: 'sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="vss-search",container!="",container!="POD"}[30s]))'
+    memory_working_set_bytes: 'sum by (pod) (container_memory_working_set_bytes{namespace="vss-search",container!="",container!="POD"})'
+    cpu_limit_cores: 'sum by (pod) (kube_pod_container_resource_limits{namespace="vss-search",resource="cpu"})'
+    # A throttled container stalls for the rest of its 100 ms period, which
+    # lands in p95/p99 and in nothing else. Derived from the period counters
+    # because container_cpu_cfs_throttled_seconds_total does not exist on every
+    # kubelet. Empty for pods with no CPU limit -- that is not a failure.
+    cpu_throttled_ratio: 'sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace="vss-search",container!="",container!="POD"}[30s])) / sum by (pod) (rate(container_cpu_cfs_periods_total{namespace="vss-search",container!="",container!="POD"}[30s]))'
+    # A counter, so peak is the window total. Non-zero invalidates the run: a
+    # service OOM-killed mid-sweep did not serve the same system the other runs
+    # measured.
+    oom_kills_total: 'sum by (pod) (container_oom_events_total{namespace="vss-search"})'
+    # Inside the engine. Everything above sees the NIMs from outside; this is
+    # the queue-versus-decode split that says whether more concurrency would
+    # help. Matched by regex on __name__ because engines on different vLLM
+    # versions disagree on the prefix.
+    llm_requests_running: 'max by (pod) ({__name__=~"(vllm:)?num_requests_running"})'
+    llm_requests_waiting: 'max by (pod) ({__name__=~"(vllm:)?num_requests_waiting"})'
+    llm_queue_time_sec: 'sum by (pod) (rate({__name__=~"(vllm:)?request_queue_time_seconds_sum"}[30s])) / sum by (pod) (rate({__name__=~"(vllm:)?request_queue_time_seconds_count"}[30s]))'
+    llm_ttft_sec: 'sum by (pod) (rate({__name__=~"(vllm:)?time_to_first_token_seconds_sum"}[30s])) / sum by (pod) (rate({__name__=~"(vllm:)?time_to_first_token_seconds_count"}[30s]))'
+    # Any non-zero value means the run measured KV-cache eviction rather than
+    # steady service.
+    llm_preemptions_total: 'max by (pod) ({__name__=~"(vllm:)?num_preemptions_total"})'
+
+  # Differenced over the run instead of rate()d: first sample of the measured
+  # window subtracted from the last, divided by the time between them, so the
+  # figure covers this run and nothing else.
+  #
+  # Why both forms exist: rate(counter[30s]) reports the last 30 seconds, so a
+  # run shorter than that is still reporting its predecessor. Quote these as a
+  # run's mean; the rate() versions stay because a per-sample series is what
+  # draws a timeline and finds a peak.
+  counter_queries:
+    cpu_core_seconds_total: 'sum by (pod) (container_cpu_usage_seconds_total{namespace="vss-search",container!="",container!="POD"})'
+
+# ---------------------------------------------------------------------------
+# Pod logs
+# ---------------------------------------------------------------------------
+# Followed live with `kubectl logs -f` from the start of each run and stopped
+# after its last request, rather than fetched at the end. The kubelet rotates a
+# container's log at containerLogMaxSize and `kubectl logs` reads the current
+# file, so a service that starts screaming loses the beginning of its own
+# incident -- the part worth reading. Measured: across 47 runs no healthy pod's
+# log began more than 43 s after its run start, while the one run that collapsed
+# began 1476 s late and the 24 minutes containing the death were gone.
+#
+# `pods` are matched on app.kubernetes.io/name, exactly. A substring match on the
+# name is not selective enough -- vss-agent is also a prefix of vss-agent-ui, so
+# the UI's errors would be counted against the search pipeline.
+#
+# Requires kubectl with read access to the namespace. Disable it and the sweep
+# still produces every latency and throughput number.
+pod_log_scan:
+  enabled: true
+  namespace: "vss-search"
+  pods:
+    - "vss-agent"
+    - "vss-rtvi-embed"
+    - "vss-rtvi-cv"
+    - "vss-rtvi-vlm"
+    - "elasticsearch"
+  tail_lines: 50000
+  patterns:
+    - "ERROR"
+    - "CRITICAL"
+    - "Traceback"
+    - "OutOfMemory"
+    - "CUDA out of memory"
+  exclude_patterns:
+    # The agent logs this at WARNING for every query that routes to the embed
+    # path; it is the routing decision, not a fault.
+    - "no attributes extracted"
+
+output:
+  base_dir: "results"
