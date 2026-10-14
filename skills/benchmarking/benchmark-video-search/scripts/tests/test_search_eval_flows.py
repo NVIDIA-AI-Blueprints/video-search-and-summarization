@@ -1131,6 +1131,17 @@ def test_old_cleanup_flags_are_rejected_before_anything_is_deleted(flags: list[s
     assert exc.value.code == 2
 
 
+def test_rtsp_search_is_refused_unless_the_index_is_reused() -> None:
+    """A fresh ingest writes only the upload anchors, which an rtsp search never reads."""
+    import run_eval_flows as rf
+
+    with pytest.raises(SystemExit) as exc:
+        rf.parse_args(["--endpoint", "https://host:8000", "--source-type", "rtsp"])
+    assert exc.value.code == 2
+    args = rf.parse_args(["--endpoint", "https://host:8000", "--source-type", "rtsp", "--skip-ingest"])
+    assert args.source_type == "rtsp"
+
+
 def test_expected_sources_exist_even_when_readiness_wait_is_skipped() -> None:
     import run_eval_flows as rf
 
@@ -2210,6 +2221,35 @@ def test_decomposition_failures_past_the_cap_stop_the_run_early(tmp_path: Path) 
     # 3/10 is the first count above 20%; the one query already running finishes.
     assert 3 <= len(saved["query_results"]) <= 4
     assert saved["aborted"].startswith("3/10 queries fell back to embed")
+
+
+def test_an_aborted_decomposition_run_is_saved_even_with_an_unanswered_query(tmp_path: Path) -> None:
+    """The unanswered check must not raise first and lose the decomposition errors."""
+    import run_eval_flows as rf
+
+    queries = ["a person running", "a person walking", "a person sitting"]
+    dataset_dir = tmp_path / "warehouse"
+    dataset_dir.mkdir()
+    (dataset_dir / "dataset.json").write_text(json.dumps({"queries": {q: [] for q in queries}}))
+    backend = flows.CliQueryBackend(["vss"], search_path="embed")
+
+    def search(query: str) -> tuple[list[dict[str, Any]], float]:
+        if query == queries[2]:
+            raise flows.QueryUnanswerableError("no data envelope")
+        return [], 0.01
+
+    backend.search = search  # type: ignore[method-assign]
+    # 1/3 is under the early-stop cap; 1/2 answered is over it at the end.
+    with pytest.raises(SystemExit, match="fell back to embed"):
+        rf.run_evaluation(
+            backend, tmp_path, "warehouse", "", output_file=str(tmp_path / "result.json"),
+            decomposer=_FlakyDecomposer({queries[0]}), max_decompose_failed_pct=40.0,
+        )
+
+    saved = json.loads((tmp_path / "result.json").read_text())
+    assert saved["summary"] is None
+    assert [r["query"] for r in saved["query_results"] if r.get("decompose_failed")] == [queries[0]]
+    assert [u["query"] for u in saved["unanswered"]] == [queries[2]]
 
 
 def test_decomposition_failures_under_the_cap_never_stop_the_run(tmp_path: Path) -> None:
