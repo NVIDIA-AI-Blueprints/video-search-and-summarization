@@ -53,6 +53,12 @@ Before you begin, ensure all of the prerequisites are met. See [Prerequisites](/
 For instructions on downloading sample data and the deployment package, see [Download Sample Data and Deployment Package](/vss/getting-started/quickstart#configure-ngc-access) in the Quickstart guide.
 </Note>
 
+### Default Alert Prompt
+
+The default alert prompt detects a ladder PPE violation: a person on a ladder without a hardhat or safety vest. It answers no when there is no ladder in the scene and is intended for the default `warehouse_sample.mp4` clip.
+
+If you use a clip other than the default one, we recommend updating `always_on_rules[].always_on_params.prompt` in `deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/realtime-config.yml` before deployment to match the events you want to detect.
+
 ### With Agent Skills
 
 #### Step 1: Deploy with Agent Skills
