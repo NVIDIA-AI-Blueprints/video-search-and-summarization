@@ -66,8 +66,10 @@ uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:
 Five defaults, each load-bearing:
 
 - **Every run starts from an empty index.** Before uploading, the runner reads
-  VST and the indexes search reads (`mdx-embed-filtered-*`, `mdx-raw-*`,
-  `mdx-behavior-*`, `default_*`) through the `:7777` ingress. If anything is
+  VST and the indexes a `video_file` search reads (`mdx-embed-filtered-2025-01-01`,
+  `mdx-raw-2025-01-01`, `mdx-behavior-2025-01-01`) through the `:7777` ingress.
+  Dated RTSP indexes and tags are not checked: no source deletion empties them,
+  and no eval path reads them. If anything is
   there, it deletes every VST source, even when the index holds exactly this
   dataset. Each deletion's cleanup webhooks empty that source's documents;
   the runner never deletes documents itself, because the ingress refuses
@@ -77,17 +79,19 @@ Five defaults, each load-bearing:
   the run deleted (`flow.cleared`). The deployment may be shared, but nobody
   else may use it while an eval runs. The wipe aborts if VST, the ingress and
   `--endpoint` are on different hosts, or if a source will not delete. It also
-  aborts if documents remain that no source owns, usually left by an earlier
-  aborted ingest: no webhook will remove them, so the abort names the indexes
-  to clear on the Elasticsearch host. When there are no sources at all, it
+  aborts if documents remain that no source owns — a file source deleted
+  without its cleanup webhook emptying them, or an upload still being
+  processed: no webhook will remove them, so the abort names the indexes to
+  clear on the Elasticsearch host. When there are no sources at all, it
   aborts at once; otherwise after 180 s.
 
   `--skip-ingest` is the only way to keep what is there. It deletes nothing
   and uploads nothing. It aborts unless every dataset video is already
   registered in VST. Other sources stay searchable, so it warns about them and
-  records them in `flow.reused_index.other_sources`. `--only-dataset`,
-  `--clear`, `--confirm-delete` and `--skip-existing` are still accepted but
-  ignored.
+  records them in `flow.reused_index.other_sources`. The old cleanup flags
+  (`--only-dataset`, `--clear`, `--confirm-delete`, `--skip-existing`) are
+  gone: passing one is a usage error (exit 2), raised before anything is
+  deleted.
 - **Live decomposition is on by default.** The LLM origin is derived from
   `--endpoint` (same host, port 30081), so there is no flag to forget. Every
   query is decomposed the way the deployed agent decomposes it, and routed the
@@ -106,7 +110,10 @@ Five defaults, each load-bearing:
   `summary.decomposition.failed`, and the summary prints `N queries fell back
   to embed: decomposition failed`. More than 20% of queries falling back
   aborts the run (`--max-decompose-failed-pct`): the numbers would measure
-  embed, not routing. Report the count next to any number you quote.
+  embed, not routing. The run stops as soon as failures pass the cap across
+  the whole dataset, and still writes the result file — with `aborted` set,
+  each query's `decompose_failed` error, and no summary. Report the count next
+  to any number you quote.
 
   `--no-decompose` also replays dataset routes when present; it does not force
   one path. Use `--fixed-search-path` only for a deliberately single-path
@@ -141,9 +148,12 @@ Five defaults, each load-bearing:
   the stream and the counts stop changing. RT-CV writes raw only for frames
   with detections, so sparse footage legitimately ends far below its frame
   count. If any video is incomplete at the deadline it
-  aborts with each index's count against its target — it never queries a
-  half-built index. One searchable hit arrives ~20 s after upload; RT-CV is
-  still writing for minutes after that.
+  aborts with each index's count against its target. The one exception is an
+  index no video ever gets: after `--ingest-absent-grace-s` (default 60 s) tags,
+  or raw with behavior, are treated as not produced by this deployment, and the
+  run confirms as degraded and queries without them (`--ingest-strict` aborts
+  instead). One searchable hit arrives ~20 s after upload; RT-CV is still
+  writing for minutes after that.
 
   If the gate reports `RT-CV never listed the stream`, check the deployed VIOS
   notification config and that `RTVI_EMBED_MODEL` matches the webhook's model
@@ -301,6 +311,9 @@ State these alongside any number, because each one changes what it means:
   many queries fell back to embed because it failed.
 - **Whether the critic ran.** Critic-filtered metrics print `NA` when the
   response carried no verification block. `NA` is not `0`.
+- **Whether ingest was degraded.** `summary.ingest_degraded` lists the indexes
+  the deployment never produced and the executed paths that read them. Scores
+  on those paths measure a missing index, not retrieval; do not quote them.
 
 Read `references/reading-results.md` when interpreting stage latencies or
 metrics. Read `references/flags.md` when a flag might change comparability.
