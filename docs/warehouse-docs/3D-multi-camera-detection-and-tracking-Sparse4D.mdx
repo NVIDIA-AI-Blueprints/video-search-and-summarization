@@ -55,7 +55,7 @@ volumes:
   - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
 ```
 
-The host directory `$VSS_DATA_DIR/models/` is bind-mounted at `/opt/storage/`; there are no individual ONNX or anchor mounts. At startup, `ds-start.sh` uses `models-download.json` to acquire the selected artifacts into `/opt/storage/sparse4d/`. ONNX, anchor, and TensorRT engine files persist on the host under `$VSS_DATA_DIR/models/`. DeepStream pipeline configs (`ds-main-config.txt`, `ds-mtmc-preprocess-config.txt`, and related files) live on the host under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/` and appear in the container under `metropolis_perception_app/configs/`. The Sparse4D inference file `config.yaml` and calibration file are supplied at `/opt/data/ds-configurator/`.
+The host directory `$VSS_DATA_DIR/models/` is bind-mounted at `/opt/storage/`; there are no individual ONNX or anchor mounts. At startup, `ds-start.sh` uses `models-download.json` to acquire the selected artifacts into `/opt/storage/sparse4d/`. ONNX, anchor, and TensorRT engine files persist on the host under `$VSS_DATA_DIR/models/sparse4d/`. DeepStream pipeline configs (`ds-main-config.txt`, `ds-mtmc-preprocess-config.txt`, and related files) live on the host under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/` and appear in the container under `metropolis_perception_app/configs/`. The Sparse4D inference file `config.yaml` and calibration file are supplied at `/opt/data/ds-configurator/`.
 
 ### Inference Configuration File
 
@@ -282,7 +282,7 @@ These checks can be automated in a deployment preflight: enumerate engine tensor
 
 #### Updating Sparse4D Configuration
 
-1. Place your custom ONNX and anchor in `$VSS_DATA_DIR/models/` on the host. The existing `/opt/storage/` directory mount exposes both files without individual model mounts. Place your custom labels in the host label directory and replace the dataset-label mount with the custom-label mount shown below. This is a custom-model configuration, not the default release setup:
+1. Place your custom ONNX and anchor in `$VSS_DATA_DIR/models/sparse4d/` on the host. The existing `/opt/storage/` directory mount exposes both files without individual model mounts. Place your custom labels in the host label directory and replace the dataset-label mount with the custom-label mount shown below. This is a custom-model configuration, not the default release setup:
 
 ```yaml
 # docker compose (deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml)
@@ -297,7 +297,7 @@ volumes:
   - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
 ```
 
-- Place your new ONNX model (for example, `your_new_model.onnx`) and anchor file (for example, `your_new_anchors.npy`) in `$VSS_DATA_DIR/models/` on the host. Set `DS_MODEL_DOWNLOAD: never` in the `perception-3d` service's environment when supplying these files locally, so startup does not download the stock release manifest.
+- Place your new ONNX model (for example, `your_new_model.onnx`) and anchor file (for example, `your_new_anchors.npy`) in `$VSS_DATA_DIR/models/sparse4d/` on the host. Set `DS_MODEL_DOWNLOAD: never` in the `perception-3d` service's environment when supplying these files locally, so startup does not download the stock release manifest.
 - Place your new labels file (for example, `your_new_labels.txt`) in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/label/` on the host.
 
 2. Update `config.yaml` on the host at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/config.yaml`:
@@ -310,7 +310,7 @@ labels_file: "/opt/nvidia/deepstream/deepstream/sources/sparse4d/label/your_new_
 anchor: "/opt/storage/sparse4d/your_new_anchors.npy"
 ```
 
-Apply these custom paths after Blueprint Configurator generation and before starting or restarting `perception-3d`; rerunning the configurator restores the dataset-selected paths unless its corresponding model-path rules are also customized. Startup derives the engine filename from the ONNX basename and `num_sensors` (`b4` above assumes four cameras). The Perception microservice builds the TensorRT engine for the new model, and engine files persist under `$VSS_DATA_DIR/models/` on the host. Use a distinct ONNX basename for a new model to avoid accidentally reusing an older engine.
+Apply these custom paths after Blueprint Configurator generation and before starting or restarting `perception-3d`; rerunning the configurator restores the dataset-selected paths unless its corresponding model-path rules are also customized. Startup derives the engine filename from the ONNX basename and `num_sensors` (`b4` above assumes four cameras). The Perception microservice builds the TensorRT engine for the new model, and engine files persist under `$VSS_DATA_DIR/models/sparse4d/` on the host. Use a distinct ONNX basename for a new model to avoid accidentally reusing an older engine.
 
 Your labels file must list all classes in the same order your model was trained on. This example is for the seven-class v2.3/v3.0 releases; use the matching class list for a custom fine-tuned model.
 
