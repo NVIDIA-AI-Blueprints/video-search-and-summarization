@@ -273,9 +273,9 @@ def build_benchmark_md(out_path: Path = BENCHMARK_OUT_PATH) -> Path | None:
     stripped. The glob is run-scoped so a parallel workflow_dispatch
     peer's per-spec comments never leak into this run's benchmark.
 
-    Returns the output path on success, or `None` if no per-spec
-    comments were found — that's a valid outcome (blocker before any
-    trial ran) and shouldn't fail the workflow.
+    Returns the output path on success, or `None` if no per-spec comments
+    were found. Report assembly preserves the agent's exit code, including
+    a failing BLOCKED outcome before any trial ran.
     """
     sources = sorted(glob.glob(BENCHMARK_INPUT_GLOB))
     if not sources:
@@ -528,24 +528,9 @@ def leg_paths(eval_slug: str, eval_spec_stem: str = "spec") -> tuple[Path, Path,
             _SCRATCH / f"pr-{eval_slug or eval_spec_stem}.md")
 
 
-def missing_renderer_outputs(marker: str, results_root: Path,
-                             summary_path: Path,
+def missing_renderer_outputs(summary_path: Path,
                              report_path: Path) -> list[Path]:
-    """Renderer outputs that must exist but do not, given the agent's marker.
-
-    leg_report.py exits 2 (no trials) or 3 (unusable spec) and can crash, and
-    none of that reaches this process, which gates only on the final marker.
-    Without this, `BLOCKED: leg_report.py crashed` is a GREEN check on a leg
-    that really ran. Both prompts forbid rebuilding the table by hand, so
-    there is no correct-but-slow fallback to fall back on either.
-
-    A pre-trial BLOCKED has no trial outputs to render, but its terminal
-    marker still fails the job. Returns [] when nothing is owed.
-    """
-    owes_output = marker.startswith("DONE:") or any(
-        results_root.rglob("result.json"))
-    if not owes_output:
-        return []
+    """Missing reports required before accepting a successful DONE verdict."""
     return [p for p in (summary_path, report_path) if not p.is_file()]
 
 
@@ -773,17 +758,10 @@ async def run_agent() -> int:
     exit_code, reason = _evaluate_terminal_marker(final_text)
     print(f"[agent] {reason}", file=sys.stderr)
 
-    # Fail closed on a renderer that never produced output. leg_report.py
-    # exits 2 (no trials) or 3 (unusable spec) and can crash; none of that
-    # reaches this process, which gates only on the agent's final marker. So
-    # `BLOCKED: leg_report.py crashed` would otherwise be a GREEN check on a
-    # leg that really ran. Both prompts now forbid rebuilding the table by
-    # hand, so there is no correct-but-slow fallback to rely on either.
-    # Pre-trial BLOCKED already fails via its terminal marker (exit 7).
+    # A successful DONE verdict also requires both renderer outputs. Failed
+    # or blocked verdicts already fail and retain their original exit code.
     if eval_kind == "eval" and exit_code == 0:
-        missing = missing_renderer_outputs(
-            _last_nonempty_line(final_text) or "",
-            results_root, summary_path, report_path)
+        missing = missing_renderer_outputs(summary_path, report_path)
         if missing:
             names = ", ".join(str(p) for p in missing)
             print(f"[agent] mandatory renderer output missing: {names}",

@@ -499,8 +499,14 @@ def test_spark_resolves_registered_node_id_even_if_renamed(monkeypatch):
 )
 def test_spark_never_falls_back_to_other_workers(monkeypatch, nodes):
     monkeypatch.setattr(run_leg, "_list_registered_nodes", lambda: nodes)
+    probe = Mock(return_value=subprocess.CompletedProcess([], 255, stderr="Permission denied (publickey)"))
+    sleep = Mock()
+    monkeypatch.setattr(run_leg.subprocess, "run", probe)
+    monkeypatch.setattr(run_leg.time, "sleep", sleep)
     with pytest.raises(ValueError):
         run_leg.spark_instance()
+    assert probe.call_count == (1 if nodes and nodes[0].get("status") == "Disconnected" else 0)
+    sleep.assert_not_called()
 
 
 

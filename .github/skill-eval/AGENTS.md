@@ -93,7 +93,7 @@ The canonical harbor command is in § Harbor invocation.
    ```
 
    If nothing under `skills/` changed, emit `BLOCKED: no files under skills/`
-   and exit cleanly. No PR comment.
+   and stop without a PR comment. The wrapper returns exit code 7.
 
 2. **For each changed skill, decide whether it has a dispatchable
    eval spec** — any `skills/<skill>/evals/<name>.json`. For legacy
@@ -618,6 +618,12 @@ ARM64 only and skips existing GPU/memory/disk resource checks. Report the
 actual machine from the wrapper's output; spec platform labels describe the
 requested scenario, not the selected hardware.
 
+If registry status is disconnected, the read-only SSH reachability probe makes
+at most three attempts, with two retries after 10s and 20s, within the existing
+work deadline. Only recognized transient connection failures are retried;
+authentication, host-key, name-resolution, and node-identity failures stop
+immediately. A persistent disconnect remains a failing blocker.
+
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`
 path; concurrent legs share the host. `$RES` is the Harbor `-o` root
@@ -951,11 +957,6 @@ artifact collection step, the DONE/BLOCKED final marker — is identical to
 the PR-driven path.
 
 ## Output requirements
-
-Spark selection retries transient SSH disconnects at most three times, waiting
-10s and then 20s, within the existing work deadline. Only the read-only
-reachability probe is retried; authentication and node-identity failures stop
-immediately. A persistent disconnect remains a failing blocker.
 
 - Stream prose freely to stdout — the GitHub Actions log is your
   audit trail. Tool calls get a one-line breadcrumb automatically.

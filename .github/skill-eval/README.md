@@ -151,6 +151,12 @@ explicit instance overrides fail; no other worker is selected. If Brev reports
 the selected node disconnected, a bounded SSH probe from the coordinator must
 succeed before proceeding. This handles stale registry status without accepting
 an unreachable worker.
+The read-only probe makes at most three attempts, waiting 10s and then 20s
+before its two retries, within the existing work deadline. Only recognized
+transient connection failures are retried. Authentication, host-key,
+name-resolution, node-identity, and unclassified failures stop immediately.
+Deadline exhaustion returns exit code 124. Other probe failures include a
+bounded, secret-redacted stderr excerpt in the job log.
 The coordinator needs its Brev SSH alias configured, just as for other
 registered workers. Spark must report ARM64. Existing GPU/memory/disk guards
 are bypassed for this explicit Spark override; normal pool runs retain their
