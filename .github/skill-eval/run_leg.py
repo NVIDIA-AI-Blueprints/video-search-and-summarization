@@ -50,6 +50,7 @@ import urllib.parse
 import leg_timing
 from leg_timing import HEARTBEAT_SEC, leg_log, phase
 from model_config import SkillEvalModelRoutes, resolve_model_routes
+from redact_secrets import redact_text
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -1592,7 +1593,6 @@ def _probe_spark_ssh(name: str, status: str | None) -> None:
         "connection reset", "connection refused", "connection timed out",
         "connection closed", "connection lost", "broken pipe",
         "no route to host", "network is unreachable",
-        "temporary failure in name resolution",
     )
     permanent_errors = (
         "permission denied", "authentication failed", "host key verification failed",
@@ -1600,7 +1600,7 @@ def _probe_spark_ssh(name: str, status: str | None) -> None:
     )
     for attempt in range(3):
         if deadline - time.monotonic() < 20:
-            raise ValueError(f"Spark worker {name} SSH probe failed: work deadline exhausted")
+            raise LegDeadlineError(f"Spark worker {name} SSH probe failed: work deadline exhausted")
         try:
             probe = subprocess.run(
                 ["ssh", "-T", "-o", "BatchMode=yes", "-o",
@@ -1621,6 +1621,12 @@ def _probe_spark_ssh(name: str, status: str | None) -> None:
                 return
             output = ((probe.stderr or "") + "\n" + (probe.stdout or "")).lower()
             detail = f"exit {probe.returncode}"
+            first_line = next(
+                (line.strip() for line in (probe.stderr or "").splitlines() if line.strip()),
+                "",
+            )
+            if first_line:
+                detail += f": {redact_text(first_line)[:200]}"
             transient = (
                 probe.returncode == 255
                 and any(error in output for error in transient_errors)
@@ -1634,7 +1640,7 @@ def _probe_spark_ssh(name: str, status: str | None) -> None:
             )
         delay = 10 * (2 ** attempt)
         if deadline - time.monotonic() < delay + 20:
-            raise ValueError(f"Spark worker {name} SSH probe failed: work deadline exhausted")
+            raise LegDeadlineError(f"Spark worker {name} SSH probe failed: work deadline exhausted")
         print(
             f"[run-leg] Spark SSH probe failed ({detail}); "
             f"retry {attempt + 1}/2 in {delay}s",

@@ -122,11 +122,12 @@ def test_blocked_outcomes_fail_and_preserve_the_reason() -> None:
         "anthropic rate limit after 3 retries",
         "missing adapter auto-committed; eval re-runs on sync",
         "unexpected infrastructure blocker",
+        "leg_report.py crashed after trials",
     ):
         code, message = skills_eval_agent._evaluate_terminal_marker(
             [f"BLOCKED: {reason}"]
         )
-        assert code == skills_eval_agent._BLOCKED_EXIT_CODE
+        assert code == 7
         assert message == f"evaluation blocked: {reason}"
 
 
@@ -146,7 +147,7 @@ def test_main_preserves_blocked_exit_and_still_builds_summary() -> None:
         mock.patch.object(skills_eval_agent, "build_benchmark_md") as build_summary,
         mock.patch.dict(os.environ),
     ):
-        assert skills_eval_agent.main() == skills_eval_agent._BLOCKED_EXIT_CODE
+        assert skills_eval_agent.main() == 7
         build_summary.assert_called_once_with()
 
 
@@ -295,7 +296,7 @@ def _assert_delegates(prompt: str) -> None:
         "slug-keyed name must still match BENCHMARK_INPUT_GLOB"
     )
 
-    # A renderer that exits non-zero is a failed leg, not a green BLOCKED.
+    # A renderer that exits non-zero must produce a failing leg verdict.
     assert "DONE: 0/1 specs passed; leg_report.py failed" in prompt, (
         "prompt must map a non-zero renderer exit to a failed leg"
     )
@@ -326,29 +327,10 @@ def test_leg_body_is_keyed_by_slug_not_stem() -> None:
     assert a[2] != b[2], "distinct legs resolved to the same body path"
 
 
-def test_renderer_that_wrote_nothing_is_not_green(tmp_path) -> None:
-    """A leg that really ran owes both outputs, whatever marker it ends on."""
-    results_root = tmp_path / "res"
-    results_root.mkdir()
-    (results_root / "result.json").write_text('{"trial_name": "t"}')
-    summary, report = results_root / "s.json", tmp_path / "pr-x.md"
-
-    missing = skills_eval_agent.missing_renderer_outputs(
-        "BLOCKED: leg_report.py crashed", results_root, summary, report)
-    assert missing == [summary, report], (
-        "a crashed renderer on a real leg reported nothing owed"
-    )
-
+def test_successful_eval_requires_both_renderer_outputs(tmp_path) -> None:
+    summary, report = tmp_path / "s.json", tmp_path / "pr-x.md"
+    assert skills_eval_agent.missing_renderer_outputs(summary, report) == [summary, report]
     summary.write_text("{}")
+    assert skills_eval_agent.missing_renderer_outputs(summary, report) == [report]
     report.write_text("x")
-    assert not skills_eval_agent.missing_renderer_outputs(
-        "DONE: 1/1 specs passed", results_root, summary, report)
-
-
-def test_pretrial_blocked_owes_nothing(tmp_path) -> None:
-    """Pre-trial blockers need no renderer outputs; their marker fails the job."""
-    results_root = tmp_path / "res"
-    results_root.mkdir()
-    assert not skills_eval_agent.missing_renderer_outputs(
-        "BLOCKED: pool exhausted", results_root,
-        results_root / "s.json", tmp_path / "pr-x.md")
+    assert not skills_eval_agent.missing_renderer_outputs(summary, report)

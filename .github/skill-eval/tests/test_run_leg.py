@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -58,9 +59,12 @@ class SparkReachability(unittest.TestCase):
 
     def test_failed_ssh_probe_blocks_selection(self):
         with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Disconnected")]), \
-             mock.patch.object(run_leg.subprocess, "run", return_value=subprocess.CompletedProcess([], 255)):
+             mock.patch.object(run_leg.subprocess, "run", return_value=subprocess.CompletedProcess([], 255)) as probe, \
+             mock.patch.object(run_leg.time, "sleep") as sleep:
             with self.assertRaisesRegex(ValueError, "SSH probe failed"):
                 run_leg.spark_instance()
+        probe.assert_called_once()
+        sleep.assert_not_called()
 
     def test_timed_out_probe_blocks_selection(self):
         with mock.patch.object(run_leg, "_list_registered_nodes", return_value=[self.node("Disconnected")]), \
@@ -89,25 +93,55 @@ class SparkReachability(unittest.TestCase):
         self.assertEqual(probe.call_count, 3)
         self.assertEqual(sleep.call_args_list, [mock.call(10), mock.call(20)])
 
-    def test_authentication_error_is_not_retried(self):
-        failure = subprocess.CompletedProcess([], 255, stderr="Permission denied (publickey)")
-        with mock.patch.object(run_leg.subprocess, "run", return_value=failure) as probe, \
-             mock.patch.object(run_leg.time, "sleep") as sleep:
-            with self.assertRaisesRegex(ValueError, "SSH probe failed"):
-                run_leg._probe_spark_ssh("Spark-ba-WiFi", "Disconnected")
-        probe.assert_called_once()
-        sleep.assert_not_called()
+    def test_nontransient_errors_are_not_retried(self):
+        cases = [
+            (255, "Permission denied (publickey)"),
+            (255, "Permission denied (publickey).\nConnection closed by proxy"),
+            (255, "Host key verification failed.\nConnection closed by proxy"),
+            (255, "Could not resolve hostname spark-ba-wifi: Temporary failure in name resolution"),
+            (1, "Connection reset by peer"),
+        ]
+        for rc, stderr in cases:
+            with self.subTest(rc=rc, stderr=stderr), \
+                 mock.patch.object(run_leg.subprocess, "run", return_value=subprocess.CompletedProcess([], rc, stderr=stderr)) as probe, \
+                 mock.patch.object(run_leg.time, "sleep") as sleep:
+                with self.assertRaisesRegex(ValueError, "SSH probe failed"):
+                    run_leg._probe_spark_ssh("Spark-ba-WiFi", "Disconnected")
+                probe.assert_called_once()
+                sleep.assert_not_called()
+
+    def test_probe_diagnostics_are_bounded_and_redacted(self):
+        secret = "synthetic-ssh-credential"  # pragma: allowlist secret (synthetic fixture)
+        for prefix in ("Permission denied", "Connection reset by peer"):
+            first_line = f"{prefix}: {secret} " + "x" * 300
+            failure = subprocess.CompletedProcess([], 255, stderr=f"\n{first_line}\nsecond line")
+            output = io.StringIO()
+            with self.subTest(prefix=prefix), \
+                 mock.patch.dict(os.environ, {"SSH_PASSWORD": secret}), \
+                 mock.patch.object(run_leg.subprocess, "run", return_value=failure), \
+                 mock.patch.object(run_leg.time, "sleep"), \
+                 contextlib.redirect_stdout(output):
+                with self.assertRaises(ValueError) as raised:
+                    run_leg._probe_spark_ssh("Spark-ba-WiFi", "Disconnected")
+            detail = str(raised.exception) + output.getvalue()
+            expected = first_line.replace(secret, "[REDACTED]")[:200]
+            self.assertIn(f"exit 255: {expected}", detail)
+            self.assertNotIn(secret, detail)
+            self.assertNotIn("x" * 201, detail)
+            self.assertNotIn("second line", detail)
 
     def test_retry_preserves_work_deadline(self):
         failure = subprocess.CompletedProcess([], 255, stderr="Connection reset by peer")
-        with mock.patch.object(run_leg, "resolve_work_deadline", return_value=125), \
-             mock.patch.object(run_leg.time, "monotonic", return_value=100), \
-             mock.patch.object(run_leg.subprocess, "run", return_value=failure) as probe, \
-             mock.patch.object(run_leg.time, "sleep") as sleep:
-            with self.assertRaisesRegex(ValueError, "work deadline exhausted"):
-                run_leg._probe_spark_ssh("Spark-ba-WiFi", "Disconnected")
-        probe.assert_called_once()
-        sleep.assert_not_called()
+        for deadline, attempts in ((119, 0), (125, 1)):
+            with self.subTest(deadline=deadline), \
+                 mock.patch.object(run_leg, "resolve_work_deadline", return_value=deadline), \
+                 mock.patch.object(run_leg.time, "monotonic", return_value=100), \
+                 mock.patch.object(run_leg.subprocess, "run", return_value=failure) as probe, \
+                 mock.patch.object(run_leg.time, "sleep") as sleep:
+                with self.assertRaisesRegex(run_leg.LegDeadlineError, "work deadline exhausted"):
+                    run_leg._probe_spark_ssh("Spark-ba-WiFi", "Disconnected")
+                self.assertEqual(probe.call_count, attempts)
+                sleep.assert_not_called()
 
     def test_wrong_node_identity_never_uses_ssh_fallback(self):
         node = self.node("Disconnected")
@@ -120,6 +154,26 @@ class SparkReachability(unittest.TestCase):
 
 
 class SparkSelection(unittest.TestCase):
+    def test_probe_deadline_returns_124_before_worker_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset = Path(tmp) / "dataset" / "spark" / "step-1"
+            dataset.mkdir(parents=True)
+            (dataset / "task.toml").write_text('step_count = 1\n[metadata]\ngpu_type = "GB10"\n')
+            with mock.patch.dict(os.environ, RunInvocations.ENV | {"SKILLS_EVAL_SPARK_RUNNER": "true"}, clear=True), \
+                 mock.patch.object(leg_timing, "start_heartbeat", return_value=(mock.Mock(), mock.Mock())), \
+                 mock.patch.object(run_leg, "hold_pool_lock") as lock, \
+                 mock.patch.object(run_leg, "run_invocations") as trial, \
+                 mock.patch.object(run_leg, "spark_instance", side_effect=run_leg.LegDeadlineError("SSH probe deadline exhausted")):
+                rc = run_leg.main([
+                    "--dataset-root", str(Path(tmp) / "dataset"),
+                    "--results-root", str(Path(tmp) / "results"),
+                    "--scratch", str(Path(tmp) / "scratch"),
+                    "--spec-stem", "spec", "--platform", "DGX-SPARK",
+                ])
+        self.assertEqual(rc, 124)
+        lock.assert_not_called()
+        trial.assert_not_called()
+
     def test_unselected_spark_job_stops_before_worker_lock_or_trial(self):
         with tempfile.TemporaryDirectory() as tmp:
             dataset = Path(tmp) / "dataset" / "spark" / "step-1"
