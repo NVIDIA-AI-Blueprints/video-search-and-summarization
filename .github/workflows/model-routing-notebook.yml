@@ -3,7 +3,9 @@
 
 # Executes deploy/docker/scripts/deploy_vss_switchyard.ipynb end to end:
 # builds Switchyard from its pinned source ref, routes live requests across
-# both targets, and validates the undeployed VSS repoint build. CPU-only.
+# both targets, and validates the undeployed VSS repoint build. CPU-only, in
+# three passes: LLM routing, then the VLM judge route and the VLM control
+# route with a stub judge.
 #
 # The diff gate runs in-job against the cumulative head...base range: a
 # top-level `paths:` filter only sees the pushed commits and silently skips
@@ -113,6 +115,22 @@ jobs:
           # a local stub upstream: no credential exists anywhere in this job.
           # The real endpoint is the interactive notebook's default.
           MODEL_ROUTING_MOCK_UPSTREAM=true \
+            python3 .github/skill-eval/model-routing/notebook_routing_adapter.py
+
+      - name: Run the notebook end to end with VLM routing
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          # Second pass with the VLM route on. The stub judge alternates its
+          # verdict between the tiers, so both VLM targets must serve.
+          ROUTE_VLM=true MODEL_ROUTING_MOCK_UPSTREAM=true \
+            python3 .github/skill-eval/model-routing/notebook_routing_adapter.py
+
+      - name: Run the notebook end to end on the VLM control route
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          # Third pass: the control route must bypass the judge and send every
+          # request to the efficient VLM.
+          ROUTE_VLM=true ROUTER_VLM_ROUTE=switchyard/vlm-control MODEL_ROUTING_MOCK_UPSTREAM=true \
             python3 .github/skill-eval/model-routing/notebook_routing_adapter.py
 
       - name: Remove per-run state
