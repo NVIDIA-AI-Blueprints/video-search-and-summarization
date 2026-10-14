@@ -45,7 +45,7 @@ vst_config:
   recording_check_max_attempts: 3
   base_url: "{{ $vstBase }}"
   sensor_list_endpoint: "/vst/api/v1/sensor/streams"
-  add_overlay: true
+  add_overlay: false
   segment_anchor: "end"
   segment_duration_seconds: 10
   timeout: 60
