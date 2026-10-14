@@ -128,6 +128,7 @@ from gi.repository import GstRtsp  # noqa: E402
 API_PREFIX = "/v1"
 CHAT_COMPLETION_STREAM_POLL_INTERVAL_SEC = 0.001
 GENERATE_CAPTIONS_STREAM_POLL_INTERVAL_SEC = 0.001
+STREAMING_VLM_DISCONNECT_CLEANUP_ATTEMPTS = 5
 DEFAULT_INPUT_MEDIA_VERIFICATION_TIMEOUT_SEC = 300.0
 INPUT_MEDIA_VERIFICATION_TIMEOUT_ENV = "VSS_INPUT_MEDIA_VERIFICATION_TIMEOUT_SEC"
 
@@ -1340,23 +1341,55 @@ class RTVIServer:
         cleanup_future = loop.run_in_executor(
             self._async_executor,
             functools.partial(
-                self._stream_handler.remove_rtsp_stream_request,
+                self._remove_streaming_vlm_request_with_retry,
                 req_info.assets[0],
                 request_id,
                 drain_timeout_sec=drain_timeout_sec,
-                abort_inflight=True,
             ),
         )
+
+        def log_cleanup_failure(future):
+            try:
+                future.result()
+            except Exception:
+                logger.warning(
+                    "Failed to clean up streaming request %s",
+                    request_id,
+                    exc_info=True,
+                )
+
+        cleanup_future.add_done_callback(log_cleanup_failure)
         try:
             await asyncio.shield(cleanup_future)
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.warning(
-                "Failed to clean up streaming request %s",
-                request_id,
-                exc_info=True,
-            )
+            pass
+
+    def _remove_streaming_vlm_request_with_retry(
+        self, asset: Asset, request_id: str, drain_timeout_sec: float
+    ) -> None:
+        delay = 0.1
+        for attempt in range(STREAMING_VLM_DISCONNECT_CLEANUP_ATTEMPTS):
+            try:
+                self._stream_handler.remove_rtsp_stream_request(
+                    asset,
+                    request_id,
+                    drain_timeout_sec=drain_timeout_sec,
+                    abort_inflight=True,
+                )
+                return
+            except ServiceException as ex:
+                with self._stream_handler._lock:
+                    request_registered = request_id in self._stream_handler._request_info_map
+                if not request_registered:
+                    return
+                if ex.status_code not in (409, 503) or (
+                    attempt + 1 == STREAMING_VLM_DISCONNECT_CLEANUP_ATTEMPTS
+                ):
+                    raise
+                time.sleep(delay)
+                delay = min(delay * 2, 1.0)
 
     async def _process_vlm_request(
         self,

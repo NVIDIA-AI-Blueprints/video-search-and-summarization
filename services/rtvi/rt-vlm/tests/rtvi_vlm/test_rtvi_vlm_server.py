@@ -106,6 +106,57 @@ def test_disconnect_cleanup_aborts_inflight_streaming_request():
         abort_inflight=True,
     )
 
+
+def test_disconnect_cleanup_survives_sse_cancellation():
+    first_attempt = multiprocessing.Event()
+    release_first_attempt = multiprocessing.Event()
+    cleanup_done = multiprocessing.Event()
+    server = object.__new__(RTVIServer)
+    asset = object()
+    request_info = SimpleNamespace(
+        status=RequestInfo.Status.PROCESSING,
+        is_live=True,
+        query=SimpleNamespace(inference_mode="streaming_vlm"),
+        assets=[asset],
+    )
+    attempts = 0
+
+    def remove(*_args, **_kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            first_attempt.set()
+            assert release_first_attempt.wait(timeout=2)
+            raise ServiceException("stopping", "ResourceInUse", 409)
+        if attempts == 2:
+            raise ServiceException("draining", "ServerBusy", 503)
+        cleanup_done.set()
+
+    server._stream_handler = SimpleNamespace(
+        _lock=Lock(),
+        _request_info_map={"request": request_info},
+        remove_rtsp_stream_request=remove,
+    )
+    server._async_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+    async def cancel_cleanup():
+        task = asyncio.create_task(server._cleanup_streaming_vlm_request("request"))
+        while not first_attempt.is_set():
+            await asyncio.sleep(0.01)
+        task.cancel()
+        release_first_attempt.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        while not cleanup_done.is_set():
+            await asyncio.sleep(0.01)
+
+    try:
+        asyncio.run(cancel_cleanup())
+    finally:
+        server._async_executor.shutdown(wait=True)
+
+    assert attempts == 3
+
 API_PREFIX = "/v1"
 
 
