@@ -212,10 +212,10 @@ def build_es_query(
 def score_to_cosine(score: float) -> float:
     """Convert an ES ``_score`` in [0, 1] to cosine similarity in [-1, 1].
 
-    Rounds to 2dp before any threshold comparison to avoid floating-point edge
-    cases (e.g. ``2 * 0.60 - 1 = 0.19999...`` failing a ``0.20`` threshold).
+    Preserve precision for thresholds and retrieval metrics. Round only when
+    formatting a score for display.
     """
-    return round(2 * score - 1, 2)
+    return 2 * score - 1
 
 
 def extract_stream_id(sensor_data: dict[str, Any], video_path: str) -> str | None:

@@ -157,7 +157,12 @@ def test_build_es_query_with_filter_overfetches():
 
 @pytest.mark.parametrize(("score", "expected"), [(0.85, 0.7), (0.5, 0.0), (1.0, 1.0), (0.6, 0.2)])
 def test_score_to_cosine(score, expected):
-    assert h.score_to_cosine(score) == expected
+    assert h.score_to_cosine(score) == pytest.approx(expected)
+
+
+def test_close_scores_retain_ordering_precision():
+    assert h.score_to_cosine(0.85001) > h.score_to_cosine(0.85)
+    assert h.score_to_cosine(0.85001) != round(h.score_to_cosine(0.85001), 2)
 
 
 # ---------------------------------------------------------------- stream id
@@ -355,7 +360,14 @@ def test_parse_hit_valid():
     assert parsed is not None
     assert parsed.sensor_id == _UUID
     assert parsed.video_name == "v.mp4"
-    assert parsed.similarity_score == 0.7
+    assert parsed.similarity_score == pytest.approx(0.7)
+
+
+def test_threshold_uses_unrounded_cosine():
+    assert h.parse_hit(_hit(score=0.5999), min_cosine_similarity=0.2, exclude_videos=[]) is None
+    assert h.parse_hit(_hit(score=0.6001), min_cosine_similarity=0.2, exclude_videos=[]) is not None
+    assert h.parse_hit(_hit(score=0.4999), min_cosine_similarity=0.0, exclude_videos=[]) is None
+    assert h.parse_hit(_hit(score=0.4999), min_cosine_similarity=-1.0, exclude_videos=[]) is not None
 
 
 def test_parse_hit_below_threshold():

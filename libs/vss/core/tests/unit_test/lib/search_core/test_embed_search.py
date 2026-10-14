@@ -7,7 +7,7 @@ Locks in the behaviors that /api/v1/embed_search depends on:
     minus that anchor (index-name subtraction, mirroring behavior/raw)
   - text queries are the only supported embedding source
   - hits without an `llm` field are skipped
-  - min_cosine_similarity threshold (cosine = 2*_score - 1, rounded to 2dp)
+  - min_cosine_similarity threshold (cosine = 2*_score - 1, unrounded)
   - exclude_videos filter
   - screenshot URL construction via VSTSnapshot
   - empty input raises ValueError

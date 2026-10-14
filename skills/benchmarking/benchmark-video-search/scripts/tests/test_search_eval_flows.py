@@ -956,7 +956,7 @@ def test_the_default_ingest_flow_is_the_one_the_product_uses() -> None:
     """
     import run_eval_flows as rf
 
-    parsed = rf.parse_args(["--endpoint", "https://host:8000"])
+    parsed = rf.parse_args(["--scoring", "segments", "--endpoint", "https://host:8000"])
     assert parsed.ingest_flow == "vst-direct"
     assert parsed.skip_index_probe is False
     assert parsed.skip_existing is True
@@ -967,8 +967,8 @@ def test_destructive_modes_require_confirmation(flag: str) -> None:
     import run_eval_flows as rf
 
     with pytest.raises(SystemExit):
-        rf.parse_args(["--endpoint", "https://host:8000", flag])
-    parsed = rf.parse_args(["--endpoint", "https://host:8000", flag, "--confirm-delete"])
+        rf.parse_args(["--scoring", "segments", "--endpoint", "https://host:8000", flag])
+    parsed = rf.parse_args(["--scoring", "segments", "--endpoint", "https://host:8000", flag, "--confirm-delete"])
     assert getattr(parsed, flag.removeprefix("--").replace("-", "_")) is True
 
 
@@ -1757,13 +1757,13 @@ def test_the_llm_unreachable_fallback_lands_on_embed() -> None:
     """
     import run_eval_flows as rf
 
-    assert rf.parse_args(["--endpoint", "https://host:8000"]).search_path == "embed"
+    assert rf.parse_args(["--scoring", "segments", "--endpoint", "https://host:8000"]).search_path == "embed"
 
 
 def test_fixed_search_path_disables_live_and_stored_decompositions() -> None:
     import run_eval_flows as rf
 
-    args = rf.parse_args(["--endpoint", "https://host:8000", "--fixed-search-path"])
+    args = rf.parse_args(["--scoring", "segments", "--endpoint", "https://host:8000", "--fixed-search-path"])
     assert args.no_decompose is True
     assert args.fixed_search_path is True
 
@@ -1773,7 +1773,7 @@ def test_fixed_search_path_rejects_explicit_decompositions() -> None:
 
     with pytest.raises(SystemExit) as exc:
         rf.parse_args([
-            "--endpoint", "https://host:8000", "--fixed-search-path",
+            "--scoring", "segments",            "--endpoint", "https://host:8000", "--fixed-search-path",
             "--decompositions", "routes.json",
         ])
     assert exc.value.code == 2
@@ -1830,7 +1830,7 @@ def test_the_two_paths_that_must_not_be_fallbacks_are_refused_without_attributes
     import run_eval_flows as rf
 
     for path in ("attribute", "fusion"):
-        args = rf.parse_args(["--endpoint", "https://host:8000", "--search-path", path])
+        args = rf.parse_args(["--scoring", "segments", "--endpoint", "https://host:8000", "--search-path", path])
         with pytest.raises(SystemExit) as exc:
             rf.build_query_backend(args)
         assert "requires at least one --attribute" in str(exc.value)

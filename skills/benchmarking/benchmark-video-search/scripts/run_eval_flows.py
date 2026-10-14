@@ -119,7 +119,8 @@ def build_query_backend(args: argparse.Namespace) -> Any:
         # so without it the run would reach the first query and abort on a
         # usage error (exit 2) -- correct, but only after building the CLI
         # environment and reconfiguring the deployment.
-        if args.search_path in ("attribute", "fusion") and not args.attribute and not args.decompositions:
+        if (getattr(args, "scoring", "segments") != "clips"
+                and args.search_path in ("attribute", "fusion") and not args.attribute and not args.decompositions):
             raise SystemExit(
                 f"ERROR: --search-path {args.search_path} requires at least one --attribute.\n"
                 "  Attributes are detectable properties ('white jacket', 'red hard hat'),\n"
@@ -1191,6 +1192,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--endpoint", required=True, help="VSS agent base URL (e.g. http://localhost:8000)")
+    scoring = p.add_argument_group("scoring")
+    scoring.add_argument(
+        "--scoring", choices=("clips", "segments", "drive"), default="clips",
+        help="Clip metrics (default), legacy segment metrics, or strict original Drive metrics",
+    )
+    scoring.add_argument("--clip-data", help="Clip release root or merged {gallery, queries} JSON")
+    scoring.add_argument("--drive-data", help="Drive release root or merged {gallery, queries} JSON")
+    scoring.add_argument("--drive-scripts-dir", help="Directory containing original evaluate_domain_test.py")
+    scoring.add_argument("--ingestion-manifest", help="ingest_subset.py ingestion.json mapping sensors to clip IDs")
 
     flow = p.add_argument_group("flow selection")
     flow.add_argument(
@@ -1289,8 +1299,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     query = p.add_argument_group("query parameters")
-    query.add_argument("--top-k", type=int, default=5)
-    query.add_argument("--min-cosine-similarity", type=float, default=0.0)
+    query.add_argument("--search-timeout", type=int, default=3600, help="Clip capture process timeout in seconds (default 3600)")
+    query.add_argument("--retrieval-depth", choices=("gallery", "top-k"), default=None)
+    query.add_argument("--top-k", type=int, default=None)
+    query.add_argument("--min-cosine-similarity", type=float, default=None)
     query.add_argument("--source-type", default="video_file", choices=["video_file", "rtsp"])
     query.add_argument("--concurrency", type=int, default=1)
     query.add_argument(
@@ -1457,6 +1469,43 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Print the resolved backends and a sample CLI invocation, then exit",
     )
     args = p.parse_args(argv)
+    if args.search_timeout < 1:
+        p.error("--search-timeout must be positive")
+    if args.scoring == "clips":
+        if not args.clip_data or not args.ingestion_manifest:
+            p.error("Default clip scoring requires --clip-data and --ingestion-manifest; use --scoring segments for segment-only datasets")
+        if not args.skip_ingest:
+            p.error("Clip evaluation requires --skip-ingest and an explicit existing ingestion mapping")
+        if args.merge_adjacent or args.source_type != "video_file" or args.concurrency != 1:
+            p.error("Clip evaluation requires unmerged video_file retrieval and concurrency 1")
+        args.retrieval_depth = args.retrieval_depth or "gallery"
+        if args.retrieval_depth == "gallery" and args.top_k is not None:
+            p.error("--top-k requires --retrieval-depth top-k")
+        args.top_k = 1000 if args.retrieval_depth == "gallery" else (10 if args.top_k is None else args.top_k)
+        if args.retrieval_depth == "gallery" and args.min_cosine_similarity not in (None, -1):
+            p.error("Gallery retrieval requires --min-cosine-similarity -1")
+    else:
+        if args.clip_data or args.retrieval_depth:
+            p.error("--clip-data and --retrieval-depth require --scoring clips")
+        args.top_k = args.top_k if args.top_k is not None else 5
+    if not 1 <= args.top_k <= 1000:
+        p.error("--top-k must be between 1 and 1000")
+    if args.min_cosine_similarity is None:
+        args.min_cosine_similarity = -1.0 if args.retrieval_depth == "gallery" else 0.0
+    if args.scoring == "drive":
+        if not all((args.drive_data, args.drive_scripts_dir, args.ingestion_manifest)):
+            p.error("--scoring drive requires --drive-data, --drive-scripts-dir and --ingestion-manifest")
+        if not args.skip_ingest:
+            p.error("--scoring drive requires --skip-ingest; ingest the exact selection first")
+        if args.search_path != "embed" or args.decompositions or args.attribute or args.merge_adjacent:
+            p.error("--scoring drive requires unmerged embedding retrieval without decomposition or attributes")
+        if args.source_type != "video_file" or args.tolerate_unanswered or args.concurrency < 1:
+            p.error("--scoring drive requires video_file sources, positive concurrency and no unanswered tolerance")
+        args.no_decompose = True
+        args.fixed_search_path = True
+        args.min_cosine_similarity = -1.0
+    elif any((args.drive_data, args.drive_scripts_dir)) or (args.ingestion_manifest and args.scoring != "clips"):
+        p.error("Drive input options require --scoring drive")
     if args.fixed_search_path and args.decompositions:
         p.error("--fixed-search-path cannot be combined with --decompositions")
     if args.fixed_search_path:
@@ -1472,6 +1521,38 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+
+    if args.scoring == "clips":
+        from flows import clip_evaluation
+        try:
+            queries, mapping = clip_evaluation.prepare(args.clip_data, args.ingestion_manifest)
+            backend = build_query_backend(args)
+            clip_evaluation.run(args, backend, queries, mapping)
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise SystemExit(f"ABORTED: {exc}") from exc
+        return
+
+    if args.scoring == "drive":
+        from flows import drive_scoring
+
+        try:
+            context = drive_scoring.prepare(args.drive_data, args.ingestion_manifest, args.drive_scripts_dir)
+            args.top_k = len(context["gallery"])
+            backend = build_query_backend(args)
+            backend.video_sources = context["sources"]
+            backend.critic_eval_count = 1
+            if args.dry_run:
+                print(f"Drive scoring: {args.top_k} clips; full gallery, original queries, no segment expansion")
+                print("Sample invocation:", backend.build_argv("a person walking"))
+                return
+            name = args.name or f"drive_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+            drive_scoring.run(
+                context, backend, args.output_file or str(RESULTS_DIR / f"{name}.json"),
+                concurrency=args.concurrency,
+            )
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise SystemExit(f"ABORTED: {exc}") from exc
+        return
 
     # Decomposition is the default, not an opt-in. The deployed agent decomposes
     # every query and that choice picks the retrieval path, so an eval that

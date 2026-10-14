@@ -288,10 +288,22 @@ class DecoderProcess(ProcessBase):
             self._height = int(os.environ["VLM_INPUT_HEIGHT"])
             logger.info(f"Forcing input to VLM {self._width}X{self._height}")
 
+        is_cosmos = loader.get_model_class().__name__ == "CosmosEmbedModel"
+        cosmos_file_index_sampling = is_cosmos and os.getenv(
+            "COSMOS_FILE_INDEX_SAMPLING", "false"
+        ).lower() in ("true", "1", "yes")
+        cosmos_file_torchvision_resize = is_cosmos and os.getenv(
+            "COSMOS_FILE_TORCHVISION_RESIZE", "false"
+        ).lower() in ("true", "1", "yes")
+        logger.info("Cosmos file preprocessing: index_sampling=%s torchvision_resize=%s",
+                    cosmos_file_index_sampling, cosmos_file_torchvision_resize)
+
         # Initialize multiple frame getters (decoders)
         self._fgetters = [
             VideoFileFrameGetter(
                 frame_selector=DefaultFrameSelector(self._nfrms),
+                cosmos_file_index_sampling=cosmos_file_index_sampling,
+                cosmos_file_torchvision_resize=cosmos_file_torchvision_resize,
                 frame_width=self._width,
                 frame_height=self._height,
                 gpu_id=0,

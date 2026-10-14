@@ -1,0 +1,12 @@
+{
+  "data": "./dataset",
+  "video_list": "./clips.txt",
+  "es_index": "video-embeddings",
+  "rt_embed_model": "nvidia/Cosmos-Embed1-224p",
+  "reference_model": "nvidia/Cosmos-Embed1-224p",
+  "reference_revision": "REPLACE_WITH_IMMUTABLE_HUGGING_FACE_COMMIT_SHA",
+  "scripts_dir": "./drive-scripts",
+  "num_frames": 8,
+  "video_batch": 2,
+  "text_batch": 64
+}

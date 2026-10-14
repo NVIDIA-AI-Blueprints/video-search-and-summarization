@@ -101,3 +101,45 @@ want wall-clock and are reporting retrieval quality alone — CLI queries take
 ~8 s each, so a 673-query set is hours at 1.
 
 ---
+## Drive-compatible clip scoring
+
+`--scoring drive` evaluates a complete CLI embedding-search ranking using the
+original Drive metric functions. It requires NumPy, an already-ingested gallery,
+and these inputs:
+
+- `--drive-data`: original release root or merged `{gallery, queries}` JSON.
+- `--drive-scripts-dir`: directory containing the original `evaluate_domain_test.py`.
+- `--ingestion-manifest`: `ingest_subset.py`'s `ingestion.json`, mapping exact clip IDs to sensors.
+- `--skip-ingest`: required; this mode evaluates the supplied gallery only.
+
+The mode sets top-K to the gallery size (at most 1,000), similarity threshold to
+`-1`, and source type to `video_file`. It searches the selected source names,
+preserves each original query row, and disables decomposition and adjacent-window
+merging. Every response must include each gallery clip exactly once; missing,
+duplicate, foreign, or malformed hits fail the run instead of publishing partial
+metrics. Critic verdicts do not filter the ranking; the CLI's optional verification
+is capped at one result per query to bound work on full-gallery requests.
+
+Results contain full-precision `metrics` with Drive's overall/per-slice AP,
+recall@1/5/10, hit@1/5/10, nDCG@1/5/10, first-relevant mean/median rank, and AUC.
+`summary` is the overall block, `event_summary` reports event-only metrics, and
+`query_results` retains complete clip rankings. Original `near_universal` and
+no-gallery-relevance exclusions apply. The scorer hash and NumPy version are
+recorded. CLI response order supplies ranks; reported scores are never sorted to
+rebuild the ranking. AUC uses the original scorer's score/tie handling.
+
+```bash
+python scripts/run_eval_flows.py --endpoint "$AGENT_ENDPOINT" \
+  --scoring drive --skip-ingest --skip-vss-configure \
+  --drive-data /path/to/subset/subset.json \
+  --drive-scripts-dir /path/to/original-drive-scripts \
+  --ingestion-manifest /path/to/ingestion/ingestion.json \
+  --output-file /path/to/drive-cli-metrics.json
+```
+
+Use a CLI installed from this checkout: embedding search now retains unrounded
+cosine values for output and threshold comparisons. Scores near a threshold may
+be included differently than with the previous two-decimal comparison. The
+Drive metrics match for identical input rankings/scores; Elasticsearch kNN can
+still differ from Drive's exhaustive FP32 matrix ranking. Default segment scoring
+and its output format remain available through `--scoring segments`.

@@ -141,11 +141,16 @@ class CliQueryBackend:
         # `--original-query`; run_eval_flows probes for it.
         pass_original_query: bool = True,
         critic_eval_count: int | None = None,
+        video_sources: list[str] | None = None,
+        capture_directory: str | None = None,
+        capture_metadata: dict[str, Any] | None = None,
     ) -> None:
         if search_path not in SEARCH_PATHS:
             raise ValueError(f"search_path must be one of {SEARCH_PATHS}, got {search_path!r}")
         if critic_eval_count is not None and critic_eval_count < 1:
             raise ValueError("critic_eval_count must be at least 1")
+        self.capture_directory = capture_directory
+        self.capture_metadata = capture_metadata or {}
         self.vss_cmd = vss_cmd
         self.search_path = search_path
         self.top_k = top_k
@@ -157,6 +162,7 @@ class CliQueryBackend:
         self.timeout = timeout
         self.pass_original_query = pass_original_query
         self.critic_eval_count = critic_eval_count
+        self.video_sources = video_sources or []
         #: query text -> decomposition. Empty means fixed-flag behaviour.
         self.decompositions = decompositions or {}
         #: plans actually executed, so the summary can report the path split.
@@ -194,13 +200,23 @@ class CliQueryBackend:
         them, the path and arguments are derived per query the way the agent's
         decomposition step would have.
         """
-        return routing.plan_for(
+        plan = routing.plan_for(
             query,
             self.decompositions.get(query),
             default_path=self.search_path,
             default_attributes=self.attributes,
             default_source_type=self.source_type,
         )
+        if self.video_sources and query not in self.decompositions:
+            plan["video_sources"] = self.video_sources
+        if hasattr(self, "evaluation_top_k"):
+            plan["top_k"] = self.evaluation_top_k
+        if hasattr(self, "evaluation_gallery_sources"):
+            sources = plan.get("video_sources") or self.evaluation_gallery_sources
+            if not set(sources) <= set(self.evaluation_gallery_sources):
+                raise ValueError("Query source filter contains sources outside the benchmark gallery")
+            plan["video_sources"] = sources
+        return plan
 
     def build_argv(self, query: str, plan: dict[str, Any] | None = None) -> list[str]:
         """Assemble the invocation. Split out so it is unit-testable offline."""
@@ -248,6 +264,8 @@ class CliQueryBackend:
         if not self.merge_adjacent:
             argv.append("--no-merge-adjacent")
 
+        if getattr(self, "evaluation_no_persist", False):
+            argv.append("--no-persist")
         argv.append("--raw")
         return argv
 
@@ -257,14 +275,21 @@ class CliQueryBackend:
         argv = self.build_argv(query, plan)
         start = time.time()
         try:
-            proc = subprocess.run(
-                argv,
-                capture_output=True,
-                check=False,
-                text=True,
-                timeout=self.timeout,
-                cwd=self.cwd,
-            )
+            if self.capture_directory is not None:
+                from .capture import run
+                proc, captured_latency = run(
+                    self.capture_directory, argv, cwd=self.cwd, timeout=self.timeout,
+                    metadata={**self.capture_metadata, "original_query": query, "plan": plan},
+                )
+            else:
+                proc = subprocess.run(
+                    argv,
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                    timeout=self.timeout,
+                    cwd=self.cwd,
+                )
         except subprocess.TimeoutExpired as e:
             # A 300s hang is an environment fault, not a query that found
             # nothing. Scoring it 0 was the same silent-zero this module's exit
@@ -272,7 +297,7 @@ class CliQueryBackend:
             raise QueryUnanswerableError(
                 f"vss timed out after {self.timeout}s: {shlex.join(argv)}"
             ) from e
-        latency = time.time() - start
+        latency = captured_latency if self.capture_directory is not None else time.time() - start
 
         if is_fatal_exit(proc.returncode):
             meaning = CLI_EXIT_MEANINGS.get(proc.returncode, "undocumented exit code")
@@ -282,7 +307,13 @@ class CliQueryBackend:
                 returncode=proc.returncode,
             )
 
-        hits, _messages, timings = parse_cli_output(proc.stdout)
+        if self.capture_directory is not None:
+            from .capture import recover
+            captured, _process = recover(self.capture_directory)
+            envelope = captured["envelope"]
+            hits, timings = envelope["data"], envelope.get("timings") or {}
+        else:
+            hits, _messages, timings = parse_cli_output(proc.stdout)
         if timings:
             self.timings_by_query[query] = timings
         return hits, latency
