@@ -384,6 +384,10 @@ class RealtimeAlertService:
             media_info=rule_doc.get("media_info"),
             enable_audio=rule_doc.get("enable_audio"),
             mm_processor_kwargs=rule_doc.get("mm_processor_kwargs"),
+            inference_mode=rule_doc.get("inference_mode"),
+            streaming_frame_policy=rule_doc.get("streaming_frame_policy"),
+            streaming_window_frames=rule_doc.get("streaming_window_frames"),
+            streaming_question_on_decode=rule_doc.get("streaming_question_on_decode"),
         )
 
         # Forward the full identity / location payload here just like
@@ -452,6 +456,10 @@ class RealtimeAlertService:
                     media_info=config.media_info,
                     enable_audio=config.enable_audio,
                     mm_processor_kwargs=config.mm_processor_kwargs,
+                    inference_mode=config.inference_mode,
+                    streaming_frame_policy=config.streaming_frame_policy,
+                    streaming_window_frames=config.streaming_window_frames,
+                    streaming_question_on_decode=config.streaming_question_on_decode,
                 )
             )
             try:
@@ -991,6 +999,10 @@ class RealtimeAlertService:
                     media_info=config.media_info,
                     enable_audio=config.enable_audio,
                     mm_processor_kwargs=config.mm_processor_kwargs,
+                    inference_mode=config.inference_mode,
+                    streaming_frame_policy=config.streaming_frame_policy,
+                    streaming_window_frames=config.streaming_window_frames,
+                    streaming_question_on_decode=config.streaming_question_on_decode,
                 )
             )
 
