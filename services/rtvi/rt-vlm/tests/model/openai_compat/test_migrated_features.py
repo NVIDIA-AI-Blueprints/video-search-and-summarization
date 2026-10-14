@@ -366,7 +366,7 @@ def test_nim_streaming_http_request_uses_openai_endpoint():
     response = MagicMock()
     response.__enter__.return_value = response
     response.read.return_value = b'{"session_id":"sess-test"}'
-    with patch.dict(os.environ, {"VIA_VLM_API_KEY": "test-key"}), patch(
+    with patch.dict(os.environ, {"VIA_VLM_API_KEY": "test-key"}), patch(  # pragma: allowlist secret
         "models.openai_compat.openai_compat_model.urlrequest.urlopen", return_value=response
     ) as urlopen:
         assert model._nim_streaming_request("POST", "sessions", {"question": "test"})[
