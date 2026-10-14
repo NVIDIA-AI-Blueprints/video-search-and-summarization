@@ -57,8 +57,14 @@ curl -fsS "$RTVI_BASE/v1/chat/completions" \
   -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with the word ping.\"}],\"max_tokens\":32}"
 ```
 
-`file://` URLs require `FILE_URL_ALLOWED_DIRS` to include the parent directory.
-An empty allowlist returns HTTP 403; that is not a model failure.
+For `/v1/files` and `/v1/generate_captions`, `file://` URLs require
+`FILE_URL_ALLOWED_DIRS` to include the parent directory. An empty allowlist
+returns HTTP 403; that is not a model failure.
+
+For `/v1/chat/completions`, local file URLs use
+`RTVI_ALLOWED_LOCAL_MEDIA_PATHS` instead (default
+`/opt/nvidia/rtvi/streams/perf`). A path outside the allowed directories returns
+HTTP 400.
 
 ## Media Files
 
