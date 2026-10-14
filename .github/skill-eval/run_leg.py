@@ -277,6 +277,19 @@ def _api_base_v1(base_url: str) -> str:
     return f"{stripped}/v1"
 
 
+def _anthropic_base_url(base_url: str) -> str:
+    """Return the API root expected by the Claude Code Anthropic SDK."""
+    stripped = base_url.strip().rstrip("/")
+    parsed = urllib.parse.urlsplit(stripped)
+    if parsed.query or parsed.fragment:
+        raise ValueError(
+            "Anthropic base URL must not contain a query string or fragment"
+        )
+    if parsed.path.endswith("/v1/v1"):
+        raise ValueError("Anthropic base URL contains a repeated /v1 suffix")
+    return stripped.removesuffix("/v1")
+
+
 def validate_harbor_timeout_sec(timeout_sec: int) -> int:
     """Require the outer backstop to leave every Harbor phase recovery room."""
     if timeout_sec <= MIN_HARBOR_BACKSTOP_SEC:
@@ -355,7 +368,7 @@ def build_harbor_command(
         agent_flags = [
             "-a", "agents.nv_claude_code:NvClaudeCode",
             "--model", model,
-            "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
+            "--ak", f"api_base={_anthropic_base_url(anthropic_base_url)}",
             "--ae", f"ANTHROPIC_API_KEY=${{{AGENT_ROUTE_API_KEY_ENV}}}",
             "--ae", f"ANTHROPIC_BASE_URL=${{{AGENT_ROUTE_BASE_URL_ENV}}}",
             "--ae", "CLAUDE_CODE_DISABLE_THINKING=1",
@@ -1972,10 +1985,8 @@ def _run_invocations(
             # The parent ANTHROPIC_* values therefore remain the coordinator's
             # verifier route rather than being replaced by the evaluated route.
             invocation_env[AGENT_ROUTE_API_KEY_ENV] = invocation_config.api_key
-            invocation_env[AGENT_ROUTE_BASE_URL_ENV] = (
-                invocation_base_url.removesuffix("/v1")
-                if invocation_config.provider == "local-nim"
-                else _api_base_v1(invocation_base_url)
+            invocation_env[AGENT_ROUTE_BASE_URL_ENV] = _anthropic_base_url(
+                invocation_base_url
             )
         elif invocation_agent == "codex":
             invocation_env[AGENT_ROUTE_API_KEY_ENV] = invocation_config.api_key

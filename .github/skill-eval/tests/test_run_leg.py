@@ -193,7 +193,28 @@ class DiscoverInvocations(unittest.TestCase):
 
 
 class HarborCommand(unittest.TestCase):
-    def test_build_command_uses_env_and_v1_suffix(self):
+    def test_anthropic_base_url_strips_only_terminal_v1(self):
+        cases = {
+            "https://inference-api.nvidia.com/v1": "https://inference-api.nvidia.com",
+            "https://inference-api.nvidia.com/v1/": "https://inference-api.nvidia.com",
+            "https://proxy.example/anthropic/v1": "https://proxy.example/anthropic",
+            "http://127.0.0.1:18400": "http://127.0.0.1:18400",
+        }
+        for configured, expected in cases.items():
+            with self.subTest(configured=configured):
+                self.assertEqual(run_leg._anthropic_base_url(configured), expected)
+
+    def test_anthropic_base_url_rejects_ambiguous_or_repeated_versions(self):
+        for configured in (
+            "https://inference-api.nvidia.com/v1?tenant=test",
+            "https://inference-api.nvidia.com/v1#messages",
+            "https://inference-api.nvidia.com/v1/v1",
+        ):
+            with self.subTest(configured=configured):
+                with self.assertRaises(ValueError):
+                    run_leg._anthropic_base_url(configured)
+
+    def test_build_command_uses_env_and_anthropic_api_root(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/alerts_cv"),
             include_task_name="rtxpro6000bw",
@@ -229,7 +250,7 @@ class HarborCommand(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--model") + 1], "aws/anthropic/bedrock-claude-opus-4-6")
         self.assertEqual(
             cmd[cmd.index("--ak") + 1],
-            "api_base=https://inference-api.nvidia.com/v1",
+            "api_base=https://inference-api.nvidia.com",
         )
         agent_env = [cmd[index + 1] for index, part in enumerate(cmd) if part == "--ae"]
         self.assertIn(
@@ -261,6 +282,10 @@ class HarborCommand(unittest.TestCase):
         cmd = run_leg.build_harbor_command(
             invocation, Path("/tmp/results"), "meta/test", "http://localhost:18400/v1",
             local_nim=True,
+        )
+        self.assertEqual(
+            cmd[cmd.index("--ak") + 1],
+            "api_base=http://localhost:18400",
         )
         self.assertEqual(
             cmd[cmd.index("--environment-build-timeout-multiplier") + 1],
@@ -1098,7 +1123,7 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(seen_env[0]["ANTHROPIC_API_KEY"], "judge-secret")
         self.assertEqual(
             seen_env[0][run_leg.AGENT_ROUTE_BASE_URL_ENV],
-            model_config.NVIDIA_INFERENCE_API_BASE_URL,
+            "https://inference-api.nvidia.com",
         )
         self.assertEqual(
             seen_env[0][run_leg.AGENT_ROUTE_API_KEY_ENV], "route-secret"

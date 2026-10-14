@@ -659,7 +659,8 @@ Notes that have burned prior runs:
   prepend `.github.skill-eval.` — `.github` isn't a valid Python
   package and `PYTHONPATH` already points past it.
 - `--ak api_base="…"` passes the Anthropic base URL to claude-code.
-  Always append `/v1`.
+  Pass the API root without a terminal `/v1`; the Anthropic SDK appends
+  `/v1/messages`. Codex/OpenAI-compatible routes still require `/v1`.
 - `--max-retries 0 -n 1` means one trial, one attempt. Harbor retries
   on harness errors (not agent errors) if `--max-retries > 0`, which
   double-counts in the reward table. Keep it 0.
