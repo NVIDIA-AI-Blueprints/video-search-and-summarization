@@ -70,9 +70,14 @@ class TestCLIParser:
     def test_add_file_subcommand(self):
         """Test add-file subcommand"""
         parser = get_parser()
-        args = parser.parse_args(["add-file", "/opt/nvidia/rtvi/warmup_streams/its_264.mp4"])
+        args = parser.parse_args(
+            [
+                "add-file",
+                "/opt/nvidia/rtvi/warmup_streams/sample_1080p_h264.mp4",
+            ]
+        )
         assert args.request == "add-file"
-        assert args.file == "/opt/nvidia/rtvi/warmup_streams/its_264.mp4"
+        assert args.file == "/opt/nvidia/rtvi/warmup_streams/sample_1080p_h264.mp4"
 
     def test_list_files_subcommand(self):
         """Test list-files subcommand"""
@@ -214,7 +219,7 @@ class TestFileCommands:
         mock_response = Mock()
         mock_response.json.return_value = {
             "id": "test-id",
-            "filename": "/opt/nvidia/rtvi/warmup_streams/its_264.mp4",
+            "filename": "/opt/nvidia/rtvi/warmup_streams/sample_1080p_h264.mp4",
             "bytes": 1000,
             "purpose": "vision",
             "media_type": "video",
@@ -225,7 +230,7 @@ class TestFileCommands:
 
         args = Mock()
         args.add_as_path = False
-        args.file = "/opt/nvidia/rtvi/warmup_streams/its_264.mp4"
+        args.file = "/opt/nvidia/rtvi/warmup_streams/sample_1080p_h264.mp4"
         args.is_image = False
         args.creation_time = None
         args.print_curl_command = False
@@ -611,7 +616,11 @@ class TestCurlCommandGeneration:
         """Test curl command generation for add-file"""
         parser = get_parser()
         args = parser.parse_args(
-            ["add-file", "/opt/nvidia/rtvi/warmup_streams/its_264.mp4", "--print-curl-command"]
+            [
+                "add-file",
+                "/opt/nvidia/rtvi/warmup_streams/sample_1080p_h264.mp4",
+                "--print-curl-command",
+            ]
         )
         assert args.print_curl_command is True
 

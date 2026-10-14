@@ -1325,7 +1325,7 @@ class RTVIServer:
         if vlm_query.url:
             if not vlm_query.id_list or len(vlm_query.id_list) != 1:
                 raise ServiceException(
-                    "When 'url' is provided, 'id' must be a single UUID.",
+                    "When 'url' is provided, 'id' must be a single identifier.",
                     "BadParameters",
                     400,
                 )
@@ -1531,6 +1531,8 @@ class RTVIServer:
             "end_time": end_time,
             "content": resp.vlm_model_output.output if resp.vlm_model_output else "",
         }
+        if resp.error:
+            chunk_response["error"] = {"message": resp.error, "code": resp.error_status_code}
         if resp.decode_start_time and resp.decode_end_time:
             chunk_response["decode_latency_ms"] = round(
                 (resp.decode_end_time - resp.decode_start_time) * 1000,
@@ -2989,7 +2991,12 @@ class RTVIServer:
                     yield "[DONE]"
 
                 try:
-                    return EventSourceResponse(message_generator(), send_timeout=5, ping=1)
+                    return EventSourceResponse(
+                        message_generator(),
+                        send_timeout=5,
+                        ping=1,
+                        headers={"X-Request-ID": request_id},
+                    )
                 except Exception as ex:
                     self._stream_handler._send_error_message_to_kafka(
                         VLM_CAPTIONS_ERROR_MESSAGE % str(ex),
@@ -3591,6 +3598,11 @@ class RTVIServer:
                                             }
                                         ],
                                     }
+                                    if resp.error:
+                                        response["error"] = {
+                                            "message": resp.error,
+                                            "code": resp.error_status_code,
+                                        }
                                     # EventSourceResponse adds "data: " prefix automatically
                                     yield json.dumps(response)
                                 try:

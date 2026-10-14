@@ -25,7 +25,7 @@ class NvVideoEncodeOut
     public:
         NvVideoEncodeOut();
         ~NvVideoEncodeOut();
-        GstElement* create(const string& file_name = "");
+        GstElement* create(const std::string& file_name = "");
     private:
         GstElement*             m_tee = nullptr;
         GstElement*             m_queue_record = nullptr;

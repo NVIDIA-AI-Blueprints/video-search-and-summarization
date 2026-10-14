@@ -37,6 +37,10 @@ MARKER = "# RTVI EVS session protocol compatibility types"
 EVS_PROTOCOL_TYPES = r'''
 
 # RTVI EVS session protocol compatibility types
+from pydantic import model_validator
+from vllm.sampling_params import StructuredOutputsParams
+
+
 class EvsAdvancedConfig(OpenAIBaseModel):
     """Statistical tuning knobs for event detection."""
 
@@ -65,6 +69,23 @@ class VideoSessionSamplingParams(OpenAIBaseModel):
     min_tokens: int | None = Field(default=None, ge=0)
     stop: list[str] | str | None = None
     stop_token_ids: list[int] | None = None
+    # Schema-constrained decoding for event-gated generations: the kwargs of
+    # vLLM ``StructuredOutputsParams``, kept as a dict so the persisted config
+    # stays serializable.
+    structured_outputs: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _check_structured_outputs(self) -> "VideoSessionSamplingParams":
+        if self.structured_outputs is None:
+            return self
+        try:
+            StructuredOutputsParams(**self.structured_outputs)
+        except TypeError as exc:
+            raise ValueError(f"invalid structured_outputs: {exc}") from exc
+        # ignore_eos would keep decoding past the end of the constrained output.
+        if self.ignore_eos:
+            raise ValueError("structured_outputs cannot be combined with ignore_eos")
+        return self
 
     def to_sampling_params_config(self, default_max_tokens: int = 1024) -> dict[str, Any]:
         cfg = self.model_dump(exclude_none=True)
@@ -76,7 +97,10 @@ def build_session_sampling_params(
     config: dict[str, Any] | None, default_max_tokens: int = 1024
 ) -> SamplingParams:
     """Expand persisted session sampling settings into vLLM parameters."""
-    return SamplingParams(**(config or {"max_tokens": default_max_tokens}))
+    cfg = dict(config or {"max_tokens": default_max_tokens})
+    if (structured := cfg.get("structured_outputs")) is not None:
+        cfg["structured_outputs"] = StructuredOutputsParams(**structured)
+    return SamplingParams(**cfg)
 
 
 class VideoSessionCreateRequest(OpenAIBaseModel):

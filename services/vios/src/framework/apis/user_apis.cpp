@@ -20,6 +20,7 @@
 #include "modules_apis.h"
 
 using namespace std;
+using namespace nv_vms;
 
 UserRESTApis::UserRESTApis()
 {

@@ -23,7 +23,6 @@
 #include "media_adaptor_loader.h"
 #include "vms_media_interface.h"
 
-using namespace std;
 
 class IVstModule;
 
@@ -60,17 +59,17 @@ class ModuleLoader
         ModuleLoader(ModuleLoader&&) = delete;
         ModuleLoader& operator=(ModuleLoader&&) = delete;
 
-        int initialize(ModuleId module_id = ModuleAll);
+        int initialize(nv_vms::ModuleId module_id = nv_vms::ModuleAll);
         void deInitialize();
-        string getDeviceId();
-        string getDeviceType();
-        std::shared_ptr<DeviceManager> getDeviceManagerObject();
+        std::string getDeviceId();
+        std::string getDeviceType();
+        std::shared_ptr<nv_vms::DeviceManager> getDeviceManagerObject();
 #ifdef UNIT_TEST
         /** For unit tests only: set DeviceManager so StreamMonitor/QosRtspClient get a valid instance. */
-        void setDeviceManagerForTest(std::shared_ptr<DeviceManager> dm);
+        void setDeviceManagerForTest(std::shared_ptr<nv_vms::DeviceManager> dm);
 #endif
-        ModuleId getModuleId(const std::string& moduleName);
-        string getModuleIdAsString(ModuleId module_id);
+        nv_vms::ModuleId getModuleId(const std::string& moduleName);
+        std::string getModuleIdAsString(nv_vms::ModuleId module_id);
 
         IVstModule* getRtspServerMgmtInstance()
         {
@@ -143,8 +142,8 @@ class ModuleLoader
         nv_vms::SharedLibrary* m_handlePeerConnectionLiveManager = nullptr;
         nv_vms::SharedLibrary* m_handlePeerConnectionReplayManager = nullptr;
         nv_vms::SharedLibrary* m_handleStreamBridge = nullptr;
-        AdaptorLoader m_loader;
-        std::shared_ptr<DeviceManager> m_deviceManager;
+        nv_vms::AdaptorLoader m_loader;
+        std::shared_ptr<nv_vms::DeviceManager> m_deviceManager;
         nv_vms::MediaAdaptorLoader::MediaAdaptorHandle m_mediaAdaptorHandle{};
         std::string m_mediaAdaptorLibPath;
 };

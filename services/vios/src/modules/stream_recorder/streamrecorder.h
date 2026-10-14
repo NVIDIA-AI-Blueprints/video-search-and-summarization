@@ -36,7 +36,7 @@
     {                                                                 \
         if (recorder == nullptr)                                      \
         {                                                             \
-            LOG(error) << "Recorder module instance is null" << endl; \
+            LOG(error) << "Recorder module instance is null" << std::endl; \
             return VmsErrorCode::InvalidParameterError;               \
         }                                                             \
     } while (0)
@@ -74,34 +74,34 @@ inline constexpr const char* KILL_ERROR_WATCH_THREAD = "KILL_ERROR_WATCH_THREAD"
         IVstModule *createStreamRecorderObject();
         void deleteStreamRecorderObject(IVstModule *object);
 
-        StreamRecorder(const std::string video_root, const string deviceId);
-        StreamRecorder(vector<std::shared_ptr<StreamInfo>>, std::map<std::string, std::string, std::less<>> &);
+        StreamRecorder(const std::string video_root, const std::string deviceId);
+        StreamRecorder(std::vector<std::shared_ptr<StreamInfo>>, std::map<std::string, std::string, std::less<>> &);
         ~StreamRecorder();
 
-        string recordStatus(const string streamId);
+        std::string recordStatus(const std::string streamId);
         VmsErrorCode getAllRecordStatus(std::map<std::string, RecordingStatusDBColumns, std::less<>> &allStatus);
         VmsErrorCode recordStatus(Json::Value &response);
         VmsErrorCode streams(Json::Value &list);
-        RecordScheduleStatus startRecord(const string streamId, RecordState record_state);
-        StopRecordStatus stopRecord(const string streamId, int record_state = 0);
-        VmsErrorCode onEvent(const string &stream_id, Json::Value &response);
-        VmsErrorCode addStream(shared_ptr<StreamInfo> stream, std::map<std::string, std::string, std::less<>> = std::map<std::string, std::string, std::less<>>());
-        VmsErrorCode addStream(const string &stream_id, const string &url, const string &codec = "");
-        VmsErrorCode removeStream(const string &streamId);
-        std::map<const string, shared_ptr<StreamInfo>, std::less<>> getStreams();
-        VmsErrorCode createNewRecordSchedule(const string camera_id, const string start_time,
-                                             const string end_time, bool storeInDb = true);
-        VmsErrorCode getRecordSchedules(const string &stream_id, Json::Value &response);
-        VmsErrorCode deleteStreamRecordSchedule(const string streamId, const string start_time,
-                                                const string end_time);
-        VmsErrorCode getStreamRecordFiles(const string streamId, const string startTime,
-                                          const string endTime, Json::Value &response);
-        VmsErrorCode getRecordTimelines(const string stream_id, const string start_time,
-                                        const string end_time, Json::Value &response);
+        RecordScheduleStatus startRecord(const std::string streamId, RecordState record_state);
+        StopRecordStatus stopRecord(const std::string streamId, int record_state = 0);
+        VmsErrorCode onEvent(const std::string &stream_id, Json::Value &response);
+        VmsErrorCode addStream(std::shared_ptr<StreamInfo> stream, std::map<std::string, std::string, std::less<>> = std::map<std::string, std::string, std::less<>>());
+        VmsErrorCode addStream(const std::string &stream_id, const std::string &url, const std::string &codec = "");
+        VmsErrorCode removeStream(const std::string &streamId);
+        std::map<const std::string, std::shared_ptr<StreamInfo>, std::less<>> getStreams();
+        VmsErrorCode createNewRecordSchedule(const std::string camera_id, const std::string start_time,
+                                             const std::string end_time, bool storeInDb = true);
+        VmsErrorCode getRecordSchedules(const std::string &stream_id, Json::Value &response);
+        VmsErrorCode deleteStreamRecordSchedule(const std::string streamId, const std::string start_time,
+                                                const std::string end_time);
+        VmsErrorCode getStreamRecordFiles(const std::string streamId, const std::string startTime,
+                                          const std::string endTime, Json::Value &response);
+        VmsErrorCode getRecordTimelines(const std::string stream_id, const std::string start_time,
+                                        const std::string end_time, Json::Value &response);
         VmsErrorCode getConfiguration(Json::Value &config);
-        VmsErrorCode getVersion(string &version);
-        VmsErrorCode setDeviceRecordSchedule(const string device_id, const Json::Value &value, Json::Value &response);
-        VmsErrorCode deleteCameraRecordSchedule(const string device_id, const string query_string,
+        VmsErrorCode getVersion(std::string &version);
+        VmsErrorCode setDeviceRecordSchedule(const std::string device_id, const Json::Value &value, Json::Value &response);
+        VmsErrorCode deleteCameraRecordSchedule(const std::string device_id, const std::string query_string,
                                                 const Json::Value& value, Json::Value &response);
         VmsErrorCode GetAllRecordTimelines(const Json::Value& req_info, Json::Value &out);
 
@@ -109,27 +109,27 @@ inline constexpr const char* KILL_ERROR_WATCH_THREAD = "KILL_ERROR_WATCH_THREAD"
         VideoFileInfo getActiveLocalRecording(const std::string& streamOrSensorId);
 
         static void errorWatchThread (StreamRecorder* streamRecorder);
-        void updatePrometheusStatus (const string& device_id, int status, bool increment, std::string& stream_name);
-        bool changeRecordStateTo(const string camera_id, RecordState new_state);
-        void loadSchedulesfromDb(const string &camera_id);
+        void updatePrometheusStatus (const std::string& device_id, int status, bool increment, std::string& stream_name);
+        bool changeRecordStateTo(const std::string camera_id, RecordState new_state);
+        void loadSchedulesfromDb(const std::string &camera_id);
 
         static std::atomic<size_t> m_requiured_capacity;
 #ifdef UNIT_TEST
-        std::vector<guint64> getTimestamps(const string camera_id);
-        bool getError(const string camera_id);
-        bool isPlaying(const string camera_id);
-        bool isRecordGap(const string camera_id);
-        void disableEOS(const string camera_id);
+        std::vector<guint64> getTimestamps(const std::string camera_id);
+        bool getError(const std::string camera_id);
+        bool isPlaying(const std::string camera_id);
+        bool isRecordGap(const std::string camera_id);
+        void disableEOS(const std::string camera_id);
         uint32_t getStreamCount();
-        bool isAudioSupported(const string camera_id);
+        bool isAudioSupported(const std::string camera_id);
 #endif
     private:
-        bool onEvent(const string streamId);
+        bool onEvent(const std::string streamId);
         void performCrashRecovery();
         bool shouldPerformCrashRecovery();
 
-        std::map<const string, shared_ptr<StreamInfo>, std::less<>> m_streams;
-        std::map<const string, shared_ptr<NvGstVideoRecorder>, std::less<>> m_recorderList;
+        std::map<const std::string, std::shared_ptr<StreamInfo>, std::less<>> m_streams;
+        std::map<const std::string, std::shared_ptr<NvGstVideoRecorder>, std::less<>> m_recorderList;
         std::string m_videoRoot;
         std::unique_ptr<RecordScheduler> m_scheduler;
         std::mutex m_recorderMutex;
@@ -164,23 +164,23 @@ inline constexpr const char* KILL_ERROR_WATCH_THREAD = "KILL_ERROR_WATCH_THREAD"
         std::unique_ptr<Bosma::Scheduler> m_schedule_eraser;
         std::mutex m_recorderMutex;
         std::map<std::string, std::shared_ptr<schedule>, std::less<>> m_schedule_map;
-        bool removeScheduleFromMap(StreamRecorder *recorder, const string &key);
-        long compareTimePoints(chrono::system_clock::time_point start_tp,
-                               chrono::system_clock::time_point end_tp);
-        void stopRecordIfScheduled(StreamRecorder *recorder, const string device_id);
+        bool removeScheduleFromMap(StreamRecorder *recorder, const std::string &key);
+        long compareTimePoints(std::chrono::system_clock::time_point start_tp,
+                               std::chrono::system_clock::time_point end_tp);
+        void stopRecordIfScheduled(StreamRecorder *recorder, const std::string device_id);
 
     public:
         RecordScheduler()
         {
-            m_schedule_eraser = make_unique<Bosma::Scheduler>(MAX_SCHEDULES);
+            m_schedule_eraser = std::make_unique<Bosma::Scheduler>(MAX_SCHEDULES);
         }
         std::mutex m_scheduleMapMutex;
-        bool createNewSchedule(StreamRecorder *recorder, const string camera_id,
-                               const string start_time, const string end_time,
+        bool createNewSchedule(StreamRecorder *recorder, const std::string camera_id,
+                               const std::string start_time, const std::string end_time,
                                bool storeInDb = true);
-        std::vector<Json::Value> getSchedules(const string &camera_id);
-        bool deleteStreamSchedule(StreamRecorder *recorder, const string &streamId,
-                                  const string &start_time, const string &end_time);
+        std::vector<Json::Value> getSchedules(const std::string &camera_id);
+        bool deleteStreamSchedule(StreamRecorder *recorder, const std::string &streamId,
+                                  const std::string &start_time, const std::string &end_time);
     };
 
     inline StreamRecorder *GET_RECORDER()

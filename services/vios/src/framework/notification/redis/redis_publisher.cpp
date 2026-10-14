@@ -24,7 +24,7 @@
 #include "logger.h"
 #include "utils.h"
 
-#define REDIS_CONFIG_FILE "./cfg_redis.txt"
+constexpr char REDIS_CONFIG_FILE[] = "./cfg_redis.txt";
 
 using namespace std;
 
@@ -155,7 +155,7 @@ NvRedis::~NvRedis()
 void NvRedis::redis_init()
 {
     string payload_key;
-    char redis_config_file[] = REDIS_CONFIG_FILE;
+    string redis_config_file = REDIS_CONFIG_FILE;
     m_topic_vms_event = GET_CONFIG().message_broker_topic;
     m_redisEndpoint = getRedisServerEndpoint();
 
@@ -178,7 +178,7 @@ void NvRedis::redis_init()
 
     LOG(info) << "Radis server address:port= " << m_redisEndpoint << endl;
     m_conn_handle = nvds_msgapi_connect(m_redisEndpoint.data(),
-                                        nullptr, redis_config_file);
+                                        nullptr, redis_config_file.data());
     if (!m_conn_handle)
     {
         LOG(error) << "Redis Connect failed. Exiting" << endl;

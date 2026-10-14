@@ -451,7 +451,7 @@ Refer to the [Kibana documentation](https://www.elastic.co/guide/en/kibana/curre
 
 ### 3. **Search Tab**
 
-Search Tab provides a semantic video search interface that allows users to find relevant video clips using natural language queries or metadata filters powered by AI-based similarity matching.
+Search Tab displays the video clips returned by natural language queries in the Chat Sidebar, matched by AI-based similarity, and narrows them with metadata filters.
 
 ![VSS Reference User Interface - Search Tab Overview](/assets/images/vss-ui/search-mode/search-main.png)
 
@@ -459,9 +459,9 @@ Search Tab provides a semantic video search interface that allows users to find 
 
 **Key Features:**
 
-* Natural language video search
-* Manual filtering mode with advanced filter options
-* Configurable result count (Top K) for performance optimization
+* Natural language video search through the Chat Sidebar
+* Advanced filter options over the returned results
+* Configurable display limit (Top K) for returned results
 * Advanced filtering: datetime range, sensors, description, similarity threshold
 * Local timezone handling for accurate time display
 * Auto-refresh when switching between tabs
@@ -475,7 +475,7 @@ Search Tab provides a semantic video search interface that allows users to find 
 
 This guide covers the primary interface components:
 
-1. **Search Controls** - Search input, source type, and filter button
+1. **Search Controls** - Source type and filter button
 2. **Filter Options** - Advanced filtering popover with date range, sensors, description, similarity threshold, and result count
 3. **Filter Tags** - Visual display of active filters with quick remove functionality
 4. **Video Results** - Responsive grid of video cards with thumbnails, time ranges, and metadata
@@ -483,25 +483,6 @@ This guide covers the primary interface components:
 6. **Search by Image** - Object-based visual search from paused video frames across all streams
 
 #### Search Controls
-
-##### Search Input
-
-![VSS Reference User Interface - Search Tab - Search Input](/assets/images/vss-ui/search-mode/search-input.png)
-
-The search input field is required and supports natural language queries. Type your query in the search box and click the "Search" button to execute.
-
-**Examples:**
-
-* "Find videos with people walking"
-* "Show me clips with a person in green jacket carrying boxes"
-* "Search for vehicle activity near entrance"
-
-**Input Behavior:**
-
-* The search field displays an error highlight (red border) if you attempt to search with an empty query
-* The error clears automatically when you start typing
-* Search is triggered only by clicking the "Search" button or pressing Enter
-* Clicking the Close icon (X) to clear the search input and resets the search
 
 ##### Source Type
 
@@ -644,13 +625,13 @@ The Search Tab includes the [Global Chat Sidebar](/vss/system-components/user-in
 
 **Toggle:**
 
-* Click the vertical **"Chat"** tab on the right edge to open or close the sidebar
+* Click the round **Chat** button at the bottom right to open the sidebar, and the chevron button (**Collapse Chat sidebar**) on its left edge to close it
 * The sidebar is resizable by dragging its left edge (between 1/3 and 2/3 of the content area width)
 * Default width: 380px
 
 **Interaction Modes:**
 
-When the Chat Sidebar is **open**, the behavior is similar to when it is **collapsed** while an agent query is executing: the search controls (search input, source type, filters, and filter tags) are disabled in both cases. In the open state, users interact with the agent through the Chat Sidebar, and the agent's responses can automatically populate the search results grid. This allows conversational search — ask the agent a question and see matching video results appear in the main search area.
+When the Chat Sidebar is **open**, the behavior is similar to when it is **collapsed** while an agent query is executing: the search controls (source type, filters, and filter tags) are disabled in both cases. In the open state, users interact with the agent through the Chat Sidebar, and the agent's responses can automatically populate the search results grid. This allows conversational search — ask the agent a question and see matching video results appear in the main search area.
 
 <Accordion title="Example">
 Type a natural-language query in the Chat Sidebar and the agent will run a search and fill the results grid. For example, ask *"person with yellow hat carrying boxes"*; the agent interprets the query, runs the search, and matching video clips appear in the main area. The screenshot below illustrates this flow: the query in the chat and the corresponding search results (e.g. thumbnails and clips) shown in the grid.
@@ -663,7 +644,7 @@ When the Chat Sidebar is **collapsed**, the search controls are re-enabled and u
 
 **Unseen response indicator:**
 
-When a response to a query is unseen and the Chat Sidebar was closed, the vertical **"Chat"** tab on the right edge shows an orange border once the new response is generated to indicate unseen content. You can clear the indicator (mark as seen) in either of these ways:
+When a response to a query is unseen and the Chat Sidebar was closed, the round **Chat** button at the bottom right turns orange and pulses once the new response is generated to indicate unseen content. You can clear the indicator (mark as seen) in either of these ways:
 
 * Open the Chat Sidebar — viewing the content marks it as seen and removes the orange border.
 * Click the **cancel** button on the orange border — marks the new content as seen and removes the indicator without opening the sidebar.
@@ -987,7 +968,6 @@ No known issues.
 
 ### Search Tab
 
-* The “Show top K Results” value should be kept below 100 for optimal search performance. Setting a higher value may result in slow responses or no results being returned.
 * When a live RTSP stream is removed directly from NVStreamer, the VSS Search UI may still display the stream as active.
 
 ### Video Management Tab

@@ -1,13 +1,18 @@
 ######################################################################################################
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-NvidiaProprietary
+# SPDX-License-Identifier: Apache-2.0
 #
-# NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
-# property and proprietary rights in and to this material, related
-# documentation and any modifications thereto. Any use, reproduction,
-# disclosure or distribution of this material and related documentation
-# without an express license agreement from NVIDIA CORPORATION or
-# its affiliates is strictly prohibited.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 ######################################################################################################
 
 # isort: skip_file
@@ -924,6 +929,44 @@ def test_add_failure_after_stable_window_reports_capacity_boundary(tmp_path):
     assert "RTSP add failure" in result["stream_add_failure"]
 
 
+def test_max_live_records_fixed_load_plateau_before_next_add(monkeypatch, tmp_path):
+    class PlateauTracker(_PhaseOneLatencyTracker):
+        def get_all_latencies(self):
+            return {"stream-1": [1.0, 2.0]}
+
+    clock = _AdvancingTime()
+    monkeypatch.setattr(live_streams_benchmark_module, "time", clock)
+    benchmark = _AddFailureAfterStableBenchmark(PlateauTracker([True]), tmp_path)
+    result = benchmark._execute_live_streams_test_case(
+        test_case_id="fixed_load_plateau",
+        video_config={
+            "name": "fixed_load_plateau",
+            "rtsp_url": "rtsp://example.test/live",
+            "chunk_sizes": [10],
+            "latency_threshold_seconds": 10,
+            "initial_stream_count": 1,
+            "add_stream_count": 1,
+            "fail_add_after_stream": 1,
+            "stability_check_interval": 1,
+            "required_stable_windows": 1,
+            "required_unstable_windows": 2,
+            "latency_plateau_counts": [1, 2],
+            "latency_plateau_duration_seconds": 2,
+            "binary_search_refinement": False,
+        },
+        chunk_size=10,
+        benchmark_config={"backend_type": "rtvi_vlm", "api_params": {}},
+        model_name="test-model",
+        scenario_dir=str(tmp_path),
+    )
+
+    assert result["latency_plateaus"][0]["stream_count"] == 1
+    assert result["latency_plateaus"][0]["duration_seconds"] >= 2
+    assert result["latency_plateaus"][0]["valid"] is True
+    assert result["unreached_latency_plateau_counts"] == [2]
+    assert result["fixed_load_latency_complete"] is False
+
+
 def test_max_live_blocking_delete_precedes_shared_monitor_wait(monkeypatch, tmp_path):
     tracker = _PhaseOneLatencyTracker([False])
     benchmark = _PhaseOneOnlyLiveStreamsBenchmark(tracker, tmp_path)
@@ -1352,6 +1395,17 @@ def test_live_stream_latency_can_use_processing_latency_for_diagnostics():
 
     assert latency == 1.25
     assert source == "processing_latency_s"
+
+
+def test_fixed_load_ntp_latency_does_not_fall_back_to_processing():
+    benchmark = LiveStreamsBenchmark("http://localhost:0", output_base_dir="/tmp")
+    result = {"chunk_responses": [{"processing_latency_s": 1.25}]}
+    assert benchmark._extract_live_stream_latency_seconds(result) == (
+        1.25, "processing_latency_s"
+    )
+    assert benchmark._extract_live_stream_latency_seconds(
+        result, strict_source=True
+    )[0] is None
 
 
 def test_live_stream_latency_uses_chunk_latency_when_processing_latency_missing():

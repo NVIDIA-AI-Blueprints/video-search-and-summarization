@@ -36,7 +36,7 @@ class WebServer
     private:
         std::shared_ptr<CivetServer> m_civetServer = nullptr;
         std::shared_ptr<WebsocketServerRequestHandler> m_websocket = nullptr;
-        unique_ptr<HttpServerRequestHandler> m_httpServerHandler = nullptr;
+        std::unique_ptr<HttpServerRequestHandler> m_httpServerHandler = nullptr;
 #ifdef LIVE_STREAM_MODULE
         std::unique_ptr<DashHttpHandler> m_dashHttpHandler = nullptr;
 #endif

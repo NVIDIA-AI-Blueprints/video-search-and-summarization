@@ -42,7 +42,7 @@ class RTSPVideoCapturer : public LiveVideoSource<RTSPConnection>
 		
 		void getDecoderStats(LatencyStats& stats);
 
-		VmsErrorCode controlStreamCapturer(const std::string&, const std::string&);
+		nv_vms::VmsErrorCode controlStreamCapturer(const std::string&, const std::string&);
 
 		void startPlayback();
 

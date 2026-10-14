@@ -38,6 +38,9 @@
 #include "macros.h"
 #include "logger.h"
 
+using namespace std;
+using namespace nv_vms;
+
 
 constexpr int CAMERA_REMOVE_VALIDATE_TIMEOUT = 5; // 5 secs
 constexpr int PROBE_PORT = 3702;

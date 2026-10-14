@@ -1,0 +1,23 @@
+{
+  "skills": [
+    "profile-vllm-performance"
+  ],
+  "resources": {
+    "platforms": {
+      "ANY": {
+        "gpu_count": 0
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "At fixed concurrency, requests remain queued while the multimodal trace runs one vision encoder invocation at a time with visual batch size one. Decode batches are healthy. Diagnose the dominant bubble and propose the first experiment.",
+      "checks": [
+        "The response uses the queued eligible work and visual batch-size evidence to identify serialized vision as the dominant candidate.",
+        "The response rules out decode underbatching using the supplied healthy decode evidence.",
+        "The response proposes a matched experiment that enables an existing batched preprocessing or vision-encoding path using the same fixed visual shapes and request set.",
+        "The proposed A/B comparison requires output parity and multimodal token-position parity."
+      ]
+    }
+  ]
+}

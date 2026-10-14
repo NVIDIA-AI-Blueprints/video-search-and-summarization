@@ -1,9 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Common container image tag propagation for Skills-based deployments."""
+"""Resolved Compose contracts for container image tags and Alerts UI modes."""
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -18,6 +19,9 @@ REPOSITORY = SKILLS_ROOT.parent
 BUILD_SKILL = SKILLS_ROOT / "vss-build-vision-ai"
 SCRIPTS = BUILD_SKILL / "scripts"
 BASE_PROFILE = REPOSITORY / "deploy/docker/developer-profiles/dev-profile-base"
+ALERTS_PROFILE = REPOSITORY / "deploy/docker/developer-profiles/dev-profile-alerts"
+CV_FLAG = "NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION"
+REALTIME_FLAG = "NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS"
 DEFAULT_TAG = "develop-latest"
 RELEASE_TAG = "3.4.0-test"
 # One service per tag shape containers.env produces: the agent UI reads
@@ -27,7 +31,12 @@ PROBE_PROFILES = ("vss-ui", "vss-video-analytics-api", "rtvi-vlm")
 PROBE_IMAGES = ("vss-agent-ui", "vss-video-analytics-api", "vss-rt-vlm")
 
 sys.path.insert(0, str(SCRIPTS))
-from validate_resolved_yml import MANAGED_IMAGE_NAMES, container_tag_errors
+from validate_resolved_yml import (
+    MANAGED_IMAGE_NAMES,
+    alerts_ui_errors,
+    container_tag_errors,
+    validate_document,
+)
 
 
 def _docker_compose_available() -> bool:
@@ -282,3 +291,109 @@ def test_every_resolve_block_exports_the_selected_tag() -> None:
             reference
         )
         assert '"${tag_args[@]}"' in text, reference
+
+
+@pytest.mark.parametrize("value", ["true", True, "FALSE", "False", "0", "", None])
+def test_validator_rejects_cv_editor_on_always_on_alerts(value, tmp_path):
+    ui_env = {} if value is None else {CV_FLAG: value}
+    document = {
+        "services": {
+            "alert-bridge": {"environment": {"ALERT_AGENT_ALWAYS_ON": "true"}},
+            "vss-ui": {"environment": ui_env},
+        }
+    }
+    assert any(CV_FLAG in error for error in validate_document(document, tmp_path))
+
+
+@pytest.mark.parametrize(
+    "ui_env", [{CV_FLAG: "false"}, {CV_FLAG: False}, [f"{CV_FLAG}=false"]]
+)
+def test_validator_accepts_hidden_cv_editor(ui_env):
+    document = {
+        "services": {
+            "alert-bridge": {"environment": ["ALERT_AGENT_ALWAYS_ON=true"]},
+            "vss-ui": {"environment": ui_env},
+        }
+    }
+    assert alerts_ui_errors(document) == []
+
+
+@pytest.mark.parametrize("bridge_env", [{"ALERT_AGENT_ALWAYS_ON": "false"}, {}])
+def test_verification_mode_and_other_profiles_keep_cv_editor(bridge_env):
+    document = {
+        "services": {
+            "alert-bridge": {"environment": bridge_env},
+            "vss-ui": {"environment": {CV_FLAG: "true"}},
+        }
+    }
+    assert alerts_ui_errors(document) == []
+
+
+@pytest.mark.parametrize("services", [{}, {"alert-bridge": {}}, {"vss-ui": {}}])
+def test_headless_and_non_alerts_builds_are_unaffected(services):
+    assert alerts_ui_errors({"services": services}) == []
+
+
+def _compose_config(override: Path) -> dict:
+    command = ["docker", "compose"]
+    for env_file in (
+        REPOSITORY / "deploy/docker/containers.env",
+        ALERTS_PROFILE / ".env",
+        ALERTS_PROFILE / "overrides.env",
+        override,
+    ):
+        command.extend(["--env-file", str(env_file)])
+    command.extend(
+        [
+            "-f",
+            str(REPOSITORY / "deploy/docker/compose.yml"),
+            "config",
+            "--no-consistency",
+            "--format",
+            "json",
+        ]
+    )
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+@requires_docker_compose
+@pytest.mark.parametrize("mode,expected_cv", [("2d_vlm", "false"), ("2d_cv", "true")])
+def test_compose_flags_match_standard_alerts_launcher(tmp_path, mode, expected_cv):
+    override = tmp_path / "override.env"
+    override.write_text(
+        f"MODE={mode}\nCOMPOSE_PROFILES=vss-ui,alert-bridge,rtvi-vlm\n"
+        f"VSS_APPS_DIR={REPOSITORY / 'deploy/docker'}\n"
+        f"ALERT_AGENT_ALWAYS_ON={'true' if mode == '2d_vlm' else 'false'}\n"
+    )
+    # Reproduce the omission with the real Compose env layers before applying
+    # the launcher's mode-specific settings. MODE alone leaves the CV editor on.
+    omitted = _compose_config(override)
+    assert omitted["services"]["vss-ui"]["environment"][CV_FLAG] == "true"
+    assert bool(alerts_ui_errors(omitted)) == (mode == "2d_vlm")
+
+    # Run the checked-in helper, without running the launcher's deployment main.
+    launcher = (REPOSITORY / "deploy/docker/scripts/dev-profile.sh").read_text()
+    helper = launcher[launcher.index("function set_alerts_ui_rule_kinds_from_mode()") :]
+    helper = helper[: helper.index("\n}\n") + 3]
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'get_env_value() { sed -n "s/^${2}=//p" "$1"; }\n'
+            + helper
+            + '\nset_alerts_ui_rule_kinds_from_mode "$1"',
+            "alerts-ui-test",
+            str(override),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    configured = _compose_config(override)
+    ui_env = configured["services"]["vss-ui"]["environment"]
+    assert ui_env[REALTIME_FLAG] == "true"
+    assert ui_env[CV_FLAG] == expected_cv
+    assert alerts_ui_errors(configured) == []

@@ -20,6 +20,8 @@
 #include <algorithm>
 #include <database.h>
 
+using namespace std;
+
 constexpr int SEC_TO_MICRO_SEC = 1000 * 1000;
 constexpr int MAX_EVENT_RECORDING_SECS = 60;
 constexpr int MAX_RECORDING_BUFFER_SECS = 10;

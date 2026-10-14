@@ -39,7 +39,6 @@
 #include "TempFileScheduler.h"
 #include <optional>
 
-using namespace std;
 
 inline constexpr const char* CONTAINER_FORMAT_QUICKTIME = "Quicktime";
 inline constexpr const char* CONTAINER_FORMAT_MATROSKA = "Matroska";
@@ -60,14 +59,14 @@ namespace nv_vms
             IVstModule* createStorageManagementObject();
             void deleteStorageManagementObject( IVstModule* object );
 
-            StorageManagement(const string deviceType, const string deviceId, std::shared_ptr<DeviceManager> deviceMngr);
-            string getDeviceTypeName() { return m_sensorType; }
+            StorageManagement(const std::string deviceType, const std::string deviceId, std::shared_ptr<DeviceManager> deviceMngr);
+            std::string getDeviceTypeName() { return m_sensorType; }
 
-            int deleteFilesByTime(const string stream_id, const int64_t startTime, const int64_t endTime, uint32_t &spaceSaved);
-            int getCurrentUsedStorageSize(unordered_map<string, string> &cameraIdStatusMap, double &gbPerDay, const std::vector<string>& streamList, const string requiredTimelines, Json::Value &response);
+            int deleteFilesByTime(const std::string stream_id, const int64_t startTime, const int64_t endTime, uint32_t &spaceSaved);
+            int getCurrentUsedStorageSize(std::unordered_map<std::string, std::string> &cameraIdStatusMap, double &gbPerDay, const std::vector<std::string>& streamList, const std::string requiredTimelines, Json::Value &response);
             void StorageMonitorTask();
             int deleteOldMediaFiles(uint64_t &deletionSize);
-            void addFileInProtectList(string &filePath, bool remove);
+            void addFileInProtectList(std::string &filePath, bool remove);
             // Remove the temp_files entry (symlink) associated with the
             // given source recording, so the link produced by the
             // /url?fullFile=true fast path is not left dangling when the
@@ -75,18 +74,18 @@ namespace nv_vms
             // aging job). Independently muxed/transcoded clips that share
             // the same time window are intentionally left in place.
             void deleteTempLinksForGivenFile(const VideoRecordDBColumns& row);
-            void addFilesInProtectList(std::vector<string>& filePaths, bool protect);
-            bool isFileProtected(const string& file_path);
+            void addFilesInProtectList(std::vector<std::string>& filePaths, bool protect);
+            bool isFileProtected(const std::string& file_path);
             void updateStorageSize(uint64_t frameSize, bool flag);
-            uint64_t deleteMediaFile(const string file_name);
+            uint64_t deleteMediaFile(const std::string file_name);
             void sendCurrentUsedStorageSizeToPrometheus();
             uint64_t getCurrentUsedStorageSize();
             void checkandCreateFreeSpaceInStorage(size_t newDataSize);
             bool checkStorageCapacity(size_t requiredCapacity);
             VmsErrorCode getStorageConfiguration(const Json::Value &, Json::Value &response);
-            VmsErrorCode getVersion(string& version);
+            VmsErrorCode getVersion(std::string& version);
             VmsErrorCode getFileMetadata(const Json::Value &req_info, Json::Value &response);
-            VmsErrorCode handleMediaFileDownload(const string &filePath, struct mg_connection *conn);
+            VmsErrorCode handleMediaFileDownload(const std::string &filePath, struct mg_connection *conn);
             VmsErrorCode handleMediaURLRequest(const Json::Value& req_info, Json::Value &response, struct mg_connection *conn);
             VmsErrorCode handleActiveTaskRequest(VideoGeneratorTaskManager* taskManager, const std::string& taskId,
                                                  const std::string& filename, bool isStreamable,
@@ -104,15 +103,15 @@ namespace nv_vms
             std::string extractTaskId(const std::string& filename);
             const std::string& getDeviceId() const { return m_deviceId; }
             TempFileScheduler& getImageCleanupScheduler() { return *m_imageCleanupScheduler; }
-            VmsErrorCode processUploadMetadata(const Json::Value& metadata, const string& filePath, Json::Value& response);
+            VmsErrorCode processUploadMetadata(const Json::Value& metadata, const std::string& filePath, Json::Value& response);
             VmsErrorCode getUsedStorageSize(const Json::Value& req_info, Json::Value &response);
             VmsErrorCode deleteFilesByTime(const Json::Value& req_info, Json::Value &response);
-            VmsErrorCode getSpecificStreamRecordSize(const string& stream_id, Json::Value& stream_record_size);
+            VmsErrorCode getSpecificStreamRecordSize(const std::string& stream_id, Json::Value& stream_record_size);
             VmsErrorCode addOrRemoveFileInProtectList(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
             VmsErrorCode deleteFilesByNames(const Json::Value& req_info, Json::Value &response);
             VmsErrorCode getStorageInfo(const Json::Value& req_info, Json::Value &response);
             VmsErrorCode getProtectedFiles(const Json::Value& req_info, Json::Value &response);
-            void getInvalidFilesIfAny(vector<string> fileList, vector<string>& invalidFileList);
+            void getInvalidFilesIfAny(std::vector<std::string> fileList, std::vector<std::string>& invalidFileList);
             VmsErrorCode doAging(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
             VmsErrorCode updateStorageSize(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
             void storageManagementApis();
@@ -121,12 +120,12 @@ namespace nv_vms
             VmsErrorCode importFileFromCloud(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
             VmsErrorCode listCloudFiles(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
             VmsErrorCode listLocalFiles(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
-            VmsErrorCode getFilePath(const string &streamId, const int64_t startTime, const int64_t endTime, Json::Value &response, bool get_metadata);
-            VmsErrorCode getFilePathSensorIdBased(const string &sensorId, const int64_t startTime, const int64_t endTime, Json::Value &response, bool get_metadata);
-            VmsErrorCode getFilePathIdBased(const string &id, Json::Value &response, bool get_metadata);
-            VmsErrorCode getFileListSensorIdBased(const string &sensorId, const int offset, const int limit, Json::Value &response);
-            VmsErrorCode getRecordTimelines(const string streamId, const string startTime,
-                                    const string endTime, Json::Value &response);
+            VmsErrorCode getFilePath(const std::string &streamId, const int64_t startTime, const int64_t endTime, Json::Value &response, bool get_metadata);
+            VmsErrorCode getFilePathSensorIdBased(const std::string &sensorId, const int64_t startTime, const int64_t endTime, Json::Value &response, bool get_metadata);
+            VmsErrorCode getFilePathIdBased(const std::string &id, Json::Value &response, bool get_metadata);
+            VmsErrorCode getFileListSensorIdBased(const std::string &sensorId, const int offset, const int limit, Json::Value &response);
+            VmsErrorCode getRecordTimelines(const std::string streamId, const std::string startTime,
+                                    const std::string endTime, Json::Value &response);
             VmsErrorCode GetAllRecordTimelines(const Json::Value& req_info, Json::Value &out);
             int deleteSensorDetails(VideoRecordDBColumns& row);
 
@@ -153,10 +152,10 @@ namespace nv_vms
 
                 if (m_cloudScanThread.joinable())
                 {
-                    LOG(info) << "Stopping cloud storage scanning thread..." << endl;
+                    LOG(info) << "Stopping cloud storage scanning thread..." << std::endl;
                     m_cloudScanShouldStop.store(true);
                     m_cloudScanThread.join();
-                    LOG(info) << "Cloud storage scanning thread stopped" << endl;
+                    LOG(info) << "Cloud storage scanning thread stopped" << std::endl;
                 }
 
                 m_storage.reset();
@@ -189,28 +188,28 @@ namespace nv_vms
             std::atomic<bool> m_cloudScanInProgress{false};
             std::atomic<bool> m_cloudScanShouldStop{false};
 
-            int getStreamRecordSize(const string stream_id, size_t &videoSize);
+            int getStreamRecordSize(const std::string stream_id, size_t &videoSize);
             void initialiseUsedStorageSize();
-            bool isReceivedFilesInvalid(vector<string> fileList);
-            unordered_set<string> getProtectedFilesList();
-            VmsErrorCode downloadFileFromCloud(const string& bucketName, const string& objectKey,
-                                           const string& localFilePath, const string& region,
-                                           const string& accessKeyId, const string& secretAccessKey);
-            VmsErrorCode listCloudObjects(const string& bucketName, const string& prefix,
-                                      const string& region, const string& accessKeyId,
-                                      const string& secretAccessKey, Json::Value& response);
-            VmsErrorCode parseS3XMLResponse(const string& xmlContent, const string& bucketName,
-                                           const string& prefix, Json::Value& response);
+            bool isReceivedFilesInvalid(std::vector<std::string> fileList);
+            std::unordered_set<std::string> getProtectedFilesList();
+            VmsErrorCode downloadFileFromCloud(const std::string& bucketName, const std::string& objectKey,
+                                           const std::string& localFilePath, const std::string& region,
+                                           const std::string& accessKeyId, const std::string& secretAccessKey);
+            VmsErrorCode listCloudObjects(const std::string& bucketName, const std::string& prefix,
+                                      const std::string& region, const std::string& accessKeyId,
+                                      const std::string& secretAccessKey, Json::Value& response);
+            VmsErrorCode parseS3XMLResponse(const std::string& xmlContent, const std::string& bucketName,
+                                           const std::string& prefix, Json::Value& response);
 
             // Unified storage initialization and management
             bool initUnifiedStorageReader();
             bool initUnifiedStorageManager();
-            DeleteResult  deleteFileWithStatus(const string& filePath, const string& objectId = "", bool isCloudFile = false);
+            DeleteResult  deleteFileWithStatus(const std::string& filePath, const std::string& objectId = "", bool isCloudFile = false);
             bool isCloudStorageEnabled() const;
-            bool isFileExist(const string& filePath, string objectId = "");
+            bool isFileExist(const std::string& filePath, std::string objectId = "");
 
             // Video download and URL generation functions
-            VmsErrorCode HandleFileDownload(const string& queryString, const string& streamId, Json::Value& response,
+            VmsErrorCode HandleFileDownload(const std::string& queryString, const std::string& streamId, Json::Value& response,
                                            struct mg_connection* conn, bool isURLRequested = false);
             VmsErrorCode generateReplayVideoUrlAsync(const VideoGenerationParam& params, Json::Value& response);
             VmsErrorCode generateReplayVideoUrlSync(const VideoGenerationParam& params, Json::Value& response);
@@ -218,18 +217,18 @@ namespace nv_vms
             // Helper methods for video URL generation
             struct VideoUrlGenerationContext {
                 int expiryMinutesInt;
-                string baseUrl;
-                shared_ptr<SensorInfo> sensor;
-                string taskId;
-                string extension;
-                string webRoot;
-                string outputFilePath;
-                string videoUrl;
+                std::string baseUrl;
+                std::shared_ptr<SensorInfo> sensor;
+                std::string taskId;
+                std::string extension;
+                std::string webRoot;
+                std::string outputFilePath;
+                std::string videoUrl;
             };
             VmsErrorCode setupVideoUrlGenerationContext(const VideoGenerationParam& params, VideoUrlGenerationContext& context, Json::Value& response);
             bool tryReuseCachedTempFile(const VideoGenerationParam& params, VideoUrlGenerationContext& context, Json::Value& response);
             VmsErrorCode recordTempFileInDatabase(const VideoUrlGenerationContext& context, const VideoGenerationParam& params,
-                                                 const string& actualFilePath, int64_t fileSize = 0);
+                                                 const std::string& actualFilePath, int64_t fileSize = 0);
             void buildVideoUrlResponse(const VideoUrlGenerationContext& context, const VideoGenerationParam& params, Json::Value& response);
 
             // Build a stable SHA-256 of the caller-supplied options that affect

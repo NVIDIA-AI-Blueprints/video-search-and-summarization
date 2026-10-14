@@ -24,7 +24,7 @@ Before you begin, ensure all of the prerequisites are met:
 * A Kubernetes cluster that you can reach with `kubectl`.
 * The [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html), installed on the cluster so pods can request `nvidia.com/gpu`.
 * A StorageClass available for PVC provisioning. The charts create persistent volumes for VST, Elasticsearch, and related storage.
-* Helm 3.x and kubectl, installed on the machine you will deploy from.
+* Helm 3.7+ and kubectl, installed on the machine you will deploy from.
 * An NGC API key, used for the image pull secret and the NGC model and app-data download job.
 * A TURN server, required for WebRTC playback in the VST/VIOS web UI whenever the browser is not on the same network as the cluster.
 

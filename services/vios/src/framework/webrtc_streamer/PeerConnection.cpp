@@ -50,6 +50,7 @@
 #include "utils.h"
 
 using namespace vst_webrtc;
+using namespace nv_vms;
 
 constexpr int START_WEBRTC_TIMEOUT = 5000;
 constexpr const char* DATA_CHANNEL_LABEL = "VST_CLIENT";

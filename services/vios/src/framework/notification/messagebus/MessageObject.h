@@ -20,13 +20,12 @@
 #include "syncobject.h"
 #include <jsoncpp/json/json.h>
 
-using namespace std;
 
 struct MessageObject
 {
     SyncObject m_sync;
     Json::Value m_response;
-    string m_responseId;
+    std::string m_responseId;
     std::chrono::system_clock::time_point m_timestamp;
     bool m_isResponseReceived; 
 

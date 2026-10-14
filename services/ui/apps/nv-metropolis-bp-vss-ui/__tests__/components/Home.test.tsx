@@ -13,13 +13,23 @@ jest.mock("next/dynamic", () => ({
     if (source.includes("ChatPanel")) {
       return ({
         onAnswer,
+        onAuthFailure,
+        onAnswerComplete,
         endpoint,
         features,
       }: {
         onAnswer?: (answer: string, conversationId: string) => void;
+        onAuthFailure?: () => void;
+        onAnswerComplete?: () => void;
         endpoint?: { surface?: string; headers?: Record<string, string> };
         features?: { hitl?: boolean };
       }) => (
+        <>
+        {onAuthFailure ? (
+          <button type="button" onClick={onAuthFailure}>
+            Reject {endpoint?.surface} token
+          </button>
+        ) : null}
         <button
           type="button"
           data-testid={
@@ -35,7 +45,20 @@ jest.mock("next/dynamic", () => ({
         >
           Deliver search artifact
         </button>
+        <button data-testid={endpoint?.surface === "vss-ui-sidebar" ? "complete-sidebar" : "complete-main-chat"}
+          onClick={() => onAnswerComplete?.()}>Complete empty answer</button>
+        </>
       );
+    }
+
+    if (source.includes("AlertsComponent")) {
+      return ({ registerSidebarChatEventSubscriber }: any) => {
+        const [completions, setCompletions] = React.useState(0);
+        React.useEffect(() => registerSidebarChatEventSubscriber((event: any) => {
+          if (event.type === 'answerComplete') setCompletions((count) => count + 1);
+        }), [registerSidebarChatEventSubscriber]);
+        return <div data-testid="alerts-completions">{completions}</div>;
+      };
     }
 
     if (source.includes("SearchComponent")) {
@@ -136,6 +159,15 @@ describe("Home tab lifecycle", () => {
   afterEach(() => {
     for (const variable of featureVariables) delete process.env[variable];
     global.fetch = originalFetch;
+  });
+
+  it('notifies Alerts when full-page Chat completes without answer content', () => {
+    process.env.NEXT_PUBLIC_ENABLE_ALERTS_TAB = 'true';
+    render(<Home />);
+    fireEvent.click(screen.getByTestId('sidebar-tab-alerts'));
+    fireEvent.click(screen.getByTestId('sidebar-tab-chat'));
+    fireEvent.click(screen.getByTestId('complete-main-chat'));
+    expect(screen.getByTestId('alerts-completions')).toHaveTextContent('1');
   });
 
   it("retains an agent search artifact when leaving the full-page Chat tab", () => {
@@ -259,5 +291,22 @@ describe("Home tab lifecycle", () => {
     });
     expect(screen.getByTestId('deliver-search-artifact')).toBeInTheDocument();
     expect(screen.getByText('NemoClaw gateway unavailable')).toBeInTheDocument();
+  });
+
+  it('asks for the token again when chat reports it rejected', async () => {
+    process.env.NEXT_PUBLIC_AGENT_ADAPTER_ENABLED = 'true';
+    sessionStorage.setItem('vss-nemoclaw-gateway-token', 'revoked-token');
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ state: 'connected' }) }) as unknown as typeof fetch;
+
+    render(<Home />);
+    expect(await screen.findByTestId('deliver-search-artifact')).toHaveAttribute('data-gateway-token', 'revoked-token');
+    fireEvent.click(screen.getByRole('button', { name: 'Reject vss-ui-main token' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('The gateway rejected the connection');
+    expect(screen.getByLabelText('Gateway token')).toBeInTheDocument();
+    expect(screen.queryByTestId('deliver-search-artifact')).not.toBeInTheDocument();
+    expect(sessionStorage.getItem('vss-nemoclaw-gateway-token')).toBeNull();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });

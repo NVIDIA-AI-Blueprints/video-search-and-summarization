@@ -33,7 +33,6 @@
 #define GET_WEBSOCKET_INSTANCE Websocket::getInstance
 inline constexpr std::chrono::seconds WS_SERVER_WATCH_DOG_INTERVAL{10};
 
-using namespace nv_vms;
 
 struct WebsocketData
 {
@@ -49,7 +48,7 @@ class Websocket
         {
             if (m_instance == nullptr)
             {
-                LOG(info) << "Websocket Instance Created" << endl;
+                LOG(info) << "Websocket Instance Created" << std::endl;
                 m_instance = std::shared_ptr<Websocket>(new Websocket());
             }
             return m_instance;
@@ -59,7 +58,7 @@ class Websocket
         {
             if (m_instance != nullptr)
             {
-                LOG(info) << "Websocket Instance Deleted" << endl;
+                LOG(info) << "Websocket Instance Deleted" << std::endl;
                 m_instance.reset();
             }
         }
@@ -70,7 +69,7 @@ class Websocket
         bool sendMessage(struct mg_connection *conn, std::string msg, int op_code);
         bool sendMessage(std::string peerId, std::string msg, int op_code, std::shared_ptr<MessageObject> wsResponseInfo);
         bool sendMessage(struct mg_connection *conn, std::string msg, int op_code, std::shared_ptr<MessageObject> wsResponseInfo);
-        void fillResponseAndNotify(Json::Value &response, string requestId);
+        void fillResponseAndNotify(Json::Value &response, std::string requestId);
         bool broadcastMessage(std::string msg);
         bool checkUniqueId(std::string id);
         void checkPendingRequests();
@@ -80,21 +79,21 @@ class Websocket
 
         ~Websocket()
         {
-            LOG(info) << "Exiting from websocket" << endl;
+            LOG(info) << "Exiting from websocket" << std::endl;
             m_isExiting = true;
             m_watchdog.reset();
             {
-                LOG(info) << "Clearing websocket connections" << endl;
+                LOG(info) << "Clearing websocket connections" << std::endl;
                 std::lock_guard<std::mutex> lock(m_connectionsMutex);
                 m_connections.clear();
             }
-            LOG(info) << "Websocket connections cleared" << endl;
+            LOG(info) << "Websocket connections cleared" << std::endl;
         }
 
     private:
         Websocket()
         {
-            m_watchdog = make_unique<Bosma::Scheduler>(1);
+            m_watchdog = std::make_unique<Bosma::Scheduler>(1);
             m_watchdog->interval(WS_SERVER_WATCH_DOG_INTERVAL, [this]()
                                   { checkPendingRequests(); });
         }

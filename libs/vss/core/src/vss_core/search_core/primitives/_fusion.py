@@ -119,7 +119,8 @@ def build_fusion_candidates(
     For each video: validate/coerce its attribute payload, sum the per-result
     attribute scores and normalise by ``attribute_count`` (guarded against a zero
     divisor), de-duplicate matched object ids, and select a screenshot url
-    (attribute screenshot preferred, embed result as fallback).
+    (highest-scoring available attribute screenshot preferred, embed result as
+    fallback).
     """
     candidates: list[FusionCandidate] = []
     for embed_result, attribute_results in pairs:
@@ -133,7 +134,11 @@ def build_fusion_candidates(
             if oid and oid not in object_ids:
                 object_ids.append(oid)
 
-        attribute_screenshot_url = _coerce_str(validated[0].screenshot_url) if validated else ""
+        screenshot_results = [result for result in validated if _coerce_str(result.screenshot_url)]
+        best_screenshot_result = max(screenshot_results, key=_attribute_score, default=None)
+        attribute_screenshot_url = (
+            _coerce_str(best_screenshot_result.screenshot_url) if best_screenshot_result is not None else ""
+        )
         normalised_attribute_score = sum(attribute_scores) / attribute_count if attribute_count > 0 else 0.0
         screenshot_url = attribute_screenshot_url or _coerce_str(embed_result.screenshot_url)
 

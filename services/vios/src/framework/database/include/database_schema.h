@@ -27,7 +27,6 @@
 #include "logger.h"
 #include "query_builder.h"
 
-using namespace std;
 
 #define APPEND_COLUMN(col, value, sql) \
     sql = sql + col + ",";
@@ -185,7 +184,7 @@ inline void buildWhereClause(std::string& queryTemplate, const std::string& colu
     if (safeColumn.empty())
     {
         // Return without adding WHERE clause for invalid column names
-        LOG(error) << "Invalid column name: " << column << endl;
+        LOG(error) << "Invalid column name: " << column << std::endl;
         return;
     }
     queryTemplate += " WHERE " + safeColumn + " = " + paramPlaceholderSmart(paramIndex);
@@ -198,7 +197,7 @@ inline void buildUpdateSet(std::string& queryTemplate, const std::string& column
     if (safeColumn.empty())
     {
         // Return without adding SET clause for invalid column names
-        LOG(error) << "Invalid column name: " << column << endl;
+        LOG(error) << "Invalid column name: " << column << std::endl;
         return;
     }
     queryTemplate += safeColumn + " = " + paramPlaceholderSmart(paramIndex);
@@ -246,17 +245,17 @@ namespace nv_vms
     class DBColumns
     {
     public:
-        inline static const string device_id = "DEVICE_ID";
-        inline static const string sensor_id = "SENSOR_ID";
-        inline static const string row_id = "ROW_ID";
-        inline static const string created_date_time = "CREATED_DATE_TIME";
-        inline static const string modified_date_time = "MODIFIED_DATE_TIME";
+        inline static const std::string device_id = "DEVICE_ID";
+        inline static const std::string sensor_id = "SENSOR_ID";
+        inline static const std::string row_id = "ROW_ID";
+        inline static const std::string created_date_time = "CREATED_DATE_TIME";
+        inline static const std::string modified_date_time = "MODIFIED_DATE_TIME";
 
-        string sensor_id_value;
-        string device_id_value;
-        string row_id_value;
-        string created_date_time_value;
-        string modified_date_time_value;
+        std::string sensor_id_value;
+        std::string device_id_value;
+        std::string row_id_value;
+        std::string created_date_time_value;
+        std::string modified_date_time_value;
 
         DBColumns() : sensor_id_value(""),
                       device_id_value(""),
@@ -264,11 +263,11 @@ namespace nv_vms
                       created_date_time_value(""),
                       modified_date_time_value("") {}
 
-        DBColumns(string &sensor_id,
-                  string &device_id,
-                  string &row_id,
-                  string &created_date_time,
-                  string &modified_date_time) : sensor_id_value(sensor_id),
+        DBColumns(std::string &sensor_id,
+                  std::string &device_id,
+                  std::string &row_id,
+                  std::string &created_date_time,
+                  std::string &modified_date_time) : sensor_id_value(sensor_id),
                                                 device_id_value(device_id),
                                                 row_id_value(row_id),
                                                 created_date_time_value(created_date_time),
@@ -278,58 +277,58 @@ namespace nv_vms
     class DbDetailsColumns : public DBColumns
     {
     public:
-        inline static const string table_name = "DB_DETAILS";
-        inline static const string db_version = "DB_VERSION";
+        inline static const std::string table_name = "DB_DETAILS";
+        inline static const std::string db_version = "DB_VERSION";
 
-        string db_version_value;
+        std::string db_version_value;
 
         DbDetailsColumns() : db_version_value("") {}
 
         void printInfo()
         {
-            LOG(info) << "\tdb_version_value: " << db_version_value << endl;
+            LOG(info) << "\tdb_version_value: " << db_version_value << std::endl;
         }
     };
 
     class LocalDeviceDetailsDBColumns : public DBColumns
     {
     public:
-        inline static const string table_name = "LOCAL_DEVICE_DETAILS";
-        inline static const string id = "ID";
-        inline static const string name = "NAME";
-        inline static const string location = "LOCATION";
+        inline static const std::string table_name = "LOCAL_DEVICE_DETAILS";
+        inline static const std::string id = "ID";
+        inline static const std::string name = "NAME";
+        inline static const std::string location = "LOCATION";
 
-        string id_value;
-        string name_value;
-        string location_value;
+        std::string id_value;
+        std::string name_value;
+        std::string location_value;
 
         LocalDeviceDetailsDBColumns() : id_value(""), name_value(""), location_value("") {}
 
-        explicit LocalDeviceDetailsDBColumns(string &id) : id_value(id), name_value(name), location_value(location) {}
+        explicit LocalDeviceDetailsDBColumns(std::string &id) : id_value(id), name_value(name), location_value(location) {}
 
         void printInfo()
         {
-            LOG(info) << "\tid_value: " << id_value << endl;
-            LOG(info) << "\tname_value: " << name_value << endl;
-            LOG(info) << "\tlocation_value: " << location_value << endl;
+            LOG(info) << "\tid_value: " << id_value << std::endl;
+            LOG(info) << "\tname_value: " << name_value << std::endl;
+            LOG(info) << "\tlocation_value: " << location_value << std::endl;
         }
     };
 
     class EventDBColumns : public DBColumns
     {
     public:
-        inline static const string table_name = "EVENTS";
-        inline static const string start_time = "START_TIME";
-        inline static const string end_time = "END_TIME";
-        inline static const string event_name = "EVENT_NAME";
-        inline static const string event_id = "EVENT_ID";
-        inline static const string video_path = "VIDEO_PATH";
+        inline static const std::string table_name = "EVENTS";
+        inline static const std::string start_time = "START_TIME";
+        inline static const std::string end_time = "END_TIME";
+        inline static const std::string event_name = "EVENT_NAME";
+        inline static const std::string event_id = "EVENT_ID";
+        inline static const std::string video_path = "VIDEO_PATH";
 
-        string start_time_value;
-        string end_time_value;
-        string event_name_value;
-        string event_id_value;
-        string video_path_value;
+        std::string start_time_value;
+        std::string end_time_value;
+        std::string event_name_value;
+        std::string event_id_value;
+        std::string video_path_value;
 
         EventDBColumns() : start_time_value(""),
                            end_time_value(""),
@@ -337,11 +336,11 @@ namespace nv_vms
                            event_id_value(""),
                            video_path_value("") {}
 
-        EventDBColumns(string &video_path,
-                       string &start_time,
-                       string &end_time,
-                       string &event_name,
-                       string &event_id) : start_time_value(start_time),
+        EventDBColumns(std::string &video_path,
+                       std::string &start_time,
+                       std::string &end_time,
+                       std::string &event_name,
+                       std::string &event_id) : start_time_value(start_time),
                                            end_time_value(end_time),
                                            event_name_value(event_name),
                                            event_id_value(event_id),
@@ -349,65 +348,65 @@ namespace nv_vms
 
         void printInfo()
         {
-            LOG(info) << "\tvideo_path_value: " << video_path_value << endl;
-            LOG(info) << "\tdevice_id_value: " << device_id_value << endl;
-            LOG(info) << "\tsensor_id_value: " << sensor_id_value << endl;
-            LOG(info) << "\tstart_time_value: " << start_time_value << endl;
-            LOG(info) << "\tend_time_value: " << end_time_value << endl;
-            LOG(info) << "\tevent_name_value: " << event_name_value << endl;
-            LOG(info) << "\tevent_id_value: " << event_id_value << endl;
+            LOG(info) << "\tvideo_path_value: " << video_path_value << std::endl;
+            LOG(info) << "\tdevice_id_value: " << device_id_value << std::endl;
+            LOG(info) << "\tsensor_id_value: " << sensor_id_value << std::endl;
+            LOG(info) << "\tstart_time_value: " << start_time_value << std::endl;
+            LOG(info) << "\tend_time_value: " << end_time_value << std::endl;
+            LOG(info) << "\tevent_name_value: " << event_name_value << std::endl;
+            LOG(info) << "\tevent_id_value: " << event_id_value << std::endl;
         }
     };
 
     class SensorDetailsDBColumns : public virtual DBColumns
     {
     public:
-        inline static const string table_name = "SENSOR_DETAILS";
-        inline static const string username = "USERNAME";
-        inline static const string password = "PASSWORD";
-        inline static const string sensor_hw_id = "SENSOR_HW_ID";
-        inline static const string name = "NAME";
-        inline static const string ip = "IPADDRESS";
-        inline static const string user_given_name;
-        inline static const string hardware = "HARDWARE";
-        inline static const string manufacturer = "MANUFACTURER";
-        inline static const string firmware_version = "FIRMWARE_VERSION";
-        inline static const string serial_number = "SERIAL_NUMBER";
-        inline static const string hardware_id = "HARDWARE_ID";
-        inline static const string location = "LOCATION";
-        inline static const string tags = "TAGS";
-        inline static const string url = "URL";
-        inline static const string type = "TYPE";
-        inline static const string position = "POSITION";
-        inline static const string users = "USERS";
-        inline static const string isRemoteSensor = "IS_REMOTE";
-        inline static const string remoteDeviceId = "REMOTE_DEVICE_ID";
-        inline static const string remoteDeviceName = "REMOTE_DEVICE_NAME";
-        inline static const string remoteDeviceLocation = "REMOTE_DEVICE_LOCATION";
-        inline static const string httpStatus = "HTTP_STATUS";
-        inline static const string sensorStatus = "SENSOR_STATUS";
+        inline static const std::string table_name = "SENSOR_DETAILS";
+        inline static const std::string username = "USERNAME";
+        inline static const std::string password = "PASSWORD";
+        inline static const std::string sensor_hw_id = "SENSOR_HW_ID";
+        inline static const std::string name = "NAME";
+        inline static const std::string ip = "IPADDRESS";
+        inline static const std::string user_given_name;
+        inline static const std::string hardware = "HARDWARE";
+        inline static const std::string manufacturer = "MANUFACTURER";
+        inline static const std::string firmware_version = "FIRMWARE_VERSION";
+        inline static const std::string serial_number = "SERIAL_NUMBER";
+        inline static const std::string hardware_id = "HARDWARE_ID";
+        inline static const std::string location = "LOCATION";
+        inline static const std::string tags = "TAGS";
+        inline static const std::string url = "URL";
+        inline static const std::string type = "TYPE";
+        inline static const std::string position = "POSITION";
+        inline static const std::string users = "USERS";
+        inline static const std::string isRemoteSensor = "IS_REMOTE";
+        inline static const std::string remoteDeviceId = "REMOTE_DEVICE_ID";
+        inline static const std::string remoteDeviceName = "REMOTE_DEVICE_NAME";
+        inline static const std::string remoteDeviceLocation = "REMOTE_DEVICE_LOCATION";
+        inline static const std::string httpStatus = "HTTP_STATUS";
+        inline static const std::string sensorStatus = "SENSOR_STATUS";
 
-        string username_value;
-        string password_value;
-        string sensor_hw_id_value;
-        string name_value;
-        string ip_value;
-        string user_given_name_value;
-        string manufacturer_value;
-        string firmware_version_value;
-        string serial_number_value;
-        string hardware_id_value;
-        string hardware_value;
-        string location_value;
-        string tags_value;
-        string url_value;
-        string type_value;
-        string position_value;
-        string users_value;
-        string isRemoteSensor_value;
-        string remoteDeviceId_value;
-        string remoteDeviceName_value;
-        string remoteDeviceLocation_value;
+        std::string username_value;
+        std::string password_value;
+        std::string sensor_hw_id_value;
+        std::string name_value;
+        std::string ip_value;
+        std::string user_given_name_value;
+        std::string manufacturer_value;
+        std::string firmware_version_value;
+        std::string serial_number_value;
+        std::string hardware_id_value;
+        std::string hardware_value;
+        std::string location_value;
+        std::string tags_value;
+        std::string url_value;
+        std::string type_value;
+        std::string position_value;
+        std::string users_value;
+        std::string isRemoteSensor_value;
+        std::string remoteDeviceId_value;
+        std::string remoteDeviceName_value;
+        std::string remoteDeviceLocation_value;
         int64_t httpStatus_value;
         int64_t sensorStatus_value;
 
@@ -437,25 +436,25 @@ namespace nv_vms
         {
         }
 
-        SensorDetailsDBColumns(string &usename,
-                               string &password,
-                               string &sensor_hw_id,
-                               string &name,
-                               string &ip,
-                               string &manufacturer,
-                               string &serial_number,
-                               string &firmware_version,
-                               string &hardware_id,
-                               string &hardware,
-                               string &location,
-                               string &tags,
-                               string &url,
-                               string &type,
-                               string &users,
-                               string &isRemoteSensor,
-                               string &remoteDeviceId,
-                               string &remoteDeviceName,
-                               string &remoteDeviceLocation,
+        SensorDetailsDBColumns(std::string &usename,
+                               std::string &password,
+                               std::string &sensor_hw_id,
+                               std::string &name,
+                               std::string &ip,
+                               std::string &manufacturer,
+                               std::string &serial_number,
+                               std::string &firmware_version,
+                               std::string &hardware_id,
+                               std::string &hardware,
+                               std::string &location,
+                               std::string &tags,
+                               std::string &url,
+                               std::string &type,
+                               std::string &users,
+                               std::string &isRemoteSensor,
+                               std::string &remoteDeviceId,
+                               std::string &remoteDeviceName,
+                               std::string &remoteDeviceLocation,
                                int64_t &httpStatus,
                                int64_t &sensorStatus) : username_value(usename),
                                                         password_value(password),
@@ -483,40 +482,40 @@ namespace nv_vms
     class VideoRecordDBColumns : public DBColumns
     {
     public:
-        inline static const string table_name = "VIDEO_RECORD_DETAILS";
-        inline static const string stream_id = "STREAM_ID";
-        inline static const string resolution = "RESOLUTION";
-        inline static const string start_time = "START_TIME";
-        inline static const string duration = "FILE_DURATION";
-        inline static const string file_path = "FILE_PATH";
-        inline static const string file_size = "FILE_SIZE";
-        inline static const string file_fps = "FILE_FPS";
-        inline static const string sensor_name = "SENSOR_NAME";
-        inline static const string record_config = "RECORD_CONFIG";
-        inline static const string codec = "FILE_CODEC";
-        inline static const string file_protection = "FILE_PROTECTION";
-        inline static const string metadata_file_path = "METADATA_FILE_PATH";
-        inline static const string metadata_json = "METADATA_JSON";
-        inline static const string object_id = "OBJECT_ID";
-        inline static const string storage_location = "STORAGE_LOCATION";
-        inline static const string bucket_name = "BUCKET_NAME";
+        inline static const std::string table_name = "VIDEO_RECORD_DETAILS";
+        inline static const std::string stream_id = "STREAM_ID";
+        inline static const std::string resolution = "RESOLUTION";
+        inline static const std::string start_time = "START_TIME";
+        inline static const std::string duration = "FILE_DURATION";
+        inline static const std::string file_path = "FILE_PATH";
+        inline static const std::string file_size = "FILE_SIZE";
+        inline static const std::string file_fps = "FILE_FPS";
+        inline static const std::string sensor_name = "SENSOR_NAME";
+        inline static const std::string record_config = "RECORD_CONFIG";
+        inline static const std::string codec = "FILE_CODEC";
+        inline static const std::string file_protection = "FILE_PROTECTION";
+        inline static const std::string metadata_file_path = "METADATA_FILE_PATH";
+        inline static const std::string metadata_json = "METADATA_JSON";
+        inline static const std::string object_id = "OBJECT_ID";
+        inline static const std::string storage_location = "STORAGE_LOCATION";
+        inline static const std::string bucket_name = "BUCKET_NAME";
 
-        string stream_id_value;
-        string resolution_value;
+        std::string stream_id_value;
+        std::string resolution_value;
         uint64_t start_time_value;
         unsigned int duration_value;
-        string filepath_value;
+        std::string filepath_value;
         uint64_t filesize_value;
         uint64_t filefps_value;
-        string sensor_name_value;
-        string record_config_value;
-        string codec_value;
-        string file_protection_value;
-        string metadata_file_path_value;
-        string metadata_json_value;
-        string object_id_value;
+        std::string sensor_name_value;
+        std::string record_config_value;
+        std::string codec_value;
+        std::string file_protection_value;
+        std::string metadata_file_path_value;
+        std::string metadata_json_value;
+        std::string object_id_value;
         int64_t storage_location_value;
-        string bucket_name_value;
+        std::string bucket_name_value;
 
         VideoRecordDBColumns() : stream_id_value(""),
                                  resolution_value(""),
@@ -535,20 +534,20 @@ namespace nv_vms
                                  storage_location_value(StreamStorageTypeLocal),
                                  bucket_name_value("") {}
 
-        VideoRecordDBColumns(string &stream_id,
-                             string &resolution,
+        VideoRecordDBColumns(std::string &stream_id,
+                             std::string &resolution,
                              unsigned int &startTime,
                              unsigned int &duration,
-                             string &filePath,
+                             std::string &filePath,
                              uint64_t &fileSize,
                              uint64_t &fileFPS,
-                             string &sensorName,
-                             string &recordConfig,
-                             string &codec,
-                             string &file_protection,
-                             string &metadata_file_path,
-                             string &metadata_json,
-                             string &object_id) : stream_id_value(stream_id),
+                             std::string &sensorName,
+                             std::string &recordConfig,
+                             std::string &codec,
+                             std::string &file_protection,
+                             std::string &metadata_file_path,
+                             std::string &metadata_json,
+                             std::string &object_id) : stream_id_value(stream_id),
                                                         resolution_value(resolution),
                                                         start_time_value(startTime),
                                                         duration_value(duration),
@@ -567,22 +566,22 @@ namespace nv_vms
     class VideoRecordScheduleDBColumns : public DBColumns
     {
     public:
-        inline static const string table_name = "VIDEO_RECORD_SCHEDULE_DETAILS";
-        inline static const string stream_id = "STREAM_ID";
-        inline static const string start_time = "START_TIME";
-        inline static const string end_time = "END_TIME";
+        inline static const std::string table_name = "VIDEO_RECORD_SCHEDULE_DETAILS";
+        inline static const std::string stream_id = "STREAM_ID";
+        inline static const std::string start_time = "START_TIME";
+        inline static const std::string end_time = "END_TIME";
 
-        string start_time_value;
-        string end_time_value;
-        string stream_id_value;
+        std::string start_time_value;
+        std::string end_time_value;
+        std::string stream_id_value;
 
         VideoRecordScheduleDBColumns() : start_time_value(""),
                                          end_time_value(""),
                                          stream_id_value("") {}
 
-        VideoRecordScheduleDBColumns(string &startTime,
-                                     string &endTime,
-                                     string &stream_id) : start_time_value(startTime),
+        VideoRecordScheduleDBColumns(std::string &startTime,
+                                     std::string &endTime,
+                                     std::string &stream_id) : start_time_value(startTime),
                                                           end_time_value(endTime),
                                                           stream_id_value(stream_id) {}
     };
@@ -590,55 +589,55 @@ namespace nv_vms
     class SensorStreamsDBColumns : public virtual DBColumns
     {
     public:
-        inline static const string table_name = "SENSOR_STREAMS";
-        inline static const string live_url = "STREAM_LIVE_URL";
-        inline static const string replay_url = "STREAM_REPLAY_URL";
-        inline static const string proxy_url = "STREAM_PROXY_URL";
-        inline static const string resolution = "STREAM_RESOLUTION";
-        inline static const string frameRate = "STREAM_FRAMERATE";
-        inline static const string encoding = "STREAM_ENCODING";
-        inline static const string stream_id = "STREAM_ID";
-        inline static const string streamStatus = "STREAM_STATUS";
-        inline static const string type = "STREAM_TYPE";
-        inline static const string encodingProfile = "STREAM_ENCODING_PROFILE";
-        inline static const string encodingInterval = "STREAM_ENCODING_INTERVAl";
-        inline static const string duration = "STREAM_DURATION";
-        inline static const string isMainStream = "STREAM_ISMAINSTREAM";
-        inline static const string isAlwaysRecording = "STREAM_ISALWAYSRECORDING";
-        inline static const string storageLocation = "STREAM_STORAGE_LOCATION";
-        inline static const string bitrate = "BITRATE";
-        inline static const string numFrames = "NUM_OF_FRAMES";
-        inline static const string audio_container = "AUDIO_CONTAINER";
-        inline static const string audio_encoding = "AUDIO_ENCODING";
-        inline static const string audio_sample_rate = "AUDIO_SAMPLE_RATE";
-        inline static const string audio_bps = "AUDIO_BPS";
-        inline static const string audio_channels = "AUDIO_CHANNELS";
-        inline static const string streamName = "STREAM_NAME";
-        inline static const string isBframesPresent = "IS_BFRAMES_PRESENT";
+        inline static const std::string table_name = "SENSOR_STREAMS";
+        inline static const std::string live_url = "STREAM_LIVE_URL";
+        inline static const std::string replay_url = "STREAM_REPLAY_URL";
+        inline static const std::string proxy_url = "STREAM_PROXY_URL";
+        inline static const std::string resolution = "STREAM_RESOLUTION";
+        inline static const std::string frameRate = "STREAM_FRAMERATE";
+        inline static const std::string encoding = "STREAM_ENCODING";
+        inline static const std::string stream_id = "STREAM_ID";
+        inline static const std::string streamStatus = "STREAM_STATUS";
+        inline static const std::string type = "STREAM_TYPE";
+        inline static const std::string encodingProfile = "STREAM_ENCODING_PROFILE";
+        inline static const std::string encodingInterval = "STREAM_ENCODING_INTERVAl";
+        inline static const std::string duration = "STREAM_DURATION";
+        inline static const std::string isMainStream = "STREAM_ISMAINSTREAM";
+        inline static const std::string isAlwaysRecording = "STREAM_ISALWAYSRECORDING";
+        inline static const std::string storageLocation = "STREAM_STORAGE_LOCATION";
+        inline static const std::string bitrate = "BITRATE";
+        inline static const std::string numFrames = "NUM_OF_FRAMES";
+        inline static const std::string audio_container = "AUDIO_CONTAINER";
+        inline static const std::string audio_encoding = "AUDIO_ENCODING";
+        inline static const std::string audio_sample_rate = "AUDIO_SAMPLE_RATE";
+        inline static const std::string audio_bps = "AUDIO_BPS";
+        inline static const std::string audio_channels = "AUDIO_CHANNELS";
+        inline static const std::string streamName = "STREAM_NAME";
+        inline static const std::string isBframesPresent = "IS_BFRAMES_PRESENT";
 
-        string live_url_value;
-        string replay_url_value;
-        string proxy_url_value;
-        string resolution_value;
-        string frameRate_value;
-        string encoding_value;
-        string stream_id_value;
+        std::string live_url_value;
+        std::string replay_url_value;
+        std::string proxy_url_value;
+        std::string resolution_value;
+        std::string frameRate_value;
+        std::string encoding_value;
+        std::string stream_id_value;
         int64_t streamStatus_value;
         int64_t streamType_value;
-        string encodingProfile_value;
-        string encodingInterval_value;
-        string duration_value;
-        string isMainStream_value;
-        string isAlwaysRecording_value;
+        std::string encodingProfile_value;
+        std::string encodingInterval_value;
+        std::string duration_value;
+        std::string isMainStream_value;
+        std::string isAlwaysRecording_value;
         int64_t storageLocation_value;
-        string bitrate_value;
-        string numFrames_value;
-        string audio_container_value;
-        string audio_encoding_value;
-        string audio_sample_rate_value;
-        string audio_bps_value;
-        string audio_channels_value;
-        string streamName_value;
+        std::string bitrate_value;
+        std::string numFrames_value;
+        std::string audio_container_value;
+        std::string audio_encoding_value;
+        std::string audio_sample_rate_value;
+        std::string audio_bps_value;
+        std::string audio_channels_value;
+        std::string streamName_value;
         int isBframesPresent_value;
 
         SensorStreamsDBColumns() : live_url_value(""),
@@ -667,28 +666,28 @@ namespace nv_vms
                                    isBframesPresent_value(-1) {}
 
         SensorStreamsDBColumns(
-            string &live_url,
-            string &replay_url,
-            string &proxy_url,
-            string &resolution,
-            string &frameRate,
-            string &encoding,
-            string &stream_id,
+            std::string &live_url,
+            std::string &replay_url,
+            std::string &proxy_url,
+            std::string &resolution,
+            std::string &frameRate,
+            std::string &encoding,
+            std::string &stream_id,
             int64_t &streamStatus,
             int64_t &type,
-            string &encodingProfile,
-            string &encoding_inteval,
-            string &duration,
-            string &isMainStream,
-            string &isAlwaysRecording,
-            string &bitrate,
-            string &numFrames,
-            string &audio_container,
-            string &audio_encoding,
-            string &audio_sample_rate,
-            string &audio_bps,
-            string &audio_channels,
-            string &streamName,
+            std::string &encodingProfile,
+            std::string &encoding_inteval,
+            std::string &duration,
+            std::string &isMainStream,
+            std::string &isAlwaysRecording,
+            std::string &bitrate,
+            std::string &numFrames,
+            std::string &audio_container,
+            std::string &audio_encoding,
+            std::string &audio_sample_rate,
+            std::string &audio_bps,
+            std::string &audio_channels,
+            std::string &streamName,
             int isBframesPresent) : live_url_value(live_url), replay_url_value(replay_url), proxy_url_value(proxy_url), resolution_value(resolution), frameRate_value(frameRate), encoding_value(encoding), stream_id_value(stream_id), streamStatus_value(streamStatus), streamType_value(type), encodingProfile_value(encodingProfile), encodingInterval_value(encoding_inteval), duration_value(duration), isMainStream_value(isMainStream), isAlwaysRecording_value(isAlwaysRecording), bitrate_value(bitrate), numFrames_value(numFrames), audio_container_value(audio_container), audio_encoding_value(audio_encoding), audio_sample_rate_value(audio_sample_rate), audio_bps_value(audio_bps), audio_channels_value(audio_channels), streamName_value(streamName), isBframesPresent_value(isBframesPresent) {}
     };
 
@@ -699,65 +698,65 @@ namespace nv_vms
     class UserDetailsDBColumns : public DBColumns
     {
     public:
-        inline static const string table_name = "USER_DETAILS";
-        inline static const string username = "USERNAME";
-        inline static const string password_hash = "PASSWORD_HASH";
+        inline static const std::string table_name = "USER_DETAILS";
+        inline static const std::string username = "USERNAME";
+        inline static const std::string password_hash = "PASSWORD_HASH";
 
-        string username_value;
-        string password_hash_value;
+        std::string username_value;
+        std::string password_hash_value;
 
         UserDetailsDBColumns() : username_value(""), password_hash_value("") {}
 
         UserDetailsDBColumns(
-            string &username,
-            string &password_hash) : username_value(username), password_hash_value(password_hash) {}
+            std::string &username,
+            std::string &password_hash) : username_value(username), password_hash_value(password_hash) {}
     };
 
     class UserSessionsDBColumns : public DBColumns
     {
     public:
-        inline static const string table_name = "USER_SESSIONS";
-        inline static const string username = "USERNAME";
-        inline static const string session_cookie = "SESSION_COOKIE";
-        inline static const string cookie_max_age = "COOKIE_MAX_AGE";
+        inline static const std::string table_name = "USER_SESSIONS";
+        inline static const std::string username = "USERNAME";
+        inline static const std::string session_cookie = "SESSION_COOKIE";
+        inline static const std::string cookie_max_age = "COOKIE_MAX_AGE";
 
-        string username_value;
-        string session_cookie_value;
+        std::string username_value;
+        std::string session_cookie_value;
         int64_t cookie_max_age_value;
 
         UserSessionsDBColumns() : username_value(""), session_cookie_value(""), cookie_max_age_value(0) {}
 
         UserSessionsDBColumns(
-            string &username,
-            string &session_cookie,
+            std::string &username,
+            std::string &session_cookie,
             int64_t &cookie_max_age) : username_value(username), session_cookie_value(session_cookie), cookie_max_age_value(cookie_max_age) {}
     };
 
     class RecordingStatusDBColumns : public DBColumns
     {
     public:
-        inline static const string table_name = "RECORDING_STATUS";
-        inline static const string sensor_id = "SENSOR_ID";
-        inline static const string stream_id = "STREAM_ID";
-        inline static const string recordingStatus = "RECORDING_STATUS";
-        inline static const string created_date_time = "CREATED_DATE_TIME";
-        inline static const string modified_date_time = "MODIFIED_DATE_TIME";
+        inline static const std::string table_name = "RECORDING_STATUS";
+        inline static const std::string sensor_id = "SENSOR_ID";
+        inline static const std::string stream_id = "STREAM_ID";
+        inline static const std::string recordingStatus = "RECORDING_STATUS";
+        inline static const std::string created_date_time = "CREATED_DATE_TIME";
+        inline static const std::string modified_date_time = "MODIFIED_DATE_TIME";
 
-        string stream_id_value;
+        std::string stream_id_value;
         int64_t recordingStatus_value;
     };
 
     typedef struct _VideoFileInfo
     {
-        string m_filePath;
+        std::string m_filePath;
         uint64_t m_startTime;
         uint32_t m_duration;
         uint64_t m_fileSize;
         uint64_t m_fileFPS;
-        string m_codec;
-        string m_objectId;
-        string m_metadataFilePath;
-        string m_metadataJson;
+        std::string m_codec;
+        std::string m_objectId;
+        std::string m_metadataFilePath;
+        std::string m_metadataJson;
 
         _VideoFileInfo() : m_filePath(""), m_startTime(0), m_duration(0), m_fileSize(0), m_fileFPS(0), m_codec(""), m_objectId(""), m_metadataFilePath(""), m_metadataJson("")
         {
@@ -809,31 +808,31 @@ namespace nv_vms
     class TempFilesDBColumns : public virtual DBColumns
     {
     public:
-        inline static const string table_name = "TEMP_VIDEO_FILES";
-        inline static const string file_path = "FILE_PATH";
-        inline static const string expiry_timestamp = "EXPIRY_TIMESTAMP";
-        inline static const string created_timestamp = "CREATED_TIMESTAMP";
-        inline static const string stream_id = "STREAM_ID";
-        inline static const string file_size = "FILE_SIZE";
-        inline static const string start_time_ms = "START_TIME_MS";
-        inline static const string end_time_ms = "END_TIME_MS";
-        inline static const string file_type = "FILE_TYPE";
-        inline static const string container_format = "CONTAINER_FORMAT";
-        inline static const string config_hash = "CONFIG_HASH";
+        inline static const std::string table_name = "TEMP_VIDEO_FILES";
+        inline static const std::string file_path = "FILE_PATH";
+        inline static const std::string expiry_timestamp = "EXPIRY_TIMESTAMP";
+        inline static const std::string created_timestamp = "CREATED_TIMESTAMP";
+        inline static const std::string stream_id = "STREAM_ID";
+        inline static const std::string file_size = "FILE_SIZE";
+        inline static const std::string start_time_ms = "START_TIME_MS";
+        inline static const std::string end_time_ms = "END_TIME_MS";
+        inline static const std::string file_type = "FILE_TYPE";
+        inline static const std::string container_format = "CONTAINER_FORMAT";
+        inline static const std::string config_hash = "CONFIG_HASH";
 
         static constexpr const char* FILE_TYPE_VIDEO = "video";
         static constexpr const char* FILE_TYPE_IMAGE = "image";
         static constexpr int64_t CACHE_TIME_TOLERANCE_MS = 33;
 
-        string file_path_value;
+        std::string file_path_value;
         int64_t expiry_timestamp_value;
         int64_t created_timestamp_value;
-        string stream_id_value;
+        std::string stream_id_value;
         int64_t file_size_value;
         int64_t start_time_ms_value;
         int64_t end_time_ms_value;
-        string file_type_value;
-        string container_format_value;
+        std::string file_type_value;
+        std::string container_format_value;
         // Hex SHA-256 of caller-supplied options that affect the produced
         // bytes (overlay, transcode, audio, container for video URLs;
         // overlay, resize hints, debug flag for picture URLs). Populated
@@ -845,7 +844,7 @@ namespace nv_vms
         // recording. Cache lookups must match on this column when
         // non-empty so the same (stream, time-range, type, container) hits
         // a distinct cached file per request configuration.
-        string config_hash_value;
+        std::string config_hash_value;
 
         TempFilesDBColumns() : file_path_value(""),
                                expiry_timestamp_value(0),
@@ -858,16 +857,16 @@ namespace nv_vms
                                container_format_value(""),
                                config_hash_value("") {}
 
-        TempFilesDBColumns(const string& filePath,
+        TempFilesDBColumns(const std::string& filePath,
                            int64_t expiryTs,
                            int64_t createdTs,
-                           const string& streamId,
+                           const std::string& streamId,
                            int64_t fileSize,
                            int64_t startTimeMs = 0,
                            int64_t endTimeMs = 0,
-                           const string& fileType = "",
-                           const string& containerFormat = "",
-                           const string& configHash = "") :
+                           const std::string& fileType = "",
+                           const std::string& containerFormat = "",
+                           const std::string& configHash = "") :
                            file_path_value(filePath),
                            expiry_timestamp_value(expiryTs),
                            created_timestamp_value(createdTs),
@@ -881,17 +880,17 @@ namespace nv_vms
 
         void printInfo()
         {
-            LOG(info) << "\tfile_path_value: " << file_path_value << endl;
-            LOG(info) << "\tdevice_id_value: " << device_id_value << endl;
-            LOG(info) << "\texpiry_timestamp_value: " << expiry_timestamp_value << endl;
-            LOG(info) << "\tcreated_timestamp_value: " << created_timestamp_value << endl;
-            LOG(info) << "\tstream_id_value: " << stream_id_value << endl;
-            LOG(info) << "\tfile_size_value: " << file_size_value << endl;
-            LOG(info) << "\tstart_time_ms_value: " << start_time_ms_value << endl;
-            LOG(info) << "\tend_time_ms_value: " << end_time_ms_value << endl;
-            LOG(info) << "\tfile_type_value: " << file_type_value << endl;
-            LOG(info) << "\tcontainer_format_value: " << container_format_value << endl;
-            LOG(info) << "\tconfig_hash_value: " << config_hash_value << endl;
+            LOG(info) << "\tfile_path_value: " << file_path_value << std::endl;
+            LOG(info) << "\tdevice_id_value: " << device_id_value << std::endl;
+            LOG(info) << "\texpiry_timestamp_value: " << expiry_timestamp_value << std::endl;
+            LOG(info) << "\tcreated_timestamp_value: " << created_timestamp_value << std::endl;
+            LOG(info) << "\tstream_id_value: " << stream_id_value << std::endl;
+            LOG(info) << "\tfile_size_value: " << file_size_value << std::endl;
+            LOG(info) << "\tstart_time_ms_value: " << start_time_ms_value << std::endl;
+            LOG(info) << "\tend_time_ms_value: " << end_time_ms_value << std::endl;
+            LOG(info) << "\tfile_type_value: " << file_type_value << std::endl;
+            LOG(info) << "\tcontainer_format_value: " << container_format_value << std::endl;
+            LOG(info) << "\tconfig_hash_value: " << config_hash_value << std::endl;
         }
     };
 

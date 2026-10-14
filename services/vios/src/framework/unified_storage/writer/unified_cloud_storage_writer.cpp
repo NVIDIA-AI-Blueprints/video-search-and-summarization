@@ -538,8 +538,8 @@ GstFlowReturn UnifiedCloudStorageWriter::onNewSampleCloud(GstAppSink* appsink, g
 
             if (success)
             {
-                writer->m_total_bytes_written.fetch_add(map.size, std::memory_order_relaxed);
-                writer->m_frames_written.fetch_add(1, std::memory_order_relaxed);
+                writer->m_total_bytes_written.fetch_add(map.size);
+                writer->m_frames_written.fetch_add(1);
 
                 LOG(verbose) << "Wrote " << map.size
                              << " bytes to cloud storage for session: " << current_session_id

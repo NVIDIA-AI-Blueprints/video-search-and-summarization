@@ -4895,7 +4895,7 @@
                         "maxLength": 256,
                         "pattern": "^(.|\\n)*$",
                         "title": "Asset Id",
-                        "description": "RTVI internal asset UUID."
+                        "description": "Asset identifier; for live streams, matches camera_id."
                     },
                     "status": {
                         "type": "string",
@@ -4930,7 +4930,8 @@
                     "camera_id": {
                         "type": "string",
                         "maxLength": 256,
-                        "pattern": "^(.|\\n)*$",
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$",
                         "title": "Camera Id",
                         "description": "User-provided unique camera identifier.",
                         "examples": [
@@ -5092,7 +5093,7 @@
                         "maxLength": 256,
                         "pattern": "^(.|\\n)*$",
                         "title": "Asset Id",
-                        "description": "RTVI internal asset UUID."
+                        "description": "RTVI asset identifier."
                     },
                     "source_id": {
                         "anyOf": [
@@ -5817,7 +5818,8 @@
                     "camera_id": {
                         "type": "string",
                         "maxLength": 256,
-                        "pattern": "^(.|\\n)*$",
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$",
                         "title": "Camera Id",
                         "description": "User-provided unique camera identifier.",
                         "examples": [
@@ -6453,16 +6455,16 @@
                         "anyOf": [
                             {
                                 "type": "string",
-                                "format": "uuid",
-                                "maxLength": 36,
-                                "minLength": 36
+                                "minLength": 1,
+                                "maxLength": 256,
+                                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$"
                             },
                             {
                                 "items": {
                                     "type": "string",
-                                    "format": "uuid",
-                                    "maxLength": 36,
-                                    "minLength": 36
+                                    "minLength": 1,
+                                    "maxLength": 256,
+                                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$"
                                 },
                                 "type": "array",
                                 "maxItems": 50
@@ -6490,7 +6492,7 @@
                             }
                         ],
                         "title": "Url",
-                        "description": "URL of the video/image to process. Supported schemes: http://, https://, s3://, file://. When provided, 'id' must also be specified as a single UUID.",
+                        "description": "URL of the video/image to process. Supported schemes: http://, https://, s3://, file://. When provided, 'id' must also be specified as a single identifier.",
                         "examples": [
                             "https://example.com/video.mp4",
                             "s3://bucket/video.mp4",

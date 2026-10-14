@@ -91,6 +91,11 @@ public:
         }
     }
 
+    MeasureExecutionTime(const MeasureExecutionTime&) = delete;
+    MeasureExecutionTime& operator=(const MeasureExecutionTime&) = delete;
+    MeasureExecutionTime(MeasureExecutionTime&&) = delete;
+    MeasureExecutionTime& operator=(MeasureExecutionTime&&) = delete;
+
     static void writeToFile()
     {
         static bool only_once = true;

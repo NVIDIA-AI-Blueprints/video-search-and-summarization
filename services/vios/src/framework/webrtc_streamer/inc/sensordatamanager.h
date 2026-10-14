@@ -66,30 +66,30 @@ class MetaDataSchedule
 {
     public:
         MetaDataSchedule(
-            const string& sensor_id,
-            vector<shared_ptr<SensorMetadata>> data,
+            const std::string& sensor_id,
+            std::vector<std::shared_ptr<SensorMetadata>> data,
             bool pulse,
-            const string& pulse_time
+            const std::string& pulse_time
         );
         MetaDataSchedule(
-            const string& sensor_id,
-            vector<shared_ptr<SensorMetadata>> data,
+            const std::string& sensor_id,
+            std::vector<std::shared_ptr<SensorMetadata>> data,
             bool pulse,
-            const string& pulse_time,
-            const string& creation_time,
-            const string& start_offset,
-            const string& stop_offset,
+            const std::string& pulse_time,
+            const std::string& creation_time,
+            const std::string& start_offset,
+            const std::string& stop_offset,
             bool loop
         );
         ~MetaDataSchedule();
     private:
         void scheduleTask();
-        bool publisherTask(vector<shared_ptr<SensorMetadata>>::iterator);
+        bool publisherTask(std::vector<std::shared_ptr<SensorMetadata>>::iterator);
         std::time_t getStartTime();
 
     private:
         std::string m_sensorId;
-        vector<shared_ptr<SensorMetadata>> m_metadata;
+        std::vector<std::shared_ptr<SensorMetadata>> m_metadata;
         async::task<void> m_schedulerTask;
         ConditionalWait m_wait;
         std::atomic<bool> m_exit {false};
@@ -110,13 +110,13 @@ class MetaDataSchedule
 class SensorDataManager
 {
     public:
-        explicit SensorDataManager(shared_ptr<SensorManagement> sensorMgmt);
+        explicit SensorDataManager(std::shared_ptr<SensorManagement> sensorMgmt);
         ~SensorDataManager();
         VmsErrorCode startStream(std::map<std::string, std::string, std::less<>> opts, Json::Value &response);
-        VmsErrorCode stopStream(const string& sensor_id, Json::Value &response);
+        VmsErrorCode stopStream(const std::string& sensor_id, Json::Value &response);
     private:
-        shared_ptr<SensorManagement> m_sensorManagement;
-        std::map<std::string, unique_ptr<MetaDataSchedule>, std::less<>> m_sensorMap;
+        std::shared_ptr<SensorManagement> m_sensorManagement;
+        std::map<std::string, std::unique_ptr<MetaDataSchedule>, std::less<>> m_sensorMap;
 };
 
 } //nv_vms

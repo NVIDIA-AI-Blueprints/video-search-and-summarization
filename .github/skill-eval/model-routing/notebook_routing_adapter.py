@@ -16,6 +16,7 @@ shared namespace using only the standard library.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import io
 import json
 import os
@@ -46,21 +47,6 @@ _DERIVED_SETTINGS_MARKER = (
     "# ================== Derived (no need to touch) =================="
 )
 
-# Notebook variables CI may override through the environment. Everything is a
-# string at injection time; the notebook parses booleans and integers itself.
-_NOTEBOOK_PARAMETERS = (
-    "NVIDIA_API_KEY",
-    "UPSTREAM_BASE_URL",
-    "UPSTREAM_API_KEY",
-    "ROUTER_TARGET_CAPABLE",
-    "ROUTER_TARGET_EFFICIENT",
-    "ROUTE_NEMOCLAW",
-    "ROUTER_PORT",
-    "ROUTER_NETWORK",
-    "ROUTER_CONTAINER",
-    "ROUTER_TEARDOWN",
-)
-
 # Output lines the executed notebook must have printed for the run to count.
 _READINESS_MARKERS = (
     "ROUTER_VERIFIED:",
@@ -68,12 +54,33 @@ _READINESS_MARKERS = (
     "NEMOCLAW_ROUTING: True; bind=0.0.0.0",
     "NEMOCLAW_ROUTING_READY:",
     "ROUTER_POLICY_LIFECYCLE:",
-    "ROUTER_TEARDOWN: done",
 )
+
+
+def _teardown_marker() -> str:
+    """The teardown line the run must print for the ROUTER_TEARDOWN it was given."""
+    torn = os.environ.get("ROUTER_TEARDOWN", "true").strip().lower() in ("1", "true", "yes", "on")
+    return "ROUTER_TEARDOWN: done" if torn else "ROUTER_TEARDOWN: skipped"
 
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
+
+
+def _notebook_parameters() -> tuple[str, ...]:
+    """The setup runner's parameter contract for this notebook.
+
+    Loaded by file path because `.github` is not an importable package. One
+    table means CI cannot inject a name the notebook no longer binds. Every
+    value is a string; the notebook parses booleans and integers itself.
+    """
+    path = _repo_root() / "deploy" / "docker" / "scripts" / "run_setup_notebook.py"
+    spec = importlib.util.spec_from_file_location("run_setup_notebook", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load {path}")
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    return runner.parameters_for(_repo_root() / NOTEBOOK_RELATIVE_PATH)
 
 
 class _MockUpstreamHandler(BaseHTTPRequestHandler):
@@ -230,11 +237,13 @@ def prepare_environment(env=None):
         e["NVIDIA_API_KEY"] = key
         select_targets(e)
     # Off the default port so a leftover local router cannot shadow the run;
-    # always torn down so the runner is left clean.
+    # torn down by default, but ROUTER_TEARDOWN=false keeps the router for a
+    # NemoClaw step that runs next. The workflow's always-run cleanup step
+    # removes the container afterwards either way.
     e.setdefault("ROUTER_PORT", "14000")
     e.setdefault("ROUTER_CONTAINER", "vss-model-router-ci")
     e["ROUTE_NEMOCLAW"] = "true"
-    e["ROUTER_TEARDOWN"] = "true"
+    e.setdefault("ROUTER_TEARDOWN", "true")
     e.setdefault("MODEL_ROUTING_WORK_DIR", "/tmp/skill-eval/model-routing")
     return mock
 
@@ -272,7 +281,7 @@ def _parameterize(cells: list[str], name: str) -> list[str]:
         "import os as _skill_eval_os",
         *(
             f"{p} = _skill_eval_os.environ.get({p!r}, {p})"
-            for p in _NOTEBOOK_PARAMETERS
+            for p in _notebook_parameters()
         ),
     ]
     parameter_source = "\n".join(assignments)
@@ -331,14 +340,15 @@ def run_notebook(*, root: Path) -> None:
     if not path.is_file():
         raise FileNotFoundError(f"Missing notebook: {path}")
     output = execute_notebook(path, cwd=root)
-    missing = [marker for marker in _READINESS_MARKERS if marker not in output]
+    markers = _READINESS_MARKERS + (_teardown_marker(),)
+    missing = [marker for marker in markers if marker not in output]
     if missing:
         raise RuntimeError(
             f"{path.name} completed without readiness marker(s): "
             + ", ".join(missing)
         )
     for line in output.splitlines():
-        if any(marker in line for marker in _READINESS_MARKERS):
+        if any(marker in line for marker in markers):
             print(line)
 
 

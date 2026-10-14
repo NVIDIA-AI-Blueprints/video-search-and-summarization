@@ -40,7 +40,7 @@ typedef struct _curlRequestFields
     std::string m_jsonData;
     int m_timeout;
     int m_httpErrorCode;
-    string m_httpErrorString;
+    std::string m_httpErrorString;
 } CurlRequestFields;
 
 int openProbe();
@@ -50,24 +50,24 @@ void closeProbe();
 int stopOnvifDiscovery();
 int getProbeMatch(nv_vms::SensorInfo& sensor);
 bool isCameraOnline(nv_vms::SensorInfo& sensor);
-bool curlGetRequest(const string& url, long& http_code);
+bool curlGetRequest(const std::string& url, long& http_code);
 // timeout_ms bounds both connection setup and the complete transfer.  The
 // default preserves the historical 10-second behaviour for existing callers.
-bool curlGetRequest(const string url, string& outData, long timeout_ms = 10000L);
-bool curlGetRequest(const string& url, const string& username,
-                              const string& password, string& outData);
-bool curlPostRequest(const string& httpUrl, const string& username, const string& password,
-        const string& rest_api, const string& params, string& response, bool is_digest = false, vector<string> headers = vector<string>());
-bool curlPostRequest_2(const string& httpUrl, vector<string> header_list, string& response);
-bool curlPostRequest(const string url, string& outData, const Json::Value& postData);
-bool curlDeleteRequest(const string& httpUrl, vector<string> header_list, string& response);
-int checkIfPortAvailable(const int& port, const string& proto = "udp");
-bool curlGetRequest(const string url, string& outData, const vector<string>& customHeaders);
-bool curlPostRequest(const string url, string& outData, const Json::Value& postData, const vector<string>& customHeaders);
-int curlSendRequest(CurlRequestFields& curlFields, string& outData);
+bool curlGetRequest(const std::string url, std::string& outData, long timeout_ms = 10000L);
+bool curlGetRequest(const std::string& url, const std::string& username,
+                              const std::string& password, std::string& outData);
+bool curlPostRequest(const std::string& httpUrl, const std::string& username, const std::string& password,
+        const std::string& rest_api, const std::string& params, std::string& response, bool is_digest = false, std::vector<std::string> headers = std::vector<std::string>());
+bool curlPostRequest_2(const std::string& httpUrl, std::vector<std::string> header_list, std::string& response);
+bool curlPostRequest(const std::string url, std::string& outData, const Json::Value& postData);
+bool curlDeleteRequest(const std::string& httpUrl, std::vector<std::string> header_list, std::string& response);
+int checkIfPortAvailable(const int& port, const std::string& proto = "udp");
+bool curlGetRequest(const std::string url, std::string& outData, const std::vector<std::string>& customHeaders);
+bool curlPostRequest(const std::string url, std::string& outData, const Json::Value& postData, const std::vector<std::string>& customHeaders);
+int curlSendRequest(CurlRequestFields& curlFields, std::string& outData);
 bool isTcpPortAvailable(int port);
-bool isRtspServerReachable(const string& rtsp_server, bool is_url_provided = true);
-string getUrlWithQueryParameters(const string& url, const std::map<string, string, std::less<>>& queryParams);
+bool isRtspServerReachable(const std::string& rtsp_server, bool is_url_provided = true);
+std::string getUrlWithQueryParameters(const std::string& url, const std::map<std::string, std::string, std::less<>>& queryParams);
 
 // HTTP utility functions for safer operations
 bool safeStringEqual(const char* str1, const char* str2);

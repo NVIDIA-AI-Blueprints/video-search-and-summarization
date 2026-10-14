@@ -34,6 +34,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
@@ -80,6 +81,10 @@ AGENT_ROUTE_BASE_URL_ENV = "SKILL_EVAL_AGENT_ROUTE_BASE_URL"
 # environment before this wrapper intervenes.
 HARBOR_BASE_PHASE_TIMEOUT_SEC = 600
 HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 3.0
+# Cold local NIMs download both the image and model weights before Harbor can
+# install its agent. DGX Spark Qwen3-32B weights can take over 30 minutes to
+# download, so give that environment phase room without extending hosted jobs.
+LOCAL_NIM_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 10.0
 NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 10.0
 # Deploy steps pull container images and model weights before the scenario's
 # own work starts, so a one-hour scenario budget left them finishing at
@@ -129,12 +134,9 @@ HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC = (
 MIN_HARBOR_BACKSTOP_SEC = (
     HARBOR_PHASE_BUDGET_SEC + HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC
 )
-# Stay strictly above the minimum rather than making the validation boundary
-# itself the default.  The round 230-minute backstop leaves another 32 minutes
-# for scheduling jitter and bounded teardown that does not transfer files -
-# the same headroom the 200-minute backstop gave before the agent phase grew
-# to 90 minutes.
-DEFAULT_HARBOR_TIMEOUT_SEC = 13_800
+# Stay above the local-NIM phase total too, with room for scheduling jitter
+# and bounded teardown that does not transfer files.
+DEFAULT_HARBOR_TIMEOUT_SEC = 17_400
 
 # A single remote agent command must not be killed by Brev before Harbor's own
 # agent deadline can fire and drive normal artifact/environment cleanup.
@@ -328,10 +330,12 @@ def build_harbor_command(
     anthropic_base_url: str,
     agent: str = "claude-code",
     agent_timeout_multiplier: float = HARBOR_AGENT_TIMEOUT_MULTIPLIER,
+    local_nim: bool = False,
 ) -> list[str]:
     environment_import_path = "envs.brev_env:BrevEnvironment"
     environment_build_timeout_multiplier = (
-        HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
+        LOCAL_NIM_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
+        if local_nim else HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
     )
     if agent == "codex":
         # Custom NvCodex subclass (agents/nv_codex.py) keeps the full
@@ -349,7 +353,7 @@ def build_harbor_command(
         ]
     elif agent == "claude-code":
         agent_flags = [
-            "-a", "claude-code",
+            "-a", "agents.nv_claude_code:NvClaudeCode",
             "--model", model,
             "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
             "--ae", f"ANTHROPIC_API_KEY=${{{AGENT_ROUTE_API_KEY_ENV}}}",
@@ -811,53 +815,6 @@ def nemoclaw_sandbox_name(run_id: str, leg_slug: str) -> str:
     # ``se-`` + six run-id characters + ``-`` + eight digest characters =
     # 18 characters: valid for the 19-character NemoClaw limit.
     return f"se-{safe_run_id[-6:]}-{digest}"
-
-
-def prepare_nemoclaw_setup_task(
-    invocation: HarborInvocation,
-    operational_skill: str,
-) -> None:
-    """Make the spec's first task provision VSS and NemoClaw via Build Vision AI.
-
-    The generated task remains authoritative for the deployment intent and its
-    checks.  This only supplies the orchestration skill and tells the coding
-    agent which harness the current eval requested.
-    """
-    task_dir = invocation.harbor_root / invocation.include_task_name
-    instruction_path = task_dir / "instruction.md"
-    if not instruction_path.is_file():
-        raise FileNotFoundError(f"setup instruction missing: {instruction_path}")
-    build_vision_skill = REPO_ROOT / "skills" / "vss-build-vision-ai"
-    if not (build_vision_skill / "SKILL.md").is_file():
-        raise FileNotFoundError(f"Build Vision AI skill missing: {build_vision_skill}")
-
-    original_instruction = instruction_path.read_text(encoding="utf-8")
-    harness_requirement = f"""
-
-## Selected agent harness: NemoClaw
-
-The evaluation query above is the complete deployment/setup intent. Fulfil it
-through `/vss-build-vision-ai` and attach NemoClaw to that same build before
-returning. Use the existing `$NEMOCLAW_SANDBOX_NAME` and model-provider
-environment values unchanged, install `/{operational_skill}` in that sandbox,
-and complete Build Vision AI's documented readiness verification. The task is
-not complete until `openshell sandbox get "$NEMOCLAW_SANDBOX_NAME"` succeeds
-and the sandbox gateway is ready. Include the sandbox name and Agent UI link in
-the final response. Run non-interactively with the query's choices and the
-documented defaults.
-"""
-    instruction_path.write_text(
-        original_instruction.rstrip() + harness_requirement,
-        encoding="utf-8",
-    )
-
-    skills_dir = task_dir / "skills"
-    skills_dir.mkdir(exist_ok=True)
-    shutil.copytree(
-        build_vision_skill,
-        skills_dir / "vss-build-vision-ai",
-        dirs_exist_ok=True,
-    )
 
 
 def attempt_lock_timeout(
@@ -1337,6 +1294,44 @@ def latest_reward(
     return latest.read_text().strip()
 
 
+def latest_trial_exception(
+    results_root: Path,
+    include_task_name: str,
+    started_at: float,
+) -> str | None:
+    """Read this invocation's structured failure, independent of its reward.
+
+    Harbor can exit zero and run the verifier after an agent timeout. A
+    passing reward in that case does not mean setup finished successfully.
+    Ignore earlier invocations and job-level aggregate result files.
+    """
+    matches = [
+        path
+        for path in results_root.glob(f"*/{include_task_name}__*/result.json")
+        if path.stat().st_mtime >= started_at
+    ]
+    if not matches:
+        return None
+    latest = max(matches, key=lambda path: path.stat().st_mtime)
+    try:
+        payload = json.loads(latest.read_text())
+    except (OSError, ValueError):
+        return "unreadable trial result"
+    if not isinstance(payload, dict):
+        return "invalid trial result"
+    info = payload.get("exception_info")
+    if not info:
+        return None
+    # Log the exception type only; messages and tracebacks can contain secrets.
+    if isinstance(info, dict):
+        exception_type = info.get("exception_type")
+        if isinstance(exception_type, str) and re.fullmatch(
+            r"[A-Za-z][A-Za-z0-9_]{0,100}", exception_type
+        ):
+            return exception_type
+    return "Harbor trial exception"
+
+
 def _coordinator_env_id() -> str | None:
     """Brev env id of the COORDINATOR host — the box running `harbor view`.
 
@@ -1561,6 +1556,139 @@ def cleanup_deferred_agent_run(instance: str, marker: str) -> None:
         )
 
 
+def allocate_gateway_ports(instance: str, owner: str, preferred: list[int], env: dict[str, str], *, exact=False) -> list[int]:
+    """Claim an available namespace on the locked worker before Harbor starts."""
+    script = (REPO_ROOT / ".github/skill-eval/nemoclaw/gateway_state.py").read_text()
+    args = [owner, *(str(port) for port in preferred), "--allocate"]
+    if exact:
+        args.append("--exact")
+    command = "python3 -c " + shlex.quote(script) + " " + shlex.join(args)
+    result = subprocess.run(
+        ["uvx", "--python", sys.executable, "--from", HARBOR_REQUIREMENT, "python", "-c",
+         "import asyncio,sys; from envs.brev_env import _run_brev_exec_retry; "
+         "r=asyncio.run(_run_brev_exec_retry(sys.argv[1],sys.argv[2],timeout=30)); "
+         "print(r.stdout or ''); print(r.stderr or '',file=sys.stderr); sys.exit(r.return_code)",
+         instance, command],
+        cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=150, check=False,
+    )
+    if result.returncode:
+        raise RuntimeError("NemoClaw gateway allocation failed: " + (result.stderr or result.stdout or "")[-1000:])
+    records = [json.loads(line.split("=", 1)[1]) for line in (result.stdout or "").splitlines() if line.startswith("NEMOCLAW_GATEWAY_ALLOCATION=")]
+    if len(records) != 1 or records[0].get("owner") != owner:
+        raise RuntimeError("missing or mismatched gateway allocation receipt")
+    ports = records[0].get("ports")
+    if not isinstance(ports, list) or len(ports) != 3 or any(type(p) is not int or not 1024 <= p <= 65535 for p in ports) or len(set(ports)) != 3 or ports[0] == 8080:
+        raise RuntimeError("invalid gateway allocation ports")
+    if exact and ports != preferred:
+        raise RuntimeError("gateway allocation changed explicitly requested ports")
+    print(f"[run-leg] selected eval gateway/dashboard/relay ports: {ports}", flush=True)
+    return ports
+
+
+def spark_instance() -> str:
+    """Resolve the operator-selected external node, never a cloud fallback."""
+    from local_nim import SPARK_NODE_ID, SPARK_NODE_NAME
+
+    def node_id(node: dict) -> str | None:
+        return node.get("external_node_id") or node.get("id")
+
+    nodes = _list_registered_nodes()
+    matches = [node for node in nodes if node_id(node) == SPARK_NODE_ID]
+    if not matches:
+        matches = [
+            node
+            for node in nodes
+            if (node.get("name") or "").casefold() == SPARK_NODE_NAME.casefold()
+        ]
+        if any(node_id(node) and node_id(node) != SPARK_NODE_ID for node in matches):
+            raise ValueError("Spark node name now belongs to a different Brev node ID")
+    if len(matches) != 1:
+        raise ValueError(
+            f"Spark worker {SPARK_NODE_NAME} ({SPARK_NODE_ID}) is missing or ambiguous"
+        )
+    node = matches[0]
+    name = node["name"]
+    if (node.get("status") or "").lower() != "connected":
+        # Registered-node status can lag a working Brev SSH connection.
+        # Only the explicitly selected, identity-checked Spark may use this
+        # fallback; automatic pool selection still requires Connected.
+        print(
+            f"[run-leg] Spark registry status: {node.get('status')!r}; "
+            "checking SSH reachability before rejecting worker",
+            flush=True,
+        )
+        try:
+            probe = subprocess.run(
+                ["ssh", "-T", "-o", "BatchMode=yes", "-o",
+                 "ConnectTimeout=10", "-o", "ConnectionAttempts=1",
+                 name.lower(), "true"],
+                capture_output=True, text=True, timeout=20,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            raise ValueError(
+                f"Spark worker {name} reports {node.get('status')!r} "
+                f"and its SSH probe failed ({type(exc).__name__})"
+            ) from exc
+        if probe.returncode != 0:
+            raise ValueError(
+                f"Spark worker {name} reports {node.get('status')!r} "
+                f"and its SSH probe failed (exit {probe.returncode}); "
+                "verify the coordinator's Brev SSH alias and connection"
+            )
+        print("[run-leg] Spark SSH probe succeeded despite registry status", flush=True)
+    return name
+
+
+def selected_instance(instance: str | None, metadata: dict, platform: str) -> str | None:
+    """Keep the Spark checkbox authoritative over platform and instance hints."""
+    from local_nim import SPARK_NODE_NAME
+
+    if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
+        pinned = spark_instance()
+        if instance and instance.casefold() != pinned.casefold():
+            raise ValueError("--instance conflicts with the selected Spark worker")
+        return pinned
+    pinned = instance or metadata.get("brev_instance") or None
+    if (
+        platform == "DGX-SPARK"
+        or (metadata.get("gpu_type") or "").upper() == "GB10"
+        or (pinned and pinned.casefold() == SPARK_NODE_NAME.casefold())
+    ):
+        raise ValueError("Spark trials require SKILLS_EVAL_SPARK_RUNNER=true (select the Spark checkbox)")
+    return pinned
+
+
+def cleanup_local_nims(instance: str, owner: str) -> None:
+    # Use the same transport as Harbor (registered nodes use SSH). The file
+    # is uploaded before start, so cleanup also covers interrupted readiness.
+    command = f"python3 /tmp/skill-eval-nim-{owner}.py cleanup --owner {owner}"
+    result = subprocess.run(
+        [
+            "uvx",
+            "--python",
+            sys.executable,
+            "--from",
+            HARBOR_REQUIREMENT,
+            "python",
+            "-c",
+            "import asyncio,sys; from envs.brev_env import _run_brev_exec; "
+            "r=asyncio.run(_run_brev_exec(sys.argv[1],sys.argv[2],timeout=90)); "
+            "print(r.stdout or ''); print(r.stderr or '',file=sys.stderr); sys.exit(r.return_code)",
+            instance,
+            command,
+        ],
+        cwd=REPO_ROOT,
+        env=harbor_env(instance),
+        timeout=120,
+        check=False,
+    )
+    if result.returncode:
+        print(
+            "[run-leg] local NIM cleanup failed; next worker reset will reconcile containers",
+            file=sys.stderr,
+        )
+
+
 def run_invocations(
     invocations: list[HarborInvocation],
     instance: str,
@@ -1572,7 +1700,98 @@ def run_invocations(
     model_routes: SkillEvalModelRoutes,
     work_deadline: float | None = None,
 ) -> int:
+    from local_nim import LOCAL_NIM_CLIENT_KEY, PROXY_PORT
+
+    routes = [
+        r
+        for r in (model_routes.coding, model_routes.operational)
+        if r.provider == "local-nim"
+    ]
+    if not routes:
+        return _run_invocations(
+            invocations,
+            instance,
+            results_root,
+            scratch,
+            spec_stem,
+            platform,
+            harbor_timeout_sec,
+            model_routes,
+            work_deadline,
+        )
+    owner = hashlib.sha256(str(results_root).encode()).hexdigest()[:24]
+    plan = {
+        "owner": owner,
+        "routes": [
+            {"role": r.role, "model": r.model, "runtime": r.runtime} for r in routes
+        ],
+    }
+
+    def local_route(route):
+        return (
+            dataclasses.replace(
+                route, api_key=LOCAL_NIM_CLIENT_KEY,
+                endpoint_url=f"http://127.0.0.1:{PROXY_PORT}/v1"
+            )
+            if route.provider == "local-nim"
+            else route
+        )
+
+    resolved = SkillEvalModelRoutes(
+        coding=local_route(model_routes.coding),
+        operational=local_route(model_routes.operational),
+    )
+    results_root.mkdir(parents=True, exist_ok=True)
+    (results_root / "model-deployments.json").write_text(
+        json.dumps(
+            {
+                "worker": instance,
+                "routes": [
+                    {"role": r.role, "deployment": r.provider, "model": r.model}
+                    for r in (resolved.coding, resolved.operational)
+                ],
+            },
+            indent=2,
+        )
+    )
+    try:
+        return _run_invocations(
+            invocations,
+            instance,
+            results_root,
+            scratch,
+            spec_stem,
+            platform,
+            harbor_timeout_sec,
+            resolved,
+            work_deadline,
+            nim_plan=plan,
+        )
+    finally:
+        try:
+            cleanup_local_nims(instance, owner)
+        except Exception as exc:
+            print(
+                f"[run-leg] local NIM cleanup failed: {type(exc).__name__}",
+                file=sys.stderr,
+            )
+
+
+def _run_invocations(
+    invocations: list[HarborInvocation],
+    instance: str,
+    results_root: Path,
+    scratch: Path,
+    spec_stem: str,
+    platform: str,
+    harbor_timeout_sec: int,
+    model_routes: SkillEvalModelRoutes,
+    work_deadline: float | None = None,
+    nim_plan: dict | None = None,
+) -> int:
     env = harbor_env(instance)
+    if nim_plan is not None:
+        env["SKILL_EVAL_LOCAL_NIM_PLAN"] = json.dumps(nim_plan)
 
     results_root.mkdir(parents=True, exist_ok=True)
     # skills-eval.yml passes --results-root as <...>/results/<slug>/<run_id>;
@@ -1600,34 +1819,62 @@ def run_invocations(
     nemoclaw_setups: dict[str, HarborInvocation] = {}
     deferred_agent_marker: str | None = None
     operational_config = model_routes.operational
+    env["SKILLS_EVAL_OPERATIONAL_HARNESS"] = operational_config.runtime
     if operational_eval and operational_config.runtime == "nemoclaw":
         nemoclaw_setups = coding_setups
-        operational_skill = os.environ.get("EVAL_SKILL", "operational-skill")
-        try:
-            for setup in nemoclaw_setups.values():
-                prepare_nemoclaw_setup_task(setup, operational_skill)
-        except OSError as exc:
-            print(f"FATAL: could not prepare NemoClaw setup task: {exc}", file=sys.stderr)
-            return 1
 
         derived_sandbox_name = nemoclaw_sandbox_name(run_id, leg_slug)
         sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME") or derived_sandbox_name
         # Provisioning and later scenarios address one per-leg sandbox, so a
         # warm worker cannot inherit another evaluation's sessions.
         env["NEMOCLAW_SANDBOX_NAME"] = sandbox_name
+        # A sandbox name does not isolate NemoClaw's provider-global inference
+        # route. Non-default gateway ports select separate host registries.
+        # Keep one gateway/dashboard/relay triplet through every step of this
+        # leg; the worker claims its namespace before the coding agent starts.
+        identity = hashlib.sha256(f"{run_id}:{leg_slug}".encode()).hexdigest()
+        gateway_port = 21000 + 3 * (int(identity[:8], 16) % 3000)
+        for key, port in (
+            ("NEMOCLAW_GATEWAY_PORT", gateway_port),
+            ("NEMOCLAW_DASHBOARD_PORT", gateway_port + 1),
+            ("NEMOCLAW_DASHBOARD_RELAY_PORT", gateway_port + 2),
+        ):
+            env.setdefault(key, str(port))
+        env["SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER"] = identity
+        port_keys = ("NEMOCLAW_GATEWAY_PORT", "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_DASHBOARD_RELAY_PORT")
+        with phase("allocate:nemoclaw-gateway"):
+            selected_ports = allocate_gateway_ports(
+                instance, identity, [int(env[key]) for key in port_keys], env,
+                exact=any(key in os.environ for key in port_keys),
+            )
+        env.update({key: str(port) for key, port in zip(port_keys, selected_ports)})
+        # Fixture requirements belong to the spec, not appended prompts.
+        fixture_spec = REPO_ROOT / spec_path
+        env.pop("SKILL_EVAL_NEMOCLAW_FIXTURES", None)
+        if fixture_spec.is_file():
+            fixtures = json.loads(fixture_spec.read_text()).get("sandbox_fixtures", [])
+            if fixtures:
+                env["SKILL_EVAL_NEMOCLAW_FIXTURES"] = json.dumps(fixtures)
         env.setdefault("NEMOCLAW_RECREATE_SANDBOX", "0")
         env.update(
             {
                 "NEMOCLAW_POLICY_MODE": os.environ.get("NEMOCLAW_POLICY_MODE", "skip"),
                 # Build Vision AI calls an OpenAI-compatible endpoint a
-                # "custom" provider. The endpoint itself is always the fixed
-                # public NVIDIA inference route resolved by model_config.py.
+                # "custom" provider. For local NIM the worker replaces the
+                # loopback URL with its routable host address during start().
                 "NEMOCLAW_PROVIDER": "custom",
                 "NEMOCLAW_ENDPOINT_URL": operational_config.endpoint_url,
                 "NEMOCLAW_MODEL": operational_config.model,
             }
         )
         env["COMPATIBLE_API_KEY"] = operational_config.api_key
+        if operational_config.provider == "local-nim":
+            # Clients require a non-empty API key even though the job-owned
+            # proxy does not authenticate it. Never forward a hosted key.
+            env["SKILL_EVAL_LOCAL_NIM_API_KEY"] = operational_config.api_key
+            # NemoClaw's inference proxy rewrites private endpoints to HTTPS
+            # on port 443. The worker NIM adapter serves plain HTTP on 18400.
+            env["NEMOCLAW_INFERENCE_PROXY"] = "0"
         env["BREV_EXEC_TIMEOUT"] = str(
             max(
                 int(env.get("BREV_EXEC_TIMEOUT", "0")),
@@ -1715,6 +1962,7 @@ def run_invocations(
             invocation_model,
             invocation_base_url,
             invocation_agent,
+            local_nim=nim_plan is not None,
             **command_kwargs,
         )
         invocation_env = env.copy()
@@ -1724,8 +1972,10 @@ def run_invocations(
             # The parent ANTHROPIC_* values therefore remain the coordinator's
             # verifier route rather than being replaced by the evaluated route.
             invocation_env[AGENT_ROUTE_API_KEY_ENV] = invocation_config.api_key
-            invocation_env[AGENT_ROUTE_BASE_URL_ENV] = _api_base_v1(
-                invocation_base_url
+            invocation_env[AGENT_ROUTE_BASE_URL_ENV] = (
+                invocation_base_url.removesuffix("/v1")
+                if invocation_config.provider == "local-nim"
+                else _api_base_v1(invocation_base_url)
             )
         elif invocation_agent == "codex":
             invocation_env[AGENT_ROUTE_API_KEY_ENV] = invocation_config.api_key
@@ -1741,12 +1991,17 @@ def run_invocations(
             publish_trace(results_root, invocation, started_at, leg_slug, run_id)
         except Exception as exc:  # noqa: BLE001
             # A trace link is reporting convenience; the verdict comes from
-            # reward.txt. Never let a viewer-publish error fail the leg.
+            # trial result and reward. A viewer-publish error does not fail the leg.
             print(f"[run-leg] trace publish failed: {exc!r}", flush=True)
         if rc != 0 and overall_rc == 0:
             overall_rc = rc
 
         reward: str | None = None
+        trial_exception = latest_trial_exception(
+            results_root, invocation.include_task_name, started_at
+        )
+        if trial_exception is not None and overall_rc == 0:
+            overall_rc = 1
         if is_coding_setup or (
             invocation.step_index is not None and invocation.step_count is not None
         ):
@@ -1754,13 +2009,17 @@ def run_invocations(
             reward_value = _reward_value(reward)
             print(
                 f"[run-leg] {invocation.chain_key}/{invocation.include_task_name} "
-                f"rc={rc} reward={reward if reward is not None else 'missing'}",
+                f"rc={rc} reward={reward if reward is not None else 'missing'} "
+                f"exception={trial_exception or 'none'}",
                 flush=True,
             )
             if (
                 invocation.step_index is not None
                 and invocation.step_count is not None
-                and (rc == 124 or rc >= 128 or reward_value < 1.0)
+                and (
+                    rc == 124 or rc >= 128 or reward_value < 1.0
+                    or trial_exception is not None
+                )
             ):
                 write_skip_markers(
                     scratch,
@@ -1773,7 +2032,7 @@ def run_invocations(
                 skipped_after[invocation.chain_key] = invocation.step_index
 
         if is_coding_setup:
-            if rc != 0 or _reward_value(reward) < 1.0:
+            if rc != 0 or _reward_value(reward) < 1.0 or trial_exception is not None:
                 if overall_rc == 0:
                     overall_rc = rc or 1
                 if (
@@ -1917,7 +2176,7 @@ def main(argv: list[str] | None = None) -> int:
         effective_lock_timeout = min(args.lock_timeout_sec, max_lock_wait)
         # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
         # > task.toml brev_instance > pool selection.
-        pinned = args.instance or metadata.get("brev_instance") or None
+        pinned = selected_instance(args.instance, metadata, args.platform)
         if pinned:
             print(f"[run-leg] pinned instance: {pinned} (pool selection skipped)",
                   flush=True)

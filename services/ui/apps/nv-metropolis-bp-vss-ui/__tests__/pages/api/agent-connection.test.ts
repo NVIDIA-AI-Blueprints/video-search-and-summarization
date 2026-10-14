@@ -112,14 +112,31 @@ describe('NemoClaw runtime token', () => {
     expect(globalThis.__vssEmbeddedAgentAdapterSessions?.size ?? 0).toBe(0);
   });
 
-  it('rechecks a cached token before serving later agent requests', async () => {
-    getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'revoked-token' });
-    jest.spyOn(OpenClawConnector.prototype, 'checkConnection')
+  it('serves an accepted token without another gateway handshake', async () => {
+    const check = jest.spyOn(OpenClawConnector.prototype, 'checkConnection').mockResolvedValue();
+    const first = response();
+    await agentAdapterHandler(request('capabilities', 'GET', 'valid-token'), first);
+    expect(first.statusCode).toBe(200);
+    expect(check).toHaveBeenCalledTimes(1);
+
+    check.mockRejectedValue(new ConnectorError('unreachable', 'backend_unreachable'));
+    const later = response();
+    await agentAdapterHandler(request('capabilities', 'GET', 'valid-token'), later);
+    expect(later.statusCode).toBe(200);
+    expect(check).toHaveBeenCalledTimes(1);
+  });
+
+  it('rechecks a token after a run reports it rejected', async () => {
+    const service = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'revoked-token' });
+    service!.credentialsRejected = true;
+    const check = jest.spyOn(OpenClawConnector.prototype, 'checkConnection')
       .mockRejectedValue(new ConnectorError('rejected', 'backend_auth_error'));
     const capabilities = response();
     await agentAdapterHandler(request('capabilities', 'GET', 'revoked-token'), capabilities);
+    expect(check).toHaveBeenCalledTimes(1);
     expect(capabilities.statusCode).toBe(401);
     expect(capabilities.body).toMatchObject({ error: { code: 'backend_auth_error' } });
+    expect(globalThis.__vssEmbeddedAgentAdapterSessions?.size ?? 0).toBe(0);
   });
 
   it('retains finished run history after evicting an idle token connector', () => {
@@ -187,15 +204,17 @@ describe('NemoClaw runtime token', () => {
     } as unknown as RunRecord;
     jest.spyOn(service!.store, 'get').mockReturnValue(record);
     const cancel = jest.spyOn(service!, 'cancelRun').mockResolvedValue(record);
-    jest.spyOn(OpenClawConnector.prototype, 'checkConnection')
-      .mockRejectedValueOnce(new ConnectorError('unreachable', 'backend_unreachable'))
-      .mockRejectedValueOnce(new ConnectorError('rejected', 'backend_auth_error'));
+    const check = jest.spyOn(OpenClawConnector.prototype, 'checkConnection')
+      .mockRejectedValue(new ConnectorError('unreachable', 'backend_unreachable'));
 
     const result = response();
     await agentAdapterHandler(request('runs/run-1/cancel', 'POST', 'valid-token'), result);
     expect(result.statusCode).toBe(202);
     expect(cancel).toHaveBeenCalledWith('run-1');
+    expect(check).not.toHaveBeenCalled();
 
+    service!.credentialsRejected = true;
+    check.mockRejectedValue(new ConnectorError('rejected', 'backend_auth_error'));
     const rejected = response();
     await agentAdapterHandler(request('runs/run-1/cancel', 'POST', 'valid-token'), rejected);
     expect(rejected.statusCode).toBe(401);

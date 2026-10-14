@@ -38,7 +38,7 @@ class SensorManagement;
         virtual ~SensorMonitoring()
         {
             std::lock_guard<std::mutex> lock(m_discoveryObjectsLock);
-            LOG(info) << "Destroying Sesnor Status Monitor" << endl;
+            LOG(info) << "Destroying Sesnor Status Monitor" << std::endl;
             for (ISensorDiscoveryInterface* object : m_discoveryObjects)
             {
                 object->deregisterSensorDiscoveryListener(this);
@@ -62,8 +62,8 @@ class SensorManagement;
         // ISensorDiscoveryEvent Interfaces
         int onSensorFound(SensorInfo& sensorInfo);
         int onSensorChanged(SensorInfo& sensorInfo);
-        int onSensorRemoved(const string& sensor_id);
-        void notifyEvent(const SensorStatus& status, const string& url, const string &ipc_url = "") override;
+        int onSensorRemoved(const std::string& sensor_id);
+        void notifyEvent(const SensorStatus& status, const std::string& url, const std::string &ipc_url = "") override;
         void refreshSensorList();
         void addAndRegisterDiscoveryObject(ISensorDiscoveryInterface* discoveryObject);
         void removeAndDeRegisterDiscoveryObject(ISensorDiscoveryInterface* discoveryObject);

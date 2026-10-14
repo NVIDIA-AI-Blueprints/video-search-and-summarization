@@ -29,6 +29,7 @@
 #include <stdexcept>
 
 using namespace nv_vms;
+using namespace std;
 
 static void sensorDetailsHelper(SensorDetailsDBColumns &row, unordered_map<string, string> &entries)
 {

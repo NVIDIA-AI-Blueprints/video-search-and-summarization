@@ -156,6 +156,14 @@ when dense vectors are being indexed, use `nvtop` or `nvidia-smi`.
 | `mdx-usd-assets` | Stores USD (Universal Scene Description) assets configuration. |
 | `mdx-road-network` | Stores road network configuration data. |
 | `mdx-sensor-lookup` | Stores sensor lookup information for coordinate mapping. |
+| `default_<normalized-stream-id>` or a custom collection name | Stores video captions and summaries received from `mdx-vlm-captions` and `mdx-structured-events-summary`. See the naming examples below. |
+| `ab-alert_configs` | Stores Alert Bridge alert configurations when Elasticsearch persistence is enabled. |
+| `ab-confirmed-verdicts` | Stores confirmed Alert Bridge verdicts used for deduplication. |
+
+Caption and summary indices use a collection name rather than the Kafka topic name or a daily suffix:
+
+- If the message includes `info.collection_name`, Logstash uses that value as the index name. For example, `collection_name: "warehouse-summary"` writes to `warehouse-summary`.
+- Otherwise, Logstash prefixes the stream ID with `default_`, replacing hyphens, slashes, backslashes, and spaces with underscores. For example, `streamId: "camera-01"` writes to `default_camera_01`.
 
 <Note>
 You can use the Elasticsearch Python library to query the indices. Refer to the [Elasticsearch Python client](https://elasticsearch-py.readthedocs.io/en/v9.2.0/) for the library reference and sample code.

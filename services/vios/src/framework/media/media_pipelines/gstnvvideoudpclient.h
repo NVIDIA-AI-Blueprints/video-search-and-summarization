@@ -36,7 +36,7 @@ namespace nv_vms
     class GstUDPVideoClient : public UdpClient, public DecoderBase
     {
         public:
-            GstUDPVideoClient (const string&  id, UdpStream& stream);
+            GstUDPVideoClient (const std::string&  id, UdpStream& stream);
             ~GstUDPVideoClient ();
 
             // UdpClient interfaces
@@ -65,7 +65,7 @@ namespace nv_vms
             void setSourceFrameSize(uint32_t w, uint32_t h);
             void fpsDisplay(unsigned long pts);
             void checkVideoDataFlowStatus();
-            void displayFPS(unsigned long pts, string peerId_streamId) { m_fpsDisplay->displayFPS(pts, peerId_streamId); }
+            void displayFPS(unsigned long pts, std::string peerId_streamId) { m_fpsDisplay->displayFPS(pts, peerId_streamId); }
             EventLoop *getEventLoop() { return &m_eventLoop; }
 
         public:

@@ -17,6 +17,8 @@
 
 #include "webrtcDataChannel.h"
 
+using namespace std;
+
 WebrtcDataChannel* WebrtcDataChannel::m_instance = nullptr;
 
 void WebrtcDataChannel::addChannelObserver(std::string clientId, webrtc::scoped_refptr<webrtc::DataChannelInterface> channel)

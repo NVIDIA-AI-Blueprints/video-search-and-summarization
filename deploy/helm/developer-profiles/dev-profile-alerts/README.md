@@ -97,7 +97,7 @@ With default **`values.yaml`** and the mode values files, the stack requests **4
 
 ### Chart / tooling
 
-- **Helm** 3.x
+- **Helm** 3.7+
 - **Kubectl**
 - **GPUs**: see [GPU requirements](#gpu-requirements) (4 for verification and 3 for real-time with defaults).
 - **NVIDIA NIM** (if using NIM subcharts): NIM Operator on the cluster (see [Prerequisites](#prerequisites) above).

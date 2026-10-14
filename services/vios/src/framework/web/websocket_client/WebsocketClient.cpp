@@ -20,6 +20,7 @@
 #include "database.h"
 
 using namespace std;
+using namespace nv_vms;
 
 constexpr const char* WEBSOCKET_SERVER_PATH = "/vms/ws?connectionId=";
 constexpr const char* HTTPS_PROTOCOL = "https://";

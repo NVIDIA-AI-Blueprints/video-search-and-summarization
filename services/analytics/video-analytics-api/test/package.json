@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "@elastic/elasticsearch": "9.4.3",
-    "@grpc/grpc-js": "1.14.4",
+    "@grpc/grpc-js": "1.14.5",
     "ajv": "8.20.0",
     "ajv-errors": "3.0.0",
     "ajv-formats": "^2.1.1",

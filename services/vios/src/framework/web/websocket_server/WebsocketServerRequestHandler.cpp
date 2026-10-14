@@ -28,6 +28,7 @@
 #include <SchemaValidator.h>
 
 using namespace std;
+using namespace nv_vms;
 
 bool WebsocketServerRequestHandler::handleConnection(CivetServer *server, const struct mg_connection *conn)
 {

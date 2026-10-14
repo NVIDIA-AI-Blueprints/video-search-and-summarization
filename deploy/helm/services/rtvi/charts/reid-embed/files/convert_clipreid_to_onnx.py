@@ -72,6 +72,13 @@ def convert_to_onnx(repo_dir, checkpoint, output_path):
 
     _require_checkpoint_digest(checkpoint)
 
+    # torch.cuda.device_count() trusts NVML over the CUDA runtime. On IGX Thor NVML
+    # enumerates more devices than the runtime exposes, so torch's startup
+    # _check_capability() walks to an index the runtime rejects
+    # ("device=1, num_gpus=1"). Pinning the set before torch is imported makes both
+    # counts agree.
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
+
     import torch
     from yacs.config import CfgNode
     from model.make_model_clipreid import make_model

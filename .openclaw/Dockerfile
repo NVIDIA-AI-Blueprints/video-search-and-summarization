@@ -65,10 +65,11 @@ ARG VSS_REF=develop
 # does not descend from BASE_IMAGE because OpenShell builds through the Docker
 # Engine API, i.e. the legacy builder, where an ENV inherited from the base
 # image wins over a same-named ARG in RUN and in ENV substitution alike. The
-# base exports all five, so declaring them in the final stage reads back the
-# base image's model however faithfully onboard patched this file.
+# base exports these values, so declaring them in the final stage reads back
+# the base image's defaults however faithfully onboard patched this file.
 ARG NEMOCLAW_PRIMARY_MODEL_REF=
 ARG NEMOCLAW_MODEL=
+ARG NEMOCLAW_INFERENCE_BASE_URL=
 ARG NEMOCLAW_CONTEXT_WINDOW=
 ARG NEMOCLAW_MAX_TOKENS=
 ARG CHAT_UI_URL=
@@ -77,12 +78,14 @@ ARG CHAT_UI_URL=
 FROM ${BUILDER_IMAGE} AS onboard-args
 ARG NEMOCLAW_PRIMARY_MODEL_REF
 ARG NEMOCLAW_MODEL
+ARG NEMOCLAW_INFERENCE_BASE_URL
 ARG NEMOCLAW_CONTEXT_WINDOW
 ARG NEMOCLAW_MAX_TOKENS
 ARG CHAT_UI_URL
 RUN mkdir -p /onboard \
     && printf '%s' "$NEMOCLAW_PRIMARY_MODEL_REF" > /onboard/NEMOCLAW_PRIMARY_MODEL_REF \
     && printf '%s' "$NEMOCLAW_MODEL" > /onboard/NEMOCLAW_MODEL \
+    && printf '%s' "$NEMOCLAW_INFERENCE_BASE_URL" > /onboard/NEMOCLAW_INFERENCE_BASE_URL \
     && printf '%s' "$NEMOCLAW_CONTEXT_WINDOW" > /onboard/NEMOCLAW_CONTEXT_WINDOW \
     && printf '%s' "$NEMOCLAW_MAX_TOKENS" > /onboard/NEMOCLAW_MAX_TOKENS \
     && printf '%s' "$CHAT_UI_URL" > /onboard/CHAT_UI_URL
@@ -302,6 +305,7 @@ COPY apply-onboard-config.py /usr/local/bin/vss-apply-onboard-config
 RUN chmod 755 /usr/local/bin/vss-apply-onboard-config \
     && NEMOCLAW_PRIMARY_MODEL_REF="$(cat /etc/vss-onboard-args/NEMOCLAW_PRIMARY_MODEL_REF)" \
        NEMOCLAW_MODEL="$(cat /etc/vss-onboard-args/NEMOCLAW_MODEL)" \
+       NEMOCLAW_INFERENCE_BASE_URL="$(cat /etc/vss-onboard-args/NEMOCLAW_INFERENCE_BASE_URL)" \
        NEMOCLAW_CONTEXT_WINDOW="$(cat /etc/vss-onboard-args/NEMOCLAW_CONTEXT_WINDOW)" \
        NEMOCLAW_MAX_TOKENS="$(cat /etc/vss-onboard-args/NEMOCLAW_MAX_TOKENS)" \
        CHAT_UI_URL="$(cat /etc/vss-onboard-args/CHAT_UI_URL)" \
@@ -363,6 +367,27 @@ RUN rm -f /etc/profile.d/nemoclaw-rlimits.sh \
 # with "/sandbox/.nvm/nvm.sh: No such file or directory".
 # (Kaniko does not support heredocs in RUN; the shim ships as a context file.)
 COPY --chown=sandbox:sandbox nvm-shim.sh /sandbox/.nvm/nvm.sh
+
+# ── VLM request defaults for `vss vlm run` ────────────────────────────────────
+# Runtime variables, declared empty: the CLI reads empty as unset, so the VLM
+# server's own behavior applies until a sandbox sets one (`openshell sandbox
+# create --env VSS_VLM_FPS=2`, `docker run -e …`). VSS_VLM_LOCKED=true makes
+# the values set here win and locks them against agent overrides; the default
+# false adds no lock. VSS_VLM_API_KEY (the endpoint's Bearer token) is set the
+# same way and deliberately not declared.
+# Names and meanings: libs/vss/cli/README.md ("Configure VLM requests").
+ENV VSS_VLM_BACKEND= \
+    VSS_VLM_MODEL= \
+    VSS_VLM_TIMEOUT= \
+    VSS_VLM_TEMPERATURE= \
+    VSS_VLM_MAX_TOKENS= \
+    VSS_VLM_SEED= \
+    VSS_VLM_ENABLE_REASONING= \
+    VSS_VLM_CHUNK_DURATION= \
+    VSS_VLM_FPS= \
+    VSS_VLM_MAX_FRAMES= \
+    VSS_VLM_TOTAL_PIXELS= \
+    VSS_VLM_LOCKED=false
 
 # Final USER is the non-root default OpenShell requires. WORKDIR /sandbox makes
 # /sandbox the OpenShell workspace (OpenShell derives it from the OCI WorkingDir).

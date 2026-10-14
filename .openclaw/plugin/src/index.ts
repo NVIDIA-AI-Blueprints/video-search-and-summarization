@@ -195,9 +195,17 @@ const registerTools = vssPlugin.register;
 vssPlugin.register = (api) => {
   const a = api as unknown as WorkspaceApi & { pluginConfig?: { skillSelection?: string; vssBin?: string } };
   const pluginDir = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const syncScript = join(pluginDir, "sync_skills.py");
+  if (!existsSync(syncScript)) {
+    // Base builds ship no skills and no selector: nothing to select, so skip
+    // straight past it rather than invoking a script that isn't there and
+    // catching the resulting ENOENT as if it were a failure.
+    seedWorkspace(a);
+    return registerTools(api);
+  }
   try {
     const all = (process.env.VSS_SKILL_SELECTION ?? a.pluginConfig?.skillSelection) === "all";
-    const argv = [join(pluginDir, "sync_skills.py"), "--plugin-dir", pluginDir];
+    const argv = [syncScript, "--plugin-dir", pluginDir];
     if (all) argv.push("--all");
     if (a.pluginConfig?.vssBin) argv.push("--vss", a.pluginConfig.vssBin);
     const r = spawnSync("python3", argv, { encoding: "utf8", timeout: 120_000 });

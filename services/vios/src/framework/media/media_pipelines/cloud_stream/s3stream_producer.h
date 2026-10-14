@@ -190,7 +190,7 @@ public:
      * - sync: Enable framerate-controlled delivery (true) or fast as possible (false)
      * - enableAudio: Enable audio (true) or disable (false)
      */
-    void setConfig(const std::vector<VideoFileInfo>& fileList,
+    void setConfig(const std::vector<nv_vms::VideoFileInfo>& fileList,
         const std::string& startTime, const std::string& endTime,
         const std::string& codec, const std::string& container,
         bool syncMode, bool enableAudio);
@@ -384,7 +384,7 @@ private:
     bool m_useLocalFiles{false};
 
     // Store file list for cloud download
-    std::vector<VideoFileInfo> m_fileList;
+    std::vector<nv_vms::VideoFileInfo> m_fileList;
 
     // Track first frame PTS for relative time calculation with epoch timestamps
     std::atomic<GstClockTime> m_firstFramePtsNs{GST_CLOCK_TIME_NONE};
@@ -432,7 +432,7 @@ private:
     bool createSingleSegmentPipeline();
     bool createMultiSegmentPipeline();
     bool createLocalFilePipeline();  // New: filesrc-based pipeline with cloud download
-    void parseConfigForLocalFiles(const std::vector<VideoFileInfo>& fileList,
+    void parseConfigForLocalFiles(const std::vector<nv_vms::VideoFileInfo>& fileList,
                                    const std::string& startTime, const std::string& endTime,
                                    const std::string& codec, const std::string& container,
                                    bool syncMode, bool enableAudio);

@@ -23,7 +23,6 @@
 #include <vector>
 #include <jsoncpp/json/json.h>
 
-using namespace std;
 
 namespace nv_vms {
 

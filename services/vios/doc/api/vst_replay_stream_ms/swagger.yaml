@@ -597,9 +597,9 @@ paths:
           schema:
             type: integer
             minimum: 1
-            default: 10080
-          example: 10080
-          description: Expiration time in minutes for the URL (default 10080 - 7 days)
+            default: 60
+          example: 60
+          description: Expiration time in minutes for the URL (default 60 - 1 hour)
         - name: overlay
           in: query
           description: |
@@ -631,7 +631,7 @@ paths:
                   expiryMinutes:
                     type: integer
                     description: Expiry minutes as provided
-                    example: 10080
+                    example: 60
                   streamId:
                     type: string
                     description: Stream ID as provided

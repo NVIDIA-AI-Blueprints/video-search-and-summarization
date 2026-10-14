@@ -15,7 +15,7 @@
 
 import concurrent.futures
 import queue
-from threading import Lock
+from threading import Event, Lock, Thread
 
 import pytest
 import torch
@@ -53,6 +53,40 @@ class _NoBatchProcess(ProcessBase):
 class _BatchProcess(_NoBatchProcess):
     def _supports_batching(self):
         return True
+
+
+@pytest.mark.parametrize("is_live_stream", [True, False])
+def test_drop_mask_preserves_file_owners_and_live_retries(monkeypatch, is_live_stream):
+    """File requests own separate masks; retries of one live deletion share one."""
+    proc = _NoBatchProcess()
+    proc._disabled = False
+    proc._gpu_id = 0
+    proc._batch_size = 1
+    proc._num_futures_threads = 1
+    proc._stop = Event()
+    proc._init_done_event = Event()
+    proc._queue = queue.Queue()
+    proc._qlock = Lock()
+    proc._cmd_queue = queue.Queue()
+    proc._cmd_response_queue = queue.Queue()
+    monkeypatch.setattr(process_base_module.torch.cuda, "empty_cache", lambda: None)
+    worker = Thread(target=proc.run)
+    worker.start()
+    try:
+        assert proc._init_done_event.wait(timeout=2)
+        for command, masked in zip(
+            ("drop-chunks", "drop-chunks", "stop-drop-chunks", "stop-drop-chunks"),
+            (True, True, not is_live_stream, False),
+        ):
+            proc._cmd_queue.put(
+                {"command": command, "stream_id": "stream-1", "idempotent": is_live_stream}
+            )
+            proc._cmd_response_queue.get(timeout=2)
+            assert ("stream-1" in proc._drop_chunks_stream_list) == masked
+    finally:
+        proc._stop.set()
+        worker.join(timeout=2)
+    assert not worker.is_alive()
 
 
 def test_live_output_handoff_drops_chunk_when_host_backlog_is_full(monkeypatch):

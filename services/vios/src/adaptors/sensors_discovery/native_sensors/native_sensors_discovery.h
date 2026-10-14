@@ -39,13 +39,13 @@ private:
     int addNewSensor(SensorInfo& sensor);
     void nativeSensorsDiscoveryTask();
     std::string getDeviceName(const std::string& devicePath);
-    void doNativeSensorDiscovery(vector<SensorInfo>& sensors);
+    void doNativeSensorDiscovery(std::vector<SensorInfo>& sensors);
 
     std::thread m_nativeSensorDiscoveryThread;
     // Read by the worker loop without holding m_monitorMutex.
     std::atomic<bool> m_exit;
     std::mutex   m_monitorMutex;
-    map<string, SensorInfo> m_freshList;
+    std::map<std::string, SensorInfo> m_freshList;
     std::mutex   m_sleeperLock;
     std::condition_variable m_sleeperWait;
 };

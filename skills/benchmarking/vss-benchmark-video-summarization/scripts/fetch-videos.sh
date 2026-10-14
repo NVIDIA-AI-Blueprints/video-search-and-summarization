@@ -45,6 +45,9 @@ fi
 
 # --- 2. authenticated? ------------------------------------------------------
 export NGC_CLI_API_KEY="${NGC_CLI_API_KEY:-${NGC_API_KEY:-}}"
+export NGC_CLI_ORG="${NGC_CLI_ORG:-${RESOURCE%%/*}}"
+_resource_team="${RESOURCE#*/}"
+export NGC_CLI_TEAM="${NGC_CLI_TEAM:-${_resource_team%%/*}}"
 if [[ -z "${NGC_CLI_API_KEY}" ]] && ! ngc config current >/dev/null 2>&1; then
     echo "ERROR: ngc CLI is not authenticated." >&2
     echo "  Set NGC_CLI_API_KEY (or NGC_API_KEY), or run: ngc config set" >&2
@@ -63,10 +66,12 @@ if [[ "${all_present}" == true && "${FORCE:-}" != "1" ]]; then
 else
     # --- 4. download --------------------------------------------------------
     echo "Downloading ${RESOURCE}:${VERSION} (~2.2 GB) to ${STAGING} ..."
-    ngc registry resource download-version "${RESOURCE}:${VERSION}" --dest "${STAGING}" >/dev/null
-    DL_DIR="${STAGING}/vss-warehouse-app-data_v${VERSION}"
-    TARBALL="$(find "${DL_DIR}" -maxdepth 1 -name '*.tar.gz' 2>/dev/null | head -1)"
-    [[ -n "${TARBALL}" ]] || { echo "ERROR: package tarball not found under ${DL_DIR}" >&2; exit 1; }
+    DOWNLOAD_DIR="$(mktemp -d "${STAGING}/download.XXXXXX")"
+    cleanup_download() { rm -rf -- "${DOWNLOAD_DIR}"; }
+    trap cleanup_download EXIT
+    ngc registry resource download-version "${RESOURCE}:${VERSION}" --dest "${DOWNLOAD_DIR}" >/dev/null
+    TARBALL="$(find "${DOWNLOAD_DIR}" -maxdepth 2 -type f -name '*.tar.gz' -print -quit)"
+    [[ -n "${TARBALL}" ]] || { echo "ERROR: package tarball not found under ${DOWNLOAD_DIR}" >&2; exit 1; }
 
     # --- 5. extract curated members + copy with friendly names --------------
     i=0
@@ -81,6 +86,8 @@ else
         fi
         i=$((i + 1))
     done
+    cleanup_download
+    trap - EXIT
 fi
 
 # --- 6. report + ready-to-paste URLs ----------------------------------------

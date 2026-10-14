@@ -23,11 +23,10 @@
 #include<vector>
 #include<memory>
 
-using namespace std; 
 
-static const string HTTP  = "http";
-static const string HTTPS = "https";
-static const string RTSP  = "rtsp";
+static const std::string HTTP  = "http";
+static const std::string HTTPS = "https";
+static const std::string RTSP  = "rtsp";
 
 namespace nv_vms
 {
@@ -44,62 +43,52 @@ struct AdaptorInfo
                  , m_url("")
     {}
     AdaptorInfo(const AdaptorInfo& obj) = default;
-    void operator=(const AdaptorInfo& obj)
-    {
-        this->m_id = obj.m_id;
-        this->m_name = obj.m_name;
-        this->m_type = obj.m_type;
-        this->m_user = obj.m_user;
-        this->m_password = obj.m_password;
-        this->m_port = obj.m_port;
-        this->m_ipaddress = obj.m_ipaddress;
-        this->m_url = obj.m_url;
-    }
-    string m_id;
-    string m_name;
-    string m_type;
-    string m_user;
-    string m_password;
-    string m_port;
-    string m_ipaddress;
-    string m_url;
+    AdaptorInfo& operator=(const AdaptorInfo& obj) = default;
+    std::string m_id;
+    std::string m_name;
+    std::string m_type;
+    std::string m_user;
+    std::string m_password;
+    std::string m_port;
+    std::string m_ipaddress;
+    std::string m_url;
 };
 
 class ISensorControlInterface
 {
 public:
     virtual int connect() = 0;
-    virtual int getSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sensors) = 0;
-    virtual int getSensorStreamInfo(shared_ptr<SensorInfo>& sensor) = 0;
-    virtual int synchronizeSensorTime(shared_ptr<SensorInfo>& sensor) { return -1; };
-    virtual int getSensorStatus(const string& cameraId, SensorStatus& status) { return -1; };
-    virtual int getSensorStatus(const vector<string>& camera_ids, vector<SensorStatus>& status) { return -1; };
-    virtual int rebootSensor(shared_ptr<SensorInfo>& sensor) { return -1; };
-    virtual bool isServerOnline(const string & url) = 0;
-    virtual int getSensorImageSettings(shared_ptr<SensorInfo>& sensor, const string& stream_id, SensorSettings& settings) { return -1; };
-    virtual int setSensorImageSettings(shared_ptr<SensorInfo>& sensor, const SensorImageSettingsValues& settings) { return -1; };
-    virtual int getNetworkInfo(shared_ptr<SensorInfo>& sensor, SensorNetworkInfo& networkInfo) { return -1; };
-    virtual int setNetworkInfo(shared_ptr<SensorInfo>& sensor, const SensorNetworkInfo& networkInfo, bool& rebootNeeded) { return -1; };
-    virtual int getSensorEncodeSettings(shared_ptr<SensorInfo>& sensor, const string& stream_id, SensorSettings& settings) { return -1; };
-    virtual int setSensorEncodeSettings(shared_ptr<SensorInfo>& sensor, const SensorVideoEncoderSettingsValues& settings) { return -1; };
-    virtual int getStreamSettings(shared_ptr<SensorInfo>& sensor, const string& stream_id) { return 0;}
-    virtual int setPTZ(shared_ptr<SensorInfo>& sensor, PTZAction, string x, string y) { return 0; };
-    virtual map<PTZAction, ptzRange> getPTZ(shared_ptr<SensorInfo>& sensor) { map<PTZAction, ptzRange>ptz; return ptz; };
-    virtual bool validateCredentials(shared_ptr<SensorInfo>& sensor, const string username, const string password) { return false; }
+    virtual int getSensorStreamInfo(std::vector<std::shared_ptr<SensorInfo>>& sensors) = 0;
+    virtual int getSensorStreamInfo(std::shared_ptr<SensorInfo>& sensor) = 0;
+    virtual int synchronizeSensorTime(std::shared_ptr<SensorInfo>& sensor) { return -1; };
+    virtual int getSensorStatus(const std::string& cameraId, SensorStatus& status) { return -1; };
+    virtual int getSensorStatus(const std::vector<std::string>& camera_ids, std::vector<SensorStatus>& status) { return -1; };
+    virtual int rebootSensor(std::shared_ptr<SensorInfo>& sensor) { return -1; };
+    virtual bool isServerOnline(const std::string & url) = 0;
+    virtual int getSensorImageSettings(std::shared_ptr<SensorInfo>& sensor, const std::string& stream_id, SensorSettings& settings) { return -1; };
+    virtual int setSensorImageSettings(std::shared_ptr<SensorInfo>& sensor, const SensorImageSettingsValues& settings) { return -1; };
+    virtual int getNetworkInfo(std::shared_ptr<SensorInfo>& sensor, SensorNetworkInfo& networkInfo) { return -1; };
+    virtual int setNetworkInfo(std::shared_ptr<SensorInfo>& sensor, const SensorNetworkInfo& networkInfo, bool& rebootNeeded) { return -1; };
+    virtual int getSensorEncodeSettings(std::shared_ptr<SensorInfo>& sensor, const std::string& stream_id, SensorSettings& settings) { return -1; };
+    virtual int setSensorEncodeSettings(std::shared_ptr<SensorInfo>& sensor, const SensorVideoEncoderSettingsValues& settings) { return -1; };
+    virtual int getStreamSettings(std::shared_ptr<SensorInfo>& sensor, const std::string& stream_id) { return 0;}
+    virtual int setPTZ(std::shared_ptr<SensorInfo>& sensor, PTZAction, std::string x, std::string y) { return 0; };
+    virtual std::map<PTZAction, ptzRange> getPTZ(std::shared_ptr<SensorInfo>& sensor) { std::map<PTZAction, ptzRange>ptz; return ptz; };
+    virtual bool validateCredentials(std::shared_ptr<SensorInfo>& sensor, const std::string username, const std::string password) { return false; }
     virtual VmsErrorCode addSensor(const Json::Value& sensorInfo) { return VmsErrorCode::NoError; }
-    virtual bool deleteSensor(shared_ptr<SensorInfo>& sensor) { return true; }
-    virtual int setSensorInfo(shared_ptr<SensorInfo> &sensor) { return 0; }
-    virtual int getRecordingTimelines(shared_ptr<SensorInfo>& sensor, Json::Value& timelinesJson) { return -1; }
+    virtual bool deleteSensor(std::shared_ptr<SensorInfo>& sensor) { return true; }
+    virtual int setSensorInfo(std::shared_ptr<SensorInfo> &sensor) { return 0; }
+    virtual int getRecordingTimelines(std::shared_ptr<SensorInfo>& sensor, Json::Value& timelinesJson) { return -1; }
 
     void setAdaptorInfo(AdaptorInfo& info) { m_adaptorInfo = info; }
-    void setCacheSensorList(std::vector<shared_ptr<SensorInfo>> list) { m_cacheSensorList = list; }
-    std::vector<shared_ptr<SensorInfo>> getCacheSensorList() { return m_cacheSensorList; }
+    void setCacheSensorList(std::vector<std::shared_ptr<SensorInfo>> list) { m_cacheSensorList = list; }
+    std::vector<std::shared_ptr<SensorInfo>> getCacheSensorList() { return m_cacheSensorList; }
 protected:
     const AdaptorInfo& adaptorInfo() const { return m_adaptorInfo; }
-    std::vector<shared_ptr<SensorInfo>>& cacheSensorList() { return m_cacheSensorList; }
+    std::vector<std::shared_ptr<SensorInfo>>& cacheSensorList() { return m_cacheSensorList; }
 private:
     AdaptorInfo m_adaptorInfo;
-    std::vector<shared_ptr<SensorInfo>> m_cacheSensorList;
+    std::vector<std::shared_ptr<SensorInfo>> m_cacheSensorList;
 };
 
 ISensorControlInterface* createObject();

@@ -26,9 +26,8 @@
 #include <jsoncpp/json/json.h>
 #include "MessageBus.h"
 
-using namespace std;
 
-class RemoteDevice : public ISensorControlInterface
+class RemoteDevice : public nv_vms::ISensorControlInterface
 {
     public:
         RemoteDevice() 
@@ -38,47 +37,47 @@ class RemoteDevice : public ISensorControlInterface
         }
         virtual ~RemoteDevice() 
         {
-            LOG(info) << __PRETTY_FUNCTION__ << endl;
-            LOG(info) << "Waiting for "<< m_dataChannelTasks.size() << " async tasks to finish" << endl;
+            LOG(info) << __PRETTY_FUNCTION__ << std::endl;
+            LOG(info) << "Waiting for "<< m_dataChannelTasks.size() << " async tasks to finish" << std::endl;
             for (auto &asyncTasks: m_dataChannelTasks)
             {
                 asyncTasks.get();
             }
-            LOG(info) << "Async tasks finished" << endl;
+            LOG(info) << "Async tasks finished" << std::endl;
             m_sensorStatusMonitoring.reset();
             m_messageBus.reset();
             GET_DATA_CHANNEL()->deleteDataChannelInstance();
         }
 
         int connect();
-        int getSensorImageSettings(shared_ptr<SensorInfo>& sensor, const string& stream_id, SensorSettings& settings);
-        int setSensorImageSettings(shared_ptr<SensorInfo>& sensor, const SensorImageSettingsValues& settings);
-        int getSensorEncodeSettings(shared_ptr<SensorInfo>& sensor, const string& stream_id, SensorSettings& settings);
-        int setSensorEncodeSettings(shared_ptr<SensorInfo>& sensor, const SensorVideoEncoderSettingsValues& settings);
-        bool validateCredentials(shared_ptr<SensorInfo>& sensor, const string username, const string password);
-        VmsErrorCode addSensor(const Json::Value& sensorInfo);
-        bool deleteSensor(shared_ptr<SensorInfo>& sensor);
+        int getSensorImageSettings(std::shared_ptr<nv_vms::SensorInfo>& sensor, const std::string& stream_id, nv_vms::SensorSettings& settings);
+        int setSensorImageSettings(std::shared_ptr<nv_vms::SensorInfo>& sensor, const nv_vms::SensorImageSettingsValues& settings);
+        int getSensorEncodeSettings(std::shared_ptr<nv_vms::SensorInfo>& sensor, const std::string& stream_id, nv_vms::SensorSettings& settings);
+        int setSensorEncodeSettings(std::shared_ptr<nv_vms::SensorInfo>& sensor, const nv_vms::SensorVideoEncoderSettingsValues& settings);
+        bool validateCredentials(std::shared_ptr<nv_vms::SensorInfo>& sensor, const std::string username, const std::string password);
+        nv_vms::VmsErrorCode addSensor(const Json::Value& sensorInfo);
+        bool deleteSensor(std::shared_ptr<nv_vms::SensorInfo>& sensor);
 
-        int getSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sensors);
-        int getSensorStreamInfo(shared_ptr<SensorInfo>& sensor);
-        int getNetworkInfo(shared_ptr<SensorInfo>& sensor, SensorNetworkInfo& networkInfo);
-        int setNetworkInfo(shared_ptr<SensorInfo>& sensor, const SensorNetworkInfo& networkInfo, bool& rebootNeeded);
-        int setSensorInfo(shared_ptr<SensorInfo> &sensor);
+        int getSensorStreamInfo(std::vector<std::shared_ptr<nv_vms::SensorInfo>>& sensors);
+        int getSensorStreamInfo(std::shared_ptr<nv_vms::SensorInfo>& sensor);
+        int getNetworkInfo(std::shared_ptr<nv_vms::SensorInfo>& sensor, nv_vms::SensorNetworkInfo& networkInfo);
+        int setNetworkInfo(std::shared_ptr<nv_vms::SensorInfo>& sensor, const nv_vms::SensorNetworkInfo& networkInfo, bool& rebootNeeded);
+        int setSensorInfo(std::shared_ptr<nv_vms::SensorInfo> &sensor);
 
-        bool isServerOnline(const string & url) { return true; }
+        bool isServerOnline(const std::string & url) { return true; }
 
     private:
-        VmsErrorCode getSensorSettings(shared_ptr<SensorInfo>& sensor, const string& type, Json::Value &response);
-        VmsErrorCode setSensorSettings(shared_ptr<SensorInfo> &sensor, const Json::Value& settings, Json::Value &response);
-        VmsErrorCode validateCredentials(shared_ptr<SensorInfo>& sensor, Json::Value &credentials, Json::Value &response);
-        VmsErrorCode deleteSensor(shared_ptr<SensorInfo>& sensor, Json::Value &response);
-        VmsErrorCode getSensorNetworkSettings(shared_ptr<SensorInfo>& sensor, Json::Value &response);
-        VmsErrorCode setSensorNetworkSettings(shared_ptr<SensorInfo> &sensor, const Json::Value &settings, Json::Value &response);
-        VmsErrorCode setSensorInfoSettings(shared_ptr<SensorInfo> &sensor, const Json::Value &settings, Json::Value &response);
-        void syncSensorStatus(pair<string, string> sensorInfo);
+        nv_vms::VmsErrorCode getSensorSettings(std::shared_ptr<nv_vms::SensorInfo>& sensor, const std::string& type, Json::Value &response);
+        nv_vms::VmsErrorCode setSensorSettings(std::shared_ptr<nv_vms::SensorInfo> &sensor, const Json::Value& settings, Json::Value &response);
+        nv_vms::VmsErrorCode validateCredentials(std::shared_ptr<nv_vms::SensorInfo>& sensor, Json::Value &credentials, Json::Value &response);
+        nv_vms::VmsErrorCode deleteSensor(std::shared_ptr<nv_vms::SensorInfo>& sensor, Json::Value &response);
+        nv_vms::VmsErrorCode getSensorNetworkSettings(std::shared_ptr<nv_vms::SensorInfo>& sensor, Json::Value &response);
+        nv_vms::VmsErrorCode setSensorNetworkSettings(std::shared_ptr<nv_vms::SensorInfo> &sensor, const Json::Value &settings, Json::Value &response);
+        nv_vms::VmsErrorCode setSensorInfoSettings(std::shared_ptr<nv_vms::SensorInfo> &sensor, const Json::Value &settings, Json::Value &response);
+        void syncSensorStatus(std::pair<std::string, std::string> sensorInfo);
         void syncSensorStatus();
 
         std::unique_ptr<Bosma::Scheduler>                   m_sensorStatusMonitoring;
         std::shared_ptr<MessageBus>                         m_messageBus;
-        vector<async::task<void>>                           m_dataChannelTasks;
+        std::vector<async::task<void>>                           m_dataChannelTasks;
 };

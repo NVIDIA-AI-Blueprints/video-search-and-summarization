@@ -51,7 +51,7 @@ class NvVideoEncoder {
   void Deinit();
   bool isReleased() { return m_released; }
   int Release();
-  int InitEncode(uint32_t width, uint32_t height, string codecString);
+  int InitEncode(uint32_t width, uint32_t height, std::string codecString);
   FD_Index_Pair Encode(std::pair<int, int> fd_index_pair, unsigned char** data, ssize_t* size);
   void SetRates(unsigned int target_bitrate_bps);
   int setQpRange();

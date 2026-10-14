@@ -16,13 +16,13 @@ Do not run it through `docker exec`, `kubectl exec`, or a pod shell.
 ## Configure once
 
 ```bash
-vss configure --base-url "${VSS_ORIGIN}"   # probe + record ~/.vss/config.json
-vss configure show                          # recorded services, models, indices
-vss configure check                         # re-probe; exit 3 if a route went away
+vss configure --base-url "${VSS_PUBLIC_URL}"   # probe + record ~/.vss/config.json
+vss configure show                              # recorded services, models, indices
+vss configure check                             # re-probe; exit 3 if a route went away
 ```
 
-`${VSS_ORIGIN}` is the one host or Ingress origin — Compose publishes the
-HAProxy ingress on `:7777`, Kubernetes uses `VSS_PUBLIC_URL`. Never configure
+`VSS_PUBLIC_URL` is the ingress origin the operator gave you. If it is unset,
+stop and ask; do not substitute `HOST_IP`, `localhost`, or a port. Never configure
 against `:38111` directly: that is the LVS container port, and a deployment
 recorded from it exposes no Elasticsearch for memory. Re-run `configure` after
 any deployment change.

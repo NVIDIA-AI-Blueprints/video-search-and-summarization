@@ -51,7 +51,7 @@ def test_video_file():
     """Fixture providing test video file path"""
     # Try common test video locations
     test_paths = [
-        "/opt/nvidia/rtvi/warmup_streams/its_264.mp4",
+        "/opt/nvidia/rtvi/warmup_streams/sample_1080p_h264.mp4",
         # os.path.join(os.path.dirname(__file__), "..", "test_data", "bridge.mp4"),
     ]
     for path in test_paths:

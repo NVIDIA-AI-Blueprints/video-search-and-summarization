@@ -138,6 +138,11 @@ if [ -n "${BREV_ENV_ID:-}" ]; then BIND=0.0.0.0;   # the secure-link edge arrive
 else BIND=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}'); fi
 setsid -f python3 "$REPO/deploy/docker/scripts/nemoclaw/dashboard-relay.py" \
   --sandbox "$SB" --listen "$BIND" --port 18790 --upstream 127.0.0.1:18789
+#    Optional: repair a forward that holds 18789 but stops carrying HTTP (the
+#    notebook starts this by default; stop this sandbox's alone with
+#    `pkill -f "dashboard-forward-watchdog.py --sandbox $SB( |$)"`).
+setsid -f python3 "$REPO/deploy/docker/scripts/nemoclaw/dashboard-forward-watchdog.py" \
+  --sandbox "$SB" --port 18789 >>/tmp/nemoclaw-dashboard-watchdog.log 2>&1
 nemoclaw "$SB" gateway-token
 #    vss-agent-ui then reaches the gateway at ws://host.docker.internal:18790.
 ```
@@ -157,16 +162,16 @@ uv run --isolated --no-project --python 3.12 \
     --notebook deploy/docker/scripts/deploy_nemoclaw.ipynb
 ```
 
-Two things invoke it. Skill-eval CI is the usual one:
-[`notebook_setup_adapter.py`](../../../../.github/skill-eval/nemoclaw/notebook_setup_adapter.py)
-loads the runner by file path (`.github` is not an importable package), maps the
-eval's provider contract onto the notebook-native variables below, and runs
-`deploy_nemoclaw.ipynb`, `deploy_nemo_relay.ipynb`, then
-`deploy_vss_orchestrator.ipynb` on the trial box.
-The other is anyone running the command above by hand or from their own
-automation. Everything CI-specific — the provider mapping, the scoped MCP
-cleanup, the runtime env file — stays in the adapter; the runner has no
-knowledge of it.
+Two things invoke it. The
+[`vss-build-vision-ai`](../../../../skills/vss-build-vision-ai/references/agent-harness.md)
+skill is the usual one: it exports the settings below and runs
+`deploy_nemoclaw.ipynb` through the command above, once the deployment the
+harness drives is ready. That is also how skill-eval CI reaches the runner — a
+NemoClaw leg's first task provisions the build and attaches the harness through
+that skill. The other is anyone running the command by hand or from their own
+automation. Caller-specific work — provider mapping, cleanup, test fixtures —
+stays in the caller; the runner knows only the notebooks and their parameter
+tables.
 
 Settings come from the environment. Most are picked up unaided, because the
 notebook's own advanced-settings block reads them from its `SHELL_ENV` snapshot.

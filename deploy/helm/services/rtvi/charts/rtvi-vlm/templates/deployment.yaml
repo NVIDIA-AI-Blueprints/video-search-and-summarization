@@ -23,9 +23,10 @@
 {{- $wfkImg := $wfk.image | default dict }}
 {{- $wfkRepo := $wfkImg.repository | default "docker.io/confluentinc/cp-kafka" }}
 {{- $wfkTag := $wfkImg.tag | default "8.3.0" }}
-{{- $wfkTopics := $wfk.topics | default (list "mdx-vlm" "mdx-vlm-incidents") }}
+{{- $wfkTopics := $wfk.topics | default (list "mdx-vlm-captions" "mdx-vlm-incidents") }}
 {{- $resources := deepCopy (.Values.resources | default dict) }}
 {{- $gpuResourceName := trim (.Values.gpuResourceName | default "") }}
+{{- $pluginSelectsDevices := or (.Values.pluginSelectsDevices | default false) (ne $gpuResourceName "") }}
 {{- if $gpuResourceName }}
 {{- $limits := $resources.limits | default dict }}
 {{- $requests := $resources.requests | default dict }}
@@ -210,7 +211,7 @@ spec:
             {{- $useSharedNim := .Values.useSharedNim }}
             {{- $envOverrides := .Values.envOverrides | default dict }}
             {{- range .Values.env }}
-            {{- if and (or (eq $hfTokName "") (ne .name "HF_TOKEN")) (or (not $useSharedNim) (ne .name "VLM_MODEL_TO_USE")) (or (eq $gpuResourceName "") (ne .name "NVIDIA_VISIBLE_DEVICES")) }}
+            {{- if and (or (eq $hfTokName "") (ne .name "HF_TOKEN")) (or (not $useSharedNim) (ne .name "VLM_MODEL_TO_USE")) (or (not $pluginSelectsDevices) (ne .name "NVIDIA_VISIBLE_DEVICES")) }}
             - name: {{ .name }}
               value: {{ ternary (index $envOverrides .name) .value (hasKey $envOverrides .name) | quote }}
             {{- end }}

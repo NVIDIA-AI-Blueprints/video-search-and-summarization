@@ -24,7 +24,6 @@
 #include "unified_storage_reader.h"
 #include "TempFileScheduler.h"
 
-using namespace std;
 
 class ReplayPeerConnection : public IVstModule
 {

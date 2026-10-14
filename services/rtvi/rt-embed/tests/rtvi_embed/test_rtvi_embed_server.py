@@ -367,7 +367,7 @@ class TestModelsEndpoint:
 class TestFileEndpoints:
     """Test file management endpoints"""
 
-    VIDEO_FILE_PATH = "/opt/nvidia/rtvi/warmup_streams/its_264.mp4"
+    VIDEO_FILE_PATH = "/opt/nvidia/rtvi/warmup_streams/sample_1080p_h264.mp4"
 
     def test_list_files_empty(self, test_client):
         """Test listing files when none exist"""

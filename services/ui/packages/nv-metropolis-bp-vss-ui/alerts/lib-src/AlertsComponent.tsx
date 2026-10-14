@@ -282,6 +282,8 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     activeFilters,
   });
 
+  const [rulesRefreshVersion, setRulesRefreshVersion] = React.useState(0);
+
   const deliverAgentAnswerRef = React.useRef<(answer: string) => boolean>(() => false);
   deliverAgentAnswerRef.current = (answer: string) => {
     const hasAlertArtifact = extractVssUiArtifacts(answer).some(
@@ -304,7 +306,10 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
   React.useEffect(() => {
     if (!registerSidebarChatEventSubscriber) return;
     return registerSidebarChatEventSubscriber((event) => {
-      if (event.type === 'answerComplete') refetch();
+      if (event.type === 'answerComplete') {
+        refetch();
+        setRulesRefreshVersion((version) => version + 1);
+      }
     });
   }, [registerSidebarChatEventSubscriber, refetch]);
 
@@ -317,6 +322,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
     prevIsActiveRef.current = isActive;
 
     if (isActive && !wasActive) {
+      setRulesRefreshVersion((version) => version + 1);
       refetch({ includeSensorList: true });
     }
   }, [isActive]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -535,6 +541,7 @@ export const AlertsComponent: React.FC<AlertsComponentProps> = ({
             typeFilter={typeFilter}
             onStreamFilterChange={setStreamFilter}
             onTypeFilterChange={setTypeFilter}
+            refreshVersion={rulesRefreshVersion}
             alertsApiUrl={alertsApiUrl}
             vstApiUrl={vstApiUrl}
             enableRealtimeAlerts={enableRealtimeAlerts}

@@ -107,7 +107,7 @@ compression:
 secondaryEmbedding:
   enabled: true
   model: siglip2
-  # Defaults to <models.mountPath>/<models.subDir>/siglip_v2_vdeployable_v1.1/siglip_v2_v1.1.onnx
+  # Defaults to <models.mountPath>/<models.subDir>/siglip_v2_vdeployable_v2.0/siglip_v2_v2.0.onnx
   onnxModelPath: ""
 
 extraEnv: []

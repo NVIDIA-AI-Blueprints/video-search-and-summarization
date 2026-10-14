@@ -20,20 +20,20 @@
 #include "sensor_control_adaptor.h"
 #include "logger.h"
 
-class NativeSensorControlInterface : public ISensorControlInterface
+class NativeSensorControlInterface : public nv_vms::ISensorControlInterface
 {
     public:
     NativeSensorControlInterface();
     virtual ~NativeSensorControlInterface() = default;
 
     int connect();
-    int getSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sensors);
-    int getSensorStreamInfo(shared_ptr<SensorInfo>& sensor);
-    bool isServerOnline(const string & url) { return true; }
-    int getSensorImageSettings(shared_ptr<SensorInfo>& sensor, const string& stream_id, SensorSettings& settings);
-    int setSensorImageSettings(shared_ptr<SensorInfo>& sensor, const SensorImageSettingsValues& settings);
-    int getSensorEncodeSettings(shared_ptr<SensorInfo>& sensor, const string& stream_id, SensorSettings& settings);
-    int setSensorEncodeSettings(shared_ptr<SensorInfo>& sensor, const SensorVideoEncoderSettingsValues& settings);
-    int getNetworkInfo(shared_ptr<SensorInfo>& sensor, SensorNetworkInfo& networkInfo);
-    int setNetworkInfo(shared_ptr<SensorInfo>& sensor, const SensorNetworkInfo& networkInfo, bool& rebootNeeded);
+    int getSensorStreamInfo(std::vector<std::shared_ptr<nv_vms::SensorInfo>>& sensors);
+    int getSensorStreamInfo(std::shared_ptr<nv_vms::SensorInfo>& sensor);
+    bool isServerOnline(const std::string & url) { return true; }
+    int getSensorImageSettings(std::shared_ptr<nv_vms::SensorInfo>& sensor, const std::string& stream_id, nv_vms::SensorSettings& settings);
+    int setSensorImageSettings(std::shared_ptr<nv_vms::SensorInfo>& sensor, const nv_vms::SensorImageSettingsValues& settings);
+    int getSensorEncodeSettings(std::shared_ptr<nv_vms::SensorInfo>& sensor, const std::string& stream_id, nv_vms::SensorSettings& settings);
+    int setSensorEncodeSettings(std::shared_ptr<nv_vms::SensorInfo>& sensor, const nv_vms::SensorVideoEncoderSettingsValues& settings);
+    int getNetworkInfo(std::shared_ptr<nv_vms::SensorInfo>& sensor, nv_vms::SensorNetworkInfo& networkInfo);
+    int setNetworkInfo(std::shared_ptr<nv_vms::SensorInfo>& sensor, const nv_vms::SensorNetworkInfo& networkInfo, bool& rebootNeeded);
 }; //nv_vms

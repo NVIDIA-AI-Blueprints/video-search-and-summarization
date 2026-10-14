@@ -36,6 +36,7 @@ constexpr int MAX_TOLERABLE_IDR_FRAME_SIZE = 600000;
 constexpr int DEFAULT_STREAM_DETAILS_TIMEOUT_SEC = 10;
 
 using namespace std;
+using namespace nv_vms;
 
 // HW Encoder unsupported profiles
 // TODO-MB: Need to verify if these are supported on Orin

@@ -243,6 +243,8 @@ export interface ChatPanelProps {
   onChatVideoUploadComplete?: (payload: ChatVideoUploadCompletePayload) => void;
   /** Notified whenever a turn starts or ends. */
   onBusyChange?: (busy: boolean) => void;
+  /** Notified when a turn fails because the backend rejected the credentials. */
+  onAuthFailure?: () => void;
   /** Receives conversation controls so an external sidebar can render them. */
   onControlsReady?: (handlers: ChatSidebarControlHandlers) => void;
 

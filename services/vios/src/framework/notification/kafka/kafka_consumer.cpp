@@ -32,6 +32,8 @@
 #include <unistd.h>
 #include "ds_proto_parser.h"
 
+using namespace std;
+
 constexpr const char* ABSOLUTE_LIBRARY_PATH_X86_64 = "/usr/lib/x86_64-linux-gnu/librdkafka.so";
 constexpr const char* ABSOLUTE_LIBRARY_PATH_AARCH64 = "/usr/lib/aarch64-linux-gnu/librdkafka.so";
 

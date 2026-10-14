@@ -16,6 +16,7 @@
 """NGC Model Download helper."""
 
 import os
+import re
 import shutil
 import subprocess
 from tempfile import TemporaryDirectory
@@ -94,7 +95,7 @@ def download_model(ngc_model: str, download_path_prefix: str, model_type: str = 
 
 
 def download_model_git(git_url: str, download_path_prefix: str):
-    """Download a model from git
+    """Download a Git model or a Hugging Face model pinned with @<commit SHA>.
 
     Args:
         git_url: Git URL for the model
@@ -104,7 +105,20 @@ def download_model_git(git_url: str, download_path_prefix: str):
         Path to the directory where the model is downloaded.
     """
 
-    model_name = git_url.rstrip(".git").split("/")[-1]
+    hf_repo = None
+    revision = None
+    for prefix in ("https://huggingface.co/", "https://hf.co/"):
+        if git_url.startswith(prefix):
+            hf_repo, separator, revision = git_url[len(prefix) :].partition("@")
+            if separator and not re.fullmatch(r"[0-9a-f]{40}", revision):
+                raise ValueError("Hugging Face model revision must be a 40-character commit SHA")
+            break
+
+    model_name = (
+        hf_repo.split("/")[-1] if hf_repo else git_url.rstrip(".git").split("/")[-1]
+    )
+    if revision:
+        model_name += f"_{revision}"
 
     # Check if the model is already downloaded
 
@@ -120,16 +134,11 @@ def download_model_git(git_url: str, download_path_prefix: str):
     # user requested path.
     with TemporaryDirectory() as td:
         try:
-            if git_url.startswith("https://huggingface.co/") or git_url.startswith(
-                "https://hf.co/"
-            ):
-                run_cmd = [
-                    "hf",
-                    "download",
-                    git_url.replace("https://huggingface.co/", "").replace("https://hf.co/", ""),
-                    "--local-dir",
-                    td,
-                ]
+            if hf_repo:
+                run_cmd = ["hf", "download", hf_repo]
+                if revision:
+                    run_cmd.extend(["--revision", revision])
+                run_cmd.extend(["--local-dir", td])
             else:
                 run_cmd = ["git", "clone", git_url, td]
             subprocess.run(

@@ -60,6 +60,7 @@
 """nv_streamer_seekable""",Enable/Disable seeking in nvstreamer,FALSE
 """nv_streamer_sync_playback""","Enable/Disable synchronized playback in nvstreamer",FALSE
 """nv_streamer_sync_file_count""",Number of files to sync in nvstreamer,4
+"""nv_streamer_sync_data_arrival_timeout_secs""","Seconds a synced stream waits for media before it is dropped; applies when nv_streamer_sync_file_count > 0",150
 """nv_streamer_max_upload_file_size_MB""",Maximum file upload size in nvstreamer,10000
 """nv_streamer_media_container_supported""",Media containers supported in nvstreamer,"[""mp4"",""mkv""]"
 """nv_streamer_rtsp_server_output_buffer_size_kb""",Buffer size for RTSP server output in KB,800

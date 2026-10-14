@@ -32,6 +32,7 @@ constexpr const char* DEBUG_API = "/api/v1/sensor/debug/*";
 constexpr const char* DEBUG_API_SUBSTR = "/api/v1/sensor/debug/";
 
 using namespace std;
+using namespace nv_vms;
 
 SensorManagementApis::SensorManagementApis(std::shared_ptr<SensorManagement> sensorMgmt, std::shared_ptr<DeviceManager> deviceMngr): m_sensorManagement(sensorMgmt), m_deviceManager(deviceMngr)
 {

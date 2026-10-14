@@ -20,6 +20,8 @@
 #include "video_resolution.h"
 #include <chrono>
 
+using namespace nv_vms;
+
 constexpr int MAX_Q_WAIT_SEC = 2;
 
 NvEncoderVideoConsumer::NvEncoderVideoConsumer(const std::string& consumer_name) : IMediaDataConsumer(consumer_name)

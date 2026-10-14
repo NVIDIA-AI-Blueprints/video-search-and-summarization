@@ -28,6 +28,9 @@
 #include <gst/app/gstappsrc.h>
 #include <cassert>
 
+using namespace std;
+using namespace nv_vms;
+
 /* Macro defined in splitmuxsrc plugin */
 #define FIXED_TS_OFFSET (1000*GST_SECOND)
 

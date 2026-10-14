@@ -13,50 +13,36 @@ summarize job with broader events when the result is empty.
 
 ### Resolve endpoints
 
-Run once before any probe. Docker keeps host ports; Kubernetes uses
-`VSS_PUBLIC_URL` with LVS mounted at `/lvs` and RT-VLM at `/rtvi-vlm`
-(**no** `/v1` suffix — the skill appends it).
+Run once before any probe. The service URLs are the ones `vss configure`
+recorded (SKILL.md prerequisites) — the `/lvs` and `/rtvi-vlm` mounts on the
+ingress origin, with **no** `/v1` suffix. Read them; do not rebuild them from
+`VSS_PUBLIC_URL`, `HOST_IP`, a port, or leftover `LVS_BACKEND_URL` /
+`VLM_BASE_URL` / `RTVI_VLM_BASE_URL`.
 
 ```bash
-if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
-  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
-fi
-
-if [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  DEPLOYMENT_KIND="kubernetes"
-  VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
-  # Force public prefixes — ignore leftover Docker LVS_BACKEND_URL / VLM_* env.
-  # The /lvs mount, not the origin — the bare origin is the UI catch-all. The
-  # skill appends /v1/ready and /v1/summarize; the gateway strips /lvs before
-  # the backend sees them.
-  LVS_BACKEND_URL="${VSS_PUBLIC_URL}/lvs"
-  VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
-  # RT-VLM is at its own mount; /v1/models and /v1/chat/completions hang off it.
-  VLM="${VSS_PUBLIC_URL}/rtvi-vlm"
-else
-  DEPLOYMENT_KIND="docker"
-  LVS_BACKEND_URL="${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}"
-  VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
-  VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
-  VLM="${VLM%/v1}"
-fi
-
+DEPLOYMENT=$(vss configure show) || exit $?
+VIDEO_SUMMARIZATION_URL=$(printf '%s' "$DEPLOYMENT" | jq -r '.services.lvs.url // empty')
+VLM=$(printf '%s' "$DEPLOYMENT" | jq -r '.services.rt_vlm.url // empty')
 ```
 
-Readiness and the VIOS preparation below use these. The summarize request
-itself takes no endpoint: `vss configure` recorded it (SKILL.md prerequisites).
+Only the readiness probe below uses these. The summarize request, the VIOS
+preparation, and the VLM fallback take no endpoint: the CLI resolves them from
+the same recorded deployment.
 
 ### Probe readiness
 
 ```bash
-vlm_code=$(curl -s -o /dev/null -w '%{http_code}' \
-  --connect-timeout 3 --max-time 10 "$VLM/v1/models")
-[ "$vlm_code" = "200" ] || echo "VLM not reachable (HTTP $vlm_code)"
+if [ -n "$VLM" ]; then
+  vlm_code=$(curl -s -o /dev/null -w '%{http_code}' \
+    --connect-timeout 3 --max-time 10 "$VLM/v1/models")
+  [ "$vlm_code" = "200" ] || echo "VLM not reachable (HTTP $vlm_code)"
+fi
 
 # Readiness = HTTP 200 on /v1/ready. Body may be empty — do not inspect it.
 # Retry on 503 (warmup) for up to ~30s before concluding the service is unavailable.
-video_sum_code=000
-for i in $(seq 1 10); do
+# No recorded lvs service is the same answer as not ready: take the VLM fallback.
+video_sum_code=unrecorded
+[ -n "$VIDEO_SUMMARIZATION_URL" ] && for i in $(seq 1 10); do
   video_sum_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 10 "$VIDEO_SUMMARIZATION_URL/v1/ready")
   case "$video_sum_code" in 200) break ;; 503) sleep 3 ;; *) break ;; esac
 done

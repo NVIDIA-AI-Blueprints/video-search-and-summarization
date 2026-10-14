@@ -35,7 +35,7 @@ public:
     GstFlowReturn processJpegImageFromSink(GstElement *appsink);
 
 private:
-    int create(string sourceWidth, string sourceHeight, string resizeWidth="", string resizeHeight="");
+    int create(std::string sourceWidth, std::string sourceHeight, std::string resizeWidth="", std::string resizeHeight="");
     void pushBuffer(std::shared_ptr<RawFrameParams> frame_data);
     void hwEncode(uint64_t fd, std::shared_ptr<RawFrameParams> frame_data);
 

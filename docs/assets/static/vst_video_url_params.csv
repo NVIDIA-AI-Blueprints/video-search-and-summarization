@@ -2,7 +2,7 @@ Parameter,Default,Description
 get_video_storage_url_tool,vst_get_video_storage_url,MCP tool for getting video URLs
 get_sensor_list_tool,vst_sensor_list,MCP tool for getting sensor list
 vst_base_url,None,Override base URL from MCP response
-expiry_minutes,None,URL expiration time (default: 10080 = 7 days)
+expiry_minutes,None,URL expiration time (default: 60 = 1 hour)
 container,mp4,Video container format
 overlay_config,false,Enable object detection overlays
 

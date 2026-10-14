@@ -8,10 +8,18 @@
  * point here is the panel, not the persistence (covered in conversations.test).
  */
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { copyToClipboard } from 'common';
 import React from 'react';
 
 import { ChatPanel } from '../lib-src/ChatPanel';
 import { VssUiArtifact } from '../lib-src/markdown/components';
+import { loadConversations, saveConversations } from '../lib-src/storage';
+import { AGENT_RETRY_DELAY_MS } from '../lib-src/useChatStream';
+
+jest.mock('common', () => ({
+  ...jest.requireActual('common'),
+  copyToClipboard: jest.fn().mockResolvedValue(true),
+}));
 
 jest.mock('../lib-src/storage', () => ({
   initConversationSessionLifecycle: jest.fn(),
@@ -103,6 +111,95 @@ describe('ChatPanel', () => {
     // Rendered as markdown, not as literal asterisks.
     expect(screen.getByText('bold').tagName).toBe('STRONG');
     expect(screen.getByTestId('chat-message-user')).toHaveTextContent('what happened?');
+  });
+
+  it.each([
+    { mediaProxyUrl: '/api/proxy', mediaPrefix: '/api/proxy' },
+    { mediaProxyUrl: '/api/proxy///', mediaPrefix: '/api/proxy' },
+    { mediaProxyUrl: undefined, mediaPrefix: '' },
+  ])('opens NemoClaw Search media links with proxy $mediaProxyUrl', async ({ mediaProxyUrl, mediaPrefix }) => {
+    const internal = 'http://host.openshell.internal:7777';
+    const mediaPath = '/vst/api/v1/replay/stream/stream-1/picture?startTime=2026-09-29T12%3A00%3A00Z';
+    const answer = [
+      `[Media](${internal}${mediaPath})`,
+      `[Frame](${internal}/vst/storage/frame.jpg?token=one)`,
+      `Frame URL: ${internal}${mediaPath}`,
+      '[Docs](https://example.com/vst/help)',
+    ].join('\n\n');
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          run_id: 'run_1',
+          events_url: '/api/agent/runs/run_1/events',
+          cancel_url: '/api/agent/runs/run_1/cancel',
+        }),
+      })
+      .mockResolvedValueOnce(sseResponse([
+        agentApiFrame('run.started', {}, 1),
+        agentApiFrame('message.delta', { delta: answer }, 2),
+        agentApiFrame('run.completed', {}, 3),
+      ]));
+    global.fetch = fetchMock as any;
+
+    render(
+      <ChatPanel
+        endpoint={{
+          url: '/api/agent',
+          transport: 'agent-api',
+          conversationId: 'thread_1',
+          mediaProxyUrl,
+        }}
+        features={noHeader}
+      />,
+    );
+    await act(async () => typeAndSend('Find forklifts'));
+
+    const media = await screen.findByRole('link', { name: 'Media' });
+    expect(media).toHaveAttribute('href', `${mediaPrefix}${mediaPath}`);
+    expect(screen.getByRole('link', { name: 'Frame' })).toHaveAttribute(
+      'href', `${mediaPrefix}/vst/storage/frame.jpg?token=one`,
+    );
+    expect(screen.getByRole('link', { name: 'Docs' })).toHaveAttribute(
+      'href', 'https://example.com/vst/help',
+    );
+    expect(screen.getByRole('link', { name: `${mediaPrefix}${mediaPath}` })).toHaveAttribute(
+      'href', `${mediaPrefix}${mediaPath}`,
+    );
+    expect(screen.getByTestId('chat-message-assistant')).not.toHaveTextContent('host.openshell.internal');
+  });
+
+  it('preserves literal OpenShell URLs in code while rebasing rendered media', async () => {
+    const mediaPath = '/vst/api/v1/replay/stream/stream-1/picture?startTime=2026-09-29T12%3A00%3A00Z';
+    const url = `http://host.openshell.internal:7777${mediaPath}`;
+    const command = `curl '${url}'`;
+    const answer = [
+      `Inline command URL: \`${url}\``,
+      `\`\`\`bash\n${command}\n\`\`\``,
+      `[Media](${url})`,
+      `<a href="${url}">HTML media</a>`,
+      `<img src="${url}" srcset="${url} 1x, ${url}&scale=2 2x, https://example.com/frame.jpg 3x" alt="Forklift frame" title="${url}" />`,
+    ].join('\n\n');
+    global.fetch = jest.fn().mockResolvedValue(sseResponse([
+      `data: ${JSON.stringify({ choices: [{ delta: { content: answer } }] })}\n\n`,
+      'data: [DONE]\n\n',
+    ])) as any;
+
+    render(<ChatPanel endpoint={{ ...endpoint, mediaProxyUrl: '/api/proxy' }} features={noHeader} />);
+    await act(async () => typeAndSend('Show the frame and a command to fetch it'));
+
+    expect(await screen.findByText(url, { selector: 'code' })).toBeInTheDocument();
+    expect(screen.getByText(command, { selector: 'code' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Media' })).toHaveAttribute('href', `/api/proxy${mediaPath}`);
+    expect(screen.getByRole('link', { name: 'HTML media' })).toHaveAttribute('href', `/api/proxy${mediaPath}`);
+    expect(screen.getByRole('img', { name: 'Forklift frame' })).toHaveAttribute('src', `/api/proxy${mediaPath}`);
+    expect(screen.getByRole('img', { name: 'Forklift frame' })).toHaveAttribute(
+      'srcset', `/api/proxy${mediaPath} 1x, /api/proxy${mediaPath}&scale=2 2x, https://example.com/frame.jpg 3x`,
+    );
+    expect(screen.getByRole('img', { name: 'Forklift frame' })).toHaveAttribute('title', `/api/proxy${mediaPath}`);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy code' }));
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalledWith(command));
   });
 
   it('keeps earlier conversations visible and selectable after starting a new chat', async () => {
@@ -587,6 +684,247 @@ describe('ChatPanel', () => {
     expect(onAnswer.mock.calls[0][0]).toContain('vss.media.image');
   });
 
+  describe('agent API retry when the backend is unreachable', () => {
+    const agentEndpoint = {
+      url: '/api/agent',
+      transport: 'agent-api' as const,
+      surface: 'vss-ui-main',
+      conversationId: 'thread_1',
+    };
+    const created = {
+      ok: true,
+      status: 201,
+      json: async () => ({
+        run_id: 'run_1',
+        events_url: '/api/agent/runs/run_1/events',
+        cancel_url: '/api/agent/runs/run_1/cancel',
+      }),
+    };
+    const unreachable = {
+      ok: false,
+      status: 503,
+      json: async () => ({ error: { code: 'backend_unreachable', message: 'OpenClaw Gateway is unreachable' } }),
+    };
+    const failedUnreachable = (id: number, markedUndelivered = true) =>
+      agentApiFrame(
+        'run.failed',
+        {
+          error: {
+            code: 'backend_unreachable',
+            message: 'OpenClaw Gateway is unreachable',
+            retryable: true,
+            ...(markedUndelivered ? { delivered: false } : {}),
+          },
+        },
+        id,
+      );
+    const answered = () =>
+      sseResponse([
+        agentApiFrame('run.started', {}, 1),
+        agentApiFrame('message.delta', { delta: 'answered' }, 2),
+        agentApiFrame('run.completed', {}, 3),
+      ]);
+    const idempotencyKey = (fetchMock: jest.Mock, call: number) =>
+      fetchMock.mock.calls[call][1].headers['Idempotency-Key'];
+
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    const sendAndWaitOutRetry = async (text: string) => {
+      await act(async () => typeAndSend(text));
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(AGENT_RETRY_DELAY_MS);
+      });
+    };
+
+    it('retries once when the gateway is unreachable before the run is created', async () => {
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValueOnce(unreachable)
+        .mockResolvedValueOnce(created)
+        .mockResolvedValueOnce(answered());
+      global.fetch = fetchMock as any;
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} />);
+      await sendAndWaitOutRetry('hello');
+
+      await waitFor(() => expect(screen.getByText('answered')).toBeInTheDocument());
+      expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+        '/api/agent/runs',
+        '/api/agent/runs',
+        '/api/agent/runs/run_1/events',
+      ]);
+      expect(idempotencyKey(fetchMock, 1)).toBe(`${idempotencyKey(fetchMock, 0)}-retry`);
+      expect(screen.queryByText(/HTTP 503/)).not.toBeInTheDocument();
+    });
+
+    it('retries once when the run fails before reaching the agent', async () => {
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValueOnce(created)
+        .mockResolvedValueOnce(sseResponse([agentApiFrame('run.started', {}, 1), failedUnreachable(2)]))
+        .mockResolvedValueOnce(created)
+        .mockResolvedValueOnce(answered());
+      global.fetch = fetchMock as any;
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} />);
+      await sendAndWaitOutRetry('hello');
+
+      await waitFor(() => expect(screen.getByText('answered')).toBeInTheDocument());
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(idempotencyKey(fetchMock, 2)).toBe(`${idempotencyKey(fetchMock, 0)}-retry`);
+      expect(screen.queryByText(/OpenClaw Gateway is unreachable/)).not.toBeInTheDocument();
+    });
+
+    it('does not retry a failure the adapter cannot place before delivery', async () => {
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValueOnce(created)
+        .mockResolvedValueOnce(sseResponse([agentApiFrame('run.started', {}, 1), failedUnreachable(2, false)]));
+      global.fetch = fetchMock as any;
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} />);
+      await sendAndWaitOutRetry('hello');
+
+      await waitFor(() => expect(screen.getByText(/OpenClaw Gateway is unreachable/)).toBeInTheDocument());
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry once the agent has produced output', async () => {
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValueOnce(created)
+        .mockResolvedValueOnce(
+          sseResponse([
+            agentApiFrame('run.started', {}, 1),
+            agentApiFrame('message.delta', { delta: 'partial' }, 2),
+            failedUnreachable(3),
+          ]),
+        );
+      global.fetch = fetchMock as any;
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} />);
+      await sendAndWaitOutRetry('hello');
+
+      await waitFor(() => expect(screen.getByText(/OpenClaw Gateway is unreachable/)).toBeInTheDocument());
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('reports the failure after a single retry', async () => {
+      const fetchMock = jest.fn().mockResolvedValue(unreachable);
+      global.fetch = fetchMock as any;
+      const onAuthFailure = jest.fn();
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} onAuthFailure={onAuthFailure} />);
+      await sendAndWaitOutRetry('hello');
+
+      await waitFor(() => expect(screen.getByText(/HTTP 503/)).toBeInTheDocument());
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(onAuthFailure).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('agent API credentials rejected', () => {
+    const agentEndpoint = {
+      url: '/api/agent',
+      transport: 'agent-api' as const,
+      surface: 'vss-ui-main',
+      conversationId: 'thread_1',
+    };
+
+    it('reports a 401 from run creation to the embedder after showing it', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: { code: 'backend_auth_error' } }),
+      }) as any;
+      const onAuthFailure = jest.fn(() => {
+        expect(screen.getByText(/HTTP 401/)).toBeInTheDocument();
+      });
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} onAuthFailure={onAuthFailure} />);
+      await act(async () => typeAndSend('hello'));
+
+      await waitFor(() => expect(onAuthFailure).toHaveBeenCalledTimes(1));
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('saves the failed turn when the embedder unmounts the panel to ask for a token', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: { code: 'backend_auth_error' } }),
+      }) as any;
+      const save = saveConversations as jest.Mock;
+      function Embedder() {
+        const [rejected, setRejected] = React.useState(false);
+        return rejected ? (
+          <p>token prompt</p>
+        ) : (
+          <ChatPanel endpoint={agentEndpoint} features={noHeader} onAuthFailure={() => setRejected(true)} />
+        );
+      }
+
+      render(<Embedder />);
+      await act(async () => {});
+      save.mockClear();
+      await act(async () => typeAndSend('resend me later'));
+
+      expect(await screen.findByText('token prompt')).toBeInTheDocument();
+      const saved = JSON.stringify(save.mock.calls[save.mock.calls.length - 1][0]);
+      expect(saved).toContain('resend me later');
+      expect(saved).toContain('HTTP 401');
+    });
+
+    it('reports a run the gateway rejected', async () => {
+      global.fetch = jest
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          json: async () => ({
+            run_id: 'run_1',
+            events_url: '/api/agent/runs/run_1/events',
+            cancel_url: '/api/agent/runs/run_1/cancel',
+          }),
+        })
+        .mockResolvedValueOnce(
+          sseResponse([
+            agentApiFrame('run.started', {}, 1),
+            agentApiFrame(
+              'run.failed',
+              { error: { code: 'backend_auth_error', message: 'OpenClaw Gateway authentication failed' } },
+              2,
+            ),
+          ]),
+        ) as any;
+      const onAuthFailure = jest.fn();
+
+      render(<ChatPanel endpoint={agentEndpoint} features={noHeader} onAuthFailure={onAuthFailure} />);
+      await act(async () => typeAndSend('hello'));
+
+      await waitFor(() => expect(onAuthFailure).toHaveBeenCalledTimes(1));
+      expect(screen.getByText(/OpenClaw Gateway authentication failed/)).toBeInTheDocument();
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('saves a turn that is still pending when the panel unmounts', async () => {
+    global.fetch = jest.fn(() => new Promise<Response>(() => {})) as any;
+    const save = saveConversations as jest.Mock;
+
+    const { unmount } = render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => {});
+    save.mockClear();
+    await act(async () => typeAndSend('keep this message'));
+    expect(save).not.toHaveBeenCalled();
+
+    unmount();
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(save.mock.calls[0][0])).toContain('keep this message');
+  });
+
   it('folds a context chip into the request and clears it after sending', async () => {
     const fetchMock = jest.fn().mockResolvedValue(sseResponse(['data: [DONE]\n\n']));
     global.fetch = fetchMock as any;
@@ -621,6 +959,232 @@ describe('ChatPanel', () => {
     expect(sent).toContain('summarise');
     // Chips apply to one turn only.
     await waitFor(() => expect(screen.queryByText('Camera 3')).not.toBeInTheDocument());
+  });
+
+  it.each([
+    ['chat-sse', 'rtsp'],
+    ['chat-sse', 'video_file'],
+    ['agent-api', 'rtsp'],
+    ['agent-api', 'video_file'],
+  ] as const)('regenerates %s searches with the current selection after an original %s search', async (transport, sourceType) => {
+    sessionStorage.removeItem('vss-chat-custom-agent-params');
+    const fetchMock = jest.fn().mockImplementation(async (url: string) => {
+      if (url.endsWith('/runs')) {
+        return {
+          ok: true,
+          json: async () => ({
+            run_id: 'run_1',
+            events_url: '/api/agent/runs/run_1/events',
+            cancel_url: '/api/agent/runs/run_1/cancel',
+          }),
+        };
+      }
+      return transport === 'agent-api'
+        ? sseResponse([agentApiFrame('run.completed', {}, 1)])
+        : sseResponse(['data: [DONE]\n\n']);
+    });
+    global.fetch = fetchMock as any;
+    const configuredEndpoint = {
+      url: transport === 'agent-api' ? '/api/agent' : endpoint.url,
+      transport,
+      conversationId: 'thread_1',
+      extraParams: { top_k: 5, search_source_type: 'video_file', use_critic: true },
+    };
+    const customAgentParamsJson = JSON.stringify({
+      params: [
+        {
+          name: 'search_source_type',
+          label: 'Search media source type',
+          type: 'select',
+          'default-value': 'video_file',
+          options: ['video_file', 'rtsp'],
+        },
+        { name: 'use_critic', label: 'Enable Critic', type: 'boolean', 'default-value': true },
+      ],
+    });
+    const { rerender } = render(
+      <ChatPanel endpoint={configuredEndpoint} features={noHeader} customAgentParamsJson={customAgentParamsJson} />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Agent parameters' }));
+    fireEvent.change(screen.getByLabelText('Search media source type'), { target: { value: sourceType } });
+    fireEvent.click(screen.getByRole('switch'));
+    await act(async () => typeAndSend('find forklifts'));
+
+    const requestBodies = () => fetchMock.mock.calls
+      .filter(([, init]) => init?.method === 'POST')
+      .map(([, init]) => JSON.parse(init.body));
+    const original = requestBodies()[0];
+    expect(transport === 'agent-api' ? original.metadata : original).toMatchObject({
+      search_source_type: sourceType,
+      use_critic: false,
+      top_k: 5,
+    });
+
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Regenerate response' })));
+    expect(requestBodies()[1]).toEqual(original);
+
+    // Regenerate must match the controls currently displayed, including new defaults.
+    fireEvent.click(screen.getByRole('button', { name: 'Agent parameters' }));
+    fireEvent.change(screen.getByLabelText('Search media source type'), {
+      target: { value: sourceType === 'rtsp' ? 'video_file' : 'rtsp' },
+    });
+    fireEvent.click(screen.getByRole('switch'));
+    rerender(
+      <ChatPanel
+        endpoint={{ ...configuredEndpoint, extraParams: { ...configuredEndpoint.extraParams, top_k: 10, threshold: 0.4 } }}
+        features={noHeader}
+        customAgentParamsJson={customAgentParamsJson}
+      />,
+    );
+
+    for (let repeat = 0; repeat < 2; repeat += 1) {
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Regenerate response' })));
+      const regenerated = requestBodies()[repeat + 2];
+      expect(transport === 'agent-api' ? regenerated.metadata : regenerated).toMatchObject({
+        search_source_type: sourceType === 'rtsp' ? 'video_file' : 'rtsp',
+        use_critic: true,
+        top_k: 10,
+        threshold: 0.4,
+      });
+      expect(screen.getAllByTestId('chat-message-user')).toHaveLength(1);
+    }
+  });
+
+  it('regenerates a saved turn with current defaults after remounting', async () => {
+    const fetchMock = jest.fn().mockImplementation(async () => sseResponse(['data: [DONE]\n\n']));
+    global.fetch = fetchMock as any;
+    const originalParams = { search_source_type: 'rtsp', use_critic: false };
+    const { unmount } = render(
+      <ChatPanel endpoint={{ ...endpoint, extraParams: originalParams }} features={noHeader} />,
+    );
+    await act(async () => typeAndSend('find forklifts'));
+    unmount();
+
+    const saved = jest.mocked(saveConversations).mock.calls.at(-1)![0];
+    jest.mocked(loadConversations).mockResolvedValueOnce(saved);
+    render(
+      <ChatPanel
+        endpoint={{ ...endpoint, extraParams: { search_source_type: 'video_file', use_critic: true, top_k: 10 } }}
+        features={noHeader}
+      />,
+    );
+    await screen.findByTestId('chat-message-user');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Regenerate response' })));
+
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({
+      search_source_type: 'video_file', use_critic: true, top_k: 10,
+    });
+  });
+
+  it.each([
+    { label: 'previous saved parameters', params: { search_source_type: 'video_file' } },
+    { label: 'saved empty parameters', params: {} },
+    { label: 'legacy messages', params: undefined },
+    { label: 'string parameters', params: 'rtsp' },
+    { label: 'null parameters', params: null },
+    { label: 'numeric parameters', params: 7 },
+    { label: 'boolean parameters', params: true },
+  ])('regenerates $label with the appropriate defaults', async ({ params }) => {
+    sessionStorage.removeItem('vss-chat-custom-agent-params');
+    const fetchMock = jest.fn().mockImplementation(async () => sseResponse(['data: [DONE]\n\n']));
+    global.fetch = fetchMock as any;
+    jest.mocked(loadConversations).mockResolvedValueOnce([{
+      id: 'saved-thread',
+      name: 'Saved search',
+      messages: [
+        { id: 'saved-user', role: 'user', content: 'find forklifts', params },
+        { id: 'saved-answer', role: 'assistant', content: 'Original results' },
+      ],
+    }] as any);
+    render(
+      <ChatPanel
+        endpoint={{ ...endpoint, extraParams: { search_source_type: 'video_file', top_k: 10 } }}
+        customAgentParamsJson={JSON.stringify({ params: [{ name: 'search_source_type', label: 'Media source', type: 'select', 'default-value': 'rtsp', options: ['rtsp', 'video_file'] }] })}
+        features={noHeader}
+      />,
+    );
+    await screen.findByTestId('chat-message-user');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Regenerate response' })));
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      search_source_type: 'rtsp', top_k: 10,
+      messages: [{ role: 'user', content: 'find forklifts' }],
+    });
+  });
+
+  it.each(['chat-sse', 'agent-api'] as const)(
+    'uses the visible parameters for programmatic submit and edit on %s', async (transport) => {
+      sessionStorage.removeItem('vss-chat-custom-agent-params');
+      const fetchMock = jest.fn().mockImplementation(async (url: string) => {
+        if (url.endsWith('/runs')) return { ok: true, json: async () => ({
+          run_id: 'run_1', events_url: '/api/agent/runs/run_1/events', cancel_url: '/api/agent/runs/run_1/cancel',
+        }) };
+        return transport === 'agent-api'
+          ? sseResponse([agentApiFrame('run.completed', {}, 1)]) : sseResponse(['data: [DONE]\n\n']);
+      });
+      global.fetch = fetchMock as any;
+      let submit: ((message: string) => void) | undefined;
+      render(<ChatPanel
+        endpoint={{ url: transport === 'agent-api' ? '/api/agent' : endpoint.url, transport, conversationId: 'thread_1' }}
+        features={{ ...noHeader, messageEdit: true }}
+        customAgentParamsJson={JSON.stringify({ params: [
+          { name: 'search_source_type', label: 'Media source', type: 'select', 'default-value': 'video_file', options: ['video_file', 'rtsp'] },
+          { name: 'use_critic', label: 'Critic', type: 'boolean', 'default-value': true },
+        ] })}
+        onSubmitMessageReady={(fn) => { submit = fn; }}
+      />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Agent parameters' }));
+      fireEvent.change(screen.getByLabelText('Media source'), { target: { value: 'rtsp' } });
+      fireEvent.click(screen.getByRole('switch'));
+      await act(async () => submit?.('find similar clips'));
+      const requestParams = () => fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')
+        .map(([, init]) => { const body = JSON.parse(init.body); return transport === 'agent-api' ? body.metadata : body; });
+      expect(requestParams()[0]).toMatchObject({ search_source_type: 'rtsp', use_critic: false });
+      fireEvent.click(screen.getByRole('button', { name: 'Agent parameters' }));
+      fireEvent.change(screen.getByLabelText('Media source'), { target: { value: 'video_file' } });
+      fireEvent.click(screen.getByRole('switch'));
+      fireEvent.click(screen.getByRole('button', { name: 'Edit message' }));
+      fireEvent.change(within(screen.getByTestId('chat-message-user')).getByRole('textbox'), { target: { value: 'edited search' } });
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save & Submit' })));
+      expect(requestParams()[1]).toMatchObject({ search_source_type: 'video_file', use_critic: true });
+      expect(screen.getAllByTestId('chat-message-user')).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    ['chat-sse', true], ['chat-sse', false], ['agent-api', true], ['agent-api', false],
+  ] as const)('edits with the latest history setting on %s (initial history %s)', async (transport, initialHistory) => {
+    const fetchMock = jest.fn().mockImplementation(async (url: string) => {
+      if (url.endsWith('/runs')) return { ok: true, json: async () => ({
+        run_id: 'run_1', events_url: '/api/agent/runs/run_1/events', cancel_url: '/api/agent/runs/run_1/cancel',
+      }) };
+      return transport === 'agent-api'
+        ? sseResponse([agentApiFrame('run.completed', {}, 1)]) : sseResponse(['data: [DONE]\n\n']);
+    });
+    global.fetch = fetchMock as any;
+    render(<ChatPanel
+      endpoint={{ url: transport === 'agent-api' ? '/api/agent' : endpoint.url, transport, conversationId: 'thread_1' }}
+      features={{ ...noHeader, headerMenu: true, messageEdit: true, chatHistory: initialHistory }}
+    />);
+    await act(async () => typeAndSend('first question'));
+    await act(async () => typeAndSend('second question'));
+    fireEvent.click(screen.getByRole('switch', { name: 'Chat History' }));
+    const second = screen.getAllByTestId('chat-message-user')[1];
+    fireEvent.click(within(second).getByRole('button', { name: 'Edit message' }));
+    fireEvent.change(within(second).getByRole('textbox'), { target: { value: 'edited second question' } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save & Submit' })));
+    const bodies = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST').map(([, init]) => JSON.parse(init.body));
+    const edited = bodies.at(-1);
+    const previous = [{ role: 'user', content: 'first question' }, { role: 'assistant', content: '' }];
+    if (transport === 'agent-api') {
+      expect(edited.input).toEqual([{ role: 'user', content: 'edited second question' }]);
+      expect(edited.history).toEqual(initialHistory ? [] : previous);
+    } else {
+      expect(edited.messages).toEqual([
+        ...(initialHistory ? [] : previous), { role: 'user', content: 'edited second question' },
+      ]);
+    }
   });
 
   it('lets an embedder submit a message without the user typing', async () => {

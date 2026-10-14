@@ -132,7 +132,7 @@
     "onvif_request_timeout_secs": 10,
     "device_discovery_freq_secs": 5,
     "device_discovery_interfaces": [],
-    "max_devices_supported": 100,
+    "max_devices_supported": "__MAX_DEVICES_SUPPORTED__",
     "default_bitrate_kbps": 8000,
     "default_framerate": 30,
     "default_resolution": "1920x1080",
@@ -146,6 +146,7 @@
     "nv_streamer_loop_playback": true,
     "nv_streamer_seekable": true,
     "nv_streamer_sync_file_count": "__SYNC_FILE_COUNT__",
+    "nv_streamer_sync_data_arrival_timeout_secs": "__SYNC_DATA_ARRIVAL_TIMEOUT_SECS__",
     "nv_streamer_max_upload_file_size_MB": 10000,
     "nv_streamer_media_container_supported": [
       "mp4",

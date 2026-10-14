@@ -31,7 +31,6 @@
 #include <curl/curl.h>
 #include "error_code.h"
 
-using namespace std;
 
 inline constexpr const char* SENSOR_TYPE_ONVIF = "sensor_onvif";
 inline constexpr const char* SENSOR_TYPE_MMS_ONVIF = "sensor_mms_onvif";
@@ -56,46 +55,46 @@ class NvSoap;
 
 struct Range
 {
-    string min;
-    string max;
+    std::string min;
+    std::string max;
 };
 
 struct Rect
 {
-    string bottom;
-    string top;
-    string right;
-    string left;
+    std::string bottom;
+    std::string top;
+    std::string right;
+    std::string left;
 };
 
 struct MultiCast
 {
-    string AddressType;
-    string IPAddress;
-    string Port;
-    string TTL;
-    string AutoStart;
+    std::string AddressType;
+    std::string IPAddress;
+    std::string Port;
+    std::string TTL;
+    std::string AutoStart;
 };
 
 struct Token
 {
-    string profileName;
-    string encoderToken;
-    string sourceToken;
-    string profileToken;
-    string ptzToken;
-    string ptzNodeToken;
+    std::string profileName;
+    std::string encoderToken;
+    std::string sourceToken;
+    std::string profileToken;
+    std::string ptzToken;
+    std::string ptzNodeToken;
 };
 
 struct Resolution
 {
-    string width;
-    string height;
+    std::string width;
+    std::string height;
 
-    void operator=(const string& value);
+    void operator=(const std::string& value);
     bool operator==(const Resolution& res) const;
     bool empty() const;
-    string getString() const;
+    std::string getString() const;
     int getPixels() const;
 
 };
@@ -106,17 +105,17 @@ struct VideoEncoderConfigurationsOptions
     Range BitrateRange;
     Range GovLengthRange;
     std::string FrameRateSupported;
-    vector <Resolution> ResolutionsAvailable;
+    std::vector <Resolution> ResolutionsAvailable;
     std::string encoding;
     Range qualityRange;
-    vector <string> profilesSupported;
+    std::vector <std::string> profilesSupported;
     bool isBframesPresent = false;
 };
 
 struct SensorEncoderSettingsOptions
 {
-    vector <VideoEncoderConfigurationsOptions> encoderSettingsOptions;
-    vector <string> videoEncodingSupported;
+    std::vector <VideoEncoderConfigurationsOptions> encoderSettingsOptions;
+    std::vector <std::string> videoEncodingSupported;
 };
 
 enum AuthenticationMethods
@@ -130,7 +129,7 @@ struct ServiceCapabilities
 {
     AuthenticationMethods supportedAuthMethods = AUTH_METHOD_NONE;
     AuthenticationMethods securedAuthMethod = AUTH_METHOD_NONE;
-    string supportedHashingAlgorithms;
+    std::string supportedHashingAlgorithms;
 };
 
 struct HashingAlgorithmInfo
@@ -161,16 +160,16 @@ class ClientSession
 
 struct SensorVideoEncoderSettingsValues
 {
-    string container;
-    string encoding;
+    std::string container;
+    std::string encoding;
     Resolution resolution;
-    string frameRate;
-    string bitrate;
-    string encodingInterval;
-    string encodingProfile;
-    string quality;
-    string govLength;
-    string numFrames;
+    std::string frameRate;
+    std::string bitrate;
+    std::string encodingInterval;
+    std::string encodingProfile;
+    std::string quality;
+    std::string govLength;
+    std::string numFrames;
     bool isBframesPresent = false; // Indicates if video stream has B-frames
 };
 
@@ -181,27 +180,27 @@ struct SensorAudioEncoderSettingsValues
      * outside {0,1}, which turns a later 'enable ? a : b' into arithmetic on
      * that value and yields an enumerator that is neither a nor b. */
     bool   enable = false;
-    string container;
-    string encoding;
-    string sample_rate;
-    string bits_per_sample;
-    string channels;
+    std::string container;
+    std::string encoding;
+    std::string sample_rate;
+    std::string bits_per_sample;
+    std::string channels;
 };
 
 struct SensorNetworkInfo
 {
-    std::pair<string, bool> token;
-    string interfaceName;
+    std::pair<std::string, bool> token;
+    std::string interfaceName;
 
     bool enableIpv4 = false;
-    string enableDhcp4;
-    string IPAddr4;
-    string prefixLen4;
+    std::string enableDhcp4;
+    std::string IPAddr4;
+    std::string prefixLen4;
 
     bool enableIpv6 = false;
-    string enableDhcp6;
-    string IPAddr6;
-    string prefixLen6;
+    std::string enableDhcp6;
+    std::string IPAddr6;
+    std::string prefixLen6;
 };
 
 enum CamTNRMode
@@ -250,59 +249,59 @@ struct SensorImageSettingsOptions
     Range ColorSaturation;
     Range Contrast;
     Range Sharpness;
-    vector<string> BacklightCompensationModes; // ON/OFF
+    std::vector<std::string> BacklightCompensationModes; // ON/OFF
     Range BacklightCompensationLevel;
-    vector<string> ExposureModes; // AUTO/MANUAL
-    vector<string> ExposurePriorities; // LowNoise/FrameRate
+    std::vector<std::string> ExposureModes; // AUTO/MANUAL
+    std::vector<std::string> ExposurePriorities; // LowNoise/FrameRate
     Range MinExposureTime;
     Range MaxExposureTime;
     Range ExposureMaxGain;
     Range ExposureTime;
     Range ExposureGain;
-    vector<string> IrCutFilterModes; // OFF/ON/AUTO
-    vector<string> WideDynamicRangeModes; // OFF/ON
+    std::vector<std::string> IrCutFilterModes; // OFF/ON/AUTO
+    std::vector<std::string> WideDynamicRangeModes; // OFF/ON
     Range WideDynamicRangeLevel;
-    vector<string> WhiteBalanceModes; // AUTO/MANUAL
+    std::vector<std::string> WhiteBalanceModes; // AUTO/MANUAL
     Range WhiteBalanceYrGain;
     Range WhiteBalanceYbGain;
 
     /* Native sensor settings */
-    vector<string> TemporalNoiseReductionModes;
-    vector<string> AeAntibandingModes;
-    vector<string> EdgeEnhancementModes;
+    std::vector<std::string> TemporalNoiseReductionModes;
+    std::vector<std::string> AeAntibandingModes;
+    std::vector<std::string> EdgeEnhancementModes;
     Range EdgeEnhancementStrength;
     Range ExposureCompensation;
 };
 
 struct SensorImageSettingsValues
 {
-    string Brightness;
-    string ColorSaturation;
-    string Contrast;
-    string Sharpness;
-    string BacklightCompensationMode; // ON/OFF
-    string BacklightCompensationLevel;
-    string ExposureMode; // AUTO/MANUAL
-    string ExposurePriority; // LowNoise/FrameRate
+    std::string Brightness;
+    std::string ColorSaturation;
+    std::string Contrast;
+    std::string Sharpness;
+    std::string BacklightCompensationMode; // ON/OFF
+    std::string BacklightCompensationLevel;
+    std::string ExposureMode; // AUTO/MANUAL
+    std::string ExposurePriority; // LowNoise/FrameRate
     Rect ExposureWindow;
-    string MinExposureTime;
-    string MaxExposureTime;
-    string ExposureMaxGain;
-    string ExposureTime;
-    string ExposureGain;
-    string IrCutFilterMode; // OFF/ON/AUTO
-    string WideDynamicRangeMode; // OFF/ON
-    string WideDynamicRangeLevel;
-    string WhiteBalanceMode; // AUTO/MANUAL
-    string WhiteBalanceYrGain;
-    string WhiteBalanceYbGain;
+    std::string MinExposureTime;
+    std::string MaxExposureTime;
+    std::string ExposureMaxGain;
+    std::string ExposureTime;
+    std::string ExposureGain;
+    std::string IrCutFilterMode; // OFF/ON/AUTO
+    std::string WideDynamicRangeMode; // OFF/ON
+    std::string WideDynamicRangeLevel;
+    std::string WhiteBalanceMode; // AUTO/MANUAL
+    std::string WhiteBalanceYrGain;
+    std::string WhiteBalanceYbGain;
 
     /* Native sensor Settings */
-    string TemporalNoiseReductionMode;
-    string AeAntibandingMode;
-    string EdgeEnhancementMode;
-    string EdgeEnhancementStrength;
-    string ExposureCompensation;
+    std::string TemporalNoiseReductionMode;
+    std::string AeAntibandingMode;
+    std::string EdgeEnhancementMode;
+    std::string EdgeEnhancementStrength;
+    std::string ExposureCompensation;
 };
 
 struct SensorSettings
@@ -319,39 +318,39 @@ struct SensorSettings
 struct SensorStatus
 {
     SensorStatusEvent event;
-    string sensorId;
-    string serverId;
-    string timeStamp;
-    string type;
-    string sensorName;
-    string tags;
+    std::string sensorId;
+    std::string serverId;
+    std::string timeStamp;
+    std::string type;
+    std::string sensorName;
+    std::string tags;
 
     SensorStatus();
-    static string getEventString(const SensorStatusEvent event);
+    static std::string getEventString(const SensorStatusEvent event);
 };
 
 struct SensorPosition
 {
-    pair<string, string> origin;
-    pair<string, string> geoLocation;
-    pair<string, string> coordinates;
-    string direction;
-    string fieldOfView;
-    string depth;
+    std::pair<std::string, std::string> origin;
+    std::pair<std::string, std::string> geoLocation;
+    std::pair<std::string, std::string> coordinates;
+    std::string direction;
+    std::string fieldOfView;
+    std::string depth;
     SensorPosition();
     void printInfo();
 };
 
 struct SensorMetadata
 {
-    map<string, string, std::less<>> data;
+    std::map<std::string, std::string, std::less<>> data;
     public:
         void printInfo();
 };
 
 struct UserInfo
 {
-    string username;
+    std::string username;
     UserInfo();
 };
 
@@ -377,10 +376,10 @@ enum StreamDirection
 
 struct ptzRange
 {
-    string x_min;
-    string x_max;
-    string y_min;
-    string y_max;
+    std::string x_min;
+    std::string x_max;
+    std::string y_min;
+    std::string y_max;
 };
 
 enum PTZAction
@@ -397,7 +396,7 @@ enum StreamStorageType
     StreamStorageTypeUnknown
 };
 
-inline string StreamStorageTypeToString(StreamStorageType storageType)
+inline std::string StreamStorageTypeToString(StreamStorageType storageType)
 {
     switch (storageType)
     {
@@ -408,7 +407,7 @@ inline string StreamStorageTypeToString(StreamStorageType storageType)
     }
 }
 
-inline string PTZActionToString(PTZAction ptz)
+inline std::string PTZActionToString(PTZAction ptz)
 {
     switch ((int)ptz)
     {
@@ -418,7 +417,7 @@ inline string PTZActionToString(PTZAction ptz)
     }
 }
 
-inline PTZAction PTZStringtoOperation(string op)
+inline PTZAction PTZStringtoOperation(std::string op)
 {
     if (op == "PanTilt")
     {
@@ -436,13 +435,13 @@ inline PTZAction PTZStringtoOperation(string op)
 
 struct StreamInfo
 {
-    string live_url;
-    string replay_url;
-    string live_proxy_url;
-    string name;
-    string socket_name;
-    string id;
-    string sensorId;
+    std::string live_url;
+    std::string replay_url;
+    std::string live_proxy_url;
+    std::string name;
+    std::string socket_name;
+    std::string id;
+    std::string sensorId;
     bool isMainStream;
     StreamStorageType storageLocation;  // Storage location: Local, Cloud, or Unknown
     StreamType stream_type;
@@ -451,11 +450,11 @@ struct StreamInfo
     std::mutex m_streamLock;
     int duration;
 private:
-    std::pair<StreamStatus, string> eStatusCode;
+    std::pair<StreamStatus, std::string> eStatusCode;
 public:
     StreamInfo ();
     void printInfo();
-    void updateErrorStatus(const std::pair<StreamStatus, string> error, bool updateDB = true);
+    void updateErrorStatus(const std::pair<StreamStatus, std::string> error, bool updateDB = true);
     void updateVideoEncoderValues(const SensorVideoEncoderSettingsValues&, bool updateDB = true);
     SensorVideoEncoderSettingsValues& getvideoEncoderValues();
     void updateVideoEncoderOptions(const SensorEncoderSettingsOptions&);
@@ -463,7 +462,7 @@ public:
     void updateAudioEncoderValues(const SensorAudioEncoderSettingsValues&, bool updateDB = true);
     SensorAudioEncoderSettingsValues& getAudioEncoderValues();
     void updateImageValues(const SensorImageSettingsValues&);
-    std::pair<StreamStatus, string> getErrorStatus();
+    std::pair<StreamStatus, std::string> getErrorStatus();
     void updateStreamtype(const StreamType type);
     Json::Value toJson(bool isStreamerDevice = false);
 };
@@ -476,71 +475,71 @@ struct OnvifServiceInfo
 
 struct SensorInfo
 {
-    string id;
-    string sensorId;
-    string ip;
-    string name;
-    string url;
-    map<string, OnvifServiceInfo> serviceUrls;
-    string model;
-    string hardware;
-    string manufacturer;
-    string firmware_version;
-    string serial_number;
-    string hardware_id;
-    string location;
-    string tags;
-    string user;
-    string password;
-    vector<shared_ptr<StreamInfo>> streams;
-    vector<shared_ptr<SensorMetadata>> metadata;
-    map<PTZAction, ptzRange> ptzInfo;
-    set<shared_ptr<UserInfo>> users;
+    std::string id;
+    std::string sensorId;
+    std::string ip;
+    std::string name;
+    std::string url;
+    std::map<std::string, OnvifServiceInfo> serviceUrls;
+    std::string model;
+    std::string hardware;
+    std::string manufacturer;
+    std::string firmware_version;
+    std::string serial_number;
+    std::string hardware_id;
+    std::string location;
+    std::string tags;
+    std::string user;
+    std::string password;
+    std::vector<std::shared_ptr<StreamInfo>> streams;
+    std::vector<std::shared_ptr<SensorMetadata>> metadata;
+    std::map<PTZAction, ptzRange> ptzInfo;
+    std::set<std::shared_ptr<UserInfo>> users;
     bool isAutoDiscovered;
-    string type;
+    std::string type;
     SensorPosition position;
     std::mutex m_sensorLock;
     std::mutex m_streamLock;
     std::mutex m_userLock;
     bool m_notify;
     bool isRemoteSensor;
-    string remoteDeviceId;
-    string remoteDeviceName;
-    string remoteDeviceLocation;
+    std::string remoteDeviceId;
+    std::string remoteDeviceName;
+    std::string remoteDeviceLocation;
     ServiceCapabilities serviceCapabilities;
     std::shared_ptr<ClientSession> clientSession;
     SensorStatusEvent sensorStatus;
 private:
     std::mutex sessionMutex;
 public:
-    std::pair<int, string> httpStatusCode;
+    std::pair<int, std::string> httpStatusCode;
 
     SensorInfo();
     SensorInfo (const SensorInfo& sensorInfo);
     ~SensorInfo();
     void operator=(const SensorInfo& sensorInfo);
-    bool operator==(const string& id);
+    bool operator==(const std::string& id);
     bool operator==(const SensorInfo& sensorInfo);
-    void updateStreams(vector<shared_ptr<StreamInfo>>& InStreams);
-    bool addStreams(shared_ptr<StreamInfo>& in_stream);
+    void updateStreams(std::vector<std::shared_ptr<StreamInfo>>& InStreams);
+    bool addStreams(std::shared_ptr<StreamInfo>& in_stream);
     void clearStreams();
-    vector<shared_ptr<StreamInfo>>& getStreams();
-    vector<shared_ptr<SensorMetadata>> getMetadata();
-    shared_ptr<StreamInfo> getStream(const string& id);
+    std::vector<std::shared_ptr<StreamInfo>>& getStreams();
+    std::vector<std::shared_ptr<SensorMetadata>> getMetadata();
+    std::shared_ptr<StreamInfo> getStream(const std::string& id);
     void clearServiceUrls();
     void updateSensorStatus(const SensorStatusEvent status);
     SensorStatusEvent getSensorStatus();
-    void updateHttpErrorStatus(const std::pair<int, string> http_error);
-    std::pair<int, string> getHttpErrorStatus();
-    void updateCredentials(const string& in_username, const string& in_password);
-    std::pair<string, string> getCredentials();
+    void updateHttpErrorStatus(const std::pair<int, std::string> http_error);
+    std::pair<int, std::string> getHttpErrorStatus();
+    void updateCredentials(const std::string& in_username, const std::string& in_password);
+    std::pair<std::string, std::string> getCredentials();
     void printInfo();
     bool isPTZSuported();
-    void addUser(shared_ptr<UserInfo> user);
-    void removeUser(string username);
-    bool checkUser(string username);
-    string getUsersString();
-    void addUsersFromString(string users);
+    void addUser(std::shared_ptr<UserInfo> user);
+    void removeUser(std::string username);
+    bool checkUser(std::string username);
+    std::string getUsersString();
+    void addUsersFromString(std::string users);
     std::shared_ptr<ClientSession>& getClientSession();
     Json::Value getStreamsJson(bool isStreamerDevice = false);
 };

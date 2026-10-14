@@ -24,7 +24,23 @@
 
 function getTests(c) {
     return [
-        { name: 'GET /config/calibration', path: '/config/calibration', method: 'GET', expectedStatus: 200 },
+        {
+            name: 'GET /config/calibration',
+            path: '/config/calibration',
+            method: 'GET',
+            expectedStatus: 200,
+            validate: (body) => {
+                const calibration = JSON.parse(body);
+                if (!calibration.calibrationType) {
+                    return 'calibrationType is empty';
+                }
+                if (!Array.isArray(calibration.sensors) || calibration.sensors.length === 0) {
+                    return 'calibration must contain at least one sensor';
+                }
+                return null;
+            },
+            failRemainingControllerTestsOnFailure: 'Calibration failed; no use running further config tests'
+        },
         { name: 'GET /config/calibration/last-modified-timestamp', path: '/config/calibration/last-modified-timestamp', method: 'GET', expectedStatus: 200 },
         { name: 'GET /config/road-network', path: '/config/road-network', method: 'GET', expectedStatus: 200 },
         { name: 'GET /config/usd-assets', path: '/config/usd-assets', method: 'GET', expectedStatus: 200 },

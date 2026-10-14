@@ -21,6 +21,8 @@
 #include <chrono>
 #include <iomanip>
 
+using namespace std;
+
 namespace nv_vms
 {
 

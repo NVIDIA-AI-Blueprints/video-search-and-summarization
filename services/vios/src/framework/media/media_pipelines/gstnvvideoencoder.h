@@ -37,7 +37,7 @@ typedef struct _GstBus GstBus;
 class GstNvVideoEncoder
 {
     public:
-        GstNvVideoEncoder (const string& device_name, const string& peer_id);
+        GstNvVideoEncoder (const std::string& device_name, const std::string& peer_id);
         ~GstNvVideoEncoder ();
 
         /* GstNvDecoder Interfaces */
@@ -45,20 +45,20 @@ class GstNvVideoEncoder
         void destroy(bool expect_result = false);
         void reset_pipeline();
 
-        void addConsumer    (shared_ptr<IMediaDataConsumer> consumer);
-        void removeConsumer (shared_ptr<IMediaDataConsumer> consumer);
+        void addConsumer    (std::shared_ptr<IMediaDataConsumer> consumer);
+        void removeConsumer (std::shared_ptr<IMediaDataConsumer> consumer);
         GstFlowReturn processNewSampleFromSink(GstElement * appsink);
-        int onFrame(FrameParams& frame_params, const string& codec, int fps);
-        std::queue<vector<uint8_t>> getSpsPpsHeaders() { return m_spsPpsFrames; }
+        int onFrame(FrameParams& frame_params, const std::string& codec, int fps);
+        std::queue<std::vector<uint8_t>> getSpsPpsHeaders() { return m_spsPpsFrames; }
         bool checkIfSpsPpsHeadersAvailable() { return !m_spsPpsFrames.empty(); }
         void setPassThrough(bool pass_through)  { m_passThrough = pass_through; }
         void intraRefreshEncoder();
         void freeVideoFrameData(int fd);
 
-        std::vector<shared_ptr<IMediaDataConsumer>> m_consumersList;
+        std::vector<std::shared_ptr<IMediaDataConsumer>> m_consumersList;
 
     private:
-        void sendToConsumer(FrameParams& frame_params, string codec);
+        void sendToConsumer(FrameParams& frame_params, std::string codec);
         void saveSpsPps(const unsigned char *buffer, ssize_t size);
 
     private:
@@ -76,10 +76,10 @@ class GstNvVideoEncoder
         int                     m_width;
         int                     m_height;
         guint                   m_busWatchId;
-        std::queue<vector<uint8_t>>    m_spsPpsFrames;
+        std::queue<std::vector<uint8_t>>    m_spsPpsFrames;
         bool                    m_passThrough = false;
-        string                  m_deviceName;
-        string                  m_peerId;
+        std::string                  m_deviceName;
+        std::string                  m_peerId;
 #ifdef ENABLE_FRAMEID_SUPPORT_IN_WEBRTC
         int64_t                 m_currentFrameId = -1;
         int64_t                 m_prevFrameId = -1;

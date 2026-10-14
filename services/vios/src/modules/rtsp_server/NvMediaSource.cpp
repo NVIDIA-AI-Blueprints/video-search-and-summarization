@@ -31,6 +31,7 @@ constexpr int RTSP_SERVER_MAX_OUTPUT_BUFFER_SIZE = 500*1000;
 constexpr const char* AUDIO_CODEC_CONFIG_ID_16K_STEREO = "1410";
 
 using namespace std;
+using namespace nv_vms;
 
 NvMediaSource
 ::NvMediaSource (const std::string& filename, eMediaType mediaType, eSourceType sourceType, string url_params, string session_id)

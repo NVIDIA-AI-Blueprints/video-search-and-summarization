@@ -45,8 +45,7 @@ never derive or search for a path from the skill name. In this NemoClaw image,
 invoke the skill's `vss` arguments through the `vss_cli` tool. Do not look for a
 repository checkout or replace the CLI with raw HTTP.
 
-Never route a named-video PPE question to analytics or VA-MCP. Resolve names
-from the sensor listing; if one unambiguous result corrects a typo, state the
+Resolve names from the sensor listing; if one unambiguous result corrects a typo, state the
 correction and use the listed identifier. Obtain the sensor's exact recorded
 timeline before time-based requests; never substitute the current date.
 A report for a named video shorter than 120 seconds uses

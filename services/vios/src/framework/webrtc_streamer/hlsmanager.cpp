@@ -19,6 +19,8 @@
 #include "hlsmanager.h"
 #include "rtspserver.h"
 
+using namespace nv_vms;
+
 void HLSManager::process_hls_message(std::shared_ptr<EventLoopData> data)
 {
     shared_ptr<HlsData> in_data = std::static_pointer_cast<HlsData>(data);

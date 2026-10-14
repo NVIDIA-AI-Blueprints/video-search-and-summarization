@@ -103,6 +103,7 @@ class _FakeVLM:
                 "start_timestamp": start_timestamp,
                 "end_timestamp": end_timestamp,
                 "time_format": time_format,
+                "prompt": prompt,
             }
         )
         return self.response
@@ -158,6 +159,120 @@ class TestCriticVerdict:
         out = await c.run(CriticAgentInput(query="q", videos=[_video()]))
         assert out.video_results[0].result == CriticAgentResult.REJECTED
         assert out.video_results[0].criteria_met == {"running": False}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "vlm_text",
+        [
+            '{"result": "rejected", "criteria_met": {"subject:man": true, "blue shirt": true}}',
+            '{"result": " Rejected ", "subject:man": true}',
+        ],
+    )
+    async def test_explicit_rejected_with_all_true_criteria_is_unverified(self, vlm_text):
+        c = CriticAgent(vlm_analyzer=_FakeVLM(vlm_text), vst=_FakeVST())
+        out = await c.run(CriticAgentInput(query="q", videos=[_video()]))
+        assert out.video_results[0].result == CriticAgentResult.UNVERIFIED
+        assert all(out.video_results[0].criteria_met.values())
+
+    @pytest.mark.asyncio
+    async def test_explicit_rejected_without_criteria_is_unverified(self):
+        vlm = _FakeVLM('{"result": "rejected"}')
+        c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
+        out = await c.run(CriticAgentInput(query="q", videos=[_video()]))
+        assert out.video_results[0].result == CriticAgentResult.UNVERIFIED
+        assert out.video_results[0].criteria_met == {}
+
+    @pytest.mark.asyncio
+    async def test_explicit_unverified_is_honored_with_criteria_kept(self):
+        vlm = _FakeVLM('{"result": "unverified", "criteria_met": {"running": true}}')
+        c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
+        out = await c.run(CriticAgentInput(query="q", videos=[_video()]))
+        assert out.video_results[0].result == CriticAgentResult.UNVERIFIED
+        assert out.video_results[0].criteria_met == {"running": True}
+
+    @pytest.mark.asyncio
+    async def test_explicit_confirmed_with_all_criteria_true_is_honored(self):
+        vlm = _FakeVLM('{"result": "confirmed", "criteria_met": {"running": true}}')
+        c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
+        out = await c.run(CriticAgentInput(query="q", videos=[_video()]))
+        assert out.video_results[0].result == CriticAgentResult.CONFIRMED
+        assert out.video_results[0].criteria_met == {"running": True}
+
+    @pytest.mark.asyncio
+    async def test_unrecognized_result_string_falls_back_to_criteria(self):
+        """A verdict outside the vocabulary is ignored, not treated as a criterion."""
+        vlm = _FakeVLM('{"result": "maybe", "subject:person": true, "running": false}')
+        c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
+        out = await c.run(CriticAgentInput(query="q", videos=[_video()]))
+        assert out.video_results[0].result == CriticAgentResult.REJECTED
+        assert out.video_results[0].criteria_met == {"subject:person": True, "running": False}
+
+
+class TestPromptDerivedVerdicts:
+    """Verdicts for the response shapes DEFAULT_CRITIC_PROMPT asks the VLM to produce.
+
+    The prompt derives criteria from the query before the clip is seen, reports an absent
+    subject as a single false subject criterion, and treats an absence the *user* asked
+    for as a criterion in its own right. These pin what the critic does with each shape.
+    Whether a given model obeys the prompt is an eval question against a live VLM, not
+    something a unit test can answer.
+    """
+
+    @pytest.mark.asyncio
+    async def test_absent_subject_yields_rejected(self):
+        vlm = _FakeVLM('{"subject:dog": false}')
+        c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
+        out = await c.run(CriticAgentInput(query="Find the dog chasing a ball", videos=[_video()]))
+        assert out.video_results[0].result == CriticAgentResult.REJECTED
+        assert out.video_results[0].criteria_met == {"subject:dog": False}
+
+    @pytest.mark.asyncio
+    async def test_user_requested_absence_unsatisfied_yields_rejected(self):
+        """The subject wears a helmet, so the user-requested absence is unsatisfied."""
+        vlm = _FakeVLM('{"subject:person": true, "without a helmet": false}')
+        c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
+        out = await c.run(CriticAgentInput(query="Find a person without a helmet", videos=[_video()]))
+        assert out.video_results[0].result == CriticAgentResult.REJECTED
+        assert out.video_results[0].criteria_met["without a helmet"] is False
+
+    @pytest.mark.asyncio
+    async def test_user_requested_absence_satisfied_yields_confirmed(self):
+        vlm = _FakeVLM('{"subject:person": true, "without a helmet": true}')
+        c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
+        out = await c.run(CriticAgentInput(query="Find a person without a helmet", videos=[_video()]))
+        assert out.video_results[0].result == CriticAgentResult.CONFIRMED
+
+    @pytest.mark.asyncio
+    async def test_query_and_criteria_rules_reach_the_vlm(self):
+        vlm = _FakeVLM('{"subject:dog": false}')
+        c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
+        await c.run(CriticAgentInput(query="Find the dog chasing a ball", videos=[_video()]))
+        prompt = vlm.calls[0]["prompt"]
+        assert "Find the dog chasing a ball" in prompt
+        assert "Derive the criteria from the user prompt ALONE" in prompt
+        assert "An absence the USER asked for is a legitimate criterion" in prompt
+
+    @pytest.mark.asyncio
+    @pytest.mark.xfail(
+        strict=True,
+        reason="The criteria keys are still chosen by the VLM, so a clip it merely "
+        "describes accurately aggregates as a match. Binding the key set in code is the "
+        "fix; delete this marker when that lands.",
+    )
+    async def test_accurately_described_clip_is_not_confirmed(self):
+        """The response captured in NVBug 6402815: warehouse footage for a fruit query.
+
+        Every criterion is true -- including the one reporting that no fruit is present --
+        so strict-AND aggregation confirms it. Asserts only "not confirmed" because either
+        candidate fix (reject, or unverified on a key-set mismatch) satisfies the contract.
+        """
+        vlm = _FakeVLM(
+            '{"subject:worker": true, "wearing yellow hard hat": true, '
+            '"standing on ladder": true, "no fruit or trees visible": true}'
+        )
+        c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
+        out = await c.run(CriticAgentInput(query="show fruits falling from tree", videos=[_video()]))
+        assert out.video_results[0].result != CriticAgentResult.CONFIRMED
 
 
 class TestCriticErrors:

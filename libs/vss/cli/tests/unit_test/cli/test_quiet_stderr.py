@@ -151,6 +151,7 @@ def test_configure_check_prints_its_block_on_one_stream() -> None:
 
     from vss_cli import configure as configure_mod
 
-    src = inspect.getsource(configure_mod.check.callback)
+    # `check` prints the table through this helper.
+    src = inspect.getsource(configure_mod._print_command_availability)
     header = next(line for line in src.splitlines() if '"commands:"' in line)
     assert "err=True" not in header, header

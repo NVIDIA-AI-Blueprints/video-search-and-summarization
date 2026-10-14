@@ -213,7 +213,7 @@ curl -s "http://<VST_ENDPOINT>/vst/api/v1/storage/file/<streamId>?startTime=<sta
 
 **Get a temporary URL for the clip** (returns a URL instead of streaming bytes — preferred for large clips):
 ```bash
-# expiryMinutes is optional; default is 10080 (7 days)
+# expiryMinutes is optional; default is 60 (1 hour)
 curl -s "http://<VST_ENDPOINT>/vst/api/v1/storage/file/<streamId>/url?startTime=<startTime>&endTime=<endTime>&container=mp4&disableAudio=true&expiryMinutes=<expiryMinutes>" | jq .
 ```
 Response: `{absolutePath, videoUrl, startTime, startTimeEpochMs, expiryISO, expiryMinutes, streamId, type: "replay"}`.
@@ -231,7 +231,7 @@ Note: `startTime` in the response reflects the actual segment boundary, which ma
 | `fullLength` | No | boolean; if true, snaps to full segment boundaries |
 | `uselibav` | No | boolean (default `false`); when `true`, uses libav-based mux path instead of GStreamer |
 | `fileName` | No | override the output download filename (default is auto-generated) |
-| `expiryMinutes` | No (URL only) | minutes until URL expires, default 10080 (7 days) |
+| `expiryMinutes` | No (URL only) | minutes until URL expires, default 60 (1 hour) |
 | `blocking` | No (URL only) | boolean (default `true`); when `false`, returns a task URL whose body becomes available asynchronously |
 | `configuration` | No | JSON string with extra encode options (resolution, etc.) — only honored when `transcode=full` |
 
@@ -249,7 +249,7 @@ curl -s "http://<VST_ENDPOINT>/vst/api/v1/live/stream/<streamId>/picture?width=<
 
 **Get temporary URL for live snapshot** (no download, returns URL):
 ```bash
-# expiryMinutes is optional; default is 10080 (7 days)
+# expiryMinutes is optional; default is 60 (1 hour)
 curl -s "http://<VST_ENDPOINT>/vst/api/v1/live/stream/<streamId>/picture/url?expiryMinutes=<expiryMinutes>" \
   -H "streamId: <streamId>" | jq .
 ```

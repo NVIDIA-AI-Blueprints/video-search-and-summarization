@@ -141,18 +141,27 @@ export function useConversations(storageKeyPrefix?: string): UseConversationsRes
   }, [storageKeyPrefix]);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The write the timer would have made, so an unmount can make it instead.
+  const pendingSave = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (!hydrated) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
+    const save = () => {
+      pendingSave.current = null;
       saveConversations(sanitizeForPersistence(conversations), storageKeyPrefix).catch((error) =>
         console.warn('vss-chat: could not save conversations', error),
       );
-    }, 400);
+    };
+    pendingSave.current = save;
+    saveTimer.current = setTimeout(save, 400);
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
   }, [conversations, hydrated, storageKeyPrefix]);
+
+  // An embedder can unmount the panel right after a turn ends (for example to
+  // ask for a new gateway token); the debounced write must still land.
+  useEffect(() => () => pendingSave.current?.(), []);
 
   useEffect(() => {
     if (!hydrated) return;

@@ -23500,7 +23500,7 @@ limitations under the License.
 
 ---
 
-## urllib3:2.7.0
+## urllib3:2.8.0
 
 **License Type:** MIT
 

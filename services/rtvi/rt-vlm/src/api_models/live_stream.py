@@ -38,11 +38,11 @@ from .common import (
     DESCRIPTION_PATTERN,
     MAX_GENERATION_TOKENS,
     MAX_GENERATION_TOKENS_ENV,
+    STREAM_ID_PATTERN,
     CommonBaseModel,
 )
 
 LIVE_STREAM_URL_PATTERN = r"^rtsp://"
-STREAM_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$"
 # CV-compatible URL pattern: accepts rtsp://, file://, http://, https://.
 # Empty VIOS camera_add registration URLs are handled by the VIOS-specific pattern.
 CV_STREAM_URL_PATTERN = r"^(rtsp://|file://|https?://)"
@@ -617,8 +617,9 @@ class StreamAddValue(CommonBaseModel):
 
     camera_id: str = Field(
         description="User-provided unique camera identifier.",
+        min_length=1,
         max_length=256,
-        pattern=ANY_CHAR_PATTERN,
+        pattern=STREAM_ID_PATTERN,
         examples=["camera-001"],
     )
     camera_name: Optional[str] = Field(
@@ -821,6 +822,13 @@ class ViosStreamEventBase(CommonBaseModel):
 class ViosStreamAddEvent(ViosStreamEventBase):
     """VIOS event payload for POST /v1/stream/add."""
 
+    camera_id: str = Field(
+        description="User-provided unique camera identifier.",
+        min_length=1,
+        max_length=256,
+        pattern=STREAM_ID_PATTERN,
+        examples=["camera-001"],
+    )
     camera_url: str = Field(
         description="Stream URL or absolute file path.",
         max_length=1024,
@@ -946,7 +954,7 @@ class StreamAddResponse(CommonBaseModel):
         pattern=ANY_CHAR_PATTERN,
     )
     asset_id: str = Field(
-        description="RTVI internal asset UUID.",
+        description="Asset identifier; for live streams, matches camera_id.",
         max_length=256,
         pattern=ANY_CHAR_PATTERN,
     )
@@ -1101,7 +1109,7 @@ class StreamInfo(CommonBaseModel):
         pattern=CV_STREAM_URL_PATTERN,
     )
     asset_id: str = Field(
-        description="RTVI internal asset UUID.",
+        description="RTVI asset identifier.",
         max_length=256,
         pattern=ANY_CHAR_PATTERN,
     )

@@ -64,7 +64,7 @@ public:
         std::lock_guard<std::mutex> guard(m_fileLock);
         m_syncFilename = filename;
         LOG(info) << "Start synchronous playback with file:" << m_syncFilename << endl;
-        m_demux.reset(new GstDeMux(m_syncFilename, MediaTypeVideo));
+        m_demux.reset(new nv_vms::GstDeMux(m_syncFilename, MediaTypeVideo));
         if (m_demux)
         {
             m_demux->create_internal();
@@ -90,18 +90,18 @@ public:
     * This functions called at beginning, Start rtsp-sync playback
     * with one of lowest framecount stream. Assuming all streams are synchronized.
     */
-    void enableRtspSyncPlayback(vector<shared_ptr<SensorInfo>>& sensors)
+    void enableRtspSyncPlayback(vector<shared_ptr<nv_vms::SensorInfo>>& sensors)
     {
         int least_framecount = INT_MAX;
         string file_path;
 
         /* Find the stream for which sync-playback can be started */
-        for (shared_ptr<SensorInfo> sensor : sensors)
+        for (shared_ptr<nv_vms::SensorInfo> sensor : sensors)
         {
             if (sensor)
             {
-                vector<shared_ptr<StreamInfo>> streams = sensor->getStreams();
-                for (shared_ptr<StreamInfo> stream : streams)
+                vector<shared_ptr<nv_vms::StreamInfo>> streams = sensor->getStreams();
+                for (shared_ptr<nv_vms::StreamInfo> stream : streams)
                 {
                     int framecount = stringToInt(stream->settings.encoderValues.numFrames, 0);
                     if (framecount > 0 && framecount < least_framecount)
@@ -124,14 +124,14 @@ public:
     * This functions called when new file is uploaded, Check if
     * rtsp-sync playback needs to be updated with this stream
     */
-    void updateRtspSyncPlayback(shared_ptr<SensorInfo>& sensor)
+    void updateRtspSyncPlayback(shared_ptr<nv_vms::SensorInfo>& sensor)
     {
         int file_framecount = INT_MAX;
         string file_path;
 
         if (sensor)
         {
-            vector<shared_ptr<StreamInfo>> streams = sensor->getStreams();
+            vector<shared_ptr<nv_vms::StreamInfo>> streams = sensor->getStreams();
             if (streams[0])
             {
                 file_path = getFilePathFromUrl(streams[0]->live_url, NV_STREAMER);
@@ -176,10 +176,10 @@ public:
         /* Start sync playback for other stream */
         int least_framecount = INT_MAX;
         string file_path;
-        std::shared_ptr<DeviceManager> deviceManager = ModuleLoader::getInstance()->getDeviceManagerObject();
+        std::shared_ptr<nv_vms::DeviceManager> deviceManager = ModuleLoader::getInstance()->getDeviceManagerObject();
         if (deviceManager)
         {
-            std::vector<shared_ptr<StreamInfo>> streamList;
+            std::vector<shared_ptr<nv_vms::StreamInfo>> streamList;
             streamList = deviceManager->getStreamList();
             for (auto const& stream : streamList)
             {
@@ -377,7 +377,7 @@ public:
         }
     }
 
-    void insertDemuxer(shared_ptr<GstDeMux>& demux)
+    void insertDemuxer(shared_ptr<nv_vms::GstDeMux>& demux)
     {
         std::lock_guard<std::mutex> guard(m_demuxerListLock);
         m_demuxList.push_back(demux);
@@ -387,11 +387,11 @@ public:
         }
     }
 
-    void removeDemuxer(shared_ptr<GstDeMux>& demuxToRemove)
+    void removeDemuxer(shared_ptr<nv_vms::GstDeMux>& demuxToRemove)
     {
         std::lock_guard<std::mutex> guard(m_demuxerListLock);
         m_demuxList.erase(std::remove_if(m_demuxList.begin(), m_demuxList.end(),
-                    [demuxToRemove](const std::shared_ptr<GstDeMux>& ptr) {
+                    [demuxToRemove](const std::shared_ptr<nv_vms::GstDeMux>& ptr) {
                         return ptr == demuxToRemove;
                     }),
                     m_demuxList.end());
@@ -575,14 +575,14 @@ private:
     }
 
     std::atomic<int64_t>    m_globalFrameId{-1};
-    shared_ptr<GstDeMux>    m_demux;
+    shared_ptr<nv_vms::GstDeMux>    m_demux;
     std::mutex              m_fileLock;
     std::string             m_syncFilename;
     bool                    m_loop = false;
     std::atomic<int>        m_maxFrameCount = 0;
     std::mutex              m_frameIdLock;
     int16_t                 m_idrInterval = 0;
-    vector<shared_ptr<GstDeMux>> m_demuxList;
+    vector<shared_ptr<nv_vms::GstDeMux>> m_demuxList;
     std::mutex              m_demuxerListLock;
     std::atomic<int>        m_simulationWaitTime {0};
     std::atomic<GstClock*> m_globalGstClock{nullptr};

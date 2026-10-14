@@ -134,9 +134,11 @@ export function useChatSidebarMainTabBridge({
   // Chat calls onAnswerComplete before onAnswerCompleteWithContent.
   const handleSidebarAnswerComplete = React.useCallback(() => {
     const tabId = parseSidebarMainTabId(sidebarAnswerTargetTabRef.current ?? activeTabRef.current);
-    if (tabId) {
+    if (tabId && tabId !== 'alerts') {
       sidebarMainTabChatRegistry.emitEventToTab(tabId, { type: 'answerComplete' });
     }
+    // Alert rules can change from any chat context, even without a UI artifact.
+    sidebarMainTabChatRegistry.emitEventToTab('alerts', { type: 'answerComplete' });
     if (pendingSidebarContextTabRef.current === 'search') {
       setSearchTabChatSidebarBusy(false);
     }
@@ -172,6 +174,9 @@ export function useChatSidebarMainTabBridge({
   // The full-page Chat tab uses the same artifact subscribers as the floating
   // sidebar. Keep its handler separate so completing a main-chat turn cannot
   // mutate sidebar-only in-flight state.
+  const handleMainChatAnswerComplete = React.useCallback(() => {
+    sidebarMainTabChatRegistry.emitEventToTab('alerts', { type: 'answerComplete' });
+  }, [sidebarMainTabChatRegistry]);
   const handleMainChatAnswerCompleteWithContent = deliverAnswerToMainTabs;
 
   const handleSidebarSubmitMessageReady = React.useCallback(
@@ -237,6 +242,7 @@ export function useChatSidebarMainTabBridge({
     handleSidebarChatVideoUploadComplete,
     handleSidebarAnswerComplete,
     handleSidebarAnswerCompleteWithContent,
+    handleMainChatAnswerComplete,
     handleMainChatAnswerCompleteWithContent,
     handleSidebarSubmitMessageReady,
     handleSidebarMessageSubmitted,

@@ -30,6 +30,29 @@ describe('CreateAlertRulesView realtime rules', () => {
     global.fetch = originalFetch;
   });
 
+  it('loads chat-created rules on refresh without losing an unsaved draft', async () => {
+    let rules: RealtimeAlertRule[] = [];
+    global.fetch = jest.fn().mockImplementation((url: string) =>
+      url.endsWith('/realtime') ? jsonResponse({ rules }) : jsonResponse({ configs: [] }),
+    );
+    const props = {
+      isDark: false,
+      activeKind: 'real-time' as const,
+      onAddNew: jest.fn(),
+      alertsApiUrl: 'http://alerts.test/api/v1',
+    };
+    const { rerender } = render(<CreateAlertRulesView {...props} refreshVersion={0} />);
+    await waitFor(() => expect(screen.getByText(/No real-time alert rules/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('add-new-alert-button-inline'));
+    fireEvent.change(screen.getByPlaceholderText('e.g. collision'), { target: { value: 'My draft' } });
+    rules = [{ id: 'chat-rule', alert_type: 'Chat collision', prompt: 'Watch for collisions',
+      live_stream_url: 'rtsp://camera/live', sensor_name: 'camera', status: 'active' }];
+    rerender(<CreateAlertRulesView {...props} refreshVersion={1} />);
+    await waitFor(() => expect(screen.getByText('Chat collision')).toBeInTheDocument());
+    expect(screen.getByPlaceholderText('e.g. collision')).toHaveValue('My draft');
+    expect(screen.getAllByTestId('realtime-alert-draft-row')).toHaveLength(1);
+  });
+
   it('creates a realtime alert rule by picking a sensor from VST live streams', async () => {
     const liveRtspUrl =
       'rtsp://10.24.142.82:30554/live/8c7338ec-2266-4eea-aeb4-c568d8944b05';

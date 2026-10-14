@@ -448,6 +448,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     handleSidebarChatVideoUploadComplete,
     handleSidebarAnswerComplete,
     handleSidebarAnswerCompleteWithContent,
+    handleMainChatAnswerComplete,
     handleMainChatAnswerCompleteWithContent,
     handleSidebarSubmitMessageReady,
     handleSidebarMessageSubmitted,
@@ -603,6 +604,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
               onChatVideoUploadComplete={handleSidebarChatVideoUploadComplete}
               onAnswer={handleSidebarAnswerCompleteWithContent}
               onSubmit={() => handleSidebarMessageSubmitted()}
+              onAuthFailure={nemoClawAdapterEnabled ? nemoClawConnection.reject : undefined}
             />
           </div>
         </div>
@@ -733,9 +735,11 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
                   isActive={isActive}
                   features={vssMainChatFeatures}
                   {...vssMainChatExtraConfig}
+                  onAnswerComplete={handleMainChatAnswerComplete}
                   onAnswer={handleMainChatAnswerCompleteWithContent}
                   // The chat tab renders its conversation list in the app's left sidebar.
                   onControlsReady={isActive ? chatControlsReadyCallback : undefined}
+                  onAuthFailure={nemoClawAdapterEnabled ? nemoClawConnection.reject : undefined}
                 />
               </div>
             </>

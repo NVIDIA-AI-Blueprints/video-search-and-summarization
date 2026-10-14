@@ -141,7 +141,7 @@ DGX Spark is a single-GPU edge system, so it needs a few adjustments before you 
 3. **Point the VSS LLM at a remote endpoint** (Section 1.2). A single GPU can run both a local LLM and the local VLM, but sharing the device often exhausts GPU memory. A remote LLM is recommended:
 
    ```python
-   LLM_NAME = "qwen/qwen3-next-80b-a3b-instruct"
+   LLM_NAME = "nvidia/nemotron-3.5-lightning-30b-a3b"
    LLM_ENDPOINT_URL = "https://integrate.api.nvidia.com"
    LLM_MODEL_TYPE = "openai"
    OPENAI_API_KEY = ""

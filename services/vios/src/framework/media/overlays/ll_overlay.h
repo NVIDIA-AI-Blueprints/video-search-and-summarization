@@ -29,7 +29,6 @@
 #include "nvcompositor.h"
 #include "MetadataStore.h"
 
-using namespace std;
 
 inline constexpr double DEFAULT_FRAME_RATE = 30.0;
 #if defined(AARCH64_PLATFORM)
@@ -68,7 +67,7 @@ public:
     void setIPCMeta () override;
     Json::Value getOverlayStatus();
     /* Update start time for overlay */
-    void updateStartTime(string start_time) override;
+    void updateStartTime(std::string start_time) override;
     void reset() override;
     void onLastFrame() override;
 
@@ -78,13 +77,13 @@ private:
 
     std::thread                                    m_drawThread;
     std::atomic<bool>                              m_stop {false};
-    shared_ptr<NvSurfacePool>                      m_surfacePool = nullptr;
+    std::shared_ptr<NvSurfacePool>                      m_surfacePool = nullptr;
 
     /* Data structure related to Queue */
     std::queue<std::shared_ptr<RawFrameParams>> m_queue;
     std::mutex                                     m_queueLock;
     std::condition_variable                        m_condVar;
-    atomic<bool>                                   m_flowData {false};
+    std::atomic<bool>                                   m_flowData {false};
     std::string                                    m_uri;
     std::map<std::string, std::string, std::less<>>             m_opts;
     bool                                           m_compositePlayback = false;
@@ -112,7 +111,6 @@ private:
     std::string                                    m_peerid;
     std::string                                    m_isoStartTime;
     std::string                                    m_isoEndTime;
-    void*                                          m_broadcaster = nullptr;
     std::vector<uint8_t>                           m_cpuPtr[OUTPUT_PLANE_NUM_BUFFERS];
     bool                                           m_imageCapture = false;
     bool                                           m_isIPCMeta = false;

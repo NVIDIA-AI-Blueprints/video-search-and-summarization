@@ -320,13 +320,13 @@ class DecoderProcess(ProcessBase):
 
     def _warmup(self):
         chunk = ChunkInfo()
-        chunk.file = "/opt/nvidia/rtvi/warmup_streams/its_264.mp4"
+        chunk.file = "/opt/nvidia/rtvi/warmup_streams/sample_1080p_h264.mp4"
         chunk.end_pts = 5000000000
         if os.path.exists(chunk.file):
             for fgetter in self._fgetters:
                 fgetter.get_frames(chunk)
 
-        chunk.file = "/opt/nvidia/rtvi/warmup_streams/its_265.mp4"
+        chunk.file = "/opt/nvidia/rtvi/warmup_streams/sample_1080p_h265.mp4"
         if os.path.exists(chunk.file):
             for fgetter in self._fgetters:
                 fgetter.get_frames(chunk)

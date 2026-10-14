@@ -50,6 +50,11 @@ public:
 
     virtual ~H264ByteStreamSource();
 
+    H264ByteStreamSource(const H264ByteStreamSource&) = delete;
+    H264ByteStreamSource& operator=(const H264ByteStreamSource&) = delete;
+    H264ByteStreamSource(H264ByteStreamSource&&) = delete;
+    H264ByteStreamSource& operator=(H264ByteStreamSource&&) = delete;
+
 private:
     // redefined virtual functions:
     virtual void doGetNextFrame();

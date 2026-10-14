@@ -37,6 +37,7 @@ namespace trace_semantic = opentelemetry::trace::SemanticConventions;
 #endif
 
 using namespace std;
+using namespace nv_vms;
 
 constexpr char STORAGE_MANAGEMENT_UPLOAD_API[] = "/api/v1/storage/file";
 constexpr char STORAGE_MANAGEMENT_UPLOAD_API_VST[] = "/vst/api/v1/storage/file";

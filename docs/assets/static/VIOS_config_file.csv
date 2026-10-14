@@ -60,7 +60,7 @@
 """use_centralize_local_db""",Enable/Disable Centralized local db,TRUE
 """restore_rtsp_streams_on_startup""","When enabled, on container startup previously configured RTSP proxy streams are re-read from the central database and re-registered on the RTSP server, so that previously added streams survive restarts.",TRUE
 """max_network_db_connections""","Maximum number of connections to the centralized network database",10
-"""default_file_expiry_minutes""","Default file expiry time in minutes (e.g., 10080 = 7 days)",10080
+"""default_file_expiry_minutes""","Default file expiry time in minutes (e.g., 60 = 1 hour)",60
 """download_files_timeout_secs""","Timeout in seconds for video download operations",120
 """picture_api_timeout_secs""","Timeout in seconds for picture (snapshot) API operations",20
 "**notifications**",**Section to define all Notifications related parameters**,

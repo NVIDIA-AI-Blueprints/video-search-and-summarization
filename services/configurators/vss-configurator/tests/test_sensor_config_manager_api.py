@@ -223,3 +223,74 @@ def test_groups_with_mapping_returns_list(client, sample_sensor_mapping, monkeyp
     assert isinstance(data, list)
     assert "r1|g1" in data
     assert "r2|g1" in data
+
+
+def test_cameras_unexpected_error_returns_internal_server_error(client, sample_sensor_mapping):
+    """GET /cameras still returns the shared internal-error body when listing fails."""
+    import sensor_config_manager as mod
+    with patch.object(mod, "sensor_mapping", sample_sensor_mapping):
+        with patch.object(sample_sensor_mapping, "get_sensor_names", side_effect=RuntimeError("boom")):
+            r = client.get("/cameras")
+    assert r.status_code == 500
+    assert r.get_json() == {"error": mod.INTERNAL_SERVER_ERROR}
+
+
+def test_groups_unexpected_error_returns_internal_server_error(client, sample_sensor_mapping, monkeypatch):
+    """GET /groups still returns the shared internal-error body when listing fails."""
+    import sensor_config_manager as mod
+    mod._config_cache.clear()
+    monkeypatch.setenv("ENABLE_CALIBRATION_PROCESS", "true")
+    mod.refresh_config()
+    with patch.object(mod, "sensor_mapping", sample_sensor_mapping):
+        with patch.object(sample_sensor_mapping, "get_group_names", side_effect=RuntimeError("boom")):
+            r = client.get("/groups")
+    assert r.status_code == 500
+    assert r.get_json() == {"error": mod.INTERNAL_SERVER_ERROR}
+
+
+def test_download_send_failure_returns_internal_server_error(client, monkeypatch, tmp_path):
+    """GET /download still returns the shared internal-error body when send_file fails."""
+    import sensor_config_manager as mod
+    monkeypatch.setenv("ENABLE_CALIBRATION_PROCESS", "true")
+    monkeypatch.setenv("CALIBRATION_DIR_MOUNT_PATH", str(tmp_path))
+    monkeypatch.setenv("CALIBRATION_FILE_NAME", "calibration.json")
+    mod._config_cache.clear()
+    mod.refresh_config()
+    cal_path = tmp_path / "calibration.json"
+    cal_path.write_text("{}")
+    with patch.object(mod, "send_file", side_effect=OSError("send failed")):
+        r = client.get("/download")
+    assert r.status_code == 500
+    assert r.get_json() == {"error": mod.INTERNAL_SERVER_ERROR}
+
+
+def test_nvstreamer_redis_created_at_is_utc_zulu():
+    """Prefetched stream alerts keep a UTC Z timestamp without datetime.utcnow."""
+    import datetime
+    import json
+    import sensor_config_manager as mod
+
+    mod._config_cache.clear()
+    mod.refresh_config()
+    client = MagicMock()
+    stream = {
+        "event": {
+            "camera_id": "c1",
+            "camera_name": "cam",
+            "camera_url": "rtsp://host/1",
+            "change": "added",
+        }
+    }
+    before = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+    with patch.object(mod.redis, "StrictRedis", return_value=client):
+        mod.send_nvstreamer_streams_to_redis([stream])
+    after = datetime.datetime.now(datetime.timezone.utc)
+
+    assert client.xadd.call_count == len(mod.CONFIG["REDIS_TARGET_TOPICS"])
+    for call in client.xadd.call_args_list:
+        payload = next(iter(call.args[1].values()))
+        created_at = json.loads(payload.decode("utf-8"))["created_at"]
+        stamped = datetime.datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=datetime.timezone.utc
+        )
+        assert before <= stamped <= after

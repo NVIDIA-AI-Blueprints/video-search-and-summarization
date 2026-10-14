@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Check that source files contain an SPDX copyright header.
 
-Scans Python (.py) and TypeScript/JavaScript (.ts, .tsx, .js, .jsx)
-files tracked by git. Files matching EXCLUDE_PATTERNS are skipped.
+Scans source files, YAML configuration, and Dockerfiles tracked by git.
+Files matching EXCLUDE_PATTERNS are skipped.
 
 Exit code 0 if all files pass, 1 if any are missing headers.
 """
@@ -20,8 +20,8 @@ from pathlib import Path
 # SPDX identifier that must appear in the first 5 lines of each file
 REQUIRED_MARKER = "SPDX-License-Identifier"
 
-# File extensions to check
-CHECK_EXTENSIONS = {".py", ".ts", ".tsx", ".js", ".jsx"}
+# File extensions and names to check
+CHECK_EXTENSIONS = {".py", ".ts", ".tsx", ".js", ".jsx", ".yml", ".yaml"}
 
 # Glob patterns to skip (relative to repo root)
 EXCLUDE_PATTERNS = (
@@ -107,8 +107,8 @@ def main() -> int:
     missing: list[str] = []
 
     for filepath in files:
-        ext = Path(filepath).suffix
-        if ext not in CHECK_EXTENSIONS:
+        path = Path(filepath)
+        if path.suffix not in CHECK_EXTENSIONS and not path.name.startswith("Dockerfile"):
             continue
         if is_excluded(filepath):
             continue

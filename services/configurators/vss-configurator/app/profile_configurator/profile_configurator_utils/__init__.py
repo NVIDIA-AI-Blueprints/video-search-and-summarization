@@ -50,6 +50,5 @@ __all__ = [
     'text_replace',
     'set_flow_for_lists',
     # 'expand_list_anchors',
-    'YAMLListMerger',
 ]
 

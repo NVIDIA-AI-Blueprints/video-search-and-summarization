@@ -90,15 +90,17 @@ const configFingerprint = (environment: NodeJS.ProcessEnv): string =>
     )
     .digest("hex");
 
-const canCancelCachedRun = (environment: NodeJS.ProcessEnv, segments: string[]): boolean => {
-  if (segments.length !== 3 || segments[0] !== "runs" || segments[2] !== "cancel") return false;
-  const service = globalThis.__vssEmbeddedAgentAdapterSessions?.get(configFingerprint(environment))?.service;
-  if (!service) return false;
-  try {
-    return !service.store.get(segments[1], service.ownerFingerprint).terminal;
-  } catch {
-    return false;
-  }
+// The gateway accepted this token when its session was created, and every run
+// authenticates again in its own handshake. Revalidate only after a run reports
+// the token rejected, so ordinary requests open no extra gateway connections.
+const hasAcceptedSession = (environment: NodeJS.ProcessEnv): boolean => {
+  const sessions = globalThis.__vssEmbeddedAgentAdapterSessions;
+  const key = configFingerprint(environment);
+  const cached = sessions?.get(key);
+  if (!cached) return false;
+  if (!cached.service.credentialsRejected) return true;
+  sessions!.delete(key);
+  return false;
 };
 
 export const getAgentAdapterService = (
@@ -382,7 +384,7 @@ export const agentAdapterHandler = async (
     return;
   }
   const environment = tokenEnvironment(token);
-  if (environment !== process.env) {
+  if (environment !== process.env && !hasAcceptedSession(environment)) {
     try {
       const config = loadAgentAdapterConfig(environment);
       if (config?.backendProtocol === "openclaw-ws") {
@@ -394,21 +396,13 @@ export const agentAdapterHandler = async (
         return;
       }
       const code = error instanceof ConnectorError ? error.code : "backend_unreachable";
-      // A transient gateway outage must not block local cancellation of a
-      // run already owned by this token. Rejected credentials still fail closed.
-      if (
-        code !== "backend_unreachable" ||
-        req.method !== "POST" ||
-        !canCancelCachedRun(environment, segments)
-      ) {
-        errorResponse(
-          res,
-          code === "backend_auth_error" || code === "backend_scope_error" ? 401 : 503,
-          code,
-          error instanceof ConnectorError ? error.message : "NemoClaw gateway is unavailable"
-        );
-        return;
-      }
+      errorResponse(
+        res,
+        code === "backend_auth_error" || code === "backend_scope_error" ? 401 : 503,
+        code,
+        error instanceof ConnectorError ? error.message : "NemoClaw gateway is unavailable"
+      );
+      return;
     }
   }
   let service: AgentAdapterService | null;

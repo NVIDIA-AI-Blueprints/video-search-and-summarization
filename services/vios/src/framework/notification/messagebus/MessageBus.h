@@ -31,8 +31,6 @@
 #include "utils.h"
 
 
-using namespace std;
-using namespace nv_vms;
 constexpr int MESSAGE_BUS_CLEANUP_INTERVAL = 20000;
 constexpr double MESSAGE_BUS_REQUEST_TIMEOUT = 10.0;
 
@@ -41,36 +39,36 @@ class MessageBus : public IDataChannelListener
 public:
     MessageBus()
     {
-        LOG(verbose) << __PRETTY_FUNCTION__ << endl;
+        LOG(verbose) << __PRETTY_FUNCTION__ << std::endl;
         GET_DATA_CHANNEL()->registerListener(this);
         auto messageBusCleanupInterval = std::chrono::milliseconds(MESSAGE_BUS_CLEANUP_INTERVAL);
-        m_watchdog = make_unique<Bosma::Scheduler>(1);
+        m_watchdog = std::make_unique<Bosma::Scheduler>(1);
         m_watchdog->interval(messageBusCleanupInterval, [this]()
                             { messageBusCleanupTask(); });
     }
     ~MessageBus()
     {
-        LOG(info) << __PRETTY_FUNCTION__ << endl;
+        LOG(info) << __PRETTY_FUNCTION__ << std::endl;
         m_watchdog.reset();
         GET_DATA_CHANNEL()->deRegisterListener(this);
     }
 
     // IDataChannelListener Interface
     void onMessage(Json::Value& message);
-    bool sendMessage(const string& clientId, const string& message, std::shared_ptr<MessageObject> messageObj);
-    bool sendMessage(const string& clientId, const string& message);
+    bool sendMessage(const std::string& clientId, const std::string& message, std::shared_ptr<MessageObject> messageObj);
+    bool sendMessage(const std::string& clientId, const std::string& message);
 
     typedef std::function<void(const Json::Value& receivedData, Json::Value& response)> dataChannelFunction;
     void addRequestHandler(std::map<std::string, dataChannelFunction, std::less<>> &func);
 
 private:
-    void fillResponseAndNotify(Json::Value& response, string requestId);
+    void fillResponseAndNotify(Json::Value& response, std::string requestId);
     void messageBusCleanupTask();
     /**
      * Multiple threads share the same thread_local variable, but changes to the variable are isolated
      * to each thread. In case of receiving fragmented message, websocket opcode and accumulated data is stored.
      */
-    std::map<string, std::shared_ptr<MessageObject>>                    m_callerList;
+    std::map<std::string, std::shared_ptr<MessageObject>>                    m_callerList;
     std::mutex                                                          m_callerListMutex;
     // Callback map and its mutex
     std::map<std::string, dataChannelFunction>                          m_callbackMap;

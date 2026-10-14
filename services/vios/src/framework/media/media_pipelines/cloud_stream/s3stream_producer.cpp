@@ -27,6 +27,7 @@
 #include "ReplayPeerConnection.h"
 
 using namespace std;
+using namespace nv_vms;
 
 /* Macro defined in splitmuxsrc plugin - must match for compatibility */
 #define FIXED_TS_OFFSET (1000*GST_SECOND)

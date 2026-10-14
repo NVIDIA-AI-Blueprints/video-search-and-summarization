@@ -70,6 +70,20 @@ docker compose -f infra/video-analytics-api-infra.yml -f apps/video-analytics-ap
    - `GET /config/calibration`, `/config/calibration/last-modified-timestamp`, `/config/road-network`, `/config/usd-assets` → 200
 5. **Cleanup** – `docker compose down --volumes` and volume prune.
 
+## Warehouse contract coverage
+
+Behavior checks require exactly one result when `maxResultSize=1` is requested
+for the primary sensor, alternate sensor or place. Calibration checks require a
+calibration type and at least one sensor before the remaining config cases run.
+
+Incident checks validate protobuf fields against the repository's
+`libs/nvschema/protobuf/ext.proto` and require camelCase keys in `info`.
+Run these tests from a full repository checkout. Under the warehouse 2D profile they
+also check VLM alert types, proximity/Near Miss ID correspondence, timestamp
+comparisons and verification coverage. Async validators can fetch additional
+pages; split windows deduplicate incidents because the API matches overlapping
+incident intervals. A saturated window that cannot be split fails explicitly.
+
 ## Environment variables
 
 Generated in `docker_compose/infra/.env` by `generate_env.sh`:
@@ -87,6 +101,7 @@ check on `/incidents`) run. Set them beforehand to exercise a different profile:
 - `COMPOSE_PROFILE` – `bp_wh_2d`
 - `BP_PROFILE` – `bp_wh`
 - `DEPLOY_PROFILE` – `COMPOSE_PROFILES_WH_2D`
+- `WAREHOUSE_VLM_ALERTS_VERIFICATION=true` – explicitly enables the VLM incident checks when the profile variables are absent.
 
 Optional overrides:
 

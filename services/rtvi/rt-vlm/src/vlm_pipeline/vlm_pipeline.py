@@ -50,6 +50,7 @@ from .process_base import (
     ProcessBase,
     _contains_cuda_tensor,
     _move_cuda_frames_to_cpu,
+    _parse_bool_env,
     _safe_cuda_empty_cache,
     _spill_cuda_frames_to_cpu,
 )
@@ -581,6 +582,10 @@ class DecoderProcess(ProcessBase):
             raise
 
     def _warmup(self):
+        if _parse_bool_env("SKIP_DECODER_WARMUP"):
+            logger.info("Skipping decoder warmup")
+            return
+
         chunk = ChunkInfo()
         chunk.file = "/opt/nvidia/rtvi/warmup_streams/its_264.mp4"
         chunk.end_pts = 5000000000
@@ -2191,10 +2196,11 @@ class VlmPipeline:
                     lsinfo.end_of_stream = True
                     lsinfo.total_chunks_at_eos = item["total_chunks"]
 
+                    # EOS can overtake queued tail chunks. Even forced deletion
+                    # must account for their completions before closing EVS.
                     for subscriber in lsinfo.subscribers.values():
                         if not subscriber.all_chunks_processed and (
-                            lsinfo.abort_requested
-                            or subscriber.num_chunks_processed
+                            subscriber.num_chunks_processed
                             >= self._subscriber_expected_chunks_at_eos(
                                 subscriber,
                                 lsinfo.total_chunks_at_eos,
@@ -2758,9 +2764,9 @@ class VlmPipeline:
         decoder_proc.send_command("stop-live-stream", live_stream_id=live_stream_id)
 
         for proc in self._vlm_procs:
-            proc.send_command("drop-chunks", stream_id=live_stream_id)
+            proc.send_command("drop-chunks", stream_id=live_stream_id, idempotent=True)
         for proc in self._asr_procs:
-            proc.send_command("drop-chunks", stream_id=live_stream_id)
+            proc.send_command("drop-chunks", stream_id=live_stream_id, idempotent=True)
 
         if abort_inflight:
             aborted_requests = self._abort_live_stream_vlm_requests(live_stream_id)
@@ -2784,12 +2790,18 @@ class VlmPipeline:
             aborted_requests = self._abort_live_stream_vlm_requests(live_stream_id)
             logger.warning(
                 "Drain timed out after %.1fs for live-stream %s; "
-                "aborted %d in-flight VLM request(s) before forcing completion.",
+                "aborted %d in-flight VLM request(s); retaining stream state for retry.",
                 drain_elapsed,
                 live_stream_id,
                 aborted_requests,
             )
-            lsinfo.all_chunks_processed = True
+            # Queued tail chunks still need completion accounting. Clearing the
+            # drop mask here would let them recreate EVS sessions after deletion.
+            raise ServiceException(
+                f"Timed out draining live stream {live_stream_id}; retry deletion",
+                "ServiceUnavailable",
+                503,
+            )
 
         # Release the stream's EVS sessions before the map pop. The EOS-driven
         # close (see the end-of-stream branch in the output loop) only fires on a

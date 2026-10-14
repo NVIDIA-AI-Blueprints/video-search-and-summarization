@@ -33,6 +33,8 @@
 #include <thread>
 #include <chrono>
 
+using namespace nv_vms;
+
 // Implementation of PipelineBuilder utility methods
 
 std::shared_ptr<IMediaDataProducer> PipelineBuilder::createSourceProducer(

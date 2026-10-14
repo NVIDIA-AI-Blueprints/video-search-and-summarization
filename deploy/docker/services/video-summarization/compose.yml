@@ -75,11 +75,6 @@ services:
       - BACKEND_PORT=${BACKEND_PORT:-38111}
       - LVS_MCP_PORT=${LVS_MCP_PORT:-38112}
 
-      # GPU configuration
-      - GPU_DEVICES=${GPU_DEVICES:-0}
-      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-${GPU_DEVICES:-0}}
-      - NUM_GPUS=${NUM_GPUS:-1}
-
       # Model cache directory
       - MODEL_ROOT_DIR=${MODEL_ROOT_DIR:-/tmp/model_cache}
 
@@ -144,9 +139,6 @@ services:
       rtvi-vlm:
         condition: service_healthy
         required: false
-    extra_hosts:
-      # NemoClaw's vss CLI mints clip URLs on this alias; resolve it to haproxy on the host.
-      - "host.openshell.internal:host-gateway"
 
     # Network mode: bridge (default) to enable port mapping
     # To use host network instead (ignores port mapping), uncomment:

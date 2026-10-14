@@ -34,7 +34,7 @@ namespace nv_vms
     class GstUDPAudioClient : public UdpClient
     {
         public:
-            GstUDPAudioClient (const string&  id, UdpStream& stream)
+            GstUDPAudioClient (const std::string&  id, UdpStream& stream)
                       : UdpClient(id, stream)
                       , m_pipeline(nullptr)
                       , m_source(nullptr)
@@ -52,9 +52,9 @@ namespace nv_vms
                                     [this](std::shared_ptr<EventLoopData> data) { process_eventloop_message(data); })
                       , m_is_error(false)
                       {
-                          LOG(info) << "GstUDPAudioClient::GstUDPAudioClient port:" << id << endl;
+                          LOG(info) << "GstUDPAudioClient::GstUDPAudioClient port:" << id << std::endl;
                       }
-            ~GstUDPAudioClient () { LOG(info) << "~GstUDPAudioClient" << endl; }
+            ~GstUDPAudioClient () { LOG(info) << "~GstUDPAudioClient" << std::endl; }
 
             // UdpClient interfaces
             using UdpClient::create;

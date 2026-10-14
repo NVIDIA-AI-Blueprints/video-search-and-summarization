@@ -40,7 +40,6 @@
 #include "webrtc_headers/src/api/video/video_frame_buffer.h"
 
 //#define DUMP_BITSTREAM
-using namespace std;
 
 struct encoder_params;
 
@@ -48,7 +47,7 @@ struct VideoSink
 {
     VideoSink(): m_broadcaster(nullptr)  {}
     webrtc::VideoBroadcaster* m_broadcaster = nullptr;
-    string m_state = "NOT_PLAYING";
+    std::string m_state = "NOT_PLAYING";
 };
 
 class VideoWebRTCSender : public IMediaDataConsumer
@@ -72,17 +71,17 @@ class VideoWebRTCSender : public IMediaDataConsumer
                     m_videoSinkList.clear();
                 }
                 m_earlyFrameCv.notify_all();
-                LOG(info) << "VideoWebRTCSender instance is deleted " << endl;
+                LOG(info) << "VideoWebRTCSender instance is deleted " << std::endl;
             } catch (const std::exception& e) {
-                try { LOG(error) << "Exception in ~VideoWebRTCSender: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }
+                try { LOG(error) << "Exception in ~VideoWebRTCSender: " << e.what() << std::endl; } catch (...) { (void)std::current_exception(); }
             } catch (...) {
-                try { LOG(error) << "Unknown exception in ~VideoWebRTCSender" << endl; } catch (...) { (void)std::current_exception(); }
+                try { LOG(error) << "Unknown exception in ~VideoWebRTCSender" << std::endl; } catch (...) { (void)std::current_exception(); }
             }
         }
 
         void unRefDataStructure(encoder_params *params);
         void getwebRTCFeedback(int* qp, int* bitrate, double* frame_rate);
-        int  createPassThroughMode(string& device_id);
+        int  createPassThroughMode(std::string& device_id);
         void appendWebrtcBroacaster(const std::string& peerid, webrtc::VideoBroadcaster* broadcaster);
         void removeWebrtcBroacaster(const std::string& peerid);
         using IMediaDataConsumer::onFrame;
@@ -91,7 +90,7 @@ class VideoWebRTCSender : public IMediaDataConsumer
 
         void resume(const std::string& peerid);
         void pause(const std::string& peerid);
-        string getPlaybackState(const std::string& peerid);
+        std::string getPlaybackState(const std::string& peerid);
         bool isShuttingDown() const { return m_isShuttingDown.load(); }
 
     private:
@@ -126,7 +125,7 @@ class VideoWebRTCSender : public IMediaDataConsumer
 
 #ifdef DUMP_BITSTREAM
         int                     m_frameCount = 0;
-        ofstream                m_dumpFile;
+        std::ofstream                m_dumpFile;
 #endif
         std::string             m_deviceId;
 };

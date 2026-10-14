@@ -223,9 +223,9 @@ RT-VLM keeps the requested FPS only while `fps × clip_seconds` is at most 60 fr
 spaced frames so the vision token budget is not spent on many tiny images.
 Prefer a shorter window before raising FPS.
 
-Do not use fixed `--num-frames` unless the user explicitly requests a fixed
-frame budget or a reproducibility workflow requires it. Never combine
-`--num-frames` and `--fps`.
+Do not pass `--max-frames` unless the user explicitly requests a frame
+budget or a reproducibility workflow requires it. It caps the frame count and
+may be combined with `--fps`; on RT-VLM it applies only when `--fps` is unset.
 
 ## When introspection is enabled
 

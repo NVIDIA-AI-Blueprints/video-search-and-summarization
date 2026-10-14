@@ -85,6 +85,7 @@ NVStreamer provides a mechanism to synchronize the streaming of videos. This is 
 To enable synchronized streaming:
 
 1. Set the config parameter `nv_streamer_sync_file_count` to specify the number of files to sync with respect to each other.
+   Synced streams send no media until all of them are playing. If clients take longer than the default 150 seconds to start, raise `nv_streamer_sync_data_arrival_timeout_secs` so the streams are not dropped while waiting.
 2. Ensure all files to be synced have the same encoding attributes (resolution, frame rate, bitrate, duration).
 3. If files have different encoding attributes, use the following `ffmpeg` commands to standardize them:
 

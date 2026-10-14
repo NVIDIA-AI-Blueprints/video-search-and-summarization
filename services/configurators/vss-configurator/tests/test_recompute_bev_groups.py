@@ -296,6 +296,26 @@ def test_recompute_exception_preserves_original_and_cleans_temp(tmp_path):
     assert not list(tmp_path.glob(".calibration.bev_*.json"))
 
 
+def test_failed_calibration_copy_removes_temp_file(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Camera.mp4").write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    original = write_calibration(calibration_file, ["Camera"])
+
+    manager = make_manager({"CALIBRATION_MODE": "mount"})
+    with patch(
+        "profile_configurator.profile_config_manager.shutil.copy2",
+        side_effect=OSError("disk full"),
+    ):
+        assert not manager._execute_recompute_bev_groups(
+            make_operation(video_dir, calibration_file)
+        )
+
+    assert json.loads(calibration_file.read_text(encoding="utf-8")) == original
+    assert not list(tmp_path.glob(".calibration.bev_*.json"))
+
+
 def test_invalid_recompute_output_preserves_original(tmp_path):
     video_dir = tmp_path / "videos"
     video_dir.mkdir()

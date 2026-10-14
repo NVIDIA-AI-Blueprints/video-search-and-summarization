@@ -110,13 +110,13 @@ by the parent overlay.
 {{- if $pfx }}{{ printf "%s-%s" $root.Release.Name $short }}{{- else -}}{{ $short }}{{- end }}
 {{- end }}
 {{/*
-  Full VST ingress base URL (with scheme). Align with vss-vios-streamprocessing.vstIngressEndpoint when global.vlmBaseUrl + global.externalHost are set (remote VLM / public incident URLs).
+  Full VST ingress base URL (with scheme).
 */}}
 {{- define "vss-vios-sensor.vstIngressEndpointUrl" -}}
 {{- $g := .Values.global | default dict }}
 {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
 {{- $eh := index $g "externalHost" | default "" | trim }}
-{{- $ep := index $g "externalPort" | default "" | toString | trim }}
+{{- $ep := index $g "vstExternalPort" | default (index $g "externalPort") | default "" | toString | trim }}
 {{- $es := index $g "externalScheme" | default "http" }}
 {{- $explicit := trim (default "" .Values.vstIngressEndpoint) }}
 {{- if ne $explicit "" }}

@@ -152,6 +152,44 @@ def test_clip_defaults_to_the_covering_segment_and_echoes_it(
     assert body["name"] == "warehouse_safety_0001"
 
 
+@pytest.mark.parametrize(
+    ("start", "end", "diagnostic"),
+    [
+        ("not-a-time", "2026-08-01T12:00:05Z", "not an ISO-8601 timestamp"),
+        ("2026-08-01T12:00:10Z", "2026-08-01T12:00:05Z", "after --end-time"),
+        ("2026-08-01T12:00:05Z", "2026-08-01T12:00:25Z", "not inside a single recorded segment"),
+    ],
+)
+def test_clip_rejects_invalid_and_gapped_windows_before_requesting_url(
+    cli: click.Group,
+    configured: None,
+    monkeypatch: pytest.MonkeyPatch,
+    start: str,
+    end: str,
+    diagnostic: str,
+) -> None:
+    calls: list[Any] = []
+
+    def fake_run(coro: Any) -> Any:
+        coro.close()
+        calls.append(coro)
+        if len(calls) == 1:
+            return _Ref()
+        if len(calls) == 2:
+            return [
+                ("2026-08-01T12:00:00Z", "2026-08-01T12:00:10Z"),
+                ("2026-08-01T12:00:20Z", "2026-08-01T12:00:30Z"),
+            ]
+        pytest.fail("clip URL requested for an invalid window")
+
+    monkeypatch.setattr(vios_group, "_run", fake_run)
+    result = CliRunner().invoke(cli, ["clip", "--sensor", "cam", "--start-time", start, "--end-time", end])
+
+    assert result.exit_code == int(Exit.INVALID_INPUT), result.output
+    assert diagnostic in result.output
+    assert len(calls) == 2
+
+
 def test_delete_refuses_a_type_mismatch(cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch) -> None:
     """--type is the caller's belief; a mismatch means one of us is wrong."""
     monkeypatch.setattr(vios_group, "_run", lambda coro: (coro.close(), _Ref())[1])

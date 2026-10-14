@@ -26,6 +26,7 @@ For long videos, use lvs_agent instead.
 """
 
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from datetime import datetime
 import json
 import logging
@@ -49,10 +50,46 @@ from vss_agents.agents.data_models import AgentOutput
 
 logger = logging.getLogger(__name__)
 
+INCIDENT_REPORT_METADATA_FIELDS = ["category", "place", "objectIds", "info"]
+_LLM_REPORT_GENERATION_ERROR = "Failed to generate custom report with LLM"
+
 _ARTIFACT_DISPLAY_NOTE = (
     "Do not include or offer to provide report download links in your final response "
     "since they will be automatically appended to your final response to the user."
 )
+_REPORT_DOWNLOADS_HEADING = "**Report Downloads:**"
+_MEDIA_HEADING = "**Media:**"
+
+
+def _is_llm_report_generation_failure(error: BaseException) -> bool:
+    """True when this error is the generic custom-report LLM failure or was raised from it."""
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if str(current) == _LLM_REPORT_GENERATION_ERROR:
+            return True
+        current = current.__cause__
+    return False
+
+
+def _log_incident_report_failure(error: BaseException, *, unexpected: bool = False) -> None:
+    """Log an incident-report failure without a provider prompt or model response.
+
+    ``raise ... from e`` keeps the provider error for debugging, and
+    ``logger.exception()`` would write that chain. The generic LLM failure is
+    logged as its type only.
+    """
+    if _is_llm_report_generation_failure(error):
+        logger.error(  # NOSONAR S8572: chained provider errors can echo the prompt; log the exception type only
+            "Report Agent: Failed to execute incident report: %s",
+            type(error).__name__,
+        )
+        return
+    if unexpected:
+        logger.exception("Report Agent: Unexpected error in incident report execution")
+        return
+    logger.exception("Report Agent: Failed to execute incident report")
 
 
 def _append_artifact_display_note(side_effects: dict[str, Any]) -> None:
@@ -88,7 +125,7 @@ def _build_report_side_effects(report_result: Any, incident_id: str) -> dict[str
         if url
     ]
     if downloads:
-        side_effects["report_downloads"] = "\n".join(["**Report Downloads:**", *downloads]) + "\n"
+        side_effects["report_downloads"] = "\n".join([_REPORT_DOWNLOADS_HEADING, *downloads]) + "\n"
     else:
         logger.warning(
             "Report for incident %s produced no downloadable artifact: the object store returned "
@@ -96,7 +133,7 @@ def _build_report_side_effects(report_result: Any, incident_id: str) -> dict[str
             incident_id,
         )
         side_effects["report_downloads"] = (
-            "**Report Downloads:** none - the report was generated, but the object store returned "
+            f"{_REPORT_DOWNLOADS_HEADING} none - the report was generated, but the object store returned "
             "no markdown or PDF URL, so there is nothing to download.\n"
         )
 
@@ -109,7 +146,7 @@ def _build_report_side_effects(report_result: Any, incident_id: str) -> dict[str
         if url
     ]
     if media:
-        side_effects["media"] = "\n".join(["**Media:**", *media]) + "\n"
+        side_effects["media"] = "\n".join([_MEDIA_HEADING, *media]) + "\n"
 
     return side_effects
 
@@ -258,568 +295,673 @@ async def report_agent(config: ReportAgentConfig, builder: Builder) -> AsyncGene
     - Video(uploaded) Report mode: Direct video analysis without Video Analytics MCP (when Video Analytics MCP tools not configured)
     """
 
-    # === MODE DETECTION ===
-    # Check if Video Analytics MCP tools are configured
-    va_mcp_enabled = config.get_incidents_tool is not None and config.get_incident_tool is not None
+    if _va_mcp_enabled(config):
+        _log_report_agent_mode(va_mcp_enabled=True)
+        tools = await _load_incident_tools(config, builder)
+        _log_report_agent_initialized(va_mcp_enabled=True)
+        yield _incident_function_info(_IncidentReportHandler(tools))
+        return
 
+    _log_report_agent_mode(va_mcp_enabled=False)
+    video_report_tool = await _load_video_report_tool(config, builder)
+    _log_report_agent_initialized(va_mcp_enabled=False)
+    yield _video_function_info(_VideoReportHandler(video_report_tool))
+
+
+def _va_mcp_enabled(config: ReportAgentConfig) -> bool:
+    """Video Analytics MCP mode requires both incident lookup tools."""
+    return config.get_incidents_tool is not None and config.get_incident_tool is not None
+
+
+def _log_report_agent_mode(*, va_mcp_enabled: bool) -> None:
     if va_mcp_enabled:
         logger.info("Report Agent running in Mode 1 (Video Analytics MCP enabled)")
-    else:
-        logger.info("Report Agent running in Mode 3 (Video(uploaded) Report mode - no Video Analytics MCP)")
+        return
+    logger.info("Report Agent running in Mode 3 (Video(uploaded) Report mode - no Video Analytics MCP)")
 
-    # === LOAD TOOLS CONDITIONALLY ===
-    get_incidents_tool = None
-    get_incident_tool = None
-    template_report_tool = None
-    video_report_tool = None
 
-    if va_mcp_enabled:
-        logger.info("Loading Video Analytics MCP tools")
-        if not config.get_incidents_tool:
-            raise ValueError("get_incidents_tool must be configured for Video Analytics MCP mode")
-        if not config.get_incident_tool:
-            raise ValueError("get_incident_tool must be configured for Video Analytics MCP mode")
-        if not config.template_report_tool:
-            raise ValueError("template_report_tool must be configured for Video Analytics MCP mode")
+def _log_report_agent_initialized(*, va_mcp_enabled: bool) -> None:
+    mode = "Video Analytics MCP mode" if va_mcp_enabled else "Video(uploaded) Report mode"
+    logger.info(f"Report Agent initialized ({mode})")
 
-        get_incidents_tool = await builder.get_tool(config.get_incidents_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-        get_incident_tool = await builder.get_tool(config.get_incident_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-        template_report_tool = await builder.get_tool(
-            config.template_report_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN
-        )
 
-        logger.info("Video Analytics MCP tools loaded successfully")
-    else:
-        logger.info("Loading Video(uploaded) Report tools")
-        if not config.video_report_tool:
-            raise ValueError(
-                "video_report_tool must be configured for Video(uploaded) Report mode. Otherwise Video Analytics MCP tools must be configured."
-            )
-        video_report_tool = await builder.get_tool(config.video_report_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-        logger.info("Video(uploaded) Report tools loaded successfully")
+def _require_incident_tools(config: ReportAgentConfig) -> None:
+    if not config.get_incidents_tool:
+        raise ValueError("get_incidents_tool must be configured for Video Analytics MCP mode")
+    if not config.get_incident_tool:
+        raise ValueError("get_incident_tool must be configured for Video Analytics MCP mode")
+    if not config.template_report_tool:
+        raise ValueError("template_report_tool must be configured for Video Analytics MCP mode")
 
-    logger.info(
-        f"Report Agent initialized ({'Video Analytics MCP mode' if va_mcp_enabled else 'Video(uploaded) Report mode'})"
+
+async def _load_incident_tools(config: ReportAgentConfig, builder: Builder) -> "_IncidentReportTools":
+    logger.info("Loading Video Analytics MCP tools")
+    _require_incident_tools(config)
+    assert config.get_incidents_tool is not None
+    assert config.get_incident_tool is not None
+    assert config.template_report_tool is not None
+    get_incidents_tool = await builder.get_tool(config.get_incidents_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    get_incident_tool = await builder.get_tool(config.get_incident_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    template_report_tool = await builder.get_tool(config.template_report_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    logger.info("Video Analytics MCP tools loaded successfully")
+    return _IncidentReportTools(
+        get_incidents_tool=get_incidents_tool,
+        get_incident_tool=get_incident_tool,
+        template_report_tool=template_report_tool,
     )
 
-    # Define mode-specific execution functions
-    if va_mcp_enabled:
 
-        async def _execute_report_va_mcp(
-            source: str | None = None,
-            source_type: Literal["sensor", "place"] | None = None,
-            start_time: datetime | None = None,
-            end_time: datetime | None = None,
-            incident_id: str | None = None,
-            vlm_verified: bool | None = None,
-            vlm_reasoning: bool | None = None,
-            llm_reasoning: bool | None = None,
-        ) -> AsyncGenerator[AgentMessageChunk]:
-            """
-            Execute single incident report generation.
+async def _load_video_report_tool(config: ReportAgentConfig, builder: Builder) -> Any:
+    logger.info("Loading Video(uploaded) Report tools")
+    if not config.video_report_tool:
+        raise ValueError(
+            "video_report_tool must be configured for Video(uploaded) Report mode. Otherwise Video Analytics MCP tools must be configured."
+        )
+    video_report_tool = await builder.get_tool(config.video_report_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    logger.info("Video(uploaded) Report tools loaded successfully")
+    return video_report_tool
 
-            Args:
-                source: Source to filter incidents (sensor ID or place/city name)
-                source_type: Type of the source ('sensor' or 'place')
-                start_time: Start time for incident search
-                end_time: End time for incident search
-                incident_id: Specific incident ID
 
-            Yields:
-            AgentMessageChunk objects for tool calls and final result
-            """
-            logger.info("Executing incident-based single incident report")
-            execution_start_time = time.time()
+_INCIDENT_FUNCTION_DESCRIPTION = (
+    "Generate detailed single incident reports using deterministic tool sequences. "
+    "Fetches the most recent incident and generates a comprehensive report with video analysis. "
+    "For multiple incidents, use multi_report_agent instead. "
+    "Returns AgentOutput with messages, side_effects (reports, URLs), and metadata."
+)
 
-            # Construct Mode 1 input
-            report_input = ReportAgentInput(
-                source=source,
-                source_type=source_type,
-                start_time=start_time,
-                end_time=end_time,
-                incident_id=incident_id,
-                vlm_verified=vlm_verified,
-                vlm_reasoning=vlm_reasoning,
-                llm_reasoning=llm_reasoning,
-            )
+_VIDEO_FUNCTION_DESCRIPTION = (
+    "Generate analysis reports for uploaded videos OR configured live streams without requiring "
+    "an incident database. "
+    "For uploaded videos (media_type='video', default): analyzes full videos directly from VST "
+    "based on sensor_id (filename); supports parallel processing of multiple videos via LVS. "
+    "For live RTSP streams (media_type='rtsp'): analyzes a configured stream over a "
+    "[start_time, end_time] window in seconds (use end_time=0 for 'until now'); requires a single "
+    "sensor_id (stream name). If the stream has no captions yet, the response will instruct the "
+    "user to confirm caption generation by saying 'start captioning <name>'. The "
+    "caller MUST surface that message verbatim and STOP — do NOT auto-call lvs_config_media. "
+    "Returns AgentOutput with messages, side_effects (reports, URLs), and metadata."
+)
 
-            try:
-                async for chunk in _handle_single_incident(report_input):
-                    yield chunk
-            except (ValueError, KeyError, AttributeError, json.JSONDecodeError) as e:
-                logger.exception("Report Agent: Failed to execute incident report")
-                execution_time_ms = int((time.time() - execution_start_time) * 1000)
-                error_output = AgentOutput(
-                    messages=[f"Report Agent: Error generating incident report: {e!s}"],
-                    status="error",
-                    error_message=f"Report Agent: Failed to generate incident report: {e!s}",
-                    metadata={
-                        "generation_time_ms": execution_time_ms,
-                        "report_type": "single_incident",
-                    },
-                )
-                yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content=error_output.model_dump_json())
-            except Exception:
-                logger.exception("Report Agent: Unexpected error in incident report execution")
-                execution_time_ms = int((time.time() - execution_start_time) * 1000)
-                error_output = AgentOutput(
-                    messages=["Report Agent: Unexpected error generating incident report"],
-                    status="error",
-                    error_message="Report Agent: Unexpected error in incident report execution",
-                    metadata={
-                        "generation_time_ms": execution_time_ms,
-                        "report_type": "single_incident",
-                    },
-                )
-                yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content=error_output.model_dump_json())
 
-    else:  # Video(uploaded) Report mode (no Video Analytics MCP)
+def _incident_function_info(handler: "_IncidentReportHandler") -> FunctionInfo:
+    return FunctionInfo.create(
+        stream_fn=handler.__call__,
+        description=_INCIDENT_FUNCTION_DESCRIPTION,
+        input_schema=ReportAgentInput,
+        stream_output_schema=AgentMessageChunk,
+    )
 
-        async def _execute_report_video(
-            sensor_id: str | list[str],
-            user_query: str,
-            vlm_reasoning: bool | None = None,
-            media_type: Literal["video", "rtsp"] = "video",
-            start_time: float | None = None,
-            end_time: float | None = None,
-        ) -> AsyncGenerator[AgentMessageChunk]:
-            """
-            Execute Video(uploaded) / RTSP Stream Report generation (no Video Analytics MCP).
 
-            Args:
-                sensor_id: VST sensor ID(s) (filename(s) of uploaded video(s)) for media_type='video',
-                    or VST stream/camera name (single string) for media_type='rtsp'.
-                user_query: The user's question or analysis request.
-                vlm_reasoning: Optional VLM reasoning toggle (uploaded videos only).
-                media_type: 'video' (default) or 'rtsp'.
-                start_time: Stream window start (seconds). Required for RTSP streams.
-                end_time: Stream window end (seconds, 0 means until now). Required for RTSP streams.
+def _video_function_info(handler: "_VideoReportHandler") -> FunctionInfo:
+    return FunctionInfo.create(
+        stream_fn=handler.__call__,
+        description=_VIDEO_FUNCTION_DESCRIPTION,
+        input_schema=VideoReportAgentInput,
+        stream_output_schema=AgentMessageChunk,
+    )
 
-            Returns:
-                AgentMessageChunk objects for tool calls and final result
-            """
-            logger.info(
-                "Executing Report Agent (media_type=%s, sensor_id=%s)",
-                media_type,
-                sensor_id,
-            )
-            execution_start_time = time.time()
 
-            # Construct Mode 3 input (validates stream constraints)
-            video_report_input = VideoReportAgentInput(
-                sensor_id=sensor_id,
-                user_query=user_query,
-                vlm_reasoning=vlm_reasoning,
-                media_type=media_type,
-                start_time=start_time,
-                end_time=end_time,
-            )
+def _final_chunk(output: AgentOutput) -> AgentMessageChunk:
+    return AgentMessageChunk(type=AgentMessageChunkType.FINAL, content=output.model_dump_json())
 
-            try:
-                async for chunk in _video_report_agent(video_report_input):
-                    yield chunk
-            except (ValueError, KeyError, AttributeError) as e:
-                logger.exception("Report Agent: Failed to execute direct video analysis report")
-                execution_time_ms = int((time.time() - execution_start_time) * 1000)
 
-                # Check if this is a websocket connection error
-                error_str = str(e)
-                if (
-                    "No human prompt callback was registered" in error_str
-                    or "Unable to handle requested prompt" in error_str
-                ):
-                    user_message = (
-                        "Could not start human in the loop workflow over websocket. "
-                        "Please check that websocket connection is enabled in the UI and that the IP of agent "
-                        "is set correctly in the settings panel from the left lower side."
-                    )
-                    error_message = f"Report Agent: Websocket connection error - {user_message}"
-                else:
-                    user_message = f"Report Agent: Error generating video analysis report: {error_str}"
-                    error_message = f"Report Agent: Failed to generate video analysis report: {error_str}"
+def _tool_call_chunk(tool_name: str, args: dict[str, Any]) -> AgentMessageChunk:
+    return AgentMessageChunk(type=AgentMessageChunkType.TOOL_CALL, content=f"Tool: {tool_name}\nArgs: {args}")
 
-                error_output = AgentOutput(
-                    messages=[user_message],
-                    status="error",
-                    error_message=error_message,
-                    metadata={
-                        "generation_time_ms": execution_time_ms,
-                        "report_type": "video_report",
-                        "mode": "video(uploaded) report",
-                    },
-                )
-                yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content=error_output.model_dump_json())
-            except Exception:
-                logger.exception("Report Agent: Unexpected error in direct video analysis report execution")
-                execution_time_ms = int((time.time() - execution_start_time) * 1000)
-                error_output = AgentOutput(
-                    messages=["Report Agent: Unexpected error generating video analysis report"],
-                    status="error",
-                    error_message="Report Agent: Unexpected error in video analysis report execution",
-                    metadata={
-                        "generation_time_ms": execution_time_ms,
-                        "report_type": "video_report",
-                        "mode": "video(uploaded) report",
-                    },
-                )
-                yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content=error_output.model_dump_json())
 
-    async def _handle_single_incident(report_input: ReportAgentInput) -> AsyncGenerator[AgentMessageChunk]:
-        """
-        Mode 1: Get incident and generate detailed report.
+def _elapsed_ms(execution_start_time: float) -> int:
+    return int((time.time() - execution_start_time) * 1000)
 
-        Tool sequence:
-        1. get_incidents(max_count=1)/get_incident → get most recent incident or get a specific incident by ID
-        2. template_report_gen(incident_id) → generate detailed report
-        """
-        # These tools are guaranteed to be set when va_mcp_enabled is True
-        assert get_incident_tool is not None
-        assert get_incidents_tool is not None
-        assert template_report_tool is not None
 
-        logger.info("Mode 1: Single incident report")
-        incident = None
+def _incident_error_detail(error: BaseException) -> str:
+    if _is_llm_report_generation_failure(error):
+        return "Failed to generate incident report"
+    return str(error)
 
-        async def _fetch_incident_by_id(incident_id: str, vlm_verified: bool | None) -> dict | None:
-            tool_call_args = {
-                "id": incident_id,
-                "includes": ["objectIds", "info"],
-                "vlm_verified": vlm_verified,
-            }
-            incident_result = await get_incident_tool.ainvoke(tool_call_args)
-            if isinstance(incident_result, str):
-                try:
-                    parsed_incident = json.loads(incident_result)
-                except json.JSONDecodeError:
-                    logger.exception("Report Agent: Failed to parse get_incident response as JSON: %s", incident_result)
-                    return None
-                return parsed_incident or None
-            return incident_result or None
 
-        # If incident_id is provided, get specific incident
-        if report_input.incident_id:
-            logger.info(f"Getting incident by ID: {report_input.incident_id}")
+def _incident_handled_error_chunk(error: BaseException, execution_start_time: float) -> AgentMessageChunk:
+    _log_incident_report_failure(error)
+    detail = _incident_error_detail(error)
+    return _final_chunk(
+        AgentOutput(
+            messages=[f"Report Agent: Error generating incident report: {detail}"],
+            status="error",
+            error_message=f"Report Agent: Failed to generate incident report: {detail}",
+            metadata={
+                "generation_time_ms": _elapsed_ms(execution_start_time),
+                "report_type": "single_incident",
+            },
+        )
+    )
 
-            tool_call_args = {
-                "id": report_input.incident_id,
-                "includes": ["objectIds", "info"],
-                "vlm_verified": report_input.vlm_verified,
-            }
-            yield AgentMessageChunk(
-                type=AgentMessageChunkType.TOOL_CALL, content=f"Tool: get_incident\nArgs: {tool_call_args}"
-            )
-            incident = await _fetch_incident_by_id(report_input.incident_id, report_input.vlm_verified)
 
-            if not incident and report_input.vlm_verified is not True:
-                logger.info(
-                    "Incident %s not found in default index; retrying get_incident with vlm_verified=true",
-                    report_input.incident_id,
-                )
-                retry_args = {
-                    "id": report_input.incident_id,
-                    "includes": ["objectIds", "info"],
-                    "vlm_verified": True,
-                }
-                yield AgentMessageChunk(
-                    type=AgentMessageChunkType.TOOL_CALL, content=f"Tool: get_incident\nArgs: {retry_args}"
-                )
-                incident = await _fetch_incident_by_id(report_input.incident_id, True)
+def _incident_unexpected_error_chunk(error: BaseException, execution_start_time: float) -> AgentMessageChunk:
+    _log_incident_report_failure(error, unexpected=True)
+    return _final_chunk(
+        AgentOutput(
+            messages=["Report Agent: Unexpected error generating incident report"],
+            status="error",
+            error_message="Report Agent: Unexpected error in incident report execution",
+            metadata={
+                "generation_time_ms": _elapsed_ms(execution_start_time),
+                "report_type": "single_incident",
+            },
+        )
+    )
 
-            if not incident:
-                no_incident_output = AgentOutput(
-                    messages=[f"No incident found with ID '{report_input.incident_id}'."],
-                    status="success",
-                    metadata={"incident_id": report_input.incident_id},
-                )
-                yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content=no_incident_output.model_dump_json())
-                return
-        else:
-            get_incidents_params = {
-                "max_count": 1,
-                "includes": ["objectIds", "info"],
-                "source": report_input.source,
-                "source_type": report_input.source_type,
-                "vlm_verified": report_input.vlm_verified,
-                "start_time": report_input.start_time.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                if report_input.start_time
-                else None,
-                "end_time": report_input.end_time.strftime("%Y-%m-%dT%H:%M:%S.000Z") if report_input.end_time else None,
-            }
-            logger.info(f"Getting incidents with params: {get_incidents_params}")
 
-            yield AgentMessageChunk(
-                type=AgentMessageChunkType.TOOL_CALL, content=f"Tool: get_incidents\nArgs: {get_incidents_params}"
-            )
-            incidents_result = await get_incidents_tool.ainvoke(get_incidents_params)
-            if isinstance(incidents_result, str):
-                try:
-                    parsed_result = json.loads(incidents_result)
-                    incidents = parsed_result.get("incidents", [])
-                except json.JSONDecodeError:
-                    logger.exception(
-                        "Report Agent: Failed to parse get_incidents response as JSON: %s", incidents_result
-                    )
-                    error_output = AgentOutput(
-                        messages=[
-                            "Report Agent: Unable to parse incidents data. The Video Analytics service returned an invalid response."
-                        ],
-                        status="error",
-                        error_message="Report Agent: Failed to parse Video Analytics MCP tool response",
-                    )
-                    yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content=error_output.model_dump_json())
-                    return
-            else:
-                # Assume it's already parsed (tuple format)
-                incidents, _ = incidents_result
-            if not incidents:
-                no_incidents_output = AgentOutput(
-                    messages=["No incidents found with the specified criteria."],
-                    status="success",
-                    metadata={"incident_count": 0},
-                )
-                yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content=no_incidents_output.model_dump_json())
-                return
+def _missing_incident_output(incident_id: str) -> AgentOutput:
+    return AgentOutput(
+        messages=[f"No incident found with ID '{incident_id}'."],
+        status="success",
+        metadata={"incident_id": incident_id},
+    )
 
-            incident = incidents[0]
 
-        # Handle both "Id" and "id" field names
-        incident_id = incident.get("Id") or incident.get("id") or "unknown"
-        logger.info(f"Found incident: {incident_id}")
+def _no_incidents_output() -> AgentOutput:
+    return AgentOutput(
+        messages=["No incidents found with the specified criteria."],
+        status="success",
+        metadata={"incident_count": 0},
+    )
 
-        # Step 2: Generate detailed report
-        logger.info("Generating detailed report")
 
-        report_tool_args = {
+def _invalid_incidents_output() -> AgentOutput:
+    return AgentOutput(
+        messages=[
+            "Report Agent: Unable to parse incidents data. The Video Analytics service returned an invalid response."
+        ],
+        status="error",
+        error_message="Report Agent: Failed to parse Video Analytics MCP tool response",
+    )
+
+
+def _format_query_time(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def _latest_incident_query(report_input: ReportAgentInput) -> dict[str, Any]:
+    return {
+        "max_count": 1,
+        "includes": INCIDENT_REPORT_METADATA_FIELDS,
+        "source": report_input.source,
+        "source_type": report_input.source_type,
+        "vlm_verified": report_input.vlm_verified,
+        "start_time": _format_query_time(report_input.start_time),
+        "end_time": _format_query_time(report_input.end_time),
+    }
+
+
+def _incident_lookup_args(incident_id: str, vlm_verified: bool | None) -> dict[str, Any]:
+    return {
+        "id": incident_id,
+        "includes": INCIDENT_REPORT_METADATA_FIELDS,
+        "vlm_verified": vlm_verified,
+    }
+
+
+def _incident_identifier(incident: dict[str, Any]) -> str:
+    return incident.get("Id") or incident.get("id") or "unknown"
+
+
+def _template_report_args(report_input: ReportAgentInput, incident: dict[str, Any], incident_id: str) -> dict[str, Any]:
+    return {
+        "incident_id": incident_id,
+        "alert_sensor_id": incident.get("sensorId"),
+        "alert_from_timestamp": incident.get("timestamp"),
+        "alert_to_timestamp": incident.get("end"),
+        "alert_metadata": incident,
+        "vlm_reasoning": report_input.vlm_reasoning,
+        "llm_reasoning": report_input.llm_reasoning,
+    }
+
+
+def _parse_incident_json(incident_result: str) -> dict[str, Any] | None:
+    try:
+        parsed_incident = json.loads(incident_result)
+    except json.JSONDecodeError:
+        logger.exception("Report Agent: Failed to parse get_incident response as JSON: %s", incident_result)
+        return None
+    return parsed_incident or None
+
+
+def _parse_incident_payload(incident_result: Any) -> dict[str, Any] | None:
+    if isinstance(incident_result, str):
+        return _parse_incident_json(incident_result)
+    return incident_result or None
+
+
+def _parse_incidents_json(incidents_result: str) -> tuple[list[Any], AgentOutput | None]:
+    try:
+        parsed_result = json.loads(incidents_result)
+    except json.JSONDecodeError:
+        logger.exception("Report Agent: Failed to parse get_incidents response as JSON: %s", incidents_result)
+        return [], _invalid_incidents_output()
+    return parsed_result.get("incidents", []), None
+
+
+def _parse_incidents_result(incidents_result: Any) -> tuple[list[Any], AgentOutput | None]:
+    if isinstance(incidents_result, str):
+        return _parse_incidents_json(incidents_result)
+    incidents, _ignored = incidents_result
+    return incidents, None
+
+
+def _successful_incident_output(report_result: Any, incident: dict[str, Any], incident_id: str) -> AgentOutput:
+    side_effects = _build_report_side_effects(report_result, incident_id)
+    _append_artifact_display_note(side_effects)
+    return AgentOutput(
+        messages=[f"Report generated successfully for incident {incident_id}"],
+        side_effects=side_effects,
+        status="success",
+        metadata={
+            "incident_count": 1,
             "incident_id": incident_id,
-            "alert_sensor_id": incident.get("sensorId"),
-            "alert_from_timestamp": incident.get("timestamp"),
-            "alert_to_timestamp": incident.get("end"),
-            "alert_metadata": incident,  # Pass the entire incident object as metadata
-            "vlm_reasoning": report_input.vlm_reasoning,  # Pass VLM reasoning flag
-            "llm_reasoning": report_input.llm_reasoning,  # Pass LLM reasoning flag
-        }
+            "sensor_id": incident.get("sensorId"),
+            "report_type": "single_incident",
+        },
+    )
 
+
+@dataclass
+class _IncidentReportTools:
+    """Incident lookup and template-report tools for one registered agent."""
+
+    get_incidents_tool: Any
+    get_incident_tool: Any
+    template_report_tool: Any
+
+
+@dataclass
+class _IncidentReportHandler:
+    """Execute one incident report. The registered function only selects this handler."""
+
+    tools: _IncidentReportTools
+
+    async def __call__(
+        self,
+        source: str | None = None,
+        source_type: Literal["sensor", "place"] | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        incident_id: str | None = None,
+        vlm_verified: bool | None = None,
+        vlm_reasoning: bool | None = None,
+        llm_reasoning: bool | None = None,
+    ) -> AsyncGenerator[AgentMessageChunk]:
+        """Execute single incident report generation."""
+        logger.info("Executing incident-based single incident report")
+        execution_start_time = time.time()
+        report_input = ReportAgentInput(
+            source=source,
+            source_type=source_type,
+            start_time=start_time,
+            end_time=end_time,
+            incident_id=incident_id,
+            vlm_verified=vlm_verified,
+            vlm_reasoning=vlm_reasoning,
+            llm_reasoning=llm_reasoning,
+        )
+        try:
+            async for chunk in self._handle_single_incident(report_input):
+                yield chunk
+        except (ValueError, KeyError, AttributeError) as error:
+            yield _incident_handled_error_chunk(error, execution_start_time)
+        except Exception as error:
+            yield _incident_unexpected_error_chunk(error, execution_start_time)
+
+    async def _handle_single_incident(self, report_input: ReportAgentInput) -> AsyncGenerator[AgentMessageChunk]:
+        """Get one incident, then generate its report."""
+        logger.info("Mode 1: Single incident report")
+        if report_input.incident_id:
+            async for chunk in self._chunks_for_incident_id(report_input):
+                yield chunk
+            return
+        async for chunk in self._chunks_for_latest_incident(report_input):
+            yield chunk
+
+    async def _fetch_incident_by_id(self, incident_id: str, vlm_verified: bool | None) -> dict[str, Any] | None:
+        incident_result = await self.tools.get_incident_tool.ainvoke(_incident_lookup_args(incident_id, vlm_verified))
+        return _parse_incident_payload(incident_result)
+
+    async def _chunks_for_incident_id(self, report_input: ReportAgentInput) -> AsyncGenerator[AgentMessageChunk]:
+        incident_id = report_input.incident_id
+        assert incident_id is not None
+        logger.info(f"Getting incident by ID: {incident_id}")
+        tool_call_args = _incident_lookup_args(incident_id, report_input.vlm_verified)
+        yield _tool_call_chunk("get_incident", tool_call_args)
+        incident = await self._fetch_incident_by_id(incident_id, report_input.vlm_verified)
+        if not incident and report_input.vlm_verified is not True:
+            logger.info(
+                "Incident %s not found in default index; retrying get_incident with vlm_verified=true",
+                incident_id,
+            )
+            retry_args = _incident_lookup_args(incident_id, True)
+            yield _tool_call_chunk("get_incident", retry_args)
+            incident = await self._fetch_incident_by_id(incident_id, True)
+        if not incident:
+            yield _final_chunk(_missing_incident_output(incident_id))
+            return
+        async for chunk in self._chunks_for_generated_report(report_input, incident):
+            yield chunk
+
+    async def _load_latest_incidents(self, params: dict[str, Any]) -> tuple[list[Any], AgentOutput | None]:
+        incidents_result = await self.tools.get_incidents_tool.ainvoke(params)
+        return _parse_incidents_result(incidents_result)
+
+    async def _chunks_for_latest_incident(self, report_input: ReportAgentInput) -> AsyncGenerator[AgentMessageChunk]:
+        params = _latest_incident_query(report_input)
+        logger.info(f"Getting incidents with params: {params}")
+        yield _tool_call_chunk("get_incidents", params)
+        incidents, error_output = await self._load_latest_incidents(params)
+        if error_output is not None:
+            yield _final_chunk(error_output)
+            return
+        if not incidents:
+            yield _final_chunk(_no_incidents_output())
+            return
+        async for chunk in self._chunks_for_generated_report(report_input, incidents[0]):
+            yield chunk
+
+    async def _chunks_for_generated_report(
+        self,
+        report_input: ReportAgentInput,
+        incident: dict[str, Any],
+    ) -> AsyncGenerator[AgentMessageChunk]:
+        incident_id = _incident_identifier(incident)
+        logger.info(f"Found incident: {incident_id}")
+        logger.info("Generating detailed report")
         yield AgentMessageChunk(
             type=AgentMessageChunkType.TOOL_CALL,
             content=f"Tool: template_report_gen\nArgs: {{'incident_id': '{incident_id}'}}",
         )
-        report_result = await template_report_tool.ainvoke(report_tool_args)
+        report_result = await self.tools.template_report_tool.ainvoke(
+            _template_report_args(report_input, incident, incident_id)
+        )
         logger.info("Single incident report generated successfully")
+        yield _final_chunk(_successful_incident_output(report_result, incident, incident_id))
 
-        side_effects = _build_report_side_effects(report_result, incident_id)
-        _append_artifact_display_note(side_effects)
 
-        agent_output = AgentOutput(
-            messages=[f"Report generated successfully for incident {incident_id}"],
-            side_effects=side_effects,
-            status="success",
-            metadata={
-                "incident_count": 1,
-                "incident_id": incident_id,
-                "sensor_id": incident.get("sensorId"),
-                "report_type": "single_incident",
-            },
+def _sensor_ids(sensor_id: str | list[str]) -> list[str]:
+    if isinstance(sensor_id, str):
+        return [sensor_id]
+    return list(sensor_id)
+
+
+def _log_video_target(video_report_input: VideoReportAgentInput, sensor_ids: list[str]) -> None:
+    if video_report_input.media_type == "rtsp":
+        logger.info(
+            "RTSP Stream Report mode: Analyzing stream '%s' from %s to %s",
+            sensor_ids[0],
+            video_report_input.start_time,
+            video_report_input.end_time,
         )
-        yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content=agent_output.model_dump_json())
+        return
+    if len(sensor_ids) > 1:
+        logger.info(f"Video(uploaded) Report mode: Requesting reports for {len(sensor_ids)} videos: {sensor_ids}")
+        return
+    logger.info(f"Video(uploaded) Report mode: Analyzing uploaded video '{sensor_ids[0]}'")
 
-    async def _video_report_agent(video_report_input: VideoReportAgentInput) -> AsyncGenerator[AgentMessageChunk]:
-        """
-        Video(uploaded) Report mode: Direct video analysis without Video Analytics MCP.
 
-        This mode works with uploaded videos from VST.
-        Delegates to video_report_gen tool which handles:
-        1. VLM prompt sanitization (removes SOM markers)
-        2. Video analysis via video_understanding or lvs_video_understanding
-        3. Parallel processing for multiple videos (when using LVS)
-        4. Report formatting with optional template
-        5. Media URL fetching
+def _video_tool_input(video_report_input: VideoReportAgentInput) -> dict[str, Any]:
+    tool_input: dict[str, Any] = {
+        "sensor_id": video_report_input.sensor_id,
+        "user_query": video_report_input.user_query,
+        "media_type": video_report_input.media_type,
+    }
+    if video_report_input.vlm_reasoning is not None:
+        tool_input["vlm_reasoning"] = video_report_input.vlm_reasoning
+    if video_report_input.start_time is not None:
+        tool_input["start_time"] = video_report_input.start_time
+    if video_report_input.end_time is not None:
+        tool_input["end_time"] = video_report_input.end_time
+    return tool_input
 
-        Args:
-            video_report_input: Video(uploaded) Report mode-specific input with sensor_id(s) and user_query
 
-        Returns:
-            AgentOutput with video analysis and media URLs
-        """
+def _format_hitl_prompts(hitl: dict[str, Any] | None) -> str | None:
+    if not hitl:
+        return None
+    prompts_parts = ["**Prompts:**"]
+    if hitl.get("scenario"):
+        prompts_parts.append(f"- Scenario: {hitl['scenario']}")
+    if hitl.get("events"):
+        prompts_parts.append(f"- Events of interest: {', '.join(hitl['events'])}")
+    if hitl.get("objects_of_interest"):
+        prompts_parts.append(f"- Objects of interest: {', '.join(hitl['objects_of_interest'])}")
+    if len(prompts_parts) == 1:
+        return None
+    return "\n".join(prompts_parts) + "\n"
 
-        # This tool is guaranteed to be set when va_mcp_enabled is False
-        assert video_report_tool is not None
 
-        # Normalize sensor_id for logging
-        sensor_ids = (
-            [video_report_input.sensor_id]
-            if isinstance(video_report_input.sensor_id, str)
-            else video_report_input.sensor_id
+def _multi_video_download_lines(video_report: dict[str, Any]) -> list[str]:
+    sensor_id = video_report.get("sensor_id", "Unknown")
+    lines = [f"**{sensor_id}:**"]
+    if video_report.get("http_url"):
+        lines.append(f"  - [Markdown Report]({video_report['http_url']})")
+    if video_report.get("pdf_url"):
+        lines.append(f"  - [PDF Report]({video_report['pdf_url']})")
+    lines.append("")
+    return lines
+
+
+def _format_multi_video_downloads(all_reports: list[dict[str, Any]]) -> str:
+    downloads = [_REPORT_DOWNLOADS_HEADING, ""]
+    for video_report in all_reports:
+        downloads.extend(_multi_video_download_lines(video_report))
+    return "\n".join(downloads)
+
+
+def _multi_video_media_lines(video_report: dict[str, Any]) -> list[str]:
+    video_url = video_report.get("video_url")
+    if not video_url:
+        return []
+    sensor_id = video_report.get("sensor_id", "Unknown")
+    return [f"**{sensor_id}:**", f"  - [Video Playback]({video_url})", ""]
+
+
+def _format_multi_video_media(all_reports: list[dict[str, Any]]) -> str | None:
+    media_links = [_MEDIA_HEADING, ""]
+    for video_report in all_reports:
+        media_links.extend(_multi_video_media_lines(video_report))
+    if len(media_links) <= 2:
+        return None
+    return "\n".join(media_links)
+
+
+def _format_single_video_downloads(report_result: Any) -> str:
+    downloads = [_REPORT_DOWNLOADS_HEADING, f"- [Markdown Report]({report_result.http_url})"]
+    if report_result.pdf_url:
+        downloads.append(f"- [PDF Report]({report_result.pdf_url})")
+    return "\n".join(downloads) + "\n"
+
+
+def _format_single_video_media(report_result: Any) -> str | None:
+    if not report_result.video_url:
+        return None
+    return "\n".join([_MEDIA_HEADING, f"- [Video Playback]({report_result.video_url})"]) + "\n"
+
+
+def _add_video_download_side_effects(side_effects: dict[str, Any], report_result: Any) -> None:
+    reports = getattr(report_result, "all_reports", None)
+    if reports:
+        side_effects["report_downloads"] = _format_multi_video_downloads(reports)
+        media = _format_multi_video_media(reports)
+        if media:
+            side_effects["media"] = media
+        return
+    side_effects["report_downloads"] = _format_single_video_downloads(report_result)
+    media = _format_single_video_media(report_result)
+    if media:
+        side_effects["media"] = media
+
+
+def _build_video_side_effects(report_result: Any) -> dict[str, Any]:
+    side_effects: dict[str, Any] = {}
+    warning = getattr(report_result, "lvs_fallback_warning", None)
+    if warning:
+        side_effects["lvs_fallback_warning"] = warning
+    hitl_text = _format_hitl_prompts(getattr(report_result, "hitl_prompts", None))
+    if hitl_text:
+        side_effects["hitl_prompts"] = hitl_text
+    _add_video_download_side_effects(side_effects, report_result)
+    _append_artifact_display_note(side_effects)
+    return side_effects
+
+
+def _format_sensor_list(sensor_ids: list[str]) -> str:
+    if len(sensor_ids) == 1:
+        return sensor_ids[0]
+    if len(sensor_ids) == 2:
+        return f"{sensor_ids[0]} & {sensor_ids[1]}"
+    return ", ".join(sensor_ids[:-1]) + f" & {sensor_ids[-1]}"
+
+
+def _format_sensor_display(sensor_id: str | list[str]) -> str:
+    if not isinstance(sensor_id, list):
+        return sensor_id
+    return _format_sensor_list(sensor_id)
+
+
+def _video_success_messages(video_report_input: VideoReportAgentInput, report_result: Any) -> list[Any]:
+    sensor_display = _format_sensor_display(video_report_input.sensor_id)
+    return [
+        f"Video analysis complete for '{sensor_display}'.\n",
+        f"Query: {video_report_input.user_query}\n",
+        report_result.summary,
+    ]
+
+
+def _video_success_output(video_report_input: VideoReportAgentInput, report_result: Any) -> AgentOutput:
+    return AgentOutput(
+        messages=_video_success_messages(video_report_input, report_result),
+        side_effects=_build_video_side_effects(report_result),
+        status="success",
+        metadata={
+            "sensor_id": video_report_input.sensor_id,
+            "report_type": "video_report",
+            "file_size": report_result.file_size,
+            "pdf_file_size": report_result.pdf_file_size,
+        },
+    )
+
+
+def _cancelled_video_output(video_report_input: VideoReportAgentInput, report_result: Any) -> AgentOutput:
+    return AgentOutput(
+        messages=[report_result.summary or "Report generation was cancelled."],
+        side_effects={},
+        status="success",
+        metadata={"sensor_id": video_report_input.sensor_id},
+    )
+
+
+def _is_websocket_prompt_error(error_str: str) -> bool:
+    return "No human prompt callback was registered" in error_str or "Unable to handle requested prompt" in error_str
+
+
+def _video_known_error_messages(error: BaseException) -> tuple[str, str]:
+    error_str = str(error)
+    if _is_websocket_prompt_error(error_str):
+        user_message = (
+            "Could not start human in the loop workflow over websocket. "
+            "Please check that websocket connection is enabled in the UI and that the IP of agent "
+            "is set correctly in the settings panel from the left lower side."
         )
+        return user_message, f"Report Agent: Websocket connection error - {user_message}"
+    return (
+        f"Report Agent: Error generating video analysis report: {error_str}",
+        f"Report Agent: Failed to generate video analysis report: {error_str}",
+    )
 
-        if video_report_input.media_type == "rtsp":
-            logger.info(
-                "RTSP Stream Report mode: Analyzing stream '%s' from %s to %s",
-                sensor_ids[0],
-                video_report_input.start_time,
-                video_report_input.end_time,
-            )
-        elif len(sensor_ids) > 1:
-            logger.info(f"Video(uploaded) Report mode: Requesting reports for {len(sensor_ids)} videos: {sensor_ids}")
-        else:
-            logger.info(f"Video(uploaded) Report mode: Analyzing uploaded video '{sensor_ids[0]}'")
 
+def _video_error_metadata(execution_start_time: float) -> dict[str, Any]:
+    return {
+        "generation_time_ms": _elapsed_ms(execution_start_time),
+        "report_type": "video_report",
+        "mode": "video(uploaded) report",
+    }
+
+
+def _video_known_error_chunk(error: BaseException, execution_start_time: float) -> AgentMessageChunk:
+    logger.exception("Report Agent: Failed to execute direct video analysis report")
+    user_message, error_message = _video_known_error_messages(error)
+    return _final_chunk(
+        AgentOutput(
+            messages=[user_message],
+            status="error",
+            error_message=error_message,
+            metadata=_video_error_metadata(execution_start_time),
+        )
+    )
+
+
+def _video_unexpected_error_chunk(execution_start_time: float) -> AgentMessageChunk:
+    logger.exception("Report Agent: Unexpected error in direct video analysis report execution")
+    return _final_chunk(
+        AgentOutput(
+            messages=["Report Agent: Unexpected error generating video analysis report"],
+            status="error",
+            error_message="Report Agent: Unexpected error in video analysis report execution",
+            metadata=_video_error_metadata(execution_start_time),
+        )
+    )
+
+
+@dataclass
+class _VideoReportHandler:
+    """Execute one uploaded-video or RTSP report. The registered function only selects this handler."""
+
+    video_report_tool: Any
+
+    async def __call__(
+        self,
+        sensor_id: str | list[str],
+        user_query: str,
+        vlm_reasoning: bool | None = None,
+        media_type: Literal["video", "rtsp"] = "video",
+        start_time: float | None = None,
+        end_time: float | None = None,
+    ) -> AsyncGenerator[AgentMessageChunk]:
+        """Execute Video(uploaded) / RTSP Stream Report generation."""
+        logger.info(
+            "Executing Report Agent (media_type=%s, sensor_id=%s)",
+            media_type,
+            sensor_id,
+        )
+        execution_start_time = time.time()
+        video_report_input = VideoReportAgentInput(
+            sensor_id=sensor_id,
+            user_query=user_query,
+            vlm_reasoning=vlm_reasoning,
+            media_type=media_type,
+            start_time=start_time,
+            end_time=end_time,
+        )
         try:
-            # Call the Video/Stream Report generation tool. The tool handles parallel
-            # processing internally for multi-video LVS, and dispatches to the stream
-            # path when media_type='rtsp'.
-            tool_input: dict[str, Any] = {
-                "sensor_id": video_report_input.sensor_id,
-                "user_query": video_report_input.user_query,
-                "media_type": video_report_input.media_type,
-            }
-            if video_report_input.vlm_reasoning is not None:
-                tool_input["vlm_reasoning"] = video_report_input.vlm_reasoning
-            if video_report_input.start_time is not None:
-                tool_input["start_time"] = video_report_input.start_time
-            if video_report_input.end_time is not None:
-                tool_input["end_time"] = video_report_input.end_time
+            async for chunk in self._run(video_report_input):
+                yield chunk
+        except (ValueError, KeyError, AttributeError) as error:
+            yield _video_known_error_chunk(error, execution_start_time)
+        except Exception:
+            yield _video_unexpected_error_chunk(execution_start_time)
 
-            report_result = await video_report_tool.ainvoke(tool_input)
-        except Exception as e:
-            logger.exception(f"Report Agent: Video analysis report generation failed for videos {sensor_ids}: {e}")
+    async def _invoke_video_tool(self, video_report_input: VideoReportAgentInput, sensor_ids: list[str]) -> Any:
+        try:
+            return await self.video_report_tool.ainvoke(_video_tool_input(video_report_input))
+        except Exception as error:
+            logger.exception(f"Report Agent: Video analysis report generation failed for videos {sensor_ids}: {error}")
             raise ValueError(
-                f"Report Agent: Failed to generate video analysis report for videos {sensor_ids}: {e}"
-            ) from e
+                f"Report Agent: Failed to generate video analysis report for videos {sensor_ids}: {error}"
+            ) from error
 
-        # Check if report was cancelled (no http_url means no report was generated)
+    async def _run(self, video_report_input: VideoReportAgentInput) -> AsyncGenerator[AgentMessageChunk]:
+        sensor_ids = _sensor_ids(video_report_input.sensor_id)
+        _log_video_target(video_report_input, sensor_ids)
+        report_result = await self._invoke_video_tool(video_report_input, sensor_ids)
         if not report_result.http_url:
             logger.info(f"Video report cancelled for {sensor_ids}")
-            agent_output = AgentOutput(
-                messages=[report_result.summary or "Report generation was cancelled."],
-                side_effects={},
-                status="success",
-                metadata={"sensor_id": video_report_input.sensor_id},
-            )
-            yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content=agent_output.model_dump_json())
+            yield _final_chunk(_cancelled_video_output(video_report_input, report_result))
             return
-
         logger.info(f"Video(uploaded) report generated successfully for {sensor_ids}")
-
-        # Format output
-        side_effects = {}
-
-        if hasattr(report_result, "lvs_fallback_warning") and report_result.lvs_fallback_warning:
-            side_effects["lvs_fallback_warning"] = report_result.lvs_fallback_warning
-
-        # Format HITL prompts if available (from LVS) - used in both side_effects and messages
-        hitl_text = None
-        if hasattr(report_result, "hitl_prompts") and report_result.hitl_prompts:
-            hitl = report_result.hitl_prompts
-            prompts_parts = ["**Prompts:**"]
-            if hitl.get("scenario"):
-                prompts_parts.append(f"- Scenario: {hitl['scenario']}")
-            if hitl.get("events"):
-                prompts_parts.append(f"- Events of interest: {', '.join(hitl['events'])}")
-            if hitl.get("objects_of_interest"):
-                prompts_parts.append(f"- Objects of interest: {', '.join(hitl['objects_of_interest'])}")
-            # Only show Prompts section if there's actual content beyond the header
-            if len(prompts_parts) > 1:
-                hitl_text = "\n".join(prompts_parts) + "\n"
-                side_effects["hitl_prompts"] = hitl_text
-
-        # Handle multi-video vs single-video downloads
-        if hasattr(report_result, "all_reports") and report_result.all_reports:
-            # Multi-video: format per-video download links
-            downloads = ["**Report Downloads:**", ""]
-            for video_report in report_result.all_reports:
-                sensor_id = video_report.get("sensor_id", "Unknown")
-                downloads.append(f"**{sensor_id}:**")
-                if video_report.get("http_url"):
-                    downloads.append(f"  - [Markdown Report]({video_report['http_url']})")
-                if video_report.get("pdf_url"):
-                    downloads.append(f"  - [PDF Report]({video_report['pdf_url']})")
-                downloads.append("")  # Add blank line between videos
-            side_effects["report_downloads"] = "\n".join(downloads)
-
-            # Multi-video: format per-video media links
-            media_links = ["**Media:**", ""]
-            for video_report in report_result.all_reports:
-                if video_report.get("video_url"):
-                    sensor_id = video_report.get("sensor_id", "Unknown")
-                    media_links.append(f"**{sensor_id}:**")
-                    media_links.append(f"  - [Video Playback]({video_report['video_url']})")
-                    media_links.append("")  # Add blank line between videos
-            if len(media_links) > 2:  # More than just header and blank line
-                side_effects["media"] = "\n".join(media_links)
-        else:
-            # Single video: original format
-            downloads = ["**Report Downloads:**"]
-            downloads.append(f"- [Markdown Report]({report_result.http_url})")
-            if report_result.pdf_url:
-                downloads.append(f"- [PDF Report]({report_result.pdf_url})")
-            side_effects["report_downloads"] = "\n".join(downloads) + "\n"
-
-            if report_result.video_url:
-                media = ["**Media:**"]
-                media.append(f"- [Video Playback]({report_result.video_url})")
-                side_effects["media"] = "\n".join(media) + "\n"
-        _append_artifact_display_note(side_effects)
-
-        # Build messages list
-        # Format sensor_id(s) for natural language display
-        if isinstance(video_report_input.sensor_id, list):
-            if len(video_report_input.sensor_id) == 1:
-                sensor_display = video_report_input.sensor_id[0]
-            elif len(video_report_input.sensor_id) == 2:
-                sensor_display = f"{video_report_input.sensor_id[0]} & {video_report_input.sensor_id[1]}"
-            else:
-                sensor_display = ", ".join(video_report_input.sensor_id[:-1]) + f" & {video_report_input.sensor_id[-1]}"
-        else:
-            sensor_display = video_report_input.sensor_id
-
-        messages = [
-            f"Video analysis complete for '{sensor_display}'.\n",
-            f"Query: {video_report_input.user_query}\n",
-        ]
-
-        messages.append(report_result.summary)
-
-        agent_output = AgentOutput(
-            messages=messages,
-            side_effects=side_effects,
-            status="success",
-            metadata={
-                "sensor_id": video_report_input.sensor_id,
-                "report_type": "video_report",
-                "file_size": report_result.file_size,
-                "pdf_file_size": report_result.pdf_file_size,
-            },
-        )
-        yield AgentMessageChunk(type=AgentMessageChunkType.FINAL, content=agent_output.model_dump_json())
-
-    # Register the function with dynamic schema based on Video Analytics MCP availability
-    if va_mcp_enabled:
-        yield FunctionInfo.create(
-            stream_fn=_execute_report_va_mcp,
-            description=(
-                "Generate detailed single incident reports using deterministic tool sequences. "
-                "Fetches the most recent incident and generates a comprehensive report with video analysis. "
-                "For multiple incidents, use multi_report_agent instead. "
-                "Returns AgentOutput with messages, side_effects (reports, URLs), and metadata."
-            ),
-            input_schema=ReportAgentInput,
-            stream_output_schema=AgentMessageChunk,
-        )
-    else:  # Video(uploaded) / Stream Report mode
-        yield FunctionInfo.create(
-            stream_fn=_execute_report_video,
-            description=(
-                "Generate analysis reports for uploaded videos OR configured live streams without requiring "
-                "an incident database. "
-                "For uploaded videos (media_type='video', default): analyzes full videos directly from VST "
-                "based on sensor_id (filename); supports parallel processing of multiple videos via LVS. "
-                "For live RTSP streams (media_type='rtsp'): analyzes a configured stream over a "
-                "[start_time, end_time] window in seconds (use end_time=0 for 'until now'); requires a single "
-                "sensor_id (stream name). If the stream has no captions yet, the response will instruct the "
-                "user to confirm caption generation by saying 'start captioning <name>'. The "
-                "caller MUST surface that message verbatim and STOP — do NOT auto-call lvs_config_media. "
-                "Returns AgentOutput with messages, side_effects (reports, URLs), and metadata."
-            ),
-            input_schema=VideoReportAgentInput,
-            stream_output_schema=AgentMessageChunk,
-        )
+        yield _final_chunk(_video_success_output(video_report_input, report_result))

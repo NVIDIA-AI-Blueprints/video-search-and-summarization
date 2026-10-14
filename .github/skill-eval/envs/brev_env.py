@@ -23,19 +23,20 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from enum import Enum
+import hashlib
 import json
 import logging
 import os
-from pathlib import Path
+import random
 import shlex
 import signal
 import subprocess
 import tempfile
 import uuid
+from enum import Enum
+from pathlib import Path
 
-from harbor.environments.base import BaseEnvironment
-from harbor.environments.base import ExecResult
+from harbor.environments.base import BaseEnvironment, ExecResult
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,31 @@ DEFAULT_RTSP_SAMPLE_URL = (
 def _resolve_rtsp_sample_url() -> str:
     """Return the operator-provided RTSP sample URL or the public default."""
     return os.environ.get("RTSP_SAMPLE_URL") or DEFAULT_RTSP_SAMPLE_URL
+
+
+def _upload_attestation_command(target: str, marker: str) -> str:
+    # Emit one marked record, even when the file is absent. Brev can mix
+    # transport output with stdout and can obscure a remote shell exit code.
+    script = """import hashlib, json, os, stat, sys
+report = {"state": "invalid"}
+try:
+    fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as handle:
+        metadata = os.fstat(handle.fileno())
+        if stat.S_ISREG(metadata.st_mode):
+            digest = hashlib.sha256()
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+            report = {"state": "present", "bytes": metadata.st_size, "sha256": digest.hexdigest()}
+except FileNotFoundError:
+    report = {"state": "absent"}
+except PermissionError:
+    report = {"state": "permission_denied"}
+except OSError:
+    pass
+print(sys.argv[2] + json.dumps(report))
+"""
+    return f"python3 -c {shlex.quote(script)} {shlex.quote(target)} {shlex.quote(marker)}"
 
 
 class BrevEnvironmentType(str, Enum):
@@ -193,7 +219,8 @@ class BrevEnvironment(BaseEnvironment):
                     f"Brev instance '{self._instance_name}' not found "
                     f"(is it deleted? wrong org?)"
                 )
-            await _check_instance_matches(instance, requirements)
+            if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") != "true":
+                await _check_instance_matches(instance, requirements)
         else:
             raise RuntimeError(
                 "No BREV_INSTANCE set and no `brev_instance` in task.toml "
@@ -226,7 +253,12 @@ class BrevEnvironment(BaseEnvironment):
         # the checks catch silent regressions (e.g. a driver downgrade or
         # a box where the big volume mounts on /ephemeral and / is only
         # ~100 GB — which OOMs on local NIM pulls).
-        await _check_live_resources(self._instance_name, requirements)
+        if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
+            result = await _run_brev_exec(self._instance_name, "uname -m", timeout=30)
+            if result.return_code or (result.stdout or "").strip() not in {"aarch64", "arm64"}:
+                raise RuntimeError("Selected Spark worker must have arm64 architecture")
+        else:
+            await _check_live_resources(self._instance_name, requirements)
 
         preserve_deployment = (
             os.environ.get("SKILL_EVAL_PRESERVE_DEPLOYMENT") == "1"
@@ -277,9 +309,17 @@ class BrevEnvironment(BaseEnvironment):
         # in an unrelated profile_in_1 trial's artifact tarball). /logs/agent is
         # left intact here — its prior-trial session JSONLs are handled by the
         # archive step just below (move-not-delete, for forensic SSH access).
+        #
+        # /skills is wiped for the same reason. It is Harbor's configured skill
+        # source, and the per-trial upload extracts a tarball over it without
+        # removing anything, so on a warm box it holds the union of every skill
+        # any trial ever uploaded. A skill since deleted from the repo is still
+        # handed to the agent from there and can win routing against the one
+        # under test (observed 2026-09-30: `vss-deploy-profile`, retired in
+        # #2141, deployed the L40S ask-video leg sixteen days later).
         setup_dirs_result = await _run_brev_exec(
             self._instance_name,
-            "sudo rm -rf /logs/artifacts /logs/verifier && "
+            "sudo rm -rf /logs/artifacts /logs/verifier /skills && "
             "sudo rm -rf /tmp/skill-eval/uploads && "
             "sudo rm -f /tmp/.harbor_dl_*.b64 && "
             "sudo mkdir -p /logs/agent /logs/verifier /logs/artifacts /tests /solution /skills && "
@@ -297,7 +337,42 @@ class BrevEnvironment(BaseEnvironment):
                 f"exit {setup_dirs_result.return_code}; tail:\n{tail}"
             )
 
-        # Archive session JSONLs and root-level agent outputs left by
+        # Repair a repo venv a prior step left unusable. Unlike the repo sync,
+        # this is NOT gated to the first trial: `step-2+` preserves the
+        # deployment and so skips the sync's `git clean -fdx`, which is the
+        # only other thing that would clear it. A non-zero exit means a broken
+        # venv could not be removed, and the per-path reason is on stderr --
+        # log both streams so the next uv failure is explainable. Warn rather
+        # than raise: the trial can still run, and a venv left in place
+        # surfaces as the uv error it already was.
+        venv_reset_result = await _run_brev_exec(
+            self._instance_name,
+            _broken_venv_cleanup_command(),
+            timeout=60,
+        )
+        if venv_reset_result.return_code != 0:
+            logger.warning(
+                "broken-venv cleanup failed on %s: exit %s; tail:\n%s",
+                self._instance_name,
+                venv_reset_result.return_code,
+                "\n".join(
+                    part
+                    for part in (
+                        (venv_reset_result.stdout or "").strip(),
+                        (venv_reset_result.stderr or "").strip(),
+                    )
+                    if part
+                )[-800:],
+            )
+        else:
+            logger.info(
+                "broken-venv cleanup on %s: %s",
+                self._instance_name,
+                (venv_reset_result.stdout or "").strip().splitlines()[-1:] or ["no output"],
+            )
+
+        # Archive the full sessions tree (projects, Codex dates, and skills)
+        # and root-level agent outputs left by
         # prior trials on this warm-pool box. Without this, harbor's claude-code
         # mapper merges every
         # `*.jsonl` file under `/logs/agent/sessions/projects/<project>/`
@@ -388,11 +463,16 @@ class BrevEnvironment(BaseEnvironment):
             # The Build Vision AI provisioning task owns host-side NemoClaw
             # setup. Forward its provider and lifecycle inputs exactly as
             # supplied by CI; the harness invokes the worker's NemoClaw CLI.
+            "SKILLS_EVAL_OPERATIONAL_HARNESS",
             "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_RECREATE_SANDBOX",
             "NEMOCLAW_GATEWAY_PORT",
+            "SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER",
+            "NEMOCLAW_DASHBOARD_RELAY_PORT",
             "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_POLICY_MODE",
             "NEMOCLAW_PROVIDER", "NEMOCLAW_ENDPOINT_URL",
             "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
+            "SKILL_EVAL_LOCAL_NIM_API_KEY",
+            "NEMOCLAW_INFERENCE_PROXY",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
             # and resets $REPO to that SHA. Without them, the adapter's
@@ -480,6 +560,7 @@ class BrevEnvironment(BaseEnvironment):
             # purging first would race the writers and the dirs would be
             # dirty again by the time the trial starts.
             await self._purge_host_data_dirs()
+            await self._claim_nemoclaw_gateway()
         else:
             logger.info(
                 "Skipping docker reset, host purge, and repo sync on %s — %s "
@@ -551,8 +632,62 @@ class BrevEnvironment(BaseEnvironment):
         # env provider. The previous `_ensure_prerequisite_deployed`
         # hook + `/tmp/skill-eval/active-deploy.txt` marker are gone.
 
+        if os.environ.get("SKILL_EVAL_LOCAL_NIM_PLAN"):
+            await self._start_local_nims()
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
+
+    async def _start_local_nims(self) -> None:
+        """Start after Docker reset; reuse the same services across role changes."""
+        plan = json.loads(os.environ["SKILL_EVAL_LOCAL_NIM_PLAN"])
+        # Validate the owner without creating coordinator-side directories.
+        import re
+        if not re.fullmatch(r"[a-f0-9]{24}", plan["owner"]):
+            raise ValueError("Invalid local NIM owner")
+        remote = f"/tmp/skill-eval-nim-{plan['owner']}"
+        await self.upload_file(Path(__file__).resolve().parents[1] / "local_nim.py", remote + ".py")
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory) / "plan.json"
+            local.write_text(json.dumps(plan))
+            local.chmod(0o600)
+            await self.upload_file(local, remote + ".json")
+        # Send NGC_API_KEY on command stdin. A staged worker file could
+        # survive if the coordinator died before the startup shell ran.
+        ngc_key = os.environ.get("NGC_API_KEY")
+        if ngc_key and ("\n" in ngc_key or "\r" in ngc_key):
+            raise ValueError("NGC_API_KEY must be a single line")
+        key_setup = (
+            'IFS= read -r NGC_API_KEY && test -n "$NGC_API_KEY" && '
+            'export NGC_API_KEY && '
+            if ngc_key else ""
+        )
+        result = await _run_brev_exec(
+            self._instance_name,
+            f"{key_setup}chmod 600 {remote}.json && "
+            f"python3 {remote}.py start --plan {remote}.json",
+            timeout=5500,
+            input_data=(ngc_key + "\n").encode() if ngc_key else None,
+        )
+        if result.return_code:
+            raise RuntimeError(f"Local NIM deployment failed: {(result.stderr or result.stdout or '')[-2000:]}")
+
+    async def _claim_nemoclaw_gateway(self) -> None:
+        """Claim only this leg's isolated NemoClaw host namespace."""
+        owner = os.environ.get("SKILL_EVAL_NEMOCLAW_GATEWAY_OWNER")
+        if not owner:
+            return
+        script = (Path(__file__).resolve().parents[1] / "nemoclaw" / "gateway_state.py").read_text()
+        args = [owner, *(os.environ[key] for key in (
+            "NEMOCLAW_GATEWAY_PORT", "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_DASHBOARD_RELAY_PORT",
+        ))]
+        result = await _run_brev_exec(
+            self._instance_name,
+            "python3 -c " + shlex.quote(script) + " " + shlex.join(args),
+            timeout=30,
+        )
+        if result.return_code != 0:
+            # The helper emits only non-secret ownership/port diagnostics.
+            raise RuntimeError("NemoClaw gateway namespace claim failed: " + (result.stderr or result.stdout or "")[-500:])
 
     async def _reset_docker_runtime(self) -> None:
         """Wipe the warm-pool box's docker runtime before the trial.
@@ -771,10 +906,27 @@ chattr -R -i . 2>/dev/null || sudo chattr -R -i . 2>/dev/null || true
 # root-owned files in bind-mounted dirs (e.g. deploy/docker/data-dir/) that
 # a non-root git clean cannot remove ("Permission denied").
 git clean -fdx -e data/ -e .env 2>/dev/null || sudo git clean -fdx -e data/ -e .env
+# The vss CLI is a uv tool, so it outlives the checkout: adapters install it
+# only when `vss` is missing, and a box kept from an earlier run went on
+# serving that run's CLI (PR #2467: it rejected the PR's own --max-frames).
+# Reinstall from the synced tree so trials exercise the CLI under test.
+export PATH="$HOME/.local/bin:$PATH"
+if command -v uv >/dev/null 2>&1; then
+  uv tool install --force --reinstall --quiet "$REPO/libs/vss/cli"
+  echo "vss CLI: $(vss --version)"
+fi
 echo "synced $REPO to $(git rev-parse --short HEAD)"
 """
         logger.info("Syncing $REPO on %s to PR_HEAD_SHA", self._instance_name)
-        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        probe = await _run_brev_exec_retry(
+            self._instance_name, "printf 'skill-eval-worker-ready\\n'", timeout=45,
+        )
+        if probe.return_code != 0:
+            raise RuntimeError(
+                f"worker connectivity preflight failed on {self._instance_name}: "
+                f"exit {probe.return_code}; tail:\n{(probe.stderr or probe.stdout or '')[-500:]}"
+            )
+        result = await _run_brev_exec_retry(self._instance_name, cmd, timeout=300)
         if result.return_code != 0:
             tail = (result.stderr or result.stdout or "")[-500:]
             raise RuntimeError(
@@ -849,22 +1001,59 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
 
     async def upload_file(self, source_path: Path | str, target_path: str) -> None:
         assert self._instance_name
+        source = Path(source_path)
+        def fingerprint():
+            with source.open("rb") as handle:
+                return hashlib.file_digest(handle, "sha256").hexdigest(), os.fstat(handle.fileno()).st_size
         try:
             async with asyncio.timeout(BREV_TRANSFER_ACTIVE_TIMEOUT_SEC):
+                digest, size = await asyncio.to_thread(fingerprint)
                 # Ensure parent directory exists with correct ownership
                 parent = str(Path(target_path).parent)
                 if parent and parent != ".":
-                    await _run_brev_exec(
+                    prepared = await _run_brev_exec_retry(
                         self._instance_name,
                         f"sudo mkdir -p {shlex.quote(parent)} && "
                         f"sudo chown $(whoami):$(id -gn) {shlex.quote(parent)}",
                         timeout=30,
                     )
-                result = await _run_brev_copy(
-                    str(source_path), f"{self._instance_name}:{target_path}",
-                )
-                if result.return_code != 0:
-                    raise RuntimeError(f"Upload failed: {result.stderr}")
+                    if prepared.return_code != 0:
+                        raise RuntimeError("Upload parent-directory preparation failed")
+                marker = f"__UPLOAD_ATTEST_{uuid.uuid4().hex}__"
+                for attempt in range(3):
+                    # One retry loop for copy + attestation, within the shared
+                    # transfer deadline. A successful Brev exit is insufficient.
+                    result = await _run_brev_copy_once(
+                        str(source), f"{self._instance_name}:{target_path}",
+                    )
+                    failure = "Upload transport failed"
+                    retry = _transient_transport_failure(result)
+                    if result.return_code == 0:
+                        result = await _run_brev_exec(
+                            self._instance_name,
+                            _upload_attestation_command(target_path, marker),
+                            timeout=30,
+                        )
+                        if result.return_code == 0:
+                            rows = [line[len(marker):] for line in (result.stdout or "").splitlines() if line.startswith(marker)]
+                            if len(rows) != 1:
+                                raise RuntimeError("Uploaded file attestation response is missing or ambiguous")
+                            report = json.loads(rows[0])
+                            if report.get("state") == "present":
+                                if report.get("bytes") == size and report.get("sha256") == digest:
+                                    return
+                                retry = True
+                                failure = "Uploaded file size/checksum verification failed"
+                            else:
+                                retry = report.get("state") == "absent"
+                                failure = "Uploaded file is absent on worker" if retry else "Uploaded file is inaccessible or invalid on worker"
+                        else:
+                            failure = "Uploaded file verification transport failed"
+                            retry = _transient_transport_failure(result)
+                    if not retry or attempt == 2:
+                        raise RuntimeError(f"{failure} (exit {result.return_code})")
+                    logger.warning("%s; retrying upload %s/2", failure, attempt + 1)
+                    await _transport_backoff(attempt)
         except TimeoutError as exc:
             raise RuntimeError(
                 "Upload file exceeded the "
@@ -1292,6 +1481,32 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                 full_cmd,
                 timeout=timeout_sec or BREV_EXEC_TIMEOUT,
             )
+            fixtures = os.environ.get("SKILL_EVAL_NEMOCLAW_FIXTURES", "[]")
+            if (
+                is_trial_agent and defer_agent_reap and result.return_code == 0
+                and os.environ.get("SKILLS_EVAL_OPERATIONAL_HARNESS") == "nemoclaw"
+            ):
+                # Prove the setup handoff even when no fixtures are declared.
+                # This runs before the verifier, only after coding setup.
+                sandbox = os.environ["NEMOCLAW_SANDBOX_NAME"]
+                staged = await _run_brev_exec(
+                    self._instance_name,
+                    f"export {REMOTE_AGENT_RUN_ENV}={shlex.quote(agent_run_marker)}; "
+                    'export PATH="$HOME/.local/bin:$PATH"; source ~/.profile 2>/dev/null; '
+                    'python3 "$HOME/video-search-and-summarization/.github/skill-eval/nemoclaw/headless_runner.py" '
+                    '--setup-check && '
+                    'python3 "$HOME/video-search-and-summarization/.github/skill-eval/nemoclaw/stage_fixtures.py" '
+                    f"--sandbox {shlex.quote(sandbox)} --files-json {shlex.quote(fixtures)}",
+                    # Bound phase/exec/auth/inference checks and media staging
+                    # together, with transport headroom beyond each helper.
+                    timeout=900 + 300 * len(json.loads(fixtures)),
+                )
+                if staged.return_code != 0:
+                    result = ExecResult(
+                        return_code=staged.return_code,
+                        stdout=result.stdout,
+                        stderr="NemoClaw setup handoff failed: " + (staged.stderr or staged.stdout or "")[-2000:],
+                    )
             if agent_run_marker is not None and (
                 result.return_code != 0 or not defer_agent_reap
             ):
@@ -1452,19 +1667,28 @@ async def reap_remote_agent_run(instance: str, agent_run_marker: str) -> None:
 def _prior_agent_output_archive_command() -> str:
     """Archive every prior output that Harbor could mistake for this trial.
 
-    Session projects are consumed by Claude's trajectory mapper. Root-level
+    Session directories are consumed by Claude's and Codex's trajectory mappers. Root-level
     outputs are uploaded back by Harbor after a completed trial and are also
     recognized by our fallback/judge paths. Leaving either class in place can
     make a pre-agent failure inherit the previous trial's evidence. Move both
     classes aside: after an abrupt cancellation the root raw log may be the
     only surviving evidence because coordinator download never completed.
     Old archives are pruned to keep warm-box storage bounded.
+
+    The session skills dir is the third class. Harbor copies this trial's
+    skills into it, but never removes one a prior trial left, so a skill
+    deleted from the repo keeps being offered to the agent and can win
+    routing against the one under test (observed 2026-09-30: the L40S
+    ask-video leg deployed through `vss-deploy-profile`, retired 16 days
+    earlier in #2141, and followed its remote-VLM recipe instead of Build
+    Vision AI's).
     """
     return (
         "ts=$(date +%Y%m%d-%H%M%S)-$$; "
-        "PROJ=/logs/agent/sessions/projects; "
+        "PROJ=/logs/agent/sessions; "
         "ROOT=/logs/agent; "
-        "OUTPUTS='claude-code.txt trajectory.json trajectory.jsonl agent.log'; "
+        "OUTPUTS='claude-code.txt codex.txt openclaw.txt openclaw.session.jsonl "
+        "trajectory.json trajectory.jsonl agent.log'; "
         "HAS_SESSIONS=0; "
         "HAS_OUTPUT=0; "
         'if [ -d "$PROJ" ] && [ -n "$(ls -A "$PROJ" 2>/dev/null)" ]; then '
@@ -1477,7 +1701,11 @@ def _prior_agent_output_archive_command() -> str:
         "fi; "
         'if [ "$HAS_SESSIONS" -eq 1 ]; then '
         '  mkdir -p "$ARCHIVE/sessions" || exit 1; '
-        '  mv "$PROJ"/* "$ARCHIVE/sessions/" || exit 1; '
+        # Enumerate immediate entries, including dotfiles and dangling symlinks.
+        # Unlike the shell glob, find includes everything ls -A detected
+        # and tolerates a directory emptied between detection and movement.
+        '  find "$PROJ" -mindepth 1 -maxdepth 1 '
+        '    -exec mv -t "$ARCHIVE/sessions/" -- {} + || exit 1; '
         '  echo "[trajectory-isolation] archived prior sessions to $ARCHIVE/sessions"; '
         "fi; "
         'if [ "$HAS_OUTPUT" -eq 1 ]; then '
@@ -1515,6 +1743,82 @@ def _claude_task_scratch_cleanup_command() -> str:
         '  echo "[claude-task-scratch] removed task dirs before=$BEFORE after=$AFTER base=$BASE"; '
         'else '
         '  echo "[claude-task-scratch] no scratch base $BASE"; '
+        "fi"
+    )
+
+
+def _broken_venv_cleanup_command() -> str:
+    """Remove repo virtualenvs that are no longer usable, on every trial.
+
+    `uv` refuses a project venv whose interpreter has gone ("not a valid
+    Python environment (no Python executable was found)"), and the `vss` CLI
+    then cannot run at all. The repo sync that would clear it via
+    `git clean -fdx` is gated to a spec's first trial, because `step-2+` has
+    to preserve the deployment -- so a venv broken during step-1 or step-2
+    survives into step-3, which is where this leg keeps failing (NVBugs
+    6829436: 2026-09-24, -27, -28 and 2026-10-04, each needing a manual
+    `rm -rf libs/vss/.venv`).
+
+    Only a venv that is already unusable is removed: a healthy one is left
+    alone so steps do not pay a reinstall every trial. `uv` recreates a
+    missing venv on its next run, so removal is the repair.
+
+    Strictly POSIX, and path-safe without relying on the remote shell. The
+    command string is handed to `brev exec` / `ssh`, neither of which selects
+    an interpreter, so it may run under dash -- where `read -d` does not
+    exist and a bash-only loop would quietly match nothing, leave the broken
+    venv, and still report success. `find -exec ... {} +` passes each path as
+    an argument instead, so nothing is word-split and no newline in a
+    directory name can turn a fragment into an absolute path of its own.
+
+    Removal runs with `sudo`, so each candidate is re-checked inside the
+    loop: under `$REPO/`, basename `.venv`, and still a directory.
+
+    Exits non-zero when a removal failed, so the caller logs it rather than
+    reporting the trial as clean and leaving the next `uv` failure unexplained.
+    """
+    # Counts come back through files: `-exec ... +` runs in child shells, so a
+    # variable incremented there would not survive to the summary line.
+    inner = (
+        'for VENV in "$@"; do '
+        '  case "$VENV" in "$VENV_REPO"/*) ;; *) continue ;; esac; '
+        '  [ "${VENV##*/}" = ".venv" ] || continue; '
+        '  [ -d "$VENV" ] || continue; '
+        '  if [ -x "$VENV/bin/python" ] && "$VENV/bin/python" -c "" 2>/dev/null; then '
+        '    continue; '
+        '  fi; '
+        # A prior container may have left root-owned files inside, same as the
+        # bind-mount dirs git clean needs sudo for.
+        '  rm -rf "$VENV" 2>/dev/null || sudo rm -rf "$VENV" 2>/dev/null || true; '
+        '  if [ -d "$VENV" ]; then '
+        '    echo "$VENV" >> "$VENV_STATE/failed"; '
+        '  else '
+        '    echo "$VENV" >> "$VENV_STATE/removed"; '
+        '    echo "[venv-reset] removed broken $VENV"; '
+        '  fi; '
+        "done"
+    )
+    return (
+        'REPO="$HOME/video-search-and-summarization"; '
+        'if [ ! -d "$REPO" ]; then '
+        '  echo "[venv-reset] no checkout at $REPO; nothing to inspect"; '
+        'else '
+        '  STATE=$(mktemp -d) || exit 1; '
+        '  : > "$STATE/removed"; : > "$STATE/failed"; '
+        '  VENV_REPO="$REPO" VENV_STATE="$STATE" '
+        '  find "$REPO" -type d -name .venv -prune '
+        f"    -exec sh -c '{inner}' _ {{}} + 2>/dev/null; "
+        '  REMOVED=$(wc -l < "$STATE/removed"); '
+        '  FAILED=$(wc -l < "$STATE/failed"); '
+        # Named here rather than from the child shells, so find's own
+        # permission-denied noise can stay suppressed without losing these.
+        '  while IFS= read -r FAILED_PATH; do '
+        '    echo "[venv-reset] FAILED to remove broken $FAILED_PATH" >&2; '
+        '  done < "$STATE/failed"; '
+        '  rm -rf "$STATE"; '
+        '  echo "[venv-reset] broken venvs removed=$REMOVED failed=$FAILED"; '
+        # Load-bearing: a failed removal has to reach the caller's warning.
+        '  [ "$FAILED" -eq 0 ]; '
         "fi"
     )
 
@@ -1707,6 +2011,7 @@ async def _run_ssh_exec(
     alias: str,
     command: str,
     timeout: int = BREV_EXEC_TIMEOUT,
+    input_data: bytes | None = None,
 ) -> ExecResult:
     """Run `ssh <alias> <command>` — for registered nodes."""
     cmd = [
@@ -1729,7 +2034,7 @@ async def _run_ssh_exec(
     try:
         stdout, stderr = await _communicate_with_cancellation_cleanup(
             proc,
-            input_data=b"",
+            input_data=input_data if input_data is not None else b"",
             timeout=timeout,
         )
     except asyncio.TimeoutError:
@@ -1796,6 +2101,7 @@ async def _run_brev_exec(
     instance: str,
     command: str,
     timeout: int = BREV_EXEC_TIMEOUT,
+    input_data: bytes | None = None,
 ) -> ExecResult:
     """Run ``brev exec <instance> <command>`` and return result.
 
@@ -1803,15 +2109,17 @@ async def _run_brev_exec(
     falls back to direct ``ssh <alias>`` since brev exec can't reach them.
 
     Uses ``bash -c`` wrapping via a shell so that ``brev exec`` receives
-    a single command string.  Stdin is piped with empty input so the
-    brev CLI doesn't enter interactive mode.
+    a single command string. Stdin is piped explicitly so the brev CLI
+    doesn't enter interactive mode.
     """
     if await _is_registered_node(instance):
         # ssh command-execs run NON-LOGIN shells: ~/.profile (and thus the
         # forwarded ~/.eval_env) is never sourced, silently dropping
         # PR_HEAD_SHA/NGC keys/etc from every exec. Source it inline.
         command = f". ~/.eval_env 2>/dev/null || true; {command}"
-        return await _run_ssh_exec(_ssh_alias_for(instance), command, timeout)
+        return await _run_ssh_exec(
+            _ssh_alias_for(instance), command, timeout, input_data=input_data,
+        )
     # brev exec also spawns a NON-LOGIN shell — ~/.profile is never sourced,
     # so the forwarded env vars in ~/.eval_env (PR_HEAD_SHA, NGC keys, etc.)
     # are invisible to every command. Source it inline, same as SSH nodes.
@@ -1832,7 +2140,7 @@ async def _run_brev_exec(
     try:
         stdout, stderr = await _communicate_with_cancellation_cleanup(
             proc,
-            input_data=b"\n",
+            input_data=input_data if input_data is not None else b"\n",
             timeout=timeout,
         )
     except asyncio.TimeoutError:
@@ -1840,7 +2148,7 @@ async def _run_brev_exec(
         stdout, stderr = await proc.communicate()
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
-            stderr="Command timed out",
+            stderr=(stderr.decode() if stderr else "")[-2000:] + "\nCommand timed out",
             return_code=124,
         )
 
@@ -1849,6 +2157,37 @@ async def _run_brev_exec(
         stderr=stderr.decode() if stderr else None,
         return_code=proc.returncode or 0,
     )
+
+
+def _transient_transport_failure(result: ExecResult) -> bool:
+    """Retry only transport failures, never authentication or command errors."""
+    detail = ((result.stderr or "") + "\n" + (result.stdout or "")).lower()
+    if any(term in detail for term in (
+        "permission denied", "authentication failed", "invalid token", "unauthorized",
+    )):
+        return False
+    return result.return_code == 124 or any(term in detail for term in (
+        "deadline_exceeded", "context deadline exceeded", "rate limit", "too many requests",
+        "connection reset", "connection refused", "connection timed out",
+        "connection closed", "connection lost", "broken pipe",
+        "connection failed", "connection corrupted", "bad packet length",
+        "no route to host", "temporary failure in name resolution",
+    ))
+
+
+async def _transport_backoff(attempt: int) -> None:
+    await asyncio.sleep(10 * 2 ** attempt + random.uniform(0, 5))
+
+
+async def _run_brev_exec_retry(instance: str, command: str, timeout: int) -> ExecResult:
+    """For explicitly idempotent preparation only; arbitrary exec is never retried."""
+    for attempt in range(3):
+        result = await _run_brev_exec(instance, command, timeout=timeout)
+        if result.return_code == 0 or not _transient_transport_failure(result) or attempt == 2:
+            return result
+        logger.warning("Worker preparation transport failed on %s; retry %s/2", instance, attempt + 1)
+        await _transport_backoff(attempt)
+    raise AssertionError("unreachable")
 
 
 async def _run_brev_copy(
@@ -1864,11 +2203,11 @@ async def _run_brev_copy(
     result = None
     for attempt in range(3):
         result = await _run_brev_copy_once(src, dst, timeout)
-        if result.return_code == 0:
+        if result.return_code == 0 or not _transient_transport_failure(result) or attempt == 2:
             return result
         logger.warning("brev copy failed (attempt %s): %s",
                        attempt + 1, (result.stderr or "")[-200:])
-        await asyncio.sleep(10)
+        await _transport_backoff(attempt)
     return result
 
 

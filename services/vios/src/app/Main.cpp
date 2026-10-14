@@ -23,6 +23,8 @@
 #include <stdlib.h>
 #include "vstmodule.h"
 
+using namespace nv_vms;
+
 ModuleId getCurrentModuleId(const std::string& module_name)
 {
     ModuleId moduleId = ModuleAll;

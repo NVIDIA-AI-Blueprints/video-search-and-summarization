@@ -153,3 +153,26 @@ class TestSetFlowForLists:
         # without round-tripping YAML, so just ensure no exception
         assert data["a"] == [1, 2]
         assert data["b"]["c"] == [3, 4]
+
+
+class TestPublicExports:
+    def test_every_all_name_is_defined(self):
+        import profile_configurator.profile_configurator_utils as pkg
+
+        missing = [name for name in pkg.__all__ if not hasattr(pkg, name)]
+        assert missing == []
+        assert "YAMLListMerger" not in pkg.__all__
+        assert not hasattr(pkg, "YAMLListMerger")
+
+    def test_star_import_succeeds_without_yaml_list_merger(self):
+        namespace = {}
+        exec(
+            "from profile_configurator.profile_configurator_utils import *",
+            namespace,
+        )
+        exported = {
+            name for name in namespace if not name.startswith("__")
+        }
+        assert "YAMLListMerger" not in exported
+        assert "read_yaml_file" in exported
+        assert "set_flow_for_lists" in exported

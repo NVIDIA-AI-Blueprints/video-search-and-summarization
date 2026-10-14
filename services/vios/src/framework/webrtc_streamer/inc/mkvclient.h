@@ -54,6 +54,10 @@ class MKVClient
 	public:
 		MKVClient(Environment& env, Callback* callback, const char* path, const std::map<std::string,std::string, std::less<>> & opts, int verbosityLevel=1);
 		virtual ~MKVClient() noexcept;
+		MKVClient(const MKVClient&) = delete;
+		MKVClient& operator=(const MKVClient&) = delete;
+		MKVClient(MKVClient&&) = delete;
+		MKVClient& operator=(MKVClient&&) = delete;
 
 		void stop() {
 			m_env.stop();

@@ -119,6 +119,10 @@ class AutoDestroyXml
 public:
     explicit AutoDestroyXml(xmlBufferPtr xml) :m_xml(xml) {}
     ~AutoDestroyXml() { xmlBufferFree(m_xml); }
+    AutoDestroyXml(const AutoDestroyXml&) = delete;
+    AutoDestroyXml& operator=(const AutoDestroyXml&) = delete;
+    AutoDestroyXml(AutoDestroyXml&&) = delete;
+    AutoDestroyXml& operator=(AutoDestroyXml&&) = delete;
 private:
     xmlBufferPtr m_xml;
 };

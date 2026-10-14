@@ -28,7 +28,7 @@ SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 INTEGRATION_TEST_DIR="$(cd "$SCRIPT_DIR" && pwd)"
 # VIDEO_ANALYTICS_API_ROOT = directory containing docker/Dockerfile (repo root)
 VIDEO_ANALYTICS_API_ROOT="$(cd "$INTEGRATION_TEST_DIR/.." && pwd)"
-if [ ! -f "$VIDEO_ANALYTICS_API_ROOT/docker/Dockerfile" ]; then
+if [[ ! -f "$VIDEO_ANALYTICS_API_ROOT/docker/Dockerfile" ]]; then
     VIDEO_ANALYTICS_API_ROOT="$(cd "$INTEGRATION_TEST_DIR/../.." && pwd)"
 fi
 DATA_DIR="$INTEGRATION_TEST_DIR/docker_compose/apps_data"
@@ -46,7 +46,7 @@ INFRA_DIR="$REPO_ROOT/deploy/docker/services/infra"
 VSS_APPS_DIR="$REPO_ROOT/deploy/docker"
 VSS_DATA_DIR="$DATA_DIR"
 
-if [ ! -f "$INFRA_DIR/compose.yml" ]; then
+if [[ ! -f "$INFRA_DIR/compose.yml" ]]; then
     echo "✗ Shared infra compose not found at $INFRA_DIR/compose.yml" >&2
     echo "  This suite includes the deployment's own Elasticsearch definition;" >&2
     echo "  it must run from a full repo checkout or source tarball." >&2

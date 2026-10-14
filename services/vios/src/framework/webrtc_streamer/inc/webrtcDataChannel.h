@@ -23,7 +23,6 @@
 #include <thread>
 #include <string>
 
-using namespace std;
 
 #define GET_DATA_CHANNEL WebrtcDataChannel::getInstance
 
@@ -36,16 +35,16 @@ public:
 		if (m_dataChannel)
 		{
 			m_dataChannel->RegisterObserver(this);
-			LOG(info) << "Created webrtc data channel observer" << endl;
+			LOG(info) << "Created webrtc data channel observer" << std::endl;
 		}
 	}
 	virtual ~WebrtcDataChannelOberver()
 	{
-		LOG(info) << __PRETTY_FUNCTION__ << endl;
+		LOG(info) << __PRETTY_FUNCTION__ << std::endl;
 		if (m_dataChannel)
 		{
 			m_dataChannel->UnregisterObserver();
-			LOG(info) << "Exiting from webrtc data channel observer" << endl;
+			LOG(info) << "Exiting from webrtc data channel observer" << std::endl;
 		}
 	}
 
@@ -54,7 +53,7 @@ public:
 	{
 		if (m_dataChannel)
 		{
-			LOG(verbose) << "data channel: " << m_dataChannel->label() << " state: " << webrtc::DataChannelInterface::DataStateString(m_dataChannel->state()) << endl;
+			LOG(verbose) << "data channel: " << m_dataChannel->label() << " state: " << webrtc::DataChannelInterface::DataStateString(m_dataChannel->state()) << std::endl;
 		}
 	}
 	virtual void OnMessage(const webrtc::DataBuffer &buffer)
@@ -78,14 +77,14 @@ public:
 		}
 	}
 
-	bool sendMessage(string msg)
+	bool sendMessage(std::string msg)
 	{
 		if (m_dataChannel)
 		{
 			webrtc::DataBuffer buffer(msg);
 			if (m_dataChannel->Send(buffer) == false)
 			{
-				LOG(error) << "Failed to send message on data channel" << endl;
+				LOG(error) << "Failed to send message on data channel" << std::endl;
 				return false;
 			}
 			return true;
@@ -144,11 +143,11 @@ public:
 private:
 	WebrtcDataChannel()
 	{
-		LOG(verbose) << __PRETTY_FUNCTION__ << endl;
+		LOG(verbose) << __PRETTY_FUNCTION__ << std::endl;
 	}
 	~WebrtcDataChannel()
 	{
-		LOG(info) << __PRETTY_FUNCTION__ << endl;
+		LOG(info) << __PRETTY_FUNCTION__ << std::endl;
 	}
 	static WebrtcDataChannel *m_instance;
 

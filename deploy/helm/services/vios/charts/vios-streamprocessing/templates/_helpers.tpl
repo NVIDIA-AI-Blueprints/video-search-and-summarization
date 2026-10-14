@@ -103,13 +103,13 @@ by the parent overlay.
 {{- if $pfx }}{{ printf "%s-%s" $root.Release.Name $short }}{{- else -}}{{ $short }}{{- end }}
 {{- end }}
 {{/*
-  VST_INGRESS_ENDPOINT: host[:port]/vst (no scheme; app prepends http://). Incident/video URLs must be reachable from remote VLM when global.vlmBaseUrl is set — use global.externalHost like vss-alert-bridge vst_config.
+  VST_INGRESS_ENDPOINT: host[:port]/vst (no scheme; app prepends http://).
 */}}
 {{- define "vss-vios-streamprocessing.vstIngressEndpoint" -}}
 {{- $g := .Values.global | default dict }}
 {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
 {{- $eh := index $g "externalHost" | default "" | trim }}
-{{- $ep := index $g "externalPort" | default "" | toString | trim }}
+{{- $ep := index $g "vstExternalPort" | default (index $g "externalPort") | default "" | toString | trim }}
 {{- $explicit := trim (default "" .Values.vstIngressEndpoint) }}
 {{- if ne $explicit "" }}
 {{- $explicit }}

@@ -65,6 +65,9 @@
 #include<boost/regex.hpp>
 #include <boost/stacktrace.hpp>
 
+using namespace std;
+using namespace nv_vms;
+
 constexpr const char* ENCRYPTION_AES_KEY = "WnZr4u7x!A%D*G-KaPdSgVkYp3s5v8y/";
 constexpr const char* SSL_COMMON_NAME = "VMS Webserver";
 constexpr int MAX_GPU_COUNT = 100;
