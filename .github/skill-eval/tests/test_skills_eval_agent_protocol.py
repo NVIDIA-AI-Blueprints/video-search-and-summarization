@@ -113,8 +113,41 @@ def test_only_final_nonempty_line_is_the_terminal_marker() -> None:
     )
 
 
-def test_blocked_remains_a_valid_non_crash_outcome() -> None:
-    assert _exit_code("BLOCKED: pool exhausted for RTXPRO6000BW") == 0
+def test_blocked_outcomes_fail_and_preserve_the_reason() -> None:
+    for reason in (
+        "Spark-ba-WiFi Disconnected; SSH probe failed (exit 255)",
+        "pool exhausted for DGX-SPARK",
+        "lock timeout on Spark-ba-WiFi",
+        "brev auth expired",
+        "anthropic rate limit after 3 retries",
+        "missing adapter auto-committed; eval re-runs on sync",
+        "unexpected infrastructure blocker",
+    ):
+        code, message = skills_eval_agent._evaluate_terminal_marker(
+            [f"BLOCKED: {reason}"]
+        )
+        assert code == skills_eval_agent._BLOCKED_EXIT_CODE
+        assert message == f"evaluation blocked: {reason}"
+
+
+def test_main_preserves_blocked_exit_and_still_builds_summary() -> None:
+    async def blocked_run():
+        return skills_eval_agent._evaluate_terminal_marker(
+            ["BLOCKED: worker disconnected"]
+        )[0]
+
+    with (
+        mock.patch.object(skills_eval_agent, "_require_supported_python"),
+        mock.patch.object(skills_eval_agent, "_ensure_sdk"),
+        mock.patch.object(skills_eval_agent, "_disable_server_thinking"),
+        mock.patch.object(skills_eval_agent, "_set_bash_timeouts"),
+        mock.patch.object(skills_eval_agent, "_set_work_deadline"),
+        mock.patch.object(skills_eval_agent, "_run_agent_with_work_deadline", blocked_run),
+        mock.patch.object(skills_eval_agent, "build_benchmark_md") as build_summary,
+        mock.patch.dict(os.environ),
+    ):
+        assert skills_eval_agent.main() == skills_eval_agent._BLOCKED_EXIT_CODE
+        build_summary.assert_called_once_with()
 
 
 def test_blocked_requires_a_nonempty_reason() -> None:
@@ -313,7 +346,7 @@ def test_renderer_that_wrote_nothing_is_not_green(tmp_path) -> None:
 
 
 def test_pretrial_blocked_owes_nothing(tmp_path) -> None:
-    """No trials and no DONE means a legitimate blocker; it stays green."""
+    """Pre-trial blockers need no renderer outputs; their marker fails the job."""
     results_root = tmp_path / "res"
     results_root.mkdir()
     assert not skills_eval_agent.missing_renderer_outputs(

@@ -1585,6 +1585,64 @@ def allocate_gateway_ports(instance: str, owner: str, preferred: list[int], env:
     return ports
 
 
+def _probe_spark_ssh(name: str, status: str | None) -> None:
+    """Retry only the read-only reachability check after transient disconnects."""
+    deadline = resolve_work_deadline()
+    transient_errors = (
+        "connection reset", "connection refused", "connection timed out",
+        "connection closed", "connection lost", "broken pipe",
+        "no route to host", "network is unreachable",
+        "temporary failure in name resolution",
+    )
+    permanent_errors = (
+        "permission denied", "authentication failed", "host key verification failed",
+        "remote host identification has changed",
+    )
+    for attempt in range(3):
+        if deadline - time.monotonic() < 20:
+            raise ValueError(f"Spark worker {name} SSH probe failed: work deadline exhausted")
+        try:
+            probe = subprocess.run(
+                ["ssh", "-T", "-o", "BatchMode=yes", "-o",
+                 "ConnectTimeout=10", "-o", "ConnectionAttempts=1",
+                 name.lower(), "true"],
+                capture_output=True, text=True, timeout=20,
+            )
+        except subprocess.TimeoutExpired:
+            detail = "TimeoutExpired"
+            transient = True
+        except OSError as exc:
+            raise ValueError(
+                f"Spark worker {name} reports {status!r} "
+                f"and its SSH probe failed ({type(exc).__name__})"
+            ) from exc
+        else:
+            if probe.returncode == 0:
+                return
+            output = ((probe.stderr or "") + "\n" + (probe.stdout or "")).lower()
+            detail = f"exit {probe.returncode}"
+            transient = (
+                probe.returncode == 255
+                and any(error in output for error in transient_errors)
+                and not any(error in output for error in permanent_errors)
+            )
+        if not transient or attempt == 2:
+            raise ValueError(
+                f"Spark worker {name} reports {status!r} "
+                f"and its SSH probe failed ({detail}); "
+                "verify the coordinator's Brev SSH alias and connection"
+            )
+        delay = 10 * (2 ** attempt)
+        if deadline - time.monotonic() < delay + 20:
+            raise ValueError(f"Spark worker {name} SSH probe failed: work deadline exhausted")
+        print(
+            f"[run-leg] Spark SSH probe failed ({detail}); "
+            f"retry {attempt + 1}/2 in {delay}s",
+            flush=True,
+        )
+        time.sleep(delay)
+
+
 def spark_instance() -> str:
     """Resolve the operator-selected external node, never a cloud fallback."""
     from local_nim import SPARK_NODE_ID, SPARK_NODE_NAME
@@ -1617,24 +1675,7 @@ def spark_instance() -> str:
             "checking SSH reachability before rejecting worker",
             flush=True,
         )
-        try:
-            probe = subprocess.run(
-                ["ssh", "-T", "-o", "BatchMode=yes", "-o",
-                 "ConnectTimeout=10", "-o", "ConnectionAttempts=1",
-                 name.lower(), "true"],
-                capture_output=True, text=True, timeout=20,
-            )
-        except (subprocess.TimeoutExpired, OSError) as exc:
-            raise ValueError(
-                f"Spark worker {name} reports {node.get('status')!r} "
-                f"and its SSH probe failed ({type(exc).__name__})"
-            ) from exc
-        if probe.returncode != 0:
-            raise ValueError(
-                f"Spark worker {name} reports {node.get('status')!r} "
-                f"and its SSH probe failed (exit {probe.returncode}); "
-                "verify the coordinator's Brev SSH alias and connection"
-            )
+        _probe_spark_ssh(name, node.get("status"))
         print("[run-leg] Spark SSH probe succeeded despite registry status", flush=True)
     return name
 

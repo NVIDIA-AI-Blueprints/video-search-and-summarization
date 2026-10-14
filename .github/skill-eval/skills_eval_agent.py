@@ -43,13 +43,14 @@ Env (set by the workflow step):
     BREV_ENV_ID           Set by Brev on the coordinator host; part of secure-link URLs
 
 Exit codes:
-    0 - all reported specs passed, or the agent reported a valid blocker
+    0 - all reported specs passed
     1 - setup error (missing env, AGENTS.md not found, sdk install failed)
     2 - agent crashed
     3 - agent hit max_turns without finishing
     4 - missing or malformed terminal protocol marker
     5 - agent completed but one or more reported specs failed
     6 - the agent's reserved work window expired before a verdict
+    7 - evaluation blocked (worker unavailable, capacity exhausted, or other blocker)
 """
 from __future__ import annotations
 
@@ -109,6 +110,7 @@ SKILL_EVAL_HARBOR_DEADLINE_ENV = "SKILL_EVAL_HARBOR_DEADLINE_MONOTONIC"
 _PROTOCOL_FAILURE_EXIT_CODE = 4
 _EVAL_FAILURE_EXIT_CODE = 5
 _WORK_DEADLINE_EXIT_CODE = 6
+_BLOCKED_EXIT_CODE = 7
 _DONE_RESULT_RE = re.compile(
     r"^DONE:\s*(?P<passed>\d+)\s*/\s*(?P<total>\d+)\s+"
     r"spec(?:s)?\s+passed\b"
@@ -537,8 +539,8 @@ def missing_renderer_outputs(marker: str, results_root: Path,
     that really ran. Both prompts forbid rebuilding the table by hand, so
     there is no correct-but-slow fallback to fall back on either.
 
-    A genuine pre-trial BLOCKED stays green: it has no trials and claims no
-    DONE, so nothing is required of it. Returns [] when nothing is owed.
+    A pre-trial BLOCKED has no trial outputs to render, but its terminal
+    marker still fails the job. Returns [] when nothing is owed.
     """
     owes_output = marker.startswith("DONE:") or any(
         results_root.rglob("result.json"))
@@ -560,8 +562,9 @@ def _evaluate_terminal_marker(final_text: list[str]) -> tuple[int, str]:
     """Validate the final protocol marker and return its exit code and reason.
 
     AGENTS.md defines ``BLOCKED:`` as a valid outcome for conditions such as
-    unavailable capacity or an adapter update that needs a rerun, so it remains
-    exit 0. A completed eval is successful only when its final ``DONE:`` marker
+    unavailable capacity or an adapter update that needs a rerun. These fail
+    with exit 7 because no passing eval was produced. A completed eval is
+    successful only when its final ``DONE:`` marker
     reports a positive, complete ``N/N specs passed`` result. Syntactically valid
     partial results fail with exit 5; malformed or misplaced markers fail closed
     with the existing protocol-error exit 4.
@@ -580,7 +583,7 @@ def _evaluate_terminal_marker(final_text: list[str]) -> tuple[int, str]:
                 _PROTOCOL_FAILURE_EXIT_CODE,
                 "malformed BLOCKED marker; a non-empty reason is required",
             )
-        return 0, f"reported blocker: {blocker_reason}"
+        return _BLOCKED_EXIT_CODE, f"evaluation blocked: {blocker_reason}"
 
     if not marker.startswith("DONE:"):
         return (
@@ -776,7 +779,7 @@ async def run_agent() -> int:
     # `BLOCKED: leg_report.py crashed` would otherwise be a GREEN check on a
     # leg that really ran. Both prompts now forbid rebuilding the table by
     # hand, so there is no correct-but-slow fallback to rely on either.
-    # A genuine pre-trial BLOCKED stays green: no result.json, no DONE.
+    # Pre-trial BLOCKED already fails via its terminal marker (exit 7).
     if eval_kind == "eval" and exit_code == 0:
         missing = missing_renderer_outputs(
             _last_nonempty_line(final_text) or "",
