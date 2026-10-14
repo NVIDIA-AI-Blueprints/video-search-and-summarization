@@ -283,29 +283,26 @@ def aggregate_ingest_stats(readiness: dict[str, Any]) -> dict[str, Any]:
 
     Shaped to fill the docs' upload table directly. Chunks come from the
     embedding index, so they are filled on ``vst-direct`` too, where the
-    upload itself reports none. Timings cover only videos uploaded by this
-    run; a ``--skip-existing`` source has nothing to time.
+    upload itself reports none.
     """
     per_video = readiness.get("per_video") or []
-    uploaded = [r for r in per_video if r.get("uploaded_this_run")]
     durations = [r["duration_s"] for r in per_video if r.get("duration_s")]
     chunk_counts = [r["counts"]["embed"] for r in per_video if "embed" in (r.get("counts") or {})]
 
     wall_s = None
     finished = [
         (r["upload_start_mono"], r["upload_start_mono"] + r["ingest_s"])
-        for r in uploaded
+        for r in per_video
         if r.get("upload_start_mono") is not None and r.get("ingest_s") is not None
     ]
-    if finished and len(finished) == len(uploaded):
+    if finished and len(finished) == len(per_video):
         wall_s = round(max(end for _, end in finished) - min(start for start, _ in finished), 3)
-    uploaded_duration = sum(r.get("duration_s") or 0.0 for r in uploaded)
+    total_duration = sum(r.get("duration_s") or 0.0 for r in per_video)
 
     return {
         "outcome": readiness.get("outcome"),
         "absent": dict(readiness.get("absent") or {}),
         "videos": len(per_video),
-        "uploaded_this_run": len(uploaded),
         "duration_range_s": [min(durations), max(durations)] if durations else None,
         "total_size_mb": round(sum(r.get("file_size_mb") or 0.0 for r in per_video), 2),
         "chunks": (
@@ -313,18 +310,18 @@ def aggregate_ingest_stats(readiness: dict[str, Any]) -> dict[str, Any]:
             if chunk_counts else None
         ),
         "embed_done_s": _mean_p90(
-            [r["per_index_done_s"]["embed"] for r in uploaded
+            [r["per_index_done_s"]["embed"] for r in per_video
              if (r.get("per_index_done_s") or {}).get("embed") is not None]
         ),
-        "ingest_s": _mean_p90([r["ingest_s"] for r in uploaded if r.get("ingest_s") is not None]),
+        "ingest_s": _mean_p90([r["ingest_s"] for r in per_video if r.get("ingest_s") is not None]),
         "wall_s": wall_s,
-        "video_min_per_min": round(uploaded_duration / wall_s, 3) if wall_s else None,
+        "video_min_per_min": round(total_duration / wall_s, 3) if wall_s else None,
         "poll_interval_s": readiness.get("poll_interval_s"),
         "quiet_s": readiness.get("quiet_s"),
         "behavior_check": readiness.get("behavior_check"),
         "per_video": [
             {k: r.get(k) for k in (
-                "sensor", "video_name", "uploaded_this_run", "duration_s", "fps", "upload_s",
+                "sensor", "video_name", "duration_s", "fps", "upload_s",
                 "per_index_done_s", "ingest_s", "counts", "targets", "raw_last_s",
                 "raw_coverage", "raw_check", "over_target", "absent", "warnings", "outcome", "causes",
             )}
@@ -348,7 +345,7 @@ def print_ingest_summary(stats: dict[str, Any]) -> None:
     print(f"Outcome:            {stats['outcome']}{' (degraded)' if absent else ''}")
     for reason in absent.values():
         print(f"  WARNING: {reason}")
-    print(f"Videos:             {stats['videos']} ({stats['uploaded_this_run']} uploaded this run)")
+    print(f"Videos:             {stats['videos']}")
     if stats.get("chunks"):
         print(f"Chunks:             {stats['chunks']['total']} (avg {stats['chunks']['avg_per_video']}/video)")
     print(f"Embeddings done:    {_pair(stats.get('embed_done_s'))}")

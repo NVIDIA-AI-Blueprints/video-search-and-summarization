@@ -30,6 +30,8 @@ import json
 import re
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -505,6 +507,7 @@ def test_live_decomposer_warns_when_model_discovery_is_ambiguous(monkeypatch: py
 
 def _decompose_with(
     monkeypatch: pytest.MonkeyPatch, message: dict[str, Any], model: str = "nvidia/nemotron-3-nano",
+    **decomposer_kw: Any,
 ) -> tuple[Any, list[dict[str, Any]]]:
     sent: list[dict[str, Any]] = []
 
@@ -520,7 +523,7 @@ def _decompose_with(
         return _Response()
 
     monkeypatch.setattr("flows.decompose.requests.post", fake_post)
-    decomposer = flows.LiveDecomposer("https://llm", repo_root=flows.REPO_ROOT, model=model)
+    decomposer = flows.LiveDecomposer("https://llm", repo_root=flows.REPO_ROOT, model=model, **decomposer_kw)
     return decomposer, sent
 
 
@@ -547,16 +550,50 @@ def test_decomposition_lists_every_vst_video_like_the_agent(monkeypatch: pytest.
 
     annotations = {"q": [{"video_name": "answer_clip"}]}
     monkeypatch.setattr(
-        rf.flows, "list_sensor_streams",
-        lambda _url: {"answer_clip": "answer_clip", "other_clip": "Other_Clip"},
+        rf.flows, "list_sensor_sources",
+        lambda _url: {
+            "a": {"name": "answer_clip", "url": "/storage/answer_clip.mp4"},
+            "b": {"name": "Other_Clip", "url": "/storage/Other_Clip.mp4"},
+            "c": {"name": "dock_cam", "url": "rtsp://cam/dock"},
+        },
     )
     assert rf.decomposition_sources(annotations, "https://vst") == ["Other_Clip", "answer_clip"]
+    assert rf.decomposition_sources(annotations, "https://vst", "rtsp") == ["dock_cam"]
 
     def unreachable(_url: str) -> dict[str, str]:
         raise OSError("down")
 
-    monkeypatch.setattr(rf.flows, "list_sensor_streams", unreachable)
+    monkeypatch.setattr(rf.flows, "list_sensor_sources", unreachable)
     assert rf.decomposition_sources(annotations, "https://vst") == ["answer_clip"]
+
+
+@pytest.mark.parametrize(
+    ("model", "tag"),
+    [
+        ("nvidia/llama-3.3-nemotron-super-49b-v1.5", "/no_think"),
+        ("nvidia/llama-3.1-nemotron-nano-8b-v1", "detailed thinking off"),
+        ("nvidia/nvidia-nemotron-nano-9b-v2", "/no_think"),
+        ("nvidia/nvidia-nemotron-3-nano-30b-a3b", None),
+        ("meta/llama-3.1-70b-instruct", None),
+    ],
+)
+def test_decomposition_turns_thinking_off_in_the_system_message_like_the_agent(
+    monkeypatch: pytest.MonkeyPatch, model: str, tag: str | None,
+) -> None:
+    decomposer, sent = _decompose_with(monkeypatch, {"content": '{"query": "forklift"}'}, model=model)
+    decomposer.decompose("a forklift moving")
+    system = sent[0]["messages"][0]["content"]
+    if tag is None:
+        assert system == flows.decompose._SYSTEM
+    else:
+        assert system == f"{flows.decompose._SYSTEM}\n{tag}"
+    assert decomposer.describe()["system_thinking_tag"] == tag
+
+
+def test_an_rtsp_run_labels_the_prompt_sources_as_streams(monkeypatch: pytest.MonkeyPatch) -> None:
+    decomposer, sent = _decompose_with(monkeypatch, {"content": '{"query": "forklift"}'}, source_type="rtsp")
+    decomposer.decompose("a forklift moving", video_sources=["dock_cam"])
+    assert "Video streams: dock_cam" in sent[0]["messages"][1]["content"]
 
 
 def test_thinking_markers_match_the_agent() -> None:
@@ -1085,11 +1122,13 @@ def test_the_default_ingest_flow_is_the_one_the_product_uses() -> None:
     [["--only-dataset"], ["--clear", "--confirm-delete"], ["--skip-existing"], ["--no-skip-existing"],
      ["--clear", "--only-dataset", "--skip-ingest"]],
 )
-def test_old_cleanup_flags_still_parse(flags: list[str]) -> None:
-    """Scripts that pass them keep working; every run wipes regardless."""
+def test_old_cleanup_flags_are_rejected_before_anything_is_deleted(flags: list[str]) -> None:
+    """They once guarded deletion; accepting them now would hide that every run wipes."""
     import run_eval_flows as rf
 
-    rf.parse_args(["--endpoint", "https://host:8000", *flags])
+    with pytest.raises(SystemExit) as exc:
+        rf.parse_args(["--endpoint", "https://host:8000", *flags])
+    assert exc.value.code == 2
 
 
 def test_expected_sources_exist_even_when_readiness_wait_is_skipped() -> None:
@@ -1101,9 +1140,8 @@ def test_expected_sources_exist_even_when_readiness_wait_is_skipped() -> None:
                 {"video_name": "uploaded.mp4", "success": True},
                 {"video_name": "failed.mp4", "success": False},
             ],
-            "skipped_existing": ["existing.mp4"],
         }
-    ) == ["uploaded.mp4", "existing.mp4"]
+    ) == ["uploaded.mp4"]
 
 
 # ---------------------------------------------------------------------------
@@ -1661,7 +1699,7 @@ def _fake_streams() -> dict[str, str]:
     }
 
 
-_EMPTY_COUNTS = {"embed": 0, "raw": 0, "behavior": 0, "tags": 0}
+_EMPTY_COUNTS = {"embed": 0, "raw": 0, "behavior": 0}
 
 
 def _wipe_fakes(monkeypatch: Any, states: list[tuple[dict[str, str], dict[str, int]]]) -> dict[str, Any]:
@@ -1707,7 +1745,7 @@ def test_wipe_aborts_at_once_on_documents_no_source_owns(monkeypatch: Any) -> No
         rf.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
 
     assert "raw=40" in str(exc.value)
-    assert "mdx-raw-*" in str(exc.value)
+    assert "mdx-raw-2025-01-01" in str(exc.value)
     assert calls["cleared"] == 0
 
 
@@ -1878,7 +1916,8 @@ class _EsResp:
         return self._body
 
 
-def test_indexed_counts_reads_every_searched_index_family(monkeypatch: Any) -> None:
+def test_indexed_counts_reads_only_the_indexes_a_video_file_search_reads(monkeypatch: Any) -> None:
+    """Dated RTSP indexes and tags are never searched here, and no deletion empties them."""
     from flows import ingest_readiness as ir
 
     seen: list[tuple[str, dict[str, str]]] = []
@@ -1890,10 +1929,12 @@ def test_indexed_counts_reads_every_searched_index_family(monkeypatch: Any) -> N
     monkeypatch.setattr(ir.requests, "get", _get)
     counts = ir.indexed_counts("https://h:7777/")
 
-    assert counts == {"embed": 0, "raw": 3, "behavior": 0, "tags": 0}
+    assert counts == {"embed": 0, "raw": 3, "behavior": 0}
     assert [u for u, _ in seen] == [
-        f"https://h:7777/elasticsearch/{p}/_count" for p in ir.SEARCHED_INDEXES.values()
+        f"https://h:7777/elasticsearch/{index}/_count"
+        for index in (flows.EMBED_INDEX, flows.RAW_INDEX, flows.BEHAVIOR_INDEX)
     ]
+    assert all("*" not in u for u, _ in seen)
     assert all(p["allow_no_indices"] == "true" for _, p in seen)
 
 
@@ -2146,6 +2187,39 @@ def test_too_many_failed_decompositions_abort_the_run(tmp_path: Path) -> None:
     queries = ["a person running", "a person walking"]
     with pytest.raises(SystemExit, match="fell back to embed"):
         _run_with_decomposer(tmp_path, queries, {queries[0]})
+
+
+def test_an_aborted_decomposition_run_saves_each_error_and_no_summary(tmp_path: Path) -> None:
+    queries = ["a person running", "a person walking"]
+    with pytest.raises(SystemExit, match="no summary written"):
+        _run_with_decomposer(tmp_path, queries, {queries[0]})
+
+    saved = json.loads((tmp_path / "result.json").read_text())
+    assert saved["summary"] is None
+    assert "--max-decompose-failed-pct" in saved["aborted"]
+    assert [r["query"] for r in saved["query_results"] if r.get("decompose_failed")] == [queries[0]]
+
+
+def test_decomposition_failures_past_the_cap_stop_the_run_early(tmp_path: Path) -> None:
+    """Once the end-of-run check is bound to fail, the rest of the queries are not run."""
+    queries = [f"a person running {i}" for i in range(10)]
+    with pytest.raises(SystemExit, match="stopped early"):
+        _run_with_decomposer(tmp_path, queries, set(queries), max_decompose_failed_pct=20.0)
+
+    saved = json.loads((tmp_path / "result.json").read_text())
+    # 3/10 is the first count above 20%; the one query already running finishes.
+    assert 3 <= len(saved["query_results"]) <= 4
+    assert saved["aborted"].startswith("3/10 queries fell back to embed")
+
+
+def test_decomposition_failures_under_the_cap_never_stop_the_run(tmp_path: Path) -> None:
+    queries = [f"a person running {i}" for i in range(10)]
+    result, sent = _run_with_decomposer(
+        tmp_path, queries, {queries[0], queries[1]}, max_decompose_failed_pct=20.0,
+    )
+    assert len(sent) == 10
+    assert result["summary"]["decomposition"]["failed"] == 2
+    assert "aborted" not in result
 
 
 def test_the_fallback_path_needs_nothing_a_decomposition_would_supply() -> None:
@@ -2429,12 +2503,11 @@ _NAME = "warehouse_sample"
 _ANCHOR_MS = flows.ingest_readiness.anchor_epoch_ms()
 
 
-def _warehouse(uploaded: bool = True, **overrides: Any) -> Any:
+def _warehouse(**overrides: Any) -> Any:
     """The measured 210 s, 30 fps copy of warehouse_sample, uploaded at t=0."""
     fields: dict[str, Any] = {
         "name": _NAME, "sensor_id": _SID, "duration_s": 210.0, "fps": 30.0,
-        "uploaded_this_run": uploaded, "upload_start_mono": 0.0 if uploaded else None,
-        "video_name": _NAME, "file_size_mb": 150.0, "upload_s": 1.2 if uploaded else None,
+        "upload_start_mono": 0.0, "video_name": _NAME, "file_size_mb": 150.0, "upload_s": 1.2,
     }
     fields.update(overrides)
     return flows.ExpectedVideo(**fields)
@@ -2736,6 +2809,113 @@ def test_watcher_deadline_counts_from_seal_not_from_start() -> None:
     assert result["waited_s"] == pytest.approx(10.0, abs=2.0)
 
 
+def _threaded_video(i: int) -> Any:
+    sid = f"00000000-0000-0000-0000-{i:012d}"
+    return _warehouse(name=f"clip_{i}", sensor_id=sid, video_name=f"clip_{i}", upload_start_mono=time.monotonic())
+
+
+def test_threaded_watcher_confirms_videos_added_while_it_polls() -> None:
+    """What every vst-direct run does: start, add uploads from another thread, then wait."""
+    def poll(videos: list[Any]) -> Any:
+        return flows.Snapshot(
+            embed={v.sensor_id: 42 for v in videos},
+            tags={v.tag_index: 42 for v in videos},
+        )
+
+    watcher = flows.IngestWatcher(
+        "https://host:7777", require={"embed", "tags"}, poll_s=0.01, quiet_s=0.05,
+        poll_fn=poll, log=lambda _line: None,
+    )
+    watcher.start()
+
+    def upload() -> None:
+        for i in range(3):
+            time.sleep(0.03)
+            watcher.add(_threaded_video(i))
+
+    uploader = threading.Thread(target=upload)
+    uploader.start()
+    uploader.join()
+    result = watcher.wait(deadline_s=10.0)
+
+    assert result["outcome"] == "confirmed"
+    assert sorted(r["sensor"] for r in result["per_video"]) == ["clip_0", "clip_1", "clip_2"]
+    assert result["polls"] > 1
+
+
+def test_a_watcher_thread_that_crashes_says_so_instead_of_blaming_the_deadline() -> None:
+    def poll(_videos: list[Any]) -> Any:
+        raise AttributeError("'list' object has no attribute 'get'")
+
+    watcher = flows.IngestWatcher(
+        "https://host:7777", poll_s=0.01, poll_fn=poll, log=lambda _line: None,
+    )
+    watcher.start()
+    watcher._thread.join(timeout=5.0)
+
+    crashed = watcher.crashed
+    assert crashed is not None and crashed["outcome"] == "failed"
+    message = flows.format_ingest_failure(crashed)
+    assert "stopped polling on an unexpected error: AttributeError" in message
+    assert "will not help" in message
+    assert "Raise --ingest-deadline-s" not in message
+
+
+def test_a_watcher_that_is_still_polling_has_not_crashed() -> None:
+    watcher = flows.IngestWatcher("https://host:7777", poll_fn=lambda _v: _snap(), log=lambda _line: None)
+    assert watcher.crashed is None
+
+
+def test_a_malformed_msearch_reply_is_a_poll_error_not_a_crash(monkeypatch: Any) -> None:
+    from flows import ingest_readiness as ir
+
+    class _List(_EsResp):
+        def json(self) -> Any:
+            return ["not", "an", "object"]
+
+    monkeypatch.setattr(ir.requests, "post", lambda *_a, **_k: _List({}))
+    with pytest.raises(ir.IngestPollError):
+        ir._msearch("https://h:7777", [("embed", ir.EMBED_INDEX, {})], timeout=1)
+
+
+def test_a_one_poll_gap_in_rtcv_does_not_start_the_flush_window() -> None:
+    """The window counts from the release that sticks, not from a flicker."""
+    st = _state(_sparse(), quiet_s=15.0)
+    st.observe(_sparse_snap(cv=True), now=2.0)
+    st.observe(_sparse_snap(cv=False), now=4.0)
+    assert st.cv_dropped_at == 4.0
+    st.observe(_sparse_snap(cv=True), now=6.0)
+    assert st.cv_dropped_at is None
+    for now in range(8, 101, 2):
+        st.observe(_sparse_snap(cv=True), now=float(now))
+    st.observe(_sparse_snap(cv=False), now=102.0)
+    assert not st.index_done["raw"], "released at 102 s; the flush window has not passed"
+    st.observe(_sparse_snap(cv=False), now=117.0)
+    assert st.index_done["raw"]
+
+
+def test_sparse_raw_is_done_when_rtcv_releases_not_at_the_last_detection() -> None:
+    """A 300 s video, RT-CV busy until 310 s, its last detection seconds in."""
+    st = _state(_warehouse(duration_s=300.0), quiet_s=15.0)
+    st.observe(_snap(cv=True, raw=18, last_s=3.0, embed=60, tags=60), now=20.0)
+    for now in range(30, 301, 10):
+        st.observe(_snap(cv=True, raw=18, last_s=3.0, embed=60, tags=60), now=float(now))
+    st.observe(_snap(cv=False, raw=18, last_s=3.0, embed=60, tags=60), now=310.0)
+    st.observe(_snap(cv=False, raw=18, last_s=3.0, embed=60, tags=60), now=325.0)
+    assert st.done
+    assert st.raw_check == "rtcv_released"
+    assert st.per_index_done_s()["raw"] == pytest.approx(310.0)
+    assert st.report("confirmed")["ingest_s"] == pytest.approx(310.0)
+
+
+def test_raw_never_listed_keeps_the_last_change_as_its_done_time() -> None:
+    st = _state(_sparse(), quiet_s=15.0)
+    st.observe(_sparse_snap(cv=False), now=8.0)
+    st.observe(_sparse_snap(cv=False), now=23.0)
+    assert st.raw_check == "rtcv_missing"
+    assert st.per_index_done_s()["raw"] == pytest.approx(8.0)
+
+
 def test_dense_video_finishes_raw_once_the_count_holds_after_release() -> None:
     st = _state(quiet_s=15.0)
     st.observe(_snap(cv=True, raw=100, last_s=3.0, embed=5), now=5.0)
@@ -2751,8 +2931,8 @@ def test_dense_video_finishes_raw_once_the_count_holds_after_release() -> None:
 
 # Normal_Videos779 on vad-r1-v2: RT-CV writes a raw document only for a frame
 # with a detection, so 18 of 381 frames, the last at 3.77 s of ~12.7 s.
-def _sparse(uploaded: bool = True) -> Any:
-    return _warehouse(uploaded=uploaded, duration_s=12.7, fps=30.0)
+def _sparse() -> Any:
+    return _warehouse(duration_s=12.7, fps=30.0)
 
 
 def _sparse_snap(*, cv: bool, raw: int = 18) -> Any:
@@ -2809,23 +2989,6 @@ def test_sparse_gate_end_to_end_reports_coverage_not_a_stall() -> None:
     assert result["outcome"] == "confirmed"
     stats = flows.aggregate_ingest_stats(result)
     assert stats["per_video"][0]["raw_coverage"] == pytest.approx(0.047)
-
-
-def test_skipped_source_with_sparse_raw_confirms_once_the_count_holds() -> None:
-    st = _state(_sparse(uploaded=False), quiet_s=15.0)
-    st.observe(_sparse_snap(cv=False), now=0.0)
-    assert not st.index_done["raw"], "first reading is the baseline"
-    st.observe(_sparse_snap(cv=False), now=15.0)
-    assert st.done
-    assert st.raw_check == "existing"
-
-
-def test_skipped_source_with_no_raw_docs_never_passes() -> None:
-    st = _state(_sparse(uploaded=False), quiet_s=15.0)
-    st.observe(_snap(embed=3, tags=3), now=0.0)
-    st.observe(_snap(embed=3, tags=3), now=60.0)
-    assert not st.index_done["raw"]
-    assert any("not uploaded this run" in c for c in st.causes())
 
 
 def test_released_with_no_detections_passes_with_a_warning() -> None:
@@ -2897,35 +3060,6 @@ def test_a_transient_elasticsearch_error_keeps_polling() -> None:
     result = _gate([_warehouse()], poll, clock, quiet_s=4.0, deadline_s=600.0)
     assert result["outcome"] == "confirmed"
     assert result["poll_errors"] == 2
-
-
-def test_a_skipped_existing_video_passes_once_the_count_holds_with_no_timings() -> None:
-    """Never uploaded this run, so never in RT-CV: a stable non-zero count decides."""
-    clock = _FakeClock(50.0)
-    full = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42, behavior=8)
-    result = _gate([_warehouse(uploaded=False)], lambda: full, clock, poll_s=2.0, quiet_s=15.0)
-
-    assert result["outcome"] == "confirmed"
-    assert result["polls"] == 9, "baseline at 50 s, then 15 s unchanged"
-    assert result["per_video"][0]["raw_check"] == "existing"
-    report = result["per_video"][0]
-    assert report["per_index_done_s"] == {}
-    assert report["ingest_s"] is None
-    assert report["cv_seen"] is None
-    stats = flows.aggregate_ingest_stats(result)
-    assert stats["wall_s"] is None
-    assert stats["ingest_s"] is None
-    assert stats["chunks"] == {"total": 42, "avg_per_video": 42.0}
-
-
-def test_a_skipped_video_still_being_written_is_not_waved_through() -> None:
-    st = _state(_warehouse(uploaded=False), quiet_s=15.0)
-    st.observe(_snap(raw=6290, last_s=209.5, embed=42, tags=42, behavior=4), now=0.0)
-    st.observe(_snap(raw=6298, last_s=209.966, embed=42, tags=42, behavior=8), now=2.0)
-    assert not st.index_done["raw"], "the raw count moved, so the quiet window applies"
-    assert not st.index_done["behavior"]
-    st.observe(_snap(raw=6298, last_s=209.966, embed=42, tags=42, behavior=8), now=17.0)
-    assert st.done
 
 
 def test_double_processing_is_flagged_not_failed() -> None:
