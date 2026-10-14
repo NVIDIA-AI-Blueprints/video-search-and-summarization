@@ -63,23 +63,6 @@ def parse_fps(logs):
     return samples
 
 
-def deployment_version_fact(output):
-    fact = {"version": None, "status": "unavailable", "source": "vss configure check"}
-    for line in output.splitlines():
-        match = re.match(r"^\s*version\s+(.*?)\s*$", line)
-        if match:
-            value = match[1]
-            if value.startswith("not reported"):
-                fact.update(
-                    status="not_reported",
-                    detail=value.removeprefix("not reported").strip(),
-                )
-            else:
-                fact.update(version=value.split()[0], status="reported")
-            break
-    return fact
-
-
 def listing_count(payload, key):
     rows, count = payload.get(key), payload.get("count")
     if (
@@ -99,8 +82,7 @@ def failure(name, error):
 def measure(scenario, gpu_ids, container):
     cli = PERF_ROOT / ".venv/bin/vss"
     cli = str(cli) if cli.exists() else "vss"
-    output, _ = run([cli, "configure", "check"], json_output=False)
-    version = deployment_version_fact(output)
+    run([cli, "configure", "check"], json_output=False)
     operations = [
         ("vios_stream_listing", ["vios", "list", "--type", "stream"], "sensors"),
         ("analytics_sensor_listing", ["analytics", "sensors"], "sensors"),
@@ -118,20 +100,15 @@ def measure(scenario, gpu_ids, container):
     monitor.start()
     utc = datetime.now(timezone.utc).isoformat()  # noqa: UP017 - shared runners support Python 3.10.
     started = time.monotonic()
-    observations, errors = {name: [] for name, _, _ in operations}, {}
+    observations = {name: [] for name, _, _ in operations}
     try:
         while True:
             for name, command, key in operations:
-                if name in errors:
-                    continue
-                try:
-                    payload, elapsed = run([cli, *command])
-                    observations[name].append((elapsed, listing_count(payload, key)))
-                except (OSError, RuntimeError, ValueError) as error:
-                    errors[name] = error
+                payload, elapsed = run([cli, *command])
+                observations[name].append((elapsed, listing_count(payload, key)))
             monitor.sample()
             elapsed = time.monotonic() - started
-            if errors or elapsed >= scenario["duration_seconds"]:
+            if elapsed >= scenario["duration_seconds"]:
                 break
             time.sleep(
                 min(
@@ -139,12 +116,10 @@ def measure(scenario, gpu_ids, container):
                 )
             )
     finally:
-        resources = monitor.stop()
+        monitor.close()
+    resources = monitor.result()
     cases, thresholds = [], scenario.get("thresholds", {})
     for name, _, _ in operations:
-        if name in errors:
-            cases.append(failure(name, errors[name]))
-            continue
         rows = observations[name]
         latencies = [duration for duration, _ in rows]
         p95 = (
@@ -225,7 +200,7 @@ def measure(scenario, gpu_ids, container):
         "topology": "single-gpu",
         "full_name": next(iter(monitor.identities.values()))["model"],
     }
-    return cases, version, selected
+    return cases, selected
 
 
 def main(argv=None):
@@ -236,7 +211,7 @@ def main(argv=None):
     parser.add_argument("--config-id", required=True)
     parser.add_argument("--scenario", default="quick_test")
     parser.add_argument("--output-json", type=Path, default=Path("benchmark_results"))
-    for name in ("compose-file", "gpu-model", "release", "pipeline-url", "rt-cv-gpus"):
+    for name in ("compose-file", "gpu-model", "release", "pipeline-url"):
         parser.add_argument("--" + name)
     parser.add_argument("--triggered-by", default="manual")
     parser.add_argument(
@@ -257,8 +232,7 @@ def main(argv=None):
     started = datetime.now(timezone.utc)  # noqa: UP017 - shared runners support Python 3.10.
     clock = time.monotonic()
     config, entry, scenario, runtime, selected = {}, {}, {}, {}, {}
-    version = {"version": None, "status": "not_observed"}
-    cleanup_failed = False
+    gpu_ids, cleanup_failed = None, False
     try:
         config = yaml.safe_load(args.config.read_text())
         matrix = yaml.safe_load((PERF_ROOT / "configs/perf-configs.yaml").read_text())
@@ -268,7 +242,7 @@ def main(argv=None):
         entry = entries[0]
         if entry.get("enabled", True) is not True and not args.stage_failure:
             raise ValueError("hardware configuration is disabled")
-        args.rt_cv_gpus = args.rt_cv_gpus or str(entry.get("rtCvGpus", "0"))
+        gpu_ids = entry["rtCvGpus"]
         scenario = config["test_scenarios"][args.scenario]
         for name in ("duration_seconds", "interval_seconds"):
             if (
@@ -285,8 +259,8 @@ def main(argv=None):
         runtime = json.loads((runtime_dir / "metadata.json").read_text())
         if not runtime.get("fixture") or not runtime.get("deployed_images"):
             raise ValueError("post_deploy fixture/image metadata missing")
-        cases, version, selected = measure(
-            scenario, args.rt_cv_gpus, config["global"]["rt_cv_container"]
+        cases, selected = measure(
+            scenario, gpu_ids, config["global"]["rt_cv_container"]
         )
     except Exception as error:  # noqa: BLE001 - record any workload or configuration failure before cleanup.
         cases = [failure(args.stage_failure or "benchmark", error)]
@@ -328,9 +302,8 @@ def main(argv=None):
                 "config_id": args.config_id,
                 "deployment": entry,
                 "scenario": scenario,
-                "rt_cv_gpus": args.rt_cv_gpus,
+                "rt_cv_gpus": gpu_ids,
                 "runtime": runtime,
-                "deployment_version": version,
                 "source": {
                     "revision": revision,
                     "artifact_ref": os.environ.get("ARTIFACT_REF")

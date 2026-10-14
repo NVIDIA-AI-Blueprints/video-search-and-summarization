@@ -8,8 +8,6 @@ global:
   minio:
     endpoint: 10.111.52.248:9000
     bucket: perf-results
-    secure: false
-  service: compose-base
   rt_cv_container: vss-rtvi-cv
   stage_timeouts:
     pre_flight: 30
@@ -17,7 +15,7 @@ global:
     post_deploy: 20
     teardown: 5
 test_scenarios:
-  quick_test:
+  quick_test: &single_stream
     description: One real RTSP stream with RT-CV FPS and VIOS/analytics CLI latency.
     benchmark_mode: compose_base
     duration_seconds: 30
@@ -29,13 +27,6 @@ test_scenarios:
       min_rt_cv_fps: 1.0
       max_cli_p95_seconds: 10.0
   sustained_test:
+    <<: *single_stream
     description: Sustained single-stream throughput and client latency.
-    benchmark_mode: compose_base
     duration_seconds: 300
-    interval_seconds: 2
-    warmup_iterations: 3
-    expected_streams: 1
-    expected_analytics_sensors: 0
-    thresholds:
-      min_rt_cv_fps: 1.0
-      max_cli_p95_seconds: 10.0

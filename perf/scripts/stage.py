@@ -10,7 +10,6 @@ import json
 import os
 import re
 import shutil
-import signal
 import subprocess
 import sys
 import tarfile
@@ -19,6 +18,7 @@ import time
 from pathlib import Path
 
 import yaml
+from promoted_artifact import acquire
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parent
@@ -78,7 +78,8 @@ def environment(state):
     if promoted:
         for key in list(env):
             if key.startswith("VSS_CONTAINER_") or (
-                key.startswith("VSS_") and key.endswith(("_IMAGE", "_TAG"))
+                key.startswith("VSS_")
+                and key.endswith(("_IMAGE", "_TAG", "_REGISTRY", "_TAG_SUFFIX"))
             ):
                 del env[key]
     else:
@@ -210,22 +211,8 @@ def pre_flight(state, config, env):
         destination = (
             Path(tempfile.mkdtemp(prefix="promoted-", dir=state["data"])) / "payload"
         )
-        command(
-            [
-                str(PYTHON),
-                str(ROOT / "scripts/promoted_artifact.py"),
-                "--artifact-ref",
-                artifact,
-                "--destination",
-                str(destination),
-                "--output-json",
-                str(report),
-                "--compose-file",
-                state["compose"],
-            ],
-            env=env,
-        )
-        published = json.loads(report.read_text())
+        published = acquire(artifact, destination, Path(state["compose"]))
+        write_json(report, published)
         state.update(apps=published["compose_root"], env_files=published["env_files"])
         write_json(STATE, state)
         env = environment(state)
@@ -328,35 +315,22 @@ def post_deploy(state, config, env):
     vss = str(PYTHON.parent / "vss")
     command([vss, "configure", "--base-url", state["origin"]], env=env)
     command([vss, "configure", "check"], env=env)
-    listing = json.loads(
+    sensor = json.loads(
         command(
-            [vss, "vios", "list", "--type", "stream", "--sensor", "compose-base-perf"],
+            [
+                vss,
+                "vios",
+                "add",
+                "--type",
+                "stream",
+                "rtsp://perf-media:8554/compose-base",
+                "--name",
+                "compose-base-perf",
+            ],
             capture=True,
             env=env,
         ).stdout
     )
-    if listing["count"] == 0:
-        uri = "rtsp://perf-media:8554/compose-base"
-        sensor = json.loads(
-            command(
-                [
-                    vss,
-                    "vios",
-                    "add",
-                    "--type",
-                    "stream",
-                    uri,
-                    "--name",
-                    "compose-base-perf",
-                ],
-                capture=True,
-                env=env,
-            ).stdout
-        )
-    elif listing["count"] == 1:
-        sensor = listing["sensors"][0]
-    else:
-        raise RuntimeError("Expected one benchmark fixture sensor")
     if not sensor.get("sensor_id"):
         raise RuntimeError("VIOS did not return a sensor identifier")
     path = Path(state["data"]) / "rt-cv-configs/ds-main-config.txt"
@@ -408,27 +382,26 @@ def capture(state):
         }
         for row in containers
     ]
-    probe_args = docker() + [
-        "run",
-        "--rm",
-        "--entrypoint",
-        "ffprobe",
-        "-v",
-        state["video"] + ":/fixture/video.mp4:ro",
-    ]
+    media = next(
+        row["Id"]
+        for row in containers
+        if row["Config"]["Labels"].get("com.docker.compose.service") == "perf-video"
+    )
     probe = json.loads(
         command(
-            probe_args
+            docker()
             + [
-                "jrottenberg/ffmpeg:7.1-ubuntu",
+                "exec",
+                media,
+                "ffprobe",
                 "-v",
                 "quiet",
                 "-print_format",
                 "json",
                 "-show_streams",
                 "-show_format",
-            ]
-            + ["/fixture/video.mp4"],
+                "/fixture/video.mp4",
+            ],
             capture=True,
         ).stdout
     )
@@ -459,8 +432,6 @@ def capture(state):
                 "resource_version",
                 "verified",
                 "container_pins",
-                "download_sha256",
-                "compose_tree_sha256",
             )
         }
     write_json(Path(state["data"]) / "metadata.json", metadata)
@@ -510,21 +481,14 @@ def stage(action):
             "teardown": teardown,
         }[action](state, config, env)
         return 0
-    process = subprocess.Popen(
-        [sys.executable, str(Path(__file__)), action, "--worker"],
+    # GNU timeout bounds the worker's whole process group, including child commands.
+    worker = [sys.executable, __file__, action, "--worker"]
+    limit = f"{config['global']['stage_timeouts'][action]}m"
+    status = subprocess.run(
+        ["timeout", "--kill-after=5s", limit, *worker],
         env=env,
-        start_new_session=True,
-    )
-    try:
-        status = process.wait(timeout=config["global"]["stage_timeouts"][action] * 60)
-    except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGTERM)
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
-        status = 124
+        check=False,
+    ).returncode
     if (
         status
         and action != "teardown"
@@ -562,9 +526,7 @@ def main():
         RELEASE=args.release,
     )
     for action in ("pre_flight", "deploy", "post_deploy"):
-        status = subprocess.run(
-            [sys.executable, str(Path(__file__)), action], check=False
-        ).returncode
+        status = stage(action)
         if status:
             return status
     state, _ = context("benchmark")

@@ -40,6 +40,8 @@ def renderer(monkeypatch):
         assert "--no-env-resolution" in command and "--format" in command
         assert "VSS_CONTAINER_TAG" not in kwargs["env"]
         assert "VSS_RT_CV_IMAGE" not in kwargs["env"]
+        assert "VSS_CONTAINER_REGISTRY_EXTRA" not in kwargs["env"]
+        assert "VSS_RT_CV_TAG_SUFFIX" not in kwargs["env"]
         return Mock(
             stdout=json.dumps(
                 {
@@ -58,6 +60,8 @@ def renderer(monkeypatch):
     monkeypatch.delenv("NGC_CLI_API_KEY", raising=False)
     monkeypatch.setenv("VSS_CONTAINER_TAG", "borrowed-source-pin")
     monkeypatch.setenv("VSS_RT_CV_IMAGE", "borrowed-source-image")
+    monkeypatch.setenv("VSS_CONTAINER_REGISTRY_EXTRA", "borrowed-source-registry")
+    monkeypatch.setenv("VSS_RT_CV_TAG_SUFFIX", "borrowed-source-suffix")
     mock = Mock(side_effect=execute)
     monkeypatch.setattr(artifact.subprocess, "run", mock)
     return mock
@@ -76,7 +80,6 @@ def test_exact_resource_uses_published_layers_and_keeps_only_safe_provenance(
     ]
     assert all(Path(p).is_file() for p in report["env_files"])
     assert "never-persist" not in json.dumps(report)
-    assert len(report["compose_tree_sha256"]) == len(report["download_sha256"]) == 64
     with pytest.raises(ValueError, match="fresh"):
         artifact.acquire(REF, tmp_path / "verified", tmp_path / "recipe.yaml")
 
@@ -152,3 +155,14 @@ def test_size_limits_prevent_extraction(tmp_path, monkeypatch):
     monkeypatch.setattr(artifact, "MAX_BYTES", 1)
     with pytest.raises(ValueError, match="limits"):
         artifact.unpack(path, tmp_path / "unpacked")
+
+
+@pytest.mark.parametrize("unsafe", ["link", "size"])
+def test_download_tree_keeps_link_and_size_checks(tmp_path, monkeypatch, unsafe):
+    (tmp_path / "file").write_bytes(b"xx")
+    if unsafe == "link":
+        (tmp_path / "link").symlink_to(tmp_path / "file")
+    else:
+        monkeypatch.setattr(artifact, "MAX_BYTES", 1)
+    with pytest.raises(ValueError):
+        artifact.check_tree(tmp_path)

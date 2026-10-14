@@ -41,25 +41,12 @@ def test_empty_success_is_distinct_from_typed_cli_failure(monkeypatch):
     assert len(calls) == 1
 
 
-def test_version_is_observed_or_explicitly_missing():
-    assert (
-        benchmark.deployment_version_fact("  version        3.3.0-rc0\n")["version"]
-        == "3.3.0-rc0"
-    )
-    assert (
-        benchmark.deployment_version_fact("  version        not reported  HTTP 404\n")[
-            "status"
-        ]
-        == "not_reported"
-    )
-    assert benchmark.deployment_version_fact("legacy CLI\n")["version"] is None
-
-
 def test_real_probe_loop_keeps_empty_incidents_and_fps(monkeypatch):
     monitor = SimpleNamespace(
         start=lambda: None,
         sample=lambda: None,
-        stop=dict,
+        close=lambda: None,
+        result=dict,
         identities={"0": {"model": "test GPU"}},
         handles={"0": 0},
     )
@@ -76,14 +63,26 @@ def test_real_probe_loop_keeps_empty_incidents_and_fps(monkeypatch):
         return {"count": len(rows), key: rows}, 0.01
 
     monkeypatch.setattr(benchmark, "run", command)
-    cases, version, _ = benchmark.measure(
+    cases, _ = benchmark.measure(
         {"duration_seconds": 0.000001, "interval_seconds": 1, "warmup_iterations": 0},
         "0",
         "rt-cv",
     )
     assert len(cases) == 5 and all(case["success"] for case in cases)
-    assert version["version"] == "3.3.0-rc0"
     assert cases[3]["metrics"]["throughput"]["aggregate_fps_mean"] == 30
+
+    def failed(command, **kwargs):
+        if "check" in command:
+            return "", 0
+        raise RuntimeError("vss exited 3: backend unavailable")
+
+    monkeypatch.setattr(benchmark, "run", failed)
+    with pytest.raises(RuntimeError, match="exited 3"):
+        benchmark.measure(
+            {"duration_seconds": 1, "interval_seconds": 1, "warmup_iterations": 0},
+            "0",
+            "rt-cv",
+        )
 
 
 @pytest.fixture
@@ -138,7 +137,6 @@ def setup_run(tmp_path, monkeypatch):
         calls.append(gpu)
         return (
             [{"test_case_id": "measured", "success": True, "metrics": {}}],
-            {"version": "3.3.0-rc0", "status": "reported"},
             {"model": "selected", "count": 1},
         )
 
@@ -167,17 +165,10 @@ def test_cleanup_precedes_single_validated_result_and_upload(setup_run):
     benchmark.SHARED.VSSBenchmarkResult.model_validate(result)
     assert result["metadata"]["config"]["config_id"] == "GPU_EXACT_ID"
     assert result["metadata"]["run_info"]["release"] == "requested-label"
-    assert result["metadata"]["config"]["deployment_version"]["version"] == "3.3.0-rc0"
     assert result["metadata"]["platform"]["gpu"]["count"] == 1
     assert (
         benchmark.main(args) == 1
     )  # Existing same-second results are never overwritten.
-
-
-def test_explicit_gpu_override(setup_run):
-    args, calls, _ = setup_run
-    assert benchmark.main([*args, "--rt-cv-gpus", "0"]) == 0
-    assert calls[0] == "0"
 
 
 def test_cleanup_failure_forces_fail_before_publication(setup_run, monkeypatch):

@@ -55,8 +55,10 @@ class ResourceMonitor:
             }
         self.samples.append((cpu, gpu))
 
-    def stop(self):
+    def close(self):
         pynvml.nvmlShutdown()
+
+    def result(self):
         if not self.samples:
             raise RuntimeError("resource collection failed: no samples")
         elapsed = time.monotonic() - self.started

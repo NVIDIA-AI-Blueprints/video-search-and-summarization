@@ -3,14 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Fetch an exact Compose resource and inspect its images without persisting rendered secrets."""
 
-import argparse
-import hashlib
 import json
 import os
 import re
 import stat
 import subprocess
-import sys
 import tarfile
 import tempfile
 import zipfile
@@ -26,24 +23,15 @@ SERVICES = (
 MAX_BYTES, MAX_FILES = 2 * 1024**3, 100_000
 
 
-def digest_tree(root):
-    digest, size, count = hashlib.sha256(), 0, 0
-    for path in sorted(root.rglob("*")):
+def check_tree(root):
+    size, count = 0, 0
+    for path in root.rglob("*"):
         if path.is_symlink():
             raise ValueError("Resource links are unsupported")
         if path.is_file():
             size, count = size + path.stat().st_size, count + 1
             if size > MAX_BYTES or count > MAX_FILES:
                 raise ValueError("Resource exceeds size/file limits")
-            digest.update(
-                str(path.relative_to(root)).encode()
-                + b"\0"
-                + path.stat().st_size.to_bytes(8, "big")
-            )
-            with path.open("rb") as stream:
-                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                    digest.update(chunk)
-    return digest.hexdigest()
 
 
 def unpack(path, destination):
@@ -107,8 +95,11 @@ def inspect_images(root, recipe):
         k: v
         for k, v in os.environ.items()
         if not (
-            k.startswith("VSS_")
-            and k.endswith(("_IMAGE", "_TAG", "_REGISTRY", "_TAG_SUFFIX"))
+            k.startswith("VSS_CONTAINER_")
+            or (
+                k.startswith("VSS_")
+                and k.endswith(("_IMAGE", "_TAG", "_REGISTRY", "_TAG_SUFFIX"))
+            )
         )
     }
     environment.update(
@@ -186,7 +177,7 @@ def acquire(reference, destination, recipe):
         )
         if not any(downloaded.rglob("*")):
             raise ValueError("NGC download produced no files")
-        download_hash = digest_tree(downloaded)
+        check_tree(downloaded)
         archives = [
             p
             for p in downloaded.rglob("*")
@@ -199,7 +190,7 @@ def acquire(reference, destination, recipe):
             root.relative_to(payload),
             [p.relative_to(payload) for p in files],
         )
-        tree_hash = digest_tree(root)
+        check_tree(root)
         payload.rename(destination)
     return {
         "artifact_ref": reference,
@@ -208,35 +199,4 @@ def acquire(reference, destination, recipe):
         "compose_root": str(destination / root_relative),
         "env_files": [str(destination / p) for p in relative_files],
         "container_pins": pins,
-        "download_sha256": download_hash,
-        "compose_tree_sha256": tree_hash,
     }
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--artifact-ref", required=True)
-    parser.add_argument("--destination", type=Path, required=True)
-    parser.add_argument("--compose-file", type=Path, required=True)
-    parser.add_argument("--output-json", type=Path, required=True)
-    args = parser.parse_args()
-    try:
-        report = acquire(args.artifact_ref, args.destination, args.compose_file)
-        args.output_json.write_text(json.dumps(report, indent=2) + "\n")
-    except (
-        OSError,
-        ValueError,
-        subprocess.SubprocessError,
-        tarfile.TarError,
-        zipfile.BadZipFile,
-    ) as error:
-        print(
-            f"Promoted resource verification failed: {type(error).__name__}",
-            file=sys.stderr,
-        )
-        return 1
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

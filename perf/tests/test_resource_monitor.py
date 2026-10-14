@@ -25,10 +25,7 @@ def test_selected_gpu_is_not_silently_replaced(monkeypatch):
 
 
 def test_missing_samples_fail(monkeypatch):
-    import pynvml
-
-    monkeypatch.setattr(pynvml, "nvmlShutdown", lambda: None)
     monitor = object.__new__(ResourceMonitor)
     monitor.samples = []
     with pytest.raises(RuntimeError, match="no samples"):
-        monitor.stop()
+        monitor.result()
