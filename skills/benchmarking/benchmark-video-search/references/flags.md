@@ -48,6 +48,11 @@ registered. Sources outside the dataset that `--skip-ingest` leaves in place
 can be returned by search and score as false positives. The run warns about
 them and records them in `flow.reused_index.other_sources`.
 
+`--source-type rtsp` requires `--skip-ingest`. The fresh ingest indexes every
+upload as a video file, which an `rtsp` search never reads, and the wipe does
+not check the dated RTSP indexes, so a wiped `rtsp` run would score only
+leftovers.
+
 `--only-dataset`, `--clear`, `--confirm-delete` and `--skip-existing` no longer
 exist. They once controlled that deletion; passing one is now a usage error
 (exit 2), raised before anything is deleted.
