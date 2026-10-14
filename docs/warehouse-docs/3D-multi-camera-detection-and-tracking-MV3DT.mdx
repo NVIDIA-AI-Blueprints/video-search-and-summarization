@@ -93,7 +93,7 @@ The main configuration file for RT-DETR, `ds-pgie-config.yml`, handles propertie
 
 | Parameter | Description | Default Value |
 | --- | --- | --- |
-| `pre-cluster-threshold` | Detection confidence threshold | `0.5` |
+| `pre-cluster-threshold` | Detection confidence threshold | `0.25` |
 | `topk` | Maximum number of top detections to keep per class | `20` |
 | `parse-bbox-func-name` | Custom bounding box parsing function | `NvDsInferParseCustomRTDETRTAO` |
 | `custom-lib-path` | Path to custom parsing library | `/opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser.so` |
@@ -404,7 +404,7 @@ property:
   infer-dims: 3;640;640  # Update C;H;W based on your model's input size
 ```
 
-4. Adjust per-class detection thresholds if needed:
+4. Adjust per-class detection thresholds if needed (example):
 
 ```yaml
 # Update ds-pgie-config.yml
