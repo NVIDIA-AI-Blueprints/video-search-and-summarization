@@ -179,6 +179,28 @@ class TestStartAlert:
         assert kw["mm_processor_kwargs"] == {"extra_key": "extra_val"}
 
     @pytest.mark.asyncio
+    async def test_streaming_vlm_fields_forwarded_to_generate_captions(
+        self, realtime_service, mock_rtvi_client
+    ):
+        cfg = make_config(
+            inference_mode="streaming_vlm",
+            streaming_frame_policy="ordered",
+            streaming_window_frames=8,
+            streaming_question_on_decode=True,
+        )
+        data, code = await realtime_service.start_alert(cfg)
+
+        assert code == 201, data
+        kw = mock_rtvi_client.generate_captions.call_args.kwargs
+        assert kw["inference_mode"] == "streaming_vlm"
+        assert kw["streaming_frame_policy"] == "ordered"
+        assert kw["streaming_window_frames"] == 8
+        assert kw["streaming_question_on_decode"] is True
+        rule = realtime_service._rules[data["id"]]
+        assert rule["inference_mode"] == "streaming_vlm"
+        assert rule["streaming_window_frames"] == 8
+
+    @pytest.mark.asyncio
     async def test_omitted_extended_fields_not_in_generate_captions_kwargs(
         self, realtime_service, mock_rtvi_client
     ):
@@ -1177,6 +1199,36 @@ class TestReplay:
         stored = fake_rule_store.get("pending-1")
         assert stored["status"] == RuleStatus.ACTIVE
         assert stored["rtvi_stream_id"] == "recovered-stream"
+
+    @pytest.mark.asyncio
+    async def test_replay_forwards_streaming_vlm_fields(
+        self, persistent_service, fake_rule_store, mock_rtvi_client
+    ):
+        """StreamingVLM options persisted in ES survive a replay."""
+        fake_rule_store.create("streaming-1", {
+            "status": "pending",
+            "created_at": "2020-01-01T00:00:00Z",
+            "live_stream_url": "rtsp://x/streaming",
+            "alert_type": "test",
+            "prompt": "test",
+            "inference_mode": "streaming_vlm",
+            "streaming_frame_policy": "ordered",
+            "streaming_window_frames": 8,
+            "streaming_question_on_decode": True,
+        })
+        mock_rtvi_client.start_stream.return_value = {
+            "results": [{"id": "streaming-stream"}]
+        }
+
+        data, code = await persistent_service.replay()
+
+        assert code == 200
+        assert data["replayed"] == 1
+        kw = mock_rtvi_client.generate_captions.call_args.kwargs
+        assert kw["inference_mode"] == "streaming_vlm"
+        assert kw["streaming_frame_policy"] == "ordered"
+        assert kw["streaming_window_frames"] == 8
+        assert kw["streaming_question_on_decode"] is True
 
     @pytest.mark.asyncio
     async def test_replay_re_onboards_active_rules(
