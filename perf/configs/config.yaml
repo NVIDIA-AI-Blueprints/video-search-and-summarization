@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 global:
   vss_backend: http://localhost:7777
-  output_dir: vss-perf-results
-  upload_after_teardown: true
   dataset:
     resource: nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026
     video_path: videos/nv-warehouse-4cams/Camera_03.mp4
@@ -17,11 +15,7 @@ global:
     pre_flight: 30
     deploy: 45
     post_deploy: 20
-    benchmark: 30
     teardown: 5
-  # The benchmark samples the shared resource collector during its measurement window.
-  gpu_monitoring: {enabled: true, interval_seconds: 1}
-  cpu_monitoring: {enabled: true, interval_seconds: 1}
 test_scenarios:
   quick_test:
     description: One real RTSP stream with RT-CV FPS and VIOS/analytics CLI latency.

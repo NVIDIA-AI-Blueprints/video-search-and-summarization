@@ -5,167 +5,36 @@
     "run_info": {
       "run_id": "compose-base_example-single-gpu_20261014_120000",
       "timestamp": "2026-10-14T12:00:00Z",
-      "duration_seconds": 30.0,
+      "duration_seconds": 30,
       "triggered_by": "manual",
-      "release": "3.3.0",
-      "pipeline_url": ""
+      "release": "example"
     },
-    "platform": {
-      "gpu": {
-        "model": "Example GPU",
-        "count": 1,
-        "topology": "single-gpu"
-      }
-    },
-    "config": {
-      "config_id": "example-single-gpu",
-      "sample_only": true,
-      "measurement_method": "VSS CLI wall time (includes Python startup); RT-CV instantaneous FPS logs"
-    },
+    "platform": {"gpu": {"model": "Example GPU", "count": 1}},
+    "config": {"config_id": "example-single-gpu", "sample_only": true},
     "benchmark_name": "quick_test",
-    "benchmark_mode": "streaming"
+    "benchmark_mode": "compose_base"
   },
-  "summary": {
-    "total_tests": 5,
-    "passed": 5,
-    "failed": 0,
-    "pass_rate": 100.0,
-    "overall_status": "PASS"
-  },
+  "summary": {"total_tests": 5, "passed": 5, "failed": 0, "pass_rate": 100, "overall_status": "PASS"},
   "test_cases": [
     {
-      "test_case_id": "vios_stream_listing",
-      "success": true,
-      "metrics": {
-        "latency": {
-          "client_observed_mean_seconds": 0.3,
-          "client_observed_p50_seconds": 0.3,
-          "client_observed_p95_seconds": 0.35
-        },
-        "requests": {
-          "completed": 3,
-          "success_rate_percent": 100.0,
-          "sequential_requests_per_second": 0.1
-        },
-        "inventory": {
-          "minimum_returned_count": 1
-        }
-      },
-      "thresholds": {
-        "max_cli_p95_seconds": 10.0,
-        "min_returned_count": 1
-      }
+      "test_case_id": "vios_stream_listing", "success": true,
+      "metrics": {"latency": {"client_observed_mean_seconds": 0.3, "client_observed_p50_seconds": 0.3, "client_observed_p95_seconds": 0.35}}
     },
     {
-      "test_case_id": "analytics_sensor_listing",
-      "success": true,
-      "metrics": {
-        "latency": {
-          "client_observed_mean_seconds": 0.3,
-          "client_observed_p50_seconds": 0.3,
-          "client_observed_p95_seconds": 0.35
-        },
-        "requests": {
-          "completed": 3,
-          "success_rate_percent": 100.0,
-          "sequential_requests_per_second": 0.1
-        },
-        "inventory": {
-          "minimum_returned_count": 1
-        }
-      },
-      "thresholds": {
-        "max_cli_p95_seconds": 10.0,
-        "min_returned_count": 1
-      }
+      "test_case_id": "analytics_sensor_listing", "success": true,
+      "metrics": {"latency": {"client_observed_mean_seconds": 0.3, "client_observed_p50_seconds": 0.3, "client_observed_p95_seconds": 0.35}}
     },
     {
-      "test_case_id": "analytics_incident_query",
-      "success": true,
-      "metrics": {
-        "latency": {
-          "client_observed_mean_seconds": 0.3,
-          "client_observed_p50_seconds": 0.3,
-          "client_observed_p95_seconds": 0.35
-        },
-        "requests": {
-          "completed": 3,
-          "success_rate_percent": 100.0,
-          "sequential_requests_per_second": 0.1
-        },
-        "inventory": {
-          "minimum_returned_count": 0
-        }
-      },
-      "thresholds": {
-        "max_cli_p95_seconds": 10.0,
-        "min_returned_count": 0
-      }
+      "test_case_id": "analytics_incident_query", "success": true,
+      "metrics": {"latency": {"client_observed_mean_seconds": 0.3, "client_observed_p50_seconds": 0.3, "client_observed_p95_seconds": 0.35}}
     },
     {
-      "test_case_id": "rt_cv_stream_throughput",
-      "success": true,
-      "metrics": {
-        "throughput": {
-          "aggregate_fps_mean": 30.0,
-          "minimum_stream_fps": 29.9,
-          "active_streams_minimum": 1,
-          "sample_count": 6
-        }
-      },
-      "thresholds": {
-        "minimum_stream_fps": 1.0,
-        "active_streams_minimum": 1
-      }
+      "test_case_id": "rt_cv_stream_throughput", "success": true,
+      "metrics": {"throughput": {"aggregate_fps_mean": 30, "minimum_stream_fps": 29.9, "active_streams_minimum": 1, "sample_count": 6}}
     },
     {
-      "test_case_id": "infrastructure_resources",
-      "success": true,
-      "metrics": {
-        "scope": "host aggregate and selected physical GPUs",
-        "duration_seconds": 30.0,
-        "collector_source": {
-          "repository": "https://gitlab-master.nvidia.com/via/long-video-summarization",
-          "commit": "c2c854be99674d70999c69973ff0f0e0563c00d0",
-          "files": [
-            "perf/benchmark/cpu_monitor.py",
-            "perf/benchmark/gpu_monitor.py"
-          ],
-          "adaptations": "sampling only; collection errors fail; psutil disk/network counter deltas"
-        },
-        "cpu": {
-          "utilization_percent": {
-            "mean": 20,
-            "minimum": 15,
-            "maximum": 25,
-            "sample_count": 30
-          }
-        },
-        "gpu": {
-          "0": {
-            "model": "Example GPU",
-            "uuid": "GPU-example",
-            "utilization_percent": {
-              "mean": 30,
-              "minimum": 20,
-              "maximum": 40,
-              "sample_count": 30
-            }
-          }
-        },
-        "storage": {
-          "read_bytes": 1000,
-          "read_bytes_per_second": 33.333333333333336,
-          "write_bytes": 100,
-          "write_bytes_per_second": 3.3333333333333335
-        },
-        "network": {
-          "bytes_sent": 3000,
-          "bytes_sent_per_second": 100,
-          "bytes_recv": 3000,
-          "bytes_recv_per_second": 100
-        }
-      }
+      "test_case_id": "infrastructure_resources", "success": true,
+      "metrics": {"scope": "host aggregate and selected physical GPUs", "duration_seconds": 30, "cpu": {"utilization_percent": {"mean": 20}}, "gpu": {"0": {"utilization_percent": {"mean": 30}}}, "storage": {"read_bytes": 1000}, "network": {"bytes_recv": 1000}}
     }
   ]
 }

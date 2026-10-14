@@ -1,454 +1,239 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Acquire and inspect an exact NGC Compose resource without executing its files.
-
-The resource supplies production Compose definitions and container coordinates;
-the source checkout supplies the performance harness. Unsupported packages or
-moving image tags fail before deployment. Credentials only enter the NGC CLI
-environment, and its output is never echoed because it may contain signed URLs.
-"""
-
-from __future__ import annotations
+"""Fetch an exact Compose resource and inspect its images without persisting rendered secrets."""
 
 import argparse
 import hashlib
 import json
 import os
 import re
-import shutil
 import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
 import zipfile
-from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
-import yaml
-
-
-class ArtifactError(RuntimeError):
-    """The promoted resource could not be acquired or safely used."""
-
-
-REQUIRED_IMAGES = (
-    "VSS_RT_CV",
-    "VSS_VIOS_SENSOR",
-    "VSS_VIOS_STREAMPROCESSING",
-    "VSS_VIOS_INGRESS",
-    "VSS_VIDEO_ANALYTICS_API",
+SERVICES = (
+    "rtvi-cv",
+    "sensor-ms",
+    "streamprocessing-ms",
+    "vst-ingress",
+    "vss-video-analytics-api",
 )
-REQUIRED_DEFINITIONS = (
-    "services/infra/compose.yml",
-    "services/vios/compose.yml",
-    "services/rtvi/rtvi-cv/compose.yaml",
-    "services/analytics/video-analytics-api/compose.yml",
-)
-# These are the production definitions included by services/vios/compose.yml
-# and extended by the benchmark recipe. Read the image field itself: CI can
-# replace a parameterized image with a literal promoted pullspec.
-IMAGE_DEFINITIONS = {
-    "VSS_RT_CV": ("services/rtvi/rtvi-cv/compose.yaml", "perception"),
-    "VSS_VIOS_SENSOR": ("services/vios/initiator/docker-compose.yaml", "sensor-ms"),
-    "VSS_VIOS_STREAMPROCESSING": (
-        "services/vios/streamprocessing/docker-compose.yaml",
-        "streamprocessing-ms",
-    ),
-    "VSS_VIOS_INGRESS": (
-        "services/vios/foundational/docker-compose.yaml",
-        "vst-ingress",
-    ),
-    "VSS_VIDEO_ANALYTICS_API": (
-        "services/analytics/video-analytics-api/compose.yml",
-        "vss-video-analytics-api",
-    ),
-}
-_VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(:-|-)?")
-_REFERENCE = re.compile(
-    r"(?P<org>[A-Za-z0-9_.-]+)/(?P<team>[A-Za-z0-9_.-]+)/"
-    r"(?P<name>[A-Za-z0-9_.-]+):(?P<version>[A-Za-z0-9_.-]+)"
-)
-MAX_FILES = 100_000
-MAX_BYTES = 2 * 1024**3
+MAX_BYTES, MAX_FILES = 2 * 1024**3, 100_000
 
 
-def parse_reference(reference: str) -> dict[str, str]:
-    match = _REFERENCE.fullmatch(reference)
-    if match is None or any(v in {".", ".."} for v in match.groupdict().values()):
-        raise ArtifactError("Expected an NGC resource reference org/team/name:version")
-    if match["name"] != "vss-blueprints-compose-base":
-        raise ArtifactError(
-            "The benchmark requires the vss-blueprints-compose-base resource"
-        )
-    return match.groupdict()
+def digest_tree(root):
+    digest, size, count = hashlib.sha256(), 0, 0
+    for path in sorted(root.rglob("*")):
+        if path.is_symlink():
+            raise ValueError("Resource links are unsupported")
+        if path.is_file():
+            size, count = size + path.stat().st_size, count + 1
+            if size > MAX_BYTES or count > MAX_FILES:
+                raise ValueError("Resource exceeds size/file limits")
+            digest.update(
+                str(path.relative_to(root)).encode()
+                + b"\0"
+                + path.stat().st_size.to_bytes(8, "big")
+            )
+            with path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+    return digest.hexdigest()
 
 
-def resolve_defaults(value: str, values: dict[str, str]) -> str:
-    """Resolve nested dotenv defaults without shell evaluation or process env."""
-    result = []
-    cursor = 0
-    while cursor < len(value):
-        match = _VAR.match(value, cursor)
-        if not match:
-            result.append(value[cursor])
-            cursor += 1
-            continue
-        name, operator = match.groups()
-        end = match.end()
-        if operator is None and (end >= len(value) or value[end] != "}"):
-            raise ArtifactError("Unsupported expansion in published containers.env")
-        depth = 1
-        while end < len(value) and depth:
-            if value.startswith("${", end):
-                depth += 1
-                end += 2
-            elif value[end] == "}":
-                depth -= 1
-                end += 1
-            else:
-                end += 1
-        if depth:
-            raise ArtifactError("Unclosed variable in published containers.env")
-        present = name in values and (operator != ":-" or values[name] != "")
-        if present:
-            result.append(values[name])
-        elif operator:
-            result.append(resolve_defaults(value[match.end() : end - 1], values))
-        else:
-            raise ArtifactError(f"Unresolved published container variable {name}")
-        cursor = end
-    return "".join(result)
+def unpack(path, destination):
+    destination.mkdir(parents=True)
+    if zipfile.is_zipfile(path):
+        with zipfile.ZipFile(path) as archive:
+            entries = archive.infolist()
+            if (
+                len(entries) > MAX_FILES
+                or sum(e.file_size for e in entries) > MAX_BYTES
+            ):
+                raise ValueError("Archive exceeds size/file limits")
+            for entry in entries:
+                name, mode = PurePosixPath(entry.filename), entry.external_attr >> 16
+                if (
+                    name.is_absolute()
+                    or ".." in name.parts
+                    or "\\" in entry.filename
+                    or ":" in entry.filename
+                    or stat.S_IFMT(mode) not in (0, stat.S_IFREG, stat.S_IFDIR)
+                ):
+                    raise ValueError("Unsafe archive path or file type")
+            archive.extractall(destination)
+            for entry in entries:
+                if not entry.is_dir():
+                    (destination / entry.filename).chmod(
+                        0o644 | ((entry.external_attr >> 16) & 0o111)
+                    )
+    else:
+        with tarfile.open(path) as archive:
+            entries = archive.getmembers()
+            if (
+                len(entries) > MAX_FILES
+                or sum(e.size for e in entries) > MAX_BYTES
+                or any(not (e.isfile() or e.isdir()) for e in entries)
+            ):
+                raise ValueError("Unsafe archive type or size/file limits")
+            archive.extractall(destination, members=entries, filter="data")
 
 
-def published_environment(
-    path: Path,
-    initial: dict[str, str] | None = None,
-    *,
-    coordinates_only: bool = False,
-    declared: set[str] | None = None,
-) -> dict[str, str]:
-    values: dict[str, str] = dict(initial or {})
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].strip()
-        if "=" not in line:
-            if coordinates_only:
-                continue
-            raise ArtifactError("Unsupported statement in published containers.env")
-        name, value = line.split("=", 1)
-        name, value = name.strip(), value.strip()
-        if coordinates_only and not (
-            name.startswith("VSS_CONTAINER_")
-            or name
-            in {
-                prefix + suffix
-                for prefix in REQUIRED_IMAGES
-                for suffix in ("_IMAGE", "_TAG")
-            }
-        ):
-            continue
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
-            raise ArtifactError("Invalid variable name in published containers.env")
-        if declared is not None:
-            declared.add(name)
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        # This restricted format covers VSS's nested default coordinate variables.
-        # Shell commands and expansions never run, even for unused assignments.
-        if any(token in value for token in ("$(", "`", "\n", "\r")):
-            raise ArtifactError("Executable expansion in published containers.env")
-        values[name] = resolve_defaults(value, values)
-    return values
-
-
-def inspect_payload(root: Path) -> dict:
+def inspect_images(root, recipe):
+    # shortcut: modern containers.env/services resources only; extend after inspecting a real new package.
     candidates = [
         p.parent
         for p in root.rglob("containers.env")
         if (p.parent / "services").is_dir()
     ]
     if len(candidates) != 1:
-        raise ArtifactError(
-            "Resource must contain exactly one production containers.env/services tree"
+        raise ValueError(
+            "Unsupported resource layout: expected one containers.env/services tree"
         )
     compose_root = candidates[0]
-    for relative in REQUIRED_DEFINITIONS:
-        if not (compose_root / relative).is_file():
-            raise ArtifactError(f"Promoted Compose resource is missing {relative}")
-    values = published_environment(compose_root / "containers.env")
-    # Matches the developer-profile deployment's published image override
-    # layers. Runtime host paths, API credentials and process env never become
-    # coordinate inputs. generated.env is the last layer produced by the
-    # production dev-profile script from .env and overrides.env.
-    profile_root = compose_root / "developer-profiles/dev-profile-base"
-    coordinate_sources = ["containers.env"]
-    profile_paths = []
-    declared = set()
-    for filename in (".env", "overrides.env", "generated.env"):
-        path = profile_root / filename
-        if path.is_file():
-            values = published_environment(
-                path, values, coordinates_only=True, declared=declared
-            )
-            profile_paths.append(path)
-            coordinate_sources.append(str(path.relative_to(compose_root)))
-    # CI's apply_vss_container_images_to_env_file.sh records a selected shared
-    # registry/tag pair, rather than duplicating every derived image variable.
-    # Resolve the packaged default templates against that explicit published
-    # channel, then replay per-image layers. The resource version is never an
-    # input and no process environment is inherited.
-    shared_channel = {
-        key: values[key] for key in declared if key.startswith("VSS_CONTAINER_")
-    }
-    if shared_channel:
-        values = published_environment(compose_root / "containers.env", shared_channel)
-        for path in profile_paths:
-            values = published_environment(path, values, coordinates_only=True)
-    environment, pins = {}, {}
-    for prefix in REQUIRED_IMAGES:
-        relative, service = IMAGE_DEFINITIONS[prefix]
-        path = compose_root / relative
-        if not path.is_file():
-            raise ArtifactError(f"Promoted Compose resource is missing {relative}")
-        try:
-            document = yaml.safe_load(path.read_text())
-            raw_reference = document["services"][service]["image"]
-        except (yaml.YAMLError, KeyError, TypeError) as exc:
-            raise ArtifactError(
-                f"Published {relative} lacks the {service} image definition"
-            ) from exc
-        if not isinstance(raw_reference, str):
-            raise ArtifactError(f"Published {service} image must be a string")
-        reference = resolve_defaults(raw_reference, values)
-        if re.fullmatch(r"[A-Za-z0-9_.:/-]+@sha256:[0-9a-f]{64}", reference):
-            if "$" in raw_reference:
-                raise ArtifactError(
-                    f"Published {prefix} digest must be literal in its Compose image field"
-                )
-            # CI retagging supports literal digest pullspecs. Their production
-            # image field is already exact, so adding IMAGE/TAG overrides would
-            # unnecessarily turn a digest into the wrong colon-tag syntax.
-            pins[prefix] = reference
-            continue
-        if ":" not in reference.rsplit("/", 1)[-1]:
-            raise ArtifactError(f"Published {prefix} image has no versioned tag")
-        image, tag = reference.rsplit(":", 1)
-        if not re.fullmatch(r"[A-Za-z0-9_.:/-]+", image) or not re.fullmatch(
-            r"[A-Za-z0-9_.-]+", tag
-        ):
-            raise ArtifactError(
-                f"Published {prefix} coordinates are absent or unresolved"
-            )
-        if tag.lower() in {
-            "latest",
-            "main",
-            "develop",
-            "nightly",
-            "stable",
-        } or tag.lower().endswith("-latest"):
-            raise ArtifactError(
-                f"Published {prefix} tag is moving; publish a versioned container pin"
-            )
-        environment[prefix + "_IMAGE"] = image
-        environment[prefix + "_TAG"] = tag
-        pins[prefix] = f"{image}:{tag}"
-    checksums = {}
-    total_bytes = 0
-    for path in sorted(compose_root.rglob("*")):
-        if path.is_symlink():
-            raise ArtifactError("Links are not supported in promoted Compose resources")
-        if path.is_file():
-            total_bytes += path.stat().st_size
-            if len(checksums) >= MAX_FILES or total_bytes > MAX_BYTES:
-                raise ArtifactError("Promoted Compose tree exceeds verification limits")
-            checksum = hashlib.sha256()
-            with path.open("rb") as stream:
-                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                    checksum.update(chunk)
-            checksums[str(path.relative_to(compose_root))] = checksum.hexdigest()
-    digest = hashlib.sha256(json.dumps(checksums, sort_keys=True).encode()).hexdigest()
-    return {
-        "compose_root": str(compose_root.resolve()),
-        "environment": environment,
-        "container_pins": pins,
-        "compose_tree_sha256": digest,
-        "files_sha256": checksums,
-        "coordinate_sources": coordinate_sources,
-    }
-
-
-def member_path(root: Path, name: str) -> Path:
-    relative = PurePosixPath(name)
-    if (
-        relative.is_absolute()
-        or ".." in relative.parts
-        or "\\" in name
-        or (relative.parts and ":" in relative.parts[0])
-    ):
-        raise ArtifactError("Unsafe path in promoted resource archive")
-    result = root.joinpath(*relative.parts)
-    if not result.resolve().is_relative_to(root.resolve()):
-        raise ArtifactError("Archive path escapes extraction directory")
-    return result
-
-
-def unpack_archive(archive: Path, destination: Path) -> None:
-    """Extract only directories and regular files, with bounded uncompressed size."""
-    destination.mkdir(parents=True, exist_ok=True)
-    if zipfile.is_zipfile(archive):
-        with zipfile.ZipFile(archive) as bundle:
-            members = bundle.infolist()
-            if (
-                len(members) > MAX_FILES
-                or sum(m.file_size for m in members) > MAX_BYTES
-            ):
-                raise ArtifactError("Promoted archive exceeds extraction limits")
-            for member in members:
-                path = member_path(destination, member.filename)
-                mode = member.external_attr >> 16
-                if stat.S_ISLNK(mode) or (
-                    stat.S_IFMT(mode) not in {0, stat.S_IFREG, stat.S_IFDIR}
-                ):
-                    raise ArtifactError(
-                        "Archive links and special files are not supported"
-                    )
-                if member.is_dir():
-                    path.mkdir(parents=True, exist_ok=True)
-                else:
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    with bundle.open(member) as source, path.open("xb") as target:
-                        shutil.copyfileobj(source, target)
-                    path.chmod(0o644 | (mode & 0o111))
-    elif tarfile.is_tarfile(archive):
-        with tarfile.open(archive) as bundle:
-            members = bundle.getmembers()
-            if len(members) > MAX_FILES or sum(m.size for m in members) > MAX_BYTES:
-                raise ArtifactError("Promoted archive exceeds extraction limits")
-            for member in members:
-                path = member_path(destination, member.name)
-                if member.isdir():
-                    path.mkdir(parents=True, exist_ok=True)
-                elif member.isfile():
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    source = bundle.extractfile(member)
-                    if source is None:
-                        raise ArtifactError("Could not read promoted archive member")
-                    with source, path.open("xb") as target:
-                        shutil.copyfileobj(source, target)
-                    path.chmod(0o644 | (member.mode & 0o111))
-                else:
-                    raise ArtifactError(
-                        "Archive links and special files are not supported"
-                    )
-    else:
-        raise ArtifactError("Unsupported resource archive format")
-
-
-def download_resource(reference: str, destination: Path) -> None:
-    parse_reference(reference)
-    if shutil.which("ngc") is None:
-        raise ArtifactError(
-            "Install the official NGC CLI before acquiring a promoted resource"
+    profile = compose_root / "developer-profiles/dev-profile-base"
+    files = [compose_root / "containers.env"] + [
+        profile / name
+        for name in (".env", "overrides.env", "generated.env")
+        if (profile / name).is_file()
+    ]
+    # Remove caller image overrides; only the published resource selects pins.
+    environment = {
+        k: v
+        for k, v in os.environ.items()
+        if not (
+            k.startswith("VSS_")
+            and k.endswith(("_IMAGE", "_TAG", "_REGISTRY", "_TAG_SUFFIX"))
         )
-    environment = os.environ.copy()
-    if not environment.get("NGC_CLI_API_KEY") and environment.get("NGC_API_KEY"):
-        environment["NGC_CLI_API_KEY"] = environment["NGC_API_KEY"]
-    try:
-        result = subprocess.run(
+    }
+    environment.update(
+        VSS_APPS_DIR=str(compose_root),
+        VSS_PERF_ROOT=str(Path(__file__).parents[1]),
+        VSS_REPO_ROOT=str(Path(__file__).parents[2]),
+    )
+    command = (
+        ["sudo", "-n", "docker"]
+        if environment.get("DOCKER_USE_SUDO") == "true"
+        else ["docker"]
+    )
+    command += ["compose", "--profile", "*"]
+    for path in files:
+        command += ["--env-file", str(path)]
+    result = subprocess.run(
+        command
+        + ["-f", str(recipe), "config", "--format", "json", "--no-env-resolution"],
+        env=environment,
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    services, pins = json.loads(result.stdout)["services"], {}
+    for name in SERVICES:
+        pin = services.get(name, {}).get("image", "")
+        if not re.fullmatch(
+            r"[A-Za-z0-9_.:/-]+(?::[A-Za-z0-9_.-]+|@sha256:[0-9a-f]{64})", pin
+        ):
+            raise ValueError(
+                f"Published {name} image is absent, unresolved or unversioned"
+            )
+        tag = pin.rsplit(":", 1)[-1].lower()
+        if tag in {"latest", "main", "develop", "nightly", "stable"} or tag.endswith(
+            "-latest"
+        ):
+            raise ValueError(f"Published {name} image has a moving tag")
+        pins[name] = pin
+    return compose_root, files, pins
+
+
+def acquire(reference, destination, recipe):
+    destination = destination.resolve()
+    if not re.fullmatch(
+        r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/vss-blueprints-compose-base:[A-Za-z0-9_.-]+",
+        reference,
+    ):
+        raise ValueError("Expected org/team/vss-blueprints-compose-base:version")
+    if destination.exists():
+        raise ValueError("Choose a fresh promoted-resource destination")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=destination.parent) as temporary:
+        payload = Path(temporary) / "payload"
+        downloaded = payload / "downloaded"
+        downloaded.mkdir(parents=True)
+        environment = os.environ.copy()
+        environment["NGC_CLI_API_KEY"] = environment.get(
+            "NGC_CLI_API_KEY"
+        ) or environment.get("NGC_API_KEY", "")
+        subprocess.run(
             [
                 "ngc",
                 "registry",
                 "resource",
                 "download-version",
                 "--dest",
-                str(destination),
+                str(downloaded),
                 reference,
             ],
             env=environment,
+            check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            check=False,
             timeout=1800,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ArtifactError("NGC resource download did not complete") from exc
-    if result.returncode:
-        raise ArtifactError(
-            f"NGC resource download failed (exit {result.returncode}); verify access to the promoted version"
-        )
-    if not any(destination.rglob("*")):
-        raise ArtifactError(
-            "NGC download produced no files; the promoted resource was not verified"
-        )
-
-
-def acquire(
-    reference: str,
-    destination: Path,
-    downloader: Callable[[str, Path], None] = download_resource,
-) -> dict:
-    spec = parse_reference(reference)
-    destination = destination.resolve()
-    if destination.exists():
-        raise ArtifactError(
-            "Promoted resource destination already exists; choose a fresh run directory"
-        )
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(
-        prefix=".promoted-compose-", dir=destination.parent
-    ) as temporary:
-        staging = Path(temporary) / "payload"
-        downloaded = staging / "downloaded"
-        downloaded.mkdir(parents=True)
-        downloader(reference, downloaded)
-        for path in downloaded.rglob("*"):
-            if path.is_symlink():
-                raise ArtifactError("NGC resource contains an unsupported link")
+        if not any(downloaded.rglob("*")):
+            raise ValueError("NGC download produced no files")
+        download_hash = digest_tree(downloaded)
         archives = [
             p
             for p in downloaded.rglob("*")
             if p.is_file() and (zipfile.is_zipfile(p) or tarfile.is_tarfile(p))
         ]
         for index, archive in enumerate(sorted(archives)):
-            unpack_archive(archive, staging / "extracted" / str(index))
-        report = inspect_payload(staging)
-        compose_relative = Path(report["compose_root"]).relative_to(staging)
-        staging.rename(destination)
-        report.update(
-            {
-                "artifact_ref": reference,
-                "resource_version": spec["version"],
-                "verified": True,
-                "acquired_from": "ngc_cli",
-                "compose_root": str(destination / compose_relative),
-            }
+            unpack(archive, payload / "extracted" / str(index))
+        root, files, pins = inspect_images(payload, recipe)
+        root_relative, relative_files = (
+            root.relative_to(payload),
+            [p.relative_to(payload) for p in files],
         )
-        return report
+        tree_hash = digest_tree(root)
+        payload.rename(destination)
+    return {
+        "artifact_ref": reference,
+        "resource_version": reference.rsplit(":", 1)[1],
+        "verified": True,
+        "compose_root": str(destination / root_relative),
+        "env_files": [str(destination / p) for p in relative_files],
+        "container_pins": pins,
+        "download_sha256": download_hash,
+        "compose_tree_sha256": tree_hash,
+    }
 
 
-def main(argv: list[str] | None = None) -> int:
+def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifact-ref", required=True)
     parser.add_argument("--destination", type=Path, required=True)
+    parser.add_argument("--compose-file", type=Path, required=True)
     parser.add_argument("--output-json", type=Path, required=True)
-    args = parser.parse_args(argv)
+    args = parser.parse_args()
     try:
-        report = acquire(args.artifact_ref, args.destination)
-        args.output_json.parent.mkdir(parents=True, exist_ok=True)
+        report = acquire(args.artifact_ref, args.destination, args.compose_file)
         args.output_json.write_text(json.dumps(report, indent=2) + "\n")
     except (
-        ArtifactError,
         OSError,
         ValueError,
+        subprocess.SubprocessError,
         tarfile.TarError,
         zipfile.BadZipFile,
-    ) as exc:
-        print(f"Promoted artifact verification failed: {exc}", file=sys.stderr)
+    ) as error:
+        print(
+            f"Promoted resource verification failed: {type(error).__name__}",
+            file=sys.stderr,
+        )
         return 1
     return 0
 

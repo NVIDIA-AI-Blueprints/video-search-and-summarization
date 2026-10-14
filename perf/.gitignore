@@ -1,6 +1,5 @@
 .venv/
 .runtime/
-.runtime-state.env
+.runtime-state.json
 results/
 __pycache__/
-.bootstrap/
