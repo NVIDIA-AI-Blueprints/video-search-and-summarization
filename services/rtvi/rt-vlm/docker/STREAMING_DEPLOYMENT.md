@@ -54,22 +54,14 @@ and `KAFKA_PORT` are free. Start only one RTVI recipe at a time.
 
 ## Optional RTSP Source
 
-In `rtsp-test`, copy `.env.example` to `.env` and set `TEST_VIDEO` to an H.264
-MP4. The publisher loops it in real time without transcoding.
-
-```bash
-cd rtsp-test
-docker compose -p rtvi-rtsp-test up -d
-docker compose -p rtvi-rtsp-test logs publisher mediamtx
-```
-
-Use `rtsp://host.docker.internal:18554/smoke` from same-host RTVI, or replace
-the hostname with the RTSP host address. This unauthenticated test feed must
-stay on a trusted network. Then run the REST test from the source directory:
+Provide an RTSP URL reachable from the RTVI container. You can publish a test
+video with MediaMTX, CVLC, or another RTSP-capable tool; none of these tools is
+a dependency of RT-VLM. Keep unauthenticated test feeds on a trusted network.
+Then run the REST test from the source directory:
 
 ```bash
 python3 scripts/smoke_rtsp_streaming.py --endpoint http://localhost:18094/v1 \
-  --rtsp-url rtsp://host.docker.internal:18554/smoke
+  --rtsp-url "$RTSP_URL"
 ```
 
 The test registers a unique camera, requests ordered Streaming VLM captions,
@@ -78,15 +70,15 @@ failure. It is a functional smoke test, not an accuracy or capacity benchmark.
 
 ## Demonstrate the Caption API
 
-These commands use Bash, `curl`, and `jq`. Start the RTSP publisher and wait
-for both RTVI and NIM readiness first. The NIM path is the live-tested
+These commands use Bash, `curl`, and `jq`. Make the RTSP source available and
+wait for both RTVI and NIM readiness first. The NIM path is the live-tested
 configuration described below.
 
 In terminal 1, register a unique camera without starting automatic inference:
 
 ```bash
 export API=http://localhost:18094/v1
-export RTSP_URL=rtsp://host.docker.internal:18554/smoke
+export RTSP_URL=rtsp://rtsp-host.example/stream-path
 export CAMERA_ID="rtvi-caption-demo-$(date +%s)"
 export MODEL=$(curl --fail --silent --show-error "$API/models" | jq -er '.data[0].id')
 export ASSET_ID=$(jq -n --arg camera "$CAMERA_ID" --arg url "$RTSP_URL" \
@@ -140,9 +132,9 @@ conflicts with a bounded wait.
 ## Validation
 
 Validation status: the RTVI-to-NIM override and standalone NIM configuration
-pass `docker compose config --quiet`. MediaMTX and FFmpeg were launched with
-Compose and an RTSP client confirmed H.264 at 1920x1080. The offline REST-client
-check passes success and failed-inference cleanup cases:
+pass `docker compose config --quiet`. The live validation used an external H.264
+RTSP source at 1920x1080. The offline REST-client check passes success and
+failed-inference cleanup cases:
 `python3 -m unittest discover -s scripts -p test_smoke_rtsp_streaming.py`
 (run from the RT-VLM source directory).
 
@@ -165,7 +157,6 @@ benchmark evidence.
 Stop each deployment with its matching project name and Compose files:
 
 ```bash
-docker compose -p rtvi-rtsp-test down
 # Run in turbo-nim:
 docker compose -p rtvi-turbo down
 # Run in docker, choosing the override you started:

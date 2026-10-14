@@ -1,7 +1,7 @@
 # Turbo NIM Through RTVI
 
-For independent `.env` and `docker compose up` deployments, including a
-MediaMTX RTSP test source, see [Streaming Compose Deployments](docker/STREAMING_DEPLOYMENT.md).
+For independent `.env` and `docker compose up` deployments, see
+[Streaming Compose Deployments](docker/STREAMING_DEPLOYMENT.md).
 
 The full RTSP REST-caption smoke path now passes with the worker-startup and
 cleanup fixes on this branch. See the deployment guide's validation status for
