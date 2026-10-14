@@ -301,7 +301,7 @@ env:
   # Enable GOP-aligned decode optimization.
   - name: RTVI_ENABLE_GOP_DECODE_OPT
     value: "true"
-  # vLLM mm_tensor_ipc (passed only when supported).
+  # Blank selects torch_shm for single-GPU model instances, direct_rpc otherwise.
   - name: VLLM_MM_TENSOR_IPC
     value: ""
   # vLLM multimodal_tensor_ipc (passed only when supported).

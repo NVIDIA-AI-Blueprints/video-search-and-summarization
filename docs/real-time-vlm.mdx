@@ -1471,7 +1471,7 @@ standalone Helm override.
 | `VIA_EVS_MAX_SESSIONS` | Maximum concurrent EVS++ video sessions | `256` |
 | `RTVI_VLLM_MOE_BACKEND` (Helm env: `VLLM_MOE_BACKEND`) | vLLM MoE backend override | Empty |
 | `RTVI_VLLM_MM_PROCESSOR_CACHE_GB` (Helm env: `VLLM_MM_PROCESSOR_CACHE_GB`) | Multimodal processor cache size | `0` |
-| `VLLM_MM_TENSOR_IPC` | vLLM multimodal tensor IPC setting | Empty |
+| `VLLM_MM_TENSOR_IPC` | Multimodal tensor transport when supported by vLLM. Unset/blank selects `torch_shm` for single-GPU model instances and `direct_rpc` for multi-GPU instances. Set `direct_rpc` to opt out. `RTVI_VLLM_MM_TENSOR_IPC` takes precedence in the container environment. CUDA sharing disables `expandable_segments` to avoid restricted `pidfd_getfd` calls. | Automatic |
 | `VLLM_MULTIMODAL_TENSOR_IPC` | vLLM multimodal tensor IPC setting | Empty |
 | `VLLM_MM_ENCODER_ATTN_BACKEND` | vLLM multimodal encoder attention backend | Empty |
 | `VLLM_ROOT` | vLLM package root used by runtime patches | `/usr/local/lib/python3.12/dist-packages/vllm` |

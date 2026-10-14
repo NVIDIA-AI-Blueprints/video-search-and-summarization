@@ -320,7 +320,7 @@ VLLM_IGNORE_EOS=true
 VSS_SKIP_INPUT_MEDIA_VERIFICATION=1
 VLLM_ENABLE_PREFIX_CACHING=false
 VLLM_DISABLE_MM_PREPROCESSOR_CACHE=true
-VLLM_MM_TENSOR_IPC=
+VLLM_MM_TENSOR_IPC=                 # automatic: torch_shm single-GPU, direct_rpc multi-GPU
 VLLM_MM_ENCODER_ATTN_BACKEND=
 VLLM_ATTENTION_BACKEND=                  # CR3 Super NVFP4 on GB300 defaults to TRITON_ATTN
 # RTSP jitter buffer in milliseconds. BCD latency uses last-frame NTP
@@ -345,7 +345,7 @@ EOF
 - `RTVI_EMPTY_CUDA_CACHE_ON_RESULT=false`: Keeps per-result `torch.cuda.empty_cache()` off during perf so every decoded chunk does not force allocator synchronization. Set true only for diagnostic runs.
 - `VLLM_ENABLE_PREFIX_CACHING=false`: Prefix cache disabled for true perf measurement. `setup_perf_env.sh` regenerates this value even if an older `.env.perf` had it enabled.
 - `VLLM_DISABLE_MM_PREPROCESSOR_CACHE=true`: MM preprocessor cache disabled for true perf measurement. `setup_perf_env.sh` regenerates this value even if an older `.env.perf` had it enabled.
-- `VLLM_MM_TENSOR_IPC`: Optional patched-vLLM multimodal tensor IPC experiment. Leave empty for BCD perf runs; set `torch_shm` only when explicitly validating that path.
+- `VLLM_MM_TENSOR_IPC`: Unset/blank selects `torch_shm` for single-GPU model instances and `direct_rpc` for multi-GPU instances, where the CUDA tensor queue is unsupported. An explicit `torch_shm` request on an unsupported topology is still rejected by vLLM. Set `direct_rpc` to reproduce the previous transport baseline. Record the selected mode in comparisons: CUDA sharing changes GPU tensor residency and disables expandable CUDA allocations; it does not guarantee higher capacity or resolve GPU stalls.
 - `VLLM_MM_ENCODER_ATTN_BACKEND`: Optional vLLM multimodal encoder attention backend override. Leave empty for the patched default path; set `XFORMERS` only for experiments or emergency workaround runs.
 - `VLLM_ATTENTION_BACKEND`: Optional decoder attention backend override. CR3 Super NVFP4 on GB300 defaults to `TRITON_ATTN`; explicit values take precedence.
 - `VLLM_MAX_NUM_BATCHED_TOKENS`: Optional — cap token budget per scheduler step
@@ -1324,7 +1324,7 @@ docker compose -f docker/compose.perf.yaml logs -f rtvi-server
 |----------|-------------|-------------|
 | `VLLM_ENABLE_PREFIX_CACHING` | false | Disable prefix caching for true perf measurement |
 | `VLLM_DISABLE_MM_PREPROCESSOR_CACHE` | true | Disable MM preprocessor cache for true perf measurement |
-| `VLLM_MM_TENSOR_IPC` | empty | Optional patched-vLLM tensor IPC path for multimodal tensors; set `torch_shm` only for experiments |
+| `VLLM_MM_TENSOR_IPC` | automatic | `torch_shm` for single-GPU model instances; `direct_rpc` for multi-GPU or explicit opt-out |
 | `VLLM_MM_ENCODER_ATTN_BACKEND` | empty | Optional MM encoder attention backend override, e.g. `XFORMERS` |
 | `VLLM_ATTENTION_BACKEND` | empty | Optional decoder attention backend override; CR3 Super NVFP4 on GB300 defaults to `TRITON_ATTN` |
 | `VLLM_HAS_FLASHINFER_CUBIN` | 1 | FlashInfer optimizations |
