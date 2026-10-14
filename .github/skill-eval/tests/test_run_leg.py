@@ -2625,7 +2625,8 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
                         with lock_path.open("a") as stream:
                             with self.assertRaises(BlockingIOError):
                                 run_leg.fcntl.flock(stream, run_leg.fcntl.LOCK_EX | run_leg.fcntl.LOCK_NB)
-                    with mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=cleanup) as remove:
+                    with mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=cleanup) as remove, \
+                            mock.patch.object(run_leg.time, "sleep", side_effect=lambda _: proc.wait(timeout=5)):
                         self.assertEqual(run_leg.cleanup_after_agent_exit(root, lock_dir=locks, cancelled=True), "attempted")
                         remove.assert_called_once()
                     self.assertEqual(proc.wait(timeout=5), -signal.SIGTERM)

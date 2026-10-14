@@ -64,22 +64,22 @@ def _policy_denials(raw: str) -> list[dict[str, Any]]:
 
 def _capture_policy_denials(sandbox: str, agent_log_dir: Path) -> None:
     """Best-effort bounded diagnostics before the sandbox is cleaned up."""
-    report: dict[str, Any] = {}
+    report: dict[str, Any] = {"scope": "recent sandbox history; may include earlier trials"}
     try:
         result = subprocess.run(
             ["openshell", "logs", sandbox, "--source", "all", "-n", "200"],
-            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=20, check=False,
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, errors="replace", timeout=20, check=False,
         )
         report["exit_code"] = result.returncode
         if result.returncode == 0:
             report["denials"] = _policy_denials(result.stdout)
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except Exception as exc:
         report["exception_type"] = type(exc).__name__
     artifact = agent_log_dir.parent / "artifacts" / "nemoclaw" / "network-denials.json"
     try:
         artifact.parent.mkdir(parents=True, exist_ok=True)
         artifact.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    except OSError:
+    except Exception:
         pass  # Diagnostics must not replace the original trial result.
 
 

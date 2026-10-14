@@ -89,14 +89,27 @@ def test_policy_denials_keep_failure_metadata_without_raw_commands(runner):
     assert "secret" not in json.dumps(runner._policy_denials(raw))
 
 
-@pytest.mark.parametrize("failure", [FileNotFoundError(), subprocess.TimeoutExpired("openshell", 20)])
+@pytest.mark.parametrize("failure", [FileNotFoundError(), subprocess.TimeoutExpired("openshell", 20), UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid")])
 def test_policy_diagnostics_preserve_trial_on_command_failure(runner, monkeypatch, tmp_path, failure):
     def fail(*args, **kwargs):
         raise failure
     monkeypatch.setattr(runner.subprocess, "run", fail)
     runner._capture_policy_denials("se-current", tmp_path / "agent")
     report = json.loads((tmp_path / "artifacts/nemoclaw/network-denials.json").read_text())
-    assert report == {"exception_type": type(failure).__name__}
+    assert report["exception_type"] == type(failure).__name__
+    assert "earlier trials" in report["scope"]
+
+
+def test_policy_diagnostics_replace_invalid_utf8(runner, monkeypatch, tmp_path):
+    real_run = subprocess.run
+    def invalid_logs(*args, **kwargs):
+        assert kwargs["errors"] == "replace"
+        return real_run([sys.executable, "-c", "import sys; sys.stdout.buffer.write(bytes([255]))"], **kwargs)
+    monkeypatch.setattr(runner.subprocess, "run", invalid_logs)
+    runner._capture_policy_denials("se-current", tmp_path / "agent")
+    report = json.loads((tmp_path / "artifacts/nemoclaw/network-denials.json").read_text())
+    assert report["exit_code"] == 0
+    assert report["denials"] == []
 
 
 gateway = _load_module("gateway_state", "gateway_state.py")
@@ -513,6 +526,7 @@ def test_failure_is_available_to_the_verifier(runner, monkeypatch, tmp_path, sta
     prompt.write_text("This operational task")
     logs = tmp_path / "agent"
     message = f"this trial's {stage} failed"
+    monkeypatch.setattr(runner, "_capture_policy_denials", lambda *a: None)
 
     def fail(*args):
         raise RuntimeError(message)
