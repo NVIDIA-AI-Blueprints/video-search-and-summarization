@@ -412,8 +412,9 @@ jobs:
             export EVAL_SLUG="$cleanup_slug" GITHUB_RUN_ID="$cleanup_run_id" GITHUB_RUN_ATTEMPT="$cleanup_attempt"
             eval "$(ssh-agent -s)" > /dev/null
             trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
-            PYTHONPATH="$cleanup_pythonpath:${PYTHONPATH:-}" "$cleanup_python" -c \
-              'import sys; from pathlib import Path; from run_leg import cleanup_after_agent_exit; print("Gateway cleanup:", cleanup_after_agent_exit(Path(sys.argv[1]), cancelled=sys.argv[2] == "cancelled"))' "$LEG_RESULTS" "$cleanup_status" || \
+            cleanup_code='import sys; from pathlib import Path; from run_leg import cleanup_after_agent_exit'
+            cleanup_code+='; print("Gateway cleanup:", cleanup_after_agent_exit(Path(sys.argv[1]), cancelled=sys.argv[2] == "cancelled"))'
+            PYTHONPATH="$cleanup_pythonpath:${PYTHONPATH:-}" "$cleanup_python" -c "$cleanup_code" "$LEG_RESULTS" "$cleanup_status" || \
               echo 'Gateway cleanup failed; continuing result collection'
           fi
           # Exclude per-trial agent/ trajectory subdirs from the tarball
