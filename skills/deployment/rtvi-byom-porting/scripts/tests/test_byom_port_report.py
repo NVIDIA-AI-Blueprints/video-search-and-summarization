@@ -76,6 +76,53 @@ class ReportTest(unittest.TestCase):
         self.assertIn("- Latency: 42 ms", report)
         self.assertIn("- single caveat", report)
 
+    def test_empty_evidence_is_not_pass(self):
+        report = MODULE.build_report(
+            {
+                "validation": {
+                    "no_eager_by_default": {"status": True, "evidence": None},
+                    "platform_agnostic": {"status": True, "evidence": []},
+                    "shim_before_patch": {"status": True, "evidence": {}},
+                    "legible_output": {"status": True, "evidence": ""},
+                    "grounded_output": {"status": True, "evidence": "  "},
+                },
+                "smoke": [
+                    {"name": "none-sample", "status": True, "sample": None},
+                    {"name": "missing-sample", "status": True},
+                    {"name": "real-sample", "status": True, "sample": "wall crack"},
+                    {"name": "failed", "status": False, "sample": None},
+                ],
+            }
+        )
+
+        self.assertIn("| Eager mode is not used unless forced | UNKNOWN | - |", report)
+        self.assertIn(
+            "| Implementation is not locked to one platform | UNKNOWN | - |", report
+        )
+        self.assertIn(
+            "| Shim/plugin was attempted before vLLM patching | UNKNOWN | - |", report
+        )
+        self.assertIn("| Output is legible | UNKNOWN | - |", report)
+        self.assertIn("| Output is grounded in the prompt/media | UNKNOWN | - |", report)
+        self.assertIn("| none\\-sample | UNKNOWN | - |", report)
+        self.assertIn("| missing\\-sample | UNKNOWN | - |", report)
+        self.assertIn("| real\\-sample | PASS | wall crack |", report)
+        self.assertIn("| failed | FAIL | - |", report)
+        self.assertNotRegex(report, r"\| PASS \| None \|")
+        self.assertNotRegex(report, r"\| PASS \| \\\[\\\] \|")
+        self.assertNotRegex(report, r"\| PASS \| \\\{\\\} \|")
+
+        self.assertFalse(MODULE._has_evidence(None))
+        self.assertFalse(MODULE._has_evidence([]))
+        self.assertFalse(MODULE._has_evidence({}))
+        self.assertFalse(MODULE._has_evidence(""))
+        self.assertTrue(MODULE._has_evidence("wall crack"))
+        self.assertEqual(MODULE._status(True, None), "UNKNOWN")
+        self.assertEqual(MODULE._status(True, []), "UNKNOWN")
+        self.assertEqual(MODULE._status(True, {}), "UNKNOWN")
+        self.assertEqual(MODULE._status(True, "wall crack"), "PASS")
+        self.assertEqual(MODULE._status(False, None), "FAIL")
+
     def test_escapes_untrusted_markdown_in_every_output_context(self):
         value = "`code` **bold** [link](url) <tag> a|b"
         report = MODULE.build_report(
