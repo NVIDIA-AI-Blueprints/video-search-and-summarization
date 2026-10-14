@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 _SPEC = importlib.util.spec_from_file_location(
     "model_config", Path(__file__).resolve().parents[1] / "model_config.py"
 )
@@ -33,6 +35,50 @@ def test_catalog_source_is_distinct_from_fixed_inference_api() -> None:
         model_config.NVIDIA_INFERENCE_API_BASE_URL
         == "https://inference-api.nvidia.com/v1"
     )
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        ("https://inference-api.nvidia.com/v1", "https://inference-api.nvidia.com"),
+        ("https://inference-api.nvidia.com/v1/", "https://inference-api.nvidia.com"),
+        ("https://proxy.example/anthropic/v1", "https://proxy.example/anthropic"),
+        ("http://127.0.0.1:18400/v1", "http://127.0.0.1:18400"),
+    ],
+)
+def test_anthropic_api_root_strips_only_terminal_v1(
+    configured: str, expected: str
+) -> None:
+    assert model_config.anthropic_api_root(configured) == expected
+
+
+@pytest.mark.parametrize(
+    "configured",
+    [
+        "https://inference-api.nvidia.com/v1?tenant=test",
+        "https://inference-api.nvidia.com/v1#messages",
+        "https://inference-api.nvidia.com/v1/v1",
+    ],
+)
+def test_anthropic_api_root_rejects_ambiguous_or_repeated_versions(
+    configured: str,
+) -> None:
+    with pytest.raises(ValueError):
+        model_config.anthropic_api_root(configured)
+
+
+def test_invalid_claude_route_fails_during_model_resolution(monkeypatch) -> None:
+    monkeypatch.setattr(
+        model_config,
+        "NVIDIA_INFERENCE_API_BASE_URL",
+        "https://inference-api.nvidia.com/v1/v1",
+    )
+
+    with pytest.raises(ValueError, match="repeated /v1 suffix"):
+        model_config.resolve_model_config(
+            {**DEFAULT_ENV, "SKILLS_EVAL_CODING_HARNESS": "claude-code"},
+            role="coding",
+        )
 
 
 def test_default_routes_use_codex_sol_and_nemoclaw_opus() -> None:
@@ -128,6 +174,22 @@ def test_explicit_claude_harness_retains_its_configured_model() -> None:
     )
     assert route.runtime == "claude-code"
     assert route.model == DEFAULT_ENV["ANTHROPIC_MODEL"]
+    assert route.endpoint_url == "https://inference-api.nvidia.com"
+
+
+def test_local_nim_claude_route_is_normalized_during_resolution() -> None:
+    route = model_config.resolve_model_config(
+        {
+            **DEFAULT_ENV,
+            "NGC_API_KEY": "registry-secret",
+            "SKILLS_EVAL_CODING_HARNESS": "claude-code",
+            "SKILLS_EVAL_CODING_DEPLOYMENT": "local-nim",
+            "SKILLS_EVAL_CODING_MODEL": "nvidia/test-model",
+        },
+        role="coding",
+    )
+
+    assert route.endpoint_url == "http://127.0.0.1:18400"
 
 
 def test_operational_nemoclaw_uses_nvidia_inference() -> None:

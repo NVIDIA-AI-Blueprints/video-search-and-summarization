@@ -658,9 +658,12 @@ Notes that have burned prior runs:
   (`envs.brev_env:BrevEnvironment`), not a filesystem path. Do not
   prepend `.github.skill-eval.` — `.github` isn't a valid Python
   package and `PYTHONPATH` already points past it.
-- `--ak api_base="…"` passes the Anthropic base URL to claude-code.
-  Pass the API root without a terminal `/v1`; the Anthropic SDK appends
-  `/v1/messages`. Codex/OpenAI-compatible routes still require `/v1`.
+- Claude Code takes its route from `ANTHROPIC_BASE_URL`, passed through
+  `--ae` from `SKILL_EVAL_AGENT_ROUTE_BASE_URL` and scoped by
+  `NvClaudeCode`. Pass the API root without a terminal `/v1`; the Anthropic
+  SDK appends `/v1/messages`. Harbor 0.20.0 ignores `--ak api_base` for
+  Claude, so do not use that flag. Codex/OpenAI-compatible routes still
+  require `/v1`.
 - `--max-retries 0 -n 1` means one trial, one attempt. Harbor retries
   on harness errors (not agent errors) if `--max-retries > 0`, which
   double-counts in the reward table. Keep it 0.

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
@@ -18,6 +19,19 @@ LOCAL_NIM_PROVIDER = "local-nim"
 ROLES = ("coding", "operational")
 DEFAULT_CODEX_MODEL = "azure/openai/gpt-6.1-sol"
 DEFAULT_NEMOCLAW_MODEL = "aws/anthropic/bedrock-claude-opus-5-5"
+
+
+def anthropic_api_root(base_url: str) -> str:
+    """Validate and return the API root expected by the Anthropic SDK."""
+    stripped = base_url.strip().rstrip("/")
+    parsed = urllib.parse.urlsplit(stripped)
+    if parsed.query or parsed.fragment:
+        raise ValueError(
+            "Anthropic base URL must not contain a query string or fragment"
+        )
+    if parsed.path.endswith("/v1/v1"):
+        raise ValueError("Anthropic base URL contains a repeated /v1 suffix")
+    return stripped.removesuffix("/v1")
 
 
 def _first(*values: object) -> str:
@@ -113,6 +127,10 @@ def resolve_model_config(
         # Non-secret client placeholder; the job-owned proxy requires no auth.
         endpoint_url = "http://127.0.0.1:18400/v1"
         api_key = LOCAL_NIM_CLIENT_KEY
+    if runtime == "claude-code":
+        # Resolve and validate this before any Harbor trial starts. Claude's
+        # Anthropic SDK appends /v1/messages to the configured API root.
+        endpoint_url = anthropic_api_root(endpoint_url)
     if not api_key:
         raise ValueError(
             f"no API key is configured; set {credential_name} on the runner"
