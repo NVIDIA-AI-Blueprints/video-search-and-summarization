@@ -1267,10 +1267,12 @@ class VlmProcess(ProcessBase):
         self._streaming_vlm_sessions = {}
         self._streaming_vlm_failed_closes = {}
         self._closed_streaming_vlm_streams = {}
+        self._streaming_vlm_close_threads = {}
 
     def _initialize(self):
         # Thread locks belong to the child, not the pickled spawn state.
         self._streaming_vlm_lock = Lock()
+        self._streaming_vlm_close_stop = Event()
         # Determine the class path to use
         class_path = get_model_class_path(
             self._vlm_model_type, self._model_path, self._model_implementation_path
@@ -1337,18 +1339,13 @@ class VlmProcess(ProcessBase):
                 ]
                 failed_closes = getattr(self, "_streaming_vlm_failed_closes", {})
                 self._streaming_vlm_failed_closes = failed_closes
-                for failed_id, (key, session) in tuple(failed_closes.items()):
+                for _failed_id, (key, session) in tuple(failed_closes.items()):
                     if key[0] == stream_id and (
                         request_id is None or key[1] == request_id
                     ):
                         sessions.append((key, session))
-                        failed_closes.pop(failed_id)
             for key, session in sessions:
-                Thread(
-                    target=self._close_streaming_vlm_session,
-                    args=(stream_id, session, key),
-                    daemon=True,
-                ).start()
+                self._start_streaming_vlm_close(stream_id, session, key)
             return None
         if command == "open-streaming-vlm-session":
             stream_id = kwargs["stream_id"]
@@ -1358,44 +1355,71 @@ class VlmProcess(ProcessBase):
                     self._closed_streaming_vlm_streams.pop((stream_id, kwargs["request_id"]), None)
             return None
 
-    def _close_streaming_vlm_session(self, stream_id, session, session_key=None):
-        for attempt in range(3):
-            try:
-                self._model.end_streaming_vlm_session(stream_id, session)
+    def _start_streaming_vlm_close(self, stream_id, session, session_key):
+        close_id = id(session)
+        with self._streaming_vlm_lock:
+            if close_id in self._streaming_vlm_close_threads:
                 return
-            except Exception:
-                if attempt < 2:
-                    logger.warning(
-                        "Failed to close Streaming VLM session for stream %s; retrying",
-                        stream_id,
-                    )
-                    time.sleep(0.1)
-                    continue
-                if session_key is not None:
+            thread = Thread(
+                target=self._close_streaming_vlm_session,
+                args=(stream_id, session, session_key),
+                daemon=True,
+            )
+            self._streaming_vlm_close_threads[close_id] = thread
+        thread.start()
+
+    def _close_streaming_vlm_session(self, stream_id, session, session_key):
+        close_id = id(session)
+        attempt = 0
+        delay = 0.1
+        closed = False
+        try:
+            while not self._streaming_vlm_close_stop.is_set():
+                attempt += 1
+                try:
+                    self._model.end_streaming_vlm_session(stream_id, session)
+                    closed = True
+                    return
+                except Exception:
                     with self._streaming_vlm_lock:
-                        current = self._streaming_vlm_sessions.setdefault(
-                            session_key, session
+                        self._streaming_vlm_failed_closes[close_id] = (session_key, session)
+                    if attempt in (1, 3) or attempt % 12 == 0:
+                        logger.warning(
+                            "Failed to close Streaming VLM session for stream %s; retrying",
+                            stream_id,
+                            exc_info=attempt >= 3,
                         )
-                        if current is not session:
-                            failed_closes = getattr(
-                                self, "_streaming_vlm_failed_closes", {}
-                            )
-                            self._streaming_vlm_failed_closes = failed_closes
-                            failed_closes[id(session)] = (session_key, session)
-                logger.warning(
-                    "Failed to close Streaming VLM session for stream %s",
-                    stream_id,
-                    exc_info=True,
-                )
+                    if self._streaming_vlm_close_stop.wait(delay):
+                        return
+                    delay = min(delay * 2, 5.0)
+        finally:
+            with self._streaming_vlm_lock:
+                if closed:
+                    self._streaming_vlm_failed_closes.pop(close_id, None)
+                self._streaming_vlm_close_threads.pop(close_id, None)
 
     def _deinitialize(self):
+        self._streaming_vlm_close_stop.set()
+        for thread in tuple(self._streaming_vlm_close_threads.values()):
+            thread.join(timeout=31)
         sessions = tuple(self._streaming_vlm_sessions.items()) + tuple(
             getattr(self, "_streaming_vlm_failed_closes", {}).values()
         )
+        seen = set()
         for (stream_id, _request_id), session in sessions:
-            self._close_streaming_vlm_session(stream_id, session)
+            if id(session) in seen:
+                continue
+            seen.add(id(session))
+            try:
+                self._model.end_streaming_vlm_session(stream_id, session)
+            except Exception:
+                logger.warning(
+                    "Failed to close Streaming VLM session for stream %s during shutdown",
+                    stream_id,
+                    exc_info=True,
+                )
         self._streaming_vlm_sessions.clear()
-        getattr(self, "_streaming_vlm_failed_closes", {}).clear()
+        self._streaming_vlm_failed_closes.clear()
         self._model = None
 
     def _supports_batching(self):
@@ -1596,11 +1620,7 @@ class VlmProcess(ProcessBase):
                         session_key, candidate
                     )
                 if session is not candidate:
-                    Thread(
-                        target=self._close_streaming_vlm_session,
-                        args=(stream_id, candidate),
-                        daemon=True,
-                    ).start()
+                    self._start_streaming_vlm_close(stream_id, candidate, session_key)
                     if closed:
                         return {}
             vlm_output_batch = ctx.generate_streaming_vlm_step(

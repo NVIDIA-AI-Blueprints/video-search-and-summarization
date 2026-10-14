@@ -5,4 +5,5 @@ services:
     environment:
       VIA_VLM_STREAMING_NIM_ENABLED: "true"
       VLM_MODEL_TO_USE: openai-compat
+      MODEL_PATH: ""
       OPENAI_MAX_PARALLEL_REQUESTS: "${OPENAI_MAX_PARALLEL_REQUESTS:-48}"

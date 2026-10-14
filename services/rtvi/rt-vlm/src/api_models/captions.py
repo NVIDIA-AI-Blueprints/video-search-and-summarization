@@ -781,6 +781,34 @@ class VlmQuery(CommonBaseModel):
                 raise ValueError("ignore_eos=true is incompatible with structured output")
             if self.min_tokens is not None:
                 raise ValueError("min_tokens is incompatible with structured output")
+        if self.inference_mode == VlmInferenceMode.STREAMING_VLM:
+            if (
+                self.use_fps_for_chunking
+                or self.num_frames_per_second_or_fixed_frames_chunk != 1
+                or self.media_io_kwargs is not None
+            ):
+                raise ValueError(
+                    "streaming_vlm requires fixed-frame sampling with exactly one frame per chunk"
+                )
+            supplied = sorted(
+                name
+                for name, value in {
+                    "top_k": self.top_k,
+                    "seed": self.seed,
+                    "min_tokens": self.min_tokens,
+                    "ignore_eos": self.ignore_eos,
+                    "enable_reasoning": self.enable_reasoning,
+                    "enable_audio": self.enable_audio,
+                    "mm_processor_kwargs": self.mm_processor_kwargs,
+                }.items()
+                if value not in (None, False)
+            )
+            if supplied:
+                raise ValueError("streaming_vlm does not support: " + ", ".join(supplied))
+            if self.streaming_question_on_decode:
+                raise ValueError("streaming_vlm includes the question only with the first frame")
+            if self.response_format.type != ResponseType.TEXT:
+                raise ValueError("streaming_vlm supports only text response_format")
         return self
 
     alert_category: Optional[str] = Field(

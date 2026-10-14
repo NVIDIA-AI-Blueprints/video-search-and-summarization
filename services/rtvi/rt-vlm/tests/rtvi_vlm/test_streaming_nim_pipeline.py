@@ -102,8 +102,8 @@ def test_query_defaults_to_chunked_and_maps_streaming_nim_options():
         inference_mode="streaming_vlm",
         streaming_frame_policy="ordered",
         streaming_window_frames=8,
-        num_frames_per_second_or_fixed_frames_chunk=2.5,
-        use_fps_for_chunking=True,
+        num_frames_per_second_or_fixed_frames_chunk=1,
+        use_fps_for_chunking=False,
     )
 
     params = VlmRequestParams.from_vlm_query(streaming_query)
@@ -111,11 +111,47 @@ def test_query_defaults_to_chunked_and_maps_streaming_nim_options():
     assert streaming_query.inference_mode is VlmInferenceMode.STREAMING_VLM
     assert streaming_query.streaming_frame_policy is StreamingFramePolicy.ORDERED
     assert params.streaming_window_frames == 8
-    assert params.streaming_fps == 2.5
+    assert params.streaming_fps == 1.0
     assert params.streaming_question_on_decode is False
     assert StreamingVlmMetrics.model_validate(
         {"frame_index": 0, "ttft_s": 0.1, "latency_s": 0.2}
     ).frame_index == 0
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({}, "exactly one frame"),
+        ({"num_frames_per_second_or_fixed_frames_chunk": 2}, "exactly one frame"),
+        (
+            {
+                "num_frames_per_second_or_fixed_frames_chunk": 1,
+                "use_fps_for_chunking": True,
+            },
+            "exactly one frame",
+        ),
+        (
+            {"num_frames_per_second_or_fixed_frames_chunk": 1, "top_k": 10},
+            "does not support: top_k",
+        ),
+        (
+            {
+                "num_frames_per_second_or_fixed_frames_chunk": 1,
+                "streaming_question_on_decode": True,
+            },
+            "first frame",
+        ),
+    ],
+)
+def test_streaming_query_rejects_unsupported_contract(overrides, message):
+    with pytest.raises(ValueError, match=message):
+        VlmQuery(
+            id=uuid4(),
+            prompt="Describe.",
+            model="model",
+            inference_mode="streaming_vlm",
+            **overrides,
+        )
 
 
 def test_live_queries_on_one_stream_keep_separate_sessions():
@@ -183,7 +219,9 @@ def test_unsubscribe_during_session_creation_does_not_leak_session():
     process._streaming_vlm_sessions = {}
     process._streaming_vlm_failed_closes = {}
     process._closed_streaming_vlm_streams = {}
+    process._streaming_vlm_close_threads = {}
     process._streaming_vlm_lock = Lock()
+    process._streaming_vlm_close_stop = Event()
     chunk = ChunkInfo(streamId="stream-a")
     params = VlmRequestParams(
         vlm_prompt="Describe vehicles",
@@ -228,7 +266,9 @@ def test_failed_session_close_can_be_retried():
     process._streaming_vlm_sessions = {("stream-a", "request-1"): "session-a"}
     process._streaming_vlm_failed_closes = {}
     process._closed_streaming_vlm_streams = {}
+    process._streaming_vlm_close_threads = {}
     process._streaming_vlm_lock = Lock()
+    process._streaming_vlm_close_stop = Event()
 
     def close_session(_stream_id, _session):
         nonlocal attempts
@@ -242,15 +282,10 @@ def test_failed_session_close_can_be_retried():
         "close-streaming-vlm-session", stream_id="stream-a", request_id="request-1"
     )
     assert close_attempted.wait(timeout=1)
-    deadline = time.monotonic() + 1
-    while attempts < 3 and time.monotonic() < deadline:
+    deadline = time.monotonic() + 2
+    while attempts < 4 and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert attempts == 3
-    assert process._streaming_vlm_sessions == {("stream-a", "request-1"): "session-a"}
-
-    close_attempted.clear()
-    process._handle_command(
-        "close-streaming-vlm-session", stream_id="stream-a", request_id="request-1"
-    )
-    assert close_attempted.wait(timeout=1)
     assert attempts == 4
+    assert not process._streaming_vlm_sessions
+    assert not process._streaming_vlm_failed_closes
+    assert not process._streaming_vlm_close_threads

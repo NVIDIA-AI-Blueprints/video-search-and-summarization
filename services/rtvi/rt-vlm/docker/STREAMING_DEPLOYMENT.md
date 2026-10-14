@@ -79,9 +79,8 @@ failure. It is a functional smoke test, not an accuracy or capacity benchmark.
 ## Demonstrate the Caption API
 
 These commands use Bash, `curl`, and `jq`. Start the RTSP publisher and wait
-for both RTVI and NIM readiness first. For native mode, wait for RTVI readiness
-only; the request selects the same streaming inference mode. The NIM path is
-the live-tested configuration described below.
+for both RTVI and NIM readiness first. The NIM path is the live-tested
+configuration described below.
 
 In terminal 1, register a unique camera without starting automatic inference:
 
@@ -140,7 +139,7 @@ conflicts with a bounded wait.
 
 ## Validation
 
-Validation status: both RTVI overrides and the standalone NIM configuration
+Validation status: the RTVI-to-NIM override and standalone NIM configuration
 pass `docker compose config --quiet`. MediaMTX and FFmpeg were launched with
 Compose and an RTSP client confirmed H.264 at 1920x1080. The offline REST-client
 check passes success and failed-inference cleanup cases:
