@@ -11,6 +11,10 @@ is composed and validated offline. Routing stays disabled by default.
 
 The notebook's code cells are plain Python, so they execute directly in one
 shared namespace using only the standard library.
+
+ROUTE_VLM=true adds the VLM route to the run: the stub judge alternates its
+verdict between the two tiers so both answer targets serve, and the router
+starts without a GPU, so the native-video probe reports itself skipped.
 """
 
 from __future__ import annotations
@@ -59,6 +63,14 @@ _NOTEBOOK_PARAMETERS = (
     "ROUTER_NETWORK",
     "ROUTER_CONTAINER",
     "ROUTER_TEARDOWN",
+    "ROUTE_VLM",
+    "ROUTER_VLM_JUDGE",
+    "ROUTER_VLM_TARGET_CAPABLE",
+    "ROUTER_VLM_TARGET_EFFICIENT",
+    "ROUTER_VLM_ROUTE",
+    "ROUTER_VLM_THRESHOLD",
+    "ROUTER_GPU",
+    "ROUTER_MAX_REQUEST_BODY_MB",
 )
 
 # Output lines the executed notebook must have printed for the run to count.
@@ -71,9 +83,18 @@ _READINESS_MARKERS = (
 )
 
 
+def _truthy(value) -> bool:
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _vlm_markers() -> tuple[str, ...]:
+    """The VLM lines the run must print when ROUTE_VLM is on."""
+    return ("VLM_ROUTER_VERIFIED:", "VLM_VIDEO_PROBE:") if _truthy(os.environ.get("ROUTE_VLM")) else ()
+
+
 def _teardown_marker() -> str:
     """The teardown line the run must print for the ROUTER_TEARDOWN it was given."""
-    torn = os.environ.get("ROUTER_TEARDOWN", "true").strip().lower() in ("1", "true", "yes", "on")
+    torn = _truthy(os.environ.get("ROUTER_TEARDOWN", "true"))
     return "ROUTER_TEARDOWN: done" if torn else "ROUTER_TEARDOWN: skipped"
 
 
@@ -84,18 +105,30 @@ def _repo_root() -> Path:
 class _MockUpstreamHandler(BaseHTTPRequestHandler):
     """Minimal OpenAI-compatible completion endpoint. Echoes the requested
     model id so the router's decision log attributes each request to the
-    target that was actually routed."""
+    target that was actually routed. A judge call carries a response_format;
+    it gets a packaged capability verdict that alternates between the tiers."""
+
+    verdicts = 0
 
     def do_POST(self):  # noqa: N802 - http.server contract
         length = int(self.headers.get("Content-Length", 0))
         request = json.loads(self.rfile.read(length) or b"{}")
+        if "response_format" in request:
+            type(self).verdicts += 1
+            weak = type(self).verdicts % 2 == 1
+            content = json.dumps({
+                "crux": "stub judge", "primary_rule": "SUP-1" if weak else "LIM-1",
+                "capability_boundary": "supported" if weak else "unsupported",
+                "p_solve": 0.9 if weak else 0.1})
+        else:
+            content = "ok"
         payload = json.dumps({
             "id": "mock",
             "object": "chat.completion",
             "created": 0,
             "model": request.get("model", "mock"),
             "choices": [{"index": 0, "finish_reason": "stop",
-                         "message": {"role": "assistant", "content": "ok"}}],
+                         "message": {"role": "assistant", "content": content}}],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1,
                       "total_tokens": 2},
         }).encode()
@@ -129,6 +162,11 @@ def start_mock_upstream(env) -> ThreadingHTTPServer:
     env["ROUTER_TARGET_EFFICIENT"] = "mock/efficient"
     env.setdefault("NVIDIA_API_KEY", "mock-ci-key")
     env.setdefault("UPSTREAM_API_KEY", "mock-ci-key")
+    if _truthy(env.get("ROUTE_VLM")):
+        env["ROUTER_VLM_JUDGE"] = "mock/vlm-judge"
+        env["ROUTER_VLM_TARGET_CAPABLE"] = "mock/vlm-capable"
+        env["ROUTER_VLM_TARGET_EFFICIENT"] = "mock/vlm-efficient"
+        env.setdefault("ROUTER_GPU", "none")
     print(f"Mock upstream serving at {env['UPSTREAM_BASE_URL']}")
     return server
 
@@ -338,7 +376,7 @@ def run_notebook(*, root: Path) -> None:
     if not path.is_file():
         raise FileNotFoundError(f"Missing notebook: {path}")
     output = execute_notebook(path, cwd=root)
-    markers = _READINESS_MARKERS + (_teardown_marker(),)
+    markers = _READINESS_MARKERS + _vlm_markers() + (_teardown_marker(),)
     missing = [marker for marker in markers if marker not in output]
     if missing:
         raise RuntimeError(
