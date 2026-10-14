@@ -46,7 +46,7 @@ class CopyrightHeaderCheckerTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 1)
         for path in files:
-            self.assertIn(path, result.stdout)
+            self.assertIn(f"  {path}", result.stdout.splitlines())
 
     def test_accepts_yaml_and_dockerfiles_with_spdx(self) -> None:
         files = {
