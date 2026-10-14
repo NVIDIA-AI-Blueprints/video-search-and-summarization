@@ -28,9 +28,13 @@ Run with:
 """
 
 import asyncio
+import base64
+import concurrent.futures
 import io
+import json
 import os
 import sys
+from threading import Event, Thread
 from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import MagicMock, patch
@@ -43,6 +47,7 @@ from common.chunk_info import ChunkInfo
 from models.base_vlm_model import VlmGenerationConfig, VlmModelOutput
 from models.openai_compat.openai_compat_model import (
     CompOpenAIModel,
+    _NimStreamingSession,
     _decode_jpegs_cpu,
     _decode_jpegs_pyav,
     _encode_h264_cpu,
@@ -108,6 +113,278 @@ def _fake_base64_jpeg(*args, **kwargs):
 
 def _fake_jpeg_bytes():
     return np.asarray([0xFF, 0xD8, 0xFF, 0xD9], dtype=np.uint8)
+
+
+def test_nim_streaming_session_preserves_openai_mode_and_frame_contract():
+    model = _make_model()
+    model._endpoint = "http://localhost:9999/v1/"
+    calls = []
+
+    def request(method, path, payload=None):
+        calls.append((method, path, payload))
+        if path == "sessions":
+            return {"session_id": "sess-test"}
+        if path.endswith("/frame"):
+            return {"text": "clear", "token_count": 1, "frame_index": len(calls) - 2}
+        return {"closed": True}
+
+    model._nim_streaming_request = request
+    with patch.dict(os.environ, {"VIA_VLM_STREAMING_NIM_ENABLED": "true"}):
+        assert model.supports_streaming_vlm()
+        session = model.start_streaming_vlm_session(
+            "stream-1", "What is visible?", VlmGenerationConfig(max_new_tokens=8),
+            {"window_frames": 8, "fps": 2.5},
+        )
+        assert "model" not in calls[0][2]
+        assert calls[0][2]["fps"] == 2.5
+        raw = np.zeros((2, 3, 3), dtype=np.uint8)
+        output = model.generate_streaming_vlm_step(
+            session, "What is visible?", [_make_chunk()], video_frames=[[raw]]
+        ).result(timeout=2)
+        assert output[0].output == "clear"
+        assert calls[1][2].startswith(b"\xff\xd8")
+        jpeg = _fake_jpeg_bytes()
+        model.generate_streaming_vlm_step(
+            session, "What is visible?", [_make_chunk()], video_frames=[[jpeg]]
+        ).result(timeout=2)
+        assert calls[2][2] == b"\xff\xd8\xff\xd9"
+        model.end_streaming_vlm_session("stream-1", session)
+        assert calls[-1][:2] == ("DELETE", "sessions/sess-test")
+        with pytest.raises(RuntimeError, match="closed"):
+            model.generate_streaming_vlm_step(
+                session, "What is visible?", [_make_chunk()], video_frames=[[jpeg]]
+            ).result(timeout=2)
+        with pytest.raises(ValueError, match="first frame"):
+            model.start_streaming_vlm_session(
+                "stream-2", "Question", streaming_config={"question_on_decode": True}
+            )
+        with pytest.raises(ValueError, match="response_format"):
+            model.start_streaming_vlm_session(
+                "stream-2", "Question",
+                generation_config=VlmGenerationConfig(response_format={"type": "json_object"}),
+            )
+    assert not model.supports_streaming_vlm()
+    model._output_tpool.shutdown(wait=True)
+
+
+def test_nim_streaming_session_preserves_submission_order():
+    model = _make_model()
+    model._output_tpool.shutdown(wait=True)
+    model._output_tpool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+    calls = []
+    first_started = Event()
+    release_first = Event()
+
+    def request(method, path, payload=None):
+        calls.append(payload[-1])
+        if len(calls) == 1:
+            first_started.set()
+            assert release_first.wait(timeout=2)
+        return {"text": "clear", "frame_index": len(calls) - 1}
+
+    model._nim_streaming_request = request
+    session = _NimStreamingSession(session_id="sess-test")
+    first = np.asarray([0xFF, 0xD8, 1], dtype=np.uint8)
+    second = np.asarray([0xFF, 0xD8, 2], dtype=np.uint8)
+
+    first_future = model.generate_streaming_vlm_step(
+        session, "What is visible?", [_make_chunk()], video_frames=[[first]]
+    )
+    second_future = model.generate_streaming_vlm_step(
+        session, "What is visible?", [_make_chunk()], video_frames=[[second]]
+    )
+
+    assert first_started.wait(timeout=1)
+    assert calls == [1]
+    release_first.set()
+    first_future.result(timeout=2)
+    second_future.result(timeout=2)
+    assert calls == [1, 2]
+    model._output_tpool.shutdown(wait=True)
+
+
+def test_nim_streaming_order_does_not_starve_other_sessions():
+    model = _make_model()
+    model._output_tpool.shutdown(wait=True)
+    model._output_tpool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    calls = []
+    first_started = Event()
+    release_first = Event()
+
+    def request(method, path, payload=None):
+        calls.append(payload[-1])
+        if payload[-1] == 1:
+            first_started.set()
+            assert release_first.wait(timeout=2)
+        return {"text": "clear", "frame_index": len(calls) - 1}
+
+    model._nim_streaming_request = request
+    session_a = _NimStreamingSession(session_id="session-a")
+    session_b = _NimStreamingSession(session_id="session-b")
+    first_a = model.generate_streaming_vlm_step(
+        session_a, "What is visible?", [_make_chunk()],
+        video_frames=[[np.asarray([0xFF, 0xD8, 1], dtype=np.uint8)]],
+    )
+    assert first_started.wait(timeout=1)
+    second_a = model.generate_streaming_vlm_step(
+        session_a, "What is visible?", [_make_chunk()],
+        video_frames=[[np.asarray([0xFF, 0xD8, 2], dtype=np.uint8)]],
+    )
+    first_b = model.generate_streaming_vlm_step(
+        session_b, "What is visible?", [_make_chunk()],
+        video_frames=[[np.asarray([0xFF, 0xD8, 3], dtype=np.uint8)]],
+    )
+
+    release_first.set()
+    first_a.result(timeout=2)
+    first_b.result(timeout=2)
+    second_a.result(timeout=2)
+    assert calls == [1, 3, 2]
+    model._output_tpool.shutdown(wait=True)
+
+
+def test_nim_streaming_session_close_does_not_wait_for_inflight_frame():
+    model = _make_model()
+    frame_started = Event()
+    release_frame = Event()
+    delete_sent = Event()
+
+    def request(method, path, payload=None):
+        if method == "DELETE":
+            delete_sent.set()
+            return {}
+        frame_started.set()
+        assert release_frame.wait(timeout=2)
+        return {"text": "clear", "frame_index": 0}
+
+    model._nim_streaming_request = request
+    session = _NimStreamingSession(session_id="sess-test")
+    frame = _fake_jpeg_bytes()
+    frame_future = model.generate_streaming_vlm_step(
+        session, "What is visible?", [_make_chunk()], video_frames=[[frame]]
+    )
+    assert frame_started.wait(timeout=2)
+
+    close_thread = Thread(
+        target=model.end_streaming_vlm_session,
+        args=("stream-1", session),
+    )
+    close_thread.start()
+    assert delete_sent.wait(timeout=1)
+    close_thread.join(timeout=1)
+    assert not close_thread.is_alive()
+
+    release_frame.set()
+    frame_future.result(timeout=2)
+    assert session.closed is True
+    model._output_tpool.shutdown(wait=True)
+
+
+def test_nim_streaming_session_close_can_retry_failed_delete():
+    model = _make_model()
+    model._endpoint = "http://localhost:9999/v1/"
+
+    with patch.dict(os.environ, {"VIA_VLM_STREAMING_NIM_ENABLED": "true"}):
+        model._nim_streaming_request = MagicMock(
+            side_effect=[{"session_id": "sess-test"}, RuntimeError("delete failed"), {}]
+        )
+        remote_session = model.start_streaming_vlm_session(
+            "stream-1", "What is visible?"
+        )
+        with pytest.raises(RuntimeError, match="delete failed"):
+            model.end_streaming_vlm_session("stream-1", remote_session)
+        assert remote_session.closed is False
+        assert remote_session.remote_deleted is False
+
+        model.end_streaming_vlm_session("stream-1", remote_session)
+
+    assert remote_session.closed is True
+    assert remote_session.remote_deleted is True
+    assert model._nim_streaming_request.call_args_list[-1].args[:2] == (
+        "DELETE",
+        "sessions/sess-test",
+    )
+    model._output_tpool.shutdown(wait=True)
+
+
+@pytest.mark.parametrize("status", [404, 410])
+def test_nim_streaming_session_close_accepts_already_deleted(status):
+    from urllib.error import HTTPError
+
+    model = _make_model()
+    model._endpoint = "http://localhost:9999/v1/"
+    deleted = HTTPError("http://localhost:9999/v1", status, "deleted", {}, None)
+    with patch.dict(os.environ, {"VIA_VLM_STREAMING_NIM_ENABLED": "true"}):
+        model._nim_streaming_request = MagicMock(
+            side_effect=[{"session_id": "sess-test"}, deleted]
+        )
+        session = model.start_streaming_vlm_session("stream-1", "What is visible?")
+
+        model.end_streaming_vlm_session("stream-1", session)
+
+    assert session.closed is True
+    assert session.remote_deleted is True
+    model._output_tpool.shutdown(wait=True)
+
+
+def test_nim_frame_415_falls_back_to_json_without_reencoding():
+    from urllib.error import HTTPError
+    model = _make_model()
+    model._endpoint = "http://localhost:9999/v1"
+    encoded = b"\x89PNG\r\n\x1a\nunchanged-pixels"
+    response = MagicMock()
+    response.__enter__.return_value = response
+    response.read.return_value = b'{"text":"Yes"}'
+    rejected = HTTPError("http://localhost:9999/v1", 415, "unsupported", {}, None)
+    with patch("models.openai_compat.openai_compat_model.urlrequest.urlopen",
+               side_effect=[rejected, response]) as urlopen:
+        assert model._nim_streaming_request("POST", "sessions/test/frame", encoded) == {"text": "Yes"}
+    first, second = [call.args[0] for call in urlopen.call_args_list]
+    assert first.data == encoded
+    assert second.get_header("Content-type") == "application/json"
+    assert base64.b64decode(json.loads(second.data)["image_b64"]) == encoded
+    model._output_tpool.shutdown(wait=True)
+
+
+def test_nim_frame_server_error_is_not_retried():
+    from urllib.error import HTTPError
+    model = _make_model()
+    model._endpoint = "http://localhost:9999/v1"
+    rejected = HTTPError("http://localhost:9999/v1", 500, "server error", {}, None)
+    with patch("models.openai_compat.openai_compat_model.urlrequest.urlopen",
+               side_effect=rejected) as urlopen:
+        with pytest.raises(HTTPError):
+            model._nim_streaming_request("POST", "sessions/test/frame", b"\xff\xd8\xff\xd9")
+    assert urlopen.call_count == 1
+    assert rejected.fp.closed
+    model._output_tpool.shutdown(wait=True)
+
+
+def test_nim_streaming_http_request_uses_openai_endpoint():
+    model = _make_model()
+    model._endpoint = "http://localhost:9999/v1/"
+    response = MagicMock()
+    response.__enter__.return_value = response
+    response.read.return_value = b'{"session_id":"sess-test"}'
+    with patch.dict(os.environ, {"VIA_VLM_API_KEY": "test-key"}), patch(
+        "models.openai_compat.openai_compat_model.urlrequest.urlopen", return_value=response
+    ) as urlopen:
+        assert model._nim_streaming_request("POST", "sessions", {"question": "test"})[
+            "session_id"
+        ] == "sess-test"
+    request = urlopen.call_args.args[0]
+    assert request.full_url == "http://localhost:9999/v1/streaming/sessions"
+    assert request.get_header("Authorization") == "Bearer test-key"
+    assert request.data == b'{"question": "test"}'
+    assert request.get_header("Content-type") == "application/json"
+    assert urlopen.call_args.kwargs["timeout"] == 30
+    with patch("models.openai_compat.openai_compat_model.urlrequest.urlopen", return_value=response) as frame_urlopen:
+        model._nim_streaming_request("POST", "sessions/sess-test/frame", b"\xff\xd8\xff\xd9")
+    frame_request = frame_urlopen.call_args.args[0]
+    assert frame_request.data == b"\xff\xd8\xff\xd9"
+    assert frame_request.get_header("Content-type") == "image/jpeg"
+    assert frame_urlopen.call_args.kwargs["timeout"] == 1800
+    model._output_tpool.shutdown(wait=True)
 
 
 # ---------------------------------------------------------------------------

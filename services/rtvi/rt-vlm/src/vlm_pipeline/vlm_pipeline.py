@@ -124,6 +124,14 @@ def _vlm_queue_maxsize(num_gpus: int) -> int:
         return default
 
 
+def _validate_streaming_nim_worker_count(num_vlm_procs: int) -> None:
+    if _parse_bool_env("VIA_VLM_STREAMING_NIM_ENABLED") and num_vlm_procs != 1:
+        raise ValueError(
+            "Streaming NIM mode requires exactly one VLM process so each "
+            "stream's retained history stays on one worker"
+        )
+
+
 def _fast_image_asset_chunk_decode_enabled() -> bool:
     return os.environ.get(FAST_IMAGE_ASSET_CHUNK_DECODE_ENV, "false").strip().lower() in (
         "1",
@@ -280,6 +288,11 @@ class VlmRequestParams:
     vlm_prompt: Optional[str] = None
     chat_messages: Optional[list[dict[str, str]]] = None  # Structured OpenAI-format messages
     stream: bool = False  # Enable token-level streaming for text-only requests
+    inference_mode: str = "chunked"
+    streaming_frame_policy: str = "ordered"
+    streaming_question_on_decode: bool = False
+    streaming_window_frames: int = 16
+    streaming_fps: float = 1.0
     # True for POST /generate_text_embeddings — embedding models use generate() with text chunks
     is_text_embeddings_query: bool = False
 
@@ -308,6 +321,8 @@ class VlmRequestParams:
             config_kwargs["top_k"] = vlm_query.top_k
         if vlm_query.temperature is not None:
             config_kwargs["temperature"] = vlm_query.temperature
+        if vlm_query.repetition_penalty is not None:
+            config_kwargs["repetition_penalty"] = vlm_query.repetition_penalty
         if vlm_query.seed is not None:
             config_kwargs["seed"] = vlm_query.seed
         if vlm_query.enable_reasoning:
@@ -332,6 +347,22 @@ class VlmRequestParams:
         # Create VlmGenerationConfig instance with provided values
         params.vlm_generation_config = VlmGenerationConfig(**config_kwargs)
         params.stream = vlm_query.stream if hasattr(vlm_query, "stream") else False
+        inference_mode = getattr(vlm_query, "inference_mode", "chunked")
+        frame_policy = getattr(vlm_query, "streaming_frame_policy", "ordered")
+        params.inference_mode = getattr(inference_mode, "value", inference_mode)
+        params.streaming_frame_policy = getattr(frame_policy, "value", frame_policy)
+        params.streaming_question_on_decode = vlm_query.streaming_question_on_decode
+        params.streaming_window_frames = getattr(vlm_query, "streaming_window_frames", 16)
+        frame_rate_or_count = float(
+            getattr(vlm_query, "num_frames_per_second_or_fixed_frames_chunk", None) or 0.0
+        )
+        if frame_rate_or_count > 0:
+            if getattr(vlm_query, "use_fps_for_chunking", False):
+                params.streaming_fps = frame_rate_or_count
+            else:
+                chunk_duration = float(getattr(vlm_query, "chunk_duration", None) or 0.0)
+                if chunk_duration > 0:
+                    params.streaming_fps = frame_rate_or_count / chunk_duration
         return params
 
     @staticmethod
@@ -1233,8 +1264,13 @@ class VlmProcess(ProcessBase):
             else multiprocessing.get_context("spawn").Event()
         )
         self._next_model_health_check_at = 0.0
+        self._streaming_vlm_sessions = {}
+        self._streaming_vlm_failed_closes = {}
+        self._closed_streaming_vlm_streams = {}
 
     def _initialize(self):
+        # Thread locks belong to the child, not the pickled spawn state.
+        self._streaming_vlm_lock = Lock()
         # Determine the class path to use
         class_path = get_model_class_path(
             self._vlm_model_type, self._model_path, self._model_implementation_path
@@ -1284,8 +1320,82 @@ class VlmProcess(ProcessBase):
                     exc_info=True,
                 )
                 return False
+        if command == "close-streaming-vlm-session":
+            stream_id = kwargs["stream_id"]
+            request_id = kwargs.get("request_id")
+            tombstone = (stream_id, request_id) if request_id is not None else stream_id
+            with self._streaming_vlm_lock:
+                self._closed_streaming_vlm_streams[tombstone] = None
+                if len(self._closed_streaming_vlm_streams) > 4096:
+                    self._closed_streaming_vlm_streams.pop(
+                        next(iter(self._closed_streaming_vlm_streams))
+                    )
+                sessions = [
+                    (key, self._streaming_vlm_sessions.pop(key))
+                    for key in tuple(self._streaming_vlm_sessions)
+                    if key[0] == stream_id and (request_id is None or key[1] == request_id)
+                ]
+                failed_closes = getattr(self, "_streaming_vlm_failed_closes", {})
+                self._streaming_vlm_failed_closes = failed_closes
+                for failed_id, (key, session) in tuple(failed_closes.items()):
+                    if key[0] == stream_id and (
+                        request_id is None or key[1] == request_id
+                    ):
+                        sessions.append((key, session))
+                        failed_closes.pop(failed_id)
+            for key, session in sessions:
+                Thread(
+                    target=self._close_streaming_vlm_session,
+                    args=(stream_id, session, key),
+                    daemon=True,
+                ).start()
+            return None
+        if command == "open-streaming-vlm-session":
+            stream_id = kwargs["stream_id"]
+            with self._streaming_vlm_lock:
+                self._closed_streaming_vlm_streams.pop(stream_id, None)
+                if kwargs.get("request_id") is not None:
+                    self._closed_streaming_vlm_streams.pop((stream_id, kwargs["request_id"]), None)
+            return None
+
+    def _close_streaming_vlm_session(self, stream_id, session, session_key=None):
+        for attempt in range(3):
+            try:
+                self._model.end_streaming_vlm_session(stream_id, session)
+                return
+            except Exception:
+                if attempt < 2:
+                    logger.warning(
+                        "Failed to close Streaming VLM session for stream %s; retrying",
+                        stream_id,
+                    )
+                    time.sleep(0.1)
+                    continue
+                if session_key is not None:
+                    with self._streaming_vlm_lock:
+                        current = self._streaming_vlm_sessions.setdefault(
+                            session_key, session
+                        )
+                        if current is not session:
+                            failed_closes = getattr(
+                                self, "_streaming_vlm_failed_closes", {}
+                            )
+                            self._streaming_vlm_failed_closes = failed_closes
+                            failed_closes[id(session)] = (session_key, session)
+                logger.warning(
+                    "Failed to close Streaming VLM session for stream %s",
+                    stream_id,
+                    exc_info=True,
+                )
 
     def _deinitialize(self):
+        sessions = tuple(self._streaming_vlm_sessions.items()) + tuple(
+            getattr(self, "_streaming_vlm_failed_closes", {}).values()
+        )
+        for (stream_id, _request_id), session in sessions:
+            self._close_streaming_vlm_session(stream_id, session)
+        self._streaming_vlm_sessions.clear()
+        getattr(self, "_streaming_vlm_failed_closes", {}).clear()
         self._model = None
 
     def _supports_batching(self):
@@ -1400,6 +1510,8 @@ class VlmProcess(ProcessBase):
         audio_transcript = kwargs.pop("audio_transcript", [[]] * len(chunk))
         error_msg = kwargs.pop("error", [None] * len(chunk))
 
+        is_live_stream = kwargs.get("is_live_stream", [False])
+        is_live_stream = is_live_stream[0] if isinstance(is_live_stream, list) else is_live_stream
         decode_only = kwargs.pop("decode_only", [False])[0]
         # frames is [[]] when batched from empty frames=[] — detect text-only
         is_text_only = not frames or all(
@@ -1441,6 +1553,65 @@ class VlmProcess(ProcessBase):
                 )
                 for _ in chunk
             ]
+        elif request_params[0].inference_mode == "streaming_vlm":
+            if not is_live_stream:
+                raise ValueError("Streaming VLM inference is supported only for live streams")
+            if len(chunk) != 1 or not chunk[0].streamId:
+                raise ValueError("Streaming VLM requires one live-stream chunk with a streamId")
+            if not ctx.supports_streaming_vlm():
+                raise ValueError("Streaming VLM is not supported by this model backend")
+            if request_params[0].streaming_frame_policy != "ordered":
+                raise ValueError("Streaming VLM currently supports ordered frames only")
+
+            stream_id = chunk[0].streamId
+            request_id = kwargs.get("request_id")
+            if isinstance(request_id, (list, tuple)):
+                request_id = request_id[0] if request_id else None
+            session_key = (stream_id, request_id or stream_id)
+            with self._streaming_vlm_lock:
+                if (
+                    stream_id in self._closed_streaming_vlm_streams
+                    or session_key in self._closed_streaming_vlm_streams
+                ):
+                    return {}
+                session = self._streaming_vlm_sessions.get(session_key)
+            if session is None:
+                candidate = ctx.start_streaming_vlm_session(
+                    stream_id=stream_id,
+                    request_id=request_id,
+                    query=request_params[0].vlm_prompt,
+                    generation_config=request_params[0].vlm_generation_config,
+                    streaming_config={
+                        "window_frames": request_params[0].streaming_window_frames,
+                        "fps": request_params[0].streaming_fps,
+                        "question_on_decode": request_params[0].streaming_question_on_decode,
+                    },
+                )
+                with self._streaming_vlm_lock:
+                    closed = (
+                        stream_id in self._closed_streaming_vlm_streams
+                        or session_key in self._closed_streaming_vlm_streams
+                    )
+                    session = None if closed else self._streaming_vlm_sessions.setdefault(
+                        session_key, candidate
+                    )
+                if session is not candidate:
+                    Thread(
+                        target=self._close_streaming_vlm_session,
+                        args=(stream_id, candidate),
+                        daemon=True,
+                    ).start()
+                    if closed:
+                        return {}
+            vlm_output_batch = ctx.generate_streaming_vlm_step(
+                session=session,
+                query=request_params[0].vlm_prompt,
+                chunks=chunk,
+                video_frames=frames,
+                video_frames_times=frame_times,
+                generation_config=request_params[0].vlm_generation_config,
+                audio_frames=audio_frames,
+            )
         elif is_text_only and chunk and chunk[0].chunk_type == "text":
             # Text-only VLM request — bypass frame processing
             # Use structured chat_messages if available (multi-turn), else build from prompt
@@ -2033,6 +2204,24 @@ class VlmPipeline:
         self._processed_chunk_queue_watcher_stop_event = Event()
         self._processed_chunk_queue_watcher_thread = None
 
+        self._num_gpus_per_vlm_proc = max(
+            int(os.environ.get("NUM_GPUS_PER_VLM_PROC", "") or 1), 1
+        )
+        self._num_vlm_procs = args.num_gpus
+        if args.vlm_model_type == VlmModelType.OPENAI_COMPATIBLE:
+            self._num_vlm_procs = 1
+        elif not args.disable_vlm:
+            self._num_vlm_procs = args.num_gpus // self._num_gpus_per_vlm_proc
+            if self._num_vlm_procs == 0:
+                raise Exception(
+                    f"Not enough GPUs to run VLM pipeline. Available GPUs: {args.num_gpus}."
+                    f" GPUs per VLM instance: {self._num_gpus_per_vlm_proc}"
+                )
+            logger.info(f"GPUs per VLM instance: {self._num_gpus_per_vlm_proc}")
+
+        _validate_streaming_nim_worker_count(self._num_vlm_procs)
+        logger.info(f"num_vlm_procs set to {self._num_vlm_procs}")
+
         # Create the ASR processes
         # Only create ASR process if audio enabled AND VLM doesn't handle audio natively
         self._num_asr_procs = 1
@@ -2064,22 +2253,6 @@ class VlmPipeline:
                     "(VLM_MODEL_SUPPORTS_AUDIO=true)"
                 )
             self._asr_procs = []  # No ASR processes needed
-
-        self._num_gpus_per_vlm_proc = max(int(os.environ.get("NUM_GPUS_PER_VLM_PROC", "") or 1), 1)
-
-        self._num_vlm_procs = args.num_gpus
-        if args.vlm_model_type == VlmModelType.OPENAI_COMPATIBLE:
-            self._num_vlm_procs = 1
-        elif not args.disable_vlm:
-            self._num_vlm_procs = args.num_gpus // self._num_gpus_per_vlm_proc
-            if self._num_vlm_procs == 0:
-                raise Exception(
-                    f"Not enough GPUs to run VLM pipeline. Available GPUs: {args.num_gpus}."
-                    f" GPUs per VLM instance: {self._num_gpus_per_vlm_proc}"
-                )
-            logger.info(f"GPUs per VLM instance: {self._num_gpus_per_vlm_proc}")
-
-        logger.info(f"num_vlm_procs set to {self._num_vlm_procs}")
 
         self._model_unhealthy_event = mp_ctx.Event()
 
@@ -2363,8 +2536,13 @@ class VlmPipeline:
         for proc in self._vlm_procs:
             try:
                 proc.send_command("close-evs-session", stream_id=stream_id)
+                proc.send_command("close-streaming-vlm-session", stream_id=stream_id)
             except Exception:
-                logger.debug("Failed to close EVS session for stream %s", stream_id, exc_info=True)
+                logger.debug(
+                    "Failed to close model session for stream %s",
+                    stream_id,
+                    exc_info=True,
+                )
 
     def release_idle_vlm_resources(self, wait_timeout_sec: float = 0.0) -> bool:
         """Ask every VLM process to release caches while the pipeline is idle."""
@@ -2650,6 +2828,12 @@ class VlmPipeline:
 
             try:
                 if should_start_decoder:
+                    for proc in self._vlm_procs:
+                        proc.send_command(
+                            "open-streaming-vlm-session",
+                            stream_id=asset.asset_id,
+                            request_id=request_id,
+                        )
                     self._decoder_procs[gpu_id].send_command(
                         "start-live-stream",
                         asset=asset,
@@ -2658,6 +2842,12 @@ class VlmPipeline:
                         request_id=request_id,
                     )
                 else:
+                    for proc in self._vlm_procs:
+                        proc.send_command(
+                            "open-streaming-vlm-session",
+                            stream_id=asset.asset_id,
+                            request_id=request_id,
+                        )
                     added = self._decoder_procs[gpu_id].send_command(
                         "add-live-stream-subscriber",
                         live_stream_id=asset.asset_id,
@@ -2716,6 +2906,12 @@ class VlmPipeline:
             live_stream_id=live_stream_id,
             request_id=request_id,
         )
+        for proc in self._vlm_procs:
+            proc.send_command(
+                "close-streaming-vlm-session",
+                stream_id=live_stream_id,
+                request_id=request_id,
+            )
 
         if not remaining:
             if live_stream_lock:
@@ -2788,6 +2984,8 @@ class VlmPipeline:
 
         if timed_out:
             aborted_requests = self._abort_live_stream_vlm_requests(live_stream_id)
+            if abort_inflight:
+                self.close_evs_sessions(live_stream_id)
             logger.warning(
                 "Drain timed out after %.1fs for live-stream %s; "
                 "aborted %d in-flight VLM request(s); retaining stream state for retry.",
