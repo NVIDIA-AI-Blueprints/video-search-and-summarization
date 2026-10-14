@@ -246,7 +246,7 @@ When done, output a single JSON object on its own line:
 # enough on rubric-style checks where the model drifts into investigation
 # mode. Re-uses the open session so we don't pay for re-running tool calls;
 # the model still has all prior context. Conservative — one retry only,
-# after a clean stream end or an explicit turn-budget result. Other SDK errors
+# after a clean stream end. Other SDK errors
 # remain failures, and the original per-check deadline covers the retry too.
 _VERDICT_NUDGE = (
     "Stop investigating. Based ONLY on the evidence you have already "
@@ -256,7 +256,8 @@ _VERDICT_NUDGE = (
     '{"pass": <true|false>, "matched": "<evidence-snippet-or-null>", '
     '"rationale": "<one or two sentences>"}\n'
     "If your prior analysis was inconclusive, emit pass=false with that "
-    "as the rationale."
+    "as the rationale. Negative checks require inspection of the entire relevant "
+    "evidence scope; an incomplete search is inconclusive and must yield pass=false."
 )
 
 
@@ -407,17 +408,14 @@ async def _judge_llm_agent(
             # The follow-up uses the same session so prior tool results
             # stay in context — no re-investigation cost.
             #
-            # An explicit max-turns result can also leave useful evidence in
-            # the session without a verdict. Give it the same one-shot nudge;
-            # never retry unrelated SDK errors (auth/rate limit/tool abort).
-            # The outer asyncio.wait_for bounds both responses together.
-            turn_budget_exhausted = any(
-                getattr(reason, "value", reason) in {"max_turns", "error_max_turns"}
-                for reason in (result_subtype, result_stop_reason)
-            )
+            # Exhausting the turn budget is incomplete investigation, not a
+            # clean finish. Keep it failed; a forced verdict could accept a
+            # negative assertion before the relevant evidence was searched.
             if (
                 saw_result
-                and (not result_is_error or turn_budget_exhausted)
+                and not result_is_error
+                and all(getattr(reason, "value", reason) not in {"max_turns", "error_max_turns"}
+                        for reason in (result_subtype, result_stop_reason))
                 and collected_text
                 and _parse_verdict_json("\n".join(collected_text)) is None
             ):
