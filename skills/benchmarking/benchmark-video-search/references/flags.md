@@ -40,15 +40,17 @@ were unmerged; `--no-merge-adjacent` reproduces them.
 
 Every run wipes the index before it ingests, unless `--skip-ingest` is passed.
 The wipe deletes every VST source, then waits for the cleanup webhooks to empty
-`mdx-embed-filtered-*`, `mdx-raw-*`, `mdx-behavior-*` and `default_*`, then
-uploads the whole dataset. If the index is already empty, it deletes nothing. `--skip-ingest` deletes
+the indexes a `video_file` search reads — `mdx-embed-filtered-2025-01-01`,
+`mdx-raw-2025-01-01` and `mdx-behavior-2025-01-01` — then uploads the whole
+dataset. If the index is already empty, it deletes nothing. `--skip-ingest` deletes
 nothing and uploads nothing, and aborts unless every dataset video is
 registered. Sources outside the dataset that `--skip-ingest` leaves in place
 can be returned by search and score as false positives. The run warns about
 them and records them in `flow.reused_index.other_sources`.
 
-`--only-dataset`, `--clear`, `--confirm-delete` and `--skip-existing` are
-accepted and ignored.
+`--only-dataset`, `--clear`, `--confirm-delete` and `--skip-existing` no longer
+exist. They once controlled that deletion; passing one is now a usage error
+(exit 2), raised before anything is deleted.
 
 ## Ingest gate
 
@@ -72,7 +74,9 @@ searchable hit. Two flags change what the gate means:
 
 Timings are measured from each video's upload start and are late by at most
 `--ingest-poll-s`. `per_index_done_s.embed` is comparable with the docs'
-existing upload "Avg (s)"; `ingest_s` is full ingestion.
+existing upload "Avg (s)"; `ingest_s` is full ingestion. Raw is done when RT-CV
+releases the stream (or when its count last changed, if later), not at the last
+detection, so sparse footage does not report ingestion as faster than it was.
 
 `--legacy-index-probe` swaps the gate for the old coverage probe, for one
 release. Its pass point is ~20 s into a ~220 s ingest.
