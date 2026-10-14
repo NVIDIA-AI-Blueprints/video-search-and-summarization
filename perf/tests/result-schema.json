@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Compose-base result contract based on onboarding schema 0.1",
+  "description": "Constrained schema 0.1 result shape from the October 11 onboarding document. Does not represent schema 2.0.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "metadata", "summary", "test_cases"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "metadata": {
+      "type": "object",
+      "required": ["service", "run_info", "platform", "config", "benchmark_name", "benchmark_mode"],
+      "properties": {
+        "service": {"const": "compose-base"},
+        "benchmark_name": {"type": "string", "minLength": 1},
+        "benchmark_mode": {"enum": ["streaming", "compose_base"]},
+        "config": {"type": "object", "required": ["config_id"], "properties": {"config_id": {"type": "string", "minLength": 1}}},
+        "run_info": {
+          "type": "object",
+          "required": ["run_id", "timestamp", "duration_seconds", "triggered_by", "release"],
+          "properties": {
+            "run_id": {"type": "string", "pattern": "^compose-base_[^/\\\\]+_[0-9]{8}_[0-9]{6}$"},
+            "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+            "duration_seconds": {"type": "number", "minimum": 0},
+            "triggered_by": {"type": "string", "enum": ["manual", "ci_pipeline", "scheduled", "artifact_promotion", "manual_script"]},
+            "release": {"type": "string"},
+            "pipeline_url": {"type": "string"}
+          }
+        },
+        "platform": {
+          "type": "object", "required": ["gpu"],
+          "properties": {"gpu": {"type": "object", "required": ["model", "count"], "properties": {"model": {"type": "string"}, "count": {"type": "integer", "minimum": 0}}}}
+        }
+      }
+    },
+    "summary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["total_tests", "passed", "failed", "pass_rate", "overall_status"],
+      "properties": {
+        "total_tests": {"type": "integer", "minimum": 1},
+        "passed": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0},
+        "pass_rate": {"type": "number", "minimum": 0, "maximum": 100},
+        "overall_status": {"enum": ["PASS", "FAIL", "PARTIAL"]}
+      }
+    },
+    "test_cases": {
+      "type": "array", "minItems": 1,
+      "items": {"type": "object", "required": ["test_case_id", "success", "metrics"], "properties": {
+        "test_case_id": {"type": "string", "minLength": 1},
+        "success": {"type": "boolean"}, "metrics": {"type": "object"},
+        "error": {"type": "string"}, "thresholds": {"type": "object"}
+      }}
+    }
+  }
+}
