@@ -1087,10 +1087,20 @@ def run_evaluation(
     if not results:
         raise SystemExit("ABORTED: no query produced a result.")
 
+    fell_back = sum(1 for r in results if r.get("decompose_failed"))
+    if fell_back:
+        print(f"\nWARNING: {fell_back}/{len(results)} queries fell back to embed: decomposition failed.")
+        if decompose_abort is None and 100 * fell_back / len(results) > max_decompose_failed_pct:
+            decompose_abort = (
+                f"{fell_back}/{len(results)} queries fell back to embed, above "
+                f"--max-decompose-failed-pct {max_decompose_failed_pct:g}"
+            )
+
     # `total_queries` counts what was scored, so dropping failures quietly makes
     # a partial run look complete -- 50 unanswered out of 673 reports
     # `total_queries: 623` and reads as clean. Say it, loudly, and stop unless
-    # the caller has said how many they will accept.
+    # the caller has said how many they will accept. A run already aborted on
+    # decomposition goes on to save its errors, unanswered queries included.
     if unanswered:
         print("\n" + "!" * 60)
         print(f"WARNING: {len(unanswered)}/{len(queries)} queries were never answered.")
@@ -1099,7 +1109,7 @@ def run_evaluation(
         if len(unanswered) > 10:
             print(f"  ... and {len(unanswered) - 10} more")
         print("!" * 60 + "\n")
-        if len(unanswered) > tolerate_unanswered:
+        if len(unanswered) > tolerate_unanswered and decompose_abort is None:
             raise SystemExit(
                 f"ABORTED: {len(unanswered)} unanswered query/queries exceeds "
                 f"--tolerate-unanswered {tolerate_unanswered}.\n"
@@ -1107,15 +1117,6 @@ def run_evaluation(
                 "below would describe\n"
                 f"  {len(results)} queries under a {len(queries)}-query label. "
                 "Raise the tolerance to accept that."
-            )
-
-    fell_back = sum(1 for r in results if r.get("decompose_failed"))
-    if fell_back:
-        print(f"\nWARNING: {fell_back}/{len(results)} queries fell back to embed: decomposition failed.")
-        if decompose_abort is None and 100 * fell_back / len(results) > max_decompose_failed_pct:
-            decompose_abort = (
-                f"{fell_back}/{len(results)} queries fell back to embed, above "
-                f"--max-decompose-failed-pct {max_decompose_failed_pct:g}"
             )
 
     # An aborted run is saved for its per-query decomposition errors, with no
@@ -1157,7 +1158,7 @@ def run_evaluation(
 
     output: dict[str, Any] = {
         "summary": summary,
-        **({"aborted": decompose_abort} if decompose_abort else {}),
+        **({"aborted": decompose_abort, "unanswered": unanswered} if decompose_abort else {}),
         "config": {
             "dataset": dataset,
             "subset": subset or "default",
@@ -1910,6 +1911,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.error("--ingest-poll-s and --chunk-s must be positive, --ingest-quiet-s non-negative")
     if args.ingest_absent_grace_s < 0:
         p.error("--ingest-absent-grace-s must be non-negative")
+    if args.source_type == "rtsp" and not args.skip_ingest:
+        p.error(
+            "--source-type rtsp needs --skip-ingest: the fresh ingest indexes uploads as video files, "
+            "which an rtsp search never reads, and the wipe does not check the dated RTSP indexes"
+        )
     return args
 
 
