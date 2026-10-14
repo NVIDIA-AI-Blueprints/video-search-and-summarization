@@ -287,6 +287,37 @@ class BenchmarkTests(unittest.TestCase):
                 upload.assert_called_once_with(path, {})
                 self.assertEqual(json.loads(path.read_text())["summary"]["failed"], 1)
 
+    def test_cpu_model_is_identity_or_truthfully_unavailable(self):
+        with patch.object(
+            benchmark.Path,
+            "read_text",
+            return_value="processor : 0\nmodel name : Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz\n",
+        ):
+            self.assertEqual(
+                benchmark.discover_cpu_model(),
+                "Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz",
+            )
+        with (
+            patch.object(benchmark.Path, "read_text", side_effect=FileNotFoundError()),
+            patch.object(benchmark.platform, "processor", return_value="x86_64"),
+            patch.object(benchmark.platform, "machine", return_value="x86_64"),
+        ):
+            self.assertEqual(benchmark.discover_cpu_model(), "Unavailable")
+        with (
+            patch.object(benchmark.Path, "read_text", side_effect=FileNotFoundError()),
+            patch.object(
+                benchmark.platform, "processor", return_value="Example Processor Model"
+            ),
+            patch.object(benchmark.platform, "machine", return_value="x86_64"),
+        ):
+            self.assertEqual(benchmark.discover_cpu_model(), "Example Processor Model")
+
+    def test_gpu_selection_matches_matrix_unless_explicitly_overridden(self):
+        entry = {"rtCvGpus": "1"}
+        self.assertEqual(benchmark.selected_gpu_ids(None, entry), "1")
+        self.assertEqual(benchmark.selected_gpu_ids("0", entry), "0")
+        self.assertEqual(benchmark.selected_gpu_ids(None, {}), "0")
+
     def test_deployment_version_is_reported_fact_not_requested_release(self):
         fact = benchmark.deployment_version_fact(
             "  vst            ok  routed\n  version        3.3.0-rc0\ncommands:\n"

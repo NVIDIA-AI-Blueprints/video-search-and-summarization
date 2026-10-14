@@ -163,6 +163,43 @@ def check_config(
     return entry, scenario
 
 
+def discover_cpu_model() -> str:
+    """Read processor identity; architecture alone is not a CPU model."""
+    try:
+        for line in Path("/proc/cpuinfo").read_text().splitlines():
+            key, separator, value = line.partition(":")
+            if separator and key.strip().lower() == "model name" and value.strip():
+                return value.strip()
+    except OSError:
+        pass
+    processor = platform.processor().strip()
+    architectures = {
+        "x86",
+        "x86_64",
+        "amd64",
+        "arm",
+        "arm64",
+        "aarch64",
+        "i386",
+        "i686",
+        "armv7l",
+        platform.machine().lower(),
+    }
+    return (
+        processor
+        if processor and processor.lower() not in architectures
+        else "Unavailable"
+    )
+
+
+def selected_gpu_ids(override: str | None, entry: dict[str, Any]) -> str:
+    """Match the selected matrix devices when the shared caller omits a flag."""
+    if override is not None:
+        return override
+    value = entry.get("rtCvGpus")
+    return str(value) if value is not None else "0"
+
+
 def discover_platform(gpu_ids: str = "0") -> dict[str, Any]:
     gpu: dict[str, Any] = {"model": "Unknown", "count": 0, "topology": "single-gpu"}
     # Hardware discovery is metadata, not a second infrastructure collector.
@@ -188,7 +225,7 @@ def discover_platform(gpu_ids: str = "0") -> dict[str, Any]:
         pass
     return {
         "gpu": gpu,
-        "cpu": {"model": platform.processor(), "cores": os.cpu_count() or 0},
+        "cpu": {"model": discover_cpu_model(), "cores": os.cpu_count() or 0},
         "os": platform.platform(),
     }
 
@@ -771,7 +808,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--scenario", default="quick_test")
     parser.add_argument("--config-id", required=True)
     parser.add_argument("--output-json", type=Path, default=Path("benchmark_results"))
-    parser.add_argument("--rt-cv-gpus", default="0")
+    parser.add_argument(
+        "--rt-cv-gpus",
+        help="Override matrix rtCvGpus; omitted uses selected configuration",
+    )
     parser.add_argument("--rt-cv-container")
     parser.add_argument("--triggered-by", default="manual")
     parser.add_argument("--release", default="")
@@ -870,6 +910,7 @@ def main(argv: list[str] | None = None) -> int:
             args.scenario,
             require_enabled=not args.stage_failure,
         )
+        args.rt_cv_gpus = selected_gpu_ids(args.rt_cv_gpus, entry)
         if args.stage_failure:
             raise BenchmarkError(f"{args.stage_failure}: {args.failure_message}")
         container = args.rt_cv_container or config.get("global", {}).get(
@@ -919,6 +960,7 @@ def main(argv: list[str] | None = None) -> int:
         yaml.YAMLError,
     ) as exc:
         cases = [case_failure(args.stage_failure or "preflight", str(exc))]
+    args.rt_cv_gpus = selected_gpu_ids(args.rt_cv_gpus, entry)
     result = build_result(
         args, entry, scenario, cases, started, time.monotonic() - clock_start
     )
