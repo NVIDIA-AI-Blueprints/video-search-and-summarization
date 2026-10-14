@@ -116,7 +116,12 @@
 +        chat_template_content_format="auto",
 +        chat_template_kwargs={"add_generation_prompt": True},
 +    )
-+    _, engine_prompts = await renderer.render_chat_async([messages], params)
++    prompt_extras = {}
++    if mm_processor_kwargs:
++        prompt_extras["mm_processor_kwargs"] = dict(mm_processor_kwargs)
++    _, engine_prompts = await renderer.render_chat_async(
++        [messages], params, prompt_extras=prompt_extras
++    )
 +    chunk_sp = sp
      if not generate:
 +        chunk_sp = sp.clone()

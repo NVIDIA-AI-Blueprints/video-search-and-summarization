@@ -20,7 +20,7 @@
     },
     {
       "patch_file": "streaming-nim-image-prompts.patch",
-      "patch_sha256": "fae4385600ded87317bc30539a5a67452eee5ca94dd8706839e53d504377b3c3"
+      "patch_sha256": "8965a0bc0d812045744dc30236b03ae5f1ad95f4540dc707e8490126818845f5"
     },
     {
       "patch_file": "streaming-nim-retention-accounting.patch",

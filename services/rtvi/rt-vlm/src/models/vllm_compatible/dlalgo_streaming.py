@@ -483,11 +483,13 @@ class DlalgoStreamingSessionManager:
             session = self._sessions.get(stream_id)
             if session is None:
                 return False
+            push_lock = self._push_locks[stream_id]
             await session.close()
-            self._sessions.pop(stream_id, None)
-            self._configs.pop(stream_id, None)
-            self._push_locks.pop(stream_id, None)
-            self._completed_steps.pop(stream_id, None)
+            async with push_lock:
+                self._sessions.pop(stream_id, None)
+                self._configs.pop(stream_id, None)
+                self._push_locks.pop(stream_id, None)
+                self._completed_steps.pop(stream_id, None)
         return True
 
     async def close_all(self) -> None:

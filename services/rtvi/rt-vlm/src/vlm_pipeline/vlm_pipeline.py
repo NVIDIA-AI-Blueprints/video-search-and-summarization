@@ -124,6 +124,14 @@ def _vlm_queue_maxsize(num_gpus: int) -> int:
         return default
 
 
+def _validate_native_streaming_worker_count(num_vlm_procs: int) -> None:
+    if _parse_bool_env("RTVI_STREAMING_VLM_ENABLED") and num_vlm_procs != 1:
+        raise ValueError(
+            "Native Streaming VLM requires exactly one VLM process so each "
+            "stream's retained history stays on one worker"
+        )
+
+
 def _fast_image_asset_chunk_decode_enabled() -> bool:
     return os.environ.get(FAST_IMAGE_ASSET_CHUNK_DECODE_ENV, "false").strip().lower() in (
         "1",
@@ -2229,6 +2237,24 @@ class VlmPipeline:
         self._processed_chunk_queue_watcher_stop_event = Event()
         self._processed_chunk_queue_watcher_thread = None
 
+        self._num_gpus_per_vlm_proc = max(
+            int(os.environ.get("NUM_GPUS_PER_VLM_PROC", "") or 1), 1
+        )
+        self._num_vlm_procs = args.num_gpus
+        if args.vlm_model_type == VlmModelType.OPENAI_COMPATIBLE:
+            self._num_vlm_procs = 1
+        elif not args.disable_vlm:
+            self._num_vlm_procs = args.num_gpus // self._num_gpus_per_vlm_proc
+            if self._num_vlm_procs == 0:
+                raise Exception(
+                    f"Not enough GPUs to run VLM pipeline. Available GPUs: {args.num_gpus}."
+                    f" GPUs per VLM instance: {self._num_gpus_per_vlm_proc}"
+                )
+            logger.info(f"GPUs per VLM instance: {self._num_gpus_per_vlm_proc}")
+
+        _validate_native_streaming_worker_count(self._num_vlm_procs)
+        logger.info(f"num_vlm_procs set to {self._num_vlm_procs}")
+
         # Create the ASR processes
         # Only create ASR process if audio enabled AND VLM doesn't handle audio natively
         self._num_asr_procs = 1
@@ -2260,22 +2286,6 @@ class VlmPipeline:
                     "(VLM_MODEL_SUPPORTS_AUDIO=true)"
                 )
             self._asr_procs = []  # No ASR processes needed
-
-        self._num_gpus_per_vlm_proc = max(int(os.environ.get("NUM_GPUS_PER_VLM_PROC", "") or 1), 1)
-
-        self._num_vlm_procs = args.num_gpus
-        if args.vlm_model_type == VlmModelType.OPENAI_COMPATIBLE:
-            self._num_vlm_procs = 1
-        elif not args.disable_vlm:
-            self._num_vlm_procs = args.num_gpus // self._num_gpus_per_vlm_proc
-            if self._num_vlm_procs == 0:
-                raise Exception(
-                    f"Not enough GPUs to run VLM pipeline. Available GPUs: {args.num_gpus}."
-                    f" GPUs per VLM instance: {self._num_gpus_per_vlm_proc}"
-                )
-            logger.info(f"GPUs per VLM instance: {self._num_gpus_per_vlm_proc}")
-
-        logger.info(f"num_vlm_procs set to {self._num_vlm_procs}")
 
         self._model_unhealthy_event = mp_ctx.Event()
 

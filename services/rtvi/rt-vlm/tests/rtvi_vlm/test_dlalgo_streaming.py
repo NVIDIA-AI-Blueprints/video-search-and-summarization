@@ -48,7 +48,11 @@ from models.vllm_compatible.vllm_compatible_model import (
     _forward_supported_engine_arg,
     _get_processor_use_fast_override,
 )
-from vlm_pipeline.vlm_pipeline import VlmProcess, VlmRequestParams
+from vlm_pipeline.vlm_pipeline import (
+    VlmProcess,
+    VlmRequestParams,
+    _validate_native_streaming_worker_count,
+)
 
 
 def test_streaming_lock_is_created_in_worker_not_spawn_state():
@@ -92,6 +96,14 @@ def test_processor_use_fast_override_rejects_invalid_value(monkeypatch):
 
     with pytest.raises(ValueError, match="must be a boolean"):
         _get_processor_use_fast_override()
+
+
+def test_native_streaming_requires_one_vlm_worker(monkeypatch):
+    monkeypatch.setenv("RTVI_STREAMING_VLM_ENABLED", "true")
+
+    _validate_native_streaming_worker_count(1)
+    with pytest.raises(ValueError, match="exactly one VLM process"):
+        _validate_native_streaming_worker_count(2)
 
 
 def test_compile_mm_encoder_override_preserves_compilation_config(monkeypatch):
@@ -171,6 +183,12 @@ class _PushUntilClosedSession(_FakeSession):
         self.push_started.set()
         await self.closed_event.wait()
         return {"stream_id": self.stream_id, "frame": frame.value}
+
+    async def push_frames(self, frames, *, generate=True):
+        assert generate is True
+        self.push_started.set()
+        await self.closed_event.wait()
+        return {"stream_id": self.stream_id, "frame": frames[-1].value}
 
     async def close(self):
         self.closed = True
@@ -501,6 +519,30 @@ def test_manager_close_aborts_inflight_push_before_waiting_for_push_lock():
         session = _PushUntilClosedSession("stream-a")
         manager._sessions["stream-a"] = session
         push = asyncio.create_task(manager.push_frame("stream-a", _DecodedFrame(1)))
+        await session.push_started.wait()
+
+        closed = await asyncio.wait_for(manager.close_session("stream-a"), timeout=0.5)
+        response = await asyncio.wait_for(push, timeout=0.5)
+        return closed, response, session
+
+    closed, response, session = _run(exercise())
+
+    assert closed is True
+    assert response == {"stream_id": "stream-a", "frame": 1}
+    assert session.closed is True
+    assert manager.session_count == 0
+
+
+def test_manager_close_drains_inflight_push_batch_before_removing_state():
+    manager = DlalgoStreamingSessionManager(_SessionFactory(), max_sessions=1)
+
+    async def exercise():
+        await manager.ensure_session("stream-a", DlalgoSessionConfig())
+        session = _PushUntilClosedSession("stream-a")
+        manager._sessions["stream-a"] = session
+        push = asyncio.create_task(
+            manager.push_frames("stream-a", [_DecodedFrame(1)])
+        )
         await session.push_started.wait()
 
         closed = await asyncio.wait_for(manager.close_session("stream-a"), timeout=0.5)
@@ -1333,8 +1375,7 @@ def test_vllm_factory_rejects_exact_compaction_without_source_support(monkeypatc
         )
 
 
-def test_model_forwards_sampling_controls_to_native_session(monkeypatch):
-    monkeypatch.setenv("VLLM_STREAMING_VLM_RAW_KEY_SHADOW", "true")
+def test_model_forwards_sampling_controls_to_native_session():
     captured = {}
 
     class _Manager:
@@ -1364,9 +1405,6 @@ def test_model_forwards_sampling_controls_to_native_session(monkeypatch):
             ),
             streaming_config={
                 "window_frames": 16,
-                "exact_video_compaction": True,
-                "text_round": 16,
-                "reprefill_relocation_interval": 512,
                 "text_sink_tokens": 256,
                 "text_sliding_window_tokens": 384,
                 "retain_generated_text": False,
@@ -1384,9 +1422,6 @@ def test_model_forwards_sampling_controls_to_native_session(monkeypatch):
     assert captured["config"].top_p == 1.0
     assert captured["config"].top_k == 50
     assert captured["config"].max_video_segments == 16
-    assert captured["config"].exact_video_compaction is True
-    assert captured["config"].text_round == 16
-    assert captured["config"].reprefill_relocation_interval == 512
     assert captured["config"].text_sink_tokens == 256
     assert captured["config"].text_sliding_window_tokens == 384
     assert captured["config"].retain_generated_text is False
@@ -1424,6 +1459,7 @@ def test_model_uses_distinct_native_ids_for_live_subscribers():
     model = object.__new__(VllmCompatible)
     model._dlalgo_streaming_manager = _Manager()
     model._dlalgo_last_frame_time_by_stream = {}
+    model._dlalgo_frame_update_locks = {}
     model._event_loop = loop
     model._system_prompt = ""
 
@@ -1449,6 +1485,43 @@ def test_model_uses_distinct_native_ids_for_live_subscribers():
         loop.close()
 
 
+def test_model_preserves_frame_state_when_close_fails():
+    attempts = 0
+
+    class _Manager:
+        async def close_session(self, _session_id):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("close failed")
+            return True
+
+    loop = asyncio.new_event_loop()
+    loop_thread = Thread(target=loop.run_forever)
+    loop_thread.start()
+    model = object.__new__(VllmCompatible)
+    model._dlalgo_streaming_manager = _Manager()
+    model._dlalgo_last_frame_time_by_stream = {"native-a": 7.0}
+    model._dlalgo_frame_update_locks = {"native-a": asyncio.Lock()}
+    model._event_loop = loop
+
+    try:
+        with pytest.raises(RuntimeError, match="close failed"):
+            model.end_streaming_vlm_session("stream-a", ("stream-a", "native-a"))
+        assert model._dlalgo_last_frame_time_by_stream == {"native-a": 7.0}
+        assert "native-a" in model._dlalgo_frame_update_locks
+
+        assert model.end_streaming_vlm_session(
+            "stream-a", ("stream-a", "native-a")
+        ) is True
+        assert model._dlalgo_last_frame_time_by_stream == {}
+        assert model._dlalgo_frame_update_locks == {}
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        loop_thread.join()
+        loop.close()
+
+
 def test_model_rejects_unbounded_raw_key_shadow_without_text_relocation(monkeypatch):
     monkeypatch.setenv("VLLM_STREAMING_VLM_RAW_KEY_SHADOW", "true")
     model = object.__new__(VllmCompatible)
@@ -1467,15 +1540,12 @@ def test_model_rejects_unbounded_raw_key_shadow_without_text_relocation(monkeypa
     "streaming_config",
     [{"text_round": 16}, {"exact_video_compaction": True}],
 )
-def test_model_rejects_relocation_without_raw_key_shadow(
-    monkeypatch, streaming_config
-):
-    monkeypatch.delenv("VLLM_STREAMING_VLM_RAW_KEY_SHADOW", raising=False)
+def test_model_rejects_unsupported_relocation(streaming_config):
     model = object.__new__(VllmCompatible)
     model._dlalgo_streaming_manager = object()
     model._system_prompt = ""
 
-    with pytest.raises(ValueError, match="RAW_KEY_SHADOW=true before model startup"):
+    with pytest.raises(ValueError, match="not supported.*image prompt renderer"):
         model.start_streaming_vlm_session(
             "stream-a",
             "Describe changes.",
@@ -1483,35 +1553,18 @@ def test_model_rejects_relocation_without_raw_key_shadow(
         )
 
 
-def test_model_allows_raw_key_shadow_with_exact_compaction(monkeypatch):
-    captured = {}
-
-    class _Manager:
-        async def ensure_session(self, _stream_id, config):
-            captured["config"] = config
-
-    loop = asyncio.new_event_loop()
-    loop_thread = Thread(target=loop.run_forever)
-    loop_thread.start()
+def test_model_rejects_env_enabled_exact_compaction(monkeypatch):
     model = object.__new__(VllmCompatible)
-    model._dlalgo_streaming_manager = _Manager()
-    model._event_loop = loop
+    model._dlalgo_streaming_manager = object()
     model._system_prompt = ""
-    monkeypatch.setenv("VLLM_STREAMING_VLM_RAW_KEY_SHADOW", "true")
     monkeypatch.setenv("RTVI_STREAMING_VLM_EXACT_VIDEO_COMPACTION", "true")
 
-    try:
+    with pytest.raises(ValueError, match="not supported.*image prompt renderer"):
         model.start_streaming_vlm_session(
             "stream-a",
             "Describe changes.",
             streaming_config={"text_round": 0},
         )
-    finally:
-        loop.call_soon_threadsafe(loop.stop)
-        loop_thread.join()
-        loop.close()
-
-    assert captured["config"].exact_video_compaction is True
 
 
 def test_model_decodes_once_after_appending_a_multi_frame_update():
@@ -1539,6 +1592,7 @@ def test_model_decodes_once_after_appending_a_multi_frame_update():
     model = object.__new__(VllmCompatible)
     model._dlalgo_streaming_manager = _Manager()
     model._dlalgo_last_frame_time_by_stream = {}
+    model._dlalgo_frame_update_locks = {}
     model._event_loop = loop
     frames = [np.zeros((6, 8, 3), dtype=np.uint8) for _ in range(16)]
 
@@ -1588,6 +1642,7 @@ def test_model_returns_no_output_for_deferred_decode_step():
     model = object.__new__(VllmCompatible)
     model._dlalgo_streaming_manager = _Manager()
     model._dlalgo_last_frame_time_by_stream = {}
+    model._dlalgo_frame_update_locks = {}
     model._event_loop = loop
     frame = np.zeros((6, 8, 3), dtype=np.uint8)
 
@@ -1628,6 +1683,7 @@ def test_model_appends_only_new_frames_from_overlapping_updates():
     model = object.__new__(VllmCompatible)
     model._dlalgo_streaming_manager = _Manager()
     model._dlalgo_last_frame_time_by_stream = {}
+    model._dlalgo_frame_update_locks = {}
     model._event_loop = loop
     frame = np.zeros((6, 8, 3), dtype=np.uint8)
 
@@ -1660,6 +1716,68 @@ def test_model_appends_only_new_frames_from_overlapping_updates():
     assert first[0].streaming_metrics["frames_processed"] == 16
     assert second[0].streaming_metrics["frames_received"] == 16
     assert second[0].streaming_metrics["frames_processed"] == 8
+
+
+def test_model_serializes_overlapping_frame_updates():
+    calls = []
+    first_push_started = Event()
+    release_first_push = Event()
+
+    class _Response:
+        text = "Workers continue moving boxes."
+        token_count = 4
+        frame_index = 15
+        finish_reason = "length"
+        ttft_s = 0.1
+        latency_s = 0.2
+
+    class _Manager:
+        async def push_frames(self, stream_id, frames, *, generate=True):
+            calls.append((stream_id, list(frames), generate))
+            if len(calls) == 1:
+                first_push_started.set()
+                await asyncio.get_running_loop().run_in_executor(
+                    None, release_first_push.wait
+                )
+            return _Response()
+
+    loop = asyncio.new_event_loop()
+    loop_thread = Thread(target=loop.run_forever)
+    loop_thread.start()
+    model = object.__new__(VllmCompatible)
+    model._dlalgo_streaming_manager = _Manager()
+    model._dlalgo_last_frame_time_by_stream = {}
+    model._dlalgo_frame_update_locks = {}
+    model._event_loop = loop
+    frame = np.zeros((6, 8, 3), dtype=np.uint8)
+
+    try:
+        first = model.generate_streaming_vlm_step(
+            session="stream-a",
+            query="Describe changes.",
+            chunks=[types.SimpleNamespace(streamId="stream-a")],
+            video_frames=[[frame] * 16],
+            video_frames_times=[list(range(16))],
+        )
+        assert first_push_started.wait(timeout=1)
+        overlapping = model.generate_streaming_vlm_step(
+            session="stream-a",
+            query="Describe changes.",
+            chunks=[types.SimpleNamespace(streamId="stream-a")],
+            video_frames=[[frame] * 8],
+            video_frames_times=[list(range(8, 16))],
+        )
+        release_first_push.set()
+        assert first.result(timeout=1)[0].streaming_metrics["frames_processed"] == 16
+        with pytest.raises(ValueError, match="contains no new frames"):
+            overlapping.result(timeout=1)
+    finally:
+        release_first_push.set()
+        loop.call_soon_threadsafe(loop.stop)
+        loop_thread.join()
+        loop.close()
+
+    assert len(calls) == 1
 
 
 def test_vllm_factory_requires_source_patch(monkeypatch):

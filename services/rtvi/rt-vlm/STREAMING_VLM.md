@@ -37,14 +37,17 @@ curl --fail http://localhost:18094/v1/health/ready
 
 The override enables native streaming and defaults to the validated eager and
 FP8-KV contract. Changing either setting requires a fresh parity and performance
-run. Live caption requests select `inference_mode=streaming_vlm` and
+run. Native streaming requires exactly one VLM process so every update for a
+stream reaches the worker that owns its retained history. Live caption requests
+select `inference_mode=streaming_vlm` and
 `streaming_frame_policy=ordered`. Use `streaming_question_on_decode=true` only
 when repeated question conditioning is part of the prompt contract. Ordinary
 requests remain chunked.
 
-Requests that set `streaming_text_round` or exact video compaction also require
-`VLLM_STREAMING_VLM_RAW_KEY_SHADOW=true` in the service environment before model
-startup.
+`streaming_text_round` and exact video compaction require prompt-role metadata
+that the NIM-compatible image renderer does not preserve.
+Native StreamingVLM rejects those options instead of silently applying an
+incorrect retention policy.
 
 ## Validation and Cleanup
 

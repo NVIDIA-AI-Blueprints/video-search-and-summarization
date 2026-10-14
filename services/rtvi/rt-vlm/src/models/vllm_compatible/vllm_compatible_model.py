@@ -1936,6 +1936,7 @@ class VllmCompatible(BaseVlmModel):
 
             self._dlalgo_streaming_manager = None
             self._dlalgo_last_frame_time_by_stream: dict[str, float] = {}
+            self._dlalgo_frame_update_locks: dict[str, asyncio.Lock] = {}
             if _parse_bool_env("RTVI_STREAMING_VLM_ENABLED", default=False):
                 from models.vllm_compatible.dlalgo_streaming import (
                     DlalgoStreamingSessionManager,
@@ -2046,6 +2047,11 @@ class VllmCompatible(BaseVlmModel):
                 _parse_bool_env("RTVI_STREAMING_VLM_EXACT_VIDEO_COMPACTION", False),
             )
         )
+        if text_round > 0 or exact_video_compaction:
+            raise ValueError(
+                "text relocation and exact video compaction are not supported "
+                "by the NIM-compatible image prompt renderer"
+            )
         raw_key_shadow = _parse_bool_env(
             "VLLM_STREAMING_VLM_RAW_KEY_SHADOW", False
         )
@@ -2199,45 +2205,60 @@ class VllmCompatible(BaseVlmModel):
         from models.vllm_compatible.dlalgo_streaming import to_pil_rgb_frame
 
         frames_received = len(frames)
-        accepted_frame_times = None
+        frame_times = None
         if (
             video_frames_times
             and len(video_frames_times) == 1
             and len(video_frames_times[0]) == frames_received
         ):
             try:
-                frame_times = [
+                parsed_frame_times = [
                     float(frame_time) for frame_time in video_frames_times[0]
                 ]
             except (TypeError, ValueError):
-                frame_times = []
-            if frame_times and all(
-                math.isfinite(frame_time) for frame_time in frame_times
+                parsed_frame_times = []
+            if parsed_frame_times and all(
+                math.isfinite(frame_time) for frame_time in parsed_frame_times
             ):
-                last_frame_time = self._dlalgo_last_frame_time_by_stream.get(native_id)
-                accepted = [
-                    (frame, frame_time)
-                    for frame, frame_time in zip(frames, frame_times)
-                    if last_frame_time is None or frame_time > last_frame_time + 1e-6
-                ]
-                if not accepted:
-                    raise ValueError(
-                        f"native Streaming VLM update for {stream_id!r} contains no new frames"
-                    )
-                frames, accepted_frame_times = map(list, zip(*accepted))
-
-        decoded_frames = [to_pil_rgb_frame(frame) for frame in frames]
+                frame_times = parsed_frame_times
 
         async def generate_decoded_frames():
-            response = await manager.push_frames(
-                native_id,
-                decoded_frames,
-                generate=None,
+            update_lock = self._dlalgo_frame_update_locks.setdefault(
+                native_id, asyncio.Lock()
             )
-            if accepted_frame_times is not None:
-                self._dlalgo_last_frame_time_by_stream[native_id] = max(
-                    accepted_frame_times
+            async with update_lock:
+                accepted_frames = frames
+                accepted_frame_times = frame_times
+                if frame_times is not None:
+                    last_frame_time = self._dlalgo_last_frame_time_by_stream.get(
+                        native_id
+                    )
+                    accepted = [
+                        (frame, frame_time)
+                        for frame, frame_time in zip(frames, frame_times)
+                        if last_frame_time is None
+                        or frame_time > last_frame_time + 1e-6
+                    ]
+                    if not accepted:
+                        raise ValueError(
+                            f"native Streaming VLM update for {stream_id!r} "
+                            "contains no new frames"
+                        )
+                    accepted_frames, accepted_frame_times = map(
+                        list, zip(*accepted)
+                    )
+                decoded_frames = [
+                    to_pil_rgb_frame(frame) for frame in accepted_frames
+                ]
+                response = await manager.push_frames(
+                    native_id,
+                    decoded_frames,
+                    generate=None,
                 )
+                if accepted_frame_times is not None:
+                    self._dlalgo_last_frame_time_by_stream[native_id] = max(
+                        accepted_frame_times
+                    )
             if response is None:
                 return []
             return [
@@ -2281,14 +2302,21 @@ class VllmCompatible(BaseVlmModel):
             raise ValueError(
                 f"Streaming VLM session {session!r} does not belong to stream {stream_id!r}"
             )
+        async def close_and_cleanup():
+            result = await manager.close_session(native_id)
+            update_lock = self._dlalgo_frame_update_locks.get(native_id)
+            if update_lock is not None:
+                async with update_lock:
+                    pass
+            self._dlalgo_last_frame_time_by_stream.pop(native_id, None)
+            self._dlalgo_frame_update_locks.pop(native_id, None)
+            return result
+
         future = asyncio.run_coroutine_threadsafe(
-            manager.close_session(native_id),
+            close_and_cleanup(),
             self._event_loop,
         )
-        try:
-            return future.result(timeout=30.0)
-        finally:
-            self._dlalgo_last_frame_time_by_stream.pop(native_id, None)
+        return future.result(timeout=30.0)
 
     def get_conv(self):
         # Initialize _conv if not already done
@@ -3991,6 +4019,7 @@ class VllmCompatible(BaseVlmModel):
                 )
             finally:
                 self._dlalgo_last_frame_time_by_stream.clear()
+                self._dlalgo_frame_update_locks.clear()
         logger.info("Shutting down VllmCompatibleModel...")
 
         # Shutdown the AsyncLLMEngine
