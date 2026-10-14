@@ -1898,7 +1898,20 @@ def test_vllm_sampling_kwargs_enforces_json_schema(monkeypatch):
     assert kwargs["structured_outputs"].json == schema
 
 
-def test_vllm_engine_config_enforces_strict_compact_structured_output():
+def test_vllm_engine_config_enforces_strict_compact_structured_output(monkeypatch):
+    class _StructuredOutputsConfig:
+        def __init__(self, backend, disable_fallback, disable_any_whitespace):
+            self.backend = backend
+            self.disable_fallback = disable_fallback
+            self.disable_any_whitespace = disable_any_whitespace
+
+    import vllm.config
+
+    monkeypatch.setattr(
+        vllm.config,
+        "StructuredOutputsConfig",
+        _StructuredOutputsConfig,
+    )
     kwargs = {}
 
     vllm_compatible_model._configure_structured_outputs(kwargs, {"structured_outputs_config"})
@@ -1906,6 +1919,31 @@ def test_vllm_engine_config_enforces_strict_compact_structured_output():
     config = kwargs["structured_outputs_config"]
     assert config.backend == "xgrammar"
     assert config.disable_fallback is True
+    assert config.disable_any_whitespace is True
+
+
+def test_vllm_engine_config_omits_removed_fallback_option(monkeypatch):
+    class _StructuredOutputsConfig:
+        def __init__(self, backend, disable_any_whitespace):
+            self.backend = backend
+            self.disable_any_whitespace = disable_any_whitespace
+
+    import vllm.config
+
+    monkeypatch.setattr(
+        vllm.config,
+        "StructuredOutputsConfig",
+        _StructuredOutputsConfig,
+    )
+    kwargs = {}
+
+    vllm_compatible_model._configure_structured_outputs(
+        kwargs,
+        {"structured_outputs_config"},
+    )
+
+    config = kwargs["structured_outputs_config"]
+    assert config.backend == "xgrammar"
     assert config.disable_any_whitespace is True
 
 

@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+services:
+  rtvi-server:
+    environment:
+      RTVI_STREAMING_VLM_ENABLED: "true"
+      VLLM_ENFORCE_EAGER: "${VLLM_ENFORCE_EAGER:-true}"
+      VLLM_KV_CACHE_DTYPE: "${VLLM_KV_CACHE_DTYPE:-fp8}"
+      VLM_MODEL_TO_USE: cosmos-reason3
