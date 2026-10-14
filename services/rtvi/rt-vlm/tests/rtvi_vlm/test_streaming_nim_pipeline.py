@@ -289,3 +289,53 @@ def test_failed_session_close_can_be_retried():
     assert not process._streaming_vlm_sessions
     assert not process._streaming_vlm_failed_closes
     assert not process._streaming_vlm_close_threads
+
+
+def test_shutdown_waits_for_inflight_session_close_registration():
+    close_registration_started = Event()
+    release_close_registration = Event()
+    shutdown_done = Event()
+    process = object.__new__(VlmProcess)
+    model = MagicMock()
+    process._model = model
+    process._streaming_vlm_sessions = {("stream-a", "request-1"): "session-a"}
+    process._streaming_vlm_failed_closes = {}
+    process._closed_streaming_vlm_streams = {}
+    process._streaming_vlm_close_threads = {}
+    process._streaming_vlm_lock = Lock()
+    process._streaming_vlm_close_stop = Event()
+    start_close = process._start_streaming_vlm_close
+
+    def pause_before_registering_close(*args):
+        close_registration_started.set()
+        assert release_close_registration.wait(timeout=2)
+        start_close(*args)
+
+    process._start_streaming_vlm_close = pause_before_registering_close
+    command_thread = Thread(
+        target=process._handle_command,
+        args=("close-streaming-vlm-session",),
+        kwargs={"stream_id": "stream-a", "request_id": "request-1"},
+    )
+    process._cmd_handler_thread = command_thread
+    command_thread.start()
+    assert close_registration_started.wait(timeout=1)
+
+    def shutdown():
+        process._deinitialize()
+        shutdown_done.set()
+
+    shutdown_thread = Thread(target=shutdown)
+    shutdown_thread.start()
+    try:
+        assert not shutdown_done.wait(timeout=0.05)
+    finally:
+        release_close_registration.set()
+    shutdown_thread.join(timeout=2)
+
+    assert not shutdown_thread.is_alive()
+    model.end_streaming_vlm_session.assert_called_once_with("stream-a", "session-a")
+    assert process._model is None
+    assert not process._streaming_vlm_sessions
+    assert not process._streaming_vlm_failed_closes
+    assert not process._streaming_vlm_close_threads

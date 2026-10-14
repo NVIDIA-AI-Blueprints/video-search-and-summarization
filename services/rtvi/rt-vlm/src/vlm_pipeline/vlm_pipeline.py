@@ -1360,6 +1360,8 @@ class VlmProcess(ProcessBase):
         with self._streaming_vlm_lock:
             if close_id in self._streaming_vlm_close_threads:
                 return
+            # Track the session before starting the worker so shutdown can always drain it.
+            self._streaming_vlm_failed_closes[close_id] = (session_key, session)
             thread = Thread(
                 target=self._close_streaming_vlm_session,
                 args=(stream_id, session, session_key),
@@ -1399,12 +1401,20 @@ class VlmProcess(ProcessBase):
                 self._streaming_vlm_close_threads.pop(close_id, None)
 
     def _deinitialize(self):
+        command_thread = getattr(self, "_cmd_handler_thread", None)
+        if command_thread is not None:
+            command_thread.join()
         self._streaming_vlm_close_stop.set()
-        for thread in tuple(self._streaming_vlm_close_threads.values()):
+        with self._streaming_vlm_lock:
+            close_threads = tuple(self._streaming_vlm_close_threads.values())
+        for thread in close_threads:
             thread.join(timeout=31)
-        sessions = tuple(self._streaming_vlm_sessions.items()) + tuple(
-            getattr(self, "_streaming_vlm_failed_closes", {}).values()
-        )
+        with self._streaming_vlm_lock:
+            sessions = tuple(self._streaming_vlm_sessions.items()) + tuple(
+                self._streaming_vlm_failed_closes.values()
+            )
+            self._streaming_vlm_sessions.clear()
+            self._streaming_vlm_failed_closes.clear()
         seen = set()
         for (stream_id, _request_id), session in sessions:
             if id(session) in seen:
@@ -1418,8 +1428,6 @@ class VlmProcess(ProcessBase):
                     stream_id,
                     exc_info=True,
                 )
-        self._streaming_vlm_sessions.clear()
-        self._streaming_vlm_failed_closes.clear()
         self._model = None
 
     def _supports_batching(self):
