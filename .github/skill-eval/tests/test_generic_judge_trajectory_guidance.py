@@ -176,7 +176,7 @@ def test_legacy_recipe_reads_encoded_message(tmp_path: Path) -> None:
 
 
 class JudgeVerdictRecovery(unittest.IsolatedAsyncioTestCase):
-    async def test_only_explicit_turn_budget_errors_get_one_verdict_nudge(self):
+    async def test_only_clean_finishes_get_one_verdict_nudge(self):
         class TextBlock:
             def __init__(self, text):
                 self.text = text
@@ -191,12 +191,13 @@ class JudgeVerdictRecovery(unittest.IsolatedAsyncioTestCase):
                 self.subtype = subtype
                 self.total_cost_usd = cost
 
-        for subtype, recovery, expected_pass, stalls in (
-            ("success", True, True, False),
-            ("error_max_turns", True, True, False),
-            ("error_during_execution", False, False, False),
-            ("error_max_turns", True, False, False),
-            ("error_max_turns", True, False, True),
+        for subtype, recovery, expected_pass, stalls, tool_only in (
+            ("success", True, True, False, False),
+            ("error_max_turns", False, False, False, False),
+            ("error_max_turns", False, False, False, True),
+            ("error_during_execution", False, False, False, False),
+            ("max_turns", False, False, False, False),
+            ("success", True, False, True, False),
         ):
             with self.subTest(subtype=subtype, expected_pass=expected_pass, stalls=stalls):
                 queries = []
@@ -218,7 +219,8 @@ class JudgeVerdictRecovery(unittest.IsolatedAsyncioTestCase):
 
                     async def receive_response(self):
                         if len(queries) == 1:
-                            yield AssistantMessage("Observed authenticated health and a configured VSS route.")
+                            if not tool_only:
+                                yield AssistantMessage("Observed authenticated health and a configured VSS route.")
                             yield ResultMessage(is_error=subtype != "success", subtype=subtype)
                         else:
                             yield AssistantMessage(
@@ -248,6 +250,7 @@ class JudgeVerdictRecovery(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("report that mismatch and fail", queries[0])
                 if recovery:
                     self.assertIn("Do not call any tools", queries[1])
+                    self.assertIn("incomplete search is inconclusive", queries[1])
                 if stalls:
                     self.assertIn("timed out", result["rationale"])
 

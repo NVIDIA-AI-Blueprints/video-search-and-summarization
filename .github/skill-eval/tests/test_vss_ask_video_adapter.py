@@ -210,6 +210,9 @@ def test_operational_setup_is_spec_owned(spec_path, platform, tmp_path):
         assert query.split("\n\n")[-1] in instruction
         assert "Use `/vss-build-vision-ai`" in instruction
         assert "{{platform}}" not in instruction
+        verifier_spec = json.loads((instruction_path.parent / "tests" / spec_path.name).read_text())
+        assert "{{platform}}" not in verifier_spec["expects"][0]["query"]
+        assert platform in verifier_spec["expects"][0]["query"]
         build_skill = instruction_path.parent / "skills/vss-build-vision-ai"
         assert (build_skill / "SKILL.md").read_bytes() == (REPO_ROOT / "skills/vss-build-vision-ai/SKILL.md").read_bytes()
         assert "## Selected agent harness: NemoClaw" not in instruction

@@ -207,18 +207,9 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
-        spec_src = skill_dir / "evals" / spec_name
-        if not spec_src.exists():
-            legacy = skill_dir / "eval" / spec_name
-            if legacy.exists():
-                spec_src = legacy
-        if spec_src.exists():
-            shutil.copy(spec_src, tests_dir / spec_name)
-        else:
-            # write a copy of the spec even if the source file path differs
-            (tests_dir / "vios_ops.json").write_text(
-                json.dumps(spec, indent=2)
-            )
+        # The judge must see the same platform substitution as the agent.
+        rendered_spec = json.loads(json.dumps(spec).replace("{{platform}}", platform))
+        (tests_dir / spec_name).write_text(json.dumps(rendered_spec, indent=2))
 
         # solution/
         solution_dir = step_dir / "solution"
