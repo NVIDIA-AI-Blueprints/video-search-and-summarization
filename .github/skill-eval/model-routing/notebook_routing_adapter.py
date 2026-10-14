@@ -90,7 +90,7 @@ def _truthy(value) -> bool:
 
 def _vlm_markers() -> tuple[str, ...]:
     """The VLM lines the run must print when ROUTE_VLM is on."""
-    return ("VLM_ROUTER_VERIFIED:", "VLM_VIDEO_PROBE:") if _truthy(os.environ.get("ROUTE_VLM")) else ()
+    return ("VLM_ROUTER_VERIFIED:", "VLM_VIDEO_PROBE:", "VSS_VLM_REPOINT_VERIFIED:") if _truthy(os.environ.get("ROUTE_VLM")) else ()
 
 
 def _teardown_marker() -> str:
