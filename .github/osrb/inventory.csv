@@ -1,5 +1,6 @@
 package,version,license,module,language,source_kind,source_file,dep_scope,vendored_in_repo,copied_adapted,container_only,usage_evidence,risk
 ${NGINX_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,services/vios/deployment/stream-processing/docker-compose/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
+${NIM_IMAGE,?Set NIM_IMAGE in .env},UNKNOWN,services/rtvi/rt-vlm,container,compose,services/rtvi/rt-vlm/docker/turbo-nim/compose.yaml,runtime,no,no,yes,container-image,Unknown
 ${NVSTREAMER_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,services/vios/deployment/stream-processing/docker-compose/nvstreamer/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
 ${POSTGRES_IMAGE},UNKNOWN,UNKNOWN,deploy,container,compose,deploy/docker/services/vios/foundational/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
 ${POSTGRES_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,services/vios/deployment/stream-processing/docker-compose/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
@@ -900,6 +901,7 @@ blinker,1.9.0,MIT,services/configurators/vss-configurator,python,lockfile,servic
 blinker,1.9.0,MIT,services/configurators/vss-rt-config-adaptor,python,lockfile,services/configurators/vss-rt-config-adaptor/uv.lock,runtime,no,no,no,declared-manifest,None
 blinker,1.9.0,MIT,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 bluebird,3.7.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+bluenviron/mediamtx,1.15.4,UNKNOWN,services/rtvi/rt-vlm,container,compose,services/rtvi/rt-vlm/docker/rtsp-test/compose.yaml,runtime,no,no,yes,container-image,Unknown
 bn.js,4.12.4,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 body-parser,1.20.8,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 body-parser,2.3.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -2028,6 +2030,7 @@ jq,1.7.1-6+deb13u2,MIT,libs/analytics/spatialai-data-utils,deb,container,libs/an
 jq,UNKNOWN,MIT,services/analytics/behavior-analytics,deb,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-apt,None
 jq,UNKNOWN,MIT,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,deb,container,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Dockerfiles/measurement-fusion.Dockerfile,runtime,no,no,yes,container-apt,None
 jq,UNKNOWN,MIT,services/rtvi/rt-cv-3d/rt-cv-config-init,deb,container,services/rtvi/rt-cv-3d/rt-cv-config-init/Dockerfiles/mv3dt-config-init.Dockerfile,runtime,no,no,yes,container-apt,None
+jrottenberg/ffmpeg,7.1-alpine,UNKNOWN,services/rtvi/rt-vlm,container,compose,services/rtvi/rt-vlm/docker/rtsp-test/compose.yaml,runtime,no,no,yes,container-image,Unknown
 js-tokens,10.0.0,MIT,services/vios,node,lockfile,services/vios/ui/streaming-lib/package-lock.json,runtime,no,no,no,declared-manifest,None
 js-tokens,4.0.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 js-tokens,4.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
