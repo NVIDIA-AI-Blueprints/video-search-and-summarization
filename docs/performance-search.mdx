@@ -39,7 +39,7 @@ expected query latency under concurrent search load on VSS 3.3.
 | Video understanding VLM | Cosmos3 Nano Reasoner (`ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix`) |
 | Query path | `vss search run <action>` (VSS CLI), one invocation per query |
 | Query decomposition | Separate LLM call made before each invocation, not by the CLI |
-| Routed actions | H100: `attribute` 56, `fusion` 51, `embed` 14. RTX: 56 / 50 / 15 |
+| Routed actions | H100: `attribute` 56, `fusion` 52, `embed` 13. RTX: 56 / 51 / 14 |
 | Critic agent | Enabled, `num_videos_to_evaluate: 5` (every returned hit is verified) |
 | Top-K | 5 |
 | Concurrent queries | 1, 10, 20, 50 |
@@ -91,9 +91,9 @@ query: decomposition, retrieval, and critic verification of every returned hit.
 
 <Note>
 Throughput is bounded by RTVI-VLM, which serves the critic agent. Each query fans out to
-five concurrent verification requests (one per returned hit), so the deployment reaches its
-VLM inference ceiling at around 10 concurrent queries. Beyond that, throughput is flat and
-additional concurrency only adds queue time — see [Reading these numbers](#reading-these-numbers).
+up to five concurrent verification requests (one per returned hit), so the deployment reaches
+its VLM inference ceiling at around 10 concurrent queries. Beyond that, throughput does not
+rise and additional concurrency only adds queue time — see [Reading these numbers](#reading-these-numbers).
 </Note>
 
 <Tabs>
@@ -101,50 +101,51 @@ additional concurrency only adds queue time — see [Reading these numbers](#rea
 
 | Concurrent queries | E2E Avg (s) | E2E P90 (s) | Successful QPS |
 | --- | --- | --- | --- |
-| 1 | 2.520 | 2.821 | 0.364 |
-| 10 | 9.844 | 11.839 | 0.961 |
-| 20 | 19.788 | 22.706 | 0.931 |
-| 50 | 41.965 | 54.222 | 0.950 |
+| 1 | 2.538 | 2.940 | 0.361 |
+| 10 | 9.450 | 11.090 | 1.003 |
+| 20 | 19.135 | 22.430 | 0.960 |
+| 50 | 43.562 | 54.194 | 0.910 |
 
 </Tab>
 <Tab title="NVIDIA RTX PRO 6000 SE">
 
 | Concurrent queries | E2E Avg (s) | E2E P90 (s) | Successful QPS |
 | --- | --- | --- | --- |
-| 1 | 2.575 | 2.886 | 0.345 |
-| 10 | 9.642 | 10.848 | 0.970 |
-| 20 | 19.131 | 21.324 | 0.955 |
-| 50 | 42.731 | 56.742 | 0.942 |
+| 1 | 3.197 | 4.190 | 0.283 |
+| 10 | 8.531 | 10.116 | 1.091 |
+| 20 | 16.866 | 19.673 | 1.057 |
+| 50 | 39.891 | 61.070 | 0.866 |
 
 </Tab>
 </Tabs>
 
 ### Reading these numbers
 
-Successful QPS is flat from 10 concurrent queries onward (0.961, 0.931, 0.950 on H100),
-because the deployment is already at its VLM inference ceiling by that point. Latency, by
-contrast, scales roughly linearly with concurrency — 2.5s, 9.8s, 19.8s, 42.0s — so
-concurrency past the knee buys queue depth, not work. RTX latency tracks within 4% of these
-figures at every level.
+Successful QPS peaks at 10 concurrent queries (1.003 on H100, 1.091 on RTX) and does not
+rise after that, because the deployment is already at its VLM inference ceiling by that
+point. It eases off slightly as load grows further, to 0.910 on H100 and 0.866 on RTX at 50.
+Latency, by contrast, scales roughly linearly with concurrency — 2.5s, 9.5s, 19.1s, 43.6s on
+H100 — so concurrency past the knee buys queue depth, not work. RTX is about 26% slower than
+H100 at one concurrent query (3.2s against 2.5s) but 8–12% faster on average from 10 onward;
+at 50 its P90 is the higher of the two (61.1s against 54.2s).
 
 Critic verification is the largest single cost, and its share grows with load rather than
-staying constant. Per-call VLM inference is 68% of E2E at one concurrent query on H100 and
-about 90% at 20 and 50; on RTX it runs from 60% to 83%. RTVI-VLM is therefore the first
-thing to size: give it a dedicated GPU rather than sharing one with RTVI-CV, raise
+staying constant. Per-call VLM inference is 65% of E2E at one concurrent query on H100 and
+88–90% at 20 and 50; RTX follows the same curve, from 62% to 92%. RTVI-VLM is therefore the
+first thing to size: give it a dedicated GPU rather than sharing one with RTVI-CV, raise
 `RTVI_VLLM_MAX_NUM_SEQS` and `RTVI_VLM_BATCH_SIZE` within the available GPU memory, or scale
 it out. Lowering `num_videos_to_evaluate` reduces the per-query fan-out at the cost of
 leaving lower-ranked hits unverified.
 
-It is not the only thing to size past roughly 20 concurrent queries. Retrieval holds near
-its single-query cost through 20 — attribute search goes 0.365s to 0.425s on H100 and 0.508s
-to 0.712s on RTX — and then degrades sharply at 50, to 2.219s and 10.950s respectively.
-Nearly all of that is the text-embedding call the attribute and fusion paths share, which
-climbs from 1.004s to 2.202s on H100 and from 1.817s to 7.829s on RTX. That call goes to
+On H100 it is not the only thing to size past roughly 20 concurrent queries. Attribute
+search holds near its single-query cost through 20 — 0.384s to 0.468s — and then degrades at
+50, to 1.624s (P90 4.097s). Nearly all of that is the attribute path's text-embedding call,
+which climbs from 0.273s to 0.359s through 20 and then to 1.511s at 50. That call goes to
 RTVI-CV, not RTVI-Embed — the attribute leg embeds its text through RTVI-CV, while
-RTVI-Embed serves the embed-search path only. Embed search, Elasticsearch query execution
-and VST clip resolution do stay flat throughout. If you expect sustained load above about 20
-concurrent queries, give RTVI-CV headroom as well — sizing RTVI-VLM alone stops being
-sufficient there, and on RTX the attribute path becomes the second ceiling.
+RTVI-Embed serves the embed-search path only. On RTX, attribute search stays between 0.340s
+and 0.495s at every level. Embed search, Elasticsearch query execution and VST clip
+resolution stay flat throughout on both platforms. If you expect sustained load above about
+20 concurrent queries on H100, give RTVI-CV headroom as well as RTVI-VLM.
 
 ## Latency Stage Breakdown
 
@@ -153,8 +154,9 @@ Per-stage average and P90 latency breakdown.
 <Note>
 **Calls/query** is how many times a stage runs within one query. Stages that run more than
 once report a **per-call** duration, not the sum, so the figure is comparable with the
-end-to-end row. The critic issues its five verifications concurrently, so its per-call time
-is also very close to the wall-clock time the critic phase adds to a query.
+end-to-end row. The critic verifies up to five hits per query (fewer when retrieval returns
+fewer; about 4.5 on average in these runs) and issues those verifications concurrently, so
+its per-call time is also very close to the wall-clock time the critic phase adds to a query.
 </Note>
 
 <Tabs>
@@ -163,49 +165,49 @@ is also very close to the wall-clock time the critic phase adds to a query.
 
 | Stage | Avg (s) | P90 (s) | Calls/query |
 | --- | --- | --- | --- |
-| End-to-End (client) | 2.520 | 2.821 | 1 |
-| Search (CLI internal) | 2.073 | 2.380 | 1 |
-| Critic verification — VLM inference | 1.704 | 1.882 | 5 |
-| Attribute search | 0.365 | 0.445 | 1 |
-| Query decomposition (LLM) | 0.228 | 0.285 | 1 |
-| Embed search | 0.047 | 0.050 | 1 |
-| VST clip resolution | 0.034 | 0.049 | 5 |
+| End-to-End (client) | 2.538 | 2.940 | 1 |
+| Search (CLI internal) | 2.091 | 2.488 | 1 |
+| Critic verification — VLM inference | 1.604 | 1.923 | ≤5 |
+| Attribute search | 0.384 | 0.397 | 1 |
+| Query decomposition (LLM) | 0.234 | 0.385 | 1 |
+| Embed search | 0.073 | 0.069 | 1 |
+| VST clip resolution | 0.044 | 0.050 | ≤5 |
 
 **Latency Stage Breakdown — 10 Concurrent Queries**
 
 | Stage | Avg (s) | P90 (s) | Calls/query |
 | --- | --- | --- | --- |
-| End-to-End (client) | 9.844 | 11.839 | 1 |
-| Search (CLI internal) | 9.366 | 11.339 | 1 |
-| Critic verification — VLM inference | 7.857 | 8.734 | 5 |
-| Attribute search | 0.398 | 0.447 | 1 |
-| Query decomposition (LLM) | 0.286 | 0.412 | 1 |
-| Embed search | 0.043 | 0.046 | 1 |
-| VST clip resolution | 0.038 | 0.046 | 5 |
+| End-to-End (client) | 9.450 | 11.090 | 1 |
+| Search (CLI internal) | 8.947 | 10.601 | 1 |
+| Critic verification — VLM inference | 7.326 | 8.846 | ≤5 |
+| Attribute search | 0.422 | 0.510 | 1 |
+| Query decomposition (LLM) | 0.289 | 0.443 | 1 |
+| Embed search | 0.058 | 0.063 | 1 |
+| VST clip resolution | 0.036 | 0.041 | ≤5 |
 
 **Latency Stage Breakdown — 20 Concurrent Queries**
 
 | Stage | Avg (s) | P90 (s) | Calls/query |
 | --- | --- | --- | --- |
-| End-to-End (client) | 19.788 | 22.706 | 1 |
-| Search (CLI internal) | 19.292 | 22.250 | 1 |
-| Critic verification — VLM inference | 17.734 | 19.830 | 5 |
-| Attribute search | 0.425 | 0.458 | 1 |
-| Query decomposition (LLM) | 0.410 | 1.120 | 1 |
-| Embed search | 0.044 | 0.050 | 1 |
-| VST clip resolution | 0.043 | 0.047 | 5 |
+| End-to-End (client) | 19.135 | 22.430 | 1 |
+| Search (CLI internal) | 18.622 | 21.958 | 1 |
+| Critic verification — VLM inference | 16.849 | 20.164 | ≤5 |
+| Attribute search | 0.468 | 0.607 | 1 |
+| Query decomposition (LLM) | 0.413 | 1.157 | 1 |
+| Embed search | 0.050 | 0.056 | 1 |
+| VST clip resolution | 0.039 | 0.045 | ≤5 |
 
 **Latency Stage Breakdown — 50 Concurrent Queries**
 
 | Stage | Avg (s) | P90 (s) | Calls/query |
 | --- | --- | --- | --- |
-| End-to-End (client) | 41.965 | 54.222 | 1 |
-| Search (CLI internal) | 40.742 | 51.670 | 1 |
-| Critic verification — VLM inference | 37.610 | 48.237 | 5 |
-| Attribute search | 2.219 | 4.806 | 1 |
-| Query decomposition (LLM) | 1.246 | 2.664 | 1 |
-| Embed search | 0.040 | 0.045 | 1 |
-| VST clip resolution | 0.038 | 0.044 | 5 |
+| End-to-End (client) | 43.562 | 54.194 | 1 |
+| Search (CLI internal) | 42.151 | 53.557 | 1 |
+| Critic verification — VLM inference | 39.639 | 51.780 | ≤5 |
+| Attribute search | 1.624 | 4.097 | 1 |
+| Query decomposition (LLM) | 1.280 | 2.747 | 1 |
+| Embed search | 0.045 | 0.049 | 1 |
+| VST clip resolution | 0.038 | 0.040 | ≤5 |
 
 </Tab>
 <Tab title="NVIDIA RTX PRO 6000 SE">
@@ -214,49 +216,49 @@ is also very close to the wall-clock time the critic phase adds to a query.
 
 | Stage | Avg (s) | P90 (s) | Calls/query |
 | --- | --- | --- | --- |
-| End-to-End (client) | 2.575 | 2.886 | 1 |
-| Search (CLI internal) | 2.138 | 2.441 | 1 |
-| Critic verification — VLM inference | 1.540 | 1.691 | 5 |
-| Attribute search | 0.508 | 0.552 | 1 |
-| Query decomposition (LLM) | 0.320 | 0.580 | 1 |
-| Embed search | 0.029 | 0.030 | 1 |
-| VST clip resolution | 0.027 | 0.030 | 5 |
+| End-to-End (client) | 3.197 | 4.190 | 1 |
+| Search (CLI internal) | 2.444 | 3.270 | 1 |
+| Critic verification — VLM inference | 1.927 | 2.823 | ≤5 |
+| Attribute search | 0.405 | 0.559 | 1 |
+| Query decomposition (LLM) | 0.336 | 0.460 | 1 |
+| Embed search | 0.111 | 0.120 | 1 |
+| VST clip resolution | 0.048 | 0.106 | ≤5 |
 
 **Latency Stage Breakdown — 10 Concurrent Queries**
 
 | Stage | Avg (s) | P90 (s) | Calls/query |
 | --- | --- | --- | --- |
-| End-to-End (client) | 9.642 | 10.848 | 1 |
-| Search (CLI internal) | 9.109 | 10.384 | 1 |
-| Critic verification — VLM inference | 7.653 | 8.441 | 5 |
-| Attribute search | 0.586 | 0.655 | 1 |
-| Query decomposition (LLM) | 0.373 | 0.530 | 1 |
-| Embed search | 0.033 | 0.037 | 1 |
-| VST clip resolution | 0.034 | 0.044 | 5 |
+| End-to-End (client) | 8.531 | 10.116 | 1 |
+| Search (CLI internal) | 7.807 | 9.438 | 1 |
+| Critic verification — VLM inference | 6.693 | 8.118 | ≤5 |
+| Attribute search | 0.340 | 0.401 | 1 |
+| Query decomposition (LLM) | 0.384 | 0.635 | 1 |
+| Embed search | 0.071 | 0.083 | 1 |
+| VST clip resolution | 0.034 | 0.046 | ≤5 |
 
 **Latency Stage Breakdown — 20 Concurrent Queries**
 
 | Stage | Avg (s) | P90 (s) | Calls/query |
 | --- | --- | --- | --- |
-| End-to-End (client) | 19.131 | 21.324 | 1 |
-| Search (CLI internal) | 18.564 | 20.801 | 1 |
-| Critic verification — VLM inference | 17.001 | 19.058 | 5 |
-| Attribute search | 0.712 | 1.086 | 1 |
-| Query decomposition (LLM) | 0.538 | 1.222 | 1 |
-| Embed search | 0.034 | 0.046 | 1 |
-| VST clip resolution | 0.032 | 0.042 | 5 |
+| End-to-End (client) | 16.866 | 19.673 | 1 |
+| Search (CLI internal) | 16.110 | 19.003 | 1 |
+| Critic verification — VLM inference | 14.878 | 17.838 | ≤5 |
+| Attribute search | 0.379 | 0.482 | 1 |
+| Query decomposition (LLM) | 0.517 | 1.037 | 1 |
+| Embed search | 0.075 | 0.079 | 1 |
+| VST clip resolution | 0.033 | 0.049 | ≤5 |
 
 **Latency Stage Breakdown — 50 Concurrent Queries**
 
 | Stage | Avg (s) | P90 (s) | Calls/query |
 | --- | --- | --- | --- |
-| End-to-End (client) | 42.731 | 56.742 | 1 |
-| Search (CLI internal) | 42.058 | 56.012 | 1 |
-| Critic verification — VLM inference | 35.624 | 48.396 | 5 |
-| Attribute search | 10.950 | 16.949 | 1 |
-| Query decomposition (LLM) | 1.680 | 5.286 | 1 |
-| Embed search | 0.033 | 0.038 | 1 |
-| VST clip resolution | 0.037 | 0.047 | 5 |
+| End-to-End (client) | 39.891 | 61.070 | 1 |
+| Search (CLI internal) | 38.343 | 60.060 | 1 |
+| Critic verification — VLM inference | 36.770 | 58.287 | ≤5 |
+| Attribute search | 0.495 | 0.735 | 1 |
+| Query decomposition (LLM) | 2.081 | 6.464 | 1 |
+| Embed search | 0.087 | 0.104 | 1 |
+| VST clip resolution | 0.041 | 0.043 | ≤5 |
 
 </Tab>
 </Tabs>
@@ -273,19 +275,19 @@ row is one test: either a single video or a batch of multiple videos uploaded to
 | Content | No. of Videos | Duration | Total chunks | Avg chunks per video | Avg (s) | P90 (s) | Total size |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Video 1 | 1 | 140 min | 1684 | 1684 | 13.80 | - | 2421.59 MB |
-| Video 2 | 1 | 60 min | 720 | 720 | 5.84 | - | 1047.76 MB |
-| Batch 1 | 2 | 25 s–210 s | 47 | 23.5 | 1.15 | 1.33 | 183.25 MB |
-| Batch 2 | 17 | 8 s–37 s | 81 | 4.8 | 1.03 | 1.79 | 72.28 MB |
+| Video 2 | 1 | 60 min | 720 | 720 | 12.95 | - | 1047.76 MB |
+| Batch 1 | 2 | 25 s–210 s | 47 | 23.5 | 1.80 | 1.84 | 183.25 MB |
+| Batch 2 | 17 | 8 s–37 s | 81 | 4.8 | 1.12 | 1.55 | 72.28 MB |
 
 </Tab>
 <Tab title="H100">
 
 | Content | No. of Videos | Duration | Total chunks | Avg chunks per video | Avg (s) | P90 (s) | Total size |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Video 1 | 1 | 140 min | 1684 | 1684 | 12.99 | - | 2421.59 MB |
-| Video 2 | 1 | 60 min | 720 | 720 | 5.52 | - | 1047.76 MB |
-| Batch 1 | 2 | 25 s–210 s | 47 | 23.5 | 2.95 | 4.95 | 183.25 MB |
-| Batch 2 | 17 | 8 s–37 s | 81 | 4.8 | 1.72 | 2.51 | 72.28 MB |
+| Video 1 | 1 | 140 min | 1684 | 1684 | 14.40 | - | 2421.59 MB |
+| Video 2 | 1 | 60 min | 720 | 720 | 6.10 | - | 1047.76 MB |
+| Batch 1 | 2 | 25 s–210 s | 47 | 23.5 | 3.13 | 5.29 | 183.25 MB |
+| Batch 2 | 17 | 8 s–37 s | 81 | 4.8 | 1.81 | 2.75 | 72.28 MB |
 
 </Tab>
 </Tabs>
