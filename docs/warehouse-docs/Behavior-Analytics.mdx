@@ -17,11 +17,13 @@ The Behavior Analytics microservice requires configuration files that control va
 
 The main configuration file for Behavior Analytics controls message broker settings, sensor configurations, and pipeline parameters. The configuration supports multiple message broker types (Kafka, Redis Streams, MQTT).
 
+Example Warehouse 2D Kafka configuration:
+
 ```json
 {
   "kafka": {
-    "brokers": "localhost:9092",
-    "group": "behavior-analytics",
+    "brokers": "kafka:29092",
+    "group": "mdx-spatial-analytics-2d-app",
     "consumer": {
       "autoOffsetReset": "latest",
       "enableAutoCommit": false,
@@ -48,8 +50,8 @@ The main configuration file for Behavior Analytics controls message broker setti
       "id": "default",
       "configs": [
         {"name": "proximityDetectionEnable", "value": "true"},
-        {"name": "proximityDetectionThreshold", "value": "1.8"},
-        {"name": "proximityDetectionCenterClasses", "value": "[\"Person\"]"},
+        {"name": "proximityDetectionThreshold", "value": "4"},
+        {"name": "proximityDetectionCenterClasses", "value": "[\"Forklift\"]"},
         {"name": "proximityDetectionSurroundingClasses", "value": "[\"Person\"]"}
       ]
     }
@@ -60,16 +62,11 @@ The main configuration file for Behavior Analytics controls message broker setti
     {"name": "numWorkersForBehaviorCreation", "value": "2"},
     {"name": "numWorkersForFrameEnhancement", "value": "2"},
     {"name": "behaviorWatermarkSec", "value": "30"},
-    {"name": "behaviorStateValidInterval", "value": "6"},
     {"name": "behaviorMaxPoints", "value": "200"},
-    {"name": "objectConfidenceThreshold", "value": "0.5"},
     {"name": "proximityViolationIncidentEnable", "value": "true"},
-    {"name": "proximityViolationIncidentThreshold", "value": "1"},
+    {"name": "proximityViolationIncidentThreshold", "value": "2"},
     {"name": "restrictedAreaViolationIncidentEnable", "value": "true"},
-    {"name": "confinedAreaViolationIncidentEnable", "value": "true"},
-    {"name": "fovCountViolationIncidentEnable", "value": "true"},
-    {"name": "fovCountViolationIncidentObjectThreshold", "value": "3"},
-    {"name": "fovCountViolationIncidentObjectType", "value": "Person"}
+    {"name": "confinedAreaViolationIncidentEnable", "value": "true"}
   ]
 }
 ```
