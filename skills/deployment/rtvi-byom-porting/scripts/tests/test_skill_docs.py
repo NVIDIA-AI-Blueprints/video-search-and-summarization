@@ -32,6 +32,13 @@ class SkillDocsTest(unittest.TestCase):
             "use_fps_for_chunking",
         ):
             self.assertIn(needle, text)
+        normalized = " ".join(text.split())
+        for rule in (
+            "Send exactly one of `file`, `filename`, or `url`.",
+            "`POST /v1/generate_captions` requires `id`, `prompt`, and `model`.",
+            "Do not send top-level `media_type`.",
+        ):
+            self.assertIn(rule, normalized)
         self.assertNotIn("MODEL_PATH=<", text)
 
 
