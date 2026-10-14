@@ -2074,6 +2074,25 @@ class VideoFileFrameGetter:
 
     # === end CHOOSE_FSELECT helpers ==============================================
 
+    def _configure_reference_resize(self, file_or_rtsp):
+        self._reference_resize_target = None
+        width, height = self._frame_width, self._frame_height
+        if not _env_bool("RTVI_QWEN_REFERENCE_RESIZE", False) or not (width and height):
+            return width, height
+        if self._is_live:
+            if self._ipc_frame_copy_enabled or self._enable_jpeg_output:
+                raise ValueError("Qwen reference live resize requires decoded frames without IPC")
+            self._reference_resize_target = (height, width)
+            # Leave NVMM caps unconstrained so conversion preserves source geometry.
+            # The existing CUDA copy path performs the bicubic antialiased resize.
+            return None, None
+        if self._frame_selector.selects_by_frame_index:
+            source_width, source_height = MediaFileInfo.get_info(file_or_rtsp).video_resolution
+            if source_width and source_height:
+                self._reference_resize_target = (height, width)
+                return source_width, source_height
+        return width, height
+
     def _create_pipeline(
         self, file_or_rtsp: str, username="", password="", create_source_elems_only=False
     ):
@@ -2086,22 +2105,7 @@ class VideoFileFrameGetter:
         # For audio: uridecodebin -> probe -> audioconvert ->
         # resample -> asr -> appsink -> add text_to cache
         self._is_live = file_or_rtsp.startswith("rtsp://")
-        self._reference_resize_target = None
-        output_width = self._frame_width
-        output_height = self._frame_height
-        if (
-            _env_bool("RTVI_QWEN_REFERENCE_RESIZE", False)
-            and not self._is_live
-            and self._frame_selector.selects_by_frame_index
-            and self._frame_width
-            and self._frame_height
-        ):
-            # Preserve source resolution through nvvideoconvert; resizing here
-            # would use its bilinear path instead of Qwen's reference transform.
-            source_width, source_height = MediaFileInfo.get_info(file_or_rtsp).video_resolution
-            if source_width and source_height:
-                self._reference_resize_target = (self._frame_height, self._frame_width)
-                output_width, output_height = source_width, source_height
+        output_width, output_height = self._configure_reference_resize(file_or_rtsp)
         use_ipc_live_source = self._is_live and self._ipc_frame_copy_enabled
         pipeline = self._pipeline if create_source_elems_only else Gst.Pipeline()
 

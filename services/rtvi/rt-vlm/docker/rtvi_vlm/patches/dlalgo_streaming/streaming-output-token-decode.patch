@@ -1,0 +1,60 @@
+diff --git a/vllm/entrypoints/openai/streaming/session.py b/vllm/entrypoints/openai/streaming/session.py
+index 8ac8d65..522bc0b 100644
+--- a/vllm/entrypoints/openai/streaming/session.py
++++ b/vllm/entrypoints/openai/streaming/session.py
+@@ -34,6 +34,21 @@ _MAX_INPUT_BACKLOG = 1
+ _FRAME_TIMEOUT_S = 120.0
+ 
+ 
++def _decode_reply(renderer: "BaseRenderer", token_ids: list[int], streamed: str) -> str:
++    decoded = renderer.get_tokenizer().decode(
++        token_ids, skip_special_tokens=True
++    ).strip()
++    streamed = streamed.strip()
++    if decoded != streamed:
++        logger.warning(
++            "Streaming detokenizer mismatch; using authoritative token decode: "
++            "streamed=%r decoded=%r",
++            streamed,
++            decoded,
++        )
++    return decoded
++
++
+ class SessionBusyError(RuntimeError):
+     """A frame was pushed while the previous frame's reply is still pending."""
+ 
+@@ -219,6 +233,7 @@ class StreamingSession:
+         """Drive generate() and segment the DELTA stream into one reply per frame."""
+         buf = ""
+         tok = 0
++        token_ids: list[int] = []
+         ttft: float | None = None
+         frame_idx = 0
+         try:
+@@ -230,6 +245,7 @@ class StreamingSession:
+                     submit_t = self._submit_times[0] if self._submit_times else None
+                     if completion.token_ids:
+                         tok += len(completion.token_ids)
++                        token_ids.extend(completion.token_ids)
+                     if completion.text:
+                         if ttft is None and submit_t is not None:
+                             ttft = time.monotonic() - submit_t
+@@ -254,7 +270,7 @@ class StreamingSession:
+                         self._out.put_nowait(
+                             FrameResponse(
+                                 frame_index=source_frame_idx,
+-                                text=buf.strip(),
++                                text=_decode_reply(self.renderer, token_ids, buf),
+                                 finish_reason=fr,
+                                 token_count=tok,
+                                 ttft_s=ttft,
+@@ -262,7 +278,7 @@ class StreamingSession:
+                             )
+                         )
+                         frame_idx += 1
+-                        buf, tok, ttft = "", 0, None
++                        buf, tok, token_ids, ttft = "", 0, [], None
+                 if output.finished:
+                     if frame_idx < self._frames_yielded:
+                         # Engine-initiated finish (abort/error/shutdown) with

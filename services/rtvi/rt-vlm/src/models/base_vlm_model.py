@@ -63,6 +63,7 @@ class VlmModelOutput:
     input_tokens: int = 0
     output_tokens: int = 0
     reasoning_description: str = ""
+    streaming_metrics: Optional[Dict[str, Any]] = None
 
 
 class BaseVlmModel(ABC):
@@ -196,6 +197,39 @@ class BaseVlmModel(ABC):
         """
         raise NotImplementedError(f"{type(self).__name__} does not support text-only streaming")
         yield  # Make this a generator
+
+    def supports_streaming_vlm(self) -> bool:
+        """Return whether this backend supports persistent Streaming VLM sessions."""
+        return False
+
+    def start_streaming_vlm_session(
+        self,
+        stream_id: str,
+        query: str,
+        generation_config: Optional[VlmGenerationConfig] = None,
+        streaming_config: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> Any:
+        """Start a backend-owned Streaming VLM session for one live stream."""
+        raise NotImplementedError(f"{type(self).__name__} does not support Streaming VLM")
+
+    def generate_streaming_vlm_step(
+        self,
+        session: Any,
+        query: str,
+        chunks: List[ChunkInfo],
+        video_frames: Optional[List[torch.Tensor]] = None,
+        video_frames_times: Optional[List[List[float]]] = None,
+        generation_config: Optional[VlmGenerationConfig] = None,
+        audio_frames=None,
+        **kwargs,
+    ) -> list[VlmModelOutput] | concurrent.futures.Future[list[VlmModelOutput]]:
+        """Generate one incremental output for an existing Streaming VLM session."""
+        raise NotImplementedError(f"{type(self).__name__} does not support Streaming VLM")
+
+    def end_streaming_vlm_session(self, stream_id: str, session: Any):
+        """End a Streaming VLM session; unsupported backends have nothing to release."""
+        return None
 
     @abstractmethod
     def can_enqueue_requests(self) -> bool:
