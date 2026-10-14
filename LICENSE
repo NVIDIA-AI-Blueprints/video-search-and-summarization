@@ -37,10 +37,6 @@ File-level exceptions:
       - services/rtvi/rt-embed/docker/NVIDIA-Software-License-Agreement.pdf
       - services/rtvi/rt-vlm/docker/NVIDIA-Software-License-Agreement.pdf
 
-Third-party copyright and license notices for components distributed with
-VIOS are recorded in services/vios/LICENSE.3rdparty, which is the authoritative
-third-party inventory for services/vios.
-
 This project also contains Elasticsearch, Kibana and Redis configuration files, which are dual-licensed and may be used under your choice of either:
    - Server Side Public License v1 (SSPLv1)
    - GNU Affero General Public License v3 (AGPLv3)
