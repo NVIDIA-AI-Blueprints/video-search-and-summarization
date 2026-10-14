@@ -79,6 +79,22 @@ def thinking_kwargs(model: str) -> dict[str, Any]:
     name = (model or "").lower()
     return dict(CHAT_TEMPLATE_KWARGS) if any(m in name for m in ENABLE_THINKING_MARKERS) else {}
 
+
+def thinking_off_tag(model: str) -> str | None:
+    """The line the agent appends to the system message to turn thinking off.
+
+    Mirrors ``reasoning_utils.get_thinking_tag(llm, False)``: Llama and NVIDIA
+    Nemotron NIMs read it from the system prompt, not from a template kwarg.
+    """
+    name = (model or "").lower().translate(str.maketrans("_.", "--"))
+    if name.startswith("nvidia/nvidia"):
+        return None if "nemotron-3" in name else "/no_think"
+    if name.startswith("nvidia/llama"):
+        if "v1-0" in name or "v1-1" in name or name.endswith("v1"):
+            return "detailed thinking off"
+        return "/no_think"
+    return None
+
 _THINK_BLOCK = re.compile(r"<think>.*?(?:</think>|$)", re.DOTALL)
 
 _SYSTEM = (
@@ -135,9 +151,12 @@ class LiveDecomposer:
         repo_root: Path,
         model: str | None = None,
         timeout_s: float = 120.0,
+        source_type: str = "video_file",
     ) -> None:
         self._url = llm_url.rstrip("/")
         self._timeout = timeout_s
+        #: How the agent labels the source list for this search's source_type.
+        self._sources_label = "Video streams" if source_type == "rtsp" else "Video files"
         self._prompt, self._few_shot = load_prompt(repo_root)
         self._model = model or self._discover_model()
 
@@ -174,6 +193,7 @@ class LiveDecomposer:
             "model": self._model,
             "temperature": TEMPERATURE,
             "chat_template_kwargs": thinking_kwargs(self._model) or None,
+            "system_thinking_tag": thinking_off_tag(self._model),
             "prompt_source": PROMPT_SOURCE,
         }
 
@@ -184,14 +204,15 @@ class LiveDecomposer:
         end-to-end cost the same way the CLI subprocess does.
         """
         sources = (
-            f"Video files: {', '.join(video_sources)}" if video_sources else "No specific sources available"
+            f"{self._sources_label}: {', '.join(video_sources)}" if video_sources else "No specific sources available"
         )
+        tag = thinking_off_tag(self._model)
         body: dict[str, Any] = {
             "model": self._model,
             "temperature": TEMPERATURE,
             "max_tokens": MAX_TOKENS,
             "messages": [
-                {"role": "system", "content": _SYSTEM},
+                {"role": "system", "content": f"{_SYSTEM}\n{tag}" if tag else _SYSTEM},
                 {
                     "role": "user",
                     "content": self._prompt.format(

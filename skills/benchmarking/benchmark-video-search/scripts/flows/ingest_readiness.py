@@ -130,9 +130,6 @@ class ExpectedVideo:
     sensor_id: str | None
     duration_s: float | None
     fps: float | None
-    #: False for ``--skip-existing`` sources: never uploaded, so never seen by
-    #: RT-CV and carrying no timings.
-    uploaded_this_run: bool
     upload_start_mono: float | None = None
     upload_start_utc: str | None = None
     video_name: str = ""
@@ -226,7 +223,6 @@ class VideoState:
             "tags": chunks,
             "raw": frame_count(video.duration_s, video.fps),
         }
-        self.first_observed: float | None = None
         self.cv_dropped_at: float | None = None
         self.counts: dict[str, int] = {}
         self.last_change: dict[str, float] = {}
@@ -235,8 +231,8 @@ class VideoState:
         self.raw_last_ms: float | None = None
         self.cv_seen = False
         self.cv_listed = False
-        #: Which rule completed raw: ``rtcv_released``, ``rtcv_missing`` (RT-CV
-        #: never listed it, so a stable non-zero count decided) or ``existing``.
+        #: Which rule completed raw: ``rtcv_released`` or ``rtcv_missing``
+        #: (RT-CV never listed it, so a stable non-zero count decided).
         self.raw_check: str | None = None
         #: Indexes the deployment never produced, no longer required.
         self.absent: set[str] = set()
@@ -284,8 +280,6 @@ class VideoState:
 
     def observe(self, snap: Snapshot, now: float) -> None:
         v = self.video
-        if self.first_observed is None:
-            self.first_observed = now
         seen: dict[str, int] = {}
         if "raw" in self.require:
             count, last_ms = snap.raw.get(v.name, (0, None))
@@ -299,13 +293,9 @@ class VideoState:
             seen["behavior"] = snap.behavior.get(v.name, 0)
 
         for index, count in seen.items():
-            previous = self.counts.get(index)
-            # An uploaded video started from zero -- the stale check enforces
-            # that -- so its first non-zero count is a change. A skipped one
-            # was already there: its first reading is the baseline.
-            if previous is None and v.uploaded_this_run:
-                previous = 0
-            if previous is not None and count != previous:
+            # Every video started from zero -- the stale check enforces that --
+            # so its first non-zero count is a change.
+            if count != self.counts.get(index, 0):
                 self.last_change[index] = now
             self.counts[index] = count
 
@@ -314,10 +304,14 @@ class VideoState:
             if index in self.require and index not in self.done_at and target and seen[index] >= target:
                 self.done_at[index] = now
 
-        if snap.cv_active is not None and v.uploaded_this_run:
+        if snap.cv_active is not None:
             self.cv_listed = bool(self.cv_identities() & snap.cv_active)
             self.cv_seen |= self.cv_listed
-        if self.cv_dropped and self.cv_dropped_at is None:
+        # A stream missing from one poll and back on the next was never
+        # released; the flush window counts from the release that sticks.
+        if self.cv_listed:
+            self.cv_dropped_at = None
+        elif self.cv_dropped and self.cv_dropped_at is None:
             self.cv_dropped_at = now
 
         for index in ("embed", "tags"):
@@ -340,10 +334,7 @@ class VideoState:
         # only for a frame with a detection, so sparse footage never reaches
         # the frame count or the end of the video.
         count = self.counts.get("raw", 0)
-        if not self.video.uploaded_this_run:
-            ok = count > 0 and self._raw_quiet(now, self.first_observed)
-            self.raw_check = "existing" if ok else None
-        elif self.cv_listed:
+        if self.cv_listed:
             self.raw_check = None
         elif self.cv_dropped:
             # Logstash may still be flushing after RT-CV lets go.
@@ -361,15 +352,22 @@ class VideoState:
         return round(self.counts.get("raw", 0) / frames, 3) if frames else None
 
     def per_index_done_s(self) -> dict[str, float | None]:
-        """Seconds from upload start, per index. Empty for a skipped video."""
+        """Seconds from upload start, per index. Empty when the start is unknown."""
         start = self.video.upload_start_mono
-        if not self.video.uploaded_this_run or start is None:
+        if start is None:
             return {}
         out: dict[str, float | None] = {}
         for index in INGEST_INDEXES:
             if index not in self.require or not self.index_done.get(index):
                 continue
-            at = self.done_at.get(index) if index in ("embed", "tags") else self.last_change.get(index)
+            if index in ("embed", "tags"):
+                at = self.done_at.get(index)
+            elif index == "raw" and self.raw_check == "rtcv_released":
+                # Sparse footage writes its last detection long before RT-CV
+                # finishes the stream; the release is when raw was done.
+                at = max(t for t in (self.cv_dropped_at, self.last_change.get("raw")) if t is not None)
+            else:
+                at = self.last_change.get(index)
             # Zero behavior objects is a legitimate outcome with no done time.
             out[index] = round(at - start, 3) if at is not None else None
         return out
@@ -393,11 +391,7 @@ class VideoState:
             count = self.counts.get("raw", 0)
             docs = f"{count} frame docs (frames with detections)"
             settling = f"{docs}, still changing within the {self.quiet_s:g}s quiet window"
-            if not v.uploaded_this_run:
-                reason = settling if count else (
-                    "no frame docs, and the source was not uploaded this run, so nothing will write them"
-                )
-            elif self.cv_listed:
+            if self.cv_listed:
                 reason = f"RT-CV is still processing the stream; {docs} so far"
             elif self.cv_dropped:
                 reason = f"RT-CV released the stream; {settling}"
@@ -443,20 +437,19 @@ class VideoState:
             "sensor": v.name,
             "sensor_id": v.sensor_id,
             "video_name": v.video_name or v.name,
-            "uploaded_this_run": v.uploaded_this_run,
             "duration_s": v.duration_s,
             "fps": v.fps,
             "file_size_mb": v.file_size_mb,
-            "upload_s": v.upload_s if v.uploaded_this_run else None,
-            "upload_start_utc": v.upload_start_utc if v.uploaded_this_run else None,
-            "upload_start_mono": v.upload_start_mono if v.uploaded_this_run else None,
+            "upload_s": v.upload_s,
+            "upload_start_utc": v.upload_start_utc,
+            "upload_start_mono": v.upload_start_mono,
             "per_index_done_s": done_s,
             "ingest_s": max(timed) if timed and len(done_s) == len(self.require) else None,
             "counts": dict(self.counts),
             "targets": targets,
             "raw_last_s": self.raw_last_s if "raw" in self.require else None,
             "raw_coverage": self.raw_coverage() if "raw" in self.require else None,
-            "cv_seen": self.cv_seen if v.uploaded_this_run else None,
+            "cv_seen": self.cv_seen,
             "raw_check": self.raw_check if "raw" in self.require else None,
             "over_target": over,
             "absent": sorted(self.absent),
@@ -523,7 +516,8 @@ def _msearch(base: str, searches: list[tuple[str, str, dict[str, Any]]], timeout
         timeout=timeout,
     )
     resp.raise_for_status()
-    responses = (resp.json() or {}).get("responses")
+    payload = resp.json()
+    responses = payload.get("responses") if isinstance(payload, dict) else None
     if not isinstance(responses, list) or len(responses) != len(searches):
         raise IngestPollError(f"_msearch returned {str(responses)[:200]}")
     return {label: _buckets(r, label) for (label, _i, _b), r in zip(searches, responses)}
@@ -583,27 +577,27 @@ def poll_ingest(
     return snap
 
 
-#: Every index family search reads. Wildcards, not the upload-anchored names:
-#: search queries every day an RTSP source wrote, so a leftover in any of
-#: them can be returned.
+#: The indexes a ``video_file`` search reads: the upload anchors, where every
+#: uploaded file is indexed. RTSP documents land in dated indexes that no
+#: source deletion empties and this eval never reads, and no eval path reads
+#: tags, so neither is counted.
 SEARCHED_INDEXES = {
-    "embed": "mdx-embed-filtered-*",
-    "raw": "mdx-raw-*",
-    "behavior": "mdx-behavior-*",
-    "tags": f"{TAG_INDEX_PREFIX}*",
+    "embed": EMBED_INDEX,
+    "raw": RAW_INDEX,
+    "behavior": BEHAVIOR_INDEX,
 }
-_WILDCARD_PARAMS = {"ignore_unavailable": "true", "allow_no_indices": "true"}
+_MISSING_OK_PARAMS = {"ignore_unavailable": "true", "allow_no_indices": "true"}
 
 
 def indexed_counts(ingress_url: str, timeout: int = POLL_TIMEOUT) -> dict[str, int]:
-    """Documents in each searched index family, whatever source wrote them.
+    """Documents in each searched index, whatever source wrote them.
 
     ``_count``, not ``_cat/indices``: the latter counts nested documents.
     """
     base = ingress_url.rstrip("/")
     counts: dict[str, int] = {}
     for label, pattern in SEARCHED_INDEXES.items():
-        resp = requests.get(f"{base}/elasticsearch/{pattern}/_count", params=_WILDCARD_PARAMS, timeout=timeout)
+        resp = requests.get(f"{base}/elasticsearch/{pattern}/_count", params=_MISSING_OK_PARAMS, timeout=timeout)
         resp.raise_for_status()
         count = (resp.json() or {}).get("count")
         if not isinstance(count, int):
@@ -723,13 +717,19 @@ class IngestWatcher:
     def started(self) -> bool:
         return self.started_at is not None
 
+    @property
+    def crashed(self) -> dict[str, Any] | None:
+        """The failed result if polling stopped on an unexpected error, else None."""
+        result = self._result
+        return result if result is not None and result.get("crashed") else None
+
     def add(self, video: ExpectedVideo) -> None:
         state = VideoState(
             video, require=self.require, chunk_s=self.chunk_s, quiet_s=self.quiet_s,
             anchor_ms=self.anchor_ms,
         )
         with self._lock:
-            if video.uploaded_this_run and state.cv_identities() & self._cv_ever:
+            if state.cv_identities() & self._cv_ever:
                 state.cv_seen = True
             self._states.append(state)
 
@@ -776,6 +776,7 @@ class IngestWatcher:
             with self._lock:
                 reports = [st.report(FAILED) for st in self._states]
             self._result = self._finish(FAILED, reports, self._clock(), error=f"{type(exc).__name__}: {exc}")
+            self._result["crashed"] = True
         if self._result is None:
             with self._lock:
                 reports = [st.report(TIMED_OUT) for st in self._states]
@@ -1002,6 +1003,18 @@ def format_ingest_failure(result: dict[str, Any]) -> str:
             f"video(s) after {result.get('waited_s')}s (outcome: {result.get('outcome')})."
         ),
     ]
+    if result.get("crashed"):
+        return "\n".join([
+            f"ABORTED: the ingest gate stopped polling on an unexpected error: {result.get('error')}",
+            (
+                f"  It had been handed {len(result.get('per_video', []))} video(s) when it stopped, so "
+                "their completion was never decided."
+            ),
+            (
+                "  This is a bug in the gate or a response it could not read, not slow perception; "
+                "--ingest-deadline-s will not help."
+            ),
+        ])
     for report in bad:
         targets = report.get("targets", {})
         counts = ", ".join(
