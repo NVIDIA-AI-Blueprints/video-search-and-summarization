@@ -7,18 +7,11 @@ version: 2
 rules:
   # --- Reviewed scanner false positives (temporary) -------------------------
   - id: "TM1"
-    path: "references/source_lifecycle.md"
-    message: "DELETE /api/v1/*"
-    reason: &tm1_rest >-
-      Reviewed false positive (temporary until the SkillSpector TM1 fix ships).
-      These are VSS agent REST routes for removing an ingested source
-      (DELETE /api/v1/videos/<id>, DELETE /api/v1/rtsp-streams/delete/<name>),
-      not file deletion commands. The skill resolves the exact id first and
-      refuses to delete an ambiguous source.
-
-  - id: "TM1"
     path: "evals/search.json"
     message: "DELETE /api/v1/*"
-    reason: *tm1_rest
+    reason: >-
+      Reviewed false positive (temporary until the SkillSpector TM1 fix ships).
+      The eval names Agent REST routes (DELETE /api/v1/videos/<id>) only to
+      require that the agent not use them. It is not a file deletion command.
 
 fingerprints: []
