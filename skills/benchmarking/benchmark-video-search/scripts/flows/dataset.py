@@ -319,19 +319,15 @@ def aggregate_ingest_stats(readiness: dict[str, Any]) -> dict[str, Any]:
         "poll_interval_s": readiness.get("poll_interval_s"),
         "quiet_s": readiness.get("quiet_s"),
         "behavior_check": readiness.get("behavior_check"),
-        "per_video": [
-            {k: r.get(k) for k in (
-                "sensor", "video_name", "duration_s", "fps", "upload_s",
-                "per_index_done_s", "ingest_s", "counts", "targets", "raw_last_s",
-                "raw_coverage", "raw_check", "over_target", "absent", "warnings", "outcome", "causes",
-            )}
-            for r in per_video
-        ],
     }
 
 
-def print_ingest_summary(stats: dict[str, Any]) -> None:
-    """Print the ingest gate's figures in the same style as the upload block."""
+def print_ingest_summary(stats: dict[str, Any], per_video: list[dict[str, Any]] | None = None) -> None:
+    """Print the ingest gate's figures in the same style as the upload block.
+
+    ``stats`` is the batch block (``summary.ingest``); ``per_video`` is the
+    gate's own report (``flow.ingest_readiness.per_video``), the one copy.
+    """
     if not stats or not stats.get("videos"):
         return
 
@@ -359,7 +355,7 @@ def print_ingest_summary(stats: dict[str, Any]) -> None:
     def _s(value: float | None) -> str:
         return f"{value}s" if value is not None else "n/a"
 
-    for r in stats["per_video"]:
+    for r in per_video or []:
         done = "  ".join(f"{k}={_s(v)}" for k, v in (r.get("per_index_done_s") or {}).items())
         flag = f"  OVER TARGET: {r['over_target']}" if r.get("over_target") else ""
         print(f"  {r['sensor']}: {r['outcome']}  ingest={_s(r.get('ingest_s'))}  {done}{flag}")
@@ -372,16 +368,6 @@ def print_ingest_summary(stats: dict[str, Any]) -> None:
         for warning in r.get("warnings") or []:
             print(f"    WARNING: {warning}")
     print(f"{'=' * 60}\n")
-
-
-def ingress_url_for(endpoint: str, ingress_port: int = 7777) -> str:
-    """The unified ingress on the agent's host, which routes /elasticsearch and /rtvi-cv.
-
-    The ingest gate reads perception's output through it. Same derivation as
-    :func:`vst_url_for`, for the same reason: one host, a known port.
-    """
-    parsed = urlparse(endpoint)
-    return f"{parsed.scheme or 'http'}://{parsed.hostname}:{ingress_port}"
 
 
 def vst_url_for(endpoint: str, vst_port: int = 30888) -> str:
