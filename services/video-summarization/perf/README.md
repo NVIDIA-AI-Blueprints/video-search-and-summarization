@@ -19,12 +19,13 @@ without changing benchmark behavior.
 - `setup/scripts/`: existing setup script.
 - `../tests/perf/`: LVS perf tests and expected-result fixture.
 
-## Compatibility note
+## Pipeline integration
 
-The existing LVS code assumes its original `ci/`, `perf/benchmark/`, and
-`compose/` runtime locations. The common `benchmark-perf-test` pipeline uses
-its `tools/materialize_lvs_package.sh` adapter to create a build-specific
-compatibility workspace before invoking the unchanged runner.
+The common `benchmark-perf-test` pipeline checks out the requested VSS revision
+and invokes `perf/scripts/run_benchmark.sh` directly from the
+`video-summarization` service directory. The runner resolves benchmark configs,
+Python modules, Compose recipes, virtual environments, and reports from this
+service-owned `perf/` tree.
 
 The promotion trigger supplies:
 
