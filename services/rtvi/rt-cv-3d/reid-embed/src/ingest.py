@@ -676,8 +676,11 @@ class KafkaIngestor:
                     if obj.HasField("embedding") and len(obj.embedding.vector) > 0:
                         embedding_vector = np.array(obj.embedding.vector, dtype=np.float32)
                         if len(embedding_vector) != DIMENSION:
-                            logger.error(f"Invalid vector dimension: {len(embedding_vector)}")
-                            return
+                            logger.error(
+                                f"Invalid vector dimension for object_id={object_id}: "
+                                f"{len(embedding_vector)}, expected {DIMENSION}. Skipping object."
+                            )
+                            continue
                         has_embedding = True
                         if not INSERT_EMBEDDINGS_IN_BATCHES:
                             self._insert_one(embedding_vector, object_id, sensor_id, frame_id)

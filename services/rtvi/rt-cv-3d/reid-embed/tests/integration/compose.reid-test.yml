@@ -114,7 +114,7 @@ services:
         echo "mv3dt topic ready"
 
   reid-embed:
-    image: ${IMAGE_REF:?set IMAGE_REF to the reid-embed image under test}
+    image: ${IMAGE_REF:-reid-embed:local}
     ports:
       - "8000:8000"
     environment:

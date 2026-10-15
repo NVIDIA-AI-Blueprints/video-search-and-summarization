@@ -105,16 +105,23 @@ Background compression builds a smaller collection from the main embeddings. Lea
 
 ### Secondary embedding generation
 
-The worker computes a second embedding per tracked object and publishes an enriched frame. Setting `ENABLE_SECONDARY_EMBEDDING=true` also turns compression on.
+This feature uses a higher-quality model to generate secondary embeddings from selected high-quality samples of each tracked object at regular intervals. This produces strong appearance embeddings without running the secondary model on every DeepStream frame or affecting the real-time tracking pipeline. The service publishes the results in enriched frames. Setting `ENABLE_SECONDARY_EMBEDDING=true` also turns compression on.
+
+In this feature, a TensorRT engine is built for the selected model from an ONNX file on first start, so that ONNX file is required before anything can be embedded. The image does not include one: download it and mount it into the container. Each source frame is read from VIOS, so `VIOS_SERVER` is required; with it unset the feature returns without embedding.
+
+Two deployments show how to get the model in place:
+
+- RT-CV-3D deployment, [`services/rtvi/rt-cv-3d/rt-cv-mv3dt/README.md`](../rt-cv-mv3dt/README.md#33-optional-reid-service) — `download-embedding-models.sh` fills `$MODELS_DIR/reid`, which is mounted into the service at `/opt/storage/reid`. Secondary embedding is off there by default, so set `SECONDARY_EMBEDDING_ONNX_MODEL_PATH` and `VIOS_SERVER` yourself to turn it on.
+- Warehouse MV3DT blueprint, [`deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml`](../../../../deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml) — `reid-embed-init-mv3dt` runs the same download, and `reid-embed-mv3dt` sets `SECONDARY_EMBEDDING_ONNX_MODEL_PATH` and `VIOS_SERVER`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ENABLE_SECONDARY_EMBEDDING` | `false` | Start the worker. It runs after compression. |
 | `SECONDARY_EMBEDDING_MODEL` | `siglip2` | Which TensorRT engine to load. `siglip2` or `radio-clip`. |
-| `SECONDARY_EMBEDDING_ONNX_MODEL_PATH` | unset | ONNX file used to build that engine. Leave unset to use the path bundled with the selected model. |
+| `SECONDARY_EMBEDDING_ONNX_MODEL_PATH` | unset | Absolute path of the ONNX file used to build that engine. Required when the worker is enabled. Point it at the mounted file from one of the deployments above. |
 | `KAFKA_PRODUCER_SERVER` | `localhost:9092` | `host:port` of the Kafka broker that receives the enriched frames. Used when `MESSAGE_BROKER=kafka`. The producer connects on the first publish. |
 | `KAFKA_PRODUCER_TOPIC` | `compressed-embeddings` | Topic those frames are written to. |
-| `VIOS_SERVER` | unset | `host:port` of a VIOS server. When set, the worker fetches the source frame from VIOS instead of a local file. |
+| `VIOS_SERVER` | unset | `host:port` of a VIOS server. Required when the worker is enabled. The worker fetches the source frame from this server and returns without embedding when it is unset. |
 | `SECONDARY_EMBEDDING_MIN_VISIBILITY` | `0.7` | Objects whose visibility is below this value, from 0 to 1, are not embedded. |
 
 ### Redis consumer

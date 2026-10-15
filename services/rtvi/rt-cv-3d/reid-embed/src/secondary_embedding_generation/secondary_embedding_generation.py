@@ -562,15 +562,13 @@ class SecondaryEmbeddingGeneration:
             logger.warning(f"Empty patch for object_id={object_id} " f"frame_id={frame_id}")
             return None
 
+        patch_name = f"obj_{object_id}_{stream_name}_frame_{frame_id}.jpg"
         if DUMP_OBJ_PATCHES:
             os.makedirs(output_dir, exist_ok=True)
-            filename = f"obj_{object_id}_{stream_name}_frame_{frame_id}.jpg"
-            output_path = os.path.join(output_dir, filename)
+            output_path = os.path.join(output_dir, patch_name)
             # Pillow wants RGB. quality=95 is the JPEG default.
             Image.fromarray(np.ascontiguousarray(patch[:, :, ::-1])).save(output_path, quality=95)
             logger.info(f"Saved patch: {output_path}")
-        else:
-            output_path = None
 
         if generate_embedding:
             if self.trt_inference is None:
@@ -578,7 +576,8 @@ class SecondaryEmbeddingGeneration:
             pixel_values = preprocess_image(patch, self.config)
             embedding = self.trt_inference.infer(pixel_values).squeeze(0)
             if DUMP_EMBEDDINGS:
-                emb_path = f"{os.path.splitext(output_path)[0]}_embedding.json"
+                os.makedirs(output_dir, exist_ok=True)
+                emb_path = os.path.join(output_dir, f"{os.path.splitext(patch_name)[0]}_embedding.json")
                 with open(emb_path, "w", encoding="utf-8") as f:
                     json.dump(
                         {
