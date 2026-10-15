@@ -28,6 +28,12 @@ the same path the product uses, since the agent adapter shells out to
 `vss search run <mode> --raw` for every search — so the numbers describe what
 ships rather than a REST endpoint that is being retired.
 
+Searches go through `vss`. To know when ingestion is done and when a wipe has
+finished, the runner also reads Elasticsearch and RT-CV's stream list directly,
+read-only, through the deployment's `:7777` ingress (derived from
+`--endpoint`). It never writes to either. It changes deployment state only
+through the agent API: it deletes file sources and uploads videos.
+
 ## When not to use this skill
 
 - For a single video-search question, use `vss-search-archive`.
@@ -65,33 +71,20 @@ uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:
 
 Five defaults, each load-bearing:
 
-- **Every run starts from an empty index.** Before uploading, the runner reads
-  VST and the indexes a `video_file` search reads (`mdx-embed-filtered-2025-01-01`,
-  `mdx-raw-2025-01-01`, `mdx-behavior-2025-01-01`) through the `:7777` ingress.
-  Dated RTSP indexes and tags are not checked: no source deletion empties them,
-  and no eval path reads them. If anything is
-  there, it deletes every VST source, even when the index holds exactly this
-  dataset. Each deletion's cleanup webhooks empty that source's documents;
-  the runner never deletes documents itself, because the ingress refuses
-  deletes. It uploads only once VST and every index read empty on two polls
-  in a row, then ingests every dataset video. Anything else left indexed would
-  be searched too, and every hit on it scores as a false positive. Report what
-  the run deleted (`flow.cleared`). The deployment may be shared, but nobody
-  else may use it while an eval runs. The wipe aborts if VST, the ingress and
-  `--endpoint` are on different hosts, or if a source will not delete. It also
-  aborts if documents remain that no source owns — a file source deleted
-  without its cleanup webhook emptying them, or an upload still being
-  processed: no webhook will remove them, so the abort names the indexes to
-  clear on the Elasticsearch host. When there are no sources at all, it
-  aborts at once; otherwise after 180 s.
+- **Every run starts from an empty index.** Before uploading, the runner
+  deletes every uploaded **file** source in VST, waits for the cleanup
+  webhooks to empty the indexes a `video_file` search reads, then ingests the
+  whole dataset. Anything left indexed would be searched too, and every hit on
+  it would score as a false positive. **RTSP cameras are never deleted**; the
+  run lists the ones it kept. Report what was deleted (`flow.cleared`). The
+  deployment may be shared, but nobody else may upload to it while an eval
+  runs. For what is checked and the aborts, see "Before ingest: the wipe" in
+  `references/troubleshooting.md`.
 
   `--skip-ingest` is the only way to keep what is there. It deletes nothing
-  and uploads nothing. It aborts unless every dataset video is already
-  registered in VST. Other sources stay searchable, so it warns about them and
-  records them in `flow.reused_index.other_sources`. The old cleanup flags
-  (`--only-dataset`, `--clear`, `--confirm-delete`, `--skip-existing`) are
-  gone: passing one is a usage error (exit 2), raised before anything is
-  deleted.
+  and uploads nothing, and it aborts unless every dataset video is already
+  registered. Passing a removed cleanup flag (`--only-dataset`, `--clear`,
+  `--confirm-delete`, `--skip-existing`) is a usage error (exit 2).
 - **Live decomposition is on by default.** The LLM origin is derived from
   `--endpoint` (same host, port 30081), so there is no flag to forget. Every
   query is decomposed the way the deployed agent decomposes it, and routed the

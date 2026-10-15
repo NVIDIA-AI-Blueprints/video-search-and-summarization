@@ -39,19 +39,19 @@ were unmerged; `--no-merge-adjacent` reproduces them.
 ## Index state
 
 Every run wipes the index before it ingests, unless `--skip-ingest` is passed.
-The wipe deletes every VST source, then waits for the cleanup webhooks to empty
-the indexes a `video_file` search reads — `mdx-embed-filtered-2025-01-01`,
-`mdx-raw-2025-01-01` and `mdx-behavior-2025-01-01` — then uploads the whole
-dataset. If the index is already empty, it deletes nothing. `--skip-ingest` deletes
+The wipe deletes every uploaded file source in VST, then waits for the cleanup
+webhooks to empty the indexes a `video_file` search reads —
+`mdx-embed-filtered-2025-01-01`, `mdx-raw-2025-01-01` and
+`mdx-behavior-2025-01-01` — then uploads the whole dataset. RTSP cameras are
+never deleted. If the index is already empty, it deletes nothing. `--skip-ingest` deletes
 nothing and uploads nothing, and aborts unless every dataset video is
 registered. Sources outside the dataset that `--skip-ingest` leaves in place
 can be returned by search and score as false positives. The run warns about
 them and records them in `flow.reused_index.other_sources`.
 
 `--source-type rtsp` requires `--skip-ingest`. The fresh ingest indexes every
-upload as a video file, which an `rtsp` search never reads, and the wipe does
-not check the dated RTSP indexes, so a wiped `rtsp` run would score only
-leftovers.
+upload as a video file, which an `rtsp` search never reads, so a wiped `rtsp`
+run would score only what the live cameras had already indexed.
 
 `--only-dataset`, `--clear`, `--confirm-delete` and `--skip-existing` no longer
 exist. They once controlled that deletion; passing one is now a usage error
