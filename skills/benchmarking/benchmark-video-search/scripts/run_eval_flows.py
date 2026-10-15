@@ -632,15 +632,17 @@ def check_inputs_before_wipe(video_dir: Path, data_dir: Path, dataset: str, subs
 
 
 def dataset_video_names(video_dir: Path, data_dir: Path, dataset: str, subset: str) -> list[str]:
-    """The dataset's video stems: its local files, else its ground truth's names."""
-    files = local_videos(video_dir)
-    if files:
-        return [f.stem for f in files]
+    """The dataset's video stems: its ground truth's names, else its local files.
+
+    The ground truth is what gets scored, so a partial local download must not
+    narrow the set. Local files are used only when no annotation names a video.
+    """
     annotations, _ = flows.unpack_dataset(flows.load_dataset_file(data_dir, dataset, subset))
-    return sorted({
+    names = sorted({
         str(s["video_name"]).rsplit(".", 1)[0]
         for segs in annotations.values() for s in segs if s.get("video_name")
     })
+    return names or [f.stem for f in local_videos(video_dir)]
 
 
 def check_reused_index(vst_url: str, names: list[str]) -> dict[str, Any]:
