@@ -20,6 +20,19 @@ import os
 import sys
 
 
+def get_vllm_mm_tensor_ipc(tensor_parallel_size: int | None = None) -> str:
+    """Resolve the tensor transport consistently in decoder and model processes."""
+    override = os.environ.get(
+        "RTVI_VLLM_MM_TENSOR_IPC", os.environ.get("VLLM_MM_TENSOR_IPC", "")
+    ).strip()
+    if override:
+        return override
+    if tensor_parallel_size is None:
+        tensor_parallel_size = int(os.environ.get("NUM_GPUS_PER_VLM_PROC", "") or 1)
+    # The patched vLLM queue only routes CUDA tensor handles to a single rank.
+    return "torch_shm" if tensor_parallel_size <= 1 else "direct_rpc"
+
+
 def get_video_pruning_rate() -> float | None:
     """Return the configured EVS pruning rate, rejecting invalid startup values."""
     raw_value = os.environ.get("VLM_VIDEO_PRUNING_RATE", "").strip()

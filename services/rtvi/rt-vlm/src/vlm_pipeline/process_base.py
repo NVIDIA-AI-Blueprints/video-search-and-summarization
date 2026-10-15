@@ -28,6 +28,7 @@ import torch
 from grpc._channel import _MultiThreadedRendezvous
 
 from common.logger import logger
+from utils.env_validation import get_vllm_mm_tensor_ipc
 from vlm_pipeline.errors import (
     CUDA_OOM_STATUS_CODE,
     format_cuda_oom_error,
@@ -39,7 +40,7 @@ mp_ctx = multiprocessing.get_context("spawn")
 # Read once in every spawned pipeline process. When vLLM's torch_shm tensor
 # queue is active, DecoderProcess can send its CUDA frame tensor directly to
 # VlmProcess through the existing torch-aware multiprocessing queue.
-_USE_CUDA_MM_TENSOR_IPC = os.environ.get("VLLM_MM_TENSOR_IPC", "").strip() == "torch_shm"
+_USE_CUDA_MM_TENSOR_IPC = get_vllm_mm_tensor_ipc() == "torch_shm"
 if _USE_CUDA_MM_TENSOR_IPC:
     # PyTorch shares expandable CUDA segments by duplicating allocator file
     # descriptors with pidfd_getfd. The RTVI container's default security

@@ -51,7 +51,7 @@ from models.vllm_compatible.adaptive_preprocess_limiter import (
     AdaptivePreprocessLimiter,
     PreprocessAdmissionTimeout,
 )
-from utils.env_validation import get_video_pruning_rate
+from utils.env_validation import get_video_pruning_rate, get_vllm_mm_tensor_ipc
 
 _RTVI_VLLM_ENV_ALIASES = {
     "VLLM_GPU_MEMORY_UTILIZATION": "RTVI_VLLM_GPU_MEMORY_UTILIZATION",
@@ -1552,7 +1552,7 @@ class VllmCompatible(BaseVlmModel):
                     _engine_supported_params,
                 )
 
-                mm_tensor_ipc = (_get_rtvi_vllm_env("VLLM_MM_TENSOR_IPC", "") or "").strip()
+                mm_tensor_ipc = get_vllm_mm_tensor_ipc(engine_args_kwargs["tensor_parallel_size"])
                 if mm_tensor_ipc:
                     if "mm_tensor_ipc" in _engine_supported_params:
                         engine_args_kwargs["mm_tensor_ipc"] = mm_tensor_ipc
