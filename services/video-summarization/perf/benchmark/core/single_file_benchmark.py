@@ -297,7 +297,7 @@ class SingleFileBenchmark(BenchmarkBase):
             "chunk_size": chunk_size,
             "iterations": iterations,
             "successful_iterations": len(successful_iterations),
-            "success": len(successful_iterations) > 0,
+            "success": len(successful_iterations) == iterations,
             "iteration_results": iteration_results,
         }
 

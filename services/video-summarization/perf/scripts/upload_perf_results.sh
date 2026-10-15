@@ -77,7 +77,7 @@ if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     usage
 fi
 
-UPLOAD_PATH="$1"
+UPLOAD_PATH="$(realpath -m -- "$1")"
 shift
 
 TRIGGERED_BY=""

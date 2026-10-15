@@ -19,9 +19,6 @@ services:
     image: prom/prometheus:latest
     ports:
       - "9090:9090"
-    environment:
-      - VIA_HOST=${VIA_HOST:-127.0.0.1}
-      - VIA_PORT=${VIA_PORT:-7073}
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus-data:/prometheus
@@ -114,5 +111,5 @@ volumes:
 
 networks:
   app-network:
-    name: app-network
     external: true
+    name: ${BENCHMARK_NETWORK:?set BENCHMARK_NETWORK to the active benchmark Compose network}
