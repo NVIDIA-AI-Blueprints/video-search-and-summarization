@@ -1,0 +1,131 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+################################################################################
+# GPU pre-deployment check.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# Verifies that GPUs requested by the deployment have NO running compute
+# processes before any GPU-consuming service starts. Catches stale CUDA
+# processes from prior runs, accidental co-tenancy, or misconfigured
+# GPU placement env vars.
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Each parent compose file:
+#   1. Adds `gpu-precheck.yaml` to its `include:` block.
+#   2. Overrides `services.gpu-precheck.environment.GPU_IDS_TO_CHECK` with a
+#      comma-separated list of the GPU IDs it intends to use, e.g.
+#         GPU_IDS_TO_CHECK: "${RTVI_GPU_0:-0},${LLM_GPU_0:-0}"
+#   3. Adds the following to every GPU-consuming service:
+#         depends_on:
+#           gpu-precheck:
+#             condition: service_completed_successfully
+#
+# Detection method: `nvidia-smi --query-compute-apps=pid` per requested GPU.
+#
+# Only CUDA *compute* processes are flagged; graphics/display workloads on
+# iGPUs (Thor/Spark unified memory) are ignored intentionally.
+#
+# Bypass: GPU_PRECHECK_ALLOW_OVERRIDE=true (NOT recommended).
+#
+# Re-up behavior: a sentinel marker in the gpu-precheck-state volume causes
+# the check to skip on subsequent `compose up` invocations within the same
+# stack lifetime. Cleared by `docker compose down -v` (or
+# `docker volume rm <project>_gpu-precheck-state`).
+#
+################################################################################
+
+services:
+  gpu-precheck:
+    image: ${GPU_PRECHECK_IMAGE:-nvcr.io/nvidia/cuda:12.6.3-base-ubuntu22.04}
+    runtime: nvidia
+    pid: host
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      GPU_IDS_TO_CHECK: ${GPU_IDS_TO_CHECK:-0}
+      GPU_PRECHECK_ALLOW_OVERRIDE: ${GPU_PRECHECK_ALLOW_OVERRIDE:-false}
+    volumes:
+      - gpu-precheck-state:/var/lib/gpu-precheck
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        SENTINEL=/var/lib/gpu-precheck/passed
+        # Sentinel records the GPU id list that previously passed. If the
+        # current request matches, this is a re-up of the same stack — skip.
+        # Mismatch (e.g. user moved services to different GPUs) re-runs the
+        # full check.
+        if [ -f "$$SENTINEL" ] && [ "$$(cat $$SENTINEL)" = "$$GPU_IDS_TO_CHECK" ]; then
+          echo "GPU pre-check already passed for IDs [$$GPU_IDS_TO_CHECK] in this stack lifetime."
+          echo "Run 'docker compose down -v' to reset."
+          exit 0
+        fi
+
+        case "$$GPU_PRECHECK_ALLOW_OVERRIDE" in
+          true|1|yes|TRUE|YES)
+            echo "GPU_PRECHECK_ALLOW_OVERRIDE set; skipping GPU pre-check."
+            exit 0
+            ;;
+        esac
+
+        if ! command -v nvidia-smi >/dev/null 2>&1; then
+          echo "ERROR: nvidia-smi not found in container. Is the NVIDIA Container Toolkit installed and 'runtime: nvidia' working?"
+          exit 1
+        fi
+
+        IDS=$$(echo "$$GPU_IDS_TO_CHECK" | tr ',' '\n' | sed '/^[[:space:]]*$$/d' | sort -u | tr '\n' ' ')
+        if [ -z "$$IDS" ]; then
+          echo "ERROR: GPU_IDS_TO_CHECK is empty. Parent compose must set it."
+          exit 1
+        fi
+        echo "Pre-check on GPU IDs: $$IDS"
+
+        FAILED=0
+        for id in $$IDS; do
+          OUT=$$(nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader -i "$$id" 2>&1)
+          RC=$$?
+          if [ $$RC -ne 0 ]; then
+            echo "ERROR: nvidia-smi query failed for GPU $$id (rc=$$RC):"
+            echo "$$OUT" | sed 's/^/  /'
+            FAILED=1
+            continue
+          fi
+          PROCS=$$(echo "$$OUT" | sed '/^[[:space:]]*$$/d')
+          if [ -n "$$PROCS" ]; then
+            COUNT=$$(echo "$$PROCS" | wc -l)
+            echo "FAIL: GPU $$id has $$COUNT compute process(es):"
+            echo "$$PROCS" | sed 's/^/  /'
+            FAILED=1
+          else
+            echo "OK:   GPU $$id is free."
+          fi
+        done
+
+        if [ $$FAILED -ne 0 ]; then
+          echo ""
+          echo "ERROR: One or more requested GPUs are in use."
+          echo "  - Stop the offending processes (e.g. 'docker ps' / 'kill <pid>'), or"
+          echo "  - Reassign GPU placement via *_GPU_* env vars, or"
+          echo "  - Set GPU_PRECHECK_ALLOW_OVERRIDE=true to bypass (not recommended)."
+          exit 1
+        fi
+        echo "All requested GPUs are free; proceeding with deployment."
+        printf '%s' "$$GPU_IDS_TO_CHECK" > "$$SENTINEL"
+    networks: [app-network]
+    restart: "no"
+
+volumes:
+  gpu-precheck-state:
