@@ -22,6 +22,37 @@ _SESSION_PATH = re.compile(
 )
 
 
+class NativeInferenceError(RuntimeError):
+    """Carry only classified, non-secret failure metadata across the handoff."""
+
+    def __init__(self, reason: str, **metadata: int | bool) -> None:
+        self.reason = reason
+        self.metadata = metadata
+        super().__init__(f"native inference failed: {reason}")
+
+
+def _native_command_failure(result: subprocess.CompletedProcess[str]) -> NativeInferenceError:
+    detail = ((result.stderr or "") + "\n" + (result.stdout or "")).lower()
+    reason = "command_failed"
+    for category, markers in (
+        ("compaction_timeout", ("compaction timed out", "compaction timeout")),
+        ("rate_limited", ("too many requests", "rate limit", "status 429", "http 429")),
+        ("authentication_failed", ("unauthorized", "authentication failed", "invalid api key")),
+        ("policy_denied", ("policy_denied", "policy denied", "connect tunnel failed, response 403")),
+        ("context_limit", ("maximum context length", "context length exceeded", "context window exceeded")),
+        ("transport_reset", ("connection reset", "broken pipe", "connection closed")),
+        ("request_timeout", ("timed out", "deadline exceeded")),
+    ):
+        if any(marker in detail for marker in markers):
+            reason = category
+            break
+    metadata = {"command_exit_code": result.returncode}
+    status = re.search(r"\b(?:http(?:/[\d.]+)?|status(?:_code)?)\s*[:=]?\s*([45]\d\d)\b", detail)
+    if status:
+        metadata["http_status"] = int(status[1])
+    return NativeInferenceError(reason, **metadata)
+
+
 def _policy_denials(raw: str) -> list[dict[str, Any]]:
     """Reduce OpenShell audit lines to metadata, never commands or raw reasons."""
     rows: list[dict[str, Any]] = []
@@ -216,15 +247,29 @@ def _wait_sandbox_ready(sandbox: str, row: dict[str, Any]) -> None:
 
 def _probe_inference(sandbox: str, row: dict[str, Any]) -> None:
     expected = os.environ["NEMOCLAW_MODEL"]
-    envelope, _ = _run_openclaw(
-        sandbox, "Reply with OK only. Do not use tools or change any files.", 120,
-    )
-    meta = envelope.get("meta", {})
-    agent_meta = meta.get("agentMeta", {})
-    if meta.get("aborted") is not False or agent_meta.get("model") != expected:
-        raise RuntimeError("sandbox inference did not complete through the selected model")
-    if not any(payload.get("text") for payload in envelope.get("payloads", []) if isinstance(payload, dict)):
-        raise RuntimeError("sandbox inference returned no assistant response")
+    started = time.monotonic()
+    try:
+        envelope, _ = _run_openclaw(
+            sandbox, "Reply with OK only. Do not use tools or change any files.", 120,
+        )
+        meta = envelope.get("meta")
+        if not isinstance(meta, dict) or not isinstance(meta.get("agentMeta"), dict):
+            raise NativeInferenceError("invalid_metadata")
+        agent_meta = meta["agentMeta"]
+        row["model_matches"] = agent_meta.get("model") == expected
+        if meta.get("aborted") is not False:
+            raise NativeInferenceError("aborted" if meta.get("aborted") is True else "abort_status_missing")
+        if not row["model_matches"]:
+            raise NativeInferenceError("model_mismatch")
+        payloads = envelope.get("payloads") or []
+        if not any(isinstance(p, dict) and isinstance(p.get("text"), str) and p["text"].strip() for p in payloads):
+            raise NativeInferenceError("empty_response")
+    except NativeInferenceError as exc:
+        row["reason"] = exc.reason
+        row.update(exc.metadata)
+        raise
+    finally:
+        row["elapsed_seconds"] = round(time.monotonic() - started, 3)
     row["model"] = expected
     row["provider"] = agent_meta.get("provider")
     row["usage"] = {key: _int(agent_meta.get("usage", {}).get(key)) for key in ("input", "cacheRead", "output")}
@@ -328,7 +373,8 @@ def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> No
         except Exception as exc:
             row["exception_type"] = type(exc).__name__
             if setup:
-                raise RuntimeError(f"NemoClaw readiness failed at {stage}: {type(exc).__name__}") from exc
+                reason = f" ({row['reason']})" if row.get("reason") else ""
+                raise RuntimeError(f"NemoClaw readiness failed at {stage}: {type(exc).__name__}{reason}") from exc
             raise
         finally:
             # Metadata only: never store gateway tokens, config or raw output.
@@ -493,18 +539,23 @@ def _run_openclaw(
         f"--session-id {shlex.quote(session_id)} "
         f"--message {shlex.quote(prompt)}"
     )
-    result = _nemoclaw_exec(sandbox, command, timeout=timeout + 120)
+    try:
+        result = _nemoclaw_exec(sandbox, command, timeout=timeout + 120)
+    except subprocess.TimeoutExpired as exc:
+        raise NativeInferenceError("client_timeout", timeout_seconds=timeout + 120) from exc
     if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "")[-1000:]
-        raise RuntimeError(f"OpenClaw agent exited {result.returncode}: {detail}")
-    envelope = _json_object(result.stdout)
-    session = _sandbox_exec(
-        sandbox,
-        f"cat -- {shlex.quote(_session_file(envelope))}",
-        timeout=60,
-    )
+        raise _native_command_failure(result)
+    try:
+        envelope = _json_object(result.stdout)
+        session_path = _session_file(envelope)
+    except (ValueError, TypeError, KeyError, RuntimeError) as exc:
+        raise NativeInferenceError("invalid_response") from exc
+    try:
+        session = _sandbox_exec(sandbox, f"cat -- {shlex.quote(session_path)}", timeout=60)
+    except subprocess.TimeoutExpired as exc:
+        raise NativeInferenceError("session_timeout", timeout_seconds=60) from exc
     if session.returncode != 0:
-        raise RuntimeError("OpenClaw session could not be collected")
+        raise NativeInferenceError("session_read_failed", command_exit_code=session.returncode)
     normalized, totals = _normalize_session(session.stdout)
     _set_native_usage(envelope, totals)
     return envelope, normalized

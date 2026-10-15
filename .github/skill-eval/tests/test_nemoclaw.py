@@ -626,6 +626,82 @@ def test_setup_checks_phase_and_native_model_before_allowing_handoff(runner, mon
     assert not (logs / "openclaw.session.jsonl").exists()
 
 
+@pytest.mark.parametrize("output,reason,status", [
+    ("CLI transcript compaction failed: Compaction timed out", "compaction_timeout", None),
+    ("HTTP 429 Too Many Requests", "rate_limited", 429),
+    ("HTTP 401 unauthorized", "authentication_failed", 401),
+    ("CONNECT tunnel failed, response 403", "policy_denied", None),
+    ("maximum context length exceeded", "context_limit", None),
+    ("connection reset by peer", "transport_reset", None),
+    ("request timed out", "request_timeout", None),
+    ("unrecognized failure", "command_failed", None),
+])
+def test_native_probe_preserves_classified_error_without_raw_output(runner, monkeypatch, output, reason, status):
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    raw = output + " confidential-payload"
+    monkeypatch.setattr(runner, "_nemoclaw_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 1, "", raw))
+    row = {}
+    with pytest.raises(runner.NativeInferenceError, match=reason) as error:
+        runner._probe_inference("se-test", row)
+    assert row["reason"] == reason
+    assert row["command_exit_code"] == 1
+    assert row.get("http_status") == status
+    assert row["elapsed_seconds"] >= 0
+    assert "confidential-payload" not in str(error.value) + json.dumps(row)
+
+
+@pytest.mark.parametrize("aborted,model,payloads,reason", [
+    (True, "local-model", [{"text": "OK"}], "aborted"),
+    (None, "local-model", [{"text": "OK"}], "abort_status_missing"),
+    (False, "wrong-model", [{"text": "OK"}], "model_mismatch"),
+    (False, "local-model", [], "empty_response"),
+])
+def test_native_probe_identifies_invalid_completion(runner, monkeypatch, aborted, model, payloads, reason):
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    envelope = {"meta": {"aborted": aborted, "agentMeta": {"model": model}}, "payloads": payloads}
+    monkeypatch.setattr(runner, "_run_openclaw", lambda *a: (envelope, ""))
+    row = {}
+    with pytest.raises(runner.NativeInferenceError):
+        runner._probe_inference("se-test", row)
+    assert row["reason"] == reason
+    assert row["model_matches"] == (model == "local-model")
+
+
+def test_native_probe_timeout_metadata_excludes_command(runner, monkeypatch):
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    def timeout(*a, **kw):
+        raise subprocess.TimeoutExpired("confidential-command", kw["timeout"])
+    monkeypatch.setattr(runner, "_nemoclaw_exec", timeout)
+    row = {}
+    with pytest.raises(runner.NativeInferenceError):
+        runner._probe_inference("se-test", row)
+    assert row["reason"] == "client_timeout"
+    assert row["timeout_seconds"] == 240
+    assert "confidential-command" not in json.dumps(row)
+
+
+def test_setup_failure_artifact_keeps_native_reason(runner, monkeypatch, tmp_path):
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    monkeypatch.setattr(runner, "_wait_sandbox_ready", lambda *a: None)
+    monkeypatch.setattr(runner, "_gateway_healthy", lambda *a: True)
+    monkeypatch.setattr(runner, "_sandbox_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 0, '{"ok":true}', ""))
+    def execute(sandbox, command, **kwargs):
+        if command == "openclaw gateway call health --json" or command == "vss configure check":
+            return subprocess.CompletedProcess(command, 0, '{"ok":true}', "")
+        return subprocess.CompletedProcess(command, 1, "", "Compaction timed out: confidential-payload")
+    monkeypatch.setattr(runner, "_nemoclaw_exec", execute)
+    evidence = tmp_path / "agent/setup-readiness.json"
+    evidence.parent.mkdir()
+    with pytest.raises(RuntimeError, match="compaction_timeout"):
+        runner._check_readiness("se-test", evidence, setup=True)
+    report = json.loads(evidence.read_text())
+    failed = report["stages"][-1]
+    assert failed["reason"] == "compaction_timeout"
+    assert failed["command_exit_code"] == 1
+    assert "confidential-payload" not in json.dumps(report)
+    assert json.loads((tmp_path / "artifacts/nemoclaw/setup-readiness.json").read_text()) == report
+
+
 def test_setup_waits_for_ready_with_a_bounded_deadline(runner, monkeypatch):
     clock = [0.0]
     phases = iter(["Pending", "Ready"])

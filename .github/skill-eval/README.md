@@ -321,6 +321,13 @@ It keeps target origins, executable paths, known policy names and classified
 reasons only; raw commands, request paths and credentials are discarded.
 Diagnostic collection never changes the trial verdict.
 
+Native inference failures retain a classified reason (such as compaction
+timeout, model mismatch, or authentication failure), command exit code,
+explicit HTTP status when available, and elapsed seconds. Raw command output,
+prompts, responses, and credentials are not copied into readiness receipts.
+The leg summary includes the allowlisted reason even when Harbor assigns a
+generic transport or API exception to the enclosing setup command.
+
 The setup checks require trajectory evidence of Build Vision AI use and,
 when selected, a ready NemoClaw sandbox with its VSS CLI configured. An answer
 that only mentions the skill or sandbox does not satisfy those checks.
