@@ -9,10 +9,11 @@ position: 3
 The [Search Workflow](/vss/vision-agent/agent-workflows/search) lets you query indexed video archives in
 natural language. During ingestion, uploaded clips are embedded through
 [RTVI-Embed](/vss/appendix/performance/microservices/rt-embed-performance) (Cosmos-Embed1-448p) and
-[RTVI-CV](/vss/appendix/performance/microservices/rt-cv-performance)/Behavior Analytics; during query execution, the Vision
-Agent decomposes each request and routes it to embed search, attribute search, or fusion
-search, then optionally verifies candidates with the critic agent (Cosmos3 Nano Reasoner
-VLM) before returning timestamped results.
+[RTVI-CV](/vss/appendix/performance/microservices/rt-cv-performance)/Behavior Analytics. At query time,
+each request is decomposed by the reasoning LLM into a retrieval action — embed, attribute,
+or fusion search — and its arguments, and run through the VSS CLI (`vss search run <action>`).
+The CLI retrieves candidates and verifies them with the critic agent (Cosmos3 Nano Reasoner
+VLM), which is on whenever RTVI-VLM is reachable, before returning timestamped results.
 
 The tables below benchmark that search performance. Query
 latency and throughput measurements use the vad-r1-v2 / benchmark query set (121 natural-language queries
@@ -40,7 +41,7 @@ expected query latency under concurrent search load on VSS 3.3.
 | Query path | `vss search run <action>` (VSS CLI), one invocation per query |
 | Query decomposition | Separate LLM call made before each invocation, not by the CLI |
 | Routed actions | H100: `attribute` 56, `fusion` 52, `embed` 13. RTX: 56 / 51 / 14 |
-| Critic agent | Enabled, `num_videos_to_evaluate: 5` (every returned hit is verified) |
+| Critic agent | Enabled, `--critic-eval-count` unset (every returned hit is verified, up to Top-K) |
 | Top-K | 5 |
 | Concurrent queries | 1, 10, 20, 50 |
 
@@ -52,6 +53,7 @@ invocation carrying the decomposed arguments:
 ```bash
 vss search run fusion \
   --query "forklift near the loading dock" \
+  --attribute "forklift" \
   --original-query "Was a forklift operating near the loading dock?" \
   --source-type video_file \
   --top-k 5
@@ -66,14 +68,17 @@ That call does not return an action. It returns a rewritten `query`, an `attribu
 `has_action` flag, `object_ids`, and any source or time bounds the question mentioned. The
 action is derived from those: `object_ids` present selects `object`; otherwise empty
 `attributes` selects `embed`, and `attributes` with `has_action` true selects `fusion` or
-false selects `attribute`. `--original-query` carries the user's untouched question through
+false (or missing) selects `attribute`. `--original-query` carries the user's untouched question through
 so the critic verifies against what was actually asked.
 
 Reproducing the decomposition row therefore needs both the LLM call and this derivation in
 front of the CLI — running `vss search run` alone reproduces every other row but not this
-one. The **Routed actions** counts above are the actions invoked, and on this path they are
-also the retrieval that ran: the CLI passes the action straight through to the search
-library, which executes the named mode without re-routing.
+one. The **Routed actions** counts above are the actions invoked at 1 concurrent query, and
+on this path they are also the retrieval that ran: the CLI passes the action straight through
+to the search library, which executes the named mode without re-routing. Decomposition is
+redone in every run and is not fully deterministic even at temperature 0, so the split
+shifts by a few queries between concurrency levels (for example, H100 at 20 concurrent
+queries routed 56 / 53 / 12).
 </Note>
 
 ### Search (RTVI-CV) Concurrent Streams
@@ -100,8 +105,11 @@ in the RTVI-CV documentation.
 ## E2E Performance
 
 Avg and P90 client-side E2E latency and successful query throughput for the 121-query
-vad-r1-v2 / benchmark run under increasing concurrent query load. E2E covers the whole
-query: decomposition, retrieval, and critic verification of every returned hit.
+vad-r1-v2 / benchmark run under increasing concurrent query load. E2E covers the
+`vss search run` invocation: retrieval and critic verification of every returned hit. Query
+decomposition runs before it and is not included; it is reported as its own row in the
+[Latency Stage Breakdown](#latency-stage-breakdown). Successful QPS is measured over the
+whole run, so it does include decomposition.
 
 <Note>
 Throughput is bounded by RTVI-VLM, which serves the critic agent. Each query fans out to
@@ -148,7 +156,7 @@ staying constant. Per-call VLM inference is 65% of E2E at one concurrent query o
 88–90% at 20 and 50; RTX follows the same curve, from 62% to 92%. RTVI-VLM is therefore the
 first thing to size: give it a dedicated GPU rather than sharing one with RTVI-CV, raise
 `RTVI_VLLM_MAX_NUM_SEQS` and `RTVI_VLM_BATCH_SIZE` within the available GPU memory, or scale
-it out. Lowering `num_videos_to_evaluate` reduces the per-query fan-out at the cost of
+it out. Passing `--critic-eval-count` to `vss search run` reduces the per-query fan-out at the cost of
 leaving lower-ranked hits unverified.
 
 On H100 it is not the only thing to size past roughly 20 concurrent queries. Attribute
