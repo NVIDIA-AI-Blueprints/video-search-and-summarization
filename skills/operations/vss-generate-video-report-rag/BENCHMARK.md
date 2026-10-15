@@ -9,7 +9,7 @@ Recommended for publication based on the completed evaluation evidence in this r
 ## Evaluation Metadata
 
 - Skill: `vss-generate-video-report-rag`
-- Evaluation date: 2026-10-07
+- Evaluation date: 2026-10-15
 - Evaluator version: `1.5.6`
 - Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`), Codex (`openai/openai/gpt-5.5`)
 - Tasks: 3 evaluation tasks (2 positive, 1 negative)
@@ -35,12 +35,12 @@ The three-tier evaluation checks whether the skill:
 
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 76.0% — baseline ran, but no comparable score was available; uplift unavailable | 70.1% — baseline ran, but no comparable score was available; uplift unavailable |
-| Security | 100.0% → 100.0% (±0.0 points) | 100.0% → 83.3% (-16.7 points) |
-| Correctness | 20.0% → 80.0% (+60.0 points) | 46.7% → 73.3% (+26.6 points) |
-| Discoverability | 50.0% — baseline ran, but no comparable score was available; uplift unavailable | 47.5% — baseline ran, but no comparable score was available; uplift unavailable |
-| Effectiveness | 28.1% → 51.7% (+23.6 points) | 42.9% → 47.6% (+4.7 points) |
-| Efficiency | 98.4% — baseline ran, but no comparable score was available; uplift unavailable | 98.6% — baseline ran, but no comparable score was available; uplift unavailable |
+| Overall | 72.3% — baseline ran, but no comparable score was available; uplift unavailable | 73.0% — baseline ran, but no comparable score was available; uplift unavailable |
+| Security | 100.0% → 83.3% (-16.7 points) | 100.0% → 83.3% (-16.7 points) |
+| Correctness | 0.0% → 86.7% (+86.7 points) | 53.3% → 73.3% (+20.0 points) |
+| Discoverability | 40.0% — baseline ran, but no comparable score was available; uplift unavailable | 47.5% — baseline ran, but no comparable score was available; uplift unavailable |
+| Effectiveness | 21.4% → 53.3% (+31.9 points) | 26.2% → 61.9% (+35.7 points) |
+| Efficiency | 98.4% — baseline ran, but no comparable score was available; uplift unavailable | 98.8% — baseline ran, but no comparable score was available; uplift unavailable |
 
 **How to read this table:** baseline is the same task attempted without the target skill. Scores are rounded to one decimal; threshold-adjacent values use additional precision so their displayed band matches the verdict. Uplift is derived from those displayed scores and shown in percentage points.
 
@@ -54,15 +54,15 @@ Actual Tier 3 execution usage is reported for every observed agent/case pair and
 
 | Agent | Dataset case | With skill | Without skill | Delta | Change | Coverage |
 |---|---|---:|---:|---:|---:|---|
-| claude-code | All cases | 328,394 | 366,896 | -38,502 | -10.49% | skill 3/3; base 3/3 |
-| claude-code | rag-config-deploy | 199,059 | 121,023 | +78,036 | +64.48% | skill 1/1; base 1/1 |
-| claude-code | rag-report-routing | 29,274 | 29,462 | -188 | -0.64% | skill 1/1; base 1/1 |
-| claude-code | standard-report-non-activation | 100,061 | 216,411 | -116,350 | -53.76% | skill 1/1; base 1/1 |
-| codex | All cases | 125,168 | 136,077 | -10,909 | -8.02% | skill 3/3; base 3/3 |
-| codex | rag-config-deploy | 29,771 | 81,554 | -51,783 | -63.50% | skill 1/1; base 1/1 |
-| codex | rag-report-routing | 13,434 | 13,660 | -226 | -1.65% | skill 1/1; base 1/1 |
-| codex | standard-report-non-activation | 81,963 | 40,863 | +41,100 | +100.58% | skill 1/1; base 1/1 |
-| ALL AGENTS | Dataset aggregate | 453,562 | 502,973 | -49,411 | -9.82% | skill 6/6; base 6/6 |
+| claude-code | All cases | 397,496 | 363,259 | +34,237 | +9.42% | skill 3/3; base 3/3 |
+| claude-code | rag-config-deploy | 126,664 | 150,151 | -23,487 | -15.64% | skill 1/1; base 1/1 |
+| claude-code | rag-report-routing | 29,195 | 29,575 | -380 | -1.28% | skill 1/1; base 1/1 |
+| claude-code | standard-report-non-activation | 241,637 | 183,533 | +58,104 | +31.66% | skill 1/1; base 1/1 |
+| codex | All cases | 107,657 | 135,035 | -27,378 | -20.27% | skill 3/3; base 3/3 |
+| codex | rag-config-deploy | 29,747 | 61,127 | -31,380 | -51.34% | skill 1/1; base 1/1 |
+| codex | rag-report-routing | 13,330 | 32,543 | -19,213 | -59.04% | skill 1/1; base 1/1 |
+| codex | standard-report-non-activation | 64,580 | 41,365 | +23,215 | +56.12% | skill 1/1; base 1/1 |
+| ALL AGENTS | Dataset aggregate | 505,153 | 498,294 | +6,859 | +1.38% | skill 6/6; base 6/6 |
 
 Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. N/A means the relevant trajectory counters were not available; coverage is never estimated.
 

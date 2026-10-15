@@ -44,15 +44,15 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-3 evaluation tasks (2 positive, 1 negative) from skill-evaluator-dataset-snapshot, each run in an isolated sandbox pod. <br>
+3 evaluation tasks (2 positive, 1 negative) from skill-evaluator-dataset-snapshot, one attempt per task, each run in an isolated sandbox pod. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
-- Security: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
-- Correctness: Checks final-answer correctness against the reference answer. <br>
-- Discoverability: Checks whether the expected skill was selected and decoys were avoided. <br>
-- Effectiveness: Equal-weight mean of goal completion and expected workflow adherence. <br>
-- Efficiency: 50% tool-call productivity and 50% token efficiency. <br>
+- Security: Is it safe to use? Checks for unsafe operations, secret leakage, and unauthorized access. <br>
+- Correctness: Is the answer correct? Checks final-answer correctness against the reference answer. <br>
+- Discoverability: Was the right skill loaded when needed? Checks whether the expected skill was selected and decoys were avoided. <br>
+- Effectiveness: Did the skill help complete the task? Equal-weight mean of goal completion and expected workflow adherence. <br>
+- Efficiency: Did it avoid wasted tool calls and token usage? 50% tool-call productivity and 50% token efficiency. <br>
 
 Underlying evaluation signals used in this run: <br>
 - `security`: Unsafe operations, secret leakage, and unauthorized access. <br>
@@ -68,12 +68,12 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 76.0% | 70.1% |
-| Security | 100.0% → 100.0% (±0.0 pts) | 100.0% → 83.3% (-16.7 pts) |
-| Correctness | 20.0% → 80.0% (+60.0 pts) | 46.7% → 73.3% (+26.6 pts) |
-| Discoverability | 50.0% | 47.5% |
-| Effectiveness | 28.1% → 51.7% (+23.6 pts) | 42.9% → 47.6% (+4.7 pts) |
-| Efficiency | 98.4% | 98.6% |
+| Overall | 72.3% | 73.0% |
+| Security | 100.0% → 83.3% (-16.7 pts) | 100.0% → 83.3% (-16.7 pts) |
+| Correctness | 0.0% → 86.7% (+86.7 pts) | 53.3% → 73.3% (+20.0 pts) |
+| Discoverability | 40.0% | 47.5% |
+| Effectiveness | 21.4% → 53.3% (+31.9 pts) | 26.2% → 61.9% (+35.7 pts) |
+| Efficiency | 98.4% | 98.8% |
 
 ## Skill Version(s): <br>
 3.3.0-rc0 (source: frontmatter) <br>

@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache 2.0 <br>
 ## Use Case: <br>
-Developers and engineers use this skill to summarize recorded video through HITL-gated LVS, producing polished narrative summaries with timestamped events, with automatic VLM fallback when LVS is unavailable. <br>
+Developers and engineers use this skill to summarize recorded video through HITL-gated LVS on a VSS deployment, producing a polished narrative summary with timestamped events, with a direct VLM fallback when LVS is not ready. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -52,7 +52,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-3 evaluation tasks (2 positive, 1 negative) per agent, each run in an isolated sandbox pod. <br>
+3 evaluation tasks (2 positive, 1 negative) per agent, 1 attempt per task, each run in an isolated sandbox pod. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -76,12 +76,12 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Measure | Claude Code | Codex |
 |---|---:|---:|
-| Overall | 77.4% | 84.5% |
-| Security | 100.0% (±0.0 pp uplift) | 100.0% (+33.3 pp uplift) |
-| Correctness | 53.3% (+33.3 pp uplift) | 66.7% (+40.0 pp uplift) |
-| Discoverability | 95.0% | 90.0% |
-| Effectiveness | 52.8% (+12.5 pp uplift) | 69.2% (+21.4 pp uplift) |
-| Efficiency | 86.1% | 96.7% |
+| Overall | 75.2% | 71.4% |
+| Security | 100.0% (±0.0 pp uplift) | 66.7% (+33.4 pp uplift) |
+| Correctness | 53.3% (+33.3 pp uplift) | 46.7% (+20.0 pp uplift) |
+| Discoverability | 92.5% | 90.0% |
+| Effectiveness | 47.0% (+10.0 pp uplift) | 57.5% (+27.2 pp uplift) |
+| Efficiency | 83.4% | 96.4% |
 
 ## Skill Version(s): <br>
 3.3.0-rc0 (source: frontmatter) <br>

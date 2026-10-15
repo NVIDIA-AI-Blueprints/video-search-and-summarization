@@ -9,7 +9,7 @@ Recommended for publication based on the completed evaluation evidence in this r
 ## Evaluation Metadata
 
 - Skill: `vss-summarize-video`
-- Evaluation date: 2026-10-07
+- Evaluation date: 2026-10-15
 - Evaluator version: `1.5.6`
 - Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`), Codex (`openai/openai/gpt-5.5`)
 - Tasks: 3 evaluation tasks (2 positive, 1 negative)
@@ -35,12 +35,12 @@ The three-tier evaluation checks whether the skill:
 
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 77.4% — baseline ran, but no comparable score was available; uplift unavailable | 84.5% — baseline ran, but no comparable score was available; uplift unavailable |
-| Security | 100.0% → 100.0% (±0.0 points) | 66.7% → 100.0% (+33.3 points) |
-| Correctness | 20.0% → 53.3% (+33.3 points) | 26.7% → 66.7% (+40.0 points) |
-| Discoverability | 95.0% — baseline ran, but no comparable score was available; uplift unavailable | 90.0% — baseline ran, but no comparable score was available; uplift unavailable |
-| Effectiveness | 40.3% → 52.8% (+12.5 points) | 47.8% → 69.2% (+21.4 points) |
-| Efficiency | 86.1% — baseline ran, but no comparable score was available; uplift unavailable | 96.7% — baseline ran, but no comparable score was available; uplift unavailable |
+| Overall | 75.2% — baseline ran, but no comparable score was available; uplift unavailable | 71.4% — baseline ran, but no comparable score was available; uplift unavailable |
+| Security | 100.0% → 100.0% (±0.0 points) | 33.3% → 66.7% (+33.4 points) |
+| Correctness | 20.0% → 53.3% (+33.3 points) | 26.7% → 46.7% (+20.0 points) |
+| Discoverability | 92.5% — baseline ran, but no comparable score was available; uplift unavailable | 90.0% — baseline ran, but no comparable score was available; uplift unavailable |
+| Effectiveness | 37.0% → 47.0% (+10.0 points) | 30.3% → 57.5% (+27.2 points) |
+| Efficiency | 83.4% — baseline ran, but no comparable score was available; uplift unavailable | 96.4% — baseline ran, but no comparable score was available; uplift unavailable |
 
 **How to read this table:** baseline is the same task attempted without the target skill. Scores are rounded to one decimal; threshold-adjacent values use additional precision so their displayed band matches the verdict. Uplift is derived from those displayed scores and shown in percentage points.
 
@@ -54,15 +54,15 @@ Actual Tier 3 execution usage is reported for every observed agent/case pair and
 
 | Agent | Dataset case | With skill | Without skill | Delta | Change | Coverage |
 |---|---|---:|---:|---:|---:|---|
-| claude-code | All cases | 1,089,392 | 456,982 | +632,410 | +138.39% | skill 3/3; base 3/3 |
-| claude-code | summarize-video | 511,891 | 215,228 | +296,663 | +137.84% | skill 1/1; base 1/1 |
-| claude-code | summarize-video-negative-archive-search | 196,233 | 59,729 | +136,504 | +228.54% | skill 1/1; base 1/1 |
-| claude-code | summarize-video-no-lvs-vlm-fallback | 381,268 | 182,025 | +199,243 | +109.46% | skill 1/1; base 1/1 |
-| codex | All cases | 410,878 | 741,760 | -330,882 | -44.61% | skill 3/3; base 3/3 |
-| codex | summarize-video | 90,308 | 571,461 | -481,153 | -84.20% | skill 1/1; base 1/1 |
-| codex | summarize-video-negative-archive-search | 189,825 | 114,991 | +74,834 | +65.08% | skill 1/1; base 1/1 |
-| codex | summarize-video-no-lvs-vlm-fallback | 130,745 | 55,308 | +75,437 | +136.39% | skill 1/1; base 1/1 |
-| ALL AGENTS | Dataset aggregate | 1,500,270 | 1,198,742 | +301,528 | +25.15% | skill 6/6; base 6/6 |
+| claude-code | All cases | 1,114,935 | 554,040 | +560,895 | +101.24% | skill 3/3; base 3/3 |
+| claude-code | summarize-video | 461,719 | 339,954 | +121,765 | +35.82% | skill 1/1; base 1/1 |
+| claude-code | summarize-video-negative-archive-search | 189,384 | 59,660 | +129,724 | +217.44% | skill 1/1; base 1/1 |
+| claude-code | summarize-video-no-lvs-vlm-fallback | 463,832 | 154,426 | +309,406 | +200.36% | skill 1/1; base 1/1 |
+| codex | All cases | 299,477 | 1,237,742 | -938,265 | -75.80% | skill 3/3; base 3/3 |
+| codex | summarize-video | 70,564 | 237,142 | -166,578 | -70.24% | skill 1/1; base 1/1 |
+| codex | summarize-video-negative-archive-search | 146,789 | 101,137 | +45,652 | +45.14% | skill 1/1; base 1/1 |
+| codex | summarize-video-no-lvs-vlm-fallback | 82,124 | 899,463 | -817,339 | -90.87% | skill 1/1; base 1/1 |
+| ALL AGENTS | Dataset aggregate | 1,414,412 | 1,791,782 | -377,370 | -21.06% | skill 6/6; base 6/6 |
 
 Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. N/A means the relevant trajectory counters were not available; coverage is never estimated.
 
@@ -70,7 +70,7 @@ Prompt tokens include cached reads, so total tokens are `prompt + completion` (c
 
 | Tier | Purpose | Status | Evidence |
 |---|---|---|---|
-| Tier 1 | Static validation | **PASSED WITH OBSERVATIONS** | 11 validator(s); 14 finding(s) |
+| Tier 1 | Static validation | **PASSED WITH OBSERVATIONS** | 11 validator(s); 12 finding(s) |
 | Tier 2 | Semantic deduplication | **PASSED WITH OBSERVATIONS** | 2 validator(s); 2 finding(s) |
 | Tier 3 | Live agent evaluation | **PASS** | 2 agent(s); 3 task(s) |
 
@@ -90,7 +90,7 @@ Prompt tokens include cached reads, so total tokens are `prompt + completion` (c
 - **MEDIUM** QUALITY/quality_efficiency: Large skill (5303 tokens, recommended max <5000). Per agentskills.io, SKILL.md should be concise (~500 lines) — large skill bodies increase token cost after invocation; long or unfocused top-level descriptions can degrade agent routing accuracy (`skills/operations/vss-summarize-video/SKILL.md`)
 - **MEDIUM** SCHEMA/folder_hierarchy: Unexpected nesting depth for general skill (`skills/operations/vss-summarize-video`)
 - **MEDIUM** SECURITY/Unknown (RP1): MCP Rug Pull: Docker image references without a specific tag (:latest is implicit) or digest (@sha256:...) can be silently replaced by (`references/deploy-lvs-service.md:56`)
-- 11 additional finding(s) are available in the full evaluation artifacts.
+- 9 additional finding(s) are available in the full evaluation artifacts.
 
 </details>
 
