@@ -53,7 +53,7 @@ During ingestion, uploaded videos and RTSP streams are registered with VSS Video
 - `mdx-behavior-*` for object behavior embeddings used by attribute search and Search by Image.
 - `mdx-raw-*` for raw frame/object data used when frame lookup is enabled for attribute search.
 
-During query execution, the Vision Agent chat interface calls the streaming `search_agent` through `/v1/chat/stream`. It uses an LLM to decompose the user's natural language query and automatically select the best search route. The Search tab displays the returned results.
+During query execution, the Agent UI Search Tab calls the Vision Agent chat interface. Queries are entered in the Chat Sidebar, which streams `search_agent` through `/v1/chat/stream`. An LLM decomposes the natural language query and selects the best search route. Matching clips populate the Search Tab results grid. Source type and filter controls on the Search Tab refine those agent results; they do not run a separate search.
 
 The Vision Agent chat path can run:
 
@@ -1086,7 +1086,7 @@ To avoid duplicate results due to looping of the same video, ensure that the RTS
 
 #### Step 3: Search with the Vision Agent chat
 
-The Search tab includes a **Vision Agent** chat interface on the right side that provides an interactive way to search through videos using natural language. The Vision Agent automatically selects the best search method based on your query. You can also specify filters directly within your query instead of using the filter panel.
+The Search tab includes a **Vision Agent** chat interface on the right side. All Search Tab results come from this chat path. The Vision Agent automatically selects the best search method based on your query. You can also specify filters directly within your query instead of using the filter panel.
 
 ##### Using the Chat Interface
 
@@ -1328,14 +1328,14 @@ To try additional filters, upload the video file `sample-warehouse-ladder.mp4` (
 Run a query as in Step 3, then collapse the chat sidebar with the chevron button (**Collapse Chat sidebar**) on its left edge. The controls below are in the left sidebar and are disabled while the chat sidebar is open or a response is streaming. They narrow the results the query returned:
 
 - **Source Type**: Show results only from the selected media source type. Choose between 'Video' and 'RTSP'.
-- Click the **Filter** button to open the filter panel with the following options:
+- Expand **Filters** in the left sidebar. Changes apply as you edit the fields:
    - **From**: Filter results by the start date and time of the video clips
    - **To**: Filter results by the start date and time of the video clips
    - **Video sources**: Show results only from the selected videos
    - **Min Cosine Similarity**: Set a minimum similarity threshold (-1.00 to 1.00) to filter results based on how closely they match your query. Set a lower threshold for broader results, or raise it for high-confidence matches. Optimal values vary depending on the video content.
    - **Show top K Results**: Set the maximum number of returned results to display (default 10)
 
-Configure the desired filters and click **Apply**.
+Configure the desired filters. They refine the clips already returned by the agent and do not issue a new search.
 
 ![Filter panel with timestamp, video sources, cosine similarity, and top K options](/assets/images/agent-workflows/search_filter_query_1.png)
 

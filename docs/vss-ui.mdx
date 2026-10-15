@@ -51,7 +51,7 @@ that provides direct access to the Agentic backend service without navigating aw
 * Chat history with new-conversation and folder-organization support
 * Unseen response indicator (orange border on the "Chat" tab) when responses arrive while the sidebar is collapsed
 * Send applicable agent parameters (supported based on the deployed blueprint/profile) along with the query to the agentic backend service.
-* Preserve the conversation context while working across multiple tabs.
+* Preserve the conversation context while working across multiple app tabs.
 
 ### Chat Input
 
@@ -108,22 +108,12 @@ The collapsible left side panel inside the Chat Sidebar contains chat controls:
 * **Chat History**: List of previous conversations (shows "No data" when empty)
 * **Export data**: Export conversation data to a file
 * **Import data**: Import (a previous exported) conversation data from a file
-* **Settings**: Open the settings dialog
-
-The settings dialog allows you to configure:
-
-* "HTTP URL for Chat Completion" — The URL of the agent query HTTP endpoint.
-* "Websocket URL for Chat Completion" — The URL of the agent query websocket endpoint.
-* "Websocket Schema" — The schema of the agent query websocket endpoint.
-* "Enable Intermediate Steps" — Show or hide the "Insights" component in the response.
-* "Expand Intermediate Steps by default" — Auto-expand the hierarchy in the "Insights" component.
-* "Override intermediate Steps with same Id" — Show nested hierarchy view of agent call sequences.
 
 ### Interaction with Tabs
 
 The Chat Sidebar integrates with different tabs: Example flows are:
 
-* In the Search Tab, when the sidebar is open, manual search controls are disabled. Queries submitted through the sidebar trigger an agentic search, and matching video results populate the Search Tab's content area. Use the **"+ Chat"** button on video cards to attach clip context to the sidebar input (see [+ Chat Button](/vss/system-components/user-interface#chat-button)).
+* In the Search Tab, queries submitted through the sidebar trigger an agentic search, and matching video results populate the Search Tab's content area. Use the **"+ Chat"** button on video cards to attach clip context to the sidebar input (see [+ Chat Button](/vss/system-components/user-interface#chat-button)).
 * In the Alerts Tab, use the **"Generate Report"** button in an expanded alert row to send alert metadata to the Chat Sidebar for AI-powered analysis.
 * Video/Sensor related context can be added to the chat input by clicking the **"+ Chat"** button on video/sensor cards in the Search Tab, Video Management Tab.
 
@@ -451,7 +441,7 @@ Refer to the [Kibana documentation](https://www.elastic.co/guide/en/kibana/curre
 
 ### 3. **Search Tab**
 
-Search Tab displays the video clips returned by natural language queries in the Chat Sidebar, matched by AI-based similarity, and narrows them with metadata filters.
+Search Tab displays video clips returned by the Vision Agent. Submit natural language queries in the [Chat Sidebar](/vss/system-components/user-interface#global-chat-sidebar); matching clips populate the results grid. Source type and metadata filters refine those agent results.
 
 ![VSS Reference User Interface - Search Tab Overview](/assets/images/vss-ui/search-mode/search-main.png)
 
@@ -460,9 +450,9 @@ Search Tab displays the video clips returned by natural language queries in the 
 **Key Features:**
 
 * Natural language video search through the Chat Sidebar
-* Advanced filter options over the returned results
-* Configurable display limit (Top K) for returned results
-* Advanced filtering: datetime range, sensors, description, similarity threshold
+* Filtering of agent results with advanced filter options
+* Configurable result count (Top K) for performance optimization
+* Advanced filtering: datetime range, sensors, similarity threshold
 * Local timezone handling for accurate time display
 * Auto-refresh when switching between tabs
 * Interactive filter tags with quick remove functionality
@@ -476,13 +466,16 @@ Search Tab displays the video clips returned by natural language queries in the 
 This guide covers the primary interface components:
 
 1. **Search Controls** - Source type and filter button
-2. **Filter Options** - Advanced filtering popover with date range, sensors, description, similarity threshold, and result count
+2. **Filter Options** - Advanced filtering popover with date range, sensors, similarity threshold, and result count
 3. **Filter Tags** - Visual display of active filters with quick remove functionality
 4. **Video Results** - Responsive grid of video cards with thumbnails, time ranges, and metadata
 5. **Chat Sidebar** - Collapsible agent chat panel with video upload and conversational search
 6. **Search by Image** - Object-based visual search from paused video frames across all streams
 
 #### Search Controls
+
+Search results are produced only by queries sent through the Chat Sidebar. The Search Tab main content area has no query input box; source type and filters below refine the clips the agent already returned.
+
 
 ##### Source Type
 
@@ -497,7 +490,7 @@ Select the source type to search from. The default is **Video File**.
 
 ![VSS Reference User Interface - Search Tab - Filter Button](/assets/images/vss-ui/search-mode/filter.png)
 
-Click the "Filter" button to open the filter popover with advanced filtering options. The popover automatically closes when you click outside of it or click the "Apply" button to apply your filters.
+Click **Filters** in the left sidebar to expand the advanced filtering options. Changes apply as you edit the fields. Click **Filters** again to collapse the panel.
 
 <Note>
 Filter options are only available when the Chat Sidebar is collapsed. When the Chat Sidebar is open, the Filter button and existing filter tags are disabled.
@@ -542,17 +535,18 @@ Specify the maximum number of search results to display.
 * Default: 10 results
 * Enter any positive integer based on your needs
 * If the field is left empty when closing the popover, it automatically resets to the default value of 10
-* A filter tag is displayed only when the value differs from the default (10)
+* **Show top K Results** stays in the filter panel and is not displayed as a tag
 
 #### Filter Tags
 
 ![VSS Reference User Interface - Search Tab - Filter Tags](/assets/images/vss-ui/search-mode/filter-tags.png)
 
-Active filters are displayed as tags below the search controls:
+Active filters are displayed as tags below the filter control:
 
-* Click ✕ on any tag to remove that filter and reset to default (except for "Show top K Results" tag, which cannot be removed individually)
+* Click ✕ on any tag to remove that filter and reset it to the default
 * Click "Clear All" to remove all removable filters at once
-* Tags display: From date, To date, Video names (sensors), Min Cosine Similarity, Description, Show top K Results (only shown when value differs from default of 10)
+* Tags display: From date, To date, Video names (sensors), and Min Cosine Similarity
+* **Show top K Results** remains in the expanded filter panel and is not displayed as a tag
 
 #### Video Results
 
@@ -631,7 +625,7 @@ The Search Tab includes the [Global Chat Sidebar](/vss/system-components/user-in
 
 **Interaction Modes:**
 
-When the Chat Sidebar is **open**, the behavior is similar to when it is **collapsed** while an agent query is executing: the search controls (source type, filters, and filter tags) are disabled in both cases. In the open state, users interact with the agent through the Chat Sidebar, and the agent's responses can automatically populate the search results grid. This allows conversational search — ask the agent a question and see matching video results appear in the main search area.
+When the Chat Sidebar is **open**, or when it is **collapsed** while an agent query is executing, source type, filters, and filter tags are disabled. Users search only through the Chat Sidebar; the agent's responses populate the search results grid.
 
 <Accordion title="Example">
 Type a natural-language query in the Chat Sidebar and the agent will run a search and fill the results grid. For example, ask *"person with yellow hat carrying boxes"*; the agent interprets the query, runs the search, and matching video clips appear in the main area. The screenshot below illustrates this flow: the query in the chat and the corresponding search results (e.g. thumbnails and clips) shown in the grid.
@@ -640,7 +634,7 @@ Type a natural-language query in the Chat Sidebar and the agent will run a searc
 
 </Accordion>
 
-When the Chat Sidebar is **collapsed**, the search controls are re-enabled and users can perform manual searches with filters as usual.
+When the Chat Sidebar is **collapsed** and no query is in flight, source type, filters, and filter tags are re-enabled so you can refine the current agent results.
 
 **Unseen response indicator:**
 
@@ -969,6 +963,7 @@ No known issues.
 ### Search Tab
 
 * When a live RTSP stream is removed directly from NVStreamer, the VSS Search UI may still display the stream as active.
+* The Search Tab **From** and **To** timestamp filters may not be relevant for results from uploaded videos. They may apply to RTSP stream based results.
 
 ### Video Management Tab
 
