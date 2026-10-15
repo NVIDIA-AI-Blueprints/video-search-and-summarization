@@ -85,6 +85,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    image: reid-embed:local
     container_name: reid-embed
     runtime: nvidia
     network_mode: host
