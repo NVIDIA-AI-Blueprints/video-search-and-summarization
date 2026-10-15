@@ -1,0 +1,142 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 2x2 topology - vector rag override yaml for RTX PRO
+# gpu ids - model
+# 2,3     - LLM (LLama70b)
+# 0,1     - VLM (Cosmos reason FP8)
+# 0       - Embedding
+# 1       - Reranker
+
+nim-llm:
+  image:
+    repository: nvcr.io/nim/meta/llama-3.1-70b-instruct #nvcr.io/nvstaging/nim/llama-3.1-70b-instruct
+    tag: 1.13.1
+  env:
+  - name: NVIDIA_VISIBLE_DEVICES
+    value: "2,3"
+  - name: NIM_MAX_MODEL_LEN
+    value: "128000"
+  - name: NIM_MODEL_PROFILE
+    value: "22bf424d6572fda243f890fe1a7c38fb0974c3ab27ebbbc7e2a2848d7af82bd6"
+  resources:
+    limits:
+      nvidia.com/gpu: 0    # no limit
+
+vss:
+  applicationSpecs:
+    vss-deployment:
+      securityContext:
+        fsGroup: 0
+        runAsGroup: 0
+        runAsUser: 0
+      containers:
+        vss:
+          env:
+          - name: VLM_MODEL_TO_USE
+            value: cosmos-reason1 # Or "openai-compat" or "custom" or "nvila"
+          - name: MODEL_PATH
+            value: "ngc:nim/nvidia/cosmos-reason1-7b:1.1-fp8-dynamic"
+          - name: NVIDIA_VISIBLE_DEVICES
+            value: "0,1"
+          - name: VSS_SKIP_INPUT_MEDIA_VERIFICATION
+            value: "1"
+          - name: DISABLE_GUARDRAILS
+            value: "true"
+          - name: VLM_BATCH_SIZE
+            value: "128"
+          - name: VSS_EXTRA_ARGS
+            value: "--max-live-streams 500"
+          - name: ENABLE_VIA_HEALTH_EVAL
+            value: "false"
+          - name: VSS_LOG_LEVEL
+            value: debug
+
+  extraPodVolumes:
+  - name: videos
+    hostPath:
+      path: /colossus/ab/videos/warehouse
+  - name: via-pod-logs-bkp
+    hostPath:
+      path: /colossus/perf_2.4GA/2x2_rtx_pro #update this path to store via-server logs on host
+  extraPodVolumeMounts:
+  - name: videos
+    mountPath: /opt/nvidia/via/streams/perf
+  - name: via-pod-logs-bkp
+    mountPath: /tmp/via-logs
+
+  configs:
+    ca_rag_config.yaml:
+      functions:
+        summarization:
+          tools:
+            db: vector_db
+        ingestion_function:
+          type: vector_ingestion
+          tools:
+            db: vector_db
+
+        retriever_function:
+          type: vector_retrieval
+          tools:
+            db: vector_db
+            reranker: nvidia_reranker
+      tools:
+        vector_db:
+          type: milvus
+          params:
+            host: ${MILVUS_DB_HOST}
+            port: ${MILVUS_DB_PORT}
+          tools:
+            embedding: nvidia_embedding
+  resources:
+    limits:
+      nvidia.com/gpu: 0    # no limit
+
+nemo-embedding:
+  applicationSpecs:
+    embedding-deployment:
+      containers:
+        embedding-container:
+          env:
+          - name: NGC_API_KEY
+            valueFrom:
+              secretKeyRef:
+                key: NGC_API_KEY
+                name: ngc-api-key-secret
+          - name: NVIDIA_VISIBLE_DEVICES
+            value: '0'
+          - name: NIM_TRT_ENGINE_HOST_CODE_ALLOWED
+            value: '1'
+  resources:
+    limits:
+      nvidia.com/gpu: 0    # no limit
+
+nemo-rerank:
+  applicationSpecs:
+    ranking-deployment:
+      containers:
+        ranking-container:
+          env:
+          - name: NGC_API_KEY
+            valueFrom:
+              secretKeyRef:
+                key: NGC_API_KEY
+                name: ngc-api-key-secret
+          - name: NVIDIA_VISIBLE_DEVICES
+            value: '1'
+  resources:
+    limits:
+      nvidia.com/gpu: 0    # no limit
