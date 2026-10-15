@@ -174,7 +174,7 @@ Optional environment variables (sensible defaults shown):
   VLLM_ENABLE_PREFIX_CACHING   Enable vLLM prefix cache    (default: false)
   VLLM_DISABLE_MM_PREPROCESSOR_CACHE
                         Disable vLLM MM preprocessor cache (default: true)
-  VLLM_MM_TENSOR_IPC   vLLM MM tensor IPC mode             (default: automatic)
+  VLLM_MM_TENSOR_IPC   Optional vLLM MM tensor IPC mode    (default: empty)
   VLLM_MULTIMODAL_TENSOR_IPC
                         Optional legacy vLLM tensor IPC toggle, true/false
   VLLM_MM_ENCODER_ATTN_BACKEND

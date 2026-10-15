@@ -43,7 +43,7 @@
 #   VLLM_ENABLE_PREFIX_CACHING=false
 #   VLLM_DISABLE_MM_PREPROCESSOR_CACHE=true
 #   VLLM_NUM_PREPROCESS_WORKERS=16
-#   VLLM_MM_TENSOR_IPC=        # automatic: torch_shm single-GPU, direct_rpc multi-GPU
+#   VLLM_MM_TENSOR_IPC=        # optional experiment; empty is the BCD default
 
 services:
   rtvi-server:

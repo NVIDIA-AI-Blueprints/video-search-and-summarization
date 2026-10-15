@@ -207,7 +207,7 @@ VLLM_IGNORE_EOS=true
 VSS_SKIP_INPUT_MEDIA_VERIFICATION=1
 VLLM_ENABLE_PREFIX_CACHING=false
 VLLM_DISABLE_MM_PREPROCESSOR_CACHE=true
-VLLM_MM_TENSOR_IPC=                     # torch_shm single-GPU; direct_rpc multi-GPU or opt-out
+VLLM_MM_TENSOR_IPC=                     # optional patched-vLLM tensor IPC experiment
 VLLM_MM_ENCODER_ATTN_BACKEND=
 VLLM_ATTENTION_BACKEND=                  # CR3 Super NVFP4 on GB300 defaults to TRITON_ATTN
 

@@ -164,7 +164,7 @@ services:
       RTVI_RTPJITTERBUFFER_FASTSTART_MIN_PACKETS: "${RTVI_RTPJITTERBUFFER_FASTSTART_MIN_PACKETS:-2}"
       # Enable GOP-aligned decode optimization.
       RTVI_ENABLE_GOP_DECODE_OPT: "${RTVI_ENABLE_GOP_DECODE_OPT:-true}"
-      # Blank selects torch_shm for single-GPU model instances, direct_rpc otherwise.
+      # vLLM mm_tensor_ipc (passed only when supported).
       VLLM_MM_TENSOR_IPC: "${VLLM_MM_TENSOR_IPC:-}"
       # vLLM multimodal_tensor_ipc (passed only when supported).
       VLLM_MULTIMODAL_TENSOR_IPC: "${VLLM_MULTIMODAL_TENSOR_IPC:-}"

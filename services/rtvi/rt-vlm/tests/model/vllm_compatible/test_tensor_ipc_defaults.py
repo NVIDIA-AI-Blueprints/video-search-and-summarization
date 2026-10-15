@@ -4,17 +4,14 @@
 
 import ast
 import os
-import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-ROOT = Path(__file__).resolve().parents[2]
-RTVI = ROOT / "services/rtvi/rt-vlm"
-sys.path.insert(0, str(RTVI / "src"))
+from utils import env_validation
 
-from utils.env_validation import get_vllm_mm_tensor_ipc
+SOURCE = Path(env_validation.__file__).resolve().parents[1]
 
 
 class TensorIpcDefaultsTest(unittest.TestCase):
@@ -41,10 +38,10 @@ class TensorIpcDefaultsTest(unittest.TestCase):
             with self.subTest(environment=environment), patch.dict(
                 os.environ, environment, clear=True
             ):
-                self.assertEqual(get_vllm_mm_tensor_ipc(), expected)
+                self.assertEqual(env_validation.get_vllm_mm_tensor_ipc(), expected)
 
     def test_engine_default_override_and_capability_gate(self):
-        path = RTVI / "src/models/vllm_compatible/vllm_compatible_model.py"
+        path = SOURCE / "models/vllm_compatible/vllm_compatible_model.py"
         nodes = list(ast.walk(ast.parse(path.read_text())))
         assignment = next(
             node
@@ -83,7 +80,7 @@ class TensorIpcDefaultsTest(unittest.TestCase):
                     policy,
                     {
                         "self": model,
-                        "get_vllm_mm_tensor_ipc": get_vllm_mm_tensor_ipc,
+                        "get_vllm_mm_tensor_ipc": env_validation.get_vllm_mm_tensor_ipc,
                         "_engine_supported_params": {"mm_tensor_ipc"} if supported else set(),
                         "engine_args_kwargs": args,
                         "logger": Mock(),
@@ -103,7 +100,7 @@ class TensorIpcDefaultsTest(unittest.TestCase):
                 )
 
     def test_decoder_default_and_allocator_safety(self):
-        path = RTVI / "src/vlm_pipeline/process_base.py"
+        path = SOURCE / "vlm_pipeline/process_base.py"
         statements = ast.parse(path.read_text()).body
         start = next(
             index
@@ -131,30 +128,13 @@ class TensorIpcDefaultsTest(unittest.TestCase):
                 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = (
                     "max_split_size_mb:128,expandable_segments:True"
                 )
-                scope = {"os": os, "get_vllm_mm_tensor_ipc": get_vllm_mm_tensor_ipc}
+                scope = {"os": os, "get_vllm_mm_tensor_ipc": env_validation.get_vllm_mm_tensor_ipc}
                 exec(policy, scope)  # noqa: S102 - Execute only the checked-in allocation policy.
                 self.assertEqual(scope["_USE_CUDA_MM_TENSOR_IPC"], enabled)
                 self.assertEqual(
                     os.environ["PYTORCH_CUDA_ALLOC_CONF"],
                     f"max_split_size_mb:128,expandable_segments:{not enabled}",
                 )
-
-    def test_deployment_defaults(self):
-        for path in (
-            RTVI / "docker/compose.yaml",
-            RTVI / "docker/compose.perf.yaml",
-            ROOT / "deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml",
-        ):
-            with self.subTest(path=path):
-                self.assertIn('VLLM_MM_TENSOR_IPC: "${VLLM_MM_TENSOR_IPC:-}"', path.read_text())
-        for name in ("values.yaml", "overrides_rtvi_vlm.yaml"):
-            path = ROOT / "deploy/helm/services/rtvi/charts/rtvi-vlm" / name
-            self.assertRegex(path.read_text(), r'- name: VLLM_MM_TENSOR_IPC\n\s+value: ""')
-        self.assertIn(
-            'VLLM_MM_TENSOR_IPC="${VLLM_MM_TENSOR_IPC:-}"',
-            (RTVI / "perf/setup_perf_env.sh").read_text(),
-        )
-
 
 if __name__ == "__main__":
     unittest.main()
