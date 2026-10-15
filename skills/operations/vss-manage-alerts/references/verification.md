@@ -20,7 +20,7 @@ camera (VIOS/VST)
   ```bash
   ES=${VSS_PUBLIC_URL:+${VSS_PUBLIC_URL%/}/elasticsearch}; ES=${ES:-http://${HOST_IP:-localhost}:9200}
   curl -sf --max-time 15 "$ES/mdx-vlm-alerts-*/_search?size=10&sort=timestamp:desc" \
-    | jq -en 'input | {total: .hits.total.value, newest: [.hits.hits[]._source | {category, sensorId, timestamp, verdict: .info.verdict, code: .info.verificationResponseCode}]}' \
+    | jq -en 'input | {total: .hits.total.value, newest: [.hits.hits[]._source | {category, sensorId, timestamp, verdict: .info.verdict, code: .info.verificationResponseCode, status: .info.verificationResponseStatus, reasoning: .info.reasoning, vlm_response: .info.vlm_response, description: .info.description}]}' \
     || { echo "Elasticsearch mdx-vlm-alerts-* query failed" >&2; exit 1; }
   ```
 - This whole path exists only when the alerts profile is deployed in verification mode (`MODE=2d_cv`). Deploy/mode-switch belongs to `vss-build-vision-ai` — never duplicate it here.
