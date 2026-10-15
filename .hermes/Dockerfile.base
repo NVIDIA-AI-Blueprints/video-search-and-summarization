@@ -1,0 +1,128 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Hermes base image — NemoClaw's managed Hermes runtime plus the vss CLI and
+# the vss_cli tool plugin (memory on by default), but no VSS skills and no
+# workspace instruction docs beyond the empty /sandbox/AGENTS.md: a VSS-capable
+# foundation for evaluating an agent a user still extends with their own
+# skills and plugins, not a blank harness. Carries terminal, file, skills,
+# code_execution, memory and vss_cli tools.
+# tags: [nemoclaw, hermes, base, vss-cli]
+#
+# Tools are switched off by name, never allowlisted (base-config.py), so skills,
+# plugins and MCP servers a user installs later reach the agent:
+#   - skills: copy a skill directory into $HERMES_HOME/skills/<name>/; the
+#     skills tools stay on so Hermes lists it in the prompt.
+#   - plugins: `hermes plugins install …`; a plugin's toolsets are on by default.
+#
+# The sandbox contract matches ./Dockerfile (Harbor trial paths, no per-shell
+# ulimit hooks, sleep infinity, USER sandbox, WORKDIR /sandbox). Keep BASE_IMAGE
+# in lockstep with ./Dockerfile's.
+#
+#   docker build -f .hermes/Dockerfile.base -t <registry>/vss-harness-hermes:<tag>-base .hermes
+
+ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:26899bd091f7ad2d58ab7cf9fad33f1fcd065c10eb54f9cf1461a24e1c21ed1a
+ARG BUILDER_IMAGE=node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc
+# uv 0.12.10, by index digest (multi-arch). Same pin as ./Dockerfile's.
+ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500
+# The vss CLI only — this base ships no skills, so the NGC CLI (which only the
+# operation skills shell out to) is not needed here. Keep in lockstep with
+# ./Dockerfile's.
+ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
+ARG VSS_REF=develop
+
+# ── uv, for the vss CLI wheel build ────────────────────────────────────────────
+FROM ${UV_IMAGE} AS uv
+
+# ── VSS source checkout + CLI wheels only (no skills, no workspace docs) ──────
+FROM ${BUILDER_IMAGE} AS vss-src
+ARG VSS_REPO
+ARG VSS_REF
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=uv /uv /usr/local/bin/uv
+# Dev-loop override: see ./Dockerfile's vss-src stage for the full rationale.
+COPY --chown=root:root Dockerfil[e] .vss-sr[c] /opt/vss-src/
+RUN rm -f /opt/vss-src/Dockerfile \
+    && if [ -f /opt/vss-src/STAGED ]; then \
+         echo "vss-src: pre-staged working-tree snapshot" && cat /opt/vss-src/STAGED; \
+       else \
+         git init -q /opt/vss-src \
+         && git -C /opt/vss-src remote add origin "$VSS_REPO" \
+         && git -C /opt/vss-src fetch -q --filter=tree:0 --tags origin "$VSS_REF" \
+         && git -C /opt/vss-src checkout -q FETCH_HEAD; \
+       fi
+RUN set -eux; \
+    if [ -f /opt/vss-src/STAGED ]; then \
+      export SETUPTOOLS_SCM_PRETEND_VERSION="$(sed -n 's/^version=//p' /opt/vss-src/STAGED)"; \
+      test -n "$SETUPTOOLS_SCM_PRETEND_VERSION"; \
+    fi; \
+    mkdir -p /opt/vss-wheels \
+    && uv build --wheel --all-packages --project /opt/vss-src/libs/vss -o /opt/vss-wheels \
+    && ls /opt/vss-wheels
+
+# NemoClaw's Hermes image is ~122 filesystem layers deep, near the overlay2 limit
+# of 128: this stage adds three (two COPY, one RUN). Do not split the RUN.
+FROM ${BASE_IMAGE}
+USER root
+COPY base-config.py /usr/local/lib/vss-harness/base-config.py
+COPY --from=uv /uv /usr/local/bin/uv
+COPY --from=vss-src /opt/vss-wheels/ /opt/vss-wheels/
+# The vss_cli tool plugin, straight from the build context — the same code
+# ./Dockerfile installs (see ./plugin/__init__.py).
+COPY plugin/ /opt/vss-plugin/
+# In one layer:
+#  - Harbor trial paths, real world-writable directories (see ./Dockerfile).
+#  - No skills: empty Hermes' bundled library, which every launch copies into
+#    $HERMES_HOME/skills. The directory stays so the copy finds nothing.
+#  - The vss CLI, same wheel-install pattern as ./Dockerfile (own venv, never
+#    /opt/hermes/.venv).
+#  - The vss_cli tool plugin, bundled into /opt/hermes/plugins/vss (a
+#    plugin.yaml `kind: backend` bundled plugin auto-loads, no per-home
+#    enable step), same as ./Dockerfile.
+#  - Tools, memory and config hashes (base-config.py apply), then the check
+#    that the agent resolves to exactly the kept tools (including vss_cli;
+#    base-config.py's check() runs plugin discovery first) and seeds no
+#    skills.
+#  - Instruction docs: one empty /sandbox/AGENTS.md. SOUL.md is emptied rather
+#    than removed, because Hermes re-creates a missing one with its default.
+#  - NemoClaw's per-shell `ulimit -u 512` hooks removed (see ./Dockerfile).
+RUN set -eux; \
+    for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done; \
+    find /opt/hermes/skills -mindepth 1 -delete; \
+    uv venv --python /opt/hermes/.venv/bin/python3 /usr/local/vss; \
+    VIRTUAL_ENV=/usr/local/vss uv pip install /opt/vss-wheels/*.whl; \
+    ln -sf /usr/local/vss/bin/vss /usr/local/bin/vss; \
+    rm -rf /opt/vss-wheels; \
+    vss --version; \
+    su -s /bin/sh sandbox -c "vss --version"; \
+    cp -R /opt/vss-plugin /opt/hermes/plugins/vss; \
+    chmod -R a+rX /opt/hermes/plugins/vss; \
+    rm -rf /opt/vss-plugin; \
+    python3 -m py_compile /opt/hermes/plugins/vss/__init__.py; \
+    /opt/hermes/.venv/bin/python3 /usr/local/lib/vss-harness/base-config.py apply; \
+    : > /sandbox/AGENTS.md; \
+    : > /sandbox/.hermes/SOUL.md; \
+    chown sandbox:sandbox /sandbox/AGENTS.md /sandbox/.hermes/SOUL.md; \
+    su -s /bin/sh sandbox -c 'cd /sandbox && HOME=/sandbox HERMES_HOME=/sandbox/.hermes /opt/hermes/.venv/bin/python3 /usr/local/lib/vss-harness/base-config.py check'; \
+    test -z "$(find /sandbox -maxdepth 1 -name '*.md' ! -name AGENTS.md)"; \
+    rm -f /etc/profile.d/nemoclaw-rlimits.sh; \
+    sed -i '/sandbox-rlimits/d; /NemoClaw sandbox resource limits/d' /etc/bash.bashrc; \
+    ! grep -rq "sandbox-rlimits" /etc/profile.d /etc/bash.bashrc
+
+# The base image's hint tells the agent it has web tools. Empty falls through to
+# config.yaml's agent.environment_hint, which is unset.
+ENV HERMES_ENVIRONMENT_HINT=
+
+USER sandbox
+WORKDIR /sandbox
+CMD ["sleep", "infinity"]
+
+LABEL harness.base="nemoclaw-hermes-sandbox" \
+      harness.contract="harbor-trial-v1" \
+      harness.agent="hermes" \
+      harness.variant="base" \
+      harness.vss-cli="true" \
+      harness.vss-plugin="true" \
+      harness.vss-skills="false" \
+      harness.workspace-root="/sandbox"

@@ -12,67 +12,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""TimeMeasure context manager.
+"""Re-export of the shared timing helper.
 
-Times a block of code and logs the elapsed duration. The PERF and STATUS log
-levels are registered here so their level names resolve consistently wherever
-this helper's log records are emitted.
+``TimeMeasure`` moved to ``vss_core._foundation`` when the critic and VLM paths
+needed it too: it is a cross-cutting utility, and reaching into another
+package's ``_internal`` for it would have been the first such breach. Existing
+``search_core._internal.time_measure`` imports keep working through here.
 """
 
-from __future__ import annotations
+from vss_core._foundation.time_measure import LOG_PERF_LEVEL
+from vss_core._foundation.time_measure import LOG_STATUS_LEVEL
+from vss_core._foundation.time_measure import TimeMeasure
+from vss_core._foundation.time_measure import collect_timings
 
-import logging
-import time
-
-logger = logging.getLogger(__name__)
-
-LOG_PERF_LEVEL = 15
-LOG_STATUS_LEVEL = 16
-
-logging.addLevelName(LOG_PERF_LEVEL, "PERF")
-logging.addLevelName(LOG_STATUS_LEVEL, "STATUS")
-
-
-class TimeMeasure:
-    """Measures the execution time of a block of code as a context manager."""
-
-    def __init__(self, string: str, print: bool = True) -> None:
-        self._string = string
-        self._print = print
-
-    def __enter__(self) -> TimeMeasure:
-        self._start_time = time.perf_counter()
-        logger.debug("[START] " + self._string)
-        return self
-
-    def __exit__(
-        self,
-        type: type[BaseException] | None,
-        value: BaseException | None,
-        traceback: object,
-    ) -> None:
-        self._end_time = time.perf_counter()
-        logger.debug("[END]   " + self._string)
-        if self._print:
-            exec_time = self._end_time - self._start_time
-            if exec_time > 1:
-                exec_time, unit = exec_time, "sec"
-            elif exec_time > 0.001:
-                exec_time, unit = exec_time * 1000.0, "millisec"
-            elif exec_time > 1e-6:
-                exec_time, unit = exec_time * 1e6, "usec"
-            else:
-                exec_time, unit = exec_time * 1e9, "nanosec"
-            logger.log(
-                LOG_PERF_LEVEL,
-                f"{self._string:s} execution time = {exec_time:.3f} {unit:s}",
-            )
-            logger.debug(f"{self._string} start={self._start_time!s} end={self._end_time!s}")
-
-    @property
-    def execution_time(self) -> float:
-        return self._end_time - self._start_time
-
-    @property
-    def current_execution_time(self) -> float:
-        return time.perf_counter() - self._start_time
+__all__ = ["LOG_PERF_LEVEL", "LOG_STATUS_LEVEL", "TimeMeasure", "collect_timings"]

@@ -1,0 +1,35 @@
+[
+  {
+    "id": "benchmark-search-retrieval",
+    "question": "Benchmark search recall and latency on my deployed VSS search profile using the warehouse dataset.",
+    "expected_skill": "benchmark-video-search",
+    "ground_truth": "Use the search benchmarking workflow, obtain the deployment endpoint and dataset location if missing, and run the non-destructive default flow before reporting measured retrieval and latency results.",
+    "expected_behavior": [
+      "Activates benchmark-video-search and requests any missing endpoint or dataset location instead of guessing.",
+      "Uses the vst-direct ingest default with --skip-existing on a shared deployment and does not pass --clear or --only-dataset without an explicit deletion request.",
+      "Reports the actual retrieval paths, decomposition mode, recall, HIT@k, and available stage timings without inventing results."
+    ]
+  },
+  {
+    "id": "benchmark-search-deployment-handoff",
+    "question": "We have no VSS deployment yet. Build what is needed and benchmark video search on my labelled warehouse dataset.",
+    "expected_skill": "benchmark-video-search",
+    "ground_truth": "Hand the deployment to vss-build-vision-ai with an explicit stock search profile request that retains the in-stack agent REST API and in-stack LLM, then return to benchmarking only after endpoint readiness and dataset location are confirmed.",
+    "expected_behavior": [
+      "Requests the stock search profile with its in-stack agent and in-stack LLM retained, avoiding the harness choice that removes them.",
+      "Records the reachable agent endpoint and unified origin and checks agent /health and LLM /v1/models before the benchmark run.",
+      "Asks for the dataset location if it is missing; does not invent an evaluation result."
+    ]
+  },
+  {
+    "id": "single-search-not-a-benchmark",
+    "question": "Find the clip where a forklift crosses in front of a worker in dock_cam.",
+    "expected_skill": null,
+    "should_trigger": false,
+    "ground_truth": "Route the one-off archive search to vss-search-archive rather than running a labelled-dataset benchmark.",
+    "expected_behavior": [
+      "Does not activate benchmark-video-search.",
+      "Uses vss-search-archive to search the requested source without ingesting an evaluation dataset."
+    ]
+  }
+]

@@ -295,8 +295,8 @@ data:
     verbose=1
     gpu-id=0
     skip-interval=0
-    smart-infer=1
-    ofa-predict=1
+    smart-infer=0
+    ofa-predict=0
 
     [secondary-gie0]
     enable=0

@@ -381,3 +381,22 @@ port: {{ index $svc "port" | default 8000 }}
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+  The name a VIOS subchart gives its own objects (<chart>.fullname), for config
+  that addresses them by name, such as SDRC's workload entries. Asking the
+  subchart keeps every values combination in step; when it is not rendered the
+  fallback is the chart name, release-prefixed under the global setting, so a
+  prefixed release never names another release's object.
+
+  Pass: dict "root" <profile root context> "chart" "vss-vios-streamprocessing"
+*/}}
+{{- define "vss.vios.objectName" -}}
+{{- $chart := .chart -}}
+{{- $name := $chart -}}
+{{- if default false (index (.root.Values.global | default dict) "useReleaseNamePrefix") -}}
+{{- $name = printf "%s-%s" .root.Release.Name $chart | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- with index .root.Subcharts "vios" }}{{ with index .Subcharts $chart }}{{ $name = include (printf "%s.fullname" $chart) . }}{{ end }}{{ end -}}
+{{- $name -}}
+{{- end -}}

@@ -8,10 +8,14 @@
 # Same shape as ../openclaw/Dockerfile and NemoClaw's documented custom-image
 # workflow (docs.nvidia.com/nemoclaw → Install Hermes Plugins): start from the
 # complete managed runtime, add image-owned files, end with USER sandbox and
-# WORKDIR /sandbox. Hermes has no plugin/tool layer to add here: it drives the
-# deployment through the `vss` CLI on PATH, loads skills from $HERMES_HOME/skills
-# (/sandbox/.hermes/skills, per NemoClaw's agents/hermes/manifest.yaml), which
-# Hermes seeds from its bundled library, and instruction docs (SOUL.md, AGENTS.md, …) from /sandbox.
+# WORKDIR /sandbox. The `vss_cli` tool plugin (./plugin/) mirrors the OpenClaw
+# plugin's tool exactly (same name, same {args, cwd, timeoutSec} schema, same
+# no-shell subprocess exec, same result shape — see ./plugin/__init__.py), so
+# a skill written against "the vss_cli tool" is harness-neutral. The agent also
+# still has the `vss` CLI directly on PATH, and loads skills from
+# $HERMES_HOME/skills (/sandbox/.hermes/skills, per NemoClaw's
+# agents/hermes/manifest.yaml), which Hermes seeds from its bundled library,
+# and instruction docs (SOUL.md, AGENTS.md, …) from /sandbox.
 #
 # NemoClaw publishes hermes-sandbox by publication cohort only (no release tag,
 # NVIDIA/NemoClaw#11228). The cohort a release selects is the one its
@@ -133,6 +137,9 @@ RUN set -eux; \
 FROM ${BASE_IMAGE} AS nemoclaw-runtime
 USER root
 COPY --from=vss-src /opt/vss-assets/ /opt/vss-assets/
+# The vss_cli tool plugin, straight from the build context (not vss-src: it is
+# this directory's own code, not something the pinned VSS_REF checkout ships).
+COPY plugin/ /opt/vss-assets/plugin/
 # In one layer:
 #  - Harbor trial paths, real world-writable directories (OpenShell chowns every
 #    read_write policy path at start and refuses symlinks). See ../openclaw/Dockerfile.
@@ -182,6 +189,25 @@ RUN set -eux; \
     && su -s /bin/sh sandbox -c 'h=$(mktemp -d) && cd /opt/hermes && HERMES_HOME=$h /opt/hermes/.venv/bin/python3 -c "from tools.skills_sync import sync_skills; sync_skills(quiet=True)" && test -f $h/skills/vss/vss-ask-video/SKILL.md && HERMES_HOME=$h vss-hermes-sync --all && test -d $h/skills/github && rm -rf $h' \
     && cp /opt/vss-assets/workspace/*.md /sandbox/ \
     && for f in /opt/vss-assets/workspace/*.md; do chown sandbox:sandbox "/sandbox/$(basename "$f")"; done \
+    # vss_cli tool plugin: bundled (/opt/hermes/plugins/vss), not a
+    # $HERMES_HOME/plugins/ user install -- a plugin.yaml `kind: backend`
+    # bundled plugin auto-loads (PluginManager.discover_and_load) with no
+    # per-HERMES_HOME `plugins enable` step, so it is discovered the same way
+    # for every HERMES_HOME, default or caller-chosen, exactly like the
+    # bundled skills library above. (A plain $HERMES_HOME/plugins/ install,
+    # tried first, only reaches the one HERMES_HOME it was enabled under.)
+    && cp -R /opt/vss-assets/plugin /opt/hermes/plugins/vss \
+    && chmod -R a+rX /opt/hermes/plugins/vss \
+    && python3 -m py_compile /opt/hermes/plugins/vss/__init__.py \
+    # Prove it reaches a fresh, caller-chosen HERMES_HOME with no enable step.
+    && su -s /bin/sh sandbox -c 'h=$(mktemp -d) && cd /opt/hermes && HERMES_HOME=$h /opt/hermes/.venv/bin/python3 -c "\
+import sys; sys.path.insert(0, \".\"); \
+from hermes_cli.plugins import discover_plugins; \
+import model_tools; \
+discover_plugins(); \
+names = {t[\"function\"][\"name\"] for t in model_tools.get_tool_definitions(quiet_mode=True, skip_tool_search_assembly=True)}; \
+assert \"vss_cli\" in names, sorted(names)" \
+       && rm -rf $h' \
     && mv /opt/vss-assets/ngc-cli /usr/local/lib/ngc-cli \
     && chmod -R a+rX /usr/local/lib/ngc-cli \
     && chmod +x /usr/local/lib/ngc-cli/ngc \
@@ -226,5 +252,6 @@ LABEL harness.base="nemoclaw-hermes-sandbox" \
       harness.contract="harbor-trial-v1" \
       harness.agent="hermes" \
       harness.vss-cli="true" \
+      harness.vss-plugin="true" \
       harness.ngc-cli="true" \
       harness.workspace-root="/sandbox"

@@ -131,7 +131,7 @@ aug_configs:
 | --- | --- | --- |
 | `num_output` | Maximum number of top-confidence detections to decode before filtering | `300` |
 | `score_threshold` | Score threshold for decoding output | `0.1` |
-| `num_torch_threads` | Number of threads for PyTorch | `0` |
+| `num_torch_threads` | Number of threads for PyTorch | `8` |
 
 The raw model outputs contain 900 queries. In the TAO tracking decoder, top-300 selection uses each query's maximum sigmoid classification score across the seven classes. Quality estimation then weights the selected scores by sigmoid centerness and re-sorts them. Confidence thresholds can reduce the returned count below 300. The 600-entry temporal cache is selected separately, using confidence history and decay; it is not the candidate pool for this final top-300 selection. Do not use `num_temp_instances` as the output-buffer size for raw TensorRT outputs.
 

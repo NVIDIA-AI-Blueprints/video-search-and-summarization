@@ -68,7 +68,7 @@ Override **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** and **`vios.vss-vios-n
 
   Creates a StorageClass named `nfs-client` by default.
 
-- **Helm 3.x** and **kubectl**
+- **Helm 3.7+** and **kubectl**
 
 - **NGC API key** — required for the image pull secret and the NGC model/app-data download job. See [Required secrets](#required-secrets).
 
@@ -416,74 +416,31 @@ cartesian calibration):
 - **Cartesian** (`calibrationType: "cartesian"`) — full image-to-global
   calibration; ROI/tripwire authoring fully supported.
 - **Image coordinates, with a calibration file** (`calibrationType:
-  "image"`) — pixel-coordinate calibration, no geometric transform;
-  ROI/tripwire must be measured manually.
+  "image"`) — pixel-coordinate calibration exported from Auto Calibration, with
+  ROI/tripwire authoring and no image-to-global transform.
 - **Running 2D without calibration** — detection/tracking still runs in
   image (pixel) coordinates; ROI/tripwire events are unavailable. See below.
 
-##### Image coordinate calibration
+##### Auto Calibration setup and workflow
 
-Image-coordinate calibration does not require an image-to-global coordinate
-transformation, so camera intrinsics, extrinsics, and homography are not
-needed. ROIs and tripwires are optional and only needed for analytics that
-use them — Auto Calibration currently does not support defining them in
-image coordinates, so measure their pixel coordinates manually (using an
-image editing tool) and enter them in the file.
+Auto Calibration supports two types of calibrations in 2D profile: image-coordinate calibration and Cartesian calibration.
 
-1. **Start with the empty calibration template** — contains a placeholder
-   sensor named `Camera_01`; fill the blank fields and replace the
-   placeholder values before using it:
+Start the Auto Calibration service, then follow the Auto Calibration workflow. Choose the appropriate export for your use case:
 
-   ```text
-   {
-     "version": "1.0",
-     "osmURL": "",
-     "calibrationType": "",
-     "sensors": [
-       {
-         "type": "",
-         "id": "Camera_01",
-         "origin": { "lng": 0, "lat": 0 },
-         "geoLocation": { "lng": 0, "lat": 0 },
-         "coordinates": { "x": 0, "y": 0 },
-         "scaleFactor": 0,
-         "attributes": [],
-         "place": [],
-         "imageCoordinates": [],
-         "globalCoordinates": [],
-         "tripwires": [],
-         "rois": []
-       },
-       ...
-     ]
-   }
-   ```
+- **Image coordinates**: Use **Export Image-Mode JSON** to export ROIs and tripwires in pixel coordinates with `"calibrationType": "image"`.
+- **Cartesian coordinates**: Export a calibration with `"calibrationType": "cartesian"` to map camera image coordinates to a global coordinate system.
 
-2. **Measure pixel coordinates and fill the template** — open a frame from
-   your camera at its original resolution in an image editing tool (Paint,
-   IrfanView, etc.), read the pixel coordinates for the ROIs and tripwires
-   your analytics require, then:
-   - Set `calibrationType` to `image` and the sensor `type` to `camera`.
-   - Replace `Camera_01` with the matching sensor id — the registered
-     `camera_name` for RTSP, or the video filename (no extension) for
-     recorded files.
-   - Set `scaleFactor` to `1` and add the frame width/height to `attributes`.
-   - Enter ROI vertices and tripwire endpoints in pixel coordinates. Leave
-     `rois`/`tripwires` empty if your analytics don't require them.
-   - Leave `imageCoordinates` and `globalCoordinates` empty.
+For image-coordinate calibration (`"calibrationType": "image"`) only, add ROIs or tripwires to the sensors that require them. If only one sensor needs an ROI or tripwire, annotate that sensor and proceed with the export. Sensors that need neither ROIs nor tripwires do not need to be included in the image-coordinate `calibration.json`. This omission does not apply to Cartesian calibration.
 
-3. **Host the completed file and point the chart at it** — put the file
-   somewhere reachable by URL, then set
-   **`calibration-import.calibrationFileSource`** to it (see the
-   **If you do need ROI/tripwire** table below). `requireCalibration` and
-   `requireImages` both stay at their default `true`, so a broken
-   calibration or image-metadata URL fails the Job instead of deploying
-   with no calibration.
+##### Apply the calibration
+
+For either calibration type, host the exported `calibration.json` at a reachable URL and set **`calibration-import.calibrationFileSource`** to that URL. Configure the image-metadata and floor-plan image sources using the table below. Keep `requireCalibration` and `requireImages` at their default `true` so a broken source URL fails the Job.
 
 ##### Running 2D without calibration
 
-Calibration is enabled by default. If you don't need ROI/tripwire, skip
-calibration entirely (the third state above) with these 3 changes:
+Calibration is enabled by default. Only when no `calibration.json` file exists,
+skip calibration entirely (the third state above) with these 3 changes. If an
+image-coordinate or Cartesian calibration file exists, keep calibration enabled:
 
 | Setting | Set | Effect |
 |---|---|---|
@@ -491,7 +448,7 @@ calibration entirely (the third state above) with these 3 changes:
 | `analytics.vss-behavior-analytics.resourceFiles.calibration.enabled` | `false` (`--set analytics.vss-behavior-analytics.resourceFiles.calibration.enabled=false`) | Skips the `fetch-calibration` initContainer and the bundled sample `calibration.json` fallback mount. |
 | `analytics.vss-behavior-analytics.command` | remove `--calibration`/`/resources/calibration.json` | Final command: `--set 'analytics.vss-behavior-analytics.command={python3,apps/analytics/main_analytics_2d_app.py,--config,/resources/vss-behavior-analytics-config.json}'` (arrays are always replaced whole, never merged, so this is safe) — or restate as a list in a `-f` values file. |
 
-If you do need ROI/tripwire:
+When deploying with an image-coordinate or Cartesian calibration file:
 
 | Setting | Set | Effect |
 |---|---|---|
@@ -500,8 +457,10 @@ If you do need ROI/tripwire:
 | `calibration-import.imageBaseSource` | base URL for your floor-plan images | Base URL each `fileName` above is fetched from. |
 | `calibration-import.requireCalibration` / `requireImages` | keep default `true` | A broken URL fails the Job instead of deploying with no calibration. |
 
-Each `camera_name` registered above must match the corresponding sensor name
-in `calibration.json` — the importer doesn't check this for you.
+Each sensor included in `calibration.json` must have a name matching the
+corresponding `camera_name` registered above — the importer doesn't check this
+for you. For image-coordinate calibration only, cameras that need neither ROIs nor
+tripwires do not need an entry in `calibration.json`.
 
 Also configure, outside `global`:
 

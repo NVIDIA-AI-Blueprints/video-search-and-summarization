@@ -53,12 +53,33 @@ without the agent add `vss-va-mcp` explicitly (`services/sop.md`).
 | `NEXT_PUBLIC_APP_SUBTITLE` | Derive from the final service set using [`composition.md`](../composition.md#ui-subtitle). |
 | `VST_NOTIFICATION_CONFIG_PATH` | MODE-selected VIOS webhook config (`notification_config_${MODE}.json`): `2d_cv` → RT-CV stream add/remove; `2d_vlm` → Alert Bridge always-on. |
 | `ALERT_AGENT_ALWAYS_ON` | Gate always-on rules (`true` for real-time / `2d_vlm`, `false` for verification / `2d_cv`). |
+| `NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS` | Keep `true` in both Alerts modes. |
+| `NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION` | Set `false` for `2d_vlm`; keep `true` for `2d_cv`. |
 | `DS_MODEL_FAMILY`, `MODEL_NAME_2D`, `RT_CV_DEVICE_ID`, `VSS_RT_CV_TAG` | Configure RT-CV in `2d_cv`. |
 | `VLM_NAME`, `VLM_MODE`, `VLM_BASE_URL`, `RTVI_VLM_*` | Configure verification or real-time VLM routing. |
 | `VLM_AS_VERIFIER_CONFIG_FILE*` | Select mounted alert verifier and real-time rule configs. |
 | `ALERT_BRIDGE_HOST_PORT`, `VIDEO_ANALYTICS_API_HOST_PORT`, `RTVI_CV_HOST_PORT`, `RTVI_VLM_PORT` | Change alert-facing host ports. |
 | `VSS_VA_MCP_HOST_PORT` | Change the optional legacy VA-MCP host port when that service is explicitly selected. |
 | `NVSTREAMER_HTTP_HOST_PORT` | Select source playback host port. |
+
+### Mode-selected Manage Alerts editors
+
+Materialize both Manage Alerts flags in the build's `override.env` using the
+selected `MODE`, matching `set_alerts_ui_rule_kinds_from_mode` in
+`deploy/docker/scripts/dev-profile.sh`. Compose defaults both flags to `true`
+and does not derive them from `MODE` or `ALERT_AGENT_ALWAYS_ON`.
+
+For real-time `MODE=2d_vlm`, write:
+
+```ini
+NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS=true
+NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION=false
+```
+
+For verification `MODE=2d_cv`, set both to `true`. These flags control which
+editors appear under Manage Alerts; `ALERT_AGENT_ALWAYS_ON` controls the backend
+pipeline separately. `validate_resolved_yml.py` rejects an always-on Alerts
+build whose UI still exposes CV Alerts Verification.
 
 ## Efficient Video Sampling
 

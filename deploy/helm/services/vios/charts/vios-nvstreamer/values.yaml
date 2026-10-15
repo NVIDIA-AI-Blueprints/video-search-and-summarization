@@ -26,6 +26,7 @@ replicas: 1
 kafkaServerAddress: ""   # default: kafka-kafka:9092 (<release>-kafka-kafka:9092 if global.useReleaseNamePrefix)
 redisServerAddress: ""   # default: <release>-redis:6379 (host:port for redis_server_env_var or direct address)
 videoMetadataServerUrl: ""   # default: http://<release>-elasticsearch:9200/mdx-raw*
+maxDevicesSupported: ""
 
 # Comma-separated static TURN URLs (username:password@host:port). Empty = STUN only,
 # so WebRTC playback fails off-network/behind NAT.

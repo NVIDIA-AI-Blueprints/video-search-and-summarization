@@ -11,10 +11,13 @@ from dataclasses import dataclass, field
 
 RUNTIMES = ("claude-code", "codex", "nemoclaw")
 CODING_RUNTIMES = ("claude-code", "codex")
-NVIDIA_INFERENCE_PROVIDER = "nvidia-inference"
+NVIDIA_INFERENCE_PROVIDER = "hosted-nvidia-inference"
 NVIDIA_INFERENCE_SOURCE_URL = "https://inference.nvidia.com/"
 NVIDIA_INFERENCE_API_BASE_URL = "https://inference-api.nvidia.com/v1"
+LOCAL_NIM_PROVIDER = "local-nim"
 ROLES = ("coding", "operational")
+DEFAULT_CODEX_MODEL = "azure/openai/gpt-6.1-sol"
+DEFAULT_NEMOCLAW_MODEL = "aws/anthropic/bedrock-claude-opus-5-5"
 
 
 def _first(*values: object) -> str:
@@ -52,12 +55,18 @@ def resolve_model_config(
     env = environment if environment is not None else os.environ
     prefix = f"SKILLS_EVAL_{role.upper()}"
     runtime_default = (
-        "claude-code"
+        "codex"
         if role == "coding"
-        else _first(env.get("EVAL_AGENT"), "claude-code")
+        else _first(env.get("EVAL_AGENT"), "nemoclaw")
     )
     runtime = _first(env.get(f"{prefix}_HARNESS"), runtime_default)
     requested_model = _first(env.get(f"{prefix}_MODEL"))
+    deployment = _first(env.get(f"{prefix}_DEPLOYMENT"), NVIDIA_INFERENCE_PROVIDER)
+    if deployment == "nvidia-inference":
+        # Preserve older direct run_leg callers after the workflow choice rename.
+        deployment = NVIDIA_INFERENCE_PROVIDER
+    if deployment not in {NVIDIA_INFERENCE_PROVIDER, LOCAL_NIM_PROVIDER}:
+        raise ValueError(f"unsupported {role} deployment {deployment!r}")
     route_api_key = _first(env.get(f"{prefix}_API_KEY"))
 
     allowed_runtimes = CODING_RUNTIMES if role == "coding" else RUNTIMES
@@ -68,9 +77,7 @@ def resolve_model_config(
         )
     if runtime in {"claude-code", "codex"}:
         if runtime == "codex":
-            model = requested_model or _first(env.get("CODEX_MODEL"))
-            if not model:
-                raise ValueError(f"{prefix}_MODEL or CODEX_MODEL is required for codex")
+            model = requested_model or _first(env.get("CODEX_MODEL"), DEFAULT_CODEX_MODEL)
         else:
             model = requested_model or _first(env.get("ANTHROPIC_MODEL"))
         endpoint_url = NVIDIA_INFERENCE_API_BASE_URL
@@ -79,8 +86,7 @@ def resolve_model_config(
     else:
         model = requested_model or _first(
             env.get("NEMOCLAW_MODEL"),
-            env.get("ANTHROPIC_MODEL"),
-            env.get("LLM_REMOTE_MODEL"),
+            DEFAULT_NEMOCLAW_MODEL,
         )
         endpoint_url = NVIDIA_INFERENCE_API_BASE_URL
         api_key = route_api_key or _first(
@@ -96,6 +102,17 @@ def resolve_model_config(
             f"{prefix}_MODEL is required because the selected harness has "
             "no configured default model"
         )
+    if deployment == LOCAL_NIM_PROVIDER:
+        from local_nim import LOCAL_NIM_CLIENT_KEY, validate_model_id
+        try:
+            validate_model_id(model)
+        except ValueError as exc:
+            raise ValueError(f"{prefix}_MODEL: {exc}") from exc
+        if not _first(env.get("NGC_CLI_API_KEY"), env.get("NGC_API_KEY")):
+            raise ValueError("local-nim requires NGC_CLI_API_KEY or NGC_API_KEY")
+        # Non-secret client placeholder; the job-owned proxy requires no auth.
+        endpoint_url = "http://127.0.0.1:18400/v1"
+        api_key = LOCAL_NIM_CLIENT_KEY
     if not api_key:
         raise ValueError(
             f"no API key is configured; set {credential_name} on the runner"
@@ -104,7 +121,7 @@ def resolve_model_config(
     return SkillEvalModelConfig(
         role=role,
         runtime=runtime,
-        provider=NVIDIA_INFERENCE_PROVIDER,
+        provider=deployment,
         model=model,
         endpoint_url=endpoint_url.rstrip("/"),
         api_key=api_key,

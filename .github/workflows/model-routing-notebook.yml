@@ -119,4 +119,29 @@ jobs:
         if: always() && steps.gate.outputs.run == 'true'
         run: |
           [ -n "${ROUTER_CONTAINER:-}" ] && docker rm -f "$ROUTER_CONTAINER" 2>/dev/null || true
-          [ -n "${MODEL_ROUTING_WORK_DIR:-}" ] && rm -rf "$MODEL_ROUTING_WORK_DIR" || true
+          # The router is gone, so every grant the run recorded goes too, before
+          # the markers and the revoke file disappear with the work directory. A
+          # revoke that fails keeps the directory, so the record survives for a
+          # retry, and fails this step so the open grant is visible.
+          kept=0
+          for marker in "${MODEL_ROUTING_WORK_DIR:-/nonexistent}"/vss_model_router_policy.applied.*.*; do
+            [ -e "$marker" ] || continue
+            cli=${marker%.*}; cli=${cli##*.}; sandbox=${marker##*.}
+            # A sandbox the gateway no longer lists took its grant with it.
+            if ! openshell sandbox get "$sandbox" >/dev/null 2>&1 \
+               && listing=$(openshell sandbox list 2>/dev/null) && ! grep -qF -- "$sandbox" <<<"$listing"; then
+              rm -f "$marker"
+              continue
+            fi
+            if "$cli" "$sandbox" policy-add --from-file "$MODEL_ROUTING_WORK_DIR/vss_model_router_policy_revoke.yaml" --yes; then
+              rm -f "$marker"
+            else
+              echo "::error::router grant on sandbox $sandbox was not revoked; $marker kept"
+              kept=1
+            fi
+          done
+          if [ "$kept" = 0 ]; then
+            [ -n "${MODEL_ROUTING_WORK_DIR:-}" ] && rm -rf "$MODEL_ROUTING_WORK_DIR" || true
+          else
+            exit 1
+          fi

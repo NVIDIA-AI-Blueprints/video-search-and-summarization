@@ -57,6 +57,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from ..clients.protocols import ElasticIndex
+    from ..clients.protocols import TextEmbedder
     from ..models.common import FusionMethod
     from ..runtime import SearchRuntime
 
@@ -145,6 +146,16 @@ class _PrimitiveAdapter:
         inp = self._coerce(payload)
         out = await self._primitive.run(inp)
         return self._unwrap(out) if self._unwrap else out
+
+    @property
+    def embed_client(self) -> TextEmbedder | None:
+        """The wrapped attribute primitive's embedder, or None if unavailable (NVBug 6781021).
+
+        Fusion's embed-once precompute reads this so its precomputed vectors come
+        from the same model the attribute leg embeds with. The attribute stand-in
+        (``_AttributeSearchUnavailable``) exposes nothing, so this is ``None`` then.
+        """
+        return getattr(self._primitive, "embed_client", None)
 
 
 def _coerce_embed_payload(payload: Any) -> EmbedSearchInput:

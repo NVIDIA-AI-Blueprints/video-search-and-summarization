@@ -860,18 +860,18 @@ def _resolve_workload_pods_for_health():
     Docker mode reads host:port from each entry's ``provisioning_address`` in
     ``docker_cluster_config.json``. Only ``WDM_WL_HEALTH_CHECK_URL`` (path) is
     configurable when building probe URLs. K8s falls back to live pod IPs.
+
+    Lookup failures propagate. ``WorkloadHealthWatcher.poll_once`` keeps the
+    last snapshot instead of treating the error as an empty inventory. A
+    successful empty result still means those pods are gone.
     """
-    try:
-        docker_targets = curr_cluster.get_health_check_targets()
-        if docker_targets is not None:
-            return docker_targets
-        wl_objs = curr_cluster.getWorkloadObjects()
-        if not wl_objs:
-            return []
-        return curr_cluster.getPodIps(wl_objs) or []
-    except Exception:
-        app.logger.exception("Failed resolving workload pods for health watcher")
+    docker_targets = curr_cluster.get_health_check_targets()
+    if docker_targets is not None:
+        return docker_targets
+    wl_objs = curr_cluster.getWorkloadObjects()
+    if not wl_objs:
         return []
+    return curr_cluster.getPodIps(wl_objs) or []
 
 
 def _config_bool(value, default=False):
@@ -896,6 +896,7 @@ else:
         "WDM_WL_HEALTH_CHECK_WAIT_ENABLED=false; using legacy pod readiness "
         "(Docker container state for PodErrorWatcher; no HTTP health wait in add())"
     )
+startup_recovery_stream_ids = {}
 
 
 def should_handle_config_events():
@@ -1229,6 +1230,16 @@ def _workload_specs_list_for_pod(pod_name):
     if not isinstance(parsed, list):
         return []
     return parsed
+
+
+def _workload_stream_id(spec):
+    """Return a workload stream ID from a saved spec, or None if malformed."""
+    if not isinstance(spec, dict):
+        return None
+    event = spec.get(app.config["WDM_EVENT_OBJECT_FIELD"])
+    if not isinstance(event, dict):
+        return None
+    return event.get(app.config["WDM_WL_ID_FIELD"])
 
 
 @app.route('/current_distributed_streams_name_id_url', methods=["GET"])
@@ -3998,14 +4009,14 @@ def podWatch():
                             if app.config["WDM_CLUSTER_TYPE"].lower() == "k8s-headless":
                                 old_ip = old_ip.replace('.', '-')
                                 new_ip = new_ip.replace('.', '-')
-                                streams_spec = cfg.getworkLoadSpecs(old_ip)
+                                streams_spec = GetRecoveryWorkloadSpecs(p, old_ip)
                                 app.logger.info(f"old_ip: {old_ip}")
                                 app.logger.info(f"new_ip: {new_ip}")
                                 if streams_spec:
                                     app.logger.info("readding streams after recovered pod for k8s-headless")
                                     readdStreams(new_ip, streams_spec)
                             else:
-                                streams_spec = cfg.getworkLoadSpecs(p)
+                                streams_spec = GetRecoveryWorkloadSpecs(p)
                                 if streams_spec:
                                     app.logger.info("readding streams after recovered pod for k8s")
                                     readdStreams(p, streams_spec)
@@ -4056,7 +4067,64 @@ def WorkloadHealthCheckWatcher():
         app.config.get("WDM_WL_HEALTH_CHECK_URL"),
         app.config.get("WDM_HEALTH_CHECK_INTERVAL"),
     )
-    return health_watcher.start()
+    health_watcher.start()
+    return True
+
+
+def GetRecoveryWorkloadSpecs(pod_name, assignment_key=None):
+    """Return the correct saved specs for a normal or startup recovery."""
+    key = assignment_key or pod_name
+    is_startup_recovery = (
+        health_watcher is not None
+        and health_watcher.consume_startup_recovery(pod_name)
+    )
+    if is_startup_recovery:
+        startup_ids = startup_recovery_stream_ids.pop(key, set())
+        current_specs = _workload_specs_list_for_pod(key)
+        filtered_specs = [
+            spec
+            for spec in current_specs
+            if _workload_stream_id(spec) in startup_ids
+        ]
+        if not filtered_specs:
+            return None
+        # Preserve the double-encoded format expected by readdStreams().
+        return json.dumps(json.dumps(filtered_specs))
+
+    # A candidate first seen healthy never produces a startup recovery. Drop
+    # its stale snapshot before serving any later, normal runtime recovery.
+    startup_recovery_stream_ids.pop(key, None)
+    return cfg.getworkLoadSpecs(key)
+
+
+def SeedSavedWorkloadRecoveryCandidates():
+    """Snapshot persisted stream IDs and seed startup recovery candidates."""
+    global startup_recovery_stream_ids
+    startup_recovery_stream_ids = {}
+    if health_watcher is None or not _config_bool(
+        app.config.get("WDM_REAPPLY_ON_WL_RESTART"), False
+    ):
+        return []
+
+    try:
+        for pod_name in cfg.getpods() or []:
+            stream_ids = {
+                _workload_stream_id(spec)
+                for spec in _workload_specs_list_for_pod(pod_name)
+            }
+            stream_ids.discard(None)
+            if stream_ids:
+                startup_recovery_stream_ids[pod_name] = stream_ids
+    except Exception:
+        app.logger.exception(
+            "Couldn't load saved workload assignments for startup recovery"
+        )
+        startup_recovery_stream_ids = {}
+        return []
+
+    saved_pods = list(startup_recovery_stream_ids)
+    health_watcher.seed_startup_recovery_candidates(saved_pods)
+    return saved_pods
 
 
 def send_alive_status():
@@ -4102,6 +4170,11 @@ if __name__ == "__main__":  # Script executed directly?
             cfg.eraseSpecContent()
     except Exception as e:
         app.logger.exception("Couldn't clear WL spec file")
+
+    # Capture only assignments persisted before lifecycle listeners can reserve
+    # new workloads. This preserves saved-stream recovery without reintroducing
+    # false recovery events for newly added streams during startup.
+    SeedSavedWorkloadRecoveryCandidates()
     
     listners = False
     if bus is not None and is_message_bus_lifecycle_mode(app.config):
@@ -4162,5 +4235,7 @@ if __name__ == "__main__":  # Script executed directly?
             "gRPC ADS listener disabled in this process; REST CDS/RDS xDS "
             "endpoints remain registered for compatibility"
         )
-    app.logger.info("application start on port %s" % (app.config["PORT"]))
-    app.run(host="0.0.0.0", port=app.config["PORT"], use_reloader=False)
+    app.logger.info(
+        "application start on %s:%s" % (app.config["BIND_HOST"], app.config["PORT"])
+    )
+    app.run(host=app.config["BIND_HOST"], port=app.config["PORT"], use_reloader=False)

@@ -28,6 +28,13 @@ class Config(object):
     DEBUG = False
     TESTING = False
     PORT = os.environ["PORT"] if "PORT" in os.environ else 4000
+    # Loopback only. The router and Envoy in this container connect here.
+    # Set BIND_HOST when a different address must accept connections.
+    BIND_HOST = (
+        os.environ["BIND_HOST"]
+        if "BIND_HOST" in os.environ and os.environ["BIND_HOST"].strip() != ""
+        else "127.0.0.1"
+    )
 
     KAFKA_URL = (
         os.environ["KAFKA_URL"]

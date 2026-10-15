@@ -41,11 +41,21 @@
 {{- printf "http://%s:%d" (include "kibana.fullname" .) (int .Values.service.port) }}
 {{- end }}
 
-{{/* Stable names (legacy vss-kibana-init chart); one import Job per namespace. */}}
+{{- define "kibana.releaseScopedName" -}}
+{{- $root := index . "root" }}
+{{- $g := $root.Values.global | default dict }}
+{{- $usePrefix := default false (coalesce $root.Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+{{- if $usePrefix }}
+{{- printf "%s-%s" $root.Release.Name (index . "name") | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- index . "name" }}
+{{- end }}
+{{- end }}
+
 {{- define "kibana.initJobName" -}}
-vss-kibana-init
+{{- include "kibana.releaseScopedName" (dict "root" . "name" "vss-kibana-init") }}
 {{- end }}
 
 {{- define "kibana.initImportConfigMapName" -}}
-vss-kibana-init-import
+{{- include "kibana.releaseScopedName" (dict "root" . "name" "vss-kibana-init-import") }}
 {{- end }}

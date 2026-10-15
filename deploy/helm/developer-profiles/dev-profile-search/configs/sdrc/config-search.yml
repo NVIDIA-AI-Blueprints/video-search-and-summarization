@@ -1,8 +1,10 @@
+{{ $sp := include "vss.vios.objectName" (dict "root" . "chart" "vss-vios-streamprocessing") -}}
+{{ $sensor := include "vss.vios.objectName" (dict "root" . "chart" "vss-vios-sensor") -}}
 defaults:
   WDM_XDS_GRPC_ADS_ENABLED: "true"
 
 k8s-workload-streamprocessing:
-  wl_obj_name: vss-vios-streamprocessing
+  wl_obj_name: {{ $sp }}
   port: 4005
   enable: true
   WDM_CONSUMER_GRP_ID: sdr-streamprocessing-vios-cg
@@ -29,9 +31,9 @@ k8s-workload-streamprocessing:
   WDM_DS_SWAP_ID_NAME: false
   WDM_ADD_REMOVE_RETRY_ATTEMPTS: 50
   WDM_DISABLE_WERKZEUG_LOGGING: true
-  WDM_WL_OBJECT_NAME: vss-vios-streamprocessing
-  VST_STREAMS_ENDPOINT: http://vss-vios-sensor:30000/api/v1/sensor/streams
-  VST_STATUS_ENDPOINT: http://vss-vios-sensor:30000/api/v1/sensor/status
+  WDM_WL_OBJECT_NAME: {{ $sp }}
+  VST_STREAMS_ENDPOINT: http://{{ $sensor }}:30000/api/v1/sensor/streams
+  VST_STATUS_ENDPOINT: http://{{ $sensor }}:30000/api/v1/sensor/status
   OTEL_SDK_DISABLED: true
   OTEL_SERVICE_NAME: SDR_AGENT
   WDM_WL_NAME_IGNORE_REGEX: ""
@@ -39,7 +41,7 @@ k8s-workload-streamprocessing:
   ENVOY_ROUTE_HEADER: streamid
   WDM_MS_LISTENER_PORT: 10000
   NOHEADERTARGETROUTE: true
-  HEADERLESS_SERVICE_ENDPOINTS: '["vss-vios-streamprocessing:30001"]'
+  HEADERLESS_SERVICE_ENDPOINTS: '["{{ $sp }}:30001"]'
   WDM_WL_REDIS_MSG_FIELD: sensor.id
   WDM_MSG_KEY: vst_events
   WDM_WL_PROXY_URL: /

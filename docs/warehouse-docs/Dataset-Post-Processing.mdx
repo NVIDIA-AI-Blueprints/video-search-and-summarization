@@ -12,7 +12,19 @@ Generated data for MTMC training includes as follows:
 - Depth maps.
 - Camera calibration.
 
-Post-processing is mainly divided into two steps as follows:
+## Prerequisites
+
+With conda installed, run the following from the repository root on Ubuntu/Debian:
+
+```bash
+conda create -n postpro python=3.10 -y
+conda activate postpro
+python -m pip install -r tools/sdg-postprocessing/requirements.txt
+sudo apt update && sudo apt install -y ffmpeg
+ffmpeg -version
+```
+
+Post-processing is divided into two steps:
 
 **Data Sanity Check**:
 

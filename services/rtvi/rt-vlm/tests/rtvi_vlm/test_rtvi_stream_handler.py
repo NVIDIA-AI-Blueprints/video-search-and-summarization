@@ -1208,15 +1208,7 @@ class TestKafkaIntegration:
         assert kwargs == {}
 
     def test_failed_file_request_closes_evs_sessions(self, stream_handler):
-        """A failed file chunk must release the request's EVS sessions.
-
-        The success path closes them only when every chunk is accounted for
-        (len(processed_chunk_list) == chunk_count). A chunk error marks the
-        request FAILED and calls abort_chunks(), so the remaining chunks never
-        arrive and that equality is never reached -- leaking the session for the
-        life of the process until session creation fails with "max sessions
-        reached".
-        """
+        """Repeated failed chunks acquire only one mask and close request sessions."""
         stream_handler._vlm_pipeline.close_evs_sessions = Mock()
 
         asset = Asset(
@@ -1230,6 +1222,7 @@ class TestKafkaIntegration:
             request_id="request-file-failed",
             assets=[asset],
             is_live=False,
+            start_time=1.0,
         )
         req_info.status = RequestInfo.Status.PROCESSING
         req_info.chunk_count = 4
@@ -1241,6 +1234,8 @@ class TestKafkaIntegration:
             end_pts=1_000_000_000,
         )
         chunk.streamId = req_info.stream_id
+        chunk.start_ntp = "2026-05-05T00:00:00.000Z"
+        chunk.end_ntp = "2026-05-05T00:00:01.000Z"
 
         chunk_result = PipelineChunkResult(
             chunk=chunk,
@@ -1248,6 +1243,7 @@ class TestKafkaIntegration:
             error_status_code=500,
         )
 
+        stream_handler._on_vlm_chunk_response(chunk_result, req_info)
         stream_handler._on_vlm_chunk_response(chunk_result, req_info)
 
         deadline = monotonic() + 5
@@ -1258,7 +1254,11 @@ class TestKafkaIntegration:
             sleep(0.01)
 
         assert req_info.status == RequestInfo.Status.FAILED
+        stream_handler._vlm_pipeline.abort_chunks.assert_called_once_with(asset.asset_id)
         stream_handler._vlm_pipeline.close_evs_sessions.assert_called_once_with(req_info.stream_id)
+        for _ in range(2):
+            stream_handler._on_vlm_chunk_response(PipelineChunkResult(chunk=chunk), req_info)
+        stream_handler._vlm_pipeline.abort_chunks_done.assert_called_once_with(asset.asset_id)
 
     def test_vision_llm_stream_id_uses_asset_id_and_sensor_id_uses_camera_id(self, stream_handler):
         """Kafka streamId should correlate to RTVI asset_id, not the CV camera_id."""

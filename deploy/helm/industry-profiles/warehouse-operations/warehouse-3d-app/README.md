@@ -68,7 +68,7 @@ Override **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** and **`vios.vss-vios-n
 
   Creates a StorageClass named `nfs-client` by default.
 
-- **Helm 3.x** and **kubectl**
+- **Helm 3.7+** and **kubectl**
 
 - **NGC API key** — required for the image pull secret and the NGC model/app-data download job. See [Required secrets](#required-secrets).
 

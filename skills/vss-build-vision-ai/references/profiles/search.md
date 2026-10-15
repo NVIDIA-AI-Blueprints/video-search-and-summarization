@@ -37,13 +37,18 @@ compose tokens). Helm search keeps SDRC enabled for live multi-worker scale.
 | Ingress | `vss-haproxy-ingress` |
 | LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` |
 
-## Headless fan-out (no-agent builds)
+## Source registration and fan-out
 
 This profile pins `VST_NOTIFICATION_CONFIG_PATH` at a webhooks-enabled
 `notification_config.json` — the pin is the profile's own, not a property of
-no-agent builds. When the `vss-agent` tier is omitted it is the whole fan-out,
-so the caller registers one VIOS source and calls no consumer
+Agent presence. Agent-backed and headless deployments both register one
+source with `vss vios add`; configured receivers perform the whole fan-out
+without an Agent `/complete` call. The caller calls no consumer
 (`vss-manage-video-io-storage` `provision-vios-source.md`).
+
+Helm selects its notification policy through `notificationConfigFile`. Inspect
+the mounted policy on either deployment; unreadable policy means unknown
+receiver state, not unavailable indexing.
 
 That config ships RT-CV, RT-Embed and RT-VLM tagging enabled, plus the
 Elasticsearch teardown cleanups, but the set is not inherited by default: it must

@@ -121,6 +121,139 @@ def _ensure_gateway(sandbox: str) -> None:
     )
 
 
+def _wait_sandbox_ready(sandbox: str, row: dict[str, Any]) -> None:
+    deadline = time.monotonic() + 180
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError("sandbox_phase deadline exceeded")
+        row["attempts"] = row.get("attempts", 0) + 1
+        try:
+            result = subprocess.run(
+                ["openshell", "sandbox", "get", sandbox, "-o", "json"],
+                stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                timeout=min(30, remaining), check=False,
+            )
+        except subprocess.TimeoutExpired:
+            row["timeouts"] = row.get("timeouts", 0) + 1
+            time.sleep(min(3, max(0, deadline - time.monotonic())))
+            continue
+        row["exit_code"] = result.returncode
+        if result.returncode != 0:
+            raise RuntimeError("sandbox_phase lookup failed")
+        phase = json.loads(result.stdout).get("phase")
+        if phase == "Ready":
+            row["phase"] = phase
+            return
+        if phase in ("Error", "Failed", "Terminated", "Deleted"):
+            row["phase"] = phase
+            raise RuntimeError(f"sandbox_phase is {phase}")
+        if not isinstance(phase, str) or not phase:
+            raise RuntimeError("sandbox_phase response is invalid")
+        time.sleep(min(3, max(0, deadline - time.monotonic())))
+
+
+def _probe_local_inference(sandbox: str, row: dict[str, Any]) -> None:
+    expected = os.environ["NEMOCLAW_MODEL"]
+    envelope, _ = _run_openclaw(
+        sandbox, "Reply with OK only. Do not use tools or change any files.", 120,
+    )
+    meta = envelope.get("meta", {})
+    agent_meta = meta.get("agentMeta", {})
+    if meta.get("aborted") is not False or agent_meta.get("model") != expected:
+        raise RuntimeError("sandbox inference did not complete through the selected local model")
+    if not any(payload.get("text") for payload in envelope.get("payloads", []) if isinstance(payload, dict)):
+        raise RuntimeError("sandbox inference returned no assistant response")
+    row["model"] = expected
+    row["provider"] = agent_meta.get("provider")
+    row["usage"] = {key: _int(agent_meta.get("usage", {}).get(key)) for key in ("input", "cacheRead", "output")}
+
+
+def _check_readiness(sandbox: str, evidence: Path, *, setup: bool = False) -> None:
+    """Prove sandbox access, authenticated gateway and CLI before a prompt."""
+    stages: list[dict[str, Any]] = []
+    artifact = evidence.parent.parent / "artifacts" / "nemoclaw" / evidence.name
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    probes = [
+        ("sandbox_access", "true"),
+        ("gateway_health", None),
+        ("gateway_authentication", "openclaw gateway call health --json"),
+        ("vss_configuration", "vss configure check"),
+    ]
+    if setup:
+        probes.insert(0, ("sandbox_phase", None))
+        if os.environ.get("SKILL_EVAL_LOCAL_NIM_API_KEY"):
+            probes.append(("local_inference", None))
+    for stage, command in probes:
+        row: dict[str, Any] = {"stage": stage, "status": "failed"}
+        stages.append(row)
+        try:
+            if stage == "sandbox_phase":
+                _wait_sandbox_ready(sandbox, row)
+            elif stage == "local_inference":
+                _probe_local_inference(sandbox, row)
+            elif command is None:
+                if setup:
+                    if not _gateway_healthy(sandbox):
+                        raise RuntimeError("gateway_health probe failed")
+                else:
+                    _ensure_gateway(sandbox)
+            else:
+                # Canonical device scope approval can settle asynchronously.
+                # Wait only for that explicit state; bad credentials and other
+                # failures are not disguised as slow gateway startup.
+                deadline = time.monotonic() + 90
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        row["reason"] = "pairing_deadline"
+                        break
+                    timeout = min(30 if stage == "gateway_authentication" else 90, remaining)
+                    row["attempts"] = row.get("attempts", 0) + 1
+                    try:
+                        result = _sandbox_exec(sandbox, command, timeout=timeout)
+                    except subprocess.TimeoutExpired:
+                        if row.get("reason") != "pairing_pending":
+                            raise
+                        # The final short probe must not erase the last
+                        # authenticated client's explicit pairing failure.
+                        row["reason"] = "pairing_deadline"
+                        break
+                    pending = stage == "gateway_authentication" and result.returncode != 0 and any(
+                        marker in ((result.stderr or "") + (result.stdout or "")).lower()
+                        for marker in ("scope upgrade pending approval", "pairing required")
+                    )
+                    if stage == "gateway_authentication" and result.returncode != 0:
+                        row["reason"] = "pairing_pending" if pending else "command_failed"
+                    elif stage == "gateway_authentication":
+                        row.pop("reason", None)
+                    remaining = deadline - time.monotonic()
+                    if not pending or remaining <= 0:
+                        break
+                    time.sleep(min(3, remaining))
+                row["exit_code"] = result.returncode
+                if result.returncode != 0:
+                    raise RuntimeError(f"NemoClaw readiness failed at {stage} (exit {result.returncode})")
+                if stage == "gateway_authentication" and _json_object(result.stdout).get("ok") is not True:
+                    row["reason"] = "invalid_health_response"
+                    raise RuntimeError("NemoClaw readiness failed at gateway_authentication: health did not report ok")
+            row["status"] = "passed"
+        except Exception as exc:
+            row["exception_type"] = type(exc).__name__
+            if setup:
+                raise RuntimeError(f"NemoClaw readiness failed at {stage}: {type(exc).__name__}") from exc
+            raise
+        finally:
+            # Metadata only: never store gateway tokens, config or raw output.
+            report = json.dumps({
+                "sandbox": sandbox,
+                "gateway_port": os.environ.get("NEMOCLAW_GATEWAY_PORT", "8080"),
+                "stages": stages,
+            }, indent=2) + "\n"
+            evidence.write_text(report)
+            artifact.write_text(report)
+
+
 def _nemoclaw_exec(
     sandbox: str,
     script: str,
@@ -292,7 +425,9 @@ def _run_openclaw(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--prompt-file", required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--prompt-file")
+    mode.add_argument("--setup-check", action="store_true")
     parser.add_argument(
         "--env-file",
         default="/tmp/skill-eval/nemoclaw/nemoclaw.env",
@@ -309,10 +444,15 @@ def main(argv: list[str] | None = None) -> int:
     agent_log_dir = Path(args.agent_log_dir)
     agent_log_dir.mkdir(parents=True, exist_ok=True)
     sandbox = os.environ.get("NEMOCLAW_SANDBOX_NAME", "skill-eval")
-    prompt = Path(args.prompt_file).read_text(encoding="utf-8")
-
     try:
-        _ensure_gateway(sandbox)
+        if args.setup_check:
+            _check_readiness(sandbox, agent_log_dir / "setup-readiness.json", setup=True)
+            print("NemoClaw setup handoff passed")
+            return 0
+        prompt = Path(args.prompt_file).read_text(encoding="utf-8")
+        _check_readiness(sandbox, agent_log_dir / "readiness.json")
+        # Onboarding owns the provider binding. The job's local proxy needs
+        # no credential refresh; the native agent turn verifies inference.
         envelope, session = _run_openclaw(sandbox, prompt, args.timeout)
         (agent_log_dir / "openclaw.txt").write_text(
             json.dumps(envelope, separators=(",", ":")) + "\n",
@@ -324,10 +464,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
     except Exception as exc:  # noqa: BLE001
-        print(
-            f"NemoClaw/OpenClaw headless run failed: {type(exc).__name__}: {exc}",
-            file=sys.stderr,
-        )
+        failure = f"NemoClaw/OpenClaw headless run failed: {type(exc).__name__}: {exc}"
+        # No session exists when gateway/inference fails before an answer.
+        # Give Harbor and the judge this trial's failure evidence instead of
+        # leaving them to discover a previous coding or operational raw log.
+        (agent_log_dir / "agent.log").write_text(failure + "\n", encoding="utf-8")
+        # Readiness failures name only the stage and exception type, so setup
+        # never echoes a chained subprocess exception or raw gateway config.
+        print(failure, file=sys.stderr)
         return 1
 
 

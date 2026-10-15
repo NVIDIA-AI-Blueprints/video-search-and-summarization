@@ -35,7 +35,7 @@ as runners in their own right.
 
 Env:
     PR_BASE        base branch, e.g. develop (diffed as FETCH_HEAD...HEAD)
-    MANUAL_SKILLS_FILTER  workflow_dispatch sweep: a skill-dir name or `*`
+    MANUAL_SKILLS_FILTER  workflow_dispatch sweep: a skill-dir name, `operations`, or `*`
                    (all skills) — enumerates those specs instead of diffing,
                    so the matrix fans per-(spec, platform) like a push
     CHANGED_FILES  optional newline-separated override (tests / local)
@@ -271,12 +271,18 @@ def list_changed_files() -> list[str]:
         # matrix that the eval job silently skips (the removed manual-sweep
         # job errored here too).
         skills_map = discover_skills()
-        if manual != "*" and manual not in skills_map:
+        if manual not in ("*", "operations") and manual not in skills_map:
             raise ValueError(
                 f"MANUAL_SKILLS_FILTER {manual!r}: skill not found under skills/ "
                 f"on this ref — check the skill name"
             )
-        skills = sorted(skills_map) if manual == "*" else [manual]
+        if manual == "operations":
+            skills = sorted(
+                name for name, path in skills_map.items()
+                if path.parent == REPO_ROOT / "skills" / "operations"
+            )
+        else:
+            skills = sorted(skills_map) if manual == "*" else [manual]
         return [sp for sk in skills for sp, _, _ in specs_for_skill(sk)]
 
     base = os.environ["PR_BASE"]
@@ -518,7 +524,17 @@ def main() -> int:
     print(f"changed files ({len(changed)}):", file=sys.stderr)
     for f in changed:
         print(f"  {f}", file=sys.stderr)
-    emit(build_matrix(changed))
+    matrix = build_matrix(changed)
+    if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
+        matrix = [row for row in matrix if row.get("platform") == "DGX-SPARK"
+                  or (not row.get("platform") and row.get("kind") in {"missing_adapter", "missing_platform"})]
+        if not matrix:
+            raise ValueError("Spark worker selected, but no DGX-SPARK eval specs are declared")
+    else:
+        # Platform support is not permission to use the operator's Spark box.
+        # Push runs and unchecked manual sweeps use only the normal fleet.
+        matrix = [row for row in matrix if row.get("platform") != "DGX-SPARK"]
+    emit(matrix)
     return 0
 
 

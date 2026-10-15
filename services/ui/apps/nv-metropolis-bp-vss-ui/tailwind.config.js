@@ -2,16 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: [
-    './app/**/*.{js,ts,jsx,tsx}',
-    './pages/**/*.{js,ts,jsx,tsx}',
-    './components/**/*.{js,ts,jsx,tsx}',
-    '../../packages/nv-metropolis-bp-vss-ui/*/lib/**/*.{js,jsx}',
-    '../../packages/nv-metropolis-bp-vss-ui/*/lib-src/**/*.{ts,tsx}',
-    '../../packages/common/lib/**/*.{js,jsx}',
-    '../../packages/common/lib-src/**/*.{ts,tsx}',
-  ],
-  darkMode: 'class',
   theme: {
     fontFamily: {
       sans: ['"NVIDIA Sans"', 'system-ui', '-apple-system', 'sans-serif'],
@@ -53,11 +43,6 @@ module.exports = {
         lg: ['1.125rem', { lineHeight: '1.75rem' }],
         xl: ['1.25rem', { lineHeight: '1.75rem' }],
       },
-    },
-  },
-  variants: {
-    extend: {
-      visibility: ['group-hover'],
     },
   },
   plugins: [],
