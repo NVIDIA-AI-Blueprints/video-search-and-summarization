@@ -1857,9 +1857,9 @@ def test_wipe_refuses_endpoints_on_different_hosts() -> None:
 def test_every_loopback_spelling_is_one_host_to_the_wipe() -> None:
     import run_eval_flows as rf
 
-    rf.check_cleanup_hosts("http://localhost:8000", "http://[::1]:30888", "http://127.0.0.1:7777")
+    rf.check_cleanup_hosts("https://localhost:8000", "https://[::1]:30888", "https://127.0.0.1:7777")
     with pytest.raises(SystemExit, match="--ingress-url"):
-        rf.check_cleanup_hosts("http://localhost:8000", "http://127.0.0.1:30888", "http://10.0.0.5:7777")
+        rf.check_cleanup_hosts("https://localhost:8000", "https://127.0.0.1:30888", "https://other:7777")
 
 
 def test_skip_ingest_aborts_when_a_dataset_video_is_not_registered(monkeypatch: Any) -> None:
