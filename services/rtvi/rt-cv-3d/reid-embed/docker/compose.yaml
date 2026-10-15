@@ -40,8 +40,8 @@ services:
     container_name: reid-minio
     network_mode: host
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: minioadmin # pragma: allowlist secret
+      MINIO_ROOT_PASSWORD: minioadmin # pragma: allowlist secret
     volumes:
       - minio-data:/data
     # The image entrypoint is `minio`, and /data is the one directory its
