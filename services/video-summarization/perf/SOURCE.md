@@ -39,4 +39,3 @@
 
 The verification utility compares the ported files with this pinned working
 tree and reports missing, extra, mode-changed, or content-changed files.
-

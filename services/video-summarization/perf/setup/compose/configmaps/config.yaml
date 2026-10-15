@@ -34,7 +34,7 @@ tools:
       collection_name: lvs-events
     tools:
       embedding: nvidia_embedding
-  
+
   graph_db_arango:
     type: arango
     params:
@@ -44,7 +44,7 @@ tools:
       password: !ENV ${ARANGO_DB_PASSWORD}
     tools:
       embedding: nvidia_embedding
-  
+
   graph_db:
     type: neo4j
     params:
