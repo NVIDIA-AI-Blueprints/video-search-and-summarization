@@ -28,16 +28,26 @@
 #   4. Optionally tears down the stack on completion
 #
 # Prerequisites:
-#   - Run ./setup.sh first to create .env and the shared media volume
+#   - Run ../setup/scripts/setup.sh first to create setup/compose/.env and the shared media volume
 #   - Set ARTIFACTORY_USER and ARTIFACTORY_TOKEN (in environment or .env)
-#   - A benchmark config in ../perf/benchmark/ (default: config.yaml)
+#   - A benchmark config in ../configs/ (default: config.yaml)
 #
 # Run with -h for full usage and examples.
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BENCHMARK_DIR="$SCRIPT_DIR/../perf/benchmark"
+PERF_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BENCHMARK_ROOT="$PERF_ROOT/benchmark"
+BENCHMARK_DIR="$BENCHMARK_ROOT/core"
+CONFIG_DIR="$PERF_ROOT/configs"
+COMPOSE_DIR="$PERF_ROOT/setup/compose"
+REQUIREMENTS_FILE="$BENCHMARK_ROOT/requirements.txt"
+VENV_DIR="$BENCHMARK_ROOT/vss-perf-env"
+
+# vss_perf_common.py uses this override to find service-owned configuration
+# without requiring the historical flattened runtime layout.
+export PERF_CONFIGS_YAML="$CONFIG_DIR/perf-configs.yaml"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -152,11 +162,22 @@ if [ -z "$COMPOSE_FILE" ]; then
     usage
 fi
 
-# Resolve compose file path: absolute or relative to SCRIPT_DIR (compose/)
+# Resolve benchmark config: absolute or relative to perf/configs/.
+if [[ "$BENCHMARK_CONFIG" == /* ]]; then
+    BENCHMARK_CONFIG_PATH="$BENCHMARK_CONFIG"
+else
+    BENCHMARK_CONFIG_PATH="$CONFIG_DIR/$BENCHMARK_CONFIG"
+fi
+if [ ! -f "$BENCHMARK_CONFIG_PATH" ]; then
+    error "Benchmark config not found: $BENCHMARK_CONFIG_PATH"
+    exit 1
+fi
+
+# Resolve compose file: absolute or relative to perf/setup/compose/.
 if [[ "$COMPOSE_FILE" == /* ]]; then
     COMPOSE_FILE_PATH="$COMPOSE_FILE"
 else
-    COMPOSE_FILE_PATH="$SCRIPT_DIR/$COMPOSE_FILE"
+    COMPOSE_FILE_PATH="$COMPOSE_DIR/$COMPOSE_FILE"
 fi
 if [ ! -f "$COMPOSE_FILE_PATH" ]; then
     error "Compose file not found: $COMPOSE_FILE_PATH"
@@ -215,7 +236,7 @@ detect_gpu_overlay() {
         return 1
     fi
 
-    local overlay_path="$SCRIPT_DIR/overlays/$overlay"
+    local overlay_path="$COMPOSE_DIR/overlays/$overlay"
     if [ ! -f "$overlay_path" ]; then
         warn "Matched device overlay $overlay but $overlay_path does not exist; using base compose default"
         return 1
@@ -235,7 +256,7 @@ case "$GPU_OVERLAY" in
         step "GPU overlay disabled (-G none); using base compose default for MODEL_PATH"
         ;;
     h100|h200|b200|l40s|thor|spark|rtx-pro-6000|rtx-pro-4500|gh200|gb200)
-        OVERLAY_FILE_PATH="$SCRIPT_DIR/overlays/gpu-${GPU_OVERLAY}.yaml"
+        OVERLAY_FILE_PATH="$COMPOSE_DIR/overlays/gpu-${GPU_OVERLAY}.yaml"
         if [ ! -f "$OVERLAY_FILE_PATH" ]; then
             error "Overlay not found: $OVERLAY_FILE_PATH"
             exit 1
@@ -263,9 +284,9 @@ if [ -n "$OVERLAY_FILE_PATH" ]; then
     COMPOSE_FILE_ARGS+=(-f "$OVERLAY_FILE_PATH")
 fi
 
-if [ -f "$SCRIPT_DIR/.env" ]; then
+if [ -f "$COMPOSE_DIR/.env" ]; then
     set -a
-    source "$SCRIPT_DIR/.env"
+    source "$COMPOSE_DIR/.env"
     set +a
 fi
 
@@ -400,20 +421,20 @@ COMPOSE_REL_PATH="compose/$(basename "$COMPOSE_FILE_PATH")"
 export COMPOSE_FILE_PATH="$COMPOSE_REL_PATH"
 
 # --- Step 3: Run benchmark ---
-step "Running benchmark: config=$BENCHMARK_CONFIG"
+step "Running benchmark: config=$BENCHMARK_CONFIG_PATH"
 
 # CI mode: fixed output dir for pipeline artifact copy; optional metadata and MinIO upload
 if [ -n "$OUTPUT_JSON_NAME" ]; then
-    CI_OUTPUT_DIR="vss-perf-report"
+    CI_OUTPUT_DIR="$BENCHMARK_ROOT/vss-perf-report"
     export VIA_OUTPUT_DIR="$CI_OUTPUT_DIR"
 else
     COMPOSE_BASENAME="${COMPOSE_FILE##*/}"
     COMPOSE_NAME="${COMPOSE_BASENAME%.yaml}"
-    export VIA_OUTPUT_DIR="vss-perf-report-${COMPOSE_NAME}-$(date +%Y%m%d-%H%M%S)"
+    export VIA_OUTPUT_DIR="$BENCHMARK_ROOT/vss-perf-report-${COMPOSE_NAME}-$(date +%Y%m%d-%H%M%S)"
 fi
 step "Output directory: $VIA_OUTPUT_DIR"
 
-BENCHMARK_CMD="python3 vss_perf_benchmark.py --config $BENCHMARK_CONFIG"
+BENCHMARK_CMD="python3 vss_perf_benchmark.py --config \"$BENCHMARK_CONFIG_PATH\""
 if [ -n "$SCENARIO_ARGS" ]; then
     BENCHMARK_CMD="$BENCHMARK_CMD --scenario $SCENARIO_ARGS"
     step "Scenarios: $SCENARIO_ARGS"
@@ -433,8 +454,8 @@ fi
 [ -n "$RELEASE" ] && BENCHMARK_CMD="$BENCHMARK_CMD --release \"$RELEASE\""
 
 cd "$BENCHMARK_DIR"
-if [ ! -f vss-perf-env/bin/activate ]; then
-    step "Creating virtualenv: vss-perf-env"
+if [ ! -f "$VENV_DIR/bin/activate" ]; then
+    step "Creating virtualenv: $VENV_DIR"
     # Minimal BM images may lack ensurepip; CI also installs via pipeline-helpers before this script.
     if ! python3 -m ensurepip --version >/dev/null 2>&1; then
         step "Installing python3-venv (python3 -m venv requires ensurepip)"
@@ -450,18 +471,18 @@ if [ ! -f vss-perf-env/bin/activate ]; then
         ${SUDO_CMD}apt-get update -qq
         ${SUDO_CMD}apt-get install -y "python${PYTHON_VER}-venv"
     fi
-    python3 -m venv vss-perf-env
+    python3 -m venv "$VENV_DIR"
     set +u
-    source vss-perf-env/bin/activate
+    source "$VENV_DIR/bin/activate"
     set -u
-    pip install -q -r requirements.txt
+    pip install -q -r "$REQUIREMENTS_FILE"
     info "Installed dependencies"
 else
     set +u
-    source vss-perf-env/bin/activate
+    source "$VENV_DIR/bin/activate"
     set -u
 fi
-info "Activated virtualenv: vss-perf-env"
+info "Activated virtualenv: $VENV_DIR"
 export VIA_BACKEND="http://localhost:$LVS_PORT"
 [ -n "$VLM_GPUS" ] && export VIA_VLM_GPUS="$VLM_GPUS"
 [ -n "$LLM_GPUS" ] && export VIA_LLM_GPUS="$LLM_GPUS"
