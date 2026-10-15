@@ -885,6 +885,37 @@ On supported vLLM runtimes without a native preprocessing executor, RTVI offload
 
 Request seeds stay in `SamplingParams`; caption generation does not reset process-global RNGs. Cancelling a public generation future retains request ownership until an already-started preprocessing worker drains, preventing premature idle-resource cleanup. Cancellation before startup clears reservations without starting model work.
 
+### Experimental DFlash Speculative Decoding
+
+DFlash is opt-in and requires a runtime that implements it plus a compatible target/draft checkpoint pair. The standard vLLM 26.03 image is not claimed to support DFlash. Blank configuration preserves target-only decoding. Invalid/nonfinite JSON, an unsupported engine argument or runtime initialization failure stops startup rather than silently disabling speculation.
+
+An experimental **amd64-only** `dflash-runtime` Docker target stages the pinned Cosmos NIM Python runtime (vLLM 0.24.0 / Torch 2.11.0) without replacing the default image target. From this service directory, after the normal source-build prerequisites and NGC authentication:
+
+```bash
+docker build --platform=linux/amd64 --target dflash-runtime \
+  -f docker/Dockerfile -t rt-vlm:dflash .
+```
+
+Mount the target and its paired draft checkpoint through the existing model-volume configuration, select the custom image with `RTVI_IMAGE`, and set one optional value in Compose `.env`:
+
+```dotenv
+RTVI_IMAGE=rt-vlm:dflash
+RTVI_VLLM_SPECULATIVE_CONFIG='{"method":"dflash","model":"/models/dflash-nano-bf16-v1","attention_backend":"FLASH_ATTN","num_speculative_tokens":2}'
+```
+
+The draft path must exist inside the container. `RTVI_VLLM_SPECULATIVE_CONFIG` takes precedence over the legacy `VLLM_SPECULATIVE_CONFIG` alias; normal and perf Compose forward the same setting. Existing frame, cache, worker and generation settings remain shared. Do not enable speculative decoding with an unvalidated model/draft pair or treat this as validated EVS/streaming-session support.
+
+**Measured experiment, not validation of this source-build target:** instrumented, fresh paired H100 NVL tests at 72 replay streams, 2,048 expanded input tokens and exactly 100 generated tokens showed 28-29% lower mean VLM processing latency and 21-24% lower average rolling-window p95 for DFlash-2. Including ten-second chunk acquisition, end-to-end mean improved only 8.3-8.6%. The experiment used an older frozen image plus additional startup-GC, pinned-buffer-prewarm and telemetry overlays not shipped by these PRs.
+
+| Frozen experiment | Highest 30-minute-qualified streams | Worst scored-window p95 | Dropped chunks |
+|---|---:|---:|---:|
+| Same vLLM fork, speculation disabled | 78 | 9.11 s | 0 |
+| Same fork, DFlash draft length 2 | 79 | 9.50 s | 0 |
+
+DFlash at 80 streams failed scored window 27 at 10.43 s p95. The fresh 79-stream attempt passed five fixed warmup and all 30 scored windows (1,807.45 scored seconds), with full freshness and zero drops. The measured capacity difference is only one stream (+1.28%), not a statistically established production gain. Sources were distinct replay routes for one warehouse clip, not different scenes. These are rolling-window percentiles, not a pooled request percentile.
+
+**Release gates:** this newly assembled target still needs a full build, GPU-native canary, matched reruns and VANTAGE accuracy validation. NIM/runtime/checkpoint access and licenses are separate from this repository's Apache-2.0 license; confirm commercial use and redistribution rights for the exact assets before publishing an image. No model weights or NIM binaries are committed here. Arm64, other GPUs, EVS and other precisions are unvalidated.
+
 ### Troubleshooting System Memory Growth
 
 If host system memory or container RSS grows over time during long-running workloads, especially with many distinct videos or streams, keep the multimodal preprocessor cache disabled.
