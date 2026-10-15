@@ -141,7 +141,7 @@ haproxyingress:
 # from the nearest v* git tag in a reviewed PR, never typed (CI --check); the chart
 # `version:` is the chart's own and is not what the deployment reports.
 # See .github/version-convention.md.
-vssVersion: "3.3.0-rc0"
+vssVersion: "3.3.0"
 
 # Optional: base-profile Ingress (ingressClassName: haproxy).
 vssIngress:
