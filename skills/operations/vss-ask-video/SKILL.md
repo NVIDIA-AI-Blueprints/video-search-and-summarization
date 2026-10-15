@@ -433,3 +433,4 @@ run --sensor <name> --start-time <start> --end-time <end>` per segment. At
 - **`/vss-generate-video-report`** — timestamped reports; this skill returns an
   ad-hoc answer.
 - **`/vss-query-analytics`** — already-computed incidents/metrics.
+
