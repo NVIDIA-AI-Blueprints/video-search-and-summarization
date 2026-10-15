@@ -183,7 +183,7 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 OPENSHELL_RUNNER_LABEL = "openshell-runner"
 # Deployment skill eval on this branch runs on one guest. The job asks for
 # this label alone, so the rest of the OpenShell fleet cannot claim it.
-FLUENT_BIT_ONE_RUNNER: tuple[str, ...] = ("self-hosted", "fluent-bit-one")
+FLUENT_BIT_ONE_RUNNER: tuple[str, ...] = ("fluent-bit-one",)
 OPENSHELL_FLEET_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
     OPENSHELL_RUNNER_LABEL,
