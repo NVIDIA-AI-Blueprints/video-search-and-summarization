@@ -34,6 +34,9 @@ def _make_pipeline():
     pipeline = object.__new__(VlmPipeline)
     pipeline._args = SimpleNamespace(num_gpus=1)
     pipeline._decoder_procs = [MagicMock()]
+    pipeline._vlm_procs = [MagicMock(_disabled=False)]
+    pipeline._vlm_procs[0].is_alive.return_value = True
+    pipeline._vlm_procs[0].is_model_healthy.return_value = True
     pipeline._live_stream_id_map = {}
     pipeline._live_stream_lock = Lock()
     return pipeline
@@ -221,8 +224,8 @@ def test_remove_live_stream_closes_evs_sessions_before_map_pop():
 
 
 @pytest.mark.no_gpu
-def test_remove_live_stream_closes_evs_sessions_after_drain_timeout():
-    """A drain that times out still has to release the sessions."""
+def test_remove_live_stream_preserves_evs_sessions_after_drain_timeout():
+    """A timed-out drain must remain retryable without admitting queued tail chunks."""
     pipeline = _make_pipeline()
     stream_id = str(uuid.uuid4())
     pipeline._vlm_procs = [MagicMock()]
@@ -236,8 +239,18 @@ def test_remove_live_stream_closes_evs_sessions_after_drain_timeout():
     }
     pipeline.close_evs_sessions = MagicMock()
 
-    pipeline.remove_live_stream(stream_id, timeout_sec=0.0)
+    with pytest.raises(ServiceException) as exc_info:
+        pipeline.remove_live_stream(stream_id, timeout_sec=0.0)
 
+    assert exc_info.value.status_code == 503
+    pipeline.close_evs_sessions.assert_not_called()
+    assert not pipeline._live_stream_id_map[stream_id].all_chunks_processed
+    commands = [call.args[0] for call in pipeline._vlm_procs[0].send_command.call_args_list]
+    assert "drop-chunks" in commands
+    assert "stop-drop-chunks" not in commands
+
+    pipeline._live_stream_id_map[stream_id].all_chunks_processed = True
+    pipeline.remove_live_stream(stream_id, timeout_sec=0.0)
     pipeline.close_evs_sessions.assert_called_once_with(stream_id)
     assert stream_id not in pipeline._live_stream_id_map
 

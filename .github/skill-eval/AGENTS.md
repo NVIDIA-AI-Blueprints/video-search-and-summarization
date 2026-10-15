@@ -591,19 +591,32 @@ markers; and releases the lock when it exits.
 `run_leg.py` resolves independent coding and operational routes. For a spec
 under `skills/operations/`, the coding route runs the first `expects[]` task as
 the deployment/readiness contract and the operational route runs the remaining
-tasks. If the operational route is NemoClaw, Build Vision AI also attaches its
-sandbox during that first task. Specs outside `skills/operations/`, including
+tasks. If the operational route is NemoClaw, the spec also bootstraps its
+sandbox during that first task, as explicitly requested in the spec query.
+The runner forwards `SKILLS_EVAL_OPERATIONAL_HARNESS` and provider/lifecycle
+inputs; it does not append instructions or copy skills into generated tasks.
+Adapters must include the spec-declared Build Vision AI skill. Specs outside `skills/operations/`, including
 `vss-build-vision-ai`, use the coding route throughout. Worker selection and
 locking remain route-independent.
 
-Manual dispatch exposes matching `coding_*` and `operational_*` harness and
-model inputs. The model catalog remains `https://inference.nvidia.com/`, while
-both routes use the fixed `https://inference-api.nvidia.com/v1` API base; there
-is no endpoint input that can redirect a runner credential. `model_config.py`
-validates both routes before `run_leg.py` waits for a worker. One route must
-never inherit an override from the other. Coordinator and judge routing stays
-runner-managed; do not infer or rewrite any route in an adapter, skill, or
-notebook.
+Manual dispatch exposes independent `coding_*` and `operational_*` harness,
+model, and deployment inputs. Hosted routes use the fixed
+`https://inference-api.nvidia.com/v1` API base. `local-nim` routes are owned by
+`run_leg.py` and the environment: the worker resolves a model-specific NIM,
+checks architecture, starts it after Docker reset, and shares one deployment
+when both roles select the same model. Do not deploy these inference models
+in an adapter or ask the evaluated agent to deploy them. The harness manages
+their endpoints, non-secret client placeholders, readiness, logs, and cleanup.
+Coordinator and judge routing stays runner-managed. One role must never inherit
+another role's model or deployment override. See README.md for lifecycle details.
+
+When `SKILLS_EVAL_SPARK_RUNNER=true`, the wrapper selects the registered Brev
+Spark node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`) under the
+same per-worker lock. Do not override it with `--instance`, choose another
+pool worker, or change the GitHub coordinator. This explicit override checks
+ARM64 only and skips existing GPU/memory/disk resource checks. Report the
+actual machine from the wrapper's output; spec platform labels describe the
+requested scenario, not the selected hardware.
 
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`
@@ -779,8 +792,8 @@ when `harbor-view.service` is down. To inspect the index by hand:
 `BrevEnvironment.start()` performs two cleanups before this trial's
 `claude --print` runs:
 
-- archives prior-trial session JSONLs (`mv
-  /logs/agent/sessions/projects/* $HOME/.claude-archive/<ts>/`), because
+- archives all prior-trial `/logs/agent/sessions` entries, including hidden
+  files and nested directories, under `$HOME/.claude-archive/<ts>/sessions/`, because
   harbor's mapper merges **every** `*.jsonl` under
   `sessions/projects/<project>/` into one `trajectory.json` — on a warm box
   that would otherwise splice in every prior trial (observed: 7549 steps

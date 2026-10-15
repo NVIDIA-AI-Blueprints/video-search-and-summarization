@@ -68,8 +68,13 @@ _READINESS_MARKERS = (
     "NEMOCLAW_ROUTING: True; bind=0.0.0.0",
     "NEMOCLAW_ROUTING_READY:",
     "ROUTER_POLICY_LIFECYCLE:",
-    "ROUTER_TEARDOWN: done",
 )
+
+
+def _teardown_marker() -> str:
+    """The teardown line the run must print for the ROUTER_TEARDOWN it was given."""
+    torn = os.environ.get("ROUTER_TEARDOWN", "true").strip().lower() in ("1", "true", "yes", "on")
+    return "ROUTER_TEARDOWN: done" if torn else "ROUTER_TEARDOWN: skipped"
 
 
 def _repo_root() -> Path:
@@ -230,11 +235,13 @@ def prepare_environment(env=None):
         e["NVIDIA_API_KEY"] = key
         select_targets(e)
     # Off the default port so a leftover local router cannot shadow the run;
-    # always torn down so the runner is left clean.
+    # torn down by default, but ROUTER_TEARDOWN=false keeps the router for a
+    # NemoClaw step that runs next. The workflow's always-run cleanup step
+    # removes the container afterwards either way.
     e.setdefault("ROUTER_PORT", "14000")
     e.setdefault("ROUTER_CONTAINER", "vss-model-router-ci")
     e["ROUTE_NEMOCLAW"] = "true"
-    e["ROUTER_TEARDOWN"] = "true"
+    e.setdefault("ROUTER_TEARDOWN", "true")
     e.setdefault("MODEL_ROUTING_WORK_DIR", "/tmp/skill-eval/model-routing")
     return mock
 
@@ -331,14 +338,15 @@ def run_notebook(*, root: Path) -> None:
     if not path.is_file():
         raise FileNotFoundError(f"Missing notebook: {path}")
     output = execute_notebook(path, cwd=root)
-    missing = [marker for marker in _READINESS_MARKERS if marker not in output]
+    markers = _READINESS_MARKERS + (_teardown_marker(),)
+    missing = [marker for marker in markers if marker not in output]
     if missing:
         raise RuntimeError(
             f"{path.name} completed without readiness marker(s): "
             + ", ".join(missing)
         )
     for line in output.splitlines():
-        if any(marker in line for marker in _READINESS_MARKERS):
+        if any(marker in line for marker in markers):
             print(line)
 
 

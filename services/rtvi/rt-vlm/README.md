@@ -792,6 +792,18 @@ RTVI VLM supports two frame selection modes for sampling frames from video chunk
 
 ### EVS (Efficient Video Sampling)
 
+EVS++ session deletion rejects new operations and waits for active clip encoding,
+merging, and generation before releasing cached embeddings. Concurrent deletes
+share cleanup; cancelling a delete caller does not cancel it. Active or closing
+sessions are excluded from TTL expiry, and failed cache release can be retried.
+
+The lifecycle regression tests exercise the native modules shipped in the RT-VLM
+image. Run from this service's `tests/` directory inside that image:
+
+```bash
+PYTHONPATH=../src:.. python3 -m pytest -q model/vllm_compatible/test_evs_session_lifecycle.py
+```
+
 EVS prunes redundant video tokens at the vLLM engine level to reduce computation while retaining caption accuracy. This significantly speeds up inference for video-heavy workloads.
 
 **Supported models:** Nemotron Nano VL, Qwen 2.5 VL (not supported on Cosmos Reason1/2)

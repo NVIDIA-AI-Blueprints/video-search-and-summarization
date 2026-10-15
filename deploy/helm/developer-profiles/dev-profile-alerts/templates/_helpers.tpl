@@ -37,6 +37,13 @@
 {{- if $pfx }}{{ printf "%s-%s" $root.Release.Name $short | trunc 63 | trimSuffix "-" }}{{- else -}}{{ $short | trunc 63 | trimSuffix "-" }}{{- end }}
 {{- end }}
 
+{{/* The alerts-mode rtvi-cv StatefulSet name, from the rtvi-cv chart itself so SDRC follows its values. */}}
+{{- define "vss.alerts.rtviCvStatefulSetName" -}}
+{{- $name := include "vss.alerts.serviceShort" (dict "root" . "short" "vss-rtvi-cv") -}}
+{{- with index .Subcharts "rtvi" }}{{ with index .Subcharts "vss-rtvi-cv" }}{{ $name = include "vss-rtvi-cv.statefulSetName" . }}{{ end }}{{ end -}}
+{{- $name -}}
+{{- end }}
+
 {{/*
   Resolves the Kubernetes name for a dependency subchart (same rules as each subchart's .fullname helper).
   Pass: dict "Values" .Values "Release" .Release "depKey" "vss-agent" "chartName" "vss-agent"

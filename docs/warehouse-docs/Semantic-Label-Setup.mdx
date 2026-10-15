@@ -5,11 +5,7 @@ position: 3
 ---
 Label the relevant objects so Ground Truth (GT) data can be generated for your targets. If the asset scene is SimReady, you can reuse its existing semantic labels for SDG. Otherwise, follow the steps below to add semantic labels.
 
-Navigate to the `tools/sdg-postprocessing/semantic_labeling` path:
-
-```bash
-cd /path/to/video-search-and-summarization/tools/sdg-postprocessing/semantic_labeling
-```
+Load the USD scene in Isaac Sim and open **Window > Script Editor**. Paste the contents of `tools/sdg-postprocessing/semantic_labeling/box_check.py` into a Python tab and add `import omni.usd` at the top before running.
 
 - Using boxes in the scene as an example, first find the prim paths of the boxes to label by searching with keywords such as `box`. See `box_check.py` for details.
 
@@ -17,7 +13,7 @@ cd /path/to/video-search-and-summarization/tools/sdg-postprocessing/semantic_lab
 
 - Run the script and review the output **.txt** file to confirm the identified boxes are correct.
 
-  - If they are correct, uncomment `enable_semantics(prim, category, "class")` at lines 64 and 73, then rerun the script.
+  - If they are correct, uncomment the matching `enable_semantics(prim, category, "class")` and/or `enable_semantics(prim, 'basket', "class")` calls, then rerun the script.
   - If they are not correct, refine the keywords in the script to narrow the search, then review the updated **.txt** file.
 
-- To remove all labels in the scene, use the example script `remove_label.py`, then repeat the steps above.
+- To remove all labels in the scene, run `remove_label.py` in the same Script Editor session (after `box_check.py` defines `get_stage()`), then repeat the steps above.

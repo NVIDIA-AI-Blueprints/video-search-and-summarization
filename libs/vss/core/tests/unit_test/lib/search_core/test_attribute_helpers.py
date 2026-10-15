@@ -678,3 +678,201 @@ async def test_attach_screenshots_builds_url_on_success(monkeypatch):
     out = await ah._attach_screenshots([result], vst_internal_url=None, vst_external_url="http://vst", attr_query="q")
     assert out[0].metadata.sensor_id == "streamX"
     assert out[0].screenshot_url == "http://vst/streamX/2025-01-01T00:00:05Z"
+
+
+@pytest.mark.asyncio
+async def test_enrich_screenshot_prefers_frame_timestamp_without_mutating_metadata(monkeypatch):
+    async def _stream_id(sensor_id: str, base_url: str) -> str:
+        return "streamX"
+
+    async def _timelines(base_url: str) -> dict[str, tuple[str, str]]:
+        return {}
+
+    monkeypatch.setattr(ah, "get_stream_id", _stream_id)
+    monkeypatch.setattr(ah, "_get_timelines_best_effort", _timelines)
+    monkeypatch.setattr(ah, "build_screenshot_url", lambda base, stream_id, ts: f"{base}/{stream_id}/{ts}")
+    result = _enrichable("cam1", frame_ts="2025-01-01T00:00:05Z")
+
+    await ah.enrich_attribute_results([result], "http://internal", "http://external")
+
+    assert result.screenshot_url == "http://external/streamX/2025-01-01T00:00:05Z"
+    assert result.metadata.start_time == "2025-01-01T00:00:00Z"
+    assert result.metadata.end_time == "2025-01-01T00:00:10Z"
+
+
+def test_screenshot_anchor_preserves_unparseable_timestamp():
+    result = _enrichable("cam1", frame_ts="not-a-time")
+    assert ah._screenshot_anchor(result.metadata, None, None) == "not-a-time"
+
+
+@pytest.mark.parametrize(
+    ("search_start", "search_end", "frame_timestamp", "expected_anchor"),
+    [
+        # The search window is broader than the returned 00:00-00:10 behavior clip.
+        ("2024-12-31T23:59:00Z", "2025-01-01T00:01:00Z", "2024-12-31T23:59:50Z", "2025-01-01T00:00:00Z"),
+        ("2024-12-31T23:59:00Z", "2025-01-01T00:01:00Z", "2025-01-01T00:00:40Z", "2025-01-01T00:00:10Z"),
+        # The search window intersects only the latter half of the behavior clip.
+        ("2025-01-01T00:00:05Z", "2025-01-01T00:00:15Z", "2025-01-01T00:00:01Z", "2025-01-01T00:00:05Z"),
+        ("2025-01-01T00:00:05Z", "2025-01-01T00:00:15Z", "2025-01-01T00:00:12Z", "2025-01-01T00:00:10Z"),
+        # With no search bounds, the returned behavior clip remains authoritative.
+        (None, None, "2024-12-31T23:59:50Z", "2025-01-01T00:00:00Z"),
+        (None, None, "2025-01-01T00:00:40Z", "2025-01-01T00:00:10Z"),
+    ],
+)
+def test_screenshot_anchor_stays_within_search_and_reported_intersection(
+    search_start: str | None,
+    search_end: str | None,
+    frame_timestamp: str,
+    expected_anchor: str,
+):
+    result = _enrichable("cam1", frame_ts=frame_timestamp)
+    clamp_start = ah.safe_iso8601_to_datetime(search_start)
+    clamp_end = ah.safe_iso8601_to_datetime(search_end)
+
+    assert ah._screenshot_anchor(result.metadata, clamp_start, clamp_end) == expected_anchor
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("frame_timestamp", "expected_anchor"),
+    [
+        (None, "2025-01-01T00:00:03Z"),
+        ("2025-01-01T00:00:01Z", "2025-01-01T00:00:03Z"),
+        ("2025-01-01T00:00:09Z", "2025-01-01T00:00:07Z"),
+    ],
+)
+async def test_enrich_screenshot_clamps_anchor_without_mutating_metadata(
+    monkeypatch,
+    frame_timestamp: str | None,
+    expected_anchor: str,
+):
+    async def _stream_id(sensor_id: str, base_url: str) -> str:
+        return "streamX"
+
+    async def _timelines(base_url: str) -> dict[str, tuple[str, str]]:
+        return {}
+
+    monkeypatch.setattr(ah, "get_stream_id", _stream_id)
+    monkeypatch.setattr(ah, "_get_timelines_best_effort", _timelines)
+    monkeypatch.setattr(ah, "build_screenshot_url", lambda base, stream_id, ts: f"{base}/{stream_id}/{ts}")
+    result = _enrichable("cam1", frame_ts=frame_timestamp)
+
+    await ah.enrich_attribute_results(
+        [result],
+        "http://internal",
+        "http://external",
+        timestamp_start=datetime(2025, 1, 1, 0, 0, 3, tzinfo=UTC),
+        timestamp_end=datetime(2025, 1, 1, 0, 0, 7, tzinfo=UTC),
+    )
+
+    assert result.screenshot_url == f"http://external/streamX/{expected_anchor}"
+    assert result.metadata.start_time == "2025-01-01T00:00:00Z"
+    assert result.metadata.end_time == "2025-01-01T00:00:10Z"
+
+
+@pytest.mark.asyncio
+async def test_enrich_noops_without_vst_url(monkeypatch):
+    async def _unexpected_stream_lookup(sensor_id: str, base_url: str) -> str:
+        raise AssertionError("stream lookup must not run without a VST URL")
+
+    monkeypatch.setattr(ah, "get_stream_id", _unexpected_stream_lookup)
+    result = _enrichable("cam1", frame_ts="2025-01-01T00:00:05Z")
+
+    await ah.enrich_attribute_results([result], None, None)
+
+    assert result.screenshot_url is None
+    assert result.metadata.sensor_id == "cam1"
+
+
+@pytest.mark.asyncio
+async def test_enrich_skips_result_with_existing_screenshot(monkeypatch):
+    async def _unexpected_stream_lookup(sensor_id: str, base_url: str) -> str:
+        raise AssertionError("an already-enriched result must not be resolved again")
+
+    monkeypatch.setattr(ah, "get_stream_id", _unexpected_stream_lookup)
+    result = _enrichable("cam1", frame_ts="2025-01-01T00:00:05Z")
+    result.screenshot_url = "existing-shot"
+
+    await ah.enrich_attribute_results([result], "http://internal", "http://external")
+
+    assert result.screenshot_url == "existing-shot"
+    assert result.metadata.sensor_id == "cam1"
+
+
+@pytest.mark.asyncio
+async def test_enrich_keeps_result_when_stream_cannot_be_resolved(monkeypatch):
+    async def _missing_stream(sensor_id: str, base_url: str) -> str:
+        return ""
+
+    async def _timelines(base_url: str) -> dict[str, tuple[str, str]]:
+        return {}
+
+    monkeypatch.setattr(ah, "get_stream_id", _missing_stream)
+    monkeypatch.setattr(ah, "_get_timelines_best_effort", _timelines)
+    result = _enrichable("cam1", frame_ts="2025-01-01T00:00:05Z")
+
+    await ah.enrich_attribute_results([result], "http://internal", "http://external")
+
+    assert result.screenshot_url is None
+    assert result.metadata.sensor_id == "cam1"
+
+
+@pytest.mark.asyncio
+async def test_enrich_resolves_sensor_without_timestamp(monkeypatch):
+    async def _stream_id(sensor_id: str, base_url: str) -> str:
+        return "streamX"
+
+    async def _timelines(base_url: str) -> dict[str, tuple[str, str]]:
+        return {}
+
+    monkeypatch.setattr(ah, "get_stream_id", _stream_id)
+    monkeypatch.setattr(ah, "_get_timelines_best_effort", _timelines)
+    result = AttributeSearchResult(
+        metadata=AttributeSearchMetadata(
+            sensor_id="cam1",
+            object_id="1",
+            object_type="p",
+            behavior_score=0.9,
+        )
+    )
+
+    await ah.enrich_attribute_results([result], "http://internal", "http://external")
+
+    assert result.screenshot_url is None
+    assert result.metadata.sensor_id == "streamX"
+
+
+@pytest.mark.asyncio
+async def test_enrich_omits_screenshot_for_stale_stream(monkeypatch):
+    async def _stream_id(sensor_id: str, base_url: str) -> str:
+        return "stale-stream"
+
+    async def _timelines(base_url: str) -> dict[str, tuple[str, str]]:
+        return {"other-stream": ("2025-01-01T00:00:00Z", "2025-01-01T00:00:10Z")}
+
+    monkeypatch.setattr(ah, "get_stream_id", _stream_id)
+    monkeypatch.setattr(ah, "_get_timelines_best_effort", _timelines)
+    result = _enrichable("cam1", frame_ts="2025-01-01T00:00:05Z")
+
+    await ah.enrich_attribute_results([result], "http://internal", "http://external")
+
+    assert result.screenshot_url is None
+    assert result.metadata.sensor_id == "stale-stream"
+
+
+@pytest.mark.asyncio
+async def test_enrich_keeps_result_on_stream_lookup_failure(monkeypatch):
+    async def _failed_stream_lookup(sensor_id: str, base_url: str) -> str:
+        raise RuntimeError("lookup failed")
+
+    async def _timelines(base_url: str) -> dict[str, tuple[str, str]]:
+        return {}
+
+    monkeypatch.setattr(ah, "get_stream_id", _failed_stream_lookup)
+    monkeypatch.setattr(ah, "_get_timelines_best_effort", _timelines)
+    result = _enrichable("cam1", frame_ts="2025-01-01T00:00:05Z")
+
+    await ah.enrich_attribute_results([result], "http://internal", "http://external")
+
+    assert result.screenshot_url is None
+    assert result.metadata.sensor_id == "cam1"

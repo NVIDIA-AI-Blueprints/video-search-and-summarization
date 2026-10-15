@@ -401,6 +401,34 @@
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": [],
       "notes": "NemoClaw Hermes sandbox harness (VSS skills + vss CLI on NemoClaw's managed Hermes runtime). Not a compose service: consumed by `nemoclaw onboard --from` on deploy hosts and by the eval harness's Provision panel. Skills and the vss CLI come from this repo at the commit being built: CI passes VSS_REF=<commit sha> (the Dockerfile default is develop for local builds), and skills/ and libs/vss are in source_path, so a skill or CLI change rebuilds the image and moves its tree-<sha>."
+    },
+    {
+      "name": "vss-harness-openclaw-base",
+      "strategy": "build",
+      "ghcr_build": true,
+      "repository": "vss-harness-openclaw",
+      "tag_suffix": "-base",
+      "source_path": [".openclaw", "libs/vss"],
+      "context": ".openclaw",
+      "dockerfile": ".openclaw/Dockerfile.base",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": [],
+      "tag_variables": [],
+      "notes": "Base variant of vss-harness-openclaw: NemoClaw's managed OpenClaw runtime plus the vss CLI and the vss_cli tool plugin (memory on by default), but no VSS skills and no workspace instruction docs beyond the empty AGENTS.md, for evaluating an agent users extend with their own skills and plugins. Shares the vss-harness-openclaw GHCR repository with the -base tag suffix. Builds the vss CLI wheels and the plugin from VSS_REF=<commit being built>, same as the full image, so source_path includes libs/vss and .openclaw/plugin."
+    },
+    {
+      "name": "vss-harness-hermes-base",
+      "strategy": "build",
+      "ghcr_build": true,
+      "repository": "vss-harness-hermes",
+      "tag_suffix": "-base",
+      "source_path": [".hermes", "libs/vss"],
+      "context": ".hermes",
+      "dockerfile": ".hermes/Dockerfile.base",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": [],
+      "tag_variables": [],
+      "notes": "Base variant of vss-harness-hermes: NemoClaw's managed Hermes runtime plus the vss CLI and the vss_cli tool plugin (memory on by default), but no VSS skills and no workspace instruction docs beyond the empty /sandbox/AGENTS.md, for evaluating an agent users extend with their own skills and plugins. Shares the vss-harness-hermes GHCR repository with the -base tag suffix. Builds the vss CLI wheels from VSS_REF=<commit being built>, same as the full image, so source_path includes libs/vss and .hermes/plugin."
     }
   ]
 }

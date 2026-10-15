@@ -12,13 +12,20 @@ that harness loads skills.
 
 | Path | What it is |
 |---|---|
-| `Dockerfile` | The sandbox image: NemoClaw's managed Hermes runtime (digest-pinned) + the `vss` CLI + the VSS operation skills (activated per deployment, see below) + the workspace docs |
+| `Dockerfile` | The sandbox image: NemoClaw's managed Hermes runtime (digest-pinned) + the `vss` CLI + the `vss_cli` tool plugin + the VSS operation skills (activated per deployment, see below) + the workspace docs |
+| `Dockerfile.base`, `base-config.py` | The base image: the same runtime with the `vss` CLI and the `vss_cli` tool plugin, but no skills, for evaluating an agent users extend (see [Base image](#base-image)) |
+| `plugin/` | The VSS Hermes plugin: `plugin.yaml`, `__init__.py` (the `vss_cli` tool, registered via `ctx.register_tool`) |
 
-Hermes has no plugin or tool layer to add: it drives the deployment through the
-`vss` CLI on `PATH`, loads skills from `$HERMES_HOME/skills`
-(`/sandbox/.hermes/skills`, per NemoClaw's `agents/hermes/manifest.yaml`), and
-reads its instruction docs (`SOUL.md`, `AGENTS.md`, `TOOLS.md`, `ENV.md`, …)
-from `/sandbox`. The image puts each in place:
+Hermes drives the deployment two ways: the `vss_cli` tool, from a plugin at
+`./plugin/` that mirrors the OpenClaw plugin's tool exactly (same name, same
+`{args, cwd, timeoutSec}` schema, same no-shell subprocess exec, same
+`{command, exitCode, signal, timedOut, stdout, stderr, truncated}` result
+shape — see `./plugin/__init__.py`), and the `vss` CLI directly on `PATH` for
+anything a skill or the agent runs outside a tool call. It loads skills from
+`$HERMES_HOME/skills` (`/sandbox/.hermes/skills`, per NemoClaw's
+`agents/hermes/manifest.yaml`), and reads its instruction docs (`SOUL.md`,
+`AGENTS.md`, `TOOLS.md`, `ENV.md`, …) from `/sandbox`. The image puts each in
+place:
 
 - **Skills** — every skill in the pinned checkout whose `SKILL.md` frontmatter
   declares `metadata.vss-requires` (the same rule the OpenClaw plugin uses),
@@ -122,3 +129,43 @@ At build, `--all` activates every shipped skill. After `vss configure` records
 a deployment, run `vss-hermes-sync` in the sandbox to re-select: each skill's
 `vss-requires` frontmatter is matched against `vss configure check` (plus the
 alert-bridge probe), exactly like `vss-openclaw-sync`.
+
+## Base image
+
+`Dockerfile.base` builds NemoClaw's managed Hermes runtime with the `vss` CLI
+and the `vss_cli` tool plugin preloaded (bundled into `/opt/hermes/plugins/vss`
+as a `kind: backend` plugin, which auto-loads with no per-`HERMES_HOME` enable
+step, same as `./Dockerfile`), but no VSS
+skills and no workspace instruction docs beyond the empty `/sandbox/AGENTS.md`
+— a VSS-capable foundation for evaluating an agent that users still extend
+with their own skills and plugins, not a blank harness. CI publishes it as
+`ghcr.io/nvidia-ai-blueprints/vss/vss-harness-hermes` with the `-base` tag
+suffix (`develop-latest-base`, `develop-<sha12>-base`, …).
+
+| | |
+|---|---|
+| Tools | `terminal`, `process`, `read_file`, `write_file`, `patch`, `search_files`, `skills_list`, `skill_view`, `skill_manage`, `execute_code`, `memory`, `vss_cli` |
+| Skills | none: Hermes' bundled library (`/opt/hermes/skills`) is emptied; no VSS operation skills are staged either |
+| Instruction docs | one empty `/sandbox/AGENTS.md`; `SOUL.md` empty; `HERMES_ENVIRONMENT_HINT` cleared |
+| Memory | on by default (`memory.memory_enabled` and `memory.user_profile_enabled` both true) |
+| VSS | `vss_cli` tool + `/usr/local/bin/vss`; no NGC CLI (nothing in this base shells out to it) |
+
+Every other toolset, NemoClaw's plugin toolsets included, is switched off by
+name (`agent.disabled_toolsets` in `base-config.py`); the build fails unless the
+agent resolves to exactly the tools above (`base-config.py check` runs plugin
+discovery first, so `vss_cli` is in that set). Nothing is allowlisted, so
+toolsets a user adds later stay on. Tool search is off, so a plugin's tools
+(the vss one included) are sent to the model directly rather than deferred
+behind `tool_search`/`tool_describe`/`tool_call`.
+
+To extend it in an evaluation:
+
+- **Skills** — copy the skill directory to `$HERMES_HOME/skills/<name>/`
+  (`/sandbox/.hermes/skills/` by default). The skills tools stay on, so Hermes
+  lists it in the prompt.
+- **Plugins** — install into `$HERMES_HOME/plugins/<name>/` and
+  `hermes plugins enable <name>`; its toolset is on by default.
+
+```
+docker build -f .hermes/Dockerfile.base -t <registry>/vss-harness-hermes:<tag>-base .hermes
+```

@@ -33,7 +33,11 @@ spec:
         app.kubernetes.io/name: vss-vios-nvstreamer
         app.kubernetes.io/instance: {{ .Release.Name }}
       annotations:
-        checksum/config: {{ list (.Files.Get "configs/vst-config.json") (.Files.Get "configs/notification-config.json") (.Files.Get "configs/vst-storage.json") | join "" | sha256sum }}
+        {{- /* The rendered ConfigMap, not the raw config files: values such as
+               maxDevicesSupported change the rendered JSON only, and the configs
+               are subPath-mounted, so nothing else rolls the pod (same as
+               vios-sensor and vios-streamprocessing). */}}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:

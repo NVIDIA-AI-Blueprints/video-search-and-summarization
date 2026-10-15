@@ -17,11 +17,15 @@
 
 # isort: skip_file
 
+import json
 import sys
 import threading
 import types
+from concurrent.futures import Future
 from datetime import datetime, timezone
 from pathlib import Path
+
+import pytest
 
 BENCHMARK_DIR = Path(__file__).resolve().parents[1] / "perf" / "benchmark"
 sys.path.insert(0, str(BENCHMARK_DIR))
@@ -335,6 +339,103 @@ def test_concurrent_live_iteration_requires_measurements():
     assert not concurrent_live_stream_iteration_success(16, 16, 0, 0)
 
 
+def test_failed_iteration_is_not_hidden_by_successful_retry(monkeypatch, tmp_path):
+    benchmark = _benchmark()
+    benchmark._execute_concurrent_iteration = lambda iteration, *_args: {
+        "success": iteration == 2
+    }
+    monkeypatch.setattr(concurrent_live_streams_benchmark_module.time, "sleep", lambda _s: None)
+
+    result = benchmark._execute_concurrent_live_streams_test_case(
+        "runtime-errors", {}, 10, 1, {"iterations": 2}, "test-model", str(tmp_path)
+    )
+
+    assert result["successful_iterations"] == 1
+    assert result["success"] is False
+
+
+@pytest.mark.parametrize(
+    "failed_result, expected_errors",
+    [
+        ({"error": {"message": "Cannot create session: max sessions reached"}}, 1),
+        ({"chunk_responses": [{"content": "", "error": "decoder backlog exceeded"}]}, 1),
+        # Older servers omitted the error field when no model output was produced.
+        ({"chunk_responses": [{"content": ""}]}, 1),
+        (
+            {
+                "choices": [{"delta": {"content": ""}, "finish_reason": None}],
+                "error": "decoder backlog exceeded",
+            },
+            1,
+        ),
+        # EVS can accumulate its sampling budget without attempting generation.
+        ({"chunk_responses": [{"content": "", "output_tokens": 0}]}, 0),
+        # Chat responses omit output_tokens, making empty pending output ambiguous.
+        ({"choices": [{"delta": {"content": ""}, "finish_reason": None}]}, 0),
+    ],
+)
+def test_failed_chunks_do_not_count_as_successful_latency(
+    monkeypatch, tmp_path, failed_result, expected_errors
+):
+    benchmark = _benchmark()
+    media_info = {
+        "type": "timestamp",
+        "end_timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+    }
+    healthy_result = {
+        "media_info": media_info,
+        "chunk_responses": [{"content": "A person is walking."}],
+    }
+    events = [dict(failed_result, media_info=media_info)] * 2 + [healthy_result]
+    monkeypatch.setattr(
+        concurrent_live_streams_benchmark_module.sseclient,
+        "SSEClient",
+        lambda _response: types.SimpleNamespace(
+            events=lambda: (types.SimpleNamespace(data=json.dumps(event)) for event in events)
+        ),
+    )
+    benchmark.session.post = lambda *_args, **_kwargs: types.SimpleNamespace(status_code=200)
+    benchmark._configure_http_session = lambda _pool_size: None
+    benchmark._add_live_stream_with_retries = lambda *_args: ("stream-a", 2)
+    benchmark.scrape_metrics = lambda: {}
+    benchmark.start_gpu_monitoring = lambda: None
+    benchmark.stop_gpu_monitoring = lambda **_kwargs: None
+    benchmark.process_gpu_stats = lambda _path: {}
+    benchmark._stop_live_generation_requests = lambda *_args, **_kwargs: None
+    benchmark._batch_delete_streams = lambda *_args: None
+    stage_samples = []
+    benchmark.record_pipeline_stage_samples = stage_samples.append
+    monitor = Future()
+    monitor_args = []
+
+    def start_monitor(_executor, *args):
+        monitor_args.extend(args)
+        return monitor
+
+    def run_steady_state(seconds):
+        if seconds == 0:
+            monitor.set_result(benchmark._monitor_stream_latency_until_stopped(*monitor_args))
+
+    benchmark._start_stream_monitoring = start_monitor
+    monkeypatch.setattr(concurrent_live_streams_benchmark_module.time, "sleep", run_steady_state)
+
+    result = benchmark._execute_concurrent_iteration(
+        iteration=1,
+        video_config={"duration_seconds": 0, "unique_rtsp_url_per_stream": False},
+        chunk_size=10,
+        stream_count=1,
+        benchmark_config={"backend_type": "rtvi_vlm"},
+        model_name="test-model",
+        iteration_dir=str(tmp_path),
+    )
+
+    assert result["total_measurements"] == 1
+    # Count affected streams, not failed chunks; budget-pending responses are not errors.
+    assert result["streams_with_errors"] == expected_errors
+    assert result["success"] is (expected_errors == 0)
+    assert stage_samples == [healthy_result]
+
+
 def test_latency_tracker_preserves_record_timestamps():
     tracker = LatencyTracker()
 
@@ -343,6 +444,38 @@ def test_latency_tracker_preserves_record_timestamps():
     assert tracker.get_all_latency_records() == {
         "stream-a": [{"latency": 1.25, "recorded_at": 123.0}]
     }
+
+
+def test_embedding_chunk_is_successful_output(monkeypatch):
+    benchmark = _benchmark()
+    response = {
+        "media_info": {
+            "type": "timestamp",
+            "end_timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        },
+        "chunk_responses": [{"embeddings": [[0.25, 0.75]]}],
+    }
+    benchmark.session.post = lambda *_args, **_kwargs: types.SimpleNamespace(status_code=200)
+    monkeypatch.setattr(
+        concurrent_live_streams_benchmark_module.sseclient,
+        "SSEClient",
+        lambda _response: types.SimpleNamespace(
+            events=lambda: iter([types.SimpleNamespace(data=json.dumps(response))])
+        ),
+    )
+
+    had_errors = benchmark._monitor_stream_latency_until_stopped(
+        {},
+        10,
+        {"backend_type": "rtvi_embed", "api_params": {}},
+        "test-model",
+        "stream-a",
+        1,
+        threading.Event(),
+    )
+
+    assert had_errors is False
+    assert len(benchmark.latency_tracker.get_all_latencies()["stream-a"]) == 1
 
 
 def test_timestamp_latency_clamps_future_media_timestamp(monkeypatch):

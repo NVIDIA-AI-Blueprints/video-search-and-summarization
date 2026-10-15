@@ -31,7 +31,7 @@ Packages under the MIT License:
   - konva                    @ 9.3.22
   - lodash                   @ 4.18.1
   - lucide-react             @ 0.577.0
-  - next                     @ 16.3.3
+  - next                     @ 16.4.0
   - next-auth                @ 4.24.15
   - next-i18next             @ 16.0.11
   - react-konva              @ 19.2.5
@@ -57,6 +57,7 @@ Packages under the MIT License:
   - @mozilla/readability                  @ 0.6.0
   - @swc/cli                              @ 0.8.1
   - @swc/core                             @ 1.16.1
+  - @tailwindcss/postcss                  @ 4.3.3
   - @tailwindcss/typography               @ 0.5.20
   - @testing-library/jest-dom             @ 6.9.1
   - @testing-library/react                @ 16.3.3
@@ -71,7 +72,6 @@ Packages under the MIT License:
   - @types/react-syntax-highlighter       @ 15.5.13
   - @typescript-eslint/eslint-plugin      @ 8.68.0
   - @typescript-eslint/parser             @ 8.68.0
-  - autoprefixer                          @ 10.5.4
   - concurrently                          @ 8.2.2
   - detect-port                           @ 2.1.0
   - dotenv                                @ 17.4.2
@@ -87,7 +87,7 @@ Packages under the MIT License:
   - postcss                               @ 8.5.26
   - prettier                              @ 2.8.8
   - prettier-plugin-tailwindcss           @ 0.4.1
-  - tailwindcss                           @ 3.4.19
+  - tailwindcss                           @ 4.3.3
   - ts-jest                               @ 29.4.12
   - turbo                                 @ 2.10.12
   - typescript                            @ 5.9.3
@@ -224,7 +224,7 @@ dependency is dual-licensed (MPL-2.0 OR Apache-2.0); the Apache License, Version
 section above documents the Apache option, and this section reproduces MPL-2.0 in full.
 
 Packages under the Mozilla Public License 2.0:
-  - dompurify                  @ 3.4.14 (transitive via isomorphic-dompurify; dual-licensed MPL-2.0 OR Apache-2.0)
+  - dompurify                  @ 3.4.16 (transitive via isomorphic-dompurify; dual-licensed MPL-2.0 OR Apache-2.0)
 
 Full Mozilla Public License 2.0 Text (same text as in the dompurify package LICENSE file):
 --------------------------------------------------

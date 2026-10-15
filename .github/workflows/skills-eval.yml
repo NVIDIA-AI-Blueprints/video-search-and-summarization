@@ -34,37 +34,59 @@ on:
         # `type: string` rather than `type: choice` because the skills/
         # tree has more than 10 entries — GitHub caps `choice` at 10.
         # plan_matrix.py validates the value (skill-dir name or `*`).
-        description: "Which skill to eval: `*` or a bare skill-directory name."
+        description: "Which skills to eval: `operations`, `*`, or a bare skill-directory name."
         required: false
         default: "*"
         type: string
       coding_harness:
         description: "CODING · Harness for Build Vision AI deployment/setup."
         required: false
-        default: "claude-code"
+        default: "codex"
         type: choice
         options:
           - claude-code
           - codex
+      coding_deployment:
+        description: "CODING · Hosted NVIDIA Inference or a local NIM deployment."
+        type: choice
+        default: hosted-nvidia-inference
+        options: [hosted-nvidia-inference, local-nim]
       coding_model:
-        description: "CODING · Model ID from https://inference.nvidia.com/ (for example, azure/openai/gpt-6-astra). Blank preserves the configured default."
+        description: >-
+          CODING · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning).
+          Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b).
+          Leave empty to use the selected harness's configured model (Codex fallback: Sol 6.1).
+          Override the model ID when selecting local NIM.
         required: false
         default: ""
         type: string
       operational_harness:
         description: "OPERATIONAL · Harness for operational skill queries after setup."
         required: false
-        default: "claude-code"
+        default: "nemoclaw"
         type: choice
         options:
           - claude-code
           - codex
           - nemoclaw
+      operational_deployment:
+        description: "OPERATIONAL · Hosted NVIDIA Inference or a local NIM deployment."
+        type: choice
+        default: hosted-nvidia-inference
+        options: [hosted-nvidia-inference, local-nim]
       operational_model:
-        description: "OPERATIONAL · Model ID from https://inference.nvidia.com/ (for example, azure/openai/gpt-6-astra). Blank preserves the configured default."
+        description: >-
+          OPERATIONAL · Hosted: Inference Hub model ID (e.g. nvidia/nvidia/nemotron-3.5-lightning).
+          Local NIM: self-hosted NIM image ID from build.nvidia.com (e.g. nvidia/nemotron-3.5-lightning-30b-a3b).
+          Leave empty to use the selected harness's configured model (NemoClaw fallback: Opus 5.5).
+          Override the model ID when selecting local NIM.
         required: false
         default: ""
         type: string
+      spark_runner:
+        description: "Run on the registered Brev Spark-ba-WiFi worker."
+        type: boolean
+        default: false
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment + git push of the adapter commit to the contributor's branch).
@@ -167,6 +189,7 @@ jobs:
           # the old behavior — never blank, which would fall through to the
           # diff path and silently produce an empty matrix.
           MANUAL_SKILLS_FILTER: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
+          SKILLS_EVAL_SPARK_RUNNER: ${{ inputs.spark_runner && 'true' || 'false' }}
         run: python3 .github/skill-eval/plan_matrix.py
 
   # ---------------------------------------------------------------------
@@ -180,9 +203,10 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Allow up to eight matrix legs. Unavailable runner slots queue in
+      # Queue Spark legs one at a time; they share one registered worker.
+      # Allow up to eight other matrix legs. Unavailable runner slots queue in
       # Actions; run_leg.py still caps execution at one leg per GPU box.
-      max-parallel: 8
+      max-parallel: ${{ inputs.spark_runner && 1 || 2 }}
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1.5 h agent ceiling
@@ -237,10 +261,13 @@ jobs:
           # GitHub Actions secret.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CODEX_MODEL: ${{ vars.CODEX_MODEL }}
-          EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
-          CODING_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_harness || 'claude-code' }}
+          EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'nemoclaw' }}
+          CODING_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_harness || 'codex' }}
+          CODING_DEPLOYMENT_INPUT: ${{ inputs.coding_deployment || 'hosted-nvidia-inference' }}
+          OPERATIONAL_DEPLOYMENT_INPUT: ${{ inputs.operational_deployment || 'hosted-nvidia-inference' }}
+          SPARK_RUNNER_INPUT: ${{ inputs.spark_runner && 'true' || 'false' }}
           CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || '' }}
-          OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
+          OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'nemoclaw' }}
           OPERATIONAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_model || '' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
@@ -263,6 +290,9 @@ jobs:
           mkdir -p "$GH_CONFIG_DIR"
           skill_eval_venv_dir="$SKILL_EVAL_VENV"
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
+          coding_deployment="$CODING_DEPLOYMENT_INPUT"
+          operational_deployment="$OPERATIONAL_DEPLOYMENT_INPUT"
+          spark_runner="$SPARK_RUNNER_INPUT"
           coding_harness="$CODING_HARNESS_INPUT"
           coding_model="$CODING_MODEL_INPUT"
           operational_harness="$OPERATIONAL_HARNESS_INPUT"
@@ -277,6 +307,9 @@ jobs:
           export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
           export VIRTUAL_ENV="$skill_eval_venv_dir"
           export PATH="$skill_eval_venv_dir/bin:$PATH"
+          export SKILLS_EVAL_CODING_DEPLOYMENT="$coding_deployment"
+          export SKILLS_EVAL_OPERATIONAL_DEPLOYMENT="$operational_deployment"
+          export SKILLS_EVAL_SPARK_RUNNER="$spark_runner"
           export EVAL_AGENT="$operational_harness"
           export SKILLS_EVAL_CODING_HARNESS="$coding_harness"
           if [ -n "$coding_model" ]; then
