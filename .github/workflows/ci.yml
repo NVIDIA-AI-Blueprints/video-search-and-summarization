@@ -1324,7 +1324,9 @@ jobs:
     name: Check folder structure
     needs: prepare-source
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Downloading and unpacking the source artifact can consume five minutes.
+    # Allow setup headroom while keeping the validator itself bounded below.
+    timeout-minutes: 15
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
@@ -1340,6 +1342,7 @@ jobs:
           rm -rf .source-artifact
 
       - name: Validate folder structures
+        timeout-minutes: 5
         run: python3 .github/scripts/check_folder_structure.py
 
   # ---------------------------------------------------------------------------

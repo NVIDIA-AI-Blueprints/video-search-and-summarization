@@ -681,6 +681,15 @@ rtvi:
       # chunk, input width, and input height with 20, 860, and 467 respectively.
       - name: VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK
         value: "1"
+      # Maximum frames per inference chunk; envOverrides can raise the existing cap.
+      - name: RTVI_VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES
+        value: "256"
+      # Integrated engine context (input + output tokens); preserve the runtime default.
+      - name: VLM_MAX_MODEL_LEN
+        value: "32768"
+      # API cap on output tokens; preserve the runtime default.
+      - name: VLM_MAX_GENERATION_TOKENS
+        value: "16384"
       - name: VLM_INPUT_WIDTH
         value: ""
       - name: VLM_INPUT_HEIGHT
