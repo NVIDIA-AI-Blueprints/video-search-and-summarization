@@ -234,7 +234,7 @@ class DiscoverInvocations(unittest.TestCase):
 
 
 class HarborCommand(unittest.TestCase):
-    def test_build_command_uses_env_and_v1_suffix(self):
+    def test_build_command_uses_env_and_anthropic_api_root(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/alerts_cv"),
             include_task_name="rtxpro6000bw",
@@ -268,10 +268,7 @@ class HarborCommand(unittest.TestCase):
             cmd[cmd.index("-a") + 1], "agents.nv_claude_code:NvClaudeCode"
         )
         self.assertEqual(cmd[cmd.index("--model") + 1], "aws/anthropic/bedrock-claude-opus-4-6")
-        self.assertEqual(
-            cmd[cmd.index("--ak") + 1],
-            "api_base=https://inference-api.nvidia.com/v1",
-        )
+        self.assertNotIn("--ak", cmd)
         agent_env = [cmd[index + 1] for index, part in enumerate(cmd) if part == "--ae"]
         self.assertIn(
             "ANTHROPIC_API_KEY=${SKILL_EVAL_AGENT_ROUTE_API_KEY}", agent_env
@@ -303,6 +300,7 @@ class HarborCommand(unittest.TestCase):
             invocation, Path("/tmp/results"), "meta/test", "http://localhost:18400/v1",
             local_nim=True,
         )
+        self.assertNotIn("--ak", cmd)
         self.assertEqual(
             cmd[cmd.index("--environment-build-timeout-multiplier") + 1],
             str(run_leg.LOCAL_NIM_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER),
@@ -1139,14 +1137,65 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(seen_env[0]["ANTHROPIC_API_KEY"], "judge-secret")
         self.assertEqual(
             seen_env[0][run_leg.AGENT_ROUTE_BASE_URL_ENV],
-            model_config.NVIDIA_INFERENCE_API_BASE_URL,
+            "https://inference-api.nvidia.com",
         )
         self.assertEqual(
             seen_env[0][run_leg.AGENT_ROUTE_API_KEY_ENV], "route-secret"
         )
         self.assertEqual(
-            command.call_args.args[3], model_config.NVIDIA_INFERENCE_API_BASE_URL
+            command.call_args.args[3], "https://inference-api.nvidia.com"
         )
+
+    def test_local_nim_claude_scopes_api_root_to_agent(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/spec"),
+            include_task_name="l40s",
+            chain_key="spec",
+        )
+        env = {
+            **self.ENV,
+            "NGC_API_KEY": "registry-secret",
+            "SKILLS_EVAL_CODING_HARNESS": "claude-code",
+            "SKILLS_EVAL_CODING_DEPLOYMENT": "local-nim",
+            "SKILLS_EVAL_CODING_MODEL": "nvidia/test-model",
+        }
+        seen_env = []
+
+        def run_command(_cmd, child_env, _timeout):
+            seen_env.append(child_env.copy())
+            return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(
+                    run_leg, "build_harbor_command", return_value=["harbor"]
+                ) as command,
+                mock.patch.object(
+                    run_leg, "run_command", side_effect=run_command
+                ),
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+                mock.patch.object(run_leg, "cleanup_local_nims"),
+            ):
+                rc = run_leg.run_invocations(
+                    [invocation],
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "spec",
+                    "L40S",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                    self.config(env),
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            seen_env[0][run_leg.AGENT_ROUTE_BASE_URL_ENV],
+            "http://127.0.0.1:18400",
+        )
+        self.assertEqual(command.call_args.args[3], "http://127.0.0.1:18400")
 
     def test_operational_nemoclaw_leg_uses_first_expect_for_setup(self):
         self.allocator.side_effect = None
@@ -1486,7 +1535,7 @@ class RunInvocations(unittest.TestCase):
             command.call_args_list[0].args[2:5],
             (
                 "coding/model",
-                model_config.NVIDIA_INFERENCE_API_BASE_URL,
+                "https://inference-api.nvidia.com",
                 "claude-code",
             ),
         )
@@ -1494,7 +1543,7 @@ class RunInvocations(unittest.TestCase):
             command.call_args_list[1].args[2:5],
             (
                 "operational/model",
-                model_config.NVIDIA_INFERENCE_API_BASE_URL,
+                "https://inference-api.nvidia.com",
                 "claude-code",
             ),
         )

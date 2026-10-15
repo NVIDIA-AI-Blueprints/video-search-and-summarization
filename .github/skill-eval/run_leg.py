@@ -49,7 +49,11 @@ import urllib.parse
 # leg_timing.current_phase(); importing the global copies it once.
 import leg_timing
 from leg_timing import HEARTBEAT_SEC, leg_log, phase
-from model_config import SkillEvalModelRoutes, resolve_model_routes
+from model_config import (
+    SkillEvalModelRoutes,
+    anthropic_api_root,
+    resolve_model_routes,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -355,7 +359,6 @@ def build_harbor_command(
         agent_flags = [
             "-a", "agents.nv_claude_code:NvClaudeCode",
             "--model", model,
-            "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
             "--ae", f"ANTHROPIC_API_KEY=${{{AGENT_ROUTE_API_KEY_ENV}}}",
             "--ae", f"ANTHROPIC_BASE_URL=${{{AGENT_ROUTE_BASE_URL_ENV}}}",
             "--ae", "CLAUDE_CODE_DISABLE_THINKING=1",
@@ -1769,10 +1772,13 @@ def run_invocations(
     }
 
     def local_route(route):
+        endpoint_url = f"http://127.0.0.1:{PROXY_PORT}/v1"
+        if route.runtime == "claude-code":
+            endpoint_url = anthropic_api_root(endpoint_url)
         return (
             dataclasses.replace(
                 route, api_key=LOCAL_NIM_CLIENT_KEY,
-                endpoint_url=f"http://127.0.0.1:{PROXY_PORT}/v1"
+                endpoint_url=endpoint_url,
             )
             if route.provider == "local-nim"
             else route
@@ -2013,11 +2019,7 @@ def _run_invocations(
             # The parent ANTHROPIC_* values therefore remain the coordinator's
             # verifier route rather than being replaced by the evaluated route.
             invocation_env[AGENT_ROUTE_API_KEY_ENV] = invocation_config.api_key
-            invocation_env[AGENT_ROUTE_BASE_URL_ENV] = (
-                invocation_base_url.removesuffix("/v1")
-                if invocation_config.provider == "local-nim"
-                else _api_base_v1(invocation_base_url)
-            )
+            invocation_env[AGENT_ROUTE_BASE_URL_ENV] = invocation_base_url
         elif invocation_agent == "codex":
             invocation_env[AGENT_ROUTE_API_KEY_ENV] = invocation_config.api_key
             invocation_env[AGENT_ROUTE_BASE_URL_ENV] = _api_base_v1(

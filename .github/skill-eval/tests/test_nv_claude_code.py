@@ -3,21 +3,37 @@
 """The evaluated Claude endpoint must not replace the verifier endpoint."""
 
 import asyncio
+import importlib.util
 import os
 import sys
 from pathlib import Path
+import types
+from unittest.mock import patch
 
 import pytest
 
-pytest.importorskip("harbor")
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agents.nv_claude_code import NvClaudeCode  # noqa: E402
-from harbor.agents.installed.claude_code import ClaudeCode  # noqa: E402
+def load_agent():
+    class ClaudeCode:
+        def _get_env(self, key):
+            return self._extra_env.get(key)
+
+        async def run(self, instruction, environment, context):
+            raise NotImplementedError
+
+    stub = types.ModuleType("harbor.agents.installed.claude_code")
+    stub.ClaudeCode = ClaudeCode
+    module_path = Path(__file__).resolve().parents[1] / "agents/nv_claude_code.py"
+    with patch.dict(sys.modules, {"harbor.agents.installed.claude_code": stub}):
+        spec = importlib.util.spec_from_file_location("nv_claude_code_test", module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    return module.NvClaudeCode, ClaudeCode
 
 
 @pytest.mark.parametrize("fail", [False, True])
 def test_agent_route_is_scoped_to_run(monkeypatch, fail):
+    NvClaudeCode, ClaudeCode = load_agent()
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://verifier.example/v1")
     seen = []
 
