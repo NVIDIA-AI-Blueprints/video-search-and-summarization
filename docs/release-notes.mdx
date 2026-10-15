@@ -152,21 +152,23 @@ See [Warehouse Known Limitations](/vss/vision-agent/agent-workflows/industry-spe
   refreshed. Workaround: after the agent confirms that the stream was added,
   refresh the browser tab to update the stream list.
 - **RTSP searches return no results for queries without visual
-  descriptors:** In the Search profile, query decomposition applies a
-  2025-01-01 time window to queries that describe an action or event but
-  no visual attributes such as clothing or color, for example `show
-  person climbing ladder`. The window excludes the stream's recordings,
-  so the search returns no results even when matching footage exists.
-  Queries that include visual descriptors and searches over uploaded
-  videos are unaffected.
+  attributes:** In the Search profile, in-stack VSS Agent query
+  decomposition applies a 2025-01-01 time window to queries that describe
+  an action or event but no visual attributes such as clothing or color,
+  for example `show person climbing ladder`. The window excludes the
+  stream's recordings, so the search returns no results even when matching
+  footage exists. Queries that include visual descriptors and searches
+  over uploaded videos are unaffected, as are the `vss` CLI and the
+  `vss-search-archive` skill.
 - **Attribute-only searches scoped to an uploaded video return no
   results:** In the Search profile, the VSS Agent returns no results when a
   query describes visual attributes but no action and names an uploaded video
   as the video source, such as
   `show person with green jacket in video source warehouse_sample`. Queries
   without a video source, fusion searches that combine an action with visual
-  attributes, and searches over RTSP streams are unaffected. Workaround: omit
-  the video source from the query.
+  attributes, and searches over RTSP streams are unaffected, as are the `vss`
+  CLI and the `vss-search-archive` skill. Workaround: omit the video source
+  from the query.
 - **Human-in-the-Loop (HITL) dialog content is clipped when zoomed in:**
   The in-stack VSS Agent's HITL dialog may not resize to fit the available
   viewport when browser zoom is increased, leaving content clipped or
