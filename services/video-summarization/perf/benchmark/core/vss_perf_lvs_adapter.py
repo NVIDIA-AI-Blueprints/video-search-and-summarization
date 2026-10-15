@@ -162,8 +162,6 @@ def execution_results_to_test_cases(
     mode = execution_results.get("benchmark_mode", "single_file")
 
     for tc in execution_results.get("test_cases", []):
-        if not tc.get("success"):
-            continue
         test_case_id = tc.get("test_case_id", "")
         video_url = tc.get("video_url", "")
         video_basename = os.path.basename(video_url)
@@ -190,6 +188,8 @@ def execution_results_to_test_cases(
                 {
                     "test_case_id": test_case_id,
                     "description": f"{video_basename} @ {chunk_s}s",
+                    "status": "PASS" if tc.get("success", False) else "FAIL",
+                    "error": tc.get("error", ""),
                     "config": {
                         "video_url": video_url,
                         "chunk_size_seconds": chunk_s,
@@ -204,8 +204,6 @@ def execution_results_to_test_cases(
             )
         else:
             successful_iterations = [i for i in tc.get("iteration_results", []) if i.get("success")]
-            if not successful_iterations:
-                continue
 
             # Collect per-iteration values to average across all successful iterations
             walls, vlm_pipeline, decode, ca_rag = [], [], [], []
@@ -256,8 +254,13 @@ def execution_results_to_test_cases(
                 LVSTestCase(
                     test_case_id=test_case_id,
                     description=f"{video_duration} video summarization",
-                    status="PASS",
-                    config={"video_duration": video_duration},
+                    status="PASS" if tc.get("success", False) else "FAIL",
+                    config={
+                        "video_duration": video_duration,
+                        "error": tc.get("error", ""),
+                        "successful_iterations": tc.get("successful_iterations", 0),
+                        "requested_iterations": tc.get("iterations", 0),
+                    },
                     metrics=metrics,
                 )
             )

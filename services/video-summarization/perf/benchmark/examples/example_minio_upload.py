@@ -25,9 +25,9 @@ import sys
 from pathlib import Path
 
 # Add parent directory to path to import benchmark modules
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "core"))
 
-from minio_uploader import MinIOUploader, upload_to_minio  # noqa: E402
+from vss_perf_common import MinIOUploader, upload_result_file  # noqa: E402
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -39,7 +39,7 @@ def example_simple_upload():
     logger.info("=== Example 1: Simple Upload ===")
 
     # Upload a file using the convenience function
-    success = upload_to_minio(
+    success = upload_result_file(
         file_path="vss-perf-report/benchmark_results/lvs_tp1_20260211_143022.json",
         service="LVS",  # Required parameter
         endpoint="10.111.52.248:9000",

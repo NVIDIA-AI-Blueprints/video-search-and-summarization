@@ -262,6 +262,18 @@ class FileBurstBenchmark(BenchmarkBase):
         if optimal_result and "error" not in optimal_result:
             search_path = optimal_result.get("search_results", [])
 
+        requested_levels = set(video_config_with_id["concurrency_levels"])
+        successful_levels = {
+            result.get("concurrency_level")
+            for result in concurrency_results
+            if result.get("success", False)
+        }
+        all_work_succeeded = (
+            bool(concurrency_results)
+            and requested_levels.issubset(successful_levels)
+            and all(result.get("success", False) for result in concurrency_results)
+        )
+
         # Save results
         results = {
             "test_case_id": test_case_id,
@@ -273,7 +285,7 @@ class FileBurstBenchmark(BenchmarkBase):
             "optimal_target_concurrency": optimal_result,
             "target_latency_seconds": target_latency,
             "search_path": search_path,
-            "success": len(concurrency_results) > 0,
+            "success": all_work_succeeded,
         }
 
         results_file = os.path.join(test_case_dir, "file_burst_results.json")
@@ -307,9 +319,14 @@ class FileBurstBenchmark(BenchmarkBase):
         self.logger.info(
             f"Pre-uploading {concurrency_level} copies via /files..."
         )
-        for i in range(concurrency_level):
-            file_id = self._upload_video(video_config)
-            file_ids.append(file_id)
+        try:
+            for i in range(concurrency_level):
+                file_id = self._upload_video(video_config)
+                file_ids.append(file_id)
+        except Exception:
+            for file_id in file_ids:
+                self._delete_video(file_id)
+            raise
         self.logger.info(f"Pre-upload complete: {len(file_ids)} assets ready")
 
         # Start GPU and CPU monitoring
@@ -375,6 +392,7 @@ class FileBurstBenchmark(BenchmarkBase):
                 "e2e_latency_seconds": e2e_latency_seconds,
                 "completed_files": completed_files,
                 "failed_files": failed_files,
+                "success": completed_files == concurrency_level and failed_files == 0,
                 "total_events_detected": total_events_detected,
                 "avg_events_per_file": (
                     total_events_detected / completed_files if completed_files > 0 else 0
@@ -388,6 +406,11 @@ class FileBurstBenchmark(BenchmarkBase):
             }
 
         finally:
+            # _delete_video catches its own errors; run cleanup before metric export
+            # so a monitor/export failure cannot leak uploaded assets.
+            for fid in file_ids:
+                self._delete_video(fid)
+
             self.stop_gpu_monitoring(
                 export_dir=test_case_dir,
                 filename_prefix=f"gpu_metrics_concurrency_{concurrency_level}",
@@ -411,9 +434,6 @@ class FileBurstBenchmark(BenchmarkBase):
             if cpu_metrics and "result" in locals():
                 result.update(cpu_metrics)
 
-        # Clean up all pre-uploaded assets
-        for fid in file_ids:
-            self._delete_video(fid)
 
         self.logger.info(
             f"Concurrency {concurrency_level}: "

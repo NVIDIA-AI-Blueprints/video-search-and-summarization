@@ -30,15 +30,15 @@ class TestGpuTopologyFromAssignments:
 
 class TestLoadPerfConfigById:
     def test_h100_two_gpu(self):
-        row = load_perf_config_by_id("h100-2-1x1-cr2-8b-rtvi-nemo3nano-9k")
+        row = load_perf_config_by_id("h100-2-1x1-cr3-nano-rtvi-nemo3nano-9k")
         assert row is not None
-        assert row["vlmModel"] == "cosmos-reason2-8b"
+        assert row["vlmModel"] == "cosmos-reason3-nano"
         assert row["llmModel"] == "nemotron-3-nano"
         assert row["vlmGpus"] == "0"
         assert row["llmGpus"] == "1"
 
     def test_rtxpro6000_prefix(self):
-        row = load_perf_config_by_id("rtxpro6000-2-1x1-cr2-8b-rtvi-nemo3nano-9k")
+        row = load_perf_config_by_id("rtxpro6000-2-1x1-cr3-nano-rtvi-nemo3nano-9k")
         assert row is not None
         assert row["nodeLabel"] == "RTXPRO6000BW-SE"
         assert row["enabled"] is True
@@ -57,7 +57,7 @@ class TestResolvePerfConfigFromCompose:
             "NVIDIA H100 80GB HBM3",
         )
         assert row is not None
-        assert row["id"] == "h100-4-2x2-cr2-8b-rtvi-nemo3nano-9k"
+        assert row["id"] == "h100-4-2x2-cr3-nano-rtvi-nemo3nano-9k"
 
     def test_rtxpro6000_without_blackwell_suffix(self):
         row = resolve_perf_config_from_compose(
@@ -65,7 +65,7 @@ class TestResolvePerfConfigFromCompose:
             "NVIDIA RTX PRO 6000",
         )
         assert row is not None
-        assert row["id"] == "rtxpro6000-2-1x1-cr2-8b-rtvi-nemo3nano-9k"
+        assert row["id"] == "rtxpro6000-2-1x1-cr3-nano-rtvi-nemo3nano-9k"
 
     def test_rtxpro6000_blackwell_suffix(self):
         row = resolve_perf_config_from_compose(
@@ -73,7 +73,7 @@ class TestResolvePerfConfigFromCompose:
             "NVIDIA RTX PRO 6000 Blackwell",
         )
         assert row is not None
-        assert row["id"] == "rtxpro6000-2-1x1-cr2-8b-rtvi-nemo3nano-9k"
+        assert row["id"] == "rtxpro6000-2-1x1-cr3-nano-rtvi-nemo3nano-9k"
 
     def test_gpu_family_prefix_rtxpro4500_before_6000(self):
         assert gpu_family_prefix_from_smi("NVIDIA RTX PRO 4500") == "rtxpro4500"
@@ -85,13 +85,13 @@ class TestResolvePerfConfigFromCompose:
             "NVIDIA RTX PRO 4500 Blackwell",
         )
         assert row is not None
-        assert row["id"] == "rtxpro4500-1-1-cr2-8b-rtvi-nemonano9b-9k"
+        assert row["id"] == "rtxpro4500-1-1-cr3-nano-rtvi-nemonano9b-9k"
 
     def test_compose_by_id_ci_path(self):
         row = resolve_perf_config(
-            config_id="l40s-2-1x1-cr2-8b-rtvi-nemo3nano-9k",
+            config_id="l40s-2-1x1-cr3-nano-rtvi-nemo3nano-9k",
             compose_path="compose/x86-rtvi-cr-nemo3-nano_2gpu.yaml",
             gpu_name="unused",
         )
         assert row is not None
-        assert row["id"] == "l40s-2-1x1-cr2-8b-rtvi-nemo3nano-9k"
+        assert row["id"] == "l40s-2-1x1-cr3-nano-rtvi-nemo3nano-9k"

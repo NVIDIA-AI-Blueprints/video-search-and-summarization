@@ -321,7 +321,11 @@ class GPUMonitor:
 
         # Export summary statistics
         stats_path = os.path.join(output_dir, f"{base_filename}_stats.json")
-        stats = {"gpu_stats": {}, "nvdec_stats": self.get_nvdec_stats()}
+        stats = {
+            "gpu_stats": {},
+            "nvdec_stats": self.get_nvdec_stats(),
+            "nvdec_data": self.nvdec_data,
+        }
 
         # Get stats for all monitored GPUs combined
         if self.monitor_gpu_ids:

@@ -16,7 +16,7 @@
 #   docker compose -f compose/x86-rtvi-cr-nemotron-9b_1gpu.yaml up -d
 #   # Wait for health checks, then run benchmark:
 #   cd compose
-#   ./run_benchmark.sh -f x86-rtvi-cr-nemotron-9b_1gpu.yaml -s single_file_test
+#   perf/scripts/run_benchmark.sh -f x86-rtvi-cr-nemotron-9b_1gpu.yaml -s single_file_test
 ################################################################################
 
 name: x86-rtvi-cr-nemotron-9b-1gpu

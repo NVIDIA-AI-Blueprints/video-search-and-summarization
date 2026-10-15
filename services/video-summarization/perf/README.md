@@ -44,3 +44,16 @@ bash tests/perf/run_tests.sh
 Runtime verification requires a Jenkins validation-only run followed by a
 shared-GPU smoke run. The `artifacts-promotion` triggers remain disabled until
 that POC validation is complete.
+
+### Optional monitoring network
+
+The monitoring and OpenTelemetry Compose files attach to the network of an
+already-running benchmark stack. Set `BENCHMARK_NETWORK` to that Docker network
+before starting either optional stack. For example:
+
+```bash
+export BENCHMARK_NETWORK=x86-rtvi-cr-nemo3-nano-2gpu_app-network
+docker compose -f perf/setup/monitoring/compose.yaml up -d
+```
+
+Use `docker network ls` to confirm the project-specific network name.
