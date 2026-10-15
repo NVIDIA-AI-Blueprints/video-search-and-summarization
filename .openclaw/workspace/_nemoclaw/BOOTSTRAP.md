@@ -14,8 +14,8 @@ through the VSS Orchestrator MCP server.
 
 The image already includes the pinned VSS CLI and `vss_cli` tool. For an
 operation against an existing deployment, read `ENV.md`, keep the supplied
-origin, and use the relevant operation skill. Use `vss configure` only when
-the CLI needs to record that origin; this configures the client, not the server.
+origin, record it with `vss configure --base-url` (see `AGENTS.md`), and use
+the relevant operation skill; this configures the client, not the server.
 A supplied video URL needs no sensor registration or ingestion. Skip the
 deployment steps below and answer the requested question.
 
