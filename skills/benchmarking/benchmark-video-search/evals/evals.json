@@ -3,10 +3,10 @@
     "id": "benchmark-search-retrieval",
     "question": "Benchmark search recall and latency on my deployed VSS search profile using the warehouse dataset.",
     "expected_skill": "benchmark-video-search",
-    "ground_truth": "Use the search benchmarking workflow, obtain the deployment endpoint and dataset location if missing, confirm nobody else is using the deployment because the default run wipes every VST source before ingesting, and report measured retrieval and latency results.",
+    "ground_truth": "Use the search benchmarking workflow, obtain the deployment endpoint and dataset location if missing, confirm nobody else is using the deployment because the default run deletes every uploaded file source (RTSP cameras are kept) before ingesting, and report measured retrieval and latency results.",
     "expected_behavior": [
       "Activates benchmark-video-search and requests any missing endpoint or dataset location instead of guessing.",
-      "Uses the vst-direct ingest default, states that the run deletes every VST source before ingesting, and passes --skip-ingest only when the user asks to keep the existing index.",
+      "Uses the vst-direct ingest default, states that the run deletes every uploaded file source before ingesting (RTSP cameras are kept), and passes --skip-ingest only when the user asks to keep the existing index.",
       "Reports the actual retrieval paths, decomposition mode, recall, HIT@k, and available stage timings without inventing results."
     ]
   },

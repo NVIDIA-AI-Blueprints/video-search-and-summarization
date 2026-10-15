@@ -195,21 +195,36 @@ def build_query_backend(args: argparse.Namespace) -> Any:
 # =============================================================================
 
 
+def file_sources(vst_url: str) -> tuple[dict[str, str], list[str]]:
+    """``({stream_id: name}`` for every uploaded file source``, [rtsp names])``.
+
+    Only file sources are this eval's to delete. An RTSP camera indexes into
+    dated indexes a ``video_file`` search never reads, and deleting one
+    through the agent also deletes its VST storage.
+    """
+    try:
+        sources = flows.list_sensor_sources(vst_url)
+    except Exception as e:
+        raise SystemExit(f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})") from e
+    files = {sid: s["name"] for sid, s in sources.items() if not s["url"].startswith("rtsp://")}
+    rtsp = sorted(s["name"] for s in sources.values() if s["url"].startswith("rtsp://"))
+    return files, rtsp
+
+
 def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
-    """Delete every video registered on the deployment.
+    """Delete every uploaded video file registered on the deployment; RTSP cameras stay.
 
     Lists and deletes against the SAME resolved origins the rest of the run
     uses, so ``--vst-url`` cannot list one host and delete from another.
     Prints the full inventory first, so the log shows what the wipe removed.
     """
-    try:
-        streams = flows.list_sensor_streams(vst_url)
-    except Exception as e:
-        raise SystemExit(f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})") from e
+    streams, rtsp = file_sources(vst_url)
+    if rtsp:
+        print(f"  Keeping {len(rtsp)} RTSP source(s); this eval never reads their indexes: {rtsp[:10]}")
 
     if not streams:
         print("  No videos found to delete.")
-        return {"found": 0, "deleted": 0, "names": []}
+        return {"found": 0, "deleted": 0, "names": [], "kept_rtsp": rtsp}
 
     print(f"  Deleting {len(streams)} video(s) from {agent_endpoint}:")
     for stream_id, name in streams.items():
@@ -227,7 +242,10 @@ def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
             print(f"    FAILED {name}: {e}")
 
     print(f"  Deleted {deleted}/{len(streams)} video(s)")
-    return {"found": len(streams), "deleted": deleted, "failed": failed, "names": list(streams.values())}
+    return {
+        "found": len(streams), "deleted": deleted, "failed": failed,
+        "names": list(streams.values()), "kept_rtsp": rtsp,
+    }
 
 
 #: What the probe asks. Any text works -- embedding search returns the nearest
@@ -460,6 +478,13 @@ DEFAULT_MAX_DECOMPOSE_FAILED_PCT = 20.0
 #: How long deleted sources' documents get to disappear before the wipe gives up.
 WIPE_TIMEOUT_S = 180.0
 WIPE_POLL_S = 5.0
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _host(url: str) -> str | None:
+    """The URL's hostname, with every loopback spelling as one host."""
+    host = urlparse(url).hostname
+    return "localhost" if host in LOOPBACK_HOSTS else host
 
 
 def check_cleanup_hosts(agent_endpoint: str, vst_url: str, ingress_url: str) -> None:
@@ -469,9 +494,9 @@ def check_cleanup_hosts(agent_endpoint: str, vst_url: str, ingress_url: str) -> 
     confirms their documents are gone. On two hosts, what was read from one
     stack would be deleted from, or checked against, another.
     """
-    host = urlparse(agent_endpoint).hostname
+    host = _host(agent_endpoint)
     for flag, url in (("--vst-url", vst_url), ("--ingress-url", ingress_url)):
-        if urlparse(url).hostname != host:
+        if _host(url) != host:
             raise SystemExit(
                 f"ABORTED: {flag} ({url}) and --endpoint ({agent_endpoint}) are on different hosts, "
                 "so the wipe could delete from the wrong deployment. Pass a "
@@ -480,10 +505,8 @@ def check_cleanup_hosts(agent_endpoint: str, vst_url: str, ingress_url: str) -> 
 
 
 def _index_state(vst_url: str, ingress_url: str) -> tuple[dict[str, str], dict[str, int]]:
-    try:
-        sources = flows.list_sensor_streams(vst_url)
-    except Exception as e:
-        raise SystemExit(f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})") from e
+    """The file sources and the searched-index counts; RTSP cameras are not counted."""
+    sources, _rtsp = file_sources(vst_url)
     try:
         counts = flows.indexed_counts(ingress_url)
     except (requests.RequestException, ValueError) as e:
@@ -503,10 +526,11 @@ def wipe_index(
     clock: Any = time.monotonic,
     sleep: Any = time.sleep,
 ) -> dict[str, Any]:
-    """Leave no VST source and no searched document, so the ingest is fresh.
+    """Leave no VST file source and no searched document, so the ingest is fresh.
 
     Clean means both: VST alone misses documents an aborted ingest left with
-    no source, and search returns those. Only sources can be deleted from
+    no source, and search returns those. RTSP cameras are left registered.
+    Only sources can be deleted from
     here -- the ingress refuses ``_delete_by_query`` -- and each deletion's
     cleanup webhooks empty that source's documents. The state is re-read until
     it is empty on two polls in a row: one empty read can land between a late
@@ -516,14 +540,14 @@ def wipe_index(
     record: dict[str, Any] = {"clean_before": not sources and not any(counts.values()),
                               "sources_before": len(sources), "documents_before": counts}
     if record["clean_before"]:
-        print("  Index is clean: no sources, no documents. Ingesting fresh.")
+        print("  Index is clean: no file sources, no documents. Ingesting fresh.")
         return {**record, "deleted": 0, "waited_s": 0.0}
 
     detail = "  ".join(f"{k}={v}" for k, v in counts.items())
     if not sources:
-        raise SystemExit(_orphans_message(counts, "no VST source owns them"))
+        raise SystemExit(_orphans_message(counts, "no VST file source owns them"))
 
-    print(f"  Not clean: {len(sources)} source(s); documents {detail}. Deleting every source.")
+    print(f"  Not clean: {len(sources)} file source(s); documents {detail}. Deleting every file source.")
     cleared = clear_all_videos(agent_endpoint, vst_url)
     if cleared.get("failed"):
         raise SystemExit(
@@ -541,16 +565,19 @@ def wipe_index(
         if clock() - started >= timeout_s:
             if sources:
                 raise SystemExit(
-                    f"ABORTED: {len(sources)} source(s) still registered {timeout_s:.0f}s after "
-                    f"deleting every source: {sorted(sources.values())[:10]}\n"
-                    "  Something is registering sources. Stop it and rerun."
+                    f"ABORTED: {len(sources)} file source(s) still registered {timeout_s:.0f}s after "
+                    f"deleting every file source: {sorted(sources.values())[:10]}\n"
+                    "  Something is uploading videos. Stop it and rerun."
                 )
-            raise SystemExit(_orphans_message(counts, f"still there {timeout_s:.0f}s after deleting every source"))
+            raise SystemExit(_orphans_message(counts, f"still there {timeout_s:.0f}s after deleting every file source"))
         sleep(poll_s)
 
     waited = round(clock() - started, 1)
-    print(f"  Index empty after {waited}s; deleted {cleared['deleted']} source(s).")
-    return {**record, "deleted": cleared["deleted"], "names": cleared.get("names", []), "waited_s": waited}
+    print(f"  Index empty after {waited}s; deleted {cleared['deleted']} file source(s).")
+    return {
+        **record, "deleted": cleared["deleted"], "names": cleared.get("names", []),
+        "kept_rtsp": cleared.get("kept_rtsp", []), "waited_s": waited,
+    }
 
 
 def _orphans_message(counts: dict[str, int], why: str) -> str:
@@ -578,7 +605,7 @@ def local_videos(video_dir: Path) -> list[Path]:
 def check_inputs_before_wipe(video_dir: Path, data_dir: Path, dataset: str, subset: str) -> None:
     """Abort before deleting anything if this run could not ingest and score.
 
-    The wipe deletes every source, so a missing video folder or unreadable
+    The wipe deletes every file source, so a missing video folder or unreadable
     dataset file found after it would leave the deployment empty for nothing.
     """
     try:
@@ -714,34 +741,23 @@ def vst_spellings(video_file: Path) -> list[str]:
     return sorted(names | {n.lower() for n in names})
 
 
-def check_stale_documents(
-    ingress_url: str,
-    video_files: list[Path],
-    require: Any,
-    grace_s: float = 0.0,
-    poll_s: float = flows.DEFAULT_INGEST_POLL_S,
-) -> None:
+def check_stale_documents(ingress_url: str, video_files: list[Path], require: Any) -> None:
     """Abort if a video about to be uploaded already has documents indexed.
 
     They would satisfy the completion check before perception started on the
-    new upload, and every timing measured against them would be wrong.
-    ``grace_s`` lets a cleanup that just ran finish deleting first.
+    new upload, and every timing measured against them would be wrong. One
+    read is enough: the wipe just saw the indexes empty on two polls in a row.
     """
     spellings = {vf.stem: vst_spellings(vf) for vf in video_files}
-    give_up = time.monotonic() + grace_s
-    while True:
-        try:
-            stale = flows.stale_documents(ingress_url, spellings, require)
-        except (requests.RequestException, ValueError) as e:
-            raise SystemExit(
-                f"ABORTED: could not read Elasticsearch through the ingress at {ingress_url} "
-                f"({type(e).__name__}: {e}).\n"
-                "  The ingest gate reads completion from there. Pass --ingress-url, or "
-                "--legacy-index-probe for the old coverage probe."
-            ) from e
-        if not stale or time.monotonic() >= give_up:
-            break
-        time.sleep(poll_s)
+    try:
+        stale = flows.stale_documents(ingress_url, spellings, require)
+    except (requests.RequestException, ValueError) as e:
+        raise SystemExit(
+            f"ABORTED: could not read Elasticsearch through the ingress at {ingress_url} "
+            f"({type(e).__name__}: {e}).\n"
+            "  The ingest gate reads completion from there. Pass --ingress-url, or "
+            "--legacy-index-probe for the old coverage probe."
+        ) from e
     if stale:
         detail = "\n".join(
             f"    {video}: " + ", ".join(f"{index} {count}" for index, count in counts.items())
@@ -818,9 +834,8 @@ def run_ingest_gate(args: argparse.Namespace, watcher: Any) -> dict[str, Any]:
         f"quiet {args.ingest_quiet_s}s)..."
     )
     result = watcher.wait(args.ingest_deadline_s)
-    result["ingest"] = flows.aggregate_ingest_stats(result)
     if result["outcome"] != flows.INGEST_CONFIRMED:
-        flows.print_ingest_summary(result["ingest"])
+        flows.print_ingest_summary(flows.aggregate_ingest_stats(result), result["per_video"])
         raise SystemExit(flows.format_ingest_failure(result))
     print(
         f"  All {len(result['per_video'])} video(s) ingested; queries held back "
@@ -1139,13 +1154,13 @@ def run_evaluation(
                 else None
             ),
         )
-        if ingest_readiness and ingest_readiness.get("ingest"):
-            summary["ingest"] = ingest_readiness["ingest"]
         if ingest_readiness:
+            # Batch figures only; the per-video report stays in flow.ingest_readiness.
+            summary["ingest"] = flows.aggregate_ingest_stats(ingest_readiness)
             degraded = flows.degraded_paths(ingest_readiness.get("absent") or {}, summary.get("search_paths"))
             if degraded:
                 summary["ingest_degraded"] = degraded
-        _print_summary(summary)
+        _print_summary(summary, (ingest_readiness or {}).get("per_video"))
 
     if output_file is None:
         # Beside the script rather than relative to the caller's cwd: the old
@@ -1442,7 +1457,7 @@ def _degraded_line(summary: dict[str, Any]) -> str | None:
     )
 
 
-def _print_summary(summary: dict[str, Any]) -> None:
+def _print_summary(summary: dict[str, Any], ingest_per_video: list[dict[str, Any]] | None = None) -> None:
     print(f"{'=' * 60}")
     print("RESULTS SUMMARY")
     print(f"{'=' * 60}")
@@ -1555,7 +1570,7 @@ def _print_summary(summary: dict[str, Any]) -> None:
     if summary.get("upload"):
         flows.print_upload_summary(summary["upload"])
     if summary.get("ingest"):
-        flows.print_ingest_summary(summary["ingest"])
+        flows.print_ingest_summary(summary["ingest"], ingest_per_video)
     print(f"{'=' * 60}\n")
 
 
@@ -2036,7 +2051,8 @@ def main() -> None:
     # way; --vst-url overrides it for deployments that route differently.
     vst_url = args.vst_url or flows.vst_url_for(args.endpoint, args.vst_port)
     print(f"VST origin:     {vst_url}")
-    ingress_url = args.ingress_url or flows.ingress_url_for(args.endpoint, args.vss_origin_port)
+    # The same unified origin `vss configure` probes; it routes /elasticsearch and /rtvi-cv.
+    ingress_url = args.ingress_url or flows.vss_origin_for(args.endpoint, args.vss_origin_port)
 
     # Every run measures this dataset alone: anything else indexed is searched
     # too, and each hit on it scores as a false positive.
@@ -2072,13 +2088,7 @@ def main() -> None:
         # Polling starts before the first byte is sent, so a short clip that
         # RT-CV finishes during a later upload is still seen in its stream list.
         if watcher is not None:
-            check_stale_documents(
-                ingress_url,
-                video_files,
-                args.ingest_require,
-                grace_s=0.0,
-                poll_s=args.ingest_poll_s,
-            )
+            check_stale_documents(ingress_url, video_files, args.ingest_require)
             watcher.start()
 
     def _after_upload(record: dict[str, Any]) -> None:

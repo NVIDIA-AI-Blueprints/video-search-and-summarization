@@ -1813,6 +1813,37 @@ def test_wipe_aborts_when_a_source_will_not_delete(monkeypatch: Any) -> None:
         rf.wipe_index("https://h:8000", "https://h:30888", "https://h:7777", sleep=lambda _s: None)
 
 
+def test_the_wipe_deletes_uploaded_files_and_never_an_rtsp_camera(monkeypatch: Any) -> None:
+    """Deleting a camera also deletes its VST storage, and this eval never reads its indexes."""
+    import run_eval_flows as rf
+
+    monkeypatch.setattr(rf.flows, "list_sensor_sources", lambda _u: {
+        "f1": {"name": "1219", "url": "/storage/1219.mp4"},
+        "c1": {"name": "dock_cam", "url": "rtsp://cam/dock"},
+        "f2": {"name": "video_00570.mp4", "url": ""},
+    })
+    deleted: list[str] = []
+
+    class _Ok:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+    def _delete(url: str, **_k: Any) -> _Ok:
+        deleted.append(url.rsplit("/", 1)[-1])
+        return _Ok()
+
+    monkeypatch.setattr(rf.requests, "delete", _delete)
+    out = rf.clear_all_videos("https://h:8000", "https://h:30888")
+
+    assert sorted(deleted) == ["f1", "f2"]
+    assert out["deleted"] == 2
+    assert out["kept_rtsp"] == ["dock_cam"]
+    files, rtsp = rf.file_sources("https://h:30888")
+    assert set(files) == {"f1", "f2"} and rtsp == ["dock_cam"]
+
+
 def test_wipe_refuses_endpoints_on_different_hosts() -> None:
     import run_eval_flows as rf
 
@@ -1821,6 +1852,14 @@ def test_wipe_refuses_endpoints_on_different_hosts() -> None:
         rf.check_cleanup_hosts("https://h:8000", "https://h:30888", "https://other:7777")
     with pytest.raises(SystemExit, match="--vst-url"):
         rf.check_cleanup_hosts("https://h:8000", "https://other:30888", "https://h:7777")
+
+
+def test_every_loopback_spelling_is_one_host_to_the_wipe() -> None:
+    import run_eval_flows as rf
+
+    rf.check_cleanup_hosts("http://localhost:8000", "http://[::1]:30888", "http://127.0.0.1:7777")
+    with pytest.raises(SystemExit, match="--ingress-url"):
+        rf.check_cleanup_hosts("http://localhost:8000", "http://127.0.0.1:30888", "http://10.0.0.5:7777")
 
 
 def test_skip_ingest_aborts_when_a_dataset_video_is_not_registered(monkeypatch: Any) -> None:
@@ -1845,7 +1884,7 @@ def test_skip_ingest_records_sources_outside_the_dataset(monkeypatch: Any) -> No
 
 
 def test_bad_inputs_abort_before_the_wipe_deletes_anything(tmp_path: Path, monkeypatch: Any) -> None:
-    """The wipe deletes every source; finding the inputs unusable after it is too late."""
+    """The wipe deletes every file source; finding the inputs unusable after it is too late."""
     import run_eval_flows as rf
 
     monkeypatch.setattr(rf.flows, "load_dataset_file", lambda *_a: {"queries": {"q": []}})
@@ -2696,7 +2735,7 @@ def test_ingest_summary_prints_na_and_warnings(capsys: pytest.CaptureFixture[str
     no_behavior = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42)
     result = _gate([_warehouse()], lambda: no_behavior, clock, deadline_s=60.0, absent_grace_s=None)
 
-    flows.print_ingest_summary(flows.aggregate_ingest_stats(result))
+    flows.print_ingest_summary(flows.aggregate_ingest_stats(result), result["per_video"])
     out = capsys.readouterr().out
     assert "behavior=n/a" in out
     assert "Nones" not in out
@@ -2709,7 +2748,7 @@ def test_ingest_summary_marks_a_degraded_run(capsys: pytest.CaptureFixture[str])
     no_behavior = _snap(cv=False, raw=6298, last_s=209.966, embed=42, tags=42)
     result = _gate([_warehouse()], lambda: no_behavior, clock, deadline_s=60.0)
 
-    flows.print_ingest_summary(flows.aggregate_ingest_stats(result))
+    flows.print_ingest_summary(flows.aggregate_ingest_stats(result), result["per_video"])
     out = capsys.readouterr().out
     assert "Outcome:            confirmed (degraded)" in out
     assert "WARNING: behavior: no documents for any of 1 video(s)" in out
@@ -3027,8 +3066,7 @@ def test_sparse_gate_end_to_end_reports_coverage_not_a_stall() -> None:
 
     result = _gate([_sparse()], timeline, clock, quiet_s=15.0, deadline_s=120.0)
     assert result["outcome"] == "confirmed"
-    stats = flows.aggregate_ingest_stats(result)
-    assert stats["per_video"][0]["raw_coverage"] == pytest.approx(0.047)
+    assert result["per_video"][0]["raw_coverage"] == pytest.approx(0.047)
 
 
 def test_released_with_no_detections_passes_with_a_warning() -> None:
@@ -3288,7 +3326,8 @@ def test_batch_stats_fill_the_doc_table() -> None:
     assert stats["video_min_per_min"] == pytest.approx(235.0 / 219.2, abs=1e-3)
     assert set(stats["embed_done_s"]) == {"mean", "p90"}
     assert stats["ingest_s"]["p90"] == pytest.approx(219.2)
-    assert {r["sensor"] for r in stats["per_video"]} == {_NAME, "warehouse_safety_0001"}
+    assert {r["sensor"] for r in result["per_video"]} == {_NAME, "warehouse_safety_0001"}
+    assert "per_video" not in stats, "the per-video report lives once, in flow.ingest_readiness"
 
 
 def test_ingest_gate_options_and_their_validation() -> None:
@@ -3301,7 +3340,7 @@ def test_ingest_gate_options_and_their_validation() -> None:
     assert parsed.chunk_s == 5.0
     assert parsed.ingest_deadline_s is None
     assert parsed.legacy_index_probe is False
-    assert flows.ingress_url_for("https://host:8000") == "https://host:7777"
+    assert flows.vss_origin_for("https://host:8000") == "https://host:7777"
 
     narrowed = rf.parse_args(["--endpoint", "https://h:8000", "--ingest-require", "embed, raw"])
     assert narrowed.ingest_require == frozenset({"embed", "raw"})

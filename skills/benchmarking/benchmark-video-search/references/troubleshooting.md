@@ -17,8 +17,8 @@ instead of querying if one is not.
 
 | Index | Done when |
 |---|---|
-| embeddings `mdx-embed-filtered-2025-01-01` | count ≥ ⌈duration / `--chunk-s`⌉ |
-| tags `default_<sensor uuid>` | count ≥ the same chunk count |
+| embeddings `mdx-embed-filtered-2025-01-01` | `count >= ceil(duration / --chunk-s)` |
+| tags `default_<sensor uuid>` | `count >=` the same chunk count |
 | raw `mdx-raw-2025-01-01` | RT-CV listed the stream and then dropped it, and the raw count has not changed for `--ingest-quiet-s` since the drop (`raw_check: rtcv_released`) |
 | behavior `mdx-behavior-2025-01-01` | raw is done and no count changed for `--ingest-quiet-s` (a heuristic, recorded as `behavior_check: quiet_window`) |
 
@@ -110,13 +110,24 @@ regression.
 ### Before ingest: the wipe
 
 Every run without `--skip-ingest` empties the index first. It deletes every
-VST source, then waits until the cleanup webhooks have emptied the indexes a
-`video_file` search reads: `mdx-embed-filtered-2025-01-01`,
-`mdx-raw-2025-01-01` and `mdx-behavior-2025-01-01`. Dated RTSP indexes and
-tag indexes are not checked; no source deletion empties them, and no eval path
-reads them. It never deletes documents itself: the `:7777` ingress answers
+uploaded file source in VST (any source whose URL is not `rtsp://`). It then
+waits until the cleanup webhooks have emptied the indexes a `video_file`
+search reads: `mdx-embed-filtered-2025-01-01`, `mdx-raw-2025-01-01` and
+`mdx-behavior-2025-01-01`. It uploads only once VST lists no file source and
+every one of those indexes reads empty on two polls in a row. If both are
+already empty, it deletes nothing.
+
+RTSP cameras are never deleted. The agent's DELETE also removes the camera from
+VST storage, and a live camera is not part of any eval. The run prints the
+cameras it kept. Their dated `mdx-*-YYYY-MM-DD` indexes are not checked: the
+deployed `camera_remove` hooks clear only the `-2025-01-01` indexes, so the
+dated ones would never empty, and a `video_file` search does not read them.
+Tag indexes (`default_<uuid>`) are emptied for file sources but not checked,
+because no eval path reads them.
+
+The runner never deletes documents itself: the `:7777` ingress answers
 `_delete_by_query` with 403. The deployment may be shared, but nobody else may
-use it during an eval.
+upload to it during an eval.
 
 | Abort | Cause | Fix |
 |---|---|---|
@@ -124,7 +135,7 @@ use it during an eval.
 | `source(s) could not be deleted` | the agent refused a DELETE | delete them by hand and rerun |
 | `could not count documents through the ingress` | `:7777` unreachable, or no `/elasticsearch` route | pass `--ingress-url` |
 | `documents with no source are left in the searched indexes` | a file source was deleted without its cleanup webhook emptying its documents, or an upload is still being processed, so no webhook will clean them up. With no sources at all this fires at once; otherwise after 180 s | if something is still writing, wait and rerun; otherwise run `_delete_by_query` with `match_all` on the Elasticsearch host for the indexes named |
-| `source(s) still registered 180s after deleting every source` | something keeps registering sources (another run, a live RTSP feed) | stop it and rerun |
+| `file source(s) still registered 180s after deleting every file source` | something keeps uploading videos (another run, a script) | stop it and rerun |
 | `--skip-ingest reuses the index, but N dataset video(s) are not registered` | the index does not hold this dataset | drop `--skip-ingest` |
 
 ---
