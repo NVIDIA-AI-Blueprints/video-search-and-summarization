@@ -1263,15 +1263,6 @@ Each violation type has configurable timing parameters:
 | `fovCountViolationIncidentExpirationWindow` | Largest detection gap (seconds) tolerated before the current violation run is closed. Accepts fractional values. Keep it below the matching threshold. **Default: 0.5** |
 | `fovCountViolationIncidentObjectType` | Object type to count for FOV violations. **Default: Person** |
 
-For Docker Compose Alerts verification (`MODE=2d_cv`) on `DGX-SPARK`,
-`IGX-THOR`, or `AGX-THOR`, set
-`PERCEPTION_DOCKERFILE_PREFIX=EDGE-` in the alerts deployment
-`user-overrides.env`. This selects the checked-in edge config with
-`fovCountViolationIncidentExpirationWindow="2"`; the default JSON retains
-`"0.5"`. Leave the prefix empty for other hardware.
-The prefix selects the mounted file; Compose does not interpolate variables
-inside the JSON. See the [Alerts verification deployment guide](/vss/vision-agent/agent-workflows/alert-verification).
-
 **Usage**
 
 ```python
