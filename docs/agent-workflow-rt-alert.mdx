@@ -342,6 +342,10 @@ disabled by default and `ALERT_AGENT_ALWAYS_ON` has no effect. See
 for the Helm equivalent and its prerequisites.
 </Note>
 
+`PERCEPTION_DOCKERFILE_PREFIX=EDGE-` also selects the edge Behavior Analytics
+config in verification mode. Real-time mode does not run Behavior Analytics,
+so keep the documented hardware-specific prefix settings below.
+
 Apply all of the following settings in the `user-overrides.env` file created
 above:
 
