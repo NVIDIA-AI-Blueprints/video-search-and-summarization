@@ -130,14 +130,8 @@ class OpenshellGpuFleet(unittest.TestCase):
     def test_openshell_job_labels_are_not_sku_specific(self):
         one = plan_matrix.openshell_job_labels(1)
         two = plan_matrix.openshell_job_labels(2)
-        self.assertEqual(
-            one,
-            ["vss-skill-eval-gpu", "openshell-runner", "openshell", "gpus-1"],
-        )
-        self.assertEqual(
-            two,
-            ["vss-skill-eval-gpu", "openshell-runner", "openshell", "gpus-2"],
-        )
+        self.assertEqual(one, list(plan_matrix.FLUENT_BIT_ONE_RUNNER))
+        self.assertEqual(two, list(plan_matrix.FLUENT_BIT_ONE_RUNNER))
         sku = {
             "h200", "a16", "a40", "l40s", "rtx-pro-6000",
             "gpu-h200", "gpu-nvidia-h200", "gpu-rtxpro6000bw",
@@ -184,7 +178,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             )
             self.assertEqual(
                 plan_matrix.openshell_job_labels(spec["gpu_count"]),
-                ["vss-skill-eval-gpu", "openshell-runner", "openshell", "gpus-1"],
+                list(plan_matrix.FLUENT_BIT_ONE_RUNNER),
             )
 
     def test_metadata_gate_is_gpu_count_only(self):
@@ -324,8 +318,9 @@ class OpenshellGpuFleet(unittest.TestCase):
             leg["slug"],
             "vss-deploy-detection-tracking-2d__usage-evals__gpus-1",
         )
-        self.assertIn("gpu-rtxpro6000bw", leg["runs_on"])
-        self.assertIn("openshell-rtxpro6000-active", leg["runs_on"])
+        self.assertEqual(leg["runs_on"], list(plan_matrix.FLUENT_BIT_ONE_RUNNER))
+        self.assertNotIn("gpu-rtxpro6000bw", leg["runs_on"])
+        self.assertNotIn("openshell-rtxpro6000-active", leg["runs_on"])
 
     def test_operations_vios_stays_off_openshell(self):
         path = (
@@ -359,9 +354,9 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertEqual(inc[0]["cohort"], plan_matrix.OPENSHELL_COHORT_TAG)
         self.assertEqual(
             inc[0]["runs_on"],
-            plan_matrix.openshell_job_labels(inc[0]["gpu_count"]),
+            list(plan_matrix.FLUENT_BIT_ONE_RUNNER),
         )
-        self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, inc[0]["runs_on"])
+        self.assertNotIn(plan_matrix.OPENSHELL_RUNNER_LABEL, inc[0]["runs_on"])
         self.assertNotIn("openshell-rtxpro6000-active", inc[0]["runs_on"])
         self.assertNotIn("gpu-rtxpro6000bw", inc[0]["runs_on"])
         self.assertNotIn("openshell-h200-active", inc[0]["runs_on"])

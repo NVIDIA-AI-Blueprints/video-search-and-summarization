@@ -173,7 +173,7 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 # OpenShell cohorts. GitHub still attaches `self-hosted` to each runner.
 # Cohort tuples below describe how boxes are *registered* (SKU + active
 # labels). OpenShell jobs do **not** require those SKU labels:
-# `openshell_job_labels()` emits only the shared fleet tags plus `gpus-N`.
+# `openshell_job_labels()` asks only for the fluent-bit-one runner.
 # Register replacements without a cohort active label (or keep listeners
 # down) until canaries pass.
 #
@@ -181,6 +181,9 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 # reconciles dirty idle runners, recreates one VM, and restores its listener.
 # This workflow does not implement KVM/VFIO.
 OPENSHELL_RUNNER_LABEL = "openshell-runner"
+# Deployment skill eval on this branch runs on one guest. The job asks for
+# this label alone, so the rest of the OpenShell fleet cannot claim it.
+FLUENT_BIT_ONE_RUNNER: tuple[str, ...] = ("self-hosted", "fluent-bit-one")
 OPENSHELL_FLEET_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
     OPENSHELL_RUNNER_LABEL,
@@ -335,19 +338,17 @@ def openshell_job_labels(
     gpu_count: int,
     requirements: dict | None = None,
 ) -> list[str]:
-    """GitHub `runs-on` for any spec that opted into OpenShell.
+    """GitHub `runs-on` for a deployment skill trial on OpenShell.
 
-    Fleet tags only — no SKU (`gpu-h200`, `gpu-rtxpro6000bw`), no cohort
-    active label (`openshell-h200-active`), no VRAM/codec tags. `gpus-N`
-    is the GPU-count demand so 1-GPU and 2-GPU jobs stay on matching
-    guests. Operators still register SKU labels on the VMs if they want;
-    this fleet does not require them.
+    Every eligible trial asks only for the fluent-bit-one runner. Fleet
+    tags, SKU labels, and ``gpus-N`` are not requested, so no other guest
+    can claim the job. ``requirements`` stays in the signature for callers;
+    it does not select a runner.
     """
+    del requirements
     if gpu_count not in (1, 2):
         return list(SKIP_RUNNER)
-    if requirements and requirements.get("requires_blackwell"):
-        return [*OPENSHELL_RTXPRO6000_LABELS, f"gpus-{gpu_count}"]
-    return [*OPENSHELL_FLEET_LABELS, f"gpus-{gpu_count}"]
+    return list(FLUENT_BIT_ONE_RUNNER)
 
 
 # `cohort` on a leg names the fleet the runner comes from, and is what the
@@ -715,7 +716,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 "slug": f"{skill}__missing-adapter",
                 "name": f"{skill} · missing-adapter",
                 # Commits an adapter; runs no trial and needs no GPU.
-                "runs_on": list(OPENSHELL_FLEET_LABELS),
+                "runs_on": list(FLUENT_BIT_ONE_RUNNER),
                 "local_gpu": False,
             })
             continue
