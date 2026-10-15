@@ -1,0 +1,123 @@
+version: 2
+
+# SkillSpector suppression baseline for skills/operations/vss-manage-video-io-storage.
+# Entries are scoped to one file and one matched-text pattern; line numbers are
+# not used, so doc edits do not invalidate them. Sections:
+#   A. Reviewed scanner false positives. Temporary: remove each entry once the
+#      SkillSpector fix ships.
+#   B. Accurate findings for intended deployment steps, accepted with a reason.
+#   C. Accurate findings for risky steps the skill keeps for now. Prefer the
+#      alternative in the reason; remove the entry if the instruction changes.
+
+rules:
+  # --- A. Reviewed scanner false positives (temporary) ----------------------
+  - id: "AE1"
+    path: "SKILL.md"
+    message: "*(partial)"
+    reason: >-
+      Temporary bridge until SkillEvaluator 1.7.0 (SkillSpector 2.12.1) reaches
+      the NV-CARPS gate; remove this entry then. SkillSpector 2.11.2 marks a
+      referenced file "partial" when it contains ordinary shell parameter
+      expansion (${VAR:-default}, "${ARR[@]}") or certain quoted forms, and
+      reports each SKILL.md link to it as AE1. Fixed upstream in SkillSpector
+      #634 and #686 (SKILLSPECT-12, SKILLSPECT-135).
+
+  - id: "PE3"
+    path: "references/deploy-vios-service.md"
+    message: "*[.]env*"
+    reason: >-
+      Reviewed false positive (temporary until the SkillSpector PE3 fix ships).
+      The .env and vst.env files are the VSS Blueprint's own Compose env layers,
+      named as paths or passed to `docker compose --env-file`. The skill never
+      reads, prints, or transmits their contents.
+
+  - id: "TM1"
+    path: "SKILL.md"
+    message: "DELETE /*"
+    reason: &tm1_rest >-
+      Reviewed false positive (temporary until the SkillSpector TM1 fix ships).
+      These are VIOS, NvStreamer, and RT-VLM REST routes (DELETE /sensor/<id>,
+      DELETE /storage/file/<id>, DELETE /proxy/..., DELETE /v1/streams/...),
+      not file deletion commands.
+
+  - id: "TM1"
+    path: "references/api-reference.md"
+    message: "DELETE /*"
+    reason: *tm1_rest
+
+  - id: "TM1"
+    path: "references/integrate-vios-service.md"
+    message: "DELETE /*"
+    reason: *tm1_rest
+
+  - id: "TM1"
+    path: "references/nvstreamer-api-reference.md"
+    message: "DELETE /*"
+    reason: *tm1_rest
+
+  - id: "TM1"
+    path: "references/provision-vios-source.md"
+    message: "DELETE /*"
+    reason: *tm1_rest
+
+  - id: "TM1"
+    path: "evals/nvstreamer_ops.json"
+    message: "DELETE /vst/api/v1/*"
+    reason: *tm1_rest
+
+  # --- B. Accurate findings, accepted for intended deployment steps ----------
+  - id: "PE4"
+    path: "references/deploy-vios-service.md"
+    message: "*/var/run/docker.sock*"
+    reason: &docker_sock >-
+      Accepted: documents the Blueprint's shipped SDRC Compose definition, which
+      mounts the host Docker socket into sdr-controller (and its wait helper) so
+      the WDM controller can discover vss-vios-streamprocessing
+      (WDM_CLUSTER_TYPE: docker). The skill documents rather than adds this
+      mount.
+
+  - id: "PE4"
+    path: "references/integrate-vios-service.md"
+    message: "*/var/run/docker.sock*"
+    reason: *docker_sock
+
+  - id: "TM1"
+    path: "references/deploy-vios-service.md"
+    message: "chown -R 1001:1001 *"
+    reason: >-
+      Accepted: host-path setup gives the VIOS containers' UID 1001 ownership of
+      the deployment's own ${VSS_DATA_DIR}/data_log/vst tree only (with a
+      setfacl alternative when sudo is unavailable).
+
+  - id: "TM1"
+    path: "references/deploy-vios-service.md"
+    message: "rm -rf *${SDRC_DIR}/log/*"
+    reason: >-
+      Accepted: teardown clears SDRC runtime artifacts under the SDRC compose
+      directory's own log/ and .wdm-env/ folders, which the container writes as
+      root, mirroring deploy/docker/scripts/dev-profile.sh.
+
+  # --- C. Accurate findings for risky steps kept for now ---------------------
+  - id: "TM1"
+    path: "references/deploy-vios-service.md"
+    message: "rm -rf ${VSS_DATA_DIR}/data_log/vst*"
+    reason: >-
+      Accepted risk, to revisit: an optional, commented-out host cleanup that
+      deletes all recorded video under ${VSS_DATA_DIR}/data_log/vst. The line is
+      labelled DESTRUCTIVE and is not run by default.
+
+  - id: "TM1"
+    path: "references/deploy-vios-service.md"
+    message: "chmod *777*"
+    reason: &chmod_sdrc >-
+      Accepted risk, to revisit: the Blueprint's SDRC init-dirs one-shot makes
+      ./log and ./.wdm-env (and VIOS bind subdirs) world-writable so the root-
+      and UID-1001-owned writes can be cleaned up without sudo. Preferred fix:
+      chown to the container UID or a shared group instead of 0777.
+
+  - id: "TM1"
+    path: "references/integrate-vios-service.md"
+    message: "chmod *777*"
+    reason: *chmod_sdrc
+
+fingerprints: []
