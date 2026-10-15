@@ -966,8 +966,17 @@ def run_evaluation(
     sources_seen: set[str] = set()
     verdicts: dict[str, int] = {}
     fatal: list[BaseException] = []
+    decompose_failures = 0
+    decompose_abort: str | None = None
+    #: Set by the worker whose failure crosses the cap. Checked before each
+    #: query starts: cancelling from the as_completed loop alone is too late,
+    #: since a free worker has already picked up the next query by then.
+    stop_queries = threading.Event()
 
     def _run_single_query(qi: int, query: str) -> None:
+        nonlocal decompose_failures, decompose_abort
+        if stop_queries.is_set():
+            return
         expected = annotations[query]
 
         # Decompose first, then search. The backend already routes from its
@@ -1030,6 +1039,16 @@ def run_evaluation(
             print(f"  {flows.format_inline(result, latency_s=latency_s)}")
             if decompose_error is not None:
                 print(f"  [decomposition failed -> embed] {decompose_error[:160]}")
+                decompose_failures += 1
+                # Against every query, not those done so far: past this the
+                # end-of-run check fails whatever the rest return, so a dead
+                # LLM does not cost the remaining queries' timeouts.
+                if decompose_abort is None and 100 * decompose_failures / len(queries) > max_decompose_failed_pct:
+                    decompose_abort = (
+                        f"{decompose_failures}/{len(queries)} queries fell back to embed, above "
+                        f"--max-decompose-failed-pct {max_decompose_failed_pct:g}; stopped early"
+                    )
+                    stop_queries.set()
             if num_rejected:
                 print(
                     f"  [critic-filtered] rejected={num_rejected}  "
@@ -1044,8 +1063,6 @@ def run_evaluation(
     #: Queries the backend never answered. Appended only from the single-
     #: threaded as_completed loop below, so no lock.
     unanswered: list[dict[str, Any]] = []
-    decompose_failures = 0
-    decompose_abort: str | None = None
 
     wall_start = time.monotonic()
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
@@ -1053,19 +1070,10 @@ def run_evaluation(
         for future in as_completed(futures):
             try:
                 future.result()
-                if (all_results[futures[future]] or {}).get("decompose_failed"):
-                    decompose_failures += 1
-                    # Against every query, not those done so far: past this the
-                    # end-of-run check fails whatever the rest return, so a
-                    # dead LLM does not cost the remaining queries' timeouts.
-                    if 100 * decompose_failures / len(queries) > max_decompose_failed_pct:
-                        decompose_abort = (
-                            f"{decompose_failures}/{len(queries)} queries fell back to embed, above "
-                            f"--max-decompose-failed-pct {max_decompose_failed_pct:g}; stopped early"
-                        )
-                        for pending in futures:
-                            pending.cancel()
-                        break
+                if stop_queries.is_set():
+                    for pending in futures:
+                        pending.cancel()
+                    break
             except flows.CliExitError as exc:
                 # An environment fault, not a bad query. Scoring it as zero
                 # recall would report an accuracy cliff that never happened.
