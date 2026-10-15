@@ -20,7 +20,7 @@ over 17 indexed clips) at concurrent query levels 1, 10, 20, and 50, issued thro
 `vss search run <action>` with the critic agent verifying every returned hit. Each run reports
 client-side end-to-end (E2E) average and P90 latency, successful query throughput (QPS),
 and per-stage latency. A separate
-section reports video upload latency and chunk counts on both platforms for files ranging from short clips to 2-hour sources. Use these numbers to size GPU choice and
+section reports end-to-end video ingestion latency and chunk counts on both platforms for files ranging from short clips to 2-hour sources. Use these numbers to size GPU choice and
 expected query latency under concurrent search load on VSS 3.3.
 
 ## Test Configuration
@@ -89,12 +89,13 @@ and [Smart embedding properties](/vss/system-components/vision-microservices/obj
 in the RTVI-CV documentation.
 </Note>
 
-### Video Upload Performance
+### Video Ingestion Performance
 
 | Parameter | Value |
 | --- | --- |
 | Platforms tested | NVIDIA RTX PRO 6000 Blackwell SE, H100 SXM |
 | Chunk duration | 5 seconds |
+| Indexes waited on | Embeddings, raw frames (RTVI-CV), behavior. RT-VLM tagging was off |
 
 ## E2E Performance
 
@@ -276,31 +277,37 @@ its per-call time is also very close to the wall-clock time the critic phase add
 </Tab>
 </Tabs>
 
-## Video Upload Latency
+## Video Ingestion Latency
 
-This table shows average and P90 upload latency, with chunk counts, for video ingestion. Each
-row is one test: either a single video or a batch of multiple videos uploaded together. The
+This table shows average and P90 per-video ingestion latency, with chunk counts. Each row is
+one test: either a single video or a batch of multiple videos uploaded together. The
 **Duration** column shows how long each video is (or the range of video durations in a batch).
+
+Ingestion latency runs from the start of a video's upload until every index it feeds has
+stabilized: all of its chunk embeddings are written, RTVI-CV has finished the stream and
+stopped writing raw frames, and its behavior documents have stopped changing. The upload
+call itself returns within seconds; the rest is perception processing the video, which is
+why a long video takes about as long to ingest as it does to play.
 
 <Tabs>
 <Tab title="NVIDIA RTX PRO 6000 SE">
 
 | Content | No. of Videos | Duration | Total chunks | Avg chunks per video | Avg (s) | P90 (s) | Total size |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Video 1 | 1 | 140 min | 1684 | 1684 | 27.83 | - | 2421.59 MB |
-| Video 2 | 1 | 60 min | 720 | 720 | 12.95 | - | 1047.76 MB |
-| Batch 1 | 2 | 25 s–210 s | 47 | 23.5 | 1.80 | 1.84 | 183.25 MB |
-| Batch 2 | 17 | 8 s–37 s | 81 | 4.8 | 1.12 | 1.55 | 72.28 MB |
+| Video 1 | 1 | 140 min | 1684 | 1684 | 8554.85 | - | 2421.59 MB |
+| Video 2 | 1 | 60 min | 720 | 720 | 3668.23 | - | 1047.76 MB |
+| Batch 1 | 2 | 25 s–210 s | 47 | 23.5 | 125.31 | 218.50 | 183.25 MB |
+| Batch 2 | 17 | 8 s–37 s | 81 | 4.8 | 37.65 | 48.55 | 72.28 MB |
 
 </Tab>
 <Tab title="H100">
 
 | Content | No. of Videos | Duration | Total chunks | Avg chunks per video | Avg (s) | P90 (s) | Total size |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Video 1 | 1 | 140 min | 1684 | 1684 | 14.40 | - | 2421.59 MB |
-| Video 2 | 1 | 60 min | 720 | 720 | 6.10 | - | 1047.76 MB |
-| Batch 1 | 2 | 25 s–210 s | 47 | 23.5 | 3.13 | 5.29 | 183.25 MB |
-| Batch 2 | 17 | 8 s–37 s | 81 | 4.8 | 1.81 | 2.75 | 72.28 MB |
+| Video 1 | 1 | 140 min | 1684 | 1684 | 8458.44 | - | 2421.59 MB |
+| Video 2 | 1 | 60 min | 720 | 720 | 3625.23 | - | 1047.76 MB |
+| Batch 1 | 2 | 25 s–210 s | 47 | 23.5 | 129.21 | 218.16 | 183.25 MB |
+| Batch 2 | 17 | 8 s–37 s | 81 | 4.8 | 30.94 | 40.26 | 72.28 MB |
 
 </Tab>
 </Tabs>
