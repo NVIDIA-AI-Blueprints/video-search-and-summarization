@@ -16,7 +16,7 @@
 #   docker compose -f compose/x86-rtvi-cr-nemo3-nano_1gpu.yaml up -d
 #   # Wait for health checks, then run benchmark:
 #   cd compose
-#   ./run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_1gpu.yaml -s single_file_test
+#   perf/scripts/run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_1gpu.yaml -s single_file_test
 ################################################################################
 
 name: x86-rtvi-cr-nemo3-nano-1gpu

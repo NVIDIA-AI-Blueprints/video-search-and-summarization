@@ -204,35 +204,35 @@ file_burst_test:
 
 ## Basic Commands
 
-Run from the `perf/benchmark` directory (or from repo root: `python perf/benchmark/vss_perf_benchmark.py` with the same arguments).
+Run these commands from `services/video-summarization`.
 
 ```bash
 # List available modes and scenarios
-python vss_perf_benchmark.py --config vss_sample_config.yaml --list-modes
-python vss_perf_benchmark.py --config vss_sample_config.yaml --list-scenarios
+python perf/benchmark/core/vss_perf_benchmark.py --config perf/configs/vss_sample_config.yaml --list-modes
+python perf/benchmark/core/vss_perf_benchmark.py --config perf/configs/vss_sample_config.yaml --list-scenarios
 
 # Export  VSS backend IP:Port
 export VIA_BACKEND=http://localhost:<port>
 
 # Run scenarios using VSS sample videos config
-python vss_perf_benchmark.py --config vss_sample_config.yaml --scenario single_file_test
-python vss_perf_benchmark.py --config vss_sample_config.yaml --scenario file_burst_test
+python perf/benchmark/core/vss_perf_benchmark.py --config perf/configs/vss_sample_config.yaml --scenario single_file_test
+python perf/benchmark/core/vss_perf_benchmark.py --config perf/configs/vss_sample_config.yaml --scenario file_burst_test
 
 # Quick test with VSS sample videos
-python vss_perf_benchmark.py --config vss_sample_config.yaml --scenario quick_test
+python perf/benchmark/core/vss_perf_benchmark.py --config perf/configs/vss_sample_config.yaml --scenario quick_test
 
 # Run all scenarios
-python vss_perf_benchmark.py --config vss_sample_config.yaml
+python perf/benchmark/core/vss_perf_benchmark.py --config perf/configs/vss_sample_config.yaml
 
 # Run a benchmark against an EVS++-enabled deployment
 VIA_BACKEND=http://localhost:<port> \
-python vss_perf_benchmark.py --config vss_sample_config.yaml --scenario file_burst_test
+python perf/benchmark/core/vss_perf_benchmark.py --config perf/configs/vss_sample_config.yaml --scenario file_burst_test
 
 # Enable debug logging
-python vss_perf_benchmark.py --config vss_sample_config.yaml --scenario test_name --debug
+python perf/benchmark/core/vss_perf_benchmark.py --config perf/configs/vss_sample_config.yaml --scenario test_name --debug
 ```
 
-**CI/Jenkins:** The same script is used by the perf pipeline (`ci/Jenkinsfile.perf`). The pipeline runs from `perf/benchmark` with `python vss_perf_benchmark.py`; see [ci/PERF_PIPELINE_GUIDE.md](../../ci/PERF_PIPELINE_GUIDE.md) for parameters and flow.
+**CI/Jenkins:** The central perf pipeline invokes `perf/scripts/run_benchmark.sh`, which runs `perf/benchmark/core/vss_perf_benchmark.py` with configuration from `perf/configs/`.
 
 ## Configuration File Structure
 

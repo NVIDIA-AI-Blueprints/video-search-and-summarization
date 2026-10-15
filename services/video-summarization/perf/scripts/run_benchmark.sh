@@ -111,7 +111,7 @@ Examples:
   $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -G h100                      # force device overlay
   $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -G rtx-pro-6000              # force RTX Pro 6000 Blackwell overlay
   $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -G none                      # use base compose default
-  $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -c vss_sample_config.yaml -s single_file_test file_burst_test
+  $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -c vss_sample_config.yaml -s single_file_test -s file_burst_test
   $(basename "$0") -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -O vss-perf-results -d
 EOF
     exit 0
@@ -119,7 +119,7 @@ EOF
 
 COMPOSE_FILE=""
 BENCHMARK_CONFIG="config.yaml"
-SCENARIO_ARGS=""
+SCENARIO_ARGS=()
 LVS_PORT=38111
 HEALTH_TIMEOUT=600
 VLM_GPUS=""
@@ -141,7 +141,7 @@ while getopts "f:c:s:p:t:v:l:G:r:I:O:dh" opt; do
                 _sc="${_sc#"${_sc%%[![:space:]]*}"}"
                 _sc="${_sc%"${_sc##*[![:space:]]}"}"
                 if [ -n "$_sc" ]; then
-                    SCENARIO_ARGS="${SCENARIO_ARGS:+$SCENARIO_ARGS }$_sc"
+                    SCENARIO_ARGS+=("$_sc")
                 fi
             done
             ;;
@@ -298,6 +298,34 @@ if [ -f "$COMPOSE_DIR/.env" ]; then
     set +a
 fi
 
+export_gpu_assignments() {
+    local prefix="$1"
+    local values="$2"
+    local -a gpu_ids
+    local gpu_id
+    local index
+
+    IFS=',' read -ra gpu_ids <<< "$values"
+    for index in "${!gpu_ids[@]}"; do
+        gpu_id="${gpu_ids[$index]//[[:space:]]/}"
+        if [[ ! "$gpu_id" =~ ^[0-9]+$ ]]; then
+            error "Invalid GPU assignment '$gpu_id' in '$values'"
+            exit 1
+        fi
+        printf -v "${prefix}${index}" '%s' "$gpu_id"
+        export "${prefix}${index}"
+    done
+}
+
+# Keep benchmark monitoring and Compose container placement on the same GPUs.
+if [ -n "$VLM_GPUS" ]; then
+    export_gpu_assignments "RTVI_GPU_" "$VLM_GPUS"
+    export_gpu_assignments "VLM_NIM_GPU_" "$VLM_GPUS"
+fi
+if [ -n "$LLM_GPUS" ]; then
+    export_gpu_assignments "LLM_GPU_" "$LLM_GPUS"
+fi
+
 if [ -z "${ARTIFACTORY_USER:-}" ] || [ -z "${ARTIFACTORY_TOKEN:-}" ]; then
     error "ARTIFACTORY_USER and ARTIFACTORY_TOKEN must be set"
     echo "  Example:"
@@ -310,7 +338,7 @@ fi
 # --- Optional: override LVS image in compose file (e.g. for CI or local -I) ---
 if [ -n "$IMAGE_TAG_OVERRIDE" ]; then
     step "Overriding LVS image in compose file with: $IMAGE_TAG_OVERRIDE"
-    sed -i "s|image: nvcr.io/.*/vss-video-summarization:.*|image: ${IMAGE_TAG_OVERRIDE}|g" "$COMPOSE_FILE_PATH"
+    export LVS_IMAGE="$IMAGE_TAG_OVERRIDE"
 fi
 
 # --- Export env for compose (CI may set NGC_API_KEY, LOCAL_NIM_CACHE, etc.) ---
@@ -334,8 +362,35 @@ else
     DOCKER_PREFIX=""
 fi
 
+STACK_LAUNCH_ATTEMPTED=false
+LVS_LOG_PID=""
+
+cleanup() {
+    local exit_code=$?
+    trap - EXIT
+    set +e
+
+    if [ -n "$LVS_LOG_PID" ]; then
+        kill -- -"$LVS_LOG_PID" 2>/dev/null || true
+    fi
+
+    if [ "$TEARDOWN" = true ] && [ "$STACK_LAUNCH_ATTEMPTED" = true ]; then
+        step "Tearing down compose stack..."
+        if ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" down; then
+            info "Stack torn down"
+        else
+            error "Compose teardown failed"
+            [ "$exit_code" -ne 0 ] || exit_code=1
+        fi
+    fi
+
+    exit "$exit_code"
+}
+trap cleanup EXIT
+
 # --- Step 1: Launch compose stack ---
 step "Starting compose stack: $COMPOSE_FILE${OVERLAY_FILE_PATH:+ + overlays/$(basename "$OVERLAY_FILE_PATH")}"
+STACK_LAUNCH_ATTEMPTED=true
 LVS_BACKEND_PORT="$LVS_PORT" ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" up -d
 
 # Stream all service logs in the background immediately after containers start,
@@ -442,24 +497,24 @@ else
 fi
 step "Output directory: $VIA_OUTPUT_DIR"
 
-BENCHMARK_CMD="python3 vss_perf_benchmark.py --config \"$BENCHMARK_CONFIG_PATH\""
-if [ -n "$SCENARIO_ARGS" ]; then
-    BENCHMARK_CMD="$BENCHMARK_CMD --scenario $SCENARIO_ARGS"
-    step "Scenarios: $SCENARIO_ARGS"
+BENCHMARK_CMD=(python3 vss_perf_benchmark.py --config "$BENCHMARK_CONFIG_PATH")
+if [ "${#SCENARIO_ARGS[@]}" -gt 0 ]; then
+    BENCHMARK_CMD+=(--scenario "${SCENARIO_ARGS[@]}")
+    step "Scenarios: ${SCENARIO_ARGS[*]}"
 fi
 if [ -n "$OUTPUT_JSON_NAME" ]; then
-    BENCHMARK_CMD="$BENCHMARK_CMD --output-json $OUTPUT_JSON_NAME --output-dir $VIA_OUTPUT_DIR"
-    BENCHMARK_CMD="$BENCHMARK_CMD --compose-file $COMPOSE_REL_PATH"
-    [ -n "${CONFIG_ID:-}" ] && BENCHMARK_CMD="$BENCHMARK_CMD --config-id $CONFIG_ID"
-    [ -n "${TRIGGERED_BY:-}" ] && BENCHMARK_CMD="$BENCHMARK_CMD --triggered-by $TRIGGERED_BY"
-    [ -n "${PIPELINE_URL:-}" ] && BENCHMARK_CMD="$BENCHMARK_CMD --pipeline-url $PIPELINE_URL"
+    BENCHMARK_CMD+=(--output-json "$OUTPUT_JSON_NAME" --output-dir "$VIA_OUTPUT_DIR")
+    BENCHMARK_CMD+=(--compose-file "$COMPOSE_REL_PATH")
+    [ -n "${CONFIG_ID:-}" ] && BENCHMARK_CMD+=(--config-id "$CONFIG_ID")
+    [ -n "${TRIGGERED_BY:-}" ] && BENCHMARK_CMD+=(--triggered-by "$TRIGGERED_BY")
+    [ -n "${PIPELINE_URL:-}" ] && BENCHMARK_CMD+=(--pipeline-url "$PIPELINE_URL")
     if [ -n "${UPLOAD_TO_MINIO:-}" ] && [ "$UPLOAD_TO_MINIO" != "false" ] && [ "$UPLOAD_TO_MINIO" != "0" ]; then
-        BENCHMARK_CMD="$BENCHMARK_CMD --upload"
+        BENCHMARK_CMD+=(--upload)
     fi
 fi
-[ -n "$VLM_GPUS" ] && BENCHMARK_CMD="$BENCHMARK_CMD --vlm-gpus $VLM_GPUS"
-[ -n "$LLM_GPUS" ] && BENCHMARK_CMD="$BENCHMARK_CMD --llm-gpus $LLM_GPUS"
-[ -n "$RELEASE" ] && BENCHMARK_CMD="$BENCHMARK_CMD --release \"$RELEASE\""
+[ -n "$VLM_GPUS" ] && BENCHMARK_CMD+=(--vlm-gpus "$VLM_GPUS")
+[ -n "$LLM_GPUS" ] && BENCHMARK_CMD+=(--llm-gpus "$LLM_GPUS")
+[ -n "$RELEASE" ] && BENCHMARK_CMD+=(--release "$RELEASE")
 
 cd "$BENCHMARK_DIR"
 if [ ! -f "$VENV_DIR/bin/activate" ]; then
@@ -494,8 +549,11 @@ info "Activated virtualenv: $VENV_DIR"
 export VIA_BACKEND="http://localhost:$LVS_PORT"
 [ -n "$VLM_GPUS" ] && export VIA_VLM_GPUS="$VLM_GPUS"
 [ -n "$LLM_GPUS" ] && export VIA_LLM_GPUS="$LLM_GPUS"
-eval "$BENCHMARK_CMD"
-benchmark_exit=$?
+if "${BENCHMARK_CMD[@]}"; then
+    benchmark_exit=0
+else
+    benchmark_exit=$?
+fi
 
 if [ $benchmark_exit -eq 0 ]; then
     info "Benchmark completed successfully"
@@ -503,13 +561,6 @@ else
     error "Benchmark failed (exit code: $benchmark_exit)"
     step "Recent lvs logs (debug HTTP 500 on /summarize, model, video pipeline)"
     ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" logs --no-color --tail 400 lvs 2>/dev/null || true
-fi
-
-# --- Step 4: Teardown (optional) ---
-if [ "$TEARDOWN" = true ]; then
-    step "Tearing down compose stack..."
-    ${DOCKER_PREFIX}docker compose "${COMPOSE_FILE_ARGS[@]}" down
-    info "Stack torn down"
 fi
 
 exit $benchmark_exit

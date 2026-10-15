@@ -27,7 +27,7 @@
 #   export REMOTE_LLM_MODEL_NAME=nvidia/nvidia-nemotron-nano-9b-v2
 #   export ASSET_DOWNLOAD_AUTH_TOKENS="artifactory.nvidia.com=Bearer <token>"
 #   docker compose -f compose/orin-nx-rtvi-cr-remote-llm.yaml up -d
-#   ./run_benchmark.sh -f orin-nx-rtvi-cr-remote-llm.yaml -s single_file_test
+#   perf/scripts/run_benchmark.sh -f orin-nx-rtvi-cr-remote-llm.yaml -s single_file_test
 
 name: orin-nx-rtvi-cr-remote-llm
 
@@ -82,7 +82,7 @@ services:
     environment:
       # API keys
       NGC_API_KEY: ${NGC_API_KEY:-}
-      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      NVIDIA_API_KEY: ${REMOTE_LLM_API_KEY:-${NVIDIA_API_KEY:-}}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       HF_TOKEN: ${HF_TOKEN:-}
 
@@ -103,7 +103,6 @@ services:
       LVS_LLM_ENABLE: "true"
       LVS_LLM_BASE_URL: ${REMOTE_LLM_BASE_URL:?set REMOTE_LLM_BASE_URL to remote LLM /v1 endpoint}
       LVS_LLM_MODEL_NAME: ${REMOTE_LLM_MODEL_NAME:-nvidia/nvidia-nemotron-nano-9b-v2}
-      LVS_LLM_API_KEY: ${REMOTE_LLM_API_KEY:-}
       LVS_EMB_ENABLE: "false"
       LVS_ENABLE_LLM_MERGING: "true"
 

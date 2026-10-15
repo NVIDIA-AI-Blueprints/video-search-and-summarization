@@ -23,10 +23,16 @@ limitations under the License.
 
 ## Quick Setup
 
+Run commands in this guide from the service's `perf/setup` directory:
+
+```bash
+cd services/video-summarization/perf/setup
+```
+
 Run the interactive setup script to complete all prerequisites in one go:
 
 ```bash
-./setup.sh
+./scripts/setup.sh
 ```
 
 ## Prerequisites
@@ -83,7 +89,7 @@ docker compose -f <compose-file>.yaml --profile media up -d
 COMPOSE_PROFILES=media docker compose -f <compose-file>.yaml up -d
 ```
 
-The `media` profile is opt-in to keep dev-CI integration tests (which don't read any media-server file) from blocking ~15 min on the multi-GB downloader. `compose/run_benchmark.sh` and the perf Jenkins pipeline activate it automatically; manual perf invocations need the flag explicitly.
+The `media` profile is opt-in to keep dev-CI integration tests (which don't read any media-server file) from blocking ~15 min on the multi-GB downloader. `../scripts/run_benchmark.sh` and the perf Jenkins pipeline activate it automatically; manual perf invocations need the flag explicitly.
 
 ### Remote LLM (e.g. RTX 4500, 1-GPU host with LLM hosted elsewhere)
 
@@ -108,7 +114,7 @@ docker compose -f compose/x86-rtvi-cr-remote-llm_1gpu.yaml --profile media up -d
 docker compose -f compose/x86-rtvi-cr-remote-llm_1gpu.yaml --profile media logs -f lvs
 
 # 4. (optional) Run the benchmark against it
-./run_benchmark.sh -f x86-rtvi-cr-remote-llm_1gpu.yaml -s single_file_test
+../scripts/run_benchmark.sh -f x86-rtvi-cr-remote-llm_1gpu.yaml -s single_file_test
 
 # 5. Tear down
 docker compose -f compose/x86-rtvi-cr-remote-llm_1gpu.yaml down
@@ -122,40 +128,40 @@ Use `run_benchmark.sh` to launch a stack, wait for health, and run the benchmark
 
 ```bash
 # Quick test (GPU overlay auto-detected)
-./run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -s quick_test
+../scripts/run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -s quick_test
 
 # Full benchmark, tear down after
-./run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -d
+../scripts/run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -d
 
 # Override GPU assignment and use a custom config
-./run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -v 0,1 -l 2,3 -c perf_benchmark_config.yaml
+../scripts/run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -v 0,1 -l 2,3 -c perf_benchmark_config.yaml
 
 # Force a specific overlay (e.g. test the B200 NVFP4 build on a mixed host)
-./run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -G b200
+../scripts/run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -G b200
 
 # Skip overlay auto-detect; use base compose default
-./run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -G none
+../scripts/run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -G none
 ```
 
-Run `./run_benchmark.sh -h` for all options.
+Run `../scripts/run_benchmark.sh -h` for all options.
 
 ### Uploading Results to MinIO After Review
 
-To inspect results locally before publishing to the dashboard, run the benchmark with `-O <name>` (writes a schema-conformant `lvs_*.json` to `../perf/benchmark/vss-perf-report/`) and skip `UPLOAD_TO_MINIO`. When ready, push with `upload_perf_results.sh`:
+To inspect results locally before publishing to the dashboard, run the benchmark with `-O <name>` (writes a schema-conformant `lvs_*.json` to `../benchmark/vss-perf-report/`) and skip `UPLOAD_TO_MINIO`. When ready, push with `upload_perf_results.sh`:
 
 ```bash
 # Upload everything in the report dir, stamped as 'sqa'
-./upload_perf_results.sh ../perf/benchmark/vss-perf-report/ -T sqa
+../scripts/upload_perf_results.sh ../benchmark/vss-perf-report/ -T sqa
 
 # Or a specific file, stamped as 'perf-lab'
-./upload_perf_results.sh ../perf/benchmark/vss-perf-report/lvs_*.json -T perf-lab
+../scripts/upload_perf_results.sh ../benchmark/vss-perf-report/lvs_*.json -T perf-lab
 ```
 
 - First arg is a single `lvs_*.json` file or a directory (globs `lvs_*.json` inside).
 - `-T TRIGGER` stamps `metadata.run_info.triggered_by` in each JSON before upload (`ci_pipeline | manual | scheduled | sqa | perf-lab`). Omit to keep whatever's in the file.
 - Uploads to the standard `10.111.52.248:9000` `perf-results` bucket (baked-in defaults). Reuses the perf venv bootstrapped by any prior `run_benchmark.sh` run.
 
-Run `./upload_perf_results.sh -h` for all options.
+Run `../scripts/upload_perf_results.sh -h` for all options.
 
 ## GPU overlays
 
@@ -198,7 +204,7 @@ docker compose \
   --profile media up -d
 
 # or let run_benchmark.sh pick the overlay automatically (recommended)
-./run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml
+../scripts/run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml
 ```
 
 ### Choose Nano or Super
@@ -207,10 +213,10 @@ docker compose \
 
 ```bash
 # CR3 Super, at whatever precision the detected GPU supports
-CR3_VARIANT=super ./run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml
+CR3_VARIANT=super ../scripts/run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml
 
 # works with no overlay too — falls back to the base file's precision
-CR3_VARIANT=super ./run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -G none
+CR3_VARIANT=super ../scripts/run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml -G none
 
 # or persistently, in .env
 echo 'CR3_VARIANT=super' >> .env
@@ -249,7 +255,7 @@ docker run -d --name nim-llm \
 curl -s http://10.78.6.24:9233/v1/health/ready
 ```
 
-**Step 2 — `.env` on the Orin NX** (place in `lvs-axon-perf/compose/.env`):
+**Step 2 — `.env` on the Orin NX** (place in `perf/setup/compose/.env`):
 
 ```bash
 NGC_API_KEY=<your-ngc-api-key>
@@ -279,7 +285,7 @@ docker compose -f compose/orin-nx-rtvi-cr-remote-llm.yaml --profile media up -d
 docker compose -f compose/orin-nx-rtvi-cr-remote-llm.yaml logs -f lvs rtvi-vlm
 
 # Run a quick benchmark (-G none skips overlay auto-detect; BF16 MODEL_PATH in .env wins)
-./compose/run_benchmark.sh -f orin-nx-rtvi-cr-remote-llm.yaml -s single_file_test -G none
+../scripts/run_benchmark.sh -f orin-nx-rtvi-cr-remote-llm.yaml -s single_file_test -G none
 
 # Tear down
 docker compose -f compose/orin-nx-rtvi-cr-remote-llm.yaml down
@@ -291,11 +297,11 @@ Each compose file has a `name:` field that automatically namespaces containers, 
 
 ```bash
 # Terminal 1 — RTVI stack on GPUs 4-7, default port 38111
-./run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml \
+../scripts/run_benchmark.sh -f x86-rtvi-cr-nemo3-nano_4gpu.yaml \
   -v 4,5 -l 6,7 -s quick_test -d
 
 # Terminal 2 — RTVI+NIM-VLM stack on GPUs 0-3, port 39111
-./run_benchmark.sh -f x86-rtvi-cr-nim-nemo3-nano_4gpu.yaml \
+../scripts/run_benchmark.sh -f x86-rtvi-cr-nim-nemo3-nano_4gpu.yaml \
   -p 39111 -v 0,1 -l 2,3 -s quick_test -d
 ```
 

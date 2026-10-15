@@ -299,13 +299,12 @@ def write_vss_result_json(
             if upload_result_file(str(json_path), "LVS"):
                 logger.info("Uploaded to MinIO: LVS/%s", json_path.name)
             else:
-                logger.warning(
-                    "Upload failed. Optional: set MINIO_ACCESS_KEY, MINIO_SECRET_KEY if your "
-                    "server does not use default (minioadmin). Check MINIO_ENDPOINT is reachable."
+                raise RuntimeError(
+                    "Upload failed. Check MinIO credentials and ensure MINIO_ENDPOINT is reachable."
                 )
         return str(json_path)
     except Exception as e:
-        logger.warning("VSS JSON/upload failed: %s", e)
+        logger.error("VSS JSON/upload failed: %s", e)
         return None
 
 
@@ -410,14 +409,15 @@ def run_single_scenario(
         logger.info(f"Results: {successful}/{total} test cases passed")
         logger.info(f"Report generated: {report_file}")
 
-        # Collect VSS test cases for combined JSON output after all scenarios finish.
-        if getattr(args, "output_json", None) and scenario_success:
+        # Collect every test case, including failures, for combined JSON output.
+        if getattr(args, "output_json", None):
             try:
                 test_cases = execution_results_to_test_cases(benchmark, execution_results)
                 if test_cases:
                     scenario_result["vss_test_cases"] = test_cases
             except Exception as e:
-                logger.warning("VSS test case conversion failed: %s", e)
+                scenario_result["result_conversion_error"] = str(e)
+                logger.error("VSS test case conversion failed: %s", e)
 
     except Exception as e:
         scenario_result.update({"success": False, "error": str(e)})
@@ -813,31 +813,47 @@ def main():
 
     total_execution_time = time.time() - total_start_time
 
+    result_output_failed = False
     if getattr(args, "output_json", None):
         combined_test_cases: List[Dict[str, Any]] = []
-        json_scenarios: List[Dict] = []
         for result in scenario_results:
             cases = result.get("vss_test_cases") or []
             if cases:
                 combined_test_cases.extend(cases)
-                json_scenarios.append(result)
-        if combined_test_cases:
-            effective_config_id = (args.config_id or "").strip() or "default"
-            total_passed = sum(r.get("successful_test_cases", 0) for r in json_scenarios)
-            total_failed = sum(r.get("failed_test_cases", 0) for r in json_scenarios)
-            write_vss_result_json(
-                args,
-                global_config,
-                runtime_metadata,
-                effective_config_id,
-                combined_test_cases,
-                benchmark_names=[r["scenario_name"] for r in json_scenarios],
-                benchmark_modes=[r["benchmark_mode"] for r in json_scenarios],
-                output_base_dir=output_base_dir,
-                duration_seconds=total_execution_time,
-                passed=total_passed,
-                failed=total_failed,
-            )
+            elif not result.get("success", False):
+                combined_test_cases.append(
+                    {
+                        "test_case_id": f"{result['scenario_name']}_scenario",
+                        "description": f"Scenario {result['scenario_name']}",
+                        "status": "FAIL",
+                        "error": result.get("error") or "Scenario failed before producing test cases",
+                        "config": {},
+                        "metrics": {},
+                    }
+                )
+
+        effective_config_id = (args.config_id or "").strip() or "default"
+        total_passed = sum(r.get("successful_test_cases", 0) for r in scenario_results)
+        total_failed = sum(
+            r.get("failed_test_cases", 1 if not r.get("success", False) else 0)
+            for r in scenario_results
+        )
+        json_path = write_vss_result_json(
+            args,
+            global_config,
+            runtime_metadata,
+            effective_config_id,
+            combined_test_cases,
+            benchmark_names=[r["scenario_name"] for r in scenario_results],
+            benchmark_modes=[r["benchmark_mode"] for r in scenario_results],
+            output_base_dir=output_base_dir,
+            duration_seconds=total_execution_time,
+            passed=total_passed,
+            failed=total_failed,
+        )
+        result_output_failed = json_path is None or any(
+            r.get("result_conversion_error") for r in scenario_results
+        )
 
     # Print overall summary
     successful_scenarios = sum(1 for r in scenario_results if r["success"])
@@ -871,7 +887,7 @@ def main():
             logger.info(f"  - {result['scenario_name']}: {result['report_file']}")
 
     # Exit with appropriate code
-    sys.exit(0 if failed_scenarios == 0 else 1)
+    sys.exit(0 if failed_scenarios == 0 and not result_output_failed else 1)
 
 
 if __name__ == "__main__":
