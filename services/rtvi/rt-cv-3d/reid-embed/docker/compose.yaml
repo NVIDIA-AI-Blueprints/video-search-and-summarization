@@ -1,0 +1,132 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  # Etcd for Milvus
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.18
+    container_name: reid-etcd
+    network_mode: host
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    volumes:
+      - etcd-data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # MinIO for Milvus storage
+  minio:
+    image: cgr.dev/chainguard/minio:latest@sha256:6a1d0b45c8669726bba580ced0bfa4cb9fdeed1ed636dfabd81d1577beb6937b
+    container_name: reid-minio
+    network_mode: host
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    # The image entrypoint is `minio`, and /data is the one directory its
+    # non-root user can write.
+    command: server /data --console-address ":9001" --address ":9000"
+    # The image ships `mc` but no `curl`.
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # Milvus standalone
+  milvus-standalone:
+    image: milvusdb/milvus:v2.5.12
+    container_name: reid-milvus
+    network_mode: host
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: localhost:2379
+      MINIO_ADDRESS: localhost:9000
+    volumes:
+      - milvus-data:/var/lib/milvus
+    command: ["milvus", "run", "standalone"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+  # ReID Vector Search Service
+  reid-embed:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: reid-embed
+    runtime: nvidia
+    network_mode: host
+    depends_on:
+      milvus-standalone:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
+      interval: 60s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    env_file:
+      - .env
+    environment:
+      # Host network: localhost is the host, where etcd, MinIO, Milvus, and Kafka live.
+      - KAFKA_CONSUMER_SERVER=${KAFKA_CONSUMER_SERVER:-localhost:9092}
+      - KAFKA_PRODUCER_SERVER=${KAFKA_PRODUCER_SERVER:-localhost:9092}
+      - KAFKA_CONSUMER_TOPIC=${KAFKA_CONSUMER_TOPIC:-mv3dt}
+      - MILVUS_HOST=${MILVUS_HOST:-localhost}
+      - DEEPSTREAM_SCHEMA=${DEEPSTREAM_SCHEMA:-protobuf}
+      - PYTHONUNBUFFERED=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    restart: unless-stopped
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    # Host path mounted at the same path inside, so absolute model paths
+    # resolve identically. MOUNT_DIR comes from the shell or .env.
+    volumes:
+      - "${MOUNT_DIR:-/tmp/.reid-empty-mount}:${MOUNT_DIR:-/tmp/.reid-empty-mount}:${MOUNT_OPTS:-rw}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  etcd-data:
+  minio-data:
+  milvus-data:

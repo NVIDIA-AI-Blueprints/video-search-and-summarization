@@ -1,0 +1,146 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# Integration stack for one reid-embed image.
+#
+# Starts Milvus, a single-node Kafka broker, and the image under test.
+# The test host publishes an embedding to mv3dt, then calls the public HTTP
+# API. ENABLE_DEBUG_ENDPOINTS stays off.
+#
+# Required env:
+#   IMAGE_REF  - reid-embed image to start (for example nvcr.io/.../reid-embed:tag)
+
+name: reid-image-test
+
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.18
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  minio:
+    image: cgr.dev/chainguard/minio:latest@sha256:6a1d0b45c8669726bba580ced0bfa4cb9fdeed1ed636dfabd81d1577beb6937b
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001" --address ":9000"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  milvus:
+    image: milvusdb/milvus:v2.5.12
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+
+  kafka:
+    image: confluentinc/cp-kafka:8.2.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:29092", "--list"]
+      interval: 5s
+      timeout: 10s
+      retries: 24
+      start_period: 10s
+
+  # The service consumes from auto.offset.reset=latest, so the topic must
+  # exist before it subscribes. Otherwise the first produced embedding is missed.
+  kafka-init:
+    image: confluentinc/cp-kafka:8.2.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        set -e
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists \
+          --topic mv3dt --partitions 1 --replication-factor 1
+        echo "mv3dt topic ready"
+
+  reid-embed:
+    image: ${IMAGE_REF:?set IMAGE_REF to the reid-embed image under test}
+    ports:
+      - "8000:8000"
+    environment:
+      MESSAGE_BROKER: kafka
+      KAFKA_CONSUMER_SERVER: kafka:29092
+      KAFKA_CONSUMER_TOPIC: mv3dt
+      DEEPSTREAM_SCHEMA: protobuf
+      ENABLE_DEBUG_ENDPOINTS: "false"
+      ENABLE_CLUSTERING: "false"
+      ENABLE_COMPRESSION: "false"
+      ENABLE_SECONDARY_EMBEDDING: "false"
+      CLEAN_RESTART: "true"
+      MILVUS_HOST: milvus
+      MILVUS_PORT: "19530"
+      DIMENSION: "1280"
+      REID_SERVICE_HOST: 0.0.0.0
+      REID_SERVICE_PORT: "8000"
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      milvus:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests,sys; r=requests.get('http://127.0.0.1:8000/health/ready'); sys.exit(0 if r.ok else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 30s

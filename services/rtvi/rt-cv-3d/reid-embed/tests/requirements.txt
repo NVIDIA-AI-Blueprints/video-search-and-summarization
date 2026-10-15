@@ -1,0 +1,9 @@
+# Dependencies for the top-level test suite.
+# pydantic and protobuf match the service pins: unit tests import SearchInput
+# and the generated protobuf modules.
+pytest>=8.0
+pytest-timeout>=2.3
+requests>=2.31
+pydantic==2.4.2
+kafka-python>=2.0.2
+protobuf==6.33.5
