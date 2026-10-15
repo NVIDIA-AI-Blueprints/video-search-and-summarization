@@ -405,6 +405,11 @@ analytics:
       - --config
       - /resources/vss-behavior-analytics-config.json
     config:
+      # Edge hardware (DGX-SPARK, IGX-THOR, AGX-THOR) uses
+      # fovCountViolationIncidentExpirationWindow "2" instead of the "0.5"
+      # default below, mirroring the Docker EDGE-vss-behavior-analytics-config.json
+      # selected by PERCEPTION_DOCKERFILE_PREFIX=EDGE-. Override kafkaConfigJson
+      # in your -f values override for edge installs.
       kafkaConfigJson: |
         {
           "kafka": {
