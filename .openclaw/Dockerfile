@@ -214,13 +214,10 @@ USER root
 # before the agent started. World-writable like the openshell-community image,
 # so the harness can populate them as the sandbox user; the eval harness moves
 # files in and out with exec+tar, so they do not need to live in the workspace.
-# Media operations also need `file`, which the sandbox cannot apt-install at
-# runtime. Share this layer with the trial directories: the managed base already
-# has 103 filesystem layers, close to the legacy Docker builder's 125 limit.
-RUN apt-get update && apt-get install -y --no-install-recommends file \
-    && rm -rf /var/lib/apt/lists/* \
-    && su -s /bin/sh sandbox -c "file --version" \
-    && for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done
+# Keep trial directories in one layer: the managed base is close to the
+# legacy Docker builder's layer limit. Media checks use the OpenCV dependency
+# already installed with the VSS CLI below; no extra OS utility is needed.
+RUN for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done
 
 # The vss CLI. nvidia-vss-cli is on no reachable index, so the vss-src stage
 # builds it as wheels from the same pinned checkout the skills came from (or

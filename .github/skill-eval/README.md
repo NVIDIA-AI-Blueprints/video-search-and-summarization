@@ -325,6 +325,12 @@ The setup checks require trajectory evidence of Build Vision AI use and,
 when selected, a ready NemoClaw sandbox with its VSS CLI configured. An answer
 that only mentions the skill or sandbox does not satisfy those checks.
 
+Media validation uses Python signature inspection plus the OpenCV dependency
+already installed with the VSS CLI. JPEG snapshots must decode into a nonempty
+image; MP4 clips must have a compatible container signature and a decodable
+video frame. Check the same downloaded bytes, without re-fetching a lazily
+rendered URL. The sandbox does not need the Debian `file` package.
+
 ### Worked example — `skills/operations/vss-manage-video-io-storage/evals/vios_ops.json`
 
 The first query explicitly asks `/vss-build-vision-ai` to deploy VIOS in SDRC-routed mode, without uploading the evaluation video. It also describes how to attach NemoClaw when selected. Later queries exercise upload, snapshot, clip, recording, and replay APIs on the preserved deployment.
