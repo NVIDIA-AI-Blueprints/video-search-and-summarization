@@ -1,0 +1,2 @@
+def path: .decomposition as $d | if ($d.object_ids // [] | length) > 0 then "object" elif ($d.attributes // [] | length) == 0 then "embed" elif $d.has_action == true then "fusion" else "attribute" end;
+[.query_results[] | {p: path, r: .recall, h1: .hit_at_k["1"], h5: .hit_at_k["5"], rr: .reciprocal_rank}] | group_by(.p)[] | {path: .[0].p, n: length, recall: ((map(.r)|add/length)*1000|round/1000), hit1: ((map(.h1)|add/length)*1000|round/1000), hit5: ((map(.h5)|add/length)*1000|round/1000), mrr: ((map(.rr)|add/length)*1000|round/1000)}
