@@ -235,7 +235,7 @@ class JudgeVerdictRecovery(unittest.IsolatedAsyncioTestCase):
                     ClaudeAgentOptions=lambda **kwargs: SimpleNamespace(**kwargs),
                 )
                 with patch.dict(sys.modules, {"claude_agent_sdk": sdk}), patch.dict(
-                    os.environ, {"ANTHROPIC_API_KEY": "test-placeholder"},
+                    os.environ, {"ANTHROPIC_API_KEY": "test-placeholder"},  # pragma: allowlist secret (SDK test dummy)
                 ):
                     judge = _load_generic_judge()
                     result = await judge._judge_llm_agent(

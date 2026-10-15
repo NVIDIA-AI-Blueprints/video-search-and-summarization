@@ -454,6 +454,22 @@ def test_nemoclaw_failure_stage_survives_harbor_network_classification(tmp_path:
     assert summary["steps"][0]["state"] == "recorded-fail"
 
 
+def test_native_inference_failure_reason_is_rendered_without_raw_output(tmp_path: Path) -> None:
+    trial = _trial(tmp_path, "r", "step-1__aaa", reward=1.0, passed=6, total=6,
+                   start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
+                   exception="NetworkConnectionError")
+    receipts = trial / "artifacts/logs/artifacts/nemoclaw"
+    receipts.mkdir(parents=True)
+    (receipts / "setup-readiness.json").write_text(json.dumps({"stages": [
+        {"stage": "local_inference", "status": "failed", "reason": "compaction_timeout",
+         "stderr": "confidential-payload"},
+    ]}))
+    leg = leg_report.collect_leg(tmp_path)
+    body = leg_report.render_comment(leg, spec_path="s.json", platform="L40S", head_sha="0862faf3")
+    assert "local_inference (compaction_timeout)" in body
+    assert "confidential-payload" not in body
+
+
 def test_nemoclaw_receipts_are_attempt_scoped_and_allowlisted(tmp_path: Path) -> None:
     trial = _trial(tmp_path, "r", "step-2__aaa", reward=0.0,
                    start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
