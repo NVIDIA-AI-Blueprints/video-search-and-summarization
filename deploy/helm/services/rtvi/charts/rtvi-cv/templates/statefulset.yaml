@@ -109,6 +109,14 @@ spec:
               value: {{ .Values.env.DS_MODE_FLAG | default "1" | quote }}
             - name: DS_MESSAGE_RATE
               value: {{ .Values.env.DS_MESSAGE_RATE | default "1" | quote }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             {{- if .Values.downloadModelsFromNgc }}
             - name: NGC_CLI_API_KEY
               valueFrom:
@@ -310,6 +318,14 @@ spec:
               value: "otlp"
             - name: MDX_KAFKA_BOOTSTRAP_SERVERS
               value: {{ include "vss-rtvi-cv.kafkaBootstrap" . | quote }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             {{- if .Values.downloadModelsFromNgc }}
             - name: NGC_CLI_API_KEY
               valueFrom:
