@@ -193,10 +193,12 @@ def acquire(reference, destination, recipe):
         check_tree(root)
         payload.rename(destination)
     return {
-        "artifact_ref": reference,
-        "resource_version": reference.rsplit(":", 1)[1],
-        "verified": True,
-        "compose_root": str(destination / root_relative),
+        "apps": str(destination / root_relative),
         "env_files": [str(destination / p) for p in relative_files],
-        "container_pins": pins,
+        "promoted_artifact": {
+            "artifact_ref": reference,
+            "resource_version": reference.rsplit(":", 1)[1],
+            "verified": True,
+            "container_pins": pins,
+        },
     }

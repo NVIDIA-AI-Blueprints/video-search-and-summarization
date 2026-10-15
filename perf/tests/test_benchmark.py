@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Focused benchmark contracts; fixtures are never hardware measurements."""
 
-import importlib.util
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,9 +12,8 @@ import pytest
 import yaml
 
 CORE = Path(__file__).parents[1] / "benchmark/core/vss_perf_benchmark.py"
-SPEC = importlib.util.spec_from_file_location("benchmark", CORE)
-benchmark = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(benchmark)
+sys.path.insert(0, str(CORE.parent))
+import vss_perf_benchmark as benchmark
 
 
 def test_fps_formats_keep_instantaneous_values_and_zero():

@@ -52,8 +52,14 @@ def test_preflight_editable_cli_model_precision_and_direct_promotion(runtime):
         VSS_CONTAINER_TAG="caller-latest",
     )
     published = {
-        "compose_root": state["apps"],
+        "apps": state["apps"],
         "env_files": [state["apps"] + "/containers.env"],
+        "promoted_artifact": {
+            "artifact_ref": os.environ["IMAGE_TAG"],
+            "resource_version": "version",
+            "verified": True,
+            "container_pins": {},
+        },
     }
     with (
         patch.object(stage, "command") as commands,
@@ -69,6 +75,11 @@ def test_preflight_editable_cli_model_precision_and_direct_promotion(runtime):
     assert acquire.call_args.args[0] == os.environ["IMAGE_TAG"]
     assert acquire.call_args.args[2] == Path(state["compose"])
     assert "VSS_CONTAINER_TAG" not in stage.environment(state)
+    assert (
+        json.loads(stage.STATE.read_text())["promoted_artifact"]
+        == published["promoted_artifact"]
+    )
+    assert not (Path(state["data"]) / "promoted-artifact.json").exists()
     pgie = (
         Path(state["data"]) / "rt-cv-configs/ds-ppl-analytics-pgie-config.yml"
     ).read_text()
@@ -116,23 +127,33 @@ def test_scoped_teardown_database_reset_and_idempotence(runtime):
         stage.teardown(*runtime, {})
 
 
-def test_post_deploy_uses_returned_sensor_identifier_and_checks_fps(runtime):
+def test_post_deploy_reads_sensor_listing_and_checks_fps(runtime):
     state, _ = runtime
     configs = Path(state["data"]) / "rt-cv-configs"
     shutil.copytree(
         stage.REPO / "services/rtvi/rt-cv/reference-configs/warehouse-2d", configs
     )
-    response = subprocess.CompletedProcess(
-        [], 0, json.dumps({"sensor_id": "actual-id", "name": "compose-base-perf"})
-    )
+    listed = [{"sensor_id": "listed-id", "name": "compose-base-perf"}]
+
+    def response(args, **kwargs):
+        payload = (
+            {"sensors": listed}
+            if args[1:3] == ["vios", "list"]
+            else {"sensor_id": "added-id"}
+        )
+        return subprocess.CompletedProcess(args, 0, json.dumps(payload))
+
     with (
-        patch.object(stage, "command", return_value=response) as cli,
+        patch.object(stage, "command", side_effect=response) as cli,
         patch.object(stage, "capture"),
         patch.object(stage, "inference_ready") as ready,
     ):
         stage.post_deploy(*runtime, {})
-    assert "sensor-id-list=actual-id" in (configs / "ds-main-config.txt").read_text()
-    assert sum("add" in call.args[0] for call in cli.call_args_list) == 1
+        listed.clear()
+        with pytest.raises(RuntimeError, match="exactly one sensor"):
+            stage.post_deploy(*runtime, {})
+    assert "sensor-id-list=listed-id" in (configs / "ds-main-config.txt").read_text()
+    assert sum("list" in call.args[0] for call in cli.call_args_list) == 2
     ready.assert_called_once()
 
 

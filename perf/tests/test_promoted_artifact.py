@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Resource boundaries and the Docker Compose publication contract; no remote calls."""
 
-import importlib.util
 import io
 import json
 import stat
 import subprocess
+import sys
 import tarfile
 import zipfile
 from pathlib import Path
@@ -14,11 +14,9 @@ from unittest.mock import Mock
 
 import pytest
 
-spec = importlib.util.spec_from_file_location(
-    "artifact", Path(__file__).parents[1] / "scripts/promoted_artifact.py"
-)
-artifact = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(artifact)
+sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
+import promoted_artifact as artifact
+
 REF = "nv-metropolis-dev/vss-developer/vss-blueprints-compose-base:nightly-20261010"
 
 
@@ -71,7 +69,8 @@ def test_exact_resource_uses_published_layers_and_keeps_only_safe_provenance(
     tmp_path, renderer
 ):
     report = artifact.acquire(REF, tmp_path / "verified", tmp_path / "recipe.yaml")
-    assert report["artifact_ref"] == REF and report["verified"]
+    assert report["promoted_artifact"]["artifact_ref"] == REF
+    assert report["promoted_artifact"]["verified"]
     assert [Path(p).name for p in report["env_files"]] == [
         "containers.env",
         ".env",

@@ -205,15 +205,11 @@ def pre_flight(state, config, env):
         env=env,
     )
     artifact = os.environ.get("ARTIFACT_REF") or os.environ.get("IMAGE_TAG")
-    report = Path(state["data"]) / "promoted-artifact.json"
-    report.unlink(missing_ok=True)
     if artifact:
         destination = (
             Path(tempfile.mkdtemp(prefix="promoted-", dir=state["data"])) / "payload"
         )
-        published = acquire(artifact, destination, Path(state["compose"]))
-        write_json(report, published)
-        state.update(apps=published["compose_root"], env_files=published["env_files"])
+        state.update(acquire(artifact, destination, Path(state["compose"])))
         write_json(STATE, state)
         env = environment(state)
     fixture(state, config, env)
@@ -315,22 +311,29 @@ def post_deploy(state, config, env):
     vss = str(PYTHON.parent / "vss")
     command([vss, "configure", "--base-url", state["origin"]], env=env)
     command([vss, "configure", "check"], env=env)
-    sensor = json.loads(
+    command(
+        [
+            vss,
+            "vios",
+            "add",
+            "--type",
+            "stream",
+            "rtsp://perf-media:8554/compose-base",
+            "--name",
+            "compose-base-perf",
+        ],
+        env=env,
+    )
+    sensors = json.loads(
         command(
-            [
-                vss,
-                "vios",
-                "add",
-                "--type",
-                "stream",
-                "rtsp://perf-media:8554/compose-base",
-                "--name",
-                "compose-base-perf",
-            ],
+            [vss, "vios", "list", "--type", "stream", "--sensor", "compose-base-perf"],
             capture=True,
             env=env,
         ).stdout
-    )
+    )["sensors"]
+    if len(sensors) != 1:
+        raise RuntimeError("Benchmark stream listing must contain exactly one sensor")
+    sensor = sensors[0]
     if not sensor.get("sensor_id"):
         raise RuntimeError("VIOS did not return a sensor identifier")
     path = Path(state["data"]) / "rt-cv-configs/ds-main-config.txt"
@@ -360,11 +363,6 @@ def post_deploy(state, config, env):
     command([vss, "configure", "--base-url", state["origin"]], env=env)
 
 
-def file_sha(path):
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
-
-
 def capture(state):
     ids = command(
         docker()
@@ -373,15 +371,7 @@ def capture(state):
         capture=True,
     ).stdout.split()
     containers = json.loads(command(docker() + ["inspect", *ids], capture=True).stdout)
-    deployed = [
-        {
-            "container_id": row["Id"],
-            "container_name": row["Name"].lstrip("/"),
-            "image_ref": row["Config"]["Image"],
-            "image_id": row["Image"],
-        }
-        for row in containers
-    ]
+    deployed = {row["Name"].lstrip("/"): row["Image"] for row in containers}
     media = next(
         row["Id"]
         for row in containers
@@ -396,44 +386,22 @@ def capture(state):
                 "ffprobe",
                 "-v",
                 "quiet",
-                "-print_format",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_name,width,height,avg_frame_rate:format=duration",
+                "-of",
                 "json",
-                "-show_streams",
-                "-show_format",
                 "/fixture/video.mp4",
             ],
             capture=True,
         ).stdout
     )
-    video = next(
-        stream for stream in probe["streams"] if stream["codec_type"] == "video"
-    )
-    numerator, denominator = video["avg_frame_rate"].split("/")
-    fixture_info = {
-        "kind": "video_file",
-        "width": video["width"],
-        "height": video["height"],
-        "fps": float(numerator) / float(denominator),
-        "codec": video["codec_name"],
-    }
-    fixture_info.update(
-        sha256=file_sha(Path(state["video"])),
-        duration_seconds=float(probe["format"]["duration"]),
-    )
-    metadata = {"fixture": fixture_info, "deployed_images": deployed}
-    if "env_files" in state:
-        published = json.loads(
-            (Path(state["data"]) / "promoted-artifact.json").read_text()
-        )
-        metadata["promoted_artifact"] = {
-            key: published[key]
-            for key in (
-                "artifact_ref",
-                "resource_version",
-                "verified",
-                "container_pins",
-            )
-        }
+    with Path(state["video"]).open("rb") as source:
+        probe["sha256"] = hashlib.file_digest(source, "sha256").hexdigest()
+    metadata = {"fixture": probe, "deployed_images": deployed}
+    if "promoted_artifact" in state:
+        metadata["promoted_artifact"] = state["promoted_artifact"]
     write_json(Path(state["data"]) / "metadata.json", metadata)
 
 

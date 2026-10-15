@@ -4,7 +4,6 @@
 """Measure compose-base, clean up, and publish one standard VSS result."""
 
 import argparse
-import importlib.util
 import json
 import math
 import os
@@ -18,15 +17,12 @@ from pathlib import Path
 
 import yaml
 
+PERF_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(PERF_ROOT.parent / "services/vios/test/bdd_tests/tests/perf"))
+import vss_perf_common as SHARED
 from resource_monitor import ResourceMonitor
 
-PERF_ROOT = Path(__file__).resolve().parents[2]
-COMMON = PERF_ROOT.parent / "services/vios/test/bdd_tests/tests/perf/vss_perf_common.py"
-SPEC = importlib.util.spec_from_file_location("shared_perf", COMMON)
-SHARED = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = SHARED
-SPEC.loader.exec_module(SHARED)
 FPS_PAIR = re.compile(r"([0-9]+\.[0-9]+)\s*\(([0-9]+\.[0-9]+)\)")
 
 
@@ -65,12 +61,7 @@ def parse_fps(logs):
 
 def listing_count(payload, key):
     rows, count = payload.get(key), payload.get("count")
-    if (
-        not isinstance(rows, list)
-        or type(count) is not int
-        or count < 0
-        or count != len(rows)
-    ):
+    if not isinstance(rows, list) or type(count) is not int or count != len(rows):
         raise ValueError(f"CLI {key} listing has inconsistent rows/count")
     return count
 
