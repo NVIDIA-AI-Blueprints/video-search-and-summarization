@@ -1956,6 +1956,31 @@ class TestCVStreamEndpoints:
             "status": "removed",
         }
 
+    def test_stream_add_rejects_shared_decode_before_registration(self, test_client):
+        """Shared input must not fall through to the URL decoder before its adapter exists."""
+        response = test_client.post(
+            f"{API_PREFIX}/stream/add",
+            json={
+                "key": "sensor",
+                "value": {
+                    "camera_id": "shared-cam-001",
+                    "frame_source": {
+                        "type": "shared_decode",
+                        "protocol_version": "1.0",
+                        "control_socket": "/run/vss/frame-broker/job-123.sock",
+                        "session_token": "ephemeral-token",
+                        "consumer_id": "gpu-vlm",
+                        "transport": "cuda_ipc",
+                        "device_id": 0,
+                    },
+                    "change": "camera_add",
+                },
+            },
+        )
+
+        assert response.status_code == 501
+        assert response.json()["code"] == "SharedDecodeUnavailable"
+
     def test_stream_add_rejects_duplicate_camera_id(self, test_client):
         """POST /v1/stream/add must reject duplicate CV camera IDs."""
         body = {

@@ -2505,6 +2505,16 @@ class RTVIServer:
                     400,
                 )
 
+            # Parse and validate the shared-decode contract now, but do not
+            # register a stream until the broker client is available. This
+            # avoids falling through to the URL decoder with a null URL.
+            if value.frame_source is not None:
+                raise ServiceException(
+                    "Shared-decode frame sources require the frame broker adapter.",
+                    "SharedDecodeUnavailable",
+                    501,
+                )
+
             logger.info(
                 "Received CV stream/add: camera_id=%s, url=%s",
                 value.camera_id,
