@@ -44,7 +44,7 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-18 evaluation tasks (14 positive, 4 negative), one attempt per task, each run in an isolated sandbox pod in the `k8s-sandbox` environment (evaluator version 1.5.6, evaluated 2026-10-09). <br>
+18 evaluation tasks (14 positive, 4 negative), one attempt per task, each run in an isolated sandbox pod in the `k8s-sandbox` environment (evaluator version 1.5.6, evaluated 2026-10-15). <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
@@ -68,12 +68,12 @@ Underlying evaluation signals used in this run: <br>
 ## Evaluation Results: <br>
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | Not available | 66.2% — baseline ran, but no comparable score was available; uplift unavailable |
-| Security | Not available | 63.9% → 88.9% (+25.0 points) |
-| Correctness | Not available | 31.1% → 48.9% (+17.8 points) |
-| Discoverability | Not available | 76.4% — baseline ran, but no comparable score was available; uplift unavailable |
-| Effectiveness | Not available | 30.5% → 25.2% (-5.3 points) |
-| Efficiency | Not available | 91.8% — baseline ran, but no comparable score was available; uplift unavailable |
+| Overall | 71.4% — baseline ran, but no comparable score was available; uplift unavailable | 72.8% — baseline ran, but no comparable score was available; uplift unavailable |
+| Security | 97.2% → 94.4% (-2.8 points) | 80.6% → 97.2% (+16.6 points) |
+| Correctness | 15.6% → 64.4% (+48.8 points) | 37.8% → 56.7% (+18.9 points) |
+| Discoverability | 75.7% — baseline ran, but no comparable score was available; uplift unavailable | 83.2% — baseline ran, but no comparable score was available; uplift unavailable |
+| Effectiveness | 24.3% → 40.1% (+15.8 points) | 33.2% → 32.0% (-1.2 points) |
+| Efficiency | 82.5% — baseline ran, but no comparable score was available; uplift unavailable | 94.9% — baseline ran, but no comparable score was available; uplift unavailable |
 
 ## Skill Version(s): <br>
 3.3.0-rc0 (source: frontmatter) <br>
