@@ -21,8 +21,10 @@
 #   - `live_stream_url` is populated automatically from the incoming event's
 #     `camera_url` field — do NOT set it here.
 #
-# Set ALWAYS_ON_RULES_CONFIG to the rules file path.
-# There is no implicit fallback lookup.
+# Resolution order for this file (first match wins):
+#   1. $ALWAYS_ON_RULES_CONFIG             (env var, explicit path)
+#   2. ./realtime-config.yaml              (project root, recommended)
+#   3. ./realtime-config-sample.yaml       (this file, for dev only)
 #
 # Required vs optional fields in always_on_params:
 #   REQUIRED (missing → CONFIG_ERROR at startup):
