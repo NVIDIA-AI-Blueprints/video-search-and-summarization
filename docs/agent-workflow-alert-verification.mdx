@@ -170,9 +170,9 @@ compatibility details and additional configuration options, see
 #### Enable Real-Time Alerts Alongside Alert Verification
 
 Real-time alerts can run at the same time as alert verification in the same
-profile. To enable both workflows, add the following options to the profile's
-`overrides.env` file (or update them in the `user-overrides.env` copy used by
-the deployment commands on this page) before starting the profile:
+profile. To enable both workflows, update the following options in the profile's
+`user-overrides.env` copy used by the deployment commands on this page before
+starting the profile. Add an option only when it is absent:
 
 ```ini
 RTVI_VLM_KAFKA_ENABLED=true
