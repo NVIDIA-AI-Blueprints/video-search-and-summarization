@@ -15,6 +15,7 @@
 
 import asyncio
 import concurrent.futures
+import inspect
 import json
 import logging
 import sys
@@ -35,6 +36,113 @@ from models.vllm_compatible.adaptive_preprocess_limiter import (
     AdaptivePreprocessLimiter,
 )
 from models.vllm_compatible.vllm_compatible_model import VllmCompatible
+
+
+@pytest.mark.test_in_ci
+def test_request_seed_does_not_mutate_global_rngs():
+    source = inspect.getsource(VllmCompatible.generate)
+
+    assert "random.seed(" not in source
+    assert "numpy.random.seed(" not in source
+    assert "torch.manual_seed(" not in source
+    assert "torch.cuda.manual_seed_all(" not in source
+
+
+@pytest.mark.test_in_ci
+def test_renderer_tokenizer_pool_matches_preprocess_bound(monkeypatch):
+    monkeypatch.setenv("RTVI_VLLM_NUM_PREPROCESS_WORKERS", "16")
+    kwargs = {}
+    assert vllm_compatible_model._configure_renderer_workers(kwargs, {"renderer_num_workers"})
+    assert kwargs == {"renderer_num_workers": 16}
+
+
+@pytest.mark.test_in_ci
+def test_older_renderer_keeps_engine_arguments():
+    kwargs = {"num_preprocess_workers": 16}
+    assert not vllm_compatible_model._configure_renderer_workers(kwargs, set())
+    assert kwargs == {"num_preprocess_workers": 16}
+
+
+@pytest.mark.test_in_ci
+def test_tokenizer_processor_warmup_uses_model_processing_info():
+    calls = []
+    info = SimpleNamespace(get_hf_processor=lambda: calls.append("warm"))
+    llm = SimpleNamespace(
+        input_processor=SimpleNamespace(
+            renderer=SimpleNamespace(mm_processor=SimpleNamespace(info=info))
+        )
+    )
+    vllm_compatible_model._warm_vllm_tokenizer_processors(llm)
+    assert calls == ["warm"]
+
+
+@pytest.mark.test_in_ci
+def test_tokenizer_warmup_text_only_model():
+    llm = SimpleNamespace(
+        input_processor=SimpleNamespace(renderer=SimpleNamespace(mm_processor=None))
+    )
+    vllm_compatible_model._warm_vllm_tokenizer_processors(llm)
+
+
+@pytest.mark.test_in_ci
+def test_tokenizer_warmup_error_stops_startup():
+    def fail():
+        raise RuntimeError("tokenizer initialization failed")
+
+    llm = SimpleNamespace(
+        input_processor=SimpleNamespace(
+            renderer=SimpleNamespace(
+                mm_processor=SimpleNamespace(info=SimpleNamespace(get_hf_processor=fail))
+            )
+        )
+    )
+    with pytest.raises(RuntimeError, match="tokenizer initialization failed"):
+        vllm_compatible_model._warm_vllm_tokenizer_processors(llm)
+
+
+def test_prewarmed_fast_tokenizer_pool_preserves_concurrent_outputs(monkeypatch):
+    import copy
+
+    from tokenizers import Tokenizer
+    from tokenizers.models import WordLevel
+    from transformers import PreTrainedTokenizerFast
+
+    hf = pytest.importorskip("vllm.tokenizers.hf")
+    backend = Tokenizer(WordLevel({"[UNK]": 0, "hello": 1}, unk_token="[UNK]"))
+    tokenizer = PreTrainedTokenizerFast(tokenizer_object=backend, unk_token="[UNK]")
+    expected = tokenizer.encode("hello", add_special_tokens=False)
+    clones = []
+
+    def deepcopy(original):
+        cloned = copy.deepcopy(original)
+        clones.append(cloned)
+        return cloned
+
+    monkeypatch.setattr(hf, "copy", SimpleNamespace(copy=copy.copy, deepcopy=deepcopy))
+    monkeypatch.setenv("RTVI_VLLM_NUM_PREPROCESS_WORKERS", "16")
+    kwargs = {}
+    vllm_compatible_model._configure_renderer_workers(kwargs, {"renderer_num_workers"})
+    copies = kwargs["renderer_num_workers"] + 1
+    pooled = hf.maybe_make_thread_pool(tokenizer, copies=copies)
+    assert len(clones) == copies
+    assert len({id(clone) for clone in clones}) == copies
+    barrier = threading.Barrier(16)
+
+    def encode(_):
+        barrier.wait(timeout=10)
+        return pooled.encode("hello", add_special_tokens=False)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
+        assert list(executor.map(encode, range(16))) == [expected] * 16
+    assert len(clones) == copies
+
+
+@pytest.mark.test_in_ci
+def test_tokenizer_prewarm_precedes_service_event_loop():
+    source = inspect.getsource(VllmCompatible._initialize_model)
+    assert source.index("_warm_vllm_tokenizer_processors(self._llm)") < source.index(
+        "self._event_loop_thread.start()"
+    )
 
 
 class _FailingLLM:
@@ -88,9 +196,7 @@ class _QwenProcessor:
 
 class _QwenStreamingLLM:
     async def generate(self, *_args, **_kwargs):
-        yield SimpleNamespace(
-            outputs=[SimpleNamespace(text='{"visual_sent', token_ids=[10])]
-        )
+        yield SimpleNamespace(outputs=[SimpleNamespace(text='{"visual_sent', token_ids=[10])])
         yield SimpleNamespace(
             outputs=[
                 SimpleNamespace(
@@ -137,6 +243,28 @@ class _AdmissionRecordingLLM:
 
     async def abort(self, *args, **kwargs):
         return None
+
+
+class _ThreadRecordingInputProcessor:
+    def __init__(self):
+        self.thread_id = None
+
+    def process_inputs(self, request_id, prompt, params, **kwargs):
+        self.thread_id = threading.get_ident()
+        return SimpleNamespace(request_id=request_id, prompt=prompt, params=params)
+
+
+class _OffloadRecordingLLM:
+    def __init__(self):
+        self.input_processor = _ThreadRecordingInputProcessor()
+        self.added_prompt = None
+
+    async def get_supported_tasks(self):
+        return ("generate",)
+
+    async def add_request(self, request_id, prompt, params):
+        self.added_prompt = prompt
+        return "queue"
 
 
 class _AbortRecordingLLM:
@@ -408,9 +536,9 @@ def test_requested_mm_processor_kwargs_can_override_qwen3_omni_default():
         "vllm-compatible", "Qwen3OmniMoeForConditionalGeneration", False
     )
 
-    assert vllm_compatible_model._merge_mm_processor_kwargs(
-        base, {"use_audio_in_video": True}
-    ) == {"use_audio_in_video": True}
+    assert vllm_compatible_model._merge_mm_processor_kwargs(base, {"use_audio_in_video": True}) == {
+        "use_audio_in_video": True
+    }
 
 
 @pytest.mark.parametrize(
@@ -792,9 +920,7 @@ def test_kv_cache_dtype_override_is_forwarded_when_supported(monkeypatch):
 
 
 @pytest.mark.parametrize("attention_backend", ["CUSTOM", "TRITON_ATTN"])
-def test_attention_backend_override_is_forwarded_when_supported(
-    monkeypatch, attention_backend
-):
+def test_attention_backend_override_is_forwarded_when_supported(monkeypatch, attention_backend):
     monkeypatch.setenv("VLLM_ATTENTION_BACKEND", attention_backend)
     engine_args = {}
 
@@ -896,9 +1022,7 @@ def test_vllm_compilation_config_defaults_edge_to_compiled_execution(monkeypatch
 
 
 @pytest.mark.parametrize("cudagraph_mode", (None, "FULL"))
-def test_vllm_compilation_config_stabilizes_cosmos_reason3_qwen3vl(
-    monkeypatch, cudagraph_mode
-):
+def test_vllm_compilation_config_stabilizes_cosmos_reason3_qwen3vl(monkeypatch, cudagraph_mode):
     monkeypatch.delenv("VLLM_CUDAGRAPH_MODE", raising=False)
     monkeypatch.delenv("RTVI_VLLM_CUDAGRAPH_MODE", raising=False)
     if cudagraph_mode:
@@ -918,9 +1042,12 @@ def test_vllm_compilation_config_stabilizes_cosmos_reason3_qwen3vl(
             }
         )
 
-    assert vllm_compatible_model._get_vllm_compilation_config(
-        "Qwen3VLForConditionalGeneration", "cosmos-reason3"
-    ) == expected
+    assert (
+        vllm_compatible_model._get_vllm_compilation_config(
+            "Qwen3VLForConditionalGeneration", "cosmos-reason3"
+        )
+        == expected
+    )
 
 
 def test_vllm_compilation_config_honors_explicit_eager_mode(monkeypatch):
@@ -1249,16 +1376,176 @@ def test_cuda_free_memory_uses_lowest_visible_device(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("use_tensor_ipc", "limiter", "expected"),
+    ("use_tensor_ipc", "limiter", "offload_input_processing", "expected"),
     [
-        (False, None, False),
-        (True, None, True),
-        (False, object(), True),
-        (True, object(), True),
+        (False, None, False, False),
+        (True, None, False, True),
+        (False, object(), False, True),
+        (True, object(), False, True),
+        (False, None, True, True),
     ],
 )
-def test_preprocess_admission_wraps_default_and_tensor_ipc_paths(use_tensor_ipc, limiter, expected):
-    assert VllmCompatible._should_use_preprocess_admission(use_tensor_ipc, limiter) is expected
+@pytest.mark.test_in_ci
+def test_preprocess_admission_wraps_default_and_tensor_ipc_paths(
+    use_tensor_ipc,
+    limiter,
+    offload_input_processing,
+    expected,
+):
+    assert (
+        VllmCompatible._should_use_preprocess_admission(
+            use_tensor_ipc,
+            limiter,
+            offload_input_processing,
+        )
+        is expected
+    )
+
+
+@pytest.mark.test_in_ci
+def test_multimodal_input_processing_runs_off_the_event_loop_thread():
+    async def run():
+        model = VllmCompatible.__new__(VllmCompatible)
+        model._llm = _OffloadRecordingLLM()
+        model._use_cuda_mm_tensor_ipc = False
+
+        queue = await model._add_multimodal_request("req-1", {"prompt": "test"}, SimpleNamespace())
+
+        assert queue == "queue"
+        assert model._llm.input_processor.thread_id != threading.get_ident()
+        assert model._llm.added_prompt.request_id == "req-1"
+
+    asyncio.run(run())
+
+
+@pytest.mark.test_in_ci
+def test_native_preprocess_executor_is_not_bypassed():
+    async def run():
+        model = VllmCompatible.__new__(VllmCompatible)
+        model._llm = _OffloadRecordingLLM()
+        model._llm._preprocess_executor = object()
+        model._use_cuda_mm_tensor_ipc = False
+        prompt = {"prompt": "test"}
+
+        assert await model._add_multimodal_request("req-1", prompt, SimpleNamespace()) == "queue"
+        assert model._llm.added_prompt is prompt
+        assert model._llm.input_processor.thread_id is None
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("cancellations", [1, 2])
+@pytest.mark.test_in_ci
+def test_input_processing_cancellation_retains_inputs_until_worker_finishes(cancellations):
+    async def run():
+        started = threading.Event()
+        finish = threading.Event()
+        model = VllmCompatible.__new__(VllmCompatible)
+        model._llm = _OffloadRecordingLLM()
+        model._use_cuda_mm_tensor_ipc = False
+
+        def process_inputs(request_id, prompt, params, **kwargs):
+            started.set()
+            assert finish.wait(5)
+            return SimpleNamespace(request_id=request_id)
+
+        model._llm.input_processor.process_inputs = process_inputs
+        task = asyncio.create_task(model._add_multimodal_request("req-1", {}, SimpleNamespace()))
+        try:
+            assert await asyncio.to_thread(started.wait, 5)
+            for _ in range(cancellations):
+                task.cancel()
+                await asyncio.sleep(0.01)
+                assert not task.done()
+                assert model._input_processor_lock.locked()
+        finally:
+            finish.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert model._llm.added_prompt is None
+        assert not model._input_processor_lock.locked()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("cache_gb", [None, 4])
+@pytest.mark.test_in_ci
+def test_input_processor_cache_access_is_serialized(cache_gb):
+    async def run():
+        started = threading.Event()
+        finish = threading.Event()
+        thread_calls = []
+        model = VllmCompatible.__new__(VllmCompatible)
+        model._llm = _OffloadRecordingLLM()
+        model._use_cuda_mm_tensor_ipc = False
+        model._llm.input_processor.model_config = SimpleNamespace(
+            multimodal_config=SimpleNamespace(mm_processor_cache_gb=cache_gb)
+        )
+
+        def process_inputs(request_id, prompt, params, **kwargs):
+            thread_calls.append(request_id)
+            if request_id == "first":
+                started.set()
+                assert finish.wait(5)
+            return SimpleNamespace(request_id=request_id)
+
+        model._llm.input_processor.process_inputs = process_inputs
+        first = asyncio.create_task(model._add_multimodal_request("first", {}, SimpleNamespace()))
+        second = None
+        try:
+            assert await asyncio.to_thread(started.wait, 5)
+            second = asyncio.create_task(
+                model._add_multimodal_request("second", {}, SimpleNamespace())
+            )
+            await asyncio.sleep(0.02)
+            assert thread_calls == ["first"]
+        finally:
+            finish.set()
+        assert await first == "queue"
+        assert await second == "queue"
+        assert thread_calls == ["first", "second"]
+
+    asyncio.run(run())
+
+
+@pytest.mark.test_in_ci
+def test_uncached_input_processing_uses_bounded_workers(monkeypatch):
+    monkeypatch.setattr(vllm_compatible_model, "_get_num_preprocess_workers", lambda: 2)
+
+    async def run():
+        started = threading.Event()
+        finish = threading.Event()
+        calls = []
+        model = VllmCompatible.__new__(VllmCompatible)
+        model._llm = _OffloadRecordingLLM()
+        model._use_cuda_mm_tensor_ipc = False
+        model._llm.input_processor.model_config = SimpleNamespace(
+            multimodal_config=SimpleNamespace(mm_processor_cache_gb=0)
+        )
+
+        def process_inputs(request_id, prompt, params, **kwargs):
+            calls.append(request_id)
+            if len(calls) == 2:
+                started.set()
+            assert finish.wait(5)
+            return SimpleNamespace(request_id=request_id)
+
+        model._llm.input_processor.process_inputs = process_inputs
+        tasks = [
+            asyncio.create_task(model._add_multimodal_request(str(index), {}, SimpleNamespace()))
+            for index in range(3)
+        ]
+        try:
+            assert await asyncio.to_thread(started.wait, 5)
+            await asyncio.sleep(0.02)
+            assert len(calls) == 2
+            assert model._input_processor_lock.locked()
+        finally:
+            finish.set()
+        assert await asyncio.gather(*tasks) == ["queue"] * 3
+        assert sorted(calls) == ["0", "1", "2"]
+
+    asyncio.run(run())
 
 
 def test_default_path_holds_admission_until_first_engine_output():
@@ -1428,7 +1715,8 @@ def test_multi_image_tensors_can_stay_raw_for_vllm_processor(monkeypatch):
     assert model._inflight_req_ids == []
 
 
-def test_generate_can_send_multi_frame_chunk_as_multi_image_input(monkeypatch):
+@pytest.mark.parametrize("is_live_stream", [False, True])
+def test_generate_can_send_multi_frame_chunk_as_multi_image_input(monkeypatch, is_live_stream):
     monkeypatch.setattr(vllm_compatible_model, "CPU_COPY_OTHER_THREAD", False)
     monkeypatch.setattr(vllm_compatible_model, "ADD_TIMESTAMP_TO_PROMPT", False)
     monkeypatch.setenv("RTVI_VLLM_DEFAULT_REPETITION_PENALTY", "1.0")
@@ -1492,6 +1780,10 @@ def test_generate_can_send_multi_frame_chunk_as_multi_image_input(monkeypatch):
         ]
     )
     chunk = SimpleNamespace(file="rtsp://example/stream", streamId="stream-1")
+    model._live_request_ids_lock = threading.Lock()
+    model._live_request_ids = {}
+    model._live_request_futures = {}
+    model._live_stream_abort_requested = set()
 
     future = model.generate(
         "Describe the time-lapsed video.",
@@ -1499,9 +1791,12 @@ def test_generate_can_send_multi_frame_chunk_as_multi_image_input(monkeypatch):
         [frames],
         [[0.0, 0.5, 1.0]],
         VlmGenerationConfig(max_new_tokens=4, temperature=0, seed=7),
+        is_live_stream=is_live_stream,
     )
 
     assert future.result() == ["ok"]
+    assert model._live_request_ids == {}
+    assert model._live_request_futures == {}
     content = processor.messages[-1]["content"]
     assert [item["type"] for item in content] == ["text", "image", "image", "image"]
     assert content[0]["text"] == "Describe the time-lapsed video."
@@ -1523,6 +1818,77 @@ def test_generate_can_send_multi_frame_chunk_as_multi_image_input(monkeypatch):
     assert sampling_params.kwargs["repetition_penalty"] == 1.0
     assert sampling_params.kwargs["seed"] == 7
     assert "no_repeat_ngram_size" not in sampling_params.kwargs
+
+
+@pytest.mark.test_in_ci
+def test_public_future_cancellation_retains_tracking_until_preprocessing_drains(monkeypatch):
+    monkeypatch.setattr(vllm_compatible_model, "CPU_COPY_OTHER_THREAD", False)
+    monkeypatch.setattr(vllm_compatible_model, "ADD_TIMESTAMP_TO_PROMPT", False)
+    monkeypatch.setenv("RTVI_VLLM_DEFAULT_REPETITION_PENALTY", "1.0")
+    monkeypatch.setenv("RTVI_VLLM_DEFAULT_TOP_K", "0")
+    monkeypatch.setenv("RTVI_VLLM_MULTI_IMAGE_CHUNK_INPUT", "true")
+    monkeypatch.setenv("RTVI_VLLM_NO_REPEAT_NGRAM_SIZE", "0")
+    monkeypatch.setitem(sys.modules, "vllm", SimpleNamespace(SamplingParams=_FakeSamplingParams))
+    started, finish, drained = threading.Event(), threading.Event(), threading.Event()
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._processor = _RecordingProcessor()
+    model._system_prompt = ""
+    model._vlm_model_type = "cosmos-reason3"
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._inflight_req_ids = []
+    model._use_cuda_mm_tensor_ipc = False
+    model._multimodal_preprocess_limiter = None
+    model._cuda_mm_residency_lock = threading.Lock()
+    model._adaptive_preprocess_pending_submission_ids = set()
+    model._cuda_mm_pending_submission_ids = set()
+    model._cuda_mm_resident_units_by_request = {}
+    model._live_request_ids_lock = threading.Lock()
+    model._live_request_ids = {}
+    model._live_request_futures = {}
+    model._live_stream_abort_requested = set()
+    model._llm = _OffloadRecordingLLM()
+    model._event_loop = asyncio.new_event_loop()
+    loop_thread = threading.Thread(target=model._event_loop.run_forever)
+    loop_thread.start()
+
+    def process_inputs(request_id, prompt, params, **kwargs):
+        started.set()
+        assert finish.wait(5)
+        return SimpleNamespace(request_id=request_id)
+
+    model._llm.input_processor.process_inputs = process_inputs
+
+    async def process(llm_inputs, params, times, request_id, *args, **kwargs):
+        try:
+            await model._add_multimodal_request(request_id, llm_inputs, params)
+        finally:
+            drained.set()
+
+    model.process_async_vllm = process
+    try:
+        future = model.generate(
+            "Describe the video.",
+            [SimpleNamespace(file="rtsp://example/stream", streamId="stream-1")],
+            [torch.zeros((2, 4, 4, 3), dtype=torch.uint8)],
+            [[0.0, 1.0]],
+            VlmGenerationConfig(max_new_tokens=4, temperature=0, seed=7),
+            is_live_stream=True,
+        )
+        assert started.wait(5)
+        assert future.cancel()
+        assert not drained.wait(0.05)
+        assert model._inflight_req_ids
+        assert model._live_request_ids["stream-1"]
+        assert model.release_idle_resources() is False
+    finally:
+        finish.set()
+        assert drained.wait(5)
+        asyncio.run_coroutine_threadsafe(asyncio.sleep(0), model._event_loop).result(timeout=5)
+        model._event_loop.call_soon_threadsafe(model._event_loop.stop)
+        loop_thread.join(timeout=5)
+        model._event_loop.close()
+    assert model._inflight_req_ids == []
+    assert model._live_request_ids == {}
 
 
 def test_cap_video_frames_accepts_numpy_frame_batch():
@@ -1905,7 +2271,26 @@ def test_vllm_engine_config_enforces_strict_compact_structured_output():
 
     config = kwargs["structured_outputs_config"]
     assert config.backend == "xgrammar"
-    assert config.disable_fallback is True
+    if hasattr(config, "disable_fallback"):
+        assert config.disable_fallback is True
+    assert config.disable_any_whitespace is True
+
+
+def test_vllm_engine_config_supports_legacy_structured_output_config(monkeypatch):
+    import vllm.config as vllm_config
+
+    class LegacyStructuredOutputsConfig:
+        def __init__(self, backend="auto", disable_any_whitespace=False):
+            self.backend = backend
+            self.disable_any_whitespace = disable_any_whitespace
+
+    monkeypatch.setattr(vllm_config, "StructuredOutputsConfig", LegacyStructuredOutputsConfig)
+    kwargs = {}
+
+    vllm_compatible_model._configure_structured_outputs(kwargs, {"structured_outputs_config"})
+
+    config = kwargs["structured_outputs_config"]
+    assert config.backend == "xgrammar"
     assert config.disable_any_whitespace is True
 
 
