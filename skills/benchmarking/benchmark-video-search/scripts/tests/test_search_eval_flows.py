@@ -2259,8 +2259,8 @@ def test_decomposition_failures_past_the_cap_stop_the_run_early(tmp_path: Path) 
         _run_with_decomposer(tmp_path, queries, set(queries), max_decompose_failed_pct=20.0)
 
     saved = json.loads((tmp_path / "result.json").read_text())
-    # 3/10 is the first count above 20%; the one query already running finishes.
-    assert 3 <= len(saved["query_results"]) <= 4
+    # 3/10 is the first count above 20%; with one worker nothing starts after it.
+    assert len(saved["query_results"]) == 3
     assert saved["aborted"].startswith("3/10 queries fell back to embed")
 
 
