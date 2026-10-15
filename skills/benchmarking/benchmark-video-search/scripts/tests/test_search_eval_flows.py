@@ -1937,21 +1937,23 @@ def test_a_failed_decomposition_keeps_its_elapsed_time(tmp_path: Path, monkeypat
     assert result["summary"]["decomposition"]["mean_s"] is None
 
 
-def test_dataset_video_names_fall_back_to_ground_truth(tmp_path: Path, monkeypatch: Any) -> None:
-    """--skip-ingest with --skip-download may have no local videos at all."""
+def test_dataset_video_names_come_from_the_ground_truth(tmp_path: Path, monkeypatch: Any) -> None:
+    """A partial local download must not hide an annotated video from the reuse check."""
     import run_eval_flows as rf
 
     videos = tmp_path / "videos"
     videos.mkdir()
-    (videos / "1219.mp4").write_bytes(b"")
-    assert rf.dataset_video_names(videos, tmp_path, "warehouse", "") == ["1219"]
-
+    (videos / "a.mp4").write_bytes(b"")
     monkeypatch.setattr(rf.flows, "load_dataset_file", lambda *_a: {})
     monkeypatch.setattr(
         rf.flows, "unpack_dataset",
         lambda _d: ({"q": [{"video_name": "a.mp4"}, {"video_name": "b"}]}, {}),
     )
+    assert rf.dataset_video_names(videos, tmp_path, "warehouse", "") == ["a", "b"]
     assert rf.dataset_video_names(tmp_path / "missing", tmp_path, "warehouse", "") == ["a", "b"]
+
+    monkeypatch.setattr(rf.flows, "unpack_dataset", lambda _d: ({"q": [{"start": 0}]}, {}))
+    assert rf.dataset_video_names(videos, tmp_path, "warehouse", "") == ["a"]
 
 
 class _EsResp:
