@@ -3,7 +3,7 @@ name: profile-vllm-performance
 description: Profile vLLM and RT-VLM inference to identify and remove GPU-idle gaps, underfilled batches, transfer stalls, serialized multimodal work, scheduler gaps, or KV pressure. Use this skill when GPU utilization is unexpectedly low or bursty, capacity trails another runtime, TTFT or ITL regresses, or multimodal prefill and decode appear serialized. Not for running a first benchmark without a reproducible fixed-load signal.
 license: Apache-2.0
 metadata:
-  version: "3.3.0-rc0"
+  version: "3.3.0"
   requires-vss: ">=3.2.0,<4.0.0"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
