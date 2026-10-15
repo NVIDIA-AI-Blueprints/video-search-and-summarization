@@ -1,0 +1,118 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+services:
+  # Prometheus - Metrics collection and storage for monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    environment:
+      - VIA_HOST=${VIA_HOST:-127.0.0.1}
+      - VIA_PORT=${VIA_PORT:-7073}
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=2d'
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # Grafana - Dashboard for visualization of metrics data
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./dashboards:/etc/grafana/provisioning/dashboards/json
+      - ./grafana/dashboard-provider.yaml:/etc/grafana/provisioning/dashboards/provider.yaml
+      - ./grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    networks:
+      - app-network
+
+  # DCGM Exporter - Collects and exports GPU metrics data
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:4.1.1-4.0.4-ubuntu22.04
+    runtime: nvidia
+    ports:
+      - "9500:9400"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - DCGM_EXPORTER_INTERVAL=200
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu, compute, utility]
+              count: all
+    volumes:
+      - ./dcgm/dcgm-metrics-config.csv:/etc/dcgm-exporter/custom-metrics.csv
+    privileged: true
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+    # healthcheck:
+    #   test: ["CMD-SHELL", "curl --fail http://localhost:9400/metrics || exit 1"]
+    #   interval: 10s
+    #   timeout: 10s
+    #   retries: 10
+    command:
+      - "-f"
+      - "/etc/dcgm-exporter/custom-metrics.csv"
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # Node Exporter - Collects and exports system metrics (CPU, RAM, disk, etc.)
+  node-exporter:
+    image: prom/node-exporter:latest
+    ports:
+      - "9400:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    restart: unless-stopped
+    networks:
+      - app-network
+
+volumes:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  app-network:
+    name: app-network
+    external: true
