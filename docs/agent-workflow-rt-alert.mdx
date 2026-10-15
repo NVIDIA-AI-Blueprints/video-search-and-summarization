@@ -335,6 +335,10 @@ layout below in `deploy/docker/developer-profiles/dev-profile-alerts/user-overri
 
 #### Direct Docker Compose Overrides
 
+`PERCEPTION_DOCKERFILE_PREFIX=EDGE-` also selects the edge Behavior Analytics
+config in verification mode. Real-time mode does not run Behavior Analytics,
+so keep the documented hardware-specific prefix settings below.
+
 Apply all of the following settings in the `user-overrides.env` file created
 above:
 

@@ -252,6 +252,16 @@ ALERT_AGENT_ALWAYS_ON=false
 COMPOSE_PROFILES=${COMPOSE_PROFILES_CV}
 ```
 
+For `DGX-SPARK`, `IGX-THOR`, and `AGX-THOR`, the hardware blocks below override
+`PERCEPTION_DOCKERFILE_PREFIX` to `EDGE-`. This selects
+`EDGE-vss-behavior-analytics-config.json`, which sets
+`fovCountViolationIncidentExpirationWindow` to `"2"` seconds. Other hardware
+uses the default JSON with `"0.5"` seconds. Set this prefix explicitly in
+`user-overrides.env`; `HARDWARE_PROFILE` alone does not select the edge JSON.
+Leave the prefix empty for non-edge hardware. The legacy `dev-profile.sh`
+helper selects it automatically for Spark/Thor. Real-time mode does not run
+Behavior Analytics.
+
 **Default container image tag**
 
 `containers.env` uses `VSS_CONTAINER_TAG` as the default tag for all images.

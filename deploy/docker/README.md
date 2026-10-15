@@ -57,7 +57,22 @@ Before direct Compose bring-up, update the deployment-specific placeholders in
 
 ## Developer profiles (recommended path)
 
-Use the **`dev-profile`** helper instead of hand-editing Compose for day-to-day developer stacks (**base**, **lvs**, **search**, **alerts**).
+Deploy developer stacks (**base**, **lvs**, **search**, **alerts**) directly with
+Compose using the environment layers above. Copy the profile `overrides.env`
+template to `user-overrides.env` and configure that deployment overlay.
+
+For Alerts verification (`MODE=2d_cv`) on `DGX-SPARK`, `IGX-THOR`, or
+`AGX-THOR`, set `PERCEPTION_DOCKERFILE_PREFIX=EDGE-` in the overlay.
+This selects the checked-in edge Behavior Analytics JSON with
+`fovCountViolationIncidentExpirationWindow="2"`. Leave the prefix empty for
+other hardware to retain the default JSON (`"0.5"`).
+`HARDWARE_PROFILE` alone does not select this file.
+
+### Legacy dev-profile helper
+
+The legacy `dev-profile.sh` helper remains available: It automatically selects
+the edge Behavior Analytics config for Alerts verification on Spark/Thor,
+using the existing perception prefix. Real-time mode does not run Behavior Analytics.
 
 **Script:** `deploy/docker/scripts/dev-profile.sh`
 

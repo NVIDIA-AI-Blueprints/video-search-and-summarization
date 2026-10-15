@@ -2530,6 +2530,13 @@ LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 ru
  -i 127.0.0.1 -H OTHER -m real-time --use-remote-llm --llm x --use-remote-vlm --vlm y -d -- \
   "PERCEPTION_DOCKERFILE_PREFIX" "" "VLM_AS_VERIFIER_CONFIG_FILE_PREFIX" ""
 
+# All edge hardware selects the longer window in verification mode.
+for _edge_hw in DGX-SPARK IGX-THOR AGX-THOR; do
+  run_dry_run_up_and_check_generated_env "generated.env alerts edge verification ${_edge_hw}" "alerts" \
+    -i 127.0.0.1 -H "${_edge_hw}" -m verification -d -- \
+    "PERCEPTION_DOCKERFILE_PREFIX" "EDGE-"
+done
+
 # --- Remote with explicit model name via --llm/--vlm (no API call) ---
 LLM_ENDPOINT_URL=http://127.0.0.1:9999 VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env LLM_NAME from --llm when remote" "base" \
  -i 127.0.0.1 --use-remote-llm --llm my-remote-llm --use-remote-vlm --vlm my-remote-vlm -d -- \
