@@ -6,9 +6,14 @@ RT-VLM (Real-Time VLM Microservice) is a FastAPI-based REST API service providin
 
 Use this service when the workflow requires either (a) dense captioning of a stored video file on demand (VOD path: upload → `/v1/files`, then `POST /v1/generate_captions` with the returned `file_id`) or (b) streaming dense captioning over an RTSP live stream (`POST /v1/streams/add`, then `POST /v1/generate_captions` with the returned `stream_id`). Both modes drive the same VLM and emit the same Kafka schema; the difference is only the input source. IN-1's "streaming + on-demand video dense captioning" capability requires RT-VLM with both modes wired.
 
+This reference targets VSS 3.3. Historical 3.2 introduction notes and dated live
+checks below describe earlier evidence; confirm the current contract with the
+checked-out source and the running service OpenAPI.
+
 ## Required Peer Services
 
-- **Kafka** — required when `MESSAGE_BUS=kafka`. RT-VLM publishes generated caption records to `${MESSAGE_BUS_TOPIC}` and incident protobuf records to `${KAFKA_INCIDENT_TOPIC}`. Broker must be reachable at `${KAFKA_BOOTSTRAP_SERVERS}` (compose default `${HOST_IP}:9092` for host-network Kafka).
+- **Kafka** — required when `MESSAGE_BUS=kafka`. RT-VLM publishes generated caption records to `${MESSAGE_BUS_TOPIC}` and incident protobuf records to `${KAFKA_INCIDENT_TOPIC}`. Broker must be reachable at `${KAFKA_BOOTSTRAP_SERVERS}` (Compose default `kafka:29092`; for the standalone host-broker flow, set
+  `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` in `rtvi-vlm.env`).
 - **Sibling VLM backend** — required when `VLM_MODEL_TO_USE=openai-compat`, which is the compose default. Either a sibling NIM (`cosmos-reason1-7b`, `cosmos-reason2-8b`, `qwen3-vl-8b-instruct`) reachable at `${VIA_VLM_ENDPOINT}`, OR remote OpenAI/Azure. In-process operation requires switching `VLM_MODEL_TO_USE` to `cosmos-reason1` / `cosmos-reason2` / `cosmos-reason3` / `vllm-compatible` and pointing `MODEL_PATH` at an NGC or git URL. Source: `real-time-vlm.rst` § Models Supported (lines 62–87).
 - **Video source** — RT-VLM accepts video input via **three independent paths**:
   1. **On-demand (VOD) via VIOS-shared bind mount.** Operator uploads to VIOS `POST /vst/api/v1/files`, file lands in `${VSS_DATA_DIR}/data_log/vst/clip_storage/`, RT-VLM mounts the same host directory at `/home/vst/vst_release/streamer_videos/` and can reference the file path in `POST /v1/files` or `POST /v1/generate_captions`. **VIOS is the producer; RT-VLM is the reader.** Both must mount the same host path or the path-based caption call gets "file not found".
@@ -59,12 +64,12 @@ Sibling NIM backends (`cosmos-reason1-7b`, `cosmos-reason2-8b`, `cosmos3-reasone
 
 - **Method:** HTTP response (SSE when `stream=true`, single-JSON when `stream=false`)
   **Endpoint:** response body of `POST /v1/generate_captions`
-  **Schema:** `{id, object: "caption", chunk_responses: [{start_time, end_time, content, chunk_id?, reasoning_description?, audio_transcript?}], usage}`. Source: `kafka-workflows.md` § 4 HTTP response vs. Kafka message bus.
+  **Schema:** `{id, model, media_info, chunk_responses: [{start_time, end_time, content, chunk_id?, reasoning_description?, audio_transcript?}], usage}`. Both SSE caption events and non-streaming responses wrap captions in `chunk_responses[]`; SSE ends with `[DONE]`. Source: `kafka-workflows.md` § 4 HTTP response vs. Kafka message bus.
   **Trigger:** per-request; per-chunk for SSE streams.
   > **Read captions from `chunk_responses[]`, not `choices`.** On the `/v1/generate_captions` response `choices` is null — it belongs to `/v1/chat/completions` (chat/summarize) — so a `choices` read reports a false "0 results" on a successful caption run. Verified live vss-rt-vlm:3.2.1.
 
 - **Method:** Kafka topic — caption records
-  **Topic:** `${MESSAGE_BUS_TOPIC}` (skill default: `mdx-vlm-captions` — the VSS-3.2 upstream `mdx-lvs` Logstash pipeline subscribes to this topic and indexes captions in via-ctx-rag shape under `<collection>_<id>` ES indices.)
+  **Topic:** `${MESSAGE_BUS_TOPIC}` (skill default: `mdx-vlm-captions` — the `mdx-lvs` Logstash pipeline subscribes to this topic and indexes captions in via-ctx-rag shape under `<collection>_<id>` ES indices.)
   **Schema:** NvSchema `nv.VisionLLM` protobuf; descriptors at `deploy/docker/services/infra/elk/pb_definitions/descriptors/schema.desc`. Headers: `message_type: vision_llm` and `info["incidentDetected"] = "true"|"false"`. Source: `kafka-workflows.md` § 4.
   **Trigger:** per-caption-chunk when `KAFKA_ENABLED=true`.
   **Partition key:** `<request_id>:<chunk_idx>` — guarantees caption and matching incident (if any) land on the same partition for join-by-key consumers.
@@ -92,7 +97,7 @@ All endpoints prefixed with `/v1`. Live, authoritative schema is available from 
 | Files | `POST /v1/files`, `DELETE /v1/files/{id}` — upload and manage video/image files (3.2.0 also supports URL-based ingestion) |
 | Live Stream | `POST /v1/streams/add`, plus 3.2.0 CV-compatible aliases `POST /v1/stream/add`, `POST /v1/stream/remove`, `GET /v1/stream/get-stream-info` |
 | Models | `GET /v1/models` — list available VLM models with their full NGC artifact IDs |
-| Health Check | `GET /v1/health/ready` — readiness probe; **not** `/v1/ready` as some older docs suggest |
+| Health Check | `GET /v1/health/ready` — Compose readiness probe; `/v1/ready` is also supported |
 | Metrics | `GET /metrics` — Prometheus endpoint |
 | Metadata | service version, build info |
 | NIM Compatible | `POST /v1/chat/completions` — OpenAI-compatible Chat Completions (text-only or with media; SSE-streaming supported) |
@@ -106,7 +111,7 @@ The host-side variable names that the compose interpolates differ from the canon
 | Variable | Purpose | Default | Required? |
 |---|---|---|---|
 | `RTVI_VLM_PORT` | Host REST API port (rewrites to container `8000`) | strict (`${RTVI_VLM_PORT?}`) | **Yes** |
-| `HOST_IP` | Interpolated into `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; no fallback | — | **Yes (effective)** |
+| `HOST_IP` | Host address used by the standalone host-broker setup | — | required for that setup |
 | `VSS_DATA_DIR` | Bind-mount root for VST clip storage `${VSS_DATA_DIR}/data_log/vst/clip_storage` | — | **Yes** |
 | `NGC_CLI_API_KEY` / `RTVI_VLM_API_KEY` | rewrites to `NGC_API_KEY` + `VIA_VLM_API_KEY` for model download and NIM auth | — | **Yes** |
 | `HF_TOKEN` | Gated HuggingFace pulls (Qwen3-VL, Cosmos3) | — | conditional |
@@ -116,10 +121,10 @@ The host-side variable names that the compose interpolates differ from the canon
 | `RTVI_VLM_NVIDIA_VISIBLE_DEVICES` → `NVIDIA_VISIBLE_DEVICES` | GPU visibility | `all` | optional |
 | `KAFKA_ENABLED` | Toggle Kafka output | `true` | optional |
 | `RTVI_VLM_MESSAGE_BUS` → `MESSAGE_BUS` | Generated-output broker type | `kafka` | optional |
-| `RTVI_VLM_MESSAGE_BUS_TOPIC` → `MESSAGE_BUS_TOPIC` | Caption topic / Redis stream | `mdx-vlm-captions` (VSS 3.2 — subscribed by `mdx-lvs` Logstash pipeline) | optional |
+| `RTVI_VLM_MESSAGE_BUS_TOPIC` → `MESSAGE_BUS_TOPIC` | Caption topic / Redis stream | `mdx-vlm-captions` (subscribed by `mdx-lvs` Logstash pipeline) | optional |
 | `RTVI_VLM_ERROR_BUS` → `ERROR_BUS` | Error-output broker type | `kafka` | optional; empty disables errors |
 | `RTVI_VLM_KAFKA_INCIDENT_TOPIC` → `KAFKA_INCIDENT_TOPIC` | Incident topic | `mdx-vlm-incidents` | optional |
-| `KAFKA_BOOTSTRAP_SERVERS` | Broker address | `${HOST_IP}:9092` (host-net) or `kafka:9092` (compose-net) | **Yes (effective)** |
+| `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` → `KAFKA_BOOTSTRAP_SERVERS` | Broker address; set to `${HOST_IP}:9092` for the standalone host broker | `kafka:29092` | required override for an external broker |
 | `RTVI_VLM_ERROR_MESSAGE_TOPIC` → `ERROR_MESSAGE_TOPIC` | Error topic | `mdx-vlm-errors` | optional |
 | `VIA_VLM_ENDPOINT` (host: `RTVI_VLM_ENDPOINT`) | Remote OpenAI-compat backend URL when `VLM_MODEL_TO_USE=openai-compat` | — | conditional |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` (host: `VLM_NAME`) | Remote model deployment name | — | conditional |
@@ -130,11 +135,11 @@ The host-side variable names that the compose interpolates differ from the canon
 - **Ports exposed:** `${RTVI_VLM_PORT}:8000` (host:container). FastAPI binds `0.0.0.0:8000` inside the container. No other host-bound ports.
 - **Inbound traffic:** REST clients on `${RTVI_VLM_PORT}` for API. No inbound from peers — RT-VLM is a pure publisher to Kafka and pure REST callee.
 - **Outbound traffic:**
-  - Kafka broker on `${KAFKA_BOOTSTRAP_SERVERS}` (host:9092 by default)
+  - Kafka broker on `${KAFKA_BOOTSTRAP_SERVERS}` (`kafka:29092` by default; `${HOST_IP}:9092` in the standalone host-broker setup)
   - Redis on `${REDIS_HOST}:${REDIS_PORT}` when `ENABLE_REDIS_ERROR_MESSAGES=true`
   - NIM backend on `${VIA_VLM_ENDPOINT}` when `VLM_MODEL_TO_USE=openai-compat`
   - NGC image registry `nvcr.io`, `huggingface.co` for model downloads on first boot
-- **DNS / hostname assumptions:** the compose default `KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` assumes Kafka runs on the **host network**, not the compose bridge — this is the foundational IN-1 wiring (compose puts the broker on `network_mode: host` and RT-VLM on bridge → RT-VLM reaches it via the host IP). `extra_hosts: host.docker.internal: host-gateway` is wired as an alternative way to reach the host. Source: `real-time-vlm.rst` § Sample docker-compose.yml (lines 386–388) + `deploy-rt-vlm-service.md` §10.
+- **DNS / hostname assumptions:** the canonical Compose default `kafka:29092` requires a broker on the same Compose network. For the standalone host broker, set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` before creating RT-VLM and configure Kafka to advertise that address. `host.docker.internal:9092` is an alternative because the Compose file sets `extra_hosts: host.docker.internal: host-gateway`. See `deploy-rt-vlm-service.md` §12 and `kafka-workflows.md`.
 - **`network_mode`:** bridge (default Docker compose network). RT-VLM does NOT use `network_mode: host` — distinguishing it from the ELK + Kafka foundational services.
 
 ## Known Integration Constraints
@@ -181,7 +186,7 @@ services:
       MESSAGE_BUS_TOPIC: "${RTVI_VLM_MESSAGE_BUS_TOPIC:-mdx-vlm-captions}"
       ERROR_BUS: "${RTVI_VLM_ERROR_BUS:-kafka}"
       KAFKA_INCIDENT_TOPIC: "${RTVI_VLM_KAFKA_INCIDENT_TOPIC:-mdx-vlm-incidents}"
-      KAFKA_BOOTSTRAP_SERVERS: "${HOST_IP}:9092"
+      KAFKA_BOOTSTRAP_SERVERS: "${RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}"
       ERROR_MESSAGE_TOPIC: "${RTVI_VLM_ERROR_MESSAGE_TOPIC:-mdx-vlm-errors}"
     deploy:
       resources:

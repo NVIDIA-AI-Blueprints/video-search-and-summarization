@@ -16,10 +16,17 @@ unless the live model list exposes those exact ids.
 
 `POST /v1/generate_captions` returns chunk responses, not OpenAI `choices`.
 
-**SSE (`stream=true`)** emits one `data:` event per chunk with fields such as
-`start_time`, `end_time`, and `content`, then terminates with:
+**SSE (`stream=true`)** emits JSON wrappers containing `id`, `model`,
+`media_info`, and `chunk_responses`. Caption fields (`chunk_id`, `start_time`,
+`end_time`, `content`, etc.) are nested in `chunk_responses[]`. A caption event
+can contain multiple chunks; a final usage event can have no captions. Read
+all entries in `chunk_responses[]` and stop at `[DONE]` before parsing JSON.
+
+Example for a file without a creation timestamp:
 
 ```text
+data: {"id":"request-1","model":"nim_nvidia_cosmos3-nano-reasoner_bf16-final","media_info":{"type":"offset","start_offset":0,"end_offset":10},"chunk_responses":[{"chunk_id":0,"start_time":"0.0","end_time":"10.0","content":"A person walks through the warehouse."}],"usage":null}
+
 data: [DONE]
 ```
 
