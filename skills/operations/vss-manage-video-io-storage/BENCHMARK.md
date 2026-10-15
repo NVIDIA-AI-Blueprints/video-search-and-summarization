@@ -9,7 +9,7 @@ Recommended for publication based on the completed evaluation evidence in this r
 ## Evaluation Metadata
 
 - Skill: `vss-manage-video-io-storage`
-- Evaluation date: 2026-10-07
+- Evaluation date: 2026-10-15
 - Evaluator version: `1.5.6`
 - Agents: Claude Code (`aws/anthropic/bedrock-claude-opus-4-8`), Codex (`openai/openai/gpt-5.5`)
 - Tasks: 3 evaluation tasks (2 positive, 1 negative)
@@ -35,12 +35,12 @@ The three-tier evaluation checks whether the skill:
 
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 72.7% — baseline ran, but no comparable score was available; uplift unavailable | 64.3% — baseline ran, but no comparable score was available; uplift unavailable |
-| Security | 83.3% → 100.0% (+16.7 points) | 66.7% → 83.3% (+16.6 points) |
-| Correctness | 20.0% → 40.0% (+20.0 points) | 46.7% → 33.3% (-13.4 points) |
-| Discoverability | 92.5% — baseline ran, but no comparable score was available; uplift unavailable | 87.5% — baseline ran, but no comparable score was available; uplift unavailable |
-| Effectiveness | 16.7% → 38.3% (+21.6 points) | 36.7% → 30.0% (-6.7 points) |
-| Efficiency | 92.9% — baseline ran, but no comparable score was available; uplift unavailable | 87.1% — baseline ran, but no comparable score was available; uplift unavailable |
+| Overall | 73.2% — baseline ran, but no comparable score was available; uplift unavailable | 70.5% — baseline ran, but no comparable score was available; uplift unavailable |
+| Security | 66.7% → 100.0% (+33.3 points) | 50.0% → 100.0% (+50.0 points) |
+| Correctness | 6.7% → 33.3% (+26.6 points) | 33.3% → 40.0% (+6.7 points) |
+| Discoverability | 97.5% — baseline ran, but no comparable score was available; uplift unavailable | 92.5% — baseline ran, but no comparable score was available; uplift unavailable |
+| Effectiveness | 23.3% → 46.7% (+23.4 points) | 48.3% → 26.7% (-21.6 points) |
+| Efficiency | 88.5% — baseline ran, but no comparable score was available; uplift unavailable | 93.4% — baseline ran, but no comparable score was available; uplift unavailable |
 
 **How to read this table:** baseline is the same task attempted without the target skill. Scores are rounded to one decimal; threshold-adjacent values use additional precision so their displayed band matches the verdict. Uplift is derived from those displayed scores and shown in percentage points.
 
@@ -54,15 +54,15 @@ Actual Tier 3 execution usage is reported for every observed agent/case pair and
 
 | Agent | Dataset case | With skill | Without skill | Delta | Change | Coverage |
 |---|---|---:|---:|---:|---:|---|
-| claude-code | All cases | 878,120 | 498,928 | +379,192 | +76.00% | skill 3/3; base 3/3 |
-| claude-code | video-io-storage-nvstreamer-upload | 407,980 | 187,677 | +220,303 | +117.38% | skill 1/1; base 1/1 |
-| claude-code | video-io-storage-vios-routing | 409,455 | 281,840 | +127,615 | +45.28% | skill 1/1; base 1/1 |
-| claude-code | video-question-non-activation | 60,685 | 29,411 | +31,274 | +106.33% | skill 1/1; base 1/1 |
-| codex | All cases | 599,324 | 1,626,350 | -1,027,026 | -63.15% | skill 3/3; base 3/3 |
-| codex | video-io-storage-nvstreamer-upload | 365,757 | 852,202 | -486,445 | -57.08% | skill 1/1; base 1/1 |
-| codex | video-io-storage-vios-routing | 139,901 | 733,571 | -593,670 | -80.93% | skill 1/1; base 1/1 |
-| codex | video-question-non-activation | 93,666 | 40,577 | +53,089 | +130.84% | skill 1/1; base 1/1 |
-| ALL AGENTS | Dataset aggregate | 1,477,444 | 2,125,278 | -647,834 | -30.48% | skill 6/6; base 6/6 |
+| claude-code | All cases | 706,005 | 476,760 | +229,245 | +48.08% | skill 3/3; base 3/3 |
+| claude-code | video-io-storage-nvstreamer-upload | 281,302 | 190,876 | +90,426 | +47.37% | skill 1/1; base 1/1 |
+| claude-code | video-io-storage-vios-routing | 363,758 | 226,143 | +137,615 | +60.85% | skill 1/1; base 1/1 |
+| claude-code | video-question-non-activation | 60,945 | 59,741 | +1,204 | +2.02% | skill 1/1; base 1/1 |
+| codex | All cases | 357,873 | 957,323 | -599,450 | -62.62% | skill 3/3; base 3/3 |
+| codex | video-io-storage-nvstreamer-upload | 118,667 | 443,179 | -324,512 | -73.22% | skill 1/1; base 1/1 |
+| codex | video-io-storage-vios-routing | 160,533 | 459,275 | -298,742 | -65.05% | skill 1/1; base 1/1 |
+| codex | video-question-non-activation | 78,673 | 54,869 | +23,804 | +43.38% | skill 1/1; base 1/1 |
+| ALL AGENTS | Dataset aggregate | 1,063,878 | 1,434,083 | -370,205 | -25.81% | skill 6/6; base 6/6 |
 
 Prompt tokens include cached reads, so total tokens are `prompt + completion` (cached is not added twice). The Efficiency score uses `(prompt - cached) + completion`. N/A means the relevant trajectory counters were not available; coverage is never estimated.
 
@@ -70,7 +70,7 @@ Prompt tokens include cached reads, so total tokens are `prompt + completion` (c
 
 | Tier | Purpose | Status | Evidence |
 |---|---|---|---|
-| Tier 1 | Static validation | **PASSED WITH OBSERVATIONS** | 11 validator(s); 58 finding(s) |
+| Tier 1 | Static validation | **PASSED WITH OBSERVATIONS** | 11 validator(s); 54 finding(s) |
 | Tier 2 | Semantic deduplication | **PASSED WITH OBSERVATIONS** | 2 validator(s); 1 finding(s) |
 | Tier 3 | Live agent evaluation | **PASS** | 2 agent(s); 3 task(s) |
 
@@ -83,8 +83,8 @@ Prompt tokens include cached reads, so total tokens are `prompt + completion` (c
 - **MEDIUM** PII/ip_addresses: Public IP address (`references/deploy-vios-service.md:139`)
 - **MEDIUM** PII/ip_addresses: Public IP address (`references/deploy-vios-service.md:142`)
 - **MEDIUM** QUALITY/quality_correctness: SKILL_SPEC recommended field missing: 'metadata.author' (`skills/operations/vss-manage-video-io-storage/SKILL.md`)
-- **MEDIUM** QUALITY/quality_efficiency: Large skill (6880 tokens, recommended max <5000). Per agentskills.io, SKILL.md should be concise (~500 lines) — large skill bodies increase token cost after invocation; long or unfocused top-level descriptions can degrade agent routing accuracy (`skills/operations/vss-manage-video-io-storage/SKILL.md`)
-- 54 additional finding(s) are available in the full evaluation artifacts.
+- **MEDIUM** QUALITY/quality_efficiency: Large skill (6755 tokens, recommended max <5000). Per agentskills.io, SKILL.md should be concise (~500 lines) — large skill bodies increase token cost after invocation; long or unfocused top-level descriptions can degrade agent routing accuracy (`skills/operations/vss-manage-video-io-storage/SKILL.md`)
+- 50 additional finding(s) are available in the full evaluation artifacts.
 
 </details>
 

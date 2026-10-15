@@ -9,7 +9,7 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache 2.0 <br>
 ## Use Case: <br>
-Developers and operators managing video input/output and storage in a deployed VSS stack — listing sensors, uploading video files, adding RTSP streams, extracting clips and snapshots, and provisioning sources into headless builds. <br>
+Developers and operators managing video input/output and storage in a deployed VSS stack use this skill to list sensors, upload video files, add or delete RTSP streams, retrieve clip and snapshot URLs and recording timelines, serve synthetic RTSP via NvStreamer, and provision sources into Agent-backed or headless deployments for fan-out to perception consumers. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -47,36 +47,36 @@ Mitigation: Review and scan skill before deployment. <br>
 
 
 ## Evaluation Tasks: <br>
-3 evaluation tasks (2 positive, 1 negative) executed in isolated sandbox pods with 1 attempt per task. <br>
+3 evaluation tasks (2 positive, 1 negative), each executed in an isolated sandbox pod with 1 attempt per task. <br>
 
 ## Evaluation Metrics Used: <br>
 Reported benchmark dimensions: <br>
-- Security: Whether the skill avoids unsafe operations, secret leakage, and unauthorized access. <br>
-- Correctness: Whether the final answer is correct against the reference answer. <br>
-- Discoverability: Whether the right skill was selected, decoys were avoided, and the workflow executed. <br>
-- Effectiveness: Whether the skill helped complete the user's goal (50% goal completion + 50% expected workflow adherence). <br>
-- Efficiency: Whether the skill avoided wasted tool calls and token usage (50% tool-call productivity + 50% token efficiency). <br>
+- Security: Whether the skill is safe to use (scored from the `security` signal). <br>
+- Correctness: Whether the final answer is correct (scored from the `accuracy` signal). <br>
+- Discoverability: Whether the right skill was loaded when needed (scored from the `skill_execution` signal). <br>
+- Effectiveness: Whether the skill helped complete the task (50% `goal_accuracy` + 50% `behavior_check`). <br>
+- Efficiency: Whether it avoided wasted tool calls and token usage (50% `skill_efficiency` + 50% `token_efficiency`). <br>
 
 Underlying evaluation signals used in this run: <br>
-- `security`: Checks for unsafe operations, secret leakage, and unauthorized access. <br>
+- `security`: Unsafe operations, secret leakage, and unauthorized access. <br>
+- `skill_execution`: Whether the expected skill was selected, decoys were avoided, and the workflow executed. <br>
+- `skill_efficiency`: Tool-call productivity (legacy wire id; routing is scored under Discoverability). <br>
 - `accuracy`: Final-answer correctness against the reference answer. <br>
-- `skill_execution`: Whether the expected skill was selected and the workflow executed. <br>
 - `goal_accuracy`: Whether the user's goal was achieved. <br>
 - `behavior_check`: Whether the expected workflow behavior was followed. <br>
-- `skill_efficiency`: Tool-call productivity (routing scored under Discoverability). <br>
-- `token_efficiency`: Actual uncached prompt plus completion token usage. <br>
+- `token_efficiency`: Actual uncached prompt plus completion usage. <br>
 
 
 
 ## Evaluation Results: <br>
 | Measure | Claude Code (Baseline → Skill Uplift) | Codex (Baseline → Skill Uplift) |
 |---|---:|---:|
-| Overall | 72.7% | 64.3% |
-| Security | 83.3% → 100.0% (+16.7 pts) | 66.7% → 83.3% (+16.6 pts) |
-| Correctness | 20.0% → 40.0% (+20.0 pts) | 46.7% → 33.3% (-13.4 pts) |
-| Discoverability | 92.5% | 87.5% |
-| Effectiveness | 16.7% → 38.3% (+21.6 pts) | 36.7% → 30.0% (-6.7 pts) |
-| Efficiency | 92.9% | 87.1% |
+| Overall | 73.2% — baseline ran, but no comparable score was available; uplift unavailable | 70.5% — baseline ran, but no comparable score was available; uplift unavailable |
+| Security | 66.7% → 100.0% (+33.3 points) | 50.0% → 100.0% (+50.0 points) |
+| Correctness | 6.7% → 33.3% (+26.6 points) | 33.3% → 40.0% (+6.7 points) |
+| Discoverability | 97.5% — baseline ran, but no comparable score was available; uplift unavailable | 92.5% — baseline ran, but no comparable score was available; uplift unavailable |
+| Effectiveness | 23.3% → 46.7% (+23.4 points) | 48.3% → 26.7% (-21.6 points) |
+| Efficiency | 88.5% — baseline ran, but no comparable score was available; uplift unavailable | 93.4% — baseline ran, but no comparable score was available; uplift unavailable |
 
 ## Skill Version(s): <br>
 3.3.0-rc0 (source: frontmatter) <br>
