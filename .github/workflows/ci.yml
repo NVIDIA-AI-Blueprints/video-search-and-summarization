@@ -948,6 +948,7 @@ jobs:
             numpy \
             pillow \
             pydantic \
+            pyyaml \
             pytest
 
       # --noconftest: tests/conftest.py imports prometheus_client,
@@ -961,6 +962,7 @@ jobs:
             --noconftest \
             -m test_in_ci \
             tests/model/vllm_compatible/test_input_error_handling.py \
+            tests/test_dflash_build_contract.py \
             tests/rtvi_vlm/test_vlm_thor_runtime.py \
             tests/test_sbsa_decoder_bridge.py \
             -v

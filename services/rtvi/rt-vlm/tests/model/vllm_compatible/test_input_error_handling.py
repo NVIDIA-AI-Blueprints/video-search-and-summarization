@@ -49,6 +49,54 @@ def test_request_seed_does_not_mutate_global_rngs():
 
 
 @pytest.mark.test_in_ci
+def test_speculation_is_opt_in(monkeypatch):
+    monkeypatch.delenv("RTVI_VLLM_SPECULATIVE_CONFIG", raising=False)
+    monkeypatch.delenv("VLLM_SPECULATIVE_CONFIG", raising=False)
+    kwargs = {"model": "/target"}
+    vllm_compatible_model._apply_speculative_config_override(kwargs, set())
+    assert kwargs == {"model": "/target"}
+
+
+@pytest.mark.test_in_ci
+@pytest.mark.parametrize("raw", ["{", "[]", "null", "{}", '{"x":NaN}', '{"x":1e999}'])
+def test_speculation_rejects_invalid_or_nonfinite_config(monkeypatch, raw):
+    monkeypatch.setenv("RTVI_VLLM_SPECULATIVE_CONFIG", raw)
+    with pytest.raises(ValueError, match="VLLM_SPECULATIVE_CONFIG"):
+        vllm_compatible_model._apply_speculative_config_override({}, {"speculative_config"})
+
+
+@pytest.mark.test_in_ci
+def test_speculation_forwards_config_and_rejects_unsupported_runtime(monkeypatch):
+    config = {"method": "dflash", "model": "/draft", "num_speculative_tokens": 2}
+    monkeypatch.setenv("RTVI_VLLM_SPECULATIVE_CONFIG", json.dumps(config))
+    monkeypatch.setenv("VLLM_SPECULATIVE_CONFIG", '{"method":"different"}')
+    kwargs = {}
+    vllm_compatible_model._apply_speculative_config_override(kwargs, {"speculative_config"})
+    assert kwargs == {"speculative_config": config}
+    with pytest.raises(RuntimeError, match="speculative_config"):
+        vllm_compatible_model._apply_speculative_config_override({}, set())
+
+
+@pytest.mark.test_in_ci
+def test_speculation_accepts_legacy_environment_alias(monkeypatch):
+    monkeypatch.delenv("RTVI_VLLM_SPECULATIVE_CONFIG", raising=False)
+    config = {"method": "dflash", "model": "/draft", "num_speculative_tokens": 2}
+    monkeypatch.setenv("VLLM_SPECULATIVE_CONFIG", json.dumps(config))
+    kwargs = {}
+    vllm_compatible_model._apply_speculative_config_override(kwargs, {"speculative_config"})
+    assert kwargs["speculative_config"] == config
+
+
+@pytest.mark.test_in_ci
+def test_blank_canonical_speculation_disables_legacy_config(monkeypatch):
+    monkeypatch.setenv("RTVI_VLLM_SPECULATIVE_CONFIG", "")
+    monkeypatch.setenv("VLLM_SPECULATIVE_CONFIG", '{"method":"dflash"}')
+    kwargs = {}
+    vllm_compatible_model._apply_speculative_config_override(kwargs, {"speculative_config"})
+    assert kwargs == {}
+
+
+@pytest.mark.test_in_ci
 def test_renderer_tokenizer_pool_matches_preprocess_bound(monkeypatch):
     monkeypatch.setenv("RTVI_VLLM_NUM_PREPROCESS_WORKERS", "16")
     kwargs = {}

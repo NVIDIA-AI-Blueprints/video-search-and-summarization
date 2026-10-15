@@ -72,6 +72,7 @@ _RTVI_VLLM_ENV_ALIASES = {
     "VLLM_DEFAULT_REPETITION_PENALTY": "RTVI_VLLM_DEFAULT_REPETITION_PENALTY",
     "VLLM_DEFAULT_TOP_K": "RTVI_VLLM_DEFAULT_TOP_K",
     "VLLM_KV_CACHE_DTYPE": "RTVI_VLLM_KV_CACHE_DTYPE",
+    "VLLM_SPECULATIVE_CONFIG": "RTVI_VLLM_SPECULATIVE_CONFIG",
     "VLLM_KV_CACHE_MEMORY_BYTES": "RTVI_VLLM_KV_CACHE_MEMORY_BYTES",
     "VLLM_LIMIT_MM_PER_PROMPT_IMAGE": "RTVI_VLLM_LIMIT_MM_PER_PROMPT_IMAGE",
     "VLLM_LIMIT_MM_PER_PROMPT_VIDEO": "RTVI_VLLM_LIMIT_MM_PER_PROMPT_VIDEO",
@@ -792,6 +793,27 @@ def _build_vllm_sampling_kwargs(config: VlmGenerationConfig) -> dict:
     elif env_ignore_eos or config.ignore_eos is not None:
         kwargs["ignore_eos"] = env_ignore_eos or bool(config.ignore_eos)
     return kwargs
+
+
+def _apply_speculative_config_override(
+    engine_args_kwargs: dict, supported_params: set[str]
+) -> None:
+    """Forward explicit speculation; never silently fall back to target-only decoding."""
+    env_name = "VLLM_SPECULATIVE_CONFIG"
+    raw = (_get_rtvi_vllm_env(env_name, "") or "").strip()
+    if not raw:
+        return
+    try:
+        config = json.loads(raw)
+        json.dumps(config, allow_nan=False)
+    except ValueError as exc:
+        raise ValueError(f"{env_name} must be valid, finite JSON") from exc
+    if not isinstance(config, dict) or not config:
+        raise ValueError(f"{env_name} must be a non-empty JSON object")
+    if "speculative_config" not in supported_params:
+        raise RuntimeError(f"{env_name} requires AsyncEngineArgs.speculative_config")
+    # vLLM owns method/model validation; initialization failures must propagate.
+    engine_args_kwargs["speculative_config"] = config
 
 
 def _configure_structured_outputs(engine_args_kwargs: dict, supported_params: set[str]) -> None:
@@ -1554,6 +1576,7 @@ class VllmCompatible(BaseVlmModel):
                     self._model_architecture,
                 )
                 _configure_structured_outputs(engine_args_kwargs, _engine_supported_params)
+                _apply_speculative_config_override(engine_args_kwargs, _engine_supported_params)
 
                 if "enable_prefix_caching" in _engine_supported_params:
                     prefix_caching_env = _get_rtvi_vllm_env(

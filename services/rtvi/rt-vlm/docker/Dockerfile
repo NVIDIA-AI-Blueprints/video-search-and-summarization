@@ -512,3 +512,23 @@ ENV LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem/lib/:
 WORKDIR /opt/nvidia/rtvi/
 
 ENTRYPOINT ["/opt/nvidia/rtvi/start_rtvi_vlm.sh"]
+
+# Explicit research target only; default builds below retain the standard runtime.
+FROM nvcr.io/nim/nvidia/cosmos3@sha256:dad096ce3552363e7ebf2f1805f8b0da099679af396a6581e6b2f2dfea7a9950 AS dflash-engine
+FROM runtime AS dflash-runtime
+ARG TARGETARCH
+USER root
+COPY --from=dflash-engine /usr/local/lib/python3.12/dist-packages /opt/rtvi-dflash/dist-packages
+COPY --from=dflash-engine /opt/nim/.venv/lib/python3.12/site-packages /opt/rtvi-dflash/venv-packages
+ENV PYTHONPATH=/opt/rtvi-dflash/dist-packages:/opt/rtvi-dflash/venv-packages:${PYTHONPATH} \
+    LD_LIBRARY_PATH=/opt/rtvi-dflash/dist-packages/torch/lib:${LD_LIBRARY_PATH} \
+    RTVI_VLLM_ROOT=/opt/rtvi-dflash/dist-packages/vllm
+RUN test "$TARGETARCH" = "amd64" \
+    && rm -rf /usr/local/lib/python3.12/dist-packages/cupy \
+        /usr/local/lib/python3.12/dist-packages/cupy_backends \
+        /usr/local/lib/python3.12/dist-packages/cupy_cuda12x-*.dist-info \
+    && python3 -c 'import numpy, torch, vllm; from vllm.model_executor.models import ModelRegistry; assert numpy.__version__ == "2.2.6"; assert torch.__version__.startswith("2.11.0"); assert vllm.__version__.startswith("0.24.0"); assert "DFlashDraftModel" in ModelRegistry.get_supported_archs(); print(torch.__version__, vllm.__version__)'
+USER vss:1001
+
+# Keep unqualified docker builds on the existing production runtime.
+FROM runtime AS default
