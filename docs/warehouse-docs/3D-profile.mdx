@@ -142,7 +142,7 @@ For more details, see [Event Detection](/vss/system-components/analytics-microse
 
 ### Incidents
 
-The 3D profile does not generate confirmed incidents. The per-frame violation data (such as proximity and zone analytics) is still computed and written to the enhanced frames, so downstream consumers can read it directly from the message stream or Elasticsearch—but it is not promoted to tracked incidents. For the enhanced-frame violation fields, see [Enhanced Frame Data](/vss/system-components/analytics-microservices/behavior-analytics).
+The 3D profile generates restricted-area, confined-area, and proximity incidents and publishes them to `mdx-incidents`. Per-frame violations are also written to enhanced frames; see [Enhanced Frame Data](/vss/system-components/analytics-microservices/behavior-analytics). These Behavior Analytics incidents do not undergo VLM verification in the 3D profile.
 
 ### Use Cases
 
@@ -190,7 +190,7 @@ Choose one of the following options to provide video sources for the 3D profile:
 
 1. **Using recorded videos**
 
-   Use this option to run the VSS with local video files instead of live camera feeds. Place your videos in the `videos` directory under the path configured by `VSS_DATA_DIR` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env`.
+   Use this option to run the VSS with local video files instead of live camera feeds. Place your videos in the `videos` directory under the path configured by `VSS_DATA_DIR` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env`.
 
 2. **Using live RTSP streams**
 
@@ -229,7 +229,7 @@ Each `rtsp_url` in `camera_info.json` must be reachable from the machine where y
 You do not have to assign `group_id` by hand. The `spatialai_data_utils` (SDU) camera grouping tools derive the camera-to-BEV-group partition directly from your camera calibration. Run [create_camera_clusters.py](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#camera-clustering) to partition cameras into non-overlapping BEV groups; cameras placed in the same cluster share a `group_id` (the generated group name, such as `bev-sensor-1`). These tools also populate the matching per-sensor `group` and `region` blocks (origin, dimensions, place level) in `calibration.json` that must be filled in before deployment (see the [note under Step 3](#calibration-group-region-note-3d)). For installation and the full command reference, see [Camera Grouping Utilities](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#camera-grouping-utilities).
 </Tip>
 
-    (ii) **Configure VSS Configurator environment variables**: Set the following in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env`:
+    (ii) **Configure VSS Configurator environment variables**: Set the following in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env`, which is loaded after warehouse `.env` and takes precedence:
 
       ```bash
       SENSOR_INFO_SOURCE=file
@@ -242,7 +242,7 @@ You do not have to assign `group_id` by hand. The `spatialai_data_utils` (SDU) c
 
 Number of streams to be processed can be configured in two ways:
 
-1. **Static Configuration**: Set the `NUM_STREAMS` environment variable to specify the desired number of streams for video dataset or RTSP streams.
+1. **Static Configuration**: Set the `NUM_STREAMS` environment variable in warehouse `overrides.env` to specify the desired number of streams for video dataset or RTSP streams.
 
    ```bash
    NUM_STREAMS=4
@@ -266,7 +266,7 @@ Dynamic Configuration cannot be used for live RTSP streams.
        3d:
          - operation_type: "file_management"
            target_directories:
-             - "${VSS_DATA_DIR}/videos/warehouse-3d-app"
+             - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
            file_management:
              action: "file_count"
              parameters:
@@ -296,7 +296,7 @@ To use a custom dataset:
 
 * For a custom synthetic dataset, use a dataset name that ends in `-synthetic` (for example, `my-warehouse-synthetic`). Custom real datasets do not have a suffix requirement.
 
-* Set `SAMPLE_VIDEO_DATASET` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env` to the name of your dataset.
+* Set `SAMPLE_VIDEO_DATASET` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env` to the name of your dataset.
 
 * Set `DATASET_TYPE` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env` to `synthetic` for a synthetic dataset or `real` for a real dataset. This selects the corresponding Sparse4D model, engine, anchor, and labels.
 
@@ -350,7 +350,7 @@ Use `create_camera_clusters.py` to partition cameras into non-overlapping groups
 Before redeploying, replace the Auto-Calibration settings in `industry-profiles/warehouse-operations/overrides.env` with the settings from the **3D** tab under [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection). Then follow [Deploy the Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint) to start the 3D profile with the new calibration.
 
 <Note>
-Before updating the warehouse `.env` file or running `docker compose up`, check whether containers from a previous Docker Compose deployment are still present:
+Before updating the warehouse `overrides.env` file or running `docker compose up`, check whether containers from a previous Docker Compose deployment are still present:
 
 ```bash
 docker ps -a
@@ -739,7 +739,7 @@ To enable the VSS Configurator, in VSS Configurator's environment variables you 
 ENABLE_PROFILE_CONFIGURATOR=true
 ```
 
-By default, the VSS Configurator is disabled (`ENABLE_PROFILE_CONFIGURATOR=false`).
+The VSS Configurator is enabled by default (`ENABLE_PROFILE_CONFIGURATOR=true`).
 When enabled, it runs before the Blueprint Deployment starts and adjusts configuration files based on the hardware profile and deployment mode as defined in the HARDWARE_PROFILE and MODE environment variables.
 
 The VSS Configurator provides a comprehensive set of features for automated profile configuration management:

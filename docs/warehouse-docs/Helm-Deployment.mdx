@@ -7,13 +7,15 @@ The Warehouse Blueprint can also be deployed on Kubernetes using Helm, as an alt
 
 ## Overview
 
-Each Warehouse Blueprint profile that is available through Docker Compose is also packaged as a Helm chart under `deploy/helm/industry-profiles/warehouse-operations/` in the repository:
+Three Warehouse Blueprint Helm charts are available under `deploy/helm/industry-profiles/warehouse-operations/`:
 
 | Profile Type | Chart | Detection Approach |
 | --- | --- | --- |
 | 2D Vision AI Profile | `warehouse-2d-app` | 2D single-camera detection and tracking, using the RT-DETR model |
 | 3D Vision AI Profile | `warehouse-3d-app` | 3D multi-camera detection and tracking, using the Sparse4D model |
 | MV3DT Vision AI Profile | `warehouse-mv3dt-app` | 3D multi-camera detection and tracking, using RT-DETR combined with MV3DT distributed tracking |
+
+Agents are optional settings in the 2D chart, not a separate chart. Auto Calibration is available through Docker Compose only.
 
 Each of these charts wraps the shared microservice charts under `deploy/helm/services/` (VIOS, RTVI, analytics, infra, monitoring, and calibration-import) and configures them for its own detection approach, in the same way that the corresponding Docker Compose profile does. See [Deployment & Customization](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization) for a description of each profile's architecture.
 

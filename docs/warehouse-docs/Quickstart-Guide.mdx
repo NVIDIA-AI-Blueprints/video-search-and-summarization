@@ -81,7 +81,7 @@ cd deploy/docker
 
 ### Warehouse App Data
 
-Warehouse App Data contains sample video datasets, pre-trained TensorRT models (RT-DETR for 2D and MV3DT, Sparse4D for 3D, NvDCF tracker, BodyPose3DNet for MV3DT), camera calibration data, and configuration templates for deploying 2D, 3D, and MV3DT warehouse profiles. MV3DT Compose also stages CLIP-ReID (`reid_model.onnx`, 1280-D) and SigLIP 2 (`siglip_v2_vdeployable_v2.0`) under `$VSS_DATA_DIR/models/reid` on first boot.
+Warehouse App Data contains sample videos, playback data, runtime directories, and the sample-data license. Calibration files and configuration templates come from the repository. Perception models are downloaded from NGC during deployment using `models-download.json`; TensorRT engines are built on first run and cached under `$VSS_DATA_DIR/models/`. MV3DT Compose also stages CLIP-ReID (`reid_model.onnx`, 1280-D) and SigLIP 2 (`siglip_v2_vdeployable_v2.0`) under `$VSS_DATA_DIR/models/reid` on first boot.
 
 The package includes the following MP4 datasets at 1920x1080 and 30 FPS:
 
