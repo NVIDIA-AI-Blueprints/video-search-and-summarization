@@ -181,7 +181,7 @@ def test_local_nim_claude_route_is_normalized_during_resolution() -> None:
     route = model_config.resolve_model_config(
         {
             **DEFAULT_ENV,
-            "NGC_API_KEY": "registry-secret",
+            "NGC_API_KEY": "registry-secret",  # pragma: allowlist secret
             "SKILLS_EVAL_CODING_HARNESS": "claude-code",
             "SKILLS_EVAL_CODING_DEPLOYMENT": "local-nim",
             "SKILLS_EVAL_CODING_MODEL": "nvidia/test-model",
