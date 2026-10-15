@@ -8,8 +8,8 @@ Performance benchmarking framework for RTVI VLM services.
 
 Use the [platform/model/artifact table](PERF_GUIDE.RTVI_VLM.md#bcd-33-model-selection)
 and [BCD 3.3 quick start](PERF_GUIDE.RTVI_VLM.md#bcd-33-quick-start).
-L40S uses **CR3 Nano FP8**; Thor/Spark use **CR3 Nano NVFP4**;
-H100 uses **CR3 Super FP8**; RTX Pro 6000/4500 and B200 use **CR3 Super NVFP4**;
+L40S uses **CR3 Nano FP8**; RTX Pro 4500 and Thor/Spark use **CR3 Nano NVFP4**;
+H100 uses **CR3 Super FP8**; RTX Pro 6000 and B200 use **CR3 Super NVFP4**;
 Orin uses **CR3 Edge BF16**. The table links exact NGC versions and the pinned
 Hugging Face Edge revision. These are model selections, not runtime validation.
 
@@ -45,9 +45,9 @@ exported in the shell for a non-standard experiment.
 # export VST_IMAGE_TAG=3.2.0
 # export PERF_VIDEOS_DIR=~/rtvi-perf/vst_package/videos
 # export VLM_MODEL_PRESET=cr3-nano-reasoner-fp8
-# export VLM_MODEL_PRESET=cr3-nano-reasoner-nvfp4  # Thor / Spark
+# export VLM_MODEL_PRESET=cr3-nano-reasoner-nvfp4  # RTX Pro 4500 / Thor / Spark
 # export VLM_MODEL_PRESET=cr3-super-reasoner-fp8   # H100
-# export VLM_MODEL_PRESET=cr3-super-reasoner-nvfp4 # RTX Pro / B200
+# export VLM_MODEL_PRESET=cr3-super-reasoner-nvfp4 # RTX Pro 6000 / B200
 # export VLM_MODEL_PRESET=cosmos3-edge-bf16        # AGX Orin
 # export MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
 
@@ -132,7 +132,7 @@ export VLM_MODEL_PRESET=cr3-nano-reasoner-fp8
 # export VLM_MODEL_TO_USE=cosmos-reason3
 # export MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix
 
-# CR3 Nano Reasoner NVFP4 for Thor / Spark:
+# CR3 Nano Reasoner NVFP4 for RTX Pro 4500 / Thor / Spark:
 # export VLM_MODEL_PRESET=cr3-nano-reasoner-nvfp4
 # Equivalent explicit values:
 # export VLM_MODEL_TO_USE=cosmos-reason3
@@ -140,7 +140,7 @@ export VLM_MODEL_PRESET=cr3-nano-reasoner-fp8
 
 # CR3 Super Reasoner FP8 for H100:
 # export VLM_MODEL_PRESET=cr3-super-reasoner-fp8
-# CR3 Super Reasoner NVFP4 for RTX Pro / B200:
+# CR3 Super Reasoner NVFP4 for RTX Pro 6000 / B200:
 # export VLM_MODEL_PRESET=cr3-super-reasoner-nvfp4
 
 # Cosmos3-Edge BF16 for AGX Orin (requires an RTVI image with Edge support):

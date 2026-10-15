@@ -43,7 +43,7 @@ class PlatformConfigTest(unittest.TestCase):
         expected = {
             "h100_sxm": ("super", "fp8"),
             "rtx_pro_6000_se": ("super", "nvfp4"),
-            "rtx_pro_4500": ("super", "nvfp4"),
+            "rtx_pro_4500": ("nano", "nvfp4"),
             "b200_sxm": ("super", "nvfp4"),
             "l40s": ("nano", "fp8"),
             "agx_thor_t5000": ("nano", "nvfp4"),
