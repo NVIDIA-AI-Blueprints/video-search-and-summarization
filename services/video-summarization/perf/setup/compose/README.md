@@ -340,5 +340,3 @@ All stacks currently ship **Cosmos-Reason3 Nano**; `CR3_VARIANT=super` switches 
 GPU placement in any stack can be overridden via env vars documented in each compose file's header (typically `RTVI_GPU_*`, `VLM_NIM_GPU_*`, `LLM_GPU_*`).
 
 Supporting stacks (optional): [`media-server.yaml`](media-server.yaml) (included by default), [`otel-stack.yaml`](otel-stack.yaml) (observability).
-
-
