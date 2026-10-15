@@ -79,9 +79,10 @@ library, which executes the named mode without re-routing.
 ### Search (RTVI-CV) Concurrent Streams
 
 <Note>
-The search profile was tested with RTVI-CV processing 8 concurrent 1920x1080, 30 FPS streams with no FPS drops, using the profile's default vision encoder settings
-(`skip-interval=0`, `smart-infer=0`, `ofa-predict=0`). To support more concurrent streams
-without FPS drops, use a combination of `skip-interval`, `smart-infer`, and `ofa-predict`.
+On both platforms, RTVI-CV sustains up to 8 concurrent 1920x1080, 30 FPS streams without FPS
+drops, using the profile's default vision encoder settings (`skip-interval=0`,
+`smart-infer=0`, `ofa-predict=0`). To support more concurrent streams without FPS drops,
+use a combination of `skip-interval`, `smart-infer`, and `ofa-predict`.
 For details on these parameters, see
 [Smart Embedding Inference](/vss/system-components/vision-microservices/object-detection-and-tracking#smart-embedding-inference)
 and [Smart embedding properties](/vss/system-components/vision-microservices/object-detection-and-tracking#smart-embedding-properties)
