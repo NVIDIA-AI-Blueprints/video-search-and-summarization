@@ -24,6 +24,7 @@ import type {
   ChatVideoUploadCompletePayload,
   CustomAgentParamsValues,
   QueryDataContext,
+  ParamField,
 } from './types';
 
 const CHIP_ICON_SIZE = 12;
@@ -68,6 +69,9 @@ export interface ChatInputProps {
   workflowName: string;
   features: ChatFeatureFlags;
   customAgentParamsJson?: string;
+  /** Panel-owned values shared by every send path. Optional for standalone inputs. */
+  paramFields?: ParamField[];
+  onParamFieldsChange?: React.Dispatch<React.SetStateAction<ParamField[]>>;
   contextItems: QueryDataContext[];
   onRemoveContext: (id: string) => void;
   /** Upload wiring; upload is hidden entirely when `uploadUrlBase` is absent. */
@@ -94,6 +98,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   workflowName,
   features,
   customAgentParamsJson,
+  paramFields: controlledParamFields,
+  onParamFieldsChange,
   contextItems,
   onRemoveContext,
   uploadUrlBase,
@@ -110,7 +116,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [isComposing, setIsComposing] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [showParams, setShowParams] = useState(false);
-  const [paramFields, setParamFields] = useParamFields(customAgentParamsJson);
+  const [localParamFields, setLocalParamFields] = useParamFields(
+    controlledParamFields === undefined ? customAgentParamsJson : undefined,
+  );
+  const paramFields = controlledParamFields ?? localParamFields;
+  const setParamFields = onParamFieldsChange ?? setLocalParamFields;
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);

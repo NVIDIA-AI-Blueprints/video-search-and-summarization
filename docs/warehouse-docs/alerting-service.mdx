@@ -366,7 +366,7 @@ of `alert_type_config.json`:
       },
       "vlm_params": {
         "max_tokens":      4096,
-        "temperature":     0.0,
+        "temperature":     0.0
       }
     }
   ]
@@ -402,14 +402,13 @@ The Warehouse Blueprint ships four real-time use cases:
 | Rule | `alert_type` | `chunk_duration` | VLM input (W×H) | Reasoning |
 | --- | --- | --- | --- | --- |
 | `ppe` | `PPE Violation` | 6 s | 854 × 480 | on |
-| `load_quality` | `Load Quality Violation` | 7 s | 854 × 480 | on |
-| `pathway_obstruction` | `Pathway Obstruction Violation` | 8 s | 854 × 480 | on |
-| `spillover` | `Spillover Violation` | 5 s | 854 × 480 | on |
+| `load_quality` | `Load Quality Violation` | 6 s | 854 × 480 | on |
+| `pathway_obstruction` | `Pathway Obstruction Violation` | 6 s | 854 × 480 | on |
+| `spillover` | `Spillover Violation` | 6 s | 854 × 480 | on |
 
 All four rules use the `cosmos3-nano-reasoner` model with
 `temperature: 0.0`, `max_tokens: 4096`, FPS-based chunking at 1
-frame/second, and no chunk overlap. Per-rule deviations are documented in
-the sub-sections below.
+frame/second, and no chunk overlap. All four rules use the same 6-second chunk duration because RT-VLM permits one decode configuration per live stream.
 
 The four rules below reproduce the rule definitions from the live
 `realtime-config.yml` file. Each rule is a self-contained entry under
@@ -554,7 +553,7 @@ concrete defect.
 
 ```yaml
 model: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
-chunk_duration: 7
+chunk_duration: 6
 chunk_overlap_duration: 0
 num_frames_per_second_or_fixed_frames_chunk: 1
 use_fps_for_chunking: true
@@ -703,7 +702,7 @@ floor that does not encroach on the travel lane is excluded.
 
 ```yaml
 model: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
-chunk_duration: 8
+chunk_duration: 6
 chunk_overlap_duration: 0
 num_frames_per_second_or_fixed_frames_chunk: 1
 use_fps_for_chunking: true
@@ -821,8 +820,7 @@ Raw warehouse surveillance video. Inspect the floor carefully for spilled conten
 
 **Prompt summary.** For `ID 0` the `video_description` must name the
 source container **and** the spilled material. Hedge words drop the flag.
-The shorter `chunk_duration` (5 s) reflects that spills tend to be
-short, salient events.
+
 
 | ID | Label | Verdict mapping |
 | --- | --- | --- |
@@ -833,7 +831,7 @@ short, salient events.
 
 ```yaml
 model: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
-chunk_duration: 5
+chunk_duration: 6
 chunk_overlap_duration: 0
 num_frames_per_second_or_fixed_frames_chunk: 1
 use_fps_for_chunking: true
@@ -981,7 +979,7 @@ can pick the right one (or register a compatible one) when you write
 your own prompts.
 
 The parser is selected per deployment via the `vlm.response_format`
-key in `config.yaml` (and overridden per call by the same field on a
+key in `config.yml` (and overridden per call by the same field on a
 `RealtimeAlertRequest` or per alert type in
 `alert_type_config.json`). The accepted values are:
 
@@ -1131,7 +1129,7 @@ With the **default** `json_parser` config the Alert Bridge:
   the output event.
 
 **Configuring the parser —** override any of the three knobs under
-`vlm.json_parser` in `config.yaml` to match your prompt's schema:
+`vlm.json_parser` in `config.yml` to match your prompt's schema:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -1236,7 +1234,7 @@ def parse_xml(text: str, json_config) -> VLMResponse:
 register_parser("xml", parse_xml)
 ```
 
-Then set `vlm.response_format: "xml"` in `config.yaml`. The parser
+Then set `vlm.response_format: "xml"` in `config.yml`. The parser
 must return a `VLMResponse` whose `verdict` value the serializer
 recognises (`YES` / `NO` / `A` / `B`, case-insensitive) — or
 `None` for description-only replies.

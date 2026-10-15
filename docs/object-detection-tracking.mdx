@@ -50,7 +50,7 @@ Each deployment profile declares its own service name, `extends` the base `perce
 
 | Service name | Compose file | Customization (summary) |
 | --- | --- | --- |
-| `perception-2d` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml` | Warehouse 2D (RT-DETR): `DS_MODEL_FAMILY=rtdetr-warehouse`; mounts DeepStream configs and `$VSS_DATA_DIR/models/mtmc/` at `/opt/storage/` for ONNX and TensorRT engines. See [2D Single Camera Detection and Tracking (RT-DETR)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr). |
+| `perception-2d` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/warehouse-2d-app.yml` | Warehouse 2D (RT-DETR): `DS_MODEL_FAMILY=rtdetr-warehouse`; mounts DeepStream configs and `$VSS_DATA_DIR/models/` at `/opt/storage/` for ONNX and TensorRT engines. See [2D Single Camera Detection and Tracking (RT-DETR)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr). |
 | `perception-3d` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml` | Warehouse 3D (Sparse4D): `DS_MODEL_FAMILY=sparse4d-warehouse`; named volume `perception-3d` at `/opt/storage/`, Sparse4D ONNX/anchor mounts, `ds-configurator` integration. See [3D Multi Camera Detection and Tracking (Sparse4D)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d). |
 | `perception-alerts` | `deploy/docker/developer-profiles/dev-profile-alerts/compose.yml` | Alerts developer profile: `DS_MODEL_FAMILY=rtdetr-gdino`; mounts `$VSS_DATA_DIR/models/` and `$VSS_APPS_DIR/engines/`; config staging under `mounted-configs/`; integrates with RTVI-VLM and Kafka topic init. |
 | `perception-2d-fusion` | `deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/compose.yml` | Search developer profile: `DS_MODEL_FAMILY=rtdetr-warehouse` with ReID enabled; `perception-2d-init` downloads vision-encoder assets; custom `ds-search-start.sh` command; read-only config staging copied at startup. |
@@ -560,7 +560,7 @@ docker compose logs -f <rtvi-cv-service-name>
 
 **4. TensorRT Engine File Creation and Reuse**
 
-On the first run, TensorRT automatically builds optimized engine files (`.engine`) from the ONNX models. This engine generation can take significant time depending on the model size and GPU. Warehouse blueprints store engines at `/opt/storage/` inside the container (2D: host directory `$VSS_DATA_DIR/models/mtmc/`; 3D: `perception-3d` named Docker volume; MV3DT: host directory `$VSS_DATA_DIR/models/` with RT-DETR at the root of that tree, `BodyPose3DNet/` for pose, and `reid/` for CLIP-ReID plus SigLIP 2).
+On the first run, TensorRT automatically builds optimized engine files (`.engine`) from the ONNX models. This engine generation can take significant time depending on the model size and GPU. Warehouse blueprints store engines at `/opt/storage/` inside the container (2D: host directory `$VSS_DATA_DIR/models/`; 3D: host directory `$VSS_DATA_DIR/models/sparse4d/`; MV3DT: host directory `$VSS_DATA_DIR/models/` with RT-DETR at the root of that tree, `BodyPose3DNet/` for pose, and `reid/` for CLIP-ReID plus SigLIP 2).
 
 The engine files are automatically retained across container restarts via these default volume mounts, so subsequent restarts reuse the previously built engines without rebuilding.
 
@@ -577,10 +577,10 @@ Warehouse Docker Compose files mount persistent storage at `/opt/storage` so Ten
 ```yaml
 volumes:
   # ... existing volume mounts ...
-  - $VSS_DATA_DIR/models/mtmc/:/opt/storage/
+  - $VSS_DATA_DIR/models/:/opt/storage/
 ```
 
-ONNX models and generated `.engine` files live under `$VSS_DATA_DIR/models/mtmc/` on the host. Point `onnx-file` and `model-engine-file` in `ds-pgie-config.yml` to paths under `/opt/storage/`. See [2D Single Camera Detection and Tracking (RT-DETR)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr) for details.
+ONNX models and generated `.engine` files live under `$VSS_DATA_DIR/models/` on the host. Point `onnx-file` and `model-engine-file` in `ds-pgie-config.yml` to paths under `/opt/storage/`. See [2D Single Camera Detection and Tracking (RT-DETR)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/2d-single-camera-detection-and-tracking-rt-detr) for details.
 
 **Warehouse 3D Blueprint** — `deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/warehouse-3d-app.yml` (`perception-3d` service, `volumes:` section):
 
