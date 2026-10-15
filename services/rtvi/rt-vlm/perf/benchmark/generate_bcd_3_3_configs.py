@@ -12,7 +12,7 @@ SOURCE = HERE / "rtvi_vlm_bcd_3_2_config.yaml"
 PROFILES = {
     # platform: (model preset, max-live starting count, increment, concurrency sweep)
     "rtx_pro_6000_se": ("cr3-super-reasoner-nvfp4", 1, 5, [1, 16, 32, 64, 128]),
-    "rtx_pro_4500": ("cr3-super-reasoner-nvfp4", 1, 1, [1, 4, 8, 16, 32]),
+    "rtx_pro_4500": ("cr3-nano-reasoner-nvfp4", 1, 1, [1, 4, 8, 16, 32]),
     "l40s": ("cr3-nano-reasoner-fp8", 1, 5, [1, 16, 32, 64, 128]),
     "h100_sxm": ("cr3-super-reasoner-fp8", 1, 5, [1, 16, 32, 64, 128]),
     "b200_sxm": ("cr3-super-reasoner-nvfp4", 1, 5, [1, 16, 32, 64, 128]),
