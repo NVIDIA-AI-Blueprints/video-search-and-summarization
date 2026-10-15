@@ -28,7 +28,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BENCHMARK_DIR="$SCRIPT_DIR/../perf/benchmark"
+PERF_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BENCHMARK_ROOT="$PERF_ROOT/benchmark"
+BENCHMARK_DIR="$BENCHMARK_ROOT/core"
+VENV_DIR="$BENCHMARK_ROOT/vss-perf-env"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -57,10 +60,10 @@ Options:
 
 Examples:
   # Upload everything in the report dir, stamped as 'sqa'
-  $(basename "$0") ../perf/benchmark/vss-perf-report/ -T sqa
+  $(basename "$0") ../benchmark/vss-perf-report/ -T sqa
 
   # Upload a single file as 'perf-lab'
-  $(basename "$0") ../perf/benchmark/vss-perf-report/lvs_8xH100-9k_20260318_104530.json -T perf-lab
+  $(basename "$0") ../benchmark/vss-perf-report/lvs_8xH100-9k_20260318_104530.json -T perf-lab
 EOF
     exit 0
 }
@@ -106,14 +109,14 @@ else
 fi
 
 cd "$BENCHMARK_DIR"
-if [ ! -f vss-perf-env/bin/activate ]; then
-    error "Perf venv not found at $BENCHMARK_DIR/vss-perf-env"
+if [ ! -f "$VENV_DIR/bin/activate" ]; then
+    error "Perf venv not found at $VENV_DIR"
     echo "  Bootstrap it by running any benchmark first, e.g."
     echo "  ./run_benchmark.sh -f <compose-file> -s quick_test -d"
     exit 1
 fi
 set +u
-source vss-perf-env/bin/activate
+source "$VENV_DIR/bin/activate"
 set -u
 
 step "Uploading ${#UPLOAD_FILES[@]} file(s) to MinIO (service=$SERVICE)"

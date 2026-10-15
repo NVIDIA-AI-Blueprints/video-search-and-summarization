@@ -45,9 +45,17 @@ COMPOSE_DIR="$PERF_ROOT/setup/compose"
 REQUIREMENTS_FILE="$BENCHMARK_ROOT/requirements.txt"
 VENV_DIR="$BENCHMARK_ROOT/vss-perf-env"
 
-# vss_perf_common.py uses this override to find service-owned configuration
+# Benchmark modules use these overrides to find service-owned configuration
 # without requiring the historical flattened runtime layout.
 export PERF_CONFIGS_YAML="$CONFIG_DIR/perf-configs.yaml"
+export PERF_DEFAULTS_YAML="$CONFIG_DIR/defaults.yaml"
+
+for required_config in "$PERF_CONFIGS_YAML" "$PERF_DEFAULTS_YAML"; do
+    if [ ! -f "$required_config" ]; then
+        echo "Required performance configuration not found: $required_config" >&2
+        exit 1
+    fi
+done
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -91,7 +99,7 @@ Options:
 
 CI / dashboard (env or pass -O for output): CONFIG_ID (optional; CI sets it),
   TRIGGERED_BY, PIPELINE_URL, UPLOAD_TO_MINIO (non-empty = --upload).
-  With -O, config_id/vlm/llm/topology resolve from ci/perf-configs.yaml via compose + GPU.
+  With -O, config_id/vlm/llm/topology resolve from configs/perf-configs.yaml via compose + GPU.
   Use -r for release (overrides config.yaml).
   On bare metal CI nodes set DOCKER_USE_SUDO=true so docker/compose run with sudo.
 

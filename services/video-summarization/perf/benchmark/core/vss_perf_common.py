@@ -269,23 +269,23 @@ def get_cuda_version() -> str:
 
 
 # -----------------------------------------------------------------------------
-# perf-configs.yaml lookup (ci/perf-configs.yaml)
+# perf-configs.yaml lookup (perf/configs/perf-configs.yaml)
 # -----------------------------------------------------------------------------
 
 _PERF_CONFIGS_CACHE: Optional[List[Dict[str, Any]]] = None
 
 
-def _repo_root() -> Path:
-    """Repo root: perf/benchmark -> ../../"""
+def _perf_root() -> Path:
+    """Service-owned perf root containing benchmark/, configs/, and setup/."""
     return Path(__file__).resolve().parents[2]
 
 
 def perf_configs_path() -> Path:
-    """Path to ci/perf-configs.yaml."""
+    """Path to the service-owned perf-configs.yaml."""
     override = os.environ.get("PERF_CONFIGS_YAML", "").strip()
     if override:
         return Path(override)
-    return _repo_root() / "ci" / "perf-configs.yaml"
+    return _perf_root() / "configs" / "perf-configs.yaml"
 
 
 def _normalize_compose_path(compose_path: str) -> str:
@@ -300,7 +300,7 @@ def _normalize_compose_path(compose_path: str) -> str:
 
 
 def load_perf_configs(*, refresh: bool = False) -> List[Dict[str, Any]]:
-    """Load all rows from ci/perf-configs.yaml."""
+    """Load all rows from the service-owned perf-configs.yaml."""
     global _PERF_CONFIGS_CACHE
     if _PERF_CONFIGS_CACHE is not None and not refresh:
         return _PERF_CONFIGS_CACHE
