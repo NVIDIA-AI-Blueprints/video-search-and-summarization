@@ -195,6 +195,13 @@ def build_query_backend(args: argparse.Namespace) -> Any:
 # =============================================================================
 
 
+RTSP_SCHEME = "rtsp://"
+
+
+def _is_rtsp(source: dict[str, Any]) -> bool:
+    return source["url"].startswith(RTSP_SCHEME)
+
+
 def file_sources(vst_url: str) -> tuple[dict[str, str], list[str]]:
     """``({stream_id: name}`` for every uploaded file source``, [rtsp names])``.
 
@@ -206,8 +213,8 @@ def file_sources(vst_url: str) -> tuple[dict[str, str], list[str]]:
         sources = flows.list_sensor_sources(vst_url)
     except Exception as e:
         raise SystemExit(f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})") from e
-    files = {sid: s["name"] for sid, s in sources.items() if not s["url"].startswith("rtsp://")}
-    rtsp = sorted(s["name"] for s in sources.values() if s["url"].startswith("rtsp://"))
+    files = {sid: s["name"] for sid, s in sources.items() if not _is_rtsp(s)}
+    rtsp = sorted(s["name"] for s in sources.values() if _is_rtsp(s))
     return files, rtsp
 
 
@@ -869,7 +876,7 @@ def decomposition_sources(
             sources = flows.list_sensor_sources(vst_url).values()
             want_rtsp = source_type == "rtsp"
             return sorted({
-                s["name"] for s in sources if s["name"] and s["url"].startswith("rtsp://") == want_rtsp
+                s["name"] for s in sources if s["name"] and _is_rtsp(s) == want_rtsp
             })
         except Exception as e:  # noqa: BLE001
             print(f"  WARNING: could not list VST sources for decomposition ({type(e).__name__}: {e});")
