@@ -2619,12 +2619,12 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
             with mock.patch.object(run_leg, "hold_pool_lock", locked), \
                  mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=cleanup) as remove:
                 self.assertEqual(run_leg.cleanup_after_agent_exit(root), "not_claimed")
-                for value in ("Spark-ba-WiFi\tvios__DGX-SPARK\t122\n", "box/path\tvios__DGX-SPARK\t123\n"):
+                for value in ("Spark-ba-WiFi\tvios__DGX-SPARK\t122\n", "box/path\tvios__DGX-SPARK\t123\n"):  # pragma: allowlist secret (synthetic receipts)
                     receipt.write_text(value)
                     with self.assertRaises(ValueError):
                         run_leg.cleanup_after_agent_exit(root)
                 remove.assert_not_called()
-                receipt.write_text("Spark-ba-WiFi\tvios__DGX-SPARK\t123\n")
+                receipt.write_text("Spark-ba-WiFi\tvios__DGX-SPARK\t123\n")  # pragma: allowlist secret (synthetic receipt)
                 self.assertEqual(run_leg.cleanup_after_agent_exit(root), "attempted")
                 remove.assert_called_once()
             with mock.patch.object(run_leg, "hold_pool_lock", side_effect=run_leg.LockTimeoutError("busy")), \
@@ -2633,7 +2633,7 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
                 remove.assert_not_called()
             receipt.unlink()
             source = root / "source"
-            source.write_text("Spark-ba-WiFi\tvios__DGX-SPARK\t123\n")
+            source.write_text("Spark-ba-WiFi\tvios__DGX-SPARK\t123\n")  # pragma: allowlist secret (synthetic receipt)
             receipt.symlink_to(source)
             with self.assertRaises(ValueError):
                 run_leg.cleanup_after_agent_exit(root)
