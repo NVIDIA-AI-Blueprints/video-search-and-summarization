@@ -217,6 +217,11 @@ def _harness_failure(trial_dir: Path) -> dict | None:
     reasons = {
         "pairing_pending", "pairing_deadline", "command_failed",
         "invalid_health_response", "proxy_tunnel_denied",
+        "compaction_timeout", "rate_limited", "authentication_failed",
+        "policy_denied", "context_limit", "transport_reset", "request_timeout",
+        "invalid_metadata", "aborted", "abort_status_missing", "model_mismatch",
+        "empty_response", "client_timeout", "invalid_response", "session_timeout",
+        "session_read_failed",
     }
     for name in ("setup-readiness.json", "readiness.json", "host-fixture.json", "fixtures.json"):
         report = _load_json(root / name)
