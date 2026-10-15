@@ -19,12 +19,16 @@ Real-Time VLM is VSS's streaming vision-language inference service: RTSP decode 
 segmentation → VLM inference (vLLM) → Kafka publication (NvSchema protobuf).
 In this compose, rtvi-vlm is wired by default to call a **sibling NIM**
 (`cosmos-reason1-7b`, `cosmos-reason2-8b`, or `qwen3-vl-8b-instruct`) over
-OpenAI-compat HTTP (`RTVI_VLM_MODEL_TO_USE=openai-compat`). **Kafka lives on the
-host**, not in-compose (`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`).
+OpenAI-compat HTTP (`RTVI_VLM_MODEL_TO_USE=openai-compat`).
+
+This file does not bundle Kafka. Its default broker is `kafka:29092` on the
+Compose network. For the standalone host broker in `kafka-workflows.md`, §12
+explicitly sets `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`; this maps to
+`KAFKA_BOOTSTRAP_SERVERS` inside RT-VLM and must match the advertised listener.
 
 ## 2. Related Skill
 
-The top-level `skills/deployment/vss-deploy-dense-captioning/SKILL.md` file covers the VSS 3.2 API
+The top-level `skills/deployment/vss-deploy-dense-captioning/SKILL.md` file covers the VSS 3.3 API
 (`/v1/generate_captions`, `/v1/files`, `/v1/streams/add`,
 `/v1/chat/completions`, Kafka topics, and the four standard workflows). This
 reference answers "how do I deploy / debug rtvi-vlm?"; the top-level skill
@@ -380,8 +384,8 @@ profiles exist only in the full multi-file VSS Compose project. Plain
 
 ```bash
 # Step 0. Select the canonical checked-in compose. Do not start from an existing copy.
-: "${RTVI_DEPLOY_DIR:?Set RTVI_DEPLOY_DIR to any writable standalone working directory, e.g. /tmp/rtvi_deploy}"
-mkdir -p "$RTVI_DEPLOY_DIR" && cd "$RTVI_DEPLOY_DIR"
+: "${RTVI_DEPLOY_DIR:?Set RTVI_DEPLOY_DIR to a private persistent directory outside any repository, e.g. $HOME/.local/share/rtvi-deploy}"
+mkdir -p -m 700 "$RTVI_DEPLOY_DIR" && cd "$RTVI_DEPLOY_DIR"
 : "${VSS_CHECKOUT:?Set VSS_CHECKOUT to the current VSS repository checkout}"
 CANONICAL_COMPOSE="$VSS_CHECKOUT/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml"
 [ -f "$CANONICAL_COMPOSE" ] || { echo "Canonical RT-VLM compose not found: $CANONICAL_COMPOSE" >&2; exit 1; }
@@ -443,6 +447,7 @@ cat > rtvi-vlm.env <<EOF
 NGC_CLI_API_KEY=${NGC_CLI_API_KEY}
 RTVI_VLM_PORT=8018
 HOST_IP=${HOST_IP}
+RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092
 VSS_DATA_DIR=${VSS_DATA_DIR}
 VSS_RT_VLM_TAG=${VLM_TAG}
 RT_VLM_DEVICE_ID=0
@@ -580,7 +585,12 @@ while true; do
     echo "ERROR: failed to query rtvi-vlm health" >&2
     exit 1
   fi
-  if [ "$(printf '%s' "$PS_JSON" | jq -r 'if length > 0 then ([.[].Health] | all(. == "healthy")) else false end')" = "true" ]; then
+  # Compose may emit an array, one object, or newline-delimited objects.
+  if ! IS_HEALTHY=$(printf '%s' "$PS_JSON" | jq -sr 'flatten | length > 0 and all(.[]; .Health == "healthy")'); then
+    echo "ERROR: failed to parse rtvi-vlm health" >&2
+    exit 1
+  fi
+  if [ "$IS_HEALTHY" = "true" ]; then
     break
   fi
   if (( SECONDS >= HEALTH_DEADLINE )); then
@@ -751,7 +761,7 @@ docker compose --env-file rtvi-vlm.env -f "$COMPOSE_FILE" --profile rtvi-vlm dow
 
 ## 20. Gotchas & Known Issues
 
-- **🟢 Docs list `/v1/ready` for health, but the real endpoint is `/v1/health/ready`** — which is what the compose healthcheck already uses. Trust the compose, not the docs.
+- **Readiness endpoints**: both `/v1/ready` and `/v1/health/ready` are supported. The Compose healthcheck uses `/v1/health/ready`.
 - **🟢 Healthcheck tuning divergence**: docs show `start_period: 300s`,
   `retries: 3`; compose sets `1200s` / `5`. The compose values are
   deliberately more lenient for model-download-on-first-boot. Not a bug.
@@ -804,4 +814,4 @@ docker compose --env-file rtvi-vlm.env -f "$COMPOSE_FILE" --profile rtvi-vlm dow
 - **API docs**: <https://docs.nvidia.com/vss/latest/real-time-vlm-api.html>
   (landing page only — see `/openapi.json` on the running service for specifics)
 - **Compose (met-blueprints checkout)**: `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
-- **Compose (raw, VSS 3.2 release SHA)**: `https://raw.githubusercontent.com/NVIDIA-AI-Blueprints/video-search-and-summarization/d64e6c5b96c56f1d11809905fe6463ffbffd9b42/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
+- **Compose (raw, develop; use the checked-out file for deployment)**: `https://raw.githubusercontent.com/NVIDIA-AI-Blueprints/video-search-and-summarization/develop/deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`

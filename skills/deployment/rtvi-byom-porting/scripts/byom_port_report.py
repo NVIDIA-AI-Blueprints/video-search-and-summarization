@@ -21,8 +21,16 @@ GATES = [
 ]
 
 
+def _has_evidence(evidence: Any) -> bool:
+    if evidence is None:
+        return False
+    if isinstance(evidence, (list, tuple, set, dict)):
+        return bool(evidence)
+    return bool(str(evidence).strip())
+
+
 def _status(value: Any, evidence: Any = None) -> str:
-    if value is True and str(evidence or "").strip():
+    if value is True and _has_evidence(evidence):
         return "PASS"
     if value is False:
         return "FAIL"
@@ -78,9 +86,10 @@ def build_report(data: dict[str, Any]) -> str:
         item = validation.get(key, {})
         if not isinstance(item, dict):
             item = {"status": item}
-        evidence = _md_text(item.get("evidence", ""))
+        raw_evidence = item.get("evidence", "")
+        evidence = _md_text(raw_evidence) if _has_evidence(raw_evidence) else ""
         lines.append(
-            f"| {label} | {_status(item.get('status'), evidence)} | {evidence or '-'} |"
+            f"| {label} | {_status(item.get('status'), raw_evidence)} | {evidence or '-'} |"
         )
 
     lines.extend(["", "## Smoke Results", ""])
@@ -92,8 +101,11 @@ def build_report(data: dict[str, Any]) -> str:
         lines.extend(["| Prompt | Status | Output sample |", "|---|---:|---|"])
         for row in smoke_rows:
             name = _md_text(row.get("name", "unnamed"))
-            sample = _md_text(row.get("sample", ""), 240)
-            lines.append(f"| {name} | {_status(row.get('status'), sample)} | {sample or '-'} |")
+            raw_sample = row.get("sample", "")
+            sample = _md_text(raw_sample, 240) if _has_evidence(raw_sample) else ""
+            lines.append(
+                f"| {name} | {_status(row.get('status'), raw_sample)} | {sample or '-'} |"
+            )
     else:
         lines.append("- No smoke results provided.")
 

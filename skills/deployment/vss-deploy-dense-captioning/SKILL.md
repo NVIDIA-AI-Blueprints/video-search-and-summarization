@@ -59,7 +59,7 @@ Worked end-to-end examples are kept under `evals/` (each `*.json` manifest conta
 - **Error**: HTTP 401/403 from NGC pulls. **Cause**: missing/expired `NGC_CLI_API_KEY`. **Solution**: `docker login nvcr.io` and re-export the key before retrying.
 - **Error**: container OOM or model fails to load. **Cause**: insufficient GPU memory for the selected profile. **Solution**: switch to a smaller variant or free GPUs via `docker compose down`.
 
-# Deploy and Use RT-VLM Dense Captioning (VSS 3.2)
+# Deploy and Use RT-VLM Dense Captioning (VSS 3.3)
 
 RT-VLM is NVIDIA's real-time vision-language microservice: decode video (file or
 RTSP), segment it into chunks, run a VLM (`cosmos-reason1`, `cosmos-reason2`, `cosmos-reason3`, or any
@@ -217,6 +217,11 @@ curl -N -X POST "$BASE_URL/v1/generate_captions" \
   }"
 ```
 
+For `stream=true`, each caption event is a JSON wrapper with `id`, `model`,
+`media_info`, and `chunk_responses`. Read `start_time`, `end_time`, and `content`
+from `chunk_responses[]`, not from top-level fields. The stream ends with
+`data: [DONE]`; see [the response example](references/api-surface-26.05.md#caption-response-shape).
+
 ## API Surface
 
 Use the live OpenAPI as the source of truth before calling optional endpoints:
@@ -225,7 +230,7 @@ Use the live OpenAPI as the source of truth before calling optional endpoints:
 curl -fsS "$BASE_URL/openapi.json" | jq -r '.paths | keys[]' | sort
 ```
 
-Core paths for VSS 3.2 are:
+Core paths for VSS 3.3 are:
 
 - `POST /v1/files` for multipart media upload; pass the returned file `id` into
   caption generation and delete the file when finished.

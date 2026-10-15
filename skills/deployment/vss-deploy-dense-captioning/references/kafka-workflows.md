@@ -27,9 +27,12 @@ When `KAFKA_ENABLED=true`, the same request produces both outputs: an HTTP
 response to the caller and Kafka records for downstream message-bus consumers.
 
 **HTTP response** from `POST /v1/generate_captions`:
-- **`stream=true`** — Server-Sent Events. One SSE event per chunk containing the
-  `VlmCaptionResponse` fields (`start_time`, `end_time`, `content`, `chunk_id`
-  when supported). Terminated by `[DONE]` per OpenAI-style SSE convention.
+- **`stream=true`** — Server-Sent Events. Each caption event wraps `id`, `model`,
+  `media_info`, and `chunk_responses`. Read the `VlmCaptionResponse` fields
+  (`start_time`, `end_time`, `content`, `chunk_id`) from each entry in
+  `chunk_responses[]`, not from the top level. A final usage event may have no
+  captions; `[DONE]` terminates the stream. See the
+  [SSE example](api-surface-26.05.md#caption-response-shape).
 - **`stream=false`** (default) — single JSON object wrapping all chunks:
   ```json
   {
@@ -113,7 +116,8 @@ done
 
 ### Standalone Kafka Listener Setup
 
-The RT-VLM compose expects `kafka:29092` by default. For standalone tests, set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` to an address reachable from the RT-VLM container (for example `host.docker.internal:9092`), then ensure the broker advertises that same address.
+The RT-VLM compose expects `kafka:29092` by default. The deploy reference §12
+sets `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092` for this host-broker flow. For standalone tests, set `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` to an address reachable from the RT-VLM container (for example `host.docker.internal:9092`), then ensure the broker advertises that same address.
 First choose how Kafka should be provided:
 
 - **Use existing Kafka** if a broker is already running and the user confirms it

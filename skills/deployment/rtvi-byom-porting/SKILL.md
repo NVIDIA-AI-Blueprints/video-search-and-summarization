@@ -1,6 +1,6 @@
 ---
 name: rtvi-byom-porting
-description: Use when adding, debugging, or validating a bring-your-own VLM in VSS RT-VLM, including custom Hugging Face or NGC checkpoints, vLLM adapters or plugins, model shims, and model-specific runtime dependencies. Not for selecting an already-supported model or ordinary RT-VLM deployment.
+description: Use when adding, debugging, or validating a bring-your-own VLM in VSS RT-VLM, including a custom Hugging Face or NGC checkpoint loaded with configuration only (VLM_MODEL_TO_USE=vllm-compatible), plus adapters, plugins, shims, and model-specific runtime dependencies. Not for ordinary catalog-preset deployment of an already-wired model; use vss-deploy-dense-captioning for that.
 license: Apache-2.0
 metadata:
   version: "3.3.0-rc0"
@@ -16,9 +16,11 @@ Port a VLM into the VSS RT-VLM service without hard-coding one checkpoint or
 GPU platform. Prefer configuration, then an RTVI adapter or vLLM plugin, and
 patch vLLM only when the supported extension points cannot express the model.
 
-Use `vss-deploy-dense-captioning` for ordinary deployment or an already-supported
-model. Use this skill when model architecture, processor, weight mapping, runtime
-dependencies, or request adaptation requires repository work.
+Use `vss-deploy-dense-captioning` for ordinary catalog-preset deployment of an
+already-wired model (for example `cosmos-reason3`). Use this skill for a custom
+or private checkpoint even when path 1 (configuration only) is enough, and when
+architecture, processor, weight mapping, runtime dependencies, or request
+adaptation requires repository work.
 
 ## Model Contract
 
@@ -44,10 +46,11 @@ blocked config hooks.
 
 Stop at the first path that works:
 
-1. **Configuration only:** use `VLM_MODEL_TO_USE=vllm-compatible` and
-   `MODEL_PATH=<ngc: or mounted path>`. A `git:` source is acceptable only for
-   exploration because the develop downloader does not pin Hugging Face
-   revisions; use a revision-pinned mounted snapshot for reproducible evidence.
+1. **Configuration only:** use `VLM_MODEL_TO_USE=vllm-compatible` and set
+   `MODEL_PATH` to an `ngc:` URI or a mounted snapshot path. A `git:` source is
+   acceptable only for exploration because the develop downloader does not pin
+   Hugging Face revisions; use a revision-pinned mounted snapshot for
+   reproducible evidence.
 2. **RTVI adapter:** normalize config, processor, request or response behavior
    inside `services/rtvi/rt-vlm/` while preserving existing model behavior.
 3. **Plugin or shim:** register architecture and deterministic weight mappings
@@ -89,10 +92,13 @@ Run the smallest relevant checks in this order:
    `/v1/health/ready` and `/v1/models`. First use standalone Compose when a
    revision-pinned host model snapshot must be mounted; the VSS profile does not
    expose `MODEL_ROOT_DIR` on develop.
-3. Smoke-test text, image and video inputs for every claimed modality. Set the
-   explicit media type when testing images rather than relying on video routing.
-4. Read [references/quality-gates.md](references/quality-gates.md), retain raw
-   redacted responses, and reject gibberish, repetition or ungrounded claims.
+3. Smoke-test text, image and video inputs for every claimed modality. Follow
+   the OpenAPI contract and curl examples in
+   [references/quality-gates.md](references/quality-gates.md): set `media_type`
+   on `/v1/files` and `/v1/generate_captions`, not as a top-level field on
+   `/v1/chat/completions`. Reject Git LFS pointer files before upload.
+4. Retain raw redacted responses, and reject gibberish, repetition, empty
+   generations, or ungrounded claims.
 5. Run relevant caption, event-detection or summarization accuracy checks.
 6. Record latency, throughput, GPU memory/utilization, eager state and custom
    kernel state.
