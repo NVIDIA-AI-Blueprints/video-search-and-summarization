@@ -23,6 +23,7 @@ import os
 import shutil
 import threading
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -182,13 +183,18 @@ class BenchmarkBase(ABC):
 
     def _load_defaults(self) -> Dict[str, Any]:
         """Load default parameters from defaults.yaml"""
-        defaults_path = os.path.join(os.path.dirname(__file__), "defaults.yaml")
-        if not os.path.exists(defaults_path):
+        defaults_override = os.environ.get("PERF_DEFAULTS_YAML", "").strip()
+        defaults_path = (
+            Path(defaults_override)
+            if defaults_override
+            else Path(__file__).resolve().parents[2] / "configs" / "defaults.yaml"
+        )
+        if not defaults_path.is_file():
             raise FileNotFoundError(
                 f"defaults.yaml not found at {defaults_path}. "
                 "This file is required for benchmark configuration."
             )
-        with open(defaults_path, "r") as f:
+        with defaults_path.open("r", encoding="utf-8") as f:
             defaults = yaml.safe_load(f)
             if not defaults:
                 raise ValueError("defaults.yaml is empty or invalid")
