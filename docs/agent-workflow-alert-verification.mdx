@@ -185,8 +185,10 @@ ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS=false
 Enabling real-time alerts alongside alert verification reduces the total number
 of streams supported per GPU due to the additional processing load.
 
-For instructions on creating and modifying real-time alerts after enabling
-these options, see [Real-Time Alerts](/vss/vision-agent/agent-workflows/real-time-alerts).
+For this combined setup, use the REST API instructions in
+[Real-Time Alerts](/vss/vision-agent/agent-workflows/real-time-alerts) to create and modify rules.
+The `vss-manage-alerts` skill still refuses real-time rule management in
+verification mode (`MODE=2d_cv`); its agent-based workflow requires VLM real-time mode.
 
 #### Configure Required Deployment Values
 
