@@ -167,6 +167,29 @@ compatibility details and additional configuration options, see
 [Efficient Video Sampling (EVS and EVS++)](/vss/system-components/vision-microservices/real-time-vlm#efficient-video-sampling-evs-and-evs).
 </Note>
 
+#### Enable Real-Time Alerts Alongside Alert Verification
+
+Real-time alerts can run at the same time as alert verification in the same
+profile. To enable both workflows, update the following options in the profile's
+`user-overrides.env` copy used by the deployment commands on this page before
+starting the profile. Add an option only when it is absent:
+
+```ini
+RTVI_VLM_KAFKA_ENABLED=true
+RTVI_VLM_MESSAGE_BUS=kafka
+RTVI_VLM_MESSAGE_BUS_TOPIC=mdx-vlm-captions
+RTVI_VLM_KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents
+ENABLE_MESSAGES_FOR_CHAT_COMPLETIONS=false
+```
+
+Enabling real-time alerts alongside alert verification reduces the total number
+of streams supported per GPU due to the additional processing load.
+
+For this combined setup, use the REST API instructions in
+[Real-Time Alerts](/vss/vision-agent/agent-workflows/real-time-alerts) to create and modify rules.
+The `vss-manage-alerts` skill still refuses real-time rule management in
+verification mode (`MODE=2d_cv`); its agent-based workflow requires VLM real-time mode.
+
 #### Configure Required Deployment Values
 
 Set these required placeholder values in the existing assignments:
