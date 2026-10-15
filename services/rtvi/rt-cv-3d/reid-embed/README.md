@@ -2,11 +2,11 @@
 
 The ReID Embed microservice stores and retrieves object re-identification embeddings. It consumes embeddings in a DeepStream schema from Kafka, stores each embedding with its tracking id in Milvus, and answers a query embedding with the closest object ids and their confidence.
 
-Supported DeepStream schemas: `deepstream`, `minimal`, and `protobuf`.
+Supported DeepStream schema: `protobuf`.
 
 ## Prerequisites
 
-- **OS**: Ubuntu 22.04/24.04 or a compatible Linux distribution
+- **OS**: Ubuntu 24.04 or a compatible Linux distribution
 - **Docker**: Version 28+
 - **Docker Compose**: Version 2 (`docker compose`)
 - **NVIDIA Container Toolkit**: [install guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
