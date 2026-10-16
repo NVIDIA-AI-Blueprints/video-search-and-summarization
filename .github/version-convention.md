@@ -238,12 +238,18 @@ revision — see `skills/vss-build-vision-ai/references/agent-harness.md`.
 
 ## Docs
 
-`publish-fern-docs.yml` derives `VSS_DOCS_GIT_REF` / `VSS_DOCS_IMAGE_TAG` /
-`VSS_DOCS_SBSA_IMAGE_TAG` from the release that triggered it (`v3.3.0` →
-`v3.3.0` / `3.3.0` / `3.3.0-sbsa`); a manual run may name a tag; a pre-release
-tag is refused because no image is published under it. PR previews and staging
-are develop and stay `develop` / `develop-latest`. These are checkout refs and
-registry tags, not package versions — the rc marker never appears in docs.
+The docs site carries one version per release tag plus Dev, all listed in
+`fern/docs.yml` on develop (`ref: vX.Y.Z` per release, newest first; Dev is the
+checkout). `.github/scripts/build_fern_site.py` stamps the
+`${VSS_DOCS_GIT_REF:-…}` / `${VSS_DOCS_IMAGE_TAG:-…}` /
+`${VSS_DOCS_SBSA_IMAGE_TAG:-…}` markers per version just before every Fern
+build, from git alone: a release tag `v3.3.0` renders `v3.3.0` / `3.3.0` /
+`3.3.0-sbsa`, Dev renders `develop` / `develop-latest` / `develop-latest-sbsa`,
+and a `release/X.Y.Z` preview renders the values X.Y.Z will ship. Nothing is
+stamped into the committed docs, so docs need no stamp PR. Only bare `vX.Y.Z`
+tags become docs versions; pre-releases name no published image and are
+skipped. These are checkout refs and registry tags, not package versions — the
+rc marker never appears in docs. See `docs/README.md`.
 
 ## What is deliberately out of scope
 
