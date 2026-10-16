@@ -200,9 +200,7 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
           />
         </Stack>
         <Stack spacing={inline ? 6 : 10} alignItems={inline ? 'stretch' : 'center'} direction={inline ? 'column' : 'row'}>
-          <span style={labelStyle}>
-            <span style={{ color: 'red' }}>*</span> Show top K Results:
-          </span>
+          <span style={labelStyle}>Show top K Results:</span>
           <NumberInput
             data-testid="search-filter-topk"
             min={1}
