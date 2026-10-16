@@ -49,7 +49,7 @@ that provides direct access to the Agentic backend service without navigating aw
 * Context-aware queries — attach video clips from search results or alert metadata as context using the **"+ Chat"** button on video cards or the **"Generate Report"** button in alert rows
 * Agentic query results are reflected directly in the current tab's content area (e.g., search results populate the Search Tab grid), if applicable.
 * Chat history with new-conversation and folder-organization support
-* Unseen response indicator (orange border on the "Chat" tab) when responses arrive while the sidebar is collapsed
+* Unseen response indicator (the **Chat** button turns orange) when responses arrive while the sidebar is collapsed
 * Send applicable agent parameters (supported based on the deployed blueprint/profile) along with the query to the agentic backend service.
 * Preserve the conversation context while working across multiple app tabs.
 
@@ -119,10 +119,7 @@ The Chat Sidebar integrates with different tabs: Example flows are:
 
 ### Unseen Response Indicator
 
-When a response arrives while the Chat Sidebar is collapsed, the Chat icon shows an orange border to indicate unseen content. Clear the indicator by:
-
-* Opening the Chat Sidebar — viewing the content marks it as seen.
-* Clicking the **cancel** button on the orange border — marks content as seen without opening the sidebar.
+When a response arrives while the Chat Sidebar is collapsed, the round **Chat** button turns orange to indicate unseen content. Opening the Chat Sidebar marks the content as seen.
 
 ## Tabs
 
@@ -639,10 +636,7 @@ When the Chat Sidebar is **collapsed** and no query is in flight, filters and fi
 
 **Unseen response indicator:**
 
-When a response to a query is unseen and the Chat Sidebar was closed, the round **Chat** button at the bottom right turns orange and pulses once the new response is generated to indicate unseen content. You can clear the indicator (mark as seen) in either of these ways:
-
-* Open the Chat Sidebar — viewing the content marks it as seen and removes the orange border.
-* Click the **cancel** button on the orange border — marks the new content as seen and removes the indicator without opening the sidebar.
+When a response to a query is unseen and the Chat Sidebar was closed, the round **Chat** button at the bottom right turns orange and pulses once the new response is generated to indicate unseen content. Opening the Chat Sidebar marks the content as seen and the button returns to its usual color.
 
 ##### Agentic Query Results
 
