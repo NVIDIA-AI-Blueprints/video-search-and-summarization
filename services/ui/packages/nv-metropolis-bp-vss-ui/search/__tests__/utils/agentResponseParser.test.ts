@@ -107,6 +107,60 @@ describe('extractSearchResultsFromAgentResponse', () => {
     });
   });
 
+  describe('reasoning before the result payload', () => {
+    const resultBlock = `\`\`\`json\n${JSON.stringify(validData)}\n\`\`\``;
+
+    it('ignores fenced JSON inside <agent-think> and reads the later result block', () => {
+      const text = [
+        '<agent-think>',
+        '<agent-think-step title="Plan">',
+        '```json\n{"tool":"search","args":{"query":"forklifts"}}\n```',
+        '</agent-think-step>',
+        '</agent-think>',
+        'Here are the results:',
+        resultBlock,
+      ].join('\n');
+      const result = extractSearchResultsFromAgentResponse(text);
+      expect(result).toHaveLength(1);
+      expect(result![0].video_name).toBe('clip1.mp4');
+    });
+
+    it('ignores malformed JSON inside <agent-think>', () => {
+      const text = `<agent-think>Calling {"query": "forklift", oops</agent-think>\n${resultBlock}`;
+      expect(extractSearchResultsFromAgentResponse(text)).toHaveLength(1);
+    });
+
+    it('does not take a data array from reasoning as the answer', () => {
+      const reasoning = JSON.stringify({ data: [{ video_name: 'draft.mp4' }] });
+      const text = `<agent-think>${reasoning}</agent-think>\nNo matches found.`;
+      expect(extractSearchResultsFromAgentResponse(text)).toBeNull();
+    });
+
+    it('scans past a non-result fenced block outside reasoning', () => {
+      const text = `\`\`\`json\n{"message":"hello"}\n\`\`\`\n${resultBlock}`;
+      expect(extractSearchResultsFromAgentResponse(text)).toHaveLength(1);
+    });
+
+    it('scans past a non-result raw object outside reasoning', () => {
+      const text = `Status {"status":"ok"} then ${JSON.stringify(validData)}`;
+      expect(extractSearchResultsFromAgentResponse(text)).toHaveLength(1);
+    });
+
+    it('finds the payload after a malformed raw object', () => {
+      const text = `Draft {"query": oops ${JSON.stringify(validData)}`;
+      expect(extractSearchResultsFromAgentResponse(text)).toHaveLength(1);
+    });
+
+    it('does not treat a nested data array as the top-level payload', () => {
+      const text = JSON.stringify({ wrapper: validData });
+      expect(extractSearchResultsFromAgentResponse(text)).toBeNull();
+    });
+
+    it('rejects a data array whose items are not records', () => {
+      expect(extractSearchResultsFromAgentResponse('{"data":[1,2]}')).toBeNull();
+    });
+  });
+
   describe('JSON in plain text (brace matching)', () => {
     it('extracts from raw JSON object in text', () => {
       const text = `Here are your results: ${JSON.stringify(validData)} Done.`;
@@ -134,6 +188,13 @@ describe('extractSearchResultsFromAgentResponse', () => {
       const result = extractSearchResultsFromAgentResponse(text);
       expect(result).toHaveLength(1);
       expect(result![0].video_name).toBe('test.mp4');
+    });
+
+    it('handles unbalanced braces inside JSON strings', () => {
+      const data = { data: [{ video_name: 'brace.mp4', description: 'opens { but never closes' }] };
+      const result = extractSearchResultsFromAgentResponse(`Result: ${JSON.stringify(data)}`);
+      expect(result).toHaveLength(1);
+      expect(result![0].video_name).toBe('brace.mp4');
     });
   });
 
