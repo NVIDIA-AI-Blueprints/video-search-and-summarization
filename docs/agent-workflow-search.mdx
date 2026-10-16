@@ -458,10 +458,11 @@ On the search profile the agent's media framing is set by `VLM_AGENT_MEDIA_MODE`
 <Tab title="H100">
 <Tabs>
 <Tab title="Default">
-2 GPUs. GPU 0 runs RTVI-CV and RTVI-VLM; GPU 1 runs RTVI-Embed and the LLM. The profile ships this layout, so no device or mode overrides are needed.
+2 GPUs. GPU 0 runs RTVI-CV and RTVI-VLM; GPU 1 runs RTVI-Embed and the LLM. The profile ships this layout, so no device or mode overrides are needed. Set the shared RTVI-VLM memory fraction to `0.4`.
 
 ```ini
 HARDWARE_PROFILE=H100
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
 ```
 </Tab>
 <Tab title="Dedicated GPU">
@@ -623,10 +624,11 @@ RTVI_VLM_MODEL_PATH=none
 <Tab title="RTXPRO6000BW">
 <Tabs>
 <Tab title="Default">
-2 GPUs. GPU 0 runs RTVI-CV and RTVI-VLM; GPU 1 runs RTVI-Embed and the LLM. The profile ships this layout, so no device or mode overrides are needed.
+2 GPUs. GPU 0 runs RTVI-CV and RTVI-VLM; GPU 1 runs RTVI-Embed and the LLM. The profile ships this layout, so no device or mode overrides are needed. Set the shared RTVI-VLM memory fraction to `0.4`.
 
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
 ```
 </Tab>
 <Tab title="Dedicated GPU">
