@@ -16,8 +16,8 @@
 enabled: false
 global: {}
 image:
-  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-vios-ingress
-  tag: "develop-latest"
+  repository: nvcr.io/nvidia/vss-core/vss-vios-ingress
+  tag: "3.3.0"
   pullPolicy: IfNotPresent
 replicas: 1
 service:
