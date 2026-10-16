@@ -70,7 +70,7 @@ moves its content tag, so the workflow re-tags the old one.
 declared. A module joining the shared set needs exactly two variables:
 
 ```bash
-VSS_VIDEO_SUMMARIZATION_IMAGE="${VSS_VIDEO_SUMMARIZATION_IMAGE:-${VSS_CONTAINER_REGISTRY:-${VSS_CONTAINER_RELEASE_REGISTRY}}/vss-video-summarization}"
+VSS_VIDEO_SUMMARIZATION_IMAGE="${VSS_VIDEO_SUMMARIZATION_IMAGE:-${VSS_CONTAINER_REGISTRY}/vss-video-summarization}"
 VSS_VIDEO_SUMMARIZATION_TAG="${VSS_VIDEO_SUMMARIZATION_TAG:-${VSS_CONTAINER_TAG:-3.2.1}}"
 ```
 
@@ -78,7 +78,7 @@ These replace whatever the module used before. LVS currently has:
 
 ```bash
 # remove — bundles image and tag, and is not namespaced
-CONTAINER_IMAGE="${CONTAINER_IMAGE:-${VSS_CONTAINER_RELEASE_REGISTRY}/vss-video-summarization:3.2.1}"
+CONTAINER_IMAGE="${CONTAINER_IMAGE:-${VSS_CONTAINER_REGISTRY}/vss-video-summarization:3.2.1}"
 ```
 
 Two reasons it cannot stay:
