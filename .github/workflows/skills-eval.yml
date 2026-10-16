@@ -486,7 +486,7 @@ jobs:
     name: ${{ matrix.name }}
     needs: openshell_plan
     if: needs.openshell_plan.outputs.has_targets == 'true'
-    # Deployment trials set runs_on to [fluent-bit-one] only.
+    # Deployment trials set runs_on to [fluent-bit-oneo] only.
     runs-on: ${{ matrix.runs_on }}
     env:
       HOST_INTERNAL_ALIAS: host.openshell.internal

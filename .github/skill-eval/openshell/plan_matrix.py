@@ -173,7 +173,7 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 # OpenShell cohorts. GitHub still attaches `self-hosted` to each runner.
 # Cohort tuples below describe how boxes are *registered* (SKU + active
 # labels). OpenShell jobs do **not** require those SKU labels:
-# `openshell_job_labels()` asks only for the fluent-bit-one runner.
+# `openshell_job_labels()` asks only for the fluent-bit-oneo runner.
 # Register replacements without a cohort active label (or keep listeners
 # down) until canaries pass.
 #
@@ -181,9 +181,9 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 # reconciles dirty idle runners, recreates one VM, and restores its listener.
 # This workflow does not implement KVM/VFIO.
 OPENSHELL_RUNNER_LABEL = "openshell-runner"
-# Deployment skill eval on this branch runs on one guest. The job asks for
-# this label alone, so the rest of the OpenShell fleet cannot claim it.
-FLUENT_BIT_ONE_RUNNER: tuple[str, ...] = ("fluent-bit-one",)
+# Deployment skill eval asks for this label alone, so only the
+# fluent-bit-oneo guests can claim the job.
+FLUENT_BIT_ONE_RUNNER: tuple[str, ...] = ("fluent-bit-oneo",)
 OPENSHELL_FLEET_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
     OPENSHELL_RUNNER_LABEL,
@@ -340,7 +340,7 @@ def openshell_job_labels(
 ) -> list[str]:
     """GitHub `runs-on` for a deployment skill trial on OpenShell.
 
-    Every eligible trial asks only for the fluent-bit-one runner. Fleet
+    Every eligible trial asks only for the fluent-bit-oneo runner. Fleet
     tags, SKU labels, and ``gpus-N`` are not requested, so no other guest
     can claim the job. ``requirements`` stays in the signature for callers;
     it does not select a runner.
