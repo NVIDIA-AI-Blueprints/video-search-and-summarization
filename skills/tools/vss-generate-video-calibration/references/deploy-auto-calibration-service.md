@@ -16,8 +16,8 @@ Deploys the `vss-auto-calibration` service — AMC microservice + web UI from pr
 
 | Service | Container | Port | Image (sample — see compose for the authoritative path) | Compose source |
 |---|---|---|---|---|
-| AMC MS | `vss-auto-calibration` | host `${VSS_AUTO_CALIBRATION_HOST_PORT}` → container `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`) | `${VSS_AUTO_CALIBRATION_IMAGE:-nvcr.io/nvstaging/vss-core/vss-auto-calibration}:<tag>` | [`services/auto-calibration/ms/compose.yml`](../../../../deploy/docker/services/auto-calibration/ms/compose.yml) |
-| AMC UI | `vss-auto-calibration-ui` | host `${VSS_AUTO_CALIBRATION_UI_HOST_PORT}` → container `5000` (default `5000`) | `${VSS_AUTO_CALIBRATION_UI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-auto-calibration-ui}:<tag>` | [`services/auto-calibration/ui/compose.yml`](../../../../deploy/docker/services/auto-calibration/ui/compose.yml) |
+| AMC MS | `vss-auto-calibration` | host `${VSS_AUTO_CALIBRATION_HOST_PORT}` → container `${VSS_AUTO_CALIBRATION_PORT}` (default `8010`) | `${VSS_AUTO_CALIBRATION_IMAGE:-nvcr.io/nvidia/vss-core/vss-auto-calibration}:<tag>` | [`services/auto-calibration/ms/compose.yml`](../../../../deploy/docker/services/auto-calibration/ms/compose.yml) |
+| AMC UI | `vss-auto-calibration-ui` | host `${VSS_AUTO_CALIBRATION_UI_HOST_PORT}` → container `5000` (default `5000`) | `${VSS_AUTO_CALIBRATION_UI_IMAGE:-nvcr.io/nvidia/vss-core/vss-auto-calibration-ui}:<tag>` | [`services/auto-calibration/ui/compose.yml`](../../../../deploy/docker/services/auto-calibration/ui/compose.yml) |
 
 > **Image references are illustrative.** The compose files above are the source of truth for the exact image repo and tag — they may differ by release. Don't pull a hand-typed path; read the resolved path from `docker compose config` / `resolved.yml` (Step 3) and let `docker compose up` pull it.
 
@@ -113,7 +113,7 @@ echo "AMC platform preflight passed"
 
 ### Step 1 — NGC login
 
-AMC pulls its images from the `vss-core` namespace on `nvcr.io`. The compose defaults are the **`nvstaging`** org (`nvcr.io/nvstaging/vss-core/…`), overridable via `VSS_AUTO_CALIBRATION_IMAGE` / `VSS_AUTO_CALIBRATION_UI_IMAGE` — read the resolved path from `docker compose config` rather than assuming an org. The user's NGC key must have access to whichever org resolves.
+AMC pulls its images from the `vss-core` namespace on `nvcr.io`. The compose defaults are the **`nvidia`** org (`nvcr.io/nvidia/vss-core/…`), overridable via `VSS_AUTO_CALIBRATION_IMAGE` / `VSS_AUTO_CALIBRATION_UI_IMAGE` — read the resolved path from `docker compose config` rather than assuming an org. The user's NGC key must have access to whichever org resolves.
 
 The credential source is the `NGC_CLI_API_KEY` environment variable in the **current** shell or warehouse `generated.env`. Confirm it is set before logging in (this prints only `SET`/`NOT SET`, never the key):
 
