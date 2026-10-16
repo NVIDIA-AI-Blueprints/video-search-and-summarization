@@ -325,6 +325,7 @@ def test_failure_is_available_to_the_verifier(runner, monkeypatch, tmp_path, sta
     monkeypatch.setattr(runner, "_load_env_file", lambda path: None)
     monkeypatch.setattr(runner, "_sandbox_exec", lambda *a, **kw: __import__("subprocess").CompletedProcess(a, 0, '{"ok":true}', ""))
     monkeypatch.setattr(runner, "_ensure_gateway", fail if stage == "gateway" else lambda name: None)
+    monkeypatch.setattr(runner, "_operational_prompt", lambda sandbox, prompt: prompt)
     monkeypatch.setattr(runner, "_run_openclaw", fail)
     assert runner.main(["--prompt-file", str(prompt), "--agent-log-dir", str(logs)]) == 1
     assert message in (logs / "agent.log").read_text()
@@ -357,6 +358,8 @@ def test_prompt_uses_native_inference_without_mutating_provider(runner, monkeypa
             output = '{"ok":true}'
         elif "/health" in script:
             output = ""
+        elif script.startswith("find /sandbox/.openclaw/extensions/vss/skills"):
+            output = "/sandbox/.openclaw/extensions/vss/skills/vss-manage-alerts/SKILL.md\n"
         elif "openclaw agent" in script:
             assert "Operate the deployment" in script
             assert ". /tmp/nemoclaw-proxy-env.sh" in script
@@ -373,7 +376,7 @@ def test_prompt_uses_native_inference_without_mutating_provider(runner, monkeypa
     monkeypatch.setattr(runner, "_sandbox_exec", sandbox_exec)
     monkeypatch.setattr(runner.subprocess, "run", lambda *args, **kwargs: pytest.fail("host provider mutated"))
     assert runner.main(["--prompt-file", str(prompt), "--agent-log-dir", str(logs)]) == 0
-    assert len(calls) == 6
+    assert len(calls) == 7
     envelope = json.loads((logs / "openclaw.txt").read_text())
     assert envelope["meta"]["agentMeta"]["usage"]["input"] == 5
     assert envelope["meta"]["agentMeta"]["usage"]["output"] == 2
@@ -493,3 +496,47 @@ def test_media_commands_share_remaining_staging_deadline(monkeypatch):
     with pytest.raises(TimeoutError, match="deadline"):
         fixtures.call(["upload"], deadline=300)
     assert len(timeouts) == 2
+
+
+def test_operational_prompt_uses_installed_paths_and_foreground_session(runner, monkeypatch):
+    path = "/sandbox/.openclaw/extensions/vss/skills/vss-manage-alerts/SKILL.md"
+    monkeypatch.setattr(runner, "_sandbox_exec", lambda *args, **kwargs:
+                        subprocess.CompletedProcess([], 1, path + "\n" + path + "\n/usr/local/lib/fake/SKILL.md\n", ""))
+    prompt = runner._operational_prompt("se-test", "Stop monitoring warehouse_sample")
+    assert prompt.count(path) == 1
+    assert "/usr/local/lib/fake" not in prompt
+    assert "Do not spawn subagents" in prompt
+    assert "sessions_spawn/sessions_yield" in prompt
+    assert prompt.endswith("Stop monitoring warehouse_sample")
+
+
+def test_operational_prompt_rejects_missing_skill_install(runner, monkeypatch):
+    monkeypatch.setattr(runner, "_sandbox_exec", lambda *args, **kwargs:
+                        subprocess.CompletedProcess([], 1, "", "missing directory"))
+    with pytest.raises(RuntimeError, match="No installed VSS skill"):
+        runner._operational_prompt("se-test", "Operate")
+
+
+def test_yielded_parent_is_not_reported_as_completed(runner, monkeypatch):
+    session_path = "/sandbox/.openclaw/agents/main/sessions/test.jsonl"
+    monkeypatch.setattr(runner, "_nemoclaw_exec", lambda *args, **kwargs:
+        subprocess.CompletedProcess([], 0, json.dumps({"meta": {"agentMeta": {"sessionFile": session_path}}}), ""))
+    session = json.dumps({"message": {
+        "role": "assistant", "content": [{"type": "toolCall", "name": "sessions_yield", "arguments": {}}],
+        "usage": {"input": 5, "output": 2},
+    }})
+    monkeypatch.setattr(runner, "_sandbox_exec", lambda *args, **kwargs:
+                        subprocess.CompletedProcess([], 0, session, ""))
+    with pytest.raises(RuntimeError, match="detached work"):
+        runner._run_openclaw("se-test", "Operate", 60)
+
+
+def test_sandbox_exec_finds_user_installed_vss(runner, monkeypatch):
+    calls = []
+    def run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(runner.subprocess, "run", run)
+    runner._sandbox_exec("se-test", "vss configure check", timeout=30)
+    assert calls[0][-1] == 'export PATH="$HOME/.local/bin:/sandbox/.local/bin:$PATH"; vss configure check'
+    assert calls[0][-3:-1] == ["sh", "-lc"]

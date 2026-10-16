@@ -46,7 +46,7 @@
       "query": "Give me a report for warehouse_safety_0001.",
       "checks": [
         "Mode A clip source only (warehouse_safety_0001 is a sensor/video, not an alert): the run used a VST clip for that sensor — GET /storage/file/<streamId>/url, binary GET /storage/file/<streamId>, or an HTTP MP4 from /vst/storage/temp_files/ — rather than posting to http://localhost:8000/generate. Do not require the literal JSON field name videoUrl",
-        "The run called a local CR3 VLM `/v1/chat/completions` endpoint (localhost:30082 or localhost:8018) with a cosmos3-nano-reasoner or cosmos3-super-reasoner model and received HTTP 2xx",
+        "The run successfully invoked the deployment's local CR3 VLM with a cosmos3-nano-reasoner or cosmos3-super-reasoner model. A successful `vss vlm run` through the configured VSS ingress `/rtvi-vlm` route is valid evidence; do not require a direct localhost request or literal `/v1/chat/completions` call when the CLI supplies that transport. An inference error or model mismatch is a failure",
         "The run generated a user-facing video analysis report for warehouse_safety_0001",
         "The report content is grounded in the warehouse_safety_0001 clip: it describes a warehouse/industrial scene with at least one person/worker, and mentions concrete details related to a ladder and shelving units."
       ]
