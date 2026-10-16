@@ -470,6 +470,23 @@ def test_native_inference_failure_reason_is_rendered_without_raw_output(tmp_path
     assert "confidential-payload" not in body
 
 
+def test_native_session_failure_reasons_are_preserved(tmp_path: Path) -> None:
+    for reason in ("session_no_assistant", "session_no_usage", "provider_error", "invalid_request"):
+        root = tmp_path / reason
+        trial = _trial(root, "r", "step-1__aaa", reward=0.0,
+                       start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
+                       exception="RuntimeError")
+        receipts = trial / "artifacts/logs/artifacts/nemoclaw"
+        receipts.mkdir(parents=True)
+        (receipts / "setup-readiness.json").write_text(json.dumps({"stages": [
+            {"stage": "local_inference", "status": "failed", "reason": reason,
+             "aborted": True, "input_tokens": 0, "stderr": "confidential-payload"},
+        ]}))
+        summary = leg_report.leg_summary(leg_report.collect_leg(root), declared=["deploy"])
+        assert summary["steps"][0]["harness_failure"] == {"stage": "local_inference", "reason": reason}
+        assert "confidential-payload" not in json.dumps(summary)
+
+
 def test_nemoclaw_receipts_are_attempt_scoped_and_allowlisted(tmp_path: Path) -> None:
     trial = _trial(tmp_path, "r", "step-2__aaa", reward=0.0,
                    start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
