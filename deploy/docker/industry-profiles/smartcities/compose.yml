@@ -93,7 +93,7 @@ services:
     restart: on-failure
 
   calibration-toolkit-smartcities:
-    image: ${VSS_CALIBRATION_TOOLKIT_IMAGE:-nvcr.io/nvidia/vss-core/calibration}:${CALIBRATION_TOOLKIT_IMAGE_TAG}
+    image: ${VSS_CALIBRATION_TOOLKIT_IMAGE:-nvcr.io/nvidia/vss-core/calibration}:${CALIBRATION_TOOLKIT_IMAGE_TAG:-${VSS_CONTAINER_TAG:-3.3.0}}
     profiles: ["calibration-toolkit-smartcities"]
     ports:
       - ${CALIBRATION_TOOLKIT_HOST_PORT:-8003}:8003
@@ -103,7 +103,7 @@ services:
     command: "deploy.sh 8003"
 
   vss-video-analytics-ui-smartcities:
-    image: ${VSS_VIDEO_ANALYTICS_UI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-analytics-ui}:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
+    image: ${VSS_VIDEO_ANALYTICS_UI_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-analytics-ui}:${VIDEO_ANALYTICS_UI_IMAGE_TAG:-${VSS_CONTAINER_TAG:-3.3.0}}
     profiles: ["vss-video-analytics-ui-smartcities"]
     ports:
       - ${VIDEO_ANALYTICS_UI_HOST_PORT:-3002}:3002
