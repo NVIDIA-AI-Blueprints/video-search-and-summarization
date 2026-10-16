@@ -38,10 +38,7 @@ completion_id) and ``output.handles.media_urls``. Opt out with ``--no-persist``.
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
-import json as _json_mod
-import logging
 import os
 import secrets
 import tempfile
@@ -75,8 +72,6 @@ if TYPE_CHECKING:
 
 _JOB_DOMAIN = "vlm"
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-_COMPLETIONS_PATH = "/v1/chat/completions"
-_LOG = logging.getLogger(__name__)
 
 
 def _ulid() -> str:
@@ -86,37 +81,6 @@ def _ulid() -> str:
 
 def _mint_job_id() -> str:
     return f"{_JOB_DOMAIN}-{_ulid()}"
-
-
-def _default_model(deployment: config_mod.Deployment) -> str:
-    """The one model the VLM endpoint reports serving, or a ConfigError.
-
-    An endpoint listing several (Inference Hub lists its whole catalog) has no
-    defensible default, so the caller chooses rather than getting the first.
-    """
-    service = deployment.services.get("rt_vlm")
-    models = service.models if service else []
-    choose = f"Pass --model, run `vss configure vlm --model <id>`, or export {config_mod.VLM_ENV['model']}."
-    if len(models) == 1:
-        return models[0]
-    if models:
-        shown = ", ".join(models[:10]) + (", ..." if len(models) > 10 else "")
-        raise config_mod.ConfigError(
-            f"the VLM endpoint at {deployment.base_url} lists {len(models)} models ({shown}). {choose}"
-        )
-    raise config_mod.ConfigError(
-        f"deployment at {deployment.base_url} reports no VLM model, so --model cannot be defaulted. "
-        f"{choose} Or re-run `vss configure --base-url {deployment.base_url}`."
-    )
-
-
-def _vlm_headers() -> dict[str, str]:
-    """Request headers, with ``VSS_VLM_API_KEY`` as a Bearer token when set."""
-    headers = {"Content-Type": "application/json"}
-    key = config_mod.vlm_api_key()
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
-    return headers
 
 
 def _is_loopback_url(url: str) -> bool:
@@ -145,17 +109,6 @@ def _vios_exit_for(exc: Exception) -> tuple[Exit, str]:
         "BackendUnreachableError": (Exit.BACKEND_UNREACHABLE, "failed"),
     }
     return by_name.get(type(exc).__name__, (Exit.BACKEND_UNREACHABLE, "failed"))
-
-
-def _extract_answer(completion: dict[str, Any]) -> str:
-    """Pull the text answer out of an OpenAI-style completion."""
-    try:
-        content = completion["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise ValueError("VLM response has no choices[0].message.content") from exc
-    if not isinstance(content, str):
-        raise ValueError(f"VLM response content is not a string: {type(content).__name__}")
-    return content
 
 
 class VlmInput(BaseModel):
@@ -368,237 +321,31 @@ def _resolve_vios_clip(
     return asyncio.run(_fetch())
 
 
-#: Qwen3-VL video processor's default clip floor (128 * 32 * 32). The HF
-#: processor rejects a ``size`` missing either edge, so the floor is always sent
-#: alongside ``longest_edge``.
-_QWEN3_VL_MIN_CLIP_PIXELS = 128 * 32 * 32
+def _chat_request(*, prompt: str, media_url: str, model: str, inputs: VlmInput, local: bool = False):
+    """Adapt the existing video invocation to the generic typed API."""
+    from pathlib import Path
 
+    from vss_core.vlm import ChatMessage
+    from vss_core.vlm import ChatRequest
+    from vss_core.vlm import GenerationOptions
+    from vss_core.vlm import TextPart
+    from vss_core.vlm import VideoFile
+    from vss_core.vlm import VideoOptions
+    from vss_core.vlm import VideoPart
 
-def _base_request(
-    *,
-    prompt: str,
-    media_url: str,
-    model: str,
-    inputs: VlmInput,
-) -> dict[str, Any]:
-    """Build the request fields shared by every backend."""
-    request: dict[str, Any] = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "video_url", "video_url": {"url": media_url}},
-                    {"type": "text", "text": prompt},
-                ],
-            }
-        ],
-    }
-    if inputs.temperature is not None:
-        request["temperature"] = inputs.temperature
-    if inputs.max_tokens is not None:
-        request["max_tokens"] = inputs.max_tokens
-    if inputs.seed is not None:
-        request["seed"] = inputs.seed
-    return request
-
-
-def _video_io(inputs: VlmInput, *, qwen3_loader_cap: bool = False) -> dict[str, Any]:
-    """``media_io_kwargs.video`` for the configured sampling; empty means server default.
-
-    ``num_frames`` is the cap for vLLM's uniform loader and the fixed count for
-    RT-VLM and NIM. vLLM's ``qwen3_vl`` loader ignores ``num_frames`` and caps
-    with ``max_frames`` instead, so vLLM gets both. RT-VLM and NIM reject
-    ``fps`` with ``num_frames`` (HTTP 400), so with ``fps`` set they get ``fps``
-    alone and their deployment-wide frame cap applies.
-
-    vLLM's ``VideoMediaIO`` hands its loader ``num_frames=32`` unless the
-    request sends one (vllm/multimodal/media/video.py, v0.28), so ``fps``
-    alone would stop at 32 frames on the uniform loader. With ``fps`` and no
-    ``max_frames``, vLLM gets ``num_frames: -1`` so the rate decides.
-    """
-    video: dict[str, Any] = {}
-    if inputs.fps is not None:
-        video["fps"] = inputs.fps
-        if qwen3_loader_cap and inputs.max_frames is None:
-            video["num_frames"] = -1
-    if inputs.max_frames is not None:
-        if qwen3_loader_cap:
-            video["num_frames"] = inputs.max_frames
-            video["max_frames"] = inputs.max_frames
-        elif inputs.fps is None:
-            video["num_frames"] = inputs.max_frames
-        else:
-            _LOG.warning(
-                "max_frames %s not sent: this backend takes fps or a frame count, not both; "
-                "its deployment frame cap applies",
-                inputs.max_frames,
-            )
-    return video
-
-
-def _processor_kwargs(inputs: VlmInput) -> dict[str, Any]:
-    """``mm_processor_kwargs`` for the pixel budget; empty means server default."""
-    if inputs.total_pixels is None:
-        return {}
-    return {
-        "size": {
-            "shortest_edge": min(_QWEN3_VL_MIN_CLIP_PIXELS, inputs.total_pixels),
-            "longest_edge": inputs.total_pixels,
-        }
-    }
-
-
-def _build_rt_vlm_request(
-    *,
-    prompt: str,
-    media_url: str,
-    model: str,
-    inputs: VlmInput,
-) -> dict[str, Any]:
-    """RT-VLM maps ``media_io_kwargs.video`` onto its own frame selector."""
-    request = _base_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
-    video = _video_io(inputs)
-    if video:
-        request["media_io_kwargs"] = {"video": video}
-    if inputs.enable_reasoning is not None:
-        request["enable_reasoning"] = inputs.enable_reasoning
-    if inputs.chunk_duration is not None:
-        request["chunk_duration"] = inputs.chunk_duration
-    processor = _processor_kwargs(inputs)
-    if processor:
-        request["mm_processor_kwargs"] = processor
-    return request
-
-
-def _build_vllm_request(
-    *,
-    prompt: str,
-    media_url: str,
-    model: str,
-    inputs: VlmInput,
-) -> dict[str, Any]:
-    """vLLM's video loader samples; Qwen then consumes that selection unchanged."""
-    request = _base_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
-    if inputs.chunk_duration is not None and inputs.chunk_duration != 0:
-        raise InvalidInput("positive --chunk-duration is not supported by the standalone vLLM backend")
-    if inputs.enable_reasoning is not None:
-        request["chat_template_kwargs"] = {"enable_thinking": inputs.enable_reasoning}
-    mm_processor_kwargs: dict[str, Any] = {}
-    video = _video_io(inputs, qwen3_loader_cap=True)
-    if video:
-        request["media_io_kwargs"] = {"video": video}
-        # Stops the processor re-sampling frames the loader already selected.
-        mm_processor_kwargs["do_sample_frames"] = False
-    mm_processor_kwargs.update(_processor_kwargs(inputs))
-    if mm_processor_kwargs:
-        request["mm_processor_kwargs"] = mm_processor_kwargs
-    return request
-
-
-def _build_cosmos_reason_nim_request(
-    *,
-    prompt: str,
-    media_url: str,
-    model: str,
-    inputs: VlmInput,
-) -> dict[str, Any]:
-    """Temporarily translate Cosmos Reason NIM calls with RT-VLM's schema."""
-    _LOG.warning(
-        "Cosmos Reason NIM backend support is alpha; request construction "
-        "currently uses the RT-VLM request schema and is pending refinement."
-    )
-    return _build_rt_vlm_request(
-        prompt=prompt,
-        media_url=media_url,
+    source = VideoFile(Path(media_url)) if local else media_url
+    return ChatRequest(
+        messages=(ChatMessage("user", (VideoPart(source), TextPart(prompt))),),
         model=model,
-        inputs=inputs,
+        generation=GenerationOptions(temperature=inputs.temperature, max_tokens=inputs.max_tokens, seed=inputs.seed),
+        enable_reasoning=inputs.enable_reasoning,
+        video_options=VideoOptions(
+            fps=inputs.fps,
+            max_frames=inputs.max_frames,
+            total_pixels=inputs.total_pixels,
+            chunk_duration=inputs.chunk_duration,
+        ),
     )
-
-
-def _build_openai_request(
-    *,
-    prompt: str,
-    media_url: str,
-    model: str,
-    inputs: VlmInput,
-) -> dict[str, Any]:
-    """A plain OpenAI chat completion: no engine-specific fields (Inference Hub)."""
-    if inputs.chunk_duration is not None and inputs.chunk_duration != 0:
-        raise InvalidInput("positive --chunk-duration is not supported by the openai backend")
-    ignored = [
-        name for name in (*config_mod.VLM_SAMPLING_FIELDS, "enable_reasoning") if getattr(inputs, name) is not None
-    ]
-    if ignored:
-        _LOG.warning(
-            "%s not sent: the openai backend sends a plain chat completion, so the endpoint's defaults apply",
-            ", ".join(ignored),
-        )
-    return _base_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
-
-
-def _build_vlm_request(
-    *,
-    backend: str,
-    prompt: str,
-    media_url: str,
-    model: str,
-    inputs: VlmInput,
-) -> dict[str, Any]:
-    """Build a backend-specific OpenAI-compatible request."""
-    if backend == "rt_vlm":
-        return _build_rt_vlm_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
-    if backend == "vllm":
-        return _build_vllm_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
-    if backend == "cosmos_reason_nim":
-        return _build_cosmos_reason_nim_request(
-            prompt=prompt,
-            media_url=media_url,
-            model=model,
-            inputs=inputs,
-        )
-    if backend == "openai":
-        return _build_openai_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
-    raise config_mod.ConfigError(f"unsupported VLM backend: {backend}")
-
-
-def _iter_base64_json(
-    *,
-    backend: str,
-    prompt: str,
-    file_path: str,
-    model: str,
-    inputs: VlmInput,
-) -> Any:
-    """Yield the VLM request body as a JSON byte stream, reading the file in 192 KB chunks.
-
-    At most one raw chunk (~192 KB) and its base64 encoding (~256 KB) live in memory
-    at a time.  The previous list-then-join approach kept the entire encoded payload in
-    memory simultaneously with the joined string, the data-URI f-string, and the
-    json.dumps output -- typically 4-5x the encoded file size.
-    """
-    sentinel = f"__b64_{secrets.token_hex(8)}__"
-    payload = _build_vlm_request(
-        backend=backend,
-        prompt=prompt,
-        media_url=sentinel,
-        model=model,
-        inputs=inputs,
-    )
-
-    raw = _json_mod.dumps(payload)
-    # json.dumps quotes the sentinel; partition on the quoted form.
-    sentinel_quoted = _json_mod.dumps(sentinel)  # e.g. '"__b64_abc123__"'
-    pre, _, post = raw.partition(sentinel_quoted)
-
-    try:
-        with open(file_path, "rb") as fh:
-            yield (pre + '"data:video/mp4;base64,').encode()
-            while chunk := fh.read(3 * 65536):
-                yield base64.b64encode(chunk)
-            yield ('"' + post).encode()
-    except OSError as exc:
-        raise InvalidInput(f"cannot read local file {file_path!r}: {exc}") from exc
 
 
 class VlmGroup(CommandGroup):
@@ -620,13 +367,15 @@ class VlmGroup(CommandGroup):
         deployment = ctx.deployment or config_mod.load()
         policy = config_mod.effective_vlm_config(deployment.vlm)
         inputs = _apply_vlm_policy(inputs, policy)
-        backend = policy.backend if policy is not None else "rt_vlm"
         options = VlmOptions(**{k: v for k, v in ctx.extra.items() if k in VlmOptions.model_fields})
 
         if options.use_base64 and inputs.sensor:
             raise InvalidInput("--use-base64 cannot be combined with --sensor")
 
-        model = inputs.model or _default_model(deployment)
+        from .target import resolve_vlm_target
+
+        target = resolve_vlm_target(deployment, inputs.model, policy)
+        model = target.model
         job_id = _mint_job_id()
 
         from vss_core.memory.adapters import utc_now_iso
@@ -838,173 +587,61 @@ class VlmGroup(CommandGroup):
                 model_params=model_params,
             )
 
-            vlm_url = deployment.endpoint("rt_vlm").rstrip("/") + _COMPLETIONS_PATH
-            if _use_base64_effective:
-                # Stream the JSON body chunk-by-chunk from the file.  This keeps only
-                # one 192 KB raw chunk in memory at a time instead of the entire encoded
-                # payload, the joined string, the data-URI f-string, and the json.dumps
-                # output that the list-then-join approach created simultaneously.
-                file_to_read = _loopback_tmp if _loopback_tmp is not None else media_url
-                # Pre-validate readability before giving the file to httpx.  If
-                # the open() fails inside the content generator, httpx wraps the
-                # OSError as httpx.WriteError (an httpx.HTTPError subclass) and
-                # the caller sees BACKEND_UNREACHABLE instead of INVALID_INPUT.
-                try:
-                    open(file_to_read, "rb").close()
-                except OSError as exc:
-                    raise InvalidInput(f"cannot read local file {file_to_read!r}: {exc}") from exc
-                response = httpx.post(
-                    vlm_url,
-                    content=_iter_base64_json(
-                        backend=backend,
-                        prompt=inputs.prompt,
-                        file_path=file_to_read,
-                        model=model,
-                        inputs=inputs,
-                    ),
-                    headers=_vlm_headers(),
-                    timeout=float(inputs.timeout),
-                )
-            else:
-                response = httpx.post(
-                    vlm_url,
-                    json=_build_vlm_request(
-                        backend=backend,
-                        prompt=inputs.prompt,
-                        media_url=media_url,
-                        model=model,
-                        inputs=inputs,
-                    ),
-                    headers=_vlm_headers(),
-                    timeout=float(inputs.timeout),
-                )
-        except InvalidInput as exc:
-            # Raised by the pre-send readability check and by _iter_base64_json
-            # while httpx consumes the body. Both happen after the job id is
-            # minted, so they report through a Result rather than propagating to
-            # guarded(), which would exit without emitting a marker.
-            detail = str(exc)
-            _persisted = _write_terminal(
+            from vss_core.vlm import ChatError
+            from vss_core.vlm import VLMChatClient
+
+            request = _chat_request(
+                prompt=inputs.prompt, media_url=media_url, model=model, inputs=inputs, local=_use_base64_effective
+            )
+
+            async def complete():
+                async with VLMChatClient(
+                    target.endpoint, target.backend, target.api_key, inputs.timeout, attempts=1
+                ) as client:
+                    return await client.complete(request, allow_text_parts=False)
+
+            completion = asyncio.run(complete())
+            answer = completion.text
+        except ChatError as exc:
+            detail = (
+                f"HTTP {exc.status_code}"
+                if exc.status_code is not None
+                else f"VLM call timed out after {inputs.timeout}s"
+                if exc.kind == "timeout"
+                else str(exc)
+            )
+            status = "timeout" if exc.kind == "timeout" else "failed"
+            code = (
+                Exit.INVALID_INPUT
+                if exc.kind == "validation" or (exc.status_code is not None and 400 <= exc.status_code < 500)
+                else Exit.TIMEOUT
+                if exc.kind == "timeout"
+                else Exit.BACKEND_UNREACHABLE
+            )
+            persisted = _write_terminal(
                 memory,
                 adapter,
                 job_id=job_id,
                 created_at=created_at,
                 input_data=input_data,
-                status="failed",
+                status=status,
                 message=detail,
             )
             click.echo(f"vss: {detail}", err=True)
+            failure_body = {"job_id": job_id, "status": status}
+            if status != "timeout":
+                failure_body["error"] = detail
             return Result(
-                body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": _persisted}},
-                exit=Exit.INVALID_INPUT,
-                job_id=job_id,
-            )
-        except httpx.TimeoutException:
-            detail = f"VLM call timed out after {inputs.timeout}s"
-            _persisted = _write_terminal(
-                memory,
-                adapter,
-                job_id=job_id,
-                created_at=created_at,
-                input_data=input_data,
-                status="timeout",
-                message=detail,
-            )
-            click.echo(f"vss: {detail} (job {job_id})", err=True)
-            return Result(
-                body={"job_id": job_id, "status": "timeout"},
-                extra={"marker": {"status": "timeout", "persisted": _persisted}},
-                exit=Exit.TIMEOUT,
-                job_id=job_id,
-            )
-        except httpx.HTTPError as exc:
-            detail = str(exc)
-            _persisted = _write_terminal(
-                memory,
-                adapter,
-                job_id=job_id,
-                created_at=created_at,
-                input_data=input_data,
-                status="failed",
-                message=detail,
-            )
-            click.echo(f"vss: VLM unreachable at {vlm_url}: {exc}", err=True)
-            return Result(
-                body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": _persisted}},
-                exit=Exit.BACKEND_UNREACHABLE,
+                body=failure_body,
+                extra={"marker": {"status": status, "persisted": persisted}},
+                exit=code,
                 job_id=job_id,
             )
         finally:
-            # Guarantee temp file deletion whether the VLM call succeeded, failed,
-            # or raised — including if adapter.build_input raised before the call.
             if _loopback_tmp is not None:
                 with contextlib.suppress(OSError):
                     os.unlink(_loopback_tmp)
                 _loopback_tmp = None
-
-        if response.status_code >= 400:
-            detail = f"HTTP {response.status_code}"
-            _persisted = _write_terminal(
-                memory,
-                adapter,
-                job_id=job_id,
-                created_at=created_at,
-                input_data=input_data,
-                status="failed",
-                message=detail,
-            )
-            code = Exit.BACKEND_UNREACHABLE if response.status_code >= 500 else Exit.INVALID_INPUT
-            click.echo(f"vss: VLM backend error {detail}: {response.text[:500]}", err=True)
-            return Result(
-                body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": _persisted}},
-                exit=code,
-                job_id=job_id,
-            )
-
-        try:
-            completion = response.json()
-        except ValueError:
-            detail = "VLM response was not valid JSON"
-            _persisted = _write_terminal(
-                memory,
-                adapter,
-                job_id=job_id,
-                created_at=created_at,
-                input_data=input_data,
-                status="failed",
-                message=detail,
-            )
-            click.echo(f"vss: {detail}", err=True)
-            return Result(
-                body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": _persisted}},
-                exit=Exit.BACKEND_UNREACHABLE,
-                job_id=job_id,
-            )
-
-        try:
-            answer = _extract_answer(completion)
-        except ValueError as exc:
-            detail = str(exc)
-            _persisted = _write_terminal(
-                memory,
-                adapter,
-                job_id=job_id,
-                created_at=created_at,
-                input_data=input_data,
-                status="failed",
-                message=detail,
-            )
-            click.echo(f"vss: {detail}", err=True)
-            return Result(
-                body={"job_id": job_id, "status": "failed", "error": detail},
-                extra={"marker": {"status": "failed", "persisted": _persisted}},
-                exit=Exit.BACKEND_UNREACHABLE,
-                job_id=job_id,
-            )
 
         if not answer.strip():
             detail = "VLM returned an empty answer"
@@ -1025,12 +662,12 @@ class VlmGroup(CommandGroup):
                 job_id=job_id,
             )
 
-        completion_id: str | None = completion.get("id")
+        completion_id: str | None = completion.completion_id
         body: dict[str, Any] = {
             "job_id": job_id,
             "status": "completed",
             "answer": answer,
-            "model": completion.get("model") or model,
+            "model": completion.reported_model or model,
         }
         body["intent"] = inputs.intent
 
@@ -1048,7 +685,7 @@ class VlmGroup(CommandGroup):
 
         output = adapter.build_output(
             answer=answer,
-            model=completion.get("model") or model,
+            model=completion.reported_model or model,
             media_url=None if _use_base64_effective else media_url,
             intent=inputs.intent,
             completion_id=completion_id,
