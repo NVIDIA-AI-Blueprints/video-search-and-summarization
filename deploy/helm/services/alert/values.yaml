@@ -53,8 +53,8 @@ tracing:
   attributeValueLengthLimit: 4096
 
 image:
-  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-alert-ms
-  tag: develop-latest
+  repository: nvcr.io/nvidia/vss-core/vss-alert-ms
+  tag: "3.3.0"
   pullPolicy: IfNotPresent
 replicas: 1
 

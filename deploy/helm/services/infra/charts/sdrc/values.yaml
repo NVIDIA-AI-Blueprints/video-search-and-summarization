@@ -5,8 +5,8 @@ enabled: false
 global: {}
 
 image:
-  repository: ghcr.io/nvidia-ai-blueprints/vss/sdr-mw-l
-  tag: develop-latest
+  repository: nvcr.io/nvidia/vss-core/sdr-mw-l
+  tag: "3.3.0"
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 

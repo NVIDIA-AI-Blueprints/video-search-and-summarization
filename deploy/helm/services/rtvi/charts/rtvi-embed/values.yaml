@@ -23,8 +23,8 @@ replicas: 1
 # the tag to select it: image.tag=develop-latest-sbsa (or set the same value
 # through global.container_tag when every managed image uses that channel).
 image:
-  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
-  tag: develop-latest
+  repository: nvcr.io/nvidia/vss-core/vss-rt-embed
+  tag: "3.3.0"
   pullPolicy: IfNotPresent
 port: 8000
 service:
