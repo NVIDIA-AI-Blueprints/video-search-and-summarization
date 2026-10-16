@@ -16,6 +16,8 @@ from release_set import inventory_by_compose_name  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GHCR_ROOT = "ghcr.io/nvidia-ai-blueprints/vss"
+RELEASE_ROOT = "nvcr.io/nvidia/vss-core"
+RELEASE_TAG = "3.3.0"
 NGC_STAGING_ROOT = "nvcr.io/nvstaging/vss-core"
 
 HELM_VALUES = {
@@ -226,12 +228,12 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
             if is_compose_service:
                 self.assertIn(repository, HELM_VALUES)
 
-    def test_helm_defaults_to_managed_ghcr_channel(self):
+    def test_helm_defaults_to_release_channel(self):
         for name, relative_paths in HELM_VALUES.items():
             for relative_path in relative_paths:
                 repository, tag = image_coordinates(REPO_ROOT / relative_path, name)
-                self.assertEqual(repository, f"{GHCR_ROOT}/{name}")
-                self.assertEqual(tag, "develop-latest")
+                self.assertEqual(repository, f"{RELEASE_ROOT}/{name}")
+                self.assertEqual(tag, RELEASE_TAG)
 
     def test_helm_supports_one_prefix_and_tag_override(self):
         for name, relative_paths in HELM_HELPERS.items():
@@ -263,6 +265,8 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
         self.assertIn("Shared managed-image channel", prompt)
         self.assertIn("global.container_prefix", prompt)
         self.assertIn("global.container_tag", prompt)
+        self.assertIn(RELEASE_ROOT, prompt)
+        self.assertIn(RELEASE_TAG, prompt)
         self.assertIn(GHCR_ROOT, prompt)
 
 

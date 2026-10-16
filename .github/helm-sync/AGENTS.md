@@ -178,18 +178,23 @@ literal text. Non-drift by design in this tree:
    | NIM / GPU resource hints | `resources.limits.nvidia.com/gpu` + tolerations / nodeSelector |
 
    **Shared managed-image channel.** Images classified with `"ghcr_build": true`
-   in `deploy/docker/container-inventory.json` use the same defaults in Docker
-   Compose and Helm:
+   in `deploy/docker/container-inventory.json` share one release coordinate.
+   Compare the sourced Docker default with the Helm default. A retained
+   Compose inline fallback is not the Helm target.
 
-   - Both deployment paths default to
-     `ghcr.io/nvidia-ai-blueprints/vss/<image>:develop-latest`.
+   - Docker defaults loaded through `containers.env`, and Helm managed-image
+     defaults, are `nvcr.io/nvidia/vss-core/<image>:3.3.0`.
+   - Standalone Compose inline fallbacks stay on the GHCR development
+     coordinates, `ghcr.io/nvidia-ai-blueprints/vss/<image>:develop-latest`.
+     Leaving those fallbacks unchanged is not drift.
    - Helm resolves the managed image prefix and tag from
      `global.container_prefix` and `global.container_tag` when set. QA uses
-     those two values to select a promoted NGC staging drop without editing
-     individual subcharts.
+     those two values to select a promoted drop without editing individual
+     subcharts. An umbrella profile may hard-code the release coordinate when
+     that override still honors both globals.
    - Treat a Helm chart that retains an immutable
-     `nvcr.io/nvstaging/vss-core/*` default, ignores either global override, or
-     hard-codes a managed image in an umbrella profile as drift.
+     `nvcr.io/nvstaging/vss-core/*` default, or ignores either global override,
+     as drift.
    - Continue to flag every other semantic difference, including container
      env, ports, mounts, commands, probes, resources, and topology.
 
