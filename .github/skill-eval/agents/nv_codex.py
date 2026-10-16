@@ -27,6 +27,7 @@ OPENAI_API_KEY / OPENAI_BASE_URL needs to be configured.
 from pathlib import PurePosixPath
 from uuid import uuid4
 
+from harbor.agents.installed.base import NonZeroAgentExitCodeError
 from harbor.agents.installed.codex import Codex
 
 
@@ -43,6 +44,21 @@ class _WholeModel(str):
 
 
 class NvCodex(Codex):
+    def _classify_exec_error(self, command, result):
+        # Brev can fail the setup handoff after Codex itself completed. The
+        # inherited classifier scans the entire tool transcript, where a
+        # quoted config/doc mentioning "rate limit" is not an API failure.
+        # Keep a bounded final-output tail too: workflow archives omit the
+        # full agent history, and the coder's final blocker explains why it
+        # never onboarded the sandbox. Error/artifact redaction still applies.
+        # Real Codex failures retain Harbor's provider-error classification.
+        if (result.stderr or "").startswith("NemoClaw setup handoff failed:"):
+            tail = (result.stdout or "")[-6000:]
+            return NonZeroAgentExitCodeError(
+                f"{result.stderr}\nCoding output (last 6000 characters):\n{tail}"
+            )
+        return super()._classify_exec_error(command, result)
+
     async def run(self, instruction, environment, context):
         # Harbor appends provider/MCP settings before its best-effort cleanup.
         # Cancellation can leave that config behind on a warm worker. Give
