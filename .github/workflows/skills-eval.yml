@@ -188,6 +188,8 @@ jobs:
           # Blank input → `*` (sweep all), matching the dropdown default and
           # the old behavior — never blank, which would fall through to the
           # diff path and silently produce an empty matrix.
+          # Temporary experiment: dispatch the unchanged CV deployment checks only.
+          CHANGED_FILES: skills/operations/vss-manage-alerts/evals/cv_mode_gate.json
           MANUAL_SKILLS_FILTER: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
           SKILLS_EVAL_SPARK_RUNNER: ${{ inputs.spark_runner && 'true' || 'false' }}
         run: python3 .github/skill-eval/plan_matrix.py
