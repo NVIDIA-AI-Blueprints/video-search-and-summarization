@@ -104,6 +104,16 @@ describe('SearchHeader', () => {
     expect(screen.getByTestId('search-filter-button')).toBeDisabled();
   });
 
+  it('keeps the top K tag visible when content is disabled', () => {
+    const filterTags = [
+      { key: 'topK', title: 'Show top K Results', value: '10' },
+      { key: 'similarity', title: 'Similarity', value: '0.75' },
+    ];
+    render(<SearchHeader {...defaultProps} contentDisabled filterTags={filterTags} />);
+    expect(screen.getByText(/Show top K Results/)).toBeInTheDocument();
+    expect(screen.getByText('0.75')).toBeInTheDocument();
+  });
+
   it('renders dark theme correctly', () => {
     render(<SearchHeader {...defaultProps} theme="dark" />);
     expect(screen.getByText('Filter')).toBeInTheDocument();
