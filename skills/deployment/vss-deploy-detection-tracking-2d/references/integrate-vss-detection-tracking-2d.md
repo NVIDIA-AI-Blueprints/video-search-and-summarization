@@ -47,7 +47,7 @@ The generated `allow-list.yml` must preserve those service keys exactly. In part
 - **Method:** Model and sample-video assets
   **Path:** model and video resources mounted under `/opt/storage/`
   **Expected content:** an RT-DETR ONNX model and, for the canonical evaluation path, the warehouse sample set such as `nv-warehouse-4cams`.
-  **Authentication:** NGC credentials are required on the host when pulling the staged defaults from `nvstaging`.
+  **Authentication:** NGC credentials are required on the host when pulling the staged defaults from `nvidia`.
 
 ### Outputs
 
