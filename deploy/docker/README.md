@@ -380,12 +380,12 @@ ngc \
    registry \
    resource \
    download-version \
-   nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026
+   nvidia/vss-warehouse/vss-warehouse-app-data:3.3.0
 
 # OR manually download the tar file from NGC:
-# https://catalog.ngc.nvidia.com/orgs/nvstaging/teams/vss-warehouse/resources/vss-warehouse-app-data?version=v3.3.0-09152026
+# https://catalog.ngc.nvidia.com/orgs/nvidia/teams/vss-warehouse/resources/vss-warehouse-app-data?version=3.3.0
 
-cd vss-warehouse-app-data_vv3.3.0-09152026
+cd vss-warehouse-app-data_v3.3.0
 tar -xvf vss-warehouse-app-data.tar.gz
 
 # Prepare the writable model destination used by ds-start phase-0 download
