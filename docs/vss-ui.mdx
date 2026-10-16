@@ -335,7 +335,7 @@ Click the thumbnail or play button to open a video modal with Play/Pause, seek b
 
 #### Manage Alerts
 
-The Manage Alerts view creates and manages alert rules. It has two subtabs: [Real-time Alerts](#real-time-alerts) and [CV Alerts Verification](#cv-alerts-verification). Each subtab can be enabled based on the requirements of the deployed profile.
+The Manage Alerts view creates and manages alert rules. It has two subtabs: [Real-time Alerts](#real-time-alerts) and [CV Alerts Verification](#cv-alerts-verification). Each subtab can be enabled based on the requirements of the deployed profile. For example, the DevX Alerts RealTime profile uses only the VLM backend, so alert rules from the Real-time Alerts subtab are the ones that apply. The DevX Alerts Verification profile also uses the Video Analytics backend, which can use alert rules from the CV Alerts Verification subtab.
 
 **Requirements:** The Manage Alerts feature requires the Alerts API URL to be configured (`NEXT_PUBLIC_ALERTS_API_URL`). Without this, the view will display an error.
 
