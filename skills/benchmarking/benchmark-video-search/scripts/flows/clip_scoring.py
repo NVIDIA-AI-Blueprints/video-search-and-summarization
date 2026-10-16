@@ -90,6 +90,7 @@ class ClipScorer:
             ideal = sum(1 / log2(i + 2) for i in range(min(r, k)))
             return dcg / ideal if ideal else 0.0
         result = {'query_id': query['query_id'], 'query': query['query'],
+                  'pas_tier': query.get('pas_tier'),
                   'average_precision': sum(contributions) / r,
                   'ap_at_10': sum(contributions[:10]) / min(r, 10),
                   'ndcg': ndcg(len(self.gallery)), 'ndcg_at_10': ndcg(10),
@@ -137,3 +138,21 @@ def aggregate(rows):
     result['mAP_scope'] = ('full-gallery' if rows and all(r['ranking_complete'] for r in rows)
                            else 'observed-ranking; incomplete gallery coverage')
     return result
+
+
+def aggregate_by_tier(rows):
+    """Overall + per pas_tier (easy/medium/hard) aggregates.
+
+    Rows without a pas_tier contribute to 'overall' only. Mirrors aggregate() so the
+    per-tier blocks are directly comparable to the overall block and to the
+    repo's summary_map_at_10.csv per-difficulty rows.
+    """
+    tiers = {}
+    for r in rows:
+        tier = r.get('pas_tier')
+        if tier is not None:
+            tiers.setdefault(tier, []).append(r)
+    out = {'overall': aggregate(rows)}
+    for tier in sorted(tiers):
+        out[tier] = aggregate(tiers[tier])
+    return out
