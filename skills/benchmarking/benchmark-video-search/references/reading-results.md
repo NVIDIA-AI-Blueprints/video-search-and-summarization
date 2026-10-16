@@ -28,7 +28,7 @@ twice: once on everything (**Raw**), once with critic-rejected hits removed
 (**Critic Filtered**).
 
 | metric | reading |
-|---|---|
+| --- | --- |
 | **Recall / HIT@k** | the meaningful signals — did it find the right footage |
 | **Precision / mAP** | dominated by `--top-k`; 5 results × ~5 segments vs ~1 relevant keeps these low by construction |
 | **Critic Filtered** | `NA` when the response carried no verification block at all — deliberately not zero |
@@ -82,7 +82,7 @@ Read them as `component: action`. The prefix says which part of the system did
 the work.
 
 | Stage | What it does |
-|---|---|
+| --- | --- |
 | `embed_search: generate query embedding` | RT-Embed turns the query text into a vector |
 | `embed_search: build ES query` | Assembles the kNN request (microseconds) |
 | `embed_search: ES search execution` | The kNN lookup against video-chunk embeddings in `mdx-embed-filtered-*` |
@@ -99,20 +99,20 @@ the work.
 
 Three prefixes, three phases:
 
-* **`embed_search:`** — matching the query against video chunks. Every query.
-* **`attribute_search:`** — matching an attribute against detected people. Only
+- **`embed_search:`** — matching the query against video chunks. Every query.
+- **`attribute_search:`** — matching an attribute against detected people. Only
   `fusion` / `attribute` queries, which is why their `queries` count is lower.
-* **`vlm:` / `critic:`** — verification: showing each hit to the vision model
+- **`vlm:` / `critic:`** — verification: showing each hit to the vision model
   and reading back confirmed / rejected.
 
 Three things to know when reading it:
 
-* Times are **self time** -- what the stage spent itself, nested stages
+- Times are **self time** -- what the stage spent itself, nested stages
   excluded. Wrapper stages (`search: embed search` merely contains the three
   `embed_search:` ones) therefore contribute ~0 and are not listed.
-* `queries` is the denominator of `mean`. Attribute stages run only on fusion
+- `queries` is the denominator of `mean`. Attribute stages run only on fusion
   queries, so a 5.5s mean over 3 is not comparable to a 7.5s mean over 9.
-* Stages **overlap** -- verification checks its hits under `asyncio.gather` --
+- Stages **overlap** -- verification checks its hits under `asyncio.gather` --
   so they do not sum to query latency. The column shows where effort went, not
   a timeline.
 
@@ -130,9 +130,9 @@ orchestration, and therefore every stage timing, is local.
 
 Two consequences:
 
-* Editing `search_core` takes effect on the next run. No deploy, no push, not
+- Editing `search_core` takes effect on the next run. No deploy, no push, not
   even a commit -- the working tree is what runs.
-* A stage timing measures **your** code against **their** services. Comparing
+- A stage timing measures **your** code against **their** services. Comparing
   two runs is only meaningful if the checkout is the same; comparing across
   checkouts measures the diff, not the deployment.
 
@@ -156,7 +156,6 @@ backends ran, ingest timings, readiness).
 
 ---
 
-
 ## How it fits together
 
 Three independent stages. Each of the first two is swappable; the third never
@@ -179,3 +178,25 @@ gets its own axis. The default `vst-direct` ingest uses VIOS webhooks; the
 `agent-3step` and `legacy-put` flows remain available for older baselines.
 
 ---
+
+---
+
+## Clip-level result shapes
+
+When `--scoring clip-relevance` or `--scoring drive` runs, the result file's
+`summary` is a **different shape** from the segment-overlap one, and a top-level
+`scoring` block marks which model produced it (`scoring.model`). Read
+`scoring.model` before interpreting the summary; a segment-overlap result has no
+`scoring` block.
+
+- **`clip-relevance`**: `summary.raw` / `summary.critic_filtered` hold `mAP`,
+  `mAP@10`, `nDCG`, `MRR`, `precision`/`recall`/`F1`, `HIT@k`, and per-k
+  `P@k`/`R@k`/`F1@k`/`nDCG@k`. `summary.raw.mAP_scope` is `full-gallery` only when
+  every query returned every gallery clip; `observed-ranking; incomplete gallery
+  coverage` otherwise. `gallery_coverage` and `complete_rankings` say how partial.
+- **`drive`**: `summary` holds the original Drive metrics — `mAP`, `recall@k`,
+  `hit@k`, `ndcg@k`, `median_rank`, `auc`, plus per-slice breakdowns — computed by
+  the loaded `evaluate_domain_test.py` (its SHA256 is in `scoring.scorer_sha256`).
+
+Both are comparable to a Drive-script baseline only when the deployed embed model
+matches the one the gallery was embedded with.

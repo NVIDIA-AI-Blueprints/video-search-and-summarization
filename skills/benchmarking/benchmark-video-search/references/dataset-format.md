@@ -19,7 +19,6 @@ or pass `--data-dir /tmp/vss-devx-search` directly rather than re-downloading.
 `--subset` selects a different JSON file in the same folder; **all subsets share
 one `videos/` directory.**
 
-
 ### Two supported shapes
 
 **Legacy** — the value *is* the ground-truth segment list. Every existing
@@ -80,7 +79,7 @@ the same `--search-path` to every query. The contract is
 `services/agent/packages/vss_agents/src/vss_agents/tools/search.py`:
 
 | field | meaning |
-|---|---|
+| --- | --- |
 | `query` | rewritten description — actions **and** attributes |
 | `attributes` | person-appearance only; never bare `"person"` |
 | `has_action` | true when an action/event is described |
@@ -95,7 +94,7 @@ the same `--search-path` to every query. The contract is
 Derived from the decomposition — no guessing:
 
 | `object_ids` | `attributes` | `has_action` | → path |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | present | — | — | `object` |
 | — | present | `true` | `fusion` |
 | — | present | `false` | `attribute` |
@@ -114,3 +113,32 @@ leg re-ranks by appearance. A decomposition missing `has_action` routes to
 > detected person, so it ranks nothing.
 
 ---
+
+---
+
+## Clip-level ground truth (gallery)
+
+The clip-level scorers (`--scoring clip-relevance` / `drive`) do not read the
+segment-overlap dataset above. They score against a **clip gallery** in the Drive
+release format, plus an ingestion manifest that maps clips to deployed sensors.
+
+A gallery is a directory (or a single merged json) holding:
+
+```
+<release>/gt/queries_gt.json           {"queries": [{query_id, query, relevant_clip_ids, slice?, query_domain?, near_universal?}]}
+<release>/additional_gt/clips_gt.json  {"gallery": [{chunk_id, video, ...}]}
+```
+
+- `gallery` rows carry a unique `chunk_id` per clip; `video` is the clip filename.
+- `queries` rows carry the query text, a unique `query_id`, and a nonempty
+  `relevant_clip_ids` subset of the gallery. `near_universal` and queries with no
+  relevant clip in the gallery are skipped (TAO's rules).
+- The **ingestion manifest** (`--ingestion-manifest`) maps each clip to the sensor
+  it was ingested as: `{"clips": [{dataset_id: <chunk_id>, sensor_id, filename}]}`.
+  It must map the gallery exactly — one entry per `chunk_id`, unique `sensor_id`s.
+  Without it a returned hit cannot be attributed to a gallery clip.
+
+Retrieve for these with `--full-gallery` (dense: every clip, cosine floor −1, no
+merge) so the artifact carries every gallery clip. `drive` requires each clip
+returned exactly once per query; `clip-relevance` tolerates and labels partial
+coverage.

@@ -22,7 +22,6 @@ Any non-zero exit **aborts the run**. There is no exit code meaning "this query
 failed but the rest are fine" — continuing would just manufacture zeros that
 read as a retrieval collapse.
 
-
 ### Merging
 
 Upstream merges contiguous same-sensor windows by default and reports the mean
@@ -30,8 +29,41 @@ of their scores. That changes the number of scored segments — the denominator
 of precision — so this script passes `--no-merge-adjacent` by default to stay
 comparable with the REST baseline. `--merge-adjacent` opts back in.
 
----
+## Pipeline stages
 
+A run is three stages — **ingest → retrieve → score** — connected by on-disk
+artifacts. `--stage {run,ingest,retrieve,score}` runs one and stops; `run` (the
+default) chains them in memory and is byte-identical to the old behaviour.
+
+The load-bearing artifact is the **retrieval artifact**: the raw hits plus the
+run context, written by `--stage retrieve` (or a default run given
+`--retrieval-out`). `--stage score --retrieval-in <artifact>` re-scores it
+**without touching the deployment** — the same retrieval can be re-scored under
+a different `--scoring` model or different flags. This is how you iterate on
+metrics without re-querying.
+
+`--ingest-out` / `--ingest-in` carry the ingest manifest between a standalone
+ingest and a later retrieve. `--endpoint` is required for every stage except
+`--stage score`, which is fully offline.
+
+## Clip-level scoring (clip-relevance / drive)
+
+`--scoring` selects the metric model. `segment-overlap` (default) scores
+timestamp-overlap against segment ground truth. `clip-relevance` and `drive`
+score a **clip gallery** (the Drive release format) instead of segments.
+
+Both clip models need `--gallery-gt <release>` (a dir with `gt/queries_gt.json`
+
++ `additional_gt/clips_gt.json`, or a merged `{gallery, queries}` json) and
+`--ingestion-manifest` (the clip→sensor map recorded at ingest). Retrieve for
+them with `--full-gallery` (dense: every clip, cosine floor −1, no merge), then
+score from the artifact. `drive` additionally needs `--drive-scorer-dir` (the
+directory holding the original `evaluate_domain_test.py`, which it loads for
+byte-level metric parity). `drive` requires every gallery clip returned exactly
+once; `clip-relevance` tolerates partial coverage and labels it
+(`mAP_scope: observed-ranking`).
+
+---
 
 ## Flags not covered here
 
@@ -49,7 +81,6 @@ URLs, preflight skips -- and are described by `--help`:
 
 Reach for them when a default is wrong for your deployment, not routinely: each
 one moves a run further from the baseline everything else is compared against.
-
 
 ## Cookbook
 
@@ -92,6 +123,15 @@ one moves a run further from the baseline everything else is compared against.
 
 # See what would run, touching nothing
 --dry-run
+
+# Retrieve once, score later -- and re-score without re-querying
+--stage retrieve --skip-ingest --retrieval-out run.retrieval.json
+--stage score --retrieval-in run.retrieval.json
+
+# Clip-level scoring against a gallery (dense retrieve + clip/drive metrics)
+--stage retrieve --gallery-gt /path/to/release --full-gallery --skip-ingest --retrieval-out gal.retrieval.json
+--stage score --retrieval-in gal.retrieval.json --scoring clip-relevance --gallery-gt /path/to/release --ingestion-manifest ingestion.json
+--stage score --retrieval-in gal.retrieval.json --scoring drive --gallery-gt /path/to/release --ingestion-manifest ingestion.json --drive-scorer-dir /path/to/drive/scripts
 ```
 
 `--concurrency` defaults to 1 and should stay there for any run whose latency

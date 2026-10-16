@@ -53,11 +53,10 @@ Querying early returns empty results that look like a retrieval regression.
 
 ---
 
-
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
-|---|---|---|
+| --- | --- | --- |
 | `Could not find a vss CLI` | none of the four sources resolved | follow the error's remedy: pass `--vss-repo-root` for a current checkout or install `vss` from that checkout |
 | `vss exited 4 ... does not expose` | CLI pointed at the agent port | let the script configure it, or `--vss-base-url http://host:7777` |
 | `vss exited 1 ... ModuleNotFoundError` | stale virtualenv | rebuild it, or use `--vss-repo-root` |
@@ -127,3 +126,26 @@ here the response carries a `search_message` such as *"Visual verification ran
 but produced no verdict for any hit"*, rather than no verification block at all.
 That is a different failure — the critic was reached and produced nothing — and
 is not explained by the clip-URL routing above.
+
+---
+
+## Clip-level scoring (clip-relevance / drive)
+
+**`--scoring drive` raises "expected each of N gallery clips exactly once".** The
+dense retrieval did not return every gallery clip exactly once per query. Causes:
+the gallery was not retrieved with `--full-gallery`; a clip indexes to more than
+one window (drive needs one window per clip — use `clip-relevance`, which dedups,
+or fix the chunking); or the gallery indexes to more than the CLI's 1000-result
+cap. This is a precondition failure, not a low score.
+
+**A clip-level run reports low coverage / `mAP_scope: observed-ranking`.** The
+retrieval did not return the whole gallery. Re-run retrieve with `--full-gallery`,
+and if the gallery exceeds the 1000-result cap, split it or accept the labeled
+partial coverage.
+
+**"unexpected sensor ..." or "not in the gallery GT".** The retrieval artifact's
+hits could not be attributed to gallery clips. The search result's `sensor_id`
+must match the ingestion manifest's `sensor_id` — verify the gallery was ingested
+with that manifest and that the deployment returns matching sensor ids. Scoring a
+gallery artifact with `segment-overlap` (or vice versa) fails loudly by design;
+match `--scoring` to how the artifact was retrieved.
