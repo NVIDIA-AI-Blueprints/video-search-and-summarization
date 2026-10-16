@@ -49,6 +49,8 @@ BREV_EXEC_TIMEOUT = int(os.environ.get("BREV_EXEC_TIMEOUT", "1800"))
 
 # Timeout for brev copy commands.
 BREV_COPY_TIMEOUT = int(os.environ.get("BREV_COPY_TIMEOUT", "300"))
+TRANSPORT_REAP_TIMEOUT_SEC = 10
+TRANSPORT_WAIT_TIMEOUT_SEC = 1
 
 # Artifact-collection (download_*) resilience. A stalled transfer that is
 # killed can orphan its ssh child and wedge the box for the next step;
@@ -1923,27 +1925,35 @@ async def _communicate_with_cancellation_cleanup(
             timeout=timeout,
         )
     except asyncio.CancelledError:
-        _kill_proc_group(proc)
-        try:
-            await asyncio.wait_for(proc.communicate(), timeout=10)
-        except (
-            asyncio.CancelledError,
-            TimeoutError,
-            BrokenPipeError,
-            ConnectionResetError,
-            ProcessLookupError,
-        ) as exc:
-            # SIGKILL was already sent to the stable PGID. Do not replace the
-            # Harbor cancellation with a secondary pipe/reap error or wait
-            # forever on an uninterruptible local transport.
-            logger.warning("Subprocess reap after cancellation was incomplete: %r", exc)
-            with contextlib.suppress(
-                asyncio.CancelledError,
-                TimeoutError,
-                ProcessLookupError,
-            ):
-                await asyncio.wait_for(proc.wait(), timeout=1)
+        await _reap_transport_process(proc)
         raise
+
+
+async def _reap_transport_process(
+    proc: asyncio.subprocess.Process,
+) -> tuple[bytes | None, bytes | None]:
+    """Kill the owned group and collect it within a separate cleanup budget.
+
+    A transport can exit while a descendant still holds its stdout/stderr
+    pipes, so even ``communicate()`` after SIGKILL needs a deadline. Otherwise
+    a 300-second repo-sync timeout can consume Harbor's entire startup budget
+    while waiting in this cleanup path, preventing the bounded retry.
+    """
+    _kill_proc_group(proc)
+    try:
+        return await asyncio.wait_for(
+            proc.communicate(), timeout=TRANSPORT_REAP_TIMEOUT_SEC,
+        )
+    except (
+        TimeoutError,
+        BrokenPipeError,
+        ConnectionResetError,
+        ProcessLookupError,
+    ) as exc:
+        logger.warning("Subprocess reap was incomplete: %r", exc)
+        with contextlib.suppress(TimeoutError, ProcessLookupError):
+            await asyncio.wait_for(proc.wait(), timeout=TRANSPORT_WAIT_TIMEOUT_SEC)
+        return None, None
 
 
 async def _run_local_transfer_command(
@@ -1968,9 +1978,7 @@ async def _run_local_transfer_command(
             timeout=timeout,
         )
     except TimeoutError as exc:
-        _kill_proc_group(proc)
-        with contextlib.suppress(TimeoutError, ProcessLookupError):
-            await asyncio.wait_for(proc.wait(), timeout=1)
+        await _reap_transport_process(proc)
         raise subprocess.TimeoutExpired(args, timeout) from exc
     if proc.returncode != 0:
         raise subprocess.CalledProcessError(
@@ -2061,8 +2069,7 @@ async def _run_ssh_exec(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        _kill_proc_group(proc)
-        stdout, stderr = await proc.communicate()
+        stdout, stderr = await _reap_transport_process(proc)
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
             stderr="SSH command timed out",
@@ -2106,8 +2113,7 @@ async def _run_scp(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        _kill_proc_group(proc)
-        stdout, stderr = await proc.communicate()
+        stdout, stderr = await _reap_transport_process(proc)
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
             stderr="scp timed out",
@@ -2167,8 +2173,7 @@ async def _run_brev_exec(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        _kill_proc_group(proc)
-        stdout, stderr = await proc.communicate()
+        stdout, stderr = await _reap_transport_process(proc)
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
             stderr=(stderr.decode() if stderr else "")[-2000:] + "\nCommand timed out",
@@ -2289,8 +2294,7 @@ async def _run_brev_copy_once(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        _kill_proc_group(proc)
-        stdout, stderr = await proc.communicate()
+        stdout, stderr = await _reap_transport_process(proc)
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
             stderr="Copy timed out",
@@ -2328,14 +2332,7 @@ async def _run_brev(*args: str, timeout: int = 30, stdin_data: str | None = None
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        _kill_proc_group(proc)
-        stdout, stderr = await proc.communicate()
-        if stdout and stdout.strip():
-            return ExecResult(
-                stdout=stdout.decode(),
-                stderr=stderr.decode() if stderr else None,
-                return_code=0,
-            )
+        stdout, stderr = await _reap_transport_process(proc)
         return ExecResult(
             stdout=stdout.decode() if stdout else None,
             stderr="brev command timed out",
