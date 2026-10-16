@@ -145,6 +145,7 @@ The Alerts Tab provides a complete interface for monitoring, investigating, and 
 * [View Alerts] Integrated video playback with optional bounding box overlay
 * [View Alerts] Auto-refresh with configurable intervals
 * [Manage Alerts] Real-time alert rule management (create, duplicate, delete)
+* [Manage Alerts] CV Alerts Verification rule management (create, edit, duplicate, delete)
 * Light/Dark theme support
 
 **Default Configuration:**
@@ -339,22 +340,19 @@ Click the thumbnail or play button to open a video modal with Play/Pause, seek b
 
 #### Manage Alerts
 
-The Manage Alerts view provides an interface for creating and managing **real-time alert rules**. These rules configure the alert bridge service to detect specific events on live video streams.
-
-![VSS Reference User Interface - Alerts Tab - Manage Alerts Overview](/assets/images/vss-ui/alerts-mode/manage-alerts-overview.png)
+The Manage Alerts view creates and manages alert rules. It has two subtabs: [Real-time Alerts](#real-time-alerts) and [CV Alerts Verification](#cv-alerts-verification). Each subtab can be enabled based on the requirements of the deployed profile.
 
 **Requirements:** The Manage Alerts feature requires the Alerts API URL to be configured (`NEXT_PUBLIC_ALERTS_API_URL`). Without this, the view will display an error.
 
-##### Alert Rule Kinds
+##### Real-time Alerts
 
-The Manage Alerts view has tabs for different rule types:
+Real-time Alerts configure the alert bridge service to detect specific events on live video streams.
 
-- **Real-time Alerts** — Active and fully functional. Configure rules that process live video streams.
-- **Alert Verification** — Coming soon (currently disabled).
+![VSS Reference User Interface - Alerts Tab - Real-time Alerts Overview](/assets/images/vss-ui/alerts-mode/real-time-alerts-overview.png)
 
-##### Filter and Refresh
+###### Filter and Refresh
 
-![VSS Reference User Interface - Alerts Tab - Manage Alerts Filters](/assets/images/vss-ui/alerts-mode/manage-alerts-filters.png)
+![VSS Reference User Interface - Alerts Tab - Real-time Alerts Filters](/assets/images/vss-ui/alerts-mode/real-time-alerts-filters.png)
 
 The filter bar provides text-based filtering for the rules table:
 
@@ -362,9 +360,9 @@ The filter bar provides text-based filtering for the rules table:
 - **Alert Type** — Filter rules by alert type (substring, case-insensitive)
 - **Refresh** — Click to reload the rules list from the API
 
-##### Alert Rules Table
+###### Alert Rules Table
 
-![VSS Reference User Interface - Alerts Tab - Manage Alerts Table](/assets/images/vss-ui/alerts-mode/manage-alerts-table.png)
+![VSS Reference User Interface - Alerts Tab - Real-time Alerts Table](/assets/images/vss-ui/alerts-mode/real-time-alerts-table.png)
 
 The table displays all configured real-time alert rules with the following columns:
 
@@ -381,7 +379,7 @@ The table displays all configured real-time alert rules with the following colum
 
 **Sorting:** Saved rules can be sorted by Alert Type, Prompt, or Status columns using the three-state sort cycle (ascending → descending → reset).
 
-##### Creating Alert Rules
+###### Creating Alert Rules
 
 ![VSS Reference User Interface - Alerts Tab - Create Alert Rule with Sensor Picker](/assets/images/vss-ui/alerts-mode/real-time-alerts-create.png)
 
@@ -417,7 +415,7 @@ You can also type a sensor name that is **not yet** in the VIOS catalog (for exa
 
 **Empty state:** When no rules exist, the table displays instructions to use the "Create alert rule" button to get started.
 
-##### Deleting Alert Rules
+###### Deleting Alert Rules
 
 To delete a saved rule:
 
@@ -426,6 +424,32 @@ To delete a saved rule:
 3. Click the **checkmark** to confirm deletion, or the **X** to cancel
 
 Draft rows that have not been saved can be removed by clicking the **Discard** button.
+
+##### CV Alerts Verification
+
+![VSS Reference User Interface - Alerts Tab - CV Alerts Verification](/assets/images/vss-ui/alerts-mode/manage-alerts-cv-verification.png)
+
+Open **Manage Alerts**, then select **CV Alerts Verification**.
+
+**Filter by category** narrows the table by alert type or output category. **Refresh** reloads the rules.
+
+|  |  |
+| --- | --- |
+| **Column** | **Description** |
+| --- | --- |
+| Actions | **Edit**, **Duplicate**, and **Delete** for saved rules. Delete uses a confirm/cancel pair. A draft row has **Save** and **Discard**. |
+| Alert Type | Required classification for the rule. Read-only after the rule is saved. |
+| Output Category | Optional label for the verified result. |
+| User Prompt | Required question the verifier answers, such as a yes-or-no safety check. |
+| Optional | Expands optional settings for that row. A green dot means an enrichment prompt is set. |
+
+To create a rule, click **Create alert rule** in the left sidebar or at the bottom of the table. Fill **Alert Type** and **User Prompt**, then click the save icon. **Output Category** can be left empty.
+
+![VSS Reference User Interface - Alerts Tab - Create CV Alerts Verification Rule](/assets/images/vss-ui/alerts-mode/manage-alerts-cv-verification-create.png)
+
+Expand **Optional** to set an **Enrichment prompt**. Leave it empty to skip the follow-up VLM call after verification.
+
+**Alert Type** and **User Prompt** are required. After a rule is saved, edit can change the output category, user prompt, and enrichment prompt. **Alert Type** stays read-only. **Duplicate** copies the rule into a new draft.
 
 ### 2. **Dashboard Tab**
 
