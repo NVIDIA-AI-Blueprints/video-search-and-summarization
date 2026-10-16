@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 import React, { useEffect } from 'react';
-import { IconMessageCircle, IconLoader2, IconChevronRight } from '@tabler/icons-react';
+import { IconMessageCircle, IconLoader2, IconChevronRight, IconX } from '@tabler/icons-react';
 import type { AppChatSidebarApi } from '../hooks/useAppChatSidebar';
 
 export type TabWithChatSidebarLayoutProps = {
@@ -68,31 +68,48 @@ export function TabWithChatSidebarLayout({
       {sidebarEnabled && (
         <>
           {collapsed && (
-            <button
-              data-testid="chat-sidebar-open"
-              type="button"
-              className={`fixed bottom-10 right-10 z-50 flex h-[72px] w-[72px] min-h-[72px] min-w-[72px] shrink-0 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white focus:ring-[#76b900] dark:focus:ring-offset-black ${
-                highlightIcon ? 'text-white animate-pulse' : 'text-black'
-              }`}
-              style={{
-                backgroundColor: highlightIcon
-                  ? 'rgba(245, 158, 11, 0.88)'
-                  : 'rgba(118, 185, 0, 0.88)',
-              }}
-              onClick={handleOpenSidebar}
-              aria-label={
-                highlightIcon
-                  ? `Open Chat sidebar – new context or message (${tabLabel} tab)`
-                  : `Open Chat sidebar (${tabLabel} tab)`
-              }
-              title={highlightIcon ? 'Chat – new context or message' : 'Chat'}
-            >
-              {queryExecuting ? (
-                <IconLoader2 className="h-9 w-9 shrink-0 animate-spin" stroke={1.5} aria-hidden />
-              ) : (
-                <IconMessageCircle className="h-9 w-9 shrink-0" stroke={1.5} aria-hidden />
+            <div className="fixed bottom-10 right-10 z-50 h-[72px] w-[72px] min-h-[72px] min-w-[72px]">
+              <button
+                data-testid="chat-sidebar-open"
+                type="button"
+                className={`flex h-full w-full items-center justify-center rounded-full shadow-lg transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white focus:ring-[#76b900] dark:focus:ring-offset-black ${
+                  highlightIcon ? 'text-white animate-pulse' : 'text-black'
+                }`}
+                style={{
+                  backgroundColor: highlightIcon
+                    ? 'rgba(245, 158, 11, 0.88)'
+                    : 'rgba(118, 185, 0, 0.88)',
+                }}
+                onClick={handleOpenSidebar}
+                aria-label={
+                  highlightIcon
+                    ? `Open Chat sidebar – new context or message (${tabLabel} tab)`
+                    : `Open Chat sidebar (${tabLabel} tab)`
+                }
+                title={highlightIcon ? 'Chat – new context or message' : 'Chat'}
+              >
+                {queryExecuting ? (
+                  <IconLoader2 className="h-9 w-9 shrink-0 animate-spin" stroke={1.5} aria-hidden />
+                ) : (
+                  <IconMessageCircle className="h-9 w-9 shrink-0" stroke={1.5} aria-hidden />
+                )}
+              </button>
+              {highlightIcon && (
+                <button
+                  data-testid="chat-sidebar-highlight-dismiss"
+                  type="button"
+                  className="absolute left-0 top-0 z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-gray-200 bg-white text-gray-500 shadow-lg hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenSidebar?.();
+                  }}
+                  aria-label="Mark as seen"
+                  title="Mark as seen"
+                >
+                  <IconX className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                </button>
               )}
-            </button>
+            </div>
           )}
           {/* Minimize button: positioned at the top-left edge of the sidebar, in the outer container so sidebar can keep overflow-hidden */}
           {!collapsed && (
