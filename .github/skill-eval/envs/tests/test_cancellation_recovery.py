@@ -67,6 +67,23 @@ class _BlockingProcess:
         return self.returncode
 
 
+class _StuckPipesProcess(_BlockingProcess):
+    """An exited transport whose inherited output pipes never reach EOF."""
+
+    def __init__(self):
+        super().__init__()
+        self.returncode = 0
+        self.wait_calls = 0
+
+    async def communicate(self, input=None):
+        self.communicate_calls += 1
+        await asyncio.Event().wait()
+
+    async def wait(self):
+        self.wait_calls += 1
+        await asyncio.Event().wait()
+
+
 class SubprocessCancellationTest(unittest.IsolatedAsyncioTestCase):
     def _agent_marker_from_command(self, command):
         match = re.search(
@@ -102,6 +119,62 @@ class SubprocessCancellationTest(unittest.IsolatedAsyncioTestCase):
         with mock.patch.object(brev_env.os, "killpg") as kill_group:
             brev_env._kill_proc_group(proc)
         kill_group.assert_called_once_with(proc.pid, signal.SIGKILL)
+
+    async def test_transport_timeout_bounds_reap_even_when_pipes_and_wait_stall(self):
+        calls = (
+            (brev_env._run_ssh_exec, ("test-node", "true")),
+            (brev_env._run_scp, ("test-node:/source", "/destination")),
+            (brev_env._run_brev_exec, ("vss-eval-test", "true")),
+            (brev_env._run_brev_copy_once, ("vss-eval-test:/source", "/destination")),
+            (brev_env._run_brev, ("ls",)),
+        )
+        for command, args in calls:
+            with self.subTest(command=command.__name__):
+                proc = _StuckPipesProcess()
+                with (
+                    mock.patch.object(brev_env.asyncio, "create_subprocess_exec", new=mock.AsyncMock(return_value=proc)),
+                    mock.patch.object(brev_env, "_is_registered_node", new=mock.AsyncMock(return_value=False)),
+                    mock.patch.object(brev_env, "_register_transport_process"),
+                    mock.patch.object(brev_env, "_kill_proc_group") as kill_group,
+                    mock.patch.object(brev_env, "TRANSPORT_REAP_TIMEOUT_SEC", 0.01),
+                    mock.patch.object(brev_env, "TRANSPORT_WAIT_TIMEOUT_SEC", 0.01),
+                ):
+                    result = await asyncio.wait_for(command(*args, timeout=0.01), timeout=1)
+                self.assertEqual(result.return_code, 124)
+                self.assertIn("timed out", result.stderr)
+                self.assertEqual(proc.communicate_calls, 2)
+                self.assertEqual(proc.wait_calls, 1)
+                kill_group.assert_called_once_with(proc)
+
+    async def test_timed_out_brev_command_cannot_pass_on_partial_output(self):
+        proc = _BlockingProcess()
+        proc.communicate = mock.AsyncMock(side_effect=[asyncio.TimeoutError(), (b"partial output", b"")])
+        with (
+            mock.patch.object(brev_env.asyncio, "create_subprocess_exec", new=mock.AsyncMock(return_value=proc)),
+            mock.patch.object(brev_env, "_register_transport_process"),
+            mock.patch.object(brev_env, "_kill_proc_group"),
+        ):
+            result = await brev_env._run_brev("ls", timeout=1)
+        self.assertEqual(result.return_code, 124)
+        self.assertEqual(result.stdout, "partial output")
+
+    async def test_cancellation_is_preserved_when_cleanup_cannot_drain_pipes(self):
+        proc = _StuckPipesProcess()
+        with (
+            mock.patch.object(brev_env, "_kill_proc_group") as kill_group,
+            mock.patch.object(brev_env, "TRANSPORT_REAP_TIMEOUT_SEC", 0.01),
+            mock.patch.object(brev_env, "TRANSPORT_WAIT_TIMEOUT_SEC", 0.01),
+        ):
+            task = asyncio.create_task(brev_env._communicate_with_cancellation_cleanup(
+                proc, input_data=b"", timeout=60,
+            ))
+            await asyncio.sleep(0)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await asyncio.wait_for(task, timeout=1)
+        kill_group.assert_called_once_with(proc)
+        self.assertEqual(proc.communicate_calls, 2)
+        self.assertEqual(proc.wait_calls, 1)
 
     async def test_interrupted_claude_exec_reaps_remote_agent_before_returning(self):
         env = brev_env.BrevEnvironment()

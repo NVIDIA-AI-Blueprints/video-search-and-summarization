@@ -24,6 +24,13 @@ def isolate_host_firewall(monkeypatch):
     monkeypatch.setattr(nim, "proxy_network_policy", lambda *args, **kwargs: None)
 
 
+@pytest.fixture(autouse=True)
+def isolate_spark_reachability(monkeypatch):
+    monkeypatch.setattr(run_leg, "_probe_spark_ssh", Mock(
+        side_effect=AssertionError("unit tests must stub Spark reachability"),
+    ))
+
+
 DIGEST = "sha256:" + "a" * 64
 
 
@@ -590,8 +597,14 @@ def test_spark_resolves_registered_node_id_even_if_renamed(monkeypatch):
 )
 def test_spark_never_falls_back_to_other_workers(monkeypatch, nodes):
     monkeypatch.setattr(run_leg, "_list_registered_nodes", lambda: nodes)
+    probe = Mock(side_effect=ValueError("Spark is unreachable"))
+    monkeypatch.setattr(run_leg, "_probe_spark_ssh", probe)
     with pytest.raises(ValueError):
         run_leg.spark_instance()
+    if nodes and nodes[0].get("status") == "Disconnected":
+        probe.assert_called_once_with(nim.SPARK_NODE_NAME, "Disconnected")
+    else:
+        probe.assert_not_called()
 
 
 
