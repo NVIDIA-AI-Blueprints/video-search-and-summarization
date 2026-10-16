@@ -25,6 +25,24 @@ These Release Notes describe the key features, software enhancements and improve
 
   The `/deploy` pre-GA alias now resolves to `/vss-build-vision-ai`.
 
+- Added the `vss` CLI as the supported way to operate a running deployment
+  from a coding agent or the host. Configure it once with
+  `vss configure --base-url`. Command groups include `vios`, `vlm`,
+  `summarize`, `search`, `memory`, and `analytics`. Skills drive the CLI
+  rather than constructing REST endpoints.
+
+- Added VSS CLI agent memory. Elasticsearch stores structured jobs and
+  records. Enable it with `vss configure memory`, then read records with
+  `vss memory get`, `query`, and `events`. OpenClaw Markdown notes are an
+  optional recall cache.
+
+- Added bounded memory introspection with
+  `vss configure memory introspection` and `vss memory introspect`.
+  Introspection answers from stored records first and requests at most
+  three grounded VLM follow-ups. `vss-ask-video` checks hot conversation
+  context, Markdown memory, structured memory, and introspection before it
+  runs `vss vlm run` on an exact window.
+
 ### Agent Workflows
 
 <Tabs>
@@ -53,6 +71,7 @@ See [Migrating from 3.2.x to 3.3.0](/vss/system-components/vision-microservices/
 - Updated the stock Base LLM to `nvidia/nemotron-3.5-lightning-30b-a3b`. A skill-deployed Base stack starts that NIM only when a selected service or the harness needs it.
 - Added a GB300 hardware profile for Base deployment, with the same shared-GPU and remote-endpoint layouts used on DGX Spark and Thor.
 - Q&A, report generation, and video I/O for the Base workflow are driven by `vss-build-vision-ai`, `vss-ask-video`, `vss-generate-video-report`, and `vss-manage-video-io-storage`.
+- `vss-ask-video` answers from hot conversation context, agent Markdown memory, structured VSS memory, and bounded introspection before a new `vss vlm run`. Enable the store with `vss configure memory --enable`.
 
 See [Q&A and Report Generation](/vss/getting-started/quickstart) for the Base workflow.
 </Tab>
