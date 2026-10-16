@@ -174,7 +174,7 @@ REID_ENABLED=1
 REID_RESET_BEFORE_RUN=1
 ```
 
-> **Errata:** [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env) ships `REID_EMBED_IMAGE` / `REID_EMBED_TAG` as `nvcr.io/nvstaging/vss-core/reid-embed:3.3.0-26.09.3`. That is not the public release image. This is a known issue and a fix is in progress. Until that fix lands, edit the file before the one-shot below and set:
+> **Known issue:** [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env) ships `REID_EMBED_IMAGE` / `REID_EMBED_TAG` as `nvcr.io/nvstaging/vss-core/reid-embed:3.3.0-26.09.3`. That is not the public release image. This is a known issue and a fix is in progress. Until that fix lands, edit the file before the one-shot below and set:
 >
 > ```dotenv
 > REID_EMBED_IMAGE=nvcr.io/nvidia/vss-core/reid-embed
