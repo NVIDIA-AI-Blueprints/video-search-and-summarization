@@ -452,7 +452,7 @@ Search Tab displays video clips returned by the Vision Agent. Submit natural lan
 * Natural language video search through the Chat Sidebar
 * Filtering of agent results with advanced filter options
 * Configurable result count (Top K) for performance optimization
-* Advanced filtering: datetime range, sensors, similarity threshold
+* Advanced filtering: sensors and similarity threshold
 * Local timezone handling for accurate time display
 * Auto-refresh when switching between tabs
 * Interactive filter tags with quick remove functionality
@@ -466,7 +466,7 @@ Search Tab displays video clips returned by the Vision Agent. Submit natural lan
 This guide covers the primary interface components:
 
 1. **Search Controls** - Filter button
-2. **Filter Options** - Advanced filtering popover with date range, sensors, similarity threshold, and result count
+2. **Filter Options** - Advanced filtering popover with sensors, similarity threshold, and result count
 3. **Filter Tags** - Visual display of active filters with quick remove functionality
 4. **Video Results** - Responsive grid of video cards with thumbnails, time ranges, and metadata
 5. **Chat Sidebar** - Collapsible agent chat panel with video upload and conversational search
@@ -487,17 +487,6 @@ Filter options are only available when the Chat Sidebar is collapsed. When the C
 </Note>
 
 The filter popover provides the following options:
-
-##### Datetime Range
-
-Select start and end dates to filter videos within a specific time period.
-
-* **From**: Starting date and time
-* **To**: Ending date and time
-* Format: `MMM dd yyyy hh:mm:ss aa` (12-hour format with AM/PM)
-* Times are interpreted as local timezone and sent to the API without timezone conversion
-
-**Tip:** Leave both fields empty to search across all available time periods.
 
 ##### Video Names
 
@@ -535,7 +524,7 @@ Active filters are displayed as tags below the filter control:
 
 * Click ✕ on any tag to remove that filter and reset it to the default
 * Click "Clear All" to remove all removable filters at once
-* Tags display: From date, To date, Video names (sensors), and Min Cosine Similarity
+* Tags display: Video names (sensors) and Min Cosine Similarity
 * **Show top K Results** remains in the expanded filter panel and is not displayed as a tag
 
 #### Video Results
