@@ -47,6 +47,7 @@ The following software must be installed on your system:
 - **NVIDIA Container Toolkit:** 1.17.8+
 - **Docker:** 28.3.3+ and earlier than 29.5.0
 - **Docker Compose:** v2.39.1+
+- **Docker Buildx:** 0.23.0 (working version); 0.23.0 or later and earlier than 0.35.0
 - **NGC CLI:** 4.10.0+
 - **Python runner for Build Vision AI:** `uv` is required for the Skill's
   mandatory service-graph checks and helper scripts.
@@ -82,6 +83,7 @@ For detailed installation instructions for the software requirements listed abov
 
   - [Configure Docker](/vss/getting-started/prerequisites#configure-docker)
   - [Install Docker Compose](/vss/getting-started/prerequisites#install-docker-compose)
+  - [Install Docker Buildx](/vss/getting-started/prerequisites#install-docker-buildx)
   - [Install NGC CLI](/vss/getting-started/prerequisites#install-ngc-cli)
 </Note>
 
@@ -675,6 +677,37 @@ docker compose version
 <Note>
 Docker Compose v2 uses the command `docker compose` (without hyphen) instead of the older `docker-compose` command.
 </Note>
+
+### Install Docker Buildx
+
+Buildx version 0.23.0 or later and earlier than 0.35.0 is required. Version 0.23.0 is the known working version.
+
+**Check if Docker Buildx is already installed and meets the version range:**
+
+```bash
+docker buildx version
+```
+
+If the version is missing, older than 0.23.0, or 0.35.0 or newer, install working version 0.23.0:
+
+```bash
+case "$(uname -m)" in
+  x86_64) BUILDX_ARCH=amd64 ;;
+  aarch64|arm64) BUILDX_ARCH=arm64 ;;
+  *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+sudo curl -fSL "https://github.com/docker/buildx/releases/download/v0.23.0/buildx-v0.23.0.linux-${BUILDX_ARCH}" \
+  -o /usr/local/lib/docker/cli-plugins/docker-buildx
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
+```
+
+**Verify installation:**
+
+```bash
+docker buildx version
+```
 
 ### Install NVIDIA Container Toolkit
 
