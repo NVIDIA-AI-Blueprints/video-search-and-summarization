@@ -58,7 +58,7 @@ This section guides you through the steps to download the Warehouse Blueprint ar
 ```bash
 # Setup NGC access
 export NGC_CLI_API_KEY=<NGC_CLI_API_KEY>
-export NGC_CLI_ORG='nvstaging'
+export NGC_CLI_ORG='nvidia'
 ```
 
 #### Download the Deployment Package
@@ -110,14 +110,14 @@ The tracklet-based AMC method relies heavily on moving people in the input video
 </Note>
 
 ```bash
-ngc registry resource download-version "nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026"
+ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-data:3.3.0"
 
 # OR Manually download the tar file from NGC
-# URL https://catalog.ngc.nvidia.com/orgs/nvstaging/teams/vss-warehouse/resources/vss-warehouse-app-data?version=v3.3.0-09152026
+# URL https://catalog.ngc.nvidia.com/orgs/nvidia/teams/vss-warehouse/resources/vss-warehouse-app-data?version=3.3.0
 
 # Extract the package
 
-cd vss-warehouse-app-data_vv3.3.0-09152026
+cd vss-warehouse-app-data_v3.3.0
 tar -xvf vss-warehouse-app-data.tar.gz
 
 # Set permissions
