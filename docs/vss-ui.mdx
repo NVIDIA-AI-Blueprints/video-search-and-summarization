@@ -335,7 +335,7 @@ All copy actions show a visual confirmation.
 
 Click the thumbnail or play button to open a video modal with Play/Pause, seek bar, volume control, and fullscreen support.
 
-**Requires:** Sensor mapping, VST service, and network connectivity.
+**Requires:** Sensor mapping, VIOS service, and network connectivity.
 
 #### Manage Alerts
 
@@ -493,7 +493,7 @@ The filter popover provides the following options:
 Multi-select dropdown to filter video names.
 
 * Select one or multiple video names from the list
-* Video names are fetched from the VST API
+* Video names are fetched from the VIOS API
 
 ##### Min Cosine Similarity
 
@@ -588,7 +588,7 @@ Click the play button or thumbnail to open the video playback modal with:
 * Fullscreen option
 * **Search by Image** button (appears when video is paused, if enabled)
 
-**Requires:** VST service connectivity and proper sensor configuration.
+**Requires:** VIOS service connectivity and proper sensor configuration.
 
 #### Chat Sidebar
 
@@ -675,7 +675,7 @@ The Critic Agent runs by default. Turn it off for an individual query with the *
 Search by Image allows you to select a detected object from a paused video frame and perform an agentic search for visually similar objects across all cameras and video streams.
 
 <Note>
-Search by Image is only available when the `mediaWithObjectsBbox` option is enabled in the deployment configuration. This feature requires the MDX Web API (`/frames` endpoint) and VST Picture API to be deployed and accessible.
+Search by Image is only available when the `mediaWithObjectsBbox` option is enabled in the deployment configuration. This feature requires the Video Analytics Web API (`/frames` endpoint) and VIOS Picture API to be deployed and accessible.
 </Note>
 
 **How to Use:**
@@ -697,7 +697,7 @@ When Search by Image mode is active, the video is replaced by a still frame with
 | --- | --- |
 | **Element** | **Description** |
 | --- | --- |
-| Frame Image | The still frame captured at the paused timestamp, fetched from the VST `/picture` API |
+| Frame Image | The still frame captured at the paused timestamp, fetched from the VIOS `/picture` API |
 | Bounding Boxes (white) | Detected objects in the frame. Hover to highlight; click to select |
 | Selected Box (green) | The currently selected object for search. Click again to deselect |
 | Info Bar | Displays the selected object ID, object type, and action buttons (Search / Cancel) |
@@ -934,7 +934,7 @@ No known issues.
 ### Alerts Tab
 
 * When a sensor is removed, its existing alerts may still appear in the alerts list, but the related thumbnails and videos are no longer accessible because the sensor data has been deleted.
-* In Manage Alerts, entering a sensor name that is not present in the VST live-stream catalog submits the rule without a resolved live-stream URL. Register the stream first, then select its sensor from the picker.
+* In Manage Alerts, entering a sensor name that is not present in the VIOS live-stream catalog submits the rule without a resolved live-stream URL. Register the stream first, then select its sensor from the picker.
 
 ### Dashboard Tab
 
