@@ -237,19 +237,119 @@ def test_container_diagnostics_keep_routing_and_oom_without_credentials(monkeypa
     assert all("secret-ngc" not in path.read_text() for path in target.iterdir())
 
 
-def test_collect_cli_reads_owned_state_without_starting_or_cleaning(monkeypatch, tmp_path):
+@pytest.mark.parametrize("cv_state", ["present", "absent", "unavailable"])
+def test_cv_diagnostics_capture_internal_oom_without_credentials_or_mutation(monkeypatch, tmp_path, cv_state):
+    target = tmp_path / "artifacts"
+    target.mkdir()
+    (target / "vss-rtvi-cv.log").write_text("stale CUDA error")
+    monkeypatch.setattr(nim, "Path", lambda value: target if value == "/logs/artifacts/local-nim" else Path(value))
+    monkeypatch.setattr(nim, "owner_paths", lambda *a, **kw: tmp_path)
+    monkeypatch.setattr(nim, "publish", lambda _: None)
+    monkeypatch.setenv("NGC_API_KEY", "ngc-private")
+    monkeypatch.setenv("NGC_CLI_API_KEY", "cli-private")
+    monkeypatch.setenv("NVIDIA_API_KEY", "nvidia-private")
+    calls = []
+    def docker(*args, **kwargs):
+        calls.append(args)
+        if args[0] == "ps":
+            return subprocess.CompletedProcess(args, 0, "", "")
+        assert args[-1] == "vss-rtvi-cv"
+        if args[0] == "inspect":
+            if cv_state != "present":
+                return subprocess.CompletedProcess(args, 1, "", "No such object" if cv_state == "absent" else "Docker unavailable")
+            return subprocess.CompletedProcess(args, 0, json.dumps([{
+                "Config": {"Image": "rt-cv-image", "Env": ["NVIDIA_API_KEY=nvidia-private"]},
+                "State": {"Running": True, "OOMKilled": False, "Error": "nvidia-private", "Health": {"Status": "healthy"}},
+                "RestartCount": 0,
+            }]), "")
+        assert args == ("logs", "--tail", "150", "vss-rtvi-cv")
+        return subprocess.CompletedProcess(args, 0, "CUDA out of memory; ngc-private cli-private nvidia-private", "")
+    monkeypatch.setattr(nim, "docker", docker)
+    nim.collect_logs({"owner": "d" * 24})
+    receipt = json.loads((target / "vss-rtvi-cv.state.json").read_text())
+    assert receipt["collected_at_unix"] > 0
+    if cv_state == "present":
+        assert receipt["state"]["Running"] is True
+        assert receipt["state"]["OOMKilled"] is False  # CUDA allocator OOM need not kill the container.
+        assert "CUDA out of memory" in (target / "vss-rtvi-cv.log").read_text()
+    else:
+        assert receipt["present"] == (False if cv_state == "absent" else None)
+        assert not (target / "vss-rtvi-cv.log").exists()
+    assert all(command[0] in {"ps", "inspect", "logs"} for command in calls)
+    assert all(secret not in path.read_text() for path in target.iterdir() for secret in ("ngc-private", "cli-private", "nvidia-private"))
+
+
+@pytest.mark.parametrize("model,machine,budget", [
+    ("nvidia/nemotron-3.5-lightning-30b-a3b", "x86_64", "0.75"),
+    ("nvidia/nemotron-3.5-lightning-30b-a3b", "aarch64", None),
+    ("meta/llama-3.1-8b-instruct", "x86_64", None),
+    ("nvidia/nemotron-3-ultra-550b-a55b", "x86_64", None),
+    ("qwen/qwen3-32b", "x86_64", None),
+])
+def test_shared_gpu_budget_only_changes_amd64_nemotron_launch(monkeypatch, tmp_path, model, machine, budget):
+    """Inspect the actual Docker arguments, preserving ARM/model defaults."""
+    monkeypatch.setenv("NGC_API_KEY", "ngc-secret")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(nim.platform, "machine", lambda: machine)
+    monkeypatch.setattr(nim, "worker_host", lambda: "10.0.0.1")
+    monkeypatch.setattr(nim, "publish", lambda root: None)
+    monkeypatch.setattr(nim, "wait_ready", lambda *a, **kw: {})
+    monkeypatch.setattr(nim, "resolve_image", lambda model, arch, key: {
+        "model": model, "image": f"nvcr.io/nim/{model}@{DIGEST}", "architecture": arch, "tag": "2.1.4",
+    })
+    monkeypatch.setattr(nim, "request_json", lambda url, *a, **kw: (
+        {"data": [{"id": model}]} if url.endswith("/models") else {}, {},
+    ))
+    commands = []
+    def docker(*args, **kwargs):
+        commands.append(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+    monkeypatch.setattr(nim, "docker", docker)
+    nim.start({"owner": "c" * 24, "routes": [{"role": "operational", "runtime": "nemoclaw", "model": model}]})
+    launch = next(command for command in commands if command[0] == "run" and "--gpus" in command)
+    args = [value for value in launch if value.startswith("NIM_PASSTHROUGH_ARGS=")]
+    if budget:
+        assert len(args) == 1
+        tokens = args[0].split("=", 1)[1].split()
+        assert tokens.count("--gpu-memory-utilization") == 1
+        assert tokens[tokens.index("--gpu-memory-utilization") + 1] == budget
+        assert "--tool-call-parser qwen3_coder" in args[0]
+    else:
+        assert all("--gpu-memory-utilization" not in value for value in args)
+    assert launch[-2:] == ("--served-model-name", model)
+
+
+@pytest.mark.parametrize("enumeration_exit_code", [0, 1])
+def test_collect_cli_reads_owned_state_without_starting_or_cleaning(monkeypatch, tmp_path, enumeration_exit_code):
     owner = "a" * 24
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    target = tmp_path / "artifacts"
+    target.mkdir()
+    stale = target / f"skill-eval-nim-{owner}-0.state.json"
+    stale.write_text('{"state":{"Running":true}}')
+    class DiagnosticPaths:
+        home = staticmethod(lambda: tmp_path)
+        def __new__(cls, value):
+            return target if value == "/logs/artifacts/local-nim" else Path(value)
+    monkeypatch.setattr(nim, "Path", DiagnosticPaths)
     monkeypatch.setattr(sys, "argv", ["local_nim.py", "collect", "--owner", owner])
     monkeypatch.setattr(nim, "start", Mock(side_effect=AssertionError("must not start")))
     monkeypatch.setattr(nim, "cleanup", Mock(side_effect=AssertionError("must not clean")))
     monkeypatch.setattr(nim, "publish", Mock())
-    monkeypatch.setattr(nim, "docker", Mock(return_value=subprocess.CompletedProcess([], 0, "", "")))
+    def inspect_or_list(*args, **kwargs):
+        if args[0] == "ps":
+            return subprocess.CompletedProcess(args, enumeration_exit_code, "", "")
+        assert args == ("inspect", "vss-rtvi-cv")
+        return subprocess.CompletedProcess(args, 1, "", "No such object")
+    monkeypatch.setattr(nim, "docker", Mock(side_effect=inspect_or_list))
     nim.main()
-    nim.docker.assert_called_once_with(
-        "ps", "-a", "--filter", f"label={nim.LABEL}={owner}", "--format", "{{.Names}}", check=False,
-    )
+    assert [call.args[0] for call in nim.docker.call_args_list] == ["ps", "inspect"]
     assert not (tmp_path / ".cache/skill-eval-nim" / owner).exists()
+    inventory = json.loads((target / "container-inventory.json").read_text())
+    assert inventory["containers"] == []
+    assert inventory["enumeration_exit_code"] == enumeration_exit_code
+    assert inventory["collected_at_unix"] > 0
+    assert json.loads(stale.read_text())["state"]["Running"] is True  # Fresh inventory, not old snapshots, is authoritative.
 
 
 @pytest.mark.parametrize("owner", ["../other", "b" * 23, "C" * 24, None])

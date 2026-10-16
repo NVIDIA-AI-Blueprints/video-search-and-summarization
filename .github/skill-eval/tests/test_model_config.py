@@ -273,7 +273,9 @@ def test_cancelled_launch_leaves_no_config_for_next_invocation(tmp_path):
 
     stub = types.ModuleType("harbor.agents.installed.codex")
     stub.Codex = Codex
-    with patch.dict("sys.modules", {"harbor.agents.installed.codex": stub}):
+    base_stub = types.ModuleType("harbor.agents.installed.base")
+    base_stub.NonZeroAgentExitCodeError = RuntimeError
+    with patch.dict("sys.modules", {"harbor.agents.installed.codex": stub, "harbor.agents.installed.base": base_stub}):
         spec = importlib.util.spec_from_file_location("nv_codex_isolation_test", Path(__file__).resolve().parents[1] / "agents/nv_codex.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)

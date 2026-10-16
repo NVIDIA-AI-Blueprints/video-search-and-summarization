@@ -131,6 +131,11 @@ preflight admits the owned inference adapter without granting a subnet or
 relaxing other URL checks. Startup and reuse both restore this declaration.
 Startup and reuse smoke requests exercise each selected protocol.
 The NIM and VSS run on the same worker.
+For `nvidia/nemotron-3.5-lightning-30b-a3b` on AMD64, the launcher sets
+`--gpu-memory-utilization 0.75` to leave VRAM for the co-resident VSS CV
+pipeline. ARM64 keeps its image's unified-memory default (`0.5` in the tested
+NIM 2.1.4), and other models retain their defaults. This fixed sharing budget
+does not estimate whether every combined workload fits.
 
 Onboarding owns NemoClaw's provider binding; operational prompts do not rewrite
 it or refresh proxy credentials. The headless runner checks gateway health and
@@ -158,6 +163,9 @@ role choices and the actual worker at the leg results root.
 Readiness failures retain the last HTTP status or transport error class.
 Container snapshots include restart/OOM state and configured/published ports,
 without Docker environment variables, credentials or health-command output.
+Post-workload collection also reads the fixed `vss-rtvi-cv` container's state
+and bounded, credential-redacted log tail, so a CV CUDA allocation error can
+be distinguished from a NIM failure. An absent CV container is recorded.
 Each readiness request is bounded by the remaining probe deadline.
 Fresh local-NIM task environments reuse launcher/plan files only after size and
 SHA-256 attestation; they still run the NIM readiness and protocol checks.
