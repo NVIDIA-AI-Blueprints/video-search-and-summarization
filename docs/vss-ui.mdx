@@ -741,16 +741,16 @@ Video Management Tab provides an interface for managing video streams, including
 
 This guide covers the primary interface components:
 
-1. **Toolbar** - Search, filter, upload, and bulk operations
+1. **Sidebar Controls** - Search, filter, upload, and bulk operations
 2. **Streams Grid** - Visual display of all video and RTSP streams
 3. **Video Upload** - Upload files with optional configuration fields
 4. **RTSP Management** - Add and manage live camera feeds
 
-#### Toolbar Controls
+#### Sidebar Controls
 
-![VSS Reference User Interface - Video Management Tab - Toolbar](/assets/images/vss-ui/video-management-mode/toolbar.png)
+![VSS Reference User Interface - Video Management Tab - Sidebar Controls](/assets/images/vss-ui/video-management-mode/toolbar.png)
 
-The toolbar at the top provides quick access to common operations:
+The left main sidebar provides quick access to common operations:
 
 ##### Search Bar
 
@@ -762,12 +762,12 @@ Type a search query to filter streams by name. Click the search button or press 
 
 ![VSS Reference User Interface - Video Management Tab - Filter Toggles](/assets/images/vss-ui/video-management-mode/filter-toggles.png)
 
-Toggle buttons to show/hide specific stream types:
+Checkboxes show or hide specific stream types:
 
 * **Show Videos** - Display uploaded video files
 * **Show RTSPs** - Display live RTSP camera streams
 
-Both toggles are enabled by default. Disable either to filter the view.
+Both checkboxes are enabled by default. Clear either checkbox to filter the view.
 
 ##### Upload Video / Add RTSP Buttons
 
@@ -815,7 +815,7 @@ When you click on a stream card, a popup opens to play the video preview for tha
 
 ![VSS Reference User Interface - Video Management Tab - Empty State](/assets/images/vss-ui/video-management-mode/empty-state.png)
 
-When no streams exist, an empty state is displayed with a button to upload your first video. Files can also be dragged and dropped into the empty state to upload them.
+When no streams exist, the main area shows a drop zone. Click the zone or drag movie files onto it to upload them.
 
 #### Upload Dialog
 
@@ -875,7 +875,7 @@ Each file displays one of the following statuses:
 
 ![VSS Reference User Interface - Video Management Tab - RTSP Dialog](/assets/images/vss-ui/video-management-mode/rtsp-dialog.png)
 
-Click the "Add RTSP" button in the toolbar to add a live camera stream.
+Click the "Add RTSP" button in the left main sidebar to add a live camera stream.
 
 **RTSP URL Field (Required):**
 
@@ -913,7 +913,7 @@ Click "Add RTSP" to add the stream or "Cancel" to close the dialog.
 To delete streams:
 
 1. Click the checkbox on one or more stream cards to select them
-2. Click the "Delete Selected (N)" button in the toolbar
+2. Click the "Delete Selected" button in the left main sidebar
 3. The selected streams will be deleted and the streams grid will be refreshed.
 
 **Warning:** This action cannot be undone. Make sure you want to delete the selected streams before confirming.
