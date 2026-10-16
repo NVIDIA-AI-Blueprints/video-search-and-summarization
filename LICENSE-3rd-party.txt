@@ -34,8 +34,6 @@ See below files for the licenses:
 - deploy/docker/NOTICE.md
 - services/rtvi/rt-cv/NOTICE.txt
 - libs/analytics/spatialai-data-utils/release/3rdParty_Licenses.md
-- services/agent/license-text-overrides/exa-py.txt
-- services/agent/license-text-overrides/langchain-oci.txt
 - services/vios/include/3rdparty/pqxx/COPYING
 - services/vios/include/3rdparty/postgresql/COPYRIGHT
 - services/vios/include/3rdparty/prometheus/LICENSE
