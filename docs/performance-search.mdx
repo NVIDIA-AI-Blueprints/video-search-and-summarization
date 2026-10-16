@@ -68,7 +68,7 @@ That call does not return an action. It returns a rewritten `query`, an `attribu
 `has_action` flag, `object_ids`, and any source or time bounds the question mentioned. The
 action is derived from those: `object_ids` present selects `object`; otherwise empty
 `attributes` selects `embed`, and `attributes` with `has_action` true selects `fusion` or
-false (or missing) selects `attribute`. `--original-query` carries the user's untouched question through
+false selects `attribute`. `--original-query` carries the user's untouched question through
 so the critic verifies against what was actually asked.
 
 Reproducing the decomposition row therefore needs both the LLM call and this derivation in
