@@ -27,6 +27,17 @@ QUALITY_REPAIR_SUFFIX = (
     "window. Do not emit per-frame boilerplate, repeat a template, or include "
     "private reasoning. If the requested fact is not visible, state that once."
 )
+OUTPUT_MODE_LEGACY = "legacy"
+OUTPUT_MODE_TIMESTAMPED = "timestamped-caption"
+OUTPUT_MODES = (OUTPUT_MODE_LEGACY, OUTPUT_MODE_TIMESTAMPED)
+TIMESTAMPED_QUALITY_REPAIR_SUFFIX = (
+    "\n\nQuality repair: emit one [start_seconds:end_seconds] line per event "
+    "or unchanged state, ordered by start time. Do not narrate the whole "
+    "window in one interval or put a sequence of events inside one caption. "
+    "Do not emit per-frame boilerplate, repeat a template, or include private "
+    "reasoning. If no relevant event is visible, say so once for this sampled "
+    "window; that is not proof the event never occurred."
+)
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 _UNCLOSED_THINK = re.compile(r"<think>", re.IGNORECASE)
 _TIMESTAMP = re.compile(r"\b(?:(\d{1,2}):)?(\d{1,2}):(\d{2}(?:\.\d+)?)\b")
@@ -106,6 +117,72 @@ def normalize_vlm_text(raw: str) -> str:
 
 def _line_material(line: str) -> str:
     return _SPACE.sub(" ", _NUMBER.sub("<n>", line.casefold())).strip()
+
+
+def caption_contract(duration_seconds: float) -> str:
+    """Fixed reporting contract for one submitted subwindow.
+
+    ``duration_seconds`` is the duration of that subwindow, not the parent task.
+    """
+    if not math.isfinite(duration_seconds) or duration_seconds <= 0:
+        raise ValueError("submitted duration must be a positive finite number")
+    duration = f"{duration_seconds:.3f}"
+    return (
+        "The inspection focus above is the only requested observation. "
+        "Report only what is visibly present in this submitted window. "
+        f"This window lasts {duration} seconds. Timestamps are model-estimated "
+        "offsets from the start of this submitted window. They are not "
+        "camera-overlay clocks or verified frame-level annotations.\n"
+        "Write one caption line per visible event or unchanged state, ordered by start time:\n"
+        "[start_seconds:end_seconds] caption\n"
+        "Do not put a sequence of events inside one caption. "
+        f"Do not copy this window's full duration as [0:{duration}] unless the "
+        "described fact is visibly unchanged for that entire span. "
+        'If the scene changes, start a new line. If you need "then", "later", '
+        '"around", or a second clock time, you needed a new line.\n'
+        "Correct:\n"
+        "[12.0:14.5] The middle worker lifts the yellow hard hat off his head.\n"
+        "[14.5:20.0] He holds the hat in both hands in front of his chest.\n"
+        "[20.0:22.0] He places the hat back on his head.\n"
+        "Incorrect:\n"
+        f"[0.0:{duration}] Workers talk, then the middle worker removes his hat "
+        "around 14s, then puts it back, then a forklift passes around 2:36.\n"
+        "Requirements:\n"
+        f"- 0 <= start_seconds <= end_seconds <= {duration}.\n"
+        "- Use overlapping intervals when events are simultaneous.\n"
+        "- Use a point interval [t:t] when only a single sample supports an observation.\n"
+        "- Keep descriptors for the same visible entity consistent.\n"
+        "- Give each distinct repeated event its own caption.\n"
+        "- Distinguish before, during, and after when those phases are visible.\n"
+        "- Distinguish image-relative direction from object-relative direction.\n"
+        "- Do not assert unsupported identity, intent, causality, or an answer selection.\n"
+        "- Do not invent events or temporal precision between sampled frames.\n"
+        "- If an event starts before this window or continues beyond it, say so.\n"
+        "- Visibility limitations use the same shape: "
+        "[start_seconds:end_seconds] LIMITATION: description.\n"
+        "- If no relevant event is observed, report that as a limitation of this "
+        "sampled window. That limitation is not proof the event never occurred."
+    )
+
+
+def effective_inspection_prompt(
+    focus: str,
+    *,
+    output_mode: str = OUTPUT_MODE_LEGACY,
+    duration_seconds: float | None = None,
+    repair: bool = False,
+) -> str:
+    """Keep the agent focus and, in timestamped mode, append the caption contract."""
+    if output_mode not in OUTPUT_MODES:
+        raise ValueError(f"unknown output mode: {output_mode}")
+    if output_mode == OUTPUT_MODE_LEGACY:
+        return focus + (QUALITY_REPAIR_SUFFIX if repair else "")
+    if duration_seconds is None:
+        raise ValueError("timestamped mode requires the submitted window duration")
+    prompt = focus.rstrip() + "\n\n" + caption_contract(duration_seconds)
+    if repair:
+        prompt += TIMESTAMPED_QUALITY_REPAIR_SUFFIX
+    return prompt
 
 
 def _prompt_digest(prompt: str) -> str:
@@ -328,11 +405,13 @@ def _run_vlm(
     completed = subprocess.run(command, capture_output=True, text=True, check=False)
     payload = parse_vlm_stdout(completed.stdout)
     answer = payload.get("answer")
-    verdict = classify_vlm_output(answer if isinstance(answer, str) else "")
+    raw_answer = answer if isinstance(answer, str) else ""
+    verdict = classify_vlm_output(raw_answer)
     return {
         "exit_code": completed.returncode,
         "job_id": payload.get("job_id"),
         "status": payload.get("status"),
+        "raw_answer": raw_answer,
         "answer": verdict["normalized_text"],
         "usable": completed.returncode in (0, 6) and verdict["usable"],
         "persistence_limited": completed.returncode == 6,
@@ -359,8 +438,11 @@ def inspect_sensor_scope(
     assigned_end: str | None = None,
     task_call_allocation: int | None = None,
     claim_id: str | None = None,
+    output_mode: str = OUTPUT_MODE_LEGACY,
 ) -> dict[str, Any]:
     """Inspect every affordable subwindow before bounded quality retries."""
+    if output_mode not in OUTPUT_MODES:
+        raise ValueError(f"unknown output mode: {output_mode}")
     if calls_budget < 1:
         raise ValueError("calls_budget must be at least one")
     if (
@@ -449,6 +531,7 @@ def inspect_sensor_scope(
                     else "",
                     "observation_id": usable_prior.get("observation_id"),
                     "exit_code": usable_prior.get("exit_code"),
+                    "output_mode": usable_prior.get("output_mode"),
                     "source": "prior_inspection",
                 }
             )
@@ -467,8 +550,18 @@ def inspect_sensor_scope(
             }
         )
 
+    def _window_prompt(window: dict[str, Any], *, repair: bool) -> tuple[str, str, float]:
+        duration = window_duration_seconds(window["start"], window["end"])
+        effective = effective_inspection_prompt(
+            prompt,
+            output_mode=output_mode,
+            duration_seconds=duration,
+            repair=repair,
+        )
+        return effective, _prompt_digest(effective), duration
+
     for window_index, window in enumerate(windows):
-        prompt_sha256 = _prompt_digest(prompt)
+        effective_prompt, prompt_sha256, duration = _window_prompt(window, repair=False)
         call_key = _call_key(
             sensor, window["start"], window["end"], fps, prompt_sha256, bound_claim
         )
@@ -484,7 +577,7 @@ def inspect_sensor_scope(
             start=window["start"],
             end=window["end"],
             fps=fps,
-            prompt=prompt,
+            prompt=effective_prompt,
         )
         attempt.update(
             {
@@ -494,6 +587,10 @@ def inspect_sensor_scope(
                 "end": window["end"],
                 "fps": fps,
                 "frames_requested": window["frames_requested"],
+                "submitted_duration_seconds": duration,
+                "output_mode": output_mode,
+                "inspection_focus": prompt,
+                "effective_prompt": effective_prompt,
                 "prompt_sha256": prompt_sha256,
                 "retry": 0,
             }
@@ -508,8 +605,7 @@ def inspect_sensor_scope(
     for window_index, window in retry_windows:
         if len(attempts) >= calls_budget:
             break
-        attempt_prompt = prompt + QUALITY_REPAIR_SUFFIX
-        prompt_sha256 = _prompt_digest(attempt_prompt)
+        effective_prompt, prompt_sha256, duration = _window_prompt(window, repair=True)
         call_key = _call_key(
             sensor, window["start"], window["end"], fps, prompt_sha256, bound_claim
         )
@@ -523,7 +619,7 @@ def inspect_sensor_scope(
             start=window["start"],
             end=window["end"],
             fps=fps,
-            prompt=attempt_prompt,
+            prompt=effective_prompt,
         )
         attempt.update(
             {
@@ -533,6 +629,10 @@ def inspect_sensor_scope(
                 "end": window["end"],
                 "fps": fps,
                 "frames_requested": window["frames_requested"],
+                "submitted_duration_seconds": duration,
+                "output_mode": output_mode,
+                "inspection_focus": prompt,
+                "effective_prompt": effective_prompt,
                 "prompt_sha256": prompt_sha256,
                 "retry": 1,
             }
@@ -552,6 +652,7 @@ def inspect_sensor_scope(
     return {
         "sensor_id": sensor,
         "claim_id": claim_id,
+        "output_mode": output_mode,
         "scope": {"start": start, "end": end},
         "fps": fps,
         "max_frames_per_call": max_frames,
@@ -602,6 +703,15 @@ def _parser() -> argparse.ArgumentParser:
     inspect.add_argument("--end", required=True)
     inspect.add_argument("--fps", required=True, type=float)
     inspect.add_argument("--prompt", required=True)
+    inspect.add_argument(
+        "--output-mode",
+        choices=OUTPUT_MODES,
+        default=OUTPUT_MODE_LEGACY,
+        help=(
+            "legacy keeps the agent prompt unchanged. "
+            "timestamped-caption appends the caption reporting instructions to each subwindow."
+        ),
+    )
     inspect.add_argument("--calls-budget", required=True, type=int)
     inspect.add_argument("--max-frames", type=int, default=MAX_VLM_FRAMES)
     inspect.add_argument("--history", action="append", default=[])
@@ -649,6 +759,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 assigned_start=scope["start"],
                 assigned_end=scope["end"],
                 task_call_allocation=selected["max_vlm_calls"],
+                output_mode=args.output_mode,
                 claim_id=(
                     selected["claim"]["claim_id"]
                     if isinstance(selected.get("claim"), dict)

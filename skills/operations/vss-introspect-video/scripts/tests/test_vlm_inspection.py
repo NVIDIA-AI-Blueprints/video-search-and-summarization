@@ -864,3 +864,234 @@ def test_failed_or_incompatible_priors_do_not_count_as_coverage(
     assert other_prompt["reused_evidence"] == []
     assert other_sensor["window_inspection"] == "complete"
     assert other_prompt["window_inspection"] == "complete"
+
+
+def _ok_caption_call(answer: str) -> dict:
+    return {
+        "exit_code": 0,
+        "job_id": "vlm-caption",
+        "status": "completed",
+        "raw_answer": answer,
+        "answer": answer,
+        "usable": True,
+        "quality_reason": "ok",
+        "error": None,
+        "persistence_limited": False,
+    }
+
+
+def test_legacy_mode_keeps_the_agent_prompt() -> None:
+    focus = "Describe the visible forklift motion."
+    assert vlm.effective_inspection_prompt(focus) == focus
+    repaired = vlm.effective_inspection_prompt(focus, repair=True)
+    assert repaired.startswith(focus)
+    assert "Quality repair:" in repaired
+    assert "[start_seconds:end_seconds]" not in repaired
+
+
+def test_timestamped_prompt_keeps_focus_and_uses_each_window_duration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[str] = []
+
+    def fake_run(**kwargs: object) -> dict:
+        seen.append(str(kwargs["prompt"]))
+        return _ok_caption_call("[0.0:1.0] A forklift crosses the aisle.")
+
+    monkeypatch.setattr(vlm, "_run_vlm", fake_run)
+    focus = "Distinguish the lead forklift from any forklift behind it."
+    result = vlm.inspect_sensor_scope(
+        vss_project="/repo/libs/vss",
+        sensor="sensor-1",
+        start=START,
+        end="2026-09-30T00:01:00Z",
+        fps=2,
+        prompt=focus,
+        calls_budget=2,
+        output_mode=vlm.OUTPUT_MODE_TIMESTAMPED,
+    )
+    assert result["output_mode"] == vlm.OUTPUT_MODE_TIMESTAMPED
+    assert "contract_version" not in result
+    assert len(seen) == 2
+    assert all(prompt.startswith(focus) for prompt in seen)
+    assert "This window lasts 60.000 seconds." not in seen[0]
+    assert "This window lasts 30.000 seconds." in seen[0]
+    assert "This window lasts 30.000 seconds." in seen[1]
+    assert "Do not put a sequence of events inside one caption." in seen[0]
+    assert "[0.0:30.000] Workers talk, then the middle worker removes his hat" in seen[0]
+    short = vlm.effective_inspection_prompt(
+        focus, output_mode=vlm.OUTPUT_MODE_TIMESTAMPED, duration_seconds=12.5
+    )
+    long = vlm.effective_inspection_prompt(
+        focus, output_mode=vlm.OUTPUT_MODE_TIMESTAMPED, duration_seconds=30
+    )
+    assert "This window lasts 12.500 seconds." in short
+    assert "This window lasts 30.000 seconds." in long
+    assert "timestamped-caption-v1" not in short
+    second = result["attempts"][1]
+    assert second["inspection_focus"] == focus
+    assert second["effective_prompt"] == seen[1]
+    assert second["prompt_sha256"] == vlm._prompt_digest(seen[1])
+    assert "caption_parse" not in second
+    assert second["start"] != START
+
+
+def test_timestamped_mode_does_not_retry_unformatted_captions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prompts: list[str] = []
+
+    def fake_run(**kwargs: object) -> dict:
+        prompts.append(str(kwargs["prompt"]))
+        return _ok_caption_call(
+            "Workers talk, then the middle worker removes his hat around 14s."
+        )
+
+    monkeypatch.setattr(vlm, "_run_vlm", fake_run)
+    result = vlm.inspect_sensor_scope(
+        vss_project="/repo/libs/vss",
+        sensor="sensor-1",
+        start=START,
+        end="2026-09-30T00:00:20Z",
+        fps=2,
+        prompt="Describe visible crossings.",
+        calls_budget=2,
+        output_mode=vlm.OUTPUT_MODE_TIMESTAMPED,
+    )
+    assert result["vlm_calls_used"] == 1
+    assert result["attempts"][0]["usable"] is True
+    assert result["attempts"][0]["retry"] == 0
+    assert "Quality repair:" not in prompts[0]
+
+
+def test_legacy_history_is_not_reused_as_timestamped_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = {"count": 0}
+
+    def fake_run(**_: object) -> dict:
+        called["count"] += 1
+        return _ok_caption_call("[0.0:1.0] A forklift is visible.")
+
+    monkeypatch.setattr(vlm, "_run_vlm", fake_run)
+    focus = "Describe the forklift."
+    legacy_prompt = vlm.effective_inspection_prompt(focus)
+    result = vlm.inspect_sensor_scope(
+        vss_project="/repo/libs/vss",
+        sensor="sensor-1",
+        claim_id="claim-1",
+        start=START,
+        end="2026-09-30T00:00:20Z",
+        fps=2,
+        prompt=focus,
+        calls_budget=1,
+        output_mode=vlm.OUTPUT_MODE_TIMESTAMPED,
+        prior_attempts=[
+            {
+                "sensor_id": "sensor-1",
+                "claim_id": "claim-1",
+                "start": START,
+                "end": "2026-09-30T00:00:20Z",
+                "fps": 2,
+                "prompt_sha256": vlm._prompt_digest(legacy_prompt),
+                "usable": True,
+                "answer": "A forklift is visible.",
+                "job_id": "vlm-legacy",
+                "observation_id": "obs-" + "b" * 24,
+                "output_mode": vlm.OUTPUT_MODE_LEGACY,
+            }
+        ],
+    )
+    assert called["count"] == 1
+    assert result["reused_evidence"] == []
+    assert result["attempts"][0]["job_id"] == "vlm-caption"
+
+
+def test_timestamped_reuse_preserves_original_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        vlm,
+        "_run_vlm",
+        lambda **_: (_ for _ in ()).throw(AssertionError("reused evidence called the model")),
+    )
+    focus = "Describe the forklift."
+    duration = vlm.window_duration_seconds(START, "2026-09-30T00:00:20Z")
+    effective = vlm.effective_inspection_prompt(
+        focus,
+        output_mode=vlm.OUTPUT_MODE_TIMESTAMPED,
+        duration_seconds=duration,
+    )
+    result = vlm.inspect_sensor_scope(
+        vss_project="/repo/libs/vss",
+        sensor="sensor-1",
+        claim_id="claim-1",
+        start=START,
+        end="2026-09-30T00:00:20Z",
+        fps=2,
+        prompt=focus,
+        calls_budget=1,
+        output_mode=vlm.OUTPUT_MODE_TIMESTAMPED,
+        prior_attempts=[
+            {
+                "sensor_id": "sensor-1",
+                "claim_id": "claim-1",
+                "start": START,
+                "end": "2026-09-30T00:00:20Z",
+                "fps": 2,
+                "prompt_sha256": vlm._prompt_digest(effective),
+                "usable": True,
+                "answer": "[0.0:1.0] A forklift is visible.",
+                "job_id": "vlm-prior",
+                "observation_id": "obs-" + "c" * 24,
+                "status": "completed",
+                "exit_code": 0,
+                "output_mode": vlm.OUTPUT_MODE_TIMESTAMPED,
+            }
+        ],
+    )
+    assert result["vlm_calls_used"] == 0
+    reused = result["reused_evidence"][0]
+    assert reused["job_id"] == "vlm-prior"
+    assert reused["observation_id"] == "obs-" + "c" * 24
+    assert reused["answer"] == "[0.0:1.0] A forklift is visible."
+    assert reused["source"] == "prior_inspection"
+    assert reused["output_mode"] == vlm.OUTPUT_MODE_TIMESTAMPED
+
+
+def test_failed_timestamped_call_keeps_the_existing_retry_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"count": 0}
+
+    def fake_run(**_: object) -> dict:
+        calls["count"] += 1
+        return {
+            "exit_code": 1,
+            "job_id": None,
+            "status": "failed",
+            "raw_answer": "",
+            "answer": "",
+            "usable": False,
+            "quality_reason": "empty",
+            "error": "model unavailable",
+            "persistence_limited": False,
+        }
+
+    monkeypatch.setattr(vlm, "_run_vlm", fake_run)
+    result = vlm.inspect_sensor_scope(
+        vss_project="/repo/libs/vss",
+        sensor="sensor-1",
+        start=START,
+        end="2026-09-30T00:00:20Z",
+        fps=2,
+        prompt="Describe visible motion.",
+        calls_budget=1,
+        output_mode=vlm.OUTPUT_MODE_TIMESTAMPED,
+    )
+    assert calls["count"] == 1
+    assert result["vlm_calls_used"] == 1
+    assert result["attempts"][0]["retry"] == 0
+    assert result["attempts"][0]["exit_code"] == 1
+    assert result["complete"] is False
+    assert vlm.MAX_DEGENERATE_RETRIES == 1

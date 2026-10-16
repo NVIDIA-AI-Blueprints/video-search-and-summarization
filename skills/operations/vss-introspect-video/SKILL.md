@@ -418,14 +418,60 @@ python3 "${VLM_HELPER}" inspect \
   --end "${END_TIME}" \
   --fps "${VLM_FPS}" \
   --prompt "${OPTION_BLIND_CLAIM_PROMPT}" \
+  --output-mode "${VLM_OUTPUT_MODE:-legacy}" \
   --calls-budget "${TASK_MAX_VLM_CALLS}" \
   --history "${PRIOR_INSPECTION_PATH}" \
   --output "${ROUND_DIR}/inspection-${CLAIM_ID}.json"
 ```
 
+`OPTION_BLIND_CLAIM_PROMPT` is the agent-written inspection focus for this claim.
+It is not a fixed dataset prompt. Customize it from the assigned claim and the
+current evidence gap: which entities must be distinguished, which observable
+action, attribute, transition, or relationship is missing, what must be visible
+before, during, and after that event, and which uncertainty still needs
+inspection. Keep it neutral and option-blind. Do not assert that an event
+happened merely because the question asks about it. Use the claim's evidence
+type only as generic guidance:
+
+- count: enumerate distinct qualifying events and distinguish incomplete events;
+- order: describe completed events and their source and destination states;
+- identity: preserve distinguishing features and visible continuity;
+- spatial or trajectory: name the reference frame and the relevant heading;
+- attribute: require a clear view of the correct entity and the relevant region;
+- cause: describe visible physical links, not merely temporal succession.
+
+`--output-mode` selects how the helper asks the VLM to report. `legacy` is the
+default and the control: the helper sends the inspection focus unchanged.
+`timestamped-caption` is the experiment. Set `VLM_OUTPUT_MODE=timestamped-caption`
+only for that arm. The helper keeps the inspection focus and appends caption
+reporting instructions separately to each submitted subwindow, using that
+subwindow's duration. The requested report shape is
+`[start_seconds:end_seconds] caption`, with offsets from the start of that
+submitted subwindow. One caption line per visible event or unchanged state;
+do not put a sequence of events inside one interval, and do not copy the
+window duration as `[0:duration]` unless that fact is unchanged for the whole
+span. The inspection artifact records `output_mode`, the inspection focus, the
+exact effective prompt and its hash, the raw answer, normalized text, the
+request window, FPS, frame limit, job ID, attempt number, exit status, and
+call accounting. The helper does not parse or validate caption syntax after
+the VLM returns. Well-formatted captions are not visual correctness,
+exhaustive coverage, or claim sufficiency. Absence from the sampled captions
+is not evidence that an event did not occur. When a caption visibly supports
+or contradicts the claim, put the timestamped line in the existing observation
+`text` field. Do not add caption-metadata fields to ledger observations or
+task results.
+
+Timestamped mode is supported on the guarded sensor helper above. A direct
+`vss vlm run` with `--media-url` or `--file` does not attach the caption
+contract. Do not use that direct command to bypass timestamped mode. URL and
+file scopes are unsupported for this experiment; leave the claim gap explicit
+instead of inventing a sensor ID or an absolute source time.
+
 Omit `--history` when no prior inspection artifact exists; repeat it for every
 prior round that targeted the claim. The helper rejects an exact duplicate
-sensor/window/FPS/prompt/claim call before inference. A usable prior attempt
+sensor/window/FPS/effective-prompt/claim call before inference. The effective
+prompt includes the caption contract and any repair instructions, so a legacy
+answer is not timestamped-mode evidence for the same window and claim. A usable prior attempt
 for that same claim is returned in `reused_evidence` with its original
 observation ID, job ID, and provenance; it counts as inspected and does not
 spend a new VLM call. Do not insert that evidence again. A failed or unusable
@@ -434,20 +480,21 @@ rate, or prompt is not coverage. A higher-density refinement or materially
 different evidence prompt is not a duplicate.
 
 The helper records every attempted subwindow, detects empty, reasoning-only,
-repetitive-template, and reverse-chronology output. It attempts each affordable
-uncovered window once before spending remaining allocation on at most one
-quality retry per unusable window. This prevents a degenerate early window from
-starving later windows. Every new inference attempt, including a quality retry,
-counts toward `vlm_calls_used`. Reused evidence does not. The retry uses an
-explicit repair prompt, so it is not rejected as a duplicate. Unusable output
-is retained for diagnostics but never becomes an observation. `window_inspection`
-reports only whether planned windows produced usable text. `claim_sufficiency`
-is always null: well-formed text, including a report that the subject is
-occluded, does not make the claim sufficient. Convert a usable attempt into an
-observation only when it visibly supports or contradicts the claim. When the
-requested fact is not visible, keep the claim unresolved and record the
-limitation in the gap; do not treat occlusion language itself as unusable text
-or as proof of absence.
+repetitive-template, and reverse-chronology output. It does not check whether
+timestamped captions followed the requested `[start:end]` shape. It attempts
+each affordable uncovered window once before spending remaining allocation on
+at most one quality retry per unusable window. This prevents a degenerate
+early window from starving later windows. Every new inference attempt,
+including a quality retry, counts toward `vlm_calls_used`. Reused evidence
+does not. The retry uses an explicit repair prompt, so it is not rejected as a
+duplicate. Unusable output is retained for diagnostics but never becomes an
+observation. `window_inspection` reports only whether planned windows produced
+usable text. `claim_sufficiency` is always null: returned text, including a
+report that the subject is occluded, does not make the claim sufficient.
+Convert a usable attempt into an observation only when it visibly supports or
+contradicts the claim. When the requested fact is not visible, keep the claim
+unresolved and record the limitation in the gap; do not treat occlusion
+language itself as unusable text or as proof of absence.
 
 For a sensor scope, `--task` is mandatory. Before any inference call, the
 helper loads that one task and rejects a missing or ambiguous task ID, a
@@ -478,8 +525,10 @@ VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
   --fps "${VLM_FPS}"
 ```
 
-For non-sensor input, replace the sensor and time flags with exactly one of
-`--media-url "${MEDIA_URL}"` or `--file "${FILE_PATH}"`.
+For non-sensor input, the illustration would replace the sensor and time flags
+with exactly one of `--media-url "${MEDIA_URL}"` or `--file "${FILE_PATH}"`.
+That direct path is not a timestamped-caption inspection. Use the guarded
+sensor helper when the experiment is enabled.
 
 ### 6. Collect and merge one complete round
 
