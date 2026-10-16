@@ -236,6 +236,24 @@ See [Warehouse Known Limitations](/vss/vision-agent/agent-workflows/industry-spe
   attributes, and searches over RTSP streams are unaffected, as are the `vss`
   CLI and the `vss-search-archive` skill. Workaround: omit the video source
   from the query.
+- **NemoClaw harness bring-up fails on leftovers from an earlier deployment:**
+  A NemoClaw build can fail after the stack has already been deployed when a
+  gateway, dashboard relay, or sandbox from an earlier deployment is still
+  running — holding `8080`, `18789`, or `18790`, or leaving
+  `/tmp/nemoclaw-dashboard-*.log` files the relay cannot write. A relay that
+  still answers its health check can also make the notebook report success
+  over a relay that never bound. Workaround: before deploying, confirm that
+  `8080`, `18789`, and `18790` are free, that no relay or sandbox from an
+  earlier run is alive, and that both `/tmp/nemoclaw-dashboard-*.log` paths
+  are writable. Unprivileged, `lsof` and `ss` may show the listening socket
+  without naming the process that owns it, so treat a held port and an
+  unidentified owner as separate findings: the port blocks the build either
+  way, and an unnamed holder means the owner is unknown, not that it belongs
+  to someone else. Another user's leftover harness is one possible cause on a
+  shared host, and the one you cannot clear yourself — neither `pkill` nor
+  `nemoclaw destroy` reaches their processes, so that user has to tear their
+  own build down and delete the log files. The preflight fix will be
+  available in the next release.
 
 ## VSS 3.2.1
 
