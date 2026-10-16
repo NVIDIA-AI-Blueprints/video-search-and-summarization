@@ -73,8 +73,11 @@ def test_agent_copyback_cannot_replace_current_instruction(monkeypatch, tmp_path
 
 
 @pytest.fixture
-def runner():
-    return _load_module("nemoclaw_test_runner", "headless_runner.py")
+def runner(monkeypatch):
+    module = _load_module("nemoclaw_test_runner", "headless_runner.py")
+    monkeypatch.setattr(module, "_capture_gpu0_memory", lambda *args: None)
+    monkeypatch.setattr(module, "_capture_cv_gpu_placement", lambda *args: None)
+    return module
 
 
 def test_policy_denials_keep_failure_metadata_without_raw_commands(runner):
