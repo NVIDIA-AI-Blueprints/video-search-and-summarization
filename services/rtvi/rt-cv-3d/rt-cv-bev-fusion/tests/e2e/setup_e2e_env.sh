@@ -19,12 +19,12 @@
 # Deploys via deploy/docker/scripts/blueprint-deploy.sh, which resolves the env layering.
 #
 # Required env:
-#   NGC_CLI_API_KEY   - NGC key with access to nvstaging/vss-warehouse/*
+#   NGC_CLI_API_KEY   - NGC key with access to nvidia/vss-warehouse/*
 #   HARDWARE_PROFILE  - GPU slug, e.g. RTXPRO6000BW (RTX PRO 6000), H100, L40S
 # Optional env:
 #   HOST_IP               (default: primary IP, resolved by blueprint-deploy.sh)
 #   VSS_DATA_DIR          (default: the extracted app-data bundle)
-#   VSS_WAREHOUSE_APP_DATA_VERSION  (default: v3.3.0-09152026)
+#   VSS_WAREHOUSE_APP_DATA_VERSION  (default: 3.3.0)
 #   BP_PROFILE            (default: bp_wh_kafka)
 #   SAMPLE_VIDEO_DATASET  (default: the profile's own default)
 #
@@ -33,7 +33,7 @@ set -euo pipefail
 
 DOCKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../../.." && pwd)/deploy/docker"
 WAREHOUSE_DIR="${DOCKER_DIR}/industry-profiles/warehouse-operations"
-APP_DATA_VER="${VSS_WAREHOUSE_APP_DATA_VERSION:-v3.3.0-09152026}"
+APP_DATA_VER="${VSS_WAREHOUSE_APP_DATA_VERSION:-3.3.0}"
 # Videos, playback and calibration come from the NGC app-data resource.
 DATA_DIR="${VSS_DATA_DIR:-${WORK_DIR:-$DOCKER_DIR}/vss-warehouse-app-data_v${APP_DATA_VER}/vss-warehouse-app-data}"
 BP_PROFILE="${BP_PROFILE:-bp_wh_kafka}"
@@ -49,7 +49,7 @@ if [ -d "${DATA_DIR}/videos" ]; then
   echo "already present: ${DATA_DIR}"
 else
   ( cd "${WORK_DIR:-$DOCKER_DIR}" \
-    && ngc registry resource download-version "nvstaging/vss-warehouse/vss-warehouse-app-data:${APP_DATA_VER}" \
+    && ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-data:${APP_DATA_VER}" \
     && cd "vss-warehouse-app-data_v${APP_DATA_VER}" \
     && tar -xf vss-warehouse-app-data.tar.gz )
   mkdir -p "${DATA_DIR}/models" && chmod 0777 "${DATA_DIR}/models"
