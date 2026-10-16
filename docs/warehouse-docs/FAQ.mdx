@@ -224,6 +224,16 @@ If the logs show `tegra-vic` job submission failures because the VIC engine coul
 This change forces the PGIE scaling operation to run on the GPU, which may lower FPS.
 
 
+## Agents
+
+### Why does incident report generation time out when LLM reasoning is enabled?
+
+Incident retrieval and video analysis can complete while incident report generation still fails. The agent returns no report artifacts and a message is returned "Report Agent: Failed to generate incident report: Failed to generate incident report". A workaround for this is to disable LLM reasoning. In the Warehouse chat sidebar, open [Agent Parameters](/vss/system-components/user-interface#chat-input), turn off **LLM Reasoning**, and request the report again.
+
+### Why is incident report generation missing the report body?
+
+When LLM reasoning is enabled and the LLM `max_tokens` budget is used up, the report generated can be missing sections. As a workaround, increase the LLM `max_tokens` or turn reasoning off `llm_reasoning: false` in the profile config file.
+
 ## VST
 
 This section provides answers to some of the frequently asked questions on using VST application:
