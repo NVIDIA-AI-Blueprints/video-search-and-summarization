@@ -2101,6 +2101,9 @@ class PoolCandidates(unittest.TestCase):
         run_leg._list_pool_instances = (
             lambda _skill=None, _spec_stem=None: self.FLEET
         )
+        catalog = mock.patch.object(run_leg, "_catalog_gpu_counts", side_effect=lambda: run_leg._CATALOG_GPU_COUNTS or {})
+        catalog.start()
+        self.addCleanup(catalog.stop)
 
     def tearDown(self):
         run_leg._list_pool_instances = self._orig
@@ -2116,6 +2119,36 @@ class PoolCandidates(unittest.TestCase):
                 "vss-eval-rtx-2g-2",
             ],
         )
+
+    def test_not_ready_single_gpu_worker_does_not_hide_healthy_l40s_capacity(self):
+        # Live Brev row from the failing setup job: the VM is running and
+        # nominally healthy, but its shell is explicitly NOT READY.
+        fleet = [
+            {"name": "vss-eval-l40s-1g", "id": "ddaikq02a", "status": "RUNNING",
+             "build_status": "", "shell_status": "NOT READY", "health_status": "HEALTHY",
+             "instance_type": "massedcompute_L40S", "gpu": "L40S"},
+            {"name": "vss-eval-l40s-3", "status": "RUNNING", "build_status": "COMPLETED",
+             "shell_status": "READY", "health_status": "HEALTHY",
+             "instance_type": "massedcompute_L40Sx2", "gpu": "L40S"},
+        ]
+        with mock.patch.object(run_leg, "_list_pool_instances", return_value=fleet):
+            self.assertEqual(run_leg.pool_candidates({"gpu_type": "L40S", "gpu_count": 1}), ["vss-eval-l40s-3"])
+
+    def test_explicit_unready_states_are_excluded_even_for_gpu_independent_jobs(self):
+        for field in ("shell_status", "health_status"):
+            for value in ("NOT READY", "unhealthy", "Disconnected", "STOPPED", "not_ready", "not-ready"):
+                with self.subTest(field=field, value=value):
+                    worker = {"name": "vss-eval-l40s-1g", "status": "RUNNING", "gpu": "L40S", field: value}
+                    with mock.patch.object(run_leg, "_list_pool_instances", return_value=[worker]):
+                        self.assertEqual(run_leg.pool_candidates({"gpu_count": 0}), [])
+
+    def test_missing_legacy_readiness_fields_do_not_reject_running_worker(self):
+        for fields in ({}, {"shell_status": None, "health_status": ""},
+                       {"shell_status": "READY", "health_status": "HEALTHY"}):
+            with self.subTest(fields=fields):
+                worker = {"name": "vss-eval-l40s-1g", "status": "RUNNING", "gpu": "L40S", **fields}
+                with mock.patch.object(run_leg, "_list_pool_instances", return_value=[worker]):
+                    self.assertEqual(run_leg.pool_candidates({"gpu_count": 0}), ["vss-eval-l40s-1g"])
 
     def test_managed_box_filtered_by_catalog_gpu_count(self):
         """A managed SKU the catalog says is 1-GPU is not offered for 2 GPUs.
@@ -2967,6 +3000,31 @@ class GatewayAllocation(unittest.TestCase):
         result = subprocess.CompletedProcess([], 1, '', 'connection unavailable')
         with mock.patch.object(run_leg.subprocess, 'run', return_value=result), self.assertRaisesRegex(RuntimeError, 'allocation failed'):
             run_leg.allocate_gateway_ports('vss-eval-box', 'a' * 64, [23000,23001,23002], {})
+
+
+class SetupOnlySelection(unittest.TestCase):
+    def test_keeps_each_original_chain_setup_and_its_declared_checks(self):
+        invocations = [
+            run_leg.HarborInvocation(Path(chain), f"step-{step}", chain, step, 3)
+            for chain in ("l40s-remote-all", "spark-remote-all") for step in (1, 2, 3)
+        ]
+        selected = run_leg.select_setup_invocations(invocations, "skills/operations/alerts/evals/cv.json")
+        self.assertEqual(selected, [invocations[0], invocations[3]])
+        self.assertIs(selected[0], invocations[0])
+        self.assertEqual(selected[0].step_count, 3)
+
+    def test_non_operational_spec_is_rejected_before_worker_acquisition(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.dict(os.environ, {**RunInvocations.ENV, "SKILLS_EVAL_SETUP_ONLY": "true", "EVAL_SPEC_PATH": "skills/vss-build-vision-ai/evals/a.json"}, clear=True), \
+             mock.patch.object(run_leg, "SKILL_EVAL_PYTHON_VERSION", sys.version_info[:2]), \
+             mock.patch.object(leg_timing, "start_heartbeat", return_value=(mock.Mock(), mock.Mock())), \
+             mock.patch.object(run_leg, "discover_invocations", return_value=[]), \
+             mock.patch.object(run_leg, "hold_pool_lock") as lock, \
+             mock.patch.object(run_leg, "run_invocations") as trial:
+            rc = run_leg.main(["--dataset-root", tmp, "--results-root", str(Path(tmp) / "results")])
+        self.assertEqual(rc, 1)
+        lock.assert_not_called()
+        trial.assert_not_called()
 
 
 if __name__ == "__main__":

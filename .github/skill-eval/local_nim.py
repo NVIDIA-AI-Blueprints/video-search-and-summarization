@@ -237,11 +237,12 @@ def docker(
     return result
 
 
-def owner_paths(owner: str):
-    if not re.fullmatch(r"[a-f0-9]{24}", owner):
+def owner_paths(owner: str, *, create: bool = True):
+    if not isinstance(owner, str) or not re.fullmatch(r"[a-f0-9]{24}", owner):
         raise NimError("Invalid local NIM owner")
     root = Path.home() / ".cache" / "skill-eval-nim" / owner
-    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if create:
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
     return root
 
 
@@ -703,7 +704,7 @@ def configure_nemoclaw(evidence: dict):
 
 
 def collect_logs(plan: dict):
-    root = owner_paths(plan["owner"])
+    root = owner_paths(plan["owner"], create=False)
     publish(root)
     target = Path("/logs/artifacts/local-nim")
     names = docker(
@@ -735,6 +736,7 @@ def collect_logs(plan: dict):
         # Full inspect output contains NGC credentials. Keep only lifecycle
         # and port evidence needed to distinguish restart, OOM and routing.
         snapshot = {
+            "collected_at_unix": time.time(),
             "name": name,
             "image": (info.get("Config") or {}).get("Image"),
             "restart_count": info.get("RestartCount"),
@@ -771,12 +773,15 @@ def cleanup(owner: str, remove_files: bool = True):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("start", "cleanup"))
+    parser.add_argument("action", choices=("start", "cleanup", "collect"))
     parser.add_argument("--plan")
     parser.add_argument("--owner")
     args = parser.parse_args()
     global _START_DEADLINE
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    if args.action == "collect":
+        collect_logs({"owner": args.owner})
+        return
     if args.action == "cleanup":
         root = owner_paths(args.owner)
         pid_file = root / "startup.pid"

@@ -525,7 +525,8 @@ def _short(text: str, limit: int = 60) -> str:
 
 
 def render_comment(leg: dict, *, spec_path: str, platform: str, head_sha: str,
-                   spec_sha: str = "", declared: list[str] | None = None) -> str:
+                   spec_sha: str = "", declared: list[str] | None = None,
+                   setup_only: bool = False) -> str:
     """Render the leg comment. `declared` is the spec's ordered query list."""
     trials, traces = leg["trials"], leg["traces"]
     declared = declared or []
@@ -539,6 +540,9 @@ def render_comment(leg: dict, *, spec_path: str, platform: str, head_sha: str,
     if leg["machine"]:
         meta.append(f"box `{leg['machine']}`")
     lines.append(" · ".join(meta))
+    if setup_only:
+        lines += ["", "**Setup only:** step 1 was requested. Operational steps were not requested; this is not a full-spec pass."]
+        declared = declared[:1]
 
     first, last = leg["first_started"], leg["last_finished"]
     total_s = leg.get("phases", {}).get("total_s")
@@ -625,7 +629,7 @@ SUMMARY_SCHEMA = 1
 
 
 def leg_summary(leg: dict, *, declared: list[str], spec_path: str = "",
-                platform: str = "") -> dict:
+                platform: str = "", setup_only: bool = False) -> dict:
     """Versioned facts for a deterministic caller.
 
     The module still emits no overall verdict, but a caller must not have to
@@ -661,7 +665,7 @@ def leg_summary(leg: dict, *, declared: list[str], spec_path: str = "",
             "seconds": t.get("seconds"),
             "executed_query": t.get("query") or None,
         })
-    return {
+    result = {
         "schema": SUMMARY_SCHEMA,
         "spec_path": spec_path,
         "platform": platform,
@@ -670,6 +674,9 @@ def leg_summary(leg: dict, *, declared: list[str], spec_path: str = "",
         "steps": steps,
         "collection_errors": list(leg.get("unreadable") or []),
     }
+    if setup_only:
+        result.update(scope="setup-only", evaluated_steps=[1])
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -698,6 +705,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="Write the machine-readable summary a caller should "
                          "use instead of parsing the rendered Markdown")
     args = ap.parse_args(argv)
+    setup_only = os.environ.get("SKILLS_EVAL_SETUP_ONLY") == "true"
+    if setup_only and not args.spec_path.startswith("skills/operations/"):
+        ap.error("setup_only requires an operational spec")
 
     # Redact the tree BEFORE reading it: this render is what the PR comment
     # is posted from, during the agent step — the workflow's pack-step scan
@@ -711,6 +721,9 @@ def main(argv: list[str] | None = None) -> int:
     if not leg["trials"]:
         print("no trials under results root", file=sys.stderr)
         return 2
+    if setup_only and any((trial["step"] or 1) != 1 for trial in leg["trials"]):
+        print("setup-only scope contains operational trials", file=sys.stderr)
+        return 3
     spec_file = args.spec_file
     if spec_file is None and args.spec_path and Path(args.spec_path).is_file():
         spec_file = Path(args.spec_path)
@@ -723,7 +736,7 @@ def main(argv: list[str] | None = None) -> int:
         return 3
     body = render_comment(leg, spec_path=args.spec_path, platform=args.platform,
                           head_sha=args.head_sha, spec_sha=args.spec_sha,
-                          declared=declared)
+                          declared=declared, setup_only=setup_only)
     # Both writes leave the runner for GitHub (comment body, artifact
     # summary). The results tree was already TruffleHog-redacted above; this
     # covers what rendering itself could reintroduce. The summary is scrubbed
@@ -736,7 +749,7 @@ def main(argv: list[str] | None = None) -> int:
         args.summary_json.write_text(json.dumps(
             redact_secrets.redact_obj(
                 leg_summary(leg, declared=declared, spec_path=args.spec_path,
-                            platform=args.platform)), indent=2, default=str))
+                            platform=args.platform, setup_only=setup_only)), indent=2, default=str))
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(body)
