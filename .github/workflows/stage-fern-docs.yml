@@ -13,50 +13,84 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Publishes the current ref to the persistent Fern staging instance:
-#   https://nvidia-vss-staging.docs.buildwithfern.com/vss
-#
-# Triggers:
-#   - workflow_dispatch (Actions → Stage Fern Docs → Run workflow)
-#   - pull_request closed, only when the PR was merged into develop
-#
-# Does not update docs.nvidia.com. Production publish remains
-# publish-fern-docs.yml.
-#
+# Publishes merged docs from develop to the develop instance, and from the
+# highest stable release/X.Y.Z branch to staging. Other branches are skipped,
+# including manual runs. Production remains in publish-fern-docs.yml.
 # Requires the DOCS_FERN_TOKEN repo secret.
 
 name: Stage Fern Docs
 
+# Branch-owned docs substitutions. Each branch may set these explicitly,
+# including a tag such as v3.3.0; site routing never derives or overrides them.
 env:
-  VSS_DOCS_GIT_REF: develop
-  VSS_DOCS_IMAGE_TAG: develop-latest
-  VSS_DOCS_SBSA_IMAGE_TAG: develop-latest-sbsa
+  VSS_DOCS_GIT_REF: v3.3.0
+  VSS_DOCS_IMAGE_TAG: 3.3.0
+  VSS_DOCS_SBSA_IMAGE_TAG: 3.3.0-sbsa
 
 on:
   workflow_dispatch: {}
   pull_request:
     types: [closed]
+    branches:
+      - develop
+      - 'release/**'
     paths:
       - 'docs/**'
       - 'fern/**'
       - 'services/analytics/video-analytics-api/src/app/specification/openapi.json'
       - '.github/scripts/check_fern_substitutions.py'
       - '.github/scripts/prepare_fern_inputs.py'
+      - '.github/scripts/select_fern_docs_target.py'
+      - '.github/scripts/test_select_fern_docs_target.py'
       - '.github/workflows/stage-fern-docs.yml'
 
 permissions:
   contents: read
 
-concurrency:
-  group: fern-stage
-  # Do not cancel an in-flight Fern upload. Killing the ledger mid-register
-  # can leave the shared staging site incomplete until a later run succeeds.
-  cancel-in-progress: false
-
 jobs:
+  route:
+    name: Select docs instance
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      publish: ${{ steps.target.outputs.publish }}
+      instance: ${{ steps.target.outputs.instance }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          persist-credentials: false
+
+      - name: Test branch routing
+        run: python3 .github/scripts/test_select_fern_docs_target.py
+
+      - name: Select target from current remote branches
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH_BRANCH: ${{ github.event.pull_request.base.ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/branches?per_page=100" \
+            --jq '.[].name' > "${RUNNER_TEMP}/fern-branches.txt"
+          python3 .github/scripts/select_fern_docs_target.py \
+            --branch "$PUBLISH_BRANCH" \
+            --branches-file "${RUNNER_TEMP}/fern-branches.txt" \
+            --output "$GITHUB_OUTPUT"
+
   stage:
-    name: Stage
-    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'develop')
+    name: Publish branch docs
+    needs: route
+    if: needs.route.outputs.publish == 'true'
+    concurrency:
+      # Only eligible publishers join the destination's queue, so skipped runs
+      # cannot replace a pending upload.
+      group: fern-stage-${{ needs.route.outputs.instance }}
+      # Do not cancel an in-flight Fern upload. Killing the ledger mid-register
+      # can leave the destination site incomplete until a later run succeeds.
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -90,11 +124,11 @@ jobs:
         working-directory: ${{ runner.temp }}/fern-input
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+          INSTANCE: ${{ needs.route.outputs.instance }}
         run: |
           set -eo pipefail
           ATTEMPTS=3
           URL=""
-          INSTANCE="nvidia-vss-staging.docs.buildwithfern.com/vss"
           for i in $(seq 1 "$ATTEMPTS"); do
             echo "::group::fern generate attempt $i/$ATTEMPTS"
             if fern generate --docs --instance "$INSTANCE" --force 2>&1 | tee /tmp/fern-output.log; then

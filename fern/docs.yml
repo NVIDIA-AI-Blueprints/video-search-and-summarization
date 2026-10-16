@@ -7,6 +7,7 @@ instances:
     custom-domain: docs.nvidia.com/vss
     multi-source: true
   - url: nvidia-vss-staging.docs.buildwithfern.com/vss
+  - url: nvidia-vss-develop.docs.buildwithfern.com/vss
 
 title: NVIDIA Blueprint for Video Search and Summarization
 
