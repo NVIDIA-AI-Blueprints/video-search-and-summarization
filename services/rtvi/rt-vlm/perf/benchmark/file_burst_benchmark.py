@@ -25,6 +25,7 @@ import math
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -44,6 +45,90 @@ def file_burst_results_success(concurrency_results: List[Dict[str, Any]]) -> boo
 
 def count_failed_file_burst_requests(concurrency_results: List[Dict[str, Any]]) -> int:
     return int(sum(result.get("failed_files", 0) for result in concurrency_results))
+
+
+def estimate_live_streams(
+    concurrency_results: list[dict[str, Any]], video_config: dict[str, Any], chunk_size: int
+) -> dict[str, Any] | None:
+    """Suggest a live-search seed, never a measured capacity or automatic setting."""
+    cadence = video_config.get("live_chunk_duration_seconds")
+    if cadence is None:
+        return None
+    duration = video_config.get("file_duration_seconds")
+    if (
+        any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value <= 0
+            for value in (cadence, duration)
+        )
+        or duration != cadence
+        or chunk_size not in (0, duration)
+    ):
+        raise ValueError(
+            "Live estimates require positive, equal file_duration_seconds and "
+            "live_chunk_duration_seconds, and one chunk per file (chunk_size 0 or file duration)"
+        )
+
+    estimate = {
+        "status": "unavailable",
+        "validated_live_capacity": False,
+        "file_duration_seconds": duration,
+        "live_chunk_duration_seconds": cadence,
+        "p95_limit_seconds": cadence,
+        "start_margin_streams": 5,
+        "suggested_add_stream_count": 1,
+    }
+    eligible = []
+    for row in concurrency_results:
+        keys = (
+            "completed_files",
+            "steady_state_duration_seconds",
+            "e2e_latency_seconds",
+            "throughput_files_per_second",
+            "p95_latency",
+            "concurrency_level",
+        )
+        if any(
+            isinstance(row.get(key), bool)
+            or not isinstance(row.get(key), (int, float))
+            or not math.isfinite(row[key])
+            or row[key] <= 0
+            for key in keys
+        ):
+            continue
+        if (
+            row.get("failed_files") != 0
+            or row["p95_latency"] > cadence
+            or row["steady_state_duration_seconds"] < cadence
+            or row["e2e_latency_seconds"] < row["steady_state_duration_seconds"]
+        ):
+            continue
+        eligible.append(row)
+    if not eligible:
+        estimate["reason"] = (
+            "No sustained, failure-free concurrency level with p95 within cadence"
+        )
+        return estimate
+
+    best = max(eligible, key=lambda row: row["throughput_files_per_second"])
+    count = int(
+        Decimal(str(best["throughput_files_per_second"])) * Decimal(str(cadence))
+    )
+    estimate.update(
+        {
+            "status": "estimated",
+            "source_concurrency_level": best["concurrency_level"],
+            "source_throughput_files_per_second": best["throughput_files_per_second"],
+            "source_p95_latency_seconds": best["p95_latency"],
+            "source_completed_files": best["completed_files"],
+            "source_elapsed_seconds": best["e2e_latency_seconds"],
+            "estimated_live_streams": count,
+            "suggested_initial_stream_count": max(1, count - 5),
+        }
+    )
+    return estimate
 
 
 def bool_config_value(value: Any, default: bool = False) -> bool:
@@ -81,6 +166,12 @@ class FileBurstBenchmark(BenchmarkBase):
                 raise ValueError(f"Missing 'chunk_sizes' in video {i}")
             if "concurrency_levels" not in video:
                 raise ValueError(f"Missing 'concurrency_levels' in video {i}")
+            for chunk_size in video["chunk_sizes"]:
+                estimate_live_streams([], video, chunk_size)
+            if video.get("live_chunk_duration_seconds") is not None and global_config.get(
+                "backend_type", "rtvi_vlm"
+            ) != "rtvi_vlm":
+                raise ValueError("Live stream estimates require the rtvi_vlm backend")
 
         # Check backend type
         backend_type = global_config.get("backend_type", "rtvi_vlm")
@@ -459,6 +550,9 @@ class FileBurstBenchmark(BenchmarkBase):
             "success": file_burst_results_success(concurrency_results),
             "backend_type": benchmark_config.get("backend_type", "rtvi_vlm"),
         }
+        estimate = estimate_live_streams(concurrency_results, video_config, chunk_size)
+        if estimate is not None:
+            results["live_stream_estimate"] = estimate
 
         results_file = os.path.join(iteration_dir, "file_burst_results.json")
         self.save_json_data(self.round_floats(results), results_file)
@@ -1125,11 +1219,9 @@ class FileBurstBenchmark(BenchmarkBase):
 
         # Parse all test case results
         all_concurrency_results = []
+        live_estimates = []
 
         for test_case in execution_summary["test_cases"]:
-            if not test_case.get("success", False):
-                continue
-
             test_case_id = test_case["test_case_id"]
             test_case_dir = os.path.join(results_dir, test_case_id)
 
@@ -1138,6 +1230,21 @@ class FileBurstBenchmark(BenchmarkBase):
             if os.path.exists(results_file):
                 with open(results_file, "r") as f:
                     burst_results = json.load(f)
+                for iteration in burst_results.get("iteration_results", []):
+                    if "live_stream_estimate" in iteration:
+                        live_estimates.append(
+                            {
+                                "test_case_id": test_case_id,
+                                "video_file": os.path.basename(
+                                    burst_results.get("video_file", "")
+                                ),
+                                "iteration": iteration["iteration"],
+                                "iteration_success": iteration.get("success", False),
+                                **iteration["live_stream_estimate"],
+                            }
+                        )
+                if not test_case.get("success", False):
+                    continue
 
                 # concurrency_summary is a dict keyed by str(level) with mean_* aggregated fields.
                 # Filter to configured levels only (excludes binary-search probe levels).
@@ -1221,6 +1328,10 @@ class FileBurstBenchmark(BenchmarkBase):
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
         with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
+            if live_estimates:
+                pd.DataFrame(live_estimates).to_excel(
+                    writer, sheet_name="Live_Stream_Estimates", index=False
+                )
             # Summary sheet with all concurrency results
             if all_concurrency_results:
                 summary_df = pd.DataFrame(all_concurrency_results)
