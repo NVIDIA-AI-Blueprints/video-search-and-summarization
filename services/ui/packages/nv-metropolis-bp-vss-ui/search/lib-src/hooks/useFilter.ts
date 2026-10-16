@@ -28,6 +28,14 @@ function setStoredTopK(value: number): void {
   }
 }
 
+/** A numeric threshold, including 0, is a real filter. Blank means the tag was cleared. */
+function similarityFilterTag(similarity: unknown): { key: string; title: string; value: string } | null {
+  if (similarity === '' || similarity == null) return null;
+  const similarityNumber = Number(similarity);
+  if (!Number.isFinite(similarityNumber)) return null;
+  return { key: 'similarity', title: 'Similarity', value: similarityNumber.toFixed(2) };
+}
+
 export const useFilter = ({vstApiUrl}: FilterProps) => {
   const [streams, setStreams] = useState<StreamInfo[]>([]);
   const [filterParams, setFilterParamsState] = useState<SearchParams>(() => ({
@@ -51,7 +59,8 @@ export const useFilter = ({vstApiUrl}: FilterProps) => {
     });
   }, []);
   const [filterTags, setFilterTags] = useState(() => [
-    { key: 'topK', title: 'Show top K Results', value: String(filterParams.topK) }
+    { key: 'similarity', title: 'Similarity', value: Number(filterParams.similarity ?? 0).toFixed(2) },
+    { key: 'topK', title: 'Show top K Results', value: String(filterParams.topK) },
   ]);
 
   const fetchSensorList = useCallback(async () => {
@@ -89,8 +98,9 @@ export const useFilter = ({vstApiUrl}: FilterProps) => {
     if (videoSources && videoSources.length > 0) {
       tags.push({key: 'videoSources', title: 'Video sources', value: videoSources.join(', ')});
     }
-    if (similarity) {
-      tags.push({key: 'similarity', title: 'Similarity', value: Number(similarity)?.toFixed(2)});
+    const similarityTag = similarityFilterTag(similarity);
+    if (similarityTag) {
+      tags.push(similarityTag);
     }
     // Always include topK tag (robust to numeric 0 or other non-truthy but valid numbers)
     if (topK !== undefined && topK !== null) {
@@ -103,7 +113,10 @@ export const useFilter = ({vstApiUrl}: FilterProps) => {
   // fresh function each render feeds back into Home's sidebar-controls state.
   const removeFilterTag = useCallback((tag: any) => {
     if (!tag) {
-      setFilterTags([{key: 'topK', title: 'Show top K Results', value: (filterParams.topK ?? DEFAULT_TOP_K).toString()}]);
+      setFilterTags([
+        { key: 'similarity', title: 'Similarity', value: '0.00' },
+        { key: 'topK', title: 'Show top K Results', value: (filterParams.topK ?? DEFAULT_TOP_K).toString() },
+      ]);
     } else {
       setFilterTags((prev: any) => prev.filter((t: any) => t !== tag));
     }

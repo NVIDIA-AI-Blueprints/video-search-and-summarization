@@ -51,6 +51,7 @@ describe('useFilter', () => {
     });
 
     expect(result.current.filterTags).toEqual([
+      { key: 'similarity', title: 'Similarity', value: '0.00' },
       { key: 'topK', title: 'Show top K Results', value: DEFAULT_TOP_K.toString() },
     ]);
   });
@@ -130,7 +131,7 @@ describe('useFilter', () => {
       expect(tagKeys).toContain('topK');
     });
 
-    it('creates only topK tag when no other filters set', () => {
+    it('keeps the similarity tag when the threshold is zero', () => {
       global.fetch = mockFetchResponse([]);
 
       const { result } = renderHook(() => useFilter({ vstApiUrl: 'http://vst.test' }));
@@ -144,6 +145,7 @@ describe('useFilter', () => {
       });
 
       expect(result.current.filterTags).toEqual([
+        { key: 'similarity', title: 'Similarity', value: '0.00' },
         { key: 'topK', title: 'Show top K Results', value: '10' },
       ]);
     });
@@ -158,6 +160,7 @@ describe('useFilter', () => {
       });
 
       expect(result.current.filterTags).toEqual([
+        { key: 'similarity', title: 'Similarity', value: '0.00' },
         { key: 'topK', title: 'Show top K Results', value: DEFAULT_TOP_K.toString() },
       ]);
     });
@@ -224,6 +227,7 @@ describe('useFilter', () => {
 
       // removeFilterTag(null) reads filterParams.topK which is now 20
       expect(result.current.filterTags).toEqual([
+        { key: 'similarity', title: 'Similarity', value: '0.00' },
         { key: 'topK', title: 'Show top K Results', value: '20' },
       ]);
     });
