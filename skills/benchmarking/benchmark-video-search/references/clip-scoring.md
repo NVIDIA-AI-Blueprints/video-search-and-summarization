@@ -66,7 +66,8 @@ hits stay. It never backfills or changes captured evidence.
 
 - AP = sum of precision at relevant ranks / **all relevant clips**. Observed
   mAP averages this over queries, including successful empty results as zero.
-- AP@10 uses the same denominator, with contributions limited to ranks 1–10.
+- AP@10 divides by `min(R, 10)`, with contributions limited to ranks 1–10.
+  Scorer `clips-v2` makes this change; full AP still divides by all R positives.
 - nDCG uses binary relevance and the full ground truth to construct the ideal
   ranking; unreturned relevance receives no gain. nDCG@10 caps both at 10.
 - MRR uses the first relevant observed rank, or zero if absent.
@@ -84,6 +85,21 @@ counts, and recorded inference latency. Event and PAS are reported separately;
 total scores average queries directly, rather than averaging domain scores.
 
 ## Offline replay and compatibility
+
+For PhysicalAI v1.1.2 frame-supported PAS scoring, add
+`--pas-frame-supported`. This derives positives from the sealed snapshot's
+`dataset/additional_gt/tracks_pas_attributes.json`: every requested attribute
+must be supported by the representative frame of an eligible released positive
+track. Unknown/not-visible values cannot support a requirement. Track positives
+become unique clip positives; PAS queries with none are excluded and listed in
+`report.json` with input/eligible cohort counts. Event labels stay unchanged.
+The helper and annotation hashes are recorded; evidence is never edited.
+Original PAS segment comparisons are omitted because they describe different GT.
+
+Use `--modes embed attribute live-routed` to omit forced fusion. Neither flag
+changes retrieval. The frame-supported option is offline-only; online clip
+collection still uses released labels. `map-summary.md` reports mAP@10; full
+observed mAP remains separately available in `report.json` and `comparison.md`.
 
 ```bash
 python scripts/replay_campaign.py /path/to/campaign \

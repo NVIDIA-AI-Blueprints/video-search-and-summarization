@@ -42,6 +42,7 @@ def test_more_relevance_than_cutoff():
     _, q, scorer = fixture(20, tuple(chr(97+i) for i in range(20)))
     r = scorer.score(q, [{'clip_id': chr(97+i)} for i in range(10)])
     assert r['average_precision'] == .5
+    assert r['ap_at_10'] == 1
     assert r['ndcg_at_10'] == 1
     assert r['at_k'][10]['recall'] == .5
 

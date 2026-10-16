@@ -24,21 +24,40 @@ def successful(campaign, mode, query_id):
     return records[0] if records else None
 
 
-def replay(campaign, destination, scorer="clips"):
+def replay(campaign, destination, scorer="clips", *, pas_frame_supported=False, modes=None):
     if scorer not in ("clips", "native", "segments"):
         raise ValueError(f"Unknown scorer: {scorer}")
+    if pas_frame_supported and scorer != 'clips':
+        raise ValueError('Frame-supported PAS GT requires clip scoring')
     campaign, destination = Path(campaign).resolve(), Path(destination).resolve()
     if destination == campaign or campaign in destination.parents:
         raise ValueError('Reports must be separate from immutable campaign evidence')
-    destination.mkdir(parents=True, exist_ok=False)
-    verify(campaign / 'snapshot')
+    snapshot_seal = verify(campaign / 'snapshot')
     manifest = read_json(campaign / 'campaign.json')
     if digest(campaign / 'campaign.json') != read_json(campaign / 'identity.json')['sha256']:
         raise ValueError('Campaign identity changed')
     queries = read_json(campaign / 'snapshot' / 'queries.json')
-    clip_scorer = ClipScorer(read_json(campaign / 'snapshot/gallery-mapping.json'), queries) if scorer == 'clips' else None
+    input_counts = dict(Counter(q['query_domain'] for q in queries))
+    excluded, gt_metadata = [], {'protocol': 'released'}
+    mapping = read_json(campaign / 'snapshot/gallery-mapping.json') if scorer == 'clips' else None
+    if pas_frame_supported:
+        from flows.pas_ground_truth import frame_supported_queries, VERSION
+        track_file = 'dataset/additional_gt/tracks_pas_attributes.json'
+        if track_file not in snapshot_seal['sha256']:
+            raise ValueError('Frame-supported PAS requires sealed track annotations in snapshot')
+        queries, excluded = frame_supported_queries(queries,
+            read_json(campaign / 'snapshot' / track_file)['tracks'], mapping)
+        gt_metadata = {'protocol': VERSION,
+                       'tracks_sha256': snapshot_seal['sha256'][track_file],
+                       'code_sha256': digest(Path(__file__).parent / 'flows/pas_ground_truth.py')}
+    clip_scorer = ClipScorer(mapping, queries) if scorer == 'clips' else None
     if not clip_scorer and any('segments' not in q for q in queries):
         raise ValueError('Native scoring requires explicit segment annotations')
+    available_modes = manifest.get('inputs', {}).get('settings', {}).get('modes', MODES)
+    selected_modes = available_modes if modes is None else modes
+    if not selected_modes or len(set(selected_modes)) != len(selected_modes) or not set(selected_modes) <= set(available_modes):
+        raise ValueError('Select unique modes present in the captured campaign')
+    destination.mkdir(parents=True, exist_ok=False)
     result = {'source_campaign': str(campaign), 'campaign_id': manifest['campaign_id'],
               'campaign_sha256': digest(campaign / 'campaign.json'), 'scorer': SCORER_VERSION if clip_scorer else 'native-segment-v1',
               'scorer_sha256': digest(Path(__file__).parent / ('flows/clip_scoring.py' if clip_scorer else 'flows/metrics.py')),
@@ -46,7 +65,11 @@ def replay(campaign, destination, scorer="clips"):
     table = ['| Mode | Domain | Scoring | Answered / expected | mAP | MRR | Precision | Recall | F1 | HIT@1 | HIT@3 | HIT@5 | HIT@10 |',
              '|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
     native_comparison = ['| Mode | Domain | View | Queries | Native mAP | Clip observed mAP | Clip mAP@10 |', '|---|---|---|---:|---:|---:|---:|']
-    for mode in manifest.get('inputs', {}).get('settings', {}).get('modes', MODES):
+    result['ground_truth'] = gt_metadata
+    result['cohort'] = {'input': input_counts,
+                        'eligible': dict(Counter(q['query_domain'] for q in queries)),
+                        'excluded': excluded}
+    for mode in selected_modes:
         rows, failures = [], []
         for q in queries:
             attempt = successful(campaign, mode, q['query_id'])
@@ -119,13 +142,13 @@ def replay(campaign, destination, scorer="clips"):
                     m = group[view]
                     values = [m[k] for k in ('mAP', 'mAP@10', 'nDCG', 'nDCG@10', 'P@10', 'R@10', 'HIT@1', 'HIT@5', 'HIT@10')]
                     table.append(f'| {mode} | {domain} | {view} | {group["answered"]} / {group["expected"]} | {m["mAP_scope"]} | ' + ' | '.join('NA' if v is None else f'{v:.6f}' for v in values) + ' |')
-        map_table = ['Observed-depth clip mAP; average of per-query AP, with all relevant clips in each AP denominator.', '', '| Mode | View | Event | PAS | Total |', '|---|---|---:|---:|---:|']
+        map_table = ['Clip mAP@10 on observed rankings; AP@10 divides by min(R, 10). Total averages eligible queries directly.', '', '| Mode | View | Event | PAS | Total |', '|---|---|---:|---:|---:|']
         per_query = io.StringIO()
         writer = csv.writer(per_query)
         writer.writerow(['mode', 'query_id', 'domain', 'view', 'AP', 'AP@10', 'nDCG@10', 'unique_clips', 'relevant_clips', 'gallery_size', 'search_latency_s'])
         for mode, data in result['modes'].items():
             for view in ('raw', 'critic_filtered'):
-                values = [data['groups'][d][view]['mAP'] for d in ('event', 'pas', 'all')]
+                values = [data['groups'][d][view]['mAP@10'] for d in ('event', 'pas', 'all')]
                 map_table.append(f'| {mode} | {view} | ' + ' | '.join(('NA' if v is None else f'{v:.6f}') + f' ({data["groups"][d]["answered"]}/{data["groups"][d]["expected"]})' for d, v in zip(('event', 'pas', 'all'), values)) + ' |')
             for row in data['queries']:
                 for view in ('raw', 'critic_filtered'):
@@ -144,8 +167,11 @@ def main():
     p.add_argument('campaign', type=Path)
     p.add_argument('--report-dir', required=True, type=Path)
     p.add_argument('--scorer', choices=['clips', 'native', 'segments'], default='clips')
+    p.add_argument('--pas-frame-supported', action='store_true',
+                   help='Derive PAS clip positives from sealed representative-frame annotations; exclude unsupported queries')
+    p.add_argument('--modes', nargs='+', choices=MODES, help='Only replay these captured modes')
     a = p.parse_args()
-    replay(a.campaign, a.report_dir, a.scorer)
+    replay(a.campaign, a.report_dir, a.scorer, pas_frame_supported=a.pas_frame_supported, modes=a.modes)
 
 
 if __name__ == '__main__':
