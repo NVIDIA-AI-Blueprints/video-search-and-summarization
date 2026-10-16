@@ -483,6 +483,7 @@ def start(plan: dict):
     # Cleanup removes the owned INPUT rules along with stale containers.
     # Restore them before any anonymous inference listener can start.
     proxy_network_policy(plan["owner"])
+    capture_gpu0_memory(root, "before-nim")
     models = []
     nemoclaw_route = next(
         (r for r in plan["routes"] if r["runtime"] == "nemoclaw"), None
@@ -511,12 +512,13 @@ def start(plan: dict):
             "--label",
             f"{LABEL}={plan['owner']}",
             "--gpus",
-            "all",
+            "device=0",
             "--shm-size=16g",
             "-e",
             "NGC_API_KEY",
         ]
         parser_args = tool_parser_args(item["model"])
+        parser_args = (parser_args or "") + " --gpu-memory-utilization 0.75"
         if "-dgx-spark@" in item["image"]:
             # The 1.14 DGX Spark variants enable tool calls with this switch;
             # they do not consume the standard NIM_PASSTHROUGH_ARGS setting.
@@ -704,6 +706,7 @@ def configure_nemoclaw(evidence: dict):
 
 def collect_logs(plan: dict):
     root = owner_paths(plan["owner"])
+    capture_gpu0_memory(root, "after-nim")
     publish(root)
     target = Path("/logs/artifacts/local-nim")
     names = docker(
@@ -744,6 +747,10 @@ def collect_logs(plan: dict):
             "health": (state.get("Health") or {}).get("Status"),
             "port_bindings": (info.get("HostConfig") or {}).get("PortBindings"),
             "published_ports": (info.get("NetworkSettings") or {}).get("Ports"),
+            "gpu_device_requests": (info.get("HostConfig") or {}).get("DeviceRequests"),
+            "nim_passthrough_args": next((value.partition("=")[2] for value in
+                (info.get("Config") or {}).get("Env", [])
+                if value.startswith("NIM_PASSTHROUGH_ARGS=")), None),
         }
         (target / f"{name}.state.json").write_text(json.dumps(snapshot, indent=2))
 
@@ -751,9 +758,29 @@ def collect_logs(plan: dict):
 def publish(root: Path):
     target = Path("/logs/artifacts/local-nim")
     target.mkdir(parents=True, exist_ok=True)
-    for name in ("deployment.json", "ready.json"):
+    for name in ("deployment.json", "ready.json", "gpu0-before-nim.csv", "gpu0-after-nim.csv"):
         if (root / name).exists():
             (target / name).write_text((root / name).read_text())
+
+
+def capture_gpu0_memory(root: Path, phase: str):
+    """Experimental diagnostics: fixed numeric fields, never process/env output."""
+    try:
+        result = subprocess.run([
+            "nvidia-smi", "--id=0",
+            "--query-gpu=index,memory.total,memory.used,memory.free,utilization.gpu",
+            "--format=csv,noheader,nounits",
+        ], capture_output=True, text=True, timeout=10, check=False)
+        values = [int(value.strip()) for value in result.stdout.strip().split(",")]
+        if result.returncode or len(values) != 5 or values[0] != 0 or min(values) < 0:
+            return
+        root.mkdir(parents=True, exist_ok=True)
+        (root / f"gpu0-{phase}.csv").write_text(
+            "index,memory_total_mib,memory_used_mib,memory_free_mib,utilization_percent\n"
+            + ",".join(str(value) for value in values) + "\n",
+        )
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
 
 
 def cleanup(owner: str, remove_files: bool = True):
