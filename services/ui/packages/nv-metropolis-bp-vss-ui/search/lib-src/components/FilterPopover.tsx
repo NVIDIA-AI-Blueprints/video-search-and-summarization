@@ -3,7 +3,7 @@
 import React, { useMemo, useCallback, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Button } from '@nvidia/foundations-react-core';
 import { createPortal } from 'react-dom';
-import { Stack, DatePicker, CheckPicker, NumberInput } from 'rsuite';
+import { Stack, CheckPicker, NumberInput } from 'rsuite';
 import { DEFAULT_TOP_K } from '../hooks/useFilter';
 import { StreamInfo } from '../types';
 
@@ -22,7 +22,6 @@ interface FilterDialogProps {
   triggerRef?: React.RefObject<HTMLDivElement | null>;
   /** When true, filter inputs are disabled (e.g. when Chat sidebar is open or query is running). */
   disabled?: boolean;
-  sourceType?: string;
   /** Render filters inline (sidebar) instead of as a popover. */
   inline?: boolean;
 }
@@ -38,7 +37,6 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
   containerRef,
   triggerRef,
   disabled = false,
-  sourceType = 'video_file',
   inline = false,
 }) => {
   const [pendingParams, setPendingParams] = useState(filterParams);
@@ -75,13 +73,7 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
     };
   }, [isOpen, triggerRef, updatePortalPosition]);
   
-  const { startDate, endDate, videoSources, similarity, topK } = pendingParams;
-
-  // Filter streams based on sourceType
-  const filteredStreams = useMemo(() => {
-    const targetType = sourceType === 'video_file' ? 'sensor_file' : 'sensor_rtsp';
-    return streams.filter(stream => stream.type === targetType);
-  }, [streams, sourceType]);
+  const { videoSources, similarity, topK } = pendingParams;
   
   const labelStyle: React.CSSProperties = useMemo(() => (
     inline
@@ -112,10 +104,6 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
     [inline, handleConfirm],
   );
 
-  const handleStartDateChange = useCallback((value: Date | null) =>
-    updatePendingParams({ startDate: value }), [updatePendingParams]);
-  const handleEndDateChange = useCallback((value: Date | null) =>
-    updatePendingParams({ endDate: value }), [updatePendingParams]);
   const handleSimilarityChange = useCallback((value: string | number | null) =>
     updatePendingParams({ similarity: value }), [updatePendingParams]);
   const handleVideoSourcesChange = useCallback((value: string[]) =>
@@ -177,45 +165,6 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
       }}
     >
       <Stack direction="column" spacing={12} alignItems="stretch" style={{ width: '100%' }}>
-        <Stack
-          spacing={inline ? 6 : 10}
-          alignItems={inline ? 'stretch' : 'center'}
-          direction={inline ? 'column' : 'row'}
-          style={inline ? { width: '100%' } : undefined}
-        >
-          <span style={labelStyle}>From:</span>
-          <DatePicker
-            data-testid="search-filter-from"
-            disabled={disabled}
-            format="MMM dd yyyy hh:mm:ss aa"
-            showMeridiem
-            value={startDate}
-            onChange={handleStartDateChange}
-            onSelect={handleStartDateChange}
-            onChangeCalendarDate={handleStartDateChange}
-            style={inputStyle}
-            hideSeconds={(second) => second % 10 !== 0}
-            hideMinutes={(minute) => minute % 5 !== 0}
-            placeholder="From"
-          />
-        </Stack>
-        <Stack spacing={inline ? 6 : 10} alignItems={inline ? 'stretch' : 'center'} direction={inline ? 'column' : 'row'}>
-          <span style={labelStyle}>To:</span>
-          <DatePicker
-            data-testid="search-filter-to"
-            disabled={disabled}
-            format="MMM dd yyyy hh:mm:ss aa"
-            showMeridiem
-            value={endDate}
-            onChange={handleEndDateChange}
-            onSelect={handleEndDateChange}
-            onChangeCalendarDate={handleEndDateChange}
-            style={inputStyle}
-            hideSeconds={(second) => second % 10 !== 0}
-            hideMinutes={(minute) => minute % 5 !== 0}
-            placeholder="To"
-          />
-        </Stack>
         <Stack spacing={inline ? 6 : 10} alignItems={inline ? 'stretch' : 'center'} direction={inline ? 'column' : 'row'}>
           <span style={labelStyle}>Video sources:</span>
           <div style={{ ...inputStyle, width: '100%', minWidth: 0 }}>
@@ -223,7 +172,7 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
               data-testid="search-filter-video-sources"
               value={videoSources}
               onChange={handleVideoSourcesChange}
-              data={filteredStreams.map((stream) => ({ label: stream.name, value: stream.name }))}
+              data={streams.map((stream) => ({ label: stream.name, value: stream.name }))}
               searchable={false}
               placeholder="Video sources"
               block

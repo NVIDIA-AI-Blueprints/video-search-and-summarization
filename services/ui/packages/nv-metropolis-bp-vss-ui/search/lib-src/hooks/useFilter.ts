@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useState, useCallback, useEffect } from 'react';
 import { FilterProps, SearchParams, StreamInfo } from '../types';
-import { formatDatetime } from '../utils/Formatter';
 
 // Centralized default constant - exported for use in other components
 export const DEFAULT_TOP_K = 10;
@@ -32,8 +31,6 @@ function setStoredTopK(value: number): void {
 export const useFilter = ({vstApiUrl}: FilterProps) => {
   const [streams, setStreams] = useState<StreamInfo[]>([]);
   const [filterParams, setFilterParamsState] = useState<SearchParams>(() => ({
-    startDate: null,
-    endDate: null,
     videoSources: [],
     similarity: 0,
     agentMode: false,
@@ -86,15 +83,9 @@ export const useFilter = ({vstApiUrl}: FilterProps) => {
 
   const addFilter = useCallback((params?: any) => {
     const paramsToUse = params || filterParams;
-    const { startDate, endDate, videoSources, similarity, topK } = paramsToUse;
-      
-    let tags = [];
-    if (startDate) {
-      tags.push({key: 'startDate', title: 'From', value: formatDatetime(startDate)});
-    } 
-    if (endDate) {
-      tags.push({key: 'endDate', title: 'To', value: formatDatetime(endDate)});
-    }
+    const { videoSources, similarity, topK } = paramsToUse;
+
+    const tags = [];
     if (videoSources && videoSources.length > 0) {
       tags.push({key: 'videoSources', title: 'Video sources', value: videoSources.join(', ')});
     }
