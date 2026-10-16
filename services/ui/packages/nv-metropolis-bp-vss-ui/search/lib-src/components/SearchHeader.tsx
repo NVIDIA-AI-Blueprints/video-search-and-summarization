@@ -103,10 +103,7 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({ theme, streams, filt
       setFilterParams(newParams);
     }, [filterParams, removeFilterTag, setFilterParams]);
 
-    const visibleTags = useMemo(
-      () => (contentDisabled ? filterTags.filter((tag: FilterTag) => tag.key !== 'topK') : filterTags),
-      [contentDisabled, filterTags]
-    );
+    const visibleTags = filterTags;
 
     return (
         <CustomProvider theme={theme}>
