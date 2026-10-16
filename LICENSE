@@ -212,11 +212,12 @@ File-level exceptions:
     header or an explicit license text - stating a license other than
     Apache-2.0 is licensed as stated in that file, which prevails over this
     notice for that file. In particular, vendored NVIDIA SDK headers under
-    services/vios/src/framework/webrtc_streamer/inc/nvmultimedia/ and the
-    DeepStream schema services/vios/src/framework/notification/ds_schema_2d.proto
-    are provided under LicenseRef-NvidiaProprietary, and NVIDIA-authored
-    WebRTC/V4L2 codec headers under services/vios/src/framework/webrtc_streamer/inc/
-    are provided under BSD-3-Clause.
+    services/vios/src/framework/webrtc_streamer/inc/nvmultimedia/ are provided
+    under LicenseRef-NvidiaProprietary. Upstream WebRTC headers under
+    services/vios/src/framework/webrtc_streamer/inc/webrtc_headers/ are provided
+    under the WebRTC project's BSD-3-Clause license, and the NVIDIA V4L2
+    extensions header services/vios/src/framework/webrtc_streamer/inc/linux/v4l2_nv_extensions.h
+    is provided under BSD-3-Clause.
 
   - services/vios/LICENSE_libnvjpeg is a third-party notice file carrying
     the Independent JPEG Group (IJG) license terms. It accompanies NVIDIA's
