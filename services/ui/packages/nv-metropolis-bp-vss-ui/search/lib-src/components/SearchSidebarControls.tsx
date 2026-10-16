@@ -69,10 +69,7 @@ export const SearchSidebarControls: React.FC<SearchSidebarControlsProps> = ({
     setFilterParams(newParams);
   }, [filterParams, removeFilterTag, setFilterParams]);
 
-  const visibleTags = useMemo(
-    () => filterTags.filter((tag: FilterTag) => tag.key !== 'topK'),
-    [filterTags]
-  );
+  const visibleTags = filterTags;
 
   return (
     <CustomProvider theme={theme}>
@@ -142,15 +139,15 @@ export const SearchSidebarControls: React.FC<SearchSidebarControlsProps> = ({
                 key={tag.key ?? index}
                 kind="outline"
                 color="gray"
-                readOnly={contentDisabled}
+                readOnly={tag.key === 'topK' || contentDisabled}
                 style={{ opacity: contentDisabled ? 0.5 : 1 }}
-                onClick={!contentDisabled ? () => removeTag(tag) : undefined}
+                onClick={!contentDisabled && tag.key !== 'topK' ? () => removeTag(tag) : undefined}
               >
                 {tag.title}: <span style={{ color: theme === 'dark' ? '#84E1BC' : 'green' }}>{tag.value}</span>
-                {!contentDisabled && <IconX size={14} />}
+                {!contentDisabled && tag.key !== 'topK' && <IconX size={14} />}
               </KaizenTag>
             ))}
-            {visibleTags.length > 0 && (
+            {visibleTags.length > 1 && (
               <Button data-testid="search-clear-all-filters" size="sm" appearance="primary" color="red" onClick={onClearAll} disabled={contentDisabled}>
                 Clear All
               </Button>
