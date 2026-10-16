@@ -178,6 +178,23 @@ See [Warehouse Known Limitations](/vss/vision-agent/agent-workflows/industry-spe
   fail to parse RT-VLM output that does not match the expected event schema,
   leaving empty event results even when captions are generated and stored
   and the summarize API reports success.
+- **Live RTSP caption gaps under overload:** When RT-VLM inference cannot
+  keep up with incoming video chunks, including at high stream concurrency,
+  the bounded decoder-to-VLM queues drop decoded chunks to limit queued-frame
+  memory growth. Affected chunks may produce empty captions while the live
+  HTTP/SSE request remains active; logs report
+  `Live decoder backlog exceeded the bounded decoder-to-VLM transport`.
+  Separately, the GPU-memory admission guard may reject new live-stream
+  requests with HTTP 503 `ServerBusy` when free GPU memory falls below its
+  configured threshold. Reduce concurrent streams or the inference workload
+  to match the platform's sustainable throughput; increasing queue capacity
+  does not resolve sustained overload.
+- **Live RTSP backend OOM on Jetson AGX Orin:** Prolonged concurrent live
+  captioning with Cosmos Reason 3 Edge has also encountered a backend
+  out-of-memory termination during burst requests, followed by HTTP 503
+  `ServiceUnavailable`. Bounded decoder queues do not cap total service
+  memory or guarantee protection against backend OOM. Reduce concurrency
+  and restart the service if the backend has terminated.
 - **Memory pressure under concurrent summarization on DGX Spark and Jetson
   Thor:** RT-VLM memory usage with Cosmos Reason 3 Super NVFP4 varies with
   request concurrency. Concurrent file-summarization workloads may exceed
