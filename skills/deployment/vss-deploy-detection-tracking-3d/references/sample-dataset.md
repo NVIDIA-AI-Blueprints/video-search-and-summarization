@@ -27,7 +27,7 @@ For this checked-in sample dataset only, the expected camera IDs are `Camera`, `
 
 ## Resolve App Data
 
-Use an existing extracted app-data directory if the user already has one. Otherwise download the NGC warehouse app-data resource named by the user, environment, release notes, or public VSS docs. The expected resource shape is `nvstaging/vss-warehouse/vss-warehouse-app-data:<version>`; use the resource for the tested VSS release and do not infer the version from this skill.
+Use an existing extracted app-data directory if the user already has one. Otherwise download the NGC warehouse app-data resource named by the user, environment, release notes, or public VSS docs. The expected resource shape is `nvidia/vss-warehouse/vss-warehouse-app-data:<version>`; use the resource for the tested VSS release and do not infer the version from this skill.
 
 Do not print NGC keys. Prefer existing `~/.ngc/config`; only ask for an NGC API key when no usable config or current-session `NGC_CLI_API_KEY` exists.
 
@@ -59,7 +59,7 @@ else
 fi
 
 if [ -z "${APP_DATA_DIR:-}" ]; then
-  WAREHOUSE_APP_DATA_NGC="${WAREHOUSE_APP_DATA_NGC:?set the release-compatible NGC resource, for example nvstaging/vss-warehouse/vss-warehouse-app-data:<version>}"
+  WAREHOUSE_APP_DATA_NGC="${WAREHOUSE_APP_DATA_NGC:?set the release-compatible NGC resource, for example nvidia/vss-warehouse/vss-warehouse-app-data:<version>}"
   command -v ngc >/dev/null || { echo "ERROR: ngc CLI is required to download sample app-data. Install/configure NGC CLI or set WAREHOUSE_APP_DATA_DIR to an existing extract." >&2; exit 1; }
   if ! ngc config current >/dev/null 2>&1; then
     if [ -z "${NGC_CLI_API_KEY:-}" ]; then

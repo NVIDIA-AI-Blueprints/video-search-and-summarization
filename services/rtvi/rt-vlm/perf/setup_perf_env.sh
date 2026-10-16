@@ -157,7 +157,7 @@ Optional environment variables (sensible defaults shown):
                         Canonical 60 min / 10 FPS warehouse clip
                         (default: warehouse_gopro_60m_10fps.mp4)
   LVS_VIDEO_VERSION     NGC VSS warehouse asset version
-                        (default: v3.3.0-09152026)
+                        (default: 3.3.0)
   LVS_VIDEO_DATA_DIR    Local cache for LVS warehouse source videos
                         (default: \$VST_DIR/lvs-benchmark-data)
   REFRESH_BCD_VIDEOS    Force re-fetch and regeneration of BCD 10 FPS clips
@@ -341,7 +341,7 @@ BCD_10S_VIDEO_SOURCE_PATH="${BCD_10S_VIDEO_SOURCE_PATH:-}"
 BCD_10S_VIDEO_FILENAME="${BCD_10S_VIDEO_FILENAME:-FPS10_Res1080p_Dur10sec_1.mp4}"
 BCD_10M_VIDEO_FILENAME="${BCD_10M_VIDEO_FILENAME:-warehouse_gopro_10m_10fps.mp4}"
 BCD_60M_VIDEO_FILENAME="${BCD_60M_VIDEO_FILENAME:-warehouse_gopro_60m_10fps.mp4}"
-LVS_VIDEO_VERSION="${LVS_VIDEO_VERSION:-v3.3.0-09152026}"
+LVS_VIDEO_VERSION="${LVS_VIDEO_VERSION:-3.3.0}"
 REFRESH_BCD_VIDEOS="${REFRESH_BCD_VIDEOS:-false}"
 VST_DIR="${VST_DIR:-${HOME}/rtvi-perf/vst_package}"
 LVS_VIDEO_DATA_DIR="${LVS_VIDEO_DATA_DIR:-${VST_DIR}/lvs-benchmark-data}"
