@@ -25,6 +25,16 @@ These Release Notes describe the key features, software enhancements and improve
 
   The `/deploy` pre-GA alias now resolves to `/vss-build-vision-ai`.
 
+  `vss-build-vision-ai` also composes lean stacks from the capabilities you
+  name. Unless the request names the in-stack VSS Agent, `base`, `alerts`,
+  `lvs`, and `search` builds omit the Agent and Phoenix, and keep the Agent's
+  LLM only when a selected service or the harness needs it.
+
+- Reorganized the Agent Skills into `deployment/`, `operations/`, `tools/`, and
+  `benchmarking/` folders, with `vss-build-vision-ai` at the top level.
+  Symlinks from a 3.2.x install no longer resolve for moved Skills; see
+  [Updating Skills](/vss/vision-agent/agent-skills#updating-skills).
+
 - Added the `vss` CLI as the supported way to operate a running deployment
   from a coding agent or the host. Configure it once with
   `vss configure --base-url`. Command groups include `vios`, `vlm`,
@@ -79,10 +89,14 @@ See [Q&A and Report Generation](/vss/getting-started/quickstart) for the Base wo
 - Added RTVI-VLM tag ingestion and BM25 tag search. Stock Search deployments tag each newly registered source. Fusion ranking includes those tags only when `--w-tag` is set on `vss search run fusion`.
 - Updated Search defaults to the `nvidia/nemotron-3.5-lightning-30b-a3b` LLM and Cosmos3 Nano Reasoner FP8 served by RTVI-VLM. Cosmos3 Super Reasoner is available; on the default shared GPU, use the FP8 checkpoint.
 - The critic is selected per request with `use_critic` and is on by default. The deploy-time `ENABLE_CRITIC` flag is removed. The **Enable Critic** toggle in the Vision Agent chat settings maps to `use_critic`.
-- Remote VLM endpoints are reached through RTVI-VLM with `VLM_MODEL_TYPE=rtvi`.
-- Coding-agent search runs through `vss search run` on the `embed`, `attribute`, `fusion`, and `object` routes. Source registration stays with VIOS. The agent no longer calls `/complete` or `/search` to ingest media.
+- Remote VLM endpoints are reached through RTVI-VLM with `VLM_MODEL_TYPE=rtvi`. On DGX Spark and AGX Thor, RTVI-VLM is not deployed and the profile defaults to `VLM_MODEL_TYPE=nim` with `VLM_AGENT_MEDIA_MODE=remote`.
+- Coding-agent search runs through `vss search run` on the `embed`, `attribute`, `tag`, `fusion`, and `object` routes. Source registration stays with VIOS. The agent no longer calls `/complete` or `/search` to ingest media.
+- VIOS notification webhooks send each newly registered source to RTVI-CV, RTVI-Embed, and, for tagging, RTVI-VLM. Ingestion no longer goes through the VSS Agent.
 - Removed the Search-tab input that sent a query directly to the agent. Search from the UI uses the Vision Agent chat.
 - The default layout is two shared GPUs: GPU 0 runs RTVI-CV with RTVI-VLM, and GPU 1 runs RTVI-Embed with the LLM.
+- Added Search support on DGX Spark and AGX Thor with remote LLM and VLM endpoints, and on GB300 with all local services on one GPU. IGX Thor is not supported.
+- A `vss-build-vision-ai` build with neither the in-stack VSS Agent nor an agent harness disables the Web UI chat and Search tab. Search runs from the host with `vss search`.
+- Added the `benchmark-video-search` Agent Skill to measure retrieval quality and latency of a deployed Search profile with the `vss` CLI.
 
 See [Video Search](/vss/vision-agent/agent-workflows/search) for deployment layouts and the critic.
 </Tab>
