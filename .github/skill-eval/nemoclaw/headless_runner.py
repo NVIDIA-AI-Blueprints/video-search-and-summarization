@@ -31,9 +31,9 @@ class NativeInferenceError(RuntimeError):
         super().__init__(f"native inference failed: {reason}")
 
 
-def _native_command_failure(result: subprocess.CompletedProcess[str]) -> NativeInferenceError:
-    detail = ((result.stderr or "") + "\n" + (result.stdout or "")).lower()
-    reason = "command_failed"
+def _native_error(detail: str, default: str, **metadata: int | bool) -> NativeInferenceError:
+    detail = detail.lower()
+    reason = default
     for category, markers in (
         ("compaction_timeout", ("compaction timed out", "compaction timeout")),
         ("rate_limited", ("too many requests", "rate limit", "status 429", "http 429")),
@@ -42,15 +42,25 @@ def _native_command_failure(result: subprocess.CompletedProcess[str]) -> NativeI
         ("context_limit", ("maximum context length", "context length exceeded", "context window exceeded")),
         ("transport_reset", ("connection reset", "broken pipe", "connection closed")),
         ("request_timeout", ("timed out", "deadline exceeded")),
+        ("invalid_request", ("bad request", "invalid_request_error")),
     ):
         if any(marker in detail for marker in markers):
             reason = category
             break
-    metadata = {"command_exit_code": result.returncode}
     status = re.search(r"\b(?:http(?:/[\d.]+)?|status(?:_code)?)\s*[:=]?\s*([45]\d\d)\b", detail)
+    if not status:
+        # OpenClaw's provider errorMessage often starts with the HTTP code.
+        status = re.match(r"\s*([45]\d\d)\b", detail)
     if status:
         metadata["http_status"] = int(status[1])
     return NativeInferenceError(reason, **metadata)
+
+
+def _native_command_failure(result: subprocess.CompletedProcess[str]) -> NativeInferenceError:
+    return _native_error(
+        (result.stderr or "") + "\n" + (result.stdout or ""),
+        "command_failed", command_exit_code=result.returncode,
+    )
 
 
 def _policy_denials(raw: str) -> list[dict[str, Any]]:
@@ -503,15 +513,15 @@ def _session_file(envelope: dict[str, Any]) -> str:
 
 def _set_native_usage(envelope: dict[str, Any], totals: dict[str, int]) -> None:
     if totals["turns"] < 1:
-        raise RuntimeError("OpenClaw session contained no assistant turns")
+        raise NativeInferenceError("session_no_assistant", assistant_turns=totals["turns"])
     if totals["input"] + totals["cacheRead"] < 1:
-        raise RuntimeError("OpenClaw session contained no native token usage")
+        raise NativeInferenceError("session_no_usage", assistant_turns=totals["turns"])
     meta = envelope.setdefault("meta", {})
     if not isinstance(meta, dict):
-        raise RuntimeError("OpenClaw result metadata is invalid")
+        raise NativeInferenceError("invalid_metadata")
     agent_meta = meta.setdefault("agentMeta", {})
     if not isinstance(agent_meta, dict):
-        raise RuntimeError("OpenClaw agent metadata is invalid")
+        raise NativeInferenceError("invalid_metadata")
     usage = agent_meta.setdefault("usage", {})
     if not isinstance(usage, dict):
         usage = {}
@@ -519,6 +529,43 @@ def _set_native_usage(envelope: dict[str, Any], totals: dict[str, int]) -> None:
     for key in ("input", "cacheRead", "output"):
         if _int(usage.get(key)) == 0:
             usage[key] = totals[key]
+
+
+def _check_native_session(envelope: dict[str, Any], session_jsonl: str, totals: dict[str, int]) -> None:
+    """Preserve a provider failure before zero usage can hide its cause.
+
+    OpenClaw can return exit 0 and a JSON result after its agent timeout,
+    recording the provider error only in the last assistant session message.
+    Never retain that raw message: it may contain request data or credentials.
+    """
+    metadata: dict[str, int | bool] = {
+        "assistant_turns": totals["turns"],
+        "input_tokens": totals["input"],
+        "cache_read_tokens": totals["cacheRead"],
+        "output_tokens": totals["output"],
+    }
+    meta = envelope.get("meta")
+    if isinstance(meta, dict) and isinstance(meta.get("aborted"), bool):
+        metadata["aborted"] = meta["aborted"]
+    last_assistant: dict[str, Any] = {}
+    for raw in session_jsonl.splitlines():
+        try:
+            record = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        message = record.get("message") if isinstance(record, dict) else None
+        if isinstance(message, dict) and message.get("role") == "assistant":
+            last_assistant = message
+    stop = last_assistant.get("stopReason")
+    if stop in ("error", "aborted"):
+        metadata["session_error"] = stop == "error"
+        detail = last_assistant.get("errorMessage")
+        raise _native_error(
+            detail if isinstance(detail, str) else "",
+            "provider_error" if stop == "error" else "aborted", **metadata,
+        )
+    if metadata.get("aborted") is True:
+        raise NativeInferenceError("aborted", **metadata)
 
 
 def _run_openclaw(
@@ -557,6 +604,7 @@ def _run_openclaw(
     if session.returncode != 0:
         raise NativeInferenceError("session_read_failed", command_exit_code=session.returncode)
     normalized, totals = _normalize_session(session.stdout)
+    _check_native_session(envelope, session.stdout, totals)
     _set_native_usage(envelope, totals)
     return envelope, normalized
 

@@ -462,6 +462,20 @@ only the declared files and requires matching SHA-256 checksums.
 Missing host files, upload failures and mismatches fail setup. It neither
 downloads fixtures nor registers them with VSS. Sanitized results are retained
 in `nemoclaw/fixtures.json` in the workflow artifacts.
+The judge accepts a task-bound verified fixture receipt as file-state evidence,
+even if the coding agent's earlier transcript left its own upload unfinished.
+It still requires the requested files and matching checksums; the receipt does
+not establish that the agent personally performed a particular command.
+
+Alerts setup explicitly permits headless host-local access without Brev browser
+links. CV setup requires the stock ladder/PPE verifier configuration to be
+populated before onboarding the evaluation client; HTTP 200 with an empty
+configuration is insufficient.
+
+SSH/Brev command deadlines also bound cleanup: after killing the owned process
+group, the provider allows 10 seconds to drain pipes and 1 second to reap.
+Inherited open pipes cannot consume Harbor's entire environment-start budget,
+and partial stdout never converts a timed-out command into success.
 
 Authenticated health and CLI configuration probes source the same NemoClaw
 runtime environment as native turns, so proxy policy failures cannot hide

@@ -680,6 +680,73 @@ def test_native_probe_timeout_metadata_excludes_command(runner, monkeypatch):
     assert "confidential-command" not in json.dumps(row)
 
 
+@pytest.mark.parametrize("stop,detail,aborted,reason,status", [
+    ("error", "Request timed out: confidential-payload", True, "request_timeout", None),
+    ("error", "429 Too Many Requests: confidential-payload", False, "rate_limited", 429),
+    ("error", "HTTP 400 invalid_request_error: confidential-payload", False, "invalid_request", 400),
+    ("error", "Unrecognized provider error: confidential-payload", False, "provider_error", None),
+    ("aborted", "confidential-payload", True, "aborted", None),
+])
+def test_native_probe_preserves_exit_zero_session_error(runner, monkeypatch, stop, detail, aborted, reason, status):
+    """A timed-out agent's exit 0 must not hide its provider error as zero usage."""
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    envelope = {"meta": {"aborted": aborted, "agentMeta": {
+        "sessionFile": "/sandbox/.openclaw/agents/main/sessions/probe.jsonl", "model": "local-model",
+    }}, "payloads": [{"text": "The request timed out"}]}
+    session = json.dumps({"message": {
+        "role": "assistant", "stopReason": stop, "errorMessage": detail,
+        "usage": {"input": 0, "output": 0},
+    }})
+    monkeypatch.setattr(runner, "_nemoclaw_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 0, json.dumps(envelope), ""))
+    monkeypatch.setattr(runner, "_sandbox_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 0, session, ""))
+    row = {}
+    with pytest.raises(runner.NativeInferenceError) as error:
+        runner._probe_inference("se-test", row)
+    assert row["reason"] == reason
+    assert row.get("http_status") == status
+    assert row["aborted"] == aborted
+    assert row["assistant_turns"] == 1
+    assert row["input_tokens"] == row["output_tokens"] == 0
+    assert "confidential-payload" not in str(error.value) + json.dumps(row)
+
+
+@pytest.mark.parametrize("session,reason", [
+    ("", "session_no_assistant"),
+    (json.dumps({"message": {"role": "assistant", "content": [{"type": "text", "text": "OK"}]}}), "session_no_usage"),
+])
+def test_native_probe_classifies_missing_session_evidence(runner, monkeypatch, session, reason):
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    envelope = {"meta": {"aborted": False, "agentMeta": {
+        "sessionFile": "/sandbox/.openclaw/agents/main/sessions/probe.jsonl", "model": "local-model",
+    }}, "payloads": [{"text": "OK"}]}
+    monkeypatch.setattr(runner, "_nemoclaw_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 0, json.dumps(envelope), ""))
+    monkeypatch.setattr(runner, "_sandbox_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 0, session, ""))
+    row = {}
+    with pytest.raises(runner.NativeInferenceError):
+        runner._probe_inference("se-test", row)
+    assert row["reason"] == reason
+
+
+def test_recovered_session_error_does_not_replace_success(runner, monkeypatch):
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    envelope = {"meta": {"aborted": False, "agentMeta": {
+        "sessionFile": "/sandbox/.openclaw/agents/main/sessions/probe.jsonl", "model": "local-model",
+    }}, "payloads": [{"text": "OK"}]}
+    messages = [
+        {"role": "assistant", "stopReason": "error", "errorMessage": "Request timed out"},
+        {"role": "assistant", "stopReason": "stop", "usage": {"input": 12, "output": 2}},
+        {"role": "toolResult", "stopReason": "error", "errorMessage": "Not a provider error"},
+    ]
+    session = "\n".join(json.dumps({"message": message}) for message in messages)
+    monkeypatch.setattr(runner, "_nemoclaw_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 0, json.dumps(envelope), ""))
+    monkeypatch.setattr(runner, "_sandbox_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 0, session, ""))
+    row = {}
+    runner._probe_inference("se-test", row)
+    assert row["model_matches"] is True
+    assert row["usage"] == {"input": 12, "cacheRead": 0, "output": 2}
+    assert "reason" not in row
+
+
 def test_setup_failure_artifact_keeps_native_reason(runner, monkeypatch, tmp_path):
     monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
     monkeypatch.setattr(runner, "_wait_sandbox_ready", lambda *a: None)

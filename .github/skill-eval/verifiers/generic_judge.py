@@ -110,6 +110,22 @@ only: they do not establish that the coding agent personally issued a specific
 command, read a skill, or met an operation-count requirement. Keep inspecting
 canonical agent tool calls for those behavior assertions.
 
+## NemoClaw media fixture evidence
+
+For setup assertions about media present in the sandbox, also inspect
+`/logs/artifacts/nemoclaw/fixtures.json`. The harness stages spec-declared
+media after the coding agent finishes, before grading. A verified harness
+copy is valid evidence of the resulting file state even when the coding
+agent's transcript says its own copy remained unfinished. Bind the receipt's
+`sandbox` to this task's `NEMOCLAW_SANDBOX_NAME` and gateway namespace receipt.
+Require status passed, stage complete, and exactly one verified row per
+required filename, with positive bytes and a 64-character hexadecimal sha256.
+Do not infer that an unlisted file was copied. Missing, mismatched, duplicate,
+failed, or incomplete receipts cannot establish fixture readiness; inspect the
+live host and sandbox files and compare their checksums when needed. These
+receipts establish media state only, never that the agent personally performed
+an upload or any other behavior asserted by a check.
+
 # ⚠️ Trajectory size — never load the whole file into context
 
 The trajectory file is typically **10–50 MB and contains 100–500 steps**. Loading the entire blob into your context window (a) costs tens of thousands of tokens, (b) makes you lose track of details by the time you reason about the check, and (c) is the documented root cause of hallucinated verdicts on long trials.
