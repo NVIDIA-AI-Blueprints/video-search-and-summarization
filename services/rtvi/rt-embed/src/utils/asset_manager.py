@@ -288,6 +288,7 @@ class Asset:
         url=None,
         sensor_name="",
         camera_id=None,
+        frame_source=None,
     ) -> None:
         """Asset constructor.
 
@@ -340,6 +341,7 @@ class Asset:
         self._url = url
         self._sensor_name = sensor_name
         self._camera_id = camera_id
+        self._frame_source = frame_source
 
     def __getstate__(self):
         """Return only serializable state for decoder-process commands.
@@ -523,6 +525,11 @@ class Asset:
     def camera_id(self):
         """External camera identifier for CV-compatible lookups"""
         return self._camera_id
+
+    @property
+    def frame_source(self):
+        """Per-stream external decoded-frame source, when configured."""
+        return getattr(self, "_frame_source", None)
 
     def update_video_fps(self, fps: float):
         """Update the cached video FPS (in-memory only, no disk write).
@@ -1485,6 +1492,7 @@ class AssetManager:
         stream_id: Optional[str] = None,
         sensor_name: str = "",
         camera_id: Optional[str] = None,
+        frame_source=None,
     ):
         """Add a live stream.
 
@@ -1536,6 +1544,7 @@ class AssetManager:
                 place_coordinate_y=place_coordinate_y,
                 sensor_name=sensor_name,
                 camera_id=camera_id,
+                frame_source=frame_source,
             )
 
             self._publish_asset(asset)

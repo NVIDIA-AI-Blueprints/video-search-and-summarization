@@ -66,6 +66,8 @@ ADD src/metropolis_perception_app.c /opt/nvidia/deepstream/deepstream/sources/ap
 ADD src/perception_utc.c /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/perception_utc.c
 ADD src/metropolis_perception_app.h /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/metropolis_perception_app.h
 ADD src/Makefile /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/Makefile
+ADD src/gst-vssipcsrc /tmp/gst-vssipcsrc
+RUN make -C /tmp/gst-vssipcsrc
 
 # Copy reference configs
 ADD reference-configs /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/reference-configs
@@ -106,6 +108,10 @@ LABEL com.nvidia.mm.nspect=NSPECT-L6GX-URGA
 # app tree + the installed binary on PATH
 COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/
 COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/metropolis_perception_app /opt/nvidia/deepstream/deepstream/bin/metropolis_perception_app
+COPY --from=ds-devel /tmp/gst-vssipcsrc/libgstvssipcsrc.so /opt/nvidia/deepstream/deepstream/lib/gst-plugins/libgstvssipcsrc.so
+COPY src/rtvi_cv_shared_api.py src/start_rtvi_cv_shared.sh /opt/nvidia/deepstream/deepstream/bin/
+RUN chmod 755 /opt/nvidia/deepstream/deepstream/bin/rtvi_cv_shared_api.py \
+    /opt/nvidia/deepstream/deepstream/bin/start_rtvi_cv_shared.sh
 
 # Triton model repos, with the arch-correct GDINO plugin already renamed
 COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/TritonGdino/ /opt/nvidia/deepstream/deepstream/sources/TritonGdino/

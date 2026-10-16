@@ -633,11 +633,12 @@ class DecoderProcess(ProcessBase):
                 use_fps_for_chunking=self._use_fps_for_chunking,
             )
 
+        shared_frame_source = asset.frame_source or {}
         fgetter = VideoFileFrameGetter(
             frame_selector=frame_selector,
             frame_width=vlm_query.vlm_input_width or self._width,
             frame_height=vlm_query.vlm_input_height or self._height,
-            gpu_id=0,
+            gpu_id=int(shared_frame_source.get("device_id", 0)),
             do_preprocess=self._do_preprocess,
             image_mean=self._image_mean,
             rescale_factor=self._rescale_factor,
@@ -802,7 +803,9 @@ class DecoderProcess(ProcessBase):
             password=asset.password,
             live_stream_id=asset.asset_id,
             live_stream_identity=live_stream_identity,
-            ipc_frame_copy_enabled=self._ipc_frame_copy,
+            ipc_frame_copy_enabled=bool(shared_frame_source)
+            or self._ipc_frame_copy,
+            ipc_socket_path=shared_frame_source.get("control_socket"),
             on_chunk_decoded=(
                 lambda chunk, frames, frame_times, transcripts, error, decode_start_time, decode_end_time, audio_frames, live_stream_id=asset.asset_id, kwargs=kwargs: on_chunk_decoded(  # noqa: E501
                     chunk,
