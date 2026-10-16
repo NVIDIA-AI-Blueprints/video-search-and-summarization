@@ -43,8 +43,6 @@ describe('useFilter', () => {
     const { result } = renderHook(() => useFilter({ vstApiUrl: 'http://vst.test' }));
 
     expect(result.current.filterParams).toEqual({
-      startDate: null,
-      endDate: null,
       videoSources: [],
       similarity: 0,
       agentMode: false,
@@ -120,8 +118,6 @@ describe('useFilter', () => {
 
       act(() => {
         result.current.addFilter({
-          startDate: new Date(2024, 0, 1),
-          endDate: new Date(2024, 0, 31),
           videoSources: ['cam-1', 'cam-2'],
           similarity: 0.75,
           topK: 5,
@@ -129,8 +125,6 @@ describe('useFilter', () => {
       });
 
       const tagKeys = result.current.filterTags.map((t: FilterTag) => t.key);
-      expect(tagKeys).toContain('startDate');
-      expect(tagKeys).toContain('endDate');
       expect(tagKeys).toContain('videoSources');
       expect(tagKeys).toContain('similarity');
       expect(tagKeys).toContain('topK');
@@ -143,8 +137,6 @@ describe('useFilter', () => {
 
       act(() => {
         result.current.addFilter({
-          startDate: null,
-          endDate: null,
           videoSources: [],
           similarity: 0,
           topK: 10,
@@ -192,20 +184,20 @@ describe('useFilter', () => {
 
       act(() => {
         result.current.addFilter({
-          startDate: new Date(2024, 0, 1),
+          videoSources: ['cam-1'],
           similarity: 0.5,
           topK: 10,
         });
       });
 
-      const startTag = result.current.filterTags.find((t: FilterTag) => t.key === 'startDate');
+      const sourcesTag = result.current.filterTags.find((t: FilterTag) => t.key === 'videoSources');
 
       act(() => {
-        result.current.removeFilterTag(startTag);
+        result.current.removeFilterTag(sourcesTag);
       });
 
       const tagKeys = result.current.filterTags.map((t: FilterTag) => t.key);
-      expect(tagKeys).not.toContain('startDate');
+      expect(tagKeys).not.toContain('videoSources');
       expect(tagKeys).toContain('similarity');
     });
 
@@ -221,8 +213,7 @@ describe('useFilter', () => {
 
       act(() => {
         result.current.addFilter({
-          startDate: new Date(2024, 0, 1),
-          endDate: new Date(2024, 0, 31),
+          videoSources: ['cam-1'],
           topK: 20,
         });
       });

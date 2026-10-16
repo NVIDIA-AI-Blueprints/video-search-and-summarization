@@ -8,14 +8,11 @@ const defaultProps = {
   theme: 'light' as const,
   streams: [],
   filterParams: {
-    startDate: null,
-    endDate: null,
     videoSources: [],
     similarity: 0,
     agentMode: false,
     query: '',
     topK: 10,
-    sourceType: 'video_file',
   },
   setFilterParams: jest.fn(),
   addFilter: jest.fn(),
@@ -30,7 +27,7 @@ describe('SearchHeader', () => {
 
   it('renders without crashing', () => {
     render(<SearchHeader {...defaultProps} />);
-    expect(screen.getByText('Source Type:')).toBeInTheDocument();
+    expect(screen.getByText('Filter')).toBeInTheDocument();
   });
 
   it('does not render a query input or Search button', () => {
@@ -39,11 +36,6 @@ describe('SearchHeader', () => {
     expect(screen.queryByTestId('search-input')).not.toBeInTheDocument();
     expect(screen.queryByTestId('search-button')).not.toBeInTheDocument();
     expect(screen.queryByText('Search')).not.toBeInTheDocument();
-  });
-
-  it('renders Source Type selector', () => {
-    render(<SearchHeader {...defaultProps} />);
-    expect(screen.getByText('Source Type:')).toBeInTheDocument();
   });
 
   it('renders Filter button', () => {
@@ -107,13 +99,13 @@ describe('SearchHeader', () => {
     }
   });
 
-  it('disables source type when contentDisabled is true', () => {
+  it('disables the filter button when contentDisabled is true', () => {
     render(<SearchHeader {...defaultProps} contentDisabled={true} />);
-    expect(screen.getByTestId('search-source-type')).toBeInTheDocument();
+    expect(screen.getByTestId('search-filter-button')).toBeDisabled();
   });
 
   it('renders dark theme correctly', () => {
     render(<SearchHeader {...defaultProps} theme="dark" />);
-    expect(screen.getByText('Source Type:')).toBeInTheDocument();
+    expect(screen.getByText('Filter')).toBeInTheDocument();
   });
 });
