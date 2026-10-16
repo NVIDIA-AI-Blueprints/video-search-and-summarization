@@ -155,7 +155,7 @@ Critic verification is the largest single cost, and its share grows with load ra
 staying constant. Per-call VLM inference is 65% of E2E at one concurrent query on H100 and
 88–90% at 20 and 50; RTX follows the same curve, from 62% to 92%. RTVI-VLM is therefore the
 first thing to size: give it a dedicated GPU rather than sharing one with RTVI-CV, raise
-`RTVI_VLLM_MAX_NUM_SEQS` and `RTVI_VLM_BATCH_SIZE` within the available GPU memory, or scale
+`RTVI_VLM_BATCH_SIZE` within the available GPU memory, or scale
 it out. Passing `--critic-eval-count` to `vss search run` reduces the per-query fan-out at the cost of
 leaving lower-ranked hits unverified.
 
