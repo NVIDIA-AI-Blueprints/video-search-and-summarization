@@ -931,6 +931,20 @@ harbor invocation, result format, failure modes, the DONE/BLOCKED marker
 
 ## Manual full-sweep mode
 
+An explicit manual `setup_only=true` dispatch sets
+`SKILLS_EVAL_SETUP_ONLY=true`. For this mode only, generate the full original
+operational spec dataset and let `run_leg.py` select step 1; do not edit a spec,
+adapter, task, or check to shorten it. NemoClaw readiness, including native local
+inference, still runs. `leg_report.py` labels the report **Setup only** and keeps
+all declared steps in its summary with `scope: "setup-only"` and
+`evaluated_steps: [1]`. A passing setup requires step 1 `recorded-pass`, no
+collection errors, and every later step `not-run`. Use the scope-specific final
+marker `DONE: N/N setups passed` (or `DONE: 0/1 setups passed; <failure>`),
+never `specs passed`: operational steps and full-spec success were not evaluated.
+The `specs` manual input can restrict the selected skill's filename stems; the
+plan already applied it, so do not change the selected spec. Automatic PR runs
+and manual runs without `setup_only` retain the full-spec contract below.
+
 The `workflow_dispatch` trigger runs the **same matrix as a push** — the
 `plan` job enumerates the picked skill's specs (`MANUAL_SKILLS_FILTER`, a
 skill-dir name or `*` for every skill) instead of diffing, and the `eval`
@@ -965,7 +979,8 @@ immediately. A persistent disconnect remains a failing blocker.
   audit trail. Tool calls get a one-line breadcrumb automatically.
 - **Mandatory final marker.** Your last printed line MUST start with
   either `DONE:` or `BLOCKED:`. A `DONE:` marker MUST report a positive
-  complete count as `DONE: N/N specs passed; ...`. The Python wrapper fails
+  complete count as `DONE: N/N specs passed; ...`, or `DONE: N/N setups passed`
+  for the explicit manual setup-only mode above. The Python wrapper fails
   malformed markers with exit code 4 and completed partial/zero-pass outcomes
   with exit code 5. A valid `BLOCKED:` marker fails with exit code 7, including
   worker disconnects, exhausted capacity, authentication failures, and adapter

@@ -64,7 +64,27 @@ Manual runs configure both routes without changing the coordinator or judge:
 | `operational_deployment` | Independent `hosted-nvidia-inference` (default) or `local-nim` for operational tasks |
 | `operational_model` | Same ID rules as `coding_model`; default `aws/anthropic/bedrock-claude-opus-5-5`, independently selected for operational tasks |
 | `spark_runner` | Run on Brev external node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`); default false |
+| `setup_only` | Manual operational specs only: run the original deployment/setup step 1 and its complete readiness checks; default false. Reports count setups, not full-spec passes |
+| `specs` | Optional comma-separated spec filename stems within the selected skills; empty selects all. Unknown names or no matching platform fail planning |
 
+For a focused comparison of real-time fixture setup and CV/native readiness on
+L40S, run the following on the branch under review. Repeat with
+`spark_runner=true` on the same commit for Spark. Other operational steps are
+not requested; this does not establish that their full scenarios pass.
+
+```bash
+gh workflow run skills-eval.yml --ref YOUR_BRANCH \
+  -f skills=vss-manage-alerts \
+  -f specs=alerts_vlm_real_time,cv_mode_gate,verification_flow \
+  -f setup_only=true -f spark_runner=false \
+  -f coding_harness=codex -f coding_deployment=hosted-nvidia-inference \
+  -f coding_model=azure/openai/gpt-6.1-sol \
+  -f operational_harness=nemoclaw -f operational_deployment=local-nim \
+  -f operational_model=nvidia/nemotron-3.5-lightning-30b-a3b
+```
+
+`setup_only` rejects non-operational specs instead of silently dropping them.
+Omit both optional inputs for the ordinary complete skill run.
 
 The runner owns credentials. Hosted routes use the fixed
 `https://inference-api.nvidia.com/v1` endpoint. Local routes use a fixed,

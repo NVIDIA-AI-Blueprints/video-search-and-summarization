@@ -211,7 +211,7 @@ def test_container_diagnostics_keep_routing_and_oom_without_credentials(monkeypa
     target.mkdir()
     original_path = Path
     monkeypatch.setattr(nim, "Path", lambda value: target if value == "/logs/artifacts/local-nim" else original_path(value))
-    monkeypatch.setattr(nim, "owner_paths", lambda _: tmp_path)
+    monkeypatch.setattr(nim, "owner_paths", lambda _, **kw: tmp_path)
     monkeypatch.setattr(nim, "publish", lambda _: None)
     monkeypatch.setenv("NGC_API_KEY", "secret-ngc")
     ports = {"8000/tcp": [{"HostIp": "127.0.0.1", "HostPort": "18410"}]}
@@ -235,6 +235,30 @@ def test_container_diagnostics_keep_routing_and_oom_without_credentials(monkeypa
     assert snapshot["published_ports"] == ports
     assert snapshot["health"] == "unhealthy"
     assert all("secret-ngc" not in path.read_text() for path in target.iterdir())
+
+
+def test_collect_cli_reads_owned_state_without_starting_or_cleaning(monkeypatch, tmp_path):
+    owner = "a" * 24
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(sys, "argv", ["local_nim.py", "collect", "--owner", owner])
+    monkeypatch.setattr(nim, "start", Mock(side_effect=AssertionError("must not start")))
+    monkeypatch.setattr(nim, "cleanup", Mock(side_effect=AssertionError("must not clean")))
+    monkeypatch.setattr(nim, "publish", Mock())
+    monkeypatch.setattr(nim, "docker", Mock(return_value=subprocess.CompletedProcess([], 0, "", "")))
+    nim.main()
+    nim.docker.assert_called_once_with(
+        "ps", "-a", "--filter", f"label={nim.LABEL}={owner}", "--format", "{{.Names}}", check=False,
+    )
+    assert not (tmp_path / ".cache/skill-eval-nim" / owner).exists()
+
+
+@pytest.mark.parametrize("owner", ["../other", "b" * 23, "C" * 24, None])
+def test_collect_cli_rejects_invalid_owner_before_docker(monkeypatch, owner):
+    args = ["local_nim.py", "collect"] + (["--owner", owner] if owner is not None else [])
+    monkeypatch.setattr(sys, "argv", args)
+    monkeypatch.setattr(nim, "docker", Mock(side_effect=AssertionError("must not inspect")))
+    with pytest.raises(nim.NimError, match="Invalid local NIM owner"):
+        nim.main()
 
 
 @pytest.mark.parametrize(

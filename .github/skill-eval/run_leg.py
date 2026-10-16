@@ -276,6 +276,16 @@ def discover_invocations(dataset_root: Path) -> list[HarborInvocation]:
     return invocations
 
 
+def select_setup_invocations(invocations: list[HarborInvocation], spec_path: str) -> list[HarborInvocation]:
+    """Select each operational chain's original setup task without changing it."""
+    if not spec_path.startswith("skills/operations/"):
+        raise ValueError("setup_only requires an operational spec")
+    setups = [item for item in invocations if item.step_index in (None, 1)]
+    if not setups:
+        raise ValueError("no deployment/setup task found")
+    return setups
+
+
 def _api_base_v1(base_url: str) -> str:
     stripped = base_url.rstrip("/")
     if stripped.endswith("/v1"):
@@ -770,6 +780,15 @@ def pool_candidates(
         if not name.startswith("vss-eval-"):
             continue
         if (inst.get("status") or "").upper() != "RUNNING":
+            continue
+        # Brev can report a running VM whose SSH shell is explicitly NOT
+        # READY. Do not prefer that broken worker merely because its name
+        # matches the requested GPU count. Missing legacy fields remain valid.
+        if any(
+            str(inst.get(field) or "").strip().upper().replace("_", " ").replace("-", " ")
+            in {"NOT READY", "UNHEALTHY", "DISCONNECTED", "STOPPED"}
+            for field in ("shell_status", "health_status")
+        ):
             continue
         if required_count > 0:
             # Applies to managed instances too, not just registered nodes.
@@ -2356,6 +2375,9 @@ def main(argv: list[str] | None = None) -> int:
         leg_log(f"heartbeat unavailable ({exc!r}); leg continues without it")
     try:
         invocations = discover_invocations(args.dataset_root)
+        if os.environ.get("SKILLS_EVAL_SETUP_ONLY") == "true":
+            invocations = select_setup_invocations(invocations, os.environ.get("EVAL_SPEC_PATH", ""))
+            print("[run-leg] setup-only scope: operational steps were not requested", flush=True)
         print(f"[run-leg] discovered {len(invocations)} harbor invocation(s)", flush=True)
         for invocation in invocations:
             print(
