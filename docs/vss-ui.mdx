@@ -180,7 +180,7 @@ When **Manage Alerts** is selected, a **"Create alert rule"** button appears bel
 
 The View Alerts panel is the primary monitoring dashboard. It consists of:
 
-1. **Filter Controls** — Top bar with filters, settings, and refresh controls
+1. **Filter Controls** — Left sidebar controls for verification, filters, fetch settings, and refresh
 2. **Alerts Table** — Sortable, paginated table with video playback and metadata
 
 ##### Filter Controls
@@ -205,7 +205,6 @@ Visible only when VLM Verified is ON. Options:
 
 - **All**
 - **Confirmed** (true positives)
-- **Not Confirmed**
 - **Rejected** (false positives)
 - **Verification Failed**
 
@@ -213,19 +212,19 @@ Visible only when VLM Verified is ON. Options:
 
 ![VSS Reference User Interface - Alerts Tab - Sensor / Alert Type / Alert Triggered Filter](/assets/images/vss-ui/alerts-mode/filters-tags.png)
 
-Three dropdown filters for narrowing results:
+Two dropdowns in the left sidebar narrow the results:
 
-1. Click a dropdown → Select a value → A filter tag appears below
-2. Click ✕ on a tag to remove it
-3. **Quick add:** Click sensor, alert type, or alert triggered values directly in the table rows to add them as filters
+1. Open **Filters**, choose **Sensor** or **Alert Type**, and a filter tag appears below
+2. Click ✕ on a tag to remove it, or click **Clear All**
+3. **Quick add:** Click a sensor or alert type in the table to add it as a filter
 
-**Filter Tags:** Color-coded badges (🔵 Sensor • 🟠 Alert Type • 🟢 Triggered). Multiple filters use AND logic.
+Multiple filters use AND logic.
 
 ###### Alerts Settings
 
 ![VSS Reference User Interface - Alerts Tab - Alerts Settings](/assets/images/vss-ui/alerts-mode/alerts-settings.png)
 
-Click the gear icon (⚙) in the filter bar to open the **Alerts Settings** popover. This popover contains:
+Expand **Fetch Settings** in the left sidebar:
 
 **Query Range:**
 
@@ -249,9 +248,9 @@ Controls the maximum number of alerts returned per API call.
 
 ![VSS Reference User Interface - Alerts Tab - Refresh Controls](/assets/images/vss-ui/alerts-mode/refresh-controls.png)
 
-**Auto-Refresh** (↻ icon): Configurable intervals — 1s / 5s / 10s / 30s / 1min. When enabled, the icon turns blue with a pulsing dot indicator.
+**Refresh now** reloads the alerts immediately.
 
-**Manual Refresh** (🔄 icon): Click to refresh data immediately. The icon spins while loading.
+**Settings** sets the auto-refresh interval. Presets are 1s, 5s, 10s, 30s, and 1min. A green dot on **Settings** means auto-refresh is on.
 
 **Best Practice:** Use 1–5s intervals for active monitoring, 30s–1min to reduce load, and disable auto-refresh during detailed analysis.
 
@@ -280,7 +279,6 @@ The sticky toolbar above the table header provides:
 | End | Alert end time (sortable: ↑ ↓ ⇅) |
 | Sensor | Sensor ID (click to add as filter) |
 | Alert Type | Alert classification (click to add as filter) |
-| Alert Triggered | Module that detected the alert (click to add as filter) |
 | VLM Verdict | 🟢 Confirmed • 🔴 Rejected • 🟡 Failed • ⚪ N/A |
 | Alert Description | Alert details text |
 | ⓘ | Expand/collapse metadata |
