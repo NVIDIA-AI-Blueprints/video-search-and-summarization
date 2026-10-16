@@ -62,6 +62,9 @@ HELM_VALUES = {
     "vss-rt-cv-mv3dt-bev-fusion": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
     ],
+    "reid-embed": [
+        "deploy/helm/services/rtvi/charts/reid-embed/values.yaml",
+    ],
     "vss-rt-cv-mv3dt-config-init": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/values.yaml",
     ],
@@ -118,6 +121,9 @@ HELM_HELPERS = {
     ],
     "vss-rt-cv-mv3dt-bev-fusion": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
+    ],
+    "reid-embed": [
+        "deploy/helm/services/rtvi/charts/reid-embed/templates/_helpers.tpl",
     ],
     "vss-rt-cv-mv3dt-config-init": [
         "deploy/helm/services/rtvi/charts/rtvi-cv/templates/_helpers.tpl",
