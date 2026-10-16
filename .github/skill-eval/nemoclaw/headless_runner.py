@@ -28,6 +28,9 @@ class NativeInferenceError(RuntimeError):
     def __init__(self, reason: str, **metadata: int | bool) -> None:
         self.reason = reason
         self.metadata = metadata
+        # Private operational evidence, never included in readiness metadata
+        # or the exception string. Filled only after a trusted session read.
+        self._session_evidence: tuple[dict[str, Any], str] | None = None
         super().__init__(f"native inference failed: {reason}")
 
 
@@ -604,9 +607,43 @@ def _run_openclaw(
     if session.returncode != 0:
         raise NativeInferenceError("session_read_failed", command_exit_code=session.returncode)
     normalized, totals = _normalize_session(session.stdout)
-    _check_native_session(envelope, session.stdout, totals)
-    _set_native_usage(envelope, totals)
+    try:
+        _check_native_session(envelope, session.stdout, totals)
+        _set_native_usage(envelope, totals)
+    except NativeInferenceError as exc:
+        # A provider failure can follow useful tools/results. Preserve that
+        # history for the operational verifier; setup retains metadata only.
+        exc._session_evidence = envelope, normalized
+        raise
     return envelope, normalized
+
+
+def _write_session_evidence(agent_log_dir: Path, envelope: dict[str, Any], session: str) -> None:
+    # Both paths use the normal agent artifact names consumed by Harbor and
+    # the environment's existing artifact redaction/copyback pipeline.
+    (agent_log_dir / "openclaw.txt").write_text(
+        json.dumps(envelope, separators=(",", ":")) + "\n", encoding="utf-8",
+    )
+    (agent_log_dir / "openclaw.session.jsonl").write_text(session, encoding="utf-8")
+
+
+def _refresh_local_nim_diagnostics() -> None:
+    """Refresh owned NIM state after application work, without changing its outcome."""
+    raw = os.environ.get("SKILL_EVAL_LOCAL_NIM_PLAN")
+    if not raw:
+        return
+    try:
+        plan = json.loads(raw)
+        owner = plan.get("owner") if isinstance(plan, dict) else None
+        if not isinstance(owner, str) or re.fullmatch(r"[a-f0-9]{24}", owner) is None:
+            return
+        subprocess.run(
+            [sys.executable, f"/tmp/skill-eval-nim-{owner}.py", "collect", "--owner", owner],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=30, check=False,
+        )
+    except Exception:  # noqa: BLE001
+        pass  # A missing helper or failed diagnostic transport cannot replace the trial.
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -640,19 +677,17 @@ def main(argv: list[str] | None = None) -> int:
         # Onboarding owns the provider binding. The job's local proxy needs
         # no credential refresh; the native agent turn verifies inference.
         envelope, session = _run_openclaw(sandbox, prompt, args.timeout)
-        (agent_log_dir / "openclaw.txt").write_text(
-            json.dumps(envelope, separators=(",", ":")) + "\n",
-            encoding="utf-8",
-        )
-        (agent_log_dir / "openclaw.session.jsonl").write_text(
-            session,
-            encoding="utf-8",
-        )
+        _write_session_evidence(agent_log_dir, envelope, session)
         if "policy_denied" in session or re.search(r"\b403\b", session):
             _capture_policy_denials(sandbox, agent_log_dir)
         return 0
     except Exception as exc:  # noqa: BLE001
         failure = f"NemoClaw/OpenClaw headless run failed: {type(exc).__name__}: {exc}"
+        if not args.setup_check and isinstance(exc, NativeInferenceError) and exc._session_evidence is not None:
+            try:
+                _write_session_evidence(agent_log_dir, *exc._session_evidence)
+            except OSError:
+                pass  # Preserve the native failure if evidence copyback fails.
         # No session exists when gateway/inference fails before an answer.
         # Give Harbor and the judge this trial's failure evidence instead of
         # leaving them to discover a previous coding or operational raw log.
@@ -662,6 +697,8 @@ def main(argv: list[str] | None = None) -> int:
         # never echoes a chained subprocess exception or raw gateway config.
         print(failure, file=sys.stderr)
         return 1
+    finally:
+        _refresh_local_nim_diagnostics()
 
 
 if __name__ == "__main__":
