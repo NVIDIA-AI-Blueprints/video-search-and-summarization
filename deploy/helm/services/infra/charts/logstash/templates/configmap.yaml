@@ -289,6 +289,11 @@ data:
     }
     filter {
       json { source => "message" }
+      # Frames without a usable timestamp would otherwise be indexed under 1970
+      # after the numeric conversion below.
+      if [type] == "mdx-raw" and (![timestamp][seconds] or [timestamp][seconds] < 86400) {
+        drop { }
+      }
       ruby {
         code => "event.set('timestamp',(((event.get('[timestamp][seconds]').to_f)*1000) +((event.get('[timestamp][nanos]').to_f) * (10 ** -6)).floor()))"
       }
