@@ -707,7 +707,7 @@ def collect_logs(plan: dict):
     root = owner_paths(plan["owner"], create=False)
     publish(root)
     target = Path("/logs/artifacts/local-nim")
-    names = docker(
+    listing = docker(
         "ps",
         "-a",
         "--filter",
@@ -715,22 +715,37 @@ def collect_logs(plan: dict):
         "--format",
         "{{.Names}}",
         check=False,
-    ).stdout.split()
-    for name in names:
-        if not re.fullmatch(r"skill-eval-nim-[a-f0-9]{24}-(?:[0-9]+|proxy)", name):
+    )
+    names = [name for name in listing.stdout.split() if re.fullmatch(
+        rf"skill-eval-nim-{plan['owner']}-(?:[0-9]+|proxy)", name,
+    )]
+    (target / "container-inventory.json").write_text(json.dumps({
+        "owner": plan["owner"], "collected_at_unix": time.time(),
+        "enumeration_exit_code": listing.returncode, "containers": names,
+    }, indent=2))
+    # RT-CV can fail internally on CUDA allocation while NIM stays healthy.
+    # Its fixed application name is read-only diagnostic scope, never cleanup.
+    for name in [*names, "vss-rtvi-cv"]:
+        inspection = docker("inspect", name, check=False)
+        if inspection.returncode:
+            if name == "vss-rtvi-cv":
+                absent = any(marker in inspection.stderr.lower() for marker in ("no such object", "no such container"))
+                (target / f"{name}.state.json").write_text(json.dumps({
+                    "name": name, "collected_at_unix": time.time(),
+                    "present": False if absent else None, "inspection_exit_code": inspection.returncode,
+                }, indent=2))
+                (target / f"{name}.log").unlink(missing_ok=True)  # Do not retain an earlier collection's CV errors.
             continue
         result = docker("logs", "--tail", "150", name, check=False)
         logs = result.stdout + result.stderr
         for value in (
             os.environ.get("NGC_API_KEY"),
             os.environ.get("NGC_CLI_API_KEY"),
+            os.environ.get("NVIDIA_API_KEY"),
         ):
             if value:
                 logs = logs.replace(value, "[REDACTED]")
         (target / f"{name}.log").write_text(logs)
-        inspection = docker("inspect", name, check=False)
-        if inspection.returncode:
-            continue
         info = json.loads(inspection.stdout)[0]
         state = info.get("State") or {}
         # Full inspect output contains NGC credentials. Keep only lifecycle
