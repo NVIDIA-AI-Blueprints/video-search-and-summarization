@@ -1,0 +1,300 @@
+{
+  "summary": {
+    "dataset": "parityds",
+    "subset": "default",
+    "total_queries": 3,
+    "queries_attempted": 4,
+    "mAP": 0.5,
+    "MRR": 0.6667,
+    "avg_precision": 0.5,
+    "avg_recall": 0.5,
+    "avg_f1": 0.4444,
+    "HIT@1": 0.6667,
+    "HIT@3": 0.6667,
+    "HIT@5": 0.6667,
+    "HIT@10": 0.6667,
+    "unanswered": {
+      "count": 1,
+      "reasons": {
+        "simulated query timeout": 1
+      },
+      "queries": [
+        {
+          "index": 3,
+          "query": "query that times out",
+          "reason": "simulated query timeout"
+        }
+      ]
+    },
+    "critic": {
+      "verdicts": {
+        "confirmed": 2,
+        "rejected": 1,
+        "unverified": 0
+      },
+      "status": "ok"
+    },
+    "critic_filtered": {
+      "mAP": 0.5,
+      "MRR": 0.6667,
+      "avg_precision": 0.6667,
+      "avg_recall": 0.5,
+      "avg_f1": 0.5556,
+      "HIT@1": 0.6667,
+      "HIT@3": 0.6667,
+      "HIT@5": 0.6667,
+      "HIT@10": 0.6667
+    },
+    "total_rejected": 1,
+    "queries_with_rejections": 1,
+    "search_paths": {
+      "fusion": 3
+    },
+    "verification": {
+      "field_sources": [
+        "verification"
+      ],
+      "available": true
+    },
+    "latency": {
+      "mean_s": 1.0,
+      "median_s": 1.0,
+      "min_s": 1.0,
+      "max_s": 1.0,
+      "p90_s": 1.0,
+      "p95_s": 1.0,
+      "std_dev_s": 0.0
+    },
+    "decomposition": {
+      "queries": 3,
+      "mean_s": 0.5,
+      "median_s": 0.5,
+      "max_s": 0.5,
+      "total_s": 1.5,
+      "share_of_query_pct": 33.3,
+      "routed_to": {
+        "fusion": 3
+      }
+    }
+  },
+  "config": {
+    "dataset": "parityds",
+    "subset": "default",
+    "concurrency": 1,
+    "vss_cmd": "fake-vss",
+    "routing": "per-query (live decomposition)",
+    "search_path": "embed",
+    "top_k": 5,
+    "min_cosine_similarity": 0.0,
+    "source_type": "video_file",
+    "attributes": [],
+    "merge_adjacent": false,
+    "decompositions": 0,
+    "pass_original_query": true,
+    "critic_eval_count": null,
+    "live_decomposition": {
+      "llm_url": "http://fake-llm",
+      "model": "fake-model"
+    },
+    "planned_paths": "embed=4"
+  },
+  "flow": {
+    "query": {
+      "backend": "cli",
+      "vss_cmd": "fake-vss",
+      "routing": "per-query (live decomposition)",
+      "search_path": "embed",
+      "top_k": 5,
+      "min_cosine_similarity": 0.0,
+      "source_type": "video_file",
+      "attributes": [],
+      "merge_adjacent": false,
+      "decompositions": 0,
+      "pass_original_query": true,
+      "critic_eval_count": null,
+      "live_decomposition": {
+        "llm_url": "http://fake-llm",
+        "model": "fake-model"
+      },
+      "planned_paths": "embed=4"
+    },
+    "ingest": {
+      "flow": "fake-ingest",
+      "ingest_proof": "none"
+    },
+    "readiness": null,
+    "index_probe": null,
+    "cleared": null,
+    "inventory": {
+      "stable": null,
+      "reason": "inventory unavailable at one or both ends"
+    },
+    "phoenix": {
+      "collected": false,
+      "reason": "not collected by this script; unavailable on the CLI query path because search_core/vss_cli emit no OTel spans"
+    }
+  },
+  "query_results": [
+    {
+      "query": "person with box",
+      "precision": 0.5,
+      "recall": 1.0,
+      "f1": 0.6666666666666666,
+      "average_precision": 1.0,
+      "reciprocal_rank": 1.0,
+      "hit_at_k": {
+        "1": 1,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "true_positives": 1,
+      "false_positives": 1,
+      "total_relevant": 1,
+      "total_retrieved": 2,
+      "latency_s": 1.0,
+      "missed_gt_indices": [],
+      "decompose_s": 0.5,
+      "total_latency_s": 1.5,
+      "decomposition": {
+        "query": "rewritten: person with box",
+        "attributes": [
+          "person wearing a hardhat"
+        ],
+        "has_action": true,
+        "source_type": "video_file"
+      },
+      "num_rejected": 1,
+      "critic_filtered": {
+        "query": "person with box",
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "average_precision": 1.0,
+        "reciprocal_rank": 1.0,
+        "hit_at_k": {
+          "1": 1,
+          "3": 1,
+          "5": 1,
+          "10": 1
+        },
+        "true_positives": 1,
+        "false_positives": 0,
+        "total_relevant": 1,
+        "total_retrieved": 1,
+        "latency_s": 1.0,
+        "missed_gt_indices": []
+      }
+    },
+    {
+      "query": "forklift moving",
+      "precision": 1.0,
+      "recall": 0.5,
+      "f1": 0.6666666666666666,
+      "average_precision": 0.5,
+      "reciprocal_rank": 1.0,
+      "hit_at_k": {
+        "1": 1,
+        "3": 1,
+        "5": 1,
+        "10": 1
+      },
+      "true_positives": 1,
+      "false_positives": 0,
+      "total_relevant": 2,
+      "total_retrieved": 1,
+      "latency_s": 1.0,
+      "missed_gt_indices": [
+        1
+      ],
+      "decompose_s": 0.5,
+      "total_latency_s": 1.5,
+      "decomposition": {
+        "query": "rewritten: forklift moving",
+        "attributes": [
+          "person wearing a hardhat"
+        ],
+        "has_action": true,
+        "source_type": "video_file"
+      },
+      "num_rejected": 0,
+      "critic_filtered": {
+        "query": "forklift moving",
+        "precision": 1.0,
+        "recall": 0.5,
+        "f1": 0.6666666666666666,
+        "average_precision": 0.5,
+        "reciprocal_rank": 1.0,
+        "hit_at_k": {
+          "1": 1,
+          "3": 1,
+          "5": 1,
+          "10": 1
+        },
+        "true_positives": 1,
+        "false_positives": 0,
+        "total_relevant": 2,
+        "total_retrieved": 1,
+        "latency_s": 1.0,
+        "missed_gt_indices": [
+          1
+        ]
+      }
+    },
+    {
+      "query": "a query with no hits",
+      "precision": 0,
+      "recall": 0.0,
+      "f1": 0,
+      "average_precision": 0.0,
+      "reciprocal_rank": 0.0,
+      "hit_at_k": {
+        "1": 0,
+        "3": 0,
+        "5": 0,
+        "10": 0
+      },
+      "true_positives": 0,
+      "false_positives": 0,
+      "total_relevant": 1,
+      "total_retrieved": 0,
+      "latency_s": 1.0,
+      "missed_gt_indices": [
+        0
+      ],
+      "decompose_s": 0.5,
+      "total_latency_s": 1.5,
+      "decomposition": {
+        "query": "rewritten: a query with no hits",
+        "attributes": [
+          "person wearing a hardhat"
+        ],
+        "has_action": true,
+        "source_type": "video_file"
+      },
+      "num_rejected": 0,
+      "critic_filtered": {
+        "query": "a query with no hits",
+        "precision": 0,
+        "recall": 0.0,
+        "f1": 0,
+        "average_precision": 0.0,
+        "reciprocal_rank": 0.0,
+        "hit_at_k": {
+          "1": 0,
+          "3": 0,
+          "5": 0,
+          "10": 0
+        },
+        "true_positives": 0,
+        "false_positives": 0,
+        "total_relevant": 1,
+        "total_retrieved": 0,
+        "latency_s": 1.0,
+        "missed_gt_indices": [
+          0
+        ]
+      }
+    }
+  ]
+}

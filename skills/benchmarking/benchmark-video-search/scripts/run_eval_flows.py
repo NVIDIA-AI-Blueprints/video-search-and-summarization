@@ -58,34 +58,56 @@ Examples
 from __future__ import annotations
 
 import argparse
-import collections
 import contextlib
 import json
 import os
-import statistics
 import sys
-import threading
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+import time  # noqa: F401  (re-exported patch target: tests monkeypatch rf.time.sleep)
 from pathlib import Path
 from typing import Any
 
-import requests
-
-#: Stages whose own time is below this are wrappers or noise; the console hides
-#: them so the table reads as "where did the time go" without a nesting caveat.
-_STAGE_FLOOR_S = 0.001
+import requests  # noqa: F401  (re-exported patch target: tests monkeypatch rf.requests.delete)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-
-#: Results land beside the script, not under the caller's cwd, so a run is
-#: findable regardless of where it was started from.
-RESULTS_DIR = SCRIPT_DIR / "cli_eval_result"
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import flows
+from flows import pipeline
+from flows.artifacts import RESULTS_DIR, IngestManifest, RunConfig
+from flows.pipeline import (
+    _probe_backend,
+    clear_all_videos,
+    describe_query_flow,
+    expected_sources_from_upload,
+    ingest_videos,
+    probe_index_coverage,
+    prune_foreign_videos,
+)
+from flows.scoring import SCORING_BACKENDS
+from flows.scoring.summarize import _print_summary, _summarize
+
+# Backward-compatibility surface. The stage helpers moved to flows.pipeline (and
+# the summary aggregation to flows.scoring.summarize) but are re-exported here
+# because the test-suite both calls them on this module (rf.probe_index_coverage,
+# rf._summarize, rf.describe_query_flow, ...) and monkeypatches the shared module
+# objects it reaches through here (rf.time, rf.requests, rf.flows) -- those are
+# the same module objects the moved code imports, so patching them here still
+# takes effect. run_evaluation (below) keeps the pre-split single-call signature
+# working. Listing the re-exports in __all__ marks them used; time/requests carry
+# a noqa because they are patch targets rather than names this module calls.
+__all__ = [
+    "_print_summary",
+    "_probe_backend",
+    "_summarize",
+    "clear_all_videos",
+    "describe_query_flow",
+    "expected_sources_from_upload",
+    "ingest_videos",
+    "probe_index_coverage",
+    "prune_foreign_videos",
+    "run_evaluation",
+]
 
 # =============================================================================
 # Backend construction
@@ -119,7 +141,11 @@ def build_query_backend(args: argparse.Namespace) -> Any:
         # so without it the run would reach the first query and abort on a
         # usage error (exit 2) -- correct, but only after building the CLI
         # environment and reconfiguring the deployment.
-        if args.search_path in ("attribute", "fusion") and not args.attribute and not args.decompositions:
+        if (
+            args.search_path in ("attribute", "fusion")
+            and not args.attribute
+            and not args.decompositions
+        ):
             raise SystemExit(
                 f"ERROR: --search-path {args.search_path} requires at least one --attribute.\n"
                 "  Attributes are detectable properties ('white jacket', 'red hard hat'),\n"
@@ -134,7 +160,9 @@ def build_query_backend(args: argparse.Namespace) -> Any:
             vss_cmd, how = flows.resolve_vss_cmd(args.vss_cmd, args.vss_repo_root)
         except FileNotFoundError as e:
             raise SystemExit(f"ERROR: {e}") from e
-        print(f"vss CLI:        {' '.join(vss_cmd)}\n                (resolved from {how})")
+        print(
+            f"vss CLI:        {' '.join(vss_cmd)}\n                (resolved from {how})"
+        )
 
         if not args.skip_vss_preflight and not args.dry_run:
             # One subprocess now, instead of discovering a broken CLI on query
@@ -150,22 +178,32 @@ def build_query_backend(args: argparse.Namespace) -> Any:
             # --endpoint and points at a DIFFERENT port: it discovers services
             # by path prefix on the unified origin, which the agent port does
             # not route. Getting this wrong yields exit 4 on every query.
-            base_url = args.vss_base_url or flows.vss_origin_for(args.endpoint, args.vss_origin_port)
+            base_url = args.vss_base_url or flows.vss_origin_for(
+                args.endpoint, args.vss_origin_port
+            )
             try:
                 flows.ensure_vss_configured(vss_cmd, base_url)
             except Exception as e:
-                raise SystemExit(f"ERROR: vss configure failed for {base_url}: {e}") from e
+                raise SystemExit(
+                    f"ERROR: vss configure failed for {base_url}: {e}"
+                ) from e
         decompositions: dict[str, dict[str, Any]] = {}
         if args.decompositions:
             decompositions = flows.load_decompositions(args.decompositions)
-            print(f"decompositions: {len(decompositions)} loaded from {args.decompositions}")
+            print(
+                f"decompositions: {len(decompositions)} loaded from {args.decompositions}"
+            )
 
         # `--original-query` is newer than most deployed CLIs, and an unknown
         # option exits 2 -- fatal, on query 1. Probe rather than assume: one
         # --help beats aborting a run that would otherwise have completed with
         # slightly worse verification.
         pass_original_query = not args.no_original_query
-        if pass_original_query and not args.dry_run and not flows.cli_supports_flag(vss_cmd, "--original-query"):
+        if (
+            pass_original_query
+            and not args.dry_run
+            and not flows.cli_supports_flag(vss_cmd, "--original-query")
+        ):
             pass_original_query = False
             print(
                 "WARNING: this vss CLI has no --original-query, so the critic will "
@@ -176,412 +214,36 @@ def build_query_backend(args: argparse.Namespace) -> Any:
                 "Update the CLI to fix."
             )
 
+        # Dense / full-gallery retrieval: every clip in one pass, no cosine floor,
+        # no adjacent merging. The request caps at the CLI's top_k ceiling (1000);
+        # the clip-level scorers label any resulting gallery-coverage gap.
+        full_gallery = getattr(args, "full_gallery", False)
+        top_k = 1000 if full_gallery else args.top_k
+        min_cosine_similarity = -1.0 if full_gallery else args.min_cosine_similarity
+        merge_adjacent = False if full_gallery else args.merge_adjacent
+        if full_gallery:
+            print(
+                "retrieval depth:  full gallery (top_k=1000, cosine floor -1, no merge)"
+            )
+
         return flows.CliQueryBackend(
             vss_cmd=vss_cmd,
             search_path=args.search_path,
-            top_k=args.top_k,
-            min_cosine_similarity=args.min_cosine_similarity,
+            top_k=top_k,
+            min_cosine_similarity=min_cosine_similarity,
             source_type=args.source_type,
             attributes=args.attribute or [],
-            merge_adjacent=args.merge_adjacent,
+            merge_adjacent=merge_adjacent,
             cwd=args.vss_repo_root,
             decompositions=decompositions,
             pass_original_query=pass_original_query,
+            full_gallery=full_gallery,
         )
     raise SystemExit(f"Unknown query flow: {args.query_flow}")
 
 
 # =============================================================================
-# Ingest
-# =============================================================================
-
-
-def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
-    """Delete every video registered on the deployment.
-
-    Lists and deletes against the SAME resolved origins the rest of the run
-    uses, so ``--vst-url`` cannot list one host and delete from another.
-    Prints the full inventory first: ``--clear`` is destructive and shared
-    deployments carry other people's fixtures.
-    """
-    try:
-        streams = flows.list_sensor_streams(vst_url)
-    except Exception as e:
-        raise SystemExit(f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})") from e
-
-    if not streams:
-        print("  No videos found to delete.")
-        return {"found": 0, "deleted": 0, "names": []}
-
-    print(f"  Deleting {len(streams)} video(s) from {agent_endpoint}:")
-    for stream_id, name in streams.items():
-        print(f"    - {name}  ({stream_id})")
-
-    deleted, failed = 0, []
-    for stream_id, name in streams.items():
-        try:
-            resp = requests.delete(f"{agent_endpoint.rstrip('/')}/api/v1/videos/{stream_id}", timeout=60)
-            resp.raise_for_status()
-            deleted += 1
-            print(f"    deleted {name} -> {resp.status_code}")
-        except Exception as e:  # noqa: BLE001
-            failed.append(name)
-            print(f"    FAILED {name}: {e}")
-
-    print(f"  Deleted {deleted}/{len(streams)} video(s)")
-    return {"found": len(streams), "deleted": deleted, "failed": failed, "names": list(streams.values())}
-
-
-#: What the probe asks. Any text works -- embedding search returns the nearest
-#: `top_k` regardless of how poorly they match, so what comes back is a sample
-#: of what is indexed, not a judgement about relevance. Deliberately generic so
-#: it carries no assumption about which dataset was ingested.
-PROBE_QUERY = "a person"
-
-
-def _probe_backend(query_backend: Any, top_k: int, source: str | None = None) -> Any:
-    """A throwaway embed backend, optionally scoped to one registered source.
-
-    Never the run's own: a ``--min-cosine-similarity`` floor or a non-embed
-    ``--search-path`` would filter a healthy index into a false alarm.
-
-    Scoping rides on the decomposition machinery rather than a new argv branch --
-    ``{"video_sources": [name]}`` routes to embed (no attributes, no object ids)
-    and ``plan_for`` turns it into ``--video-source``.
-    """
-    decompositions = {PROBE_QUERY: {"video_sources": [source]}} if source else None
-    return flows.CliQueryBackend(
-        vss_cmd=query_backend.vss_cmd,
-        search_path="embed",
-        top_k=top_k,
-        cwd=query_backend.cwd,
-        pass_original_query=False,
-        critic_eval_count=1,
-        decompositions=decompositions,
-    )
-
-
-def probe_index_coverage(
-    query_backend: Any,
-    expected_sources: list[str],
-    vst_url: str | None = None,
-    attempts: int = 10,
-    backoff_s: float = 15.0,
-    top_k_per_source: int = 20,
-) -> dict[str, Any]:
-    """Confirm every ingested video is searchable before scoring a whole run.
-
-    The three-step ingest flow proves this for free: ``/complete`` runs the
-    embedding leg synchronously per video and returns ``chunks_processed``, so a
-    zero fails that upload. ``vst-direct`` has no such step -- VIOS fans out to
-    the perception services by webhook and never reports the outcome -- and the
-    readiness poll does not close the gap, because it asks VST which sources are
-    *registered*. VST registers at upload time, synchronously, so that poll
-    returns in 0.0s against an index that has not been built yet.
-
-    Two stages, because one broad query is cheap but not conclusive:
-
-    1. One unscoped embed query. Embedding search returns the nearest ``top_k``
-       whatever they are, so what comes back samples what is indexed. Usually
-       every source appears and the probe is done in one call.
-    2. Anything still absent is queried again **scoped to that source**. A fully
-       indexed video can be crowded out of stage 1 by closer chunks from other
-       videos, and aborting a healthy run on that would be worse than the bug
-       this guards. Absence only counts once the source has been asked about
-       directly.
-
-    Scoping needs the name VST actually registered, which is not always the
-    dataset's spelling (VST keeps the extension for some sources and not
-    others), so ``vst_url`` is read once to resolve them. Without it, stage 2 is
-    skipped and stage 1 alone decides -- weaker, and said so in the result.
-    """
-    if not expected_sources:
-        return {"checked": False, "reason": "no expected sources"}
-
-    registered: dict[str, str] = {}
-    if vst_url:
-        try:
-            # `list_sensor_streams`, NOT `list_sensor_names`: the latter
-            # lowercases for case-insensitive membership tests, and that value
-            # would go on to `--video-source`, where `should_clauses_for_source`
-            # matches it with `term`/`wildcard` against ES `.keyword` fields.
-            # Those are case-sensitive, so a lowercased "assault036_x264" never
-            # matches the stored "Assault036_x264" -- every scoped probe comes
-            # back empty and aborts a fully indexed run. physicalai-dev is named
-            # exactly that way.
-            names = list(flows.list_sensor_streams(vst_url).values())
-            for source in expected_sources:
-                # Use the same complete-identity rule as scoring. VST may add
-                # an upload suffix, and the source-scoped query must use VST's
-                # original spelling for case-sensitive ES keyword fields.
-                match = next(
-                    (n for n in names if flows.video_name_matches(n.lower(), source.lower())),
-                    None,
-                )
-                if match:
-                    registered[source] = match
-        except Exception as e:  # noqa: BLE001
-            print(f"  (could not resolve VST source names, per-source probing off: {e})")
-
-    broad = _probe_backend(query_backend, min(1000, max(50, top_k_per_source * len(expected_sources))))
-    missing = list(expected_sources)
-    last_index_error: str | None = None
-
-    for attempt in range(1, attempts + 1):
-        try:
-            hits, _latency = broad.search(PROBE_QUERY)
-            seen = {h.get("video_name", "") for h in hits if h.get("video_name")}
-            missing = [
-                source
-                for source in expected_sources
-                if not any(flows.video_name_matches(name, source) for name in seen)
-            ]
-
-            # Stage 2: ask directly about whatever the broad query did not
-            # surface, so ranking cannot be mistaken for absence.
-            confirmed_missing = []
-            for source in missing:
-                name = registered.get(source)
-                if not name:
-                    confirmed_missing.append(source)
-                    continue
-                scoped_hits, _ = _probe_backend(query_backend, 1, source=name).search(PROBE_QUERY)
-                if not any(flows.video_name_matches(hit.get("video_name", ""), source) for hit in scoped_hits):
-                    confirmed_missing.append(source)
-            missing = confirmed_missing
-            last_index_error = None
-        except flows.CliExitError as e:
-            if e.returncode != 5:
-                return {
-                    "checked": True,
-                    "covered": False,
-                    "attempts": attempt,
-                    "error": f"{type(e).__name__}: {e}",
-                }
-            # VIOS registration can precede creation of the embedding index.
-            # Exit 5 is a readiness state for this probe, not a zero-hit result.
-            last_index_error = f"{type(e).__name__}: {e}"
-            missing = list(expected_sources)
-            if attempt < attempts:
-                print(f"  Probe {attempt}/{attempts}: search index not ready; retrying in {backoff_s:.0f}s")
-                time.sleep(backoff_s)
-            continue
-        except Exception as e:  # noqa: BLE001
-            # An environment fault is worth reporting as itself rather than as
-            # an empty index -- exit 4 means misconfigured, not unindexed.
-            return {
-                "checked": True,
-                "covered": False,
-                "attempts": attempt,
-                "error": f"{type(e).__name__}: {e}",
-            }
-
-        found = len(expected_sources) - len(missing)
-        if not missing:
-            print(f"  Index covers all {len(expected_sources)} source(s) after {attempt} attempt(s).")
-            return {
-                "checked": True,
-                "covered": True,
-                "attempts": attempt,
-                "sources": len(expected_sources),
-                "per_source_verified": bool(registered),
-            }
-        if attempt < attempts:
-            print(
-                f"  Probe {attempt}/{attempts}: {found}/{len(expected_sources)} "
-                f"source(s) indexed, retrying in {backoff_s:.0f}s"
-            )
-            time.sleep(backoff_s)
-
-    result = {
-        "checked": True,
-        "covered": False,
-        "attempts": attempts,
-        "sources": len(expected_sources),
-        "missing": missing[:20],
-        "missing_count": len(missing),
-        "per_source_verified": bool(registered),
-    }
-    if last_index_error:
-        result["error"] = last_index_error
-    return result
-
-
-def expected_sources_from_upload(upload_stats: dict[str, Any]) -> list[str]:
-    """Sources post-ingest probes cover even when the VST wait is skipped."""
-    return [
-        row["video_name"]
-        for row in upload_stats.get("per_file", [])
-        if row.get("success")
-    ] + list(upload_stats.get("skipped_existing") or [])
-
-
-def describe_query_flow(
-    query_backend: Any,
-    decomposer: Any,
-    planned_llm_url: str | None = None,
-    fallback: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """The query backend's own description, corrected for live decomposition.
-
-    ``QueryBackend.describe()`` reports routing from ``self.decompositions``,
-    which a *live* decomposer only fills as queries run. Called before the first
-    query -- which is where both the banner and the saved flow block need it --
-    it therefore says ``routing: fixed, decompositions: 0`` for a run that went
-    on to decompose every query, and a reader of the result file concludes one
-    path was measured. Take the decomposer's presence as the answer instead of
-    inferring it from state that does not exist yet.
-
-    ``planned_llm_url`` covers the dry run, where no decomposer is built at all
-    because constructing one asks the LLM for its model list and a dry run
-    contacts nothing. Reporting the intent keeps the preview from promising a
-    fixed-path run that the real invocation would not perform.
-    """
-    described = query_backend.describe()
-    if decomposer is not None:
-        described["routing"] = "per-query (live decomposition)"
-        described["live_decomposition"] = decomposer.describe()
-    elif planned_llm_url:
-        described["routing"] = "per-query (live decomposition)"
-        described["live_decomposition"] = {
-            "llm_url": planned_llm_url,
-            "model": "(discovered at run time)",
-        }
-    elif fallback:
-        # The run went ahead without the LLM. Say so in the artifact, or the
-        # result reads as a deliberate choice of routing rather than a fallback.
-        described["live_decomposition"] = fallback
-    else:
-        described["live_decomposition"] = False
-    return described
-
-
-def prune_foreign_videos(agent_endpoint: str, vst_url: str, video_dir: Path) -> dict[str, Any]:
-    """Delete every registered source that is NOT one of this dataset's videos.
-
-    The narrow form of ``--clear``. A run is only interpretable if the index
-    holds what the dataset says it holds: a foreign source cannot be retrieved
-    for any query in the dataset, so it contributes nothing but the chance of a
-    false positive and a longer ingest. Removing exactly the foreign ones keeps
-    the deployment reproducible without wiping fixtures the dataset does need.
-
-    Membership uses :func:`flows.name_variants` -- the same normalisation
-    ``--skip-existing`` uses to decide a video is already present. Sharing one
-    matcher is what stops this deleting a video the very next step re-uploads.
-    """
-    try:
-        streams = flows.list_sensor_streams(vst_url)
-    except Exception as e:
-        raise SystemExit(f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})") from e
-
-    ours: set[str] = set()
-    for vf in sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv")):
-        ours |= flows.name_variants(vf.name)
-    if not ours:
-        raise SystemExit(
-            f"ABORTED: no video files (.mp4 or .mkv) under {video_dir}, so every source looks foreign. "
-            f"Refusing to delete the whole deployment -- pass --clear if that is what you meant."
-        )
-
-    foreign = {sid: n for sid, n in streams.items() if str(n).lower() not in ours}
-    kept = len(streams) - len(foreign)
-    print(f"  {len(streams)} source(s) registered: {kept} belong to this dataset, {len(foreign)} do not")
-    if not foreign:
-        print("  Nothing to prune.")
-        return {"found": len(streams), "kept": kept, "deleted": 0, "names": []}
-
-    for stream_id, name in foreign.items():
-        print(f"    - {name}  ({stream_id})")
-
-    deleted, failed = 0, []
-    for stream_id, name in foreign.items():
-        try:
-            resp = requests.delete(f"{agent_endpoint.rstrip('/')}/api/v1/videos/{stream_id}", timeout=60)
-            resp.raise_for_status()
-            deleted += 1
-            print(f"    deleted {name} -> {resp.status_code}")
-        except Exception as e:  # noqa: BLE001
-            failed.append(name)
-            print(f"    FAILED {name}: {e}")
-
-    print(f"  Pruned {deleted}/{len(foreign)} foreign video(s); kept {kept}")
-    return {
-        "found": len(streams), "kept": kept, "deleted": deleted,
-        "failed": failed, "names": list(foreign.values()),
-    }
-
-
-def ingest_videos(
-    backend: Any,
-    video_dir: Path,
-    skip_existing_from: str | None = None,
-) -> dict[str, Any]:
-    """Upload every fixture through the selected ingest backend.
-
-    ``skip_existing_from`` is a VST origin. When given, sources already
-    registered there are left alone -- necessary on a shared deployment, where
-    re-uploading someone else's fixture is at best wasteful and at worst
-    creates a duplicate sensor for the same video.
-    """
-    video_files = sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv"))
-    if not video_files:
-        print(f"  No video files found in {video_dir}")
-        return flows.aggregate_upload_stats([])
-
-    skipped: list[str] = []
-    if skip_existing_from:
-        try:
-            registered = flows.list_sensor_names(skip_existing_from)
-            keep = []
-            for vf in video_files:
-                if flows.is_registered(vf.name, registered):
-                    skipped.append(vf.stem)
-                else:
-                    keep.append(vf)
-            video_files = keep
-            if skipped:
-                print(f"  Already registered, skipping ingest: {skipped}")
-        except Exception as e:  # noqa: BLE001
-            print(f"  WARNING: could not read VST sensor list ({type(e).__name__}: {e}); ingesting all")
-
-    if not video_files:
-        print("  Nothing to ingest -- every fixture is already registered.")
-        stats = flows.aggregate_upload_stats([])
-        stats["skipped_existing"] = skipped
-        return stats
-
-    print(f"  Ingesting {len(video_files)} video(s) via '{backend.name}'")
-    per_file: list[dict[str, Any]] = []
-
-    for i, vf in enumerate(video_files, 1):
-        size = vf.stat().st_size / (1024 * 1024) if vf.exists() else 0.0
-        print(f"  [{i}/{len(video_files)}] {vf.name} ({size:.2f} MB)")
-        record = backend.upload(vf)
-        per_file.append(record)
-
-        if record.get("success"):
-            extras = []
-            if record.get("chunks_processed") is not None:
-                extras.append(f"{record['chunks_processed']} chunks")
-            if record.get("upload_speed_mbps") is not None:
-                extras.append(f"{record['upload_speed_mbps']} Mbps")
-            if record.get("phases"):
-                extras.append(
-                    " + ".join(f"{k.removesuffix('_s')}={v}s" for k, v in record["phases"].items())
-                )
-            suffix = f"  |  {'  |  '.join(extras)}" if extras else ""
-            print(f"    OK  {record['upload_latency_s']}s{suffix}  (sensor: {record.get('sensor_id')})")
-        else:
-            print(f"    FAILED: {record.get('error')}")
-
-    stats = flows.aggregate_upload_stats(per_file)
-    stats["skipped_existing"] = skipped
-    print(f"  Ingest complete: {stats['successful']}/{stats['total_uploads']} succeeded")
-    return stats
-
-
-# =============================================================================
-# Evaluation
+# Backward-compatible single-call entrypoint
 # =============================================================================
 
 
@@ -604,580 +266,37 @@ def run_evaluation(
     tolerate_unanswered: int = 0,
     use_dataset_decompositions: bool = True,
 ) -> dict[str, Any]:
-    """Score every dataset query through ``query_backend``.
+    """Backward-compatible adapter for the pre-split single-call entrypoint.
 
-    Output JSON keeps ``run_eval.py``'s exact ``summary`` / ``config`` /
-    ``query_results`` shape so existing readers (CI summary CSV, dashboards)
-    keep working, plus a ``flow`` block recording how the numbers were obtained.
+    Chains the retrieve and score stages and returns the legacy output dict
+    (``summary`` / ``config`` / ``flow`` / ``query_results``). New code should
+    drive the stages directly via :func:`flows.pipeline.run_retrieve` and
+    ``run_score`` (or the ``--stage`` CLI selector). Kept so existing callers
+    and the test-suite keep working unchanged.
     """
-    data = flows.load_dataset_file(data_dir, dataset, subset)
-    # Decompositions live in the dataset next to the ground truth they belong
-    # to. --decompositions stays available for A/B-ing a different set (say,
-    # agent-captured vs hand-written) against the same annotations, so an
-    # explicit flag wins over what the dataset carries.
-    annotations, dataset_decompositions = flows.unpack_dataset(data)
-    queries = list(annotations.keys())
-
-    if use_dataset_decompositions and dataset_decompositions and hasattr(query_backend, "decompositions"):
-        if query_backend.decompositions:
-            print(
-                f"NOTE: --decompositions ({len(query_backend.decompositions)}) overrides the "
-                f"{len(dataset_decompositions)} carried by the dataset"
-            )
-        else:
-            query_backend.decompositions = dataset_decompositions
-            print(f"Using {len(dataset_decompositions)} decomposition(s) from the dataset")
-
-    # Compute the planned split over the ACTUAL query list, so the header
-    # states what will run rather than only the fallback.
-    planned_paths: dict[str, int] = {}
-    if hasattr(query_backend, "plan_for_query"):
-        planned_paths = flows.path_distribution([query_backend.plan_for_query(q) for q in queries])
-
-    described = describe_query_flow(query_backend, decomposer, fallback=decompose_fallback)
-    if planned_paths:
-        described["planned_paths"] = "  ".join(f"{k}={v}" for k, v in planned_paths.items())
-
-    print(f"\n{'=' * 60}")
-    print("SEARCH PROFILE EVALUATION (pluggable flow)")
-    print(f"{'=' * 60}")
-    for key, value in described.items():
-        print(f"{key + ':':<22}{value}")
-    print(f"{'dataset:':<22}{dataset} / {subset or '(default)'}")
-    print(f"{'queries:':<22}{len(queries)}")
-    print(f"{'concurrency:':<22}{concurrency}")
-    print(f"{'=' * 60}\n")
-
-    # The prompt asks which sources exist so it can fill `video_sources`; the
-    # dataset already knows, which beats asking VST for an inventory that may
-    # include unrelated uploads.
-    video_names = {s["video_name"] for segs in annotations.values() for s in segs if s.get("video_name")}
-    all_results: list[dict[str, Any] | None] = [None] * len(queries)
-    print_lock = threading.Lock()
-    completed = [0]
-    sources_seen: set[str] = set()
-    verdicts: dict[str, int] = {}
-    fatal: list[BaseException] = []
-
-    def _run_single_query(qi: int, query: str) -> None:
-        expected = annotations[query]
-
-        # Decompose first, then search. The backend already routes from its
-        # `decompositions` map, so writing this query's entry is the whole
-        # integration -- path choice, attributes and top_k all follow. Distinct
-        # keys per thread, so the shared dict needs no lock.
-        decompose_s = 0.0
-        if decomposer is not None:
-            decomposition, decompose_s = decomposer.decompose(query, video_sources=sorted(video_names))
-            query_backend.decompositions[query] = decomposition
-
-        raw_results, latency_s = query_backend.search(query)
-        normalized = flows.normalize_results(raw_results)
-        # Both are read-modify-write on state shared across the pool, and the
-        # verdict tally is what the no-opinion check reads at the end: lose
-        # increments here and a healthy critic is reported as having formed no
-        # opinion. `print_lock` already serialises the per-query output, and
-        # this is the same few microseconds.
-        with print_lock:
-            sources_seen.update(flows.verification_sources(normalized))
-            for verdict, count in flows.verdict_counts(normalized).items():
-                verdicts[verdict] = verdicts.get(verdict, 0) + count
-
-        result = flows.evaluate_query(query, flows.for_scoring(normalized), expected, latency_s)
-        if decomposer is not None:
-            # Kept apart from latency_s: one is the LLM deciding what to search
-            # for, the other is the search. Summing them silently would hide
-            # which half a regression came from.
-            result["decompose_s"] = round(decompose_s, 4)
-            result["total_latency_s"] = round(decompose_s + latency_s, 4)
-            result["decomposition"] = query_backend.decompositions.get(query)
-
-        # Present only when the deployment carries the search_core timings
-        # change. Absent means nobody collected -- not that stages took no time.
-        stage_timings = getattr(query_backend, "timings_by_query", {}).get(query)
-        if stage_timings:
-            result["timings"] = stage_timings
-
-        kept, num_rejected = flows.filter_rejected(normalized)
-        result["num_rejected"] = num_rejected
-        result["critic_filtered"] = flows.evaluate_query(
-            query, flows.for_scoring(kept), expected, latency_s
-        )
-        all_results[qi] = result
-
-        with print_lock:
-            completed[0] += 1
-            print(f'[{completed[0]}/{len(queries)}] "{query}"  ({len(expected)} ground truth segments)')
-            print(f"  {flows.format_inline(result, latency_s=latency_s)}")
-            if num_rejected:
-                print(
-                    f"  [critic-filtered] rejected={num_rejected}  "
-                    f"{flows.format_inline(result['critic_filtered'])}"
-                )
-            if result["missed_gt_indices"]:
-                print(f"  Missed: {len(result['missed_gt_indices'])} segment(s)")
-            print()
-
-    inventory_before = flows.inventory_snapshot(vst_url) if vst_url else {"ok": False}
-
-    #: Queries the backend never answered. Appended only from the single-
-    #: threaded as_completed loop below, so no lock.
-    unanswered: list[dict[str, Any]] = []
-
-    wall_start = time.monotonic()
-    with ThreadPoolExecutor(max_workers=concurrency) as executor:
-        futures = {executor.submit(_run_single_query, qi, q): qi for qi, q in enumerate(queries)}
-        for future in as_completed(futures):
-            try:
-                future.result()
-            except flows.CliExitError as exc:
-                # An environment fault, not a bad query. Scoring it as zero
-                # recall would report an accuracy cliff that never happened.
-                fatal.append(exc)
-                for pending in futures:
-                    pending.cancel()
-                break
-            except flows.QueryUnanswerableError as exc:
-                # No answer is not no hits. Record it and leave it OUT of the
-                # scored set rather than letting an empty result average in.
-                qi = futures[future]
-                unanswered.append({"index": qi, "query": queries[qi], "reason": str(exc)[:300]})
-                print(f"  Query {qi} unanswerable: {exc}", file=sys.stderr)
-            except Exception as exc:  # noqa: BLE001
-                # Same rule for anything else that stopped this query from
-                # producing a result: scoring is only valid for queries the
-                # backend actually answered.
-                qi = futures[future]
-                unanswered.append(
-                    {"index": qi, "query": queries[qi], "reason": f"{type(exc).__name__}: {exc}"[:300]}
-                )
-                print(f"  Query {qi} raised: {type(exc).__name__}: {exc}", file=sys.stderr)
-    wall_clock_s = time.monotonic() - wall_start
-
-    # A shared deployment can be wiped mid-run by someone else. If it was, the
-    # numbers above describe an index that no longer exists.
-    inventory_after = flows.inventory_snapshot(vst_url) if vst_url else {"ok": False}
-    inventory = flows.compare_inventory(inventory_before, inventory_after)
-    if inventory.get("stable") is False:
-        print("\n" + "!" * 60)
-        print("WARNING: the deployment changed DURING this run.")
-        if inventory["disappeared"]:
-            print(f"  disappeared: {inventory['disappeared']}")
-        if inventory["appeared"]:
-            print(f"  appeared:    {inventory['appeared']}")
-        print("  Someone else is using this endpoint. Treat these metrics as unreliable.")
-        print("!" * 60 + "\n")
-
-    if fatal:
-        raise SystemExit(f"\nABORTED: {fatal[0]}")
-
-    results = [r for r in all_results if r is not None]
-    if not results:
-        raise SystemExit("ABORTED: no query produced a result.")
-
-    # `total_queries` counts what was scored, so dropping failures quietly makes
-    # a partial run look complete -- 50 unanswered out of 673 reports
-    # `total_queries: 623` and reads as clean. Say it, loudly, and stop unless
-    # the caller has said how many they will accept.
-    if unanswered:
-        print("\n" + "!" * 60)
-        print(f"WARNING: {len(unanswered)}/{len(queries)} queries were never answered.")
-        for entry in unanswered[:10]:
-            print(f'  [{entry["index"]}] {entry["query"][:60]!r}: {entry["reason"][:120]}')
-        if len(unanswered) > 10:
-            print(f"  ... and {len(unanswered) - 10} more")
-        print("!" * 60 + "\n")
-        if len(unanswered) > tolerate_unanswered:
-            raise SystemExit(
-                f"ABORTED: {len(unanswered)} unanswered query/queries exceeds "
-                f"--tolerate-unanswered {tolerate_unanswered}.\n"
-                "  They are excluded from the metrics either way, so the numbers "
-                "below would describe\n"
-                f"  {len(results)} queries under a {len(queries)}-query label. "
-                "Raise the tolerance to accept that."
-            )
-
-    summary = _summarize(
-        results,
+    cfg = RunConfig(
+        endpoint="",
+        data_dir=Path(data_dir),
         dataset=dataset,
         subset=subset,
-        wall_clock_s=wall_clock_s,
         concurrency=concurrency,
-        sources_seen=sources_seen,
-        verdicts=verdicts,
-        upload_stats=upload_stats,
-        unanswered=unanswered,
-        path_counts=(
-            flows.path_distribution(query_backend.executed_plans)
-            if getattr(query_backend, "executed_plans", None)
-            else None
-        ),
+        vst_url=vst_url,
+        use_dataset_decompositions=use_dataset_decompositions,
+        tolerate_unanswered=tolerate_unanswered,
+        output_file=output_file,
+        run_name=run_name,
     )
-    _print_summary(summary)
-
-    if output_file is None:
-        # Beside the script rather than relative to the caller's cwd: the old
-        # default wrote to "eval/results/..." resolved from wherever you happened
-        # to be, so the same command scattered results across directories.
-        name = run_name or f"{dataset}_{subset or 'default'}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
-        output_file = str(RESULTS_DIR / f"{name}.json")
-    out_path = Path(output_file)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    output: dict[str, Any] = {
-        "summary": summary,
-        "config": {
-            "dataset": dataset,
-            "subset": subset or "default",
-            "concurrency": concurrency,
-            **{k: v for k, v in described.items() if k != "backend"},
-        },
-        "flow": {
-            "query": described,
-            "ingest": ingest_description,
-            "readiness": readiness,
-            # None when the ingest flow proved indexing itself (a chunk count),
-            # so a reader can tell "not checked here" from "checked, and empty".
-            "index_probe": index_probe,
-            "cleared": cleared,
-            "inventory": inventory,
-            # Phoenix is absent by construction on the CLI query path:
-            # search_core and vss_cli carry no OpenTelemetry instrumentation,
-            # and Phoenix spans came only from NAT's telemetry config.
-            "phoenix": {
-                "collected": False,
-                "reason": (
-                    "not collected by this script; unavailable on the CLI query "
-                    "path because search_core/vss_cli emit no OTel spans"
-                ),
-            },
-        },
-        "query_results": results,
-    }
-    if upload_stats:
-        output["flow"]["upload_stats"] = upload_stats
-
-    with open(out_path, "w") as f:
-        json.dump(output, f, indent=2)
-    print(f"Results saved to: {out_path.absolute()}")
-    return output
-
-
-def _summarize(
-    results: list[dict[str, Any]],
-    dataset: str,
-    subset: str,
-    wall_clock_s: float,
-    concurrency: int,
-    sources_seen: set[str],
-    upload_stats: dict[str, Any] | None,
-    verdicts: dict[str, int] | None = None,
-    path_counts: dict[str, int] | None = None,
-    unanswered: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    """Aggregate per-query metrics.
-
-    Key names deliberately match ``run_eval.run_evaluation``'s summary block so
-    baselines from either script line up field for field.
-    """
-    n = len(results)
-    unanswered = unanswered or []
-    def avg(key):
-        return sum(r[key] for r in results) / n
-    def avg_hit(k):
-        return sum(r["hit_at_k"][k] for r in results) / n
-
-    summary: dict[str, Any] = {
-        "dataset": dataset,
-        "subset": subset or "default",
-        # `total_queries` is the SCORED count, matching run_eval.py's field so
-        # baselines line up. When they differ, `queries_attempted` is what a
-        # reader needs to know the metrics cover less than the dataset.
-        "total_queries": n,
-        "queries_attempted": n + len(unanswered),
-        "mAP": round(avg("average_precision"), 4),
-        "MRR": round(avg("reciprocal_rank"), 4),
-        "avg_precision": round(avg("precision"), 4),
-        "avg_recall": round(avg("recall"), 4),
-        "avg_f1": round(avg("f1"), 4),
-    }
-    for k in flows.HIT_K_VALUES:
-        summary[f"HIT@{k}"] = round(avg_hit(k), 4)
-
-    # Absent, not zero, when every query was answered -- so its presence in a
-    # result file is itself the signal that the metrics above are partial.
-    if unanswered:
-        summary["unanswered"] = {
-            "count": len(unanswered),
-            "reasons": dict(
-                collections.Counter(e["reason"].split(":")[0] for e in unanswered)
-            ),
-            "queries": unanswered[:50],
-        }
-
-    # Only report critic-filtered metrics when a verification block was
-    # actually present. Emitting them off an unverified response would publish
-    # unfiltered numbers under a filtered label -- see flows.py for why that
-    # failure mode is the one worth engineering against.
-    # A verification block on every hit does not mean the critic formed an
-    # opinion. Every critic failure path -- unreachable VLM, a 4xx on a clip URL
-    # the VLM cannot resolve, a parse error -- degrades that candidate to
-    # `unverified` and carries on, so a totally broken critic still attaches a
-    # block to everything. Filtering then drops nothing and critic-filtered
-    # metrics come out numerically identical to raw, which reads as "the critic
-    # agreed with retrieval" when it never rendered an opinion at all.
-    #
-    # A VST-returned clip URL that RT-VLM cannot fetch can leave every hit
-    # unverified while the CLI search itself exits 0. The CLI's base URL is
-    # not necessarily the clip URL: video_url_scope is "internal".
-    real_sources = sources_seen - {flows.VERIFICATION_ABSENT}
-    verdicts = verdicts or {}
-    opinions = verdicts.get("confirmed", 0) + verdicts.get("rejected", 0)
-    if real_sources and not opinions:
-        summary["critic"] = {
-            "verdicts": dict(verdicts),
-            "status": "no_opinion",
-            "detail": (
-                "Verification blocks were present but every verdict was 'unverified': "
-                "the critic ran and formed no opinion. Critic-filtered metrics are "
-                "suppressed because they would equal raw. Common cause: the clip URL "
-                "handed to RT-VLM is not reachable from its container -- inspect "
-                "the actual VST-returned videoUrl and RT-VLM connectivity."
-            ),
-        }
-        real_sources = set()
-    elif real_sources:
-        summary["critic"] = {"verdicts": dict(verdicts), "status": "ok"}
-    if real_sources:
-        def favg(key):
-            return sum(r["critic_filtered"][key] for r in results) / n
-        def favg_hit(k):
-            return sum(r["critic_filtered"]["hit_at_k"][k] for r in results) / n
-        critic_filtered: dict[str, Any] = {
-            "mAP": round(favg("average_precision"), 4),
-            "MRR": round(favg("reciprocal_rank"), 4),
-            "avg_precision": round(favg("precision"), 4),
-            "avg_recall": round(favg("recall"), 4),
-            "avg_f1": round(favg("f1"), 4),
-        }
-        for k in flows.HIT_K_VALUES:
-            critic_filtered[f"HIT@{k}"] = round(favg_hit(k), 4)
-        summary["critic_filtered"] = critic_filtered
-        summary["total_rejected"] = sum(r.get("num_rejected", 0) for r in results)
-        summary["queries_with_rejections"] = sum(1 for r in results if r.get("num_rejected", 0) > 0)
-
-    # A routed run mixes retrieval paths, so the headline metric averages over
-    # different mechanisms. The split has to sit next to it or the number is
-    # uninterpretable.
-    if path_counts:
-        summary["search_paths"] = path_counts
-
-    summary["verification"] = {
-        "field_sources": sorted(sources_seen),
-        "available": bool(real_sources),
-    }
-
-    latencies = [r["latency_s"] for r in results if r.get("latency_s") is not None]
-    if latencies:
-        sorted_lat = sorted(latencies)
-        summary["latency"] = {
-            "mean_s": round(statistics.mean(sorted_lat), 3),
-            "median_s": round(statistics.median(sorted_lat), 3),
-            "min_s": round(min(sorted_lat), 3),
-            "max_s": round(max(sorted_lat), 3),
-            "p90_s": round(sorted_lat[min(int(len(sorted_lat) * 0.9), len(sorted_lat) - 1)], 3),
-            "p95_s": round(sorted_lat[min(int(len(sorted_lat) * 0.95), len(sorted_lat) - 1)], 3),
-            "std_dev_s": round(statistics.stdev(sorted_lat), 3) if len(sorted_lat) > 1 else 0.0,
-        }
-
-    # Per-stage breakdown, when the deployment reports it. This is the CLI-path
-    # replacement for the Phoenix span breakdown, which does not exist here
-    # because search_core emits no OTel spans.
-    stage_rows: dict[str, dict[str, list[float]]] = {}
-    reported = 0
-    for r in results:
-        stages = (r.get("timings") or {}).get("stages") or {}
-        if stages:
-            reported += 1
-        for label, entry in stages.items():
-            row = stage_rows.setdefault(label, {"total": [], "self": [], "calls": [], "conc": []})
-            row["total"].append(float(entry.get("total_s", 0.0)))
-            row["self"].append(float(entry.get("self_s", 0.0)))
-            row["calls"].append(float(entry.get("calls", 0.0)))
-            row["conc"].append(float(entry.get("concurrent_children", 0.0)))
-
-    if stage_rows:
-        # Ranked by SELF time: that is where the work actually happened. Ranking
-        # by inclusive total puts wrappers on top, which says nothing.
-        summary["stage_latency"] = {
-            "queries_reporting": reported,
-            "stages": {
-                label: {
-                    "self_total_s": round(sum(row["self"]), 4),
-                    "self_mean_s": round(statistics.mean(row["self"]), 4),
-                    "inclusive_total_s": round(sum(row["total"]), 4),
-                    "inclusive_mean_s": round(statistics.mean(row["total"]), 4),
-                    "queries": len(row["total"]),
-                    "calls": int(sum(row["calls"])),
-                    "concurrent_children": bool(any(row["conc"])),
-                }
-                for label, row in sorted(stage_rows.items(), key=lambda kv: -sum(kv[1]["self"]))
-            },
-        }
-
-    # What the query cost outside search() itself: CLI process launch, imports
-    # and the ~/.vss/config.json read. Only derivable when the deployment
-    # reports timings, since it is latency minus the search's own total.
-    overheads = [
-        r["latency_s"] - (r.get("timings") or {}).get("total_s", 0.0)
-        for r in results
-        if r.get("latency_s") is not None and (r.get("timings") or {}).get("total_s")
-    ]
-    if overheads and "latency" in summary:
-        summary["latency"]["cli_startup_mean_s"] = round(statistics.mean(overheads), 3)
-        summary["latency"]["search_internal_mean_s"] = round(
-            statistics.mean(
-                [(r.get("timings") or {}).get("total_s", 0.0) for r in results if (r.get("timings") or {}).get("total_s")]
-            ),
-            3,
-        )
-
-    decompose_times = [r["decompose_s"] for r in results if r.get("decompose_s") is not None]
-    if decompose_times:
-        # Reported next to, not inside, the search latency: decomposition is an
-        # LLM call the CLI never makes, so folding it into latency_s would make
-        # runs with and without it incomparable.
-        summary["decomposition"] = {
-            "queries": len(decompose_times),
-            "mean_s": round(statistics.mean(decompose_times), 3),
-            "median_s": round(statistics.median(decompose_times), 3),
-            "max_s": round(max(decompose_times), 3),
-            "total_s": round(sum(decompose_times), 3),
-            "share_of_query_pct": round(
-                100 * sum(decompose_times) / max(sum(r["latency_s"] + r["decompose_s"] for r in results if r.get("decompose_s") is not None), 1e-9), 1
-            ),
-            "routed_to": flows.path_distribution(
-                [flows.plan_for(r["query"], r.get("decomposition")) for r in results if r.get("decomposition")]
-            ),
-        }
-
-    summary["throughput"] = {
-        "wall_clock_s": round(wall_clock_s, 3),
-        "qps": round(n / wall_clock_s, 3) if wall_clock_s > 0 else 0.0,
-        "successful_qps": round(len(latencies) / wall_clock_s, 3) if wall_clock_s > 0 else 0.0,
-        "concurrency": concurrency,
-    }
-
-    if upload_stats and upload_stats.get("total_uploads"):
-        summary["upload"] = upload_stats
-
-    summary["timestamp"] = datetime.now(timezone.utc).isoformat()
-    return summary
-
-
-def _print_summary(summary: dict[str, Any]) -> None:
-    print(f"{'=' * 60}")
-    print("RESULTS SUMMARY")
-    print(f"{'=' * 60}")
-    print(f"Dataset:            {summary['dataset']} / {summary['subset']}")
-    print(f"Queries:            {summary['total_queries']}")
-
-    if summary.get("search_paths"):
-        split = "  ".join(f"{k}={v}" for k, v in summary["search_paths"].items())
-        print(f"Search paths:       {split}")
-
-    cf = summary.get("critic_filtered")
-    if cf:
-        print(
-            f"Rejections:         {summary['total_rejected']} across "
-            f"{summary['queries_with_rejections']} queries"
-        )
-    else:
-        print(
-            "Rejections:         n/a -- no verification block in the response "
-            "(critic-filtered metrics suppressed)"
-        )
-
-    def _cf(key: str) -> str:
-        return f"{cf[key]:.4f}" if cf else "NA"
-
-    print()
-    print(f"{'':<20}{'Raw':<12}Critic Filtered")
-    for label, key in (
-        ("mAP", "mAP"),
-        ("MRR", "MRR"),
-        ("Avg Precision", "avg_precision"),
-        ("Avg Recall", "avg_recall"),
-        ("Avg F1", "avg_f1"),
-    ):
-        print(f"{label + ':':<20}{summary[key]:<12.4f}{_cf(key)}")
-    for k in flows.HIT_K_VALUES:
-        print(f"HIT@{k}:".ljust(20) + f"{summary[f'HIT@{k}']:<12.4f}{_cf(f'HIT@{k}')}")
-
-    if "latency" in summary:
-        lat = summary["latency"]
-        print("\nLatency (client-observed):")
-        for label, key in (
-            ("Mean", "mean_s"), ("Median", "median_s"), ("Min", "min_s"),
-            ("Max", "max_s"), ("P90", "p90_s"), ("P95", "p95_s"), ("Std Dev", "std_dev_s"),
-        ):
-            print(f"  {label + ':':<18}{lat[key]:.3f}s")
-        if "cli_startup_mean_s" in lat:
-            print(f"  {'  of which:':<18}")
-            print(f"  {'    search:':<18}{lat['search_internal_mean_s']:.3f}s")
-            print(f"  {'    CLI startup:':<18}{lat['cli_startup_mean_s']:.3f}s")
-
-    crit = summary.get("critic")
-    if crit and crit.get("status") == "no_opinion":
-        print(f"\n!! CRITIC RENDERED NO OPINION  {crit['verdicts']}")
-        for line in crit["detail"].split(". "):
-            if line.strip():
-                print(f"   {line.strip().rstrip('.')}.")
-
-    dec = summary.get("decomposition")
-    if dec:
-        print(f"\nQuery decomposition ({dec['queries']} queries, live)")
-        print(f"  {'Mean:':<18}{dec['mean_s']:.3f}s")
-        print(f"  {'Median:':<18}{dec['median_s']:.3f}s")
-        print(f"  {'Max:':<18}{dec['max_s']:.3f}s")
-        print(f"  {'Share of query:':<18}{dec['share_of_query_pct']:.1f}%")
-        print(f"  {'Routed to:':<18}{dec['routed_to']}")
-
-    stage = summary.get("stage_latency")
-    if stage:
-        # One number per stage: time spent IN it, children excluded. Wrappers
-        # like "search: embed search" contribute nothing of their own, so they
-        # are hidden rather than shown at ~0 next to real work. Full detail --
-        # inclusive totals, call counts, overlap flags -- stays in the JSON.
-        # Filter on the MEAN, not the total: a total grows with query count, so
-        # a wrapper contributing microseconds per query would reappear on a
-        # large dataset.
-        rows = [(k, v) for k, v in stage["stages"].items() if v["self_mean_s"] >= _STAGE_FLOOR_S]
-
-        total_queries = stage["queries_reporting"]
-        # `queries` is a column rather than a parenthetical: a stage that runs
-        # only on fusion queries has its mean taken over those, and the count
-        # is what stops a 5.9s mean over 3 reading like a 7.8s mean over 9.
-        width = max((len(label) for label, _ in rows), default=20)
-        print(f"\nStage latency ({total_queries} queries reported)")
-        print(f"  {'stage':<{width}}  {'mean':>10}  {'total':>10}  {'queries':>7}")
-        print(f"  {'-' * width}  {'-' * 10}  {'-' * 10}  {'-' * 7}")
-        for label, v in rows:
-            print(
-                f"  {label:<{width}}  {v['self_mean_s']:9.3f}s  "
-                f"{v['self_total_s']:9.3f}s  {v['queries']:>7}"
-            )
-
-    tp = summary["throughput"]
-    print("\nThroughput:")
-    print(f"  Wall clock:       {tp['wall_clock_s']:.3f}s")
-    print(f"  QPS:              {tp['qps']:.3f}")
-    print(f"  Successful QPS:   {tp['successful_qps']:.3f}  (excludes failed queries)")
-    print(f"  Concurrency:      {tp['concurrency']}")
-
-    if summary.get("upload"):
-        flows.print_upload_summary(summary["upload"])
-    print(f"{'=' * 60}\n")
+    manifest = IngestManifest(
+        ingest_description=ingest_description,
+        upload_stats=upload_stats,
+        readiness=readiness,
+        index_probe=index_probe,
+        cleared=cleared,
+    )
+    artifact = pipeline.run_retrieve(
+        cfg, query_backend, decomposer, decompose_fallback, manifest
+    )
+    return pipeline.run_score(cfg, artifact).to_output()
 
 
 # =============================================================================
@@ -1190,7 +309,46 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("--endpoint", required=True, help="VSS agent base URL (e.g. http://localhost:8000)")
+    p.add_argument(
+        "--endpoint",
+        default=None,
+        help="VSS agent base URL (e.g. http://localhost:8000). Required unless --stage score.",
+    )
+
+    stage = p.add_argument_group("pipeline stages")
+    stage.add_argument(
+        "--stage",
+        default="run",
+        choices=("run", "ingest", "retrieve", "score"),
+        help=(
+            "Which stage to run (default: run = the full ingest->retrieve->score "
+            "chain). 'ingest' writes an ingest manifest and stops; 'retrieve' "
+            "writes a retrieval artifact and stops; 'score' reads a retrieval "
+            "artifact and writes the scored result -- it needs no endpoint."
+        ),
+    )
+    stage.add_argument(
+        "--ingest-out",
+        help="Where to write the ingest manifest (--stage ingest). "
+        f"Default: {RESULTS_DIR}/<name>.ingest.json",
+    )
+    stage.add_argument(
+        "--ingest-in",
+        help="Read a prior ingest manifest for the flow block (--stage retrieve).",
+    )
+    stage.add_argument(
+        "--retrieval-out",
+        help=(
+            "Where to write the retrieval artifact. Used by --stage retrieve "
+            "(which stops after) and by the default run (so one retrieval can be "
+            "re-scored later without re-querying). "
+            f"Default: {RESULTS_DIR}/<name>.retrieval.json"
+        ),
+    )
+    stage.add_argument(
+        "--retrieval-in",
+        help="Read a retrieval artifact to score (--stage score; required).",
+    )
 
     flow = p.add_argument_group("flow selection")
     flow.add_argument(
@@ -1233,7 +391,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "falls back to the vendored submodule, then `vss` on PATH."
         ),
     )
-    cli.add_argument("--vss-cmd", help="Override the whole vss invocation (shell-quoted)")
+    cli.add_argument(
+        "--vss-cmd", help="Override the whole vss invocation (shell-quoted)"
+    )
     cli.add_argument(
         "--vss-base-url",
         help=(
@@ -1273,11 +433,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     dataset = p.add_argument_group("dataset")
-    dataset.add_argument("--dataset", default="warehouse", choices=sorted(flows.DATASETS))
-    dataset.add_argument("--subset", default="", help="Dataset subset (default: '')")
-    dataset.add_argument("--data-dir", type=Path, default=flows.DEFAULT_DATA_DIR)
-    dataset.add_argument("--skip-download", action="store_true", help="Use the local dataset as-is")
-    dataset.add_argument("--skip-ingest", action="store_true", help="Assume videos are already indexed")
+    dataset.add_argument(
+        "--dataset",
+        default=None,
+        choices=sorted(flows.DATASETS),
+        help="Eval dataset (default: warehouse). Resolved from the artifact for --stage score.",
+    )
+    dataset.add_argument(
+        "--subset",
+        default=None,
+        help="Dataset subset (default: ''). Resolved from the artifact for --stage score.",
+    )
+    dataset.add_argument(
+        "--data-dir",
+        type=Path,
+        default=None,
+        help=f"Dataset root (default: {flows.DEFAULT_DATA_DIR}). Overridable for --stage score.",
+    )
+    dataset.add_argument(
+        "--skip-download", action="store_true", help="Use the local dataset as-is"
+    )
+    dataset.add_argument(
+        "--skip-ingest", action="store_true", help="Assume videos are already indexed"
+    )
     dataset.add_argument(
         "--skip-existing",
         action=argparse.BooleanOptionalAction,
@@ -1290,8 +468,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     query = p.add_argument_group("query parameters")
     query.add_argument("--top-k", type=int, default=5)
+    query.add_argument(
+        "--scoring",
+        default="segment-overlap",
+        choices=sorted(SCORING_BACKENDS),
+        help=(
+            "Scoring model for the score stage (default: segment-overlap, the eval's "
+            "existing segment-timestamp-overlap metrics). 'clip-relevance' scores "
+            "against a clip gallery (drive-style); see flows/scoring/. The result "
+            "records which model ran."
+        ),
+    )
     query.add_argument("--min-cosine-similarity", type=float, default=0.0)
-    query.add_argument("--source-type", default="video_file", choices=["video_file", "rtsp"])
+    query.add_argument(
+        "--source-type", default="video_file", choices=["video_file", "rtsp"]
+    )
     query.add_argument("--concurrency", type=int, default=1)
     query.add_argument(
         "--merge-adjacent",
@@ -1303,6 +494,31 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
 
+    gallery = p.add_argument_group(
+        "clip-level scoring (--scoring clip-relevance|drive)"
+    )
+    gallery.add_argument(
+        "--full-gallery",
+        action="store_true",
+        help=(
+            "Retrieve every gallery clip in one dense pass (embed path, top_k=1000, "
+            "cosine floor -1, no adjacent merging). The precondition the clip-level "
+            "scorers grade against; pair with --scoring clip-relevance|drive."
+        ),
+    )
+    gallery.add_argument(
+        "--gallery-gt",
+        help="Drive release root (gt/queries_gt.json + additional_gt/clips_gt.json) "
+        "or a merged {gallery, queries} json.",
+    )
+    gallery.add_argument(
+        "--ingestion-manifest",
+        help="Clip->sensor mapping recorded at ingest time (required by clip-level scorers).",
+    )
+    gallery.add_argument(
+        "--drive-scorer-dir",
+        help="Directory holding the original evaluate_domain_test.py (loaded for --scoring drive).",
+    )
     ingest = p.add_argument_group("ingest")
     ingest.add_argument("--upload-timestamp", default=flows.DEFAULT_UPLOAD_TIMESTAMP)
     ingest.add_argument(
@@ -1445,7 +661,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "whether a partial run is allowed to publish numbers."
         ),
     )
-    p.add_argument("--llm-model", help="Decomposition model id (default: ask the endpoint).")
+    p.add_argument(
+        "--llm-model", help="Decomposition model id (default: ask the endpoint)."
+    )
     p.add_argument(
         "--name",
         help="Name this run's results file, instead of <dataset>_<subset>_<timestamp>. "
@@ -1457,6 +675,51 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Print the resolved backends and a sample CLI invocation, then exit",
     )
     args = p.parse_args(argv)
+    # --stage score never touches the deployment, so --endpoint is the one
+    # argument whose required-ness depends on the stage.
+    if args.endpoint is None and args.stage != "score":
+        p.error("--endpoint is required unless --stage score")
+    if args.stage == "score" and not args.retrieval_in:
+        p.error("--stage score requires --retrieval-in <artifact.json>")
+    if args.stage == "score" and args.dry_run:
+        p.error(
+            "--dry-run is not meaningful with --stage score (scoring is already offline)"
+        )
+    if args.retrieval_in and args.stage != "score":
+        p.error("--retrieval-in is only meaningful with --stage score")
+    if args.ingest_in and args.stage != "retrieve":
+        p.error("--ingest-in is only meaningful with --stage retrieve")
+    if args.stage == "ingest" and args.skip_ingest:
+        p.error("--stage ingest cannot be combined with --skip-ingest")
+    if args.stage in ("retrieve", "score") and (
+        args.clear or args.only_dataset or args.confirm_delete
+    ):
+        p.error(
+            "--clear/--only-dataset/--confirm-delete only apply to --stage run or --stage ingest"
+        )
+    if args.scoring in ("clip-relevance", "drive") and not (
+        args.gallery_gt and args.ingestion_manifest
+    ):
+        p.error(
+            f"--scoring {args.scoring} requires --gallery-gt and --ingestion-manifest"
+        )
+    if args.scoring == "drive" and not args.drive_scorer_dir:
+        p.error(
+            "--scoring drive requires --drive-scorer-dir <dir holding evaluate_domain_test.py>"
+        )
+    if args.full_gallery:
+        # Dense retrieval is a fixed embed pass over every clip: no routing, no floor,
+        # no merging. Routing a query to attribute/fusion would filter the gallery and
+        # silently break full coverage, so force the fixed embed path.
+        if args.search_path != "embed":
+            p.error(
+                "--full-gallery retrieves every clip; it requires the embed path (--search-path embed)"
+            )
+        if args.decompositions:
+            p.error(
+                "--full-gallery is a fixed dense embed retrieval; it does not decompose/route (--decompositions)"
+            )
+        args.no_decompose = True
     if args.fixed_search_path and args.decompositions:
         p.error("--fixed-search-path cannot be combined with --decompositions")
     if args.fixed_search_path:
@@ -1472,26 +735,55 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    stage = args.stage
+
+    # --stage score is fully offline: it reads a retrieval artifact and the
+    # dataset, never an endpoint, a backend, or a decomposer.
+    if stage == "score":
+        cfg = RunConfig.from_args(args, vst_url=None)
+        pipeline.run_pipeline(cfg, None, None, None, None)
+        return
+
+    # Resolve the dataset identity for the deployment-touching stages (score
+    # resolves it from the artifact instead). args keeps these None-able only
+    # so --stage score can fall back to the artifact.
+    if args.dataset is None:
+        args.dataset = "warehouse"
+    if args.subset is None:
+        args.subset = ""
+    if args.data_dir is None:
+        args.data_dir = flows.DEFAULT_DATA_DIR
 
     # Decomposition is the default, not an opt-in. The deployed agent decomposes
     # every query and that choice picks the retrieval path, so an eval that
     # skips it measures a flow the product never runs -- and nothing in the
     # metrics reveals it. Opting out has to be deliberate.
-    if not args.llm_url and not args.no_decompose and not args.decompositions:
+    if (
+        stage in ("run", "retrieve")
+        and not args.llm_url
+        and not args.no_decompose
+        and not args.decompositions
+    ):
         args.llm_url = flows.llm_url_for(args.endpoint, args.llm_port)
 
     decomposer = None
     decompose_fallback: dict[str, Any] | None = None
-    if args.no_decompose:
+    # Only the query-issuing stages (run / retrieve) build a decomposer; ingest
+    # and score never call the LLM.
+    if stage in ("run", "retrieve") and args.no_decompose:
         if not args.dry_run:
             if args.fixed_search_path:
-                print(f"decomposition: OFF (--fixed-search-path) -- every query uses --search-path {args.search_path}")
+                print(
+                    f"decomposition: OFF (--fixed-search-path) -- every query uses --search-path {args.search_path}"
+                )
             else:
-                print("decomposition: live OFF (--no-decompose) -- stored routes replay when present")
-    elif args.decompositions:
+                print(
+                    "decomposition: live OFF (--no-decompose) -- stored routes replay when present"
+                )
+    elif stage in ("run", "retrieve") and args.decompositions:
         if not args.dry_run:
             print(f"decomposition: from {args.decompositions} -- not live")
-    elif args.llm_url and not args.dry_run:
+    elif stage in ("run", "retrieve") and args.llm_url and not args.dry_run:
         try:
             decomposer = flows.LiveDecomposer(
                 args.llm_url, repo_root=flows.REPO_ROOT, model=args.llm_model
@@ -1521,15 +813,25 @@ def main() -> None:
             # and should not be mistaken for a live-routing eval.
             carried = 0
             with contextlib.suppress(Exception):
-                carried = len(flows.unpack_dataset(
-                    flows.load_dataset_file(args.data_dir, args.dataset, args.subset)
-                )[1])
+                carried = len(
+                    flows.unpack_dataset(
+                        flows.load_dataset_file(
+                            args.data_dir, args.dataset, args.subset
+                        )
+                    )[1]
+                )
             if carried:
-                decompose_fallback["fell_back_to"] = f"{carried} decomposition(s) carried by the dataset"
-                print(f"           the dataset carries {carried} decomposition(s) -- routing still per-query")
+                decompose_fallback["fell_back_to"] = (
+                    f"{carried} decomposition(s) carried by the dataset"
+                )
+                print(
+                    f"           the dataset carries {carried} decomposition(s) -- routing still per-query"
+                )
             else:
                 decompose_fallback["fell_back_to"] = f"--search-path {args.search_path}"
-                print(f"           every query will use --search-path {args.search_path}.")
+                print(
+                    f"           every query will use --search-path {args.search_path}."
+                )
                 print("           ONE PATH IS MEASURED -- this is not a routing eval.")
                 print("           Report it alongside the metrics.")
                 # Record that an answer key exists; do NOT suggest using it.
@@ -1545,21 +847,32 @@ def main() -> None:
                     decompose_fallback["answer_key_used"] = False
                 print()
 
-    ingest_backend = build_ingest_backend(args)
+    ingest_backend = build_ingest_backend(args) if stage in ("run", "ingest") else None
     query_backend = build_query_backend(args)
 
     if args.dry_run:
-        print("Ingest backend:")
-        print(json.dumps(ingest_backend.describe(), indent=2))
+        if ingest_backend is not None:
+            print("Ingest backend:")
+            print(json.dumps(ingest_backend.describe(), indent=2))
         print("\nQuery backend:")
-        print(json.dumps(describe_query_flow(
-            query_backend, decomposer, None if args.no_decompose else args.llm_url
-        ), indent=2))
+        print(
+            json.dumps(
+                describe_query_flow(
+                    query_backend,
+                    decomposer,
+                    None if args.no_decompose else args.llm_url,
+                ),
+                indent=2,
+            )
+        )
         if isinstance(query_backend, flows.CliQueryBackend):
             import shlex
 
             print("\nSample invocation:")
-            print("  " + shlex.join(query_backend.build_argv("a person in a white jacket")))
+            print(
+                "  "
+                + shlex.join(query_backend.build_argv("a person in a white jacket"))
+            )
         print("\nDry run - nothing executed.")
         return
 
@@ -1569,6 +882,7 @@ def main() -> None:
     print(f"Endpoint:       {args.endpoint}")
     print(f"Ingest flow:    {args.ingest_flow}")
     print(f"Query flow:     {args.query_flow}")
+    print(f"Stage:          {stage}")
     # Deliberately no search-path line here. This banner prints before the
     # dataset is read, so it cannot know whether the dataset carries
     # decompositions -- it could only report the fallback, which reads as
@@ -1588,153 +902,17 @@ def main() -> None:
     vst_url = args.vst_url or flows.vst_url_for(args.endpoint, args.vst_port)
     print(f"VST origin:     {vst_url}")
 
-    cleared: dict[str, Any] | None = None
-    video_dir = args.data_dir / args.dataset / "videos"
-    if args.clear:
-        print("\nClearing ALL existing videos (--clear)...")
-        cleared = clear_all_videos(args.endpoint, vst_url)
-    elif args.only_dataset:
-        print("\nPruning sources that are not in this dataset (--only-dataset)...")
-        cleared = prune_foreign_videos(args.endpoint, vst_url, video_dir)
-
-    # A source that would not delete is still searchable, so it still answers
-    # queries and still counts as a false positive. Continuing would score a run
-    # that claims to isolate this dataset against an index that does not.
-    if cleared and cleared.get("failed"):
-        raise SystemExit(
-            f"ABORTED: {len(cleared['failed'])} source(s) could not be deleted: "
-            f"{cleared['failed'][:10]}\n"
-            "  They remain searchable and would be scored as false positives, so "
-            "this run cannot claim\n"
-            "  to measure the selected dataset in isolation. Delete them by hand, "
-            "or use --skip-existing."
-        )
-
-    upload_stats: dict[str, Any] | None = None
-    readiness: dict[str, Any] | None = None
-    index_probe: dict[str, Any] | None = None
-
-    if args.skip_ingest:
-        print("Skipping ingest (--skip-ingest)")
-    else:
-        print(f"\nIngesting videos from {video_dir}")
-        upload_stats = ingest_videos(
-            ingest_backend,
-            video_dir,
-            skip_existing_from=vst_url if args.skip_existing else None,
-        )
-        flows.print_upload_summary(upload_stats)
-
-        if upload_stats.get("failed"):
-            raise SystemExit(
-                f"ABORTED: {upload_stats['failed']} upload(s) failed. "
-                "Scoring against a partial index would misreport retrieval quality."
-            )
-
-        # Needed by both the optional VST wait and the mandatory index probe.
-        # Defining it inside the wait made --skip-readiness-wait crash later.
-        expected = expected_sources_from_upload(upload_stats)
-
-        if not args.skip_readiness_wait:
-            # Every fixture must be queryable, not just the ones uploaded this
-            # run -- with --skip-existing the rest were skipped precisely
-            # because they are already there, and they still get searched.
-            print(f"\nWaiting for {len(expected)} source(s) to register in VST...")
-            readiness = flows.wait_for_sources(
-                vst_url, expected, timeout_s=args.readiness_timeout
-            )
-            if readiness["ready"]:
-                print(f"  All sources registered after {readiness['attempts']} poll(s).")
-            else:
-                raise SystemExit(
-                    f"ABORTED: {len(readiness['missing'])} source(s) never registered within "
-                    f"{args.readiness_timeout}s: {readiness['missing']}\n"
-                    "  Querying now would score an indexing delay as a retrieval regression."
-                )
-
-        # Registered in VST is not the same as indexed in Elasticsearch. The
-        # three-step flow already proved the difference with a chunk count; a
-        # flow that reports no proof has to be asked.
-        # The anchor is the other half of "is this searchable": ground truth is
-        # matched by absolute-timestamp overlap against 2025-01-01, so media
-        # indexed at any other instant scores every query zero while looking
-        # perfectly healthy to the coverage probe. One timeline read on one
-        # uploaded video is the whole check, and it was defined and tested but
-        # never called until now.
-        anchor_check = getattr(ingest_backend, "verify_anchor", None)
-        first_sensor = next(
-            (r.get("sensor_id") for r in upload_stats.get("per_file", []) if r.get("sensor_id")),
-            None,
-        )
-        if anchor_check and first_sensor and not args.skip_index_probe:
-            anchor = anchor_check(first_sensor)
-            if anchor.get("found") and not anchor.get("matches_expected_anchor"):
-                raise SystemExit(
-                    f"ABORTED: {first_sensor} is indexed at {anchor.get('start_time')!r}, not at "
-                    f"the {anchor.get('expected_anchor')!r} anchor the ground truth is written "
-                    "against.\n"
-                    "  Every query would score 0.0 and read as a retrieval collapse. VIOS did not "
-                    "honour the\n"
-                    "  upload's metadata.timestamp -- check --upload-timestamp and the VIOS "
-                    "storage config."
-                )
-            if anchor.get("checked") and anchor.get("found"):
-                print(f"  Anchor confirmed at {anchor.get('start_time')}.")
-            else:
-                print(f"  (anchor unverified: {anchor})")
-
-        if not ingest_backend.proves_indexing and not args.skip_index_probe:
-            print(f"\nProbing index coverage for {len(expected)} source(s)...")
-            index_probe = probe_index_coverage(
-                query_backend,
-                expected,
-                vst_url=vst_url,
-                attempts=args.index_probe_attempts,
-                backoff_s=args.index_probe_backoff,
-                top_k_per_source=args.index_probe_top_k,
-            )
-            if index_probe.get("checked") and not index_probe.get("covered"):
-                detail = (
-                    f" ({index_probe['error']})"
-                    if index_probe.get("error")
-                    else f"; {index_probe.get('missing_count')} still missing, e.g. "
-                    f"{index_probe.get('missing', [])[:5]}"
-                )
-                raise SystemExit(
-                    "ABORTED: uploads succeeded and every source registered in VST, but the "
-                    f"index does not cover them after {index_probe['attempts']} attempt(s)"
-                    + detail
-                    + ".\n"
-                    "  Registered is not indexed: a source registered by an EARLIER run "
-                    "satisfies the readiness poll\n"
-                    "  while this run's re-ingest is still being embedded, and querying now "
-                    "scores that as a retrieval regression.\n"
-                    "  Raise --index-probe-attempts if perception is merely slow. Otherwise "
-                    "check webhooks.enabled in\n"
-                    "  the deployed VIOS notification config, and that "
-                    "RTVI_EMBED_MODEL matches the webhook's\n"
-                    "  model string -- RT-Embed answers a mismatch with 200 and "
-                    "inference=false."
-                )
-
-    run_evaluation(
+    # The heavy lifting now lives in flows.pipeline as separable stages
+    # (ingest -> retrieve -> score). This default invocation chains them, which
+    # is byte-for-byte the old behaviour; --stage (Phase 2) makes each separately
+    # runnable against an on-disk artifact.
+    cfg = RunConfig.from_args(args, vst_url=vst_url)
+    pipeline.run_pipeline(
+        cfg,
+        ingest_backend=ingest_backend,
         query_backend=query_backend,
-        data_dir=args.data_dir,
-        dataset=args.dataset,
-        subset=args.subset,
         decomposer=decomposer,
         decompose_fallback=decompose_fallback,
-        tolerate_unanswered=args.tolerate_unanswered,
-        use_dataset_decompositions=not args.fixed_search_path,
-        output_file=args.output_file,
-        run_name=args.name,
-        concurrency=args.concurrency,
-        upload_stats=upload_stats,
-        ingest_description=ingest_backend.describe(),
-        readiness=readiness,
-        index_probe=index_probe,
-        cleared=cleared,
-        vst_url=vst_url,
     )
 
 

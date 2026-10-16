@@ -73,7 +73,6 @@ class CliExitError(RuntimeError):
         self.returncode = returncode
 
 
-
 class QueryUnanswerableError(RuntimeError):
     """This query produced no answer, and no answer is not the same as no hits.
 
@@ -141,9 +140,15 @@ class CliQueryBackend:
         # `--original-query`; run_eval_flows probes for it.
         pass_original_query: bool = True,
         critic_eval_count: int | None = None,
+        # Dense / full-gallery mode: request every clip in one pass. Only a marker
+        # here -- the caller (build_query_backend) sets top_k/min_cosine_similarity/
+        # merge_adjacent to the dense values; describe() surfaces it for the reader.
+        full_gallery: bool = False,
     ) -> None:
         if search_path not in SEARCH_PATHS:
-            raise ValueError(f"search_path must be one of {SEARCH_PATHS}, got {search_path!r}")
+            raise ValueError(
+                f"search_path must be one of {SEARCH_PATHS}, got {search_path!r}"
+            )
         if critic_eval_count is not None and critic_eval_count < 1:
             raise ValueError("critic_eval_count must be at least 1")
         self.vss_cmd = vss_cmd
@@ -157,6 +162,7 @@ class CliQueryBackend:
         self.timeout = timeout
         self.pass_original_query = pass_original_query
         self.critic_eval_count = critic_eval_count
+        self.full_gallery = full_gallery
         #: query text -> decomposition. Empty means fixed-flag behaviour.
         self.decompositions = decompositions or {}
         #: plans actually executed, so the summary can report the path split.
@@ -175,7 +181,9 @@ class CliQueryBackend:
         return {
             "backend": self.name,
             "vss_cmd": " ".join(self.vss_cmd),
-            "routing": "per-query (from decompositions)" if self.decompositions else "fixed",
+            "routing": "per-query (from decompositions)"
+            if self.decompositions
+            else "fixed",
             path_key: self.search_path,
             "top_k": self.top_k,
             "min_cosine_similarity": self.min_cosine_similarity,
@@ -185,6 +193,7 @@ class CliQueryBackend:
             "decompositions": len(self.decompositions),
             "pass_original_query": self.pass_original_query,
             "critic_eval_count": self.critic_eval_count,
+            "full_gallery": self.full_gallery,
         }
 
     def plan_for_query(self, query: str) -> dict[str, Any]:
@@ -288,7 +297,9 @@ class CliQueryBackend:
         return hits, latency
 
 
-def parse_cli_output(stdout: str) -> tuple[list[dict[str, Any]], list[str], dict[str, Any]]:
+def parse_cli_output(
+    stdout: str,
+) -> tuple[list[dict[str, Any]], list[str], dict[str, Any]]:
     """Extract ``(hits, search_messages, timings)`` from ``vss search run`` stdout.
 
     The CLI writes **NDJSON on stdout** -- one JSON document per line, not one
@@ -311,7 +322,9 @@ def parse_cli_output(stdout: str) -> tuple[list[dict[str, Any]], list[str], dict
     """
     text = (stdout or "").strip()
     if not text:
-        raise QueryUnanswerableError("CLI produced empty stdout; no search result envelope was returned")
+        raise QueryUnanswerableError(
+            "CLI produced empty stdout; no search result envelope was returned"
+        )
 
     documents: list[Any] = []
 

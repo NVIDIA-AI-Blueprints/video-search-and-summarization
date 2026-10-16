@@ -1,0 +1,179 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Clip-relevance scoring backend -- the bundle's ``ClipScorer`` as a stage backend.
+
+Ground truth is a clip gallery with per-query ``relevant_clip_ids`` (the Drive
+release format), not segment timestamps. Each retrieved hit is resolved to a
+gallery clip (by sensor_id / video_name), windows of one clip collapse to its
+first occurrence, and relevance is binary. The scorer tracks gallery coverage
+and ``mAP_scope`` (``full-gallery`` vs ``observed-ranking``) so a capped or
+partial retrieval is reported as such, never silently graded as complete.
+
+Needs ``--gallery-gt`` (the release) and ``--ingestion-manifest`` (the clip ->
+sensor mapping recorded at ingest). The retrieval artifact should come from a
+full-gallery (dense) run -- ``--full-gallery`` -- or coverage will be partial.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from flows.artifacts import RetrievalArtifact, RunConfig, ScoredResult
+
+from . import gallery as gallery_mod
+from .base import report_unanswered
+from .clip_scoring import VERSION, ClipScorer, aggregate
+
+
+class ClipRelevanceScoring:
+    """Score a retrieval artifact by clip-level relevance against a gallery."""
+
+    name = "clip-relevance"
+
+    def load_ground_truth(
+        self, cfg: RunConfig, artifact: RetrievalArtifact
+    ) -> dict[str, Any]:
+        if artifact.query_source != "gallery":
+            raise SystemExit(
+                "--scoring clip-relevance needs a retrieval artifact produced against "
+                "a clip gallery (run retrieve with --gallery-gt --full-gallery). This "
+                "artifact is an eval-dataset (segment-overlap) run."
+            )
+        if not cfg.gallery_gt or not cfg.ingestion_manifest:
+            raise SystemExit(
+                "ERROR: --scoring clip-relevance requires --gallery-gt <release> and "
+                "--ingestion-manifest <clip->sensor map>."
+            )
+        return gallery_mod.build_context(cfg.gallery_gt, cfg.ingestion_manifest)
+
+    def score(
+        self, artifact: RetrievalArtifact, ground_truth: dict[str, Any], cfg: RunConfig
+    ) -> ScoredResult:
+        gt = ground_truth
+        scorer = ClipScorer(gt["mapping"], gt["queries"])
+
+        print(f"\n{'=' * 60}")
+        print("CLIP-RELEVANCE SCORING")
+        print(f"{'=' * 60}")
+        print(f"gallery:            {len(gt['gallery'])} clips")
+        print(f"queries in GT:      {len(gt['queries'])}")
+
+        pairs: list[dict[str, Any]] = []
+        unanswered = 0
+        for record in artifact.queries:
+            if record.status != "answered":
+                unanswered += 1
+                continue
+            q = gt["by_text"].get(record.query)
+            if q is None:
+                raise SystemExit(
+                    f"ERROR: artifact query {record.query!r} is not in the gallery GT. "
+                    "Score with the gallery the retrieval actually ran against."
+                )
+            pair = scorer.pair(q, record.hits, record.search_latency_s or 0.0)
+            pairs.append(pair)
+            raw = pair["raw"]
+            print(
+                f"  {q.get('query_id', record.query)}: AP={raw['average_precision']:.4f} "
+                f"clips={raw['unique_clips']}/{len(gt['gallery'])} "
+                f"coverage={raw['gallery_coverage']:.2f}"
+            )
+
+        if not pairs:
+            raise SystemExit("ABORTED: no answered query could be scored.")
+        report_unanswered(
+            artifact.unanswered, len(artifact.queries), artifact.tolerate_unanswered, len(pairs)
+        )
+
+        raws = [p["raw"] for p in pairs]
+        filtereds = [p["critic_filtered"] for p in pairs]
+        any_critic = any(
+            p["critic"].get("confirmed") or p["critic"].get("rejected") for p in pairs
+        )
+
+        summary: dict[str, Any] = {
+            "scorer": VERSION,
+            "gallery_size": len(gt["gallery"]),
+            "queries_scored": len(pairs),
+            "queries_unanswered": unanswered,
+            "raw": aggregate(raws),
+        }
+        if any_critic:
+            summary["critic_filtered"] = aggregate(filtereds)
+            summary["critic_effect"] = {
+                "relevant_clips_removed": sum(
+                    p["critic_effect"]["relevant_clips_removed"] for p in pairs
+                ),
+                "irrelevant_clips_removed": sum(
+                    p["critic_effect"]["irrelevant_clips_removed"] for p in pairs
+                ),
+            }
+        _print_clip_summary(summary)
+
+        config = {
+            "dataset": artifact.dataset,
+            "subset": artifact.subset or "default",
+            "scoring": self.name,
+            "gallery_gt": cfg.gallery_gt,
+            "ingestion_manifest": cfg.ingestion_manifest,
+            "concurrency": cfg.concurrency,
+        }
+        flow = {
+            "query": artifact.described,
+            "ingest": artifact.ingest.ingest_description,
+            "inventory": artifact.inventory,
+        }
+        return ScoredResult(
+            summary=summary,
+            config=config,
+            flow=flow,
+            query_results=pairs,
+            scoring={
+                "model": self.name,
+                "scorer_version": VERSION,
+                "gallery_size": len(gt["gallery"]),
+                "mAP_scope": summary["raw"].get("mAP_scope"),
+                "note": (
+                    "Clip-relevance ranks gallery clips by the retrieval's returned "
+                    "order and scores binary relevance. Comparable to a Drive-script "
+                    "run only when the deployed embed model matches the one the "
+                    "gallery was embedded with."
+                ),
+            },
+        )
+
+
+def _print_clip_summary(summary: dict[str, Any]) -> None:
+    raw = summary["raw"]
+    print(f"\n{'=' * 60}\nCLIP-RELEVANCE SUMMARY\n{'=' * 60}")
+    print(f"Gallery:            {summary['gallery_size']} clips")
+    print(
+        f"Queries scored:     {summary['queries_scored']}  (unanswered: {summary['queries_unanswered']})"
+    )
+    print(f"mAP scope:          {raw.get('mAP_scope')}")
+    for key in ("mAP", "mAP@10", "nDCG", "nDCG@10", "MRR", "precision", "recall", "F1"):
+        if raw.get(key) is not None:
+            print(f"{key + ':':<20}{raw[key]:.4f}")
+    for k in (1, 3, 5, 10):
+        if raw.get(f"HIT@{k}") is not None:
+            print(f"{'HIT@' + str(k) + ':':<20}{raw[f'HIT@{k}']:.4f}")
+    if "critic_filtered" in summary:
+        cf = summary["critic_filtered"]
+        print("\nCritic-filtered:")
+        for key in ("mAP", "MRR", "recall"):
+            if cf.get(key) is not None:
+                print(f"  {key + ':':<18}{cf[key]:.4f}")
+    print(f"{'=' * 60}\n")

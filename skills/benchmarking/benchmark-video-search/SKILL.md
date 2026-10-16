@@ -39,7 +39,7 @@ ships rather than a REST endpoint that is being retired.
 ## Routing
 
 | Situation | Action |
-|---|---|
+| --- | --- |
 | User asks to benchmark the OpenClaw chat route | This runner does not measure it; explain the gap instead of presenting CLI timings as chat timings |
 | User asks to benchmark the retired agent REST search endpoint | This runner does not measure it; for historical comparison, use the external legacy `run_eval.py` noted in `references/troubleshooting.md` |
 | No search profile deployed in this session | Use `vss-build-vision-ai` to deploy the **stock search profile with its in-stack agent REST API and in-stack LLM retained**. Explicitly name both requirements in the build request so it skips the harness question (which would remove the agent and possibly the LLM); do not select a NemoClaw-only or CLI-only harness. Record the reachable agent endpoint and unified origin, then return here. Check agent `/health` and LLM `/v1/models`, run Step 3 to inspect indices, and complete Step 4 ingestion and its index probe before scoring |
@@ -51,6 +51,8 @@ ships rather than a REST endpoint that is being retired.
 | User asks to analyse an existing result file | Skip to **Step 6**; read the JSON, run nothing |
 | Every query returns 0 hits | Stop. Diagnose with **Step 3** before reporting anything — this is nearly always missing indices, not poor retrieval |
 | Critic-filtered metrics are all `NA` | The critic never ran. Check the clip-URL prerequisite below before concluding anything about verification quality |
+| User asks to score a clip gallery, or compare against Drive retrieval metrics | Use `--scoring clip-relevance` (or `drive`); retrieve with `--full-gallery`. See the clip-level note below and `references/flags.md` |
+| User asks to re-score existing results without re-querying, or to run ingest / retrieve / score separately | The runner is staged: `--stage ingest | retrieve | score`, with a replayable retrieval artifact between retrieve and score. See "Pipeline stages" in`references/flags.md` |
 
 ## The default run
 
@@ -131,10 +133,22 @@ or `--fixed-search-path` for a single-path baseline.
 Never add either decomposition override to a run the user called a live-routing
 eval. Both measure a different flow; the result records the routing mode.
 
+### Staged runs and clip-level scoring
+
+Beyond the default run, the runner is **staged**: `--stage ingest|retrieve|score`
+with a replayable retrieval artifact between retrieve and score, so you can ingest
+once, retrieve once, and re-score without re-querying the deployment. And
+`--scoring` selects the metric model: `segment-overlap` (default) or the clip-level
+`clip-relevance` / `drive` variants, which score a Drive-release clip gallery instead
+of segments. Retrieve those with `--full-gallery`; they need `--gallery-gt` +
+`--ingestion-manifest`, and `drive` also needs `--drive-scorer-dir`. See
+`references/flags.md` for the flags and `references/reading-results.md` for the
+different result shapes.
+
 ## Prerequisites
 
 | Requirement | How to check |
-|---|---|
+| --- | --- |
 | Search profile agent reachable | `curl -sf --connect-timeout 5 --max-time 10 ${ENDPOINT}/health` returns 200 |
 | Unified HAProxy origin routes the services | `curl -sf --connect-timeout 5 --max-time 10 ${ORIGIN}/vst/api/v1/sensor/version` returns 200. ORIGIN is usually the endpoint host on port 7777; use it for `vss configure` and the Step 3 Elasticsearch probe. The runner separately derives VST's direct ingress on port 30888 (`--vst-port` default); do not pass the HAProxy port as `--vst-port` |
 | `vss` CLI runs from this checkout | `vss search run --help` exits 0 |
