@@ -398,14 +398,12 @@ layout or one of the remote-model layouts below.
 </Tab>
 <Tab title="DGX-SPARK">
 
-| **Profile** | **Local LLM + RT-VLM** | **Remote LLM + local RT-VLM** |
-| --- | --- | --- |
-| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 1 |
-| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 | 1 |
-
-[dev-profile-search](/vss/vision-agent/agent-workflows/search) requires 1 GPU
-with both the LLM and VLM remote.
+| **Profile** | **Local LLM + RT-VLM** | **Remote LLM + local RT-VLM** | **Remote LLM + remote VLM** |
+| --- | --- | --- | --- |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 1 | — |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 | 1 | — |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 | 1 | — |
+| [dev-profile-search](/vss/vision-agent/agent-workflows/search) | — | — | 1 |
 
 </Tab>
 <Tab title="IGX-THOR">
@@ -419,14 +417,12 @@ with both the LLM and VLM remote.
 </Tab>
 <Tab title="AGX-THOR">
 
-| **Profile** | **Local LLM + RT-VLM** | **Remote LLM + local RT-VLM** |
-| --- | --- | --- |
-| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 1 |
-| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 | 1 |
-
-[dev-profile-search](/vss/vision-agent/agent-workflows/search) requires 1 GPU
-with both the LLM and VLM remote.
+| **Profile** | **Local LLM + RT-VLM** | **Remote LLM + local RT-VLM** | **Remote LLM + remote VLM** |
+| --- | --- | --- | --- |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 1 | — |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 | 1 | — |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 | 1 | — |
+| [dev-profile-search](/vss/vision-agent/agent-workflows/search) | — | — | 1 |
 
 </Tab>
 </Tabs>
