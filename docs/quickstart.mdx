@@ -850,6 +850,7 @@ VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is 
 RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
 LLM_MODE=local
 VLM_MODE=local
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8
 ```
 </Tab>
 <Tab title="Remote LLM">
@@ -861,6 +862,7 @@ LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
 LLM_NAME=<llm-model-id-from-v1-models>
 LLM_MODEL_TYPE=<nim-or-openai>
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8
 ```
 </Tab>
 <Tab title="Remote VLM">
