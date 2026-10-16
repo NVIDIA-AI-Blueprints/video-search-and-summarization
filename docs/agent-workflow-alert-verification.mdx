@@ -780,7 +780,7 @@ Once the deployment is complete, check that all the containers are running and h
 docker ps
 ```
 
-Once all the containers are running, you can access the agent UI at `http://<HOST_IP>:7777/`.
+Once all the containers are running, you can access the [Agent UI](/vss/system-components/user-interface) at `http://<HOST_IP>:7777/`.
 
 #### Deploy with Agent Skills
 
@@ -900,8 +900,6 @@ Add an RTSP stream by clicking the **+ Add RTSP** button on the **Video Manageme
 
 For this profile, use the `sample-warehouse-ladder.mp4` stream.
 
-![Upload RTSP Stream](/assets/images/agent-workflows/alerts-video-add.png)
-
 <Note>
 By default, this profile only supports up to one stream being processed at a time.
 
@@ -958,9 +956,9 @@ If the indices do not show data, check the following items:
 
 Launch the Agent UI at `http://<HOST_IP>:7777/`.
 
-List streams to verify connectivity, then use the **Alerts** tab to list alerts. Select the verified alerts option to view VLM-verified alerts.
+List streams to verify connectivity, then use the **Alerts** tab to list alerts. Select the verified alerts option to view VLM-verified alerts. To see the alerts, go to [Agent UI](/vss/system-components/user-interface) > [Alerts Tab](/vss/system-components/user-interface#1-alerts-tab) > [View Alerts](/vss/system-components/user-interface#view-alerts).
 
-![Alerts Tab in the Agent UI](/assets/images/agent-workflows/alert-verification-alerts.png)
+![Alerts table](/assets/images/agent-workflows/alert-verification-alerts.png)
 
 You can then click on a video thumbnail to play the video and view the alert. When the bounding box overlay is enabled, playback includes bounding boxes over objects of interest. This overlay is off by default; to enable it, set `vst_config.add_overlay: true` on the alert verification service and `NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX=true` for the Agent UI.
 
