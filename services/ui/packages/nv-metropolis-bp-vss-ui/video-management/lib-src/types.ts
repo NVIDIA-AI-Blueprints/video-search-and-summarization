@@ -101,6 +101,7 @@ export interface VideoManagementSidebarControlHandlers {
 export interface VideoManagementData {
   systemStatus: string;
   vstApiUrl?: string | null;
+  agentApiUrlBase?: string | null;
   chatUploadFileConfigTemplateJson?: string | null;
   enableAddRtspButton?: boolean;
   /** Starting position of the tab's "Enable video upload" switch. */
