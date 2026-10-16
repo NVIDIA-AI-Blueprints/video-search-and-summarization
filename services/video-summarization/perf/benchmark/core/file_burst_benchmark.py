@@ -406,19 +406,23 @@ class FileBurstBenchmark(BenchmarkBase):
             }
 
         finally:
-            # _delete_video catches its own errors; run cleanup before metric export
-            # so a monitor/export failure cannot leak uploaded assets.
-            for fid in file_ids:
-                self._delete_video(fid)
-
-            self.stop_gpu_monitoring(
-                export_dir=test_case_dir,
-                filename_prefix=f"gpu_metrics_concurrency_{concurrency_level}",
-            )
-            self.stop_cpu_monitoring(
-                export_dir=test_case_dir,
-                filename_prefix=f"cpu_metrics_concurrency_{concurrency_level}",
-            )
+            try:
+                # Stop recording before asset deletion so cleanup traffic is excluded
+                # from the workload resource measurements.
+                self.stop_gpu_monitoring(
+                    export_dir=test_case_dir,
+                    filename_prefix=f"gpu_metrics_concurrency_{concurrency_level}",
+                )
+            finally:
+                try:
+                    self.stop_cpu_monitoring(
+                        export_dir=test_case_dir,
+                        filename_prefix=f"cpu_metrics_concurrency_{concurrency_level}",
+                    )
+                finally:
+                    # Cleanup still runs when either monitor export fails.
+                    for fid in file_ids:
+                        self._delete_video(fid)
 
             gpu_stats_file = os.path.join(
                 test_case_dir, f"gpu_metrics_concurrency_{concurrency_level}_stats.json"

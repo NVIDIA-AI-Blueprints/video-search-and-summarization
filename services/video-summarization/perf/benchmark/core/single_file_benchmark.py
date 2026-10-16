@@ -58,8 +58,16 @@ class SingleFileBenchmark(BenchmarkBase):
         if "scenario" not in summarize_params:
             raise ValueError("Missing 'scenario' field in summarize_api_params")
 
+        iterations = scenario_config.get("iterations", 3)
+        if (
+            isinstance(iterations, bool)
+            or not isinstance(iterations, int)
+            or iterations <= 0
+        ):
+            raise ValueError("'iterations' must be a positive integer")
+
         return {
-            "iterations": scenario_config.get("iterations", 3),
+            "iterations": iterations,
             "videos": scenario_config["videos"],
             "summarize_api_params": summarize_params,
         }
@@ -297,7 +305,7 @@ class SingleFileBenchmark(BenchmarkBase):
             "chunk_size": chunk_size,
             "iterations": iterations,
             "successful_iterations": len(successful_iterations),
-            "success": len(successful_iterations) == iterations,
+            "success": iterations > 0 and len(successful_iterations) == iterations,
             "iteration_results": iteration_results,
         }
 

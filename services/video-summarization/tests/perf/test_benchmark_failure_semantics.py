@@ -48,6 +48,22 @@ def test_single_file_requires_every_iteration_to_pass(monkeypatch, tmp_path):
     assert deleted == ["file-1"]
 
 
+@pytest.mark.parametrize("iterations", [0, -1, True, 1.5])
+def test_single_file_rejects_nonpositive_or_noninteger_iterations(iterations):
+    benchmark = object.__new__(SingleFileBenchmark)
+
+    with pytest.raises(ValueError, match="positive integer"):
+        benchmark.parse_benchmark_config(
+            {
+                "benchmark_mode": "single_file",
+                "iterations": iterations,
+                "videos": [{"url": "http://media/video.mp4", "chunk_sizes": [10]}],
+                "summarize_api_params": {"events": [], "scenario": "test"},
+            },
+            {},
+        )
+
+
 def test_file_burst_requires_all_requested_work_to_pass(monkeypatch, tmp_path):
     benchmark = object.__new__(FileBurstBenchmark)
     benchmark.logger = logging.getLogger("file-burst-failure-test")
@@ -105,6 +121,50 @@ def test_file_burst_cleans_partial_uploads(monkeypatch, tmp_path):
         )
 
     assert deleted == ["file-1"]
+
+
+def test_file_burst_stops_monitors_before_cleanup_even_when_export_fails(
+    monkeypatch, tmp_path
+):
+    benchmark = object.__new__(FileBurstBenchmark)
+    benchmark.logger = logging.getLogger("file-burst-monitor-cleanup-test")
+    benchmark.latency_tracker = SimpleNamespace(
+        clear=lambda: None,
+        get_stats=lambda: {"avg_latency": 1.0},
+        get_all_latencies=lambda: [1.0],
+    )
+    benchmark._configure_http_session = lambda *_: None
+    benchmark._upload_video = lambda _config: "file-1"
+    benchmark._process_single_file_burst = lambda *args: {
+        "success": True,
+        "processing_time": 1.0,
+        "events_detected": 1,
+    }
+    benchmark.start_gpu_monitoring = lambda: None
+    benchmark.start_cpu_monitoring = lambda: None
+    events = []
+
+    def fail_gpu_export(**_kwargs):
+        events.append("stop-gpu")
+        raise RuntimeError("GPU export failed")
+
+    benchmark.stop_gpu_monitoring = fail_gpu_export
+    benchmark.stop_cpu_monitoring = lambda **kwargs: events.append("stop-cpu")
+    benchmark._delete_video = lambda file_id: events.append(f"delete-{file_id}")
+    monkeypatch.setattr(file_burst_module.time, "sleep", lambda *_: None)
+
+    with pytest.raises(RuntimeError, match="GPU export failed"):
+        benchmark._test_single_concurrency_level(
+            "case",
+            {"url": "http://media/video.mp4"},
+            10,
+            1,
+            {},
+            "model",
+            str(tmp_path),
+        )
+
+    assert events == ["stop-gpu", "stop-cpu", "delete-file-1"]
 
 
 def test_adapter_retains_failed_test_case():
