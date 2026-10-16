@@ -39,10 +39,10 @@ describe('FilterDialog', () => {
     expect(screen.getByText('Min Cosine Similarity:')).toBeInTheDocument();
   });
 
-  it('renders Show top K Results label with required marker', () => {
+  it('renders Show top K Results label', () => {
     render(<FilterDialog {...defaultProps} />);
     expect(screen.getByText(/Show top K Results/)).toBeInTheDocument();
-    expect(screen.getByText('*')).toBeInTheDocument();
+    expect(screen.queryByText('*')).not.toBeInTheDocument();
   });
 
   it('renders Apply and Cancel buttons', () => {
