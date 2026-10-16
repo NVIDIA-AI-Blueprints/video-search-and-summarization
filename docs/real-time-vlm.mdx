@@ -77,6 +77,7 @@ The following model families are supported.
 | Cosmos Reason3 | [Cosmos3 Super Reasoner (modelopt-fp8)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/files?version=modelopt-fp8-final_format_fix) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix` |
 | Cosmos Reason3 | [Cosmos3 Super Reasoner (bf16)](https://catalog.ngc.nvidia.com/orgs/nim/teams/nvidia/models/cosmos3-super-reasoner/files?version=bf16-final) | `cosmos-reason3` | `ngc:nim/nvidia/cosmos3-super-reasoner:bf16-final` |
 | Cosmos Reason3 | [Cosmos3 Super Reasoner (Diffuser)](https://huggingface.co/nvidia/Cosmos3-Super-Reasoner) | `cosmos-reason3` | `git:https://huggingface.co/nvidia/Cosmos3-Super-Reasoner` |
+| Cosmos3 | [Cosmos3 Edge](https://huggingface.co/nvidia/Cosmos3-Edge) | `cosmos-reason3` | `git:https://huggingface.co/nvidia/Cosmos3-Edge` |
 | Nemotron Omni | [Nemotron-3-Nano-Omni-30B-A3B-Reasoning](https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning) | `vllm-compatible` | `git:https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning` |
 | Nemotron Omni | [Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8](https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8) | `vllm-compatible` | `git:https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8` |
 | Qwen | [Qwen3-VL-30B-A3B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-30B-A3B-Instruct) | `vllm-compatible` | `git:https://huggingface.co/Qwen/Qwen3-VL-30B-A3B-Instruct` |
@@ -89,7 +90,7 @@ The following model families are supported.
 * `Cosmos3 Nano Reasoner (bf16)` is the default model.
 * Do not use `Cosmos Reason2 8B (0303-fp4-dynamic-kv8)` on GB200.
 * `Cosmos3 Nano Reasoner (bf16)` is the tested variant; hallucinations may occur with `modelopt-fp8` and `modelopt-nvfp4` variants.
-* On NVIDIA Jetson Orin NX (16 GB), only the `Cosmos3 Nano Reasoner (modelopt-nvfp4)` variant is supported.
+* On NVIDIA Jetson Orin NX (16 GB), only the `Cosmos3 Edge` variant is supported.
 * `Cosmos3 Nano Reasoner (modelopt-fp8)` is not supported on NVIDIA A100 GPUs.
 * GB300 is supported as a deployment platform for the listed local VLM models; select the container image variant that matches the host architecture.
 * Nemotron Omni models require `VLM_TRUST_REMOTE_CODE=true`; set `VLM_MODEL_SUPPORTS_AUDIO=true` for native audio support.
