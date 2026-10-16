@@ -138,7 +138,7 @@ spec:
         {{- end }}
       containers:
         - name: reid-embed
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: {{ include "vss-reid-embed.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             - name: REID_SERVICE_PORT
