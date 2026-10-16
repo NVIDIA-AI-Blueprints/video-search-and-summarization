@@ -35,7 +35,7 @@ There is **no `/always-on/health` endpoint** — never invent one. Two signals, 
    : "${AB:?Resolve AB from vss-manage-alerts Deployment prerequisite}"
    curl -s -o /tmp/ao.json -w '%{http_code}\n' -X POST "$AB/api/v1/realtime/always-on" \
      -H 'Content-Type: application/json' \
-     -d '{"source":"vst","event":{"camera_id":"00000000-0000-0000-0000-0000000000aa","change":"camera_remove"}}'
+     -d '{"source":"vst","event":{"camera_id":"ffffffff-ffff-4fff-bfff-ffffffffffaa","change":"camera_remove"}}'
    # 503 + {"reason":"ALWAYS_ON_DISABLED"} → feature off (verification / 2d_cv default)
    # 200-range / REMOVE_* reason           → feature on (real-time / 2d_vlm)
    ```

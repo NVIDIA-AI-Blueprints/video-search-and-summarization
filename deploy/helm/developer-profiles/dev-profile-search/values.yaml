@@ -101,7 +101,7 @@ global:
 # GET /api/v1/version, answered by the HAProxy ingress. Stamped by
 # .github/scripts/stamp_versions.py from the nearest v* git tag, never by hand.
 # See .github/version-convention.md.
-vssVersion: "3.3.0-rc0"
+vssVersion: "3.3.0"
 vssIngress:
   enabled: true
   ingressClassName: haproxy

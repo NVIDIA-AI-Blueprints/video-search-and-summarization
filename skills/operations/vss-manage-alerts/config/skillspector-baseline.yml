@@ -1,0 +1,71 @@
+version: 2
+
+# SkillSpector suppression baseline for skills/operations/vss-manage-alerts.
+# Entries are scoped to one file and one matched-text pattern; line numbers are
+# not used, so doc edits do not invalidate them. Sections:
+#   A. Reviewed scanner false positives. Temporary: remove each entry once the
+#      SkillSpector fix ships.
+#   C. Accurate findings for risky steps the skill keeps for now. Prefer the
+#      alternative in the reason; remove the entry if the instruction changes.
+
+rules:
+  # --- A. Reviewed scanner false positives (temporary) ----------------------
+  - id: "AE1"
+    path: "SKILL.md"
+    message: "*(partial)"
+    reason: >-
+      Temporary bridge until SkillEvaluator 1.7.0 (SkillSpector 2.12.1) reaches
+      the NV-CARPS gate; remove this entry then. SkillSpector 2.11.2 marks a
+      referenced file "partial" when it contains ordinary shell parameter
+      expansion (${VAR:-default}, "${ARR[@]}") or certain quoted forms, and
+      reports each SKILL.md link to it as AE1. Fixed upstream in SkillSpector
+      #634 and #686 (SKILLSPECT-12, SKILLSPECT-135).
+
+  - id: "SC2"
+    path: "evals/alerts_vlm_real_time.json"
+    message: "curl -sf*localhost:*"
+    reason: >-
+      Reviewed false positive (temporary until SkillSpector #638 is fixed).
+      Eval checks query local Alert Bridge (:9080) and VIOS (:30888) APIs and
+      parse the JSON with `python3 -c "<inline checker>"` or `grep`; the piped
+      response is data, never executed as code.
+
+  - id: "SC6"
+    path: "scripts/alert-notify/requirements.txt"
+    message: "*uvicorn*"
+    reason: >-
+      Reviewed false positive: uvicorn is the standard ASGI server used by
+      FastAPI, not a typosquat of gunicorn.
+
+  - id: "TM1"
+    path: "references/integrate-alerts.md"
+    message: "DELETE /api/v1/*"
+    reason: &tm1_rest >-
+      Reviewed false positive (temporary until the SkillSpector TM1 fix ships).
+      These are Alert Bridge REST routes (DELETE /api/v1/realtime/{id},
+      DELETE /api/v1/verification/config/{alert_type}), not file deletion
+      commands. The skill confirms the rule with the user before deleting it.
+
+  - id: "TM1"
+    path: "evals/subscriptions_lifecycle.json"
+    message: "DELETE /api/v1/*"
+    reason: *tm1_rest
+
+  # --- C. Accurate findings for risky steps kept for now ---------------------
+  - id: "TM1"
+    path: "references/deploy-alerts.md"
+    message: "*chmod -R 777*"
+    reason: &chmod_engines >-
+      Accepted risk, to revisit: troubleshooting rows tell the user to make the
+      RT-CV engine and model dirs (${VSS_APPS_DIR}/engines,
+      ${VSS_DATA_DIR}/models) world-writable, mirroring
+      deploy/docker/scripts/dev-profile.sh, because the vss-rtvi-cv container
+      writes there as a non-matching UID. Preferred fix: chown to the
+      container's UID, or a shared group with g+rwX plus group_add.
+
+  - id: "TM2"
+    path: "references/deploy-alerts.md"
+    message: "*&& chmod -R*"
+    reason: *chmod_engines
+
+fingerprints: []

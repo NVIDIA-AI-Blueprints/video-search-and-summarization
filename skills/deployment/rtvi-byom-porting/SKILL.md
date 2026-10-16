@@ -3,7 +3,7 @@ name: rtvi-byom-porting
 description: Use when adding, debugging, or validating a bring-your-own VLM in VSS RT-VLM, including a custom Hugging Face or NGC checkpoint loaded with configuration only (VLM_MODEL_TO_USE=vllm-compatible), plus adapters, plugins, shims, and model-specific runtime dependencies. Not for ordinary catalog-preset deployment of an already-wired model; use vss-deploy-dense-captioning for that.
 license: Apache-2.0
 metadata:
-  version: "3.3.0-rc0"
+  version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint rtvi vlm byom vllm model-porting"
 ---
