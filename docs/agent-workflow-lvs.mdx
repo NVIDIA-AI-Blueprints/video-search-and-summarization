@@ -709,7 +709,7 @@ Once the deployment is complete, check that all the containers are running and h
 docker ps
 ```
 
-Once all the containers are running, you can access the agent UI at `http://<HOST_IP>:7777/`.
+Once all the containers are running, you can access the [Agent UI](/vss/system-components/user-interface) at `http://<HOST_IP>:7777/`.
 
 <Note>
 Kubernetes deployment is supported by the Video Summarization Helm chart in `deploy/helm/developer-profiles/dev-profile-lvs`.
@@ -735,15 +735,7 @@ Use natural language prompts in the chat interface. The agent routes the request
 
 In the video management tab, drag and drop the video `warehouse_sample.mp4` into the upload area.
 
-<Frame>
-  <img src="/assets/images/agent-workflows/lvs_upload_video.png" alt="Video Management tab with upload area" />
-</Frame>
-
 Once the video is uploaded, the video will appear in the video list.
-
-<Frame>
-  <img src="/assets/images/agent-workflows/lvs_upload_sample_warehouse.png" alt="Video uploaded" />
-</Frame>
 
 #### Step 3: Generate a report for uploaded videos
 
@@ -774,35 +766,33 @@ You can cancel the workflow at any time by typing "/cancel" in the pop-up input 
    warehouse monitoring
    ```
 
-<Frame caption="**Events** List events of interest to track. For example:">
-  <img src="/assets/images/agent-workflows/lvs-popup-scenario.png" alt="Pop-up for scenario input" />
-</Frame>
+**Events** List events of interest to track. For example:
+
+<img src="/assets/images/agent-workflows/lvs-popup-scenario.png" alt="Pop-up for scenario input" width="410px" />
 
    ```text
    box falling, accident, person entering restricted area
    ```
 
-<Frame caption="**Objects of Interest** Specify objects to monitor. For example:">
-  <img src="/assets/images/agent-workflows/lvs-popup-events.png" alt="Pop-up for events input" />
-</Frame>
+**Objects of Interest** Specify objects to monitor. For example:
+
+<img src="/assets/images/agent-workflows/lvs-popup-events.png" alt="Pop-up for events input" width="410px" />
 
    ```text
    forklifts, pallets, workers
    ```
 
-<Frame caption="**Confirmation** Confirm the prompts by clicking 'Submit'.">
-  <img src="/assets/images/agent-workflows/lvs-popup-objects-of-interests.png" alt="Pop-up for objects of interest input" />
-</Frame>
+**Confirmation** Confirm the prompts by clicking 'Submit'.
+
+<img src="/assets/images/agent-workflows/lvs-popup-objects-of-interests.png" alt="Pop-up for objects of interest input" width="410px" />
 
    You can also redo the prompts by typing "/redo" or cancel the workflow by typing "/cancel".
 
-<Frame caption="If you did not cancel the workflow, the agent will show the intermediate steps of the agent's reasoning while the response is being generated and then output the final answer. You can download the report in PDF format by clicking on 'PDF Report' in the agent's response:">
-  <img src="/assets/images/agent-workflows/lvs-popup-confirmation.png" alt="Pop-up for confirmation" />
-</Frame>
+If you did not cancel the workflow, the agent will show the intermediate steps of the agent's reasoning while the response is being generated and then output the final answer. You can download the report in PDF format by clicking on 'PDF Report' in the agent's response:
 
-<Frame>
-  <img src="/assets/images/agent-workflows/lvs-response.png" alt="Report generated" />
-</Frame>
+<img src="/assets/images/agent-workflows/lvs-popup-confirmation.png" alt="Pop-up for confirmation" width="410px" />
+
+<img src="/assets/images/agent-workflows/lvs-response.png" alt="Report generated" width="410px" />
 
 #### Step 4: Summarize and report on a live stream
 
