@@ -441,7 +441,7 @@ Refer to the [Kibana documentation](https://www.elastic.co/guide/en/kibana/curre
 
 ### 3. **Search Tab**
 
-Search Tab displays video clips returned by the Vision Agent. Submit natural language queries in the [Chat Sidebar](/vss/system-components/user-interface#global-chat-sidebar); matching clips populate the results grid. Source type and metadata filters refine those agent results.
+Search Tab displays video clips returned by the Vision Agent. Submit natural language queries in the [Chat Sidebar](/vss/system-components/user-interface#global-chat-sidebar); matching clips populate the results grid. Metadata filters refine those agent results.
 
 ![VSS Reference User Interface - Search Tab Overview](/assets/images/vss-ui/search-mode/search-main.png)
 
@@ -465,7 +465,7 @@ Search Tab displays video clips returned by the Vision Agent. Submit natural lan
 
 This guide covers the primary interface components:
 
-1. **Search Controls** - Source type and filter button
+1. **Search Controls** - Filter button
 2. **Filter Options** - Advanced filtering popover with date range, sensors, similarity threshold, and result count
 3. **Filter Tags** - Visual display of active filters with quick remove functionality
 4. **Video Results** - Responsive grid of video cards with thumbnails, time ranges, and metadata
@@ -474,17 +474,7 @@ This guide covers the primary interface components:
 
 #### Search Controls
 
-Search results are produced only by queries sent through the Chat Sidebar. The Search Tab main content area has no query input box; source type and filters below refine the clips the agent already returned.
-
-
-##### Source Type
-
-![VSS Reference User Interface - Search Tab - Source Type](/assets/images/vss-ui/search-mode/source-type.png)
-
-Select the source type to search from. The default is **Video File**.
-
-* **Video File** - Search from uploaded video files
-* **RTSP** - Search from live RTSP camera streams
+Search results are produced only by queries sent through the Chat Sidebar. The Search Tab main content area has no query input box; the filters below refine the clips the agent already returned.
 
 #### Filter Options
 
@@ -625,7 +615,7 @@ The Search Tab includes the [Global Chat Sidebar](/vss/system-components/user-in
 
 **Interaction Modes:**
 
-When the Chat Sidebar is **open**, or when it is **collapsed** while an agent query is executing, source type, filters, and filter tags are disabled. Users search only through the Chat Sidebar; the agent's responses populate the search results grid.
+When the Chat Sidebar is **open**, or when it is **collapsed** while an agent query is executing, filters and filter tags are disabled. Users search only through the Chat Sidebar; the agent's responses populate the search results grid.
 
 <Accordion title="Example">
 Type a natural-language query in the Chat Sidebar and the agent will run a search and fill the results grid. For example, ask *"person with yellow hat carrying boxes"*; the agent interprets the query, runs the search, and matching video clips appear in the main area. The screenshot below illustrates this flow: the query in the chat and the corresponding search results (e.g. thumbnails and clips) shown in the grid.
@@ -634,7 +624,7 @@ Type a natural-language query in the Chat Sidebar and the agent will run a searc
 
 </Accordion>
 
-When the Chat Sidebar is **collapsed** and no query is in flight, source type, filters, and filter tags are re-enabled so you can refine the current agent results.
+When the Chat Sidebar is **collapsed** and no query is in flight, filters and filter tags are re-enabled so you can refine the current agent results.
 
 **Unseen response indicator:**
 
@@ -962,6 +952,7 @@ No known issues.
 
 ### Search Tab
 
+* Ignore the **Source Type** filter under **Search Controls**. Its options are **Video** and **RTSP**.
 * When a live RTSP stream is removed directly from NVStreamer, the VSS Search UI may still display the stream as active.
 * The Search Tab **From** and **To** timestamp filters may not be relevant for results from uploaded videos. They may apply to RTSP stream based results.
 * A completed Chat Sidebar search may show matching clips in the chat response while the Search Tab main content area stays empty without video card results.

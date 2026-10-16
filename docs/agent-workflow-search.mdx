@@ -24,7 +24,7 @@ The following diagram illustrates the search workflow architecture:
 - Natural language query support (e.g., "find all instances of forklifts").
 - Automatic query decomposition for chat requests. The search agent extracts refined query text, source names, time windows, visual attributes, action intent, image-search context, and result-count hints.
 - Four search routes: embed search for actions/events, attribute search for visual descriptors, fusion search for queries that combine actions and visual descriptors, and Search by Image for finding visually similar objects from selected bounding boxes on paused video frames.
-- Filter and retrieve timestamped results using similarity scores, time range, video/stream names, and source types.
+- Filter and retrieve timestamped results using similarity scores, time range, and video/stream names.
 
 ## What's being deployed
 
@@ -53,7 +53,7 @@ During ingestion, uploaded videos and RTSP streams are registered with VSS Video
 - `mdx-behavior-*` for object behavior embeddings used by attribute search and Search by Image.
 - `mdx-raw-*` for raw frame/object data used when frame lookup is enabled for attribute search.
 
-During query execution, the Agent UI Search Tab calls the Vision Agent chat interface. Queries are entered in the Chat Sidebar, which streams `search_agent` through `/v1/chat/stream`. An LLM decomposes the natural language query and selects the best search route. Matching clips populate the Search Tab results grid. Source type and filter controls on the Search Tab refine those agent results; they do not run a separate search.
+During query execution, the Agent UI Search Tab calls the Vision Agent chat interface. Queries are entered in the Chat Sidebar, which streams `search_agent` through `/v1/chat/stream`. An LLM decomposes the natural language query and selects the best search route. Matching clips populate the Search Tab results grid. Filter controls on the Search Tab refine those agent results; they do not run a separate search.
 
 The Vision Agent chat path can run:
 
@@ -1327,7 +1327,6 @@ The Vision Agent automatically selects the best search method based on your quer
 To try additional filters, upload the video file `sample-warehouse-ladder.mp4` (following the steps in [Step 2: Upload a video](/vss/vision-agent/agent-workflows/search#upload-a-video)).
 Run a query as in Step 3, then collapse the chat sidebar with the chevron button (**Collapse Chat sidebar**) on its left edge. The controls below are in the left sidebar and are disabled while the chat sidebar is open or a response is streaming. They narrow the results the query returned:
 
-- **Source Type**: Show results only from the selected media source type. Choose between 'Video' and 'RTSP'.
 - Expand **Filters** in the left sidebar. Changes apply as you edit the fields:
    - **From**: Filter results by the start date and time of the video clips
    - **To**: Filter results by the start date and time of the video clips
