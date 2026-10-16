@@ -1,0 +1,268 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Alert verification (dev-profile-alerts, MODE=2d_cv) KPI definition.
+#
+# Same format as the other VSS perf KPI files (e.g. VIOS
+# services/vios/test/bdd_tests/tests/perf/vss_perf_vst_kpis.yaml). Convert
+# for the dashboard with vss_perf_kpi_export.py:
+#   python services/vios/test/bdd_tests/tests/perf/vss_perf_kpi_export.py \
+#       <this file> -o alert-verification_kpis.json [--upload]
+#
+# Baseline keys: config ids from perf-configs.yaml, then test_case_id values
+# written by benchmark/core/vss_perf_benchmark.py:
+#   live_streams_<video>_<N>streams
+#
+# Initial baselines are taken from docs/performance-alert-verification.mdx
+# (VSS 3.3, RT-DETR + Cosmos3 Nano Reasoner, 1080p H.264 at 10 fps). They were
+# measured with the eval framework, not this harness, so replace them with the
+# first CI results once a few runs have landed on the dashboard.
+service: alert-verification
+schema_version: "0.0.1"
+
+# ---------------------------------------------------------------------------
+# Platform configs (ids must match perf-configs.yaml)
+# ---------------------------------------------------------------------------
+platform_configs:
+  - platform:
+      gpu: {model: "H100", count: 2}
+    config:
+      - id: h100-2-cv1-vlm1-rtdetr-cr3-bf16
+        gpu_topology: "cv1-vlm1"
+        vlm: "cosmos3-nano-reasoner-bf16"
+      - id: h100-2-cv1-vlm1-rtdetr-cr3-fp8
+        gpu_topology: "cv1-vlm1"
+        vlm: "cosmos3-nano-reasoner-fp8"
+
+  - platform:
+      gpu: {model: "RTX6000Pro", count: 2}
+    config:
+      - id: rtxpro6000-2-cv1-vlm1-rtdetr-cr3-bf16
+        gpu_topology: "cv1-vlm1"
+        vlm: "cosmos3-nano-reasoner-bf16"
+
+  - platform:
+      gpu: {model: "Spark", count: 1}
+    config:
+      - id: spark-1-rtdetr-cr3-bf16
+        gpu_topology: "shared"
+        vlm: "cosmos3-nano-reasoner-bf16"
+      - id: spark-1-rtdetr-cr3-nvfp4
+        gpu_topology: "shared"
+        vlm: "cosmos3-nano-reasoner-nvfp4"
+
+# ---------------------------------------------------------------------------
+# KPIs
+# ---------------------------------------------------------------------------
+kpis:
+  # -- Primary: E2E latency (incident end -> verdict) ---------------------------
+  - name: e2e_p90_latency
+    description: "E2E P90 latency, incident end to verdict (s)"
+    path: test_cases[*].metrics.latency.e2e_p90_seconds
+    unit: s
+    direction: lower
+    aggregation: avg
+    dashboard: {chart: primary, trend: true, summary_stat: true}
+    thresholds: {warning_percent: 10, critical_percent: 20}
+    baselines:
+      h100-2-cv1-vlm1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.90
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 4.66
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 8.62
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 52.56
+      h100-2-cv1-vlm1-rtdetr-cr3-fp8:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.90
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 4.48
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 8.22
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 52.17
+      rtxpro6000-2-cv1-vlm1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.90
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 2.33
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 3.75
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 8.97
+      spark-1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.94
+      spark-1-rtdetr-cr3-nvfp4:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.91
+
+  - name: e2e_avg_latency
+    description: "E2E average latency (s)"
+    path: test_cases[*].metrics.latency.e2e_avg_seconds
+    unit: s
+    direction: lower
+    aggregation: avg
+    dashboard: {chart: primary, trend: true, summary_stat: true}
+    thresholds: {warning_percent: 10, critical_percent: 20}
+    baselines:
+      h100-2-cv1-vlm1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.58
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 2.83
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 4.44
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 24.63
+      h100-2-cv1-vlm1-rtdetr-cr3-fp8:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.60
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 2.45
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 4.14
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 24.21
+      rtxpro6000-2-cv1-vlm1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.51
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 1.44
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 1.95
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 4.62
+      spark-1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.95
+      spark-1-rtdetr-cr3-nvfp4:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.82
+
+  # -- Secondary ------------------------------------------------------------------
+  - name: e2e_p99_latency
+    description: "E2E P99 latency (s)"
+    path: test_cases[*].metrics.latency.e2e_p99_seconds
+    unit: s
+    direction: lower
+    aggregation: max
+    optional: true
+    dashboard: {chart: secondary}
+    thresholds: {warning_percent: 10, critical_percent: 20}
+    baselines:
+      h100-2-cv1-vlm1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.99
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 6.37
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 9.96
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 85.41
+      h100-2-cv1-vlm1-rtdetr-cr3-fp8:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.99
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 4.96
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 9.83
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 80.38
+      rtxpro6000-2-cv1-vlm1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.99
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 2.49
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 4.88
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 13.08
+      spark-1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 2.21
+      spark-1-rtdetr-cr3-nvfp4:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 1.43
+
+  - name: vlm_p90_latency
+    description: "VLM inference P90 latency (s)"
+    path: test_cases[*].metrics.latency.vlm_p90_seconds
+    unit: s
+    direction: lower
+    aggregation: avg
+    dashboard: {chart: secondary, trend: true}
+    thresholds: {warning_percent: 10, critical_percent: 20}
+    baselines:
+      h100-2-cv1-vlm1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.45
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 4.29
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 7.39
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 9.12
+      h100-2-cv1-vlm1-rtdetr-cr3-fp8:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.45
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 3.59
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 5.10
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 9.14
+      rtxpro6000-2-cv1-vlm1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.45
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 1.87
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 2.77
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 4.55
+      spark-1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.95
+      spark-1-rtdetr-cr3-nvfp4:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.94
+
+  - name: vst_p90_latency
+    description: "VST clip fetch P90 latency (s)"
+    path: test_cases[*].metrics.latency.vst_p90_seconds
+    unit: s
+    direction: lower
+    aggregation: avg
+    optional: true
+    dashboard: {chart: secondary}
+    thresholds: {warning_percent: 10, critical_percent: 20}
+    baselines:
+      h100-2-cv1-vlm1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.28
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 0.24
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 0.23
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 0.10
+      h100-2-cv1-vlm1-rtdetr-cr3-fp8:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.25
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 0.24
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 0.23
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 0.10
+      rtxpro6000-2-cv1-vlm1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.26
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 0.24
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 0.24
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 0.17
+      spark-1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.24
+      spark-1-rtdetr-cr3-nvfp4:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.25
+
+  - name: verified_per_min_per_stream
+    description: "Verified alerts per minute per stream"
+    path: test_cases[*].metrics.throughput.verified_per_min_per_stream
+    unit: alerts/min
+    direction: higher
+    aggregation: min
+    dashboard: {chart: secondary, trend: true}
+    thresholds: {warning_percent: 10, critical_percent: 20}
+    baselines:
+      h100-2-cv1-vlm1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 4.32
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 4.73
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 4.71
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 5.52
+      h100-2-cv1-vlm1-rtdetr-cr3-fp8:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 4.57
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 4.80
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 4.81
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 5.64
+      rtxpro6000-2-cv1-vlm1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 4.48
+        live_streams_warehouse-ladder-1080p-10fps_20streams: 4.49
+        live_streams_warehouse-ladder-1080p-10fps_30streams: 4.53
+        live_streams_warehouse-ladder-1080p-10fps_50streams: 4.73
+      spark-1-rtdetr-cr3-bf16:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.44
+      spark-1-rtdetr-cr3-nvfp4:
+        live_streams_warehouse-ladder-1080p-10fps_1streams: 0.42
+
+  - name: verification_failure_rate
+    description: "Verification failures / verified alerts"
+    path: test_cases[*].metrics.reliability.verification_failure_rate
+    unit: ratio
+    direction: lower
+    aggregation: max
+    optional: true
+    dashboard: {chart: secondary}
+    thresholds: {warning_percent: 10, critical_percent: 20}
+    baselines:
+
+  - name: max_sustainable_streams
+    description: "Max streams with E2E P90 at or under the max_streams_test target"
+    path: test_cases[*].metrics.throughput.max_sustainable_streams
+    unit: streams
+    direction: higher
+    aggregation: max
+    optional: true
+    dashboard: {chart: secondary, trend: true}
+    thresholds: {warning_percent: 10, critical_percent: 20}
+    baselines:

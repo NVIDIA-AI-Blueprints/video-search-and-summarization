@@ -1,0 +1,87 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Alert verification perf: WHAT to test.
+#
+# Alert verification is driven by live RTSP streams, not by file uploads:
+#   NVStreamer (looped video) -> VST -> RTVI-CV -> Behavior Analytics -> Kafka
+#   -> Alert Bridge -> RT-VLM -> Elasticsearch
+# so scenarios sweep the number of concurrent streams instead of chunk sizes.
+# Each (video, stream count) pair becomes one test case named
+#   {benchmark_mode}_{video}_{N}streams
+#
+# Latency and throughput come from the Alert Bridge Prometheus histograms and
+# counters (services/alert/src/metrics/prometheus_metrics.py), queried over the
+# measurement window of each stream level.
+
+global:
+  # Address of the service under test. Used for the readiness check.
+  vss_backend: "http://localhost:9080"
+  # Prometheus started by the perf compose overlay (scrapes alert-bridge:9081).
+  prometheus_url: "http://localhost:9091"
+  # VIOS endpoints used to register NVStreamer streams as VST sensors.
+  vst_url: "http://localhost:30888"
+  nvstreamer_url: "http://localhost:31000"
+  output_dir: "vss-perf-report"
+  gpu_monitoring: { enabled: true, interval_seconds: 1 }
+  cpu_monitoring: { enabled: true, interval_seconds: 1 }
+  # Minutes per stage; default 30. Deploy covers image pulls, model download
+  # and TensorRT engine builds for RTVI-CV, which are slow on a cold node.
+  stage_timeouts: { pre_flight: 30, deploy: 60, post_deploy: 45, benchmark: 120, teardown: 15 }
+
+  # Replaces summarize_api_params: alert verification has no request body of
+  # its own. Incidents come from Behavior Analytics; the verifier prompt and
+  # categories come from the profile's alert_type_config.json.
+  alert_verification_params:
+    mode: "verification"            # dev-profile.sh -m verification -> MODE=2d_cv
+    alert_type_config: "deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/alert_type_config.json"
+
+test_scenarios:
+  # Promotion-triggered runs default to quick_test (PERF_SCENARIO=quick_test).
+  quick_test:
+    description: "One stream for 10 minutes: smoke test of the verification path"
+    benchmark_mode: "live_streams"
+    warmup_seconds: 180              # first incidents + RT-VLM cold start
+    measure_minutes: 10
+    videos:
+      # TODO: point at the shared media server. The eval framework uses the
+      # 10 fps warehouse ladder clip (1080p, H.264). A local file can be
+      # supplied instead with PERF_ALERT_VIDEO_PATH.
+      - url: "http://media-server/alerts/warehouse-ladder-1080p-10fps.mp4"
+        stream_counts: [1]
+
+  # Weekly / manual: reproduces docs/performance-alert-verification.mdx.
+  stream_sweep_test:
+    description: "Stream-count sweep matching the published alert verification tables"
+    benchmark_mode: "live_streams"
+    warmup_seconds: 180
+    measure_minutes: 10
+    settle_seconds: 120              # after adding streams, before measuring
+    videos:
+      - url: "http://media-server/alerts/warehouse-ladder-1080p-10fps.mp4"
+        stream_counts: [1, 20, 30, 50]
+
+  # Weekly / manual: highest stream count whose E2E p90 stays at the target.
+  max_streams_test:
+    description: "Find the max sustainable stream count at a target E2E p90"
+    benchmark_mode: "max_streams"
+    warmup_seconds: 180
+    measure_minutes: 10
+    settle_seconds: 120
+    videos:
+      - url: "http://media-server/alerts/warehouse-ladder-1080p-10fps.mp4"
+        stream_counts: [10, 20, 30, 40, 50]
+        target_e2e_p90_seconds: 10.0
+        max_verification_failure_rate: 0.02
