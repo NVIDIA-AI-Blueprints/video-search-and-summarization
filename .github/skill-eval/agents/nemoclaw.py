@@ -13,6 +13,8 @@ from harbor.agents.installed.openclaw import OpenClaw
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
+_RUNNER_OVERHEAD_SEC = 120 + 60 + 30  # Native CLI grace, session read, NIM diagnostics.
+
 
 def _agent_timeout() -> int:
     value = int(os.environ.get("NEMOCLAW_AGENT_TIMEOUT_SEC", "3300"))
@@ -73,5 +75,5 @@ python3 .github/skill-eval/nemoclaw/headless_runner.py \
         await self.exec_as_agent(
             environment,
             command,
-            timeout_sec=timeout + 180,
+            timeout_sec=timeout + _RUNNER_OVERHEAD_SEC,
         )

@@ -352,3 +352,49 @@ def test_pretrial_blocked_owes_nothing(tmp_path) -> None:
     assert not skills_eval_agent.missing_renderer_outputs(
         "BLOCKED: pool exhausted", results_root,
         results_root / "s.json", tmp_path / "pr-x.md")
+
+
+def test_setup_only_terminal_unit_cannot_claim_a_full_spec_pass() -> None:
+    evaluate = skills_eval_agent._evaluate_terminal_marker
+    assert evaluate(['DONE: 1/1 setups passed'], setup_only=True)[0] == 0
+    assert evaluate(['DONE: 0/1 setups passed; native check failed'], setup_only=True)[0] == skills_eval_agent._EVAL_FAILURE_EXIT_CODE
+    assert evaluate(['DONE: 1/1 specs passed'], setup_only=True)[0] == skills_eval_agent._PROTOCOL_FAILURE_EXIT_CODE
+    assert evaluate(['DONE: 1/1 setups passed'])[0] == skills_eval_agent._PROTOCOL_FAILURE_EXIT_CODE
+
+
+def test_manual_setup_prompt_retains_original_tasks_and_scope_specific_verdict() -> None:
+    leg = {**_LEG, 'eval_skill': 'vss-manage-alerts', 'eval_spec_path': 'skills/operations/vss-manage-alerts/evals/cv_mode_gate.json'}
+    with mock.patch.dict(os.environ, {'SKILLS_EVAL_SETUP_ONLY': 'true'}):
+        prompt = skills_eval_agent.build_user_prompt(**leg, pr_number='', manual=True, daily_run=False)
+    assert 'complete original dataset' in prompt
+    assert 'step 1 `state == "recorded-pass"`' in prompt
+    assert 'every later declared step `state == "not-run"`' in prompt
+    assert 'DONE: 1/1 setups passed' in prompt
+    assert 'DONE: 1/1 specs passed' not in prompt
+
+
+def test_setup_only_summary_requires_passing_first_step_and_no_operational_trials(tmp_path: Path) -> None:
+    import copy
+    import json
+    valid = {'scope': 'setup-only', 'evaluated_steps': [1], 'declared_steps': 2,
+             'collection_errors': [], 'steps': [{'step': 1, 'state': 'recorded-pass'}, {'step': 2, 'state': 'not-run'}]}
+    path = tmp_path / 'summary.json'
+    path.write_text(json.dumps(valid))
+    assert skills_eval_agent.setup_summary_passed(path)
+    invalid = []
+    for key, value in (('scope', 'full'), ('evaluated_steps', [1, 2]), ('collection_errors', ['unreadable']), ('declared_steps', 1)):
+        summary = copy.deepcopy(valid)
+        summary[key] = value
+        invalid.append(summary)
+    for step, state in ((0, 'recorded-fail'), (1, 'recorded-pass')):
+        summary = copy.deepcopy(valid)
+        summary['steps'][step]['state'] = state
+        invalid.append(summary)
+    for key, value in (('exception', 'RuntimeError'), ('harness_failure', {'stage': 'local_inference'})):
+        summary = copy.deepcopy(valid)
+        summary['steps'][0][key] = value
+        invalid.append(summary)
+    invalid.extend(([], {'steps': None}))
+    for summary in invalid:
+        path.write_text(json.dumps(summary))
+        assert not skills_eval_agent.setup_summary_passed(path)

@@ -87,6 +87,14 @@ on:
         description: "Run on the registered Brev Spark-ba-WiFi worker."
         type: boolean
         default: false
+      setup_only:
+        description: "Operational specs: evaluate deployment/setup (step 1) only, including NemoClaw readiness."
+        type: boolean
+        default: false
+      specs:
+        description: "Optional comma-separated spec filename stems; empty runs all selected skills' specs."
+        type: string
+        default: ""
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment + git push of the adapter commit to the contributor's branch).
@@ -189,6 +197,8 @@ jobs:
           # the old behavior — never blank, which would fall through to the
           # diff path and silently produce an empty matrix.
           MANUAL_SKILLS_FILTER: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
+          MANUAL_SPECS_FILTER: ${{ github.event_name == 'workflow_dispatch' && inputs.specs || '' }}
+          SKILLS_EVAL_SETUP_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.setup_only && 'true' || 'false' }}
           SKILLS_EVAL_SPARK_RUNNER: ${{ inputs.spark_runner && 'true' || 'false' }}
         run: python3 .github/skill-eval/plan_matrix.py
 
@@ -266,6 +276,7 @@ jobs:
           CODING_DEPLOYMENT_INPUT: ${{ inputs.coding_deployment || 'hosted-nvidia-inference' }}
           OPERATIONAL_DEPLOYMENT_INPUT: ${{ inputs.operational_deployment || 'hosted-nvidia-inference' }}
           SPARK_RUNNER_INPUT: ${{ inputs.spark_runner && 'true' || 'false' }}
+          SETUP_ONLY_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.setup_only && 'true' || 'false' }}
           CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || '' }}
           OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'nemoclaw' }}
           OPERATIONAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_model || '' }}
@@ -293,6 +304,7 @@ jobs:
           coding_deployment="$CODING_DEPLOYMENT_INPUT"
           operational_deployment="$OPERATIONAL_DEPLOYMENT_INPUT"
           spark_runner="$SPARK_RUNNER_INPUT"
+          setup_only="$SETUP_ONLY_INPUT"
           coding_harness="$CODING_HARNESS_INPUT"
           coding_model="$CODING_MODEL_INPUT"
           operational_harness="$OPERATIONAL_HARNESS_INPUT"
@@ -310,6 +322,7 @@ jobs:
           export SKILLS_EVAL_CODING_DEPLOYMENT="$coding_deployment"
           export SKILLS_EVAL_OPERATIONAL_DEPLOYMENT="$operational_deployment"
           export SKILLS_EVAL_SPARK_RUNNER="$spark_runner"
+          export SKILLS_EVAL_SETUP_ONLY="$setup_only"
           export EVAL_AGENT="$operational_harness"
           export SKILLS_EVAL_CODING_HARNESS="$coding_harness"
           if [ -n "$coding_model" ]; then

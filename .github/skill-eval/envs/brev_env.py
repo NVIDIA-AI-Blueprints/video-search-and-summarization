@@ -474,6 +474,7 @@ class BrevEnvironment(BaseEnvironment):
             "NEMOCLAW_PROVIDER", "NEMOCLAW_ENDPOINT_URL",
             "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
             "SKILL_EVAL_LOCAL_NIM_API_KEY",
+            "SKILL_EVAL_LOCAL_NIM_PLAN",
             "NEMOCLAW_INFERENCE_PROXY",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these

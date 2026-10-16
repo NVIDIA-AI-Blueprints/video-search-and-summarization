@@ -26,6 +26,7 @@ def _load_module(name, filename):
 
 
 def test_agent_copyback_cannot_replace_current_instruction(monkeypatch, tmp_path):
+    monkeypatch.setenv("NEMOCLAW_AGENT_TIMEOUT_SEC", "240")
     modules = {}
     for name in (
         "harbor", "harbor.agents", "harbor.agents.installed",
@@ -50,6 +51,10 @@ def test_agent_copyback_cannot_replace_current_instruction(monkeypatch, tmp_path
     (remote / "agent/instruction.txt").write_text("Deploy an unrelated alerts profile")
 
     async def execute(environment, command, **kwargs):
+        # The adapter must allow the native timeout plus CLI grace (120s),
+        # session retrieval (60s), and post-inference NIM collection (30s).
+        assert "--timeout 240" in command
+        assert kwargs["timeout_sec"] >= 240 + 120 + 60 + 30
         # Run the adapter's real staging shell with temporary path prefixes;
         # stop before inference, then model Harbor's log download/copyback.
         staging = "mkdir -p" + command.split("mkdir -p", 1)[1].split(
@@ -745,6 +750,100 @@ def test_recovered_session_error_does_not_replace_success(runner, monkeypatch):
     assert row["model_matches"] is True
     assert row["usage"] == {"input": 12, "cacheRead": 0, "output": 2}
     assert "reason" not in row
+
+
+@pytest.mark.parametrize("setup", [False, True])
+def test_terminal_provider_failure_preserves_only_operational_history(runner, monkeypatch, tmp_path, setup):
+    """Earlier tools/results remain judgeable without retaining setup probes."""
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    monkeypatch.setenv("SKILL_EVAL_LOCAL_NIM_API_KEY", "local-nim")
+    monkeypatch.setenv("SKILL_EVAL_LOCAL_NIM_PLAN", json.dumps({"owner": "a" * 24}))
+    monkeypatch.setattr(runner, "_load_env_file", lambda _: None)
+    monkeypatch.setattr(runner, "_wait_sandbox_ready", lambda *a: None)
+    monkeypatch.setattr(runner, "_gateway_healthy", lambda *a: True)
+    monkeypatch.setattr(runner, "_ensure_gateway", lambda *a: None)
+    monkeypatch.setattr(runner, "_capture_policy_denials", lambda *a: None)
+    collections = []
+    def failed_collection(argv, **kwargs):
+        collections.append(argv)
+        assert kwargs["timeout"] == 30
+        raise subprocess.TimeoutExpired("collector", 30, stderr="confidential-collector-detail")
+    monkeypatch.setattr(runner.subprocess, "run", failed_collection)
+    envelope = {"meta": {"aborted": True, "agentMeta": {
+        "sessionFile": "/sandbox/.openclaw/agents/main/sessions/current.jsonl", "model": "local-model",
+    }}, "payloads": []}
+    messages = [
+        {"role": "assistant", "content": [{"type": "toolCall", "name": "exec",
+         "arguments": {"cmd": "vss vios list"}}], "usage": {"input": 12, "output": 2}},
+        {"role": "toolResult", "content": [{"type": "text", "text": "current-tool-result"}]},
+        {"role": "assistant", "stopReason": "error", "errorMessage": "Request timed out: provider-detail"},
+    ]
+    session = "\n".join(json.dumps({"message": message}) for message in messages)
+
+    def execute(sandbox, command, **kwargs):
+        if "openclaw agent" in command:
+            output = json.dumps(envelope)
+        elif command.startswith("cat -- "):
+            output = session
+        else:
+            output = '{"ok":true}'
+        return subprocess.CompletedProcess(command, 0, output, "")
+
+    monkeypatch.setattr(runner, "_sandbox_exec", execute)
+    monkeypatch.setattr(runner, "_nemoclaw_exec", execute)
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("Operate the deployment")
+    logs = tmp_path / "agent"
+    args = ["--setup-check"] if setup else ["--prompt-file", str(prompt)]
+    assert runner.main([*args, "--agent-log-dir", str(logs)]) == 1
+    assert collections == [[runner.sys.executable, f"/tmp/skill-eval-nim-{'a' * 24}.py", "collect", "--owner", "a" * 24]]
+    assert "request_timeout" in (logs / "agent.log").read_text()
+    assert "provider-detail" not in (logs / "agent.log").read_text()
+    if setup:
+        assert not (logs / "openclaw.txt").exists()
+        assert not (logs / "openclaw.session.jsonl").exists()
+        readiness = json.loads((logs / "setup-readiness.json").read_text())
+        assert readiness["stages"][-1]["reason"] == "request_timeout"
+        assert "current-tool-result" not in json.dumps(readiness)
+    else:
+        assert json.loads((logs / "openclaw.txt").read_text()) == envelope
+        records = [json.loads(line) for line in (logs / "openclaw.session.jsonl").read_text().splitlines()]
+        assert records[0]["message"]["content"][0] == {
+            "type": "toolCall", "name": "Bash", "arguments": {"command": "vss vios list"},
+        }
+        assert records[1]["message"]["content"][0]["text"] == "current-tool-result"
+        assert records[2]["message"]["stopReason"] == "error"
+
+
+@pytest.mark.parametrize("raw", [None, "", "not-json", "[]", '{"owner":"../other"}', json.dumps({"owner": "a" * 25})])
+def test_nim_refresh_never_executes_for_missing_or_invalid_owner(runner, monkeypatch, raw):
+    if raw is None:
+        monkeypatch.delenv("SKILL_EVAL_LOCAL_NIM_PLAN", raising=False)
+    else:
+        monkeypatch.setenv("SKILL_EVAL_LOCAL_NIM_PLAN", raw)
+    calls = []
+    monkeypatch.setattr(runner.subprocess, "run", lambda *a, **kw: calls.append(a))
+    runner._refresh_local_nim_diagnostics()
+    assert calls == []
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_successful_setup_refreshes_nim_without_changing_outcome(runner, monkeypatch, tmp_path, exit_code):
+    owner = "b" * 24
+    monkeypatch.setenv("SKILL_EVAL_LOCAL_NIM_PLAN", json.dumps({"owner": owner}))
+    monkeypatch.setattr(runner, "_load_env_file", lambda _: None)
+    monkeypatch.setattr(runner, "_check_readiness", lambda *a, **kw: None)
+    calls = []
+    def collect(argv, **kwargs):
+        calls.append(argv)
+        assert kwargs["timeout"] == 30
+        assert kwargs["stdout"] == kwargs["stderr"] == subprocess.DEVNULL
+        return subprocess.CompletedProcess(argv, exit_code, "", "")
+    monkeypatch.setattr(runner.subprocess, "run", collect)
+    logs = tmp_path / "agent"
+    assert runner.main(["--setup-check", "--agent-log-dir", str(logs)]) == 0
+    assert calls == [[runner.sys.executable, f"/tmp/skill-eval-nim-{owner}.py", "collect", "--owner", owner]]
+    assert not (logs / "agent.log").exists()
 
 
 def test_setup_failure_artifact_keeps_native_reason(runner, monkeypatch, tmp_path):

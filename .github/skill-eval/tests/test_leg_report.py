@@ -568,3 +568,36 @@ def test_no_failing_checks_section_when_everything_passed(tmp_path: Path) -> Non
            start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
            checks=[{"pass": True, "check": "a"}, {"pass": True, "check": "b"}])
     assert "### Failing checks" not in _render(tmp_path, declared=["deploy"])
+
+
+def test_setup_only_report_keeps_full_declaration_without_full_spec_claim(tmp_path: Path) -> None:
+    _trial(tmp_path, 'r', 'step-1__aaa', reward=1.0, passed=6, total=6,
+           start='2026-08-20T08:00:00Z', finish='2026-08-20T08:10:00Z')
+    leg = leg_report.collect_leg(tmp_path)
+    declared = ['deploy', 'operate', 'explain']
+    body = leg_report.render_comment(leg, spec_path='skills/operations/alerts/evals/cv.json',
+                                    platform='L40S', head_sha='a' * 40,
+                                    declared=declared, setup_only=True)
+    assert '**Setup only:**' in body
+    assert 'not a full-spec pass' in body
+    assert len(_rows(body)) == 1
+    summary = leg_report.leg_summary(leg, declared=declared, setup_only=True)
+    assert summary['scope'] == 'setup-only'
+    assert summary['evaluated_steps'] == [1]
+    assert summary['declared_steps'] == 3
+    assert [row['state'] for row in summary['steps']] == ['recorded-pass', 'not-run', 'not-run']
+    assert 'scope' not in leg_report.leg_summary(leg, declared=declared)
+
+
+def test_setup_only_preserves_native_failure_despite_unanimous_judge(tmp_path: Path) -> None:
+    trial = _trial(tmp_path, 'r', 'step-1__aaa', reward=1.0, passed=6, total=6,
+                   start='2026-08-20T08:00:00Z', finish='2026-08-20T08:10:00Z',
+                   exception='RuntimeError')
+    receipts = trial / 'artifacts/logs/artifacts/nemoclaw'
+    receipts.mkdir(parents=True)
+    (receipts / 'setup-readiness.json').write_text(json.dumps({'stages': [
+        {'stage': 'local_inference', 'status': 'failed', 'reason': 'session_timeout'},
+    ]}))
+    summary = leg_report.leg_summary(leg_report.collect_leg(tmp_path), declared=['deploy', 'operate'], setup_only=True)
+    assert summary['steps'][0]['state'] == 'recorded-fail'
+    assert summary['steps'][0]['harness_failure'] == {'stage': 'local_inference', 'reason': 'session_timeout'}
