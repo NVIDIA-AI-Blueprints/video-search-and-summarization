@@ -269,16 +269,12 @@ def _resolve_video_upload_config(config: "Any") -> _VideoUploadConfig | None:
         disable_audio = not bool(getattr(streaming_config, "enable_audio", False))
     else:
         # NAT may strip unknown config sections — fall back to env vars set by
-        # the deploy template. Empty RTVI_*_PORT (base profile, where RTVI
-        # isn't deployed) keeps the URL empty so the post-processing step
-        # skips at request time instead of hanging on `http://host:`.
+        # the deploy template. Endpoint env vars carry the placement/protocol
+        # decision so this client does not infer service URLs from HOST_IP.
         vst_internal_url = os.getenv("VST_INTERNAL_URL", "")
         vst_external_url = os.getenv("VST_EXTERNAL_URL", "")
-        host_ip = os.getenv("HOST_IP", "")
-        rtvi_embed_port = os.getenv("RTVI_EMBED_PORT", "")
-        rtvi_cv_port = os.getenv("RTVI_CV_PORT", "")
-        rtvi_embed_base_url = f"http://{host_ip}:{rtvi_embed_port}" if host_ip and rtvi_embed_port else ""
-        rtvi_cv_base_url = f"http://{host_ip}:{rtvi_cv_port}" if host_ip and rtvi_cv_port else ""
+        rtvi_embed_base_url = os.getenv("COSMOS_EMBED_ENDPOINT", "")
+        rtvi_cv_base_url = os.getenv("RTVI_CV_ENDPOINT", "")
         rtvi_embed_model = os.getenv("RTVI_EMBED_MODEL", "cosmos-embed1-448p")
         rtvi_embed_chunk_duration = 5
         disable_audio = os.getenv("ENABLE_AUDIO", "false").strip().lower() not in ("true", "1", "yes")
