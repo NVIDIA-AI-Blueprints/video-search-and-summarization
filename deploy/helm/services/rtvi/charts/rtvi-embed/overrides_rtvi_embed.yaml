@@ -20,8 +20,8 @@ imagePullSecrets: []
 # For SBSA/DGX-Spark, retain the repository and set image.tag to
 # develop-latest-sbsa (or set global.container_tag when appropriate).
 image:
-  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
-  tag: develop-latest
+  repository: nvcr.io/nvidia/vss-core/vss-rt-embed
+  tag: "3.3.0"
   pullPolicy: IfNotPresent
 
 # Model source and implementation paths

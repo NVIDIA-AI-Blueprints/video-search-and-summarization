@@ -18,8 +18,8 @@ global: {}
 serviceAccount:
   create: false
 image:
-  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-agent-ui
-  tag: develop-latest
+  repository: nvcr.io/nvidia/vss-core/vss-agent-ui
+  tag: "3.3.0"
   pullPolicy: IfNotPresent
 replicas: 1
 service:

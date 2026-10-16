@@ -17,8 +17,8 @@ enabled: false
 global: {}
 
 image:
-  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-video-analytics-api
-  tag: "develop-latest"
+  repository: nvcr.io/nvidia/vss-core/vss-video-analytics-api
+  tag: "3.3.0"
   pullPolicy: IfNotPresent
 replicas: 1
 streamType: "kafka"

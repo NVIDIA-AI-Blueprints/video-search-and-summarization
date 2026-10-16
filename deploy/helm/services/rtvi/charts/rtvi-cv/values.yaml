@@ -40,8 +40,8 @@ scripts:
 # that pair with a regex, and a comment between them makes it silently read the
 # next image block in this file instead.
 image:
-  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv
-  tag: "develop-latest"
+  repository: nvcr.io/nvidia/vss-core/vss-rt-cv
+  tag: "3.3.0"
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -180,8 +180,8 @@ standaloneWarehouse:
     fusion:
       enabled: true
       image:
-        repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-bev-fusion
-        tag: develop-latest
+        repository: nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-bev-fusion
+        tag: "3.3.0"
         pullPolicy: IfNotPresent
       rawTopic: mdx-raw
       fusedTopic: mdx-bev
@@ -261,8 +261,8 @@ standaloneWarehouse:
       waitTimeoutSeconds: 3600
       configInit:
         image:
-          repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv-mv3dt-config-init
-          tag: develop-latest
+          repository: nvcr.io/nvidia/vss-core/vss-rt-cv-mv3dt-config-init
+          tag: "3.3.0"
           pullPolicy: IfNotPresent
 
 modelsPvc:

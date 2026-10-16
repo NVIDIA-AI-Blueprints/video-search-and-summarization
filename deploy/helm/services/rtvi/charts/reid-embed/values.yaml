@@ -33,8 +33,8 @@ runtimeClassName: ""
 # Mirror-only image (container-inventory strategy "mirror"), so it is pinned
 # here rather than routed through the GHCR develop-latest channel.
 image:
-  repository: nvcr.io/nvstaging/vss-core/reid-embed
-  tag: 3.3.0-26.09.3
+  repository: nvcr.io/nvidia/vss-core/reid-embed
+  tag: "3.3.0"
   pullPolicy: IfNotPresent
 
 replicas: 1

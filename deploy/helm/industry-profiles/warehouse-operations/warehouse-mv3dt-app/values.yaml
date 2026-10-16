@@ -55,8 +55,8 @@ bp-configurator:
     mountPath: /opt/data
     seedConfigMapName: bp-configurator-mv3dt-calibration-seed
   image:
-    repository: ghcr.io/nvidia-ai-blueprints/vss/vss-configurator
-    tag: develop-latest
+    repository: nvcr.io/nvidia/vss-core/vss-configurator
+    tag: "3.3.0"
     pullPolicy: IfNotPresent
   init:
     enabled: true
