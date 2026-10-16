@@ -22,14 +22,14 @@
 #   - the mirror branch lives in this repo, so secrets are available, including
 #     for PRs opened from forks. pull_request cannot do that.
 #
+# Both jobs build the full multi-version site with build_fern_site.py: the PR
+# checkout is the Dev version (or "X.Y.Z (preview)" when the PR targets
+# release/X.Y.Z), plus every release tag listed in fern/docs.yml. Every Fern
+# command runs in that built tree, never in the checkout.
+#
 # Requires the DOCS_FERN_TOKEN repo secret.
 
 name: Fern Docs CI
-
-env:
-  VSS_DOCS_GIT_REF: develop
-  VSS_DOCS_IMAGE_TAG: develop-latest
-  VSS_DOCS_SBSA_IMAGE_TAG: develop-latest-sbsa
 
 on:
   push:
@@ -77,8 +77,8 @@ jobs:
             if git diff --name-only "$BEFORE" HEAD | grep -qE \
               -e '^(docs/|fern/)' \
               -e '^services/analytics/video-analytics-api/src/app/specification/openapi\.json$' \
-              -e '^\.github/scripts/(check_fern_substitutions|prepare_fern_inputs|test_check_fern_substitutions|test_prepare_fern_inputs)\.py$' \
-              -e '^\.github/workflows/(fern-docs-ci|stage-fern-docs|publish-fern-docs)\.yml$'; then
+              -e '^\.github/scripts/((test_)?build_fern_site\.py|resolve_fern_docs_context\.sh)$' \
+              -e '^\.github/workflows/(fern-docs-ci|preview-release-docs|publish-fern-docs)\.yml$'; then
               DOCS=true
             else
               DOCS=false
@@ -123,28 +123,38 @@ jobs:
             exit 1
           fi
 
-      - name: Test and prepare Fern inputs
+      - name: Test the site build
+        run: python3 .github/scripts/test_build_fern_site.py
+
+      - name: Resolve PR context
+        id: pr
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/scripts/resolve_fern_docs_context.sh
+
+      - name: Build Fern site
+        env:
+          RELEASE: ${{ steps.pr.outputs.release }}
         run: |
-          python3 .github/scripts/test_check_fern_substitutions.py
-          python3 .github/scripts/test_prepare_fern_inputs.py
-          python3 .github/scripts/prepare_fern_inputs.py --output "${RUNNER_TEMP}/fern-input"
-          python3 .github/scripts/check_fern_substitutions.py --root "${RUNNER_TEMP}/fern-input"
+          set -euo pipefail
+          ARGS=(--fetch --output "${RUNNER_TEMP}/fern-site")
+          if [ -n "$RELEASE" ]; then ARGS+=(--release "$RELEASE"); fi
+          python3 .github/scripts/build_fern_site.py "${ARGS[@]}"
 
       - name: Fern check
-        working-directory: ${{ runner.temp }}/fern-input
+        working-directory: ${{ runner.temp }}/fern-site
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}   # enables the redirects check
         run: fern check
 
       - name: Check MDX validity
-        working-directory: ${{ runner.temp }}/fern-input
+        working-directory: ${{ runner.temp }}/fern-site
         run: fern docs md check
 
       - name: Check broken links
-        working-directory: ${{ runner.temp }}/fern-input
-        # Intentionally not --strict yet: the docs carry pre-existing broken
-        # links from #1763. Flip this on once that backlog is cleared.
-        run: fern docs broken-links
+        working-directory: ${{ runner.temp }}/fern-site
+        run: fern docs broken-links --strict
 
   # Preview is a separate job so a Fern ledger/upload flake cannot fail the
   # required "Fern Check" status. Retry generate: Fern sometimes reports
@@ -161,18 +171,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Resolve PR number
+      - name: Resolve PR context
         id: pr
         env:
           REF_NAME: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          PR="${REF_NAME#pull-request/}"
-          if ! [[ "$PR" =~ ^[0-9]+$ ]]; then
-            echo "::notice::Not a copy-pr-bot mirror branch, no PR comment will be posted"
-            PR=""
-          fi
-          echo "number=$PR" >> "$GITHUB_OUTPUT"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/scripts/resolve_fern_docs_context.sh
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -189,12 +193,18 @@ jobs:
           fi
           npm install -g "fern-api@${VERSION}"
 
-      - name: Prepare Fern inputs
-        run: python3 .github/scripts/prepare_fern_inputs.py --output "${RUNNER_TEMP}/fern-input"
+      - name: Build Fern site
+        env:
+          RELEASE: ${{ steps.pr.outputs.release }}
+        run: |
+          set -euo pipefail
+          ARGS=(--fetch --output "${RUNNER_TEMP}/fern-site")
+          if [ -n "$RELEASE" ]; then ARGS+=(--release "$RELEASE"); fi
+          python3 .github/scripts/build_fern_site.py "${ARGS[@]}"
 
       - name: Generate preview URL
         id: generate-docs
-        working-directory: ${{ runner.temp }}/fern-input
+        working-directory: ${{ runner.temp }}/fern-site
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
           PREVIEW_ID: pr-${{ steps.pr.outputs.number }}
