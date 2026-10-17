@@ -84,6 +84,40 @@ class FileLiveEstimateTest(unittest.TestCase):
         self.assertEqual(result["estimated_live_streams"], 1)
         self.assertEqual(result["suggested_initial_stream_count"], 1)
 
+    def test_producer_keeps_precision_for_live_estimates(self):
+        benchmark = FileBurstBenchmark("http://localhost")
+        video = {
+            "filepath": "clip.mp4",
+            "file_duration_seconds": 100,
+            "live_chunk_duration_seconds": 100,
+            "steady_state_duration_seconds": 300,
+            "reuse_uploaded_files": False,
+        }
+        for p95, expected_status in ((90.0, "estimated"), (100.004, "unavailable")):
+            with (
+                self.subTest(p95=p95),
+                tempfile.TemporaryDirectory() as root,
+                patch("file_burst_benchmark.time") as clock,
+                patch.object(benchmark, "start_gpu_monitoring"),
+                patch.object(benchmark, "stop_gpu_monitoring"),
+                patch.object(benchmark, "process_gpu_stats", return_value={}),
+                patch.object(
+                    benchmark, "_process_single_file_burst",
+                    return_value={"success": True, "processing_time": p95},
+                ),
+            ):
+                clock.time.side_effect = [0.0, 1000.0, 1000.0]
+                row = benchmark._test_single_concurrency_level(
+                    "precision", video, 0, 96, {}, "model", root
+                )
+                estimate = estimate_live_streams([row], video, 0)
+                self.assertEqual(estimate["status"], expected_status)
+                self.assertEqual(row["throughput_files_per_second"], 0.096)
+                self.assertAlmostEqual(row["p95_latency"], p95)
+                if expected_status == "estimated":
+                    self.assertEqual(estimate["estimated_live_streams"], 9)
+                    self.assertEqual(estimate["suggested_initial_stream_count"], 4)
+
     def test_iteration_persists_estimate_and_excel_keeps_failed_case_visible(self):
         benchmark = FileBurstBenchmark("http://localhost")
         video = dict(

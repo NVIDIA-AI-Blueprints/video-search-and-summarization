@@ -848,7 +848,8 @@ class FileBurstBenchmark(BenchmarkBase):
             f"p99: {result.get('p99_latency', 0):.2f}s"
         )
         time.sleep(2)
-        return self.round_floats(result)
+        # Rounding here can change estimate eligibility and integer stream counts.
+        return result
 
     def _process_single_file_burst(
         self,
