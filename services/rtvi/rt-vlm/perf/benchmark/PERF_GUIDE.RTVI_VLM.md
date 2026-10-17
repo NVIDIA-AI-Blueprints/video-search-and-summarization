@@ -94,6 +94,43 @@ after setup. On Orin, follow this guide's `GPU_TELEMETRY_BACKEND=tegrastats`
 fallback instructions when DCGM is unavailable. Counts are search seeds, not
 validated capacity. This selection does not change the scientific workload.
 
+### Bounded max-live search
+
+Each max-live video accepts `max_stream_count` (default 300). The harness sizes
+its SSE executor and HTTP pool from this bound, clamps ramp additions and linear
+refinement to it, and validates the capped load before stopping. B200 SXM profiles
+set it to 512. Configure the server admission limit separately to accommodate the
+intended load (for example `--max-live-streams 512` via `RTVI_EXTRA_ARGS`) and verify
+the actual server command line. A harness limit does not override server admission
+or prove available GPU capacity.
+
+`required_stable_windows` still requires consecutive passing windows. Optional
+`unstable_window_size: 5` with `required_unstable_windows: 2` additionally rejects
+a load with two failing checks in the latest five checks. RTX PRO 6000 SE profiles
+enable this rule. Freshness and zero-drop checks still apply. This changes the
+failure policy, so record the harness revision and do not compare it as identical
+to an older consecutive-only search.
+
+Two failures in five still cannot resolve a repeating four-pass/one-fail pattern.
+`max_windows_per_level` (default 20, including checks waiting for fresh responses)
+bounds the decision. A level that remains undecided yields
+`search_stop_reason: inconclusive_level`, `capacity_censored: true`, the
+`unresolved_stream_count`, and `capacity_success: false`. Its last confirmed
+stable count remains a lower bound, not the unresolved level or a measured maximum.
+Phase 2 also stops on an inconclusive probe instead of treating timeout as observed
+latency degradation. Configure enough checks for the declared validation windows.
+
+Reaching the configured search cap yields `search_stop_reason: max_stream_count`
+and `capacity_censored: true`. Report the confirmed stable count as **at least N
+logical streams, harness-limited**, never an uncensored maximum. JSON and the
+Excel summary retain these status fields. Required fixed-load plateaus and cleanup
+checks must still pass independently. No old result is reclassified by this change.
+Legacy maximum-only plots, KPI baselines and metric adapters omit censored results
+rather than publishing a lower bound as an ordinary maximum. Use the JSON or
+consolidated workbook to inspect those observations.
+Interrupted searches are also censored and unsuccessful; only the last confirmed
+stable load is retained as a lower bound, never the load awaiting validation.
+
 ## Quick Start (legacy platform-tuned scenarios)
 
 This is the minimal path from bare hardware to running benchmarks.

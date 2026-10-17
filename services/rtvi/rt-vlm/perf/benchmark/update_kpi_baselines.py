@@ -69,7 +69,7 @@ def find_max_streams_results(report_dir: Path, scenario_name: str) -> Optional[D
         if not tc_dir.is_dir():
             continue
         data = load_json(tc_dir / "max_live_streams_results.json")
-        if data and data.get("success", False):
+        if data and data.get("success", False) and not data.get("capacity_censored", False):
             return data
     return None
 

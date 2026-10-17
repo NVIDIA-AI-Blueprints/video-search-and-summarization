@@ -94,6 +94,8 @@ test_scenarios:
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
+        unstable_window_size: 5
+        max_windows_per_level: 20
         enable_latency_growth_instability_check: false
         generate_captions_params:
           temperature: 0.5
@@ -125,6 +127,8 @@ test_scenarios:
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
+        unstable_window_size: 5
+        max_windows_per_level: 20
         enable_latency_growth_instability_check: false
         generate_captions_params:
           temperature: 0.5
@@ -157,6 +161,8 @@ test_scenarios:
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
+        unstable_window_size: 5
+        max_windows_per_level: 20
         enable_latency_growth_instability_check: false
         generate_captions_params:
           temperature: 0.5
@@ -188,6 +194,8 @@ test_scenarios:
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
+        unstable_window_size: 5
+        max_windows_per_level: 20
         enable_latency_growth_instability_check: false
         generate_captions_params:
           temperature: 0.5
@@ -220,6 +228,8 @@ test_scenarios:
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
+        unstable_window_size: 5
+        max_windows_per_level: 20
         enable_latency_growth_instability_check: false
         generate_captions_params:
           temperature: 0.5
@@ -251,6 +261,8 @@ test_scenarios:
         binary_search_refinement: true
         required_stable_windows: 5
         required_unstable_windows: 2
+        unstable_window_size: 5
+        max_windows_per_level: 20
         enable_latency_growth_instability_check: false
         generate_captions_params:
           temperature: 0.5
