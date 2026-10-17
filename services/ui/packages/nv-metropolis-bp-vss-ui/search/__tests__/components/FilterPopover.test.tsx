@@ -15,15 +15,12 @@ const defaultProps = {
     { name: 'RTSP-1', type: 'sensor_rtsp' },
   ],
   filterParams: {
-    startDate: null,
-    endDate: null,
     videoSources: [],
     similarity: 0,
     topK: 10,
   },
   setFilterParams: jest.fn(),
   disabled: false,
-  sourceType: 'video_file',
 };
 
 describe('FilterDialog', () => {
@@ -38,16 +35,14 @@ describe('FilterDialog', () => {
 
   it('renders when isOpen is true', () => {
     render(<FilterDialog {...defaultProps} />);
-    expect(screen.getByText('From:')).toBeInTheDocument();
-    expect(screen.getByText('To:')).toBeInTheDocument();
     expect(screen.getByText('Video sources:')).toBeInTheDocument();
     expect(screen.getByText('Min Cosine Similarity:')).toBeInTheDocument();
   });
 
-  it('renders Show top K Results label with required marker', () => {
+  it('renders Show top K Results label', () => {
     render(<FilterDialog {...defaultProps} />);
     expect(screen.getByText(/Show top K Results/)).toBeInTheDocument();
-    expect(screen.getByText('*')).toBeInTheDocument();
+    expect(screen.queryByText('*')).not.toBeInTheDocument();
   });
 
   it('renders Apply and Cancel buttons', () => {

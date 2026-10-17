@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { useState, useCallback, useEffect } from 'react';
 import { FilterProps, SearchParams, StreamInfo } from '../types';
-import { formatDatetime } from '../utils/Formatter';
 
 // Centralized default constant - exported for use in other components
 export const DEFAULT_TOP_K = 10;
@@ -29,11 +28,17 @@ function setStoredTopK(value: number): void {
   }
 }
 
+/** A numeric threshold, including 0, is a real filter. Blank means the tag was cleared. */
+function similarityFilterTag(similarity: unknown): { key: string; title: string; value: string } | null {
+  if (similarity === '' || similarity == null) return null;
+  const similarityNumber = Number(similarity);
+  if (!Number.isFinite(similarityNumber)) return null;
+  return { key: 'similarity', title: 'Similarity', value: similarityNumber.toFixed(2) };
+}
+
 export const useFilter = ({vstApiUrl}: FilterProps) => {
   const [streams, setStreams] = useState<StreamInfo[]>([]);
   const [filterParams, setFilterParamsState] = useState<SearchParams>(() => ({
-    startDate: null,
-    endDate: null,
     videoSources: [],
     similarity: 0,
     agentMode: false,
@@ -54,7 +59,8 @@ export const useFilter = ({vstApiUrl}: FilterProps) => {
     });
   }, []);
   const [filterTags, setFilterTags] = useState(() => [
-    { key: 'topK', title: 'Show top K Results', value: String(filterParams.topK) }
+    { key: 'similarity', title: 'Similarity', value: Number(filterParams.similarity ?? 0).toFixed(2) },
+    { key: 'topK', title: 'Show top K Results', value: String(filterParams.topK) },
   ]);
 
   const fetchSensorList = useCallback(async () => {
@@ -86,20 +92,15 @@ export const useFilter = ({vstApiUrl}: FilterProps) => {
 
   const addFilter = useCallback((params?: any) => {
     const paramsToUse = params || filterParams;
-    const { startDate, endDate, videoSources, similarity, topK } = paramsToUse;
-      
-    let tags = [];
-    if (startDate) {
-      tags.push({key: 'startDate', title: 'From', value: formatDatetime(startDate)});
-    } 
-    if (endDate) {
-      tags.push({key: 'endDate', title: 'To', value: formatDatetime(endDate)});
-    }
+    const { videoSources, similarity, topK } = paramsToUse;
+
+    const tags = [];
     if (videoSources && videoSources.length > 0) {
       tags.push({key: 'videoSources', title: 'Video sources', value: videoSources.join(', ')});
     }
-    if (similarity) {
-      tags.push({key: 'similarity', title: 'Similarity', value: Number(similarity)?.toFixed(2)});
+    const similarityTag = similarityFilterTag(similarity);
+    if (similarityTag) {
+      tags.push(similarityTag);
     }
     // Always include topK tag (robust to numeric 0 or other non-truthy but valid numbers)
     if (topK !== undefined && topK !== null) {
@@ -112,7 +113,10 @@ export const useFilter = ({vstApiUrl}: FilterProps) => {
   // fresh function each render feeds back into Home's sidebar-controls state.
   const removeFilterTag = useCallback((tag: any) => {
     if (!tag) {
-      setFilterTags([{key: 'topK', title: 'Show top K Results', value: (filterParams.topK ?? DEFAULT_TOP_K).toString()}]);
+      setFilterTags([
+        { key: 'similarity', title: 'Similarity', value: '0.00' },
+        { key: 'topK', title: 'Show top K Results', value: (filterParams.topK ?? DEFAULT_TOP_K).toString() },
+      ]);
     } else {
       setFilterTags((prev: any) => prev.filter((t: any) => t !== tag));
     }

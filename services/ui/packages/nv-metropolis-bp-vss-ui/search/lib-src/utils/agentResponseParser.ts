@@ -12,11 +12,29 @@ interface SearchApiShape {
   data?: unknown[];
 }
 
+/**
+ * Reasoning traces can carry tool inputs, intermediate JSON or malformed code
+ * that would otherwise be mistaken for the final Search payload.
+ */
+const AGENT_THINK_BLOCK = /<agent-think(?![-\w])[^>]*>[\s\S]*?<\/agent-think>/g;
+
+function stripAgentThinkBlocks(text: string): string {
+  return text.replace(AGENT_THINK_BLOCK, '');
+}
+
 function findMatchingBrace(text: string, startIndex: number): number {
   let depth = 0;
+  let inString = false;
   for (let i = startIndex; i < text.length; i++) {
-    if (text[i] === '{') depth++;
-    else if (text[i] === '}') {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
       depth--;
       if (depth === 0) return i;
     }
@@ -24,33 +42,64 @@ function findMatchingBrace(text: string, startIndex: number): number {
   return -1;
 }
 
-function extractJsonFromCodeBlock(text: string): SearchApiShape | null {
-  const openFence = text.indexOf('```');
-  if (openFence === -1) return null;
-  let contentStart = openFence + 3;
-  if (text.slice(contentStart, contentStart + 4).toLowerCase() === 'json'
-    && (contentStart + 4 >= text.length || /\s/.test(text[contentStart + 4]))) {
-    contentStart += 4;
-  }
-  const closeFence = text.indexOf('```', contentStart);
-  if (closeFence === -1) return null;
+function asSearchApiShape(value: unknown): SearchApiShape | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const { data } = value as SearchApiShape;
+  if (!Array.isArray(data)) return null;
+  const allRecords = data.every(
+    (item) => item !== null && typeof item === 'object' && !Array.isArray(item),
+  );
+  return allRecords ? (value as SearchApiShape) : null;
+}
+
+function tryParseSearchApiShape(candidate: string): SearchApiShape | null {
   try {
-    return JSON.parse(text.slice(contentStart, closeFence).trim()) as SearchApiShape;
+    return asSearchApiShape(JSON.parse(candidate));
   } catch {
     return null;
   }
 }
 
-function extractJsonFromText(text: string): SearchApiShape | null {
-  const firstBrace = text.indexOf('{');
-  if (firstBrace === -1) return null;
-  const end = findMatchingBrace(text, firstBrace);
-  if (end === -1) return null;
-  try {
-    return JSON.parse(text.slice(firstBrace, end + 1)) as SearchApiShape;
-  } catch {
-    return null;
+function extractJsonFromCodeBlocks(text: string): SearchApiShape | null {
+  let searchFrom = 0;
+  while (searchFrom < text.length) {
+    const openFence = text.indexOf('```', searchFrom);
+    if (openFence === -1) return null;
+    let contentStart = openFence + 3;
+    if (text.slice(contentStart, contentStart + 4).toLowerCase() === 'json'
+      && (contentStart + 4 >= text.length || /\s/.test(text[contentStart + 4]))) {
+      contentStart += 4;
+    }
+    const closeFence = text.indexOf('```', contentStart);
+    if (closeFence === -1) return null;
+    const parsed = tryParseSearchApiShape(text.slice(contentStart, closeFence).trim());
+    if (parsed) return parsed;
+    searchFrom = closeFence + 3;
   }
+  return null;
+}
+
+function extractJsonFromText(text: string): SearchApiShape | null {
+  let brace = text.indexOf('{');
+  while (brace !== -1) {
+    const end = findMatchingBrace(text, brace);
+    if (end === -1) {
+      brace = text.indexOf('{', brace + 1);
+      continue;
+    }
+    let isValidJson = true;
+    try {
+      const parsed = asSearchApiShape(JSON.parse(text.slice(brace, end + 1)));
+      if (parsed) return parsed;
+    } catch {
+      isValidJson = false;
+    }
+    // A well-formed object that is not the payload is skipped whole so a nested
+    // `data` array is not mistaken for the top-level result; a malformed one
+    // may still enclose the real payload.
+    brace = text.indexOf('{', isValidJson ? end + 1 : brace + 1);
+  }
+  return null;
 }
 
 function transformToSearchData(data: unknown[]): SearchData[] {
@@ -91,7 +140,8 @@ export function normalizeSearchResultMediaUrls(
 
 /**
  * Tries to extract a JSON object from text that has the Search API shape { data: [...] }.
- * Tries: (1) ```json ... ``` block, (2) first top-level { ... } in the text.
+ * Tries: (1) a `vss.search.results` artifact, then, outside `<agent-think>` reasoning,
+ * (2) every ``` fenced block in order, (3) every top-level { ... } object in order.
  * Returns the transformed SearchData[] or null if no valid JSON found.
  */
 export function extractSearchResultsFromAgentResponse(responseText: string): SearchData[] | null {
@@ -103,11 +153,9 @@ export function extractSearchResultsFromAgentResponse(responseText: string): Sea
   );
   if (artifact) return transformToSearchData(artifact.payload.data as unknown[]);
 
-  let parsed = extractJsonFromCodeBlock(trimmed);
-  if (!parsed || !Array.isArray(parsed.data)) {
-    parsed = extractJsonFromText(trimmed);
-  }
-  if (!parsed || !Array.isArray(parsed.data)) return null;
+  const answer = stripAgentThinkBlocks(trimmed);
+  const parsed = extractJsonFromCodeBlocks(answer) ?? extractJsonFromText(answer);
+  if (!parsed?.data) return null;
 
   return transformToSearchData(parsed.data);
 }
