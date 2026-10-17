@@ -21,7 +21,7 @@ VIOS is a **multi-image microservice**. Source: `vst.env` lines 64–66 (canonic
 >
 > - **Docker:** `${SDR_MW_L_IMAGE}`, defined in [`deploy/docker/containers.env`](../../../../deploy/docker/containers.env) and consumed by `sdr-controller` in [`sdrc/docker-compose.yaml`](../../../../deploy/docker/services/infra/sdrc/docker-compose.yaml). Unless set explicitly, it follows `VSS_CONTAINER_REGISTRY` / `VSS_CONTAINER_TAG`.
 > - **Helm:** `image.repository` / `image.tag` in the [`sdrc` chart `values.yaml`](../../../../deploy/helm/services/infra/charts/sdrc/values.yaml) (`infra.sdrc.image.*` from a profile), overridden by `global.container_prefix` / `global.container_tag`.
-> - **Tag:** `sdr-mw-l` is a single multi-arch image (amd64 + arm64) with no `-sbsa` variant. `VSS_CONTAINER_TAG_SUFFIX` is not applied to it; on SBSA Helm deployments, do not set `global.container_tag` to an `-sbsa` tag — override the per-chart RT image tags instead, or pin `infra.sdrc.image.tag`.
+> - **Tag:** `sdr-mw-l` is a single multi-arch image (amd64 + arm64) with no `-sbsa` variant. `VSS_CONTAINER_TAG_SUFFIX` is not applied to it. On SBSA Helm deployments, clear `global.container_tag` before setting per-chart tags: use `-sbsa` tags for the RT images and an unsuffixed tag for `infra.sdrc.image.tag`. A nonempty `global.container_tag` overrides all of these per-chart tags.
 >
 > The SDRC `wait-for-redis` init container is pinned separately in the compose file (`redis:8.10.0-alpine`).
 
