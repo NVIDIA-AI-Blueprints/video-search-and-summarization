@@ -19,6 +19,8 @@ See below files for the licenses:
 - libs/analytics/spatialai-data-utils/NOTICE
 - libs/analytics/spatialai-data-utils/release/NOTICE
 - libs/analytics/spatialai-data-utils/3rdParty_Licenses.md
+- libs/analytics/spatialai-data-utils/NOTICE
+- libs/analytics/spatialai-data-utils/release/NOTICE
 - tools/message-broker-consumers/3rdParty_Licenses.md
 - tools/sdg-postprocessing/3rdParty_Licenses.md
 - tools/logstash-plugins/input/redis-stream/THIRD_PARTY_LICENSES.md
