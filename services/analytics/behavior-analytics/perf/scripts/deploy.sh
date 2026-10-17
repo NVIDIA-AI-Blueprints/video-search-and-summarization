@@ -15,6 +15,6 @@ source "$INTEGRATION_DIR/generate_env.sh"
 load_compose_env
 docker pull "$BEHAVIOR_ANALYTICS_IMAGE"
 
-cd "$SERVICE_DIR/docker_compose"
+cd "$COMPOSE_DIR"
 # analytics-stream waits for the broker health check. Playback stays stopped.
 compose up -d --no-build analytics-stream

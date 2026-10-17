@@ -13,7 +13,8 @@ PERF_DURATION_SECONDS="${PERF_DURATION_SECONDS:-60}"
 PERF_WARMUP_SECONDS="${PERF_WARMUP_SECONDS:-10}"
 PERF_SCENARIO="${PERF_SCENARIO:-quick_test}"
 PERF_CONFIG_ID="${PERF_CONFIG_ID:-warehouse_2d-kafka-playback}"
-OUTPUT_DIR="${OUTPUT_DIR:-$PERF_DIR/output}"
+OUTPUT_DIR="${OUTPUT_DIR:-$PERF_DIR/results/${PERF_SERVICE:-behavior-analytics}_${PERF_SCENARIO}_${PERF_CONFIG_ID}}"
+COMPOSE_DIR="$INTEGRATION_DIR/docker_compose"
 
 resolve_image() {
     if [[ -n "${ARTIFACT_REF:-}" ]]; then

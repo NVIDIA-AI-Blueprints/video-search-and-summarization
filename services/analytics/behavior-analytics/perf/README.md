@@ -14,8 +14,8 @@ Set `ARTIFACT_REF` to the promoted image, then run:
 ./perf/run_benchmark.sh
 ```
 
-The result is written to `perf/output/result.json`.
+The result is written to `perf/results/behavior-analytics_<scenario>_<config-id>/result.json`.
 
 ## Jenkins
 
-`PERF_FOLDER` is `perf` and `PERF_USE_RUN_BENCHMARK_SCRIPT` is `true`. `run_benchmark.sh` is the entrypoint. `PERF_SCENARIO=quick_test` selects the 60-second playback window.
+The shared job requires `perf/benchmark/core/vss_perf_benchmark.py`. That file accepts the compose-base flags (`--config-id`, `--scenario`, `--output-json`, `--upload`) and runs `perf/run_benchmark.sh`. `PERF_SCENARIO=quick_test` selects the 60-second playback window. The checkout must include `deploy/docker/services/infra` because the integration compose file includes it.

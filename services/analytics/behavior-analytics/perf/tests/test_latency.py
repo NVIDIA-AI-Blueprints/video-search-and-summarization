@@ -2,11 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 from latency import build_result, correct_topics, parse_latency_report
+
+CORE = Path(__file__).resolve().parents[1] / "benchmark" / "core" / "vss_perf_benchmark.py"
 
 REPORT = """
 RAW MESSAGES
@@ -75,6 +79,25 @@ class LatencyCorrectionTest(unittest.TestCase):
         self.assertEqual(saved["setup"], expected["setup"])
         self.assertEqual(saved["correction"], expected["correction"])
         self.assertTrue(saved["success"])
+
+    def test_jenkins_entrypoint_exists_and_accepts_core_flags(self) -> None:
+        self.assertTrue(CORE.is_file())
+        env = {**os.environ, "PYTHONPATH": str(CORE.parent.parent)}
+        completed = subprocess.run(
+            [
+                "python3",
+                str(CORE),
+                "--help",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn("--config-id", completed.stdout)
+        self.assertIn("--output-json", completed.stdout)
+        self.assertIn("--upload", completed.stdout)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-scenarios:
+scenarios: &scenarios
   quick_test:
     duration_seconds: 60
     warmup_seconds: 10
@@ -15,3 +15,6 @@ scenarios:
       - 50
       - 95
       - 99
+
+# Jenkins compose-base runner reads this key.
+test_scenarios: *scenarios

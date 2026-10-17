@@ -8,6 +8,6 @@ docker rm -f "$MONITOR_NAME" >/dev/null 2>&1 || true
 
 if [[ -f "$INTEGRATION_DIR/docker_compose/infra/.env" ]]; then
     load_compose_env || true
-    cd "$SERVICE_DIR/docker_compose"
+    cd "$COMPOSE_DIR"
     compose down --remove-orphans || true
 fi

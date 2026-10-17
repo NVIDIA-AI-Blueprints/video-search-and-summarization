@@ -26,7 +26,7 @@ docker run -d \
 
 sleep "$PERF_WARMUP_SECONDS"
 
-cd "$SERVICE_DIR/docker_compose"
+cd "$COMPOSE_DIR"
 compose up -d analytics-stream-playback
 sleep "$PERF_DURATION_SECONDS"
 
