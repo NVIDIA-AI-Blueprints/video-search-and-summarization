@@ -1,0 +1,20 @@
+scenarios: &scenarios
+  quick_test:
+    duration_seconds: 60
+    warmup_seconds: 10
+    profile: warehouse_2d
+    broker: kafka
+    playback_data: tests/integration/docker_compose/apps_data/playback/warehouse_2d_playback_data.txt
+    topics:
+      - raw
+      - frames
+      - behavior
+      - events
+      - incidents
+    percentiles:
+      - 50
+      - 95
+      - 99
+
+# Jenkins compose-base runner reads this key.
+test_scenarios: *scenarios

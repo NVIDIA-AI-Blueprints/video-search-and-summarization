@@ -1,0 +1,8 @@
+perf_configs:
+  - id: warehouse_2d-kafka-playback
+    nodeLabel: RTXPRO6000BW-SE
+    imageArch: amd64
+    enabled: true
+    hardwareProfile: playback
+    profile: warehouse_2d
+    broker: kafka
