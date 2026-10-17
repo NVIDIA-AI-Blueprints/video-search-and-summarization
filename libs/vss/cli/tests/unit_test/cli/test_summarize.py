@@ -1431,7 +1431,7 @@ def test_another_groups_job_is_not_this_groups_to_return(
     configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, memory: memory_mod.Memory
 ) -> None:
     """`summarize get` must not hand back a search job that shares the index."""
-    from vss_cli.search.memory_adapter import SearchAdapter
+    from nvidia_vss.search.cli.memory_adapter import SearchAdapter
 
     foreign = SearchAdapter().submitted_record(
         job_id="search-01",

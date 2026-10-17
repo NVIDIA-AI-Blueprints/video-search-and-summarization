@@ -250,13 +250,13 @@ def test_entry_point_name_wins_over_the_callback_name(monkeypatch: pytest.Monkey
 
 def test_root_help_does_not_import_the_search_runtime() -> None:
     """Run in a subprocess: an earlier test in this process may have imported it."""
-    code = "import sys; import vss_cli; vss_cli.main(['--help']); sys.exit(1 if 'vss_cli.search.group' in sys.modules else 0)"
+    code = "import sys; import vss_cli; vss_cli.main(['--help']); sys.exit(1 if 'nvidia_vss.search.cli.group' in sys.modules else 0)"
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert result.returncode == 0, f"vss --help imported the search runtime\n{result.stdout}{result.stderr}"
 
 
 def test_root_help_does_not_import_the_analytics_group() -> None:
-    code = "import sys; import vss_cli; vss_cli.main(['--help']); sys.exit(1 if 'vss_cli.analytics.group' in sys.modules else 0)"
+    code = "import sys; import vss_cli; vss_cli.main(['--help']); sys.exit(1 if 'nvidia_vss.analytics.cli.group' in sys.modules else 0)"
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert result.returncode == 0, f"vss --help imported analytics\n{result.stdout}{result.stderr}"
 
@@ -376,7 +376,7 @@ def test_a_manifest_without_a_group_key_says_so(plugin_root: Path) -> None:
 
 
 def test_a_dropped_group_may_not_shadow_an_installed_one(plugin_root: Path) -> None:
-    """`search` is first-party; a dropped file of the same name is refused.
+    """`search` is first-party (nvidia-vss-search); a dropped file of the same name is refused.
 
     Naming both sources is the point -- a silent win in either direction is the
     failure mode nobody would think to look for.
@@ -385,7 +385,7 @@ def test_a_dropped_group_may_not_shadow_an_installed_one(plugin_root: Path) -> N
     with pytest.raises(plugins.PluginLoadError) as excinfo:
         plugins.load("search")
     message = str(excinfo.value)
-    assert "nvidia-vss-cli" in message
+    assert "nvidia-vss-search" in message
     assert str(plugin_root / "search") in message
 
 

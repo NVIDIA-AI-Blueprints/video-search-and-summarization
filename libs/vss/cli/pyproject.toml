@@ -25,7 +25,7 @@ description = "NVIDIA VSS command-line interface (NAT-free)"
 license = "Apache-2.0"
 authors = [{ name = "NVIDIA Corporation" }]
 maintainers = [{ name = "NVIDIA Corporation" }]
-# cli only touches nvidia_vss (search_core, _foundation) -- no agent/NAT deps.
+# cli only touches the core nvidia_vss modules -- no agent/NAT deps.
 # click is the one third-party addition: it supplies the lazy command-group
 # resolution (Group.list_commands / Group.get_command) that entry-point plugin
 # discovery needs, and as of 8.5 it has no runtime dependencies of its own.
@@ -34,28 +34,35 @@ dependencies = [
   "click>=8.1",
 ]
 
+# Command groups that ship in their own library distributions and mount as
+# plugins through vss.commands. Without them `vss` still runs; it just has no
+# `vss search` / `vss analytics`.
+[project.optional-dependencies]
+search = ["nvidia-vss-search"]
+analytics = ["nvidia-vss-analytics"]
+all = ["nvidia-vss-search", "nvidia-vss-analytics"]
+
 [project.scripts]
 vss = "vss_cli:main"
 
-# First-party groups register through the same contract third parties use.
+# First-party groups register through the same contract third parties use;
+# search and analytics register from their own distributions (packages/*).
 [project.entry-points."vss.commands"]
-analytics = "vss_cli.analytics.register:GROUP"
 configure = "vss_cli.configure:CONFIGURE"
 memory = "vss_cli.memory_cmd:MEMORY"
-search = "vss_cli.search.register:GROUP"
 summarize = "vss_cli.summarize.register:GROUP"
 vlm = "vss_cli.vlm.register:GROUP"
 vios = "vss_cli.vios_group:VIOS"
 
 # Values here are read as raw strings for `vss --help` and are never imported.
 [project.entry-points."vss.command_summaries"]
-analytics = "Read incidents and video analytics metrics"
 configure = "Resolve and record a VSS deployment"
 memory = "Unified memory store surface"
-search = "Search indexed video"
 summarize = "Summarize video and persist to memory"
 vlm = "Ask a visual question about video"
 vios = "Sensors, timelines, clips and snapshots (no jobs)"
 
 [tool.uv.sources]
 nvidia-vss-core = { workspace = true }
+nvidia-vss-search = { workspace = true }
+nvidia-vss-analytics = { workspace = true }

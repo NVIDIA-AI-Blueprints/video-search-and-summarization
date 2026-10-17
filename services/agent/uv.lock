@@ -3363,11 +3363,11 @@ dependencies = [
 [package.optional-dependencies]
 agent = [
     { name = "nvidia-vss-agents" },
-    { name = "nvidia-vss-cli" },
+    { name = "nvidia-vss-cli", extra = ["all"] },
 ]
 all = [
     { name = "nvidia-vss-agents" },
-    { name = "nvidia-vss-cli" },
+    { name = "nvidia-vss-cli", extra = ["all"] },
 ]
 arango-graph = [
     { name = "langchain-classic" },
@@ -3375,7 +3375,7 @@ arango-graph = [
     { name = "python-arango" },
 ]
 cli = [
-    { name = "nvidia-vss-cli" },
+    { name = "nvidia-vss-cli", extra = ["all"] },
 ]
 
 [package.dev-dependencies]
@@ -3416,9 +3416,9 @@ requires-dist = [
     { name = "langchain-community", marker = "extra == 'arango-graph'", specifier = ">=0.3.27" },
     { name = "nvidia-vss-agents", marker = "extra == 'agent'", editable = "packages/vss_agents" },
     { name = "nvidia-vss-agents", marker = "extra == 'all'", editable = "packages/vss_agents" },
-    { name = "nvidia-vss-cli", marker = "extra == 'agent'", editable = "../../libs/vss/cli" },
-    { name = "nvidia-vss-cli", marker = "extra == 'all'", editable = "../../libs/vss/cli" },
-    { name = "nvidia-vss-cli", marker = "extra == 'cli'", editable = "../../libs/vss/cli" },
+    { name = "nvidia-vss-cli", extras = ["all"], marker = "extra == 'agent'", editable = "../../libs/vss/cli" },
+    { name = "nvidia-vss-cli", extras = ["all"], marker = "extra == 'all'", editable = "../../libs/vss/cli" },
+    { name = "nvidia-vss-cli", extras = ["all"], marker = "extra == 'cli'", editable = "../../libs/vss/cli" },
     { name = "nvidia-vss-core", editable = "../../libs/vss" },
     { name = "python-arango", marker = "extra == 'arango-graph'", specifier = ">=8.2" },
 ]
@@ -3507,6 +3507,20 @@ requires-dist = [
 ]
 
 [[package]]
+name = "nvidia-vss-analytics"
+source = { editable = "../../libs/vss/packages/analytics" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "nvidia-vss-core" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = "~=3.14" },
+    { name = "nvidia-vss-core", editable = "../../libs/vss" },
+]
+
+[[package]]
 name = "nvidia-vss-cli"
 source = { editable = "../../libs/vss/cli" }
 dependencies = [
@@ -3514,11 +3528,22 @@ dependencies = [
     { name = "nvidia-vss-core" },
 ]
 
+[package.optional-dependencies]
+all = [
+    { name = "nvidia-vss-analytics" },
+    { name = "nvidia-vss-search" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
+    { name = "nvidia-vss-analytics", marker = "extra == 'all'", editable = "../../libs/vss/packages/analytics" },
+    { name = "nvidia-vss-analytics", marker = "extra == 'analytics'", editable = "../../libs/vss/packages/analytics" },
     { name = "nvidia-vss-core", editable = "../../libs/vss" },
+    { name = "nvidia-vss-search", marker = "extra == 'all'", editable = "../../libs/vss/packages/search" },
+    { name = "nvidia-vss-search", marker = "extra == 'search'", editable = "../../libs/vss/packages/search" },
 ]
+provides-extras = ["all", "analytics", "search"]
 
 [[package]]
 name = "nvidia-vss-core"
@@ -3561,6 +3586,24 @@ dev = [
     { name = "pytest-cov", specifier = ">=6.1" },
     { name = "ruff", specifier = ">=0.12.0" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
+]
+
+[[package]]
+name = "nvidia-vss-search"
+source = { editable = "../../libs/vss/packages/search" }
+dependencies = [
+    { name = "elasticsearch", extra = ["requests"] },
+    { name = "httpx" },
+    { name = "nvidia-vss-core" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "elasticsearch", extras = ["requests"], specifier = "~=8.17.0" },
+    { name = "httpx", specifier = "~=0.28" },
+    { name = "nvidia-vss-core", editable = "../../libs/vss" },
+    { name = "pydantic", specifier = ">=2.11,<3" },
 ]
 
 [[package]]

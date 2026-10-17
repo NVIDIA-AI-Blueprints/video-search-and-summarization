@@ -81,6 +81,10 @@ COPY --chown=root:root --chmod=0444 libs/vss/pyproject.toml /src/libs/vss/pyproj
 COPY --chown=root:root --chmod=0555 libs/vss/src /src/libs/vss/src
 COPY --chown=root:root --chmod=0444 libs/vss/cli/pyproject.toml /src/libs/vss/cli/pyproject.toml
 COPY --chown=root:root --chmod=0555 libs/vss/cli/src /src/libs/vss/cli/src
+COPY --chown=root:root --chmod=0444 libs/vss/packages/search/pyproject.toml /src/libs/vss/packages/search/pyproject.toml
+COPY --chown=root:root --chmod=0555 libs/vss/packages/search/src /src/libs/vss/packages/search/src
+COPY --chown=root:root --chmod=0444 libs/vss/packages/analytics/pyproject.toml /src/libs/vss/packages/analytics/pyproject.toml
+COPY --chown=root:root --chmod=0555 libs/vss/packages/analytics/src /src/libs/vss/packages/analytics/src
 COPY --chown=root:root --chmod=0444 services/agent/docker/cleanup_vulnerabilities.py /src/services/agent/cleanup_vulnerabilities.py
 
 # Create virtual environment and install dependencies

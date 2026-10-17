@@ -28,8 +28,8 @@ raw-options.version_scheme = "no-guess-dev"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-# nvidia_vss: NAT-free libraries (search_core, vlm, vios, memory, introspection,
-# _foundation) plus knowledge (BackendAdapter ABC/schema/factory + lazily-loaded
+# nvidia_vss: NAT-free libraries (media, vlm, memory, introspection, _foundation)
+# plus knowledge (BackendAdapter ABC/schema/factory + lazily-loaded
 # adapters). The import stays light: factory.py resolves adapters via importlib,
 # so heavy backend deps only load when a backend is selected -- see the optional
 # extras. A namespace package: the wheel must not ship nvidia_vss/__init__.py.
@@ -43,7 +43,7 @@ packages = ["src/nvidia_vss"]
 name = "nvidia-vss-core"
 dynamic = ["version"]
 requires-python = ">=3.13,<3.15"
-description = "NVIDIA VSS core libraries (NAT-free): search (incl. critic verifier), vlm, vios, memory, knowledge interface"
+description = "NVIDIA VSS core libraries (NAT-free): media, vlm, memory, introspection, knowledge interface"
 license = "Apache-2.0"
 keywords = ["ai", "rag", "search"]
 authors = [{ name = "NVIDIA Corporation" }]
@@ -112,11 +112,13 @@ constraint-dependencies = [
 ]
 
 [tool.uv.workspace]
-members = ["cli"]
+members = ["cli", "packages/*"]
 
 [tool.uv.sources]
 nvidia-vss-core = { workspace = true }
 nvidia-vss-cli = { workspace = true }
+nvidia-vss-search = { workspace = true }
+nvidia-vss-analytics = { workspace = true }
 
 # The library's own tooling. NAT-free on purpose: nothing here may pull the
 # agent stack, which is what keeps `import nat` impossible in a cli install.
@@ -171,12 +173,17 @@ default-section = "third-party"
 [tool.mypy]
 # nvidia_vss is a namespace package: mypy maps files to modules from these
 # roots rather than walking up to an __init__.py that does not exist.
-mypy_path = "src:cli/src"
+mypy_path = "src:cli/src:packages/search/src:packages/analytics/src"
 explicit_package_bases = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
-testpaths = ["tests/unit_test", "cli/tests/unit_test"]
+testpaths = [
+    "tests/unit_test",
+    "cli/tests/unit_test",
+    "packages/search/tests/unit_test",
+    "packages/analytics/tests/unit_test",
+]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -187,7 +194,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["src", "cli/src"]
+source = ["src", "cli/src", "packages/search/src", "packages/analytics/src"]
 omit = ["*/tests/*", "*/test_*.py", "*/sitecustomize.py"]
 
 [tool.coverage.report]

@@ -124,8 +124,8 @@ def test_every_path_accepts_the_pre_decomposition_question(
 
 def test_the_question_reaches_the_library_request_unchanged() -> None:
     """Through model_dump into SearchInput, which is extra=forbid."""
-    from nvidia_vss.search_core.models.search import SearchInput
-    from vss_cli.search.group import AttributeInput
+    from nvidia_vss.search.cli.group import AttributeInput
+    from nvidia_vss.search.models.search import SearchInput
 
     asked = "is anyone in a white jacket near the loading door?"
     payload = AttributeInput(attributes=["white jacket"], original_query=asked).model_dump(
@@ -147,7 +147,7 @@ def test_an_omitted_question_leaves_the_request_exactly_as_before() -> None:
     would behave the same -- but it would also appear in persisted memory as a
     question the user never asked.
     """
-    from vss_cli.search.group import EmbedInput
+    from nvidia_vss.search.cli.group import EmbedInput
 
     payload = EmbedInput(query="forklift").model_dump(exclude_none=True, exclude_defaults=True)
     assert payload == {"query": "forklift"}

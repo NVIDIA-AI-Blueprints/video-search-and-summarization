@@ -21,15 +21,15 @@ from nvidia_vss.memory import RecordBundle
 from nvidia_vss.memory.adapters import LifecycleAdapter
 from nvidia_vss.memory.models import MemoryGroup
 from nvidia_vss.memory.models import MemoryInput
+from nvidia_vss.search.cli.group import SEARCH
+from nvidia_vss.search.cli.group import FusionInput
+from nvidia_vss.search.cli.group import SearchTuning
+from nvidia_vss.search.cli.group import TagInput
 from vss_cli import config as config_mod
 from vss_cli import params as params_mod
 from vss_cli.exits import Exit
 from vss_cli.group import CommandGroup
 from vss_cli.group import Context
-from vss_cli.search.group import SEARCH
-from vss_cli.search.group import FusionInput
-from vss_cli.search.group import SearchTuning
-from vss_cli.search.group import TagInput
 
 if TYPE_CHECKING:
     from vss_cli.lifecycle import Job
@@ -413,7 +413,7 @@ def test_runtime_from_never_promotes_discovered_index_to_base() -> None:
     """Stream-first: the only indices are live-dated; the base must stay the
     pinned anchor, not the earliest-sorting live index (which rtsp would
     subtract, excluding the only index holding data)."""
-    from vss_cli.search.group import _runtime_from
+    from nvidia_vss.search.cli.group import _runtime_from
 
     rt = _runtime_from(_es_deployment(["mdx-embed-filtered-2025-06-01", "mdx-behavior-2025-06-01"]))
     assert rt.video_embed_index == "mdx-embed-filtered-2025-01-01"
@@ -423,7 +423,7 @@ def test_runtime_from_never_promotes_discovered_index_to_base() -> None:
 
 
 def test_runtime_from_base_is_anchor_even_with_anchor_present() -> None:
-    from vss_cli.search.group import _runtime_from
+    from nvidia_vss.search.cli.group import _runtime_from
 
     rt = _runtime_from(
         _es_deployment(["mdx-embed-filtered-2025-01-01", "mdx-embed-filtered-2025-06-01", "mdx-behavior-2025-01-01"])
@@ -433,7 +433,7 @@ def test_runtime_from_base_is_anchor_even_with_anchor_present() -> None:
 
 
 def test_runtime_from_enables_frame_lookup_only_when_raw_present() -> None:
-    from vss_cli.search.group import _runtime_from
+    from nvidia_vss.search.cli.group import _runtime_from
 
     # raw family present -> frames_index pinned to the raw anchor (lookups on)
     rt_raw = _runtime_from(_es_deployment(["mdx-raw-2025-06-01"]))
@@ -446,7 +446,7 @@ def test_runtime_from_enables_frame_lookup_only_when_raw_present() -> None:
 
 
 def test_runtime_from_uses_anchor_defaults_when_no_indices_recorded() -> None:
-    from vss_cli.search.group import _runtime_from
+    from nvidia_vss.search.cli.group import _runtime_from
 
     rt = _runtime_from(_es_deployment([]))
     assert rt.video_embed_index == "mdx-embed-filtered-2025-01-01"
@@ -535,7 +535,7 @@ def test_rt_vlm_is_discovered_from_the_same_origin(tmp_path, monkeypatch) -> Non
 
 
 def test_search_critic_is_optional_when_vlm_is_not_deployed() -> None:
-    from vss_cli.search.group import _critic_from
+    from nvidia_vss.search.cli.group import _critic_from
 
     deployment = config_mod.Deployment(
         base_url="http://h:7777",
@@ -551,7 +551,7 @@ def test_search_critic_is_optional_when_vlm_is_not_deployed() -> None:
 
 
 def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.MonkeyPatch) -> None:
-    from vss_cli.search import group as search_group
+    from nvidia_vss.search.cli import group as search_group
 
     deployment = config_mod.Deployment(
         base_url="https://vss.example",
@@ -591,7 +591,7 @@ def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.Monk
 
 
 def test_search_critic_is_disabled_when_configured_vlm_is_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
-    from vss_cli.search import group as search_group
+    from nvidia_vss.search.cli import group as search_group
 
     deployment = config_mod.Deployment(
         base_url="https://vss.example",
@@ -616,11 +616,11 @@ def test_search_critic_is_disabled_when_configured_vlm_is_unreachable(monkeypatc
 
 def test_search_run_surfaces_disabled_critic_reason(monkeypatch: pytest.MonkeyPatch) -> None:
     """A disabled critic must leave a reason in search_messages, not silent unverified."""
-    from nvidia_vss.search_core import host as host_mod
-    from nvidia_vss.search_core.models.search import SearchOutput
-    from nvidia_vss.search_core.models.search import SearchResult
-    from vss_cli.search.group import SEARCH
-    from vss_cli.search.group import EmbedInput
+    from nvidia_vss.search import host as host_mod
+    from nvidia_vss.search.cli.group import SEARCH
+    from nvidia_vss.search.cli.group import EmbedInput
+    from nvidia_vss.search.models.search import SearchOutput
+    from nvidia_vss.search.models.search import SearchResult
 
     # VST present, RT-VLM absent -> _critic_from returns a "no RT-VLM route" reason
     # without any network probe.
@@ -675,10 +675,10 @@ def test_search_run_surfaces_disabled_critic_reason_on_zero_hits(monkeypatch: py
     non-empty ``data`` set would hide why visual verification is off exactly
     when the caller most wants to know (nothing came back).
     """
-    from nvidia_vss.search_core import host as host_mod
-    from nvidia_vss.search_core.models.search import SearchOutput
-    from vss_cli.search.group import SEARCH
-    from vss_cli.search.group import EmbedInput
+    from nvidia_vss.search import host as host_mod
+    from nvidia_vss.search.cli.group import SEARCH
+    from nvidia_vss.search.cli.group import EmbedInput
+    from nvidia_vss.search.models.search import SearchOutput
 
     deployment = config_mod.Deployment(
         base_url="https://vss.example",

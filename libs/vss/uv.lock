@@ -12,8 +12,10 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "nvidia-vss-analytics",
     "nvidia-vss-cli",
     "nvidia-vss-core",
+    "nvidia-vss-search",
 ]
 constraints = [
     { name = "aiohttp", specifier = ">=3.14.0" },
@@ -2161,6 +2163,20 @@ wheels = [
 ]
 
 [[package]]
+name = "nvidia-vss-analytics"
+source = { editable = "packages/analytics" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "nvidia-vss-core" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = "~=3.14" },
+    { name = "nvidia-vss-core", editable = "." },
+]
+
+[[package]]
 name = "nvidia-vss-cli"
 source = { editable = "cli" }
 dependencies = [
@@ -2168,11 +2184,28 @@ dependencies = [
     { name = "nvidia-vss-core" },
 ]
 
+[package.optional-dependencies]
+all = [
+    { name = "nvidia-vss-analytics" },
+    { name = "nvidia-vss-search" },
+]
+analytics = [
+    { name = "nvidia-vss-analytics" },
+]
+search = [
+    { name = "nvidia-vss-search" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
+    { name = "nvidia-vss-analytics", marker = "extra == 'all'", editable = "packages/analytics" },
+    { name = "nvidia-vss-analytics", marker = "extra == 'analytics'", editable = "packages/analytics" },
     { name = "nvidia-vss-core", editable = "." },
+    { name = "nvidia-vss-search", marker = "extra == 'all'", editable = "packages/search" },
+    { name = "nvidia-vss-search", marker = "extra == 'search'", editable = "packages/search" },
 ]
+provides-extras = ["all", "analytics", "search"]
 
 [[package]]
 name = "nvidia-vss-core"
@@ -2241,6 +2274,24 @@ dev = [
     { name = "pytest-cov", specifier = ">=6.1" },
     { name = "ruff", specifier = ">=0.12.0" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
+]
+
+[[package]]
+name = "nvidia-vss-search"
+source = { editable = "packages/search" }
+dependencies = [
+    { name = "elasticsearch", extra = ["requests"] },
+    { name = "httpx" },
+    { name = "nvidia-vss-core" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "elasticsearch", extras = ["requests"], specifier = "~=8.17.0" },
+    { name = "httpx", specifier = "~=0.28" },
+    { name = "nvidia-vss-core", editable = "." },
+    { name = "pydantic", specifier = ">=2.11,<3" },
 ]
 
 [[package]]

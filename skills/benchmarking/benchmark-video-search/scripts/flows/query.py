@@ -345,7 +345,7 @@ def parse_cli_output(stdout: str) -> tuple[list[dict[str, Any]], list[str], dict
             messages = list(payload.get("search_messages") or [])
             for message in messages:
                 print(f"  [search_message] {message}")
-            # Present only on deployments carrying the search_core timings
+            # Present only on deployments carrying the nvidia_vss.search timings
             # change; absent means nobody collected, not zero time.
             timings = payload.get("timings") or {}
             return payload.get("data") or [], messages, timings

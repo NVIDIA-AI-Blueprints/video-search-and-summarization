@@ -19,7 +19,7 @@ The two query flows disagree on exactly one field name, and the disagreement is
 dangerous rather than merely annoying:
 
     legacy REST      result["critic_result"]["result"]
-    search_core CLI  result["verification"]["result"]
+    nvidia_vss.search CLI  result["verification"]["result"]
 
 Both carry the same vocabulary ("confirmed" / "rejected" / "unverified"), so a
 reader that knows only the old name does not crash against the new flow -- it
@@ -66,7 +66,7 @@ def normalize_result(raw: dict[str, Any]) -> dict[str, Any]:
         "end_time": raw.get("end_time") or "",
         "sensor_id": raw.get("sensor_id") or "",
         "screenshot_url": raw.get("screenshot_url") or "",
-        # search_core names this `similarity`; the embed primitive names it
+        # nvidia_vss.search names this `similarity`; the embed primitive names it
         # `similarity_score`. Only the unified SearchOutput reaches us today,
         # but accept both so a primitive-level backend needs no change here.
         "similarity": raw.get("similarity", raw.get("similarity_score", 0.0)),

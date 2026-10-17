@@ -114,7 +114,7 @@ jobs:
 
           # Keep the agent's production and test scopes disjoint.
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-agent" ]; then
-            exclusions="${exclusions},services/agent/docker/**,services/agent/packages/*/tests/**,libs/vss/*/tests/**"
+            exclusions="${exclusions},services/agent/docker/**,services/agent/packages/*/tests/**,libs/vss/tests/**,libs/vss/*/tests/**,libs/vss/packages/*/tests/**"
           fi
 
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-rt-cv" ]; then
@@ -305,9 +305,11 @@ jobs:
           # while the package was small and surfaced as "2.9% Coverage on New
           # Code" the first time a PR added substantially to it.
           uv sync --frozen --all-packages
-          uv run --no-sync pytest tests/unit_test cli/tests/unit_test \
+          uv run --no-sync pytest \
             --cov=src \
             --cov=cli/src \
+            --cov=packages/search/src \
+            --cov=packages/analytics/src \
             --cov-report=xml:coverage-lib.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"

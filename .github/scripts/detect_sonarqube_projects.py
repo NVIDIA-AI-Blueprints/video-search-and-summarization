@@ -72,7 +72,9 @@ PROJECTS: list[dict[str, Any]] = [
         "tests": (
             "libs/vss/tests,"
             "services/agent/packages/vss_agents/tests,"
-            "libs/vss/cli/tests"
+            "libs/vss/cli/tests,"
+            "libs/vss/packages/search/tests,"
+            "libs/vss/packages/analytics/tests"
         ),
         "python_version": "3.13",
         "paths": ["services/agent", "libs/vss"],

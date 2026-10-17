@@ -111,7 +111,7 @@ JSON on stdout (`SearchOutput.data`). `--raw` compact, `--pretty` indented.
 | 7 | timeout: the marker carries a job id for `status`/`get`; the work is gone, only the caller can decide to spend it again |
 
 Search automatically attempts bounded visual verification through
-`nvidia_vss.search_core.critic` when `vss configure` discovered both VST and an RT-VLM model.
+`nvidia_vss.search.critic` when `vss configure` discovered both VST and an RT-VLM model.
 When those services are available, the critic attempts every returned hit,
 unless `--critic-eval-count N` caps it to the first N.
 Every hit the critic evaluated contains `critic_result.result`: `confirmed`,
