@@ -580,7 +580,13 @@ class RunCommand(unittest.TestCase):
             rc = run_leg.run_command(self.COMMAND, self.ENV, timeout_sec=42)
 
         self.assertEqual(rc, 128 + run_leg.signal.SIGTERM)
-        cancel_tree.assert_called_once_with(proc, 4321, mock.ANY)
+        cancel_tree.assert_called_once_with(proc, 4321, mock.ANY, external=True)
+
+    def test_external_cancellation_uses_short_grace_without_changing_timeout_grace(self):
+        proc = mock.Mock(pid=4321)
+        with mock.patch.object(run_leg, "_signal_process_group_and_wait", side_effect=[False, False, True]) as wait:
+            self.assertTrue(run_leg._cancel_process_tree(proc, 4321, Path("registry"), external=True))
+        self.assertEqual([call.args[3] for call in wait.call_args_list], [30, 15, 10])
 
     def test_timeout_uses_sigint_first_and_keeps_timeout_outcome(self):
         proc = mock.Mock(pid=4321)
@@ -691,7 +697,30 @@ class RunCommand(unittest.TestCase):
             rc = run_leg.run_command(self.COMMAND, self.ENV, timeout_sec=42)
 
         self.assertEqual(rc, 128 + run_leg.signal.SIGTERM)
-        cancel_tree.assert_called_once_with(proc, 4321, mock.ANY)
+        cancel_tree.assert_called_once_with(proc, 4321, mock.ANY, external=True)
+
+    def test_cancel_removes_owned_gateway_rule_before_harbor_shutdown_grace(self):
+        proc = mock.Mock(pid=4321)
+        proc.wait.side_effect = run_leg._RunCommandInterrupted(signal.SIGTERM)
+        env = {**self.ENV, run_leg.GATEWAY_CANCEL_CLEANUP_ROOT_ENV: "/tmp/current-leg"}
+        events = []
+        with mock.patch.object(run_leg.subprocess, "Popen", return_value=proc), \
+             mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=lambda *a, **kw: events.append("firewall")) as cleanup, \
+             mock.patch.object(run_leg, "_cancel_process_tree", side_effect=lambda *a, **kw: events.append("tree") or True):
+            self.assertEqual(run_leg.run_command(self.COMMAND, env, 42), 143)
+        self.assertEqual(events, ["firewall", "tree"])
+        cleanup.assert_called_once_with("vss-eval-box", Path("/tmp/current-leg"), timeout_sec=20)
+        with mock.patch.object(run_leg.subprocess, "Popen", return_value=proc), \
+             mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=OSError("missing source")), \
+             mock.patch.object(run_leg, "_cancel_process_tree", return_value=True) as cancel:
+            self.assertEqual(run_leg.run_command(self.COMMAND, env, 42), 143)
+        cancel.assert_called_once()
+        proc.wait.side_effect = self._expired(42)
+        with mock.patch.object(run_leg.subprocess, "Popen", return_value=proc), \
+             mock.patch.object(run_leg, "cleanup_gateway_network_policy") as cleanup, \
+             mock.patch.object(run_leg, "_cancel_process_tree", return_value=True):
+            self.assertEqual(run_leg.run_command(self.COMMAND, env, 42), 124)
+        cleanup.assert_not_called()
 
     def test_reaped_strays_do_not_turn_a_finished_trial_into_a_timeout(self):
         """Harbor finished; only its transports lingered, and cleanup won.
@@ -770,7 +799,7 @@ class RunCommand(unittest.TestCase):
             rc = run_leg.run_command(self.COMMAND, self.ENV, timeout_sec=42)
 
         self.assertEqual(rc, 128 + run_leg.signal.SIGTERM)
-        cancel_tree.assert_called_once_with(proc, 4321, mock.ANY)
+        cancel_tree.assert_called_once_with(proc, 4321, mock.ANY, external=True)
 
     def test_repeated_signal_during_timeout_teardown_does_not_skip_cleanup(self):
         proc = mock.Mock(pid=4321)
@@ -1208,15 +1237,23 @@ class RunInvocations(unittest.TestCase):
                     include_task_name=f"step-{index}",
                     chain_key="alerts",
                     step_index=index,
-                    step_count=2,
+                    step_count=3,
                 )
-                for index in (1, 2)
+                for index in (1, 2, 3)
             ]
+            fixture = {"nvstreamer_scan_file": "warehouse_sample.mp4"}
+            spec_path = "skills/operations/vss-manage-alerts/evals/fixtures.json"
+            (root / spec_path).parent.mkdir(parents=True)
+            (root / spec_path).write_text(json.dumps({
+                "sandbox_fixtures": ["warehouse_safety_0001.mp4"],
+                "expects": [{}, {"host_fixture": fixture}, {}],
+            }))
             env = {
                 **self.ENV,
                 "EVAL_AGENT": "nemoclaw",
                 "EVAL_SKILL": "vss-manage-alerts",
-                "EVAL_SPEC_PATH": "skills/operations/vss-ask-video/evals/base_profile_video_understanding.json",
+                "EVAL_SPEC_PATH": spec_path,
+                "SKILL_EVAL_NEMOCLAW_HOST_FIXTURE": "inherited-stale-fixture",
             }
             for invocation in invocations:
                 task = invocation.harbor_root / invocation.include_task_name
@@ -1233,6 +1270,7 @@ class RunInvocations(unittest.TestCase):
 
             with (
                 mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "REPO_ROOT", root),
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
                 mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]) as command,
                 mock.patch.object(run_leg, "run_command", side_effect=run_command) as run,
@@ -1247,6 +1285,7 @@ class RunInvocations(unittest.TestCase):
                 )
 
         self.assertEqual(rc, 0)
+        self.assertTrue(all(e.get(run_leg.GATEWAY_CANCEL_CLEANUP_ROOT_ENV) == str(root / "results") for e in seen_env))
         self.assertEqual(command.call_args_list[0].args[4], "codex")
         self.assertEqual(command.call_args_list[1].args[4], "nemoclaw")
         self.assertEqual(seen_env[0]["SKILLS_EVAL_OPERATIONAL_HARNESS"], "nemoclaw")
@@ -1260,7 +1299,10 @@ class RunInvocations(unittest.TestCase):
             run_leg.NEMOCLAW_SETUP_AGENT_TIMEOUT_MULTIPLIER,
         )
         self.assertNotIn("agent_timeout_multiplier", command.call_args_list[1].kwargs)
-        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_count, 3)
+        self.assertNotIn("SKILL_EVAL_NEMOCLAW_HOST_FIXTURE", seen_env[0])
+        self.assertEqual(json.loads(seen_env[1]["SKILL_EVAL_NEMOCLAW_HOST_FIXTURE"]), fixture)
+        self.assertNotIn("SKILL_EVAL_NEMOCLAW_HOST_FIXTURE", seen_env[2])
         self.assertEqual(
             seen_env[0]["NEMOCLAW_SANDBOX_NAME"],
             seen_env[1]["NEMOCLAW_SANDBOX_NAME"],
@@ -2051,6 +2093,9 @@ class PoolCandidates(unittest.TestCase):
         run_leg._list_pool_instances = (
             lambda _skill=None, _spec_stem=None: self.FLEET
         )
+        catalog = mock.patch.object(run_leg, "_catalog_gpu_counts", side_effect=lambda: run_leg._CATALOG_GPU_COUNTS or {})
+        catalog.start()
+        self.addCleanup(catalog.stop)
 
     def tearDown(self):
         run_leg._list_pool_instances = self._orig
@@ -2066,6 +2111,36 @@ class PoolCandidates(unittest.TestCase):
                 "vss-eval-rtx-2g-2",
             ],
         )
+
+    def test_not_ready_single_gpu_worker_does_not_hide_healthy_l40s_capacity(self):
+        # Live Brev row from the failing setup job: the VM is running and
+        # nominally healthy, but its shell is explicitly NOT READY.
+        fleet = [
+            {"name": "vss-eval-l40s-1g", "id": "ddaikq02a", "status": "RUNNING",
+             "build_status": "", "shell_status": "NOT READY", "health_status": "HEALTHY",
+             "instance_type": "massedcompute_L40S", "gpu": "L40S"},
+            {"name": "vss-eval-l40s-3", "status": "RUNNING", "build_status": "COMPLETED",
+             "shell_status": "READY", "health_status": "HEALTHY",
+             "instance_type": "massedcompute_L40Sx2", "gpu": "L40S"},
+        ]
+        with mock.patch.object(run_leg, "_list_pool_instances", return_value=fleet):
+            self.assertEqual(run_leg.pool_candidates({"gpu_type": "L40S", "gpu_count": 1}), ["vss-eval-l40s-3"])
+
+    def test_explicit_unready_states_are_excluded_even_for_gpu_independent_jobs(self):
+        for field in ("shell_status", "health_status"):
+            for value in ("NOT READY", "unhealthy", "Disconnected", "STOPPED", "not_ready", "not-ready"):
+                with self.subTest(field=field, value=value):
+                    worker = {"name": "vss-eval-l40s-1g", "status": "RUNNING", "gpu": "L40S", field: value}
+                    with mock.patch.object(run_leg, "_list_pool_instances", return_value=[worker]):
+                        self.assertEqual(run_leg.pool_candidates({"gpu_count": 0}), [])
+
+    def test_missing_legacy_readiness_fields_do_not_reject_running_worker(self):
+        for fields in ({}, {"shell_status": None, "health_status": ""},
+                       {"shell_status": "READY", "health_status": "HEALTHY"}):
+            with self.subTest(fields=fields):
+                worker = {"name": "vss-eval-l40s-1g", "status": "RUNNING", "gpu": "L40S", **fields}
+                with mock.patch.object(run_leg, "_list_pool_instances", return_value=[worker]):
+                    self.assertEqual(run_leg.pool_candidates({"gpu_count": 0}), ["vss-eval-l40s-1g"])
 
     def test_managed_box_filtered_by_catalog_gpu_count(self):
         """A managed SKU the catalog says is 1-GPU is not offered for 2 GPUs.
@@ -2520,6 +2595,129 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
                  ):
                 self.assertEqual(run_leg.main(self._argv(tmp)), 42)
 
+    def test_nemoclaw_cancellation_cleans_firewall_before_releasing_worker(self):
+        held = False
+        @contextlib.contextmanager
+        def locked(*args, **kwargs):
+            nonlocal held
+            held = True
+            try:
+                yield "box-a"
+            finally:
+                held = False
+        def cleanup(instance, root):
+            self.assertTrue(held)
+            self.assertEqual(instance, "box-a")
+        with tempfile.TemporaryDirectory() as tmp:
+            self._dataset(tmp)
+            with mock.patch.dict(os.environ, {
+                "EVAL_SPEC_PATH": "skills/operations/vss-ask-video/evals/test.json",
+                "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
+            }), mock.patch.object(run_leg, "hold_pool_lock", locked), \
+                 mock.patch.object(run_leg, "run_invocations", side_effect=SystemExit(143)), \
+                 mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=cleanup) as remove:
+                with self.assertRaises(SystemExit):
+                    run_leg.main(self._argv(tmp))
+        remove.assert_called_once()
+        self.assertFalse(held)
+
+    def test_outer_agent_cleanup_reacquires_lock_and_validates_leg(self):
+        held = False
+        @contextlib.contextmanager
+        def locked(candidates, lock_dir, timeout):
+            nonlocal held
+            self.assertEqual(candidates(), ["Spark-ba-WiFi"])
+            self.assertEqual(timeout, 60)
+            held = True
+            try:
+                yield "Spark-ba-WiFi"
+            finally:
+                held = False
+        def cleanup(instance, root):
+            self.assertTrue(held)
+            self.assertEqual(instance, "Spark-ba-WiFi")
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {
+            "EVAL_SLUG": "vios__DGX-SPARK", "GITHUB_RUN_ID": "123",
+        }):
+            root = Path(tmp)
+            receipt = root / "machine.txt"
+            with mock.patch.object(run_leg, "hold_pool_lock", locked), \
+                 mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=cleanup) as remove:
+                self.assertEqual(run_leg.cleanup_after_agent_exit(root), "not_claimed")
+                for value in ("Spark-ba-WiFi\tvios__DGX-SPARK\t122\n", "box/path\tvios__DGX-SPARK\t123\n"):  # pragma: allowlist secret (synthetic receipts)
+                    receipt.write_text(value)
+                    with self.assertRaises(ValueError):
+                        run_leg.cleanup_after_agent_exit(root)
+                remove.assert_not_called()
+                receipt.write_text("Spark-ba-WiFi\tvios__DGX-SPARK\t123\n")  # pragma: allowlist secret (synthetic receipt)
+                self.assertEqual(run_leg.cleanup_after_agent_exit(root), "attempted")
+                remove.assert_called_once()
+            with mock.patch.object(run_leg, "hold_pool_lock", side_effect=run_leg.LockTimeoutError("busy")), \
+                 mock.patch.object(run_leg, "cleanup_gateway_network_policy") as remove:
+                self.assertEqual(run_leg.cleanup_after_agent_exit(root), "worker_busy")
+                remove.assert_not_called()
+            receipt.unlink()
+            source = root / "source"
+            source.write_text("Spark-ba-WiFi\tvios__DGX-SPARK\t123\n")  # pragma: allowlist secret (synthetic receipt)
+            receipt.symlink_to(source)
+            with self.assertRaises(ValueError):
+                run_leg.cleanup_after_agent_exit(root)
+        self.assertFalse(held)
+
+    def test_cancelled_workflow_stops_only_its_recorded_wrapper_then_locks_worker(self):
+        if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
+            self.skipTest("Linux pidfd required")
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            script = repo / ".github/skill-eval/run_leg.py"
+            script.parent.mkdir(parents=True)
+            locks = repo / "locks"
+            locks.mkdir()
+            lock_path = locks / "box-a.lock"
+            script.write_text("import fcntl,time\n"
+                              f"lock=open({str(lock_path)!r},'w')\n"
+                              "fcntl.flock(lock,fcntl.LOCK_EX)\n"
+                              "print('ready',flush=True)\ntime.sleep(60)\n")
+            env = {**os.environ, "EVAL_SLUG": "leg-a", "GITHUB_RUN_ID": "123",
+                   "GITHUB_RUN_ATTEMPT": "2"}
+            proc = subprocess.Popen([sys.executable, ".github/skill-eval/run_leg.py"],
+                                    cwd=repo, env=env, stdout=subprocess.PIPE, text=True)
+            try:
+                self.assertEqual(proc.stdout.readline().strip(), "ready")
+                root = repo / "results"
+                root.mkdir()
+                (root / "machine.txt").write_text("box-a\tleg-a\t123\n")
+                with mock.patch.dict(os.environ, env), mock.patch.object(run_leg, "REPO_ROOT", repo):
+                    run_leg._record_wrapper_owner(root, "box-a", "leg-a", "123")
+                    owner = root / "wrapper-owner.json"
+                    value = json.loads(owner.read_text())
+                    value.update(pid=proc.pid, start_time=run_leg._process_start_time(proc.pid))
+                    for field, wrong in (("attempt", "1"), ("start_time", "0"), ("run_id", "124")):
+                        owner.write_text(json.dumps({**value, field: wrong}))
+                        self.assertFalse(run_leg._signal_cancelled_wrapper(root, "box-a", "leg-a", "123"))
+                        self.assertIsNone(proc.poll())
+                    owner.write_text(json.dumps(value))
+                    owner.chmod(0o644)
+                    self.assertFalse(run_leg._signal_cancelled_wrapper(root, "box-a", "leg-a", "123"))
+                    owner.chmod(0o600)
+                    def cleanup(instance, results):
+                        self.assertEqual((instance, results), ("box-a", root))
+                        # A second descriptor cannot acquire the lock: fallback
+                        # owns it after the cancelled child released it.
+                        with lock_path.open("a") as stream:
+                            with self.assertRaises(BlockingIOError):
+                                run_leg.fcntl.flock(stream, run_leg.fcntl.LOCK_EX | run_leg.fcntl.LOCK_NB)
+                    with mock.patch.object(run_leg, "cleanup_gateway_network_policy", side_effect=cleanup) as remove, \
+                            mock.patch.object(run_leg.time, "sleep", side_effect=lambda _: proc.wait(timeout=5)):
+                        self.assertEqual(run_leg.cleanup_after_agent_exit(root, lock_dir=locks, cancelled=True), "attempted")
+                        remove.assert_called_once()
+                    self.assertEqual(proc.wait(timeout=5), -signal.SIGTERM)
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait(timeout=5)
+                proc.stdout.close()
+
     def test_instrumentation_logging_swallows_a_broken_pipe(self):
         # BrokenPipeError on a closed stdout is the realistic version of this.
         # Scoped to the instrumentation path on purpose: run_leg's pre-existing
@@ -2794,6 +2992,31 @@ class GatewayAllocation(unittest.TestCase):
         result = subprocess.CompletedProcess([], 1, '', 'connection unavailable')
         with mock.patch.object(run_leg.subprocess, 'run', return_value=result), self.assertRaisesRegex(RuntimeError, 'allocation failed'):
             run_leg.allocate_gateway_ports('vss-eval-box', 'a' * 64, [23000,23001,23002], {})
+
+
+class SetupOnlySelection(unittest.TestCase):
+    def test_keeps_each_original_chain_setup_and_its_declared_checks(self):
+        invocations = [
+            run_leg.HarborInvocation(Path(chain), f"step-{step}", chain, step, 3)
+            for chain in ("l40s-remote-all", "spark-remote-all") for step in (1, 2, 3)
+        ]
+        selected = run_leg.select_setup_invocations(invocations, "skills/operations/alerts/evals/cv.json")
+        self.assertEqual(selected, [invocations[0], invocations[3]])
+        self.assertIs(selected[0], invocations[0])
+        self.assertEqual(selected[0].step_count, 3)
+
+    def test_non_operational_spec_is_rejected_before_worker_acquisition(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.dict(os.environ, {**RunInvocations.ENV, "SKILLS_EVAL_SETUP_ONLY": "true", "EVAL_SPEC_PATH": "skills/vss-build-vision-ai/evals/a.json"}, clear=True), \
+             mock.patch.object(run_leg, "SKILL_EVAL_PYTHON_VERSION", sys.version_info[:2]), \
+             mock.patch.object(leg_timing, "start_heartbeat", return_value=(mock.Mock(), mock.Mock())), \
+             mock.patch.object(run_leg, "discover_invocations", return_value=[]), \
+             mock.patch.object(run_leg, "hold_pool_lock") as lock, \
+             mock.patch.object(run_leg, "run_invocations") as trial:
+            rc = run_leg.main(["--dataset-root", tmp, "--results-root", str(Path(tmp) / "results")])
+        self.assertEqual(rc, 1)
+        lock.assert_not_called()
+        trial.assert_not_called()
 
 
 if __name__ == "__main__":

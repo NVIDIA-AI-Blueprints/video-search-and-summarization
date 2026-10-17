@@ -433,6 +433,84 @@ def test_the_summary_gives_a_caller_everything_without_markdown(tmp_path: Path) 
                               "not-run", "ambiguous"} for s in summary["steps"])
 
 
+def test_nemoclaw_failure_stage_survives_harbor_network_classification(tmp_path: Path) -> None:
+    trial = _trial(tmp_path, "r", "step-1__aaa", reward=1.0, passed=7, total=7,
+                   start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
+                   exception="NetworkConnectionError")
+    receipts = trial / "artifacts/logs/artifacts/nemoclaw"
+    receipts.mkdir(parents=True)
+    (receipts / "setup-readiness.json").write_text(json.dumps({"stages": [
+        {"stage": "sandbox_phase", "status": "passed"},
+        {"stage": "gateway_authentication", "status": "failed", "reason": "pairing_deadline",
+         "stdout": "credential-must-not-be-rendered"},
+    ]}))
+    leg = leg_report.collect_leg(tmp_path)
+    body = leg_report.render_comment(leg, spec_path="s.json", platform="L40S", head_sha="0862faf3")
+    assert "NetworkConnectionError: gateway_authentication (pairing_deadline)" in body
+    assert "credential-must-not-be-rendered" not in body
+    summary = leg_report.leg_summary(leg, declared=["deploy"])
+    assert summary["steps"][0]["harness_failure"] == {
+        "stage": "gateway_authentication", "reason": "pairing_deadline"}
+    assert summary["steps"][0]["state"] == "recorded-fail"
+
+
+def test_native_inference_failure_reason_is_rendered_without_raw_output(tmp_path: Path) -> None:
+    trial = _trial(tmp_path, "r", "step-1__aaa", reward=1.0, passed=6, total=6,
+                   start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
+                   exception="NetworkConnectionError")
+    receipts = trial / "artifacts/logs/artifacts/nemoclaw"
+    receipts.mkdir(parents=True)
+    (receipts / "setup-readiness.json").write_text(json.dumps({"stages": [
+        {"stage": "local_inference", "status": "failed", "reason": "compaction_timeout",
+         "stderr": "confidential-payload"},
+    ]}))
+    leg = leg_report.collect_leg(tmp_path)
+    body = leg_report.render_comment(leg, spec_path="s.json", platform="L40S", head_sha="0862faf3")
+    assert "local_inference (compaction_timeout)" in body
+    assert "confidential-payload" not in body
+
+
+def test_native_session_failure_reasons_are_preserved(tmp_path: Path) -> None:
+    for reason in ("session_no_assistant", "session_no_usage", "provider_error", "invalid_request"):
+        root = tmp_path / reason
+        trial = _trial(root, "r", "step-1__aaa", reward=0.0,
+                       start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
+                       exception="RuntimeError")
+        receipts = trial / "artifacts/logs/artifacts/nemoclaw"
+        receipts.mkdir(parents=True)
+        (receipts / "setup-readiness.json").write_text(json.dumps({"stages": [
+            {"stage": "local_inference", "status": "failed", "reason": reason,
+             "aborted": True, "input_tokens": 0, "stderr": "confidential-payload"},
+        ]}))
+        summary = leg_report.leg_summary(leg_report.collect_leg(root), declared=["deploy"])
+        assert summary["steps"][0]["harness_failure"] == {"stage": "local_inference", "reason": reason}
+        assert "confidential-payload" not in json.dumps(summary)
+
+
+def test_nemoclaw_receipts_are_attempt_scoped_and_allowlisted(tmp_path: Path) -> None:
+    trial = _trial(tmp_path, "r", "step-2__aaa", reward=0.0,
+                   start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
+                   exception="RuntimeError")
+    receipts = trial / "artifacts/logs/artifacts/nemoclaw"
+    receipts.mkdir(parents=True)
+    report = receipts / "host-fixture.json"
+    report.write_text(json.dumps({"stage": "credential-must-not-be-rendered", "status": "failed"}))
+    assert leg_report._harness_failure(trial) is None
+    report.write_text(json.dumps({"stage": [], "status": "failed"}))
+    assert leg_report._harness_failure(trial) is None
+    report.write_text(json.dumps({"stage": "nvstreamer_copy", "status": "failed",
+                                  "reason": "credential-must-not-be-rendered"}))
+    assert leg_report._harness_failure(trial) == {"stage": "nvstreamer_copy"}
+    report.write_text(json.dumps({"stage": "nvstreamer_copy", "status": "passed"}))
+    assert leg_report._harness_failure(trial) is None
+    # A previous trial's failed receipt cannot explain a newer attempt.
+    older = tmp_path / "old/step-2__older/artifacts/logs/artifacts/nemoclaw"
+    older.mkdir(parents=True)
+    (older / "readiness.json").write_text(json.dumps({"stages": [
+        {"stage": "gateway_authentication", "status": "failed", "reason": "pairing_deadline"}]}))
+    assert leg_report._harness_failure(trial) is None
+
+
 # --- the posted format must not drift from what readers already know -------
 
 def test_whole_rewards_keep_one_decimal() -> None:
@@ -490,3 +568,36 @@ def test_no_failing_checks_section_when_everything_passed(tmp_path: Path) -> Non
            start="2026-08-20T08:00:00Z", finish="2026-08-20T08:05:00Z",
            checks=[{"pass": True, "check": "a"}, {"pass": True, "check": "b"}])
     assert "### Failing checks" not in _render(tmp_path, declared=["deploy"])
+
+
+def test_setup_only_report_keeps_full_declaration_without_full_spec_claim(tmp_path: Path) -> None:
+    _trial(tmp_path, 'r', 'step-1__aaa', reward=1.0, passed=6, total=6,
+           start='2026-08-20T08:00:00Z', finish='2026-08-20T08:10:00Z')
+    leg = leg_report.collect_leg(tmp_path)
+    declared = ['deploy', 'operate', 'explain']
+    body = leg_report.render_comment(leg, spec_path='skills/operations/alerts/evals/cv.json',
+                                    platform='L40S', head_sha='a' * 40,
+                                    declared=declared, setup_only=True)
+    assert '**Setup only:**' in body
+    assert 'not a full-spec pass' in body
+    assert len(_rows(body)) == 1
+    summary = leg_report.leg_summary(leg, declared=declared, setup_only=True)
+    assert summary['scope'] == 'setup-only'
+    assert summary['evaluated_steps'] == [1]
+    assert summary['declared_steps'] == 3
+    assert [row['state'] for row in summary['steps']] == ['recorded-pass', 'not-run', 'not-run']
+    assert 'scope' not in leg_report.leg_summary(leg, declared=declared)
+
+
+def test_setup_only_preserves_native_failure_despite_unanimous_judge(tmp_path: Path) -> None:
+    trial = _trial(tmp_path, 'r', 'step-1__aaa', reward=1.0, passed=6, total=6,
+                   start='2026-08-20T08:00:00Z', finish='2026-08-20T08:10:00Z',
+                   exception='RuntimeError')
+    receipts = trial / 'artifacts/logs/artifacts/nemoclaw'
+    receipts.mkdir(parents=True)
+    (receipts / 'setup-readiness.json').write_text(json.dumps({'stages': [
+        {'stage': 'local_inference', 'status': 'failed', 'reason': 'session_timeout'},
+    ]}))
+    summary = leg_report.leg_summary(leg_report.collect_leg(tmp_path), declared=['deploy', 'operate'], setup_only=True)
+    assert summary['steps'][0]['state'] == 'recorded-fail'
+    assert summary['steps'][0]['harness_failure'] == {'stage': 'local_inference', 'reason': 'session_timeout'}

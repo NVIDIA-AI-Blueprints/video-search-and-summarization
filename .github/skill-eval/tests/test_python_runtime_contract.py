@@ -46,3 +46,11 @@ def test_daily_agent_input_configures_both_model_routes() -> None:
     assert 'export SKILLS_EVAL_CODING_HARNESS="$daily_harness"' in workflow
     assert 'export SKILLS_EVAL_OPERATIONAL_HARNESS="$daily_harness"' in workflow
     assert "python3 .github/skill-eval/model_config.py" in workflow
+
+
+def test_setup_only_is_explicit_manual_input_and_survives_coordinator_env() -> None:
+    workflow = (REPO_ROOT / '.github/workflows/skills-eval.yml').read_text()
+    assert "github.event_name == 'workflow_dispatch' && inputs.setup_only && 'true' || 'false'" in workflow
+    assert "MANUAL_SPECS_FILTER: ${{ github.event_name == 'workflow_dispatch' && inputs.specs || '' }}" in workflow
+    assert workflow.index('setup_only="$SETUP_ONLY_INPUT"') < workflow.index('source /home/ubuntu/eval-coordinator/.env', workflow.index('setup_only="$SETUP_ONLY_INPUT"'))
+    assert workflow.index('export SKILLS_EVAL_SETUP_ONLY="$setup_only"') > workflow.index('source /home/ubuntu/eval-coordinator/.env', workflow.index('setup_only="$SETUP_ONLY_INPUT"'))

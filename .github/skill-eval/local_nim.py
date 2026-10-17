@@ -98,10 +98,10 @@ def tool_parser_args(model: str) -> str | None:
     return None
 
 
-def request_json(url: str, headers: dict | None = None, payload: dict | None = None):
+def request_json(url: str, headers: dict | None = None, payload: dict | None = None, *, timeout: float = 60):
     body = None if payload is None else json.dumps(payload).encode()
     request = urllib.request.Request(url, data=body, headers=headers or {})
-    timeout = 60
+    timeout = min(timeout, 60)
     if _START_DEADLINE is not None:
         if time.monotonic() >= _START_DEADLINE:
             raise NimError(f"Local NIM startup exceeded its {STARTUP_BUDGET_SEC:,}-second budget")
@@ -237,11 +237,12 @@ def docker(
     return result
 
 
-def owner_paths(owner: str):
-    if not re.fullmatch(r"[a-f0-9]{24}", owner):
+def owner_paths(owner: str, *, create: bool = True):
+    if not isinstance(owner, str) or not re.fullmatch(r"[a-f0-9]{24}", owner):
         raise NimError("Invalid local NIM owner")
     root = Path.home() / ".cache" / "skill-eval-nim" / owner
-    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if create:
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
     return root
 
 
@@ -289,25 +290,44 @@ def run_nim_container(args: list[str], owner: str, image: str, name: str) -> Non
 
 def wait_ready(url: str, token: str, timeout: int = 900, container: str | None = None):
     deadline = min(time.monotonic() + timeout, _START_DEADLINE or float("inf"))
+    last_probe = "not attempted"
     while time.monotonic() < deadline:
         try:
             headers = {"Authorization": f"Bearer {token}"} if token else {}
-            return request_json(url, headers)[0]
+            return request_json(url, headers, timeout=max(0.001, deadline - time.monotonic()))[0]
         except urllib.error.HTTPError as exc:
+            last_probe = f"HTTP {exc.code}"
             if exc.code in (401, 403):
                 raise NimError(
                     f"Local inference authentication failed: HTTP {exc.code}"
                 ) from None
-        except (urllib.error.URLError, TimeoutError, OSError):
-            pass
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+            last_probe = type(reason).__name__
+            if isinstance(reason, OSError) and reason.errno is not None:
+                last_probe += f" errno={reason.errno}"
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
         if container:
-            state = docker(
-                "inspect", "--format", "{{.State.Running}} {{.State.OOMKilled}} {{.State.ExitCode}}",
-                container, check=False,
-            )
+            try:
+                state = docker(
+                    "inspect", "--format", "{{.State.Running}} {{.State.OOMKilled}} {{.State.ExitCode}}",
+                    container, check=False, timeout=remaining,
+                )
+            except subprocess.TimeoutExpired:
+                last_probe += "; Docker inspection timed out"
+                break
             if state.returncode or not state.stdout.startswith("true "):
-                logs = docker("logs", "--tail", "40", container, check=False)
-                detail = (logs.stderr or logs.stdout or state.stderr or "")[-2500:]
+                detail = state.stderr or ""
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    try:
+                        logs = docker("logs", "--tail", "40", container, check=False, timeout=min(10, remaining))
+                        detail = logs.stderr or logs.stdout or detail
+                    except subprocess.TimeoutExpired:
+                        detail = "Docker log collection timed out"
+                detail = detail[-2500:]
                 for name in ("NGC_API_KEY", "NGC_CLI_API_KEY"):
                     if os.environ.get(name):
                         detail = detail.replace(os.environ[name], "[REDACTED]")
@@ -315,8 +335,8 @@ def wait_ready(url: str, token: str, timeout: int = 900, container: str | None =
                     f"Local NIM container stopped before readiness "
                     f"(state={state.stdout.strip() or 'missing'}): {detail}"
                 )
-        time.sleep(3)
-    raise NimError(f"Local NIM readiness timed out: {url}")
+        time.sleep(min(3, max(0, deadline - time.monotonic())))
+    raise NimError(f"Local NIM readiness timed out: {url} (last probe: {last_probe})")
 
 
 def proxy_network_policy(owner: str, *, remove=False):
@@ -684,10 +704,10 @@ def configure_nemoclaw(evidence: dict):
 
 
 def collect_logs(plan: dict):
-    root = owner_paths(plan["owner"])
+    root = owner_paths(plan["owner"], create=False)
     publish(root)
     target = Path("/logs/artifacts/local-nim")
-    names = docker(
+    listing = docker(
         "ps",
         "-a",
         "--filter",
@@ -695,19 +715,54 @@ def collect_logs(plan: dict):
         "--format",
         "{{.Names}}",
         check=False,
-    ).stdout.split()
-    for name in names:
-        if not re.fullmatch(r"skill-eval-nim-[a-f0-9]{24}-(?:[0-9]+|proxy)", name):
+    )
+    names = [name for name in listing.stdout.split() if re.fullmatch(
+        rf"skill-eval-nim-{plan['owner']}-(?:[0-9]+|proxy)", name,
+    )]
+    (target / "container-inventory.json").write_text(json.dumps({
+        "owner": plan["owner"], "collected_at_unix": time.time(),
+        "enumeration_exit_code": listing.returncode, "containers": names,
+    }, indent=2))
+    # RT-CV can fail internally on CUDA allocation while NIM stays healthy.
+    # Its fixed application name is read-only diagnostic scope, never cleanup.
+    for name in [*names, "vss-rtvi-cv"]:
+        inspection = docker("inspect", name, check=False)
+        if inspection.returncode:
+            if name == "vss-rtvi-cv":
+                absent = any(marker in inspection.stderr.lower() for marker in ("no such object", "no such container"))
+                (target / f"{name}.state.json").write_text(json.dumps({
+                    "name": name, "collected_at_unix": time.time(),
+                    "present": False if absent else None, "inspection_exit_code": inspection.returncode,
+                }, indent=2))
+                (target / f"{name}.log").unlink(missing_ok=True)  # Do not retain an earlier collection's CV errors.
             continue
         result = docker("logs", "--tail", "150", name, check=False)
         logs = result.stdout + result.stderr
         for value in (
             os.environ.get("NGC_API_KEY"),
             os.environ.get("NGC_CLI_API_KEY"),
+            os.environ.get("NVIDIA_API_KEY"),
         ):
             if value:
                 logs = logs.replace(value, "[REDACTED]")
         (target / f"{name}.log").write_text(logs)
+        info = json.loads(inspection.stdout)[0]
+        state = info.get("State") or {}
+        # Full inspect output contains NGC credentials. Keep only lifecycle
+        # and port evidence needed to distinguish restart, OOM and routing.
+        snapshot = {
+            "collected_at_unix": time.time(),
+            "name": name,
+            "image": (info.get("Config") or {}).get("Image"),
+            "restart_count": info.get("RestartCount"),
+            "state": {key: state.get(key) for key in (
+                "Status", "Running", "OOMKilled", "ExitCode", "StartedAt", "FinishedAt",
+            )},
+            "health": (state.get("Health") or {}).get("Status"),
+            "port_bindings": (info.get("HostConfig") or {}).get("PortBindings"),
+            "published_ports": (info.get("NetworkSettings") or {}).get("Ports"),
+        }
+        (target / f"{name}.state.json").write_text(json.dumps(snapshot, indent=2))
 
 
 def publish(root: Path):
@@ -733,12 +788,15 @@ def cleanup(owner: str, remove_files: bool = True):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("start", "cleanup"))
+    parser.add_argument("action", choices=("start", "cleanup", "collect"))
     parser.add_argument("--plan")
     parser.add_argument("--owner")
     args = parser.parse_args()
     global _START_DEADLINE
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    if args.action == "collect":
+        collect_logs({"owner": args.owner})
+        return
     if args.action == "cleanup":
         root = owner_paths(args.owner)
         pid_file = root / "startup.pid"

@@ -500,6 +500,7 @@ jobs:
             .github/skill-eval/tests/test_local_nim.py \
             .github/skill-eval/tests/test_model_config.py \
             .github/skill-eval/tests/test_nv_claude_code.py \
+            .github/skill-eval/tests/test_nv_codex.py \
             .github/skill-eval/tests/test_nemoclaw.py \
             .github/skill-eval/tests/test_vss_ask_video_adapter.py \
             .github/skill-eval/tests/test_vss_manage_alerts_adapter.py \
@@ -507,10 +508,14 @@ jobs:
             .github/skill-eval/tests/test_plan_matrix.py \
             .github/skill-eval/tests/test_skills_eval_agent_protocol.py \
             .github/skill-eval/envs/tests/test_cancellation_recovery.py \
+            .github/skill-eval/envs/tests/test_step_gate.py \
+            .github/skill-eval/tests/test_generic_judge_trajectory_guidance.py \
+            .github/skill-eval/envs/tests/test_registered_node.py::LocalNimCredentialDelivery \
             .github/skill-eval/envs/tests/test_registered_node.py::PreparationRetries \
             .github/skill-eval/envs/tests/test_registered_node.py::NemoClawNamespaceClaim \
             .github/skill-eval/tests/test_run_leg.py::HarborCommand \
             .github/skill-eval/tests/test_run_leg.py::SparkSelection \
+            .github/skill-eval/tests/test_run_leg.py::SetupOnlySelection \
             .github/skill-eval/tests/test_run_leg.py::SparkReachability \
             .github/skill-eval/tests/test_run_leg.py::PhaseBudgets \
             .github/skill-eval/tests/test_run_leg.py::HarborEnvironment \

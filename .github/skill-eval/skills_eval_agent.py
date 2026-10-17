@@ -57,6 +57,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import glob
+import json
 import os
 from pathlib import Path
 import re
@@ -113,7 +114,7 @@ _WORK_DEADLINE_EXIT_CODE = 6
 _BLOCKED_EXIT_CODE = 7
 _DONE_RESULT_RE = re.compile(
     r"^DONE:\s*(?P<passed>\d+)\s*/\s*(?P<total>\d+)\s+"
-    r"spec(?:s)?\s+passed\b"
+    r"(?P<unit>specs?|setups?)\s+passed\b"
 )
 
 # ---------------------------------------------------------------------------
@@ -375,6 +376,10 @@ def build_user_prompt(*, eval_kind: str, eval_skill: str, eval_spec_path: str,
     """
     results_root, summary_path, report_path = leg_paths(
         eval_slug, eval_spec_stem)
+    setup_only = os.environ.get("SKILLS_EVAL_SETUP_ONLY") == "true"
+    if setup_only and (not manual or daily_run or not eval_spec_path.startswith("skills/operations/")):
+        raise ValueError("setup_only requires a manual operational eval")
+    count_unit = "setups" if setup_only else "specs"
 
     # Single-sourced so the PR leg and the nightly leg cannot drift apart:
     # both render through leg_report.py and both must land the body where
@@ -395,12 +400,19 @@ def build_user_prompt(*, eval_kind: str, eval_skill: str, eval_spec_path: str,
   by hand is what used to cost ~114s of rediscovery per leg.
   If the renderer exits NON-ZERO the leg FAILED. Do not inspect raw results
   and do not use `BLOCKED`; end with
-  `DONE: 0/1 specs passed; leg_report.py failed (exit N)`."""
+  `DONE: 0/1 {count_unit} passed; leg_report.py failed (exit N)`."""
 
     verdict_block = f"""After a zero renderer exit, read `{summary_path}` for the verdict. The leg
 passed only if every entry in `steps[]` has `state == "recorded-pass"`;
 `recorded-fail`, `no-verdict`, `not-run` and `ambiguous` all mean it did not.
 A non-empty `collection_errors` also means it did not."""
+    if setup_only:
+        verdict_block = f"""This is an explicit setup-only run. Generate the complete original dataset;
+run_leg.py selects each chain's original step 1 without modifying its checks.
+After a zero renderer exit, read `{summary_path}`: require `scope == "setup-only"`,
+`evaluated_steps == [1]`, step 1 `state == "recorded-pass"`, no collection_errors,
+and every later declared step `state == "not-run"`. Any other outcome fails.
+Do not run operational steps or claim the full spec passed. Count setups only."""
 
     if eval_kind == "missing_adapter":
         target = f"PR #{pr_number}" if pr_number else "Manual sweep"
@@ -461,7 +473,7 @@ Do NOT touch any other spec or skill.
 
 {verdict_block}
 
-End with `DONE: 1/1 specs passed` when it passed, `DONE: 0/1 specs passed;
+End with `DONE: 1/1 {count_unit} passed` when it passed, `DONE: 0/1 {count_unit} passed;
 <the failing steps and their states>` when it did not, or
 `BLOCKED: <reason>` (e.g. stale adapter auto-committed, pool exhausted).
 """
@@ -501,7 +513,7 @@ Do NOT touch any other spec or skill.
 
 {verdict_block}
 
-End with `DONE: 1/1 specs passed` when it passed, `DONE: 0/1 specs passed;
+End with `DONE: 1/1 {count_unit} passed` when it passed, `DONE: 0/1 {count_unit} passed;
 <the failing steps and their states>` when it did not, or
 `BLOCKED: <reason>` (e.g. stale adapter auto-committed, pool exhausted).
 """
@@ -558,7 +570,30 @@ def _last_nonempty_line(text_blocks: list[str]) -> str | None:
     return None
 
 
-def _evaluate_terminal_marker(final_text: list[str]) -> tuple[int, str]:
+def setup_summary_passed(summary_path: Path) -> bool:
+    """A setup-only green requires original step 1 and no operational trials."""
+    try:
+        summary = json.loads(summary_path.read_text())
+        if not isinstance(summary, dict) or not isinstance(summary.get("steps"), list):
+            return False
+        steps = summary["steps"]
+        return bool(
+            summary.get("scope") == "setup-only"
+            and summary.get("evaluated_steps") == [1]
+            and summary.get("collection_errors") == []
+            and type(summary.get("declared_steps")) is int
+            and summary["declared_steps"] == len(steps) > 0
+            and all(isinstance(row, dict) and type(row.get("step")) is int for row in steps)
+            and [row["step"] for row in steps] == list(range(1, len(steps) + 1))
+            and steps[0]["state"] == "recorded-pass"
+            and not steps[0].get("exception") and not steps[0].get("harness_failure")
+            and all(row["state"] == "not-run" for row in steps[1:])
+        )
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
+
+
+def _evaluate_terminal_marker(final_text: list[str], *, setup_only: bool = False) -> tuple[int, str]:
     """Validate the final protocol marker and return its exit code and reason.
 
     AGENTS.md defines ``BLOCKED:`` as a valid outcome for conditions such as
@@ -597,6 +632,9 @@ def _evaluate_terminal_marker(final_text: list[str]) -> tuple[int, str]:
             _PROTOCOL_FAILURE_EXIT_CODE,
             "malformed DONE marker; expected 'DONE: N/M specs passed'",
         )
+    unit = "setups" if setup_only else "specs"
+    if match.group("unit").rstrip("s") != unit.rstrip("s"):
+        return _PROTOCOL_FAILURE_EXIT_CODE, f"expected 'DONE: N/M {unit} passed' for this scope"
 
     passed = int(match.group("passed"))
     total = int(match.group("total"))
@@ -608,9 +646,9 @@ def _evaluate_terminal_marker(final_text: list[str]) -> tuple[int, str]:
     if passed != total:
         return (
             _EVAL_FAILURE_EXIT_CODE,
-            f"eval failed: only {passed}/{total} specs passed",
+            f"eval failed: only {passed}/{total} {unit} passed",
         )
-    return 0, f"eval passed: {passed}/{total} specs passed"
+    return 0, f"eval passed: {passed}/{total} {unit} passed"
 
 
 def _result_message_state(message: object) -> tuple[bool, bool]:
@@ -770,7 +808,8 @@ async def run_agent() -> int:
     # the source PR with no result comment) would produce a silent green
     # check. A well-formed DONE marker also has to report a positive N/N
     # result; 0/N and partial N/M outcomes are completed eval failures.
-    exit_code, reason = _evaluate_terminal_marker(final_text)
+    exit_code, reason = _evaluate_terminal_marker(
+        final_text, setup_only=os.environ.get("SKILLS_EVAL_SETUP_ONLY") == "true")
     print(f"[agent] {reason}", file=sys.stderr)
 
     # Fail closed on a renderer that never produced output. leg_report.py
@@ -788,6 +827,9 @@ async def run_agent() -> int:
             names = ", ".join(str(p) for p in missing)
             print(f"[agent] mandatory renderer output missing: {names}",
                   file=sys.stderr)
+            return _EVAL_FAILURE_EXIT_CODE
+        if os.environ.get("SKILLS_EVAL_SETUP_ONLY") == "true" and not setup_summary_passed(summary_path):
+            print("[agent] setup-only summary does not prove a passing setup", file=sys.stderr)
             return _EVAL_FAILURE_EXIT_CODE
     return exit_code
 

@@ -2,12 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """NemoClaw gateway isolation, media staging, and operational readiness."""
 
+import asyncio
 import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import socket
 import subprocess
+import shutil
+import sys
+from types import ModuleType
 
 import pytest
 
@@ -21,13 +25,158 @@ def _load_module(name, filename):
     return module
 
 
+def test_agent_copyback_cannot_replace_current_instruction(monkeypatch, tmp_path):
+    monkeypatch.setenv("NEMOCLAW_AGENT_TIMEOUT_SEC", "240")
+    modules = {}
+    for name in (
+        "harbor", "harbor.agents", "harbor.agents.installed",
+        "harbor.agents.installed.base", "harbor.agents.installed.openclaw",
+        "harbor.environments", "harbor.environments.base",
+        "harbor.models", "harbor.models.agent", "harbor.models.agent.context",
+    ):
+        modules[name] = ModuleType(name)
+        monkeypatch.setitem(sys.modules, name, modules[name])
+    modules["harbor.agents.installed.base"].with_prompt_template = lambda fn: fn
+    modules["harbor.agents.installed.openclaw"].OpenClaw = object
+    modules["harbor.environments.base"].BaseEnvironment = object
+    modules["harbor.models.agent.context"].AgentContext = object
+    path = NEMOCLAW.parent / "agents/nemoclaw.py"
+    spec = importlib.util.spec_from_file_location("nemoclaw_adapter_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    agent = module.NemoClaw()
+    agent.logs_dir = tmp_path / "local"
+    remote = tmp_path / "remote"
+    (remote / "agent").mkdir(parents=True)
+    (remote / "agent/instruction.txt").write_text("Deploy an unrelated alerts profile")
+
+    async def execute(environment, command, **kwargs):
+        # The adapter must allow the native timeout plus CLI grace (120s),
+        # session retrieval (60s), and post-inference NIM collection (30s).
+        assert "--timeout 240" in command
+        assert kwargs["timeout_sec"] >= 240 + 120 + 60 + 30
+        # Run the adapter's real staging shell with temporary path prefixes;
+        # stop before inference, then model Harbor's log download/copyback.
+        staging = "mkdir -p" + command.split("mkdir -p", 1)[1].split(
+            "python3 .github/skill-eval/nemoclaw/headless_runner.py", 1,
+        )[0]
+        staging = staging.replace("/logs/agent", str(remote / "agent"))
+        staging = staging.replace("/tmp/skill-eval/nemoclaw", str(remote / "nemoclaw"))
+        subprocess.run(["bash", "-ec", staging], check=True)
+        shutil.copyfile(remote / "agent/instruction.txt", agent.logs_dir / "instruction.txt")
+
+    agent.exec_as_agent = execute
+    current = "Where did the worker put the 'box' down?\nUse the existing video."
+    asyncio.run(agent.run(current, object(), object()))
+    assert (agent.logs_dir / "instruction.txt").read_text() == current
+    assert (remote / "agent/instruction.txt").read_text() == current
+
+
 @pytest.fixture
 def runner():
     return _load_module("nemoclaw_test_runner", "headless_runner.py")
 
 
+def test_policy_denials_keep_failure_metadata_without_raw_commands(runner):
+    raw = "\n".join([
+        "HTTP:REQUEST [MED] DENIED /usr/bin/curl(42) -> GET http://host.openshell.internal:7777/vst?token=secret "
+        "[policy:vss-backend engine:opa] [reason:failed to resolve peer binary; credential=secret]",
+        "NET:OPEN [MED] DENIED /usr/bin/python3.13(43) -> host.openshell.internal:7777 "
+        "[policy:vss-backend engine:opa] [reason:binary integrity check failed]",
+        "NET:OPEN [INFO] ALLOWED /usr/bin/curl(44) -> host.openshell.internal:7777 token=secret",
+    ])
+    assert runner._policy_denials(raw) == [
+        {"host": "host.openshell.internal", "port": 7777, "binary": "/usr/bin/curl",
+         "policy": "vss-backend", "reason": "identity_resolution"},
+        {"host": "host.openshell.internal", "port": 7777, "binary": "/usr/bin/python3.13",
+         "policy": "vss-backend", "reason": "binary_integrity"},
+    ]
+    assert "secret" not in json.dumps(runner._policy_denials(raw))
+
+
+@pytest.mark.parametrize("failure", [FileNotFoundError(), subprocess.TimeoutExpired("openshell", 20), UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid")])
+def test_policy_diagnostics_preserve_trial_on_command_failure(runner, monkeypatch, tmp_path, failure):
+    def fail(*args, **kwargs):
+        raise failure
+    monkeypatch.setattr(runner.subprocess, "run", fail)
+    runner._capture_policy_denials("se-current", tmp_path / "agent")
+    report = json.loads((tmp_path / "artifacts/nemoclaw/network-denials.json").read_text())
+    assert report["exception_type"] == type(failure).__name__
+    assert "earlier trials" in report["scope"]
+
+
+def test_policy_diagnostics_replace_invalid_utf8(runner, monkeypatch, tmp_path):
+    real_run = subprocess.run
+    def invalid_logs(*args, **kwargs):
+        assert kwargs["errors"] == "replace"
+        return real_run([sys.executable, "-c", "import sys; sys.stdout.buffer.write(bytes([255]))"], **kwargs)
+    monkeypatch.setattr(runner.subprocess, "run", invalid_logs)
+    runner._capture_policy_denials("se-current", tmp_path / "agent")
+    report = json.loads((tmp_path / "artifacts/nemoclaw/network-denials.json").read_text())
+    assert report["exit_code"] == 0
+    assert report["denials"] == []
+
+
 gateway = _load_module("gateway_state", "gateway_state.py")
 fixtures = _load_module("fixture_staging", "stage_fixtures.py")
+
+
+def test_gateway_firewall_is_owned_reusable_and_removable(monkeypatch, tmp_path):
+    owner = "a" * 64
+    ports = free_ports()
+    gateway.claim(owner, ports, tmp_path)
+    receipt = tmp_path / ".nemoclaw/gateways" / str(ports[0]) / "network-policy.json"
+    created = linked = False
+    calls = []
+
+    def execute(argv, **kwargs):
+        nonlocal created, linked
+        args = argv[5:]
+        calls.append(args)
+        rc = 0
+        if args[0] == "-S":
+            rc = 0 if created else 1
+        elif args[0] == "-N":
+            assert json.loads(receipt.read_text())["owner"] == owner
+            created = True
+        elif args[0] == "-C" and args[1] == "INPUT":
+            rc = 0 if linked else 1
+        elif args[0] == "-I":
+            linked = True
+        elif args[0] == "-D":
+            linked = False
+        elif args[0] == "-X":
+            created = False
+        return subprocess.CompletedProcess(argv, rc, "", "")
+
+    monkeypatch.setattr(gateway.subprocess, "run", execute)
+    gateway.network_policy(owner, ports, tmp_path)
+    chain = "SE-NC-" + owner[:20]
+    assert [args for args in calls if args[0] == "-A"] == [
+        ["-A", chain, "-i", interface, "-j", "ACCEPT"] for interface in ("lo", "docker0", "br+")
+    ] + [["-A", chain, "-j", "RETURN"]]
+    assert calls[-1] == ["-I", "INPUT", "-p", "tcp", "--dport", str(ports[0]), "-j", chain]
+    before = len(calls)
+    gateway.network_policy(owner, ports, tmp_path)
+    assert not any(args[0] in {"-F", "-I", "-A"} for args in calls[before:])
+    gateway.cleanup_network_policy(owner, tmp_path)
+    assert not created and not linked and not receipt.exists()
+
+
+def test_gateway_firewall_refuses_foreign_state(monkeypatch, tmp_path):
+    ports = free_ports()
+    gateway.claim("a" * 64, ports, tmp_path)
+    calls = []
+    def execute(argv, **kwargs):
+        calls.append(argv[5:])
+        return subprocess.CompletedProcess(argv, 0, "", "")
+    monkeypatch.setattr(gateway.subprocess, "run", execute)
+    with pytest.raises(ValueError, match="unowned"):
+        gateway.network_policy("a" * 64, ports, tmp_path)
+    assert len(calls) == 1 and calls[0][0] == "-S"
+    with pytest.raises(ValueError, match="owned namespace"):
+        gateway.network_policy("b" * 64, ports, tmp_path)
+    assert len(calls) == 1
 
 
 
@@ -193,6 +342,59 @@ def test_uploads_only_declared_media_and_checks_hash(monkeypatch, tmp_path):
 
 
 
+def test_nvstreamer_fixture_copies_before_manifest_and_never_registers(monkeypatch, tmp_path):
+    (tmp_path / 'warehouse_sample.mp4').write_bytes(b'video')
+    digest = hashlib.sha256(b'video').hexdigest()
+    info = {
+        'Id': 'a' * 64, 'State': {'Running': True},
+        'Config': {'Labels': {'com.docker.compose.service': 'nvstreamer'}, 'Env': ['SECRET=hidden']},
+        'Mounts': [{'Type': 'bind', 'RW': True, 'Destination': '/home/vst/vst_release/streamer_videos'}],
+    }
+    calls, manifests = [], []
+    def call(args, **kwargs):
+        calls.append(args)
+        if args[:2] == ['docker', 'inspect']:
+            return json.dumps([info])
+        if args[:2] == ['docker', 'exec']:
+            return digest + '  video\n'
+        if args[0] == 'nemoclaw':
+            manifests.append(Path(args[3]).read_bytes())
+        if args[0] == 'openshell':
+            return hashlib.sha256(manifests[-1]).hexdigest() + '  manifest\n'
+        return ''
+    monkeypatch.setattr(fixtures, 'call', call)
+    reports = [{}, {}]
+    rows = [fixtures.stage_nvstreamer_scan('se-current', 'warehouse_sample.mp4', tmp_path, report=r) for r in reports]
+    assert rows[0]['basename'] != rows[1]['basename']
+    assert json.loads(manifests[0]) == rows[0]
+    assert calls[1][:3] == ['docker', 'cp', str(tmp_path / 'warehouse_sample.mp4')]
+    assert calls[1][3] == 'a' * 64 + ':' + rows[0]['container_path']
+    assert calls[2][:3] == ['docker', 'exec', 'a' * 64]
+    assert calls[3][:3] == ['nemoclaw', 'se-current', 'upload']
+    assert 'hidden' not in json.dumps(reports)
+    assert all('curl' not in args for args in calls)
+
+
+@pytest.mark.parametrize('invalid', ['stopped', 'foreign', 'missing_mount', 'bad_checksum'])
+def test_nvstreamer_fixture_rejects_invalid_target_before_manifest(monkeypatch, tmp_path, invalid):
+    (tmp_path / 'a.mp4').write_bytes(b'video')
+    info = {
+        'Id': 'a' * 64, 'State': {'Running': invalid != 'stopped'},
+        'Config': {'Labels': {'com.docker.compose.service': 'foreign' if invalid == 'foreign' else 'nvstreamer'}},
+        'Mounts': [] if invalid == 'missing_mount' else [{'Type': 'bind', 'RW': True, 'Destination': '/videos/streamer_videos'}],
+    }
+    calls = []
+    def call(args, **kwargs):
+        calls.append(args)
+        return json.dumps([info]) if args[:2] == ['docker', 'inspect'] else 'incorrect  file\n'
+    monkeypatch.setattr(fixtures, 'call', call)
+    with pytest.raises(ValueError):
+        fixtures.stage_nvstreamer_scan('se-current', 'a.mp4', tmp_path, report={})
+    assert not any(args[0] == 'nemoclaw' for args in calls)
+    if invalid != 'bad_checksum':
+        assert len(calls) == 1
+
+
 def test_missing_host_fixture_never_uploads(monkeypatch, tmp_path):
     monkeypatch.setattr(fixtures, 'call', lambda args, **kwargs: pytest.fail('must validate before transport'))
     with pytest.raises(ValueError, match='missing or empty'):
@@ -231,6 +433,7 @@ def test_multiple_files_are_verified_individually(monkeypatch, tmp_path):
 def test_readiness_stages_stop_at_failure(runner, monkeypatch, tmp_path, failed_stage):
     names = {"true": "sandbox_access", "openclaw gateway call health --json": "gateway_authentication", "vss configure check": "vss_configuration"}
     def probe(sandbox, command, **kwargs):
+        command = next(key for key in names if command.endswith(key))
         rc = 1 if names[command] == failed_stage else 0
         return subprocess.CompletedProcess(command, rc, '{"ok":true}', "secret-must-not-be-recorded")
     def ensure(sandbox):
@@ -265,6 +468,7 @@ def test_http_listener_is_not_authenticated_gateway(runner, monkeypatch, tmp_pat
 @pytest.mark.parametrize("pending", [True, False])
 def test_only_pending_pairing_is_retried(runner, monkeypatch, tmp_path, pending):
     calls = []
+    recoveries = []
     def probe(sandbox, command, **kwargs):
         if "gateway call" in command:
             calls.append(command)
@@ -273,14 +477,21 @@ def test_only_pending_pairing_is_retried(runner, monkeypatch, tmp_path, pending)
         return subprocess.CompletedProcess(command, 0, '{"ok":true}', "")
     monkeypatch.setattr(runner, "_ensure_gateway", lambda _: None)
     monkeypatch.setattr(runner, "_sandbox_exec", probe)
+    def recover(args, **kwargs):
+        recoveries.append(args)
+        return subprocess.CompletedProcess(args, 0, 'secret', '')
+    monkeypatch.setattr(runner.subprocess, "run", recover)
     monkeypatch.setattr(runner.time, "sleep", lambda _: None)
     if pending:
         runner._check_readiness("se-test", tmp_path / "readiness.json")
         assert len(calls) == 2
+        assert recoveries == [["nemoclaw", "se-test", "connect", "--probe-only"]]
+        assert 'secret' not in (tmp_path / 'readiness.json').read_text()
     else:
         with pytest.raises(RuntimeError, match="gateway_authentication"):
             runner._check_readiness("se-test", tmp_path / "readiness.json")
         assert len(calls) == 1
+        assert recoveries == []
 
 
 
@@ -298,6 +509,7 @@ def test_pairing_deadline_preserves_failure_when_final_probe_times_out(runner, m
         return subprocess.CompletedProcess(command, 0, '{"ok":true}', "")
     monkeypatch.setattr(runner, "_ensure_gateway", lambda _: None)
     monkeypatch.setattr(runner, "_sandbox_exec", probe)
+    monkeypatch.setattr(runner.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 0, '', ''))
     monkeypatch.setattr(runner.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(runner.time, "sleep", lambda duration: clock.__setitem__(0, clock[0] + duration))
     evidence = tmp_path / "readiness.json"
@@ -308,6 +520,7 @@ def test_pairing_deadline_preserves_failure_when_final_probe_times_out(runner, m
     assert row["reason"] == "pairing_deadline"
     assert row["attempts"] == 3
     assert row["exit_code"] == 1
+    assert row["pairing_recovery_exit_code"] == 0  # Recovery alone must not pass the gate.
     assert "secret" not in evidence.read_text()
 
 
@@ -318,6 +531,7 @@ def test_failure_is_available_to_the_verifier(runner, monkeypatch, tmp_path, sta
     prompt.write_text("This operational task")
     logs = tmp_path / "agent"
     message = f"this trial's {stage} failed"
+    monkeypatch.setattr(runner, "_capture_policy_denials", lambda *a: None)
 
     def fail(*args):
         raise RuntimeError(message)
@@ -351,10 +565,12 @@ def test_prompt_uses_native_inference_without_mutating_provider(runner, monkeypa
     def sandbox_exec(sandbox, script, **kwargs):
         assert sandbox == "se-test"
         calls.append(script)
-        if script in ("true", "vss configure check"):
+        if script == "true":
             output = ""
-        elif script == "openclaw gateway call health --json":
-            output = '{"ok":true}'
+        elif script.endswith(("vss configure check", "openclaw gateway call health --json")):
+            assert ". /tmp/nemoclaw-proxy-env.sh" in script
+            assert "unset OPENCLAW_GATEWAY_TOKEN" in script
+            output = '{"ok":true}' if "gateway call" in script else ""
         elif "/health" in script:
             output = ""
         elif "openclaw agent" in script:
@@ -381,15 +597,19 @@ def test_prompt_uses_native_inference_without_mutating_provider(runner, monkeypa
     assert not (logs / "agent.log").exists()
 
 
+@pytest.mark.parametrize("local", [True, False])
 @pytest.mark.parametrize("phase,model,access", [
     ("Ready", "local-model", 0),
     ("Error", "local-model", 0),
     ("Ready", "wrong-model", 0),
     ("Ready", "local-model", 1),
 ])
-def test_setup_checks_phase_and_native_model_before_allowing_handoff(runner, monkeypatch, tmp_path, phase, model, access):
+def test_setup_checks_phase_and_native_model_before_allowing_handoff(runner, monkeypatch, tmp_path, phase, model, access, local):
     monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
-    monkeypatch.setenv("SKILL_EVAL_LOCAL_NIM_API_KEY", "local-nim")
+    if local:
+        monkeypatch.setenv("SKILL_EVAL_LOCAL_NIM_API_KEY", "local-nim")
+    else:
+        monkeypatch.delenv("SKILL_EVAL_LOCAL_NIM_API_KEY", raising=False)
     monkeypatch.setattr(runner, "_load_env_file", lambda _: None)
     monkeypatch.setattr(runner.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 0, json.dumps({"phase": phase}), "secret"))
     monkeypatch.setattr(runner, "_sandbox_exec", lambda *a, **kw: subprocess.CompletedProcess(a, access, '{"ok":true}', "secret"))
@@ -403,11 +623,249 @@ def test_setup_checks_phase_and_native_model_before_allowing_handoff(runner, mon
     assert runner.main(["--setup-check", "--agent-log-dir", str(logs)]) == (0 if phase == "Ready" and model == "local-model" and access == 0 else 1)
     report = json.loads((logs / "setup-readiness.json").read_text())
     failed = next((row["stage"] for row in report["stages"] if row["status"] == "failed"), None)
-    assert failed == ("sandbox_phase" if phase == "Error" else "sandbox_access" if access else "local_inference" if model != "local-model" else None)
+    inference_stage = "local_inference" if local else "hosted_inference"
+    assert failed == ("sandbox_phase" if phase == "Error" else "sandbox_access" if access else inference_stage if model != "local-model" else None)
     assert len(calls) == (1 if phase == "Ready" and access == 0 else 0)
     assert "secret" not in json.dumps(report)
     assert not (logs / "openclaw.txt").exists()
     assert not (logs / "openclaw.session.jsonl").exists()
+
+
+@pytest.mark.parametrize("output,reason,status", [
+    ("CLI transcript compaction failed: Compaction timed out", "compaction_timeout", None),
+    ("HTTP 429 Too Many Requests", "rate_limited", 429),
+    ("HTTP 401 unauthorized", "authentication_failed", 401),
+    ("CONNECT tunnel failed, response 403", "policy_denied", None),
+    ("maximum context length exceeded", "context_limit", None),
+    ("connection reset by peer", "transport_reset", None),
+    ("request timed out", "request_timeout", None),
+    ("unrecognized failure", "command_failed", None),
+])
+def test_native_probe_preserves_classified_error_without_raw_output(runner, monkeypatch, output, reason, status):
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    raw = output + " confidential-payload"
+    monkeypatch.setattr(runner, "_nemoclaw_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 1, "", raw))
+    row = {}
+    with pytest.raises(runner.NativeInferenceError, match=reason) as error:
+        runner._probe_inference("se-test", row)
+    assert row["reason"] == reason
+    assert row["command_exit_code"] == 1
+    assert row.get("http_status") == status
+    assert row["elapsed_seconds"] >= 0
+    assert "confidential-payload" not in str(error.value) + json.dumps(row)
+
+
+@pytest.mark.parametrize("aborted,model,payloads,reason", [
+    (True, "local-model", [{"text": "OK"}], "aborted"),
+    (None, "local-model", [{"text": "OK"}], "abort_status_missing"),
+    (False, "wrong-model", [{"text": "OK"}], "model_mismatch"),
+    (False, "local-model", [], "empty_response"),
+])
+def test_native_probe_identifies_invalid_completion(runner, monkeypatch, aborted, model, payloads, reason):
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    envelope = {"meta": {"aborted": aborted, "agentMeta": {"model": model}}, "payloads": payloads}
+    monkeypatch.setattr(runner, "_run_openclaw", lambda *a: (envelope, ""))
+    row = {}
+    with pytest.raises(runner.NativeInferenceError):
+        runner._probe_inference("se-test", row)
+    assert row["reason"] == reason
+    assert row["model_matches"] == (model == "local-model")
+
+
+def test_native_probe_timeout_metadata_excludes_command(runner, monkeypatch):
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    def timeout(*a, **kw):
+        raise subprocess.TimeoutExpired("confidential-command", kw["timeout"])
+    monkeypatch.setattr(runner, "_nemoclaw_exec", timeout)
+    row = {}
+    with pytest.raises(runner.NativeInferenceError):
+        runner._probe_inference("se-test", row)
+    assert row["reason"] == "client_timeout"
+    assert row["timeout_seconds"] == 240
+    assert "confidential-command" not in json.dumps(row)
+
+
+@pytest.mark.parametrize("stop,detail,aborted,reason,status", [
+    ("error", "Request timed out: confidential-payload", True, "request_timeout", None),
+    ("error", "429 Too Many Requests: confidential-payload", False, "rate_limited", 429),
+    ("error", "HTTP 400 invalid_request_error: confidential-payload", False, "invalid_request", 400),
+    ("error", "Unrecognized provider error: confidential-payload", False, "provider_error", None),
+    ("aborted", "confidential-payload", True, "aborted", None),
+])
+def test_native_probe_preserves_exit_zero_session_error(runner, monkeypatch, stop, detail, aborted, reason, status):
+    """A timed-out agent's exit 0 must not hide its provider error as zero usage."""
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    envelope = {"meta": {"aborted": aborted, "agentMeta": {
+        "sessionFile": "/sandbox/.openclaw/agents/main/sessions/probe.jsonl", "model": "local-model",
+    }}, "payloads": [{"text": "The request timed out"}]}
+    session = json.dumps({"message": {
+        "role": "assistant", "stopReason": stop, "errorMessage": detail,
+        "usage": {"input": 0, "output": 0},
+    }})
+    monkeypatch.setattr(runner, "_nemoclaw_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 0, json.dumps(envelope), ""))
+    monkeypatch.setattr(runner, "_sandbox_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 0, session, ""))
+    row = {}
+    with pytest.raises(runner.NativeInferenceError) as error:
+        runner._probe_inference("se-test", row)
+    assert row["reason"] == reason
+    assert row.get("http_status") == status
+    assert row["aborted"] == aborted
+    assert row["assistant_turns"] == 1
+    assert row["input_tokens"] == row["output_tokens"] == 0
+    assert "confidential-payload" not in str(error.value) + json.dumps(row)
+
+
+@pytest.mark.parametrize("session,reason", [
+    ("", "session_no_assistant"),
+    (json.dumps({"message": {"role": "assistant", "content": [{"type": "text", "text": "OK"}]}}), "session_no_usage"),
+])
+def test_native_probe_classifies_missing_session_evidence(runner, monkeypatch, session, reason):
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    envelope = {"meta": {"aborted": False, "agentMeta": {
+        "sessionFile": "/sandbox/.openclaw/agents/main/sessions/probe.jsonl", "model": "local-model",
+    }}, "payloads": [{"text": "OK"}]}
+    monkeypatch.setattr(runner, "_nemoclaw_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 0, json.dumps(envelope), ""))
+    monkeypatch.setattr(runner, "_sandbox_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 0, session, ""))
+    row = {}
+    with pytest.raises(runner.NativeInferenceError):
+        runner._probe_inference("se-test", row)
+    assert row["reason"] == reason
+
+
+def test_recovered_session_error_does_not_replace_success(runner, monkeypatch):
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    envelope = {"meta": {"aborted": False, "agentMeta": {
+        "sessionFile": "/sandbox/.openclaw/agents/main/sessions/probe.jsonl", "model": "local-model",
+    }}, "payloads": [{"text": "OK"}]}
+    messages = [
+        {"role": "assistant", "stopReason": "error", "errorMessage": "Request timed out"},
+        {"role": "assistant", "stopReason": "stop", "usage": {"input": 12, "output": 2}},
+        {"role": "toolResult", "stopReason": "error", "errorMessage": "Not a provider error"},
+    ]
+    session = "\n".join(json.dumps({"message": message}) for message in messages)
+    monkeypatch.setattr(runner, "_nemoclaw_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 0, json.dumps(envelope), ""))
+    monkeypatch.setattr(runner, "_sandbox_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 0, session, ""))
+    row = {}
+    runner._probe_inference("se-test", row)
+    assert row["model_matches"] is True
+    assert row["usage"] == {"input": 12, "cacheRead": 0, "output": 2}
+    assert "reason" not in row
+
+
+@pytest.mark.parametrize("setup", [False, True])
+def test_terminal_provider_failure_preserves_only_operational_history(runner, monkeypatch, tmp_path, setup):
+    """Earlier tools/results remain judgeable without retaining setup probes."""
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    monkeypatch.setenv("SKILL_EVAL_LOCAL_NIM_API_KEY", "local-nim")
+    monkeypatch.setenv("SKILL_EVAL_LOCAL_NIM_PLAN", json.dumps({"owner": "a" * 24}))
+    monkeypatch.setattr(runner, "_load_env_file", lambda _: None)
+    monkeypatch.setattr(runner, "_wait_sandbox_ready", lambda *a: None)
+    monkeypatch.setattr(runner, "_gateway_healthy", lambda *a: True)
+    monkeypatch.setattr(runner, "_ensure_gateway", lambda *a: None)
+    monkeypatch.setattr(runner, "_capture_policy_denials", lambda *a: None)
+    collections = []
+    def failed_collection(argv, **kwargs):
+        collections.append(argv)
+        assert kwargs["timeout"] == 30
+        raise subprocess.TimeoutExpired("collector", 30, stderr="confidential-collector-detail")
+    monkeypatch.setattr(runner.subprocess, "run", failed_collection)
+    envelope = {"meta": {"aborted": True, "agentMeta": {
+        "sessionFile": "/sandbox/.openclaw/agents/main/sessions/current.jsonl", "model": "local-model",
+    }}, "payloads": []}
+    messages = [
+        {"role": "assistant", "content": [{"type": "toolCall", "name": "exec",
+         "arguments": {"cmd": "vss vios list"}}], "usage": {"input": 12, "output": 2}},
+        {"role": "toolResult", "content": [{"type": "text", "text": "current-tool-result"}]},
+        {"role": "assistant", "stopReason": "error", "errorMessage": "Request timed out: provider-detail"},
+    ]
+    session = "\n".join(json.dumps({"message": message}) for message in messages)
+
+    def execute(sandbox, command, **kwargs):
+        if "openclaw agent" in command:
+            output = json.dumps(envelope)
+        elif command.startswith("cat -- "):
+            output = session
+        else:
+            output = '{"ok":true}'
+        return subprocess.CompletedProcess(command, 0, output, "")
+
+    monkeypatch.setattr(runner, "_sandbox_exec", execute)
+    monkeypatch.setattr(runner, "_nemoclaw_exec", execute)
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("Operate the deployment")
+    logs = tmp_path / "agent"
+    args = ["--setup-check"] if setup else ["--prompt-file", str(prompt)]
+    assert runner.main([*args, "--agent-log-dir", str(logs)]) == 1
+    assert collections == [[runner.sys.executable, f"/tmp/skill-eval-nim-{'a' * 24}.py", "collect", "--owner", "a" * 24]]
+    assert "request_timeout" in (logs / "agent.log").read_text()
+    assert "provider-detail" not in (logs / "agent.log").read_text()
+    if setup:
+        assert not (logs / "openclaw.txt").exists()
+        assert not (logs / "openclaw.session.jsonl").exists()
+        readiness = json.loads((logs / "setup-readiness.json").read_text())
+        assert readiness["stages"][-1]["reason"] == "request_timeout"
+        assert "current-tool-result" not in json.dumps(readiness)
+    else:
+        assert json.loads((logs / "openclaw.txt").read_text()) == envelope
+        records = [json.loads(line) for line in (logs / "openclaw.session.jsonl").read_text().splitlines()]
+        assert records[0]["message"]["content"][0] == {
+            "type": "toolCall", "name": "Bash", "arguments": {"command": "vss vios list"},
+        }
+        assert records[1]["message"]["content"][0]["text"] == "current-tool-result"
+        assert records[2]["message"]["stopReason"] == "error"
+
+
+@pytest.mark.parametrize("raw", [None, "", "not-json", "[]", '{"owner":"../other"}', json.dumps({"owner": "a" * 25})])
+def test_nim_refresh_never_executes_for_missing_or_invalid_owner(runner, monkeypatch, raw):
+    if raw is None:
+        monkeypatch.delenv("SKILL_EVAL_LOCAL_NIM_PLAN", raising=False)
+    else:
+        monkeypatch.setenv("SKILL_EVAL_LOCAL_NIM_PLAN", raw)
+    calls = []
+    monkeypatch.setattr(runner.subprocess, "run", lambda *a, **kw: calls.append(a))
+    runner._refresh_local_nim_diagnostics()
+    assert calls == []
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_successful_setup_refreshes_nim_without_changing_outcome(runner, monkeypatch, tmp_path, exit_code):
+    owner = "b" * 24
+    monkeypatch.setenv("SKILL_EVAL_LOCAL_NIM_PLAN", json.dumps({"owner": owner}))
+    monkeypatch.setattr(runner, "_load_env_file", lambda _: None)
+    monkeypatch.setattr(runner, "_check_readiness", lambda *a, **kw: None)
+    calls = []
+    def collect(argv, **kwargs):
+        calls.append(argv)
+        assert kwargs["timeout"] == 30
+        assert kwargs["stdout"] == kwargs["stderr"] == subprocess.DEVNULL
+        return subprocess.CompletedProcess(argv, exit_code, "", "")
+    monkeypatch.setattr(runner.subprocess, "run", collect)
+    logs = tmp_path / "agent"
+    assert runner.main(["--setup-check", "--agent-log-dir", str(logs)]) == 0
+    assert calls == [[runner.sys.executable, f"/tmp/skill-eval-nim-{owner}.py", "collect", "--owner", owner]]
+    assert not (logs / "agent.log").exists()
+
+
+def test_setup_failure_artifact_keeps_native_reason(runner, monkeypatch, tmp_path):
+    monkeypatch.setenv("NEMOCLAW_MODEL", "local-model")
+    monkeypatch.setattr(runner, "_wait_sandbox_ready", lambda *a: None)
+    monkeypatch.setattr(runner, "_gateway_healthy", lambda *a: True)
+    monkeypatch.setattr(runner, "_sandbox_exec", lambda *a, **kw: subprocess.CompletedProcess(a, 0, '{"ok":true}', ""))
+    def execute(sandbox, command, **kwargs):
+        if command == "openclaw gateway call health --json" or command == "vss configure check":
+            return subprocess.CompletedProcess(command, 0, '{"ok":true}', "")
+        return subprocess.CompletedProcess(command, 1, "", "Compaction timed out: confidential-payload")
+    monkeypatch.setattr(runner, "_nemoclaw_exec", execute)
+    evidence = tmp_path / "agent/setup-readiness.json"
+    evidence.parent.mkdir()
+    with pytest.raises(RuntimeError, match="compaction_timeout"):
+        runner._check_readiness("se-test", evidence, setup=True)
+    report = json.loads(evidence.read_text())
+    failed = report["stages"][-1]
+    assert failed["reason"] == "compaction_timeout"
+    assert failed["command_exit_code"] == 1
+    assert "confidential-payload" not in json.dumps(report)
+    assert json.loads((tmp_path / "artifacts/nemoclaw/setup-readiness.json").read_text()) == report
 
 
 def test_setup_waits_for_ready_with_a_bounded_deadline(runner, monkeypatch):
@@ -454,7 +912,8 @@ def test_setup_phase_lookup_timeout_uses_remaining_deadline(runner, monkeypatch,
 
 
 @pytest.mark.parametrize("approve", [True, False])
-def test_pairing_uses_final_remaining_window(runner, monkeypatch, tmp_path, approve):
+@pytest.mark.parametrize("recovery_duration", [0, 30])
+def test_pairing_uses_final_remaining_window(runner, monkeypatch, tmp_path, approve, recovery_duration):
     clock = [0.0]
     calls = []
     def probe(sandbox, command, **kwargs):
@@ -462,11 +921,18 @@ def test_pairing_uses_final_remaining_window(runner, monkeypatch, tmp_path, appr
             return subprocess.CompletedProcess(command, 0, '{"ok":true}', "")
         calls.append(kwargs["timeout"])
         clock[0] += kwargs["timeout"]
-        if len(calls) == 3 and approve:
+        if len(calls) == (2 if recovery_duration else 3) and approve:
             return subprocess.CompletedProcess(command, 0, '{"ok":true}', "")
         return subprocess.CompletedProcess(command, 1, "", "pairing required")
     monkeypatch.setattr(runner, "_ensure_gateway", lambda _: None)
     monkeypatch.setattr(runner, "_sandbox_exec", probe)
+    def recover(args, **kwargs):
+        assert kwargs['timeout'] == 30
+        clock[0] += recovery_duration
+        if recovery_duration:
+            raise subprocess.TimeoutExpired(args, kwargs['timeout'])
+        return subprocess.CompletedProcess(args, 1, '', '')
+    monkeypatch.setattr(runner.subprocess, "run", recover)
     monkeypatch.setattr(runner.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(runner.time, "sleep", lambda delay: clock.__setitem__(0, clock[0] + delay))
     if approve:
@@ -474,7 +940,8 @@ def test_pairing_uses_final_remaining_window(runner, monkeypatch, tmp_path, appr
     else:
         with pytest.raises(RuntimeError, match="gateway_authentication"):
             runner._check_readiness("se-test", tmp_path / "readiness.json")
-    assert calls == [30, 30, 24]
+    assert calls == ([30, 27] if recovery_duration else [30, 30, 24])
+    assert clock[0] <= 90
 
 
 def test_media_commands_share_remaining_staging_deadline(monkeypatch):

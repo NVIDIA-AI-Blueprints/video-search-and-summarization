@@ -637,5 +637,39 @@ class SparkDispatch(unittest.TestCase):
         emit.assert_not_called()
 
 
+class FocusedManualDispatch(unittest.TestCase):
+    def run_plan(self, env, paths, rows):
+        with patch.dict(os.environ, env, clear=True), \
+             patch.object(plan_matrix, "list_changed_files", return_value=paths), \
+             patch.object(plan_matrix, "build_matrix", return_value=rows) as build, \
+             patch.object(plan_matrix, "emit") as emit:
+            rc = plan_matrix.main()
+        return rc, build, emit
+
+    def test_exact_spec_filter_selects_only_requested_operational_spec(self):
+        paths = [f"skills/operations/alerts/evals/{name}.json" for name in ("cv", "realtime")]
+        rows = [{"platform": "L40S"}]
+        rc, build, emit = self.run_plan({"MANUAL_SKILLS_FILTER": "alerts", "MANUAL_SPECS_FILTER": "cv", "SKILLS_EVAL_SETUP_ONLY": "true"}, paths, rows)
+        self.assertEqual(rc, 0)
+        build.assert_called_once_with(paths[:1])
+        emit.assert_called_once_with(rows)
+
+    def test_unknown_unsafe_and_empty_selection_fail_planning(self):
+        path = "skills/operations/alerts/evals/cv.json"
+        for selection in ("missing", "../cv", "cv,", "cv"):
+            with self.subTest(selection=selection), self.assertRaises(ValueError):
+                self.run_plan({"MANUAL_SKILLS_FILTER": "alerts", "MANUAL_SPECS_FILTER": selection}, [path], [])
+
+    def test_setup_only_rejects_build_specs_and_automatic_runs(self):
+        cases = [
+            ({"MANUAL_SKILLS_FILTER": "*", "SKILLS_EVAL_SETUP_ONLY": "true"}, ["skills/vss-build-vision-ai/evals/a.json"]),
+            ({"SKILLS_EVAL_SETUP_ONLY": "true"}, ["skills/operations/alerts/evals/cv.json"]),
+            ({"MANUAL_SPECS_FILTER": "cv"}, ["skills/operations/alerts/evals/cv.json"]),
+        ]
+        for env, paths in cases:
+            with self.subTest(env=env), self.assertRaises(ValueError):
+                self.run_plan(env, paths, [{"platform": "L40S"}])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
