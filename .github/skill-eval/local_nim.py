@@ -521,7 +521,7 @@ def start(plan: dict):
         if arch == "amd64" and item["model"] == "nvidia/nemotron-3.5-lightning-30b-a3b":
             # The 0.92 default can starve the co-resident RT-CV process.
             # Keep VRAM for VSS; ARM64 retains its NIM unified-memory default.
-            parser_args = (parser_args or "") + " --gpu-memory-utilization 0.75"
+            parser_args = (parser_args or "") + " --gpu-memory-utilization 0.92"
         if "-dgx-spark@" in item["image"]:
             # The 1.14 DGX Spark variants enable tool calls with this switch;
             # they do not consume the standard NIM_PASSTHROUGH_ARGS setting.
