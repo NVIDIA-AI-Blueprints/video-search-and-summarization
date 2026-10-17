@@ -22,7 +22,7 @@ way::
     python3 libs/vss/src/nvidia_vss/version.py
 
 One version, one source: what a deployment reports is the version of the
-``nvidia-vss-core`` library the running process imported
+``nvidia-vss`` library the running process imported
 (:func:`library_version`). Nothing outranks it and nothing stands in for it —
 not an environment variable, not a ``git describe`` at runtime. A version that
 can be edited at deploy time is a version nobody can trust, and a version
@@ -81,7 +81,7 @@ SEMVER_PATTERN = re.compile(
 )
 
 #: The distribution whose installed version a deployment reports.
-LIBRARY_DISTRIBUTION = "nvidia-vss-core"
+LIBRARY_DISTRIBUTION = "nvidia-vss"
 
 # The PEP 440 shapes hatch-vcs' `no-guess-dev` scheme emits off a `v*` tag, and
 # the build stamp: <release>[<pre>][.postN][.devN][+<local>].
@@ -148,7 +148,7 @@ def _compose(release: str, pre: str | None, distance: str | None, build: str | N
 
 
 def library_version() -> str | None:
-    """Return the installed ``nvidia-vss-core`` version as SemVer, or ``None``.
+    """Return the installed ``nvidia-vss`` version as SemVer, or ``None``.
 
     The version of the VSS library the running process imported, which is what
     the whole deployment reports: in an image the build stamped it from the

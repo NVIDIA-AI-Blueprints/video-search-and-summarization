@@ -40,7 +40,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # pyproject's hatch-vcs runs, so a checkout install of this commit agrees), and
 # the git tree hash of the image's source paths (services/agent and libs/vss),
 # composed by build-dev-images.yml. This is not provenance metadata any more --
-# GET /api/v1/version reports the installed nvidia-vss-core version, so this
+# GET /api/v1/version reports the installed nvidia-vss version, so this
 # string is what a deployment tells the world it is running, and it has to
 # satisfy both PEP 440 (3.3.0rc0+tree.abc) and strict SemVer once normalised
 # (3.3.0-rc0+tree.abc).
@@ -92,7 +92,7 @@ COPY --chown=root:root --chmod=0444 services/agent/docker/cleanup_vulnerabilitie
 RUN --mount=type=cache,id=uv_cache_${TARGETARCH},target=/root/.cache/uv,sharing=private \
     uv venv --seed .venv && \
     . .venv/bin/activate && \
-    uv sync --frozen --no-dev --no-editable --extra agent --link-mode copy
+    uv sync --frozen --no-dev --no-editable --link-mode copy
 
 # The venv is built at /src/services/agent -- so uv can resolve the library at
 # ../../libs/vss -- but the runtime stage ships it at /vss-agent. Console

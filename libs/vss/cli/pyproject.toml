@@ -30,7 +30,7 @@ maintainers = [{ name = "NVIDIA Corporation" }]
 # resolution (Group.list_commands / Group.get_command) that entry-point plugin
 # discovery needs, and as of 8.5 it has no runtime dependencies of its own.
 dependencies = [
-  "nvidia-vss-core",
+  "nvidia-vss",
   "click>=8.1",
 ]
 
@@ -63,6 +63,6 @@ vlm = "Ask a visual question about video"
 vios = "Sensors, timelines, clips and snapshots (no jobs)"
 
 [tool.uv.sources]
-nvidia-vss-core = { workspace = true }
+nvidia-vss = { workspace = true }
 nvidia-vss-search = { workspace = true }
 nvidia-vss-analytics = { workspace = true }

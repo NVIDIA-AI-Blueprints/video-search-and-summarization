@@ -12,9 +12,9 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "nvidia-vss",
     "nvidia-vss-analytics",
     "nvidia-vss-cli",
-    "nvidia-vss-core",
     "nvidia-vss-search",
 ]
 constraints = [
@@ -2163,52 +2163,7 @@ wheels = [
 ]
 
 [[package]]
-name = "nvidia-vss-analytics"
-source = { editable = "packages/analytics" }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "nvidia-vss-core" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = "~=3.14" },
-    { name = "nvidia-vss-core", editable = "." },
-]
-
-[[package]]
-name = "nvidia-vss-cli"
-source = { editable = "cli" }
-dependencies = [
-    { name = "click" },
-    { name = "nvidia-vss-core" },
-]
-
-[package.optional-dependencies]
-all = [
-    { name = "nvidia-vss-analytics" },
-    { name = "nvidia-vss-search" },
-]
-analytics = [
-    { name = "nvidia-vss-analytics" },
-]
-search = [
-    { name = "nvidia-vss-search" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "click", specifier = ">=8.1" },
-    { name = "nvidia-vss-analytics", marker = "extra == 'all'", editable = "packages/analytics" },
-    { name = "nvidia-vss-analytics", marker = "extra == 'analytics'", editable = "packages/analytics" },
-    { name = "nvidia-vss-core", editable = "." },
-    { name = "nvidia-vss-search", marker = "extra == 'all'", editable = "packages/search" },
-    { name = "nvidia-vss-search", marker = "extra == 'search'", editable = "packages/search" },
-]
-provides-extras = ["all", "analytics", "search"]
-
-[[package]]
-name = "nvidia-vss-core"
+name = "nvidia-vss"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -2221,6 +2176,11 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+arango-graph = [
+    { name = "langchain-classic" },
+    { name = "langchain-community" },
+    { name = "python-arango" },
+]
 frag-lib = [
     { name = "nvidia-rag" },
 ]
@@ -2239,6 +2199,7 @@ llama-index = [
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "nvidia-vss-cli", extra = ["all"] },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -2254,6 +2215,8 @@ requires-dist = [
     { name = "elasticsearch", extras = ["requests"], specifier = "~=8.17.0" },
     { name = "httpx", specifier = "~=0.28" },
     { name = "langchain-chroma", marker = "extra == 'langchain'", specifier = ">=0.1" },
+    { name = "langchain-classic", marker = "extra == 'arango-graph'", specifier = ">=1.0" },
+    { name = "langchain-community", marker = "extra == 'arango-graph'", specifier = ">=0.3.27" },
     { name = "langchain-nvidia-ai-endpoints", marker = "extra == 'langchain'", specifier = ">=0.3" },
     { name = "llama-index-core", marker = "extra == 'llama-index'", specifier = ">=0.11" },
     { name = "llama-index-embeddings-nvidia", marker = "extra == 'llama-index'", specifier = ">=0.3" },
@@ -2261,14 +2224,16 @@ requires-dist = [
     { name = "nvidia-rag", marker = "extra == 'frag-lib'", specifier = ">=2.4.0" },
     { name = "opencv-python-headless", specifier = ">=4.13.0.92" },
     { name = "pydantic", specifier = ">=2.11,<3" },
+    { name = "python-arango", marker = "extra == 'arango-graph'", specifier = ">=8.2" },
     { name = "pyyaml", specifier = "~=6.0" },
     { name = "tenacity", specifier = "~=9.0" },
 ]
-provides-extras = ["frag-lib", "langchain", "llama-index"]
+provides-extras = ["arango-graph", "frag-lib", "langchain", "llama-index"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.15.0" },
+    { name = "nvidia-vss-cli", extras = ["all"], editable = "cli" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
     { name = "pytest-cov", specifier = ">=6.1" },
@@ -2277,12 +2242,57 @@ dev = [
 ]
 
 [[package]]
+name = "nvidia-vss-analytics"
+source = { editable = "packages/analytics" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "nvidia-vss" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = "~=3.14" },
+    { name = "nvidia-vss", editable = "." },
+]
+
+[[package]]
+name = "nvidia-vss-cli"
+source = { editable = "cli" }
+dependencies = [
+    { name = "click" },
+    { name = "nvidia-vss" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "nvidia-vss-analytics" },
+    { name = "nvidia-vss-search" },
+]
+analytics = [
+    { name = "nvidia-vss-analytics" },
+]
+search = [
+    { name = "nvidia-vss-search" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.1" },
+    { name = "nvidia-vss", editable = "." },
+    { name = "nvidia-vss-analytics", marker = "extra == 'all'", editable = "packages/analytics" },
+    { name = "nvidia-vss-analytics", marker = "extra == 'analytics'", editable = "packages/analytics" },
+    { name = "nvidia-vss-search", marker = "extra == 'all'", editable = "packages/search" },
+    { name = "nvidia-vss-search", marker = "extra == 'search'", editable = "packages/search" },
+]
+provides-extras = ["all", "analytics", "search"]
+
+[[package]]
 name = "nvidia-vss-search"
 source = { editable = "packages/search" }
 dependencies = [
     { name = "elasticsearch", extra = ["requests"] },
     { name = "httpx" },
-    { name = "nvidia-vss-core" },
+    { name = "nvidia-vss" },
     { name = "pydantic" },
 ]
 
@@ -2290,7 +2300,7 @@ dependencies = [
 requires-dist = [
     { name = "elasticsearch", extras = ["requests"], specifier = "~=8.17.0" },
     { name = "httpx", specifier = "~=0.28" },
-    { name = "nvidia-vss-core", editable = "." },
+    { name = "nvidia-vss", editable = "." },
     { name = "pydantic", specifier = ">=2.11,<3" },
 ]
 
@@ -2969,6 +2979,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyjwt"
+version = "2.13.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3b/81/58d0ac84e1ef3a3843791d6954d94c0b33d526c75eeb1efbce9d0a4c4077/pyjwt-2.13.0.tar.gz", hash = "sha256:41571c89ca91598c79e8ef18a2d07367d4810fbbd6f637794879baf1b7703423", size = 107515, upload-time = "2026-05-21T19:54:36.618Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/5e/ecf12fdb62546d64385c158514e9b2b671f7832108ef2ecd2020ce0af2d1/pyjwt-2.13.0-py3-none-any.whl", hash = "sha256:66adcc2aff09b3f1bbd95fc1e1577df8ac8723c978552fd43304c8a290ac5728", size = 31274, upload-time = "2026-05-21T19:54:35.362Z" },
+]
+
+[[package]]
 name = "pymilvus"
 version = "2.6.17"
 source = { registry = "https://pypi.org/simple" }
@@ -3094,6 +3113,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b1/51/a849f96e117386044471c8ec2bd6cfebacda285da9525c9106aeb28da671/pytest_cov-7.1.0.tar.gz", hash = "sha256:30674f2b5f6351aa09702a9c8c364f6a01c27aae0c1366ae8016160d1efc56b2", size = 55592, upload-time = "2026-03-21T20:11:16.284Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9d/7a/d968e294073affff457b041c2be9868a40c1c71f4a35fcc1e45e5493067b/pytest_cov-7.1.0-py3-none-any.whl", hash = "sha256:a0461110b7865f9a271aa1b51e516c9a95de9d696734a2f71e3e78f46e1d4678", size = 22876, upload-time = "2026-03-21T20:11:14.438Z" },
+]
+
+[[package]]
+name = "python-arango"
+version = "8.3.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+    { name = "pyjwt" },
+    { name = "requests" },
+    { name = "requests-toolbelt" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cf/7d/36bedf24c08ae6bd1e6e3780651455dde8cc043c24f9996aa11a2d07d3be/python_arango-8.3.6.tar.gz", hash = "sha256:9a7c11c91cf73c0abed5b20237dd86cb2eb0e749d242cc598e23b88b8a88133f", size = 163901, upload-time = "2026-10-04T12:18:41.488Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5b/23/1f73873d7d72726a6c0ee94d24bc27fce806e32a2eac3acd0b043ecaf08a/python_arango-8.3.6-py3-none-any.whl", hash = "sha256:f0d6cc48b228d108a2184a10de596f9502efa9ec0b44626c46687e7cf43c3493", size = 116790, upload-time = "2026-10-04T12:18:39.801Z" },
 ]
 
 [[package]]

@@ -45,28 +45,25 @@ def test_distribution_is_nvidia_nat_torch_and_langchain_free_by_default() -> Non
     with (_WORKSPACE_ROOT / "pyproject.toml").open("rb") as stream:
         project = tomllib.load(stream)["project"]
 
-    assert project["name"] == "nvidia-vss-core"
+    assert project["name"] == "nvidia-vss"
     assert {"nvidia-nat", "torch", "langchain", "langchain-core"}.isdisjoint(
         _requirement_names(project["dependencies"])
     )
 
 
-def test_agent_extra_gates_the_nat_stack() -> None:
-    # The NAT stack lives in the nvidia-vss-agents distribution, reachable only
-    # via the meta `[agent]` extra -- not in nvidia-vss-core.
+def test_the_nat_stack_lives_only_in_the_agent_distribution() -> None:
+    # The NAT stack lives in the nvidia-vss-agents distribution, never in
+    # nvidia-vss. The agent workspace root is virtual: no distribution of its
+    # own, so nothing else can claim the nvidia-vss name.
     agent_root = _WORKSPACE_ROOT.parents[1] / "services" / "agent"
     with (agent_root / "pyproject.toml").open("rb") as stream:
-        meta = tomllib.load(stream)["project"]
-    meta_extras = meta["optional-dependencies"]
-    assert "cli" in meta_extras
-    assert "agent" in meta_extras
-    # `agent` pulls the agents dist (and bundles the cli dist so the full test
-    # suite installs via `--extra agent`); it must not inline the NAT stack.
-    assert "nvidia-vss-agents" in meta_extras["agent"]
+        assert "project" not in tomllib.load(stream)
 
     with (agent_root / "packages" / "vss_agents" / "pyproject.toml").open("rb") as stream:
         agents = tomllib.load(stream)["project"]
-    assert {"nvidia-nat", "torch", "langchain-core"} <= _requirement_names(agents["dependencies"])
+    assert agents["name"] == "nvidia-vss-agents"
+    requirements = _requirement_names(agents["dependencies"])
+    assert {"nvidia-nat", "torch", "langchain-core", "nvidia-vss"} <= requirements
 
     # And the `vss` console script ships from the cli distribution, never from core.
     with (_WORKSPACE_ROOT / "cli" / "pyproject.toml").open("rb") as stream:

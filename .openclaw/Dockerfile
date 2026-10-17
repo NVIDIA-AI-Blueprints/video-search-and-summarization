@@ -124,7 +124,7 @@ RUN rm -f /opt/vss-src/Dockerfile \
          && git -C /opt/vss-src checkout -q FETCH_HEAD; \
        fi
 # The vss CLI as wheels — only the CLI library workspace (libs/vss: the
-# nvidia-vss-cli entry point and its nvidia-vss-core dependency). The agent
+# nvidia-vss-cli entry point and its nvidia-vss dependency). The agent
 # service package under services/agent is deliberately NOT built or shipped:
 # a sandbox operates a deployment through the CLI, it does not run the agent.
 # Building here (where the checkout and its .git live) keeps VSS source out of

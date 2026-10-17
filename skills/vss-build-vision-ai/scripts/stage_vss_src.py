@@ -38,7 +38,7 @@ from pathlib import Path
 # Everything the harness Dockerfiles consume from the VSS checkout. A unit
 # test (test_stage_vss_src.py) parses the Dockerfiles and fails when they
 # start consuming a path outside these roots. libs/vss is the CLI library
-# workspace (nvidia-vss-cli + nvidia-vss-core), the images' whole install
+# workspace (nvidia-vss-cli + nvidia-vss), the images' whole install
 # surface — the agent service under services/agent is deliberately not staged.
 STAGE_ROOTS = ("skills", ".openclaw/workspace", "libs/vss")
 STAGE_DIR_NAME = ".vss-src"

@@ -21,8 +21,9 @@ from pathlib import Path
 FIRST_PARTY_DISTRIBUTIONS = {
     "nvidia-vss",
     "nvidia-vss-agents",
+    "nvidia-vss-analytics",
     "nvidia-vss-cli",
-    "nvidia-vss-core",
+    "nvidia-vss-search",
 }
 LICENSE_NAME_OVERRIDES = {
     "python-bidi": "LGPL-3.0-or-later",

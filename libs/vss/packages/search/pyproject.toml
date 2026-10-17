@@ -33,7 +33,7 @@ maintainers = [{ name = "NVIDIA Corporation" }]
 dependencies = [
   "elasticsearch[requests]~=8.17.0",
   "httpx~=0.28",
-  "nvidia-vss-core",
+  "nvidia-vss",
   "pydantic >=2.11,<3",
 ]
 
@@ -45,4 +45,4 @@ search = "nvidia_vss.search.cli.register:GROUP"
 search = "Search indexed video"
 
 [tool.uv.sources]
-nvidia-vss-core = { workspace = true }
+nvidia-vss = { workspace = true }

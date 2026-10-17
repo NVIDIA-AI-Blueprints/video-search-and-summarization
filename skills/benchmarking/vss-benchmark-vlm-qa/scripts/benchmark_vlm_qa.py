@@ -131,10 +131,12 @@ def vss_command(root: Path) -> list[str]:
         "uv",
         "run",
         "--project",
-        str(root / "services" / "agent"),
+        str(root / "libs" / "vss"),
         "--no-dev",
+        "--package",
+        "nvidia-vss-cli",
         "--extra",
-        "cli",
+        "all",
         "vss",
     ]
 

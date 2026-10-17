@@ -40,7 +40,7 @@ packages = ["src/nvidia_vss"]
 "src/sitecustomize.py" = "sitecustomize.py"
 
 [project]
-name = "nvidia-vss-core"
+name = "nvidia-vss"
 dynamic = ["version"]
 requires-python = ">=3.13,<3.15"
 description = "NVIDIA VSS core libraries (NAT-free): media, vlm, memory, introspection, knowledge interface"
@@ -72,6 +72,11 @@ langchain = [
     "chromadb>=0.5",
     "langchain-chroma>=0.1",
     "langchain-nvidia-ai-endpoints>=0.3",
+]
+arango_graph = [
+    "langchain-classic>=1.0",
+    "langchain-community>=0.3.27",
+    "python-arango>=8.2",
 ]
 
 # Security: constrain transitive dependencies to patch HIGH/CRITICAL CVEs.
@@ -115,7 +120,7 @@ constraint-dependencies = [
 members = ["cli", "packages/*"]
 
 [tool.uv.sources]
-nvidia-vss-core = { workspace = true }
+nvidia-vss = { workspace = true }
 nvidia-vss-cli = { workspace = true }
 nvidia-vss-search = { workspace = true }
 nvidia-vss-analytics = { workspace = true }
@@ -124,6 +129,11 @@ nvidia-vss-analytics = { workspace = true }
 # agent stack, which is what keeps `import nat` impossible in a cli install.
 [dependency-groups]
 dev = [
+    # The root project is the core library, so on its own `uv run` and
+    # `uv sync` would install only nvidia-vss. This keeps
+    # `uv run --project libs/vss vss` -- the documented way to run the CLI
+    # from a checkout -- installing the CLI and every plugin group.
+    "nvidia-vss-cli[all]",
     "mypy>=1.15.0",
     "pytest>=8.4.1",
     "pytest-asyncio>=0.24",

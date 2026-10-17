@@ -67,20 +67,17 @@ Install `uv` and create the virtual environment. If Python 3.13 is not present o
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv venv --python 3.13
-uv sync --extra agent
+uv sync
 source .venv/bin/activate
 ```
 
-The project ships three install profiles, smallest to largest: `nvidia-vss`
-(the NAT-free `lib` libraries), `nvidia-vss[cli]` (adds the `nvidia-vss-cli`
-distribution, which declares the `vss` console script), and
-`nvidia-vss[agent]` (the full NAT-based agent application). The `cli` extra
-gives the NAT-free environment used by the host CLI; it is required, because
-the base distribution depends only on `nvidia-vss-core` and so provides no
-`vss` executable:
+This workspace installs the agent, the `nvidia-vss-agents` distribution, and
+the NAT-free `nvidia-vss` library it builds on. The `vss` command line is a
+separate distribution in the library workspace, `nvidia-vss-cli`; run it from
+the checkout with:
 
 ```bash
-uv run --no-dev --extra cli vss --help
+uv run --project ../../libs/vss vss --help
 ```
 
 ### Docker
@@ -223,7 +220,7 @@ answers. Both derive from the same git tag, so they agree on the release line;
 the agent's carries `+tree.<sha>` build metadata, the edge's does not.
 
 **Where the agent's comes from.** One version, one source: what this process
-reports is the version of the `nvidia-vss-core` library it imported, read from
+reports is the version of the `nvidia-vss` library it imported, read from
 its installed metadata by
 [`nvidia_vss.version`](../../libs/vss/src/nvidia_vss/version.py). Nothing
 outranks it and nothing stands in for it — no environment variable, no
@@ -287,7 +284,7 @@ check is aimed at an origin that does not route `/api` to the agent.
 | Status | Means | Operator action |
 |--------|-------|-----------------|
 | `404` | The deployment predates this endpoint and cannot report a version at all, **or** this origin's ingress does not route `/api` to the agent (the warehouse Helm ingress does not). | Upgrade the deployment, or point the check at the agent's own origin. |
-| `503` | The installed `nvidia-vss-core` carries no version that normalises to strict SemVer: the image is missing its build stamp, or a source tree is running with nothing installed. | Rebuild the image through `build-dev-images.yml` (or pass `--build-arg VSS_PACKAGE_VERSION=…` to a local build); for a source run, `uv sync` the checkout so `hatch-vcs` versions it. |
+| `503` | The installed `nvidia-vss` carries no version that normalises to strict SemVer: the image is missing its build stamp, or a source tree is running with nothing installed. | Rebuild the image through `build-dev-images.yml` (or pass `--build-arg VSS_PACKAGE_VERSION=…` to a local build); for a source run, `uv sync` the checkout so `hatch-vcs` versions it. |
 
 **Seeing it.** `vss configure check` reports the version alongside its route
 probes, or says why the deployment cannot report one — a lean stack without the
@@ -472,7 +469,7 @@ uv run pytest tests/unit_test/ --cov=src/vss_agents --cov-report=term-missing -v
 ## Contributing
 
 1. Fork the repository and create a feature branch.
-2. Install dev dependencies: `uv sync --group dev --extra agent`
+2. Install dev dependencies: `uv sync --group dev`
 3. Install pre-commit hooks: `pre-commit install`
    Hooks include [gitleaks](https://github.com/gitleaks/gitleaks) for secret scanning,
    installed automatically as a Go binary via the pre-commit framework.

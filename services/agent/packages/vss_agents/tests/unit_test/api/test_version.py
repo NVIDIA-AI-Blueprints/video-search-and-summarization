@@ -46,7 +46,7 @@ def client() -> TestClient:
 def _no_installed_library(monkeypatch) -> None:
     """Start every test from a deployment whose library reports no version.
 
-    The test process imports an installed ``nvidia-vss-core`` of its own; what
+    The test process imports an installed ``nvidia-vss`` of its own; what
     that says must not decide these tests. Each test states what the library
     reports, and :mod:`nvidia_vss.version`'s own tests cover the derivation.
     """

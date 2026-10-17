@@ -220,7 +220,7 @@ def check(base_url: str, timeout: float) -> str:
         if error.code == 503:
             raise IndeterminateError(
                 f"{url} returned 503: the deployment reports no usable version -- its "
-                "nvidia-vss-core install carries no version that normalises to Semantic "
+                "nvidia-vss install carries no version that normalises to Semantic "
                 "Versioning 2.0.0, so the image is missing its build stamp and needs rebuilding."
             ) from error
         raise IndeterminateError(f"{url} returned HTTP {error.code} {error.reason}.") from error

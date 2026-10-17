@@ -31,7 +31,7 @@ maintainers = [{ name = "NVIDIA Corporation" }]
 # nvidia_vss.analytics.cli is imported only by the vss CLI, which brings both.
 dependencies = [
   "aiohttp~=3.14",
-  "nvidia-vss-core",
+  "nvidia-vss",
 ]
 
 [project.entry-points."vss.commands"]
@@ -42,4 +42,4 @@ analytics = "nvidia_vss.analytics.cli.register:GROUP"
 analytics = "Read incidents and video analytics metrics"
 
 [tool.uv.sources]
-nvidia-vss-core = { workspace = true }
+nvidia-vss = { workspace = true }

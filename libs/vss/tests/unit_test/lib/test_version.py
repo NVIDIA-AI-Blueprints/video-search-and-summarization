@@ -25,7 +25,7 @@ from nvidia_vss.version import resolve_deployment_version
 
 
 def _installed(value: str | None, monkeypatch) -> None:
-    """Pin what ``nvidia-vss-core`` metadata says, or that there is none.
+    """Pin what ``nvidia-vss`` metadata says, or that there is none.
 
     Never read the real metadata: whether this test process happens to run
     against an installed package or a source tree on ``PYTHONPATH`` would
@@ -33,7 +33,7 @@ def _installed(value: str | None, monkeypatch) -> None:
     """
 
     def _version(name: str) -> str:
-        assert name == "nvidia-vss-core"
+        assert name == "nvidia-vss"
         if value is None:
             raise importlib.metadata.PackageNotFoundError(name)
         return value
