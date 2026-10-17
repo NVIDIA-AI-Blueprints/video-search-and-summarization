@@ -57,7 +57,11 @@ class ClipRelevanceScoring:
                 "ERROR: --scoring clip-relevance requires --gallery-gt <release> and "
                 "--ingestion-manifest <clip->sensor map>."
             )
-        return gallery_mod.build_context(cfg.gallery_gt, cfg.ingestion_manifest)
+        return gallery_mod.build_context(
+            cfg.gallery_gt,
+            cfg.ingestion_manifest,
+            pas_frame_supported=cfg.pas_frame_supported,
+        )
 
     def score(
         self, artifact: RetrievalArtifact, ground_truth: dict[str, Any], cfg: RunConfig
@@ -70,12 +74,25 @@ class ClipRelevanceScoring:
         print(f"{'=' * 60}")
         print(f"gallery:            {len(gt['gallery'])} clips")
         print(f"queries in GT:      {len(gt['queries'])}")
+        if gt.get("cohort") is not None:
+            cohort = gt["cohort"]
+            print(f"PAS protocol:       {cohort['protocol']}")
+            print(f"cohort input:       {cohort['input']}")
+            print(f"cohort eligible:    {cohort['eligible']}")
+            print(f"cohort excluded:    {len(cohort['excluded'])} PAS query/queries")
 
         pairs: list[dict[str, Any]] = []
         unanswered = 0
+        excluded_texts = gt.get("excluded_query_texts", set())
+        excluded_count = 0
         for record in artifact.queries:
             if record.status != "answered":
                 unanswered += 1
+                continue
+            if record.query in excluded_texts:
+                # PAS query dropped by the frame-supported derivation (no
+                # supported positive) -- excluded from scoring, not unanswered.
+                excluded_count += 1
                 continue
             q = gt["by_text"].get(record.query)
             if q is None:
@@ -111,6 +128,9 @@ class ClipRelevanceScoring:
             "queries_unanswered": unanswered,
             "raw": aggregate(raws),
         }
+        if gt.get("cohort") is not None:
+            summary["cohort"] = gt["cohort"]
+            summary["queries_excluded"] = excluded_count
         if any_critic:
             summary["critic_filtered"] = aggregate(filtereds)
             summary["critic_effect"] = {
@@ -129,6 +149,7 @@ class ClipRelevanceScoring:
             "scoring": self.name,
             "gallery_gt": cfg.gallery_gt,
             "ingestion_manifest": cfg.ingestion_manifest,
+            "pas_frame_supported": cfg.pas_frame_supported,
             "concurrency": cfg.concurrency,
         }
         flow = {

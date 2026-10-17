@@ -51,7 +51,8 @@ ships rather than a REST endpoint that is being retired.
 | User asks to analyse an existing result file | Skip to **Step 6**; read the JSON, run nothing |
 | Every query returns 0 hits | Stop. Diagnose with **Step 3** before reporting anything — this is nearly always missing indices, not poor retrieval |
 | Critic-filtered metrics are all `NA` | The critic never ran. Check the clip-URL prerequisite below before concluding anything about verification quality |
-| User asks to score a clip gallery, or compare against Drive retrieval metrics | Use `--scoring clip-relevance` (or `drive`); retrieve with `--full-gallery`. See the clip-level note below and `references/flags.md` |
+| User asks to score a clip gallery, or compare against Drive retrieval metrics | Use `--scoring clip-relevance` (or `drive`); retrieve with `--full-gallery`. See the clip-level note below, `references/flags.md`, and `references/clip-scoring.md` |
+| User asks for PhysicalAI PAS scoring from representative-frame support | Add `--pas-frame-supported` to `--scoring clip-relevance` (release-directory layout + `additional_gt/tracks_pas_attributes.json`); it is a ground-truth transform, not a retrieval change, and is invalid with `--scoring drive`. See `references/clip-scoring.md` |
 | User asks to re-score existing results without re-querying, or to run ingest / retrieve / score separately | The runner is staged: `--stage ingest | retrieve | score`, with a replayable retrieval artifact between retrieve and score. See "Pipeline stages" in`references/flags.md` |
 
 ## The default run
@@ -288,6 +289,7 @@ Read `references/reading-results.md` when interpreting stage latencies or
 metrics. Read `references/flags.md` when a flag might change comparability.
 Read `references/troubleshooting.md` when ingest fails or the CLI exits nonzero.
 Read `references/dataset-format.md` when validating a dataset's layout.
+Read `references/clip-scoring.md` when scoring a clip gallery (`--scoring clip-relevance|drive`) or using `--pas-frame-supported`.
 
 ## Error handling
 

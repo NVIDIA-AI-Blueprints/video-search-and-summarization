@@ -29,8 +29,12 @@ hit cannot be attributed to a gallery clip.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Any
+
+from .pas_ground_truth import VERSION as PAS_VERSION
+from .pas_ground_truth import frame_supported_queries
 
 
 def load_gallery_gt(gt_path: str | Path) -> dict[str, Any]:
@@ -71,13 +75,27 @@ def load_ingestion_manifest(manifest_path: str | Path) -> list[dict[str, Any]]:
     return clips
 
 
-def build_context(gt_path: str | Path, manifest_path: str | Path) -> dict[str, Any]:
+def build_context(
+    gt_path: str | Path,
+    manifest_path: str | Path,
+    *,
+    pas_frame_supported: bool = False,
+) -> dict[str, Any]:
     """Load + cross-validate the gallery and its ingestion manifest.
 
     Returns the structures the clip-level scorers consume: the GT, the gallery
     clip-id list, the ``clip_id -> manifest row`` map (for clip-relevance's
     ClipScorer), the ``sensor_id -> clip_id`` map (for drive), and a
     ``query text -> query row`` map (to align artifact records with GT rows).
+
+    When ``pas_frame_supported`` is set, PAS queries are rewritten so their
+    ``relevant_clip_ids`` come from the released positive tracks whose
+    representative frame supports the query's resolved attributes (PhysicalAI
+    v1.1.2), read from ``additional_gt/tracks_pas_attributes.json`` in the
+    release root. PAS queries left with no supported positive are excluded and
+    listed; the returned context then also carries ``cohort`` and ``excluded``.
+    This derivation needs the release-directory layout -- a merged GT json has
+    nowhere to put the tracks file.
     """
     gt = load_gallery_gt(gt_path)
     gallery = [row["chunk_id"] for row in gt["gallery"]]
@@ -117,6 +135,47 @@ def build_context(gt_path: str | Path, manifest_path: str | Path) -> dict[str, A
             raise SystemExit(f"ERROR: duplicate gallery query text {text!r}")
         by_text[text] = q
 
+    cohort: dict[str, Any] | None = None
+    excluded: list[dict[str, Any]] = []
+    excluded_query_texts: set[str] = set()
+    if pas_frame_supported:
+        root = Path(gt_path)
+        if not root.is_dir():
+            raise SystemExit(
+                "ERROR: --pas-frame-supported needs the release-directory layout "
+                "(additional_gt/tracks_pas_attributes.json); a merged GT json has "
+                "no track annotations."
+            )
+        tracks_file = root / "additional_gt" / "tracks_pas_attributes.json"
+        if not tracks_file.exists():
+            raise SystemExit(
+                f"ERROR: --pas-frame-supported requires {tracks_file} in the release"
+            )
+        try:
+            tracks = json.loads(tracks_file.read_text())["tracks"]
+            queries, excluded = frame_supported_queries(queries, tracks, set(gallery))
+        except (ValueError, KeyError) as e:
+            raise SystemExit(f"ERROR: invalid PAS ground truth: {e}") from e
+        # Rebuild the text->row map from the derived queries; exclusions drop out.
+        by_text = {q["query"]: q for q in queries}
+        cohort = {
+            "protocol": PAS_VERSION,
+            "input": dict(
+                Counter(q.get("query_domain", "unknown") for q in gt["queries"])
+            ),
+            "eligible": dict(
+                Counter(q.get("query_domain", "unknown") for q in queries)
+            ),
+            "excluded": excluded,
+        }
+        # Map excluded query_ids back to their texts so the scorer can skip
+        # retrieval records for PAS queries the derivation dropped, without
+        # mistaking them for a genuine artifact/GT mismatch.
+        excluded_ids = {e["query_id"] for e in excluded}
+        excluded_query_texts = {
+            q["query"] for q in gt["queries"] if q.get("query_id") in excluded_ids
+        }
+
     return {
         "gt": gt,
         "gallery": gallery,
@@ -125,4 +184,7 @@ def build_context(gt_path: str | Path, manifest_path: str | Path) -> dict[str, A
         "sensor_to_clip": sensor_to_clip,
         "by_text": by_text,
         "sources": [Path(mapping[cid]["filename"]).stem for cid in gallery],
+        "cohort": cohort,
+        "excluded": excluded,
+        "excluded_query_texts": excluded_query_texts,
     }

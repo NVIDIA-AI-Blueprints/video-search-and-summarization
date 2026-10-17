@@ -57,6 +57,12 @@ class DriveScoring:
                 "ERROR: --scoring drive requires --gallery-gt <release> and "
                 "--ingestion-manifest <clip->sensor map>."
             )
+        if cfg.pas_frame_supported:
+            raise SystemExit(
+                "ERROR: --pas-frame-supported is a clip-relevance ground-truth "
+                "derivation; --scoring drive uses the Drive script's own eligibility "
+                "and does not apply it."
+            )
         # The Drive scorer module is loaded from --drive-scorer-dir (the directory
         # holding evaluate_domain_test.py); its own load_gt reads the release GT.
         # prepare() validates the gallery<->manifest identity mapping.

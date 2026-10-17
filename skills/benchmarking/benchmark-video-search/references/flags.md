@@ -63,6 +63,13 @@ byte-level metric parity). `drive` requires every gallery clip returned exactly
 once; `clip-relevance` tolerates partial coverage and labels it
 (`mAP_scope: observed-ranking`).
 
+`--pas-frame-supported` (clip-relevance only) rewrites PAS queries'
+`relevant_clip_ids` from the released positive tracks whose representative frame
+supports the resolved attributes (PhysicalAI v1.1.2); it needs the release-
+directory layout (`additional_gt/tracks_pas_attributes.json`). PAS queries
+with no supported positive are excluded and listed in a `cohort` block. See
+`references/clip-scoring.md` for the metric definitions and the PAS derivation.
+
 ---
 
 ## Flags not covered here
@@ -132,6 +139,9 @@ one moves a run further from the baseline everything else is compared against.
 --stage retrieve --gallery-gt /path/to/release --full-gallery --skip-ingest --retrieval-out gal.retrieval.json
 --stage score --retrieval-in gal.retrieval.json --scoring clip-relevance --gallery-gt /path/to/release --ingestion-manifest ingestion.json
 --stage score --retrieval-in gal.retrieval.json --scoring drive --gallery-gt /path/to/release --ingestion-manifest ingestion.json --drive-scorer-dir /path/to/drive/scripts
+
+# Clip-relevance with frame-supported PAS ground truth (PhysicalAI v1.1.2)
+--stage score --retrieval-in gal.retrieval.json --scoring clip-relevance --gallery-gt /path/to/release --ingestion-manifest ingestion.json --pas-frame-supported
 ```
 
 `--concurrency` defaults to 1 and should stay there for any run whose latency
