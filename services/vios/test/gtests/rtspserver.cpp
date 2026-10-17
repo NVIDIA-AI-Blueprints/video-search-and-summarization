@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -155,6 +155,34 @@ TEST_F(RtspServerManagerTest, GetConfiguration)
     cout << "[TEST] Result: " << static_cast<int>(result) << endl;
     EXPECT_EQ(result, VmsErrorCode::NoError);
     EXPECT_TRUE(response.isObject());
+}
+
+TEST_F(RtspServerManagerTest, GetVersion)
+{
+    ASSERT_TRUE(s_initialized) << "RtspServerManager not available";
+
+    cout << "[TEST] GET /api/v1/proxy/version" << endl;
+
+    Json::Value response;
+    VmsErrorCode result = callHandler("/api/v1/proxy/version", "GET",
+                                     Json::Value(), response);
+
+    EXPECT_EQ(result, VmsErrorCode::NoError);
+    ASSERT_TRUE(response["type"].isString());
+    ASSERT_TRUE(response["version"].isString());
+    EXPECT_FALSE(response["type"].asString().empty());
+    EXPECT_FALSE(response["version"].asString().empty());
+}
+
+TEST_F(RtspServerManagerTest, VersionRejectsUnsupportedMethod)
+{
+    ASSERT_TRUE(s_initialized) << "RtspServerManager not available";
+
+    Json::Value response;
+    VmsErrorCode result = callHandler("/api/v1/proxy/version", "POST",
+                                     Json::Value(), response);
+
+    EXPECT_EQ(result, VmsErrorCode::MethodNotAllowedError);
 }
 
 TEST_F(RtspServerManagerTest, GetRtspBaseUrl)
