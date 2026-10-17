@@ -1988,7 +1988,7 @@ function state_up() {
     set_env_var "VLM_ENV_FILE" "${vlm_env_file}"
   fi
 
-  # Alerts profile: conditionally set perception prefix for edge (DGX-SPARK, IGX-THOR, AGX-THOR)
+  # Alerts profile: select edge perception Dockerfile and Behavior Analytics config for edge (DGX-SPARK, IGX-THOR, AGX-THOR)
   if [[ "${profile}" == "alerts" ]] && contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
     set_env_var "PERCEPTION_DOCKERFILE_PREFIX" "EDGE-"
   fi
