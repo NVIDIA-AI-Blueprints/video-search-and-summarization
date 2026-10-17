@@ -302,7 +302,7 @@ def find_test_case_results(scenario_dir: Path, result_filename: str) -> List[Tup
         result_file = tc_dir / result_filename
         if result_file.exists():
             data = load_json(result_file)
-            if data:
+            if data and not data.get("capacity_censored", False):
                 results.append((tc_dir.name, data))
     return results
 

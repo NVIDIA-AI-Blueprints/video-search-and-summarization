@@ -12,10 +12,55 @@ import yaml
 from openpyxl import Workbook
 
 from generate_bcd_3_3_configs import HERE
-from generate_perf_xlsx import write_machine_config_tab, write_summary_tab
+from generate_perf_xlsx import extract_max_streams_data, write_machine_config_tab, write_summary_tab
 
 
 class BCDReportLabelsTest(unittest.TestCase):
+    def test_censored_capacity_stays_explicit_in_consolidated_report(self):
+        defaults = {"release": "3.3", "model": "CR3", "precision": "NVFP4",
+                    "engine": "vLLM", "isl_text": 0}
+        with tempfile.TemporaryDirectory() as root:
+            report = Path(root)
+            case = report / "max_live_streams_test_1_token_2k" / "case"
+            case.mkdir(parents=True)
+            for reason, successful, count in (
+                ("max_stream_count", True, 512), ("inconclusive_level", False, 51),
+            ):
+                (case / "max_live_streams_results.json").write_text(json.dumps({
+                    "success": successful, "max_sustainable_streams": count,
+                    "capacity_censored": True, "search_stop_reason": reason,
+                    "unresolved_stream_count": 52 if not successful else None,
+                }))
+                rows = extract_max_streams_data(report, "GPU", defaults)
+                self.assertEqual(len(rows), 1)
+                self.assertIsNone(rows[0]["Max Concurrent Streams"])
+                self.assertEqual(rows[0]["Confirmed Stable Lower Bound"], count)
+                self.assertEqual(rows[0]["Search Stop Reason"], reason)
+                book = Workbook()
+                write_summary_tab(book, {"GPU": report}, defaults)
+                cells = [str(c.value) for row in book["Summary"] for c in row]
+                self.assertTrue(any(reason in c for c in cells))
+
+    def test_censored_capacity_is_not_a_legacy_maximum(self):
+        from plot_perf_reports import get_max_streams_for_scenario
+        from update_kpi_baselines import find_max_streams_results
+        from vss_perf_rtvi_vlm_adaptor import _adapt_max_live_streams, _max_live_streams_test_cases
+
+        with tempfile.TemporaryDirectory() as root:
+            report = Path(root)
+            scenario = "max_live_streams_test_1_token_2k"
+            case = report / scenario / "case"
+            case.mkdir(parents=True)
+            observation = {"test_case_id": "case", "success": True,
+                           "capacity_censored": True, "max_sustainable_streams": 512}
+            (case / "max_live_streams_results.json").write_text(json.dumps(observation))
+            execution = {"test_cases": [observation]}
+            (case.parent / "execution_summary.json").write_text(json.dumps(execution))
+            self.assertIsNone(get_max_streams_for_scenario(report, scenario))
+            self.assertIsNone(find_max_streams_results(report, scenario))
+            self.assertEqual(_adapt_max_live_streams(execution, root, "GPU"), [])
+            self.assertEqual(_max_live_streams_test_cases(report, scenario, "1t", "GPU"), [])
+
     def test_machine_config_uses_each_platform_frame_budget(self):
         configs = {
             label: yaml.safe_load(

@@ -68,6 +68,18 @@ def render(
     )
     text = text.replace("stream_count: [1, 16, 32, 64, 128]", f"stream_count: {levels}")
     text = text.replace("concurrency_levels: [1, 16, 32, 64, 128]", f"concurrency_levels: {levels}")
+    if platform == "b200_sxm":
+        text = text.replace(
+            "binary_search_refinement: true\n",
+            "binary_search_refinement: true\n        max_stream_count: 512\n",
+        )
+    if platform == "rtx_pro_6000_se":
+        text = text.replace(
+            "required_unstable_windows: 2\n",
+            "required_unstable_windows: 2\n"
+            "        unstable_window_size: 5\n"
+            "        max_windows_per_level: 20\n",
+        )
     if platform == "agx_orin":
         # Cosmos3-Edge: (640 / 16 / 2)^2 = 400 vision tokens per frame.
         frames = {"10": "5", "20": "10", "40": "20"}
