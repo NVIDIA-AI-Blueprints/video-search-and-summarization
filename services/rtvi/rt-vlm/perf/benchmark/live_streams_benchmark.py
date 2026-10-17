@@ -103,6 +103,14 @@ def _rtsp_url_for_stream(video_config: Dict, stream_num: int) -> str:
     )
 
 
+def _stream_phase_delay(
+    stream_num: int, stream_count: int, chunk_size: float, elapsed: float
+) -> float:
+    """Return time until this stream's evenly spaced chunk phase."""
+    target = (stream_num - 1) * chunk_size / stream_count
+    return max(0.0, target - elapsed)
+
+
 def _reused_rtsp_url(
     video_config: Dict, stream_num: int, source_count: int, source_name: str
 ) -> str:
@@ -440,7 +448,9 @@ class LiveStreamsBenchmark(BenchmarkBase):
         }
 
     def _extract_live_stream_latency_seconds(
-        self, result: Dict[str, Any], latency_measurement_source: str = "ntp_timestamp",
+        self,
+        result: Dict[str, Any],
+        latency_measurement_source: str = "ntp_timestamp",
         strict_source: bool = False,
     ) -> Tuple[Optional[float], str]:
         """Extract the latency value used for max-stream stability.
@@ -750,15 +760,16 @@ class LiveStreamsBenchmark(BenchmarkBase):
 
             executor = ThreadPoolExecutor(max_workers=300)
 
-            # Start initial streams, spread over one chunk window at steady state rate so VLM requests
-            # arrive uniformly at (chunk_size / initial_stream_count) req/sec.
-            initial_inter_stream_delay = 1 + (chunk_size / initial_stream_count)
+            # Register assets first. Stream-add validation is much slower than
+            # the target phase spacing and must not set caption admission phases.
+            initial_inter_stream_delay = chunk_size / initial_stream_count
             self.logger.info(
-                f"Adding {initial_stream_count} initial streams with "
-                f"{initial_inter_stream_delay:.2f}s spacing "
+                f"Registering {initial_stream_count} initial streams; caption starts will use "
+                f"{initial_inter_stream_delay:.2f}s phase spacing "
                 f"(target rate: {initial_stream_count / chunk_size:.2f} req/s)"
             )
             next_rtsp_source_num = 1
+            initial_streams = []
             for stream_num in range(1, initial_stream_count + 1):
                 stream_id = None
                 try:
@@ -779,21 +790,22 @@ class LiveStreamsBenchmark(BenchmarkBase):
                 if stream_id:
                     active_stream_ids.append(stream_id)
                     self.active_resources.append(f"stream_{stream_id}")
-                    future = self._start_stream_monitoring(
-                        executor,
-                        video_config,
-                        chunk_size,
-                        benchmark_config,
-                        model_name,
-                        stream_id,
-                        stream_num,
-                    )
-                    active_futures.append(future)
-                    self.logger.info(f"Launched stream {stream_num}")
-                    time.sleep(initial_inter_stream_delay)
+                    initial_streams.append((stream_id, stream_num))
+                    self.logger.info(f"Registered stream {stream_num}")
                 else:
                     self.logger.error(f"Failed to create initial stream {stream_num}")
                     break
+
+            active_futures.extend(
+                self._start_initial_stream_monitors(
+                    executor,
+                    initial_streams,
+                    video_config,
+                    chunk_size,
+                    benchmark_config,
+                    model_name,
+                )
+            )
 
             # Monitor and gradually add more streams
             last_check_time = time.time()
@@ -1415,9 +1427,8 @@ class LiveStreamsBenchmark(BenchmarkBase):
 
         fixed_load_latency_complete = None
         if plateau_counts:
-            fixed_load_latency_complete = (
-                len(latency_plateaus) == len(plateau_counts)
-                and all(plateau["valid"] for plateau in latency_plateaus)
+            fixed_load_latency_complete = len(latency_plateaus) == len(plateau_counts) and all(
+                plateau["valid"] for plateau in latency_plateaus
             )
         capacity_success = max_sustainable > 0
         results = {
@@ -2108,6 +2119,47 @@ class LiveStreamsBenchmark(BenchmarkBase):
             ) from exc
         return monitor_future
 
+    def _start_initial_stream_monitors(
+        self,
+        executor,
+        streams,
+        video_config,
+        chunk_size,
+        benchmark_config,
+        model_name,
+    ):
+        """Start registered streams on evenly spaced caption admission deadlines."""
+        stream_count = len(streams)
+        if not stream_count:
+            return []
+        # Startup waits must not occupy the pool needed by long-lived monitors.
+        with ThreadPoolExecutor(max_workers=min(32, stream_count)) as startup_executor:
+            phase_start = time.monotonic()
+            startup_futures = []
+            for phase_index, (stream_id, stream_num) in enumerate(streams, 1):
+                phase_delay = _stream_phase_delay(
+                    phase_index,
+                    stream_count,
+                    chunk_size,
+                    time.monotonic() - phase_start,
+                )
+                if phase_delay:
+                    time.sleep(phase_delay)
+                startup_futures.append(
+                    startup_executor.submit(
+                        self._start_stream_monitoring,
+                        executor,
+                        video_config,
+                        chunk_size,
+                        benchmark_config,
+                        model_name,
+                        stream_id,
+                        stream_num,
+                    )
+                )
+                self.logger.info(f"Launched stream {stream_num}")
+            return [future.result() for future in startup_futures]
+
     def _monitor_stream_latency(
         self,
         video_config: Dict,
@@ -2409,35 +2461,41 @@ class LiveStreamsBenchmark(BenchmarkBase):
                     snapshots_data.append({"test_case_id": test_case_id, **snap})
 
                 for plateau in stream_results.get("latency_plateaus", []):
-                    plateaus_data.append({
-                        "test_case_id": test_case_id,
-                        **{
-                            key: value for key, value in plateau.items()
-                            if key not in {
-                                "latency_history", "per_stream_stats", "invalid_reasons"
-                            }
-                        },
-                        "invalid_reasons": ", ".join(plateau.get("invalid_reasons", [])),
-                    })
-                    for stream_id, stats in plateau.get("per_stream_stats", {}).items():
-                        plateau_stream_data.append({
+                    plateaus_data.append(
+                        {
                             "test_case_id": test_case_id,
-                            "stream_count": plateau["stream_count"],
-                            "stream_id": stream_id,
-                            **stats,
-                        })
+                            **{
+                                key: value
+                                for key, value in plateau.items()
+                                if key
+                                not in {"latency_history", "per_stream_stats", "invalid_reasons"}
+                            },
+                            "invalid_reasons": ", ".join(plateau.get("invalid_reasons", [])),
+                        }
+                    )
+                    for stream_id, stats in plateau.get("per_stream_stats", {}).items():
+                        plateau_stream_data.append(
+                            {
+                                "test_case_id": test_case_id,
+                                "stream_count": plateau["stream_count"],
+                                "stream_id": stream_id,
+                                **stats,
+                            }
+                        )
                 reached = {
                     plateau["stream_count"]
                     for plateau in stream_results.get("latency_plateaus", [])
                 }
                 for count in stream_results.get("latency_plateau_counts", []):
                     if count not in reached:
-                        plateaus_data.append({
-                            "test_case_id": test_case_id,
-                            "stream_count": count,
-                            "valid": False,
-                            "invalid_reasons": "unreached",
-                        })
+                        plateaus_data.append(
+                            {
+                                "test_case_id": test_case_id,
+                                "stream_count": count,
+                                "valid": False,
+                                "invalid_reasons": "unreached",
+                            }
+                        )
 
                 # Collect per-core CPU data for the CPU_Per_Core sheet
                 per_core = stream_results.get("per_core", {})

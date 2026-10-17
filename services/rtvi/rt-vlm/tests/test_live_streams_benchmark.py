@@ -47,6 +47,7 @@ from live_streams_benchmark import (  # noqa: E402
     LiveStreamsBenchmark,
     _rtsp_reuse_summary as max_rtsp_reuse_summary,
     _rtsp_source_config_for_results as max_rtsp_source_config_for_results,
+    _stream_phase_delay,
 )
 
 
@@ -54,6 +55,7 @@ from live_streams_benchmark import (  # noqa: E402
 def _fast_probe_sleep():
     original_time = live_streams_benchmark_module.time
     live_streams_benchmark_module.time = types.SimpleNamespace(
+        monotonic=time.monotonic,
         time=time.time,
         sleep=lambda _seconds: None,
     )
@@ -70,11 +72,58 @@ class _AdvancingTime:
     def time(self):
         return self.current_time
 
+    def monotonic(self):
+        return self.current_time
+
     def sleep(self, seconds):
         self.current_time += max(float(seconds), 0.001)
 
 
+def test_stream_phase_delay_spreads_starts_across_one_chunk():
+    assert [_stream_phase_delay(i, 4, 10, 0) for i in range(1, 5)] == [0, 2.5, 5, 7.5]
+
+
+def test_stream_phase_delay_does_not_add_delay_when_start_is_late():
+    assert _stream_phase_delay(3, 4, 10, 8) == 0
+
+
+def test_initial_stream_monitoring_uses_fresh_phase_clock(monkeypatch):
+    clock = _AdvancingTime()
+    benchmark = LiveStreamsBenchmark("http://localhost:0", output_base_dir="/tmp")
+    starts = []
+
+    def start_monitoring(*args):
+        starts.append(clock.monotonic())
+        future = Future()
+        future.set_result(None)
+        return future
+
+    benchmark._start_stream_monitoring = start_monitoring
+    monkeypatch.setattr(live_streams_benchmark_module, "time", clock)
+    monkeypatch.setattr(
+        live_streams_benchmark_module, "ThreadPoolExecutor", lambda **kwargs: _ImmediateExecutor()
+    )
+
+    futures = benchmark._start_initial_stream_monitors(
+        _ImmediateExecutor(),
+        [(f"stream-{index}", index) for index in range(1, 5)],
+        {},
+        10,
+        {},
+        "test-model",
+    )
+
+    assert starts == [0, 2.5, 5, 7.5]
+    assert len(futures) == 4
+
+
 class _ImmediateExecutor:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
     def submit(self, fn, *args, **kwargs):
         future = Future()
         try:
@@ -82,6 +131,26 @@ class _ImmediateExecutor:
         except Exception as exc:
             future.set_exception(exc)
         return future
+
+
+def test_initial_stream_startup_does_not_wait_on_its_own_monitor_pool():
+    benchmark = LiveStreamsBenchmark("http://localhost:0", output_base_dir="/tmp")
+
+    def monitor(*args, startup_future, **kwargs):
+        startup_future.set_result(None)
+
+    benchmark._monitor_stream_latency = monitor
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        futures = benchmark._start_initial_stream_monitors(
+            executor,
+            [("stream-1", 1)],
+            {"stream_startup_timeout_seconds": 0.1},
+            10,
+            {},
+            "test-model",
+        )
+        assert len(futures) == 1
+        futures[0].result(timeout=1)
 
 
 class _FakeLatencyTracker:
@@ -1400,12 +1469,8 @@ def test_live_stream_latency_can_use_processing_latency_for_diagnostics():
 def test_fixed_load_ntp_latency_does_not_fall_back_to_processing():
     benchmark = LiveStreamsBenchmark("http://localhost:0", output_base_dir="/tmp")
     result = {"chunk_responses": [{"processing_latency_s": 1.25}]}
-    assert benchmark._extract_live_stream_latency_seconds(result) == (
-        1.25, "processing_latency_s"
-    )
-    assert benchmark._extract_live_stream_latency_seconds(
-        result, strict_source=True
-    )[0] is None
+    assert benchmark._extract_live_stream_latency_seconds(result) == (1.25, "processing_latency_s")
+    assert benchmark._extract_live_stream_latency_seconds(result, strict_source=True)[0] is None
 
 
 def test_live_stream_latency_uses_chunk_latency_when_processing_latency_missing():
