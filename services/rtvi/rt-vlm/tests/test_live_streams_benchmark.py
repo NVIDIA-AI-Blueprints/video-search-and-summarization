@@ -380,6 +380,9 @@ class _PhaseOneOnlyLiveStreamsBenchmark(LiveStreamsBenchmark):
     def _batch_delete_streams(self, stream_ids, inter_delete_delay=0.0):
         return None
 
+    def _stop_live_generation_requests(self, stream_ids, **kwargs):
+        return None
+
     def _monitor_stream_latency(self, *args, **kwargs):
         startup_future = kwargs.get("startup_future")
         if startup_future is not None and not startup_future.done():
@@ -1331,6 +1334,152 @@ def test_latency_tracker_reports_fresh_stream_coverage():
     assert coverage["fresh_streams"] == 2
     assert coverage["coverage"] == 2 / 3
     assert coverage["stale_streams"] == ["stream-2"]
+
+
+def _run_bounded_search(monkeypatch, tmp_path, sequence, **settings):
+    class Tracker(_PhaseOneLatencyTracker):
+        def get_stream_measurement_counts(self):
+            return {f"stream-{i}": self.is_stable_calls for i in range(1, 513)}
+
+        def is_stable(self, threshold):
+            assert self.is_stable_calls < 50, "Search did not terminate within 50 checks"
+            return super().is_stable(threshold)
+
+    workers = []
+
+    class Executor(_ImmediateExecutor):
+        def __init__(self, max_workers):
+            workers.append(max_workers)
+
+        def shutdown(self, wait=False):
+            pass
+
+    monkeypatch.setattr(live_streams_benchmark_module, "time", _AdvancingTime())
+    monkeypatch.setattr(live_streams_benchmark_module, "ThreadPoolExecutor", Executor)
+    tracker = Tracker(sequence)
+    benchmark = _PhaseOneOnlyLiveStreamsBenchmark(tracker, tmp_path)
+    result = benchmark._execute_live_streams_test_case(
+        "bounded", {
+            "rtsp_url": "rtsp://example.test/live", "initial_stream_count": 1,
+            "latency_threshold_seconds": 10, "stability_check_interval": 1,
+            "required_stable_windows": 5, "required_unstable_windows": 2,
+            "binary_search_refinement": False, **settings,
+        }, 10, {"api_params": {}}, "test-model", str(tmp_path),
+    )
+    return result, tracker, benchmark, workers
+
+
+def test_max_live_validates_cap_without_probing_past_it(monkeypatch, tmp_path):
+    result, tracker, benchmark, workers = _run_bounded_search(
+        monkeypatch, tmp_path, [True], max_stream_count=3, add_stream_count=5,
+    )
+    assert result["last_stable_stream_count"] == 3
+    assert result["max_sustainable_streams"] == 3
+    assert tracker.is_stable_calls == 10
+    assert result["search_stop_reason"] == "max_stream_count"
+    assert result["capacity_censored"] is True
+    assert result["first_unstable_stream_count"] == 0
+    assert workers == [3]
+    assert benchmark.session.get_adapter("http://")._pool_maxsize > 3
+
+
+def test_max_live_can_validate_stream_301(monkeypatch, tmp_path):
+    result, _, _, workers = _run_bounded_search(
+        monkeypatch, tmp_path, [True], initial_stream_count=300, max_stream_count=301,
+    )
+    assert result["max_sustainable_streams"] == 301
+    assert workers == [301]
+
+
+def test_two_unstable_out_of_five_ends_ramp_without_relaxing_pass(monkeypatch, tmp_path):
+    result, tracker, _, _ = _run_bounded_search(
+        monkeypatch, tmp_path, [True, False, True, True, False], unstable_window_size=5,
+    )
+    assert tracker.is_stable_calls == 5
+    assert result["degradation_detected"] is True
+    assert result["max_sustainable_streams"] == 0
+    assert result["capacity_success"] is False
+
+
+def test_four_stable_one_unstable_is_inconclusive_not_capacity(monkeypatch, tmp_path):
+    result, tracker, _, _ = _run_bounded_search(
+        monkeypatch, tmp_path, [True, True, True, True, False] * 10,
+        unstable_window_size=5, max_windows_per_level=10,
+    )
+    assert tracker.is_stable_calls == 10
+    assert result["search_stop_reason"] == "inconclusive_level"
+    assert result["unresolved_stream_count"] == 1
+    assert result["max_sustainable_streams"] == 0
+    assert result["capacity_success"] is False
+    assert result["first_unstable_stream_count"] == 0
+    assert result["phase2_binary_search_applied"] is False
+    assert (tmp_path / "bounded" / "max_live_streams_results.json").exists()
+
+
+def test_invalid_search_limits_fail_before_gpu_monitoring(monkeypatch, tmp_path):
+    import pytest
+
+    for settings in (
+        {"max_stream_count": 0}, {"max_stream_count": True},
+        {"max_stream_count": 1.5}, {"max_stream_count": 2, "initial_stream_count": 3},
+        {"add_stream_count": 0}, {"unstable_window_size": 1},
+        {"max_windows_per_level": 0},
+        {"max_stream_count": 3, "binary_search_linear_extension_cap": 4},
+    ):
+        with pytest.raises(ValueError):
+            _run_bounded_search(monkeypatch, tmp_path, [True], **settings)
+
+
+def test_unresolved_level_retains_previous_stable_count(monkeypatch, tmp_path):
+    result, _, _, _ = _run_bounded_search(
+        monkeypatch, tmp_path, [True] * 5 + [True, True, True, True, False] * 2,
+        unstable_window_size=5, max_windows_per_level=10,
+    )
+    assert result["last_stable_stream_count"] == 1
+    assert result["max_sustainable_streams"] == 1
+    assert result["unresolved_stream_count"] == 2
+    assert result["capacity_censored"] is True
+    assert result["success"] is False
+
+
+def test_phase2_rolling_failures_and_oscillation_are_distinct(monkeypatch):
+    for sequence, expected_checks, inconclusive in (
+        ([True, False, True, True, False], 5, False),
+        ([True, True, True, True, False] * 3, 10, True),
+    ):
+        benchmark = LiveStreamsBenchmark("http://localhost:0", output_base_dir="/tmp")
+        tracker = _PhaseOneLatencyTracker(sequence)
+        benchmark.latency_tracker = tracker
+        benchmark.gpu_monitor = _FakeGpuMonitor()
+        monkeypatch.setattr(live_streams_benchmark_module, "time", _AdvancingTime())
+        assert benchmark._run_probe_stability_check(
+            "test", 1, 1, 5, 2, 10, ["stream-1"],
+            {"unstable_window_size": 5, "max_windows_per_level": 10},
+        ) is False
+        assert tracker.is_stable_calls == expected_checks
+        assert (benchmark._search_inconclusive_count is not None) == inconclusive
+
+
+def test_refinement_stops_without_claiming_inconclusive_probe_as_ceiling():
+    class InconclusiveProbe(_ProbeOnlyLiveStreamsBenchmark):
+        def _run_probe_stability_check(self, *args, **kwargs):
+            self.probed_counts.append(kwargs["stream_count"])
+            self._search_inconclusive_count = kwargs["stream_count"]
+            return False
+
+    with _fast_probe_sleep():
+        benchmark = InconclusiveProbe(stable_through=100)
+        low, _, ceiling = benchmark._binary_search_max_streams(
+            low=38, high=40, active_stream_ids=[f"existing-{i}" for i in range(38)],
+            active_futures=[], executor=_ImmediateExecutor(),
+            video_config={"rtsp_url": "rtsp://example.test/live"}, chunk_size=10,
+            benchmark_config={"api_params": {}}, model_name="test-model",
+            stability_check_interval=1, required_stable_windows=5,
+            required_unstable_windows=2, latency_threshold=10, probe_cooldown=0,
+        )
+    assert low == 38
+    assert ceiling is None
+    assert benchmark.probed_counts == [39]
 
 
 def test_live_stream_latency_defaults_to_ntp_timestamp(monkeypatch):
