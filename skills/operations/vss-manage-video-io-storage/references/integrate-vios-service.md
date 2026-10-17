@@ -321,7 +321,7 @@ The IN-1-relevant subset (full list in `deploy/docker/services/vios/vst.env`):
 | `ENVOY_ADMIN_PORT` | Embedded Envoy admin port. **Hardcoded** at `sdrc/docker-compose.yaml:150`. | `9902` | not env-controllable |
 | `WDM_WL_REDIS_PORT` | Redis port `sdr-controller` connects to (substituted as `${WDM_WL_REDIS_PORT:-6379}` at compose line 144). | `6379` | optional |
 | `WDM_MS_LISTENER_PORT` | Rendered Envoy listener port that fronts `streamprocessing-ms`; **must remain `10000`** because `vss-vios-sensor`'s `STREAM_PROCESSOR_MODULE_ENDPOINT=http://localhost:10000` hardcodes it. Set via the rendered `config.yml`, not the compose env. | `10000` | conditional |
-| `SDR_MW_L_IMAGE` | Docker `sdr-controller` image (full repo + tag). Helm uses the `sdrc` chart `image.repository` / `image.tag` instead. | as defined in [`containers.env`](../../../../deploy/docker/containers.env) | optional |
+| `SDR_MW_L_IMAGE` | Docker `sdr-controller` image (full repo + tag); follows `VSS_CONTAINER_REGISTRY` / `VSS_CONTAINER_TAG` unless set, with no `-sbsa` suffix (multi-arch image). Helm uses the `sdrc` chart `image.repository` / `image.tag` instead. | as defined in [`containers.env`](../../../../deploy/docker/containers.env) | optional |
 
 ## Network Requirements
 
