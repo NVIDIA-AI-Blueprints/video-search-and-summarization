@@ -1445,6 +1445,10 @@ class LiveStreamsBenchmark(BenchmarkBase):
         gpu_metrics = self.process_gpu_stats(gpu_stats_file)
 
         # Calculate max sustainable streams
+        if interrupted:
+            search_stop_reason = "interrupted"
+            unresolved_stream_count = len(active_stream_ids)
+            current_stream_count = last_stable_stream_count
         max_sustainable = current_stream_count
 
         latency_history = self.latency_tracker.get_all_latencies()
@@ -1491,7 +1495,9 @@ class LiveStreamsBenchmark(BenchmarkBase):
         capacity_censored = search_stop_reason in {
             "max_stream_count", "inconclusive_level", "interrupted"
         }
-        capacity_success = max_sustainable > 0 and search_stop_reason != "inconclusive_level"
+        capacity_success = max_sustainable > 0 and search_stop_reason not in {
+            "inconclusive_level", "interrupted"
+        }
         results = {
             "test_case_id": test_case_id,
             "benchmark_mode": "max_live_streams",

@@ -128,6 +128,8 @@ checks must still pass independently. No old result is reclassified by this chan
 Legacy maximum-only plots, KPI baselines and metric adapters omit censored results
 rather than publishing a lower bound as an ordinary maximum. Use the JSON or
 consolidated workbook to inspect those observations.
+Interrupted searches are also censored and unsuccessful; only the last confirmed
+stable load is retained as a lower bound, never the load awaiting validation.
 
 ## Quick Start (legacy platform-tuned scenarios)
 

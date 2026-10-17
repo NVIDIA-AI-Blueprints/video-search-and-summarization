@@ -1391,6 +1391,23 @@ def test_max_live_can_validate_stream_301(monkeypatch, tmp_path):
     assert workers == [301]
 
 
+def test_interruption_never_promotes_unvalidated_load(monkeypatch, tmp_path):
+    original = _PhaseOneLatencyTracker.is_stable
+    for completed_checks, expected_bound in ((0, 0), (5, 1)):
+        def interrupt(self, threshold):
+            if self.is_stable_calls == completed_checks:
+                raise KeyboardInterrupt
+            return original(self, threshold)
+
+        monkeypatch.setattr(_PhaseOneLatencyTracker, "is_stable", interrupt)
+        result, _, _, _ = _run_bounded_search(monkeypatch, tmp_path, [True])
+        assert result["search_stop_reason"] == "interrupted"
+        assert result["max_sustainable_streams"] == expected_bound
+        assert result["last_stable_stream_count"] == expected_bound
+        assert result["unresolved_stream_count"] == expected_bound + 1
+        assert result["capacity_success"] is False
+
+
 def test_two_unstable_out_of_five_ends_ramp_without_relaxing_pass(monkeypatch, tmp_path):
     for sequence in (
         [True, False, True, True, False],
