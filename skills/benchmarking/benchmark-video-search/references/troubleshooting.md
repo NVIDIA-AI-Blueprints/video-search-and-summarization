@@ -10,9 +10,71 @@ Ingestion failures, CLI exit codes, and the gaps this benchmark does not cover.
 
 The runner uploads to VIOS, which fans the video out to perception services
 through webhooks. There is no `/complete` call or `chunks_processed` count.
-After upload, the runner waits for VST registration and probes the search index;
-registration alone does not prove that embedding or indexing finished. Check
-`webhooks.enabled` and the RT-Embed model mapping if the index probe fails.
+After upload, the runner waits for VST registration, then runs the **ingest
+gate**: it polls Elasticsearch and RT-CV's stream list through the ingress
+(`:7777`, `--ingress-url`) until every video is fully indexed, and aborts
+instead of querying if one is not.
+
+| Index | Done when |
+|---|---|
+| embeddings `mdx-embed-filtered-2025-01-01` | `count >= ceil(duration / --chunk-s)` |
+| tags `default_<sensor uuid>` | `count >=` the same chunk count |
+| raw `mdx-raw-2025-01-01` | RT-CV listed the stream and then dropped it, and the raw count has not changed for `--ingest-quiet-s` since the drop (`raw_check: rtcv_released`) |
+| behavior `mdx-behavior-2025-01-01` | raw is done and no count changed for `--ingest-quiet-s` (a heuristic, recorded as `behavior_check: quiet_window`) |
+
+RT-CV writes a raw document only for a frame with at least one detection. On
+sparse footage the raw count is far below the frame count (18 of 381 frames on
+`Normal_Videos779`), and the last document is the last detection, not the end
+of the video. So the frame count and the video's end are reported as coverage,
+for example `raw=18/381 frames (5%)  last detection 3.77s of 12.7s`, and never
+required. A low coverage figure is not a stall.
+
+Polling starts before the first upload and each video joins as its upload
+returns, so a short clip that RT-CV lists and drops while a later file is still
+uploading is still counted as seen. The deadline and the "querying held back"
+time (`waited_s`) both start when the last upload returns.
+
+The other ways raw can finish:
+
+- RT-CV never listed a video, but it has raw documents and the count stays
+  unchanged for the quiet window: raw passes as `rtcv_missing`, with a warning.
+  With no raw documents at all it does not pass. That looks the same as a
+  webhook that never fired, so failing is the safe default.
+- RT-CV released the stream but wrote no raw documents: raw passes, with a
+  warning that nothing was detected.
+
+A video that has raw documents but no behavior documents, while another video
+in the run does have them, also passes with a warning: zero tracked objects is
+allowed, but on the stock datasets it usually means RT-CV's behavior output is
+misconfigured. If no video has behavior documents, behavior is treated as
+absent instead (below).
+
+An index with no documents for any video is treated as not produced by this
+deployment. Once embeddings are done and `--ingest-absent-grace-s` has passed,
+the gate drops it and confirms as `confirmed (degraded)`. For behavior this
+happens at confirmation. The summary prints `DEGRADED:` with the reason and a
+`WARNING:` that names the attribute and fusion queries affected, and the results
+record `flow.ingest_readiness.absent` and `summary.ingest_degraded`. Those
+scores reflect the missing index, not retrieval quality, so do not quote them.
+Fix the deployment, or pass `--ingest-strict` to fail instead.
+
+The abort message lists every unfinished video with each index's count against
+its target and the reason it is not done:
+
+| Reason in the abort | Fix |
+|---|---|
+| `RT-CV never listed the stream` (no raw frames either) | check `webhooks.enabled` in the VIOS notification config and that `RTVI_EMBED_MODEL` matches the webhook's model string |
+| `RT-CV is still processing` / embed or tag counts short | perception is slow; raise `--ingest-deadline-s` |
+| `N frame docs (frames with detections), still changing` | RT-CV or Logstash is still writing; raise `--ingest-deadline-s` if it never settles |
+| `no tag documents` (some videos tagged, this one not) | RT-VLM is slow or failed on this video; raise `--ingest-deadline-s`. If no video is tagged, the gate drops tags after the grace instead of aborting. |
+| `raw: RT-CV never listed any of N video(s)` (degraded, not an abort) | the RT-CV webhook never fired; same fix as `RT-CV never listed the stream` |
+| `stale documents for X` (before upload) | something wrote documents after the pre-ingest wipe emptied the indexes; stop whatever else feeds the deployment and rerun |
+| `duration unknown` | install ffprobe on the runner host; the VST timeline fallback also failed |
+
+Results record the gate under `flow.ingest_readiness` and the batch figures
+under `summary.ingest`. `--legacy-index-probe` restores the old one-hit
+coverage probe for one release; it passes ~20 s after upload while RT-CV is
+still writing, so do not quote numbers from it.
 
 ### `agent-3step` (explicit alternative)
 
@@ -41,15 +103,40 @@ pipeline internally, so it is not more reliable — just less observable.
 
 Neither a successful `vst-direct` upload nor a 200 from the optional
 `agent-3step` `/complete` call proves readiness. The runner polls VST for
-registration; for `vst-direct` it also probes index coverage before scoring.
-Querying early returns empty results that look like a retrieval regression.
+registration; for `vst-direct` it also waits on the ingest gate before scoring.
+Querying early scores a half-built index, which looks like a retrieval
+regression.
 
-### On a shared deployment
+### Before ingest: the wipe
 
-```bash
---skip-existing    # do not re-upload what VST already lists
---clear --confirm-delete  # deletes ALL sources; only on explicit request
-```
+Every run without `--skip-ingest` empties the index first. It deletes every
+uploaded file source in VST (any source whose URL is not `rtsp://`). It then
+waits until the cleanup webhooks have emptied the indexes a `video_file`
+search reads: `mdx-embed-filtered-2025-01-01`, `mdx-raw-2025-01-01` and
+`mdx-behavior-2025-01-01`. It uploads only once VST lists no file source and
+every one of those indexes reads empty on two polls in a row. If both are
+already empty, it deletes nothing.
+
+RTSP cameras are never deleted. The agent's DELETE also removes the camera from
+VST storage, and a live camera is not part of any eval. The run prints the
+cameras it kept. Their dated `mdx-*-YYYY-MM-DD` indexes are not checked: the
+deployed `camera_remove` hooks clear only the `-2025-01-01` indexes, so the
+dated ones would never empty, and a `video_file` search does not read them.
+Tag indexes (`default_<uuid>`) are emptied for file sources but not checked,
+because no eval path reads them.
+
+The runner never deletes documents itself: the `:7777` ingress answers
+`_delete_by_query` with 403. The deployment may be shared, but nobody else may
+upload to it during an eval.
+
+| Abort | Cause | Fix |
+|---|---|---|
+| `... are on different hosts` | `--vst-url` or `--ingress-url` points at another host than `--endpoint` | pass URLs on the endpoint's host |
+| `source(s) could not be deleted` | the agent refused a DELETE | delete them by hand and rerun |
+| `could not count documents through the ingress` | `:7777` unreachable, or no `/elasticsearch` route | pass `--ingress-url` |
+| `documents with no source are left in the searched indexes` | a file source was deleted without its cleanup webhook emptying its documents, or an upload is still being processed, so no webhook will clean them up. With no sources at all this fires at once; otherwise after 180 s | if something is still writing, wait and rerun; otherwise run `_delete_by_query` with `match_all` on the Elasticsearch host for the indexes named |
+| `file source(s) still registered 180s after deleting every file source` | something keeps uploading videos (another run, a script) | stop it and rerun |
+| `--skip-ingest reuses the index, but N dataset video(s) are not registered` | the index does not hold this dataset | drop `--skip-ingest` |
 
 ---
 
@@ -64,8 +151,11 @@ Querying early returns empty results that look like a retrieval regression.
 | `vss exited 5` | nothing ingested | drop `--skip-ingest` |
 | `/complete` 502 | known flakiness | retried automatically; raise `--complete-retries` |
 | `Duplicate Camera id` | RTVI-CV already has that stream | treated as done — embeddings still generate |
-| Everything scores 0.0 | possibly empty or unscoped search indices | check Step 3's Elasticsearch index counts and the index-probe result; a VST listing alone is insufficient |
+| Everything scores 0.0 | possibly empty or unscoped search indices | check Step 3's Elasticsearch index counts and `flow.ingest_readiness`; a VST listing alone is insufficient |
 | Header says `fallback_path` | routing is active; that is the path for unrouted queries | look at `planned_paths` |
+| `planned_paths: decided per query` | live decomposition picks each query's path at run time | read the actual split under `Search paths` in the final summary |
+| `N queries fell back to embed: decomposition failed` | the decomposition LLM errored, replied empty, or replied unparseable JSON for those queries; each was searched on `embed` with its original text, as the agent does | check the LLM; the errors are in `summary.decomposition.failed_queries` |
+| `ABORTED: ... fell back to embed, above --max-decompose-failed-pct` | more than 20% of decompositions failed, so the run would measure embed rather than routing | fix the LLM, or raise `--max-decompose-failed-pct` to accept it |
 
 ---
 
