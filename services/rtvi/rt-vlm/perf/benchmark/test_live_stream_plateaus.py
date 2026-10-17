@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from openpyxl import load_workbook
@@ -20,6 +21,71 @@ from live_streams_benchmark import (
 
 
 class LiveStreamPlateauTest(unittest.TestCase):
+    def test_http_200_sse_error_is_not_a_successful_measurement(self):
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        for api_mode, chunk in (
+            ("chat_completions", {"chunk_id": 1, "choices": [{"delta": {"content": "caption"}}]}),
+            ("generate_captions", {"chunk_responses": [{"chunk_id": 1, "content": "caption"}]}),
+        ):
+            with self.subTest(api_mode=api_mode):
+                benchmark = LiveStreamsBenchmark("http://localhost")
+                good = {**chunk, "media_info": {"type": "timestamp", "end_timestamp": timestamp}}
+                failed = {**good, "error": {"code": 503, "message": "Live decoder backlog exceeded the bounded decoder-to-VLM transport"}}
+                events = [SimpleNamespace(data=json.dumps(item)) for item in (failed, good)]
+                client = SimpleNamespace(events=lambda: iter(events))
+                with patch.object(benchmark.session, "post", return_value=SimpleNamespace(status_code=200)), patch(
+                    "live_streams_benchmark.sseclient.SSEClient", return_value=client
+                ), patch.object(benchmark, "record_pipeline_stage_samples") as record_stages:
+                    benchmark._monitor_stream_latency(
+                        {"vlm_api_mode": api_mode}, 10, {"api_params": {}}, "model", "a", 1,
+                    )
+                self.assertEqual(benchmark._get_response_error_count(["a"]), 1)
+                self.assertEqual(benchmark.latency_tracker.get_stream_measurement_counts(), {"a": 1})
+                self.assertEqual(record_stages.call_count, 1)
+
+    def test_error_responses_never_supply_latency_or_freshness(self):
+        error = {"message": "Live decoder backlog exceeded the bounded decoder-to-VLM transport", "code": 503}
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        for payload in (
+            {"chunk_id": 1, "error": error},
+            {"chunk_responses": [{"chunk_id": 1, "content": "", "error": error, "processing_latency_s": 0.1}]},
+            {"error": error},
+        ):
+            with self.subTest(payload=payload):
+                benchmark = LiveStreamsBenchmark("http://localhost")
+                result = {**payload, "media_info": {"type": "timestamp", "end_timestamp": timestamp}}
+                benchmark._record_response_chunks("a", {"chunk_id": 0})
+                baseline = benchmark._get_stream_drop_counts()
+                benchmark._record_response_chunks("a", result)
+                benchmark._record_result_latency("a", result, "ntp_timestamp", False)
+                self.assertEqual(benchmark.latency_tracker.get_stream_measurement_counts().get("a", 0), 0)
+                self.assertEqual(benchmark._get_new_stream_drops(baseline, ["a"])["total_dropped_chunks"], 0)
+                self.assertEqual(benchmark._get_response_error_count(["a"]), 1)
+                benchmark._reset_stream_integrity_tracking()
+                # Measurement resets must not erase the campaign's error evidence.
+                self.assertEqual(benchmark._get_response_error_count(["a"]), 1)
+
+    def test_response_errors_invalidate_otherwise_good_plateau(self):
+        tracker = LatencyTracker()
+        tracker.record_latency(0.1, "a")
+        result = summarize_latency_plateau(
+            tracker, ["a"], 300, 300, 0, 10, response_errors=1,
+        )
+        self.assertFalse(result["valid"])
+        self.assertEqual(result["invalid_reasons"], ["response_errors"])
+        self.assertEqual(result["response_errors"], 1)
+
+    def test_successful_response_with_null_error_still_supplies_latency(self):
+        benchmark = LiveStreamsBenchmark("http://localhost")
+        result = {"chunk_id": 1, "error": None, "media_info": {
+            "type": "timestamp",
+            "end_timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        }}
+        self.assertTrue(benchmark._record_response_chunks("a", result))
+        benchmark._record_result_latency("a", result, "ntp_timestamp", True)
+        self.assertEqual(benchmark.latency_tracker.get_stream_measurement_counts(), {"a": 1})
+        self.assertEqual(benchmark._get_response_error_count(["a"]), 0)
+
     def test_ramp_lands_on_requested_counts(self):
         checkpoints = [1, 16, 32, 64, 128]
         self.assertEqual(next_ramp_target(1, 5, checkpoints), 6)
@@ -101,6 +167,7 @@ class LiveStreamPlateauTest(unittest.TestCase):
             }))
             (results / case_id / "max_live_streams_results.json").write_text(json.dumps({
                 "latency_plateau_counts": [16, 32],
+                "total_response_errors": 7,
                 "latency_plateaus": [{
                     "stream_count": 16,
                     "duration_seconds": 300,
@@ -115,6 +182,8 @@ class LiveStreamPlateauTest(unittest.TestCase):
             report = results / "report.xlsx"
             LiveStreamsBenchmark("http://localhost").analyze_results(str(results), str(report))
             book = load_workbook(report, read_only=True)
+            summary_rows = list(book["Summary"].values)
+            self.assertEqual(summary_rows[1][summary_rows[0].index("total_response_errors")], 7)
             self.assertIn("Fixed_Load_Latency", book.sheetnames)
             rows = list(book["Fixed_Load_Latency"].values)
             self.assertEqual(rows[1][rows[0].index("stream_count")], 16)

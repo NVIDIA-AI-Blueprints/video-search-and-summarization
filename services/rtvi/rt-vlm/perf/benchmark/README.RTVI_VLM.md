@@ -619,6 +619,7 @@ The YAML configuration file has two main sections:
 - `generate_captions_params`: Parameters for `/v1/generate_captions` API (temperature, max_tokens, enable_audio, etc.)
 - `prompt`: Default prompt for caption generation
 - `require_no_dropped_chunks`: Optional max-live-streams stability requirement; default `true`. Any chunk-ID gap in a stability window marks that window unstable.
+- Explicit top-level or per-chunk SSE errors during validation always invalidate the current max-live load/probe, even when chunk IDs are contiguous or `require_no_dropped_chunks` is disabled. Failed responses do not supply latency or freshness samples. The error stays latched for that load/probe; JSON results and the Excel summary report `total_response_errors` across all tested loads, including overloaded search points. Fixed-load plateaus report `response_errors` and are invalid if nonzero.
 - `latency_measurement_source`: Optional latency source; default `ntp_timestamp` for BCD. Set `processing_latency` only for server-processing diagnostics.
 - `binary_search_linear_extension`: Optional max-live-streams Phase 2 refinement toggle. When enabled, the benchmark probes upward one stream at a time after binary search; if the cap stays stable, `phase2_unstable_ceiling` is reported as `null`.
 

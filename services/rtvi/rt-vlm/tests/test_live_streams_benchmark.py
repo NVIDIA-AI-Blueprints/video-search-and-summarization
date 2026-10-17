@@ -1336,14 +1336,17 @@ def test_latency_tracker_reports_fresh_stream_coverage():
     assert coverage["stale_streams"] == ["stream-2"]
 
 
-def _run_bounded_search(monkeypatch, tmp_path, sequence, **settings):
+def _run_bounded_search(monkeypatch, tmp_path, sequence, on_check=None, **settings):
     class Tracker(_PhaseOneLatencyTracker):
         def get_stream_measurement_counts(self):
             return {f"stream-{i}": self.is_stable_calls for i in range(1, 513)}
 
         def is_stable(self, threshold):
             assert self.is_stable_calls < 50, "Search did not terminate within 50 checks"
-            return super().is_stable(threshold)
+            stable = super().is_stable(threshold)
+            if on_check is not None:
+                on_check(benchmark, self.is_stable_calls)
+            return stable
 
     workers = []
 
@@ -1367,6 +1370,55 @@ def _run_bounded_search(monkeypatch, tmp_path, sequence, **settings):
         }, 10, {"api_params": {}}, "test-model", str(tmp_path),
     )
     return result, tracker, benchmark, workers
+
+
+def test_response_error_latches_unstable_load_despite_fast_fresh_responses(monkeypatch, tmp_path):
+    def emit_one_error(benchmark, check):
+        if check == 1:
+            benchmark._record_response_chunks("stream-1", {"chunk_id": 1, "error": {"code": 503}})
+
+    result, _, _, _ = _run_bounded_search(
+        monkeypatch, tmp_path, [True], on_check=emit_one_error,
+        max_stream_count=1, unstable_window_size=5, require_no_dropped_chunks=False,
+    )
+    assert result["max_sustainable_streams"] == 0
+    assert result["capacity_success"] is False
+    assert result["total_response_errors"] == 1
+    assert result["stream_response_errors"] == {"stream-1": 1}
+
+
+def test_probe_response_error_cannot_recover_into_stable_capacity(monkeypatch):
+    benchmark = LiveStreamsBenchmark("http://localhost:0", output_base_dir="/tmp")
+    benchmark.gpu_monitor = _FakeGpuMonitor()
+
+    class Tracker(_PhaseOneLatencyTracker):
+        def is_stable(self, threshold):
+            stable = super().is_stable(threshold)
+            if self.is_stable_calls == 1:
+                benchmark._record_response_chunks("stream-1", {"error": {"code": 503}})
+            return stable
+
+    benchmark.latency_tracker = Tracker([True])
+    monkeypatch.setattr(live_streams_benchmark_module, "time", _AdvancingTime())
+    assert benchmark._run_probe_stability_check(
+        "error probe", 1, 1, 5, 2, 10, ["stream-1"],
+        {"unstable_window_size": 5, "require_no_dropped_chunks": False},
+    ) is False
+
+
+def test_error_evidence_survives_load_changes_without_erasing_lower_stable_bound(monkeypatch, tmp_path):
+    def emit_error_at_second_load(benchmark, check):
+        if check == 6:
+            benchmark._record_response_chunks("stream-2", {"chunk_id": 1, "error": {"code": 503}})
+
+    result, _, _, _ = _run_bounded_search(
+        monkeypatch, tmp_path, [True], on_check=emit_error_at_second_load,
+        max_stream_count=2, unstable_window_size=5,
+    )
+    assert result["max_sustainable_streams"] == 1
+    assert result["first_unstable_stream_count"] == 2
+    assert result["total_response_errors"] == 1
+    assert result["stream_response_errors"] == {"stream-2": 1}
 
 
 def test_max_live_validates_cap_without_probing_past_it(monkeypatch, tmp_path):
