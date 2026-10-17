@@ -15,7 +15,7 @@
 
 """Unit tests for ``realtime.services.rtvi_client``.
 
-This is the HTTP boundary to the RTVI VLM microservice. Three things here are
+This is the HTTP boundary to the RTVI VLM microservice. These things are
 worth pinning:
 
 * **Credential redaction.** RTSP URLs carry ``user:pass@host`` and the
@@ -29,10 +29,14 @@ worth pinning:
 * **Omit-vs-send for optional fields.** ``generate_captions`` must omit a key
   entirely when it is ``None`` so RTVI applies its own server-side default;
   sending an explicit ``null`` would override it.
+* **Caption request id.** ``generate_captions`` streams the open-ended SSE
+  response and reports RTVI's ``X-Request-ID`` header as soon as it arrives;
+  ``stop_captions`` with that id must stop only that request.
 
 ``httpx.AsyncClient`` is replaced with an ``AsyncMock`` — no socket is opened.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -54,6 +58,29 @@ def make_response(status_code=200, json_body=None, text=""):
             "error", request=MagicMock(), response=response
         )
     return response
+
+
+def make_stream_response(status_code=200, headers=None, chunks=(), text=""):
+    """A streamed ``generate_captions`` response (``AsyncClient.stream``)."""
+    response = make_response(status_code=status_code, text=text)
+    response.headers = httpx.Headers(headers or {})
+    response.aread = AsyncMock()
+
+    async def _aiter_raw():
+        for chunk in chunks:
+            yield chunk
+
+    response.aiter_raw = _aiter_raw
+    return response
+
+
+def stub_caption_stream(rtvi, response=None):
+    """Make ``rtvi._client.stream(...)`` an async context manager yielding ``response``."""
+    stream_cm = MagicMock()
+    stream_cm.__aenter__.return_value = response or make_stream_response()
+    stream_cm.__aexit__.return_value = False
+    rtvi._client.stream = MagicMock(return_value=stream_cm)
+    return rtvi._client.stream
 
 
 @pytest.fixture
@@ -313,11 +340,11 @@ class TestStopStream:
 class TestGenerateCaptions:
     @pytest.mark.asyncio
     async def test_required_fields_are_always_sent(self, client):
-        client._client.post.return_value = make_response()
+        stub_caption_stream(client)
 
         result = await client.generate_captions("s-1", "describe", "cosmos")
 
-        payload = client._client.post.call_args.kwargs["json"]
+        payload = client._client.stream.call_args.kwargs["json"]
         assert payload["id"] == "s-1"
         assert payload["prompt"] == "describe"
         assert payload["model"] == "cosmos"
@@ -330,40 +357,40 @@ class TestGenerateCaptions:
 
     @pytest.mark.asyncio
     async def test_alert_category_is_omitted_when_blank(self, client):
-        client._client.post.return_value = make_response()
+        stub_caption_stream(client)
 
         await client.generate_captions("s-1", "p", "m", alert_category="")
 
-        assert "alert_category" not in client._client.post.call_args.kwargs["json"]
+        assert "alert_category" not in client._client.stream.call_args.kwargs["json"]
 
     @pytest.mark.asyncio
     async def test_alert_category_is_sent_when_set(self, client):
-        client._client.post.return_value = make_response()
+        stub_caption_stream(client)
 
         await client.generate_captions("s-1", "p", "m", alert_category="collision")
 
-        assert client._client.post.call_args.kwargs["json"]["alert_category"] == "collision"
+        assert client._client.stream.call_args.kwargs["json"]["alert_category"] == "collision"
 
     @pytest.mark.asyncio
     async def test_unset_extended_options_are_omitted(self, client):
         """None means "let RTVI apply its own default", not "send null"."""
-        client._client.post.return_value = make_response()
+        stub_caption_stream(client)
 
         await client.generate_captions("s-1", "p", "m")
 
-        payload = client._client.post.call_args.kwargs["json"]
+        payload = client._client.stream.call_args.kwargs["json"]
         for field in ("max_tokens", "temperature", "top_p", "top_k", "seed", "api_type"):
             assert field not in payload
 
     @pytest.mark.asyncio
     async def test_set_extended_options_are_forwarded(self, client):
-        client._client.post.return_value = make_response()
+        stub_caption_stream(client)
 
         await client.generate_captions(
             "s-1", "p", "m", max_tokens=128, temperature=0.3, top_p=0.9, seed=7
         )
 
-        payload = client._client.post.call_args.kwargs["json"]
+        payload = client._client.stream.call_args.kwargs["json"]
         assert payload["max_tokens"] == 128
         assert payload["temperature"] == 0.3
         assert payload["top_p"] == 0.9
@@ -371,7 +398,7 @@ class TestGenerateCaptions:
 
     @pytest.mark.asyncio
     async def test_chunking_options_are_forwarded(self, client):
-        client._client.post.return_value = make_response()
+        stub_caption_stream(client)
 
         await client.generate_captions(
             "s-1", "p", "m",
@@ -380,7 +407,7 @@ class TestGenerateCaptions:
             use_fps_for_chunking=False,
         )
 
-        payload = client._client.post.call_args.kwargs["json"]
+        payload = client._client.stream.call_args.kwargs["json"]
         assert payload["chunk_duration"] == 10
         assert payload["chunk_overlap_duration"] == 2
         assert payload["num_frames_per_second_or_fixed_frames_chunk"] == 4
@@ -388,29 +415,116 @@ class TestGenerateCaptions:
 
     @pytest.mark.asyncio
     async def test_timeout_is_raised_to_at_least_two_minutes(self, client):
-        client._client.post.return_value = make_response()
+        stub_caption_stream(client)
 
         await client.generate_captions("s-1", "p", "m")
 
-        assert client._client.post.call_args.kwargs["timeout"] == 120
+        assert client._client.stream.call_args.kwargs["timeout"] == 120
 
     @pytest.mark.asyncio
     async def test_a_longer_configured_timeout_wins(self):
         with patch("httpx.AsyncClient") as async_client_cls:
             async_client_cls.return_value = AsyncMock()
             rtvi = RTVIVLMClient(BASE_URL, timeout=300)
-        rtvi._client.post.return_value = make_response()
+        stub_caption_stream(rtvi)
 
         await rtvi.generate_captions("s-1", "p", "m")
 
-        assert rtvi._client.post.call_args.kwargs["timeout"] == 300
+        assert rtvi._client.stream.call_args.kwargs["timeout"] == 300
 
     @pytest.mark.asyncio
     async def test_error_status_raises(self, client):
-        client._client.post.return_value = make_response(status_code=422, text="bad model")
+        stub_caption_stream(client, make_stream_response(status_code=422, text="bad model"))
 
         with pytest.raises(httpx.HTTPStatusError):
             await client.generate_captions("s-1", "p", "m")
+
+    @pytest.mark.asyncio
+    async def test_posts_a_streaming_request(self, client):
+        stub_caption_stream(client)
+
+        await client.generate_captions("s-1", "p", "m")
+
+        assert client._client.stream.call_args.args == (
+            "POST", "http://rtvi:8000/generate_captions",
+        )
+
+    @pytest.mark.asyncio
+    async def test_request_id_header_is_reported(self, client):
+        stub_caption_stream(
+            client, make_stream_response(headers={"X-Request-ID": "req-1"}),
+        )
+        seen = []
+
+        await client.generate_captions("s-1", "p", "m", on_request_id=seen.append)
+
+        assert seen == ["req-1"]
+
+    @pytest.mark.asyncio
+    async def test_missing_request_id_header_is_reported_as_none(self, client):
+        """RT-VLM builds without X-Request-ID still start captions."""
+        stub_caption_stream(client)
+        seen = []
+
+        result = await client.generate_captions(
+            "s-1", "p", "m", on_request_id=seen.append,
+        )
+
+        assert seen == [None]
+        assert result == {"status": "started", "stream_id": "s-1"}
+
+    @pytest.mark.asyncio
+    async def test_error_status_does_not_report_a_request_id(self, client):
+        stub_caption_stream(
+            client,
+            make_stream_response(
+                status_code=400, headers={"X-Request-ID": "req-1"}, text="no such model",
+            ),
+        )
+        seen = []
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.generate_captions("s-1", "p", "m", on_request_id=seen.append)
+
+        assert seen == []
+
+    @pytest.mark.asyncio
+    async def test_request_id_arrives_while_the_event_stream_is_still_open(self):
+        """The id is reported from the response headers, before RTVI ends the
+        open-ended SSE body — which for a live stream only happens when the
+        caption request stops."""
+        release = asyncio.Event()
+
+        class _OpenEventStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b": ping\r\n\r\n"
+                await release.wait()
+                yield b"data: [DONE]\r\n\r\n"
+
+        async def _handler(request):
+            return httpx.Response(
+                200,
+                headers={"X-Request-ID": "req-live", "content-type": "text/event-stream"},
+                stream=_OpenEventStream(),
+            )
+
+        rtvi = RTVIVLMClient(BASE_URL)
+        rtvi._client = httpx.AsyncClient(transport=httpx.MockTransport(_handler))
+        request_id = asyncio.get_running_loop().create_future()
+
+        task = asyncio.create_task(
+            rtvi.generate_captions("s-1", "p", "m", on_request_id=request_id.set_result)
+        )
+        try:
+            assert await asyncio.wait_for(request_id, timeout=2) == "req-live"
+            assert not task.done()
+
+            release.set()
+            result = await asyncio.wait_for(task, timeout=2)
+            assert result == {"status": "started", "stream_id": "s-1"}
+        finally:
+            task.cancel()
+            await rtvi.aclose()
 
 
 class TestStopCaptions:
@@ -423,7 +537,19 @@ class TestStopCaptions:
         assert client._client.delete.call_args.args[0] == (
             "http://rtvi:8000/generate_captions/s-1"
         )
+        assert "params" not in client._client.delete.call_args.kwargs
         assert result == {"status": "stopped", "stream_id": "s-1"}
+
+    @pytest.mark.asyncio
+    async def test_request_id_scopes_the_stop_to_one_request(self, client):
+        client._client.delete.return_value = make_response(text="")
+
+        await client.stop_captions("s-1", request_id="req-1")
+
+        assert client._client.delete.call_args.args[0] == (
+            "http://rtvi:8000/generate_captions/s-1"
+        )
+        assert client._client.delete.call_args.kwargs["params"] == {"request_id": "req-1"}
 
     @pytest.mark.asyncio
     async def test_json_body_is_returned_when_present(self, client):
