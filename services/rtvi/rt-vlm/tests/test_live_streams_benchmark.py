@@ -1392,13 +1392,18 @@ def test_max_live_can_validate_stream_301(monkeypatch, tmp_path):
 
 
 def test_two_unstable_out_of_five_ends_ramp_without_relaxing_pass(monkeypatch, tmp_path):
-    result, tracker, _, _ = _run_bounded_search(
-        monkeypatch, tmp_path, [True, False, True, True, False], unstable_window_size=5,
-    )
-    assert tracker.is_stable_calls == 5
-    assert result["degradation_detected"] is True
-    assert result["max_sustainable_streams"] == 0
-    assert result["capacity_success"] is False
+    for sequence in (
+        [True, False, True, True, False],
+        [False, True, False, True, True],
+        [False, True, True, False, True],
+    ):
+        result, tracker, _, _ = _run_bounded_search(
+            monkeypatch, tmp_path, sequence, unstable_window_size=5,
+        )
+        assert tracker.is_stable_calls == 5
+        assert result["degradation_detected"] is True
+        assert result["max_sustainable_streams"] == 0
+        assert result["capacity_success"] is False
 
 
 def test_four_stable_one_unstable_is_inconclusive_not_capacity(monkeypatch, tmp_path):

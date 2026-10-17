@@ -1071,12 +1071,9 @@ class LiveStreamsBenchmark(BenchmarkBase):
                                 f"moving_avg={moving_average_latency:.2f}s"
                             )
 
-                        if (
+                        if rolling_unstable or (
                             not is_stable
-                            and (
-                                consecutive_unstable_windows >= required_unstable_windows
-                                or rolling_unstable
-                            )
+                            and consecutive_unstable_windows >= required_unstable_windows
                         ):
                             if current_stream_count in plateau_counts:
                                 plateau = summarize_latency_plateau(
