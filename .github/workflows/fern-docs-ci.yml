@@ -27,9 +27,9 @@
 name: Fern Docs CI
 
 env:
-  VSS_DOCS_GIT_REF: nightly-20261010
-  VSS_DOCS_IMAGE_TAG: nightly-20261010
-  VSS_DOCS_SBSA_IMAGE_TAG: nightly-20261010-sbsa
+  VSS_DOCS_GIT_REF: release/3.3.0
+  VSS_DOCS_IMAGE_TAG: 3.3.0
+  VSS_DOCS_SBSA_IMAGE_TAG: 3.3.0-sbsa
 
 on:
   push:
