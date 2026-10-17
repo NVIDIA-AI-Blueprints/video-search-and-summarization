@@ -18,8 +18,8 @@ enabled: false
 global: {}
 
 image:
-  repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm
-  tag: "develop-latest"
+  repository: nvcr.io/nvidia/vss-core/vss-rt-vlm
+  tag: "3.3.0"
   pullPolicy: IfNotPresent
 replicas: 1
 # Allow the initial RT-VLM image pull and model startup to complete before

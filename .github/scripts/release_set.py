@@ -25,7 +25,8 @@ fragment
 assemble
     Merge fragments into a complete release set: every in-scope inventory
     image is present either from a fragment (freshly built/mirrored) or as an
-    explicit ``reuse-pinned`` entry at its current committed coordinate.
+    explicit ``reuse-pinned`` entry using committed containers.env defaults.
+    Inline fallbacks and profile overrides remain covered by closure checks.
     Computes the immutable ``release_set_id`` and validates the result.
 
 validate
@@ -96,9 +97,15 @@ def git_tree_sha(repo_root: Path, source_path: str) -> str | None:
     return source_tree_sha(repo_root, "HEAD", source_paths_of(source_path))
 
 
-def first_party_refs(repo_root: Path, inventory: dict) -> list[tuple[str, str]]:
-    """``(compose_rel_path, resolved_ref)`` for every image ref whose
-    committed defaults resolve into a first-party registry root."""
+def first_party_refs(
+    repo_root: Path, inventory: dict, *, deployment_defaults: bool = False
+) -> list[tuple[str, str]]:
+    """Return first-party ``(compose_rel_path, resolved_ref)`` coordinates.
+
+    Closure checks all inline and profile variants. Release-set assembly uses
+    the committed containers.env defaults instead; profiles only fill inputs
+    that remain unresolved, without replacing those central defaults.
+    """
     roots = tuple(inventory["first_party_registry_roots"])
     by_compose_name = inventory_by_compose_name(inventory)
     containers_env_path = repo_root / DEPLOY_DIR / "containers.env"
@@ -107,12 +114,12 @@ def first_party_refs(repo_root: Path, inventory: dict) -> list[tuple[str, str]]:
         if containers_env_path.exists()
         else {}
     )
-    env_variants = [base_env]
-    env_variants.extend(
-        {**base_env, **read_env_file(path)}
+    profile_envs = [
+        read_env_file(path)
         for path in discover_env_files(repo_root)
         if path != containers_env_path
-    )
+    ]
+    env_variants = [base_env, *({**base_env, **env} for env in profile_envs)]
     refs: set[tuple[str, str]] = set()
     for compose_file in discover_compose_files(repo_root):
         rel = compose_file.relative_to(repo_root).as_posix()
@@ -121,11 +128,19 @@ def first_party_refs(repo_root: Path, inventory: dict) -> list[tuple[str, str]]:
             if not match:
                 continue
             raw_ref = strip_quotes(match.group("ref"))
-            candidates = {resolve_nested(raw_ref, {})}
             provisional = resolve_nested(raw_ref, base_env)
-            entry = by_compose_name.get(image_name(provisional))
-            if entry and entry.get("strategy") in IN_SCOPE_STRATEGIES:
-                candidates.update(resolve_nested(raw_ref, env) for env in env_variants)
+            if deployment_defaults:
+                candidates = {provisional}
+                if "${" in provisional:
+                    candidates.update(
+                        resolve_nested(raw_ref, {**env, **base_env})
+                        for env in profile_envs
+                    )
+            else:
+                candidates = {resolve_nested(raw_ref, {})}
+                entry = by_compose_name.get(image_name(provisional))
+                if entry and entry.get("strategy") in IN_SCOPE_STRATEGIES:
+                    candidates.update(resolve_nested(raw_ref, env) for env in env_variants)
             concrete = {ref for ref in candidates if "${" not in ref}
             for resolved in concrete or candidates:
                 if resolved.startswith(roots):
@@ -335,7 +350,7 @@ def reuse_entries(
     ``(entries, problems)``."""
     by_compose_name = inventory_by_compose_name(inventory)
     pinned: dict[str, set[tuple[str, str]]] = {}
-    for _, resolved in first_party_refs(repo_root, inventory):
+    for _, resolved in first_party_refs(repo_root, inventory, deployment_defaults=True):
         entry = by_compose_name.get(image_name(resolved))
         if entry is None:
             continue

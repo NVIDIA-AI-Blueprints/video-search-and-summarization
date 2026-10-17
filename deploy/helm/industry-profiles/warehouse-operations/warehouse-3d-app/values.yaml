@@ -44,8 +44,8 @@ bp-configurator:
   enabled: true
   name: bp-configurator-3d
   image:
-    repository: ghcr.io/nvidia-ai-blueprints/vss/vss-configurator
-    tag: develop-latest
+    repository: nvcr.io/nvidia/vss-core/vss-configurator
+    tag: "3.3.0"
     pullPolicy: IfNotPresent
   init:
     enabled: true
@@ -153,8 +153,8 @@ warehouse:
     enabled: true
     name: ds-configurator-3d
     image:
-      repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-config-adaptor
-      tag: develop-latest
+      repository: nvcr.io/nvidia/vss-core/vss-rt-config-adaptor
+      tag: "3.3.0"
       pullPolicy: IfNotPresent
     configMapName: vss-rtvi-cv-warehouse-standalone-3d
     calibrationConfigMapName: vss-rtvi-cv-warehouse-standalone-3d-calibration
@@ -257,9 +257,9 @@ vios:
       # downloaded twice. Needs nvstreamer and rtvi-cv on the same node (RWO).
       # Clear this and set resourceVersion to download independently.
       fromExistingClaim: vss-rtvi-cv-models
-      resourceVersion: nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026
-      # Must match resourceVersion's org (nvstaging) — chart default is nvidia.
-      org: nvstaging
+      resourceVersion: nvidia/vss-warehouse/vss-warehouse-app-data:3.3.0
+      # Must match resourceVersion's org; nvidia is also the chart default.
+      org: nvidia
 
 infra:
   enabled: true
@@ -458,8 +458,8 @@ rtvi:
     downloadModelsFromNgc: true
     ngcApiKeySecretName: ngc-api
     ngcApiKeySecretKey: NGC_CLI_API_KEY
-    ngcAppDataOrg: nvstaging
-    ngcAppDataResourceVersion: nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026
+    ngcAppDataOrg: nvidia
+    ngcAppDataResourceVersion: nvidia/vss-warehouse/vss-warehouse-app-data:3.3.0
     ngcModelsToDownload:
       - model: nvidia/tao/sparse4d_rn50:deployable_v2.3
         org: nvidia

@@ -375,8 +375,8 @@ rtvi:
     # tag: set image.tag to develop-latest-sbsa unless global.container_tag is
     # already selecting that tag for the complete managed-image channel.
     image:
-      repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
-      tag: develop-latest
+      repository: nvcr.io/nvidia/vss-core/vss-rt-embed
+      tag: "3.3.0"
       pullPolicy: IfNotPresent
     port: 8000
     service:

@@ -107,6 +107,18 @@ class ClosureTest(unittest.TestCase):
             )
             self.assertEqual(self.run_closure(root), 1)
 
+    def test_profile_specific_image_is_still_checked_for_inventory_coverage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(tmp, {"services/agent/compose.yml": AGENT_COMPOSE}, [AGENT_ENTRY])
+            (root / "deploy/docker/containers.env").write_text(
+                "VSS_AGENT_IMAGE=nvcr.io/nvidia/vss-core/vss-agent\n"
+                "VSS_AGENT_TAG=3.3.0\n"
+            )
+            profile = root / "deploy/docker/developer-profiles/base/.env"
+            profile.parent.mkdir(parents=True)
+            profile.write_text("VSS_AGENT_IMAGE=nvcr.io/nvidia/vss-core/vss-rogue\n")
+            self.assertEqual(self.run_closure(root), 1)
+
     def test_third_party_refs_are_ignored(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(
@@ -288,6 +300,56 @@ class ReuseEntriesTest(unittest.TestCase):
         self.assertEqual(entry["strategy"], "reuse-pinned")
         self.assertEqual(entry["image"], "nvcr.io/nvidia/vss-core/vss-configurator")
         self.assertEqual(entry["tag"], "3.2.1")
+
+    def test_central_defaults_win_over_inline_and_profile_coordinates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(tmp, {"services/agent/compose.yml": AGENT_COMPOSE}, [AGENT_ENTRY])
+            (root / "deploy/docker/containers.env").write_text(
+                "VSS_AGENT_IMAGE=nvcr.io/nvidia/vss-core/vss-agent\n"
+                "VSS_AGENT_TAG=3.3.0\n"
+            )
+            profile = root / "deploy/docker/developer-profiles/base/.env"
+            profile.parent.mkdir(parents=True)
+            profile.write_text(
+                "VSS_AGENT_IMAGE=nvcr.io/nvstaging/vss-core/vss-agent\n"
+                "VSS_AGENT_TAG=old-profile-tag\n"
+            )
+            entries, problems = rs.reuse_entries(root, rs.load_inventory(root), set())
+        self.assertEqual(problems, [])
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["image"], "nvcr.io/nvidia/vss-core/vss-agent")
+        self.assertEqual(entries[0]["tag"], "3.3.0")
+
+    def test_profile_fills_missing_values_without_replacing_central_defaults(self):
+        compose = "services:\n  agent:\n    image: ${VSS_AGENT_IMAGE}:${VSS_AGENT_VERSION}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(tmp, {"services/agent/compose.yml": compose}, [AGENT_ENTRY])
+            (root / "deploy/docker/containers.env").write_text(
+                "VSS_AGENT_IMAGE=nvcr.io/nvidia/vss-core/vss-agent\n"
+            )
+            profile = root / "deploy/docker/developer-profiles/base/.env"
+            profile.parent.mkdir(parents=True)
+            profile.write_text(
+                "VSS_AGENT_IMAGE=nvcr.io/nvstaging/vss-core/vss-agent\n"
+                "VSS_AGENT_VERSION=3.3.0\n"
+            )
+            entries, problems = rs.reuse_entries(root, rs.load_inventory(root), set())
+        self.assertEqual(problems, [])
+        self.assertEqual(entries[0]["image"], "nvcr.io/nvidia/vss-core/vss-agent")
+        self.assertEqual(entries[0]["tag"], "3.3.0")
+
+    def test_conflicting_profile_values_for_missing_tag_still_fail(self):
+        compose = "services:\n  agent:\n    image: nvcr.io/nvidia/vss-core/vss-agent:${TAG}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(tmp, {"services/agent/compose.yml": compose}, [AGENT_ENTRY])
+            for name, tag in [("a", "1.0"), ("b", "2.0")]:
+                profile = root / f"deploy/docker/developer-profiles/{name}/.env"
+                profile.parent.mkdir(parents=True)
+                profile.write_text(f"TAG={tag}\n")
+            entries, problems = rs.reuse_entries(root, rs.load_inventory(root), set())
+        self.assertEqual(entries, [])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("ambiguous", problems[0])
 
     def test_unbuilt_variant_without_compose_ref_uses_immutable_content_tag(self):
         variant = {
@@ -576,6 +638,21 @@ class SplitRefTest(unittest.TestCase):
 
 class RealRepositoryTest(unittest.TestCase):
     """The actual repository must satisfy its own closure invariant."""
+
+    def test_repo_can_reuse_every_unbuilt_image_without_ambiguous_coordinates(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        inventory = rs.load_inventory(repo_root)
+        entries, problems = rs.reuse_entries(
+            repo_root, inventory, set(), tree_reader=lambda _root, _path: TREE_SHA
+        )
+        self.assertEqual(problems, [])
+        self.assertEqual(
+            {entry["name"] for entry in entries},
+            {
+                entry["name"] for entry in inventory["images"]
+                if entry.get("strategy") in rs.IN_SCOPE_STRATEGIES
+            },
+        )
 
     def test_repo_closure_passes(self):
         repo_root = Path(__file__).resolve().parents[2]
