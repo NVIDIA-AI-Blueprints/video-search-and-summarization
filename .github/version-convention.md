@@ -18,7 +18,7 @@ For any commit on `develop`, these agree, and none is hand-written:
 | Surface | Reads | Example at develop head today |
 |---|---|---|
 | `GET /api/v1/version` on a deployment (the HAProxy edge, Compose and Helm) | `VSS_VERSION` in `containers.env` / `vssVersion` in the profile chart's values, stamped from the tag | `3.3.0-rc0` |
-| `GET /api/v1/version` at the agent's own origin | installed `nvidia-vss-core` metadata | `3.3.0-rc0+tree.<sha>` (image) |
+| `GET /api/v1/version` at the agent's own origin | installed `nvidia-vss` metadata | `3.3.0-rc0+tree.<sha>` (image) |
 | `vss --version` (CLI) | installed `nvidia-vss-cli` metadata | `3.3.0-rc0+tree.<sha>` (harness image), `3.3.0-rc0.dev.N+g<sha>` (checkout) |
 | `SKILL.md` `metadata.version` (skills) | the file, stamped from the tag | `3.3.0-rc0` |
 
@@ -59,7 +59,7 @@ fails the build.
 
 ## Package versions (hatch-vcs)
 
-Every `pyproject.toml` (`libs/vss/core`, `libs/vss/cli`, `services/agent`,
+Every `pyproject.toml` (`libs/vss`, `libs/vss/cli`, `services/agent`,
 `services/agent/packages/vss_agents`) uses `hatchling` + `hatch-vcs` with the
 same describe and `version_scheme = "no-guess-dev"`:
 
@@ -70,7 +70,7 @@ same describe and `version_scheme = "no-guess-dev"`:
 | exactly on `v3.3.0` | `3.3.0` | `3.3.0` |
 | dirty tree | `…+g<sha>.d<date>` / `….dirty` | build metadata, kept |
 
-`vss_core.version.pep440_to_semver` does the rendering; precedence comes out
+`nvidia_vss.version.pep440_to_semver` does the rendering; precedence comes out
 right without a comparator: `3.3.0-rc0` < `3.3.0-rc0.dev.20` < `3.3.0-rc1` < `3.3.0`
 (a build past `rc0` ranks after it — SemVer §11.4.4 — so `>=3.3.0-rc0` includes dev
 builds on the line). The
@@ -122,7 +122,7 @@ stamped into the deployment files from the git tag:
 | Helm | `values.yaml` of every chart that owns `templates/vss-ingress.yaml` (the four developer profiles, the three warehouse apps): `vssVersion: "3.3.0-rc0"` | the ingress template renders it into a `haproxy.org/frontend-config-snippet` `http-request return`, scoped to the ingress host — and **only when the ingress has a host**: a hostless rule would answer for every host on a shared HAProxy controller, i.e. report this release's version for other deployments. A hostless install reports no edge version (404) instead |
 
 The agent's own `/api/v1/version` remains — reachable at the agent's origin and
-from a checkout — and reports the installed `nvidia-vss-core` version with its
+from a checkout — and reports the installed `nvidia-vss` version with its
 `+tree.<sha>`. Same release line, same contract; the edge is the deployment's
 answer, the agent's is the agent's.
 

@@ -21,7 +21,6 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING
 
-
 if TYPE_CHECKING:
     from types import ModuleType
 
@@ -284,7 +283,7 @@ def test_search_handoff_resolves_bounded_clip_for_existing_ask_video(tmp_path: P
     assert "VSS_PUBLIC_URL" not in blocks[0]
 
     # A stub `vss` on PATH with a `python` beside it, laid out like an installed
-    # CLI's venv bin/: the recipe finds vss_core through the CLI's own
+    # CLI's venv bin/: the recipe finds nvidia_vss through the CLI's own
     # interpreter, so this also exercises that lookup.
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

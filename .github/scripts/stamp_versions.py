@@ -42,7 +42,7 @@ A file that should carry a version and has no field to rewrite is an error
 (exit 2), never a field invented: a chart with an ingress template must
 declare ``vssVersion``, a skill must declare ``metadata.version``.
 
-Standard library only; ``pep440_to_semver`` is imported from libs/vss/core so
+Standard library only; ``pep440_to_semver`` is imported from libs/vss so
 the rendering cannot drift from the endpoint's.
 """
 
@@ -57,9 +57,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "libs" / "vss" / "core" / "src"))
+sys.path.insert(0, str(REPO_ROOT / "libs" / "vss" / "src"))
 
-from vss_core.version import SEMVER_PATTERN, pep440_to_semver  # noqa: E402
+from nvidia_vss.version import SEMVER_PATTERN, pep440_to_semver  # noqa: E402
 
 # The same match every pyproject's hatch-vcs uses: release tags only, so the
 # nightly-*, dev-* and pr* tags the repo also carries never become a version.

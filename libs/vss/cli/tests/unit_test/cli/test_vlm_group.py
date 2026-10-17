@@ -18,14 +18,14 @@ from click.testing import CliRunner
 import httpx
 import pytest
 
+from nvidia_vss.memory import InMemoryStore
+from nvidia_vss.memory import MemoryService
 from vss_cli import config as config_mod
 from vss_cli import memory as memory_mod
 from vss_cli.exits import Exit
 from vss_cli.vlm.group import VLM
 from vss_cli.vlm.group import VlmInput
 from vss_cli.vlm.group import VlmOptions
-from vss_core.memory import InMemoryStore
-from vss_core.memory import MemoryService
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -256,10 +256,12 @@ def test_run_returns_answer_when_configured_memory_backend_is_absent(
     )
 
     assert result.exit == Exit.PARTIAL
-    assert result.body["status"] == "completed"
+    # `partial`, not `completed`: the answer landed, the record did not, and all
+    # three job groups now say that with the same word.
+    assert result.body["status"] == "partial"
     assert result.body["answer"] == answer
     assert result.body["persisted"] is False
-    assert "records no Elasticsearch" in result.body["persist_error"]
+    assert "records no Elasticsearch" in result.body["persist"]["error"]
     assert result.extra["marker"]["persisted"] is False
 
 
@@ -1322,8 +1324,8 @@ def test_vios_backend_error_exits_backend_unreachable(
     tmp_path: Path,
 ) -> None:
     """VSTError (BackendUnreachableError subclass) must produce exit code 3."""
+    from nvidia_vss._foundation.errors import BackendUnreachableError
     from vss_cli.vlm import group as vlm_group_mod
-    from vss_core._foundation.errors import BackendUnreachableError
 
     def _raise_backend(*_args: Any, **_kwargs: Any) -> None:
         raise BackendUnreachableError("vst", "connection refused")
@@ -1351,12 +1353,12 @@ def test_vios_resolution_failure_writes_terminal_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When VIOS clip resolution fails on a persist-enabled call, a terminal record must
-    be written so vss vlm get/list can report the failure. The exception still propagates
+    be written so `vss memory get` can report the failure. The exception still propagates
     (guarded() maps it to the right exit code), but persistence must not be skipped."""
+    from nvidia_vss._foundation.errors import BackendUnreachableError
     from vss_cli.group import Context
     from vss_cli.vlm import group as vlm_group_mod
     from vss_cli.vlm.group import VlmGroup
-    from vss_core._foundation.errors import BackendUnreachableError
 
     def _raise_backend(*_args: Any, **_kwargs: Any) -> None:
         raise BackendUnreachableError("vst", "connection refused")
@@ -1713,8 +1715,8 @@ def test_vios_resolution_failure_returns_marker(
     tmp_path: Path,
 ) -> None:
     """CLI output for a VIOS resolution failure must include a body line and a vss_job_failed marker."""
+    from nvidia_vss._foundation.errors import BackendUnreachableError
     from vss_cli.vlm import group as vlm_group_mod
-    from vss_core._foundation.errors import BackendUnreachableError
 
     monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
     config_mod.save(configured)
@@ -1747,8 +1749,8 @@ def test_vios_failure_with_malformed_timestamp_still_returns_marker(
     """When build_input raises (e.g. datetime.fromisoformat on a bad --start-time), the
     original VIOS error must still surface with the correct exit code and marker rather
     than being swallowed by the build_input exception."""
+    from nvidia_vss.media.client import VIOSNotFoundError
     from vss_cli.vlm import group as vlm_group_mod
-    from vss_core.vios.client import VIOSNotFoundError
 
     monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
     config_mod.save(configured)
@@ -1845,12 +1847,12 @@ def test_vios_failure_with_malformed_timestamp_still_persists_record(
 ) -> None:
     """A malformed --start-time makes build_input raise on the requested bounds. The
     terminal record must still be written (retried without the window) so the failed
-    job stays retrievable through vss vlm get/list."""
+    job stays retrievable through `vss memory get`."""
+    from nvidia_vss.media.client import VIOSNotFoundError
     from vss_cli.group import Context
     from vss_cli.vlm import group as vlm_group_mod
     from vss_cli.vlm import memory_adapter as mem_adapter_mod
     from vss_cli.vlm.group import VlmGroup
-    from vss_core.vios.client import VIOSNotFoundError
 
     def _raise_not_found(*_args: Any, **_kwargs: Any) -> None:
         raise VIOSNotFoundError("sensor 'cam1' not found")
@@ -1889,10 +1891,10 @@ def test_failure_marker_reports_persisted_true_when_record_written(
 ) -> None:
     """When memory is enabled and the terminal record is written, the marker must report
     persisted=true. Hardcoding false tells callers the job is gone when get/list has it."""
+    from nvidia_vss._foundation.errors import BackendUnreachableError
     from vss_cli.group import Context
     from vss_cli.vlm import group as vlm_group_mod
     from vss_cli.vlm.group import VlmGroup
-    from vss_core._foundation.errors import BackendUnreachableError
 
     def _raise_backend(*_args: Any, **_kwargs: Any) -> None:
         raise BackendUnreachableError("vst", "connection refused")
@@ -1915,10 +1917,10 @@ def test_failure_marker_reports_persisted_false_without_memory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """With --no-persist there is no record, so the marker must still report false."""
+    from nvidia_vss._foundation.errors import BackendUnreachableError
     from vss_cli.group import Context
     from vss_cli.vlm import group as vlm_group_mod
     from vss_cli.vlm.group import VlmGroup
-    from vss_core._foundation.errors import BackendUnreachableError
 
     def _raise_backend(*_args: Any, **_kwargs: Any) -> None:
         raise BackendUnreachableError("vst", "connection refused")
@@ -1938,7 +1940,7 @@ def test_sensor_without_vst_service_persists_terminal_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A deployment exposing rt_vlm but not vst mints a job id, so the failure must be
-    written to memory. Returning without persisting leaves `vss vlm get/list` unable to
+    written to memory. Returning without persisting leaves `vss memory get` unable to
     retrieve an invocation the CLI just reported as a failed job."""
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup

@@ -496,7 +496,7 @@ def test_memory_check_reports_introspection_state_without_calling_judge(
             assert _invoke("introspection", "--disable").exit_code == 0
     monkeypatch.setattr(configure_mod, "_check_memory_backend", lambda *_args, **_kwargs: "reachable")
     monkeypatch.setattr(
-        "vss_core.introspection.OpenAIIntrospectionClient",
+        "nvidia_vss.introspection.OpenAIIntrospectionClient",
         lambda **_kwargs: pytest.fail("memory check must not construct the judge"),
     )
 
@@ -1018,7 +1018,7 @@ def test_embedding_check_probes_once_and_reports_lazy_missing_index(
     class Missing:
         status_code = 404
 
-    monkeypatch.setattr("vss_core.memory.OpenAICompatibleEmbeddingProvider", Provider)
+    monkeypatch.setattr("nvidia_vss.memory.OpenAICompatibleEmbeddingProvider", Provider)
     monkeypatch.setattr(configure_mod, "_check_memory_backend", lambda *_args, **_kwargs: "elasticsearch reachable")
     monkeypatch.setattr("httpx.get", lambda *_args, **_kwargs: Missing())
     result = _invoke("check")
@@ -1040,7 +1040,7 @@ def test_embedding_check_rejects_malformed_probe_as_backend_failure(
             return None
 
         def embed_query(self, _text: str) -> list[float]:
-            from vss_core.memory import EmbeddingProviderError
+            from nvidia_vss.memory import EmbeddingProviderError
 
             raise EmbeddingProviderError("malformed response")
 
@@ -1051,7 +1051,7 @@ def test_embedding_check_rejects_malformed_probe_as_backend_failure(
         def close(self) -> None:
             return None
 
-    monkeypatch.setattr("vss_core.memory.OpenAICompatibleEmbeddingProvider", Provider)
+    monkeypatch.setattr("nvidia_vss.memory.OpenAICompatibleEmbeddingProvider", Provider)
     monkeypatch.setattr(configure_mod, "_check_memory_backend", lambda *_args, **_kwargs: "elasticsearch reachable")
     result = _invoke("check")
     assert result.exit_code == int(Exit.BACKEND_UNREACHABLE)
@@ -1069,7 +1069,7 @@ def test_embedding_check_reports_missing_credential_as_configuration_error(
             return None
 
         def embed_query(self, _text: str) -> list[float]:
-            from vss_core.memory import EmbeddingProviderError
+            from nvidia_vss.memory import EmbeddingProviderError
 
             raise EmbeddingProviderError("embedding API key environment variable 'OPENCLAW_GATEWAY_TOKEN' is not set")
 
@@ -1080,7 +1080,7 @@ def test_embedding_check_reports_missing_credential_as_configuration_error(
         def close(self) -> None:
             return None
 
-    monkeypatch.setattr("vss_core.memory.OpenAICompatibleEmbeddingProvider", Provider)
+    monkeypatch.setattr("nvidia_vss.memory.OpenAICompatibleEmbeddingProvider", Provider)
     monkeypatch.setattr(configure_mod, "_check_memory_backend", lambda *_args, **_kwargs: "elasticsearch reachable")
     result = _invoke("check")
     assert result.exit_code == int(Exit.CONFIGURATION)

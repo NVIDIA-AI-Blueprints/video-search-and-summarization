@@ -52,7 +52,7 @@ score tool-calling or trajectories.
   `vss configure` flag, not a benchmark one. `--inline-media` *is* a benchmark flag; it
   forces the old inline behaviour and is only safe for clips under ~10 MB.
 - `uv` and this checkout. `benchmark_vlm_qa.py` runs the CLI as
-  `uv run --project services/agent --no-dev --extra cli vss`.
+  `uv run --project libs/vss --no-dev --package nvidia-vss-cli --extra all vss`.
 - A deployment inside this skill's `requires-vss` range (`>=3.3.0,<4.0.0` — the floor
   is the Cosmos Reason 3 stack the published baselines were measured on, not a CLI
   capability: the CLI comes from this checkout either way). **This is not enforced

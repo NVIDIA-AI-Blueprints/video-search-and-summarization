@@ -7,6 +7,8 @@ from __future__ import annotations
 import pytest  # noqa: TC002 - fixtures are resolved at runtime
 
 import vss_cli as cli
+from vss_cli import config as config_mod
+from vss_cli.exits import Exit
 
 
 def test_root_help_lists_registered_domains(capsys: pytest.CaptureFixture[str]) -> None:
@@ -38,11 +40,30 @@ def test_search_exposes_only_the_fixed_verbs(capsys: pytest.CaptureFixture[str])
     """embed/attribute are no longer siblings of run -- they moved under it."""
     assert cli.main(["search", "--help"]) == 0
     out = capsys.readouterr().out
-    for verb in ("run", "status", "get", "list"):
-        assert verb in out
+    assert "run" in out
     commands = out.split("Commands:", 1)[1]
     for gone in ("embed", "attribute"):
         assert gone not in commands, f"{gone} should live under `run`, not beside it"
+    # The reads moved to `vss memory`. They still answer for one release, but
+    # help must not keep advertising a surface that is going away.
+    for deprecated in ("status", "get", "list"):
+        assert deprecated not in commands, f"`{deprecated}` should be hidden, not listed"
+
+
+def test_the_deprecated_reads_still_answer_and_name_their_replacement(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Published for three job groups, so they cannot vanish without a release.
+
+    `cli/README.md` lists them, `cli/AGENTS.md` shows `vss search get`, and the
+    shipped vss-summarize-video skill reconciles an exit 7 with
+    `vss summarize get`. Hidden and warned, not deleted.
+    """
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "absent"))
+    assert cli.main(["summarize", "get", "--job-id", "summarize-01"]) == int(Exit.CONFIGURATION)
+    captured = capsys.readouterr()
+    assert "deprecated" in captured.err
+    assert "vss memory get --job-id" in captured.err
 
 
 def test_run_lists_the_retrieval_paths(capsys: pytest.CaptureFixture[str]) -> None:
@@ -103,8 +124,8 @@ def test_every_path_accepts_the_pre_decomposition_question(
 
 def test_the_question_reaches_the_library_request_unchanged() -> None:
     """Through model_dump into SearchInput, which is extra=forbid."""
-    from vss_cli.search.group import AttributeInput
-    from vss_core.search_core.models.search import SearchInput
+    from nvidia_vss.search.cli.group import AttributeInput
+    from nvidia_vss.search.models.search import SearchInput
 
     asked = "is anyone in a white jacket near the loading door?"
     payload = AttributeInput(attributes=["white jacket"], original_query=asked).model_dump(
@@ -126,7 +147,7 @@ def test_an_omitted_question_leaves_the_request_exactly_as_before() -> None:
     would behave the same -- but it would also appear in persisted memory as a
     question the user never asked.
     """
-    from vss_cli.search.group import EmbedInput
+    from nvidia_vss.search.cli.group import EmbedInput
 
     payload = EmbedInput(query="forklift").model_dump(exclude_none=True, exclude_defaults=True)
     assert payload == {"query": "forklift"}

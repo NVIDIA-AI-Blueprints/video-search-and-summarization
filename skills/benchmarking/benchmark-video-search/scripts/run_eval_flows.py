@@ -692,7 +692,7 @@ def run_evaluation(
             result["total_latency_s"] = round(decompose_s + latency_s, 4)
             result["decomposition"] = query_backend.decompositions.get(query)
 
-        # Present only when the deployment carries the search_core timings
+        # Present only when the deployment carries the nvidia_vss.search timings
         # change. Absent means nobody collected -- not that stages took no time.
         stage_timings = getattr(query_backend, "timings_by_query", {}).get(query)
         if stage_timings:
@@ -842,13 +842,13 @@ def run_evaluation(
             "cleared": cleared,
             "inventory": inventory,
             # Phoenix is absent by construction on the CLI query path:
-            # search_core and vss_cli carry no OpenTelemetry instrumentation,
+            # nvidia_vss.search and vss_cli carry no OpenTelemetry instrumentation,
             # and Phoenix spans came only from NAT's telemetry config.
             "phoenix": {
                 "collected": False,
                 "reason": (
                     "not collected by this script; unavailable on the CLI query "
-                    "path because search_core/vss_cli emit no OTel spans"
+                    "path because nvidia_vss.search/vss_cli emit no OTel spans"
                 ),
             },
         },
@@ -992,7 +992,7 @@ def _summarize(
 
     # Per-stage breakdown, when the deployment reports it. This is the CLI-path
     # replacement for the Phoenix span breakdown, which does not exist here
-    # because search_core emits no OTel spans.
+    # because nvidia_vss.search emits no OTel spans.
     stage_rows: dict[str, dict[str, list[float]]] = {}
     reported = 0
     for r in results:

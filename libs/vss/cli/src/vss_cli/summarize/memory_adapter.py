@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Summary-group mapper from LVS payloads into ``nv.vss.memory/1.0`` records.
 
-Lives with the ``vss summarize`` command group rather than in ``vss_core.memory``:
+Lives with the ``vss summarize`` command group rather than in ``nvidia_vss.memory``:
 memory owns the contract (protocol, bundle, helpers) and each command group
 owns the translation from its own backend's shapes.
 
@@ -14,22 +14,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from vss_core.memory.adapters import LifecycleAdapter
-from vss_core.memory.adapters import RecordBundle
-from vss_core.memory.adapters import child_record
-from vss_core.memory.adapters import collect_values
-from vss_core.memory.adapters import resolve_child_record_id
-from vss_core.memory.adapters import row_instant
-from vss_core.memory.adapters import window_from_row
-from vss_core.memory.models import JobStatus
-from vss_core.memory.models import MemoryError
-from vss_core.memory.models import MemoryGroup
-from vss_core.memory.models import MemoryInput
-from vss_core.memory.models import MemoryOutput
-from vss_core.memory.models import OutputHandles
-from vss_core.memory.models import SensorInfo
-from vss_core.memory.models import TimeWindow
-from vss_core.memory.models import UnifiedMemoryRecord
+from nvidia_vss.memory.adapters import LifecycleAdapter
+from nvidia_vss.memory.adapters import RecordBundle
+from nvidia_vss.memory.adapters import child_record
+from nvidia_vss.memory.adapters import collect_values
+from nvidia_vss.memory.adapters import resolve_child_record_id
+from nvidia_vss.memory.adapters import row_instant
+from nvidia_vss.memory.adapters import window_from_row
+from nvidia_vss.memory.models import JobStatus
+from nvidia_vss.memory.models import MemoryError
+from nvidia_vss.memory.models import MemoryGroup
+from nvidia_vss.memory.models import MemoryInput
+from nvidia_vss.memory.models import MemoryOutput
+from nvidia_vss.memory.models import OutputHandles
+from nvidia_vss.memory.models import SensorInfo
+from nvidia_vss.memory.models import TimeWindow
+from nvidia_vss.memory.models import UnifiedMemoryRecord
 
 #: Media-ish handle keys an LVS event may carry.
 _MEDIA_KEYS: tuple[str, ...] = ("media_url", "screenshot_url", "url", "clip_url")

@@ -46,10 +46,12 @@ def repo(tmp_path):
     (root / ".openclaw" / "workspace" / "AGENTS.md").write_text("# agents\n")
     (root / ".openclaw" / "workspace" / "_nemoclaw" / "ENV.md").write_text("# env\n")
     (root / "services" / "agent").mkdir(parents=True)
-    (root / "services" / "agent" / "pyproject.toml").write_text('[project]\nname = "nvidia-vss"\n')
-    (root / "libs" / "vss" / "core").mkdir(parents=True)
-    (root / "libs" / "vss" / "pyproject.toml").write_text('[tool.uv.workspace]\nmembers = ["core"]\n')
-    (root / "libs" / "vss" / "core" / "pyproject.toml").write_text('[project]\nname = "nvidia-vss-core"\n')
+    (root / "services" / "agent" / "pyproject.toml").write_text('[tool.uv.workspace]\nmembers = ["packages/*"]\n')
+    (root / "libs" / "vss" / "src" / "nvidia_vss").mkdir(parents=True)
+    (root / "libs" / "vss" / "pyproject.toml").write_text(
+        '[project]\nname = "nvidia-vss"\n\n[tool.uv.workspace]\nmembers = ["cli"]\n'
+    )
+    (root / "libs" / "vss" / "src" / "nvidia_vss" / "version.py").write_text("# core\n")
     (root / "libs" / "other").mkdir(parents=True)
     (root / "libs" / "other" / "keep.txt").write_text("not a staged root\n")
     (root / ".openclaw" / "Dockerfile").write_text("FROM scratch\n")
@@ -76,9 +78,10 @@ def test_stages_all_roots_into_both_default_harness_dirs(repo):
         assert (dest / "skills" / "vss-x" / "SKILL.md").is_file()
         assert (dest / ".openclaw" / "workspace" / "AGENTS.md").is_file()
         assert (dest / ".openclaw" / "workspace" / "_nemoclaw" / "ENV.md").is_file()
-        # libs/vss (nvidia-vss-cli + nvidia-vss-core) is the images' whole
+        # libs/vss (nvidia-vss-cli + nvidia-vss) is the images' whole
         # install surface; the agent service package is deliberately not staged.
-        assert (dest / "libs" / "vss" / "core" / "pyproject.toml").is_file()
+        assert (dest / "libs" / "vss" / "pyproject.toml").is_file()
+        assert (dest / "libs" / "vss" / "src" / "nvidia_vss" / "version.py").is_file()
         assert not (dest / "services").exists()
         assert not (dest / "libs" / "other").exists()
         assert (dest / "STAGED").is_file()

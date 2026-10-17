@@ -57,7 +57,7 @@ from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.request import urlopen
 
-# Source of truth: vss_core.version.SEMVER_PATTERN (the official Semantic
+# Source of truth: nvidia_vss.version.SEMVER_PATTERN (the official Semantic
 # Versioning 2.0.0 grammar). Duplicated rather than imported so this script
 # needs nothing but Python and can be copied to any machine; the agent's
 # test_version.py asserts the two expressions are identical so they cannot
@@ -220,7 +220,7 @@ def check(base_url: str, timeout: float) -> str:
         if error.code == 503:
             raise IndeterminateError(
                 f"{url} returned 503: the deployment reports no usable version -- its "
-                "nvidia-vss-core install carries no version that normalises to Semantic "
+                "nvidia-vss install carries no version that normalises to Semantic "
                 "Versioning 2.0.0, so the image is missing its build stamp and needs rebuilding."
             ) from error
         raise IndeterminateError(f"{url} returned HTTP {error.code} {error.reason}.") from error

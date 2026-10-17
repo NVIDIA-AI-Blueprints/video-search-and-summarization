@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import flows
 
 # Representative hits in each wire format. Field names taken from
-# vss_core.search_core.models.search.SearchResult (new) and
+# nvidia_vss.search.models.search.SearchResult (new) and
 # vss_agents.tools.search.SearchResult / CriticResult (legacy).
 NEW_FLOW_HIT: dict[str, Any] = {
     "video_name": "warehouse_01.mp4",
@@ -207,7 +207,7 @@ def test_parses_searchoutput_envelope() -> None:
 
 
 def test_parses_stage_timings_when_present() -> None:
-    """Deployments carrying the search_core timings change report per-stage cost."""
+    """Deployments carrying the nvidia_vss.search timings change report per-stage cost."""
     hits, _messages, timings = flows.parse_cli_output(
         '{"data": [], "search_messages": [], "timings": {"stages": '
         '{"embed_search: ES search execution": '
@@ -699,7 +699,7 @@ def test_the_flag_matches_the_field_the_cli_actually_declares() -> None:
     not prove the flag exists, only that it has not been renamed underneath us.
     """
     try:
-        from vss_cli.search.group import SearchGroup, _Common
+        from nvidia_vss.search.cli.group import SearchGroup, _Common
     except Exception as error:  # pragma: no cover - depends on the environment  # noqa: BLE001
         pytest.skip(f"vss_cli is not importable here: {error}")
 

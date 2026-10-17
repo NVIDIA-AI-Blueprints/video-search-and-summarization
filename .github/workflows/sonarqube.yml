@@ -114,7 +114,7 @@ jobs:
 
           # Keep the agent's production and test scopes disjoint.
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-agent" ]; then
-            exclusions="${exclusions},services/agent/docker/**,services/agent/packages/*/tests/**,libs/vss/*/tests/**"
+            exclusions="${exclusions},services/agent/docker/**,services/agent/packages/*/tests/**,libs/vss/tests/**,libs/vss/*/tests/**,libs/vss/packages/*/tests/**"
           fi
 
           if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-rt-cv" ]; then
@@ -148,7 +148,7 @@ jobs:
             # new-code coverage gate. They are still analyzed for bugs,
             # code smells, and duplication.
             agent_coverage_exclusions=(
-              "**/vss_core/knowledge/**"
+              "**/nvidia_vss/knowledge/**"
               "**/agents/report_agent_old.py"
               "**/api/custom_fastapi_worker.py"
               "**/sitecustomize.py"
@@ -285,7 +285,7 @@ jobs:
           # The Sonar self-hosted runner cannot install system packages.
           # Coverage does not exercise PDF rendering, so skip pycairo/rlpycairo
           # instead of requiring cairo headers and pkg-config on the runner.
-          uv sync --group dev --extra agent --extra cli --frozen --no-install-package pycairo --no-install-package rlpycairo
+          uv sync --group dev --frozen --no-install-package pycairo --no-install-package rlpycairo
           uv run --no-sync pytest \
             --cov=packages/vss_agents/src \
             --cov-report=xml:coverage.xml \
@@ -304,10 +304,12 @@ jobs:
           # every changed vss_cli line as uncovered. That stayed invisible
           # while the package was small and surfaced as "2.9% Coverage on New
           # Code" the first time a PR added substantially to it.
-          uv sync --frozen
-          uv run --no-sync pytest core/tests/unit_test cli/tests/unit_test \
-            --cov=core/src \
+          uv sync --frozen --all-packages
+          uv run --no-sync pytest \
+            --cov=src \
             --cov=cli/src \
+            --cov=packages/search/src \
+            --cov=packages/analytics/src \
             --cov-report=xml:coverage-lib.xml \
             --cov-report=term-missing \
             -m "not slow and not integration"

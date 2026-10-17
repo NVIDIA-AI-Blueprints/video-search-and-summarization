@@ -23,9 +23,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
+import nvidia_vss.version
 from vss_agents.api.version import SEMVER_PATTERN
 from vss_agents.api.version import register_version_route
-import vss_core.version
 
 _UNAVAILABLE_DETAIL = "The deployed VSS version is unavailable or is not valid Semantic Versioning 2.0.0."
 
@@ -46,11 +46,11 @@ def client() -> TestClient:
 def _no_installed_library(monkeypatch) -> None:
     """Start every test from a deployment whose library reports no version.
 
-    The test process imports an installed ``nvidia-vss-core`` of its own; what
+    The test process imports an installed ``nvidia-vss`` of its own; what
     that says must not decide these tests. Each test states what the library
-    reports, and :mod:`vss_core.version`'s own tests cover the derivation.
+    reports, and :mod:`nvidia_vss.version`'s own tests cover the derivation.
     """
-    monkeypatch.setattr(vss_core.version, "library_version", lambda: None)
+    monkeypatch.setattr(nvidia_vss.version, "library_version", lambda: None)
 
 
 @pytest.mark.parametrize("version", ACCEPTED_VERSIONS)
@@ -60,7 +60,7 @@ def test_version_endpoint_reports_the_library_version(client: TestClient, monkey
     In an image the build stamped it from the release tag and the source tree
     (``3.3.0-rc0+tree.<sha>``); in a checkout ``hatch-vcs`` derived it.
     """
-    monkeypatch.setattr(vss_core.version, "library_version", lambda: version)
+    monkeypatch.setattr(nvidia_vss.version, "library_version", lambda: version)
 
     response = client.get("/api/v1/version")
 
@@ -79,7 +79,7 @@ def test_version_endpoint_503s_when_the_library_reports_nothing(client: TestClie
 def test_environment_does_not_override_the_library_version(client: TestClient, monkeypatch) -> None:
     """There is no deploy-time override: a version anyone can edit is one nobody can trust."""
     monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "9.9.9")
-    monkeypatch.setattr(vss_core.version, "library_version", lambda: "3.3.0-rc0+tree.4d9b2c1")
+    monkeypatch.setattr(nvidia_vss.version, "library_version", lambda: "3.3.0-rc0+tree.4d9b2c1")
 
     response = client.get("/api/v1/version")
 
@@ -88,7 +88,7 @@ def test_environment_does_not_override_the_library_version(client: TestClient, m
 
 def test_local_build_stamp_is_served_as_is(client: TestClient, monkeypatch) -> None:
     """A bare `docker build` stamps 0.0.0+local: served, and unable to satisfy any skill's range."""
-    monkeypatch.setattr(vss_core.version, "library_version", lambda: "0.0.0+local")
+    monkeypatch.setattr(nvidia_vss.version, "library_version", lambda: "0.0.0+local")
 
     response = client.get("/api/v1/version")
 
@@ -117,7 +117,7 @@ def test_standalone_checker_uses_the_same_pattern() -> None:
 
     It is the benchmark team's copy-and-run tool, so it must not import VSS.
     This asserts the duplicate cannot drift from the source of truth in
-    ``vss_core.version``.
+    ``nvidia_vss.version``.
     """
     assert _load_checker_script().SEMVER_PATTERN.pattern == SEMVER_PATTERN.pattern
 

@@ -21,8 +21,8 @@ See the License for the specific language governing permissions and limitations 
 | Status | Draft for review |
 | Phase 1 | RTSP and uploaded-video tagging, BM25 keyword retrieval, and configurable fusion |
 | Phase 2 | Semantic retrieval over real tag/caption embeddings |
-| Search boundary | Retrieval and fusion live in `vss_core.search_core` |
-| Ingestion boundary | The headless VIOS fan-out recipe drives the existing RT-VLM directly over REST (no agent tier, no `vss_core` ingestion code) |
+| Search boundary | Retrieval and fusion live in `nvidia_vss.search` |
+| Ingestion boundary | The headless VIOS fan-out recipe drives the existing RT-VLM directly over REST (no agent tier, no `nvidia_vss` ingestion code) |
 | Source baseline | `origin/develop@a2907d5aa`, 2026-08-18 |
 
 ## Summary
@@ -48,7 +48,7 @@ placeholder vector for index compatibility; real tag/caption embeddings are Phas
 - Reuse the existing RT-VLM deployment for tagging and verification.
 - Reuse the existing headless VIOS source-provisioning fan-out (the same recipe that drives RT-CV and RT-Embed).
 - Reuse RT-VLM's existing Kafka and Logstash persistence path.
-- Support source-scoped BM25 tag search in `vss_core.search_core`.
+- Support source-scoped BM25 tag search in `nvidia_vss.search`.
 - Fuse tag, video-embedding, and optional attribute candidate sets without dropping single-provider results.
 - Let operators select the fusion method and tune its weights without a code change.
 
@@ -100,14 +100,14 @@ flowchart LR
 ```
 
 RT-CV and RT-Embed retain their current fan-out legs. VLM tagging is an additional fan-out leg on the same headless
-provision recipe (direct REST to RT-VLM); it is not agent-managed and carries no `vss_core` ingestion code. Tagging uses
+provision recipe (direct REST to RT-VLM); it is not agent-managed and carries no `nvidia_vss` ingestion code. Tagging uses
 a controlled JSON-tag prompt and the same RT-VLM deployment as Critic/verification.
 
 ## Headless ingestion contract
 
 Tagging is a fan-out leg on the headless VIOS source-provisioning recipe (`vss-manage-video-io-storage` →
 `references/provision-vios-source.md`), symmetric to the RT-CV and RT-Embed legs. There is no agent tier and no
-`vss_core` ingestion code; the recipe drives RT-VLM by direct REST and Kafka/Logstash own persistence. The shared-id
+`nvidia_vss` ingestion code; the recipe drives RT-VLM by direct REST and Kafka/Logstash own persistence. The shared-id
 rule (key every consumer on the one VIOS `sensorId`) and the upload-date rule (`creation_time` required for VOD,
 omitted for RTSP) carry over unchanged from the existing recipe.
 
@@ -211,7 +211,7 @@ computed by RT-Embed; those vectors continue to power the embed provider in fusi
 
 ## Tag search API and source selection
 
-The reusable API lives under `vss_core.search_core`:
+The reusable API lives under `nvidia_vss.search`:
 
 ```text
 TagSearchInput
@@ -319,7 +319,7 @@ Adding score-based fusion is deferred until every provider has a validated norma
 | 3. RTSP tagging | Extend the recipe's RTSP add/delete fan-out to register RT-VLM, require SSE admission (open, confirm 200, close), and stop/delete on teardown | Add starts tags and remove stops them while existing RT-CV/RT-Embed legs remain intact |
 | 4. Uploaded-video tagging | Extend the recipe's upload fan-out to call finite caption generation using the resolved VIOS storage URL and timeline | A completed upload produces full-timeline tags without proxying media bytes |
 | 5. Index validation | Verify RT-VLM caption publication and existing `default_<streamId>` routing | Each valid tag chunk is queryable from its source-specific index through the existing Kafka/Logstash path |
-| 6. Library retrieval | Add tag models, BM25 query, optional source resolution, time filters, VST result enrichment, and public facade registration in `vss_core.search_core` | Scoped search returns only selected-source intervals; source-less search covers the configured index family |
+| 6. Library retrieval | Add tag models, BM25 query, optional source resolution, time filters, VST result enrichment, and public facade registration in `nvidia_vss.search` | Scoped search returns only selected-source intervals; source-less search covers the configured index family |
 | 7. Fusion | Implement union alignment and method dispatch for `weighted_rrf` and `rrf`; expose all weights and `rrf_k` through runtime and CLI | Tests prove method selection, weight changes, multi-provider promotion, and single-provider survival |
 | 8. Verification and rollout | Add unit, contract, integration, and end-to-end tests; add metrics and dashboards; gate enablement behind configuration; document rollback | Search and verification regressions pass, scoped and source-less index selection are proven, and disabling tagging leaves existing search intact |
 
@@ -368,4 +368,4 @@ Adding score-based fusion is deferred until every provider has a validated norma
 - `services/rtvi/rt-vlm/src/server/rtvi_stream_handler.py`
 - `skills/vss-manage-video-io-storage/references/provision-vios-source.md` (headless fan-out recipe)
 - `skills/vss-build-vision-ai/references/profiles/search.md` (search profile fan-out set)
-- `libs/vss/core/src/vss_core/search_core` (read side: TagSearch, fusion)
+- `libs/vss/src/nvidia_vss/search` (read side: TagSearch, fusion)

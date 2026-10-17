@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+raw-options.root = "../../../.."
+# Keep in sync with libs/vss/pyproject.toml [tool.hatch.version].
+raw-options.git_describe_command = [
+  "git", "describe", "--dirty", "--tags", "--long", "--match", "v[0-9]*",
+]
+raw-options.version_scheme = "no-guess-dev"
+
+[tool.hatch.build.targets.wheel]
+# Only this module of the nvidia_vss namespace; never nvidia_vss/__init__.py.
+only-include = ["src/nvidia_vss/search"]
+sources = ["src"]
+
+[project]
+name = "nvidia-vss-search"
+dynamic = ["version"]
+requires-python = ">=3.13,<3.15"
+description = "NVIDIA VSS archive search (NAT-free): embed, attribute, tag and fusion retrieval, critic verifier, and the `vss search` command group"
+license = "Apache-2.0"
+keywords = ["ai", "rag", "search"]
+authors = [{ name = "NVIDIA Corporation" }]
+maintainers = [{ name = "NVIDIA Corporation" }]
+# Keep sorted. No click or nvidia-vss-cli: the command group under
+# nvidia_vss.search.cli is imported only by the vss CLI, which brings both.
+dependencies = [
+  "elasticsearch[requests]~=8.17.0",
+  "httpx~=0.28",
+  "nvidia-vss",
+  "pydantic >=2.11,<3",
+]
+
+[project.entry-points."vss.commands"]
+search = "nvidia_vss.search.cli.register:GROUP"
+
+# Read as a raw string for `vss --help`; never imported.
+[project.entry-points."vss.command_summaries"]
+search = "Search indexed video"
+
+[tool.uv.sources]
+nvidia-vss = { workspace = true }

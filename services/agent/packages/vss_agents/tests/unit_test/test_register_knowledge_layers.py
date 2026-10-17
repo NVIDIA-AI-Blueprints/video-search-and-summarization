@@ -24,6 +24,9 @@ from unittest.mock import patch
 
 import pytest
 
+from nvidia_vss.knowledge.schema import Chunk
+from nvidia_vss.knowledge.schema import ContentType
+from nvidia_vss.knowledge.schema import RetrievalResult
 from vss_agents.register_knowledge_layers import KnowledgeRetrievalConfig
 from vss_agents.register_knowledge_layers import KnowledgeRetrievalInput
 from vss_agents.register_knowledge_layers import _format_results
@@ -31,9 +34,6 @@ from vss_agents.register_knowledge_layers import _setup_backend
 from vss_agents.register_knowledge_layers import _setup_retriever
 from vss_agents.register_knowledge_layers import knowledge_retrieval
 from vss_agents.tools.lvs_media_state import LVSConfiguredMedia
-from vss_core.knowledge.schema import Chunk
-from vss_core.knowledge.schema import ContentType
-from vss_core.knowledge.schema import RetrievalResult
 
 
 class TestKnowledgeRetrievalConfig:
@@ -111,7 +111,7 @@ class TestSetupBackend:
 
     @pytest.mark.asyncio
     async def test_arango_graph_resolves_configured_llm(self, monkeypatch):
-        import vss_core.knowledge.adapters.arango_graph as arango_graph
+        import nvidia_vss.knowledge.adapters.arango_graph as arango_graph
 
         builder = AsyncMock()
         resolved_llm = MagicMock(name="resolved_llm")

@@ -34,13 +34,13 @@ TIMELINE_END=$(printf '%s' "${TIMELINE}" |
 
 # Rebase the synthetic hit interval onto the current file timeline, preserving
 # its exact duration. This is the one part the CLI does not do for you.
-# The CLI's own interpreter, so vss_core is importable wherever vss came from.
+# The CLI's own interpreter, so nvidia_vss is importable wherever vss came from.
 VSS_PYTHON="$(dirname "$(readlink -f "$(command -v vss)")")/python"
 mapfile -t MAPPED_BOUNDS < <(
   "${VSS_PYTHON}" - \
     "${HIT_START}" "${HIT_END}" "${TIMELINE_START}" "${TIMELINE_END}" <<'PY'
 import sys
-from vss_core.vios import map_interval_to_timeline
+from nvidia_vss.media import map_interval_to_timeline
 
 for value in map_interval_to_timeline(*sys.argv[1:]):
     print(value)

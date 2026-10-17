@@ -32,9 +32,9 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable
     from collections.abc import Callable
 
-    from vss_core.introspection.models import VLMEvidence
-    from vss_core.vios import SensorRef
-    from vss_core.vlm import VLMAnalyzer
+    from nvidia_vss.introspection.models import VLMEvidence
+    from nvidia_vss.media import SensorRef
+    from nvidia_vss.vlm import VLMAnalyzer
 
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _TERMINAL_WRITE_RESERVE_SECONDS = 1.0
@@ -162,7 +162,7 @@ class IntrospectionVLMJobRunner:
         fps: float | None = None,
         timeout_seconds: float | None = None,
     ) -> VLMEvidence:
-        from vss_core.introspection import VLMEvidence
+        from nvidia_vss.introspection import VLMEvidence
 
         if intent != "introspection":
             raise ValueError("introspection VLM jobs require intent='introspection'")
@@ -240,8 +240,8 @@ def _production_analyzer(
     num_frames: int | None,
     fps: float | None,
 ) -> tuple[VLMAnalyzer, str]:
-    from vss_core.vios import VSTClient
-    from vss_core.vlm import OpenAIVLMAnalyzer
+    from nvidia_vss.media import VSTClient
+    from nvidia_vss.vlm import OpenAIVLMAnalyzer
 
     service = deployment.services.get("rt_vlm")
     if service is None or not service.models:
@@ -283,10 +283,10 @@ async def run_vlm_job(
     recorded_segments_fn: Callable[..., Awaitable[list[tuple[str, str]]]] | None = None,
 ) -> VLMJobResult:
     """Validate one VIOS interval and perform exactly one bounded inference."""
-    from vss_core.memory.adapters import utc_now_iso
-    from vss_core.vios import recorded_segments
-    from vss_core.vios import resolve_sensor
-    from vss_core.vios import resolve_window
+    from nvidia_vss.media import recorded_segments
+    from nvidia_vss.media import resolve_sensor
+    from nvidia_vss.media import resolve_window
+    from nvidia_vss.memory.adapters import utc_now_iso
 
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be > 0")
@@ -453,7 +453,7 @@ async def run_vlm_job(
                 sensor = await resolver(vst_url, request.sensor, timeout_seconds=remaining_seconds())
                 segments = await segments_reader(vst_url, sensor.stream_id, timeout_seconds=remaining_seconds())
                 if not segments:
-                    from vss_core.vios import VIOSInvalidInputError
+                    from nvidia_vss.media import VIOSInvalidInputError
 
                     raise VIOSInvalidInputError(f"nothing is recorded for sensor {sensor.name!r}")
                 start_time, end_time = resolve_window(segments, request.start_time, request.end_time, sensor.kind)

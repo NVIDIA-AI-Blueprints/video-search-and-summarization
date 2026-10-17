@@ -70,9 +70,11 @@ PROJECTS: list[dict[str, Any]] = [
         # on; both must be scanned, and a library-only change must trigger it.
         "sources": "services/agent,libs/vss",
         "tests": (
-            "libs/vss/core/tests,"
+            "libs/vss/tests,"
             "services/agent/packages/vss_agents/tests,"
-            "libs/vss/cli/tests"
+            "libs/vss/cli/tests,"
+            "libs/vss/packages/search/tests,"
+            "libs/vss/packages/analytics/tests"
         ),
         "python_version": "3.13",
         "paths": ["services/agent", "libs/vss"],

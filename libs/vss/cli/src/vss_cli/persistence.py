@@ -24,7 +24,7 @@ def mark_terminal(
     backoff_seconds: float = _TERMINAL_WRITE_BACKOFF_SECONDS,
 ) -> bool:
     """Best-effort terminal parent upsert with a small bounded retry."""
-    from vss_core.memory.models import MemoryError
+    from nvidia_vss.memory.models import MemoryError
 
     record = adapter.terminal_record(
         job_id=job_id,

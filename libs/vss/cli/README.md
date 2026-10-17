@@ -27,10 +27,10 @@ re-exports this distribution for the agent image.
 
 ```bash
 cd libs/vss
-uv sync --frozen
-uv run --no-sync pytest core/tests/unit_test cli/tests/unit_test -q
-uv run --no-sync ruff check core cli
-uv run --no-sync mypy cli/src/vss_cli core/src/vss_core
+uv sync --frozen --all-packages
+uv run --no-sync pytest tests/unit_test cli/tests/unit_test -q
+uv run --no-sync ruff check src tests cli
+uv run --no-sync mypy cli/src/vss_cli src/nvidia_vss
 ```
 
 The `dev` group carries the test tooling and is included by default. Keep
@@ -254,16 +254,19 @@ is locked. vLLM receives both. With `fps` alone, vLLM also gets
 
 | Group | What it is | Verbs |
 |-------|-----------|-------|
-| `vss search` | Fused archive search over ES + the embedding NIM | `run`, `status`, `get`, `list` |
-| `vss summarize` | VLM summarization of stored video | `run`, `status`, `get`, `list` |
-| `vss vlm` | One VLM answer from a recorded sensor window | `run`, `status`, `get`, `list` |
-| `vss memory` | Unified-memory access, embeddings backfill, introspection | `upsert`, `get`, `query`, `events`, `introspect`, `embeddings backfill` |
+| `vss search` | Fused archive search over ES + the embedding NIM | `run` |
+| `vss summarize` | VLM summarization of stored video | `run` |
+| `vss vlm` | One VLM answer from a recorded sensor window | `run` |
+| `vss memory` | Unified-memory access, embeddings backfill, introspection | `status`, `get`, `query`, `upsert`, `events`, `introspect`, `embeddings backfill` |
 | `vss analytics` | Read-only incidents, analytics sensors/places, and metrics | `incidents`, `incident`, `sensors`, `places`, `fov-histogram`, `average-speed`, `analyze` |
 | `vss vios` | Media plane: sensors, timelines, clip and snapshot URLs | `list`, `timeline`, `clip`, `snapshot`, `add`, `delete` |
 | `vss configure` | Resolve a deployment and set static memory/VLM policy | `show`, `check`, `memory`, `memory show`, `memory check`, `memory introspection`, `vlm` |
 
 `search`, `summarize`, and `vlm` are **job groups**: every run mints a `job_id`, and the
-result stays retrievable by that id. `analytics` and `vios` are **not**:
+result stays retrievable by that id — through `vss memory`, which reads the same
+index for every group, including groups added at runtime. `vss <group>
+status|get|list` still answer for one release and name their replacement on
+stderr. `analytics` and `vios` are **not**:
 analytics performs direct read-only queries, while VIOS resolves handles and
 mints URLs. Neither has job verbs or writes memory. See
 [AGENTS.md](AGENTS.md#the-two-shapes).
@@ -433,7 +436,7 @@ Introspection follow-ups use the bounded analyzer rather than direct
 `vlm run`'s FPS translation. They accept `--fps`, but a known-duration request
 that implies more than 60 frames becomes a fixed 60-frame sample. They also
 honor `--persist-by-default`.
-Persisted jobs remain visible via `vss vlm get` / `list`.
+Persisted jobs remain visible via `vss memory get --job-id`.
 
 ### Embeddings and retrieval mode
 
@@ -591,8 +594,15 @@ Stdout is one JSON object: status, `sufficient_from_memory`, citations,
 
 ## Extending it
 
-Groups are discovered from the `vss.commands` entry point, so a third party adds
-one without touching this package:
+There are two ways to add a command group, and they meet the same contract.
+The object needs `api_version`, `name`, `summary`, and `cli() -> click.Command`;
+`api_version` must equal the CLI's, or the group is refused at load rather than
+half-mounted. Summaries are read as raw strings, so `vss --help` lists every
+group without importing any of them.
+
+### As a wheel
+
+Declare two entry points; nothing in this package changes:
 
 ```toml
 [project.entry-points."vss.commands"]
@@ -602,6 +612,92 @@ acme = "acme_vss.entrypoint:GROUP"
 acme = "Acme video operations"
 ```
 
-The object needs `api_version`, `name`, `summary`, and `cli() -> click.Command`.
-Summaries are read as raw strings, so `vss --help` lists every installed group
-without importing any of them.
+### As a directory
+
+For a group built at runtime — by an agent, or while iterating — drop it under
+`~/.vss/plugins/<name>/` instead. No wheel, no install step:
+
+```
+~/.vss/plugins/tripwire/
+├── plugin.toml
+└── tripwire_plugin.py
+```
+
+```toml
+# plugin.toml
+summary = "Tripwire detections"
+group   = "tripwire_plugin:GROUP"     # module:attr, same shape as an entry point
+```
+
+The **directory name is the group name** — there is no `name` key, so two
+directories cannot claim one mount point.
+
+The module is loaded straight from its file when — and only when — that group
+is invoked, under a private per-plugin name. It never goes on `sys.path`: that
+would let an installed module of the same basename win, and would cache this
+one under a name the next plugin could collide with.
+
+`summary` is read as data on every startup, so `vss --help` lists the group
+without importing it; a module that fails to import reports the failure when
+the group is run, and the rest of the CLI is unaffected.
+
+```bash
+vss --help                    # tripwire is listed, nothing imported
+vss tripwire run --help       # now the module is imported
+vss tripwire run --sensor warehouse-cam
+vss memory get --job-id tripwire-01M3...
+```
+
+`VSS_PLUGIN_PATH` replaces the default root. `VSS_DISABLE_PLUGINS=tripwire`
+hides a group without deleting it. A directory whose name is already installed
+is refused, naming both sources — a dropped file must not silently replace
+`search`.
+
+Why a directory rather than a wheel: installing couples *adding a command* to
+*knowing and mutating the environment the CLI runs from*, and on a host with
+more than one `vss` install that is ambiguous. The plugin root is resolved by
+the CLI itself, so whichever `vss` runs finds the same groups, with no install
+step and no write access to site-packages. Ship a wheel to get merged; drop a
+directory to iterate.
+
+**This is a code-execution surface.** Anything able to write under the plugin
+root runs in the `vss` process. That is the point for an agent adding its own
+commands, but it means the root deserves the same trust as the virtualenv.
+
+### What a job group implements
+
+`run` belongs to the framework: it resolves persistence policy, mints the
+`job_id`, writes the `submitted` record, calls your code, writes the outcome,
+and emits the completion marker. A group subclasses `CommandGroup` and supplies
+only its own domain:
+
+| Hook | What it does |
+|------|--------------|
+| `adapter()` | the `LifecycleAdapter` subclass mapping this group's jobs onto records |
+| `prepare()` | resolve the request; fill `job.input_data` and `job.asset_id` |
+| `execute()` | do the work; raise `JobError` to classify a post-mint failure |
+| `build_bundle()` | map the output onto the terminal record and its result rows |
+| `render()` | the body keys only this group knows |
+
+`status`, `get` and `list` are inherited — they are memory reads, so a group has
+nothing to add. A group's records carry its own `job.group` token; the schema
+accepts it without a release.
+
+A group may write **several kinds of result row**. `build_bundle` returns a
+`RecordBundle` whose rows each carry their own `record_type`, and
+`vss memory get` returns them grouped by it:
+
+```json
+{
+  "job": {"job_id": "summarize-01K…", "group": "summary", "status": "completed"},
+  "results": {
+    "chapter": [{"job": {"record_type": "chapter", "record_id": "c1"}, …}],
+    "event":   [{"job": {"record_type": "event",   "record_id": "e1"}, …}]
+  }
+}
+```
+
+Grouped rather than flat because ordering only means something within a type —
+`rank` orders search hits, time orders events. Each type is also queryable on
+its own with `vss memory query --record-type <type>`, and `--group <token>
+--parents-only` lists every job a group has run.

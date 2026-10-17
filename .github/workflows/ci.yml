@@ -405,7 +405,7 @@ jobs:
           sudo apt-get install -y libcairo2-dev pkg-config
 
       - name: Install dev dependencies
-        run: uv sync --group dev --extra agent --extra cli --frozen
+        run: uv sync --group dev --frozen
 
       - name: mypy
         run: uv run mypy packages/vss_agents/src/vss_agents
@@ -452,7 +452,7 @@ jobs:
           sudo apt-get install -y libcairo2-dev pkg-config
 
       - name: Install dev dependencies
-        run: uv sync --group dev --extra agent --extra cli --frozen
+        run: uv sync --group dev --frozen
 
       - name: pytest
         timeout-minutes: 10
@@ -568,47 +568,79 @@ jobs:
 
       - name: Build and test NAT-free base distribution
         run: |
-          uv sync --frozen
+          uv sync --frozen --all-packages
           uv run --no-sync mypy \
-            core/src/vss_core/_foundation \
-            core/src/vss_core/search_core \
-            core/src/vss_core/vlm \
-            core/src/vss_core/vios \
+            src/nvidia_vss/_foundation \
+            src/nvidia_vss/vlm \
+            src/nvidia_vss/media \
+            packages/search/src/nvidia_vss/search \
+            packages/analytics/src/nvidia_vss/analytics \
             cli/src/vss_cli
-          uv run --no-sync pytest core/tests/unit_test cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
-            --cov=core/src --cov=cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
+          uv run --no-sync pytest -W error::RuntimeWarning -W error::ResourceWarning \
+            --cov=src --cov=cli/src --cov=packages/search/src --cov=packages/analytics/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
           uv run --no-sync python ../../.github/osrb/test_osrb_scan.py
           uv run --no-sync python ../../.github/osrb/test_osrb_summary.py
           rm -rf dist
-          uv build --package nvidia-vss-core
-          uv build --package nvidia-vss-cli
+          # --no-sources: build exactly what a release publishes, without the
+          # workspace's [tool.uv.sources] links between the siblings.
+          uv build --all-packages --no-sources
+          # Every wheel contributes to the nvidia_vss namespace; none may own it.
+          python3 - <<'PY'
+          import pathlib, zipfile
+          wheels = sorted(pathlib.Path("dist").glob("*.whl"))
+          assert len(wheels) == 4, wheels
+          for wheel in wheels:
+              names = zipfile.ZipFile(wheel).namelist()
+              assert "nvidia_vss/__init__.py" not in names, f"{wheel.name} ships nvidia_vss/__init__.py"
+          PY
 
       - name: Smoke-test built wheel in a clean environment
         run: |
           rm -rf .wheel-smoke
           uv venv --python 3.13 .wheel-smoke
-          set -- dist/nvidia_vss_core-*.whl
+          set -- dist/nvidia_vss-*.whl
           test "$#" -eq 1 && test -f "$1"
           core_whl="$1"
           set -- dist/nvidia_vss_cli-*.whl
           test "$#" -eq 1 && test -f "$1"
           cli_whl="$1"
+          set -- dist/nvidia_vss_search-*.whl
+          test "$#" -eq 1 && test -f "$1"
+          search_whl="$1"
+          set -- dist/nvidia_vss_analytics-*.whl
+          test "$#" -eq 1 && test -f "$1"
+          analytics_whl="$1"
+          # core + cli alone: a working vss without the plugin groups.
           uv pip install --python .wheel-smoke/bin/python --no-cache "$core_whl" "$cli_whl"
           uv pip check --python .wheel-smoke/bin/python
+          .wheel-smoke/bin/vss --help > .wheel-smoke/help-base.txt
+          if grep -E '^ +(search|analytics) ' .wheel-smoke/help-base.txt; then
+            echo "plugin groups listed without their distributions installed" >&2
+            exit 1
+          fi
+          .wheel-smoke/bin/python -c 'import importlib.util as u; assert u.find_spec("nvidia_vss.search") is None and u.find_spec("nvidia_vss.analytics") is None'
+          # The plugin wheels add their groups to the same nvidia_vss namespace.
+          uv pip install --python .wheel-smoke/bin/python --no-cache "$search_whl" "$analytics_whl"
+          uv pip check --python .wheel-smoke/bin/python
+          .wheel-smoke/bin/vss --help > .wheel-smoke/help-all.txt
+          grep -E '^ +search ' .wheel-smoke/help-all.txt
+          grep -E '^ +analytics ' .wheel-smoke/help-all.txt
           .wheel-smoke/bin/python - <<'PY'
           import importlib.util
           from importlib import metadata
 
-          import vss_core
+          import nvidia_vss
           import vss_cli
-          import vss_core.search_core.critic
-          import vss_core.search_core
-          import vss_core.vlm
-          import vss_core.vios
+          import nvidia_vss.analytics
+          import nvidia_vss.search.critic
+          import nvidia_vss.search
+          import nvidia_vss.vlm
+          import nvidia_vss.media
 
           installed = {dist.metadata["Name"].lower() for dist in metadata.distributions()}
-          assert "nvidia-vss-core" in installed
+          assert "nvidia-vss" in installed
           assert "nvidia-vss-cli" in installed
+          assert {"nvidia-vss-search", "nvidia-vss-analytics"} <= installed
           assert installed.isdisjoint({"coverage", "mypy", "pytest", "ruff"})
           # The base (core + cli) install must never pull the NAT/torch stack
           # nor the agent distribution.
@@ -616,8 +648,8 @@ jobs:
           assert importlib.util.find_spec("nat") is None
           assert importlib.util.find_spec("torch") is None
           assert importlib.util.find_spec("vss_agents") is None
-          assert importlib.util.find_spec("vss_core.critic") is None and vss_core.search_core is not None and vss_core.search_core.critic is not None
-          assert vss_core.vlm is not None and vss_core.vios is not None
+          assert importlib.util.find_spec("nvidia_vss.critic") is None and nvidia_vss.search is not None and nvidia_vss.search.critic is not None
+          assert nvidia_vss.vlm is not None and nvidia_vss.media is not None
           PY
           .wheel-smoke/bin/vss --help >/dev/null
 

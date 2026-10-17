@@ -395,7 +395,7 @@ network_policies:
   # script (its release assets are not listed).
   #
   # Extra indexes from services/agent/pyproject.toml: uv reads every declared
-  # index. pytorch-cpu is for --extra agent; ngc-data-platform is omitted
+  # index. pytorch-cpu is for the agent's torch; ngc-data-platform is omitted
   # (NVIDIA-internal, only nvdataset).
   #
   # Use `--python /usr/bin/python3.13`. A uv-managed interpreter under

@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+raw-options.root = "../../../.."
+# Keep in sync with libs/vss/pyproject.toml [tool.hatch.version].
+raw-options.git_describe_command = [
+  "git", "describe", "--dirty", "--tags", "--long", "--match", "v[0-9]*",
+]
+raw-options.version_scheme = "no-guess-dev"
+
+[tool.hatch.build.targets.wheel]
+# Only this module of the nvidia_vss namespace; never nvidia_vss/__init__.py.
+only-include = ["src/nvidia_vss/analytics"]
+sources = ["src"]
+
+[project]
+name = "nvidia-vss-analytics"
+dynamic = ["version"]
+requires-python = ">=3.13,<3.15"
+description = "NVIDIA VSS Video Analytics API client (NAT-free) and the read-only `vss analytics` command group"
+license = "Apache-2.0"
+authors = [{ name = "NVIDIA Corporation" }]
+maintainers = [{ name = "NVIDIA Corporation" }]
+# Keep sorted. No click or nvidia-vss-cli: the command group under
+# nvidia_vss.analytics.cli is imported only by the vss CLI, which brings both.
+dependencies = [
+  "aiohttp~=3.14",
+  "nvidia-vss",
+]
+
+[project.entry-points."vss.commands"]
+analytics = "nvidia_vss.analytics.cli.register:GROUP"
+
+# Read as a raw string for `vss --help`; never imported.
+[project.entry-points."vss.command_summaries"]
+analytics = "Read incidents and video analytics metrics"
+
+[tool.uv.sources]
+nvidia-vss = { workspace = true }

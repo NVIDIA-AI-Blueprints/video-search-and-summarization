@@ -7,14 +7,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 import subprocess
 import sys
+from typing import TYPE_CHECKING
 from typing import Any
 
 import click
+from click.testing import CliRunner
 import pytest
 
 import vss_cli as cli
+from vss_cli import config as config_mod
 from vss_cli import plugins
 from vss_cli import registry
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @dataclass
@@ -244,12 +250,211 @@ def test_entry_point_name_wins_over_the_callback_name(monkeypatch: pytest.Monkey
 
 def test_root_help_does_not_import_the_search_runtime() -> None:
     """Run in a subprocess: an earlier test in this process may have imported it."""
-    code = "import sys; import vss_cli; vss_cli.main(['--help']); sys.exit(1 if 'vss_cli.search.group' in sys.modules else 0)"
+    code = "import sys; import vss_cli; vss_cli.main(['--help']); sys.exit(1 if 'nvidia_vss.search.cli.group' in sys.modules else 0)"
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert result.returncode == 0, f"vss --help imported the search runtime\n{result.stdout}{result.stderr}"
 
 
 def test_root_help_does_not_import_the_analytics_group() -> None:
-    code = "import sys; import vss_cli; vss_cli.main(['--help']); sys.exit(1 if 'vss_cli.analytics.group' in sys.modules else 0)"
+    code = "import sys; import vss_cli; vss_cli.main(['--help']); sys.exit(1 if 'nvidia_vss.analytics.cli.group' in sys.modules else 0)"
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert result.returncode == 0, f"vss --help imported analytics\n{result.stdout}{result.stderr}"
+
+
+# --------------------------------------------------------------------------
+# on-disk groups (`~/.vss/plugins/<name>/plugin.toml`)
+# --------------------------------------------------------------------------
+
+
+def _drop_plugin(
+    root: Path,
+    name: str,
+    *,
+    manifest: str | None = None,
+    module: str = "",
+) -> Path:
+    """Write one on-disk group, the way an optimisation agent would."""
+    directory = root / name
+    directory.mkdir(parents=True)
+    if manifest is None:
+        manifest = f'summary = "{name} operations"\ngroup = "{name}_plugin:GROUP"\n'
+    (directory / plugins.MANIFEST_NAME).write_text(manifest, encoding="utf-8")
+    if module:
+        (directory / f"{name}_plugin.py").write_text(module, encoding="utf-8")
+    return directory
+
+
+_WORKING_PLUGIN = """
+import click
+
+
+class _Group:
+    api_version = {version}
+    name = "{name}"
+    summary = "{name} operations"
+
+    def cli(self):
+        @click.command(name="{name}")
+        def command():
+            click.echo("{name} ran")
+
+        return command
+
+
+GROUP = _Group()
+"""
+
+
+@pytest.fixture
+def plugin_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    root = tmp_path / "plugins"
+    root.mkdir()
+    monkeypatch.setenv(plugins.PLUGIN_PATH_ENV, str(root))
+    return root
+
+
+def test_plugin_root_defaults_under_the_config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """One user-level directory, resolved the way `config.json` already is."""
+    monkeypatch.delenv(plugins.PLUGIN_PATH_ENV, raising=False)
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
+    assert plugins.plugin_root() == tmp_path / "cfg" / "plugins"
+
+
+def test_absent_plugin_root_is_not_an_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nothing has ever been dropped, which is the ordinary case."""
+    monkeypatch.setenv(plugins.PLUGIN_PATH_ENV, str(tmp_path / "never-created"))
+    assert [ref.name for ref in plugins.discover() if ref.source is not None] == []
+
+
+def test_a_dropped_group_is_discovered_without_importing_it(plugin_root: Path) -> None:
+    """The summary is read as data, so `vss --help` costs no import.
+
+    The module is deliberately one that raises: if discovery imported it, this
+    would fail here instead of at invocation.
+    """
+    _drop_plugin(plugin_root, "acme", module="raise RuntimeError('imported too early')\n")
+    ref = next(ref for ref in plugins.discover() if ref.name == "acme")
+    assert ref.summary == "acme operations"
+    assert ref.source == plugin_root / "acme"
+    assert ref.dist is None
+
+
+def test_a_dropped_group_loads_and_runs(plugin_root: Path) -> None:
+    """The whole point: drop a directory, and the next process mounts it."""
+    _drop_plugin(plugin_root, "acme", module=_WORKING_PLUGIN.format(name="acme", version=plugins.API_VERSION))
+    spec = plugins.load("acme")
+    assert spec.name == "acme"
+    result = CliRunner().invoke(spec.cli(), [])
+    assert result.exit_code == 0, result.output
+    assert "acme ran" in result.output
+
+
+def test_a_dropped_group_is_held_to_the_api_version(plugin_root: Path) -> None:
+    """Same guard as a wheel: refused at load, not half-mounted."""
+    _drop_plugin(plugin_root, "oldacme", module=_WORKING_PLUGIN.format(name="oldacme", version=plugins.API_VERSION + 1))
+    with pytest.raises(plugins.PluginLoadError) as excinfo:
+        plugins.load("oldacme")
+    assert "api_version" in str(excinfo.value)
+    assert str(plugin_root / "oldacme") in str(excinfo.value)
+
+
+def test_a_malformed_manifest_does_not_break_discovery(plugin_root: Path) -> None:
+    """One bad drop must not stop `vss --help` listing everything else."""
+    _drop_plugin(plugin_root, "acme", manifest="this is not toml {{{\n")
+    ref = next(ref for ref in plugins.discover() if ref.name == "acme")
+    assert ref.unavailable is not None
+    assert "will not parse" in ref.unavailable
+    with pytest.raises(plugins.PluginLoadError):
+        plugins.load("acme")
+
+
+def test_a_manifest_without_a_group_key_says_so(plugin_root: Path) -> None:
+    _drop_plugin(plugin_root, "acme", manifest='summary = "no importable"\n')
+    with pytest.raises(plugins.PluginLoadError) as excinfo:
+        plugins.load("acme")
+    assert "group" in str(excinfo.value)
+
+
+def test_a_dropped_group_may_not_shadow_an_installed_one(plugin_root: Path) -> None:
+    """`search` is first-party (nvidia-vss-search); a dropped file of the same name is refused.
+
+    Naming both sources is the point -- a silent win in either direction is the
+    failure mode nobody would think to look for.
+    """
+    _drop_plugin(plugin_root, "search", module=_WORKING_PLUGIN.format(name="search", version=plugins.API_VERSION))
+    with pytest.raises(plugins.PluginLoadError) as excinfo:
+        plugins.load("search")
+    message = str(excinfo.value)
+    assert "nvidia-vss-search" in message
+    assert str(plugin_root / "search") in message
+
+
+def test_disable_env_also_hides_a_dropped_group(plugin_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The operator escape hatch must not have a blind spot."""
+    _drop_plugin(plugin_root, "acme", module=_WORKING_PLUGIN.format(name="acme", version=plugins.API_VERSION))
+    monkeypatch.setenv(plugins.DISABLE_ENV, "acme")
+    assert "acme" not in {ref.name for ref in plugins.discover()}
+
+
+def test_a_dropped_group_reaches_the_root_dispatcher(plugin_root: Path) -> None:
+    """End to end: `vss --help` lists it and `vss rootacme` runs it."""
+    _drop_plugin(plugin_root, "rootacme", module=_WORKING_PLUGIN.format(name="rootacme", version=plugins.API_VERSION))
+    root = registry.build_root()
+    listed = CliRunner().invoke(root, ["--help"])
+    assert "rootacme" in listed.output
+    assert "rootacme operations" in listed.output
+    ran = CliRunner().invoke(root, ["rootacme"])
+    assert ran.exit_code == 0, ran.output
+    assert "rootacme ran" in ran.output
+
+
+def test_a_plugin_module_does_not_shadow_an_installed_one(plugin_root: Path) -> None:
+    """Loading by path keeps a plugin out of the ordinary module namespace.
+
+    Going through `sys.path` would let a plugin file named `json.py` win over
+    the stdlib for the rest of the process, and would cache the plugin under a
+    name the next plugin could collide with.
+    """
+    import json as stdlib_json
+
+    _drop_plugin(
+        plugin_root,
+        "shadow",
+        manifest='summary = "shadowy"\ngroup = "json:GROUP"\n',
+        module=_WORKING_PLUGIN.format(name="shadow", version=plugins.API_VERSION),
+    )
+    (plugin_root / "shadow" / "json.py").write_text(
+        _WORKING_PLUGIN.format(name="shadow", version=plugins.API_VERSION), encoding="utf-8"
+    )
+    spec = plugins.load("shadow")
+    assert spec.name == "shadow"
+    # The real json module is untouched, and nothing was added under its name.
+    assert sys.modules["json"] is stdlib_json
+    assert hasattr(stdlib_json, "loads")
+
+
+def test_two_plugins_sharing_a_module_basename_stay_separate(plugin_root: Path) -> None:
+    """Same file name in two directories must not serve the same GROUP twice.
+
+    A fresh process per call hides this, but one pytest process -- or any
+    embedding host -- would get plugin A's command under plugin B's name.
+    """
+    for name in ("alpha", "beta"):
+        directory = plugin_root / name
+        directory.mkdir(parents=True)
+        (directory / plugins.MANIFEST_NAME).write_text(
+            f'summary = "{name} ops"\ngroup = "shared:GROUP"\n', encoding="utf-8"
+        )
+        (directory / "shared.py").write_text(
+            _WORKING_PLUGIN.format(name=name, version=plugins.API_VERSION), encoding="utf-8"
+        )
+
+    assert plugins.load("alpha").name == "alpha"
+    assert plugins.load("beta").name == "beta", "the second plugin must not be served the first's GROUP"
+
+
+def test_a_manifest_naming_a_missing_module_says_so(plugin_root: Path) -> None:
+    _drop_plugin(plugin_root, "absent", manifest='summary = "x"\ngroup = "nope:GROUP"\n')
+    with pytest.raises(plugins.PluginLoadError) as excinfo:
+        plugins.load("absent")
+    assert "not in" in str(excinfo.value)

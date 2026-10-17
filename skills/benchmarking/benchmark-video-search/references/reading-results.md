@@ -123,14 +123,14 @@ the merge itself.
 
 #### Whose code produced these numbers
 
-The CLI runs as `uv run --project <repo> ... vss`, so `search_core` executes
+The CLI runs as `uv run --project <repo> ... vss`, so `nvidia_vss.search` executes
 **locally, from your working tree** -- not on the host in `--endpoint`. That
 host supplies RT-Embed, RT-CV, Elasticsearch, VST and the VLM; the search
 orchestration, and therefore every stage timing, is local.
 
 Two consequences:
 
-* Editing `search_core` takes effect on the next run. No deploy, no push, not
+* Editing `nvidia_vss.search` takes effect on the next run. No deploy, no push, not
   even a commit -- the working tree is what runs.
 * A stage timing measures **your** code against **their** services. Comparing
   two runs is only meaningful if the checkout is the same; comparing across
@@ -140,7 +140,7 @@ The REST path is the opposite -- there the timings come from whatever the host
 is running, and appear only once the deployment carries this change.
 
 This is the CLI-path replacement for the Phoenix span breakdown, which does not
-exist here — `search_core` is NAT-free and emits no OTel spans. It is finer
+exist here — `nvidia_vss.search` is NAT-free and emits no OTel spans. It is finer
 than Phoenix was (`embed_search` was one span there, four stages here) and
 attributable to a specific query rather than joined back by timestamp.
 

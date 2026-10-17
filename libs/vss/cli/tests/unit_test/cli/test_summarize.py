@@ -20,16 +20,17 @@ from click.testing import CliRunner
 import httpx
 import pytest
 
+from nvidia_vss._foundation.errors import BackendUnreachableError
+from nvidia_vss.memory import InMemoryStore
+from nvidia_vss.memory import MemoryService
 from vss_cli import config as config_mod
 from vss_cli import memory as memory_mod
 from vss_cli.exits import Exit
+from vss_cli.lifecycle import mint_job_id
 from vss_cli.summarize import group as summarize_group
 from vss_cli.summarize.group import SUMMARIZE
 from vss_cli.summarize.group import SummarizeInput
 from vss_cli.summarize.group import SummarizeOptions
-from vss_core._foundation.errors import BackendUnreachableError
-from vss_core.memory import InMemoryStore
-from vss_core.memory import MemoryService
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -208,7 +209,7 @@ def _persisted(memory: memory_mod.Memory) -> dict[str, Any]:
 
 def _persisted_event_children(memory: memory_mod.Memory) -> list[dict[str, Any]]:
     """The parent's ``event`` child records, oldest event first."""
-    from vss_core.memory.store import MemoryQuery
+    from nvidia_vss.memory.store import MemoryQuery
 
     parent = _persisted(memory)
     children = memory.service.query(MemoryQuery(job_id=parent["job"]["job_id"], record_type="event", limit=100))
@@ -625,6 +626,7 @@ def test_persist_writes_one_unified_memory_record(
         "expected": 1,
         "written": 1,
         "collapsed": 0,
+        "failed": [],
     }
 
 
@@ -644,7 +646,7 @@ def test_summary_memory_prefers_media_name_and_preserves_internal_ids(
 def test_summary_memory_resolves_vios_name(
     configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, memory: memory_mod.Memory
 ) -> None:
-    from vss_core.vios import SensorRef
+    from nvidia_vss.media import SensorRef
 
     config_mod.save(
         config_mod.Deployment(
@@ -663,7 +665,7 @@ def test_summary_memory_resolves_vios_name(
             kind="stream",
         )
 
-    monkeypatch.setattr("vss_core.vios.resolve_sensor", resolve_sensor)
+    monkeypatch.setattr("nvidia_vss.media.resolve_sensor", resolve_sensor)
     _capture_post(monkeypatch)
     result = _run("--id", "stream-uuid")
     assert result.exit_code == 0, result.output
@@ -852,8 +854,8 @@ def test_colliding_events_report_partial_and_keep_summary(
     marker = _marker(result)
     assert body["summary"]["id"] == "cmpl-1"
     assert body["persist"]["status"] == "failed"
-    assert "'requested': 3" in body["persist"]["error"]
-    assert "'collapsed': 1" in body["persist"]["error"]
+    assert body["persist"]["requested"] == 3
+    assert body["persist"]["collapsed"] == 1
     assert marker["status"] == "partial"
     assert marker["persisted"] is False
     parent = memory.service.get(body["job_id"], reconcile=False)
@@ -1350,6 +1352,11 @@ def test_success_says_what_the_handle_is_worth_too(
 
 
 def _read(*argv: str) -> Any:
+    """Invoke a deprecated read verb.
+
+    Its deprecation notice goes to stderr, so callers here parse ``.stdout``:
+    the payload a harness consumes is unchanged for this release.
+    """
     return CliRunner().invoke(SUMMARIZE.cli(), list(argv))
 
 
@@ -1362,10 +1369,10 @@ def test_get_returns_the_record_run_persisted(
 
     result = _read("get", "--job-id", job_id)
     assert result.exit_code == 0, result.output
-    record = json.loads(result.output)
+    record = json.loads(result.stdout)
     assert record["job"]["job_id"] == job_id
     assert record["output"]["answer"] == "a forklift crosses the aisle"
-    assert record["children"] == []
+    assert record["results"] == {}
 
 
 def test_get_hydrates_event_children_in_time_order(
@@ -1383,9 +1390,10 @@ def test_get_hydrates_event_children_in_time_order(
 
     result = _read("get", "--job-id", job_id)
     assert result.exit_code == 0, result.output
-    record = json.loads(result.output)
-    assert [child["output"]["answer"] for child in record["children"]] == ["first", "second"]
-    assert all(child["job"]["record_type"] == "event" for child in record["children"])
+    record = json.loads(result.stdout)
+    assert list(record["results"]) == ["event"]
+    assert [row["output"]["answer"] for row in record["results"]["event"]] == ["first", "second"]
+    assert all(row["job"]["record_type"] == "event" for row in record["results"]["event"])
 
 
 def test_status_reports_the_lifecycle_state(
@@ -1396,7 +1404,7 @@ def test_status_reports_the_lifecycle_state(
 
     result = _read("status", "--job-id", _store(memory).upsert_ids[0])
     assert result.exit_code == 0, result.output
-    assert json.loads(result.output)["job"]["status"] == "timeout"
+    assert json.loads(result.stdout)["job"]["status"] == "timeout"
 
 
 def test_list_filters_by_sensor(
@@ -1406,8 +1414,8 @@ def test_list_filters_by_sensor(
     assert _run("--id", "v1").exit_code == 0
     assert _run("--id", "v2").exit_code == 0
 
-    assert len(json.loads(_read("list").output)) == 2
-    only = json.loads(_read("list", "--sensor-id", "v2").output)
+    assert len(json.loads(_read("list").stdout)) == 2
+    only = json.loads(_read("list", "--sensor-id", "v2").stdout)
     assert [record["input"]["sensors"][0]["id"] for record in only] == ["v2"]
 
 
@@ -1423,7 +1431,7 @@ def test_another_groups_job_is_not_this_groups_to_return(
     configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, memory: memory_mod.Memory
 ) -> None:
     """`summarize get` must not hand back a search job that shares the index."""
-    from vss_cli.search.memory_adapter import SearchAdapter
+    from nvidia_vss.search.cli.memory_adapter import SearchAdapter
 
     foreign = SearchAdapter().submitted_record(
         job_id="search-01",
@@ -1459,7 +1467,7 @@ def test_the_docker_edge_admits_the_index_this_cli_writes() -> None:
     assert pattern, "the memory write exception is gone from the edge"
     excepted = re.compile(pattern.group(1))
 
-    from vss_core.memory.backends.elasticsearch import DEFAULT_MEMORY_INDEX
+    from nvidia_vss.memory.backends.elasticsearch import DEFAULT_MEMORY_INDEX
 
     assert excepted.search(f"/elasticsearch/{DEFAULT_MEMORY_INDEX}/_doc/summarize-01ABC")
     assert not excepted.search("/elasticsearch/mdx-chunks/_doc/summarize-01ABC")
@@ -1499,8 +1507,8 @@ def test_a_refused_read_is_a_typed_exit_not_a_traceback(
 
 def test_job_ids_are_prefixed_and_sortable() -> None:
     """ULID ordering keeps job ids sortable by mint time without a separate key."""
-    first = summarize_group._mint_job_id()
-    second = summarize_group._mint_job_id()
+    first = mint_job_id(SUMMARIZE.name)
+    second = mint_job_id(SUMMARIZE.name)
     assert first.startswith("summarize-")
     assert len(first.split("-", 1)[1]) == 26
     assert first < second or first[:14] == second[:14]

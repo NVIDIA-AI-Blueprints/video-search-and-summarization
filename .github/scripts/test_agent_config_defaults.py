@@ -21,7 +21,7 @@ INDUSTRY_AGENT_CONFIGS = (
 # tag, baked into the image), but it is published alongside, so it must still
 # be a version the contract accepts.
 AGENT_CHART = ROOT / "deploy/helm/services/agent/Chart.yaml"
-# vss_core.version.SEMVER_PATTERN, the contract the endpoint enforces. Spelled
+# nvidia_vss.version.SEMVER_PATTERN, the contract the endpoint enforces. Spelled
 # out because these script tests run on a bare python3 with no VSS installed.
 SEMVER = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"

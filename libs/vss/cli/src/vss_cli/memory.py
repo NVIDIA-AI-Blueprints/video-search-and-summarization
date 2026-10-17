@@ -2,14 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """The CLI's view of the unified memory tier (``nv.vss.memory/1.0``).
 
-``vss_core.memory`` is deliberately group-agnostic: it stores records keyed by
-``job_id`` and knows nothing about command groups. The framework's read verbs
-ask a narrower question -- *this group's* job, by id (SDD §6.2) -- so the two
-need one adapter, and this is it. It resolves the store from the recorded
-deployment, scopes reads to the calling group, and returns plain JSON for the
-emitter.
+``nvidia_vss.memory`` is deliberately group-agnostic: it stores records keyed by
+``job_id`` and knows nothing about command groups. A read asks a narrower
+question -- *this group's* job, by id (SDD §6.2) -- so the two need one
+adapter, and this is it. It resolves the store from the recorded deployment,
+scopes reads to the named group, and returns plain JSON for the emitter.
 
-Nothing here is imported at CLI start-up: ``vss_core.memory`` and the
+A job is a partition: one lifecycle row carrying ``job.status``, and zero or
+more result rows sharing its ``job_id``. Rows are found by that id alone --
+nothing here maps a group to the record type it writes, because a group added
+at runtime names a type no table could have listed.
+
+Nothing here is imported at CLI start-up: ``nvidia_vss.memory`` and the
 Elasticsearch client load on the first call that actually touches memory, so
 ``vss --help`` and ``run --no-persist`` stay free of them.
 """
@@ -28,10 +32,10 @@ from .exits import Exit
 if TYPE_CHECKING:
     from typing import Literal
 
-    from vss_core.memory import EmbeddingBackfillService
-    from vss_core.memory import MemoryService
-    from vss_core.memory import UnifiedMemoryRecord
-    from vss_core.memory.models import MemoryGroup
+    from nvidia_vss.memory import EmbeddingBackfillService
+    from nvidia_vss.memory import MemoryService
+    from nvidia_vss.memory import UnifiedMemoryRecord
+    from nvidia_vss.memory.models import MemoryGroup
 
     from . import config as config_mod
 
@@ -40,20 +44,11 @@ if TYPE_CHECKING:
 #: writes is a ``summary``. Identity for every other group.
 _GROUP_TOKENS = {"summarize": "summary"}
 
-#: Child collections owned by each job group. ``get`` hydrates these into a
-#: presentation-only envelope; they are never nested back into the stored
-#: ``nv.vss.memory/1.0`` parent.
-_CHILD_RECORD_TYPES = {
-    "summary": "event",
-    "search": "search_hit",
-    "alert": "incident",
-}
-_CHILD_COUNT_KEYS = {
-    "event": "event_count",
-    "search_hit": "result_count",
-    "incident": "incident_count",
-}
-_DEFAULT_CHILD_LIMIT = 100
+#: How many result rows ``get`` hydrates for one job before truncating.
+_DEFAULT_ROW_LIMIT = 100
+
+#: Result-row keys that may carry an explicit ordering rank.
+_RANK_KEYS: tuple[str, ...] = ("rank",)
 
 
 class MemoryUnavailable(click.ClickException):
@@ -83,11 +78,16 @@ def _close_resources(resources: tuple[Any, ...]) -> None:
 def group_token(name: str) -> MemoryGroup:
     """The unified-schema group a CLI group writes under.
 
-    Cast rather than validated: a third-party group is free to name a token
-    the schema does not know, and the store is where that gets rejected on
-    write. A read filtered by an unknown group simply matches nothing.
+    Open by design: a group added at runtime names a token this package has
+    never heard of, and it is still the right token for its records. Declaring
+    it here is what keeps the schema's advisory log for writers that no mounted
+    group accounts for, rather than for every agent-added group.
     """
-    return cast("MemoryGroup", _GROUP_TOKENS.get(name, name))
+    from nvidia_vss.memory.models import register_known_group
+
+    token = _GROUP_TOKENS.get(name, name)
+    register_known_group(token)
+    return cast("MemoryGroup", token)
 
 
 class Memory:
@@ -113,6 +113,8 @@ class Memory:
         self.embedding_batch_size = embedding_batch_size
         self._closeables = closeables
         self._closed = False
+        #: Set by the last :meth:`get` when its partition read hit the limit.
+        self._truncated = False
 
     @property
     def service(self) -> MemoryService:
@@ -126,16 +128,28 @@ class Memory:
         _close_resources(self._closeables)
 
     def status(self, group: str, job_id: str) -> dict[str, Any]:
+        """The job's lifecycle row alone -- one document, whatever it produced.
+
+        What a caller polls after an exit 7, so it stays a single fetch even
+        for a job that wrote thousands of result rows.
+        """
         return self._scoped(group, job_id).model_dump_memory()
 
     def get(self, group: str, job_id: str) -> dict[str, Any]:
-        parent = self._scoped(group, job_id)
-        payload = parent.model_dump_memory()
-        payload["children"] = self._children(parent)
+        """The whole partition: the lifecycle row plus every result row under it."""
+        lifecycle = self._scoped(group, job_id)
+        payload = lifecycle.model_dump_memory()
+        self._truncated = False
+        payload["results"] = self._result_rows(lifecycle)
+        if self._truncated:
+            # A short read that says nothing is worse than a short read: a
+            # caller counting rows would conclude the job produced fewer than
+            # it did.
+            payload["results_truncated"] = True
         return payload
 
     def query(self, group: str, filters: dict[str, Any]) -> list[dict[str, Any]]:
-        from vss_core.memory import JobFilters
+        from nvidia_vss.memory import JobFilters
 
         records = self._service.list_jobs(
             JobFilters(
@@ -147,44 +161,66 @@ class Memory:
         )
         return [record.model_dump_memory() for record in records]
 
-    def _children(self, parent: UnifiedMemoryRecord) -> list[dict[str, Any]]:
-        """Return this parent's independently retrievable results in domain order."""
-        from vss_core.memory import MemoryQuery
+    def _result_rows(self, lifecycle: UnifiedMemoryRecord) -> dict[str, list[dict[str, Any]]]:
+        """This job's result rows, grouped by ``record_type``.
 
-        record_type = _CHILD_RECORD_TYPES.get(parent.job.group)
-        if record_type is None:
-            return []
+        Found by ``job_id`` alone. The group's own name is not consulted and no
+        table maps a group to the record type it writes -- that map allowed a
+        group exactly one type, and a group legitimately has several: a
+        summarization that emits both events and chapters, a search that emits
+        hits and the clusters over them. It also could not name a type a
+        group added at runtime invents.
+
+        Grouped rather than flat because ordering only means something *within*
+        a type: rank orders search hits, time orders events, and interleaving
+        the two orders neither. Each type is sorted on what its rows actually
+        carry -- an explicit ``rank``, else the row's own window, else the
+        record id -- so a new type sorts sensibly without being enrolled
+        anywhere.
+        """
+        from nvidia_vss.memory import MemoryQuery
+
+        # Sum, not max: a job with 80 events and 60 chapters has 140 rows, and
+        # taking the largest single count would silently drop the rest.
         advertised = 0
-        if parent.output is not None and parent.output.ext:
-            value = parent.output.ext.get(_CHILD_COUNT_KEYS[record_type])
-            if isinstance(value, int) and value > 0:
-                advertised = value
-        records = self._service.query(
-            MemoryQuery(
-                job_id=parent.job.job_id,
-                record_type=record_type,  # type: ignore[arg-type]
-                limit=max(_DEFAULT_CHILD_LIMIT, advertised),
+        if lifecycle.output is not None and lifecycle.output.ext:
+            advertised = sum(
+                value
+                for key, value in lifecycle.output.ext.items()
+                if key.endswith("_count") and isinstance(value, int) and value > 0
             )
-        )
-        children = [
-            record
-            for record in records
-            if record.job.is_child and record.job.group == parent.job.group and record.job.job_id == parent.job.job_id
-        ]
+        # +1 for the lifecycle row, which shares the partition and counts
+        # against the same limit: asking for exactly `advertised` returned one
+        # result row fewer than the job advertised.
+        limit = max(_DEFAULT_ROW_LIMIT, advertised) + 1
+        records = self._service.query(MemoryQuery(job_id=lifecycle.job.job_id, limit=limit))
+        self._truncated = len(records) >= limit
 
-        def sort_key(record: UnifiedMemoryRecord) -> tuple[int, str]:
-            if record_type == "search_hit":
-                rank = record.output.ext.get("rank") if record.output is not None and record.output.ext else None
-                return (int(rank) if isinstance(rank, int | float) else 2**31 - 1, record.job.record_id or "")
+        def sort_key(record: UnifiedMemoryRecord) -> tuple[int, Any, str]:
+            ext = record.output.ext if record.output is not None and record.output.ext else {}
+            for key in _RANK_KEYS:
+                rank = ext.get(key)
+                if isinstance(rank, int | float) and not isinstance(rank, bool):
+                    # Kept as a float: int() collapsed 1.2 and 1.8 onto the same
+                    # key and then ordered them by record id instead of rank.
+                    return (0, float(rank), record.job.record_id or "")
             if record.input is not None and record.input.window is not None:
-                return (0, record.input.window.start.timestamp.isoformat())
-            return (1, record.job.record_id or "")
+                return (1, record.input.window.start.timestamp.isoformat(), record.job.record_id or "")
+            return (2, "", record.job.record_id or "")
 
-        return [record.model_dump_memory() for record in sorted(children, key=sort_key)]
+        by_type: dict[str, list[UnifiedMemoryRecord]] = {}
+        for record in records:
+            if record.job.job_id != lifecycle.job.job_id or record.job.record_id is None:
+                continue
+            by_type.setdefault(str(record.job.record_type), []).append(record)
+        return {
+            record_type: [row.model_dump_memory() for row in sorted(rows, key=sort_key)]
+            for record_type, rows in sorted(by_type.items())
+        }
 
     def _scoped(self, group: str, job_id: str) -> UnifiedMemoryRecord:
         """One record, refusing another group's job under this group's verb."""
-        from vss_core.memory import MemoryNotFoundError
+        from nvidia_vss.memory import MemoryNotFoundError
 
         record = self._service.get(job_id)
         token = group_token(group)
@@ -228,12 +264,12 @@ def build(deployment: config_mod.Deployment | None, *, discover_dimensions: bool
             f"Re-run `vss configure --base-url {deployment.base_url}` if that changed."
         )
 
-    from vss_core.memory import ElasticsearchEmbeddingStore
-    from vss_core.memory import EmbeddingBackfillService
-    from vss_core.memory import MemoryService
-    from vss_core.memory import OpenAICompatibleEmbeddingProvider
-    from vss_core.memory import embedding_endpoint_identity
-    from vss_core.memory.backends.elasticsearch import ElasticsearchMemoryStore
+    from nvidia_vss.memory import ElasticsearchEmbeddingStore
+    from nvidia_vss.memory import EmbeddingBackfillService
+    from nvidia_vss.memory import MemoryService
+    from nvidia_vss.memory import OpenAICompatibleEmbeddingProvider
+    from nvidia_vss.memory import embedding_endpoint_identity
+    from nvidia_vss.memory.backends.elasticsearch import ElasticsearchMemoryStore
 
     authoritative = ElasticsearchMemoryStore(endpoint=endpoint, index=memory_config.index)
     if not memory_config.embeddings.enabled:
@@ -335,7 +371,7 @@ def write_failures() -> tuple[type[BaseException], ...]:
     ``ApiError``, which would otherwise leave the CLI as an untyped crash
     instead of a persistence failure the caller can act on.
     """
-    from vss_core._foundation.errors import BackendUnreachableError
+    from nvidia_vss._foundation.errors import BackendUnreachableError
 
     failures: list[type[BaseException]] = [BackendUnreachableError]
     try:

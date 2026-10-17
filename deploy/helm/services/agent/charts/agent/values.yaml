@@ -237,7 +237,7 @@ env:
 - name: VSS_AGENT_VERSION
   value: '{{ .Values.vssAgentVersion | default "3.3.0-65576357eb80" }}'
 # The version GET /api/v1/version reports is not an env entry: it is the
-# installed nvidia-vss-core's, stamped into the image from the nearest v* git
+# installed nvidia-vss's, stamped into the image from the nearest v* git
 # tag, and deliberately not .Chart.Version -- a chart upgraded ahead of the
 # image must not make the endpoint claim a release the image does not contain.
 # Audio configuration (compose parity: deploy/docker/services/agent/compose.yml).

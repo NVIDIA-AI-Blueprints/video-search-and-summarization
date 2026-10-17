@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 from . import config as config_mod
 
 if TYPE_CHECKING:
-    from vss_core.memory.models import UnifiedMemoryRecord
-    from vss_core.memory.notes import MemoryNoteWriteResult
+    from nvidia_vss.memory.models import UnifiedMemoryRecord
+    from nvidia_vss.memory.notes import MemoryNoteWriteResult
 
 
 def write(record: UnifiedMemoryRecord, deployment: config_mod.Deployment) -> MemoryNoteWriteResult:
@@ -26,7 +26,7 @@ def write(record: UnifiedMemoryRecord, deployment: config_mod.Deployment) -> Mem
             f"unsupported Markdown memory harness {memory_config.markdown.harness!r}; "
             "run `vss configure memory --harness openclaw`"
         )
-    from vss_core.memory.notes import OpenClawDailyNoteStore
+    from nvidia_vss.memory.notes import OpenClawDailyNoteStore
 
     return OpenClawDailyNoteStore(memory_config.markdown.workspace or "").write(record)
 

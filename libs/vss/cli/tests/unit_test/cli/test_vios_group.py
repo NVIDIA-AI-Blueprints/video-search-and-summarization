@@ -86,7 +86,7 @@ def test_list_reports_an_empty_deployment_as_a_fact_not_a_failure(
 def test_backend_failure_exits_three_with_stderr(
     cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from vss_core.vios import VSTError
+    from nvidia_vss.media import VSTError
 
     def explode(coro: Any) -> Any:
         coro.close()
@@ -114,7 +114,7 @@ def test_list_passes_the_requested_type_through_to_the_library(
 
         return _rows()
 
-    from vss_core import vios as vios_lib
+    from nvidia_vss import media as vios_lib
 
     monkeypatch.setattr(vios_lib, "list_media", capture)
     monkeypatch.setattr(vios_group, "_run", lambda coro: (coro.close(), [{"name": "f", "type": "video"}])[1])
@@ -413,7 +413,7 @@ def test_add_exits_seven_when_vios_never_indexes(
     cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
     """Reporting a sensor that cannot be used is the fail-open this group keeps hitting."""
-    from vss_core.vios import VIOSTimeoutError
+    from nvidia_vss.media import VIOSTimeoutError
 
     calls: list[Any] = []
 

@@ -1,10 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""``vss memory`` -- cross-group unified-memory access (SDD §2).
+"""``vss memory`` -- where every job is read back, whichever group wrote it.
 
-This is an administrative domain, not a job-capable command group. Job-scoped
-reads remain available as ``vss <group> status|get|list``; these commands expose
-the underlying parent/child store across groups.
+Not a job-capable command group: it has no ``run``. It is the read surface for
+the unified index, and the only one -- a read is the same query against the
+same index whichever group produced the record, so one implementation serves
+every group, including groups added at runtime that this package has never
+heard of.
+
+``vss <group> status|get|list`` still answer for one release and name their
+replacement here on stderr.
 """
 
 from __future__ import annotations
@@ -22,17 +27,18 @@ from pydantic import ValidationError
 
 from . import config as config_mod
 from . import memory as memory_mod
+from . import plugins
 from .exits import Exit
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
     from collections.abc import Callable
 
+    from nvidia_vss.introspection import IntrospectionRequest
+    from nvidia_vss.introspection import IntrospectionResult
+    from nvidia_vss.memory.models import MemoryGroup
+    from nvidia_vss.memory.models import RecordType
     from vss_cli.memory import Memory
-    from vss_core.introspection import IntrospectionRequest
-    from vss_core.introspection import IntrospectionResult
-    from vss_core.memory.models import MemoryGroup
-    from vss_core.memory.models import RecordType
 
 _TEST_MEMORY: Memory | None = None
 _TEST_INTROSPECT: Callable[[IntrospectionRequest], Awaitable[IntrospectionResult]] | None = None
@@ -147,11 +153,11 @@ async def _execute_introspection(request: IntrospectionRequest) -> tuple[Introsp
             "memory introspection is disabled; run `vss configure memory introspection --enable`"
         )
 
+    from nvidia_vss.introspection import IntrospectionSettings
+    from nvidia_vss.introspection import OpenAIIntrospectionClient
+    from nvidia_vss.introspection import introspect
     from vss_cli.memory_policy import effective_persist
     from vss_cli.vlm.runner import IntrospectionVLMJobRunner
-    from vss_core.introspection import IntrospectionSettings
-    from vss_core.introspection import OpenAIIntrospectionClient
-    from vss_core.introspection import introspect
 
     judge_config = introspection_config.judge
     api_key: str | None = None
@@ -211,7 +217,7 @@ def upsert(json_payload: str | None, pretty: bool) -> None:
     """Upsert one parent or child unified-memory record."""
     raw = json_payload if json_payload is not None else sys.stdin.read()
     try:
-        from vss_core.memory import UnifiedMemoryRecord
+        from nvidia_vss.memory import UnifiedMemoryRecord
 
         payload = json.loads(raw)
         if not isinstance(payload, dict):
@@ -230,41 +236,87 @@ def upsert(json_payload: str | None, pretty: bool) -> None:
 
 @memory.command("get")
 @click.option("--job-id", required=True)
-@click.option("--record-type", type=click.Choice(("event", "search_hit", "incident")))
+@click.option("--record-type", help="With --record-id, fetch one result row instead of the job.")
 @click.option("--record-id")
+@click.option("--group", default=None, help="Refuse a job belonging to a different group.")
 @_output_options
 def get_record(
     job_id: str,
     record_type: str | None,
     record_id: str | None,
+    group: str | None,
     pretty: bool,
 ) -> None:
-    """Fetch a parent by job id or a child by its public identity."""
+    """Fetch a whole job -- its lifecycle row and every result row under it.
+
+    With ``--record-type`` and ``--record-id``, fetch one row instead.
+    ``--record-type`` is an open string: a command group added at runtime
+    names a row type this CLI has never heard of.
+    """
     if (record_type is None) != (record_id is None):
         raise click.UsageError("--record-type and --record-id must be supplied together")
     try:
-        service = _memory().service
-        record = (
-            service.get_record(job_id, record_type, record_id)
-            if record_type is not None and record_id is not None
-            else service.get(job_id, reconcile=False)
-        )
+        handle = _memory()
+        # One fetch, whichever path: the lifecycle row answers both "which group
+        # owns this job" and "does it match the one the caller named".
+        owner = _owning_group(handle, job_id, group)
+        if record_type is not None and record_id is not None:
+            # --group is checked here too. Accepting it and then ignoring it
+            # promised a refusal the command never performed.
+            payload = handle.service.get_record(job_id, record_type, record_id).model_dump_memory()
+        else:
+            payload = handle.get(owner, job_id)
     except Exception as error:
         _read_failure(error)
         raise AssertionError("unreachable") from error
-    _emit(record.model_dump_memory(), pretty=pretty)
+    _emit(payload, pretty=pretty)
+
+
+@memory.command("status")
+@click.option("--job-id", required=True)
+@click.option("--group", default=None, help="Refuse a job belonging to a different group.")
+@_output_options
+def status_record(job_id: str, group: str | None, pretty: bool) -> None:
+    """The job's lifecycle row alone, without its result rows.
+
+    What a caller polls to reconcile a handle: one document, whatever the job
+    produced, so recovering from an exit 7 costs the same on a job that wrote
+    one row and a job that wrote a thousand.
+    """
+    try:
+        handle = _memory()
+        payload = handle.status(_owning_group(handle, job_id, group), job_id)
+    except Exception as error:
+        _read_failure(error)
+        raise AssertionError("unreachable") from error
+    _emit(payload, pretty=pretty)
+
+
+def _owning_group(handle: Memory, job_id: str, requested: str | None) -> str:
+    """The group this job belongs to, refusing one the caller wrongly named.
+
+    ``vss memory`` is the cross-group surface, so reads are unscoped by
+    default; passing ``--group`` opts into the same refusal a group's own verb
+    performs. Resolved from a single fetch either way.
+    """
+    from nvidia_vss.memory import MemoryNotFoundError
+
+    owner = str(handle.service.get(job_id, reconcile=False).job.group)
+    if requested is not None and memory_mod.group_token(requested) != owner:
+        raise MemoryNotFoundError(f"job {job_id} is a {owner!r} job, not a {memory_mod.group_token(requested)!r} job")
+    return owner
 
 
 @memory.command("query")
 @click.option("--query", "text", default=None, help="Free-text match over memory content.")
 @click.option("--mode", type=click.Choice(("keyword", "semantic", "hybrid")), help="Override the retrieval strategy.")
 @click.option("--job-id")
-@click.option("--group", type=click.Choice(("summary", "search", "alert", "vlm")))
+@click.option("--group", help="Restrict to one group. Open string: runtime-added groups name their own.")
 @click.option("--status", type=click.Choice(("submitted", "running", "completed", "failed", "partial", "timeout")))
 @click.option("--sensor-id")
-@click.option("--record-type", type=click.Choice(("event", "search_hit", "incident")))
+@click.option("--record-type", help="Restrict to one result-row type. Open string.")
 @click.option("--record-id")
-@click.option("--parents-only", is_flag=True, help="Return parent job records only.")
+@click.option("--parents-only", is_flag=True, help="Return job lifecycle rows only.")
 @click.option("--since", help="Lower ISO-8601 time bound.")
 @click.option("--until", help="Upper ISO-8601 time bound.")
 @click.option("--time-field", type=click.Choice(("created_at", "window")), default="created_at", show_default=True)
@@ -288,7 +340,7 @@ def query_records(
 ) -> None:
     """Query parent and child records across command groups."""
     try:
-        from vss_core.memory import MemoryQuery
+        from nvidia_vss.memory import MemoryQuery
 
         query = MemoryQuery(
             text=text,
@@ -373,7 +425,7 @@ def backfill_embeddings(
 @click.option("--job-id")
 @click.option("--record-id")
 @click.option("--record-type", type=click.Choice(("event", "search_hit", "incident")))
-@click.option("--group", type=click.Choice(("summary", "search", "alert")))
+@click.option("--group", help="Restrict to one group.")
 @click.option("--fps", type=click.FloatRange(min=0, max=256, min_open=True), help="RT-VLM frames per second.")
 @_output_options
 def introspect_memory(
@@ -390,7 +442,7 @@ def introspect_memory(
 ) -> None:
     """Answer via the configured text judge and bounded RT-VLM follow-ups."""
     try:
-        from vss_core.introspection import IntrospectionRequest
+        from nvidia_vss.introspection import IntrospectionRequest
 
         request = IntrospectionRequest(
             query=query,
@@ -458,7 +510,7 @@ def events(
 
 
 class _MemoryGroup:
-    api_version = 1
+    api_version = plugins.API_VERSION
     name = "memory"
     summary = "Unified memory store surface"
 

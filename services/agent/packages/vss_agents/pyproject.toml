@@ -37,7 +37,7 @@ dependencies = [
     "matplotlib>=3.8.0",
     "mcp >= 1.28.1",
     "nvidia-nat[async-endpoints,langchain,mcp,opentelemetry,phoenix,profiler,s3]==1.8.0",
-    "nvidia-vss-core",
+    "nvidia-vss",
     "protobuf>=6.33.5",
     "pydantic-settings~=2.13",
     "python-multipart>=0.0.31",
@@ -48,6 +48,11 @@ dependencies = [
     "urllib3>=2.7.0",
     "xhtml2pdf>=0.2.11",
 ]
+
+[project.optional-dependencies]
+# The ArangoDB knowledge layer (register_knowledge_layers); its adapter lives
+# in nvidia_vss.knowledge and imports these lazily.
+arango_graph = ["nvidia-vss[arango_graph]"]
 
 [project.entry-points.'nat.components']
 vss_tools = "vss_agents.tools.register"
@@ -60,7 +65,7 @@ vst_tools = "vss_agents.tools.vst.register"
 vss_knowledge_layer = "vss_agents.register_knowledge_layers"
 
 [tool.uv.sources]
-# nvidia-vss-core comes from the workspace root, which points at libs/vss/core.
+# nvidia-vss comes from the workspace root, which points at libs/vss.
 langchain-nvidia-ai-endpoints = { index = "pypi" }
 torch = [
     { index = "pytorch-cpu", marker = "platform_machine == 'x86_64' or platform_machine == 'aarch64'" },

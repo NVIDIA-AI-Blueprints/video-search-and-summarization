@@ -11,17 +11,18 @@ from typing import Any
 from click.testing import CliRunner
 import pytest
 
+from nvidia_vss.introspection import IntrospectionResult
+from nvidia_vss.memory import EmbeddingBackfillResult
+from nvidia_vss.memory import MemoryService
+from nvidia_vss.memory import UnifiedMemoryRecord
+from nvidia_vss.memory.backends.in_memory import InMemoryStore
+from nvidia_vss.memory.store import MemoryQuery
 from vss_cli import config as config_mod
 from vss_cli.exits import Exit
 from vss_cli.memory import Memory
 from vss_cli.memory_cmd import memory
 from vss_cli.memory_cmd import set_test_introspect
 from vss_cli.memory_cmd import set_test_memory
-from vss_core.introspection import IntrospectionResult
-from vss_core.memory import EmbeddingBackfillResult
-from vss_core.memory import MemoryService
-from vss_core.memory import UnifiedMemoryRecord
-from vss_core.memory.backends.in_memory import InMemoryStore
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -84,8 +85,10 @@ def _invoke(*args: str, input: str | None = None) -> Any:
 def test_memory_exposes_store_verbs_not_job_grammar() -> None:
     result = _invoke("--help")
     assert result.exit_code == 0
-    assert all(verb in result.output for verb in ("upsert", "get", "query", "events", "introspect"))
-    assert all(verb not in result.output for verb in ("run", "status", "list"))
+    assert all(verb in result.output for verb in ("upsert", "get", "query", "status", "events", "introspect"))
+    # `status` reads one job's lifecycle row; `run` and `list` are the job
+    # grammar, which this surface still does not have.
+    assert all(verb not in result.output for verb in ("run", "list"))
 
 
 def test_memory_verbs_do_not_expose_static_index_selection() -> None:
@@ -222,9 +225,9 @@ def test_explicit_semantic_mode_warns_and_preserves_json_when_embeddings_disable
 def test_production_builder_wires_hybrid_memory_and_closes_owned_resources_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import nvidia_vss.memory as core_memory
+    import nvidia_vss.memory.backends.elasticsearch as elasticsearch_mod
     import vss_cli.memory as memory_mod
-    import vss_core.memory as core_memory
-    import vss_core.memory.backends.elasticsearch as elasticsearch_mod
 
     set_test_memory(None)
     closed: list[str] = []
@@ -339,8 +342,8 @@ def test_production_builder_wires_hybrid_memory_and_closes_owned_resources_once(
 def test_dry_run_backfill_skips_dimension_discovery_for_handwritten_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vss_core.memory as core_memory
-    import vss_core.memory.backends.elasticsearch as elasticsearch_mod
+    import nvidia_vss.memory as core_memory
+    import nvidia_vss.memory.backends.elasticsearch as elasticsearch_mod
 
     set_test_memory(None)
     observed: dict[str, Any] = {}
@@ -405,7 +408,9 @@ def test_events_empty_filters_succeed_for_known_asset(injected_memory: Memory) -
 
 def test_invalid_inputs_exit_two() -> None:
     assert _invoke("upsert", "--json", "{").exit_code == int(Exit.INVALID_INPUT)
-    assert _invoke("query", "--group", "media").exit_code == int(Exit.INVALID_INPUT)
+    # `--group` is an open string: a group added at runtime names its own
+    # token, so an unfamiliar one is a query that matches nothing, not a
+    # usage error. See test_an_unknown_group_matches_nothing.
     mismatch = _invoke("get", "--job-id", "summary-01", "--record-type", "event")
     assert mismatch.exit_code == int(Exit.INVALID_INPUT)
 
@@ -608,8 +613,8 @@ def test_introspect_uses_normal_internal_vlm_policy_without_persisting_itself(
     backend_errors: list[str],
     expected_exit: Exit,
 ) -> None:
+    import nvidia_vss.introspection as introspection_mod
     import vss_cli.vlm.runner as runner_mod
-    import vss_core.introspection as introspection_mod
 
     deployment = config_mod.Deployment(
         base_url="http://vss.test",
@@ -685,9 +690,9 @@ def test_disabled_introspection_fails_before_any_backend_construction(
     monkeypatch: pytest.MonkeyPatch,
     injected_memory: Memory,
 ) -> None:
+    import nvidia_vss.introspection as introspection_mod
     import vss_cli.memory_cmd as memory_cmd_mod
     import vss_cli.vlm.runner as runner_mod
-    import vss_core.introspection as introspection_mod
 
     deployment = config_mod.Deployment(
         base_url="http://vss.test",
@@ -743,8 +748,8 @@ def test_introspect_requires_configured_credential_environment(
 def test_introspect_uses_custom_text_model_without_rt_vlm_for_judging(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import nvidia_vss.introspection as introspection_mod
     import vss_cli.vlm.runner as runner_mod
-    import vss_core.introspection as introspection_mod
 
     deployment = config_mod.Deployment(
         base_url="http://vss.test",
@@ -795,8 +800,8 @@ def test_judge_endpoint_failure_does_not_fall_back_to_rt_vlm_and_closes_client(
 ) -> None:
     import httpx
 
+    import nvidia_vss.introspection as introspection_mod
     import vss_cli.vlm.runner as runner_mod
-    import vss_core.introspection as introspection_mod
 
     deployment = config_mod.Deployment(
         base_url="http://vss.test",
@@ -835,3 +840,145 @@ def test_judge_endpoint_failure_does_not_fall_back_to_rt_vlm_and_closes_client(
     assert observed["client"]["base_url"] == "https://text-judge.example/v1"
     assert observed["client"]["model"] != "visual-model"
     assert observed["closed"] is True
+
+
+def test_an_unknown_group_matches_nothing() -> None:
+    """An unfamiliar --group is answerable, not a usage error.
+
+    Rejecting it would mean a command group added at runtime could never be
+    queried by name -- the CLI cannot know every group's token in advance.
+    """
+    result = _invoke("query", "--group", "tripwire")
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["records"] == []
+
+
+def test_a_group_may_write_several_record_types() -> None:
+    """One group, several kinds of result row -- grouped, and none dropped.
+
+    The map this replaced gave a group exactly one record type, so a
+    summarization that emits chapters as well as events, or a search that
+    emits clusters over its hits, had nowhere to put the second kind. Each
+    type is ordered on what its own rows carry.
+    """
+    store = InMemoryStore()
+    service = MemoryService(store)
+    handle = Memory(service, index="vss-memory-test")
+
+    service.upsert(
+        UnifiedMemoryRecord.model_validate(
+            {
+                "schema": "nv.vss.memory/1.0",
+                "job": {
+                    "job_id": "summarize-1",
+                    "group": "summary",
+                    "operation": "run",
+                    "status": "completed",
+                    "created_at": "2026-07-22T12:00:00Z",
+                },
+                # Counts are summed, not maxed: advertising only the largest
+                # would cap the read below the number of rows that exist.
+                "output": {"answer": "a shift", "ext": {"event_count": 2, "chapter_count": 1}},
+            }
+        )
+    )
+    for record_type, record_id, rank in (("event", "e2", 2), ("event", "e1", 1), ("chapter", "c1", 1)):
+        service.upsert(
+            UnifiedMemoryRecord.model_validate(
+                {
+                    "schema": "nv.vss.memory/1.0",
+                    "job": {
+                        "job_id": "summarize-1",
+                        "group": "summary",
+                        "record_type": record_type,
+                        "record_id": record_id,
+                        "operation": "run",
+                        "status": "completed",
+                        "created_at": "2026-07-22T12:00:00Z",
+                    },
+                    "output": {"answer": record_id, "ext": {"rank": rank}},
+                }
+            )
+        )
+
+    results = handle.get("summarize", "summarize-1")["results"]
+    assert sorted(results) == ["chapter", "event"]
+    assert [row["job"]["record_id"] for row in results["event"]] == ["e1", "e2"]
+    assert [row["job"]["record_id"] for row in results["chapter"]] == ["c1"]
+
+    # And each type stays independently queryable across the whole index.
+    assert len(service.query(MemoryQuery(job_id="summarize-1", record_type="event"))) == 2
+    assert len(service.query(MemoryQuery(job_id="summarize-1", record_type="chapter"))) == 1
+
+
+def test_get_refuses_a_job_belonging_to_another_group() -> None:
+    """--group promised a refusal; it has to perform one on both paths.
+
+    It was accepted and ignored whenever --record-type/--record-id were given,
+    so a caller scoping a read got no scoping at all.
+    """
+    service = MemoryService(InMemoryStore())
+    handle = Memory(service, index="vss-memory-test")
+    service.upsert(
+        UnifiedMemoryRecord.model_validate(
+            {
+                "schema": "nv.vss.memory/1.0",
+                "job": {
+                    "job_id": "search-1",
+                    "group": "search",
+                    "operation": "run",
+                    "status": "completed",
+                    "created_at": "2026-07-22T12:00:00Z",
+                },
+            }
+        )
+    )
+    set_test_memory(handle)
+    try:
+        assert _invoke("get", "--job-id", "search-1", "--group", "search").exit_code == 0
+        assert _invoke("get", "--job-id", "search-1", "--group", "summarize").exit_code == int(Exit.NOT_FOUND)
+        assert _invoke("status", "--job-id", "search-1", "--group", "summarize").exit_code == int(Exit.NOT_FOUND)
+    finally:
+        set_test_memory(None)
+
+
+def test_a_truncated_partition_says_so() -> None:
+    """A short read that stays silent is indistinguishable from a short job."""
+    service = MemoryService(InMemoryStore())
+    handle = Memory(service, index="vss-memory-test")
+    service.upsert(
+        UnifiedMemoryRecord.model_validate(
+            {
+                "schema": "nv.vss.memory/1.0",
+                "job": {
+                    "job_id": "search-2",
+                    "group": "search",
+                    "operation": "run",
+                    "status": "completed",
+                    "created_at": "2026-07-22T12:00:00Z",
+                },
+                # Advertises far fewer rows than it wrote.
+                "output": {"answer": "many", "ext": {"result_count": 1}},
+            }
+        )
+    )
+    for index in range(150):
+        service.upsert(
+            UnifiedMemoryRecord.model_validate(
+                {
+                    "schema": "nv.vss.memory/1.0",
+                    "job": {
+                        "job_id": "search-2",
+                        "group": "search",
+                        "record_type": "search_hit",
+                        "record_id": f"hit-{index:03d}",
+                        "operation": "run",
+                        "status": "completed",
+                        "created_at": "2026-07-22T12:00:00Z",
+                    },
+                }
+            )
+        )
+    payload = handle.get("search", "search-2")
+    assert payload["results_truncated"] is True
+    assert len(payload["results"]["search_hit"]) == 100

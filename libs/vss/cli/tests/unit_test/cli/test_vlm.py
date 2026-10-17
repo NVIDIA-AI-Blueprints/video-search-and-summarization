@@ -13,6 +13,13 @@ from click.testing import CliRunner
 from pydantic import ValidationError
 import pytest
 
+from nvidia_vss._foundation.errors import BackendUnreachableError
+from nvidia_vss.media import SensorRef
+from nvidia_vss.media import VIOSInvalidInputError
+from nvidia_vss.media import VIOSNotFoundError
+from nvidia_vss.memory import InMemoryStore
+from nvidia_vss.memory import MemoryQuery
+from nvidia_vss.memory import MemoryService
 from vss_cli import config as config_mod
 from vss_cli import memory as memory_mod
 from vss_cli.group import Context
@@ -22,13 +29,6 @@ from vss_cli.vlm.runner import VLMJobError
 from vss_cli.vlm.runner import VLMJobRequest
 from vss_cli.vlm.runner import VLMJobResult
 from vss_cli.vlm.runner import run_vlm_job
-from vss_core._foundation.errors import BackendUnreachableError
-from vss_core.memory import InMemoryStore
-from vss_core.memory import MemoryQuery
-from vss_core.memory import MemoryService
-from vss_core.vios import SensorRef
-from vss_core.vios import VIOSInvalidInputError
-from vss_core.vios import VIOSNotFoundError
 
 START = "2026-08-13T20:00:00.000Z"
 END = "2026-08-13T20:00:10.000Z"
@@ -559,7 +559,8 @@ def test_status_get_and_list_are_memory_reads() -> None:
     context = Context(deployment=_deployment(), memory=memory)
 
     assert VLM.status(result.job_id, context).body["job"]["status"] == "completed"
-    assert VLM.get(result.job_id, context).body["children"] == []
+    # A point call writes one lifecycle row and no result rows.
+    assert VLM.get(result.job_id, context).body["results"] == {}
     listed = VLM.list({"sensor_id": "warehouse"}, context).body
     assert listed[0]["job"]["job_id"] == result.job_id
 
@@ -582,8 +583,8 @@ def test_production_analyzer_passes_in_cluster_clip_urls(monkeypatch: pytest.Mon
         def __init__(self, **kwargs: Any) -> None:
             captured["analyzer"] = kwargs
 
-    monkeypatch.setattr("vss_core.vios.VSTClient", _FakeVST)
-    monkeypatch.setattr("vss_core.vlm.OpenAIVLMAnalyzer", _FakeAnalyzer)
+    monkeypatch.setattr("nvidia_vss.media.VSTClient", _FakeVST)
+    monkeypatch.setattr("nvidia_vss.vlm.OpenAIVLMAnalyzer", _FakeAnalyzer)
 
     from vss_cli.vlm.runner import _production_analyzer
 

@@ -97,7 +97,7 @@ RUN mkdir -p /opt/vss-assets/workspace \
     && test -f /opt/vss-assets/workspace/AGENTS.md && test -f /opt/vss-assets/workspace/ENV.md
 # The vss CLI as wheels, riding the one /opt/vss-assets COPY the runtime's
 # layer budget allows — only the CLI library workspace (libs/vss: the
-# nvidia-vss-cli entry point and its nvidia-vss-core dependency). The agent
+# nvidia-vss-cli entry point and its nvidia-vss dependency). The agent
 # service package under services/agent is deliberately NOT built or shipped:
 # a sandbox operates a deployment through the CLI, it does not run the agent.
 # Building here (where the checkout and its .git live) keeps VSS source out of

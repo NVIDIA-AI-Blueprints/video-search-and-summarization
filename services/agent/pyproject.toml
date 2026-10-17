@@ -1,29 +1,8 @@
-[build-system]
-requires = ["hatchling", "hatch-vcs"]
-build-backend = "hatchling.build"
-
-[tool.hatch.version]
-source = "vcs"
-raw-options.root = "../.."
-# Derive the version from release tags only. The repo also carries nightly-*,
-# dev-*, and develop-<sha> tags; a SHA-shaped one is not PEP 440-parseable and
-# fails the build for every package in the workspace.
-raw-options.git_describe_command = [
-  "git", "describe", "--dirty", "--tags", "--long", "--match", "v[0-9]*",
-]
-# Report distance from the last release instead of guessing the next one.
-raw-options.version_scheme = "no-guess-dev"
-
-[tool.hatch.metadata]
-allow-direct-references = true
-
-[tool.hatch.build.targets.wheel]
-# Meta distribution: aggregates the split wheels, ships NO code of its own.
-bypass-selection = true
-
 # ---------------------------------------------------------------------------
-# uv workspace root. Each distribution lives under packages/<name>/.
-# A single root uv.lock resolves the whole workspace (packages release in lockstep).
+# uv workspace root -- virtual: it ships no distribution of its own. The agent
+# is the nvidia-vss-agents distribution under packages/vss_agents; `uv sync`
+# here installs it and the library it builds on. A single root uv.lock resolves
+# the whole workspace (packages release in lockstep).
 # ---------------------------------------------------------------------------
 [tool.uv.workspace]
 members = ["packages/*"]
@@ -32,8 +11,7 @@ members = ["packages/*"]
 nvidia-vss-agents = { workspace = true }
 # The library lives in libs/vss and is consumed from there, so the dependency
 # runs one way: the agent uses the library, never the reverse.
-nvidia-vss-core = { path = "../../libs/vss/core", editable = true }
-nvidia-vss-cli = { path = "../../libs/vss/cli", editable = true }
+nvidia-vss = { path = "../../libs/vss", editable = true }
 # nvidia index currently only has langchain-nvidia-ai-endpoints up to 1.0.3; source = pypi so uv gets versions >1.0.3 from PyPI
 langchain-nvidia-ai-endpoints = { index = "pypi" }
 torch = [
@@ -111,48 +89,6 @@ name = "ngc-data-platform"
 url = "https://artifactory.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple"
 explicit = true
 
-[project]
-name = "nvidia-vss"
-dynamic = ["version"]
-requires-python = ">=3.13,<3.15"
-description = "NVIDIA Video Search & Summarization (meta package)"
-license = "Apache-2.0"
-keywords = ["ai", "rag", "agents"]
-classifiers = [
-    "Programming Language :: Python",
-    "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
-    "License :: OSI Approved :: Apache Software License",
-]
-authors = [{ name = "NVIDIA Corporation" }]
-maintainers = [{ name = "NVIDIA Corporation" }]
-# Installation profiles:
-#   nvidia-vss          -> core libraries only (NAT-free)
-#   nvidia-vss[cli]     -> + the `vss` console script
-#   nvidia-vss[agent]   -> + the NAT-based agent application
-#   nvidia-vss[all]     -> agent + cli
-# Extra name stays `agent` (singular) so existing `nvidia-vss[agent]` /
-# `uv sync --extra agent` callers keep working; it resolves the nvidia-vss-agents dist.
-# TODO(Q6 - lockstep pins): siblings are unpinned below. Before publishing,
-# pin them to `== {version}` (NAT uses setuptools_dynamic_dependencies; on
-# hatchling this needs a custom [tool.hatch.metadata.hooks.custom] hook).
-# For dev/CI the [tool.uv.sources] workspace entries resolve siblings locally.
-dependencies = ["nvidia-vss-core"]
-
-[project.optional-dependencies]
-cli = ["nvidia-vss-cli"]
-# `agent` bundles the cli distribution too: the full unit-test suite spans all
-# three packages (pytest testpaths), and the generic downstream test job only
-# installs `--extra agent`. Keeping cli here means `uv sync --extra agent`
-# resolves every package the suite imports. Do NOT drop nvidia-vss-cli.
-agent = ["nvidia-vss-agents", "nvidia-vss-cli"]
-arango_graph = [
-    "langchain-classic>=1.0",
-    "langchain-community>=0.3.27",
-    "python-arango>=8.2",
-]
-all = ["nvidia-vss-agents", "nvidia-vss-cli"]
-
 [dependency-groups]
 # NAT-free tooling for the core/cli CI lane and host-side development.
 cli-dev = [
@@ -185,6 +121,9 @@ eval = [
 ]
 
 [tool.ruff]
+# A virtual workspace root has no [project] table, so ruff cannot infer
+# requires-python; pin the target the members declare (>=3.13).
+target-version = "py313"
 line-length = 120
 
 [tool.ruff.lint]
@@ -209,7 +148,7 @@ max-doc-length = 120
 
 [tool.ruff.lint.isort]
 force-sort-within-sections = true
-known-first-party = ["vss_core", "vss_cli", "vss_agents"]
+known-first-party = ["nvidia_vss", "vss_cli", "vss_agents"]
 known-third-party = ["langchain", "llama_index", "crewai", "semantic_kernel", "mem0ai", "zep_cloud"]
 split-on-trailing-comma = false
 combine-as-imports = true
@@ -293,7 +232,7 @@ pretty = true
 explicit_package_bases = true
 namespace_packages = true
 ignore_missing_imports = true
-mypy_path = "packages/vss_agents/src:packages/vss_agents/stubs:../../libs/vss/core/src:../../libs/vss/cli/src"
+mypy_path = "packages/vss_agents/src:packages/vss_agents/stubs:../../libs/vss/src"
 
 [[tool.mypy.overrides]]
 module = "docker.*"
