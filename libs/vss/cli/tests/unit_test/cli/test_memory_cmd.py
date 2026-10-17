@@ -11,18 +11,18 @@ from typing import Any
 from click.testing import CliRunner
 import pytest
 
+from nvidia_vss.introspection import IntrospectionResult
+from nvidia_vss.memory import EmbeddingBackfillResult
+from nvidia_vss.memory import MemoryService
+from nvidia_vss.memory import UnifiedMemoryRecord
+from nvidia_vss.memory.backends.in_memory import InMemoryStore
+from nvidia_vss.memory.store import MemoryQuery
 from vss_cli import config as config_mod
 from vss_cli.exits import Exit
 from vss_cli.memory import Memory
 from vss_cli.memory_cmd import memory
 from vss_cli.memory_cmd import set_test_introspect
 from vss_cli.memory_cmd import set_test_memory
-from vss_core.introspection import IntrospectionResult
-from vss_core.memory import EmbeddingBackfillResult
-from vss_core.memory import MemoryService
-from vss_core.memory import UnifiedMemoryRecord
-from vss_core.memory.backends.in_memory import InMemoryStore
-from vss_core.memory.store import MemoryQuery
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -225,9 +225,9 @@ def test_explicit_semantic_mode_warns_and_preserves_json_when_embeddings_disable
 def test_production_builder_wires_hybrid_memory_and_closes_owned_resources_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import nvidia_vss.memory as core_memory
+    import nvidia_vss.memory.backends.elasticsearch as elasticsearch_mod
     import vss_cli.memory as memory_mod
-    import vss_core.memory as core_memory
-    import vss_core.memory.backends.elasticsearch as elasticsearch_mod
 
     set_test_memory(None)
     closed: list[str] = []
@@ -342,8 +342,8 @@ def test_production_builder_wires_hybrid_memory_and_closes_owned_resources_once(
 def test_dry_run_backfill_skips_dimension_discovery_for_handwritten_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import vss_core.memory as core_memory
-    import vss_core.memory.backends.elasticsearch as elasticsearch_mod
+    import nvidia_vss.memory as core_memory
+    import nvidia_vss.memory.backends.elasticsearch as elasticsearch_mod
 
     set_test_memory(None)
     observed: dict[str, Any] = {}
@@ -613,8 +613,8 @@ def test_introspect_uses_normal_internal_vlm_policy_without_persisting_itself(
     backend_errors: list[str],
     expected_exit: Exit,
 ) -> None:
+    import nvidia_vss.introspection as introspection_mod
     import vss_cli.vlm.runner as runner_mod
-    import vss_core.introspection as introspection_mod
 
     deployment = config_mod.Deployment(
         base_url="http://vss.test",
@@ -690,9 +690,9 @@ def test_disabled_introspection_fails_before_any_backend_construction(
     monkeypatch: pytest.MonkeyPatch,
     injected_memory: Memory,
 ) -> None:
+    import nvidia_vss.introspection as introspection_mod
     import vss_cli.memory_cmd as memory_cmd_mod
     import vss_cli.vlm.runner as runner_mod
-    import vss_core.introspection as introspection_mod
 
     deployment = config_mod.Deployment(
         base_url="http://vss.test",
@@ -748,8 +748,8 @@ def test_introspect_requires_configured_credential_environment(
 def test_introspect_uses_custom_text_model_without_rt_vlm_for_judging(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import nvidia_vss.introspection as introspection_mod
     import vss_cli.vlm.runner as runner_mod
-    import vss_core.introspection as introspection_mod
 
     deployment = config_mod.Deployment(
         base_url="http://vss.test",
@@ -800,8 +800,8 @@ def test_judge_endpoint_failure_does_not_fall_back_to_rt_vlm_and_closes_client(
 ) -> None:
     import httpx
 
+    import nvidia_vss.introspection as introspection_mod
     import vss_cli.vlm.runner as runner_mod
-    import vss_core.introspection as introspection_mod
 
     deployment = config_mod.Deployment(
         base_url="http://vss.test",

@@ -25,7 +25,7 @@ description = "NVIDIA VSS command-line interface (NAT-free)"
 license = "Apache-2.0"
 authors = [{ name = "NVIDIA Corporation" }]
 maintainers = [{ name = "NVIDIA Corporation" }]
-# cli only touches vss_core (search_core, _foundation) -- no agent/NAT deps.
+# cli only touches nvidia_vss (search_core, _foundation) -- no agent/NAT deps.
 # click is the one third-party addition: it supplies the lazy command-group
 # resolution (Group.list_commands / Group.get_command) that entry-point plugin
 # discovery needs, and as of 8.5 it has no runtime dependencies of its own.

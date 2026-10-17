@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The CLI's view of the unified memory tier (``nv.vss.memory/1.0``).
 
-``vss_core.memory`` is deliberately group-agnostic: it stores records keyed by
+``nvidia_vss.memory`` is deliberately group-agnostic: it stores records keyed by
 ``job_id`` and knows nothing about command groups. A read asks a narrower
 question -- *this group's* job, by id (SDD §6.2) -- so the two need one
 adapter, and this is it. It resolves the store from the recorded deployment,
@@ -13,7 +13,7 @@ more result rows sharing its ``job_id``. Rows are found by that id alone --
 nothing here maps a group to the record type it writes, because a group added
 at runtime names a type no table could have listed.
 
-Nothing here is imported at CLI start-up: ``vss_core.memory`` and the
+Nothing here is imported at CLI start-up: ``nvidia_vss.memory`` and the
 Elasticsearch client load on the first call that actually touches memory, so
 ``vss --help`` and ``run --no-persist`` stay free of them.
 """
@@ -32,10 +32,10 @@ from .exits import Exit
 if TYPE_CHECKING:
     from typing import Literal
 
-    from vss_core.memory import EmbeddingBackfillService
-    from vss_core.memory import MemoryService
-    from vss_core.memory import UnifiedMemoryRecord
-    from vss_core.memory.models import MemoryGroup
+    from nvidia_vss.memory import EmbeddingBackfillService
+    from nvidia_vss.memory import MemoryService
+    from nvidia_vss.memory import UnifiedMemoryRecord
+    from nvidia_vss.memory.models import MemoryGroup
 
     from . import config as config_mod
 
@@ -83,7 +83,7 @@ def group_token(name: str) -> MemoryGroup:
     it here is what keeps the schema's advisory log for writers that no mounted
     group accounts for, rather than for every agent-added group.
     """
-    from vss_core.memory.models import register_known_group
+    from nvidia_vss.memory.models import register_known_group
 
     token = _GROUP_TOKENS.get(name, name)
     register_known_group(token)
@@ -149,7 +149,7 @@ class Memory:
         return payload
 
     def query(self, group: str, filters: dict[str, Any]) -> list[dict[str, Any]]:
-        from vss_core.memory import JobFilters
+        from nvidia_vss.memory import JobFilters
 
         records = self._service.list_jobs(
             JobFilters(
@@ -178,7 +178,7 @@ class Memory:
         record id -- so a new type sorts sensibly without being enrolled
         anywhere.
         """
-        from vss_core.memory import MemoryQuery
+        from nvidia_vss.memory import MemoryQuery
 
         # Sum, not max: a job with 80 events and 60 chapters has 140 rows, and
         # taking the largest single count would silently drop the rest.
@@ -220,7 +220,7 @@ class Memory:
 
     def _scoped(self, group: str, job_id: str) -> UnifiedMemoryRecord:
         """One record, refusing another group's job under this group's verb."""
-        from vss_core.memory import MemoryNotFoundError
+        from nvidia_vss.memory import MemoryNotFoundError
 
         record = self._service.get(job_id)
         token = group_token(group)
@@ -264,12 +264,12 @@ def build(deployment: config_mod.Deployment | None, *, discover_dimensions: bool
             f"Re-run `vss configure --base-url {deployment.base_url}` if that changed."
         )
 
-    from vss_core.memory import ElasticsearchEmbeddingStore
-    from vss_core.memory import EmbeddingBackfillService
-    from vss_core.memory import MemoryService
-    from vss_core.memory import OpenAICompatibleEmbeddingProvider
-    from vss_core.memory import embedding_endpoint_identity
-    from vss_core.memory.backends.elasticsearch import ElasticsearchMemoryStore
+    from nvidia_vss.memory import ElasticsearchEmbeddingStore
+    from nvidia_vss.memory import EmbeddingBackfillService
+    from nvidia_vss.memory import MemoryService
+    from nvidia_vss.memory import OpenAICompatibleEmbeddingProvider
+    from nvidia_vss.memory import embedding_endpoint_identity
+    from nvidia_vss.memory.backends.elasticsearch import ElasticsearchMemoryStore
 
     authoritative = ElasticsearchMemoryStore(endpoint=endpoint, index=memory_config.index)
     if not memory_config.embeddings.enabled:
@@ -371,7 +371,7 @@ def write_failures() -> tuple[type[BaseException], ...]:
     ``ApiError``, which would otherwise leave the CLI as an untyped crash
     instead of a persistence failure the caller can act on.
     """
-    from vss_core._foundation.errors import BackendUnreachableError
+    from nvidia_vss._foundation.errors import BackendUnreachableError
 
     failures: list[type[BaseException]] = [BackendUnreachableError]
     try:

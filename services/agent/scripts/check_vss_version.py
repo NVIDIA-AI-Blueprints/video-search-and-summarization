@@ -57,7 +57,7 @@ from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.request import urlopen
 
-# Source of truth: vss_core.version.SEMVER_PATTERN (the official Semantic
+# Source of truth: nvidia_vss.version.SEMVER_PATTERN (the official Semantic
 # Versioning 2.0.0 grammar). Duplicated rather than imported so this script
 # needs nothing but Python and can be copied to any machine; the agent's
 # test_version.py asserts the two expressions are identical so they cannot

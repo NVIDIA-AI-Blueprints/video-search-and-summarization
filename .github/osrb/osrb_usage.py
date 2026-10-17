@@ -649,7 +649,7 @@ def first_party_names(
     `protected` is what stops that breadth from becoming a false NEGATIVE, and
     it is the more dangerous direction: masking a real dependency removes it
     from the report with no trace. This tree really does contain
-    ``vss_core/vlm/openai.py``, ``vss_core/memory/backends/elasticsearch.py``,
+    ``nvidia_vss/vlm/openai.py``, ``nvidia_vss/memory/backends/elasticsearch.py``,
     ``lib/messaging/kafka.py`` and ``models/requests.py`` — four filenames that
     collide with four packages OSRB must see. Any name that some manifest in
     this repo declares, or that appears in ``DISTRIBUTION_ALIASES``, is
@@ -683,7 +683,7 @@ def first_party_names(
             break
         by_module[module].update(n for n in directory_names if n)
         # A leaf filename is the shadowing risk, so `protected` applies only
-        # here — `vss_core/vlm/openai.py` must not mask `import openai`.
+        # here — `nvidia_vss/vlm/openai.py` must not mask `import openai`.
         leaf = path.rsplit("/", 1)[-1][: -len(suffix)]
         if leaf and _normalize(leaf) not in protected:
             by_module[module].add(leaf)

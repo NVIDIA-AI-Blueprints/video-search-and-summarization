@@ -382,17 +382,17 @@ class FirstPartyIndexTest(unittest.TestCase):
         self.assertIn("src", names["services/video-summarization"])
 
     def test_a_declared_package_name_is_never_shadowed_by_a_local_file(self) -> None:
-        # This tree really does contain vss_core/vlm/openai.py. Treating that
+        # This tree really does contain nvidia_vss/vlm/openai.py. Treating that
         # basename as first-party would erase `import openai` from the report
         # with no trace, which is the worst outcome for a compliance gate.
         paths = [
-            "libs/vss/core/src/vss_core/__init__.py",
-            "libs/vss/core/src/vss_core/vlm/__init__.py",
-            "libs/vss/core/src/vss_core/vlm/openai.py",
+            "libs/vss/src/nvidia_vss/__init__.py",
+            "libs/vss/src/nvidia_vss/vlm/__init__.py",
+            "libs/vss/src/nvidia_vss/vlm/openai.py",
         ]
         names = osrb_usage.first_party_names(paths, ".py", frozenset({"openai"}))
         self.assertNotIn("openai", names["libs/vss"])
-        self.assertIn("vss_core", names["libs/vss"])
+        self.assertIn("nvidia_vss", names["libs/vss"])
         self.assertIn("vlm", names["libs/vss"])
 
     def test_test_directories_do_not_register_packages(self) -> None:

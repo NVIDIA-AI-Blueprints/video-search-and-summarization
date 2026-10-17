@@ -16,7 +16,7 @@
 """VSS deployment version endpoint: ``GET /api/v1/version``.
 
 The version contract (strict Semantic Versioning 2.0.0) and how a deployment's
-version is resolved live in the library, :mod:`vss_core.version`: what this
+version is resolved live in the library, :mod:`nvidia_vss.version`: what this
 endpoint reports is the version of the ``nvidia-vss-core`` library the process
 imported -- nothing else, and nothing outranks it. Those names are re-exported
 here, because that is where callers and tests reach for them.
@@ -29,8 +29,8 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from pydantic import Field
 
-from vss_core.version import SEMVER_PATTERN
-from vss_core.version import resolve_deployment_version
+from nvidia_vss.version import SEMVER_PATTERN
+from nvidia_vss.version import resolve_deployment_version
 
 __all__ = [
     "SEMVER_PATTERN",

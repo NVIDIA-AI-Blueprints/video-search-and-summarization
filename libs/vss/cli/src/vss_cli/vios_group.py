@@ -23,7 +23,7 @@ Six commands::
     vss vios delete   --type video|stream --sensor NAME
 
 Media is addressed by sensor **name**; id resolution happens inside
-:mod:`vss_core.vios`.
+:mod:`nvidia_vss.vios`.
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ def _command(name: str, help_text: str, extra: list[click.Parameter], fn: Any) -
 
 
 def _list(ctx: Any, values: dict[str, Any]) -> Result:
-    from vss_core import vios
+    from nvidia_vss import vios
 
     kind = values.get("type")
     rows = _run(vios.list_media(_origin(ctx), kind=kind))
@@ -106,7 +106,7 @@ def _list(ctx: Any, values: dict[str, Any]) -> Result:
 
 
 def _timeline(ctx: Any, values: dict[str, Any]) -> Result:
-    from vss_core import vios
+    from nvidia_vss import vios
 
     origin = _origin(ctx)
     ref = _run(vios.resolve_sensor(origin, values["sensor"]))
@@ -126,7 +126,7 @@ def _timeline(ctx: Any, values: dict[str, Any]) -> Result:
 
 
 def _clip(ctx: Any, values: dict[str, Any]) -> Result:
-    from vss_core import vios
+    from nvidia_vss import vios
 
     origin = _origin(ctx)
     ref = _run(vios.resolve_sensor(origin, values["sensor"]))
@@ -157,7 +157,7 @@ def _clip(ctx: Any, values: dict[str, Any]) -> Result:
 
 
 def _snapshot(ctx: Any, values: dict[str, Any]) -> Result:
-    from vss_core import vios
+    from nvidia_vss import vios
 
     origin = _origin(ctx)
     ref = _run(vios.resolve_sensor(origin, values["sensor"]))
@@ -199,7 +199,7 @@ def _snapshot(ctx: Any, values: dict[str, Any]) -> Result:
 
 
 def _add(ctx: Any, values: dict[str, Any]) -> Result:
-    from vss_core import vios
+    from nvidia_vss import vios
 
     origin = _origin(ctx)
     source = values["source"]
@@ -244,7 +244,7 @@ def _add(ctx: Any, values: dict[str, Any]) -> Result:
 
 
 def _delete(ctx: Any, values: dict[str, Any]) -> Result:
-    from vss_core import vios
+    from nvidia_vss import vios
 
     origin = _origin(ctx)
     ref = _run(vios.resolve_sensor(origin, values["sensor"]))

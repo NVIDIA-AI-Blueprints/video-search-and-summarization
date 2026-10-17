@@ -70,8 +70,8 @@ if TYPE_CHECKING:
 
     import click
 
+    from nvidia_vss.memory import RecordBundle
     from vss_cli.lifecycle import Job
-    from vss_core.memory import RecordBundle
 
     from .memory_adapter import VlmAdapter
 
@@ -130,7 +130,7 @@ def _is_loopback_url(url: str) -> bool:
 
 
 def _vios_exit_for(exc: Exception) -> tuple[Exit, str]:
-    """Map a VIOS/backend exception to (exit_code, status_string) without importing vss_core at module scope."""
+    """Map a VIOS/backend exception to (exit_code, status_string) without importing nvidia_vss at module scope."""
     by_name: dict[str, tuple[Exit, str]] = {
         "VIOSInvalidInputError": (Exit.INVALID_INPUT, "failed"),
         "VIOSNotFoundError": (Exit.NOT_FOUND, "failed"),
@@ -340,7 +340,7 @@ def _resolve_vios_clip(
     the actual window VIOS served, which may differ from the inputs when only one
     bound was supplied or neither was supplied.
     """
-    from vss_core import vios
+    from nvidia_vss import vios
 
     origin = deployment.base_url.rstrip("/")
 
@@ -837,7 +837,7 @@ class VlmGroup(CommandGroup):
 
     def build_bundle(self, job: Job, output: Any) -> RecordBundle:
         """One completed parent; a point-call visual answer has no result rows."""
-        from vss_core.memory import RecordBundle
+        from nvidia_vss.memory import RecordBundle
 
         state: _VlmRun = job.state
         adapter = self.adapter()

@@ -60,7 +60,7 @@ def _probe(base_url: str, probe_path: str, timeout: float) -> tuple[bool, str]:
 
 
 #: Where a deployment reports its version. Served by the agent; see
-#: services/agent/README.md for the contract and vss_core.version for how the
+#: services/agent/README.md for the contract and nvidia_vss.version for how the
 #: value is resolved deployment-side.
 _VERSION_PATH = "/api/v1/version"
 
@@ -584,8 +584,8 @@ def _check_memory_backend(
 
 
 def _probe_embedding(embedding: config_mod.EmbeddingConfig) -> tuple[int, str | None]:
-    from vss_core.memory import EmbeddingProviderError
-    from vss_core.memory import OpenAICompatibleEmbeddingProvider
+    from nvidia_vss.memory import EmbeddingProviderError
+    from nvidia_vss.memory import OpenAICompatibleEmbeddingProvider
 
     assert embedding.endpoint is not None
     assert embedding.model is not None
@@ -615,11 +615,11 @@ def _check_embedding_backend(
     """Probe one embedding and inspect the companion mapping without mutation."""
     import httpx
 
-    from vss_core.memory.backends.elasticsearch_embeddings import EMBEDDING_SCHEMA
-    from vss_core.memory.backends.elasticsearch_embeddings import IMPLEMENTATION_VERSION
-    from vss_core.memory.embeddings import CANONICAL_SEARCHABLE_TEXT_VERSION
-    from vss_core.memory.embeddings import SIMILARITY
-    from vss_core.memory.embeddings import embedding_endpoint_identity
+    from nvidia_vss.memory.backends.elasticsearch_embeddings import EMBEDDING_SCHEMA
+    from nvidia_vss.memory.backends.elasticsearch_embeddings import IMPLEMENTATION_VERSION
+    from nvidia_vss.memory.embeddings import CANONICAL_SEARCHABLE_TEXT_VERSION
+    from nvidia_vss.memory.embeddings import SIMILARITY
+    from nvidia_vss.memory.embeddings import embedding_endpoint_identity
 
     embedding = memory_config.embeddings
     dimensions, resolved_model = _probe_embedding(embedding)
@@ -979,7 +979,7 @@ def check_memory() -> None:
         click.echo(mapping_probe)
     if memory_config.markdown.enabled:
         try:
-            from vss_core.memory import OpenClawDailyNoteStore
+            from nvidia_vss.memory import OpenClawDailyNoteStore
 
             OpenClawDailyNoteStore(memory_config.markdown.workspace or "")
         except (ImportError, ValueError) as error:

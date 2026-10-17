@@ -177,7 +177,7 @@ def resolve_vss_cmd(
         "Fix by either:\n"
         "  * passing --vss-repo-root <checkout with libs/vss/cli>, or\n"
         "  * installing the CLI standalone (needs Python 3.13/3.14):\n"
-        "      pip install <checkout>/libs/vss/core \\\n"
+        "      pip install <checkout>/libs/vss \\\n"
         "                  <checkout>/libs/vss/cli"
     )
 

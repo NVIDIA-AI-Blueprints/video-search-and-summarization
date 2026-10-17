@@ -35,7 +35,7 @@ def _instant(ctx: click.Context, param: click.Parameter, value: str | None) -> s
         return None
     from datetime import UTC
 
-    from vss_core._foundation.time import iso8601_to_datetime
+    from nvidia_vss._foundation.time import iso8601_to_datetime
 
     try:
         instant = iso8601_to_datetime(value)
@@ -57,14 +57,14 @@ def _validate_window(values: dict[str, Any]) -> None:
     start, end = values.get("start_time"), values.get("end_time")
     if start is None or end is None:
         return
-    from vss_core._foundation.time import iso8601_to_datetime
+    from nvidia_vss._foundation.time import iso8601_to_datetime
 
     if iso8601_to_datetime(end) <= iso8601_to_datetime(start):
         raise InvalidInput("--end-time must be later than --start-time")
 
 
 def _client(ctx: Any) -> Any:
-    from vss_core.analytics import AnalyticsClient
+    from nvidia_vss.analytics import AnalyticsClient
 
     assert ctx.deployment is not None
     return AnalyticsClient(ctx.deployment.endpoint("video_analytics"))

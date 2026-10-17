@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import flows
 
 # Representative hits in each wire format. Field names taken from
-# vss_core.search_core.models.search.SearchResult (new) and
+# nvidia_vss.search_core.models.search.SearchResult (new) and
 # vss_agents.tools.search.SearchResult / CriticResult (legacy).
 NEW_FLOW_HIT: dict[str, Any] = {
     "video_name": "warehouse_01.mp4",

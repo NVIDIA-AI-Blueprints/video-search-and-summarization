@@ -27,10 +27,10 @@ re-exports this distribution for the agent image.
 
 ```bash
 cd libs/vss
-uv sync --frozen
-uv run --no-sync pytest core/tests/unit_test cli/tests/unit_test -q
-uv run --no-sync ruff check core cli
-uv run --no-sync mypy cli/src/vss_cli core/src/vss_core
+uv sync --frozen --all-packages
+uv run --no-sync pytest tests/unit_test cli/tests/unit_test -q
+uv run --no-sync ruff check src tests cli
+uv run --no-sync mypy cli/src/vss_cli src/nvidia_vss
 ```
 
 The `dev` group carries the test tooling and is included by default. Keep

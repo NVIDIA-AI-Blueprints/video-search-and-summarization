@@ -75,9 +75,9 @@ def configured(monkeypatch: pytest.MonkeyPatch) -> None:
     _Client.calls = []
     _Client.failure = None
     monkeypatch.setattr(analytics_group, "context_from", lambda values: Context(_Deployment(), values.get("pretty")))
-    import vss_core.analytics
+    import nvidia_vss.analytics
 
-    monkeypatch.setattr(vss_core.analytics, "AnalyticsClient", _Client)
+    monkeypatch.setattr(nvidia_vss.analytics, "AnalyticsClient", _Client)
 
 
 @pytest.fixture
@@ -346,10 +346,10 @@ def test_unexpected_failure_is_not_mistaken_for_an_empty_result(cli: Any, error:
 
 
 def test_typed_operational_failures_use_stderr(cli: Any) -> None:
-    from vss_core.analytics import AnalyticsError
-    from vss_core.analytics import AnalyticsInvalidInputError
-    from vss_core.analytics import AnalyticsNotFoundError
-    from vss_core.analytics import AnalyticsTimeoutError
+    from nvidia_vss.analytics import AnalyticsError
+    from nvidia_vss.analytics import AnalyticsInvalidInputError
+    from nvidia_vss.analytics import AnalyticsNotFoundError
+    from nvidia_vss.analytics import AnalyticsTimeoutError
 
     for error, code in (
         (AnalyticsInvalidInputError("incident list rejected invalid source"), Exit.INVALID_INPUT),

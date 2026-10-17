@@ -124,8 +124,8 @@ def test_every_path_accepts_the_pre_decomposition_question(
 
 def test_the_question_reaches_the_library_request_unchanged() -> None:
     """Through model_dump into SearchInput, which is extra=forbid."""
+    from nvidia_vss.search_core.models.search import SearchInput
     from vss_cli.search.group import AttributeInput
-    from vss_core.search_core.models.search import SearchInput
 
     asked = "is anyone in a white jacket near the loading door?"
     payload = AttributeInput(attributes=["white jacket"], original_query=asked).model_dump(

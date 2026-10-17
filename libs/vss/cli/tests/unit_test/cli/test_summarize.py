@@ -20,6 +20,9 @@ from click.testing import CliRunner
 import httpx
 import pytest
 
+from nvidia_vss._foundation.errors import BackendUnreachableError
+from nvidia_vss.memory import InMemoryStore
+from nvidia_vss.memory import MemoryService
 from vss_cli import config as config_mod
 from vss_cli import memory as memory_mod
 from vss_cli.exits import Exit
@@ -28,9 +31,6 @@ from vss_cli.summarize import group as summarize_group
 from vss_cli.summarize.group import SUMMARIZE
 from vss_cli.summarize.group import SummarizeInput
 from vss_cli.summarize.group import SummarizeOptions
-from vss_core._foundation.errors import BackendUnreachableError
-from vss_core.memory import InMemoryStore
-from vss_core.memory import MemoryService
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -209,7 +209,7 @@ def _persisted(memory: memory_mod.Memory) -> dict[str, Any]:
 
 def _persisted_event_children(memory: memory_mod.Memory) -> list[dict[str, Any]]:
     """The parent's ``event`` child records, oldest event first."""
-    from vss_core.memory.store import MemoryQuery
+    from nvidia_vss.memory.store import MemoryQuery
 
     parent = _persisted(memory)
     children = memory.service.query(MemoryQuery(job_id=parent["job"]["job_id"], record_type="event", limit=100))
@@ -646,7 +646,7 @@ def test_summary_memory_prefers_media_name_and_preserves_internal_ids(
 def test_summary_memory_resolves_vios_name(
     configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, memory: memory_mod.Memory
 ) -> None:
-    from vss_core.vios import SensorRef
+    from nvidia_vss.vios import SensorRef
 
     config_mod.save(
         config_mod.Deployment(
@@ -665,7 +665,7 @@ def test_summary_memory_resolves_vios_name(
             kind="stream",
         )
 
-    monkeypatch.setattr("vss_core.vios.resolve_sensor", resolve_sensor)
+    monkeypatch.setattr("nvidia_vss.vios.resolve_sensor", resolve_sensor)
     _capture_post(monkeypatch)
     result = _run("--id", "stream-uuid")
     assert result.exit_code == 0, result.output
@@ -1467,7 +1467,7 @@ def test_the_docker_edge_admits_the_index_this_cli_writes() -> None:
     assert pattern, "the memory write exception is gone from the edge"
     excepted = re.compile(pattern.group(1))
 
-    from vss_core.memory.backends.elasticsearch import DEFAULT_MEMORY_INDEX
+    from nvidia_vss.memory.backends.elasticsearch import DEFAULT_MEMORY_INDEX
 
     assert excepted.search(f"/elasticsearch/{DEFAULT_MEMORY_INDEX}/_doc/summarize-01ABC")
     assert not excepted.search("/elasticsearch/mdx-chunks/_doc/summarize-01ABC")

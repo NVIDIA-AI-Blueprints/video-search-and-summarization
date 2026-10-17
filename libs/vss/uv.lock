@@ -47,16 +47,6 @@ constraints = [
     { name = "urllib3", specifier = ">=2.7.0" },
 ]
 
-[manifest.dependency-groups]
-dev = [
-    { name = "mypy", specifier = ">=1.15.0" },
-    { name = "pytest", specifier = ">=8.4.1" },
-    { name = "pytest-asyncio", specifier = ">=0.24" },
-    { name = "pytest-cov", specifier = ">=6.1" },
-    { name = "ruff", specifier = ">=0.12.0" },
-    { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
-]
-
 [[package]]
 name = "aiohappyeyeballs"
 version = "2.7.1"
@@ -2181,12 +2171,12 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
-    { name = "nvidia-vss-core", editable = "core" },
+    { name = "nvidia-vss-core", editable = "." },
 ]
 
 [[package]]
 name = "nvidia-vss-core"
-source = { editable = "core" }
+source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "elasticsearch", extra = ["requests"] },
@@ -2213,6 +2203,16 @@ llama-index = [
     { name = "llama-index-vector-stores-chroma" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+    { name = "types-pyyaml" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = "~=3.14" },
@@ -2232,6 +2232,16 @@ requires-dist = [
     { name = "tenacity", specifier = "~=9.0" },
 ]
 provides-extras = ["frag-lib", "langchain", "llama-index"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.15.0" },
+    { name = "pytest", specifier = ">=8.4.1" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "pytest-cov", specifier = ">=6.1" },
+    { name = "ruff", specifier = ">=0.12.0" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
+]
 
 [[package]]
 name = "oauthlib"

@@ -225,7 +225,7 @@ the agent's carries `+tree.<sha>` build metadata, the edge's does not.
 **Where the agent's comes from.** One version, one source: what this process
 reports is the version of the `nvidia-vss-core` library it imported, read from
 its installed metadata by
-[`vss_core.version`](../../libs/vss/core/src/vss_core/version.py). Nothing
+[`nvidia_vss.version`](../../libs/vss/src/nvidia_vss/version.py). Nothing
 outranks it and nothing stands in for it — no environment variable, no
 `git describe` at runtime. A version that can be edited at deploy time is one
 nobody can trust, and a version derived from whatever checkout the process
@@ -275,7 +275,7 @@ The module is standard-library only and runs as a file, so tooling on a host
 with VSS installed can ask for the same value the endpoint would report:
 
 ```console
-$ python3 libs/vss/core/src/vss_core/version.py
+$ python3 libs/vss/src/nvidia_vss/version.py
 3.3.0-rc0.dev.20+g73f724482
 ```
 

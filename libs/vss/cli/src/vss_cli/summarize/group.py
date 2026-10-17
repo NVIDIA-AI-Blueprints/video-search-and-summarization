@@ -29,7 +29,7 @@ against the memory index (§6.2), so they are inherited from
 ``recall``: fetching one record by id *is* ``get``, and querying recent ones
 *is* ``list``.
 
-Persistence is in-process through ``vss_core.memory``. The job is written
+Persistence is in-process through ``nvidia_vss.memory``. The job is written
 twice -- ``submitted`` before the VLM call, terminal after -- so a run that
 times out or dies still leaves a record saying so, which ``status`` and ``get``
 can answer from.
@@ -72,9 +72,9 @@ if TYPE_CHECKING:
 
     import click
 
+    from nvidia_vss.memory import MemoryInput
+    from nvidia_vss.memory import RecordBundle
     from vss_cli.lifecycle import Job
-    from vss_core.memory import MemoryInput
-    from vss_core.memory import RecordBundle
 
     from .memory_adapter import SummaryAdapter
 
@@ -341,7 +341,7 @@ def _adapter() -> SummaryAdapter:
     """The adapter that maps this group's jobs onto memory records.
 
     One binding rather than an import at each use, and resolved on call rather
-    than at module scope: every ``vss_core`` import in this file is deliberately
+    than at module scope: every ``nvidia_vss`` import in this file is deliberately
     lazy, so ``vss summarize --help`` does not pay for the memory package.
 
     The concrete class, not the ``MemoryAdapter`` protocol: ``build_input`` and
@@ -362,7 +362,7 @@ def _resolve_memory_sensor(
     """Resolve a raw ``--id`` to VIOS identity when memory needs a name."""
     if options.media_name or not inputs.id or not deployment.has("vst"):
         return None
-    from vss_core import vios
+    from nvidia_vss import vios
 
     return asyncio.run(vios.resolve_sensor(str(deployment.base_url).rstrip("/"), inputs.id))
 

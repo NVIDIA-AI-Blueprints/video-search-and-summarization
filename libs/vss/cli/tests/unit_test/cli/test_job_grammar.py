@@ -17,6 +17,10 @@ from pydantic import BaseModel
 from pydantic import Field
 import pytest
 
+from nvidia_vss.memory import RecordBundle
+from nvidia_vss.memory.adapters import LifecycleAdapter
+from nvidia_vss.memory.models import MemoryGroup
+from nvidia_vss.memory.models import MemoryInput
 from vss_cli import config as config_mod
 from vss_cli import params as params_mod
 from vss_cli.exits import Exit
@@ -26,10 +30,6 @@ from vss_cli.search.group import SEARCH
 from vss_cli.search.group import FusionInput
 from vss_cli.search.group import SearchTuning
 from vss_cli.search.group import TagInput
-from vss_core.memory import RecordBundle
-from vss_core.memory.adapters import LifecycleAdapter
-from vss_core.memory.models import MemoryGroup
-from vss_core.memory.models import MemoryInput
 
 if TYPE_CHECKING:
     from vss_cli.lifecycle import Job
@@ -283,8 +283,8 @@ def test_read_verbs_do_not_expose_static_memory_index() -> None:
 
 
 def test_memory_builder_uses_configured_authoritative_index(monkeypatch: pytest.MonkeyPatch) -> None:
+    import nvidia_vss.memory.backends.elasticsearch as elasticsearch_mod
     from vss_cli import memory as memory_mod
-    import vss_core.memory.backends.elasticsearch as elasticsearch_mod
 
     built: list[tuple[str, str]] = []
 
@@ -616,11 +616,11 @@ def test_search_critic_is_disabled_when_configured_vlm_is_unreachable(monkeypatc
 
 def test_search_run_surfaces_disabled_critic_reason(monkeypatch: pytest.MonkeyPatch) -> None:
     """A disabled critic must leave a reason in search_messages, not silent unverified."""
+    from nvidia_vss.search_core import host as host_mod
+    from nvidia_vss.search_core.models.search import SearchOutput
+    from nvidia_vss.search_core.models.search import SearchResult
     from vss_cli.search.group import SEARCH
     from vss_cli.search.group import EmbedInput
-    from vss_core.search_core import host as host_mod
-    from vss_core.search_core.models.search import SearchOutput
-    from vss_core.search_core.models.search import SearchResult
 
     # VST present, RT-VLM absent -> _critic_from returns a "no RT-VLM route" reason
     # without any network probe.
@@ -675,10 +675,10 @@ def test_search_run_surfaces_disabled_critic_reason_on_zero_hits(monkeypatch: py
     non-empty ``data`` set would hide why visual verification is off exactly
     when the caller most wants to know (nothing came back).
     """
+    from nvidia_vss.search_core import host as host_mod
+    from nvidia_vss.search_core.models.search import SearchOutput
     from vss_cli.search.group import SEARCH
     from vss_cli.search.group import EmbedInput
-    from vss_core.search_core import host as host_mod
-    from vss_core.search_core.models.search import SearchOutput
 
     deployment = config_mod.Deployment(
         base_url="https://vss.example",

@@ -52,10 +52,10 @@ if TYPE_CHECKING:
 
     import click
 
+    from nvidia_vss.memory import RecordBundle
+    from nvidia_vss.search_core.critic import CriticAgent
+    from nvidia_vss.vlm import OpenAIVLMAnalyzer
     from vss_cli.lifecycle import Job
-    from vss_core.memory import RecordBundle
-    from vss_core.search_core.critic import CriticAgent
-    from vss_core.vlm import OpenAIVLMAnalyzer
 
     from .memory_adapter import SearchAdapter
 
@@ -270,8 +270,8 @@ def _runtime_from(deployment: config_mod.Deployment, tuning: dict[str, Any] | No
     Resolving it to None keeps the deployment usable for the paths it can
     serve instead of failing them all on the strictest path's needs.
     """
-    from vss_core.search_core.runtime import RAW_INDEX_ANCHOR
-    from vss_core.search_core.runtime import SearchRuntime
+    from nvidia_vss.search_core.runtime import RAW_INDEX_ANCHOR
+    from nvidia_vss.search_core.runtime import SearchRuntime
 
     es = deployment.endpoint_or_none("elasticsearch")
     embed_service = deployment.services.get("rt_embed")
@@ -357,9 +357,9 @@ async def _critic_from(
         logger.warning("Search critic disabled: %s", reason)
         return None, None, reason
 
-    from vss_core.search_core.critic import CriticAgent
-    from vss_core.vios import VSTClient
-    from vss_core.vlm import OpenAIVLMAnalyzer
+    from nvidia_vss.search_core.critic import CriticAgent
+    from nvidia_vss.vios import VSTClient
+    from nvidia_vss.vlm import OpenAIVLMAnalyzer
 
     vst = VSTClient(
         internal_url=deployment.base_url,
@@ -491,8 +491,8 @@ class SearchGroup(CommandGroup):
         # (the only method that fuses a tag leg). An explicit
         # `--fusion-method rrf` with `--w-tag > 0` is a contradiction —
         # surface it as an input error rather than silently dropping the tag leg.
-        from vss_core.search_core.errors import ConfigurationError
-        from vss_core.search_core.runtime import resolve_fusion_method
+        from nvidia_vss.search_core.errors import ConfigurationError
+        from nvidia_vss.search_core.runtime import resolve_fusion_method
 
         try:
             tuning["fusion_method"] = resolve_fusion_method(
@@ -515,7 +515,7 @@ class SearchGroup(CommandGroup):
         # attributes on attribute/fusion -- only surface from
         # validate_semantics(), so without it `_critic_from` would still make
         # its RT-VLM probe before the usage error appeared.
-        from vss_core.search_core.models.search import SearchInput
+        from nvidia_vss.search_core.models.search import SearchInput
 
         SearchInput(**payload).validate_semantics()
 
@@ -531,7 +531,7 @@ class SearchGroup(CommandGroup):
     def execute(self, action: str, inputs: BaseModel, ctx: Context, job: Job) -> Any:  # noqa: ARG002 - fixed hook signature
         import asyncio
 
-        from vss_core.search_core.host import VSSSearch
+        from nvidia_vss.search_core.host import VSSSearch
 
         state: _SearchRun = job.state
 

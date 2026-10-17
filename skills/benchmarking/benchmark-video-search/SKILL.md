@@ -140,7 +140,7 @@ eval. Both measure a different flow; the result records the routing mode.
 | `vss` CLI runs from this checkout | `vss search run --help` exits 0 |
 | CLI points at the right origin | `vss configure show` reports the ORIGIN above |
 | Dataset present locally | `test -f ${DATA_DIR}/${DATASET}/dataset.json` — layout in `references/dataset-format.md` |
-| Python 3.10+ for this runner; Python 3.13–3.14 for a separately installed `vss` CLI | `python3 --version` for the runner; use a Python 3.13 or 3.14 environment when installing `libs/vss/core` and `libs/vss/cli` (their `requires-python` is `>=3.13,<3.15`), then check `vss search run --help` there |
+| Python 3.10+ for this runner; Python 3.13–3.14 for a separately installed `vss` CLI | `python3 --version` for the runner; use a Python 3.13 or 3.14 environment when installing `libs/vss` and `libs/vss/cli` (their `requires-python` is `>=3.13,<3.15`), then check `vss search run --help` there |
 | LLM reachable (else the run falls back and says so) | `curl -sf --connect-timeout 5 --max-time 10 http://HOST:30081/v1/models` returns 200 |
 | LLM model selected unambiguously | If `/v1/models` lists multiple IDs, pass `--llm-model` matching the deployed agent's model |
 | Critic clip URL reachable **from RT-VLM** | Inspect a returned VST `videoUrl` and test that exact URL from the RT-VLM container. The CLI uses `video_url_scope="internal"`; CLI ORIGIN may legitimately be localhost on the host |

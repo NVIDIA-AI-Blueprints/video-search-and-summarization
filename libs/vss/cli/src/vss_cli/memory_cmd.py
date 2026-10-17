@@ -34,11 +34,11 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable
     from collections.abc import Callable
 
+    from nvidia_vss.introspection import IntrospectionRequest
+    from nvidia_vss.introspection import IntrospectionResult
+    from nvidia_vss.memory.models import MemoryGroup
+    from nvidia_vss.memory.models import RecordType
     from vss_cli.memory import Memory
-    from vss_core.introspection import IntrospectionRequest
-    from vss_core.introspection import IntrospectionResult
-    from vss_core.memory.models import MemoryGroup
-    from vss_core.memory.models import RecordType
 
 _TEST_MEMORY: Memory | None = None
 _TEST_INTROSPECT: Callable[[IntrospectionRequest], Awaitable[IntrospectionResult]] | None = None
@@ -153,11 +153,11 @@ async def _execute_introspection(request: IntrospectionRequest) -> tuple[Introsp
             "memory introspection is disabled; run `vss configure memory introspection --enable`"
         )
 
+    from nvidia_vss.introspection import IntrospectionSettings
+    from nvidia_vss.introspection import OpenAIIntrospectionClient
+    from nvidia_vss.introspection import introspect
     from vss_cli.memory_policy import effective_persist
     from vss_cli.vlm.runner import IntrospectionVLMJobRunner
-    from vss_core.introspection import IntrospectionSettings
-    from vss_core.introspection import OpenAIIntrospectionClient
-    from vss_core.introspection import introspect
 
     judge_config = introspection_config.judge
     api_key: str | None = None
@@ -217,7 +217,7 @@ def upsert(json_payload: str | None, pretty: bool) -> None:
     """Upsert one parent or child unified-memory record."""
     raw = json_payload if json_payload is not None else sys.stdin.read()
     try:
-        from vss_core.memory import UnifiedMemoryRecord
+        from nvidia_vss.memory import UnifiedMemoryRecord
 
         payload = json.loads(raw)
         if not isinstance(payload, dict):
@@ -299,7 +299,7 @@ def _owning_group(handle: Memory, job_id: str, requested: str | None) -> str:
     default; passing ``--group`` opts into the same refusal a group's own verb
     performs. Resolved from a single fetch either way.
     """
-    from vss_core.memory import MemoryNotFoundError
+    from nvidia_vss.memory import MemoryNotFoundError
 
     owner = str(handle.service.get(job_id, reconcile=False).job.group)
     if requested is not None and memory_mod.group_token(requested) != owner:
@@ -340,7 +340,7 @@ def query_records(
 ) -> None:
     """Query parent and child records across command groups."""
     try:
-        from vss_core.memory import MemoryQuery
+        from nvidia_vss.memory import MemoryQuery
 
         query = MemoryQuery(
             text=text,
@@ -442,7 +442,7 @@ def introspect_memory(
 ) -> None:
     """Answer via the configured text judge and bounded RT-VLM follow-ups."""
     try:
-        from vss_core.introspection import IntrospectionRequest
+        from nvidia_vss.introspection import IntrospectionRequest
 
         request = IntrospectionRequest(
             query=query,

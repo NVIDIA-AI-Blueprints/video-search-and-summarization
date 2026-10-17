@@ -133,7 +133,7 @@ KEBAB_CASE_RE  = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
 # Strict Semantic Versioning 2.0.0, pre-release included: skill versions are
 # stamped from the repository's nearest v* tag by stamp_versions.py, and
 # on the 3.3.0 line before its release that tag is v3.3.0rc0 -> "3.3.0-rc0".
-# Same grammar as vss_core.version.SEMVER_PATTERN.
+# Same grammar as nvidia_vss.version.SEMVER_PATTERN.
 SEMVER_RE      = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
     r"(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"

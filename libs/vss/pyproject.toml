@@ -2,13 +2,77 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # ---------------------------------------------------------------------------
-# The VSS library: `core` and `cli`, NAT-free by construction.
+# The VSS library, NAT-free by construction.
 #
-# A virtual workspace root -- it ships no code of its own, it only resolves the
-# two distributions together so they share one lock and release in lockstep.
-# The NAT agent lives in services/agent and consumes these as path sources, so
-# the dependency runs one way: the agent uses the library, never the reverse.
+# This workspace root is also the core distribution: src/nvidia_vss/. Every
+# other member contributes to the same `nvidia_vss` import namespace, which is
+# why src/nvidia_vss/ has no __init__.py (PEP 420). They share one lock and
+# release in lockstep. The NAT agent lives in services/agent and consumes these
+# as path sources, so the dependency runs one way: the agent uses the library,
+# never the reverse.
 # ---------------------------------------------------------------------------
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+raw-options.root = "../.."
+raw-options.git_describe_command = [
+  "git", "describe", "--dirty", "--tags", "--long", "--match", "v[0-9]*",
+]
+raw-options.version_scheme = "no-guess-dev"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+# nvidia_vss: NAT-free libraries (search_core, vlm, vios, memory, introspection,
+# _foundation) plus knowledge (BackendAdapter ABC/schema/factory + lazily-loaded
+# adapters). The import stays light: factory.py resolves adapters via importlib,
+# so heavy backend deps only load when a backend is selected -- see the optional
+# extras. A namespace package: the wheel must not ship nvidia_vss/__init__.py.
+packages = ["src/nvidia_vss"]
+
+[tool.hatch.build.targets.wheel.force-include]
+# Startup hook shipped as a top-level module (loaded by CPython at interpreter start).
+"src/sitecustomize.py" = "sitecustomize.py"
+
+[project]
+name = "nvidia-vss-core"
+dynamic = ["version"]
+requires-python = ">=3.13,<3.15"
+description = "NVIDIA VSS core libraries (NAT-free): search (incl. critic verifier), vlm, vios, memory, knowledge interface"
+license = "Apache-2.0"
+keywords = ["ai", "rag", "search"]
+authors = [{ name = "NVIDIA Corporation" }]
+maintainers = [{ name = "NVIDIA Corporation" }]
+# The base install is intentionally light (NAT-free). Keep sorted!!!
+dependencies = [
+  "aiohttp~=3.14",
+  "elasticsearch[requests]~=8.17.0",
+  "httpx~=0.28",
+  "opencv-python-headless>=4.13.0.92",
+  "pydantic >=2.11,<3",
+  "PyYAML~=6.0",
+  "tenacity~=9.0",
+]
+
+[project.optional-dependencies]
+# Opt-in knowledge-retrieval backends; lazily imported by the factory.
+frag_lib = ["nvidia-rag>=2.4.0"]
+llama_index = [
+    "chromadb>=0.5",
+    "llama-index-core>=0.11",
+    "llama-index-vector-stores-chroma>=0.3",
+    "llama-index-embeddings-nvidia>=0.3",
+]
+langchain = [
+    "chromadb>=0.5",
+    "langchain-chroma>=0.1",
+    "langchain-nvidia-ai-endpoints>=0.3",
+]
 
 # Security: constrain transitive dependencies to patch HIGH/CRITICAL CVEs.
 # Kept identical to services/agent/pyproject.toml so the two workspaces cannot
@@ -48,7 +112,7 @@ constraint-dependencies = [
 ]
 
 [tool.uv.workspace]
-members = ["core", "cli"]
+members = ["cli"]
 
 [tool.uv.sources]
 nvidia-vss-core = { workspace = true }
@@ -67,9 +131,8 @@ dev = [
 ]
 
 [tool.ruff]
-# A virtual workspace root has no [project] table, so ruff cannot infer
-# requires-python and would fall back to a default target where tomllib
-# is not stdlib -- which reorders imports differently from services/agent.
+# Pinned rather than inferred from requires-python, so every member (and
+# services/agent) sorts imports against the same stdlib list.
 target-version = "py313"
 line-length = 120
 
@@ -81,7 +144,7 @@ ignore = ["E501", "W505", "SIM108", "B024"]
 "__init__.py" = ["F401"]
 "**/tests/**" = ["ARG001", "ARG002", "SIM117", "B017"]
 # Memory helpers keep runtime imports lazy (TC001/TC003) to stay NAT-free.
-"core/src/vss_core/memory/**" = ["TC001", "TC003"]
+"src/nvidia_vss/memory/**" = ["TC001", "TC003"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -96,7 +159,7 @@ max-doc-length = 120
 
 [tool.ruff.lint.isort]
 force-sort-within-sections = true
-known-first-party = ["vss_core", "vss_cli"]
+known-first-party = ["nvidia_vss", "vss_cli"]
 split-on-trailing-comma = false
 combine-as-imports = true
 force-wrap-aliases = true
@@ -105,9 +168,15 @@ order-by-type = true
 force-single-line = true
 default-section = "third-party"
 
+[tool.mypy]
+# nvidia_vss is a namespace package: mypy maps files to modules from these
+# roots rather than walking up to an __init__.py that does not exist.
+mypy_path = "src:cli/src"
+explicit_package_bases = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
-testpaths = ["core/tests/unit_test", "cli/tests/unit_test"]
+testpaths = ["tests/unit_test", "cli/tests/unit_test"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -118,7 +187,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["core/src", "cli/src"]
+source = ["src", "cli/src"]
 omit = ["*/tests/*", "*/test_*.py", "*/sitecustomize.py"]
 
 [tool.coverage.report]

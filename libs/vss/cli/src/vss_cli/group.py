@@ -57,8 +57,8 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
-    from vss_core.memory import RecordBundle
-    from vss_core.memory.adapters import LifecycleAdapter
+    from nvidia_vss.memory import RecordBundle
+    from nvidia_vss.memory.adapters import LifecycleAdapter
 
     from .lifecycle import Job
 
@@ -148,7 +148,7 @@ def requires_note(requires: frozenset[str]) -> str:
 def _exit_for(exc: Exception) -> Exit | None:
     """Map a library error to an exit code, or None to let it propagate.
 
-    Kept as a name-based table so the CLI does not import ``vss_core`` at
+    Kept as a name-based table so the CLI does not import ``nvidia_vss`` at
     module scope purely to catch its exceptions -- the whole group is loaded
     lazily, and importing the search library to define an ``except`` clause
     would undo that.
@@ -176,7 +176,7 @@ def _exit_for(exc: Exception) -> Exit | None:
         # back as the client's own ApiError, which is not a TransportError.
         # `memory.write_failures()` says the same thing for the write path.
         "ApiError": Exit.BACKEND_UNREACHABLE,
-        # httpx transport failures that vss_core may not re-wrap as a typed
+        # httpx transport failures that nvidia_vss may not re-wrap as a typed
         # exception (e.g. warm_media_url on an unreachable clip URL).  Mapped by
         # class name so the framework does not import httpx at module scope.
         "ConnectError": Exit.BACKEND_UNREACHABLE,
@@ -318,7 +318,7 @@ class CommandGroup(ABC):
     def adapter(cls) -> type[LifecycleAdapter]:
         """The adapter that maps this group's jobs onto memory records.
 
-        A classmethod rather than a class attribute so the ``vss_core`` import
+        A classmethod rather than a class attribute so the ``nvidia_vss`` import
         stays inside the body and off the ``--help`` path.
         """
 
@@ -366,7 +366,7 @@ class CommandGroup(ABC):
         ``action`` is the sub-action name, or ``""`` for a group that declares
         no :attr:`actions`.
         """
-        from vss_core.memory.adapters import utc_now_iso
+        from nvidia_vss.memory.adapters import utc_now_iso
 
         from .lifecycle import Job
         from .lifecycle import JobError
@@ -676,7 +676,7 @@ class CommandGroup(ABC):
             """
             if value is None:
                 return None
-            from vss_core._foundation.time import iso8601_to_datetime
+            from nvidia_vss._foundation.time import iso8601_to_datetime
 
             try:
                 iso8601_to_datetime(value)

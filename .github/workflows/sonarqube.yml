@@ -148,7 +148,7 @@ jobs:
             # new-code coverage gate. They are still analyzed for bugs,
             # code smells, and duplication.
             agent_coverage_exclusions=(
-              "**/vss_core/knowledge/**"
+              "**/nvidia_vss/knowledge/**"
               "**/agents/report_agent_old.py"
               "**/api/custom_fastapi_worker.py"
               "**/sitecustomize.py"
@@ -304,9 +304,9 @@ jobs:
           # every changed vss_cli line as uncovered. That stayed invisible
           # while the package was small and surfaced as "2.9% Coverage on New
           # Code" the first time a PR added substantially to it.
-          uv sync --frozen
-          uv run --no-sync pytest core/tests/unit_test cli/tests/unit_test \
-            --cov=core/src \
+          uv sync --frozen --all-packages
+          uv run --no-sync pytest tests/unit_test cli/tests/unit_test \
+            --cov=src \
             --cov=cli/src \
             --cov-report=xml:coverage-lib.xml \
             --cov-report=term-missing \

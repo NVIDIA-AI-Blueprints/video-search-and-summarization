@@ -121,7 +121,7 @@ webhook receiver that runs the model ([`vios.md`](vios.md)):
   caller drives it. The output feeds BM25 tag search: RT-VLM publishes to its
   existing `mdx-vlm-captions` topic, the existing LVS Logstash pipeline writes
   each chunk to `default_<streamId>`, and the read side
-  (`vss_core.search_core` `TagSearch`/fusion, exposed via `vss search tag` /
+  (`nvidia_vss.search_core` `TagSearch`/fusion, exposed via `vss search tag` /
   `fusion`) queries it. RT-VLM, Kafka, Logstash, and Elasticsearch are unchanged
   by design; see
   [`docs/designs/vlm-tagging-search.md`](../../../../docs/designs/vlm-tagging-search.md).

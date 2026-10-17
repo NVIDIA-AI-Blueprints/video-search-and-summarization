@@ -12,17 +12,17 @@ from click.testing import CliRunner
 from pydantic import BaseModel
 import pytest
 
+from nvidia_vss._foundation.errors import BackendUnreachableError
+from nvidia_vss.memory.backends.in_memory import InMemoryStore
+from nvidia_vss.memory.service import MemoryService
+from nvidia_vss.memory.store import MemoryQuery
+from nvidia_vss.search_core.models.search import SearchOutput
+from nvidia_vss.search_core.models.search import SearchResult
 from vss_cli import config as config_mod
 from vss_cli.exits import Exit
 from vss_cli.group import Context
 from vss_cli.memory import Memory
 from vss_cli.search.group import SearchGroup
-from vss_core._foundation.errors import BackendUnreachableError
-from vss_core.memory.backends.in_memory import InMemoryStore
-from vss_core.memory.service import MemoryService
-from vss_core.memory.store import MemoryQuery
-from vss_core.search_core.models.search import SearchOutput
-from vss_core.search_core.models.search import SearchResult
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -126,7 +126,7 @@ def test_search_cli_resolves_fusion_flags_at_invocation_boundary(monkeypatch: py
     monkeypatch.setattr("vss_cli.group.context_from", lambda _values: Context(deployment=deployment))
     monkeypatch.setattr("vss_cli.search.group._runtime_from", runtime_from)
     monkeypatch.setattr("vss_cli.search.group._critic_from", critic_from)
-    monkeypatch.setattr("vss_core.search_core.host.VSSSearch", _VSS)
+    monkeypatch.setattr("nvidia_vss.search_core.host.VSSSearch", _VSS)
     cli = SearchGroup().cli()
     runner = CliRunner()
 
@@ -187,7 +187,7 @@ def search_group(monkeypatch: pytest.MonkeyPatch) -> SearchGroup:
         def from_runtime(cls, *_args: Any, **_kwargs: Any) -> Any:
             return cls()
 
-    monkeypatch.setattr("vss_core.search_core.host.VSSSearch", _VSS)
+    monkeypatch.setattr("nvidia_vss.search_core.host.VSSSearch", _VSS)
     return group
 
 
@@ -417,7 +417,7 @@ def test_colliding_search_hits_report_partial(
         def from_runtime(cls, *_args: Any, **_kwargs: Any) -> Any:
             return cls()
 
-    monkeypatch.setattr("vss_core.search_core.host.VSSSearch", _DuplicateVSS)
+    monkeypatch.setattr("nvidia_vss.search_core.host.VSSSearch", _DuplicateVSS)
     service = MemoryService(InMemoryStore())
     result = search_group.run(
         "embed",
@@ -489,7 +489,7 @@ def test_search_failure_closes_submitted_parent(search_group: SearchGroup, monke
         def from_runtime(cls, *_args: Any, **_kwargs: Any) -> Any:
             return cls()
 
-    monkeypatch.setattr("vss_core.search_core.host.VSSSearch", _FailingVSS)
+    monkeypatch.setattr("nvidia_vss.search_core.host.VSSSearch", _FailingVSS)
     service = MemoryService(InMemoryStore())
     ctx = Context(
         deployment=_deployment(),
@@ -596,7 +596,7 @@ def test_search_get_preserves_zero_hit_critic_diagnostic(
             return cls()
 
     monkeypatch.setattr("vss_cli.search.group._critic_from", disabled_critic)
-    monkeypatch.setattr("vss_core.search_core.host.VSSSearch", _EmptyVSS)
+    monkeypatch.setattr("nvidia_vss.search_core.host.VSSSearch", _EmptyVSS)
     service = MemoryService(InMemoryStore())
     ctx = Context(
         deployment=_deployment(),

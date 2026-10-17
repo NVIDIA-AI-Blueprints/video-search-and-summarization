@@ -3419,7 +3419,7 @@ requires-dist = [
     { name = "nvidia-vss-cli", marker = "extra == 'agent'", editable = "../../libs/vss/cli" },
     { name = "nvidia-vss-cli", marker = "extra == 'all'", editable = "../../libs/vss/cli" },
     { name = "nvidia-vss-cli", marker = "extra == 'cli'", editable = "../../libs/vss/cli" },
-    { name = "nvidia-vss-core", editable = "../../libs/vss/core" },
+    { name = "nvidia-vss-core", editable = "../../libs/vss" },
     { name = "python-arango", marker = "extra == 'arango-graph'", specifier = ">=8.2" },
 ]
 provides-extras = ["agent", "all", "arango-graph", "cli"]
@@ -3493,7 +3493,7 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.8.0" },
     { name = "mcp", specifier = ">=1.28.1" },
     { name = "nvidia-nat", extras = ["async-endpoints", "langchain", "mcp", "opentelemetry", "phoenix", "profiler", "s3"], specifier = "==1.8.0" },
-    { name = "nvidia-vss-core", editable = "../../libs/vss/core" },
+    { name = "nvidia-vss-core", editable = "../../libs/vss" },
     { name = "protobuf", specifier = ">=6.33.5" },
     { name = "pydantic-settings", specifier = "~=2.13" },
     { name = "python-multipart", specifier = ">=0.0.31" },
@@ -3517,12 +3517,12 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
-    { name = "nvidia-vss-core", editable = "../../libs/vss/core" },
+    { name = "nvidia-vss-core", editable = "../../libs/vss" },
 ]
 
 [[package]]
 name = "nvidia-vss-core"
-source = { editable = "../../libs/vss/core" }
+source = { editable = "../../libs/vss" }
 dependencies = [
     { name = "aiohttp" },
     { name = "elasticsearch", extra = ["requests"] },
@@ -3552,6 +3552,16 @@ requires-dist = [
     { name = "tenacity", specifier = "~=9.0" },
 ]
 provides-extras = ["frag-lib", "langchain", "llama-index"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.15.0" },
+    { name = "pytest", specifier = ">=8.4.1" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "pytest-cov", specifier = ">=6.1" },
+    { name = "ruff", specifier = ">=0.12.0" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
+]
 
 [[package]]
 name = "oci-openai"

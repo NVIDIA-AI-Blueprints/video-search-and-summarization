@@ -18,14 +18,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from vss_core.memory.adapters import LifecycleAdapter
-from vss_core.memory.models import MemoryGroup
-from vss_core.memory.models import MemoryInput
-from vss_core.memory.models import MemoryOutput
-from vss_core.memory.models import OutputHandles
-from vss_core.memory.models import SensorInfo
-from vss_core.memory.models import TimestampPoint
-from vss_core.memory.models import TimeWindow
+from nvidia_vss.memory.adapters import LifecycleAdapter
+from nvidia_vss.memory.models import MemoryGroup
+from nvidia_vss.memory.models import MemoryInput
+from nvidia_vss.memory.models import MemoryOutput
+from nvidia_vss.memory.models import OutputHandles
+from nvidia_vss.memory.models import SensorInfo
+from nvidia_vss.memory.models import TimestampPoint
+from nvidia_vss.memory.models import TimeWindow
 
 
 def _time_window(start_time: str | None, end_time: str | None) -> TimeWindow | None:

@@ -59,7 +59,7 @@ fails the build.
 
 ## Package versions (hatch-vcs)
 
-Every `pyproject.toml` (`libs/vss/core`, `libs/vss/cli`, `services/agent`,
+Every `pyproject.toml` (`libs/vss`, `libs/vss/cli`, `services/agent`,
 `services/agent/packages/vss_agents`) uses `hatchling` + `hatch-vcs` with the
 same describe and `version_scheme = "no-guess-dev"`:
 
@@ -70,7 +70,7 @@ same describe and `version_scheme = "no-guess-dev"`:
 | exactly on `v3.3.0` | `3.3.0` | `3.3.0` |
 | dirty tree | `…+g<sha>.d<date>` / `….dirty` | build metadata, kept |
 
-`vss_core.version.pep440_to_semver` does the rendering; precedence comes out
+`nvidia_vss.version.pep440_to_semver` does the rendering; precedence comes out
 right without a comparator: `3.3.0-rc0` < `3.3.0-rc0.dev.20` < `3.3.0-rc1` < `3.3.0`
 (a build past `rc0` ranks after it — SemVer §11.4.4 — so `>=3.3.0-rc0` includes dev
 builds on the line). The

@@ -78,8 +78,7 @@ COPY --chown=root:root --chmod=0555 services/agent/packages/vss_agents/src /src/
 # `--no-editable` below bakes it into .venv, so only .venv reaches the runtime
 # stage and this staging path never ships.
 COPY --chown=root:root --chmod=0444 libs/vss/pyproject.toml /src/libs/vss/pyproject.toml
-COPY --chown=root:root --chmod=0444 libs/vss/core/pyproject.toml /src/libs/vss/core/pyproject.toml
-COPY --chown=root:root --chmod=0555 libs/vss/core/src /src/libs/vss/core/src
+COPY --chown=root:root --chmod=0555 libs/vss/src /src/libs/vss/src
 COPY --chown=root:root --chmod=0444 libs/vss/cli/pyproject.toml /src/libs/vss/cli/pyproject.toml
 COPY --chown=root:root --chmod=0555 libs/vss/cli/src /src/libs/vss/cli/src
 COPY --chown=root:root --chmod=0444 services/agent/docker/cleanup_vulnerabilities.py /src/services/agent/cleanup_vulnerabilities.py

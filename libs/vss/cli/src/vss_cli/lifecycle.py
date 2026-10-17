@@ -33,13 +33,13 @@ from typing import Literal
 from . import memory as memory_mod
 
 if TYPE_CHECKING:
-    from vss_core.memory import PersistResult
-    from vss_core.memory import RecordBundle
-    from vss_core.memory import UnifiedMemoryRecord
-    from vss_core.memory.adapters import LifecycleAdapter
-    from vss_core.memory.models import JobStatus
-    from vss_core.memory.models import MemoryInput
-    from vss_core.memory.models import MemoryOutput
+    from nvidia_vss.memory import PersistResult
+    from nvidia_vss.memory import RecordBundle
+    from nvidia_vss.memory import UnifiedMemoryRecord
+    from nvidia_vss.memory.adapters import LifecycleAdapter
+    from nvidia_vss.memory.models import JobStatus
+    from nvidia_vss.memory.models import MemoryInput
+    from nvidia_vss.memory.models import MemoryOutput
 
     from .exits import Exit
 
@@ -156,7 +156,7 @@ class Lifecycle:
         output: MemoryOutput | None = None,
         message: str | None = None,
     ) -> UnifiedMemoryRecord:
-        from vss_core.memory.models import MemoryError
+        from nvidia_vss.memory.models import MemoryError
 
         return self.adapter.terminal_record(
             job_id=self.job_id,
