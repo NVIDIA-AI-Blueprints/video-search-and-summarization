@@ -127,6 +127,55 @@ def _capture_policy_denials(sandbox: str, agent_log_dir: Path) -> None:
         pass  # Diagnostics must not replace the original trial result.
 
 
+def _capture_gpu0_memory(agent_log_dir: Path, phase: str) -> None:
+    """Experimental diagnostics: fixed numeric fields, no environment/process data."""
+    try:
+        result = subprocess.run([
+            "nvidia-smi", "--id=0",
+            "--query-gpu=index,memory.total,memory.used,memory.free,utilization.gpu",
+            "--format=csv,noheader,nounits",
+        ], capture_output=True, text=True, timeout=10, check=False)
+        values = [int(value.strip()) for value in result.stdout.strip().split(",")]
+        if result.returncode or len(values) != 5 or values[0] != 0 or min(values) < 0:
+            return
+        target = agent_log_dir.parent / "artifacts" / "local-nim"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / f"gpu0-{phase}.csv").write_text(
+            "index,memory_total_mib,memory_used_mib,memory_free_mib,utilization_percent\n"
+            + ",".join(str(value) for value in values) + "\n",
+        )
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+
+
+def _capture_cv_gpu_placement(agent_log_dir: Path) -> None:
+    """Record only CV container state and the GPU selection used by Docker."""
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "vss-rtvi-cv"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        if result.returncode:
+            return
+        info = json.loads(result.stdout)[0]
+        requests = (info.get("HostConfig") or {}).get("DeviceRequests") or []
+        snapshot = {
+            "container_id": info.get("Id"),
+            "running": (info.get("State") or {}).get("Running"),
+            "gpu_device_requests": [{key: request.get(key) for key in (
+                "Driver", "Count", "DeviceIDs", "Capabilities",
+            )} for request in requests],
+            "gpu_environment": {key: value for item in (info.get("Config") or {}).get("Env", [])
+                for key, _, value in [item.partition("=")]
+                if key in {"NVIDIA_VISIBLE_DEVICES", "CUDA_VISIBLE_DEVICES"}},
+        }
+        target = agent_log_dir.parent / "artifacts" / "local-nim"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "cv-gpu-placement.json").write_text(json.dumps(snapshot, indent=2) + "\n")
+    except (OSError, ValueError, TypeError, KeyError, IndexError, subprocess.SubprocessError):
+        pass
+
+
 def _load_env_file(path: Path) -> None:
     if not path.exists():
         return
@@ -669,7 +718,12 @@ def main(argv: list[str] | None = None) -> int:
     sandbox = os.environ.get("NEMOCLAW_SANDBOX_NAME", "skill-eval")
     try:
         if args.setup_check:
-            _check_readiness(sandbox, agent_log_dir / "setup-readiness.json", setup=True)
+            _capture_cv_gpu_placement(agent_log_dir)
+            _capture_gpu0_memory(agent_log_dir, "before-native")
+            try:
+                _check_readiness(sandbox, agent_log_dir / "setup-readiness.json", setup=True)
+            finally:
+                _capture_gpu0_memory(agent_log_dir, "after-native")
             print("NemoClaw setup handoff passed")
             return 0
         prompt = Path(args.prompt_file).read_text(encoding="utf-8")
