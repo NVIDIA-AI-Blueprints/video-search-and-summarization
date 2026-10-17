@@ -109,6 +109,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Deploy behavior analytics on its own | [`vss-setup-behavior-analytics`](deployment/vss-setup-behavior-analytics/SKILL.md) |
 | Deploy the video-analytics REST API on its own | [`vss-setup-video-analytics-api`](deployment/vss-setup-video-analytics-api/SKILL.md) |
 | Benchmark VLM video Q&A accuracy and latency (`vss vlm`) | [`vss-benchmark-vlm-qa`](benchmarking/vss-benchmark-vlm-qa/SKILL.md) |
+| Benchmark Search video-ingest throughput and latency | [`vss-benchmark-video-ingest`](benchmarking/vss-benchmark-video-ingest/SKILL.md) |
 | Benchmark LVS summarization latency and burst throughput | [`vss-benchmark-video-summarization`](benchmarking/vss-benchmark-video-summarization/SKILL.md) |
 | Check an RT-VLM config change for a caption-accuracy regression | [`vss-evaluate-caption-accuracy`](benchmarking/vss-evaluate-caption-accuracy/SKILL.md) |
 | Diagnose idle GPU gaps or underfilled vLLM/RT-VLM execution | [`profile-vllm-performance`](benchmarking/profile-vllm-performance/SKILL.md) |
@@ -131,9 +132,9 @@ carries the pipeline position from [Orientation](#orientation-how-vss-fits-toget
 so the conceptual map survives the regrouping — a skill's directory says *when*
 you reach for it, its layer says *where it sits in the video path*.
 
-A skill's invocable name is its directory's leaf name. The category is
-repository organisation only and never appears in the installed path or in the
-`/slash-command`.
+A skill's invocable name matches its directory's leaf name. The category is
+repository organisation only and never appears in the installed path or in
+the `/slash-command`.
 
 ### Start here
 
@@ -178,6 +179,7 @@ repository organisation only and never appears in the installed path or in the
 | Skill | Layer | Description |
 |---|---|---|
 | [vss-benchmark-vlm-qa](benchmarking/vss-benchmark-vlm-qa/SKILL.md) | — | E2E video Q&A accuracy + latency on `vss-devx-base` through `vss vlm run` (CR3 RT-VLM). Replaces `nat eval` QA. Not tool-calling / trajectory. |
+| [vss-benchmark-video-ingest](benchmarking/vss-benchmark-video-ingest/SKILL.md) | — | Search video-ingest throughput and latency using CLI uploads and public Elasticsearch readiness reads; requires both raw frames and Embed chunks. |
 | [vss-benchmark-video-summarization](benchmarking/vss-benchmark-video-summarization/SKILL.md) | — | LVS latency and burst-throughput on a deployed summarization instance. |
 | [profile-vllm-performance](benchmarking/profile-vllm-performance/SKILL.md) | 1 | Attribute GPU-idle gaps, underfilled batches, serialized multimodal work, transfer stalls, scheduler gaps, and KV pressure with correlated profiler evidence before changing vLLM or RT-VLM. |
 | [rtvi-vlm-perf-testing](benchmarking/rtvi-vlm-perf-testing/SKILL.md) | 1 | Plan and execute fresh-container RT-VLM GPU canaries with semantic stream-isolation and reproducible evidence. |
@@ -206,8 +208,9 @@ The VSS 3.2 GA skill names replaced the pre-GA slash-command names:
 
 ## Install
 
-Skills install **flat, by leaf name** — the category is repository organisation and
-never appears in the installed path or in the `/slash-command`:
+Skills install **flat, by skill name** — the category is repository organisation and
+never appears in the installed path or in the `/slash-command`. Names match the
+source leaf directory:
 
 | Host | Skills directory |
 |---|---|

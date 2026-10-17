@@ -1,0 +1,18 @@
+schema_version: 1
+
+harbor:
+  task_source: evals_json
+  n_attempts: 1
+  # Six cases; 0.60 means at least four must pass. The two contextual cases are
+  # the load-bearing ones -- a pass rate that clears the bar while failing both
+  # of them should be treated as a failure on review.
+  pass_threshold: 0.60
+  stop_on_pass: false
+  n_concurrent: 2
+
+skill_workspace:
+  mode: isolated
+  include: []
+
+grading:
+  mode: aces_default
