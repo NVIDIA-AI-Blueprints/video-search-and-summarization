@@ -1223,6 +1223,9 @@ jobs:
           mv .source-artifact/tracked-files.txt .ci/tracked-files.txt
           rm -rf .source-artifact
 
+      - name: Test SPDX header checker
+        run: python3 .github/scripts/test_check_copyright_headers.py
+
       - name: Check SPDX headers
         run: python3 .github/scripts/check_copyright_headers.py
 
