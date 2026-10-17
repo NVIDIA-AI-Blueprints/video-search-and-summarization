@@ -223,10 +223,11 @@ fi
 ```
 
 **Not on stock alerts Ingress** (Docker host ports / private backends only):
-Elasticsearch `:9200`, Kafka, Redis, RT-CV (Docker `:9000`), RT-VLM
-`:8018`, and `alert-notify` `:9090`. Do not `kubectl port-forward` them for
-operate checks. Workflow B's
-interim ES verdict probe stays Docker-only unless a public route is added later.
+Kafka, Redis, RT-CV (Docker `:9000`), RT-VLM `:8018`, and `alert-notify` `:9090`.
+Do not `kubectl port-forward` them for operate checks. Elasticsearch is on it,
+at `${VSS_PUBLIC_URL}/elasticsearch` behind the same edge guard. `vss-manage-alerts`
+Workflow B reads incident-kind verification verdicts through Alert Bridge
+(`${ALERT_BRIDGE_URL}/api/v1/realtime/incidents`); only alert-kind verdicts need Elasticsearch.
 
 Alerts operate skills for the docs walkthrough (real-time mode):
 
