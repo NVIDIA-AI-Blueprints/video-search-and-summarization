@@ -229,7 +229,9 @@ docker ps --format '{{.Names}}' | grep -qx sdr-controller \
 
 # SDRC Redis readiness one-shot exited 0. Nothing waits on it, so check it explicitly:
 # sdr-controller needs Redis (WDM_WL_REDIS_SERVER) to pick up new streams from vst.event.
-test "$(docker inspect -f '{{.State.ExitCode}}' sdrc-wait-for-redis)" = 0 \
+# docker wait blocks until the one-shot exits (at most REDIS_WAIT_TIMEOUT_SECONDS, default
+# 120 s) and prints its exit code; State.ExitCode reads 0 while it is still retrying.
+test "$(docker wait sdrc-wait-for-redis)" = 0 \
   && echo "sdrc-wait-for-redis ok" || echo "sdrc-wait-for-redis FAILED: Redis unreachable"
 
 # SDRC rendered config visible inside the container
