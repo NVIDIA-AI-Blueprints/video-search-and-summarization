@@ -357,8 +357,8 @@ async def _critic_from(
         logger.warning("Search critic disabled: %s", reason)
         return None, None, reason
 
+    from nvidia_vss.media import VSTClient
     from nvidia_vss.search_core.critic import CriticAgent
-    from nvidia_vss.vios import VSTClient
     from nvidia_vss.vlm import OpenAIVLMAnalyzer
 
     vst = VSTClient(

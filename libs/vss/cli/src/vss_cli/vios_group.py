@@ -23,7 +23,7 @@ Six commands::
     vss vios delete   --type video|stream --sensor NAME
 
 Media is addressed by sensor **name**; id resolution happens inside
-:mod:`nvidia_vss.vios`.
+:mod:`nvidia_vss.media`.
 """
 
 from __future__ import annotations
@@ -94,10 +94,10 @@ def _command(name: str, help_text: str, extra: list[click.Parameter], fn: Any) -
 
 
 def _list(ctx: Any, values: dict[str, Any]) -> Result:
-    from nvidia_vss import vios
+    from nvidia_vss import media
 
     kind = values.get("type")
-    rows = _run(vios.list_media(_origin(ctx), kind=kind))
+    rows = _run(media.list_media(_origin(ctx), kind=kind))
     if values.get("sensor"):
         rows = [r for r in rows if values["sensor"] in (r["name"], r["sensor_id"], r["stream_id"])]
     # An empty listing is a fact, not a failure -- a backend problem raises and
@@ -106,12 +106,12 @@ def _list(ctx: Any, values: dict[str, Any]) -> Result:
 
 
 def _timeline(ctx: Any, values: dict[str, Any]) -> Result:
-    from nvidia_vss import vios
+    from nvidia_vss import media
 
     origin = _origin(ctx)
-    ref = _run(vios.resolve_sensor(origin, values["sensor"]))
+    ref = _run(media.resolve_sensor(origin, values["sensor"]))
 
-    segments = _run(vios.recorded_segments(origin, ref.stream_id))
+    segments = _run(media.recorded_segments(origin, ref.stream_id))
     # Every segment, not an envelope: a stream recorded in bursts has gaps, and
     # reporting one pair claims a continuous recording that does not exist.
     return Result(
@@ -126,25 +126,25 @@ def _timeline(ctx: Any, values: dict[str, Any]) -> Result:
 
 
 def _clip(ctx: Any, values: dict[str, Any]) -> Result:
-    from nvidia_vss import vios
+    from nvidia_vss import media
 
     origin = _origin(ctx)
-    ref = _run(vios.resolve_sensor(origin, values["sensor"]))
+    ref = _run(media.resolve_sensor(origin, values["sensor"]))
     # Validate the window against what is actually recorded before asking VIOS.
     # VIOS answers a malformed or out-of-range window with a bare HTTP 400 that
     # names neither the offending bound nor the range that was available.
-    segments = _run(vios.recorded_segments(origin, ref.stream_id))
-    start, end = vios.resolve_window(segments, values.get("start_time"), values.get("end_time"), ref.kind)
+    segments = _run(media.recorded_segments(origin, ref.stream_id))
+    start, end = media.resolve_window(segments, values.get("start_time"), values.get("end_time"), ref.kind)
     url = _run(
-        vios.get_video_clip_url(
+        media.get_video_clip_url(
             stream_id=ref.stream_id,
             start_time=start,
             end_time=end,
             vst_internal_url=origin,
         )
     )
-    url = vios.normalise_media_url(url, origin)
-    warmed = _run(vios.warm_media_url(url))
+    url = media.normalise_media_url(url, origin)
+    warmed = _run(media.warm_media_url(url))
     # Echo the window this command resolved -- the segment bounds when none was
     # given. VIOS does not report the window it actually served, so this is the
     # requested range, not a confirmation of the bytes behind the URL.
@@ -157,10 +157,10 @@ def _clip(ctx: Any, values: dict[str, Any]) -> Result:
 
 
 def _snapshot(ctx: Any, values: dict[str, Any]) -> Result:
-    from nvidia_vss import vios
+    from nvidia_vss import media
 
     origin = _origin(ctx)
-    ref = _run(vios.resolve_sensor(origin, values["sensor"]))
+    ref = _run(media.resolve_sensor(origin, values["sensor"]))
     at = values.get("at")
 
     # Only an RTSP sensor has a live frame; VIOS answers 400 for one on
@@ -169,7 +169,7 @@ def _snapshot(ctx: Any, values: dict[str, Any]) -> Result:
     # frame instead of sending a request that cannot succeed. `clip` defaults
     # to the covering segment for the same reason.
     if at is None and ref.kind != "stream":
-        span = _run(vios.recorded_span(origin, ref.stream_id))
+        span = _run(media.recorded_span(origin, ref.stream_id))
         if span is None:
             return Result(
                 body={
@@ -184,14 +184,14 @@ def _snapshot(ctx: Any, values: dict[str, Any]) -> Result:
     elif at is not None:
         # One instant, validated the same way: reuse the window check with both
         # bounds set to it.
-        at, _ = vios.resolve_window(
-            _run(vios.recorded_segments(origin, ref.stream_id)) if ref.kind != "stream" else [],
+        at, _ = media.resolve_window(
+            _run(media.recorded_segments(origin, ref.stream_id)) if ref.kind != "stream" else [],
             at,
             at,
             ref.kind,
         )
 
-    url = vios.normalise_media_url(_run(vios.get_snapshot_url(origin, ref.stream_id, at=at)), origin)
+    url = media.normalise_media_url(_run(media.get_snapshot_url(origin, ref.stream_id, at=at)), origin)
     body = {"media_url": url, "kind": "snapshot", "source": "replay" if at else "live"}
     if at:
         body["at"] = at
@@ -199,12 +199,12 @@ def _snapshot(ctx: Any, values: dict[str, Any]) -> Result:
 
 
 def _add(ctx: Any, values: dict[str, Any]) -> Result:
-    from nvidia_vss import vios
+    from nvidia_vss import media
 
     origin = _origin(ctx)
     source = values["source"]
     # SOURCE already says what it is, so do not make the caller restate it.
-    kind = vios.classify_media_source(source)
+    kind = media.classify_media_source(source)
     declared = values.get("type")
     if declared and declared != kind:
         return Result(
@@ -213,22 +213,22 @@ def _add(ctx: Any, values: dict[str, Any]) -> Result:
         )
     if kind == "stream":
         name = values.get("name") or source.rstrip("/").rsplit("/", 1)[-1]
-        sensor_id = _run(vios.add_stream(origin, source, name))
+        sensor_id = _run(media.add_stream(origin, source, name))
         return Result(body={"name": name, "sensor_id": sensor_id, "type": "stream", "added": True})
 
     if source.lower().startswith(("http://", "https://")):
         # Streamed straight into VIOS rather than staged on disk.
-        result = _run(vios.upload_from_url(origin, source, name=values.get("name")))
+        result = _run(media.upload_from_url(origin, source, name=values.get("name")))
     else:
         path = pathlib.Path(source)
-        result = _run(vios.upload_media(origin, path, name=values.get("name")))
+        result = _run(media.upload_media(origin, path, name=values.get("name")))
     stream_id = str(result.get("streamId") or "")
 
     # VIOS accepts the bytes before it has indexed them, so `add` is not done
     # when the PUT returns -- a clip taken immediately afterwards finds nothing
     # recorded. Wait for the timeline, and fail (exit 7) rather than report a
     # sensor that cannot yet be used.
-    recorded = _run(vios.await_timeline(origin, stream_id)) if stream_id else None
+    recorded = _run(media.await_timeline(origin, stream_id)) if stream_id else None
 
     return Result(
         body={
@@ -244,10 +244,10 @@ def _add(ctx: Any, values: dict[str, Any]) -> Result:
 
 
 def _delete(ctx: Any, values: dict[str, Any]) -> Result:
-    from nvidia_vss import vios
+    from nvidia_vss import media
 
     origin = _origin(ctx)
-    ref = _run(vios.resolve_sensor(origin, values["sensor"]))
+    ref = _run(media.resolve_sensor(origin, values["sensor"]))
     if ref.kind == "unknown":
         return Result(
             body={"error": f"VIOS reports no url for {ref.name!r}, so its provenance is unknown", "name": ref.name},
@@ -264,7 +264,7 @@ def _delete(ctx: Any, values: dict[str, Any]) -> Result:
             },
             exit=Exit.INVALID_INPUT,
         )
-    return Result(body=_run(vios.delete_media(origin, ref, keep_recordings=bool(values.get("keep_recordings")))))
+    return Result(body=_run(media.delete_media(origin, ref, keep_recordings=bool(values.get("keep_recordings")))))
 
 
 def _fallback_name(source: str) -> str:

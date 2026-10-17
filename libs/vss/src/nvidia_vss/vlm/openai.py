@@ -32,7 +32,7 @@ from nvidia_vss._foundation.sanitize import scrub_log
 from nvidia_vss._foundation.time_measure import TimeMeasure
 
 if TYPE_CHECKING:
-    from nvidia_vss.vios.protocols import VSTSnapshot
+    from nvidia_vss.media.protocols import VSTSnapshot
 
 logger = logging.getLogger(__name__)
 

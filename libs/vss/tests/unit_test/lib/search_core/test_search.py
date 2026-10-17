@@ -13,6 +13,7 @@ from pydantic import ValidationError
 import pytest
 
 from nvidia_vss._foundation.time_measure import collect_timings
+from nvidia_vss.media import VSTError
 from nvidia_vss.search_core.agent_chunks import AgentMessageChunk
 from nvidia_vss.search_core.agent_chunks import AgentMessageChunkType
 from nvidia_vss.search_core.errors import BackendUnreachableError
@@ -36,7 +37,6 @@ from nvidia_vss.search_core.primitives.attribute_search import AttributeSearch
 from nvidia_vss.search_core.primitives.search import Search
 from nvidia_vss.search_core.primitives.search import _coerce_attribute_payload
 from nvidia_vss.search_core.primitives.search import _coerce_embed_payload
-from nvidia_vss.vios import VSTError
 
 # --------------------------------------------------------------------- fakes
 

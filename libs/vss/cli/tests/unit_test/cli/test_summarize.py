@@ -646,7 +646,7 @@ def test_summary_memory_prefers_media_name_and_preserves_internal_ids(
 def test_summary_memory_resolves_vios_name(
     configured: config_mod.Deployment, monkeypatch: pytest.MonkeyPatch, memory: memory_mod.Memory
 ) -> None:
-    from nvidia_vss.vios import SensorRef
+    from nvidia_vss.media import SensorRef
 
     config_mod.save(
         config_mod.Deployment(
@@ -665,7 +665,7 @@ def test_summary_memory_resolves_vios_name(
             kind="stream",
         )
 
-    monkeypatch.setattr("nvidia_vss.vios.resolve_sensor", resolve_sensor)
+    monkeypatch.setattr("nvidia_vss.media.resolve_sensor", resolve_sensor)
     _capture_post(monkeypatch)
     result = _run("--id", "stream-uuid")
     assert result.exit_code == 0, result.output

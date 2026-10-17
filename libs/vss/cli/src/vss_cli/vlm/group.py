@@ -340,22 +340,22 @@ def _resolve_vios_clip(
     the actual window VIOS served, which may differ from the inputs when only one
     bound was supplied or neither was supplied.
     """
-    from nvidia_vss import vios
+    from nvidia_vss import media
 
     origin = deployment.base_url.rstrip("/")
 
     async def _fetch() -> tuple[str, str | None, str | None]:
-        ref = await vios.resolve_sensor(origin, sensor)
-        segments = await vios.recorded_segments(origin, ref.stream_id)
-        start, end = vios.resolve_window(segments, start_time, end_time, ref.kind)
-        url = await vios.get_video_clip_url(
+        ref = await media.resolve_sensor(origin, sensor)
+        segments = await media.recorded_segments(origin, ref.stream_id)
+        start, end = media.resolve_window(segments, start_time, end_time, ref.kind)
+        url = await media.get_video_clip_url(
             stream_id=ref.stream_id,
             start_time=start,
             end_time=end,
             vst_internal_url=origin,
         )
-        url = vios.normalise_media_url(url, origin)
-        await vios.warm_media_url(url)
+        url = media.normalise_media_url(url, origin)
+        await media.warm_media_url(url)
         return url, start, end
 
     return asyncio.run(_fetch())

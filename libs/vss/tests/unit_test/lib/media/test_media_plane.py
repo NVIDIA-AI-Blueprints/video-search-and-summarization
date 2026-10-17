@@ -14,9 +14,9 @@ from typing import Any
 
 import pytest
 
-from nvidia_vss.vios import classify_source
-from nvidia_vss.vios import client as vios
-from nvidia_vss.vios import validate_media_name
+from nvidia_vss.media import classify_source
+from nvidia_vss.media import client as vios
+from nvidia_vss.media import validate_media_name
 
 
 class _Response:
@@ -1055,7 +1055,7 @@ def test_a_non_finite_offset_is_a_caller_error_not_a_traceback(bad: str) -> None
 
 def test_the_typed_errors_are_importable_from_the_package() -> None:
     """The CLI maps exits by class name, so a missing export failed silently."""
-    import nvidia_vss.vios as pkg
+    import nvidia_vss.media as pkg
 
     assert pkg.VIOSInvalidInputError is vios.VIOSInvalidInputError
     assert pkg.VIOSNotFoundError is vios.VIOSNotFoundError

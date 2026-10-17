@@ -50,10 +50,10 @@ from nvidia_vss._foundation.errors import BackendUnreachableError
 from nvidia_vss._foundation.errors import ConfigurationError
 from nvidia_vss._foundation.time import datetime_to_iso8601
 from nvidia_vss._foundation.time_measure import TimeMeasure
-from nvidia_vss.vios.client import map_interval_to_timeline
+from nvidia_vss.media.client import map_interval_to_timeline
 
 if TYPE_CHECKING:
-    from nvidia_vss.vios.protocols import VSTSnapshot
+    from nvidia_vss.media.protocols import VSTSnapshot
     from nvidia_vss.vlm.protocols import VLMAnalyzer
 
 logger = logging.getLogger(__name__)

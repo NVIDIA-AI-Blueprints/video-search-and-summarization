@@ -1749,7 +1749,7 @@ def test_vios_failure_with_malformed_timestamp_still_returns_marker(
     """When build_input raises (e.g. datetime.fromisoformat on a bad --start-time), the
     original VIOS error must still surface with the correct exit code and marker rather
     than being swallowed by the build_input exception."""
-    from nvidia_vss.vios.client import VIOSNotFoundError
+    from nvidia_vss.media.client import VIOSNotFoundError
     from vss_cli.vlm import group as vlm_group_mod
 
     monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "cfg"))
@@ -1848,7 +1848,7 @@ def test_vios_failure_with_malformed_timestamp_still_persists_record(
     """A malformed --start-time makes build_input raise on the requested bounds. The
     terminal record must still be written (retried without the window) so the failed
     job stays retrievable through `vss memory get`."""
-    from nvidia_vss.vios.client import VIOSNotFoundError
+    from nvidia_vss.media.client import VIOSNotFoundError
     from vss_cli.group import Context
     from vss_cli.vlm import group as vlm_group_mod
     from vss_cli.vlm import memory_adapter as mem_adapter_mod

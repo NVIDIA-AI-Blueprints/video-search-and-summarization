@@ -41,8 +41,8 @@ from typing import Any
 from pydantic import ValidationError
 
 from nvidia_vss._foundation.sanitize import scrub_log
-from nvidia_vss.vios import VSTError
-from nvidia_vss.vios import map_timestamp_to_timeline
+from nvidia_vss.media import VSTError
+from nvidia_vss.media import map_timestamp_to_timeline
 
 from .._internal.time_measure import TimeMeasure
 from ..errors import BackendUnreachableError
@@ -54,7 +54,7 @@ from ..runtime import VIDEO_EMBED_INDEX_ANCHOR
 from . import _embed_helpers as helpers
 
 if TYPE_CHECKING:
-    from nvidia_vss.vios.protocols import VSTSnapshot
+    from nvidia_vss.media.protocols import VSTSnapshot
 
     from ..clients.protocols import ElasticIndex
     from ..clients.protocols import TextEmbedder
@@ -270,7 +270,7 @@ class EmbedSearch:
         vst: VSTSnapshot | None = None,
     ) -> EmbedSearch:
         """Construct from a SearchRuntime, optionally with injected dependencies."""
-        from nvidia_vss.vios import VSTClient
+        from nvidia_vss.media import VSTClient
 
         from ..clients.cosmos_embed import CosmosEmbedClient  # local — avoid cycle
         from ..clients.elastic import ElasticClient

@@ -10,11 +10,11 @@ import aiohttp
 import pytest
 
 from nvidia_vss._foundation.retry import create_retry_strategy
+from nvidia_vss.media import VSTClient
+from nvidia_vss.media import VSTError
+import nvidia_vss.media.client as vst_module
 from nvidia_vss.search_core.clients.cosmos_embed import CosmosEmbedClient
 from nvidia_vss.search_core.errors import BackendUnreachableError
-from nvidia_vss.vios import VSTClient
-from nvidia_vss.vios import VSTError
-import nvidia_vss.vios.client as vst_module
 
 
 class _MalformedResponse:

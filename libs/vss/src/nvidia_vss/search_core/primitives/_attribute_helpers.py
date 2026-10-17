@@ -42,12 +42,12 @@ from nvidia_vss._foundation.time import datetime_to_iso8601
 from nvidia_vss._foundation.time import iso8601_instants_match
 from nvidia_vss._foundation.time import iso8601_to_datetime
 from nvidia_vss._foundation.time import safe_iso8601_to_datetime
-from nvidia_vss.vios import VSTError
-from nvidia_vss.vios import build_screenshot_url
-from nvidia_vss.vios import get_stream_id
-from nvidia_vss.vios import get_timeline
-from nvidia_vss.vios import get_timelines_map
-from nvidia_vss.vios import map_timestamp_to_timeline
+from nvidia_vss.media import VSTError
+from nvidia_vss.media import build_screenshot_url
+from nvidia_vss.media import get_stream_id
+from nvidia_vss.media import get_timeline
+from nvidia_vss.media import get_timelines_map
+from nvidia_vss.media import map_timestamp_to_timeline
 
 from .._internal.coerce import _coerce_str
 from .._internal.es_filters import build_video_sources_filter

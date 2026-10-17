@@ -27,11 +27,11 @@ import pytest
 
 from nvidia_vss._foundation.errors import BackendUnreachableError
 from nvidia_vss._foundation.errors import ConfigurationError
+from nvidia_vss.media import VSTError
 from nvidia_vss.search_core.critic import CriticAgent
 from nvidia_vss.search_core.critic import CriticAgentInput
 from nvidia_vss.search_core.critic import CriticAgentResult
 from nvidia_vss.search_core.critic import VideoInfo
-from nvidia_vss.vios import VSTError
 
 # ---------------------------------------------------------------------- mocks
 

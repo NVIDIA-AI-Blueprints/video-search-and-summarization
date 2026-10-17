@@ -14,12 +14,12 @@ from pydantic import ValidationError
 import pytest
 
 from nvidia_vss._foundation.errors import BackendUnreachableError
+from nvidia_vss.media import SensorRef
+from nvidia_vss.media import VIOSInvalidInputError
+from nvidia_vss.media import VIOSNotFoundError
 from nvidia_vss.memory import InMemoryStore
 from nvidia_vss.memory import MemoryQuery
 from nvidia_vss.memory import MemoryService
-from nvidia_vss.vios import SensorRef
-from nvidia_vss.vios import VIOSInvalidInputError
-from nvidia_vss.vios import VIOSNotFoundError
 from vss_cli import config as config_mod
 from vss_cli import memory as memory_mod
 from vss_cli.group import Context
@@ -583,7 +583,7 @@ def test_production_analyzer_passes_in_cluster_clip_urls(monkeypatch: pytest.Mon
         def __init__(self, **kwargs: Any) -> None:
             captured["analyzer"] = kwargs
 
-    monkeypatch.setattr("nvidia_vss.vios.VSTClient", _FakeVST)
+    monkeypatch.setattr("nvidia_vss.media.VSTClient", _FakeVST)
     monkeypatch.setattr("nvidia_vss.vlm.OpenAIVLMAnalyzer", _FakeAnalyzer)
 
     from vss_cli.vlm.runner import _production_analyzer

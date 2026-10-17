@@ -25,8 +25,8 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 
 from nvidia_vss._foundation.sanitize import scrub_log
-from nvidia_vss.vios import VSTError
-from nvidia_vss.vios import map_timestamp_to_timeline
+from nvidia_vss.media import VSTError
+from nvidia_vss.media import map_timestamp_to_timeline
 
 from ..errors import BackendUnreachableError
 from ..models.tag_search import TagSearchInput
@@ -35,7 +35,7 @@ from ..models.tag_search import TagSearchResultItem
 from . import _tag_helpers as helpers
 
 if TYPE_CHECKING:
-    from nvidia_vss.vios import VSTSnapshot
+    from nvidia_vss.media import VSTSnapshot
 
     from ..clients.protocols import ElasticIndex
     from ..runtime import SearchRuntime
@@ -225,7 +225,7 @@ class TagSearch:
         es: ElasticIndex | None = None,
         vst: VSTSnapshot | None = None,
     ) -> TagSearch:
-        from nvidia_vss.vios import VSTClient
+        from nvidia_vss.media import VSTClient
 
         from ..clients.elastic import ElasticClient
 

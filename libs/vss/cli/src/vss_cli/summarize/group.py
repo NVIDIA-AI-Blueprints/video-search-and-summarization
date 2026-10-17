@@ -362,9 +362,9 @@ def _resolve_memory_sensor(
     """Resolve a raw ``--id`` to VIOS identity when memory needs a name."""
     if options.media_name or not inputs.id or not deployment.has("vst"):
         return None
-    from nvidia_vss import vios
+    from nvidia_vss import media
 
-    return asyncio.run(vios.resolve_sensor(str(deployment.base_url).rstrip("/"), inputs.id))
+    return asyncio.run(media.resolve_sensor(str(deployment.base_url).rstrip("/"), inputs.id))
 
 
 def _memory_input(

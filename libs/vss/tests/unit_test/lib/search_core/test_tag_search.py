@@ -8,9 +8,9 @@ from typing import Any
 
 import pytest
 
+from nvidia_vss.media import VSTError
 from nvidia_vss.search_core import TagSearch
 from nvidia_vss.search_core.models.tag_search import TagSearchInput
-from nvidia_vss.vios import VSTError
 
 
 class _Es:

@@ -40,7 +40,7 @@ mapfile -t MAPPED_BOUNDS < <(
   "${VSS_PYTHON}" - \
     "${HIT_START}" "${HIT_END}" "${TIMELINE_START}" "${TIMELINE_END}" <<'PY'
 import sys
-from nvidia_vss.vios import map_interval_to_timeline
+from nvidia_vss.media import map_interval_to_timeline
 
 for value in map_interval_to_timeline(*sys.argv[1:]):
     print(value)

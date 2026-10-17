@@ -43,7 +43,7 @@ from nvidia_vss._foundation.errors import LibraryError
 from nvidia_vss._foundation.sanitize import scrub_log
 from nvidia_vss._foundation.time import datetime_to_iso8601
 from nvidia_vss._foundation.time import safe_iso8601_to_datetime
-from nvidia_vss.vios import get_sensor_id_from_stream_id
+from nvidia_vss.media import get_sensor_id_from_stream_id
 
 from .._internal.coerce import _coerce_float
 from .._internal.coerce import _coerce_str

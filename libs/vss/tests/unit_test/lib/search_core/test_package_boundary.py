@@ -56,7 +56,7 @@ def test_reusable_vst_and_vlm_packages_do_not_import_search_core() -> None:
 
     # The critic now lives inside search_core by design, so it is excluded;
     # vios and vlm stay independently reusable and must not pull search_core.
-    for package in ("nvidia_vss.vios", "nvidia_vss.vlm"):
+    for package in ("nvidia_vss.media", "nvidia_vss.vlm"):
         code = f"import sys; import {package}; assert 'nvidia_vss.search_core' not in sys.modules"
         subprocess.run([sys.executable, "-B", "-c", code], check=True, env=env)
 
