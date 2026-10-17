@@ -1,0 +1,24 @@
+{
+  "skills": [
+    "vss-build-vision-pipeline"
+  ],
+  "resources": {
+    "platforms": {
+      "L40S": {
+        "gpu_count": 1
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Create an object detection pipeline using the Yolo26 model",
+      "checks": [
+        "The delivered project contains runnable pipeline code or configuration, identifies its dependencies and model artifacts, and provides enough setup/run instructions to reproduce the demonstrated execution.",
+        "The pipeline loads and executes a YOLO26 object-detection model on sample input, with runtime evidence and captured output from that execution.",
+        "The delivered DeepStream pipeline successfully executes model inference on the GPU and produces output consistent with the expected result for the sample input, including empty detections when appropriate, with runtime evidence confirming that execution.",
+        "Detection results expose object classes, scores and bounding boxes in a documented coordinate system that can be related to the input image or frame. Output decoding and any resizing transforms are consistent with the model and input used.",
+        "The pipeline processes the demonstrated input to completion or shuts down cleanly when stopped. Empty detection results are represented consistently, and input or inference errors are reported rather than presented as successful output. Executed examples or focused tests may demonstrate these behaviors."
+      ]
+    }
+  ]
+}
