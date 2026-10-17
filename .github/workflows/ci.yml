@@ -581,10 +581,18 @@ jobs:
           uv run --no-sync python ../../.github/osrb/test_osrb_scan.py
           uv run --no-sync python ../../.github/osrb/test_osrb_summary.py
           rm -rf dist
-          uv build --package nvidia-vss
-          uv build --package nvidia-vss-cli
-          uv build --package nvidia-vss-search
-          uv build --package nvidia-vss-analytics
+          # --no-sources: build exactly what a release publishes, without the
+          # workspace's [tool.uv.sources] links between the siblings.
+          uv build --all-packages --no-sources
+          # Every wheel contributes to the nvidia_vss namespace; none may own it.
+          python3 - <<'PY'
+          import pathlib, zipfile
+          wheels = sorted(pathlib.Path("dist").glob("*.whl"))
+          assert len(wheels) == 4, wheels
+          for wheel in wheels:
+              names = zipfile.ZipFile(wheel).namelist()
+              assert "nvidia_vss/__init__.py" not in names, f"{wheel.name} ships nvidia_vss/__init__.py"
+          PY
 
       - name: Smoke-test built wheel in a clean environment
         run: |
