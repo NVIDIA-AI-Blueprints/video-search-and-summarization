@@ -2660,12 +2660,13 @@ nvidia-nvshmem-cu13,3.7.2,BSD-3-Clause,services/rtvi/rt-vlm,python,lockfile;mani
 nvidia-rag,2.6.0,Apache-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 nvidia-riva-client,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,python,usage,services/rtvi/rt-embed/src/vlm_pipeline/video_file_frame_getter.py,runtime,no,no,no,imported-only,Unknown
 nvidia-riva-client,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/src/vlm_pipeline/video_file_frame_getter.py,runtime,no,no,no,imported-only,Unknown
-nvidia-vss-core,UNKNOWN,UNKNOWN,libs/vss,python,manifest,libs/vss/cli/pyproject.toml,runtime,no,no,no,declared-manifest,Unknown
-nvidia-vss-core,UNKNOWN,UNKNOWN,services/agent,python,manifest,services/agent/packages/vss_agents/pyproject.toml;services/agent/pyproject.toml,runtime,no,no,no,declared-manifest,Unknown
+nvidia-vss,UNKNOWN,UNKNOWN,libs/vss,python,manifest,libs/vss/cli/pyproject.toml;libs/vss/packages/analytics/pyproject.toml;libs/vss/packages/search/pyproject.toml,runtime,no,no,no,declared-manifest,Unknown
+nvidia-vss,UNKNOWN,UNKNOWN,services/agent,python,manifest,services/agent/packages/vss_agents/pyproject.toml,runtime,no,no,no,declared-manifest,Unknown
 nvidia/cuda,13.0.0-cudnn-runtime-ubuntu22.04,UNKNOWN,deploy,container,container,deploy/docker/services/infra/Dockerfiles/elasticsearch-gpu.Dockerfile,runtime,no,no,yes,container-base,Unknown
 NVIDIA/DeepStream,v9.1.0,UNKNOWN,services/rtvi/rt-embed,source,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,no,build-fetch,Unknown
 NVIDIA/DeepStream,v9.1.0,UNKNOWN,services/rtvi/rt-vlm,source,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,no,build-fetch,Unknown
 NVIDIA/skills,main,Apache-2.0,.github,github-action,ci,.github/workflows/team-request.yml,ci,no,no,no,ci-tooling,None
+nvidia_vss,UNKNOWN,UNKNOWN,.github,python,usage,.github/scripts/stamp_versions.py,runtime,no,no,no,imported-only,Unknown
 nvtx,0.2.11,Apache Software License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 nvtx,0.2.11,Apache Software License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 nwsapi,2.2.24,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -3082,6 +3083,7 @@ PyGObject,UNKNOWN,GNU Lesser General Public License v2 or later (LGPLv2+),servic
 PyGObject,UNKNOWN,GNU Lesser General Public License v2 or later (LGPLv2+),services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/src/server/alert_verification_server.py,runtime,no,no,no,imported-only,Medium
 pyhanko,0.35.2,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pyhanko-certvalidator,0.31.1,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+pyjwt,2.13.0,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 pyjwt,2.13.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pyjwt,2.13.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 pyjwt,2.14.0,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
@@ -3139,6 +3141,7 @@ python,3.13-trixie,UNKNOWN,services/configurators/vss-rt-config-adaptor,containe
 python,3.13-trixie,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,container,container,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Dockerfiles/measurement-fusion.Dockerfile,runtime,no,no,yes,container-base,Unknown
 python,3.13-trixie,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-config-init,container,container,services/rtvi/rt-cv-3d/rt-cv-config-init/Dockerfiles/mv3dt-config-init.Dockerfile,runtime,no,no,yes,container-base,Unknown
 python-arango,8.3.3,MIT License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
+python-arango,8.3.6,MIT License,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 python-bidi,0.6.11,LGPL-3.0-or-later,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,Medium
 python-dateutil,2.8.2,Dual License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 python-dateutil,2.9.0.post0,Apache-2.0 OR BSD-3-Clause,libs/analytics/spatialai-data-utils,python,lockfile,libs/analytics/spatialai-data-utils/Pipfile.lock,runtime,no,no,no,declared-manifest,None
@@ -3926,8 +3929,6 @@ vllm,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/dock
 vllm_cosmos3,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,python,usage,services/rtvi/rt-embed/src/models/vllm_compatible/vllm_compatible_model.py,runtime,no,no,no,imported-only,Unknown
 vss-ctx-rag,3.1.0,UNKNOWN,services/video-summarization,python,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-pip,Unknown
 vss-ctx-rag-arango,3.1.0,UNKNOWN,services/video-summarization,python,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-pip,Unknown
-nvidia_vss,UNKNOWN,UNKNOWN,.github,python,usage,.github/scripts/stamp_versions.py,runtime,no,no,no,imported-only,Unknown
-nvidia_vss,UNKNOWN,UNKNOWN,services/agent,python,usage,services/agent/packages/vss_agents/src/vss_agents/api/version.py,runtime,no,no,no,imported-only,Unknown
 vss_ctx_rag,UNKNOWN,UNKNOWN,services/video-summarization,python,usage,services/video-summarization/src/via_stream_handler.py,runtime,no,no,no,imported-only,Unknown
 w3c-xmlserializer,5.0.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 walker,1.0.8,Apache-2.0,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
