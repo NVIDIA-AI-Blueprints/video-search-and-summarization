@@ -581,6 +581,10 @@ rtvi:
         value: "NOAPIKEYSET"
       - name: OPENAI_API_VERSION
         value: ""
+      # Cap on in-flight OpenAI-compatible requests from this pod. Mirrors
+      # RTVI_VLM_OPENAI_MAX_PARALLEL_REQUESTS in deploy/docker/services/rtvi/rtvi-vlm/.env.
+      - name: OPENAI_MAX_PARALLEL_REQUESTS
+        value: "10"
       - name: NVIDIA_API_KEY
         value: "NOAPIKEYSET"
       - name: NVIDIA_VISIBLE_DEVICES
@@ -706,6 +710,9 @@ rtvi:
         value: "false"
       - name: VLM_VIDEO_PRUNING_RATE
         value: ""
+      # Opt in only with an RT-VLM image and Cosmos NIM that support streaming sessions.
+      - name: VIA_VLM_STREAMING_NIM_ENABLED
+        value: "false"
 
 nims:
   enabled: true
