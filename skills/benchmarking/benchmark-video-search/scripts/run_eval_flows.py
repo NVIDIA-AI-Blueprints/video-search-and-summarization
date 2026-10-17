@@ -519,6 +519,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--drive-scorer-dir",
         help="Directory holding the original evaluate_domain_test.py (loaded for --scoring drive).",
     )
+    gallery.add_argument(
+        "--pas-frame-supported",
+        action="store_true",
+        help=(
+            "Clip-relevance only: derive PAS queries' relevant_clip_ids from the "
+            "released positive tracks whose representative frame supports the "
+            "query's resolved attributes (PhysicalAI v1.1.2). Needs the release-"
+            "directory layout (additional_gt/tracks_pas_attributes.json). PAS "
+            "queries with no supported positive are excluded and listed in the "
+            "cohort; event queries are scored unchanged."
+        ),
+    )
     ingest = p.add_argument_group("ingest")
     ingest.add_argument("--upload-timestamp", default=flows.DEFAULT_UPLOAD_TIMESTAMP)
     ingest.add_argument(
@@ -706,6 +718,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.scoring == "drive" and not args.drive_scorer_dir:
         p.error(
             "--scoring drive requires --drive-scorer-dir <dir holding evaluate_domain_test.py>"
+        )
+    if args.pas_frame_supported and args.scoring != "clip-relevance":
+        p.error(
+            "--pas-frame-supported is only valid with --scoring clip-relevance "
+            "(drive uses the Drive script's own eligibility)"
         )
     if args.full_gallery:
         # Dense retrieval is a fixed embed pass over every clip: no routing, no floor,

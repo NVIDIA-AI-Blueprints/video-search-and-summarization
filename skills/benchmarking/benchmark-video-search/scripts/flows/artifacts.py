@@ -99,6 +99,11 @@ class RunConfig:
         # full_gallery makes the retrieve stage request every clip (dense mode),
         # the precondition the clip-level scorers grade against.
         full_gallery: bool = False
+        # Frame-supported PAS ground-truth derivation (--scoring clip-relevance
+        # only): rewrites PAS queries' relevant_clip_ids from the released
+        # positive tracks whose representative frame supports the resolved
+        # attributes. See flows/scoring/pas_ground_truth.py.
+        pas_frame_supported: bool = False
 
         # output
         output_file: str | None = None
@@ -146,6 +151,7 @@ class RunConfig:
                         ingestion_manifest=getattr(args, "ingestion_manifest", None),
                         drive_scorer_dir=getattr(args, "drive_scorer_dir", None),
                         full_gallery=getattr(args, "full_gallery", False),
+                        pas_frame_supported=getattr(args, "pas_frame_supported", False),
                         output_file=args.output_file,
                         run_name=args.name,
                 )

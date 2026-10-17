@@ -2,19 +2,20 @@
 # SPDX-License-Identifier: Apache-2.0
 """Pure clip scoring shared by online collection and offline replay.
 
-No retrieval or normalization happens here. AP always divides by all relevant
-clips; rankings are never sorted by score or padded with unreturned candidates.
+No retrieval or normalization happens here. AP divides by all relevant clips;
+AP@10 divides by min(R, 10). Rankings are never sorted or backfilled.
 """
 
 from collections import Counter
 from math import log2
 from pathlib import Path
 
-VERSION = "clips-v1"
+VERSION = "clips-v2"
 CUTOFFS = (1, 3, 5, 10)
 CONFIG = {
     "ranking": "response order; first occurrence per clip",
     "ap_denominator": "all ground-truth relevant clips",
+    "ap_at_10_denominator": "min(R, 10)",
     "precision_at_k_denominator": "k",
     "relevance": "binary",
     "filter": "reject only, before deduplication; no backfill",
@@ -105,7 +106,7 @@ class ClipScorer:
             "query_id": query["query_id"],
             "query": query["query"],
             "average_precision": sum(contributions) / r,
-            "ap_at_10": sum(contributions[:10]) / r,
+            "ap_at_10": sum(contributions[:10]) / min(r, 10),
             "ndcg": ndcg(len(self.gallery)),
             "ndcg_at_10": ndcg(10),
             "reciprocal_rank": next(

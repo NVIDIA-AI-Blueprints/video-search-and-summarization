@@ -381,3 +381,209 @@ def test_clip_relevance_gates_unanswered(tmp_path: Path) -> None:
     art.tolerate_unanswered = 0
     with pytest.raises(SystemExit, match="unanswered"):
         backend.score(art, backend.load_ground_truth(cfg, art), cfg)
+
+
+def test_ap_at_10_uses_min_r_10_denominator() -> None:
+    """clips-v2: AP@10 divides by min(R, 10), not all R relevant.
+
+    With 20 relevant clips and a perfect top-10 (all relevant), AP@10 must be
+    1.0 -- you cannot retrieve more than 10 in the top-10. The legacy clips-v1
+    denominator (all R) would give 0.5, capping the metric below 1 for perfect
+    retrieval. Full AP still divides by all R.
+    """
+    from flows.scoring.clip_scoring import VERSION
+
+    assert VERSION == "clips-v2"
+    clips = [f"c{i}" for i in range(20)]
+    mapping = {
+        c: {"sensor_id": f"s{i}", "filename": f"{c}.mp4"}
+        for i, c in enumerate(clips)
+    }
+    q = {"query_id": "q0", "query": "t", "relevant_clip_ids": clips}
+    scorer = ClipScorer(mapping, [q])
+    # top-10, every one relevant
+    hits = [{"sensor_id": f"s{i}"} for i in range(10)]
+    result = scorer.score(q, hits)
+    assert result["average_precision"] == pytest.approx(0.5)   # 10 / 20
+    assert result["ap_at_10"] == pytest.approx(1.0)            # 10 / min(20, 10)
+    assert result["relevant_count"] == 20
+
+
+def _pas_release(tmp_path: Path) -> tuple[Path, str]:
+    """A release-directory layout with PAS track annotations."""
+    release = tmp_path / "release"
+    (release / "gt").mkdir(parents=True)
+    (release / "additional_gt").mkdir(parents=True)
+    clips = ["a", "b"]
+    (release / "gt" / "queries_gt.json").write_text(
+        json.dumps(
+            {
+                "meta": {},
+                "queries": [
+                    {
+                        "query_id": "pas1",
+                        "query": "white shoes",
+                        "query_domain": "pas",
+                        "resolved_attributes": {"shoe_color": "white"},
+                        "relevant_track_uids": ["t1", "t2"],
+                        "relevant_clip_ids": ["a", "b"],
+                        "segments": [],
+                    },
+                    {
+                        "query_id": "pas2",
+                        "query": "shoes unseen",
+                        "query_domain": "pas",
+                        "resolved_attributes": {"shoe_color": "white"},
+                        "relevant_track_uids": ["t2"],
+                        "relevant_clip_ids": ["b"],
+                        "segments": [],
+                    },
+                    {
+                        "query_id": "event1",
+                        "query": "an event",
+                        "query_domain": "event",
+                        "relevant_clip_ids": ["b"],
+                    },
+                ],
+            }
+        )
+    )
+    (release / "additional_gt" / "clips_gt.json").write_text(
+        json.dumps({"gallery": [{"chunk_id": c, "video": f"{c}.mp4"} for c in clips]})
+    )
+    # t1 (white) supports 'white shoes'; t2 ('not visible') supports nothing.
+    (release / "additional_gt" / "tracks_pas_attributes.json").write_text(
+        json.dumps(
+            {
+                "tracks": [
+                    {
+                        "track_uid": "t1",
+                        "chunk_id": "a",
+                        "eligible_for_gt": True,
+                        "representative_frame": {"frame_attribute": {"shoe color": "white"}},
+                    },
+                    {
+                        "track_uid": "t2",
+                        "chunk_id": "b",
+                        "eligible_for_gt": True,
+                        "representative_frame": {"frame_attribute": {"shoe color": "not visible"}},
+                    },
+                ]
+            }
+        )
+    )
+    manifest = tmp_path / "ingestion.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "clips": [
+                    {"dataset_id": c, "sensor_id": f"s{i}", "filename": f"{c}.mp4"}
+                    for i, c in enumerate(clips)
+                ]
+            }
+        )
+    )
+    return release, str(manifest)
+
+
+def _pas_hits(order: list[tuple[str, float]]) -> list[dict[str, Any]]:
+    """Dense hits for the 2-clip PAS gallery; s0->a, s1->b."""
+    clips = ["a", "b"]
+    return [
+        {
+            "sensor_id": f"s{clips.index(cid)}",
+            "video_name": f"{cid}.mp4",
+            "similarity": sim,
+            "start_time": "2025-01-01T00:00:00Z",
+            "end_time": "2025-01-01T00:00:05Z",
+            "verification": {"result": "confirmed", "criteria_met": {}},
+            "_verification_source": "verification",
+        }
+        for cid, sim in order
+    ]
+
+
+def test_clip_relevance_pas_frame_supported_derives_ground_truth(tmp_path: Path) -> None:
+    """--pas-frame-supported rewrites PAS positives from representative frames.
+
+    pas1 ('white shoes', released [t1,t2]) keeps only t1 (white) -> clip 'a';
+    pas2 (released [t2], 'not visible') is excluded; the event query is scored
+    unchanged. The summary carries the cohort (input/eligible/excluded).
+    """
+    release, manifest = _pas_release(tmp_path)
+    backend = ClipRelevanceScoring()
+    cfg = RunConfig(
+        endpoint="",
+        data_dir=tmp_path,
+        dataset="d",
+        subset="",
+        concurrency=1,
+        vst_url=None,
+        scoring="clip-relevance",
+        gallery_gt=str(release),
+        ingestion_manifest=manifest,
+        full_gallery=True,
+        pas_frame_supported=True,
+    )
+    # Dense retrieval: every clip returned for all three queries.
+    hits = {
+        "white shoes": _pas_hits([("a", 0.9), ("b", 0.4)]),
+        "shoes unseen": _pas_hits([("a", 0.5), ("b", 0.3)]),
+        "an event": _pas_hits([("b", 0.9), ("a", 0.4)]),
+    }
+    artifact = _artifact(tmp_path, hits)
+    ctx = backend.load_ground_truth(cfg, artifact)
+    result = backend.score(artifact, ctx, cfg)
+
+    # pas1 derived to ['a'] (only t1 supports); pas2 excluded; event1 unchanged.
+    by_qid = {p["raw"]["query_id"]: p for p in result.query_results}
+    assert by_qid["pas1"]["raw"]["relevant_count"] == 1   # only 'a' is relevant
+    assert by_qid["pas1"]["raw"]["ranking"] == ["a", "b"]  # both clips retrieved
+    assert by_qid["pas1"]["raw"]["retrieved_relevant"] == 1   # 'a' ranked first
+    assert by_qid["event1"]["raw"]["relevant_count"] == 1
+    assert "pas2" not in by_qid  # excluded -> not scored
+
+    cohort = result.summary["cohort"]
+    assert cohort["protocol"] == "physicalai-pas-frame-supported-v1"
+    assert cohort["input"] == {"pas": 2, "event": 1}
+    assert cohort["eligible"] == {"pas": 1, "event": 1}
+    assert cohort["excluded"] == [
+        {"query_id": "pas2", "query_domain": "pas", "reason": "no_frame_supported_positives"}
+    ]
+    assert result.summary["queries_excluded"] == 1
+    # config records that the derivation ran.
+    assert result.config["pas_frame_supported"] is True
+
+
+def test_clip_relevance_pas_requires_release_directory_layout(tmp_path: Path) -> None:
+    """--pas-frame-supported with a merged GT json (no tracks file) fails loudly."""
+    gt, manifest = _write_gt_and_manifest(tmp_path)  # merged gt.json
+    backend = ClipRelevanceScoring()
+    cfg = RunConfig(
+        endpoint="",
+        data_dir=tmp_path,
+        dataset="d",
+        subset="",
+        concurrency=1,
+        vst_url=None,
+        scoring="clip-relevance",
+        gallery_gt=gt,
+        ingestion_manifest=manifest,
+        full_gallery=True,
+        pas_frame_supported=True,
+    )
+    with pytest.raises(SystemExit, match="release-directory layout"):
+        backend.load_ground_truth(cfg, _artifact(tmp_path, HITS))
+
+
+def test_drive_rejects_pas_frame_supported(tmp_path: Path) -> None:
+    """--pas-frame-supported is a clip-relevance derivation; drive refuses it."""
+    gt, manifest = _write_gt_and_manifest(tmp_path)
+    scorer_dir = tmp_path / "drive_scorer"
+    scorer_dir.mkdir()
+    (scorer_dir / "evaluate_domain_test.py").write_text(DRIVE_SCORER_STUB)
+    backend = DriveScoring()
+    cfg = _cfg(tmp_path, "drive", gt, manifest, scorer_dir=str(scorer_dir))
+    cfg.pas_frame_supported = True
+    with pytest.raises(SystemExit, match="clip-relevance ground-truth"):
+        backend.load_ground_truth(cfg, _artifact(tmp_path, HITS))
