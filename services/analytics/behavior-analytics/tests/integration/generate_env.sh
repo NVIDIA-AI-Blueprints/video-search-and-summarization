@@ -104,7 +104,14 @@ else
     exit 1
 fi
 INFRA_DIR="${VSS_APPS_DIR}/services/infra"
-VSS_DATA_DIR="${SCRIPT_DIR}/docker_compose/apps_data"
+# Playback fixtures stay in git (MDX_DATA_DIR). Kafka/ES bind mounts use
+# VSS_DATA_DIR. Jenkins #62: Elasticsearch lucene files under the GPU
+# checkout cannot be deleteDir'd (uid 1000, Operation not permitted).
+if [[ -n "${BA_PERF_DATA_DIR:-}" ]]; then
+    VSS_DATA_DIR="$BA_PERF_DATA_DIR"
+else
+    VSS_DATA_DIR="${SCRIPT_DIR}/docker_compose/apps_data"
+fi
 PROJ_ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 MDX_SAMPLE_APPS_DIR="${SCRIPT_DIR}/docker_compose"
 MDX_DATA_DIR="${SCRIPT_DIR}/docker_compose/apps_data"

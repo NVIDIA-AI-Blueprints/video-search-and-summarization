@@ -15,6 +15,17 @@ PERF_SCENARIO="${PERF_SCENARIO:-quick_test}"
 PERF_CONFIG_ID="${PERF_CONFIG_ID:-warehouse_2d-kafka-playback}"
 OUTPUT_DIR="${OUTPUT_DIR:-${PERF_OUTPUT_DIR:-$PERF_DIR/results/${PERF_SERVICE:-behavior-analytics}_${PERF_SCENARIO}_${PERF_CONFIG_ID}}}"
 COMPOSE_DIR="$INTEGRATION_DIR/docker_compose"
+BA_PERF_DATA_DIR="${BA_PERF_DATA_DIR:-/tmp/ba-perf-${COMPOSE_PROJECT_NAME}}"
+CHECKOUT_DATA_LOG="$INTEGRATION_DIR/docker_compose/apps_data/data_log"
+
+remove_root_tree() {
+    local path="$1"
+    [[ -e "$path" ]] || return 0
+    docker run --rm -u 0 -v "$path:/data" alpine:3.20 \
+        sh -c 'chmod -R a+rwX /data 2>/dev/null; rm -rf /data/..?* /data/.[!.]* /data/*' \
+        >/dev/null 2>&1 || true
+    rm -rf "$path" >/dev/null 2>&1 || true
+}
 
 resolve_image() {
     if [[ -n "${ARTIFACT_REF:-}" ]]; then

@@ -171,6 +171,23 @@ class LatencyCorrectionTest(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("Generating environment variables", completed.stdout)
+        isolated = subprocess.run(
+            [
+                "bash",
+                "-c",
+                "set -euo pipefail; "
+                f'SCRIPT_DIR={str(script.parent)!r}; '
+                "PROFILE1=warehouse_2d; PROFILE2=kafka; "
+                "BA_PERF_DATA_DIR=/tmp/ba-perf-mdx; "
+                f"source {str(script)!r}; "
+                'test "$VSS_DATA_DIR" = /tmp/ba-perf-mdx; '
+                'test "$MDX_DATA_DIR" != "$VSS_DATA_DIR"',
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(isolated.returncode, 0, isolated.stderr)
 
     def test_deploy_builds_infra_images_not_behavior_analytics(self) -> None:
         deploy = (
@@ -183,7 +200,29 @@ class LatencyCorrectionTest(unittest.TestCase):
             / "deploy.sh"
         ).read_text()
         self.assertNotIn("--no-build", deploy)
-        self.assertIn('chmod -R a+rwX "$MDX_DATA_DIR"', deploy)
+        self.assertIn('chmod -R a+rwX "$BA_PERF_DATA_DIR"', deploy)
+        self.assertIn("export BA_PERF_DATA_DIR", deploy)
+        teardown = (
+            REPO_ROOT
+            / "services"
+            / "analytics"
+            / "behavior-analytics"
+            / "perf"
+            / "scripts"
+            / "teardown.sh"
+        ).read_text()
+        self.assertIn("compose down --remove-orphans -v", teardown)
+        self.assertIn("remove_root_tree", teardown)
+        generate_env = (
+            REPO_ROOT
+            / "services"
+            / "analytics"
+            / "behavior-analytics"
+            / "tests"
+            / "integration"
+            / "generate_env.sh"
+        ).read_text()
+        self.assertIn("BA_PERF_DATA_DIR", generate_env)
         self.assertIn("profile_services=", deploy)
         self.assertIn("compose up -d --build $profile_services analytics-stream", deploy)
         measure = (

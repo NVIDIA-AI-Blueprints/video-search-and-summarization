@@ -9,20 +9,21 @@ export PROFILE2=kafka
 export SCRIPT_DIR="$INTEGRATION_DIR"
 export BUILD_SERVICE_IMAGE=false
 export CURRENT_BEHAVIOR_ANALYTICS_IMAGE="$(resolve_image)"
+export BA_PERF_DATA_DIR
 
 # generate_env.sh writes docker_compose/infra/.env for the warehouse 2D Kafka profile.
 source "$INTEGRATION_DIR/generate_env.sh"
 load_compose_env
 docker pull "$BEHAVIOR_ANALYTICS_IMAGE"
 
-# Kafka and Elasticsearch run as uid 1000 and bind-mount apps_data/data_log
-# (755 in git). Jenkins #59: kafka could not write cluster_id; ES could not
-# write gc.log. Match tests/integration/test.sh.
+# Kafka and Elasticsearch run as uid 1000. Keep their bind mounts under
+# /tmp (BA_PERF_DATA_DIR), not the Jenkins checkout. #62 failed at GPU
+# deleteDir on leftover ES lucene files from #60.
 mkdir -p \
-    "$MDX_DATA_DIR/data_log/kafka" \
-    "$MDX_DATA_DIR/data_log/elastic/data" \
-    "$MDX_DATA_DIR/data_log/elastic/logs"
-chmod -R a+rwX "$MDX_DATA_DIR"
+    "$BA_PERF_DATA_DIR/data_log/kafka" \
+    "$BA_PERF_DATA_DIR/data_log/elastic/data" \
+    "$BA_PERF_DATA_DIR/data_log/elastic/logs"
+chmod -R a+rwX "$BA_PERF_DATA_DIR"
 
 cd "$COMPOSE_DIR"
 # Pull the promoted BA image above. `up --build` only builds Compose services
