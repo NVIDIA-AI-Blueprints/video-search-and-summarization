@@ -10,13 +10,19 @@ Author MDX in `docs/`. Fern configuration lives in `fern/` only.
 | Path | Role |
 |------|------|
 | `docs/` | MDX pages (landing page is `index.mdx`) |
-| `docs/assets/images/` | Images referenced as `/assets/images/...` |
+| `docs/assets/images/` | Images, referenced by a path relative to the page (`./assets/images/...`, `../assets/images/...`) |
 | `docs/index.yml` | Navigation (TOC) for the version being built (`path: ./...`) |
 | `fern/docs.yml` | Site config, redirects, and the list of published versions |
 | `fern/fern.config.json` | Fern organization and CLI version |
 | `.github/scripts/build_fern_site.py` | Builds the Fern input tree for every version |
 
-`fern/assets` is a symlink to `docs/assets` so `/assets/...` links resolve.
+## Links and images
+
+Internal links are site paths without the `/vss` base and without a version
+slug, for example `[Quickstart](/getting-started/quickstart)`. Fern adds the
+base and the reader's version, so a link on a Dev page stays in Dev and a link
+in a release stays in that release. Images use a path relative to the page. Only
+a deliberate cross-version link names the version, as in `/vss/3.3.0/...`.
 
 ## How the site is built
 

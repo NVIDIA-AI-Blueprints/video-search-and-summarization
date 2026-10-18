@@ -13,11 +13,11 @@ The high-level diagram illustrates the components of the Smart City Blueprint. T
 - **Real-time Video Processing Pipelines** - For processing live camera feeds
 - **AI Agents** - For intelligent analysis and interaction
 
-![Component Diagram - Smart City Blueprint components](/assets/images/scbp/SCBP-ArchOverview.png)
+![Component Diagram - Smart City Blueprint components](../assets/images/scbp/SCBP-ArchOverview.png)
 
 ## Prerequisites
 
-Before you begin, ensure all of the prerequisites are met. See the [Prerequisites](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites) page for more details.
+Before you begin, ensure all of the prerequisites are met. See the [Prerequisites](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites) page for more details.
 
 ## Deployment Options
 
@@ -29,9 +29,9 @@ profile name anywhere.
 
 The resulting deployment provides:
 
-- CV-based object detection and tracking using GDINO or RTDETR models via the [Real Time Video Intelligence CV (RTVI CV) Microservice](/vss/system-components/vision-microservices/object-detection-and-tracking). The overlay sets `MODEL_NAME_2D=RTDETR`, whereas the base `alerts` profile defaults to GDINO.
-- VLM-based verification for enhanced alert accuracy via the [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice)
-- Agents and Agent UI for natural language interaction with the system via the [VSS Agents Microservice](/vss/vision-agent/vss-agents)
+- CV-based object detection and tracking using GDINO or RTDETR models via the [Real Time Video Intelligence CV (RTVI CV) Microservice](/system-components/vision-microservices/object-detection-and-tracking). The overlay sets `MODEL_NAME_2D=RTDETR`, whereas the base `alerts` profile defaults to GDINO.
+- VLM-based verification for enhanced alert accuracy via the [Alerts Microservice](/system-components/analytics-microservices/alerts-microservice)
+- Agents and Agent UI for natural language interaction with the system via the [VSS Agents Microservice](/vision-agent/vss-agents)
 - Integration options:
 
   - API
@@ -141,7 +141,7 @@ docker ps
 
 2. Confirm that the streams were properly added to VST. Navigate to the VST UI (see the endpoints below) and check the Dashboard to confirm that your streams are in a healthy state. If you do not see them there, check NVStreamer or your source to confirm that they are active.
 
-3. Check the RTVI CV frame rate to confirm that the [RTVI CV microservice](/vss/system-components/vision-microservices/object-detection-and-tracking) is running properly. View the `vss-rtvi-cv` logs with the following command and look for the FPS lines. Ensure the service is running at the expected rate (10fps with the sample streams). If the rate is lower than expected, confirm that your GPU is not oversaturated.
+3. Check the RTVI CV frame rate to confirm that the [RTVI CV microservice](/system-components/vision-microservices/object-detection-and-tracking) is running properly. View the `vss-rtvi-cv` logs with the following command and look for the FPS lines. Ensure the service is running at the expected rate (10fps with the sample streams). If the rate is lower than expected, confirm that your GPU is not oversaturated.
 
 ```bash
 docker logs -f vss-rtvi-cv
@@ -192,9 +192,9 @@ not deployed; earlier revisions of this page listed endpoints for them.
 
 Now that you have an up and running system, let’s explore the different features the Smart City Blueprint offers.
 
-We will delve into the four salient features of the blueprint, namely: chat interface, alerts with VLM verification, metrics dashboard, and map visualization - using corresponding tabs on the top-left of the [Blueprints Agent UI](/vss/system-components/user-interface).
+We will delve into the four salient features of the blueprint, namely: chat interface, alerts with VLM verification, metrics dashboard, and map visualization - using corresponding tabs on the top-left of the [Blueprints Agent UI](/system-components/user-interface).
 
-![VSS UI](/assets/images/scbp/vssui.png)
+![VSS UI](../assets/images/scbp/vssui.png)
 
 ### Chat
 
@@ -249,7 +249,7 @@ The system remembers your previous questions, allowing you to ask follow-ups wit
 
 ### Alerts
 
-![Alerts table showing collision alerts](/assets/images/scbp/montague-vssui.png)
+![Alerts table showing collision alerts](../assets/images/scbp/montague-vssui.png)
 
 The Alerts tab is a centralized view of all alerts generated from RTVI CV metadata. The alerts can be reviewed by using the different filters available in the system. Below is a table summarizing these filters:
 
@@ -269,9 +269,9 @@ The Alerts tab is a centralized view of all alerts generated from RTVI CV metada
 
 You can explore traffic data in Kibana at `http://<HOST_IP>:7777/kibana/`. An init container imports a custom dashboard for the Smart City app and creates all the required indexes. Access the dashboard by going to Menu > Dashboard and clicking on the ITS dashboard. To see the results corresponding to a particular sensor, click on the filter button, select the sensor keyword and enter the sensor name.
 
-![Smart City Kibana Dashboard](/assets/images/scbp/kibana_its_dashboard_1.png)
+![Smart City Kibana Dashboard](../assets/images/scbp/kibana_its_dashboard_1.png)
 
-![Smart City Kibana Dashboard Details](/assets/images/scbp/kibana_its_dashboard_2.png)
+![Smart City Kibana Dashboard Details](../assets/images/scbp/kibana_its_dashboard_2.png)
 
 **Dashboard Charts**
 
@@ -297,19 +297,19 @@ The Kibana dashboard is a powerful tool to visualize data. You can interact with
 
 #### City Level View
 
-![Visual Glossary City Level View](/assets/images/scbp/its-visual-glossary-city.svg)
+![Visual Glossary City Level View](../assets/images/scbp/its-visual-glossary-city.svg)
 
 The city level view is default upon loading the web client. This section discusses in detail the specific UI features available at this view level along with intersections.
 
 ##### City context header bar
 
-![City Context Header Bar](/assets/images/scbp/its-city-level-city-context-header-bar.svg)
+![City Context Header Bar](../assets/images/scbp/its-city-level-city-context-header-bar.svg)
 
 The city context header bar contains City Name on the left and the current UTC in GMT time for the city on the right.
 
 ##### Intersection markers
 
-![City Context Intersection Marker Tooltip](/assets/images/scbp/its-city-level-intersection-marker-tooltip.svg)
+![City Context Intersection Marker Tooltip](../assets/images/scbp/its-city-level-intersection-marker-tooltip.svg)
 
 Intersection Markers can be of three colors - green, blue and red. The green color signifies active intersection, which means at least one of the cameras at the intersection is giving out data to the MDX System. The blue color signifies that the intersection belongs to the current selected corridor, (corridor selection is discussed in one of the subsections below). The red color signifies there was a recent severe alert at the intersection. To dismiss the red color that acts as an alert, the user can go inside the intersection level view of the intersection. When the user comes back to the city view, the red colored icon now shows as green or blue.
 
@@ -317,7 +317,7 @@ Intersection Markers can be of three colors - green, blue and red. The green col
 
 The road network is constructed of smaller road segments. Each road segment can be interacted with individually by the user.
 
-![City Context Road Segments](/assets/images/scbp/its-city-level-road-segments.svg)
+![City Context Road Segments](../assets/images/scbp/its-city-level-road-segments.svg)
 
 In the image above, two of the upper horizontal road segments can be seen colored orange and green. The significance of the colors is explained in the Speed Legend sub-section. In brief, these colors depict the range of the average vehicle speed around that area on road in the real world.
 
@@ -327,19 +327,19 @@ Active road segments can be interacted with further to spawn speed display boxes
 
 ##### Speed legend
 
-![City Context Speed Legend](/assets/images/scbp/its-city-level-speed-legend.svg)
+![City Context Speed Legend](../assets/images/scbp/its-city-level-speed-legend.svg)
 
 The speed legend UI component is a static component. The left most color depicts busy traffic at a road segment and the right most color depicts free flowing traffic. The colored boxes can be hovered upon to see the range of integral speed they depict.
 
 #### Intersection Level Live View
 
-![Visual glossary of the intersection-level live view](/assets/images/scbp/its-visual-glossary-intersection-live.svg)
+![Visual glossary of the intersection-level live view](../assets/images/scbp/its-visual-glossary-intersection-live.svg)
 
 The user reaches the intersection level view for an intersection upon left-clicking an intersection icon in the city view. This section discusses, in detail, the specific UI features available at this view level.
 
 ##### Going back to city view
 
-![Intersection view back to city](/assets/images/scbp/its-intersection-level-back-to-city.svg)
+![Intersection view back to city](../assets/images/scbp/its-intersection-level-back-to-city.svg)
 
 The city context header bar shows the same in the intersection view with one difference. The city name on the left of the bar now can be clicked to go back to the city view from the intersection view.
 
@@ -351,13 +351,13 @@ The 'Last Updated Time' in GMT/UTC shows that time of the last event updated by 
 
 ##### Alert View mode
 
-![Visual Glossary Intersection Level Alert View](/assets/images/scbp/its-visual-glossary-intersection-alert.svg)
+![Visual Glossary Intersection Level Alert View](../assets/images/scbp/its-visual-glossary-intersection-alert.svg)
 
 The alert view mode at the intersection level is to present a contextual graphics for a selected alert. During this mode, some of the live view mode functionalities get replaced - Alerts list, live video feed, real-time dynamic road links, KPIs.
 
 The alerts panel in this mode shows the selected alert only along with the back button to go back to the live mode.
 
-![Intersection view Alert View Trajectory](/assets/images/scbp/its-intersection-level-alert-view-trajectory.svg)
+![Intersection view Alert View Trajectory](../assets/images/scbp/its-intersection-level-alert-view-trajectory.svg)
 
 Instead of real-time dynamically changing overlaid road segments on the map, in this mode, anomaly vehicle trajectory is shown in an animated fashion.
 The circle icon on the trajectory line is animated over the trajectory, giving a sense of direction of movement of the vehicle.
@@ -373,13 +373,13 @@ The KPI panel in this mode is not shown since live KPIs are incongruent with an 
 
 ##### Intersection KPIs
 
-![Intersection view kpi](/assets/images/scbp/its-intersection-level-kpi.svg)
+![Intersection view kpi](../assets/images/scbp/its-intersection-level-kpi.svg)
 
 The KPI panel shows the same as the city level, with the difference that the KPI metrics may be different as these sets are pertaining to an intersection and not a corridor. The other difference is that the KPI panel is prepended with the current intersection name instead of a corridor name.
 
 ##### Cameras
 
-![Intersection view camera marker](/assets/images/scbp/its-intersection-level-camera-marker.svg)
+![Intersection view camera marker](../assets/images/scbp/its-intersection-level-camera-marker.svg)
 
 The cameras installed at an intersection in the real world are drawn as camera icons on the 2D map surface along with their real world orientation and the field of view. The radius in pixels of the field of view arc drawn is approximated to the real world distance.
 
@@ -395,7 +395,7 @@ The colors showing the traffic density show up in the same way as the city level
 
 ##### Clustering Behavior
 
-![Intersection view Clustering Behavior](/assets/images/scbp/its-intersection-level-clustering-behaviour.svg)
+![Intersection view Clustering Behavior](../assets/images/scbp/its-intersection-level-clustering-behaviour.svg)
 
 To see the clustering widget right click on a sensor in the intersection live mode. The clustering behavior is shown for a single camera. The widget has following items:
 
