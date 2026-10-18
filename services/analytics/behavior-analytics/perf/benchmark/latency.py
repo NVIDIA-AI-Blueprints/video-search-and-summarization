@@ -8,6 +8,8 @@ from __future__ import annotations
 import re
 from typing import Mapping
 
+from kpis import evaluate_kpis, load_kpis
+
 OUTPUT_TOPICS = ("frames", "behavior", "events", "incidents")
 CORRECTED_FIELDS = ("min_s", "max_s", "avg_s", "p50_s", "p95_s", "p99_s")
 TOPIC_TITLES = {
@@ -107,11 +109,17 @@ def build_result(
     config_id: str,
     duration_seconds: int,
     warmup_seconds: int,
+    apply_kpis: bool = True,
+    kpis: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    """Build the benchmark result from a latency-monitor report."""
+    """Build the benchmark result from a latency-monitor report.
+
+    When apply_kpis is true (the Jenkins path), configs/kpis.yaml is loaded
+    and a missing required topic or a threshold miss fails the run.
+    """
     topics = parse_latency_report(report_text)
     correction = correct_topics(topics)
-    return {
+    payload: dict[str, object] = {
         "schema_version": "0.1",
         "benchmark_type": "microservice",
         "service": "behavior-analytics",
@@ -127,6 +135,16 @@ def build_result(
         "raw": correction["raw"],
         "topics": correction["topics"],
     }
+    if apply_kpis:
+        kpi_result = evaluate_kpis(payload, kpis if kpis is not None else load_kpis())
+        payload["kpis"] = kpi_result
+        if not kpi_result["passed"]:
+            payload["success"] = False
+            previous = payload.get("error")
+            payload["error"] = (
+                f"{previous}; {kpi_result['error']}" if previous else kpi_result["error"]
+            )
+    return payload
 
 
 def _parse_row(line: str) -> dict[str, float] | None:

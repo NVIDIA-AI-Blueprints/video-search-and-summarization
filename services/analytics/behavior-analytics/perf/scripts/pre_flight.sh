@@ -7,6 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 command -v docker >/dev/null
 docker info >/dev/null
 resolve_image >/dev/null
+test -f "$PERF_DIR/configs/kpis.yaml"
 playback="$INTEGRATION_DIR/docker_compose/apps_data/playback/warehouse_2d_playback_data.txt"
 test -f "$playback"
 # Jenkins GitHub checkout without git-lfs leaves a 100-byte pointer. Playback

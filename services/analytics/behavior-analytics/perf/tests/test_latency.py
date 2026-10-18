@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from kpis import DEFAULT_KPIS_PATH, _load_simple_yaml, evaluate_kpis, load_kpis
 from latency import build_result, correct_topics, parse_latency_report
 
 CORE = Path(__file__).resolve().parents[1] / "benchmark" / "core" / "vss_perf_benchmark.py"
@@ -103,6 +104,7 @@ class LatencyCorrectionTest(unittest.TestCase):
         self.assertEqual(result["raw"]["count"], 5649)
         self.assertEqual(result["topics"]["frames"]["total"]["count"], 5670)
         self.assertAlmostEqual(result["topics"]["frames"]["corrected"]["avg_s"], 0.007333, places=5)
+        self.assertTrue(result["kpis"]["passed"], result["kpis"])
 
     def test_subtract_raw_from_output_topics(self) -> None:
         result = correct_topics(parse_latency_report(REPORT))
@@ -112,6 +114,46 @@ class LatencyCorrectionTest(unittest.TestCase):
         self.assertAlmostEqual(frames["p95_s"], 0.182)
         self.assertAlmostEqual(result["topics"]["behavior"]["corrected"]["avg_s"], 0.22)
         self.assertFalse(result["topics"]["events"]["present"])
+
+    def test_kpis_yaml_loads_and_gates_result(self) -> None:
+        self.assertTrue(DEFAULT_KPIS_PATH.is_file())
+        kpis = load_kpis()
+        simple = _load_simple_yaml(DEFAULT_KPIS_PATH.read_text())
+        spec = kpis["scenarios"]["quick_test"]["warehouse_2d-kafka-playback"]
+        self.assertEqual(simple["scenarios"]["quick_test"]["warehouse_2d-kafka-playback"]["frames"]["max_p95_s"], spec["frames"]["max_p95_s"])
+        self.assertEqual(spec["required_topics"], ["raw", "frames", "behavior", "events", "incidents"])
+        passing = build_result(
+            CUMULATIVE_REPORT,
+            artifact_ref="nvcr.io/example/behavior-analytics:test",
+            scenario="quick_test",
+            config_id="warehouse_2d-kafka-playback",
+            duration_seconds=60,
+            warmup_seconds=10,
+        )
+        self.assertTrue(passing["success"], passing.get("error"))
+        tight = {
+            "scenarios": {
+                "quick_test": {
+                    "warehouse_2d-kafka-playback": {
+                        "required_topics": ["raw", "frames"],
+                        "frames": {"max_p95_s": 0.001},
+                    }
+                }
+            }
+        }
+        failed = evaluate_kpis(passing, tight)
+        self.assertFalse(failed["passed"])
+        self.assertTrue(any("frames.corrected.p95_s" in item for item in failed["violations"]))
+        missing_events = build_result(
+            REPORT,
+            artifact_ref="nvcr.io/example/behavior-analytics:test",
+            scenario="quick_test",
+            config_id="warehouse_2d-kafka-playback",
+            duration_seconds=60,
+            warmup_seconds=10,
+        )
+        self.assertFalse(missing_events["success"])
+        self.assertIn("events missing", missing_events["kpis"]["violations"])
 
     def test_negative_correction_fails(self) -> None:
         topics = parse_latency_report(REPORT)
@@ -135,6 +177,7 @@ class LatencyCorrectionTest(unittest.TestCase):
                 config_id="warehouse_2d-kafka-playback",
                 duration_seconds=60,
                 warmup_seconds=10,
+                apply_kpis=False,
             )
             output.write_text(json.dumps(result))
             saved = json.loads(output.read_text())
@@ -314,6 +357,7 @@ class LatencyCorrectionTest(unittest.TestCase):
             / "pre_flight.sh"
         ).read_text()
         self.assertIn("git-lfs.github.com", pre_flight)
+        self.assertIn('configs/kpis.yaml', pre_flight)
         up_line = next(line for line in deploy.splitlines() if "compose up -d --build" in line)
         self.assertNotIn("playback", up_line)
         apps = (

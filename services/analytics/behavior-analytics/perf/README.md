@@ -4,6 +4,8 @@ This package measures the promoted Behavior Analytics image with the warehouse 2
 
 The published Behavior Analytics latency for frames, behavior, events, and incidents is that topic's latency-monitor summary minus the raw-topic summary. The result keeps both values. A negative corrected value fails the run. Percentile correction subtracts the printed percentile columns; it does not recompute percentiles from individual messages.
 
+`perf/configs/kpis.yaml` is the regression gate. After correction, the writer requires raw/frames/behavior/events/incidents and checks min counts plus max corrected avg/p95 (and p99 on frames). Those numbers are approximate from Jenkins `#65` (`nightly-20261017`); Yun and Ganapathy should replace them. A miss sets `success` false and records `kpis.violations` in `result.json`.
+
 Playback does not use a GPU. The result is the Behavior Analytics overhead on recorded frames, not warehouse blueprint end-to-end latency.
 
 ## Run
