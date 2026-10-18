@@ -100,6 +100,35 @@ class LatencyCorrectionTest(unittest.TestCase):
         self.assertIn("--config-id", completed.stdout)
         self.assertIn("--output-json", completed.stdout)
         self.assertIn("--upload", completed.stdout)
+        self.assertIn("--vlm-gpus", completed.stdout)
+        spec = importlib.util.spec_from_file_location("ba_core_entrypoint", CORE)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        args = module.parse_args(
+            [
+                "--compose-file",
+                "infra/compose.yml",
+                "--vlm-gpus",
+                "unused",
+                "--llm-gpus",
+                "unused",
+                "--vlm-model",
+                "unused",
+                "--llm-model",
+                "unused",
+                "--vision-input-tokens",
+                "unused",
+                "--gpu-model",
+                "RTXPRO6000BW-SE",
+                "--pipeline-url",
+                "https://example.invalid",
+                "--future-jenkins-flag",
+                "ignored",
+            ]
+        )
+        self.assertEqual(args.vlm_gpus, "unused")
+        self.assertEqual(args.gpu_model, "RTXPRO6000BW-SE")
 
     def test_result_dir_honors_output_dir_env(self) -> None:
         spec = importlib.util.spec_from_file_location("ba_core_entrypoint", CORE)
@@ -157,6 +186,28 @@ class LatencyCorrectionTest(unittest.TestCase):
         self.assertIn('chmod -R a+rwX "$MDX_DATA_DIR"', deploy)
         self.assertIn("profile_services=", deploy)
         self.assertIn("compose up -d --build $profile_services analytics-stream", deploy)
+        measure = (
+            REPO_ROOT
+            / "services"
+            / "analytics"
+            / "behavior-analytics"
+            / "perf"
+            / "scripts"
+            / "measure.sh"
+        ).read_text()
+        self.assertIn("starting playback", measure)
+        self.assertIn("--entrypoint python3", measure)
+        self.assertIn("tools/latency/latency_monitor.py", measure)
+        pre_flight = (
+            REPO_ROOT
+            / "services"
+            / "analytics"
+            / "behavior-analytics"
+            / "perf"
+            / "scripts"
+            / "pre_flight.sh"
+        ).read_text()
+        self.assertIn("git-lfs.github.com", pre_flight)
         up_line = next(line for line in deploy.splitlines() if "compose up -d --build" in line)
         self.assertNotIn("playback", up_line)
         apps = (
@@ -195,6 +246,15 @@ class LatencyCorrectionTest(unittest.TestCase):
                 (REPO_ROOT / compose_path).is_file(),
                 f"{rel} composePath {compose_path} is missing",
             )
+            text = (REPO_ROOT / rel).read_text()
+            for key in (
+                "vlmGpus:",
+                "llmGpus:",
+                "vlmModel:",
+                "llmModel:",
+                "vision_input_tokens:",
+            ):
+                self.assertIn(key, text, f"{rel} is missing {key} for Jenkins set -u")
 
     def test_repo_root_jenkins_facade_and_compose_mirror_exist(self) -> None:
         self.assertTrue((REPO_ROOT / "perf" / "benchmark" / "core" / "vss_perf_benchmark.py").is_file())

@@ -9,3 +9,10 @@ perf_configs:
     # Jenkins runServicePerfSequence exports COMPOSE_FILE from this path. Empty
     # makes `set -u` fail at `if [ -n "${COMPOSE_FILE}" ]` (Jenkins #60).
     composePath: services/analytics/behavior-analytics/tests/integration/docker_compose/infra/compose.yml
+    # Jenkins withEnv omits empty values; the benchmark wrapper then dies on
+    # `set -u` at `if [ -n "${VLM_GPUS}" ]` and the rest of that chain.
+    vlmGpus: "unused"
+    llmGpus: "unused"
+    vlmModel: "unused"
+    llmModel: "unused"
+    vision_input_tokens: "unused"

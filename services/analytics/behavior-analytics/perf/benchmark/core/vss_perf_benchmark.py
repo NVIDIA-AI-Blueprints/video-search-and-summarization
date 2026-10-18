@@ -29,6 +29,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-json", type=Path)
     parser.add_argument("--compose-file")
     parser.add_argument("--gpu-model")
+    parser.add_argument("--vlm-gpus")
+    parser.add_argument("--llm-gpus")
+    parser.add_argument("--vlm-model")
+    parser.add_argument("--llm-model")
+    parser.add_argument("--vision-input-tokens")
     parser.add_argument("--release", default=os.environ.get("RELEASE", ""))
     parser.add_argument("--pipeline-url")
     parser.add_argument("--triggered-by", default=os.environ.get("TRIGGERED_BY", "manual"))
@@ -39,7 +44,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--failure-message", default="stage failed")
     parser.add_argument("--upload", action="store_true")
     parser.add_argument("--report", type=Path)
-    return parser.parse_args(argv)
+    # Jenkins runServicePerfSequence may add more LVS flags; ignore unknowns.
+    args, _unknown = parser.parse_known_args(argv)
+    return args
 
 
 def result_dir(args: argparse.Namespace) -> Path:
