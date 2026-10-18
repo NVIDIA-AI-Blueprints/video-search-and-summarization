@@ -18,6 +18,17 @@ docker pull "$BEHAVIOR_ANALYTICS_IMAGE"
 cd "$COMPOSE_DIR"
 # Pull the promoted BA image above. `up --build` only builds Compose services
 # that have a Dockerfile (broker-health-check, elasticsearch, kafka-topic-init).
-# analytics-stream has `image:` only, so it keeps the pulled tag. Playback stays
-# stopped until measure.sh.
-compose up -d --build analytics-stream
+# analytics-stream has `image:` only, so it keeps the pulled tag.
+#
+# `up analytics-stream` only starts that service and its depends_on
+# (broker-health-check). Kafka is selected by COMPOSE_PROFILES, not depends_on,
+# so Jenkins #58 left the broker down and the health check exited 1. Name the
+# profile services plus analytics-stream. A bare `up` would also start
+# analytics-stream-playback; that stays stopped until measure.sh.
+profile_services="${COMPOSE_PROFILES//,/ }"
+if ! compose up -d --build $profile_services analytics-stream; then
+    echo "Compose deploy failed; dumping status and logs." >&2
+    compose ps -a >&2 || true
+    compose logs --tail=200 >&2 || true
+    exit 1
+fi

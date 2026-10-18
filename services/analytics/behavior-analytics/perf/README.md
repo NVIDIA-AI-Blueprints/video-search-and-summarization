@@ -22,6 +22,6 @@ The shared job requires `{checkout}/perf/{configs,scripts,benchmark/core}` and a
 
 GPU nodes sparse-checkout `perf/`, `services/`, `ci/`, `compose/`, and `VERSION` — not `deploy/`. `generate_env.sh` therefore uses `deploy/docker` when it is present and `compose/docker` (a playback infra mirror) otherwise, so `${INFRA_DIR}/compose.yml` resolves.
 
-`deploy.sh` pulls the promoted Behavior Analytics image and runs `compose up --build analytics-stream`. `--build` is required for local infra images (`mdx-broker-health-check`, elasticsearch, kafka-topic-init). The analytics service itself has no Compose `build:` key, so the pulled NGC tag is not rebuilt.
+`deploy.sh` pulls the promoted Behavior Analytics image and runs `compose up --build` for `COMPOSE_PROFILES` plus `analytics-stream`. `--build` is required for local infra images (`mdx-broker-health-check`, elasticsearch, kafka-topic-init). The analytics service itself has no Compose `build:` key, so the pulled NGC tag is not rebuilt. Playback is not in that up list; `measure.sh` starts it after the latency monitor.
 
 The trampoline accepts the compose-base flags (`--config-id`, `--scenario`, `--output-json`, `--upload`). When Jenkins has already run the stage scripts it only measures. `PERF_SCENARIO=quick_test` selects the 60-second playback window. Results are written to `{checkout}/perf/results/behavior-analytics_<scenario>_<config-id>/`.

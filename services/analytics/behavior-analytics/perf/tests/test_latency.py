@@ -154,7 +154,10 @@ class LatencyCorrectionTest(unittest.TestCase):
             / "deploy.sh"
         ).read_text()
         self.assertNotIn("--no-build", deploy)
-        self.assertIn("compose up -d --build analytics-stream", deploy)
+        self.assertIn("profile_services=", deploy)
+        self.assertIn("compose up -d --build $profile_services analytics-stream", deploy)
+        up_line = next(line for line in deploy.splitlines() if "compose up -d --build" in line)
+        self.assertNotIn("playback", up_line)
         apps = (
             REPO_ROOT
             / "services"
