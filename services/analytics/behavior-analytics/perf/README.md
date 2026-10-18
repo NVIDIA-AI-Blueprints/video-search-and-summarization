@@ -18,6 +18,6 @@ The result is written to `perf/results/behavior-analytics_<scenario>_<config-id>
 
 ## Jenkins
 
-The shared job checks out `services/analytics/behavior-analytics` as the workspace root and requires `perf/benchmark/core/vss_perf_benchmark.py` under that root. That file accepts the compose-base flags (`--config-id`, `--scenario`, `--output-json`, `--upload`) and runs `perf/run_benchmark.sh`. `PERF_SCENARIO=quick_test` selects the 60-second playback window.
+The shared job requires `{checkout}/perf/benchmark/core/vss_perf_benchmark.py`. A trampoline at the VSS repo root `perf/` delegates to this package so Jenkins can check out the full tree (`SCM_FOLDER` empty, `PERF_FOLDER=perf`). That checkout includes `deploy/docker/services/infra`, which the integration compose file includes as `${INFRA_DIR}/compose.yml`.
 
-Set `SCM_FOLDER=services/analytics/behavior-analytics` and `PERF_FOLDER=perf`. Do not point `PERF_FOLDER` at the full VSS path: Jenkins still looks for `{checkout}/perf/benchmark/core/vss_perf_benchmark.py`. The integration compose file includes `${INFRA_DIR}/compose.yml` from `deploy/docker/services/infra` on the VSS tree; that path is outside this service folder.
+The trampoline accepts the compose-base flags (`--config-id`, `--scenario`, `--output-json`, `--upload`) and runs this package's `run_benchmark.sh`. `PERF_SCENARIO=quick_test` selects the 60-second playback window. Results are written to `{checkout}/perf/results/behavior-analytics_<scenario>_<config-id>/` so Jenkins can archive them.

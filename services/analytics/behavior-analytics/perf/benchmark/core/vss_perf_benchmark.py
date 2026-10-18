@@ -45,6 +45,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def result_dir(args: argparse.Namespace) -> Path:
     if args.output_json:
         return args.output_json.parent if args.output_json.suffix == ".json" else args.output_json
+    env_output = os.environ.get("OUTPUT_DIR")
+    if env_output:
+        return Path(env_output)
     return PERF_ROOT / "results" / f"behavior-analytics_{args.scenario}_{args.config_id}"
 
 

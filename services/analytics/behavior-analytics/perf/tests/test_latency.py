@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -98,6 +99,21 @@ class LatencyCorrectionTest(unittest.TestCase):
         self.assertIn("--config-id", completed.stdout)
         self.assertIn("--output-json", completed.stdout)
         self.assertIn("--upload", completed.stdout)
+
+    def test_result_dir_honors_output_dir_env(self) -> None:
+        spec = importlib.util.spec_from_file_location("ba_core_entrypoint", CORE)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            os.environ["OUTPUT_DIR"] = directory
+            try:
+                args = module.parse_args(
+                    ["--scenario", "quick_test", "--config-id", "warehouse_2d-kafka-playback"]
+                )
+                self.assertEqual(module.result_dir(args), Path(directory))
+            finally:
+                os.environ.pop("OUTPUT_DIR", None)
 
 
 if __name__ == "__main__":

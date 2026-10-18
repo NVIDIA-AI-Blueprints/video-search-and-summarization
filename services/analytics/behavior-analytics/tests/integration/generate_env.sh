@@ -115,11 +115,15 @@ MDX_DATA_DIR="${SCRIPT_DIR}/docker_compose/apps_data"
 # Shared infra assets (ELK/Kafka/Redis configs, ES init scripts, protobuf
 # definitions) are single-sourced from the deployment tree rather than
 # duplicated under tests/. See deploy/docker/services/infra/.
-INFRA_DIR="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)/deploy/docker/services/infra"
+REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "${REPO_ROOT}" ]]; then
+    REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)"
+fi
+INFRA_DIR="${REPO_ROOT}/deploy/docker/services/infra"
 
 # The deployment compose resolves every mount from these two, so point them at
 # the repo checkout and this suite's app data.
-VSS_APPS_DIR="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)/deploy/docker"
+VSS_APPS_DIR="${REPO_ROOT}/deploy/docker"
 VSS_DATA_DIR="${SCRIPT_DIR}/docker_compose/apps_data"
 
 # Service selection. The deployment tags every service with its own name, so the
