@@ -116,6 +116,33 @@ class LatencyCorrectionTest(unittest.TestCase):
             finally:
                 os.environ.pop("OUTPUT_DIR", None)
 
+    def test_generate_env_sources_under_nounset(self) -> None:
+        script = (
+            REPO_ROOT
+            / "services"
+            / "analytics"
+            / "behavior-analytics"
+            / "tests"
+            / "integration"
+            / "generate_env.sh"
+        )
+        completed = subprocess.run(
+            [
+                "bash",
+                "-c",
+                "set -euo pipefail; "
+                f'SCRIPT_DIR={str(script.parent)!r}; '
+                "PROFILE1=warehouse_2d; PROFILE2=kafka; "
+                f"source {str(script)!r}; "
+                'test -n "$INFRA_DIR"; test -f "$ENV_FILE"',
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("Generating environment variables", completed.stdout)
+
     def test_repo_root_jenkins_facade_and_compose_mirror_exist(self) -> None:
         self.assertTrue((REPO_ROOT / "perf" / "benchmark" / "core" / "vss_perf_benchmark.py").is_file())
         self.assertTrue((REPO_ROOT / "perf" / "configs" / "perf-configs.yaml").is_file())
