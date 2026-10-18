@@ -26,6 +26,18 @@ mkdir -p \
 chmod -R a+rwX "$BA_PERF_DATA_DIR"
 
 cd "$COMPOSE_DIR"
+# Jenkins #64: leftover compose project `mdx` still had named volumes bound to
+# the deleted checkouts/behavior-analytics tree. Non-interactive `up` reused
+# them (`Recreate (data will be lost)?`) and elasticsearch failed to mount.
+compose down --remove-orphans -v >/dev/null 2>&1 || true
+docker volume rm -f \
+    mdx_elastic-data mdx_elastic-logs mdx_kafka-data mdx_logstash-libs \
+    "${COMPOSE_PROJECT_NAME}_elastic-data" \
+    "${COMPOSE_PROJECT_NAME}_elastic-logs" \
+    "${COMPOSE_PROJECT_NAME}_kafka-data" \
+    "${COMPOSE_PROJECT_NAME}_logstash-libs" \
+    >/dev/null 2>&1 || true
+
 # Pull the promoted BA image above. `up --build` only builds Compose services
 # that have a Dockerfile (broker-health-check, elasticsearch, kafka-topic-init).
 # analytics-stream has `image:` only, so it keeps the pulled tag.
@@ -36,7 +48,7 @@ cd "$COMPOSE_DIR"
 # profile services plus analytics-stream. A bare `up` would also start
 # analytics-stream-playback; that stays stopped until measure.sh.
 profile_services="${COMPOSE_PROFILES//,/ }"
-if ! compose up -d --build $profile_services analytics-stream; then
+if ! compose up -d --build --force-recreate $profile_services analytics-stream; then
     echo "Compose deploy failed; dumping status and logs." >&2
     compose ps -a >&2 || true
     compose logs --tail=200 >&2 || true

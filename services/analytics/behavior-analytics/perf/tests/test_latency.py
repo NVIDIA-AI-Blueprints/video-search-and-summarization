@@ -181,7 +181,8 @@ class LatencyCorrectionTest(unittest.TestCase):
                 "BA_PERF_DATA_DIR=/tmp/ba-perf-mdx; "
                 f"source {str(script)!r}; "
                 'test "$VSS_DATA_DIR" = /tmp/ba-perf-mdx; '
-                'test "$MDX_DATA_DIR" != "$VSS_DATA_DIR"',
+                'test "$MDX_DATA_DIR" != "$VSS_DATA_DIR"; '
+                'test "$COMPOSE_PROJECT_NAME" = ba-perf',
             ],
             check=False,
             capture_output=True,
@@ -224,7 +225,8 @@ class LatencyCorrectionTest(unittest.TestCase):
         ).read_text()
         self.assertIn("BA_PERF_DATA_DIR", generate_env)
         self.assertIn("profile_services=", deploy)
-        self.assertIn("compose up -d --build $profile_services analytics-stream", deploy)
+        self.assertIn("compose up -d --build --force-recreate $profile_services analytics-stream", deploy)
+        self.assertIn("docker volume rm -f", deploy)
         measure = (
             REPO_ROOT
             / "services"

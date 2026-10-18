@@ -109,14 +109,16 @@ INFRA_DIR="${VSS_APPS_DIR}/services/infra"
 # checkout cannot be deleteDir'd (uid 1000, Operation not permitted).
 if [[ -n "${BA_PERF_DATA_DIR:-}" ]]; then
     VSS_DATA_DIR="$BA_PERF_DATA_DIR"
+    COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-ba-perf}"
 else
     VSS_DATA_DIR="${SCRIPT_DIR}/docker_compose/apps_data"
+    COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-mdx}"
 fi
 PROJ_ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 MDX_SAMPLE_APPS_DIR="${SCRIPT_DIR}/docker_compose"
 MDX_DATA_DIR="${SCRIPT_DIR}/docker_compose/apps_data"
 # Compose `include:` reads these from the process environment, not only --env-file.
-export REPO_ROOT VSS_APPS_DIR INFRA_DIR VSS_DATA_DIR MDX_SAMPLE_APPS_DIR
+export REPO_ROOT VSS_APPS_DIR INFRA_DIR VSS_DATA_DIR MDX_SAMPLE_APPS_DIR COMPOSE_PROJECT_NAME
 
 mkdir -p "$(dirname "$ENV_FILE")"
 cat > "$ENV_FILE" << EOF
@@ -162,7 +164,7 @@ COMPOSE_PROFILES="$COMPOSE_PROFILES"
 HOST_IP="$HOST_IP"
 
 # Volume Creation Variable for appending the volume name
-COMPOSE_PROJECT_NAME=mdx
+COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME"
 EOF
 
 echo "Generated environment file:"

@@ -7,7 +7,7 @@ set -euo pipefail
 PERF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVICE_DIR="$(cd "$PERF_DIR/.." && pwd)"
 INTEGRATION_DIR="$SERVICE_DIR/tests/integration"
-COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-mdx}"
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-ba-perf}"
 MONITOR_NAME="${MONITOR_NAME:-ba-perf-latency-monitor}"
 PERF_DURATION_SECONDS="${PERF_DURATION_SECONDS:-60}"
 PERF_WARMUP_SECONDS="${PERF_WARMUP_SECONDS:-10}"
@@ -15,7 +15,7 @@ PERF_SCENARIO="${PERF_SCENARIO:-quick_test}"
 PERF_CONFIG_ID="${PERF_CONFIG_ID:-warehouse_2d-kafka-playback}"
 OUTPUT_DIR="${OUTPUT_DIR:-${PERF_OUTPUT_DIR:-$PERF_DIR/results/${PERF_SERVICE:-behavior-analytics}_${PERF_SCENARIO}_${PERF_CONFIG_ID}}}"
 COMPOSE_DIR="$INTEGRATION_DIR/docker_compose"
-BA_PERF_DATA_DIR="${BA_PERF_DATA_DIR:-/tmp/ba-perf-${COMPOSE_PROJECT_NAME}}"
+BA_PERF_DATA_DIR="${BA_PERF_DATA_DIR:-/tmp/ba-perf-data}"
 CHECKOUT_DATA_LOG="$INTEGRATION_DIR/docker_compose/apps_data/data_log"
 
 remove_root_tree() {
@@ -43,7 +43,8 @@ resolve_image() {
 }
 
 compose() {
-    docker compose --env-file infra/.env -f infra/compose.yml -f apps/mdx-apps.yml "$@"
+    docker compose -p "$COMPOSE_PROJECT_NAME" --env-file infra/.env \
+        -f infra/compose.yml -f apps/mdx-apps.yml "$@"
 }
 
 load_compose_env() {
