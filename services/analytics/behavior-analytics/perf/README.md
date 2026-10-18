@@ -18,6 +18,8 @@ The result is written to `perf/results/behavior-analytics_<scenario>_<config-id>
 
 ## Jenkins
 
-The shared job requires `{checkout}/perf/benchmark/core/vss_perf_benchmark.py`. A trampoline at the VSS repo root `perf/` delegates to this package so Jenkins can check out the full tree (`SCM_FOLDER` empty, `PERF_FOLDER=perf`). That checkout includes `deploy/docker/services/infra`, which the integration compose file includes as `${INFRA_DIR}/compose.yml`.
+The shared job requires `{checkout}/perf/{configs,scripts,benchmark/core}` and archives `{checkout}/perf/results/...`. A trampoline at the VSS repo root `perf/` exposes that layout and delegates to this package (`SCM_FOLDER` empty, `PERF_FOLDER=perf`).
 
-The trampoline accepts the compose-base flags (`--config-id`, `--scenario`, `--output-json`, `--upload`) and runs this package's `run_benchmark.sh`. `PERF_SCENARIO=quick_test` selects the 60-second playback window. Results are written to `{checkout}/perf/results/behavior-analytics_<scenario>_<config-id>/` so Jenkins can archive them.
+GPU nodes sparse-checkout `perf/`, `services/`, `ci/`, `compose/`, and `VERSION` — not `deploy/`. `generate_env.sh` therefore uses `deploy/docker` when it is present and `compose/docker` (a playback infra mirror) otherwise, so `${INFRA_DIR}/compose.yml` resolves.
+
+The trampoline accepts the compose-base flags (`--config-id`, `--scenario`, `--output-json`, `--upload`). When Jenkins has already run the stage scripts it only measures. `PERF_SCENARIO=quick_test` selects the 60-second playback window. Results are written to `{checkout}/perf/results/behavior-analytics_<scenario>_<config-id>/`.

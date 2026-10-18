@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: SSPL-1.0 OR AGPL-3.0-only
+
+# This file is provided under Apache-2.0 License.
+
+pipeline.workers: 1
+pipeline.ordered: true
+pipeline.batch.size: 1000
+pipeline.ecs_compatibility: disabled
+api.http.host: "0.0.0.0"

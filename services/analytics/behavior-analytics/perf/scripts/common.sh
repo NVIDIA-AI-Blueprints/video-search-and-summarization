@@ -13,12 +13,14 @@ PERF_DURATION_SECONDS="${PERF_DURATION_SECONDS:-60}"
 PERF_WARMUP_SECONDS="${PERF_WARMUP_SECONDS:-10}"
 PERF_SCENARIO="${PERF_SCENARIO:-quick_test}"
 PERF_CONFIG_ID="${PERF_CONFIG_ID:-warehouse_2d-kafka-playback}"
-OUTPUT_DIR="${OUTPUT_DIR:-$PERF_DIR/results/${PERF_SERVICE:-behavior-analytics}_${PERF_SCENARIO}_${PERF_CONFIG_ID}}"
+OUTPUT_DIR="${OUTPUT_DIR:-${PERF_OUTPUT_DIR:-$PERF_DIR/results/${PERF_SERVICE:-behavior-analytics}_${PERF_SCENARIO}_${PERF_CONFIG_ID}}}"
 COMPOSE_DIR="$INTEGRATION_DIR/docker_compose"
 
 resolve_image() {
     if [[ -n "${ARTIFACT_REF:-}" ]]; then
         printf '%s\n' "$ARTIFACT_REF"
+    elif [[ -n "${IMAGE_TAG:-}" ]]; then
+        printf '%s\n' "$IMAGE_TAG"
     elif [[ -n "${BEHAVIOR_ANALYTICS_IMAGE:-}" ]]; then
         printf '%s\n' "$BEHAVIOR_ANALYTICS_IMAGE"
     elif [[ -n "${CURRENT_BEHAVIOR_ANALYTICS_IMAGE:-}" ]]; then

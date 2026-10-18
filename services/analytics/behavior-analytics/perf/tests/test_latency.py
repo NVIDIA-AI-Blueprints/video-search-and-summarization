@@ -12,6 +12,7 @@ from pathlib import Path
 from latency import build_result, correct_topics, parse_latency_report
 
 CORE = Path(__file__).resolve().parents[1] / "benchmark" / "core" / "vss_perf_benchmark.py"
+REPO_ROOT = Path(__file__).resolve().parents[5]
 
 REPORT = """
 RAW MESSAGES
@@ -114,6 +115,16 @@ class LatencyCorrectionTest(unittest.TestCase):
                 self.assertEqual(module.result_dir(args), Path(directory))
             finally:
                 os.environ.pop("OUTPUT_DIR", None)
+
+    def test_repo_root_jenkins_facade_and_compose_mirror_exist(self) -> None:
+        self.assertTrue((REPO_ROOT / "perf" / "benchmark" / "core" / "vss_perf_benchmark.py").is_file())
+        self.assertTrue((REPO_ROOT / "perf" / "configs" / "perf-configs.yaml").is_file())
+        self.assertTrue((REPO_ROOT / "perf" / "configs" / "config.yaml").is_file())
+        for name in ("pre_flight.sh", "deploy.sh", "post_deploy.sh", "teardown.sh"):
+            self.assertTrue((REPO_ROOT / "perf" / "scripts" / name).is_file())
+        self.assertTrue(
+            (REPO_ROOT / "compose" / "docker" / "services" / "infra" / "compose.yml").is_file()
+        )
 
 
 if __name__ == "__main__":

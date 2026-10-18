@@ -103,11 +103,14 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"result_file": str(dest), "status": status}))
         return 0 if payload["success"] else 1
 
-    completed = subprocess.run(
-        ["bash", str(PERF_ROOT / "run_benchmark.sh")],
-        env=env,
-        check=False,
-    )
+    # Jenkins already ran perf/scripts/{pre_flight,deploy,post_deploy}.sh.
+    # Only measure here so run_benchmark.sh does not deploy twice or tear down
+    # before the job archives results.
+    if env.get("PERF_PRE_FLIGHT"):
+        cmd = ["bash", str(PERF_ROOT / "scripts" / "measure.sh")]
+    else:
+        cmd = ["bash", str(PERF_ROOT / "run_benchmark.sh")]
+    completed = subprocess.run(cmd, env=env, check=False)
     dest = output / "result.json"
     if completed.returncode == 0 and dest.is_file():
         print(json.dumps({"result_file": str(dest), "status": "PASS"}))

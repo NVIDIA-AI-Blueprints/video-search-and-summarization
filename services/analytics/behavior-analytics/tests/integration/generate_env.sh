@@ -119,11 +119,18 @@ REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel 2>/dev/null || tru
 if [[ -z "${REPO_ROOT}" ]]; then
     REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)"
 fi
-INFRA_DIR="${REPO_ROOT}/deploy/docker/services/infra"
-
-# The deployment compose resolves every mount from these two, so point them at
-# the repo checkout and this suite's app data.
-VSS_APPS_DIR="${REPO_ROOT}/deploy/docker"
+# Full clones use deploy/. Jenkins GPU nodes sparse-checkout perf/, services/,
+# ci/, compose/, and VERSION, so a compose/docker mirror of the playback infra
+# is the fallback when deploy/ is absent.
+if [[ -f "${REPO_ROOT}/deploy/docker/services/infra/compose.yml" ]]; then
+    VSS_APPS_DIR="${REPO_ROOT}/deploy/docker"
+elif [[ -f "${REPO_ROOT}/compose/docker/services/infra/compose.yml" ]]; then
+    VSS_APPS_DIR="${REPO_ROOT}/compose/docker"
+else
+    echo "Missing deploy/docker/services/infra/compose.yml (and compose/docker fallback)." >&2
+    exit 1
+fi
+INFRA_DIR="${VSS_APPS_DIR}/services/infra"
 VSS_DATA_DIR="${SCRIPT_DIR}/docker_compose/apps_data"
 
 # Service selection. The deployment tags every service with its own name, so the
