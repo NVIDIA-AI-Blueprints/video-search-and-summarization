@@ -29,6 +29,51 @@ INCIDENTS MESSAGES
 | sensor-a        |           2 |      0.400 |      0.800 |      0.600 |       3.000 |      0.500 |      0.700 |      0.780 |
 """
 
+CUMULATIVE_REPORT = """
+Statistics Report - 2026-10-18 22:45:04 - Batch ID: 2
+=========================================================================================================================
+
+Statistics Report - 2026-10-18 22:46:59 - Batch ID: 13
+=========================================================================================================================
+
+RAW MESSAGES
+| Sensor          |       Count |     Min(s) |     Max(s) |     Avg(s) |    Size(KB) |     p50(s) |     p95(s) |     p99(s) |
+| Camera          |         298 |      0.000 |      0.003 |      0.000 |       0.294 |      0.000 |      0.001 |      0.001 |
+| Camera_01       |         298 |      0.000 |      0.003 |      0.000 |       0.329 |      0.000 |      0.001 |      0.001 |
+FRAMES MESSAGES
+| Sensor          |       Count |     Min(s) |     Max(s) |     Avg(s) |    Size(KB) |     p50(s) |     p95(s) |     p99(s) |
+| Camera          |         301 |      0.001 |      0.019 |      0.007 |       0.900 |      0.007 |      0.012 |      0.012 |
+
+Statistics Report - 2026-10-18 22:47:52 - Batch ID: 18
+=========================================================================================================================
+
+RAW MESSAGES
+| Sensor          |       Count |     Min(s) |     Max(s) |     Avg(s) |    Size(KB) |     p50(s) |     p95(s) |     p99(s) |
+| Camera          |        1883 |      0.000 |      0.003 |      0.000 |       0.333 |      0.000 |      0.001 |      0.001 |
+| Camera_01       |        1883 |      0.000 |      0.003 |      0.000 |       0.356 |      0.000 |      0.001 |      0.001 |
+| Camera_02       |        1883 |      0.000 |      0.003 |      0.000 |       0.366 |      0.000 |      0.001 |      0.001 |
+FRAMES MESSAGES
+| Sensor          |       Count |     Min(s) |     Max(s) |     Avg(s) |    Size(KB) |     p50(s) |     p95(s) |     p99(s) |
+| Camera          |        1890 |      0.001 |      0.019 |      0.007 |       1.001 |      0.007 |      0.012 |      0.012 |
+| Camera_01       |        1890 |      0.001 |      0.019 |      0.007 |       1.056 |      0.007 |      0.012 |      0.013 |
+| Camera_02       |        1890 |      0.002 |      0.019 |      0.008 |       1.072 |      0.008 |      0.013 |      0.013 |
+BEHAVIOR MESSAGES
+| Sensor          |       Count |     Min(s) |     Max(s) |     Avg(s) |    Size(KB) |     p50(s) |     p95(s) |     p99(s) |
+| Camera          |           3 |      6.011 |      6.017 |      6.013 |       7.275 |      6.012 |      6.017 |      6.017 |
+| Camera_01       |           2 |      6.015 |      6.016 |      6.015 |       6.636 |      6.015 |      6.016 |      6.016 |
+| Camera_02       |           2 |      6.015 |      6.020 |      6.018 |       7.413 |      6.015 |      6.020 |      6.020 |
+EVENTS MESSAGES
+| Sensor          |       Count |     Min(s) |     Max(s) |     Avg(s) |    Size(KB) |     p50(s) |     p95(s) |     p99(s) |
+| Camera          |          16 |      0.010 |      0.074 |      0.022 |       0.446 |      0.019 |      0.074 |      0.074 |
+| Camera_01       |          18 |      0.010 |      0.030 |      0.019 |       0.451 |      0.020 |      0.030 |      0.030 |
+| Camera_02       |          16 |      0.011 |      0.027 |      0.018 |       0.452 |      0.017 |      0.027 |      0.027 |
+INCIDENTS MESSAGES
+| Sensor          |       Count |     Min(s) |     Max(s) |     Avg(s) |    Size(KB) |     p50(s) |     p95(s) |     p99(s) |
+| Camera          |        2049 |      0.001 |      0.013 |      0.007 |       0.127 |      0.007 |      0.012 |      0.013 |
+| Camera_01       |        2122 |      0.002 |      0.014 |      0.008 |       0.130 |      0.008 |      0.012 |      0.013 |
+| Camera_02       |        1939 |      0.002 |      0.014 |      0.008 |       0.129 |      0.008 |      0.013 |      0.014 |
+"""
+
 
 class LatencyCorrectionTest(unittest.TestCase):
     def test_parse_and_weight_sensor_rows(self) -> None:
@@ -38,6 +83,26 @@ class LatencyCorrectionTest(unittest.TestCase):
         self.assertAlmostEqual(topics["behavior"]["min_s"], 0.1)
         self.assertAlmostEqual(topics["behavior"]["max_s"], 0.5)
         self.assertNotIn("events", topics)
+
+    def test_parse_uses_last_cumulative_dump_only(self) -> None:
+        topics = parse_latency_report(CUMULATIVE_REPORT)
+        self.assertEqual(topics["raw"]["count"], 5649)
+        self.assertEqual(topics["frames"]["count"], 5670)
+        self.assertEqual(topics["behavior"]["count"], 7)
+        self.assertEqual(topics["events"]["count"], 50)
+        self.assertEqual(topics["incidents"]["count"], 6110)
+        result = build_result(
+            CUMULATIVE_REPORT,
+            artifact_ref="nvcr.io/example/behavior-analytics:test",
+            scenario="quick_test",
+            config_id="warehouse_2d-kafka-playback",
+            duration_seconds=60,
+            warmup_seconds=10,
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(result["raw"]["count"], 5649)
+        self.assertEqual(result["topics"]["frames"]["total"]["count"], 5670)
+        self.assertAlmostEqual(result["topics"]["frames"]["corrected"]["avg_s"], 0.007333, places=5)
 
     def test_subtract_raw_from_output_topics(self) -> None:
         result = correct_topics(parse_latency_report(REPORT))

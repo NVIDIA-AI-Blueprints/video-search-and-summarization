@@ -18,28 +18,41 @@ TOPIC_TITLES = {
     "INCIDENTS MESSAGES": "incidents",
 }
 _NUMBER = re.compile(r"^-?\d+(?:\.\d+)?$")
+_REPORT_HEADER = "Statistics Report"
 
 
 def parse_latency_report(text: str) -> dict[str, dict[str, float]]:
-    """Aggregate every sensor row in a latency-monitor report by topic.
+    """Aggregate sensor rows from the last cumulative latency-monitor dump.
 
-    Count is summed. Minimum and maximum are the extremes. Average and
-    percentile columns are count-weighted across sensor rows.
+    The monitor reprints a growing table every few seconds. Earlier dumps
+    are prefixes of the last one, so merging every dump double-counts.
+    Empty dumps in the warm-up window are skipped. Within the last dump,
+    count is summed across sensors and average / percentile columns are
+    count-weighted.
     """
-    current: str | None = None
-    topics: dict[str, dict[str, float]] = {}
+    last: dict[str, dict[str, float]] = {}
+    batch: dict[str, dict[str, float]] = {}
+    topic: str | None = None
     for raw_line in text.splitlines():
         title = raw_line.strip()
-        if title in TOPIC_TITLES:
-            current = TOPIC_TITLES[title]
+        if title.startswith(_REPORT_HEADER):
+            if batch:
+                last = batch
+            batch = {}
+            topic = None
             continue
-        if current is None or not raw_line.startswith("|"):
+        if title in TOPIC_TITLES:
+            topic = TOPIC_TITLES[title]
+            continue
+        if topic is None or not raw_line.startswith("|"):
             continue
         row = _parse_row(raw_line)
         if row is None:
             continue
-        topics[current] = _merge(topics.get(current), row)
-    return topics
+        batch[topic] = _merge(batch.get(topic), row)
+    if batch:
+        last = batch
+    return last
 
 
 def correct_topics(topics: Mapping[str, Mapping[str, float]]) -> dict[str, object]:
