@@ -14,9 +14,10 @@ version:
 * each listed tag's ``docs/`` and OpenAPI spec are extracted with
   ``git archive`` into ``fern/versions/<tag>/``;
 * in each version, the ``${VSS_DOCS_*:-default}`` markers are replaced with
-  that version's checkout ref and image tags, image paths are pointed at the
-  version's own assets, and internal links in non-default versions are
-  versioned so readers stay in the version they are reading;
+  that version's checkout ref and image tags. Links and images need no
+  rewriting: page links omit the site base and version so Fern scopes them to
+  the reader's version, and images are page-relative. The checkout is rejected
+  if it uses the unscoped forms;
 * the ``versions:`` block of the output ``fern/docs.yml`` is rewritten to the
   prepared copies, default (first) version first.
 
@@ -57,7 +58,7 @@ RELEASE_PATTERN = re.compile(r"\d+\.\d+\.\d+")
 RELEASE_TAG_PATTERN = re.compile(r"v\d+\.\d+\.\d+")
 MARKER_PATTERN = re.compile(r"\$\{(?P<name>VSS_DOCS_\w*)(?P<rest>[^}\n]*)\}")
 FERN_ESCAPE_PATTERN = re.compile(r"\\\$\\\{")
-ASSET_LINK_PATTERN = re.compile(r'(?P<lead>\]\(|=")/assets/')
+UNSCOPED_LINK_PATTERN = re.compile(r'\]\(/(?:vss|assets)/|(?:href|src)="/(?:vss|assets)/')
 VERSION_KEYS = ("display-name", "slug", "path", "ref", "availability")
 
 
@@ -194,18 +195,6 @@ def render_versions(versions: list[Version]) -> str:
     return "".join(lines) + "\n"
 
 
-def site_base_path(text: str) -> str:
-    """URL base path of the first instance, e.g. ``/vss``."""
-    match = re.search(r"^\s*-\s*url:\s*[\"']?(?P<url>[^\s\"']+)", text, re.MULTILINE)
-    if match is None:
-        raise BuildError(f"{DOCS_YML}: no instances url")
-    _host, _, path = match.group("url").partition("/")
-    path = path.strip("/")
-    if not path:
-        raise BuildError(f"{DOCS_YML}: instance url has no base path; link versioning needs one")
-    return f"/{path}"
-
-
 # --- content transforms -------------------------------------------------------
 
 
@@ -241,37 +230,35 @@ def stamp_text(text: str, values: dict[str, str], location: str) -> str:
     return stamped
 
 
-def link_pattern(base: str, keep_slugs: list[str]) -> re.Pattern[str]:
-    """Internal links to unversioned pages (not already under a version slug)."""
-    versioned = "|".join(re.escape(slug) for slug in keep_slugs)
-    return re.compile(
-        rf'(?P<lead>\]\(|=")(?P<base>{re.escape(base)})/(?!(?:{versioned})(?:[/)"#]|$))'
-    )
+def unscoped_links(text: str, location: str) -> list[str]:
+    """Locations of links and images that Fern cannot scope to a version."""
+    return [
+        f"{location}:{number}: {line.strip()[:80]}"
+        for number, line in enumerate(text.splitlines(), start=1)
+        if UNSCOPED_LINK_PATTERN.search(line)
+    ]
 
 
-def transform_version(
-    root: Path,
-    values: dict[str, str],
-    *,
-    asset_prefix: str | None,
-    link_slug: str | None,
-    base: str,
-    all_slugs: list[str],
-) -> int:
-    """Stamp, re-point assets and version links in one version's ``docs/``."""
-    links = link_pattern(base, all_slugs)
-    changed = 0
+def transform_version(root: Path, values: dict[str, str], *, strict_links: bool) -> list[str]:
+    """Stamp one version's ``docs/``; return links Fern cannot scope to a version.
+
+    The checkout fails on them (``strict_links``). A release tag is immutable, so
+    its offenders are only reported.
+    """
+    offenders: list[str] = []
     for path in iter_markdown(root / "docs"):
         original = path.read_text(encoding="utf-8")
-        text = stamp_text(original, values, str(path.relative_to(root)))
-        if asset_prefix is not None:
-            text = ASSET_LINK_PATTERN.sub(rf"\g<lead>{asset_prefix}/assets/", text)
-        if link_slug is not None:
-            text = links.sub(rf"\g<lead>\g<base>/{link_slug}/", text)
+        location = str(path.relative_to(root))
+        text = stamp_text(original, values, location)
+        offenders += unscoped_links(original, location)
         if text != original:
             path.write_text(text, encoding="utf-8")
-            changed += 1
-    return changed
+    if strict_links and offenders:
+        raise BuildError(
+            "links must omit the /vss base and images must be page-relative "
+            "(see docs/README.md, Links and images):\n" + "\n".join(offenders)
+        )
+    return offenders
 
 
 # --- git ----------------------------------------------------------------------
@@ -289,8 +276,15 @@ def tag_exists(source: Path, tag: str) -> bool:
 
 
 def fetch_tag(source: Path, tag: str) -> None:
+    remote = git(source, "ls-remote", "--exit-code", "--refs", "origin", f"refs/tags/{tag}", check=False)
+    if remote.returncode == 2:
+        return  # The remote was reached, but the tag does not exist yet.
+    if remote.returncode != 0:
+        raise BuildError(f"{tag}: remote lookup failed: {remote.stderr.strip()}")
     refspec = f"refs/tags/{tag}:refs/tags/{tag}"
-    git(source, "fetch", "--no-tags", "--depth=1", "origin", refspec, check=False)
+    fetched = git(source, "fetch", "--no-tags", "--depth=1", "origin", refspec, check=False)
+    if fetched.returncode != 0:
+        raise BuildError(f"{tag}: fetch failed: {fetched.stderr.strip()}")
 
 
 def has_path(source: Path, tag: str, path: str) -> bool:
@@ -370,7 +364,6 @@ def build(
 
     docs_yml = (source / DOCS_YML).read_text(encoding="utf-8")
     listed = parse_versions(docs_yml)
-    base = site_base_path(docs_yml)
 
     summary: list[str] = []
     available: set[str] = set()
@@ -395,36 +388,28 @@ def build(
         )
 
     planned = plan_versions(listed, release=release, available=available)
-    default_slug = planned[0].slug
-    all_slugs = [version.slug for version in planned]
 
     copy_checkout(source, output)
     rendered: list[Version] = []
-    for version in planned:
-        link_slug = None if version.slug == default_slug else version.slug
+    for index, version in enumerate(planned):
         if version.ref is None:
-            root, asset_prefix = output, None
+            root = output
             values = release_values(release) if release is not None else DEV_VALUES
             rendered.append(version)
         else:
-            # Fern resolves /assets/... from the fern/ folder, so each release
-            # points at its own copy under fern/versions/<tag>/docs/assets.
             root = output / VERSIONS_DIR / version.ref
-            asset_prefix = f"/versions/{version.ref}/docs"
             extract_tag(source, version.ref, root)
             values = release_values(version.ref.removeprefix("v"))
             rendered.append(
                 replace(version, ref=None, path=f"./versions/{version.ref}/docs/index.yml")
             )
-        transform_version(
-            root,
-            values,
-            asset_prefix=asset_prefix,
-            link_slug=link_slug,
-            base=base,
-            all_slugs=all_slugs,
-        )
-        role = "default" if link_slug is None else f"{base}/{version.slug}"
+        offenders = transform_version(root, values, strict_links=version.ref is None)
+        if offenders:
+            summary.append(
+                f"warning: {version.ref} has {len(offenders)} link(s) Fern cannot scope to "
+                f"the version; first: {offenders[0]}"
+            )
+        role = "default" if index == 0 else f"/{version.slug}"
         stamped = " / ".join(values[name] for name in (GIT_REF, IMAGE_TAG, SBSA_IMAGE_TAG))
         summary.append(f"{version.display_name} ({role}): {stamped}")
 
