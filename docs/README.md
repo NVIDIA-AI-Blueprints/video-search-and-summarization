@@ -21,8 +21,9 @@ Author MDX in `docs/`. Fern configuration lives in `fern/` only.
 Internal links are site paths without the `/vss` base and without a version
 slug, for example `[Quickstart](/getting-started/quickstart)`. Fern adds the
 base and the reader's version, so a link on a Dev page stays in Dev and a link
-in a release stays in that release. Images use a path relative to the page. Only
-a deliberate cross-version link names the version, as in `/vss/3.3.0/...`.
+in a release stays in that release. Images use a path relative to the page.
+Each version's documentation is self-contained and should not link to other
+documentation versions.
 
 ## How the site is built
 
@@ -53,10 +54,12 @@ versions:
 Fern never reads that file directly. `build_fern_site.py` writes a temporary
 tree in which every version is a prepared copy: the checkout for Dev, and
 `git archive <tag>` for each release. In every copy it fills in that version's
-values (below), points each release at its own images, and versions internal
-links in the non-default versions so readers stay in the version they are
-reading. It then rewrites the `versions:` block of the temporary `docs.yml` to
-those copies. Every Fern command runs inside the temporary tree; the build never
+values (below). It does not rewrite links or images: Fern keeps readers in the
+version they are reading because page links omit the base and version, and each
+copy resolves its own page-relative images (see [Links and images](#links-and-images)).
+The build fails if the checkout uses the unscoped forms; release tags only warn.
+It then rewrites the `versions:` block of the temporary `docs.yml` to those
+copies. Every Fern command runs inside the temporary tree; the build never
 modifies the checkout.
 
 ## Version-specific values
