@@ -16,7 +16,7 @@ Set `ARTIFACT_REF` to the promoted image, then run:
 ./perf/run_benchmark.sh
 ```
 
-The result is written to `perf/results/behavior-analytics_<scenario>_<config-id>/result.json`.
+The result is written to `perf/results/behavior-analytics_<scenario>_<config-id>/result.json`. Jenkins already passes `--upload` and MinIO keys; the writer PUTs a timestamped copy to `s3://perf-results-dev/behavior-analytics/...` (`10.111.52.248:9000`, same endpoint as compose-base). The dashboard still has to onboard this service name.
 
 ## Jenkins
 

@@ -8,9 +8,11 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from kpis import DEFAULT_KPIS_PATH, _load_simple_yaml, evaluate_kpis, load_kpis
 from latency import build_result, correct_topics, parse_latency_report
+from minio_upload import minio_settings, publish_result
 
 CORE = Path(__file__).resolve().parents[1] / "benchmark" / "core" / "vss_perf_benchmark.py"
 REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -154,6 +156,37 @@ class LatencyCorrectionTest(unittest.TestCase):
         )
         self.assertFalse(missing_events["success"])
         self.assertIn("events missing", missing_events["kpis"]["violations"])
+
+    def test_minio_publish_uses_config_and_credentials(self) -> None:
+        config = (
+            Path(__file__).resolve().parents[1] / "configs" / "config.yaml"
+        )
+        settings = minio_settings(config)
+        self.assertEqual(settings["endpoint"], "10.111.52.248:9000")
+        self.assertEqual(settings["service"], "behavior-analytics")
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "result.json"
+            result_path.write_text('{"success": true}\n')
+            with self.assertRaises(ValueError):
+                publish_result(result_path, config_path=config, config_id="warehouse_2d-kafka-playback")
+            with patch.dict(
+                os.environ,
+                {"MINIO_ACCESS_KEY": "ak", "MINIO_SECRET_KEY": "sk"},
+            ), patch(
+                "minio_upload.upload_result_file",
+                return_value="behavior-analytics/behavior-analytics_warehouse_2d-kafka-playback_20261018T000000Z.json",
+            ) as put:
+                published = publish_result(
+                    result_path,
+                    config_path=config,
+                    config_id="warehouse_2d-kafka-playback",
+                )
+            self.assertEqual(
+                published["object"],
+                "behavior-analytics/behavior-analytics_warehouse_2d-kafka-playback_20261018T000000Z.json",
+            )
+            self.assertTrue(published["uri"].startswith("s3://perf-results-dev/"))
+            put.assert_called_once()
 
     def test_negative_correction_fails(self) -> None:
         topics = parse_latency_report(REPORT)
@@ -408,8 +441,10 @@ class LatencyCorrectionTest(unittest.TestCase):
 
     def test_repo_root_jenkins_facade_and_compose_mirror_exist(self) -> None:
         self.assertTrue((REPO_ROOT / "perf" / "benchmark" / "core" / "vss_perf_benchmark.py").is_file())
+        self.assertTrue((REPO_ROOT / "perf" / "benchmark" / "requirements.txt").is_file())
         self.assertTrue((REPO_ROOT / "perf" / "configs" / "perf-configs.yaml").is_file())
         self.assertTrue((REPO_ROOT / "perf" / "configs" / "config.yaml").is_file())
+        self.assertIn("minio:", (REPO_ROOT / "perf" / "configs" / "config.yaml").read_text())
         for name in ("pre_flight.sh", "deploy.sh", "post_deploy.sh", "teardown.sh"):
             self.assertTrue((REPO_ROOT / "perf" / "scripts" / name).is_file())
         self.assertTrue(

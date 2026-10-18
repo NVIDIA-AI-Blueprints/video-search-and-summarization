@@ -16,6 +16,7 @@ PERF_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PERF_ROOT / "benchmark"))
 
 from latency import build_result  # noqa: E402
+from minio_upload import publish_result  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -78,7 +79,8 @@ def main(argv: list[str] | None = None) -> int:
         env["RELEASE"] = args.release
     if args.triggered_by:
         env["TRIGGERED_BY"] = args.triggered_by
-    if args.upload or env.get("UPLOAD_TO_MINIO") == "true":
+    should_upload = bool(args.upload or env.get("UPLOAD_TO_MINIO") == "true")
+    if should_upload:
         env["UPLOAD_TO_MINIO"] = "true"
 
     if args.stage_failure:
@@ -106,8 +108,11 @@ def main(argv: list[str] | None = None) -> int:
             warmup_seconds=int(env.get("PERF_WARMUP_SECONDS", "10")),
         )
         dest = write_result(output, payload)
+        extra: dict[str, object] = {}
+        if should_upload:
+            extra["minio"] = _upload(dest, args)
         status = "PASS" if payload["success"] else "FAIL"
-        print(json.dumps({"result_file": str(dest), "status": status}))
+        print(json.dumps({"result_file": str(dest), "status": status, **extra}))
         return 0 if payload["success"] else 1
 
     # Jenkins already ran perf/scripts/{pre_flight,deploy,post_deploy}.sh.
@@ -119,11 +124,14 @@ def main(argv: list[str] | None = None) -> int:
         cmd = ["bash", str(PERF_ROOT / "run_benchmark.sh")]
     completed = subprocess.run(cmd, env=env, check=False)
     dest = output / "result.json"
+    extra: dict[str, object] = {}
+    if dest.is_file() and should_upload:
+        extra["minio"] = _upload(dest, args)
     if completed.returncode == 0 and dest.is_file():
-        print(json.dumps({"result_file": str(dest), "status": "PASS"}))
+        print(json.dumps({"result_file": str(dest), "status": "PASS", **extra}))
         return 0
     if not dest.is_file():
-        write_result(
+        dest = write_result(
             output,
             {
                 "schema_version": "0.1",
@@ -134,8 +142,14 @@ def main(argv: list[str] | None = None) -> int:
                 "error": f"run_benchmark.sh exited {completed.returncode}",
             },
         )
-    print(json.dumps({"result_file": str(dest), "status": "FAIL"}))
+    print(json.dumps({"result_file": str(dest), "status": "FAIL", **extra}))
     return 1
+
+
+def _upload(dest: Path, args: argparse.Namespace) -> dict[str, str]:
+    published = publish_result(dest, config_path=args.config, config_id=args.config_id)
+    print(f"Uploaded {published['uri']}", flush=True)
+    return published
 
 
 if __name__ == "__main__":

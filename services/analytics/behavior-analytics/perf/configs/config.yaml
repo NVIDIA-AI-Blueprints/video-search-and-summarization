@@ -1,3 +1,10 @@
+global:
+  # Same internal MinIO compose-base uses. Jenkins MINIO_BUCKET / keys override.
+  minio:
+    endpoint: "10.111.52.248:9000"
+    bucket: "perf-results-dev"
+    service: "behavior-analytics"
+
 scenarios: &scenarios
   quick_test:
     duration_seconds: 60
