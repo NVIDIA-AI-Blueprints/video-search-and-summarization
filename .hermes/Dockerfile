@@ -89,12 +89,19 @@ RUN mkdir -p /opt/vss-assets/skills \
 # The skill-selection tool, shared with the OpenClaw harness and the host:
 # the harness-neutral python selector from the pinned VSS_REF checkout.
 RUN cp /opt/vss-src/skills/vss-build-vision-ai/scripts/sync_skills.py /opt/vss-assets/sync_skills.py
-# Workspace docs: the shared set plus the _nemoclaw overlay, overlay winning,
-# flattened the way deploy_nemoclaw.ipynb uploads them for Hermes (into /sandbox).
+# Workspace docs: shared files plus the _nemoclaw environment/runtime overlay.
+# Hermes cannot use OpenClaw's vss_cli tool, so replace only the Base-routing
+# prefix with its standalone-vss variant and retain the common instructions
+# beginning at "First Run". The result is flattened into /sandbox.
 RUN mkdir -p /opt/vss-assets/workspace \
     && cp /opt/vss-src/.openclaw/workspace/*.md /opt/vss-assets/workspace/ \
     && cp /opt/vss-src/.openclaw/workspace/_nemoclaw/*.md /opt/vss-assets/workspace/ \
-    && test -f /opt/vss-assets/workspace/AGENTS.md && test -f /opt/vss-assets/workspace/ENV.md
+    && { cat /opt/vss-src/.openclaw/workspace/_hermes/VSS_ROUTING.md; printf '\n'; \
+         sed -n '/^## First Run$/,$p' /opt/vss-src/.openclaw/workspace/_nemoclaw/AGENTS.md; \
+       } > /opt/vss-assets/workspace/AGENTS.md \
+    && test -f /opt/vss-assets/workspace/ENV.md \
+    && grep -q '^vss vlm run' /opt/vss-assets/workspace/AGENTS.md \
+    && ! grep -q 'vss_cli' /opt/vss-assets/workspace/AGENTS.md
 # The vss CLI as wheels, riding the one /opt/vss-assets COPY the runtime's
 # layer budget allows — only the CLI library workspace (libs/vss: the
 # nvidia-vss-cli entry point and its nvidia-vss-core dependency). The agent
@@ -135,6 +142,8 @@ RUN set -eux; \
 # overlay2 depth limit, so this stage adds exactly two: one COPY of the staged
 # assets and one RUN for everything else. Do not split the RUN.
 FROM ${BASE_IMAGE} AS nemoclaw-runtime
+ARG NEMOCLAW_TOOL_DISCLOSURE=progressive
+ENV NEMOCLAW_TOOL_DISCLOSURE=${NEMOCLAW_TOOL_DISCLOSURE}
 USER root
 COPY --from=vss-src /opt/vss-assets/ /opt/vss-assets/
 # The vss_cli tool plugin, straight from the build context (not vss-src: it is
