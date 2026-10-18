@@ -16,8 +16,9 @@ version:
 * in each version, the ``${VSS_DOCS_*:-default}`` markers are replaced with
   that version's checkout ref and image tags. Links and images need no
   rewriting: page links omit the site base and version so Fern scopes them to
-  the reader's version, and images are page-relative. The checkout is rejected
-  if it uses the unscoped forms;
+  the reader's version, and images are page-relative. Unscoped forms fail the
+  build in the checkout and in the release being published (``--require-tag``);
+  in older listed tags, which cannot change, they are reported as warnings;
 * the ``versions:`` block of the output ``fern/docs.yml`` is rewritten to the
   prepared copies, default (first) version first.
 
@@ -29,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -58,7 +60,6 @@ RELEASE_PATTERN = re.compile(r"\d+\.\d+\.\d+")
 RELEASE_TAG_PATTERN = re.compile(r"v\d+\.\d+\.\d+")
 MARKER_PATTERN = re.compile(r"\$\{(?P<name>VSS_DOCS_\w*)(?P<rest>[^}\n]*)\}")
 FERN_ESCAPE_PATTERN = re.compile(r"\\\$\\\{")
-UNSCOPED_LINK_PATTERN = re.compile(r'\]\(/(?:vss|assets)/|(?:href|src)="/(?:vss|assets)/')
 VERSION_KEYS = ("display-name", "slug", "path", "ref", "availability")
 
 
@@ -102,11 +103,11 @@ def _scalar(raw: str, location: str) -> str:
     return re.sub(r"\s+#.*$", "", raw)
 
 
-def versions_block_span(text: str) -> tuple[int, int]:
-    """Character span of the top-level ``versions:`` block (key line included)."""
-    match = re.search(r"^versions:[ \t]*\n", text, re.MULTILINE)
+def block_span(text: str, key: str) -> tuple[int, int]:
+    """Character span of a top-level ``key:`` block (key line included)."""
+    match = re.search(rf"^{key}:[ \t]*\n", text, re.MULTILINE)
     if match is None:
-        raise BuildError(f"{DOCS_YML}: no top-level versions: block")
+        raise BuildError(f"{DOCS_YML}: no top-level {key}: block")
     end = match.end()
     for line in text[match.end() :].splitlines(keepends=True):
         if line.strip() and not line[0].isspace():
@@ -117,7 +118,7 @@ def versions_block_span(text: str) -> tuple[int, int]:
 
 def parse_versions(text: str) -> list[Version]:
     """Parse the ``versions:`` block: a list of flat ``key: value`` maps."""
-    start, end = versions_block_span(text)
+    start, end = block_span(text, "versions")
     line_offset = text.count("\n", 0, start) + 1
     entries: list[dict[str, str]] = []
     block = text[start:end].splitlines()[1:]
@@ -195,6 +196,17 @@ def render_versions(versions: list[Version]) -> str:
     return "".join(lines) + "\n"
 
 
+def site_base_path(text: str) -> str:
+    """URL base path of the first ``instances:`` url, e.g. ``/vss``, or ``""``."""
+    start, end = block_span(text, "instances")
+    match = re.search(r"^\s*-?\s*url:\s*(?P<url>.+)$", text[start:end], re.MULTILINE)
+    if match is None:
+        raise BuildError(f"{DOCS_YML}: no instances url")
+    _host, _, path = _scalar(match.group("url"), f"{DOCS_YML} instances").partition("/")
+    path = path.strip("/")
+    return f"/{path}" if path else ""
+
+
 # --- content transforms -------------------------------------------------------
 
 
@@ -230,32 +242,56 @@ def stamp_text(text: str, values: dict[str, str], location: str) -> str:
     return stamped
 
 
-def unscoped_links(text: str, location: str) -> list[str]:
+def unscoped_link_pattern(base: str) -> re.Pattern[str]:
+    """Links that name the site base, and images rooted at ``/assets/``.
+
+    Covers Markdown links and images, reference definitions, and ``href``/``src``
+    attributes (either quote, optionally inside ``{...}``). The base matches
+    alone (``/vss``) or followed by a path, anchor or query.
+    """
+    targets = ["assets/"]
+    if base:
+        targets.insert(0, rf"{re.escape(base.strip('/'))}(?=[/#?)\"'>\s]|$)")
+    target = rf"/(?:{'|'.join(targets)})"
+    lead = (
+        r"\]\(\s*<?"
+        r"|(?:href|src)\s*=\s*\{?\s*[\"']"
+        r"|^\s*\[[^\]]+\]:\s*<?"
+    )
+    return re.compile(rf"(?:{lead}){target}", re.MULTILINE)
+
+
+def unscoped_links(text: str, location: str, pattern: re.Pattern[str]) -> list[str]:
     """Locations of links and images that Fern cannot scope to a version."""
     return [
         f"{location}:{number}: {line.strip()[:80]}"
         for number, line in enumerate(text.splitlines(), start=1)
-        if UNSCOPED_LINK_PATTERN.search(line)
+        if pattern.search(line)
     ]
 
 
-def transform_version(root: Path, values: dict[str, str], *, strict_links: bool) -> list[str]:
+def transform_version(
+    root: Path, values: dict[str, str], *, base: str, strict_links: bool, label: str
+) -> list[str]:
     """Stamp one version's ``docs/``; return links Fern cannot scope to a version.
 
-    The checkout fails on them (``strict_links``). A release tag is immutable, so
-    its offenders are only reported.
+    ``base`` is the site base path from ``fern/docs.yml``. With ``strict_links``
+    (the checkout, or the release being published) unscoped links fail the
+    build; for an older immutable tag they are only reported.
     """
+    pattern = unscoped_link_pattern(base)
     offenders: list[str] = []
     for path in iter_markdown(root / "docs"):
         original = path.read_text(encoding="utf-8")
         location = str(path.relative_to(root))
         text = stamp_text(original, values, location)
-        offenders += unscoped_links(original, location)
+        offenders += unscoped_links(original, location, pattern)
         if text != original:
             path.write_text(text, encoding="utf-8")
     if strict_links and offenders:
+        named_base = f"omit the {base} base" if base else "omit the site base"
         raise BuildError(
-            "links must omit the /vss base and images must be page-relative "
+            f"{label}: links must {named_base} and images must be page-relative "
             "(see docs/README.md, Links and images):\n" + "\n".join(offenders)
         )
     return offenders
@@ -364,6 +400,7 @@ def build(
 
     docs_yml = (source / DOCS_YML).read_text(encoding="utf-8")
     listed = parse_versions(docs_yml)
+    base = site_base_path(docs_yml)
 
     summary: list[str] = []
     available: set[str] = set()
@@ -403,7 +440,15 @@ def build(
             rendered.append(
                 replace(version, ref=None, path=f"./versions/{version.ref}/docs/index.yml")
             )
-        offenders = transform_version(root, values, strict_links=version.ref is None)
+        # The checkout and a release being published must be self-contained;
+        # older immutable tags are reported but still built.
+        offenders = transform_version(
+            root,
+            values,
+            base=base,
+            strict_links=version.ref in (None, require_tag),
+            label=version.ref or "checkout",
+        )
         if offenders:
             summary.append(
                 f"warning: {version.ref} has {len(offenders)} link(s) Fern cannot scope to "
@@ -413,7 +458,7 @@ def build(
         stamped = " / ".join(values[name] for name in (GIT_REF, IMAGE_TAG, SBSA_IMAGE_TAG))
         summary.append(f"{version.display_name} ({role}): {stamped}")
 
-    start, end = versions_block_span(docs_yml)
+    start, end = block_span(docs_yml, "versions")
     (output / DOCS_YML).write_text(
         docs_yml[:start] + render_versions(rendered) + docs_yml[end:], encoding="utf-8"
     )
@@ -460,6 +505,14 @@ def main() -> int:
     print(f"Built Fern input tree at {args.output.resolve()}")
     for line in summary:
         print(f"  {line}")
+        if line.startswith("warning:") and os.environ.get("GITHUB_ACTIONS") == "true":
+            # The plain warning above stays in the stdout that workflows tee to
+            # the job summary; the annotation goes to stderr so the raw
+            # ::warning:: command text is not copied there too.
+            print(
+                f"::warning title=Fern site build::{line.removeprefix('warning: ')}",
+                file=sys.stderr,
+            )
     return 0
 
 

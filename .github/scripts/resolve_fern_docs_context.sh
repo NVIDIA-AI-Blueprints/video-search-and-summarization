@@ -27,7 +27,7 @@ if [[ "$ref_name" =~ ^pull-request/([0-9]+)$ ]]; then
   number="${BASH_REMATCH[1]}"
   branch="$(gh pr view "$number" --repo "${GITHUB_REPOSITORY:?}" --json baseRefName -q .baseRefName)"
 else
-  echo "::notice::${ref_name} is not a copy-pr-bot mirror branch; no PR comment will be posted"
+  echo "::notice::${ref_name} is not a copy-pr-bot mirror branch"
 fi
 
 release=""
