@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPT_PATH = Path(__file__).with_name("build_fern_site.py")
 SPEC = importlib.util.spec_from_file_location("build_fern_site", SCRIPT_PATH)
@@ -23,9 +24,9 @@ PAGE = (
     "export VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}\n"
     "image: vss:${VSS_DOCS_IMAGE_TAG:-develop-latest}\n"
     "Keep ${VSS_DATA_DIR} and API path GET /assets/list.\n"
-    "![diagram](/assets/images/diagram.png)\n"
-    '<img src="/assets/images/diagram.png" />\n'
-    "See [quickstart](/vss/getting-started/quickstart#run) and [home](/vss/dev/intro).\n"
+    "![diagram](./assets/images/diagram.png)\n"
+    '<img src="./assets/images/diagram.png" />\n'
+    "See [quickstart](/getting-started/quickstart#run) and [home](/intro).\n"
     "External https://docs.nvidia.com/vss/x stays.\n"
 )
 DOCS_YML = """\
@@ -72,7 +73,6 @@ def make_repo(root: Path, entries: str, page: str = PAGE) -> None:
     (root / "docs/page.mdx").write_text(page, encoding="utf-8")
     (root / "fern").mkdir()
     (root / "fern/docs.yml").write_text(DOCS_YML.format(entries=entries), encoding="utf-8")
-    (root / "fern/assets").symlink_to("../docs/assets")
     (root / BUILD.OPENAPI_PATH).parent.mkdir(parents=True)
     (root / BUILD.OPENAPI_PATH).write_text("{}\n", encoding="utf-8")
     run_git(root, "init", "-q")
@@ -117,9 +117,8 @@ def test_dev_only_build_stamps_develop_values() -> None:
         assert "VSS_RT_VLM_TAG=develop-latest-sbsa\n" in page
         assert "image: vss:develop-latest\n" in page
         assert "${VSS_DATA_DIR}" in page
-        assert "](/assets/images/diagram.png)" in page
-        assert "](/vss/getting-started/quickstart#run)" in page
-        assert (output / "fern/assets").is_symlink()
+        assert "](./assets/images/diagram.png)" in page
+        assert "](/getting-started/quickstart#run)" in page
         assert (output / BUILD.OPENAPI_PATH).is_file()
         docs_yml = read(output / "fern/docs.yml")
         assert 'path: "../docs/index.yml"' in docs_yml
@@ -143,17 +142,17 @@ def test_release_tags_become_prepared_path_versions() -> None:
         assert "git checkout v1.2.0\n" in release_page
         assert "VSS_RT_VLM_TAG=1.2.0-sbsa\n" in release_page
         assert "image: vss:1.2.0\n" in release_page
-        assert "](/versions/v1.2.0/docs/assets/images/diagram.png)" in release_page
-        assert 'src="/versions/v1.2.0/docs/assets/images/diagram.png"' in release_page
+        assert "](./assets/images/diagram.png)" in release_page
+        assert 'src="./assets/images/diagram.png"' in release_page
         assert "GET /assets/list" in release_page
-        assert "](/vss/getting-started/quickstart#run)" in release_page
+        assert "](/getting-started/quickstart#run)" in release_page
         assert (release_root / "docs/assets/images/diagram.png").is_file()
         assert (release_root / BUILD.OPENAPI_PATH).is_file()
 
         dev_page = read(output / "docs/page.mdx")
         assert "RELEASE-1.2.0" not in dev_page
-        assert "](/vss/dev/getting-started/quickstart#run)" in dev_page
-        assert "](/vss/dev/intro)" in dev_page
+        assert "](/getting-started/quickstart#run)" in dev_page
+        assert "](/intro)" in dev_page
         assert "https://docs.nvidia.com/vss/x" in dev_page
 
         docs_yml = read(output / "fern/docs.yml")
@@ -172,7 +171,7 @@ def test_missing_tag_is_skipped_and_dev_becomes_default() -> None:
 
         assert "warning: skipped v9.9.9: tag does not exist yet" in summary
         assert not (output / "fern/versions").exists()
-        assert "](/vss/getting-started/quickstart#run)" in read(output / "docs/page.mdx")
+        assert "](/getting-started/quickstart#run)" in read(output / "docs/page.mdx")
 
 
 def test_no_releases_builds_only_the_checkout() -> None:
@@ -188,6 +187,63 @@ def test_no_releases_builds_only_the_checkout() -> None:
         assert "./versions/" not in read(output / "fern/docs.yml")
 
 
+def test_fetch_skips_only_confirmed_missing_remote_tags() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        source, remote = Path(directory) / "repo", Path(directory) / "remote"
+        source.mkdir()
+        remote.mkdir()
+        make_repo(source, release_entry("1.2.0") + release_entry("9.9.9") + DEV_ENTRY)
+        make_repo(remote, DEV_ENTRY)
+        tag_release(remote, "1.2.0", "REMOTE-RELEASE")
+        run_git(source, "remote", "add", "origin", str(remote))
+
+        output = Path(directory) / "out"
+        summary = BUILD.build(source, output, fetch=True)
+
+        assert "warning: skipped v9.9.9: tag does not exist yet" in summary
+        assert "REMOTE-RELEASE" in read(output / "fern/versions/v1.2.0/docs/page.mdx")
+        assert not (output / "fern/versions/v9.9.9").exists()
+
+
+def test_remote_lookup_failure_aborts_build() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        source, output = Path(directory) / "repo", Path(directory) / "out"
+        source.mkdir()
+        make_repo(source, release_entry("1.2.0") + DEV_ENTRY)
+        run_git(source, "remote", "add", "origin", str(Path(directory) / "unreachable.git"))
+
+        expect_error(
+            "v1.2.0: remote lookup failed:",
+            lambda: BUILD.build(source, output, fetch=True),
+        )
+        assert not output.exists()
+
+
+def test_fetch_failure_after_successful_lookup_aborts_build() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        source, remote = Path(directory) / "repo", Path(directory) / "remote"
+        source.mkdir()
+        remote.mkdir()
+        make_repo(source, release_entry("1.2.0") + DEV_ENTRY)
+        make_repo(remote, DEV_ENTRY)
+        tag_release(remote, "1.2.0", "REMOTE-RELEASE")
+        run_git(source, "remote", "add", "origin", str(remote))
+        original_git = BUILD.git
+
+        def fail_fetch(source, *args, **kwargs):
+            if args[0] == "fetch":
+                return subprocess.CompletedProcess(args, 128, "", "connection interrupted")
+            return original_git(source, *args, **kwargs)
+
+        output = Path(directory) / "out"
+        with patch.object(BUILD, "git", side_effect=fail_fetch):
+            expect_error(
+                "v1.2.0: fetch failed: connection interrupted",
+                lambda: BUILD.build(source, output, fetch=True),
+            )
+        assert not output.exists()
+
+
 def test_release_preview_relabels_checkout_as_default() -> None:
     with tempfile.TemporaryDirectory() as directory:
         source, output = Path(directory) / "repo", Path(directory) / "out"
@@ -201,10 +257,10 @@ def test_release_preview_relabels_checkout_as_default() -> None:
         page = read(output / "docs/page.mdx")
         assert "git checkout v1.3.0\n" in page
         assert "image: vss:1.3.0\n" in page
-        assert "](/vss/getting-started/quickstart#run)" in page
+        assert "](/getting-started/quickstart#run)" in page
         assert not (output / "fern/versions/v1.3.0").exists()
         older = read(output / "fern/versions/v1.2.0/docs/page.mdx")
-        assert "](/vss/1.2.0/getting-started/quickstart#run)" in older
+        assert "](/getting-started/quickstart#run)" in older
 
         docs_yml = read(output / "fern/docs.yml")
         assert docs_yml.index('"1.3.0 (preview)"') < docs_yml.index('display-name: "1.2.0"')
@@ -237,6 +293,36 @@ def test_rejects_unknown_or_malformed_markers_and_fern_escapes() -> None:
             source.mkdir()
             make_repo(source, DEV_ENTRY, page=page)
             expect_error(fragment, lambda: BUILD.build(source, Path(directory) / "out"))
+
+
+def test_checkout_rejects_unscoped_links_but_release_tags_only_warn() -> None:
+    forms = [
+        "[x](/vss/getting-started/quickstart)\n",
+        '<a href="/vss/intro">x</a>\n',
+        "![x](/assets/images/diagram.png)\n",
+        '<img src="/assets/images/diagram.png" />\n',
+    ]
+    for form in forms:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "repo"
+            source.mkdir()
+            make_repo(source, DEV_ENTRY, page=form)
+            expect_error("page.mdx:1", lambda: BUILD.build(source, Path(directory) / "out"))
+
+    with tempfile.TemporaryDirectory() as directory:
+        source, output = Path(directory) / "repo", Path(directory) / "out"
+        source.mkdir()
+        make_repo(source, release_entry("1.2.0") + DEV_ENTRY, page=forms[0])
+        tag_release(source, "1.2.0", "RELEASE-1.2.0")
+        run_git(source, "rm", "-q", "-f", "docs/page.mdx")
+        (source / "docs/page.mdx").write_text(PAGE, encoding="utf-8")
+        run_git(source, "add", "docs/page.mdx")
+        run_git(source, "commit", "-q", "-m", "scoped links")
+
+        summary = BUILD.build(source, output)
+
+        assert any(line.startswith("warning: v1.2.0 has 1 link(s)") for line in summary)
+        assert (output / "fern/versions/v1.2.0/docs/page.mdx").is_file()
 
 
 def test_rejects_invalid_versions_blocks() -> None:
@@ -278,9 +364,13 @@ if __name__ == "__main__":
     test_release_tags_become_prepared_path_versions()
     test_missing_tag_is_skipped_and_dev_becomes_default()
     test_no_releases_builds_only_the_checkout()
+    test_fetch_skips_only_confirmed_missing_remote_tags()
+    test_remote_lookup_failure_aborts_build()
+    test_fetch_failure_after_successful_lookup_aborts_build()
     test_release_preview_relabels_checkout_as_default()
     test_require_tag_fails_when_release_is_not_listed()
     test_rejects_unknown_or_malformed_markers_and_fern_escapes()
+    test_checkout_rejects_unscoped_links_but_release_tags_only_warn()
     test_rejects_invalid_versions_blocks()
     test_rejects_existing_output_and_tags_without_index()
     print("build_fern_site tests passed")
