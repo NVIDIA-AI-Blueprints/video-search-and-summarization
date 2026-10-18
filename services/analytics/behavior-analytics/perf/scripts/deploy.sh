@@ -15,6 +15,15 @@ source "$INTEGRATION_DIR/generate_env.sh"
 load_compose_env
 docker pull "$BEHAVIOR_ANALYTICS_IMAGE"
 
+# Kafka and Elasticsearch run as uid 1000 and bind-mount apps_data/data_log
+# (755 in git). Jenkins #59: kafka could not write cluster_id; ES could not
+# write gc.log. Match tests/integration/test.sh.
+mkdir -p \
+    "$MDX_DATA_DIR/data_log/kafka" \
+    "$MDX_DATA_DIR/data_log/elastic/data" \
+    "$MDX_DATA_DIR/data_log/elastic/logs"
+chmod -R a+rwX "$MDX_DATA_DIR"
+
 cd "$COMPOSE_DIR"
 # Pull the promoted BA image above. `up --build` only builds Compose services
 # that have a Dockerfile (broker-health-check, elasticsearch, kafka-topic-init).
