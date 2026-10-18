@@ -201,6 +201,10 @@ class PlatformConfigTest(unittest.TestCase):
                             self.assertEqual(initial, 1)
                             self.assertEqual(video["latency_plateau_counts"], levels)
                             self.assertEqual(video["latency_plateau_duration_seconds"], 300)
+                            self.assertEqual(video["required_stable_windows"], 5)
+                            self.assertEqual(video["required_unstable_windows"], 2)
+                            self.assertEqual(video["unstable_window_size"], 5)
+                            self.assertEqual(video["max_windows_per_level"], 20)
                         elif name.startswith("concurrency_test_"):
                             self.assertEqual(video["stream_count"], levels)
                         elif name.startswith("file_burst_"):

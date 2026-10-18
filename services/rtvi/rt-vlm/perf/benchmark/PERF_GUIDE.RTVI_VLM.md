@@ -106,7 +106,7 @@ or prove available GPU capacity.
 
 `required_stable_windows` still requires consecutive passing windows. Optional
 `unstable_window_size: 5` with `required_unstable_windows: 2` additionally rejects
-a load with two failing checks in the latest five checks. RTX PRO 6000 SE profiles
+a load with two failing checks in the latest five checks. All BCD 3.3 platform profiles
 enable this rule. Freshness and zero-drop checks still apply. This changes the
 failure policy, so record the harness revision and do not compare it as identical
 to an older consecutive-only search.
