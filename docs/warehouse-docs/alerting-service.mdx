@@ -8,7 +8,7 @@ position: 3
 This page documents the Alerting Service as it is configured for the
 Warehouse Blueprint. For the full microservice reference
 (deployment, APIs, scaling, observability), see
-[Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice).
+[Alerts Microservice](/system-components/analytics-microservices/alerts-microservice).
 </Note>
 
 ## Overview
@@ -28,7 +28,7 @@ operating modes:
   every chunk that the VLM classifies as a violation.
 
 Both modes share the same Alert Bridge (output normalization + delivery)
-and the same prompt-tuning workflow described on page [Prompt Tuning](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#prompt-tuning).
+and the same prompt-tuning workflow described on page [Prompt Tuning](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#prompt-tuning).
 
 The five reference use cases shipped with the Warehouse Blueprint are:
 
@@ -85,7 +85,7 @@ still, would the forklift have driven through their position?* Only events
 that pass the freeze test are confirmed as Near Misses; the rest are
 rejected so the downstream alert feed is not flooded with non-events.
 
-![Near Miss alert demo](/assets/images/alerting-service/near-miss-demo.gif)
+![Near Miss alert demo](../assets/images/alerting-service/near-miss-demo.gif)
 
 **Live configuration.** The rule lives in `alert_type_config.json`,
 which is loaded into the Alerts Microservice at startup and stored in
@@ -456,7 +456,7 @@ Intact tall stacks, untidy/dusty loads, empty boxes, plastic-wrapped
 loads, and stray cardboard with no source load are explicitly **not**
 flagged.
 
-![Load Quality Violation alert demo](/assets/images/alerting-service/load-quality-demo.gif)
+![Load Quality Violation alert demo](../assets/images/alerting-service/load-quality-demo.gif)
 
 
 **Live configuration.** The rule lives in `realtime-config.yml` under
@@ -583,7 +583,7 @@ The defining test is *presence on the active travel floor* — an object
 does **not** need to fully block traffic to be a violation. A ladder or
 cable a worker can step around is still flagged.
 
-![Pathway Obstruction alert demo](/assets/images/alerting-service/pathway-obstruction-demo.gif)
+![Pathway Obstruction alert demo](../assets/images/alerting-service/pathway-obstruction-demo.gif)
 
 
 **Live configuration.** The rule lives in `realtime-config.yml` under
@@ -734,7 +734,7 @@ contents escaping, wet patches with no plausible source, intact sealed
 containers, and reflections / shadows / floor coatings are explicitly not
 flagged.
 
-![Spillover Violation alert demo](/assets/images/alerting-service/spillover-demo.gif)
+![Spillover Violation alert demo](../assets/images/alerting-service/spillover-demo.gif)
 
 
 **Live configuration.** The rule lives in `realtime-config.yml` under
@@ -858,7 +858,7 @@ required PPE items on their outer layer:
 Forklift / pallet-jack drivers are inspected the same way as workers on
 foot. People behind glass walls or on monitors are skipped.
 
-![PPE Violation alert demo](/assets/images/alerting-service/ppe-demo.gif)
+![PPE Violation alert demo](../assets/images/alerting-service/ppe-demo.gif)
 
 
 **Live configuration.** The rule lives in `realtime-config.yml` under
@@ -1304,7 +1304,7 @@ flattened into this `info` block automatically — adding e.g. a
 `info.confidence` appear on every emitted event.
 
 For the full request / response shapes and a deep dive into the
-underlying APIs, see [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice).
+underlying APIs, see [Alerts Microservice](/system-components/analytics-microservices/alerts-microservice).
 
 ## Prompt Tuning
 
@@ -1341,7 +1341,7 @@ case description, instead of writing them by hand.
   else — unauthorized entry, smoking detection, ladder safety,
   hot-work checks — needs a new prompt.
 * **Output format alignment.** Whatever you produce must parse against
-  one of the formats documented in [Alert Bridge](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#alert-bridge).
+  one of the formats documented in [Alert Bridge](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#alert-bridge).
   An LLM-authored prompt that asks for the wrong output shape is
   worse than no prompt at all — every event will land with
   `verdict = verification-failed`.
@@ -1353,10 +1353,10 @@ Authoring a new alert prompt is a four-step loop:
 1. **Define the use case.** Write a short brief: what counts as a
    violation, what does *not*, and what edge cases exist.
 2. **Pick the output format.** Choose from
-   [Alert Bridge](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#alert-bridge) —
-   [Format 1 — Cosmos Reason (think + verdict)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#format-1-cosmos-reason-think-verdict) for simple
+   [Alert Bridge](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#alert-bridge) —
+   [Format 1 — Cosmos Reason (think + verdict)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#format-1-cosmos-reason-think-verdict) for simple
    verdict-only flows, or
-   [Format 2 — JSON object](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#format-2-json-object) (recommended) for
+   [Format 2 — JSON object](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#format-2-json-object) (recommended) for
    real-time alerts that need a `video_description` to ride along.
 3. **Generate the prompt with an LLM.** Hand the use case brief, the
    output format, and the closest reference prompt to a reasoning
@@ -1410,7 +1410,7 @@ will produce a usable first draft.
 **(a) The use case brief** — your answers from Step 1.
 
 **(b) The output contract** — copy verbatim from
-[Alert Bridge](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#alert-bridge). For a real-time JSON prompt:
+[Alert Bridge](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/alerting-service#alert-bridge). For a real-time JSON prompt:
 
 ```text
 The Alert Bridge expects this exact JSON shape after any
@@ -1542,10 +1542,10 @@ prompt has all of these pieces:
   "expert-inspector" prompt strategy with strict classification
   tables and JSON output. The closest external reference for the
   Step-3 LLM-authoring workflow.
-* [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice) — full Alerts Microservice
+* [Alerts Microservice](/system-components/analytics-microservices/alerts-microservice) — full Alerts Microservice
   reference (deployment, APIs, concurrency, observability).
-* [Alert Verification Workflow](/vss/vision-agent/agent-workflows/alert-verification) — Alert Verification
+* [Alert Verification Workflow](/vision-agent/agent-workflows/alert-verification) — Alert Verification
   agent workflow.
-* [Real-Time Alert Workflow](/vss/vision-agent/agent-workflows/real-time-alerts) — Real-Time Alert agent workflow.
-* [NvSchema](/vss/system-components/middleware/nvschema) — `nv.Incident` and `nv.Behavior` schemas.
-* [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm) — RTVI VLM microservice.
+* [Real-Time Alert Workflow](/vision-agent/agent-workflows/real-time-alerts) — Real-Time Alert agent workflow.
+* [NvSchema](/system-components/middleware/nvschema) — `nv.Incident` and `nv.Behavior` schemas.
+* [Real-Time VLM](/system-components/vision-microservices/real-time-vlm) — RTVI VLM microservice.

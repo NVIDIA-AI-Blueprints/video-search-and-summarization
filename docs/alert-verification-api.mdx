@@ -73,7 +73,7 @@ When deployed behind an API Gateway, authentication may be enforced at the gatew
 | `GET` | `/health` | Health Check |
 | `GET` | `/metrics` | Metrics |
 
-The machine-readable OpenAPI specification is `services/alert/openapi.json` in this repository. For the complete create-rule payload, defaults, response, and a working port `9080` example, see [Create a Rule with the REST API](/vss/vision-agent/agent-workflows/real-time-alerts#create-a-rule-with-the-rest-api).
+The machine-readable OpenAPI specification is `services/alert/openapi.json` in this repository. For the complete create-rule payload, defaults, response, and a working port `9080` example, see [Create a Rule with the REST API](/vision-agent/agent-workflows/real-time-alerts#create-a-rule-with-the-rest-api).
 
 ## Realtime incident consolidation
 
@@ -267,8 +267,8 @@ Values outside the valid ranges are not checked at startup. They are rejected th
 - A consolidated event's identity is derived from its chunks. It is not a persisted event record and cannot be retrieved by ID.
 - Raw and consolidated `total` values have different meanings. Compare them only for the same time window.
 
-The read-time consolidation metrics are described in [Realtime incident consolidation metrics](/vss/system-components/analytics-microservices/alerts-microservice#realtime-incident-consolidation-metrics).
+The read-time consolidation metrics are described in [Realtime incident consolidation metrics](/system-components/analytics-microservices/alerts-microservice#realtime-incident-consolidation-metrics).
 
 ## Schema References
 
-For complete schema definitions, refer to the [Protobuf Schema](/vss/system-components/middleware/nvschema/protobuf-schema) documentation.
+For complete schema definitions, refer to the [Protobuf Schema](/system-components/middleware/nvschema/protobuf-schema) documentation.

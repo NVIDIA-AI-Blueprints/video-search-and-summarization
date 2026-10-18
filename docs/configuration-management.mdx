@@ -9,7 +9,7 @@ This page describes the common environment variables used by the `base`,
 with the hardware-specific values in the corresponding deployment guide.
 
 For warehouse deployments, use the
-[Warehouse Quick Start](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart).
+[Warehouse Quick Start](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart).
 Warehouse has
 additional modes, datasets, brokers, and calibration requirements.
 
@@ -51,7 +51,7 @@ derives the applicable image tags before later env files are read.
 | Variable | Meaning | Default and valid values | Profiles |
 | --- | --- | --- | --- |
 | `MODE` | Selects the workflow variant inside a profile; it does not select the profile directory. | `base`, `search`, and `lvs`: `2d`. `alerts`: `2d_cv` for alert verification or `2d_vlm` for real-time VLM alerts. | All |
-| `HARDWARE_PROFILE` | Selects hardware-specific NIM, RT-VLM, and perception settings. | Default: `H100`. Use a value supported by the selected workflow in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements). | All |
+| `HARDWARE_PROFILE` | Selects hardware-specific NIM, RT-VLM, and perception settings. | Default: `H100`. Use a value supported by the selected workflow in [Development Profile GPU Requirements](/getting-started/prerequisites#development-profile-gpu-requirements). | All |
 | `COMPOSE_PROFILES` | Comma-separated Compose service profiles that form the deployment. | Defined by each profile template. Preserve the checked-in expression unless intentionally changing the service graph. | All |
 | `COMPOSE_PROFILES_CV` | Service list for Alerts verification. | Defined by the Alerts template; select it with `COMPOSE_PROFILES=${COMPOSE_PROFILES_CV}`. | Alerts |
 | `COMPOSE_PROFILES_VLM` | Service list for real-time Alerts. | Defined by the Alerts template; select it with `COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}`. | Alerts |
@@ -78,9 +78,9 @@ The profile directory and `MODE` are separate choices. For example,
 
 When using a remote model, update the mode, name, slug, base URL, model type,
 and related RT-VLM values together. See
-[Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm)
+[Configure the LLM](/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm)
 and
-[Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm)
+[Configure the VLM](/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm)
 for complete examples.
 
 ## RT-VLM settings

@@ -6,10 +6,10 @@ position: 3
 
 ## Overview
 
-The [Search Workflow](/vss/vision-agent/agent-workflows/search) lets you query indexed video archives in
+The [Search Workflow](/vision-agent/agent-workflows/search) lets you query indexed video archives in
 natural language. During ingestion, uploaded clips are embedded through
-[RTVI-Embed](/vss/appendix/performance/microservices/rt-embed-performance) (Cosmos-Embed1-448p) and
-[RTVI-CV](/vss/appendix/performance/microservices/rt-cv-performance)/Behavior Analytics. At query time,
+[RTVI-Embed](/appendix/performance/microservices/rt-embed-performance) (Cosmos-Embed1-448p) and
+[RTVI-CV](/appendix/performance/microservices/rt-cv-performance)/Behavior Analytics. At query time,
 each request is decomposed by the reasoning LLM into a retrieval action — embed, attribute,
 or fusion search — and its arguments, and run through the VSS CLI (`vss search run <action>`).
 The CLI retrieves candidates and verifies them with the critic agent (Cosmos3 Nano Reasoner
@@ -89,8 +89,8 @@ drops, using the profile's default vision encoder settings (`skip-interval=0`,
 `smart-infer=0`, `ofa-predict=0`). To support more concurrent streams without FPS drops,
 use a combination of `skip-interval`, `smart-infer`, and `ofa-predict`.
 For details on these parameters, see
-[Smart Embedding Inference](/vss/system-components/vision-microservices/object-detection-and-tracking#smart-embedding-inference)
-and [Smart embedding properties](/vss/system-components/vision-microservices/object-detection-and-tracking#smart-embedding-properties)
+[Smart Embedding Inference](/system-components/vision-microservices/object-detection-and-tracking#smart-embedding-inference)
+and [Smart embedding properties](/system-components/vision-microservices/object-detection-and-tracking#smart-embedding-properties)
 in the RTVI-CV documentation.
 </Note>
 

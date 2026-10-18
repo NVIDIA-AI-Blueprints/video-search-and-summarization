@@ -17,7 +17,7 @@ When deploying with a local LLM, the agent workflow uses a default NIM endpoint.
 
 - **Default model:** `nvidia/nemotron-3.5-lightning-30b-a3b` for every profile (configured as a local NIM endpoint; each profile's `overrides.env` carries the matching `LLM_NAME` and `LLM_NAME_SLUG`).
 
-- **Custom NIM env file:** Set `LLM_ENV_FILE` in the selected profile's `*-overrides.env` file to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/vss/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.
+- **Custom NIM env file:** Set `LLM_ENV_FILE` in the selected profile's `*-overrides.env` file to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.
 
 - **Different local model:** Set `LLM_NAME` and its matching `LLM_NAME_SLUG` in the selected profile's `*-overrides.env` file to use one of the supported local models:
 
@@ -32,8 +32,8 @@ When deploying with a local LLM, the agent workflow uses a default NIM endpoint.
 
 ## Setup assumptions for remote LLMs
 
-Before you start, make sure you followed the [Prerequisites](/vss/getting-started/prerequisites) section.
-It is also recommended to review the different parameters described in the [Quickstart](/vss/getting-started/quickstart) guide.
+Before you start, make sure you followed the [Prerequisites](/getting-started/prerequisites) section.
+It is also recommended to review the different parameters described in the [Quickstart](/getting-started/quickstart) guide.
 
 1. Register an account at [NVIDIA NGC](https://org.ngc.nvidia.com/setup). Get an NGC API key.
 
@@ -67,7 +67,7 @@ cp deploy/docker/developer-profiles/dev-profile-base/overrides.env \
 
 For every configuration below, save the shown values in
 `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`, then validate and start
-the profile with the native Docker Compose command in [Quickstart](/vss/getting-started/quickstart).
+the profile with the native Docker Compose command in [Quickstart](/getting-started/quickstart).
 
 ## Managed remote LLMs
 
@@ -98,7 +98,7 @@ the profile with the native Docker Compose command in [Quickstart](/vss/getting-
 
 <Note>
 Remote VLM endpoints are supported too — see
-[Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm)
+[Configure the VLM](/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm)
 — but `https://integrate.api.nvidia.com` does not serve the blueprint's VLMs:
 [`nvidia/cosmos3-nano-reasoner`](https://build.nvidia.com/nvidia/cosmos3-nano-reasoner)
 is **downloadable** from the API Catalog, not hosted there. Point a remote VLM at a
