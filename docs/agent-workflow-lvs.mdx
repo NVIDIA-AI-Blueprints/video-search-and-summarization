@@ -28,7 +28,7 @@ Standard VLMs are limited to processing short video clips, usually less than 1 m
 
 The following diagram illustrates the video summarization architecture:
 
-![Vision Agent with Video Summarization Architecture](/assets/images/agent-workflows/profile-lvs-arch.png)
+![Vision Agent with Video Summarization Architecture](./assets/images/agent-workflows/profile-lvs-arch.png)
 
 **Key Features of the Vision Agent with Video Summarization:**
 
@@ -61,12 +61,12 @@ to use the Agent REST API or the manual Agent UI workflow below.
 
 ## Prerequisites
 
-Before you begin, ensure all of the prerequisites are met. See [Prerequisites](/vss/getting-started/prerequisites) for more details.
+Before you begin, ensure all of the prerequisites are met. See [Prerequisites](/getting-started/prerequisites) for more details.
 
 ## Deploy
 
 <Note>
-For instructions on downloading sample data and the deployment package, see [Download Sample Data and Deployment Package](/vss/getting-started/quickstart#configure-ngc-access) in the Quickstart guide.
+For instructions on downloading sample data and the deployment package, see [Download Sample Data and Deployment Package](/getting-started/quickstart#configure-ngc-access) in the Quickstart guide.
 </Note>
 
 ### With Agent Skills
@@ -74,11 +74,11 @@ For instructions on downloading sample data and the deployment package, see [Dow
 #### Step 1: Deploy the Agent
 
 Use VSS Agent Skills from an agent such as Claude Code, Codex, or NemoClaw to deploy and operate the video summarization workflow.
-First, install the `vss-build-vision-ai` skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
+First, install the `vss-build-vision-ai` skill as described in [Agent Skills](/vision-agent/agent-skills) and make it
 accessible to your agent. The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile)
-and must meet the [Prerequisites](/vss/getting-started/prerequisites).
+and must meet the [Prerequisites](/getting-started/prerequisites).
 
-The `vss-build-vision-ai` skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
+The `vss-build-vision-ai` skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/getting-started/prerequisites#development-profile-gpu-requirements).
 Refer to the requirements table for valid platform and mode combinations compatible with your hardware.
 
 **Deploy prompt structure**
@@ -89,7 +89,7 @@ Deploy the VSS video summarization profile (lvs).
 
 Name an image tag in the prompt to run a release's images instead of the
 `containers.env` default. See
-[Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
+[Container image tag](/vision-agent/build-vision-ai#container-image-tag).
 
 ```text title="Deploy prompt with a release image tag"
 Deploy the VSS video summarization profile (lvs) with image tag ${VSS_DOCS_IMAGE_TAG:-develop-latest}.
@@ -106,7 +106,7 @@ What the agent does:
 
 #### Step 2: Upload a Video
 
-To operate the video summarization and report generation workflow from your agent, install the `vss-manage-video-io-storage`, `vss-summarize-video`, and `vss-generate-video-report` skills as described in [Agent Skills](/vss/vision-agent/agent-skills).
+To operate the video summarization and report generation workflow from your agent, install the `vss-manage-video-io-storage`, `vss-summarize-video`, and `vss-generate-video-report` skills as described in [Agent Skills](/vision-agent/agent-skills).
 Your agent can then upload videos, summarize them, and generate reports through VSS with natural-language prompts, without requiring manual interaction with the UI.
 
 Upload a video through the `vss-manage-video-io-storage` skill.
@@ -165,9 +165,9 @@ What the agent does:
 Stream summary and report generation are experimental and are not available
 through Agent Skills. They require the in-stack VSS Agent. To use them, ask
 Build Vision AI to deploy the in-stack Agent, as described in the Quickstart's
-[deployment-path comparison](/vss/getting-started/quickstart#whats-being-deployed),
+[deployment-path comparison](/getting-started/quickstart#whats-being-deployed),
 or follow the manual deployment and [Step 4: Summarize and report on a live
-stream](/vss/vision-agent/agent-workflows/video-summarization#step-4-summarize-and-report-on-a-live-stream)
+stream](/vision-agent/agent-workflows/video-summarization#step-4-summarize-and-report-on-a-live-stream)
 below.
 </Note>
 
@@ -205,8 +205,8 @@ Replace `HOST_IP`, `VIDEO_NAME`, `SENSOR_ID`, `MEDIA_URL`, and `START_TIME` with
 #### Step 1: Deploy the Agent
 
 <Note>
-- Set the NGC CLI API key and authenticate Docker to `nvcr.io` before running the deploy commands. See [Verify Your NGC Access](/vss/getting-started/prerequisites#verify-your-ngc-access).
-- Refer to [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
+- Set the NGC CLI API key and authenticate Docker to `nvcr.io` before running the deploy commands. See [Verify Your NGC Access](/getting-started/prerequisites#verify-your-ngc-access).
+- Refer to [Configure the LLM](/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [Configure the VLM](/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
 - For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
 </Note>
 
@@ -219,7 +219,7 @@ printf '%s' "$NGC_CLI_API_KEY" | \
   docker login nvcr.io --username '$oauthtoken' --password-stdin
 ```
 
-See [Configuration](/vss/system-components/configuration) for common variables,
+See [Configuration](/system-components/configuration) for common variables,
 valid values, defaults, and env-file precedence. The complete profile-specific
 template is
 `deploy/docker/developer-profiles/dev-profile-lvs/overrides.env`.
@@ -590,7 +590,7 @@ RTVI_VLM_MODEL_PATH=none
 </Tabs>
 </Tab>
 <Tab title="OTHER">
-See [Local LLM and VLM deployments on OTHER hardware](/vss/appendix/faq) for known limitations and constraints.
+See [Local LLM and VLM deployments on OTHER hardware](/appendix/faq) for known limitations and constraints.
 
 <Tabs>
 <Tab title="Shared GPU">
@@ -699,7 +699,7 @@ may take a few minutes.
 - VLM model: `nim_nvidia_cosmos3-nano-reasoner_bf16-final` through RTVI-VLM
 
 <Note>
-When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
+When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/appendix/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
 </Note>
 
 Once the deployment is complete, check that all the containers are running and healthy:
@@ -708,7 +708,7 @@ Once the deployment is complete, check that all the containers are running and h
 docker ps
 ```
 
-Once all the containers are running, you can access the [Agent UI](/vss/system-components/user-interface) at `http://<HOST_IP>:7777/`.
+Once all the containers are running, you can access the [Agent UI](/system-components/user-interface) at `http://<HOST_IP>:7777/`.
 
 <Note>
 Kubernetes deployment is supported by the Video Summarization Helm chart in `deploy/helm/developer-profiles/dev-profile-lvs`.
@@ -767,7 +767,7 @@ You can cancel the workflow at any time by typing "/cancel" in the pop-up input 
 
 **Events** List events of interest to track. For example:
 
-<img src="/assets/images/agent-workflows/lvs-popup-scenario.png" alt="Pop-up for scenario input" width="410px" />
+<img src="./assets/images/agent-workflows/lvs-popup-scenario.png" alt="Pop-up for scenario input" width="410px" />
 
    ```text
    box falling, accident, person entering restricted area
@@ -775,7 +775,7 @@ You can cancel the workflow at any time by typing "/cancel" in the pop-up input 
 
 **Objects of Interest** Specify objects to monitor. For example:
 
-<img src="/assets/images/agent-workflows/lvs-popup-events.png" alt="Pop-up for events input" width="410px" />
+<img src="./assets/images/agent-workflows/lvs-popup-events.png" alt="Pop-up for events input" width="410px" />
 
    ```text
    forklifts, pallets, workers
@@ -783,15 +783,15 @@ You can cancel the workflow at any time by typing "/cancel" in the pop-up input 
 
 **Confirmation** Confirm the prompts by clicking 'Submit'.
 
-<img src="/assets/images/agent-workflows/lvs-popup-objects-of-interests.png" alt="Pop-up for objects of interest input" width="410px" />
+<img src="./assets/images/agent-workflows/lvs-popup-objects-of-interests.png" alt="Pop-up for objects of interest input" width="410px" />
 
    You can also redo the prompts by typing "/redo" or cancel the workflow by typing "/cancel".
 
 If you did not cancel the workflow, the agent will show the intermediate steps of the agent's reasoning while the response is being generated and then output the final answer. You can download the report in PDF format by clicking on 'PDF Report' in the agent's response:
 
-<img src="/assets/images/agent-workflows/lvs-popup-confirmation.png" alt="Pop-up for confirmation" width="410px" />
+<img src="./assets/images/agent-workflows/lvs-popup-confirmation.png" alt="Pop-up for confirmation" width="410px" />
 
-<img src="/assets/images/agent-workflows/lvs-response.png" alt="Report generated" width="410px" />
+<img src="./assets/images/agent-workflows/lvs-response.png" alt="Report generated" width="410px" />
 
 #### Step 4: Summarize and report on a live stream
 
@@ -832,13 +832,13 @@ On the left sidebar, click on "Dashboard" to open the Kibana dashboard in the ma
 choose the "Discover" tab.
 
 <Frame>
-  <img src="/assets/images/agent-workflows/lvs-dashboard-tab.png" alt="Dashboard tab" />
+  <img src="./assets/images/agent-workflows/lvs-dashboard-tab.png" alt="Dashboard tab" />
 </Frame>
 
 Set `default_*` in the `Data view` dropdown. Here you can see the events detected in the video or stream. When you click on a row item, a panel opens on the right side with details about the backend request and the event.
 
 <Frame>
-  <img src="/assets/images/agent-workflows/lvs-dashboard-discover.png" alt="Discover tab" />
+  <img src="./assets/images/agent-workflows/lvs-dashboard-discover.png" alt="Discover tab" />
 </Frame>
 
 #### Step 6: Teardown the Agent
@@ -918,11 +918,11 @@ curl http://<HOST_IP>:8018/v1/models | jq
 The response should show `"audio_support": true` and the model ID
 `Nemotron-Nano-V3-Omni-GA0420-FP8`, matching `VLM_NAME` in `user-overrides.env`.
 
-For full RTVI-VLM environment variable reference, see [Real-Time VLM Microservice](/vss/system-components/vision-microservices/real-time-vlm).
+For full RTVI-VLM environment variable reference, see [Real-Time VLM Microservice](/system-components/vision-microservices/real-time-vlm).
 
 ## Next steps
 
-To run long-video summarization and real-time VLM alerting in one deployment, use the documented [combined custom build](/vss/vision-agent/build-vision-ai#combine-real-time-alerting-and-video-summarization). Do not start the stock LVS and alerts profiles as separate stacks on the same host.
+To run long-video summarization and real-time VLM alerting in one deployment, use the documented [combined custom build](/vision-agent/build-vision-ai#combine-real-time-alerting-and-video-summarization). Do not start the stock LVS and alerts profiles as separate stacks on the same host.
 
 Additionally, you can dive deeper into the agent tools for video management, report generation, and video understanding.
 
@@ -933,13 +933,13 @@ Additionally, you can dive deeper into the agent tools for video management, rep
 
 For known issues and limitations, see:
 
-- [Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues) - VSS Agent known issues and limitations
-- [Known Issues](/vss/system-components/user-interface#known-issues) - VSS Agent UI known issues
+- [Agent Known Issues](/vision-agent/vss-agents/agent-known-issues) - VSS Agent known issues and limitations
+- [Known Issues](/system-components/user-interface#known-issues) - VSS Agent UI known issues
 
 ## Troubleshooting
 
 When encountering issues with the Video Summarization workflow:
 
-1. **View container logs** - See [Viewing Container Logs](/vss/vision-agent/vss-agents/observability#viewing-container-logs) for instructions on viewing and analyzing container logs
-2. **Navigate the Phoenix UI** - See [Navigating the Phoenix UI](/vss/vision-agent/vss-agents/observability#navigating-the-phoenix-ui) for step-by-step guidance on viewing traces and debugging agent workflows
-3. **Check known issues** - Review [Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues) (agent) and [Known Issues](/vss/system-components/user-interface#known-issues) (UI) for documented limitations and workarounds
+1. **View container logs** - See [Viewing Container Logs](/vision-agent/vss-agents/observability#viewing-container-logs) for instructions on viewing and analyzing container logs
+2. **Navigate the Phoenix UI** - See [Navigating the Phoenix UI](/vision-agent/vss-agents/observability#navigating-the-phoenix-ui) for step-by-step guidance on viewing traces and debugging agent workflows
+3. **Check known issues** - Review [Agent Known Issues](/vision-agent/vss-agents/agent-known-issues) (agent) and [Known Issues](/system-components/user-interface#known-issues) (UI) for documented limitations and workarounds

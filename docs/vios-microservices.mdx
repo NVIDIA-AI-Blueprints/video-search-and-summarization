@@ -23,7 +23,7 @@ VIOS auto-discovers ONVIF-S compliant IP cameras, and allows use of custom IP st
 8. Video wall feature which provides composite view of multiple webrtc streams.
 9. Provide REST APIs to write client application to control and configure VIOS.
 10. Support Redis/Kafka message bus to publish device add/remove events.
-11. Support outbound HTTP webhooks to deliver the same device events to external services (refer to [Notification Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#notification-config)).
+11. Support outbound HTTP webhooks to deliver the same device events to external services (refer to [Notification Config](/system-components/middleware/video-io-storage-vios/vios-microservices#notification-config)).
 12. Prometheus/Grafana integration for publishing VIOS statistics.
 13. Derive insights about the current status of VIOS.
 14. Cloud native. Deploy as a container.
@@ -31,7 +31,7 @@ VIOS auto-discovers ONVIF-S compliant IP cameras, and allows use of custom IP st
 
 We included binary for a web-based client that allows to view live and recorded content, as well as to modify camera and stream configuration (Web-UI Viewer).
 
-![VIOS Overview](/assets/images/vios/VIOS-Overview.png)
+![VIOS Overview](./assets/images/vios/VIOS-Overview.png)
 
 ### VIOS Modular Diagram
 
@@ -39,15 +39,15 @@ VIOS is built as a collection of cooperating microservices that together provide
 
 The following diagram illustrates the high-level architecture of VIOS. Each service is responsible for a specific aspect of the system, and the list that follows describes the role of each component.
 
-* **Sensor Management Service**: A comprehensive system designed to facilitate the administration and control of sensor-related functionalities. It handles sensor discovery, configuration, and stream management through dedicated sensor services and adaptors, and provides efficient management of sensors across the network. This service exclusively owns the sensor REST API surface — [Sensor Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-sensor-management-api) (prefixed with `/v1/sensor`).
-* **Unified Stream Processing MS**: A unified microservice that consolidates RTSP proxying, live and replay (recorded) WebRTC/DASH streaming, recording, and media storage into a single service. It handles video stream transformation, file ingestion, content download from ingested files, routing, and protocol conversion for real-time video ingestion, low-latency playback, and long-term archival. It exposes every stream- and media-related REST API in VIOS — [Proxy Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-proxy-stream-management-api) (`/v1/proxy`), [Live Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-live-stream-management-api) (`/v1/live`), [Record Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-record-stream-management-api) (`/v1/record`), [Replay Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-replay-stream-management-api) (`/v1/replay`), and [Storage Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-storage-management-api) (`/v1/storage`) — covering the entire VIOS API surface except the sensor APIs, which are owned by the Sensor Management Service.
+* **Sensor Management Service**: A comprehensive system designed to facilitate the administration and control of sensor-related functionalities. It handles sensor discovery, configuration, and stream management through dedicated sensor services and adaptors, and provides efficient management of sensors across the network. This service exclusively owns the sensor REST API surface — [Sensor Management API](/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-sensor-management-api) (prefixed with `/v1/sensor`).
+* **Unified Stream Processing MS**: A unified microservice that consolidates RTSP proxying, live and replay (recorded) WebRTC/DASH streaming, recording, and media storage into a single service. It handles video stream transformation, file ingestion, content download from ingested files, routing, and protocol conversion for real-time video ingestion, low-latency playback, and long-term archival. It exposes every stream- and media-related REST API in VIOS — [Proxy Stream Management API](/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-proxy-stream-management-api) (`/v1/proxy`), [Live Stream Management API](/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-live-stream-management-api) (`/v1/live`), [Record Stream Management API](/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-record-stream-management-api) (`/v1/record`), [Replay Stream Management API](/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-replay-stream-management-api) (`/v1/replay`), and [Storage Management API](/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-storage-management-api) (`/v1/storage`) — covering the entire VIOS API surface except the sensor APIs, which are owned by the Sensor Management Service.
 * **Storage Layer**: Multi-tier storage system supporting Redis for caching, PostgreSQL for metadata, and local filesystem object storage for video content.
 * **Client Interfaces**: Support for various client types including web applications, perception services, computer vision applications, and the VSS UI.
 * **Ingress**: A service that handles the ingress of the HTTP requests to the VIOS microservices.
 * **SDR Agent**: A service that handles the workload distribution and service discovery for the scalable Unified Stream Processing MS instances.
 * **Envoy**: A service that handles the Envoy proxy for load balancing and routing requests to the scalable Unified Stream Processing MS instances.
 
-![VIOS Modular Diagram](/assets/images/vios/VIOS-StreamProcessing-MS.png)
+![VIOS Modular Diagram](./assets/images/vios/VIOS-StreamProcessing-MS.png)
 
 ### VIOS MS Horizontal Scaling
 
@@ -63,7 +63,7 @@ The Unified Stream Processing MS is designed to scale horizontally to handle inc
 
 The diagram below illustrates the horizontal scaling architecture:
 
-![VIOS MS Horizontal Scaling Architecture](/assets/images/vios/VIOS-Streamprocessing-MS-Scaling-Arch.png)
+![VIOS MS Horizontal Scaling Architecture](./assets/images/vios/VIOS-Streamprocessing-MS-Scaling-Arch.png)
 
 ### VIOS Microservices
 
@@ -151,7 +151,7 @@ Total Storage (GB) = Number of Streams × Bitrate (Mbps) × Days × 10.546875
 For operational planning, actual storage requirements may vary based on encoding efficiency, variable bitrate settings etc. So add a buffer of ~10–20% to the calculated storage requirements.
 </Note>
 
-To configure required storage, set the `total_video_storage_size_MB` parameter in the `vst_storage.json` file, refer to [Storage Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#storage-config).
+To configure required storage, set the `total_video_storage_size_MB` parameter in the `vst_storage.json` file, refer to [Storage Config](/system-components/middleware/video-io-storage-vios/vios-microservices#storage-config).
 
 ### Cameras Tested in VIOS
 
@@ -208,7 +208,7 @@ This short guide will explain how to ensure that you can see live and recorded c
 
 Open a web browser (Chrome is required for best video streaming experience) at `http://<IP_address>:30888/vst/`. Enter `admin` for username and password if prompted otherwise ignore it. The following page will be displayed upon successful login:
 
-  ![VIOS WebUI Login](/assets/images/vios/VIOS-Dashboard.png)
+  ![VIOS WebUI Login](./assets/images/vios/VIOS-Dashboard.png)
 
 As the page opens, it shows overall health of VIOS, information about VIOS Devices, Sensors discovered, Record Size. Also, it shows the vital information about sensors such as Record Status, Sensor Status etc.,
 
@@ -222,7 +222,7 @@ As the page opens, it shows overall health of VIOS, information about VIOS Devic
 
 Cameras that had been discovered will be listed. If VIOS discovered the camera, but was not able to communicate with it, the camera status indicates a lock icon. If the lock icon appears, navigate to 'Sensor Management' tab, and click on 'Sensor Credentials' section as displayed in the following image:
 
-   ![VIOS WebUI Login](/assets/images/vios/VIOS-Sensor-Management.png)
+   ![VIOS WebUI Login](./assets/images/vios/VIOS-Sensor-Management.png)
 
   * It should now be possible to stream from all the cameras attached to VIOS.
 
@@ -233,24 +233,24 @@ Cameras that had been discovered will be listed. If VIOS discovered the camera, 
 ##### Add sensors
 
   * **Add Cameras/Streams from VIOS webUI:** To manually add camera into VIOS, navigate to **Sensor Management** tab, and go to **Add device manually** option. To Add ONVIF compliant camera using IP option click on IP button then provide ip address, username, password fields. Remaining fields are optional. If you want to add directly RTSP url, click on RTSP option and provide RTSP url, username, password.
-  * **Add Cameras/Streams from NVStreamer:** To add streams from NVStreamer, VIOS provides a mechanism with the help of [RTSP Stream Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#rtsp-stream-config) file. You can provide the NVStreamer endpoint.
-  * **Add Cameras/Streams using RTSP URLs:** To add streams from RTSP URLs, VIOS provides a mechanism with the help of [RTSP Stream Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#rtsp-stream-config) file. You can provide the RTSP URL, username, password.
+  * **Add Cameras/Streams from NVStreamer:** To add streams from NVStreamer, VIOS provides a mechanism with the help of [RTSP Stream Config](/system-components/middleware/video-io-storage-vios/vios-microservices#rtsp-stream-config) file. You can provide the NVStreamer endpoint.
+  * **Add Cameras/Streams using RTSP URLs:** To add streams from RTSP URLs, VIOS provides a mechanism with the help of [RTSP Stream Config](/system-components/middleware/video-io-storage-vios/vios-microservices#rtsp-stream-config) file. You can provide the RTSP URL, username, password.
 
 You can see a screen as displayed in the following image:
 
-  ![VIOS WebUI camera add.](/assets/images/vios/VIOS-Add-Sensor.png)
+  ![VIOS WebUI camera add.](./assets/images/vios/VIOS-Add-Sensor.png)
 
 ##### Remove sensors
 
 To remove the sensor from VIOS, navigate to **Sensor Management** tab, and go to **Remove sensor** option. Select the sensor from dropdown list and click on Remove button as displayed in the following image:
 
-  ![VIOS WebUI camera remove.](/assets/images/vios/VIOS-Remove-Sensor.png)
+  ![VIOS WebUI camera remove.](./assets/images/vios/VIOS-Remove-Sensor.png)
 
 ##### Live streams
 
 Navigate back to the **Live Streams** tab, click on the center drop-down list, and select the first camera on the list. A black rectangle will appear on the UI, and the camera's IP address will be displayed on top of the drop-down list. Repeat the same with up to max cameras supported. You should see a screen similar to the following:
 
-  ![VIOS WebUI camera stream.](/assets/images/vios/VIOS-Live-Stream.png)
+  ![VIOS WebUI camera stream.](./assets/images/vios/VIOS-Live-Stream.png)
 
 <Note>
 * It can take a few seconds for the VIOS to commence live streaming. If you see a constantly revolving crescent for a prolonged amount of time - please try to restart the browser.
@@ -269,7 +269,7 @@ Now that you are able to stream live video, it is time to try out recording. Nav
 
     All recordings will be saved to your local storage; older recordings will be overwritten with newer ones automatically should VIOS run out of the disk space.
 
-  ![VIOS WebUI camera record setting.](/assets/images/vios/VIOS-Record-Settings.png)
+  ![VIOS WebUI camera record setting.](./assets/images/vios/VIOS-Record-Settings.png)
 
 ##### Playback recordings
 
@@ -282,7 +282,7 @@ Some options:
   * Snapshot option to take screenshot of currently playing frame.
   * Other options like overlay, time-range playback, quality selection etc.
 
- ![VIOS Recorded Playback](/assets/images/vios/VIOS-Recorded-Playback.png)
+ ![VIOS Recorded Playback](./assets/images/vios/VIOS-Recorded-Playback.png)
 
 ##### Playback overlay on Live and Recorded Streams
 
@@ -295,11 +295,11 @@ Some options:
   * **Proximity Settings** tab is used to set the proximity classes and entrant classes of the objects, along with the area factor and proximity animation.
   * **Color Settings** tab is used to set the color of the bounding boxes for different object classes also the proximity bubble colors.
 
- ![VIOS Overlay Settings](/assets/images/vios/VIOS-Overlay-Settings-1.png)
+ ![VIOS Overlay Settings](./assets/images/vios/VIOS-Overlay-Settings-1.png)
 
- ![VIOS Overlay Settings](/assets/images/vios/VIOS-Overlay-Settings-2.png)
+ ![VIOS Overlay Settings](./assets/images/vios/VIOS-Overlay-Settings-2.png)
 
- ![VIOS Overlay Live Video](/assets/images/vios/VIOS-Overlay-Live.png)
+ ![VIOS Overlay Live Video](./assets/images/vios/VIOS-Overlay-Live.png)
 
 ##### Display Object IDs in Warehouse Profiles
 
@@ -312,7 +312,7 @@ Enable the video player's analytics overlay, then open **Analytics Overlay Setti
 
 Click **Save Settings** to apply the changes. In the 2D settings, leave **Specific Object IDs** empty to show all objects, or enter a comma-separated list to filter the displayed objects.
 
-![VST Analytics Overlay Settings with Show Bounding Boxes and Show Object ID enabled for a warehouse 2D profile](/assets/images/analytics-blueprints/2d-vst-object-id-overlay-settings.png)
+![VST Analytics Overlay Settings with Show Bounding Boxes and Show Object ID enabled for a warehouse 2D profile](./assets/images/analytics-blueprints/2d-vst-object-id-overlay-settings.png)
 
 ##### Playback overlay on Video Wall
 
@@ -332,23 +332,23 @@ Features:
   * **Proximity Alert Bubble** : a proximity bubble is drawn around the object of `Proximity class`, the color of the bubble changes according to the distance of the object from the `Entrant class` object. The default color of the bubble is **green** marking as safe zone and turns **orange** when the object is in the close proximity of the threshold and turns **red** when the object is in the danger zone.
   * **Proximity Alert Line** : when an object is in the close proximity of the threshold or in the danger zone, a proximity line with approximate distance is drawn between the object of `Proximity class`, and the object of `Entrant class`.
 
- ![VIOS Overlay Settings](/assets/images/vios/VIOS-Overlay-Settings-VideoWall-1.png)
+ ![VIOS Overlay Settings](./assets/images/vios/VIOS-Overlay-Settings-VideoWall-1.png)
 
- ![VIOS Overlay Settings](/assets/images/vios/VIOS-Overlay-Settings-VideoWall-2.png)
+ ![VIOS Overlay Settings](./assets/images/vios/VIOS-Overlay-Settings-VideoWall-2.png)
 
 ##### Proximity Alert Bubble and Lines in Video Wall
 
- ![VIOS Overlay Live Video](/assets/images/vios/proximity_bubbles_video_wall.png)
+ ![VIOS Overlay Live Video](./assets/images/vios/proximity_bubbles_video_wall.png)
 
 ##### Proximity Alert Bubble and Line in Live Stream
 
- ![VIOS Overlay Live Video](/assets/images/vios/proximity_bubble_with_line.png)
+ ![VIOS Overlay Live Video](./assets/images/vios/proximity_bubble_with_line.png)
 
 ##### Floor Plan in Video Wall
 
 To display a floor plan in the Video Wall, enable **Include Floor Plan** in the Analytics Overlay Settings. Set the floor plan image path in `vst_config.json` using the `floor_map_file_path` field. The supported image formats are PNG, JPEG, and SVG.
 
- ![VIOS Overlay Floor Plan in Video Wall](/assets/images/vios/VIOS-Overlay-Video-Wall.png)
+ ![VIOS Overlay Floor Plan in Video Wall](./assets/images/vios/VIOS-Overlay-Video-Wall.png)
 
 ##### Upload media
 
@@ -366,7 +366,7 @@ To upload media, navigate to **Upload Media** option in **Media Management** tab
 
 * **Enable multi-part upload**: Enable this option for large file uploads
 
- ![VIOS WebUI Upload Media](/assets/images/vios/VIOS-Upload-Media.png)
+ ![VIOS WebUI Upload Media](./assets/images/vios/VIOS-Upload-Media.png)
 
 ###### Configuring upload file size limit
 
@@ -382,7 +382,7 @@ The maximum upload file size in VIOS is controlled by two settings. The effectiv
 
 2. **VIOS configuration** (`nv_streamer_max_upload_file_size_MB`):
 
-   Controls the maximum file size accepted for upload in both VIOS and NVStreamer. The default value is 1000 MB. To allow larger uploads, set this parameter in the `data` section of the VIOS configuration file (refer to [VIOS Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#vios-config)):
+   Controls the maximum file size accepted for upload in both VIOS and NVStreamer. The default value is 1000 MB. To allow larger uploads, set this parameter in the `data` section of the VIOS configuration file (refer to [VIOS Config](/system-components/middleware/video-io-storage-vios/vios-microservices#vios-config)):
 
    ```json
    {
@@ -404,25 +404,25 @@ To download recorded video, select **Download videos** option in **Media Managem
 * In case video download fails then you need to redeploy the VIOS with VST_INSTALL_ADDITIONAL_PACKAGES set to true
 </Note>
 
- ![VIOS WebUI Download Option](/assets/images/vios/VIOS-Video-Download.png)
+ ![VIOS WebUI Download Option](./assets/images/vios/VIOS-Video-Download.png)
 
 ##### Storage utilization
 
 You can examine the amount of disk space used by clicking on **Dashboard** tab:
 
- ![VIOS WebUI diskspace](/assets/images/vios/VIOS-Diskspace.png)
+ ![VIOS WebUI diskspace](./assets/images/vios/VIOS-Diskspace.png)
 
 #### Configuration
 
 The active VIOS configuration can be viewed from the **Settings** tab:
 
- ![VIOS WebUI VIOS Settings](/assets/images/vios/VIOS-Settings.png)
+ ![VIOS WebUI VIOS Settings](./assets/images/vios/VIOS-Settings.png)
 
 #### Experimental
 
 Finally, the **Experimental** tab will allow you to create and examine a debug package. It will come handy if you ever need to contact us. Enjoy the VIOS experience!
 
- ![VIOS WebUI Experimental tab](/assets/images/vios/VIOS-Experimental.png)
+ ![VIOS WebUI Experimental tab](./assets/images/vios/VIOS-Experimental.png)
 
 #### Milestone VMS
 
@@ -445,7 +445,7 @@ To configure VIOS in MMS (Milestone Management System) mode, you need to:
 
 **Step 1: Adaptor Configuration**
 
-Add the following adaptor configuration to enable Milestone VMS integration (refer to [Adaptor Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#adaptor-config) for complete configuration details):
+Add the following adaptor configuration to enable Milestone VMS integration (refer to [Adaptor Config](/system-components/middleware/video-io-storage-vios/vios-microservices#adaptor-config) for complete configuration details):
 
 ```json
 {
@@ -498,7 +498,7 @@ AI_BRIDGE_ENDPOINT="<ai-bridge-endpoint-url>"
 
 **Step 2: AI Bridge Endpoint Configuration**
 
-Add the AI Bridge endpoint to the network section of your VIOS configuration (refer to [VIOS Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#vios-config) for complete configuration details):
+Add the AI Bridge endpoint to the network section of your VIOS configuration (refer to [VIOS Config](/system-components/middleware/video-io-storage-vios/vios-microservices#vios-config) for complete configuration details):
 
 ```json
 {
@@ -545,10 +545,10 @@ sudo apt-get install coturn
 TURN server is not mandatory, this is required only if Client and Server are in different networks.
 </Note>
 
-* VIOS configuration details can be found here: [VIOS Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#vios-config).
-* VIOS Storage Config details can be found here: [Storage Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#storage-config).
-* VIOS Notification Config details can be found here: [Notification Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#notification-config).
-* RTSP streams config file details can be found here: [RTSP Stream Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#rtsp-stream-config).
+* VIOS configuration details can be found here: [VIOS Config](/system-components/middleware/video-io-storage-vios/vios-microservices#vios-config).
+* VIOS Storage Config details can be found here: [Storage Config](/system-components/middleware/video-io-storage-vios/vios-microservices#storage-config).
+* VIOS Notification Config details can be found here: [Notification Config](/system-components/middleware/video-io-storage-vios/vios-microservices#notification-config).
+* RTSP streams config file details can be found here: [RTSP Stream Config](/system-components/middleware/video-io-storage-vios/vios-microservices#rtsp-stream-config).
 
 ### VIOS Config
 
@@ -880,18 +880,18 @@ Following table describes the parameters in RTSP Streams config file:
 
 VIOS microservice API documentation can be found in the following VIOS API references:
 
-- [Sensor Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-sensor-management-api)
-- [Live Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-live-stream-management-api)
-- [Replay Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-replay-stream-management-api)
-- [Record Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-record-stream-management-api)
-- [Proxy Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-proxy-stream-management-api)
-- [Storage Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-storage-management-api)
+- [Sensor Management API](/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-sensor-management-api)
+- [Live Stream Management API](/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-live-stream-management-api)
+- [Replay Stream Management API](/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-replay-stream-management-api)
+- [Record Stream Management API](/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-record-stream-management-api)
+- [Proxy Stream Management API](/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-proxy-stream-management-api)
+- [Storage Management API](/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-storage-management-api)
 
 ## Components & Customization
 
 ### Adaptor Architecture
 
-![Adaptor architecture](/assets/images/vios/VIOS-StreamProcessing-MS.png)
+![Adaptor architecture](./assets/images/vios/VIOS-StreamProcessing-MS.png)
 
 Adaptor architecture has 3 interfaces. All the interfaces can be loaded automatically by the Adaptor loader in VIOS microservices — the Sensor Management Service (for sensor discovery and control adaptors) and the Unified Stream Processing MS (for media and storage adaptors).
 
@@ -933,7 +933,7 @@ typedef void destroyMediaObject( IMediaInterface* object );
 
 ## KPI
 
-For detailed VIOS performance benchmarks including stream profiling, per-replica stream counts, and per-request latency benchmarks, see [VIOS Performance](/vss/appendix/performance/microservices/vios-performance).
+For detailed VIOS performance benchmarks including stream profiling, per-replica stream counts, and per-request latency benchmarks, see [VIOS Performance](/appendix/performance/microservices/vios-performance).
 
 ### Troubleshooting
 
@@ -994,7 +994,7 @@ VST uses the `storage_threshold_percentage` configuration parameter (default: 95
 
 **Aging Policy Configuration:**
 
-The aging policy can be configured using these VST storage configuration parameters (see [Storage Config](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#storage-config)):
+The aging policy can be configured using these VST storage configuration parameters (see [Storage Config](/system-components/middleware/video-io-storage-vios/vios-microservices#storage-config)):
 
 * `storage_threshold_percentage` - Disk usage percentage threshold for aging policy
 * `storage_monitoring_frequency_secs` - Frequency of storage monitoring checks

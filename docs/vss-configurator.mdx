@@ -30,7 +30,7 @@ When enabled, it runs before the API server starts and adjusts configuration fil
 **Architecture:**
 
 <Frame caption="Profile Configuration Manager Architecture">
-  <img src="/assets/images/vss-configurator/profile-configuration-manager.png" alt="Profile Configuration Manager Architecture" />
+  <img src="./assets/images/vss-configurator/profile-configuration-manager.png" alt="Profile Configuration Manager Architecture" />
 </Frame>
 
 **Key Features:**
@@ -272,7 +272,7 @@ This value becomes available as `${max_streams_supported}` in variable expressio
 To add a new hardware profile (e.g. a new GPU), add a profile block with `max_streams_supported` for each mode; the profile automatically inherits all commons rules unless `use_commons` is set to `false`.
 
 <Note>
-Refer to [RT-DETR Real-Time Performance](/vss/system-components/models/rt-detr-2d-warehouse-detection) for 2D profile, 2D profile with Agents, and [Sparse4D Real-Time Performance](/vss/system-components/models/sparse4d-3d-multi-camera#real-time-inference-throughput-latency) for 3D profile for more details on the max streams supported for a particular GPU. If GPU is not found in list, then increase the streams gradually to find the optimal number of streams that can be used.
+Refer to [RT-DETR Real-Time Performance](/system-components/models/rt-detr-2d-warehouse-detection) for 2D profile, 2D profile with Agents, and [Sparse4D Real-Time Performance](/system-components/models/sparse4d-3d-multi-camera#real-time-inference-throughput-latency) for 3D profile for more details on the max streams supported for a particular GPU. If GPU is not found in list, then increase the streams gradually to find the optimal number of streams that can be used.
 </Note>
 
 ##### Hardware Profiles Reference
@@ -329,7 +329,7 @@ Variables are evaluated top-to-bottom, so later ones can reference earlier ones.
 **Required:** No
 **Purpose:** Define config file modifications
 
-See [Operation Types Reference](/vss/system-components/configuration/vss-configurator#operation-types-reference) for details.
+See [Operation Types Reference](/system-components/configuration/vss-configurator#operation-types-reference) for details.
 
 **prerequisites**
 
@@ -1528,7 +1528,7 @@ The Sensor Configuration Manager handles camera/sensor configurations for bluepr
 **Architecture:**
 
 <Frame caption="Sensor Configuration Manager Architecture">
-  <img src="/assets/images/vss-configurator/sensor-configuration-manager-architecture.png" alt="Sensor Configuration Manager Architecture" />
+  <img src="./assets/images/vss-configurator/sensor-configuration-manager-architecture.png" alt="Sensor Configuration Manager Architecture" />
 </Frame>
 
 ### Core Concepts
@@ -2272,4 +2272,4 @@ readinessProbe:
 
 ## Sample Use Case
 
-For an example of how the VSS Configurator is used in the **Warehouse Operations Blueprint**, see [VSS Configurator for the Warehouse Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/vss-configurator). The guide covers profile and sensor configuration flow, configuration inputs, file changes, and hardware-specific overrides.
+For an example of how the VSS Configurator is used in the **Warehouse Operations Blueprint**, see [VSS Configurator for the Warehouse Blueprint](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/vss-configurator). The guide covers profile and sensor configuration flow, configuration inputs, file changes, and hardware-specific overrides.

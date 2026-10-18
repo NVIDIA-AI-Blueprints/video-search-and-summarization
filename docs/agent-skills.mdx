@@ -17,7 +17,7 @@ reports. All from natural-language requests.
 
 <Note>
 Agent Skills are a developer-side tool for working with the VSS Blueprint. They are
-distinct from the in-product [VSS Agent](/vss/vision-agent/vss-agents), which runs inside a
+distinct from the in-product [VSS Agent](/vision-agent/vss-agents), which runs inside a
 deployed VSS workflow and orchestrates VSS microservices.
 </Note>
 
@@ -81,16 +81,16 @@ the installed path or in the slash command.**
 
 | Skill | Description |
 | --- | --- |
-| [`vss-build-vision-ai`](/vss/vision-agent/build-vision-ai) | Primary build and deployment Skill for VSS. Deploys stock developer profiles, warehouse industry profiles, and custom capability combinations from natural-language requests. Hands off to the operations Skills once a stack is running, and to a single deployment Skill when only one microservice is wanted. |
+| [`vss-build-vision-ai`](/vision-agent/build-vision-ai) | Primary build and deployment Skill for VSS. Deploys stock developer profiles, warehouse industry profiles, and custom capability combinations from natural-language requests. Hands off to the operations Skills once a stack is running, and to a single deployment Skill when only one microservice is wanted. |
 
 ### Deployment
 
 | Skill | Description |
 | --- | --- |
-| [`vss-deploy-warehouse-helm`](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/helm-deployment) | Deploy or upgrade the warehouse blueprint (2D / 3D / MV3DT) on Kubernetes via Helm, with GPU-aware `NUM_STREAMS` capping so the request never exceeds what the perception pipeline can sustain. |
+| [`vss-deploy-warehouse-helm`](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/helm-deployment) | Deploy or upgrade the warehouse blueprint (2D / 3D / MV3DT) on Kubernetes via Helm, with GPU-aware `NUM_STREAMS` capping so the request never exceeds what the perception pipeline can sustain. |
 | `vss-deploy-dense-captioning` | Deploy and call the RT-VLM dense captioning microservice on stored video files and live RTSP streams. Captions, alerts, stream management, or OpenAI-compatible completions. |
 | `vss-deploy-detection-tracking-2d` | Deploy, operate, debug, or tear down the RTVI-CV (Real Time Video Intelligence CV) perception microservice locally, and call its REST API to manage streams, health probes, and metrics. Supports the `warehouse-2d`, `warehouse-3d`, `smartcity-rtdetr`, and `smartcity-gdino` use cases. |
-| `vss-deploy-detection-tracking-3d` | Deploy and operate the RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras — on sample, custom-video, or RTSP inputs. Auto-chains to `vss-generate-video-calibration` when calibration data is missing. For sample prompts and expected agent steps, see the [MV3DT Agent Skills walkthrough](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough). |
+| `vss-deploy-detection-tracking-3d` | Deploy and operate the RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras — on sample, custom-video, or RTSP inputs. Auto-chains to `vss-generate-video-calibration` when calibration data is missing. For sample prompts and expected agent steps, see the [MV3DT Agent Skills walkthrough](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough). |
 | `vss-deploy-video-embedding` | Deploy and operate the RT-Embed video-embedding microservice — `/v1` REST API for file, text, and video embeddings and live RTSP, plus Redis, Kafka, and OpenTelemetry integration. |
 | `vss-setup-behavior-analytics` | Deploy the `vss-behavior-analytics` service standalone, with custom configs or calibration, without the full warehouse stack. |
 | `vss-setup-video-analytics-api` | Deploy the `vss-video-analytics-api` REST service standalone against custom Elasticsearch and Kafka infrastructure. |
@@ -112,7 +112,7 @@ the installed path or in the slash command.**
 
 | Skill | Description |
 | --- | --- |
-| `vss-generate-video-calibration` | Calibrate a multi-camera dataset with AutoMagicCalib (AMC) from local MP4s, live RTSP streams, or the bundled sample dataset. For the complete seven-step UI workflow and screenshots, see [Auto Calibration Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps). |
+| `vss-generate-video-calibration` | Calibrate a multi-camera dataset with AutoMagicCalib (AMC) from local MP4s, live RTSP streams, or the bundled sample dataset. For the complete seven-step UI workflow and screenshots, see [Auto Calibration Workflow Steps](/system-components/calibration/auto-calibration/workflow-steps). |
 
 ### Benchmarking
 
@@ -124,7 +124,7 @@ the installed path or in the slash command.**
 | `vss-evaluate-caption-accuracy` | Check whether an RT-VLM configuration change moved caption quality: capture paired baseline and candidate captions, score both against a ground truth with an LLM judge, and emit an accuracy and processing-time table. |
 
 > `vss-deploy-profile` was removed in VSS 3.3.0. Use
-> [`vss-build-vision-ai`](/vss/vision-agent/build-vision-ai) instead — the VSS
+> [`vss-build-vision-ai`](/vision-agent/build-vision-ai) instead — the VSS
 > 3.3.0 Release Notes map its `-p` / `-m` flags to the equivalent workflows.
 
 ## Report Skill Error Handling
@@ -154,7 +154,7 @@ VSS Agent Skills can be loaded by any agent harness that follows the
 - [OpenClaw](https://github.com/openclaw/openclaw)
 - [NemoClaw](https://github.com/NVIDIA/NemoClaw)
 
-For more information on agent harnesses with VSS, see [Agent Harnesses](/vss/vision-agent/agent-harnesses). Each agent harness expects Skills under a standard directory:
+For more information on agent harnesses with VSS, see [Agent Harnesses](/vision-agent/agent-harnesses). Each agent harness expects Skills under a standard directory:
 
 | Host | Skills directory |
 | --- | --- |
@@ -225,11 +225,11 @@ With VSS Agent Skills installed, prompt the coding agent in natural language to 
 profile or operate the deployment. The agent invokes the matching Skill from the
 catalog. After installing Skills, see the following guides to get started:
 
-- [Quickstart: Agent Skills Walkthrough](/vss/getting-started/quickstart#agent-skills-walkthrough) — deploy and operate the base profile using Skills.
-- [Build Vision AI Skill](/vss/vision-agent/build-vision-ai) — primary deployment entry point for stock profiles, warehouse profiles, and custom vision stacks.
-- [Video Summarization](/vss/vision-agent/agent-workflows/video-summarization) — skills-based workflow for video summarization.
-- [Video Search](/vss/vision-agent/agent-workflows/search) — skills-based workflow for natural language video search.
-- [Real-Time Alerts](/vss/vision-agent/agent-workflows/real-time-alerts) — skills-based workflow for real-time alert generation.
+- [Quickstart: Agent Skills Walkthrough](/getting-started/quickstart#agent-skills-walkthrough) — deploy and operate the base profile using Skills.
+- [Build Vision AI Skill](/vision-agent/build-vision-ai) — primary deployment entry point for stock profiles, warehouse profiles, and custom vision stacks.
+- [Video Summarization](/vision-agent/agent-workflows/video-summarization) — skills-based workflow for video summarization.
+- [Video Search](/vision-agent/agent-workflows/search) — skills-based workflow for natural language video search.
+- [Real-Time Alerts](/vision-agent/agent-workflows/real-time-alerts) — skills-based workflow for real-time alert generation.
 
 Once the deployment is up and running, Skills can be used to perform workflow tasks or interact with individual
 microservices. Here are some prompt examples which would call the `vss-manage-video-io-storage` Skill for Video IO and Storage (VIOS):
@@ -269,5 +269,5 @@ directory.
 
 ## Related Documentation
 
-- [VSS Agents](/vss/vision-agent/vss-agents) - The in-product agent that runs inside a deployed VSS workflow.
-- [Agent Workflows](/vss/vision-agent/agent-workflows) - End-to-end workflows demonstrated through developer profiles.
+- [VSS Agents](/vision-agent/vss-agents) - The in-product agent that runs inside a deployed VSS workflow.
+- [Agent Workflows](/vision-agent/agent-workflows) - End-to-end workflows demonstrated through developer profiles.

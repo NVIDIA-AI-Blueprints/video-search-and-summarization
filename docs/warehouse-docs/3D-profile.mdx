@@ -11,7 +11,7 @@ The **VSS Warehouse Blueprint's 3D Vision AI Profile** is a comprehensive guide 
 
 ## Deployment Architecture
 
-![VSS Warehouse Blueprint's 3D Vision AI Profile](/assets/images/analytics-blueprints/3D-analytics-blueprint.png)
+![VSS Warehouse Blueprint's 3D Vision AI Profile](../assets/images/analytics-blueprints/3D-analytics-blueprint.png)
 
 ### Components and Interactions
 
@@ -20,26 +20,26 @@ The diagram depicts **VSS Warehouse 3D Blueprint**, emphasizing 3D multi-camera 
 1. **Input Source**
 
    - **Videos**: Raw video data stored in a filesystem, serving as input for processing.
-   - **NvStreamer** ([NVStreamer](/vss/system-components/middleware/video-io-storage-vios/nvstreamer)): A microservice that streams videos via RTSP (Real-Time Streaming Protocol) to the **VIOS (Video IO & Storage)**. NvStreamer can be swapped with real-world cameras.
+   - **NvStreamer** ([NVStreamer](/system-components/middleware/video-io-storage-vios/nvstreamer)): A microservice that streams videos via RTSP (Real-Time Streaming Protocol) to the **VIOS (Video IO & Storage)**. NvStreamer can be swapped with real-world cameras.
 
-2. **Video IO & Storage (VIOS)** ([VIOS Microservices](/vss/system-components/middleware/video-io-storage-vios/vios-microservices))
+2. **Video IO & Storage (VIOS)** ([VIOS Microservices](/system-components/middleware/video-io-storage-vios/vios-microservices))
 
    - VIOS ingests video streams from NvStreamer via RTSP.
    - It records the streams and forwards them (via RTSP) to the **DeepStream** microservice for further processing.
 
-3. **DeepStream** ([3D Multi Camera Detection and Tracking (Sparse4D)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d))
+3. **DeepStream** ([3D Multi Camera Detection and Tracking (Sparse4D)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d))
 
-   - DeepStream processes RTSP streams for 3D multi-camera detection and tracking, utilizing the Sparse4D model ([Sparse4D (3D multi-camera)](/vss/system-components/models/sparse4d-3d-multi-camera)) to generate BEV (Bird's Eye View) outputs.
+   - DeepStream processes RTSP streams for 3D multi-camera detection and tracking, utilizing the Sparse4D model ([Sparse4D (3D multi-camera)](/system-components/models/sparse4d-3d-multi-camera)) to generate BEV (Bird's Eye View) outputs.
    - It sends frame data, including detected and tracked object IDs, in Protobuf format to the message broker via the `mdx-bev` topic.
 
 4. **Message Broker (Kafka or Redis)**
 
    - The message broker serves as the central hub for data distribution, using Protobuf for all data exchanges.
-   - **Kafka** ([Kafka](/vss/system-components/middleware/message-broker/kafka)): High-throughput message broker optimized for datacenter deployments with robust persistence and scalability.
+   - **Kafka** ([Kafka](/system-components/middleware/message-broker/kafka)): High-throughput message broker optimized for datacenter deployments with robust persistence and scalability.
    - **Redis Streams**: Lightweight message broker ideal for edge deployments with minimal memory footprint and low-latency requirements.
    - It also functions as a control bus, managing notifications (in JSON, via `mdx-notification`) for calibration updates, such as new ROI or tripwire definitions.
 
-5. **Behavior Analytics** ([Behavior Analytics](/vss/system-components/analytics-microservices/behavior-analytics))
+5. **Behavior Analytics** ([Behavior Analytics](/system-components/analytics-microservices/behavior-analytics))
 
    - This microservice consumes `mdx-bev` data (Protobuf) from the message broker.
    - It processes the data to generate behavior analytics, safety insights, and metrics.
@@ -47,16 +47,16 @@ The diagram depicts **VSS Warehouse 3D Blueprint**, emphasizing 3D multi-camera 
 
 6. **Storage**
 
-   - **ELK (Elasticsearch, Logstash, Kibana)** ([ELK](/vss/system-components/middleware/database/elk)): Logstash retrieves BEV outputs and safety violation frames from the message broker, converts Protobuf to JSON, stores the data in Elasticsearch, and supports querying and visualization.
+   - **ELK (Elasticsearch, Logstash, Kibana)** ([ELK](/system-components/middleware/database/elk)): Logstash retrieves BEV outputs and safety violation frames from the message broker, converts Protobuf to JSON, stores the data in Elasticsearch, and supports querying and visualization.
 
 7. **Visualization**
 
-   - **Kibana UI** ([Kibana UI](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#kibana-ui)): A user interface for visualizing analytics data stored in Elasticsearch.
-   - **VIOS UI** ([VIOS UI](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#vios-ui)): A separate interface for interacting with the VIOS system, receiving JSON notifications from the message broker.
+   - **Kibana UI** ([Kibana UI](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#kibana-ui)): A user interface for visualizing analytics data stored in Elasticsearch.
+   - **VIOS UI** ([VIOS UI](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#vios-ui)): A separate interface for interacting with the VIOS system, receiving JSON notifications from the message broker.
 
 8. **External Interfaces**
 
-   - **API Gateway and MCP** ([API Gateway / MCP](/vss/system-components/middleware/api-gateway-mcp)): Enables external systems to interact with the events data through API calls.
+   - **API Gateway and MCP** ([API Gateway / MCP](/system-components/middleware/api-gateway-mcp)): Enables external systems to interact with the events data through API calls.
 
 ### Key Technologies
 
@@ -69,7 +69,7 @@ The diagram depicts **VSS Warehouse 3D Blueprint**, emphasizing 3D multi-camera 
 
 ## Setup and Configuration
 
-[see Quickstart Guide](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint).
+[see Quickstart Guide](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint).
 
 ## Testing and Validation
 
@@ -86,11 +86,11 @@ Check for BEV, Frames and Behavior Data Views in Kibana:
 
 In the user interface, navigate to the **Management -> Stack Management** section and select **Data Views** under **Kibana**. If the data views are not visible, create a new data view (via "Create data view" button on the top right corner) for `mdx-bev`, `mdx-frames` and `mdx-behavior`.
 
-![Kibana UI](/assets/images/analytics-blueprints/3D-analytics-blueprint-kibana-index.png)
+![Kibana UI](../assets/images/analytics-blueprints/3D-analytics-blueprint-kibana-index.png)
 
 Browse the Kibana UI, discover the data views and visualize the data.
 
-![Kibana UI](/assets/images/analytics-blueprints/3D-analytics-blueprint-kibana.png)
+![Kibana UI](../assets/images/analytics-blueprints/3D-analytics-blueprint-kibana.png)
 
 <Note>
 - BEV frames are created by combining frames from individual cameras.
@@ -110,7 +110,7 @@ Browse the Kibana UI, discover the data views and visualize the data.
 ### VIOS UI
 
 <Note>
-At this point the web-based application is only available for Chrome browser running on Linux, Windows or macOS, details can be found in [VST docs](/vss/system-components/middleware/video-io-storage-vios/vios-microservices).
+At this point the web-based application is only available for Chrome browser running on Linux, Windows or macOS, details can be found in [VST docs](/system-components/middleware/video-io-storage-vios/vios-microservices).
 </Note>
 
   1. Launch Chrome browser.
@@ -120,13 +120,13 @@ At this point the web-based application is only available for Chrome browser run
 
 Select the sensors and streaming protocol, then click **Start Video Wall**.
 
-![VIOS Configuration](/assets/images/analytics-blueprints/3D-analytics-blueprint-vios-config.png)
+![VIOS Configuration](../assets/images/analytics-blueprints/3D-analytics-blueprint-vios-config.png)
 
 **View VIOS Video Wall**
 
-Enable Overlay settings (refer to [Playback Overlay on Video Wall](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#playback-overlay-on-video-wall)) to view 3D object detection and tracking results.
+Enable Overlay settings (refer to [Playback Overlay on Video Wall](/system-components/middleware/video-io-storage-vios/vios-microservices#playback-overlay-on-video-wall)) to view 3D object detection and tracking results.
 
-![VIOS Video Wall View](/assets/images/analytics-blueprints/3D-analytics-blueprint-vios-wall.png)
+![VIOS Video Wall View](../assets/images/analytics-blueprints/3D-analytics-blueprint-vios-wall.png)
 
 ## Events and Incidents
 
@@ -138,11 +138,11 @@ One type of event is supported:
 
 - ROI Events: Triggered when objects enter or exit a predefined region of interest (ROI).
 
-For more details, see [Event Detection](/vss/system-components/analytics-microservices/behavior-analytics#event-detection). All event data is stored in Elasticsearch, and can be queried and visualized in Kibana and the VIOS UI.
+For more details, see [Event Detection](/system-components/analytics-microservices/behavior-analytics#event-detection). All event data is stored in Elasticsearch, and can be queried and visualized in Kibana and the VIOS UI.
 
 ### Incidents
 
-The 3D profile generates restricted-area, confined-area, and proximity incidents and publishes them to `mdx-incidents`. Per-frame violations are also written to enhanced frames; see [Enhanced Frame Data](/vss/system-components/analytics-microservices/behavior-analytics). These Behavior Analytics incidents do not undergo VLM verification in the 3D profile.
+The 3D profile generates restricted-area, confined-area, and proximity incidents and publishes them to `mdx-incidents`. Per-frame violations are also written to enhanced frames; see [Enhanced Frame Data](/system-components/analytics-microservices/behavior-analytics). These Behavior Analytics incidents do not undergo VLM verification in the 3D profile.
 
 ### Use Cases
 
@@ -177,7 +177,7 @@ The Blueprint supports several levels of customization:
 <Info>
 Recorded videos and live RTSP streams must be encoded without B-frames and have a resolution of `1920 x 1080`.
 
-To check for and remove B-frames, see [the FAQ guidance](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq#my-videos-produce-incorrect-timestamps-for-messages-or-are-processed-over-an-extended-duration).
+To check for and remove B-frames, see [the FAQ guidance](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq#my-videos-produce-incorrect-timestamps-for-messages-or-are-processed-over-an-extended-duration).
 
 For custom video inputs, provide time-synchronized MP4 videos encoded without B-frames that are at least 60 seconds long and all videos should have the same duration.
 
@@ -226,7 +226,7 @@ Each `rtsp_url` in `camera_info.json` must be reachable from the machine where y
 </Note>
 
 <Tip>
-You do not have to assign `group_id` by hand. The `spatialai_data_utils` (SDU) camera grouping tools derive the camera-to-BEV-group partition directly from your camera calibration. Run [create_camera_clusters.py](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#camera-clustering) to partition cameras into non-overlapping BEV groups; cameras placed in the same cluster share a `group_id` (the generated group name, such as `bev-sensor-1`). These tools also populate the matching per-sensor `group` and `region` blocks (origin, dimensions, place level) in `calibration.json` that must be filled in before deployment (see the [note under Step 3](#calibration-group-region-note-3d)). For installation and the full command reference, see [Camera Grouping Utilities](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#camera-grouping-utilities).
+You do not have to assign `group_id` by hand. The `spatialai_data_utils` (SDU) camera grouping tools derive the camera-to-BEV-group partition directly from your camera calibration. Run [create_camera_clusters.py](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#camera-clustering) to partition cameras into non-overlapping BEV groups; cameras placed in the same cluster share a `group_id` (the generated group name, such as `bev-sensor-1`). These tools also populate the matching per-sensor `group` and `region` blocks (origin, dimensions, place level) in `calibration.json` that must be filled in before deployment (see the [note under Step 3](#calibration-group-region-note-3d)). For installation and the full command reference, see [Camera Grouping Utilities](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#camera-grouping-utilities).
 </Tip>
 
     (ii) **Configure VSS Configurator environment variables**: Set the following in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env`, which is loaded after warehouse `.env` and takes precedence:
@@ -248,7 +248,7 @@ Number of streams to be processed can be configured in two ways:
    NUM_STREAMS=4
    ```
 
-   The configured number of streams should be less than or equal to the maximum streams supported by your hardware profile and deployment mode. VSS Configurator can be used to automatically cap the stream count using the formula: `final_stream_count = min(NUM_STREAMS, max_streams_supported)`. When `SENSOR_INFO_SOURCE=nvstreamer`, the same `NUM_STREAMS` value is the expected camera count the Sensor Configuration Manager waits for before VST registration. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss/system-components/configuration/vss-configurator) section and [NVStreamer Settings](/vss/system-components/configuration/vss-configurator#nvstreamer-settings) in [VSS Configurator Documentation](/vss/system-components/configuration/vss-configurator).
+   The configured number of streams should be less than or equal to the maximum streams supported by your hardware profile and deployment mode. VSS Configurator can be used to automatically cap the stream count using the formula: `final_stream_count = min(NUM_STREAMS, max_streams_supported)`. When `SENSOR_INFO_SOURCE=nvstreamer`, the same `NUM_STREAMS` value is the expected camera count the Sensor Configuration Manager waits for before VST registration. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/system-components/configuration/vss-configurator) section and [NVStreamer Settings](/system-components/configuration/vss-configurator#nvstreamer-settings) in [VSS Configurator Documentation](/system-components/configuration/vss-configurator).
 
 2. **Dynamic Configuration**: Use the VSS Configurator's prerequisite operations to automatically count the number of video files in the recorded videos directory and use that count for configuration updates.
 
@@ -288,7 +288,7 @@ Dynamic Configuration cannot be used for live RTSP streams.
              num_sensors: ${final_stream_count}
    ```
 
-   **How it works:** If your dataset directory has 6 video files and the GPU supports a maximum of 4 streams, the configurator computes: `final_stream_count = min(6, 4) = 4`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss/system-components/configuration/vss-configurator) section in [VSS Configurator Documentation](/vss/system-components/configuration/vss-configurator).
+   **How it works:** If your dataset directory has 6 video files and the GPU supports a maximum of 4 streams, the configurator computes: `final_stream_count = min(6, 4) = 4`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/system-components/configuration/vss-configurator) section in [VSS Configurator Documentation](/system-components/configuration/vss-configurator).
 
 When using a custom recorded-video dataset, `NUM_STREAMS` depends on the number of video files available in that dataset. Make sure `NUM_STREAMS` is less than or equal to the number of videos you want to process.
 
@@ -305,7 +305,7 @@ To use a custom dataset:
 * Add the image metadata and floor map files under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}`. If you already have a calibration, add `calibration.json` to the same directory. Otherwise, generate it in Step 3. You can refer to sample datasets provided in the repository for the expected file structure and sample contents.
 
 <Note>
-Refer to [Sparse4D Real-Time Performance](/vss/system-components/models/sparse4d-3d-multi-camera#real-time-inference-throughput-latency) for more details on the max streams supported for a particular GPU. If GPU is not found in list, then increase the streams gradually to find the optimal number of streams that can be used
+Refer to [Sparse4D Real-Time Performance](/system-components/models/sparse4d-3d-multi-camera#real-time-inference-throughput-latency) for more details on the max streams supported for a particular GPU. If GPU is not found in list, then increase the streams gradually to find the optimal number of streams that can be used
 </Note>
 
 #### Step 3: Deploy and generate new calibration
@@ -327,7 +327,7 @@ sudo chown -R 1000:1000 ${VSS_DATA_DIR}/auto-calib
 sudo chown -R 1000:1000 ${VSS_APPS_DIR}/services/auto-calibration/projects
 ```
 
-Configure `industry-profiles/warehouse-operations/overrides.env` using the **Auto-Calibration** tab under [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection), then follow [Deploy the Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint) to start the Auto-Calibration profile. Use it to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [Auto Calibration workflow steps](/vss/system-components/calibration/auto-calibration/workflow-steps). After generating and storing the calibration, bring the Docker Compose stack down and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
+Configure `industry-profiles/warehouse-operations/overrides.env` using the **Auto-Calibration** tab under [Deployment Selection](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection), then follow [Deploy the Blueprint](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint) to start the Auto-Calibration profile. Use it to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [Auto Calibration workflow steps](/system-components/calibration/auto-calibration/workflow-steps). After generating and storing the calibration, bring the Docker Compose stack down and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
 
 <a id="calibration-group-region-note-3d"></a>
 
@@ -335,7 +335,7 @@ Configure `industry-profiles/warehouse-operations/overrides.env` using the **Aut
 - Maintain a single `calibration.json` file per deployment.
 - Each sensor name in `calibration.json` must match the corresponding `camera_name` in `camera_info.json` or the name of the corresponding video placed in `${VSS_DATA_DIR}/videos`.
 - For 3D profile use cases, the ROIs and Tripwires must be drawn on the floor plan/layout map.
-- Add new camera information following the schema defined in [Calibration Schema](/vss/system-components/calibration/calibration-schema).
+- Add new camera information following the schema defined in [Calibration Schema](/system-components/calibration/calibration-schema).
 - The `imageMetadata` file needs to be generated manually.
 - Manually add any other attributes that are missing from the generated calibration file but are required for your use case.
 - Auto Calibration requires time-synchronized videos as input. For RTSP cameras, record videos from the RTSP source (e.g. using ffmpeg or similar tools), manually trim the videos to time-synchronize them if needed, then provide them to Auto Calibration.
@@ -343,11 +343,11 @@ Configure `industry-profiles/warehouse-operations/overrides.env` using the **Aut
 
 #### Step 4: Camera Clustering
 
-Use `create_camera_clusters.py` to partition cameras into non-overlapping groups for separate 3D model instances. Use `--n_clusters 1` for a single group. For command examples and available options, see [Camera Clustering](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#camera-clustering).
+Use `create_camera_clusters.py` to partition cameras into non-overlapping groups for separate 3D model instances. Use `--n_clusters 1` for a single group. For command examples and available options, see [Camera Clustering](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#camera-clustering).
 
 #### Step 5: Redeploy the stack to apply the new calibration
 
-Before redeploying, replace the Auto-Calibration settings in `industry-profiles/warehouse-operations/overrides.env` with the settings from the **3D** tab under [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection). Then follow [Deploy the Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint) to start the 3D profile with the new calibration.
+Before redeploying, replace the Auto-Calibration settings in `industry-profiles/warehouse-operations/overrides.env` with the settings from the **3D** tab under [Deployment Selection](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection). Then follow [Deploy the Blueprint](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint) to start the 3D profile with the new calibration.
 
 <Note>
 Before updating the warehouse `overrides.env` file or running `docker compose up`, check whether containers from a previous Docker Compose deployment are still present:
@@ -640,8 +640,8 @@ Key options:
 
 The Blueprint uses Sparse4D as its primary perception model. To customize:
 
-1. Fine-tune Sparse4D using TAO ([Sparse4D model page](/vss/system-components/models/sparse4d-3d-multi-camera))
-2. Configure DeepStream to use your custom model ([model configuration guide](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#integrating-a-sparse4d-model-checkpoint))
+1. Fine-tune Sparse4D using TAO ([Sparse4D model page](/system-components/models/sparse4d-3d-multi-camera))
+2. Configure DeepStream to use your custom model ([model configuration guide](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#integrating-a-sparse4d-model-checkpoint))
 
 ### Application Customization
 
@@ -653,7 +653,7 @@ The Blueprint uses a modular microservices architecture with the following commu
 
 Users can build their own microservices by consuming data from the above channels.
 
-For complete API documentation, see [API Reference Page](/vss/appendix/api-reference).
+For complete API documentation, see [API Reference Page](/appendix/api-reference).
 
 #### Available Service Ports
 
@@ -672,8 +672,8 @@ The following ports are used during deployment, and users can leverage them for 
 
 For detailed information about customizing specific analytics microservices, refer to:
 
-* [Behavior Analytics](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/behavior-analytics)
-* [VSS Video Analytics API](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api)
+* [Behavior Analytics](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/behavior-analytics)
+* [VSS Video Analytics API](/system-components/middleware/api-gateway-mcp/video-analytics-api)
 
 ### Hardware Config Customization
 
@@ -731,7 +731,7 @@ vi <PATH_TO_VST_CONFIG_DIR>/vst_config.json
 
 The VSS Configurator provides a **declarative approach** to automatically update all required configuration files based on your hardware profile and deployment mode. This is the recommended approach for production deployments and simplifies the configuration management process.
 
-For how the configurator updates configurations in this blueprint, see [VSS Configurator for the Warehouse Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/vss-configurator). The guide describes configuration inputs, affected files, stream ceilings, and hardware-specific overrides.
+For how the configurator updates configurations in this blueprint, see [VSS Configurator for the Warehouse Blueprint](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/vss-configurator). The guide describes configuration inputs, affected files, stream ceilings, and hardware-specific overrides.
 
 To enable the VSS Configurator, in VSS Configurator's environment variables you **must** set:
 
@@ -753,4 +753,4 @@ The VSS Configurator provides a comprehensive set of features for automated prof
 
 **Execution Order:** Environment Variable Validation → Prerequisite Operations → Variable Computations → Configuration File Updates
 
-For detailed information on how to create custom hardware profiles and advanced configuration options, refer to the [Profile Configuration Manager](/vss/system-components/configuration/vss-configurator#profile-configuration-manager) section in [VSS Configurator Documentation](/vss/system-components/configuration/vss-configurator).
+For detailed information on how to create custom hardware profiles and advanced configuration options, refer to the [Profile Configuration Manager](/system-components/configuration/vss-configurator#profile-configuration-manager) section in [VSS Configurator Documentation](/system-components/configuration/vss-configurator).

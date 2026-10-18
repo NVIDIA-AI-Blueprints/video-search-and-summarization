@@ -20,7 +20,7 @@ Running VSS through NemoClaw turns a multi-service Docker Compose deployment int
 
 With NemoClaw's OpenClaw runtime, video summaries and reports appear directly in the OpenClaw chat UI. Human in the Loop (HITL) interaction happens in that chat: when the agent needs a scenario, events, objects of interest, or other report details, it asks inline and you reply there. An external VSS UI connected to NemoClaw does not support the VSS Agent's structured HITL dialogs; follow-up questions remain ordinary chat messages.
 
-The in-stack VSS Agent UI uses HITL dialogs for these prompts and provides generated reports as PDF downloads. Screenshots of dialogs and PDF report links in the [quickstart](/vss/getting-started/quickstart#generate-a-report-with-the-in-stack-vss-agent) and [Video Summarization workflow](/vss/vision-agent/agent-workflows/video-summarization#step-3-generate-a-report-for-uploaded-videos) show that VSS Agent experience.
+The in-stack VSS Agent UI uses HITL dialogs for these prompts and provides generated reports as PDF downloads. Screenshots of dialogs and PDF report links in the [quickstart](/getting-started/quickstart#generate-a-report-with-the-in-stack-vss-agent) and [Video Summarization workflow](/vision-agent/agent-workflows/video-summarization#step-3-generate-a-report-for-uploaded-videos) show that VSS Agent experience.
 
 ## How to run NemoClaw with VSS
 
@@ -28,7 +28,7 @@ The in-stack VSS Agent UI uses HITL dialogs for these prompts and provides gener
 The NemoClaw notebooks are released as an Early Access feature.
 
 This is the standalone, notebook-driven setup route. If you are following the
-[Build Vision AI quickstart](/vss/getting-started/quickstart#deploy-the-base-profile),
+[Build Vision AI quickstart](/getting-started/quickstart#deploy-the-base-profile),
 let the Skill provision NemoClaw when prompted and do not also run these
 notebooks for the same deployment.
 </Note>
@@ -46,7 +46,7 @@ There are two host-side pieces working together:
      `vss` CLI.
    * `deploy_vss_orchestrator.ipynb` prepares the host for local NIM-backed profiles, starts the MCP server, deploys and manages VSS from the Agent UI, and optionally verifies sandbox-to-host reachability.
 
-   See [Setup VSS and Skills](/vss/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills).
+   See [Setup VSS and Skills](/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills).
 2. **The VSS Orchestrator MCP server** - a host process started by `deploy_vss_orchestrator.ipynb` on port `9988`. It exposes nine `vss_orchestrator__*` tools that the NemoClaw agent calls to:
 
    * Generate compose artifacts.
@@ -54,7 +54,7 @@ There are two host-side pieces working together:
    * Inspect containers.
    * Fetch logs.
 
-   See [VSS Orchestrator MCP](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
+   See [VSS Orchestrator MCP](/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
 
 <Note>
 To route NemoClaw's agent model through Switchyard, set
@@ -65,4 +65,4 @@ as the model, followed by
 `deploy_vss_orchestrator.ipynb`.
 </Note>
 
-For per-variable details, provider choices, and optional verification steps, see [Additional Configuration](/vss/vision-agent/agent-harnesses/nemoclaw/additional-configuration).
+For per-variable details, provider choices, and optional verification steps, see [Additional Configuration](/vision-agent/agent-harnesses/nemoclaw/additional-configuration).
