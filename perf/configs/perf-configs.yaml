@@ -6,3 +6,6 @@ perf_configs:
     hardwareProfile: playback
     profile: warehouse_2d
     broker: kafka
+    # Jenkins runServicePerfSequence exports COMPOSE_FILE from this path. Empty
+    # makes `set -u` fail at `if [ -n "${COMPOSE_FILE}" ]` (Jenkins #60).
+    composePath: services/analytics/behavior-analytics/tests/integration/docker_compose/infra/compose.yml

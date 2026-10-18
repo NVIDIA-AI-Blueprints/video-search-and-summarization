@@ -179,6 +179,23 @@ class LatencyCorrectionTest(unittest.TestCase):
         self.assertIn("\n  broker-health-check:", infra)
         self.assertIn("dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile", infra)
 
+    def test_perf_config_compose_path_exists_for_jenkins(self) -> None:
+        marker = "composePath:"
+        for rel in (
+            Path("perf/configs/perf-configs.yaml"),
+            Path("services/analytics/behavior-analytics/perf/configs/perf-configs.yaml"),
+        ):
+            compose_path = None
+            for line in (REPO_ROOT / rel).read_text().splitlines():
+                if line.lstrip().startswith(marker):
+                    compose_path = line.split(":", 1)[1].strip()
+                    break
+            self.assertTrue(compose_path, f"{rel} is missing composePath")
+            self.assertTrue(
+                (REPO_ROOT / compose_path).is_file(),
+                f"{rel} composePath {compose_path} is missing",
+            )
+
     def test_repo_root_jenkins_facade_and_compose_mirror_exist(self) -> None:
         self.assertTrue((REPO_ROOT / "perf" / "benchmark" / "core" / "vss_perf_benchmark.py").is_file())
         self.assertTrue((REPO_ROOT / "perf" / "configs" / "perf-configs.yaml").is_file())
