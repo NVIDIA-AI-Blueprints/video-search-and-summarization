@@ -143,6 +143,38 @@ class LatencyCorrectionTest(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("Generating environment variables", completed.stdout)
 
+    def test_deploy_builds_infra_images_not_behavior_analytics(self) -> None:
+        deploy = (
+            REPO_ROOT
+            / "services"
+            / "analytics"
+            / "behavior-analytics"
+            / "perf"
+            / "scripts"
+            / "deploy.sh"
+        ).read_text()
+        self.assertNotIn("--no-build", deploy)
+        self.assertIn("compose up -d --build analytics-stream", deploy)
+        apps = (
+            REPO_ROOT
+            / "services"
+            / "analytics"
+            / "behavior-analytics"
+            / "tests"
+            / "integration"
+            / "docker_compose"
+            / "apps"
+            / "mdx-apps.yml"
+        ).read_text()
+        stream = apps.split("\n  analytics-stream:\n", 1)[1]
+        self.assertNotIn("\n    build:", stream)
+        self.assertIn("image: ${BEHAVIOR_ANALYTICS_IMAGE", stream)
+        infra = (
+            REPO_ROOT / "deploy" / "docker" / "services" / "infra" / "compose.yml"
+        ).read_text()
+        self.assertIn("\n  broker-health-check:", infra)
+        self.assertIn("dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile", infra)
+
     def test_repo_root_jenkins_facade_and_compose_mirror_exist(self) -> None:
         self.assertTrue((REPO_ROOT / "perf" / "benchmark" / "core" / "vss_perf_benchmark.py").is_file())
         self.assertTrue((REPO_ROOT / "perf" / "configs" / "perf-configs.yaml").is_file())

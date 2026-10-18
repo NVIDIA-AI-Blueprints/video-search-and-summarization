@@ -16,5 +16,8 @@ load_compose_env
 docker pull "$BEHAVIOR_ANALYTICS_IMAGE"
 
 cd "$COMPOSE_DIR"
-# analytics-stream waits for the broker health check. Playback stays stopped.
-compose up -d --no-build analytics-stream
+# Pull the promoted BA image above. `up --build` only builds Compose services
+# that have a Dockerfile (broker-health-check, elasticsearch, kafka-topic-init).
+# analytics-stream has `image:` only, so it keeps the pulled tag. Playback stays
+# stopped until measure.sh.
+compose up -d --build analytics-stream
