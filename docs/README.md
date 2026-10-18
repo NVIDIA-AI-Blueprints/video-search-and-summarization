@@ -15,15 +15,24 @@ Author MDX in `docs/`. Fern configuration lives in `fern/` only.
 | `fern/docs.yml` | Site config, redirects, and the list of published versions |
 | `fern/fern.config.json` | Fern organization and CLI version |
 | `.github/scripts/build_fern_site.py` | Builds the Fern input tree for every version |
+| `.github/scripts/check_fern_site.sh` | Runs the Fern checks on a built tree before any publish |
+| `.github/scripts/publish_fern_docs.sh` | Publishes a built tree to production or a preview, with retries |
 
 ## Links and images
 
 Internal links are site paths without the `/vss` base and without a version
 slug, for example `[Quickstart](/getting-started/quickstart)`. Fern adds the
 base and the reader's version, so a link on a Dev page stays in Dev and a link
-in a release stays in that release. Images use a path relative to the page.
-Each version's documentation is self-contained and should not link to other
-documentation versions.
+in a release stays in that release. Link to the version's home page with `/`
+(or `/#anchor`). Images use a path relative to the page. Each version's
+documentation is self-contained and should not link to other documentation
+versions.
+
+The build rejects links that name the `/vss` base (including bare `/vss`,
+`href=` and `src=` with either quote, and reference definitions) and images
+rooted at `/assets/`. These fail the build in the checkout and in the release
+being published by a tag push. Older listed tags cannot change, so for them
+the build only warns.
 
 ## How the site is built
 
@@ -54,13 +63,11 @@ versions:
 Fern never reads that file directly. `build_fern_site.py` writes a temporary
 tree in which every version is a prepared copy: the checkout for Dev, and
 `git archive <tag>` for each release. In every copy it fills in that version's
-values (below). It does not rewrite links or images: Fern keeps readers in the
-version they are reading because page links omit the base and version, and each
-copy resolves its own page-relative images (see [Links and images](#links-and-images)).
-The build fails if the checkout uses the unscoped forms; release tags only warn.
-It then rewrites the `versions:` block of the temporary `docs.yml` to those
-copies. Every Fern command runs inside the temporary tree; the build never
-modifies the checkout.
+values (below). It does not rewrite links or images; Fern scopes them to each
+version, and the build enforces the authoring rule (see
+[Links and images](#links-and-images)). It then rewrites the `versions:` block
+of the temporary `docs.yml` to those copies. Every Fern command runs inside the
+temporary tree; the build never modifies the checkout.
 
 ## Version-specific values
 
@@ -101,21 +108,24 @@ Open `http://localhost:3000/vss`. `--no-releases` builds only your checkout,
 including uncommitted edits, as Dev. Drop it to include every listed release
 tag that exists locally (add `--fetch` to download missing ones). To preview a
 release branch the way readers will see the release, pass `--release X.Y.Z`.
-The same tree runs the checks CI runs:
+The same tree runs the checks every docs workflow runs before it publishes:
 
 ```bash
-(cd "$SITE" && fern check && fern docs md check && fern docs broken-links --strict)
+(cd "$SITE" && "$OLDPWD/.github/scripts/check_fern_site.sh")
 ```
 
 ## Previews and publishing
 
-There is one Fern site, production. Everything else is a named preview, a
-stable URL that each run updates in place.
+There is one Fern site, production. Everything else is a preview; PRs and
+release branches get a named preview, a stable URL that each run updates in
+place. Every workflow runs `check_fern_site.sh` (`fern check`, `fern docs md
+check`, `fern docs broken-links --strict`) on the exact tree it is about to
+publish, and the published URL is in the job summary.
 
 | Event | Workflow | Result |
 |-------|----------|--------|
-| Pull request | `fern-docs-ci.yml` | Checks, then preview `pr-<N>`, linked in a PR comment. A PR into `release/X.Y.Z` previews as that release |
-| Push to `release/X.Y.Z` | `preview-release-docs.yml` | Preview `release-X-Y-Z` (`https://nvidia-preview-release-X-Y-Z.docs.buildwithfern.com/vss`), showing "X.Y.Z (preview)" with the release values |
+| Pull request | `fern-docs-ci.yml` | Checks, then preview `pr-<N>`, linked in a PR comment. A PR into `release/X.Y.Z` previews as that release. A manual run without a PR gets a preview ID Fern generates |
+| Push to `release/X.Y.Z` | `preview-release-docs.yml` | Checks, then preview `release-X-Y-Z`, showing "X.Y.Z (preview)" with the release values |
 | Docs change merged to `develop` | `publish-fern-docs.yml` | Production rebuilt from develop; Dev updates, releases are rebuilt unchanged from their tags |
 | Release tag `vX.Y.Z` pushed | `publish-fern-docs.yml` | Production rebuilt from develop with the new release as the default; fails if `ref: vX.Y.Z` is not listed on develop |
 
@@ -145,8 +155,11 @@ If the tag is pushed before the entry reaches `develop`, that publish fails
 with a message naming the missing entry, and the version goes live when the
 entry merges to `develop` (every docs merge republishes production).
 
-A release tag's docs must have the `docs/index.yml` layout and the current
-workflows, so release branches cut before this layout landed need it
-back-ported before they are tagged. To retire a version, delete its entry.
-Tags are immutable: a docs fix to a published release ships in a patch release
-(for example `v3.3.1`), listed as its own entry.
+- **Back-port before tagging.** A release tag's docs need the `docs/index.yml`
+  layout, the [link and image rules](#links-and-images), and the current
+  `.github/scripts/` and docs workflows. Back-port them to release branches cut
+  before they landed: a branch push runs that branch's own workflows and
+  builder, so an old branch is not checked by the current rules.
+- **Retiring a version.** Delete its entry from `versions:`.
+- **Fixing a published release.** Tags are immutable, so a docs fix ships in a
+  patch release (for example `v3.3.1`), listed as its own entry.

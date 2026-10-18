@@ -298,9 +298,20 @@ def test_rejects_unknown_or_malformed_markers_and_fern_escapes() -> None:
 def test_checkout_rejects_unscoped_links_but_release_tags_only_warn() -> None:
     forms = [
         "[x](/vss/getting-started/quickstart)\n",
+        "[x](/vss)\n",
+        "[x](/vss#anchor)\n",
+        "[x](/vss?q=1)\n",
+        "[x](</vss/intro>)\n",
+        "[x]: /vss/intro\n",
+        "[x]: /vss\n",
         '<a href="/vss/intro">x</a>\n',
+        "<a href='/vss/intro'>x</a>\n",
+        '<a href={"/vss/intro"}>x</a>\n',
+        "<a href={'/vss'}>x</a>\n",
         "![x](/assets/images/diagram.png)\n",
         '<img src="/assets/images/diagram.png" />\n',
+        "<img src='/assets/images/diagram.png' />\n",
+        "[img]: /assets/images/diagram.png\n",
     ]
     for form in forms:
         with tempfile.TemporaryDirectory() as directory:
@@ -323,6 +334,44 @@ def test_checkout_rejects_unscoped_links_but_release_tags_only_warn() -> None:
 
         assert any(line.startswith("warning: v1.2.0 has 1 link(s)") for line in summary)
         assert (output / "fern/versions/v1.2.0/docs/page.mdx").is_file()
+
+        expect_error(
+            "v1.2.0: links must omit the /vss base",
+            lambda: BUILD.build(source, Path(directory) / "out2", require_tag="v1.2.0"),
+        )
+
+
+def test_link_guard_allows_scoped_links_and_look_alikes() -> None:
+    page = (
+        "[root](/) [anchor](/#top) [page](/getting-started/quickstart)\n"
+        "[agent](/vss-agent/intro) [img](./assets/images/diagram.png)\n"
+        '<a href="/vision-agent">x</a> <img src="../assets/x.png" />\n'
+        "External https://docs.nvidia.com/vss/x and `/vss/` in code.\n"
+        "API GET /assets/list and `/assets/{asset_id}/index`.\n"
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        source = Path(directory) / "repo"
+        source.mkdir()
+        make_repo(source, DEV_ENTRY, page=page)
+        BUILD.build(source, Path(directory) / "out")
+
+
+def test_link_guard_uses_the_docs_yml_base_path() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        source = Path(directory) / "repo"
+        source.mkdir()
+        make_repo(source, DEV_ENTRY, page="[x](/vss/intro)\n[y](/other/intro)\n")
+        docs_yml = source / "fern/docs.yml"
+        docs_yml.write_text(
+            read(docs_yml).replace("buildwithfern.com/vss", "buildwithfern.com/other"),
+            encoding="utf-8",
+        )
+        expect_error("omit the /other base", lambda: BUILD.build(source, Path(directory) / "out"))
+        expect_error("page.mdx:2", lambda: BUILD.build(source, Path(directory) / "out2"))
+        try:
+            BUILD.build(source, Path(directory) / "out3")
+        except BUILD.BuildError as error:
+            assert "page.mdx:1" not in str(error), str(error)
 
 
 def test_rejects_invalid_versions_blocks() -> None:
@@ -371,6 +420,8 @@ if __name__ == "__main__":
     test_require_tag_fails_when_release_is_not_listed()
     test_rejects_unknown_or_malformed_markers_and_fern_escapes()
     test_checkout_rejects_unscoped_links_but_release_tags_only_warn()
+    test_link_guard_allows_scoped_links_and_look_alikes()
+    test_link_guard_uses_the_docs_yml_base_path()
     test_rejects_invalid_versions_blocks()
     test_rejects_existing_output_and_tags_without_index()
     print("build_fern_site tests passed")
