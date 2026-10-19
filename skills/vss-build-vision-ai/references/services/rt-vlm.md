@@ -26,6 +26,17 @@
   alias for the latter.
 - Do not add `vlm_${VLM_MODE}_${VLM_NAME_SLUG}` for an integrated RT-VLM path.
 
+## Dev Alerts real-time streaming
+
+For Docker `FOUNDATION=alerts`, `MODE=2d_vlm`, use
+[`profiles/alerts-streaming.md`](../profiles/alerts-streaming.md) for required
+inference-mode intake and the native or separate-NIM configuration branch.
+Keep chunking as the default. The separate-NIM branch reuses the checked-in
+Alerts Compose overlay; its NIM and cache initializer are peers of this owner
+activated by the existing `rtvi-vlm` profile key. Do not invent additional
+profile keys, add the ordinary `vlm_*` NIM alongside them, or apply integrated
+checkpoint/model-ID derivation to the NIM-served model name.
+
 ## Available integrated model variants
 
 These are the Cosmos Reason3 checkpoints RT-VLM can load on the integrated path.

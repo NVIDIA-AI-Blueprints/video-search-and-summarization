@@ -1,0 +1,28 @@
+{
+  "skills": [
+    "vss-build-vision-ai"
+  ],
+  "profile": "alerts-realtime-inference-plans",
+  "runtime_deploy": false,
+  "expects": [
+    {
+      "artifact_expected": false,
+      "query": "Plan only a dev Alerts real-time Docker Compose deployment using chunking mode and no agent harness. Do not generate files, perform host setup, or deploy.",
+      "checks": [
+        "The agent honors the explicit Chunking selection and does not ask a streaming-backend question.",
+        "Its plan uses the inherited chunked rule config and integrated RTVI, leaves native streaming disabled, and adds no streaming NIM or native-streaming tuning.",
+        "No artifacts are generated, no services are started, and checked-in configs are unchanged."
+      ]
+    },
+    {
+      "artifact_expected": false,
+      "query": "Replace that plan with streaming VLM native inside RTVI, still for the dev Alerts real-time Docker Compose profile, and still plan only with no file or host changes. Keep the default Nano BF16 VLM.",
+      "checks": [
+        "The agent treats Streaming/native as already selected and does not repeat either inference-selection question.",
+        "Its plan selects the integrated backend with RTVI_STREAMING_VLM_ENABLED=true, VLLM_ENFORCE_EAGER=true, and the documented streaming settings, without a separate NIM service or custom RTVI build.",
+        "It plans a build-local always-on rule payload with streaming_vlm, ordered frames, a one-second non-overlapping step, one frame per step, an eight-frame window, and a complete task in system_prompt.",
+        "It preserves the distinction between dev Alerts real-time mode and CV verification/Helm/standalone deployments."
+      ]
+    }
+  ]
+}

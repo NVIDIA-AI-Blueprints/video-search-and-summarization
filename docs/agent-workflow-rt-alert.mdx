@@ -73,6 +73,14 @@ First, install the [`vss-build-vision-ai`](/vss/vision-agent/build-vision-ai) sk
 accessible to your agent. The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile)
 and must meet the [Prerequisites](/vss/getting-started/prerequisites).
 
+For a dev alerts real-time deployment, the skill asks whether to use
+**Chunking (default)** or **Streaming**. If you choose Streaming, it then asks
+whether inference should run **natively inside RTVI VLM** or in a **separate
+streaming NIM container**. You can specify either choice in your deployment
+prompt; the agent asks only for choices you have not already supplied. See
+[Enable Streaming VLM (Optional)](#enable-streaming-vlm-optional) for the two
+streaming configurations.
+
 The `vss-build-vision-ai` skill composes the stack from the capabilities you name and selects the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
 Refer to the requirements table for valid platform and mode combinations compatible with your hardware.
 
@@ -844,9 +852,9 @@ frames. Chunk overlap changes how much video consecutive chunks share, but
 each chunk still needs to be complete before inference begins.
 
 With the rule configuration below, the pipeline evaluates one new frame each
-second while retaining an eight-frame window, without waiting for that window to fill before
-processing new frames. Actual alert latency and throughput depend on the
-model, GPU, sampling rate, and number of active rules; validate detection
+second while retaining an eight-frame window, without waiting for that window
+to fill before processing new frames. Actual alert latency and throughput
+depend on the model, GPU, sampling rate, and number of active rules; validate detection
 quality and performance with your own streams.
 
 This option applies to the dev alerts Docker Compose profile in real-time
@@ -864,10 +872,12 @@ Chunked inference remains the default when neither option is enabled.
 
 For either option, in
 `deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/realtime-config.yml`,
-replace the default rule's `always_on_params` with:
+replace the default rule's `always_on_params` with the following settings.
+Keep `model` templated: Alert Bridge substitutes the selected `VLM_NAME` at
+startup, so the same rule configuration works with either streaming variant.
 
 ```yaml
-model: "${VLM_NAME}"
+model: "\$\{VLM_NAME\}"
 system_prompt: "You are monitoring a worksite camera. For each current frame, first check for a ladder: if there is no ladder, answer no. If there is a ladder, answer yes if anyone on the ladder is missing a hardhat or safety vest, otherwise no. Respond with only yes or no."
 prompt: "Is anyone on a ladder without a hardhat or safety vest in the current frame?"
 inference_mode: streaming_vlm
@@ -903,6 +913,7 @@ update the existing assignments or add them when absent:
 
 ```ini
 RTVI_STREAMING_VLM_ENABLED=true
+RTVI_VLM_MODEL_TO_USE=cosmos-reason3
 VLLM_ENFORCE_EAGER=true
 RTVI_VLLM_KV_CACHE_DTYPE=fp8
 RTVI_VLM_SKIP_PIPELINE_WARMUP=true
@@ -935,8 +946,8 @@ confirms backend availability; each rule must still select `streaming_vlm`.
 RTVI VLM ingests the RTSP stream, samples frames, and sends each sampled frame
 as an encoded image to a separate streaming NIM container. NIM retains the
 visual context and performs inference; RTVI VLM returns the verdict through
-the existing Kafka and Alert Bridge path. NIM
-inference and RTVI decoding can use separate GPUs and container versions.
+the existing Kafka and Alert Bridge path. NIM inference and RTVI decoding can
+use separate GPUs and container versions.
 
 The connection uses NIM's persistent-session API: RTVI creates a session with
 `POST /v1/streaming/sessions`, sends each frame to
@@ -954,6 +965,7 @@ MODE=2d_vlm
 ALERT_AGENT_ALWAYS_ON=true
 COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 RTVI_STREAMING_VLM_ENABLED=false
+RTVI_VLM_MODEL_TO_USE=openai-compat
 VLM_NAME=nvidia/cosmos3-nano-reasoner
 STREAMING_NIM_IMAGE=<registry>/<streaming-capable-cosmos3-nim>:<tag>
 STREAMING_NIM_DEVICE_ID=1
@@ -1003,10 +1015,12 @@ errors and `docker logs vss-rtvi-vlm` for frame-processing or NIM connection err
 Add a stream and verify that the rule produces verdicts and alerts in the UI.
 Stopping a rule closes its NIM session; the Compose teardown also stops the
 NIM container. As with other Compose volumes, `down -v` deletes the model cache.
-To return to chunking, remove the overlay argument, restore
-`inference_mode: chunked` and the default rule settings, and recreate the profile
-with native streaming disabled. Include `--remove-orphans` when switching back
-to remove the separate NIM containers.
+To return to chunking, remove the overlay argument and streaming-only overrides.
+Restore the profile's integrated VLM model name (`VLM_NAME`),
+`RTVI_VLM_MODEL_TO_USE=cosmos-reason3`, `RTVI_STREAMING_VLM_ENABLED=false`, and
+the default rule settings with `inference_mode: chunked`, then recreate the
+profile. Include `--remove-orphans` when switching back to remove the separate
+NIM containers.
 
 #### Step 2: Add a video stream
 
