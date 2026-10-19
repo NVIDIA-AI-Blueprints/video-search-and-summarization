@@ -499,8 +499,7 @@ Use the selected developer profile with its checked-in `.env` file and a local
 export NGC_CLI_API_KEY='<your-ngc-api-key>'
 # export HF_TOKEN='<hf-token>'
 
-# Authenticate Docker for gated NIM and other nvcr.io images. The managed VSS
-# images on ghcr.io are public and do not require a registry login.
+# Authenticate Docker to pull VSS release images, NIM, and other NGC images.
 printf '%s' "$NGC_CLI_API_KEY" | \
   docker login nvcr.io --username '$oauthtoken' --password-stdin
 
@@ -1064,7 +1063,7 @@ profile before running `up --detach --pull always --force-recreate --build`. A z
 render the model; it does not prove that every operationally required value is
 set. Variables used only by inactive profiles can also produce warnings.
 
-Docker Compose downloads the required containers from the configured GHCR and NGC registries and starts the agent. Depending on
+Docker Compose downloads the required containers from the configured NGC registries and starts the agent. Depending on
 your network speed, this may take a few minutes.
 
 <Note>
