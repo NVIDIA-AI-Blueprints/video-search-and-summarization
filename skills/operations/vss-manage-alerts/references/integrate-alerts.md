@@ -160,7 +160,12 @@ The compose interpolates host-side names; the `env-substitute.py` entrypoint fol
 - **Verdict semantics.** Verified records carry `info.verdict` ∈ {`confirmed`, `rejected`, `unverified`} and `verification_response_code` (200 = success). `vlm-realtime` incidents are confirmed at source (the trigger itself is a Yes/No VLM answer) and carry no separate verdict. The verifier matches verdict tokens against the VLM response per `vlm.response_format` (`auto` detects Cosmos-Reason vs. generic).
 - **Clip window is end-anchored.** `vst_config.segment_anchor: end` + `segment_duration_seconds: 10` means the verifier pulls the last ~10 s ending at the incident time. A sensor with no retrievable stream yields an `unverified` verdict.
 - **`always_on` gate.** `POST /api/v1/realtime/always-on` short-circuits with `503 ALWAYS_ON_DISABLED` unless `alert_agent.always_on: true`; when enabled, a malformed `ALWAYS_ON_RULES_CONFIG` fails app boot rather than failing on first event.
-- **Sibling-NIM `depends_on` are `required: false`.** The upstream `alert-bridge` block declares `depends_on` on `nvstreamer-alerts`, the 8 sibling NIMs (`cosmos-reason1-7b`, `cosmos-reason2-8b`, `cosmos3-reasoner`, `qwen3-vl-8b-instruct`, each ± `-shared-gpu`), and `rtvi-vlm`, all `required: false`. Recent Docker Compose rejects undefined peers at project-load; a standalone deploy must strip whichever are undefined in its include graph (see `references/patch-alerts.md` + `references/standalone-compose-patches.md`).
+- **Optional `depends_on` peers.** The upstream `alert-bridge` block declares
+  `nvstreamer-alerts`, `cosmos3-reasoner`,
+  `cosmos3-reasoner-shared-gpu`, and `rtvi-vlm` as `required: false`. Recent
+  Docker Compose rejects undefined peers at project-load; a standalone deploy
+  must strip whichever are undefined in its include graph (see
+  `references/patch-alerts.md` + `references/standalone-compose-patches.md`).
 
 ## Example Compose Snippet
 
@@ -169,7 +174,7 @@ Minimal block, abbreviated from `deploy/docker/services/alert/compose.yml`. A st
 ```yaml
 services:
   alert-bridge:
-    image: nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0
+    image: ${VSS_ALERT_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-alert-ms}:${VSS_CONTAINER_TAG:-${VSS_ALERT_TAG:-3.3.0}}
     container_name: vss-alert-bridge
     profiles:
       - <your-profile-flag>            # Step 6.5 Patch 1 inserts the invented flag (additive)

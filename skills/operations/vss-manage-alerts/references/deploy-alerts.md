@@ -1,10 +1,17 @@
 # Deployment Reference: Alert Microservice
 
-Deployment-time contract for the `alert-bridge` microservice (the **Alert Microservice**, formerly "Alert Verification" / "Alert Bridge"; image/container identifiers unchanged — `vss-alert-verification` / `vss-alert-bridge`). Pairs with `integrate-alerts.md`. The component-services allow-list and Step 6.5 patch specifics live in `vss-build-vision-ai/references/patch-alerts.md`.
+Deployment-time contract for the `alert-bridge` microservice (the **Alert
+Microservice**, formerly "Alert Verification" / "Alert Bridge"; image
+`vss-alert-ms`, container `vss-alert-bridge`). Pairs with
+`integrate-alerts.md`. The component-services allow-list and Step 6.5 patch
+specifics live in `vss-build-vision-ai/references/patch-alerts.md`.
 
 ## Container Image
 
-> **Source of truth — read it from the compose, do not hardcode.** The `alert-bridge` image is declared **inline** in the `image:` field of the `alert-bridge` service in `deploy/docker/services/alert/compose.yml` — it is **not** parameterized by an env var (there is no `ALERT_*_IMAGE_TAG` in `dev-profile-alerts/.env`). When `build-vision-ai` copies/patches that compose into `<BUILD_DIR>/patched/`, the image string comes along verbatim, so there is nothing to fold into the generated `.env`. To read the current value:
+> **Source of truth — read it from the compose, do not hardcode.** The
+> `alert-bridge` image in `deploy/docker/services/alert/compose.yml` resolves
+> from `VSS_ALERT_IMAGE`, `VSS_CONTAINER_REGISTRY`, `VSS_CONTAINER_TAG`, and
+> `VSS_ALERT_TAG`. To read the current expression:
 >
 > ```bash
 > # authoritative image:tag for this deployment
@@ -12,10 +19,11 @@ Deployment-time contract for the `alert-bridge` microservice (the **Alert Micros
 > grep -E '^\s*image:' <BUILD_DIR>/patched/services/alert/compose.yml    # the patched copy actually deployed
 > ```
 >
-> The values below are a **snapshot for reference only** (as of VSS 3.2.0) — if upstream bumps the tag, the compose is the truth and this doc may lag. **Future-proofing:** if upstream later parameterizes the tag (e.g. introduces `ALERT_VERIFICATION_IMAGE_TAG`), switch to resolving that var from `dev-profile-alerts/.env` (the same way RT-VLM resolves `RTVI_VLM_IMAGE_TAG` from `dev-profile-base/.env`) and fold it into the generated `.env`.
+> The values below are the VSS 3.3.0 defaults; environment overrides may select
+> another promoted image.
 
-- **Image name (snapshot):** `nvcr.io/nvidia/vss-core/vss-alert-verification`
-- **Tag (snapshot):** `3.2.0`, declared inline at `services/alert/compose.yml` (the `alert-bridge` service). The standalone dev compose (`services/alert/deploy_docker-compose.yml`)
+- **Image name:** `nvcr.io/nvidia/vss-core/vss-alert-ms`
+- **Tag:** `3.3.0`
 - **Registry:** `nvcr.io`
 - **NGC pull requirements:** yes — `NGC_CLI_API_KEY` + `docker login nvcr.io`.
 - **Architecture support:** x86_64 and aarch64. For DGX-SPARK / IGX-THOR / AGX-THOR with a non-remote VLM, set `VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-` so the edge-tuned verifier config is mounted.
