@@ -1,14 +1,30 @@
 # Integration Reference: Alert Microservice
 
-> **Naming.** This component is the **Alert Microservice** (formerly referred to as "Alert Verification" / "Alert Bridge"). The deploy identifiers are unchanged: image `vss-alert-verification`, container `vss-alert-bridge`, compose service-key `alert-bridge`. "Alert Verification" now refers ONLY to one of the two VLM-alerting **approaches** the Alert Microservice implements (the other is "Real-Time Alerts").
+> **Naming.** This component is the **Alert Microservice** (formerly referred
+> to as "Alert Verification" / "Alert Bridge"). Its deploy identifiers are
+> image `vss-alert-ms`, container `vss-alert-bridge`, and Compose service key
+> `alert-bridge`. "Alert Verification" now refers only to one of the two
+> VLM-alerting approaches it implements (the other is "Real-Time Alerts").
 
 ## Overview
 
-The Alert Microservice (`alert-bridge`, image `vss-alert-verification`, container `vss-alert-bridge`) is the VLM-as-verifier stage of the VSS alert pipeline. It exposes a FastAPI REST surface on `:9080` (verification ingress `/api/v1/alerts`, `/api/v1/incidents`, `/api/v1/verification/ondemand`; verifier-prompt config CRUD `/api/v1/verification/config`; realtime rules `/api/v1/realtime`; `/health`, `/metrics`) and runs a Kafka/Redis event-bridge worker pool. Its core loop is: **(1)** receive a candidate event (a detector incident/alert on the message broker, an HTTP submission, or a realtime REST rule), **(2)** resolve the event's sensor/stream and **retrieve the relevant video clip from VIOS/VST**, **(3)** send the clip plus a per-`alert_type` prompt to a Vision Language Model, **(4)** publish the VLM-verified alert/incident (with a `verdict` of `confirmed` / `rejected` / `unverified`) to the message broker and/or Elasticsearch. **This step-(4) direct-to-ES write applies to the `cv-verification` approach only.** In the **`vlm-realtime`** approach the Alert Microservice does **NOT** write incidents to Elasticsearch itself — the realtime rule (`POST /api/v1/realtime`) drives **RT-VLM**, and **RT-VLM** produces the incident to Kafka `mdx-vlm-incidents` (`RTVI_VLM_KAFKA_INCIDENT_TOPIC`), which **Logstash** indexes into ES; `alert-bridge` only reads them back via `GET /api/v1/realtime/incidents`. See the § Outputs scoping note.
+The Alert Microservice (`alert-bridge`, image `vss-alert-ms`, container
+`vss-alert-bridge`) is the VLM-as-verifier stage of the VSS alert pipeline. It
+exposes a FastAPI REST surface on `:9080` (verification ingress
+`/api/v1/alerts`, `/api/v1/incidents`, `/api/v1/verification/ondemand`;
+verifier-prompt config CRUD `/api/v1/verification/config`; realtime rules
+`/api/v1/realtime`; `/health`, `/metrics`) and runs a Kafka/Redis event-bridge
+worker pool. Its core loop is: **(1)** receive a candidate event, **(2)** resolve
+the sensor/stream and retrieve its VIOS/VST clip, **(3)** send the clip and
+prompt to a VLM, and **(4)** publish the verdict to the broker and/or
+Elasticsearch. Direct-to-ES writes apply only to `cv-verification`. In
+`vlm-realtime`, RT-VLM produces incidents to Kafka `mdx-vlm-incidents` for
+Logstash to index; `alert-bridge` reads them through
+`GET /api/v1/realtime/incidents`. See the Outputs scoping note.
 
 ### The two VLM-alerting approaches
 
-VSS showcases **two approaches** for using a VLM to generate alerts in the agent workflow. This microservice + its `alert_source` variant (in `references/patch-alerts.md`) covers both:
+VSS showcases **two approaches** for using a VLM to generate alerts in the agent workflow. This microservice and its `alert_source` configuration cover both:
 
 - **Alert Verification** (`alert_source: cv-verification`, the default; deploy mode `MODE=2d_cv` / flag `bp_developer_alerts_2d_cv`). The VLM analyzes only the video snippets corresponding to alerts **generated upstream** — original "candidate" alerts come from object detection/tracking (RTVI CV / Grounding DINO) + Behavior Analytics processing the streams in real time. The VLM is invoked **sporadically** (only to verify candidates), so **GPU requirements are lower**, but it depends on the upstream detector to produce candidates. This is the workflow these reference files target.
 - **Real-Time Alerts** (`alert_source: vlm-realtime`; deploy mode `MODE=2d_vlm` / flag `bp_developer_alerts_2d_vlm`). The VLM **continuously** processes segments from the source at periodic chunk intervals, leveraging VLM generalizability to trigger alerts for a broad set of cases (may need prompt/fine-tuning). No CV detector — `alert-bridge`'s realtime REST API (`POST /api/v1/realtime`) drives RT-VLM directly. Higher GPU requirements due to more frequent VLM usage.
@@ -23,7 +39,10 @@ Source-of-truth definitions: `deploy/docker/services/alert/compose.yml` (the `al
 
 ## Required Peer Services
 
-The official Alert Verification workflow's "what's being deployed" set, mapped to peer roles. Items the `alert-bridge` microservice itself owns vs. those owned by other component sets are noted; the structured `component_services:` union lives in `references/patch-alerts.md`.
+The official Alert Verification workflow's deployed set, mapped to peer roles.
+Items owned by `alert-bridge` versus other component sets are noted; composition
+details live in
+[`vss-build-vision-ai/references/services/alerts.md`](../../../vss-build-vision-ai/references/services/alerts.md).
 
 **Core verification data path (required):**
 
@@ -58,7 +77,9 @@ The official Alert Verification workflow's "what's being deployed" set, mapped t
 - **VSS Agent UI** — `vss-ui` (`vss-agent-ui`, `:3000`) + HAProxy ingress. Optional web UI (Alerts tab, Video Management, Kibana dashboard). Requires the agent layer (it calls the agent) and HAProxy routing; consumes the `NEXT_PUBLIC_*` env block. Owned by the UI/ingress layer. Omit for a headless deployment.
 - **MQTT / mosquitto** — optional. Only when republishing verified alerts over MQTT. Declared `required: false`.
 
-> **Where the `component_services:` block lives (decoupling).** The Alert Microservice is owned by the `vss-manage-alerts` skill, so — per the 2026-06-08 decoupling convention used by VIOS and RT-VLM — its structured `component_services:` block (the upstream compose service-keys + the `alert_source` variant) is **not** carried here. It lives in `vss-build-vision-ai`'s own patch reference, `references/patch-alerts.md`, so this skill never depends back on the orchestrator. This file is the neutral integration contract only.
+> **Composition ownership.** This file is the neutral integration contract.
+> `vss-build-vision-ai` owns the structured service composition in
+> [`references/services/alerts.md`](../../../vss-build-vision-ai/references/services/alerts.md).
 
 ## Integration Interfaces
 
@@ -164,8 +185,7 @@ The compose interpolates host-side names; the `env-substitute.py` entrypoint fol
   `nvstreamer-alerts`, `cosmos3-reasoner`,
   `cosmos3-reasoner-shared-gpu`, and `rtvi-vlm` as `required: false`. Recent
   Docker Compose rejects undefined peers at project-load; a standalone deploy
-  must strip whichever are undefined in its include graph (see
-  `references/patch-alerts.md` + `references/standalone-compose-patches.md`).
+  must strip whichever are undefined in its include graph.
 
 ## Example Compose Snippet
 

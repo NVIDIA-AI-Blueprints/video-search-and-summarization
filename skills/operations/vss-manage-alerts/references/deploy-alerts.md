@@ -3,8 +3,8 @@
 Deployment-time contract for the `alert-bridge` microservice (the **Alert
 Microservice**, formerly "Alert Verification" / "Alert Bridge"; image
 `vss-alert-ms`, container `vss-alert-bridge`). Pairs with
-`integrate-alerts.md`. The component-services allow-list and Step 6.5 patch
-specifics live in `vss-build-vision-ai/references/patch-alerts.md`.
+`integrate-alerts.md`; deployment composition guidance lives in
+[`vss-build-vision-ai/references/services/alerts.md`](../../../vss-build-vision-ai/references/services/alerts.md).
 
 ## Container Image
 

@@ -123,7 +123,7 @@ The host-side variable names that the compose interpolates differ from the canon
 | `RTVI_VLM_ERROR_MESSAGE_TOPIC` → `ERROR_MESSAGE_TOPIC` | Error topic | `mdx-vlm-errors` | optional |
 | `VIA_VLM_ENDPOINT` (host: `RTVI_VLM_ENDPOINT`) | Remote OpenAI-compat backend URL when `VLM_MODEL_TO_USE=openai-compat` | — | conditional |
 | `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` (host: `VLM_NAME`) | Remote model deployment name | — | conditional |
-| `VSS_RT_VLM_TAG` | Compose image-tag override; append `-sbsa` only for SBSA Grace/Spark. Resolve the standalone default from the canonical RT-VLM Compose file; the full VSS project may override it through `deploy/docker/containers.env`. | `develop-latest` (standalone Compose) | optional |
+| `VSS_RT_VLM_TAG` | Compose image-tag override; append `-sbsa` only for SBSA Grace/Spark. Resolve the standalone default from the canonical RT-VLM Compose file; the full VSS project may override it through `deploy/docker/containers.env`. | `3.3.0` | optional |
 
 ## Network Requirements
 
@@ -159,7 +159,7 @@ Minimal standalone-relevant block. The canonical source is `deploy/docker/servic
 ```yaml
 services:
   rtvi-vlm:
-    image: ${VSS_RT_VLM_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-vlm}:${VSS_RT_VLM_TAG:-develop-latest}
+    image: ${VSS_RT_VLM_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-rt-vlm}:${VSS_RT_VLM_TAG:-3.3.0}
     container_name: vss-rtvi-vlm
     shm_size: '16gb'
     runtime: nvidia

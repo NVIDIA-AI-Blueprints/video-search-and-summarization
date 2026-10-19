@@ -51,7 +51,11 @@ The base compose already mounts the config from the services directory:
 services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json
 ```
 
-This config is identical to the image-baked default except Kafka is **enabled** (`brokers: ["localhost:9092"]`). This is the right choice when a local Kafka broker is running and contains `mdx-notification`, `mdx-amr`, and at least one topic matching `mdx-rtls*`. With brokers configured, the server waits for those topics before it listens. Use Option A or a custom config with `kafka.brokers: []` for a broker-less deployment.
+This config uses Compose-internal peers: Elasticsearch at
+`http://elasticsearch:9200` and Kafka at `kafka:29092`. Kafka must contain
+`mdx-notification`, `mdx-amr`, and at least one topic matching `mdx-rtls*`;
+the server waits for those topics before it listens. Use Option A or a custom
+config with `kafka.brokers: []` for a broker-less deployment.
 
 No compose change needed — this is the default:
 

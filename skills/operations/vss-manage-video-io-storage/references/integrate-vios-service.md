@@ -68,7 +68,11 @@ Both topologies surface the same Kafka `camera_streaming` event downstream, so c
 ## Required Peer Services
 
 - **PostgreSQL (centralizedb)** — required. Stores sensor configurations, stream metadata, and system state across all VIOS microservice instances. Image `postgres:17.9-alpine` per `vst.env`. Source: `vios-microservices.rst` § OSS Containers table.
-- **Kafka** — required when VSS publishes sensor add/remove events on a Kafka message bus. Broker address read from `KAFKA_BOOTSTRAP_URL` (default `localhost:9092` per `vst.env`); message key `KAFKA_MSG_KEY=sensor.id`. Used for downstream consumers to react to sensor lifecycle. Source: `vst.env` lines 56–58 + `vios-microservices.rst` § Key Features bullet 10.
+- **Kafka** — required when VSS publishes sensor add/remove events on a Kafka
+  message bus. Broker address is read from `KAFKA_BOOTSTRAP_URL` (default
+  `kafka:29092` in `vst.env`); message key is
+  `KAFKA_MSG_KEY=sensor.id`. Downstream consumers use these events to react to
+  sensor lifecycle.
 - **Redis** — required (host-network default). Used for caching sensor state and as an alternate message bus for sensor events; reachable at `REDIS_HOSTADDR:REDIS_PORT` (default `localhost:6379`); event key `REDIS_MSG_KEY=vst.event`. Source: `vst.env` lines 53–55.
 - **MinIO (optional)** — optional. S3-compatible object storage when video clips are stored in object storage rather than local filesystem. Source: `vios-microservices.rst` § OSS Containers.
 - **SDRC (`sdr-controller`) — REQUIRED, NOT OPTIONAL.** Combined WDM controller + Envoy router; replaces the legacy `sdr-streamprocessing` + `envoy-streamprocessing` pair. Image: Docker `${SDR_MW_L_IMAGE}` from [`containers.env`](../../../../deploy/docker/containers.env); Helm `image.repository` / `image.tag` in the [`sdrc` chart](../../../../deploy/helm/services/infra/charts/sdrc/values.yaml) (see [`deploy-vios-service.md` § Container Image](deploy-vios-service.md#container-image); do not hardcode a registry or tag). Watches Redis `vst.event` + Docker container state, advertises workloads to its embedded Envoy router via the WDM control plane, and serves the `streamid`-header-routed L7 listener that `vss-vios-sensor` calls into. Listens on: `WDM_CONTROLLER_PORT=5003` (workload control plane), `WDM_SDRC_DIRECT_LISTENER_PORT=8011` (direct listener), `ENVOY_ADMIN_PORT=9902` (Envoy admin), and `WDM_MS_LISTENER_PORT` from the rendered `config.yml` (default `10000` — preserves the `vss-vios-sensor` endpoint contract). Mounts `${SDR_CONTROLLER_CONFIG_PATH}/configs:/configs/:ro` (the rendered `config.yml` + `docker_cluster_config-streamprocessing.json`), `./log:/logs`, and the host docker socket `/var/run/docker.sock`. Reads its env vars directly from the compose `environment:` block — `sdr-controller` does not mount the `.wdm-env` written by `wdm-env-from-config` (see the inline comment at [`sdrc/docker-compose.yaml`](../../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) lines 116-117: *"Does not use wdm-env-from-config (env is explicit below, like a hand-written docker run)"*). Direct `depends_on` are `broker-health-check` (optional), `init-dirs`, and `wdm-env-from-config` (compose lines 146-153); `render-config` is transitive via `wdm-env-from-config`. No service depends on the `wait-for-redis` init. Source: [`deploy/docker/services/infra/sdrc/docker-compose.yaml`](../../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) + Helm chart [`deploy/helm/services/infra/charts/sdrc/`](../../../../deploy/helm/services/infra/charts/sdrc/).
@@ -303,15 +307,15 @@ The IN-1-relevant subset (full list in `deploy/docker/services/vios/vst.env`):
 | `VST_VIDEO_STORAGE_SIZE_MB` | Storage cap in MB | `100000` | optional |
 | `VST_ADAPTOR` | Camera adapter type: `vst_rtsp` or `milestone_onvif` | `vst_rtsp` | optional |
 | `VST_INSTALL_ADDITIONAL_PACKAGES` | Pull extra apt packages at first boot | `true` | optional |
-| `HOST_IP` | Used in `VST_INGRESS_ENDPOINT` and `KAFKA_BOOTSTRAP_URL` when not `localhost` | — | conditional |
-| `REDIS_HOSTADDR` | Redis address (host networking) | `localhost` | optional |
+| `HOST_IP` | Used in `VST_INGRESS_ENDPOINT` | — | conditional |
+| `REDIS_HOSTADDR` | Redis service address | `redis` | optional |
 | `REDIS_PORT` | Redis port | `6379` | optional |
 | `REDIS_MSG_KEY` | Redis sensor-event key | `vst.event` | optional |
-| `KAFKA_BOOTSTRAP_URL` | Kafka broker | `localhost:9092` | optional |
+| `KAFKA_BOOTSTRAP_URL` | Kafka broker | `kafka:29092` | optional |
 | `KAFKA_MSG_KEY` | Kafka sensor-event key | `sensor.id` | optional |
-| `VST_SENSOR_IMAGE_TAG` | Tag for `vss-vios-sensor` image | (no default — must be set) | **Yes** |
-| `VST_STREAM_PROCESSOR_IMAGE_TAG` | Tag for `vss-vios-streamprocessing` image | (no default) | **Yes** |
-| `VST_INGRESS_IMAGE_TAG` | Tag for `vss-vios-ingress` image | (no default) | **Yes** |
+| `VST_SENSOR_IMAGE_TAG` | Tag for `vss-vios-sensor` image | `3.3.0` | optional |
+| `VST_STREAM_PROCESSOR_IMAGE_TAG` | Tag for `vss-vios-streamprocessing` image | `3.3.0` | optional |
+| `VST_INGRESS_IMAGE_TAG` | Tag for `vss-vios-ingress` image | `3.3.0` | optional |
 | `BP_CONFIGURATOR_READYZ_URL` | Optional readiness URL the configurator-wait poller hits | `http://127.0.0.1:5001/readyz` | optional |
 | `SENSOR_BP_WAIT_BP_CONFIGURATOR_MAX_SEC` / `SENSOR_BP_WAIT_STORAGE_MAX_SEC` | Wait-loop timeouts | `300` | optional |
 | `SDR_CONTROLLER_CONFIG_PATH` | Host path containing `configs/*.tmpl` for SDRC (`config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl`); the `render-config` init container renders them in place. Mount source for the `sdr-controller` `/configs` bind. | per-profile (e.g. `${VSS_APPS_DIR}/developer-profiles/dev-profile-lvs/sdrc/${MODE}`) | **Yes (SDRC)** |

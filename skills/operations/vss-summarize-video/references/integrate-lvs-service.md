@@ -193,19 +193,21 @@ Excerpted shape from `deploy/docker/services/video-summarization/compose.yml`:
 
 ```yaml
 services:
-  lvs:
-    image: via-engine-${USER:-user}
-    container_name: lvs
+  lvs-server:
+    image: ${CONTAINER_IMAGE:-${VSS_VIDEO_SUMMARIZATION_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-video-summarization}:${VSS_VIDEO_SUMMARIZATION_TAG:-3.3.0}}
+    container_name: vss-lvs
+    profiles: ["lvs-server"]
     ports:
-      - ${LVS_BACKEND_PORT:-38111}:38111
+      - ${BACKEND_HOST_PORT:-38111}:${BACKEND_PORT:-38111}
     volumes:
-      - ../../config/config.yaml:/opt/nvidia/via/config/default_config.yaml:ro
+      - $VSS_APPS_DIR/services/video-summarization/configs/config.yaml:/app/config.yaml:ro
     environment:
+      CA_RAG_CONFIG: /app/config.yaml
       LVS_DATABASE_BACKEND: ${LVS_DATABASE_BACKEND:-elasticsearch_db}
       KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
-      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}
       KAFKA_STRUCTURED_SUMMARY_TOPIC: ${KAFKA_STRUCTURED_SUMMARY_TOPIC:-mdx-structured-events-summary}
-      RTVI_VLM_URL: ${RTVI_VLM_URL:-http://rtvi-vlm:8000}
+      RTVI_VLM_URL: ${RTVI_VLM_BASE_URL:-}
     depends_on:
       elasticsearch:
         condition: service_started

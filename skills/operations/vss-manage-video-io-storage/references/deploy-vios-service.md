@@ -149,7 +149,7 @@ bring-up. It is not a profile-level endpoint setting.
 | `VST_INGRESS_IMAGE_TAG` | `3.3.0` | Published VSS 3.3.0 tag for the VIOS ingress image. | `vst.env` |
 | `VST_SENSOR_IMAGE_TAG` | `3.3.0` | Published VSS 3.3.0 tag for the VIOS sensor image. | `vst.env` |
 | `VST_STREAM_PROCESSOR_IMAGE_TAG` | `3.3.0` | Published VSS 3.3.0 tag for the VIOS streamprocessing image. | `vst.env` |
-| `NVSTREAMER_IMAGE_TAG` | `3.3.0` | Published VSS 3.3.0 tag for the NvStreamer image. | `compose.env` |
+| `NVSTREAMER_IMAGE_TAG` | `3.3.0` | Published VSS 3.3.0 tag for the NvStreamer image. | `deploy/docker/services/nvstreamer/.env` |
 | `CENTRALIZE_DB_PASSWORD` | non-empty (any value) | PostgreSQL password — `vst.env` has no default; deploy hangs in `password authentication failed` on first init without this set | `vst.env` |
 | `KAFKA_BOOTSTRAP_URL` | `kafka:29092` (compose-internal hostname) | Used by streamprocessing-ms for `camera_streaming` event publication. Wrong value → silent caption-pipeline break | `vst.env` |
 | `REDIS_HOSTADDR` / `REDIS_PORT` | `redis` / `6379` (compose-internal) | streamprocessing-ms publishes `vst.event` here; `sdr-controller` consumes via `WDM_WL_REDIS_SERVER` / `WDM_WL_REDIS_PORT` (defaulted to `redis` / `6379` in [`sdrc/docker-compose.yaml`](../../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) lines 129-130). Wrong value → SDRC never picks up new streams → 503 on `/record/*` and `/replay/*` calls. | `vst.env` |

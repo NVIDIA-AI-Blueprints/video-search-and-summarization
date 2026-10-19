@@ -7,7 +7,7 @@ Step 5 is where the skill initializes the deployment log, starts the perception 
 Scripts refresh + X11 pre-flight + log init + app launch have **no user decisions between them**. They must be a single Bash tool call — not four separate calls. Four calls = four permission prompts for what is logically one action.
 
 ```bash
-SKILL_DIR="$HOME/.claude/skills/rtvicv-deploy"
+SKILL_DIR="$HOME/.claude/skills/vss-deploy-detection-tracking-2d"
 CONTAINER="<CONTAINER_NAME>"
 
 # ── Refresh scripts (always overwrite — stale scripts cause silent failures)

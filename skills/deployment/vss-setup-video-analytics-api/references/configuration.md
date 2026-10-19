@@ -13,14 +13,14 @@ The video-analytics-api server loads a JSON config file at startup via the `--co
     "configs": [...]
   },
   "elasticsearch": {
-    "node": "http://localhost:9200",
+    "node": "http://elasticsearch:9200",
     "indexPrefix": "mdx-",
     "rawIndex": "mdx-raw-*",
     "retries": 15
   },
   "kafka": {
-    "brokers": ["localhost:9092"],
-    "retries": null
+    "brokers": ["kafka:29092"],
+    "retries": 15
   }
 }
 ```
@@ -100,14 +100,14 @@ Any absolute host path. Copy one of the above as a starting point and edit. Bind
     ]
   },
   "elasticsearch": {
-    "node": "http://localhost:9200",
+    "node": "http://elasticsearch:9200",
     "indexPrefix": "mdx-",
     "rawIndex": "mdx-raw-*",
     "retries": 15
   },
   "kafka": {
-    "brokers": ["localhost:9092"],
-    "retries": null
+    "brokers": ["kafka:29092"],
+    "retries": 15
   }
 }
 ```

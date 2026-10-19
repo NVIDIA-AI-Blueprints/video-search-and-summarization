@@ -53,7 +53,7 @@ live-authoritative schema — see §16.
 - **`VSS_DATA_DIR`** host path — compose bind-mounts
   `${VSS_DATA_DIR}/data_log/vst/clip_storage` with no default → mount breaks if unset
 - **Free port**: `${RTVI_VLM_PORT}` (whatever you pick)
-- **Outbound**: the Compose-resolved image registry (`ghcr.io` by default),
+- **Outbound**: the Compose-resolved image registry (`nvcr.io` by default),
   `nvcr.io`, `huggingface.co`, and any remote NIM/OpenAI endpoints
 
 > ⚠ **Profiles are mandatory.** The standalone file declares only `rtvi-vlm`.
