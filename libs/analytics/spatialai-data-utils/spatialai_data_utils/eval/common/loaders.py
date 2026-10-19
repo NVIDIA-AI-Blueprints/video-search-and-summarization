@@ -92,8 +92,10 @@ def load_gt(
 
             box = gt_boxes[anno_id]
             translation = box[:3]
+            # ``gt_boxes`` order and counter-clockwise yaw, unchanged; predictions are
+            # brought to the same order by ``box_conventions.nusc_boxes_to_box_dims``.
             size = box[3:6]
-            rotation_q = euler_to_quaternion(0, 0, -box[6])
+            rotation_q = euler_to_quaternion(0, 0, box[6])
             velocity = gt_velocity[anno_id][:2]
 
             if box_cls is DetectionBox:
