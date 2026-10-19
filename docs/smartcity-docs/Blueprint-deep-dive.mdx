@@ -56,7 +56,7 @@ Refer to the "Customization of Microservice" section in the [RTVI CV microservic
 
 ## Behavior Analytics
 
-Behavior Analytics microservice provides spatio-temporal analysis of object movement using metadata output from the RTVI CV microservice. Output of the microservice include alerts and metrics generated based on micro-batch processing of streaming metadata received over kafka.
+Behavior Analytics microservice provides spatio-temporal analysis of object movement using metadata output from the RTVI CV microservice. Output of the microservice includes alerts and metrics generated based on micro-batch processing of streaming metadata received over kafka.
 
 Generated types of alerts include:
 
@@ -80,7 +80,7 @@ Salient configuration parameters for behavior analytics include:
 
 Alerts generated through behavior analytics are verified through VLMs based on their ability to identify anomalies of interest by analyzing a collection of frames from the video based on an alert specific prompt. Refer to the [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice) documentation for more information.
 
-Configuration of the microservice for Smart City Blueprint are listed below:
+Configuration options for the microservice for Smart City Blueprint are listed below:
 
 * per alert prompt: alert verification prompt defined for collision alert using template prompting support in the alert verification MS to specify object ID of the colliding vehicles as captured in the overlay video. Modify this prompt as needed for specific verification model, and also use it as an example to similarly define for other alerts
 
