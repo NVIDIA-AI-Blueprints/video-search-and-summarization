@@ -57,6 +57,19 @@ These Release Notes describe the key features, software enhancements and improve
   is authored alongside the source in this repository and built and published
   with Fern.
 
+- Added **Adaptive EVS** video token pruning to the Real-Time VLM (RTVI-VLM)
+  microservice. Building on fixed-rate Efficient Video Sampling (EVS), Adaptive
+  EVS adds content-dependent similarity pruning, per-stream video sessions, and
+  token-budgeted clip packing to reduce redundant visual input and per-chunk
+  inference time on long videos and live streams. Enable it with
+  `VIA_EVS_SESSION=true` and `VLM_VIDEO_PRUNING_RATE=0.5`, and optionally tune
+  how aggressively similar frames are pruned with
+  `VLLM_EVS_SIMILARITY_THRESHOLD` (default `0.4`). It is supported for local,
+  vLLM-compatible Qwen3-VL-based models. Refer to
+  *Efficient Video Sampling (EVS and Adaptive EVS)* in the
+  [Real-Time VLM](/system-components/vision-microservices/real-time-vlm)
+  documentation.
+
 ### Agent Workflows
 
 <Tabs>
@@ -70,7 +83,7 @@ These Release Notes describe the key features, software enhancements and improve
 - `POST /summarize` and `POST /v1/summarize` now return HTTP 422 when `media_info.start_offset` is greater than or equal to `media_info.end_offset`, or when `min_tokens` is greater than `max_tokens`. In 3.2.x these requests could return HTTP 200 with an empty result.
 - Responses omit `media_info.start_offset` and `media_info.end_offset` when either value is unavailable or the range is not strictly increasing.
 - `POST /summarize` and `POST /v1/stream_summarize` accept an inbound `traceparent` header and link the request to the caller's distributed trace.
-- The RTVI-VLM profile supports optional EVS++ video token pruning to reduce redundant visual input and per-chunk inference time.
+- The RTVI-VLM profile supports optional Adaptive EVS video token pruning to reduce redundant visual input and per-chunk inference time.
 - The Video Summarization service no longer requests a GPU. Captioning stays on RTVI-VLM, and the LLM stays on its own service.
 - Standalone Compose with the `rtvi` profile now requires `VLM_MODEL_TO_USE` at startup. A local model also requires `MODEL_PATH`. The blueprint profile under `deploy/docker` keeps its `openai-compat` default.
 
