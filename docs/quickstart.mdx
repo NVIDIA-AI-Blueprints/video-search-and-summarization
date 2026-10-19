@@ -1057,7 +1057,7 @@ RTVI_VLM_MODEL_PATH=none
 The base template sets `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4`, leaving
 headroom for the local LLM and CUDA allocations on the reviewed 96 GB GPU.
 Inspect `nvidia-smi` before launch and compare the selected layout with the
-[GPU requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
+[GPU requirements](/getting-started/prerequisites#development-profile-gpu-requirements).
 Other models, GPUs, or active workloads require a fresh memory budget.
 
 Before launch, inspect `df -h` for the model/data filesystem and `ss -ltn`

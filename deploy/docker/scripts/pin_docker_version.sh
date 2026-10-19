@@ -118,10 +118,12 @@ configure_cgroup_driver() {
     return 0
   fi
 
+  # Establish privilege outside the conditional so a failed sudo cannot be
+  # mistaken for an absent config in a root-only directory.
+  run_privileged mkdir -p "$(dirname "$DAEMON_JSON")"
   local merged
   merged="$(mktemp)"
-  # Existence needs no file-read permission; only the jq read below needs sudo.
-  if [ -f "$DAEMON_JSON" ]; then
+  if run_privileged test -f "$DAEMON_JSON"; then
     ensure_jq
     # Keep the file's other keys (default-runtime, runtimes, address pools) and
     # any unrelated exec-opt. Staged through a temp file because a
@@ -133,7 +135,6 @@ configure_cgroup_driver() {
     run_privileged cp "$DAEMON_JSON" "$DAEMON_JSON.bak"
   else
     echo '{"exec-opts": ["native.cgroupdriver=cgroupfs"]}' > "$merged"
-    run_privileged mkdir -p "$(dirname "$DAEMON_JSON")"
   fi
   run_privileged cp "$merged" "$DAEMON_JSON"
   rm -f "$merged"

@@ -26,6 +26,7 @@ def _run(
     version="28.4.0",
     driver="cgroupfs",
     terminal=False,
+    protected=False,
 ):
     state = {
         "holds": "\n".join(held.split()),
@@ -42,7 +43,7 @@ def _run(
         "dpkg-query": 'case " $PACKAGES " in *" ${@: -1} "*) printf installed;; esac',
         "apt-mark": 'if [ "$1" = showhold ]; then cat "$STATE/holds"; else printf "%s\\n" "$*" >> "$STATE/calls"; shift; printf "%s\\n" "$@" >> "$STATE/holds"; fi',
         "apt-get": 'printf "%s\\n" "$*" >> "$STATE/apt_calls"; if [ "$1" = install ]; then echo 29.4.3 > "$STATE/version"; fi',
-        "sudo": 'printf "%s\\n" "$*" >> "$STATE/sudo_calls"; if [ "$1" = -n ]; then shift; [ "$SUDO_OK" = 1 ] || exit 1; fi; [ "$1" = true ] || exec "$@"',
+        "sudo": 'printf "%s\\n" "$*" >> "$STATE/sudo_calls"; if [ "$1" = -n ]; then shift; [ "$SUDO_OK" = 1 ] || exit 1; fi; if [ "$PROTECTED" = 1 ]; then chmod 700 "$STATE/protected"; "$@"; result=$?; chmod 000 "$STATE/protected"; exit "$result"; fi; [ "$1" = true ] || exec "$@"',
         "systemctl": 'printf "%s\\n" "$*" >> "$STATE/restarts"; echo cgroupfs > "$STATE/driver"',
     }
     for name, body in commands.items():
@@ -66,7 +67,7 @@ print(json.dumps(value))
     assert source.count('DAEMON_JSON="/etc/docker/daemon.json"') == 1
     source = source.replace(
         'DAEMON_JSON="/etc/docker/daemon.json"',
-        f"DAEMON_JSON={shlex.quote(str(tmp_path / 'daemon.json'))}",
+        f"DAEMON_JSON={shlex.quote(str(tmp_path / 'protected/daemon.json' if protected else tmp_path / 'daemon.json'))}",
     )
     source = source.replace(
         ". /etc/os-release", ". " + shlex.quote(str(tmp_path / "os-release"))
@@ -77,6 +78,7 @@ print(json.dumps(value))
         "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
         "PACKAGES": PACKAGES,
         "STATE": str(tmp_path),
+        "PROTECTED": str(int(protected)),
         "SUDO_OK": str(int(sudo_ok)),
         "TMPDIR": str(tmp_path),
     }
@@ -167,4 +169,37 @@ def test_cgroup_merge_preserves_config_and_privilege_check_is_once(tmp_path, ter
     assert calls.count("-n true") == (0 if terminal else 1)
     if terminal:
         assert all(not call.startswith("-n ") for call in calls)
-    assert not any("test -f" in call for call in calls)
+    assert sum("test -f" in call for call in calls) == 1
+
+
+@NEEDS_SUDO
+@pytest.mark.parametrize("sudo_ok", [False, True])
+def test_root_only_config_is_not_mistaken_for_a_missing_file(tmp_path, sudo_ok):
+    directory = tmp_path / "protected"
+    directory.mkdir()
+    config = directory / "daemon.json"
+    original = {"default-runtime": "nvidia", "data-root": "/custom/docker"}
+    config.write_text(json.dumps(original))
+    directory.chmod(0)
+    try:
+        probe = subprocess.run(
+            ["bash", "-c", 'test -f "$1"', "probe", str(config)], check=False
+        )
+        assert probe.returncode == 1, (
+            "reproduce the unprivileged existence-check failure"
+        )
+        result = _run(tmp_path, driver="systemd", sudo_ok=sudo_ok, protected=True)
+    finally:
+        directory.chmod(0o700)
+    if sudo_ok:
+        assert result.returncode == 0, result.stderr
+        assert json.loads(config.read_text()) == {
+            **original,
+            "exec-opts": ["native.cgroupdriver=cgroupfs"],
+        }
+        assert json.loads(config.with_suffix(".json.bak").read_text()) == original
+    else:
+        assert result.returncode != 0
+        assert "sudo bash" in result.stderr
+        assert json.loads(config.read_text()) == original
+        assert not (tmp_path / "restarts").exists()
