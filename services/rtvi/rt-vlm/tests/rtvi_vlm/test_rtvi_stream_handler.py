@@ -57,6 +57,7 @@ API_PREFIX = "/v1"
     ("value", "default", "expected"),
     [
         ("true", False, True),
+        ("false", True, False),
         ("off", True, False),
         ("", True, True),
         ("treu", True, True),
