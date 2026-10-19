@@ -238,8 +238,8 @@ Uses local ONNX Runtime inference with a GemmaTokenizer. No PyTorch or HuggingFa
 [text-embedder]
 enable=1
 model-name=siglip2-onnx
-onnx-model-path=siglip2_v1.0.onnx
-tokenizer-dir=siglip2_v1.0_tokenizer/
+onnx-model-path=siglip_v2_v2.0.onnx
+tokenizer-dir=siglip_v2_v2.0_tokenizer/
 ```
 
 #### Text embedder property reference
@@ -341,8 +341,8 @@ This means you can use the **same ONNX file** for both `[visionencoder]` (image 
 ```ini
 [visionencoder]
 enable=1
-onnx-model=radio_clip_v1.0.onnx
-tensorrt-engine=radio_clip_v1.0.engine
+onnx-model=radio-clip_v1.0.onnx
+tensorrt-engine=radio-clip_v1.0.engine
 batch-size=16
 min-crop-size=32
 gpu-id=0
@@ -380,12 +380,14 @@ The following properties control smart inference and OFA prediction. See [Smart 
 ```ini
 [visionencoder]
 enable=1
-onnx-model=siglip2_v1.0.onnx
+onnx-model=siglip_v2_v2.0.onnx
 batch-size=16
 min-crop-size=32
 gpu-id=0
 skip-interval=3
 ```
+
+The SigLIP 2 ONNX stores its weights externally. Keep `siglip_v2_v2.0_weights.bin` in the same directory as `siglip_v2_v2.0.onnx`.
 
 **Note:** Image normalization is auto-detected from the ONNX model path: `[0, 1]` for RADIO-CLIP, `[-1, 1]` when the path contains `siglip`.
 
@@ -464,8 +466,8 @@ Full vision encoder runs only for new, stale, or high-motion objects.
 ```ini
 [visionencoder]
 enable=1
-onnx-model=radio_clip.onnx
-tensorrt-engine=radio_clip.engine
+onnx-model=radio-clip.onnx
+tensorrt-engine=radio-clip.engine
 batch-size=16
 min-crop-size=32
 gpu-id=0
@@ -479,8 +481,8 @@ Requires `nvof` element in the pipeline upstream of the vision encoder.
 ```ini
 [visionencoder]
 enable=1
-onnx-model=radio_clip.onnx
-tensorrt-engine=radio_clip.engine
+onnx-model=radio-clip.onnx
+tensorrt-engine=radio-clip.engine
 batch-size=16
 min-crop-size=32
 gpu-id=0

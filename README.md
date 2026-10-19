@@ -128,7 +128,8 @@ Follow the steps from the [documentation](https://docs.nvidia.com/vss/latest/clo
     - DGX Station (GB300): DGX OS 7.6.0
     - DGX-SPARK: DGX OS 7.5.0
     - IGX-THOR (T5000 and T7000): IGX-SW 2.0 Production (LTS), including IGX OS 2.0 (Ubuntu 24.04)
-    - Jetson AGX Orin, AGX-THOR, and Jetson Orin NX: JetPack 7.2 (Jetson Linux/L4T r39.2)
+    - Jetson AGX-THOR: JetPack 7.2 (Jetson Linux/L4T r39.2)
+    - Jetson AGX Orin and Jetson Orin NX: public JetPack 7.2.2 release
 - NVIDIA Driver:
     - 595.58.03 (x86 hosts with Ubuntu 24.04)
     - 595.58.03 (DGX Station GB300)
