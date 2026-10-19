@@ -35,10 +35,10 @@ navbar-links:
 # release's pages are read from its tag, so publishing does not require merging
 # the release branch into develop. Dev is the one `path:` entry: the checkout
 # being built.
-#   - display-name: "3.3.0"
-#     slug: "3.3.0"
-#     ref: v3.3.0
 versions:
+  - display-name: "3.3.0"
+    slug: "3.3.0"
+    ref: v3.3.0
   - display-name: Dev
     slug: dev
     path: ../docs/index.yml
