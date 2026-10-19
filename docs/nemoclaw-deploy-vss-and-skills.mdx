@@ -57,18 +57,27 @@ and the [NemoClaw OpenClaw user guide](https://docs.nvidia.com/nemoclaw/latest/u
 
 ## Part 1 - Set up NemoClaw
 
-1. Clone the VSS repository at `~/video-search-and-summarization` and check out
-   the repository reference selected for this documentation build:
+1. Prepare the VSS repository at `~/video-search-and-summarization` before opening either notebook.
+
+   On Brev, the repository is cloned automatically. Click **Open Notebook** on the instance page, then open a terminal in JupyterLab and check out the [repository reference selected for this documentation build](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}):
 
    ```bash
-   git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
-   cd video-search-and-summarization
+   cd ~/video-search-and-summarization
+   git fetch origin "${VSS_DOCS_GIT_REF:-develop}"
+   git checkout "${VSS_DOCS_GIT_REF:-develop}"
+   ```
+
+   On your own host, clone the repository and check out the same reference:
+
+   ```bash
+   git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git ~/video-search-and-summarization
+   cd ~/video-search-and-summarization
    git checkout "${VSS_DOCS_GIT_REF:-develop}"
    ```
 
    If your checkout is elsewhere or the host has multiple clones, set `VSS_REPO_DIR` before launching Jupyter.
 
-2. Open `deploy/docker/scripts/deploy_nemoclaw.ipynb` on the VSS host.
+2. Open `deploy/docker/scripts/deploy_nemoclaw.ipynb` on the VSS host. If either setup notebook is already open, close and reopen it after checking out the reference so it loads the selected version.
 
    * If you are re-onboarding a host that previously ran an older OpenShell gateway, review the [NemoClaw sandbox lifecycle guidance](https://docs.nvidia.com/nemoclaw/manage-sandboxes/lifecycle) before running the notebook.
 

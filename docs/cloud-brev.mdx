@@ -40,10 +40,18 @@ To obtain the required NGC API Key, follow the steps in:
 
     ![VSS Brev Launchable Notebook](/assets/images/cloud/brev_notebook_button.png)
 
-5. Navigate and open `video-search-and-summarization/deploy/docker/scripts/deploy_vss_launchable.ipynb` notebook.
+5. Open a terminal in JupyterLab and check out the [repository reference selected for this documentation build](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}) before opening the launchable notebook:
+
+   ```bash
+   cd ~/video-search-and-summarization
+   git fetch origin "${VSS_DOCS_GIT_REF:-develop}"
+   git checkout "${VSS_DOCS_GIT_REF:-develop}"
+   ```
+
+6. Navigate to and open the `video-search-and-summarization/deploy/docker/scripts/deploy_vss_launchable.ipynb` notebook. If it is already open, close and reopen it after checking out the reference so it loads the selected version.
     This notebook is designed to run as a launchable on 2xRTX PRO 6000 SE GPUs on AWS Cloud Provider.
-6. Add your NGC_API_KEY in the first code cell.
-7. Run each cell and follow the instructions in the notebook to access video search and summarization blueprint UI.
+7. Add your NGC_API_KEY in the first code cell.
+8. Run each cell and follow the instructions in the notebook to access video search and summarization blueprint UI.
 
 <Note>
 The complete setup takes around 10 minutes as it downloads the containers and sets up the services.
