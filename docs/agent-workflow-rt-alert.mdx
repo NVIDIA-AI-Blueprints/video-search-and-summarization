@@ -57,7 +57,9 @@ For instructions on downloading sample data and the deployment package, see [Dow
 
 The default alert prompt detects a ladder PPE violation: a person on a ladder without a hardhat or safety vest. It answers no when there is no ladder in the scene and is intended for the default `warehouse_sample.mp4` clip.
 
-If you use a clip other than the default one, we recommend updating `always_on_rules[].always_on_params.prompt` in `deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/realtime-config.yml` before deployment to match the events you want to detect.
+If you use a clip other than the default one, we recommend updating `always_on_rules[].always_on_params.system_prompt` and `always_on_rules[].always_on_params.prompt` in `deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/realtime-config.yml` before deployment to match the events you want to detect.
+
+For native streaming inference, complete [Enable Native Streaming Mode (Optional)](#enable-native-streaming-mode-optional) before starting the profile. That section covers retained context and per-rule settings.
 
 ### With Agent Skills
 
@@ -821,6 +823,90 @@ docker ps
 ```
 
 Once all the containers are running, you can access the agent UI at `http://<HOST_IP>:7777/`.
+
+#### Enable Native Streaming Mode (Optional)
+
+To try streaming mode for the VLM, set the options in this section before running
+the `docker compose up` command in the section above.
+
+Native StreamingVLM keeps a persistent inference session for each alert rule on
+a live stream. It adds new sampled frames to retained visual context instead
+of evaluating every chunk independently. This can reduce repeated visual
+prefill work and lets the VLM use recent frames when evaluating an event.
+StreamingVLM generally allows much lower alert-generation latency than
+chunked inference because each frame is processed as it is sampled and arrives,
+by default at a cadence of 1 FPS. Chunked inference waits until a complete
+chunk is available—typically 10 seconds of video—before processing any of its
+frames. Chunk overlap changes how much video consecutive chunks share, but
+each chunk still needs to be complete before inference begins.
+
+With the example below, the pipeline evaluates one new frame each second while
+retaining an eight-frame window, without waiting for that window to fill before
+processing new frames. Actual alert latency and throughput depend on the
+model, GPU, sampling rate, and number of active rules; validate detection
+quality and performance with your own streams.
+
+Ordinary requests default to `chunked` unless the rule explicitly selects
+`streaming_vlm`.
+
+**1. Configure streaming inference.** In
+`deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`,
+update the existing assignments or add them when absent:
+
+```ini
+RTVI_STREAMING_VLM_ENABLED=true
+VLLM_ENFORCE_EAGER=true
+RTVI_VLLM_KV_CACHE_DTYPE=fp8
+RTVI_VLM_SKIP_PIPELINE_WARMUP=true
+RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT=false
+RTVI_VLM_BATCH_SIZE=8
+RTVI_STREAMING_VLM_MAX_SESSIONS=8
+RTVI_STREAMING_VLM_MAX_VIDEO_SEGMENTS=8
+RTVI_STREAMING_VLM_MAX_TOTAL_VIDEO_SEGMENTS=64
+RTVI_STREAMING_VLM_MAX_SESSION_TOKENS=14000
+RTVI_STREAMING_VLM_RETAIN_GENERATED_TEXT=false
+RTVI_STREAMING_VLM_EXACT_VIDEO_COMPACTION=false
+VLLM_STREAMING_VLM_RAW_KEY_SHADOW=false
+```
+
+Size both `RTVI_VLM_BATCH_SIZE` and `RTVI_STREAMING_VLM_MAX_SESSIONS` for the number of
+concurrent rules, and budget `RTVI_STREAMING_VLM_MAX_TOTAL_VIDEO_SEGMENTS` for
+the sum of their retained windows. Provide sufficient GPU memory through
+`RTVI_VLLM_GPU_MEMORY_UTILIZATION`; these limits do not reserve additional
+physical memory.
+
+**2. Configure the alert rule.** In
+`deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/realtime-config.yml`,
+use the following fields under each rule's `always_on_params`, alongside its
+`model`, `system_prompt`, and `prompt`:
+
+```yaml
+inference_mode: streaming_vlm
+streaming_frame_policy: ordered
+streaming_question_on_decode: false
+streaming_window_frames: 8
+chunk_duration: 1
+chunk_overlap_duration: 0
+num_frames_per_second_or_fixed_frames_chunk: 1
+response_format:
+  type: choice
+  choices: ["yes", "no"]
+```
+
+Put the full detection task and the yes/no output instruction in
+`system_prompt`. With `streaming_question_on_decode: false`, the question is
+sent only at session start and subsequent updates add frames. Set it to `true`
+when your prompt requires the question on every decode step. Rules sharing a camera must use the same chunk and
+sampling settings. For rules created through the REST API, include these same
+fields in the create payload; changing the always-on YAML does not update
+existing REST-created rules.
+
+Follow the remaining steps to set additional options and deploy the profile.
+
+Check `docker logs vss-rtvi-vlm`
+for the `DL Algo Streaming VLM enabled` message, then create a rule and verify
+that frames are processed and alerts reach the UI. The initialization message
+confirms backend availability; each rule must still select `streaming_vlm`.
 
 #### Step 2: Add a video stream
 
