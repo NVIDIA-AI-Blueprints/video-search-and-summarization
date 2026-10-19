@@ -675,25 +675,3 @@ def test_apply_config_returns_http_response_without_retry(monkeypatch):
     response = pc.applyConfig({"podIp": "127.0.0.1"}, {"event": {}})
     assert response.status_code == 404
     assert len(calls) == 1
-
-
-@pytest.mark.parametrize("status", [400, 404, 422])
-def test_add_does_not_retry_permanent_workload_rejection(monkeypatch, status):
-    from lib.podprovisioner.provisionconfig import provisionconfig
-
-    config = {
-        "WDM_WL_ADD_URL": "/api/v1/realtime/always-on",
-        "WDM_MAP_ADD_FIELD": "", "WDM_REMAP_EVENT_OBJECT": "",
-        "WDM_EVENT_OBJECT_FIELD": "event", "WDM_WL_ID_FIELD": "camera_id",
-        "WDM_ADD_REMOVE_RETRY_ATTEMPTS": 46, "WDM_ADD_REMOVE_REQUEST_TIMEOUT": 2,
-        "WDM_WL_HEALTH_CHECK_WAIT_ENABLED": False, "WDM_ADD_CALL_DELAY": 15,
-        "WDM_WL_CHANGE_ID_ADD": "camera_streaming", "WDM_AGENT_EVENT_BUS": "events",
-    }
-    post = MagicMock(return_value=_Resp(status))
-    monkeypatch.setattr("lib.podprovisioner.provisionconfig.requests.post", post)
-    monkeypatch.setattr("lib.podprovisioner.provisionconfig.time.sleep", lambda _: pytest.fail("permanent rejection slept"))
-    pc = provisionconfig(config, MagicMock(), MagicMock())
-    monkeypatch.setattr(pc, "_generate_redis_msg", lambda *args: {})
-    response = pc.add({"podIp": "127.0.0.1", "podPort": 9080, "podName": "alerts"}, {"event": {"camera_id": "uploaded"}})
-    assert response.status_code == status
-    assert post.call_count == 1

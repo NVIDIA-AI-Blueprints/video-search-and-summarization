@@ -38,23 +38,17 @@ vss summarize run --url <video-url> --video-id <id> \
   --creation-time 2025-01-01T00:00:00.000Z
 ```
 
-Exactly one of `--sensor` (a registered VIOS name or ID), `--id` (an LVS
-file ID returned by its files API), or `--url` (a URL reachable by the
-backend) is required. VIOS and LVS identifiers belong to separate stores.
-Prefer `--sensor` for registered recordings: the CLI transfers the video
-through the host to LVS and uses the returned file ID, so LVS need not fetch
-the host's public IP. For camera recordings, pass `--start-time` and
-`--end-time` for one recorded segment. `--scenario` and at least one `--event`
+Exactly one of `--id` (media the deployment already ingested) or `--url` (a
+video to fetch directly) is required. `--scenario` and at least one `--event`
 are required because LVS requires them and answers 422 without them; there is
 no default to invent.
 
-`--sensor` resolves and uploads the clip first. Each `run` then issues exactly one `POST /v1/summarize`. The command never retries, and
+One `run` is exactly one `POST /v1/summarize`. The command never retries, and
 returns only when the result is final.
 
 | flag | meaning |
 |---|---|
-| `--sensor` / `--id` / `--url` | the media; exactly one |
-| `--start-time`, `--end-time` | recorded window for `--sensor` |
+| `--id` / `--url` | the media; exactly one |
 | `--scenario` | use-case context, required |
 | `--event` | event to detect; repeat for several, required |
 | `--object-of-interest` | object to detect; repeatable |

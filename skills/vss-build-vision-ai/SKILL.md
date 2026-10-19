@@ -35,21 +35,6 @@ metadata:
 - Unsupported industry profiles such as `smartcities`; `warehouse` is the only
   supported industry Foundation.
 
-## Questions across agent hosts
-
-Use the host's question tool when it is available and can represent all choices.
-`AskUserQuestion` is Claude Code's interface. In Codex, use the available
-question interface; when it is unavailable in the active mode, ask an ordinary
-numbered question in conversation and wait for the user's reply. In another
-harness, use its supported equivalent. Never block because a Claude-specific
-tool is absent, and never treat an unavailable tool as a selected answer.
-If a widget cannot fit all choices, show the full list in conversation instead
-of dropping options. Preserve the same intake choices and confirmations.
-
-For alert operations after deployment, route to `vss-manage-alerts`. There is
-no `vss alerts` command. Use the supported `vss analytics` commands when they
-cover the read request; the alert skill owns subscription management.
-
 ## References
 
 - [`references/composition.md`](references/composition.md) — delta-profile rules, Foundation selection, build artifact contract, resolution, and validation.
@@ -134,7 +119,7 @@ Classify the request before any other work:
 
 ### Guided front door — Q1
 
-Ask a single-choice question using the available host interface. Generate or deploy **nothing** until the user selects AND confirms downstream (the deploy prompt for Pre-built workflow; the Step 6 architecture diagram for Custom build).
+Ask via `AskUserQuestion` (single-select). Generate or deploy **nothing** until the user selects AND confirms downstream (the deploy prompt for Pre-built workflow; the Step 6 architecture diagram for Custom build).
 
 **Q1 — Starting point.** *"How would you like to start?"*
 
@@ -390,7 +375,7 @@ The sandbox runs on its **own** LLM, unrelated to the build's `LLM_*` and `VLM_*
 
 **Read the environment first.** Report relevant model settings as found-or-missing, showing endpoint and model values verbatim but never a credential's value. An explicitly configured provider and all of its required values are already the answer; confirm them instead of asking Q3a.
 
-Otherwise ask **Q3a-default** through one single-choice question using the available host interface: *"Which model should the NemoClaw sandbox run on?"* Keep the model choice separate from the provider choice — a user who wants the harness on a different model has not asked to change providers, and a yes/no that bundles the two forces them through an endpoint they never wanted to touch.
+Otherwise ask **Q3a-default** through one single-select `AskUserQuestion`: *"Which model should the NemoClaw sandbox run on?"* Keep the model choice separate from the provider choice — a user who wants the harness on a different model has not asked to change providers, and a yes/no that bundles the two forces them through an endpoint they never wanted to touch.
 
 | Choice | Result |
 | --- | --- |
@@ -398,7 +383,7 @@ Otherwise ask **Q3a-default** through one single-choice question using the avail
 | **The default endpoint, a different model** | The same settings, except collect `NEMOCLAW_MODEL` as a route id that endpoint serves (listed at <https://inference.nvidia.com/?new=0>). Do not ask for the endpoint and do not re-select a provider. |
 | **A different provider** | Ask **Q3a-provider** below. |
 
-On **a different provider**, show the notebook's three provider choices through one single-choice question using the available host interface:
+On **a different provider**, show the notebook's three provider choices through one single-select `AskUserQuestion`:
 
 | Choice | What to set |
 | --- | --- |

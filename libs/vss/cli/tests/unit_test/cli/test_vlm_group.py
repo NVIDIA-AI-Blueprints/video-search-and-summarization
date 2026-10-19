@@ -10,7 +10,6 @@ reports itself.
 
 from __future__ import annotations
 
-from contextlib import nullcontext
 import json
 from typing import TYPE_CHECKING
 from typing import Any
@@ -88,10 +87,6 @@ def _fake_post(response: Any) -> Any:
         return response
 
     return _return
-
-
-def _fake_clip_stream(method: str, url: str, **_kwargs: Any):
-    return nullcontext(httpx.Response(200, content=b"video-bytes", request=httpx.Request(method, url)))
 
 
 def _in_memory(deployment: config_mod.Deployment) -> memory_mod.Memory:
@@ -1067,12 +1062,11 @@ def test_run_request_preserves_fps_on_long_sensor_window(
 ) -> None:
     captured: dict[str, Any] = {}
 
-    def _capture(_url: str, *, content: Any, **_kw: Any) -> httpx.Response:
-        captured["json"] = json.loads(b"".join(content))
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
         return httpx.Response(200, json=_completion())
 
     monkeypatch.setattr(httpx, "post", _capture)
-    monkeypatch.setattr(httpx, "stream", _fake_clip_stream)
     monkeypatch.setattr(
         "vss_cli.vlm.group._resolve_vios_clip",
         lambda *_args, **_kwargs: ("http://vios/clip.mp4", "2025-01-01T00:00:00Z", "2025-01-01T00:02:00Z"),
@@ -1465,7 +1459,6 @@ def test_sensor_path_uses_resolved_window_bounds(
     )
     monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion("ok"))))
 
-    monkeypatch.setattr(httpx, "stream", _fake_clip_stream)
     store = _in_memory(configured)
     ctx = Context(deployment=configured, memory=store)
     group = VlmGroup()
@@ -1524,14 +1517,12 @@ def test_run_file_source_does_not_persist_local_path(
     _assert_no_local_path_in_record(store2.service.list_jobs(), "--media-url+--use-base64")
 
 
-@pytest.mark.parametrize("clip_host", ["localhost:30888", "192.0.2.10:7777"])
-def test_sensor_url_streams_to_tempfile_and_uses_base64(
-    tmp_path: Path,
-    clip_host: str,
+def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """RT-VLM receives bytes for both loopback and non-loopback sensor URLs."""
+    """When VIOS resolves --sensor to a loopback URL, the CLI must stream it to a temp
+    file (no double-materialisation of raw bytes) and send the clip inline as base64."""
     import base64 as _b64
     import contextlib
 
@@ -1539,11 +1530,8 @@ def test_sensor_url_streams_to_tempfile_and_uses_base64(
     from vss_cli.vlm import group as vlm_group_mod
     from vss_cli.vlm.group import VlmGroup
 
-    mkstemp = vlm_group_mod.tempfile.mkstemp
-    monkeypatch.setattr(vlm_group_mod.tempfile, "mkstemp", lambda **kwargs: mkstemp(dir=tmp_path, **kwargs))
-
     clip_bytes = b"\x00\x01\x02loopback-clip"
-    loopback_url = f"http://{clip_host}/vst/api/v1/storage/file/abc/url"
+    loopback_url = "http://localhost:30888/vst/api/v1/storage/file/abc/url"
 
     monkeypatch.setattr(
         vlm_group_mod,
@@ -1588,7 +1576,6 @@ def test_sensor_url_streams_to_tempfile_and_uses_base64(
     group = VlmGroup()
     result = group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
 
-    assert not list(tmp_path.glob("*.mp4")), "temporary clip must be removed after inference"
     assert result.exit == Exit.SUCCESS, f"expected SUCCESS, got {result.exit}: {result.body}"
     assert result.body.get("answer") == "loopback works"
     assert streamed_urls == [loopback_url], "expected exactly one stream call for the loopback clip"
@@ -1684,19 +1671,18 @@ def test_sensor_loopback_clip_http_error_writes_terminal_record(
     assert jobs[-1].job.status == "failed", f"terminal record status: {jobs[-1].job.status}"
 
 
-@pytest.mark.parametrize("backend", ["rt_vlm", "vllm"])
-def test_needs_inline_clip(backend: str) -> None:
-    """RT-VLM always gets bytes; other backends can still fetch non-loopback URLs."""
-    from vss_cli.vlm.group import _needs_inline_clip
+def test_is_loopback_url() -> None:
+    """_is_loopback_url matches CLI-only hosts and rejects VLM-routable hosts."""
+    from vss_cli.vlm.group import _is_loopback_url
 
-    assert _needs_inline_clip("http://localhost:30888/vst/api/v1/storage/file/abc", backend)
-    assert _needs_inline_clip("http://127.0.0.1:9000/clip.mp4", backend)
-    assert _needs_inline_clip("http://127.1.2.3:8080/", backend)
-    assert _needs_inline_clip("http://[::1]/clip.mp4", backend)
-    assert _needs_inline_clip("http://host.openshell.internal:7777/vst/api/v1/storage/file/abc", backend)
-    assert _needs_inline_clip("http://10.86.83.113:30888/vst/api/v1/storage/file/abc", backend) == (backend == "rt_vlm")
-    assert _needs_inline_clip("http://vst-host/clip.mp4", backend) == (backend == "rt_vlm")
-    assert _needs_inline_clip("https://192.168.1.100:8080/clip.mp4", backend) == (backend == "rt_vlm")
+    assert _is_loopback_url("http://localhost:30888/vst/api/v1/storage/file/abc")
+    assert _is_loopback_url("http://127.0.0.1:9000/clip.mp4")
+    assert _is_loopback_url("http://127.1.2.3:8080/")
+    assert _is_loopback_url("http://[::1]/clip.mp4")
+    assert _is_loopback_url("http://host.openshell.internal:7777/vst/api/v1/storage/file/abc")
+    assert not _is_loopback_url("http://10.86.83.113:30888/vst/api/v1/storage/file/abc")
+    assert not _is_loopback_url("http://vst-host/clip.mp4")
+    assert not _is_loopback_url("https://192.168.1.100:8080/clip.mp4")
 
 
 def test_run_empty_answer_exits_backend_unreachable(
@@ -2243,86 +2229,3 @@ def test_explicit_max_frames_replaces_an_inherited_fps_where_backends_take_one(
     VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", max_frames=30), ctx)
 
     assert captured["json"]["media_io_kwargs"] == {"video": expected}
-
-
-def test_inline_video_boundary_matches_rt_vlm_schema() -> None:
-    import ast
-    from pathlib import Path
-
-    from vss_cli.vlm.group import _MAX_INLINE_VIDEO_BYTES
-
-    root = next(parent for parent in Path(__file__).resolve().parents if (parent / "services/rtvi/rt-vlm").is_dir())
-    module = ast.parse((root / "services/rtvi/rt-vlm/src/api_models/nim_compat.py").read_text())
-    model = next(node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "VideoUrl")
-    field = next(node for node in model.body if isinstance(node, ast.AnnAssign) and node.target.id == "url")
-    limit = next(ast.literal_eval(item.value) for item in field.value.keywords if item.arg == "max_length")
-    prefix = len("data:video/mp4;base64,")
-    assert ((_MAX_INLINE_VIDEO_BYTES + 2) // 3) * 4 + prefix <= limit
-    assert ((_MAX_INLINE_VIDEO_BYTES + 3) // 3) * 4 + prefix > limit
-
-
-@pytest.mark.parametrize(
-    "failure", [None, "upload-http", "upload-json", "upload-id", "inference-http", "inference-timeout", "cleanup-http"]
-)
-def test_large_rt_vlm_clip_uses_files_api_and_releases_its_asset(
-    configured: config_mod.Deployment,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    failure: str | None,
-) -> None:
-    from vss_cli.group import Context
-    from vss_cli.vlm import group as vlm_group
-
-    clip = tmp_path / "large.mp4"
-    clip.write_bytes(b"video-bytes")
-    monkeypatch.setattr(vlm_group, "_MAX_INLINE_VIDEO_BYTES", 1)
-    monkeypatch.setenv("VSS_VLM_API_KEY", "test-key")
-    file_id = "ee089f6a-ccbb-4a8a-a48e-80faf5389e25"
-    uploaded = []
-    deleted = []
-
-    def post(url, *, files=None, data=None, json=None, headers=None, **kwargs):
-        request = httpx.Request("POST", url)
-        assert headers["Authorization"] == "Bearer test-key"
-        if files:
-            assert url == BASE_URL + "/rtvi-vlm/v1/files"
-            assert "Content-Type" not in headers
-            assert files["file"][1].read() == b"video-bytes"
-            assert data == {"purpose": "vision", "media_type": "video"}
-            uploaded.append(file_id)
-            if failure == "upload-http":
-                return httpx.Response(503, request=request)
-            if failure == "upload-json":
-                return httpx.Response(200, text="not JSON", request=request)
-            return httpx.Response(200, json={} if failure == "upload-id" else {"id": file_id}, request=request)
-        assert json["id"] == file_id
-        assert json["messages"][0]["content"] == "What?"
-        assert json["media_io_kwargs"] == {"video": {"fps": 2.0}}
-        if failure == "inference-timeout":
-            raise httpx.ReadTimeout("model timeout")
-        return httpx.Response(
-            503 if failure == "inference-http" else 200, json=_completion("large clip works"), request=request
-        )
-
-    def delete(url, **kwargs):
-        assert url == BASE_URL + "/rtvi-vlm/v1/files/" + file_id
-        deleted.append(file_id)
-        return httpx.Response(503 if failure == "cleanup-http" else 200, request=httpx.Request("DELETE", url))
-
-    monkeypatch.setattr(httpx, "post", post)
-    monkeypatch.setattr(httpx, "delete", delete)
-    store = _in_memory(configured)
-    result = VLM.run(
-        "", VlmInput(prompt="What?", file=str(clip), fps=2.0), Context(deployment=configured, memory=store)
-    )
-    assert uploaded == [file_id]
-    assert deleted == ([] if failure and failure.startswith("upload-") else [file_id])
-    if failure == "inference-timeout":
-        assert result.exit == Exit.TIMEOUT
-    elif failure and failure != "cleanup-http":
-        assert result.exit == Exit.BACKEND_UNREACHABLE
-    else:
-        assert result.exit == Exit.SUCCESS
-        assert result.body["answer"] == "large clip works"
-        _assert_no_local_path_in_record(store.service.list_jobs(), "large uploaded clip")
-    assert clip.exists(), "the original local file belongs to the user"

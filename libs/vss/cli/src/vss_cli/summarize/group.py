@@ -44,7 +44,6 @@ to run it again -- not that an in-flight VLM call can be rejoined.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -80,7 +79,6 @@ if TYPE_CHECKING:
     from vss_core.memory import MemoryInput
     from vss_core.memory import PersistResult
     from vss_core.memory.models import JobStatus
-    from vss_core.vios import SensorRef
 
     from .memory_adapter import SummaryAdapter
 
@@ -104,15 +102,13 @@ _TERMINAL_WRITE_BACKOFF_SECONDS = 0.5
 #: instant (1e8 seconds is 1973), which is how LVS answers without a
 #: ``creation_time`` to anchor against.
 _EPOCH_FLOOR = 1e8
-_UTC_OFFSET = "+00:00"
 
 
 class SummarizeInput(BaseModel):
     """Summarize a video and apply the configured memory policy.
 
-    Exactly one source is required: ``--id`` names a file uploaded to LVS,
-    ``--sensor`` resolves a VIOS recording and transfers it to LVS, and
-    ``--url`` points at a video the backend can fetch directly.
+    Exactly one source is required: ``--id`` names media the deployment has
+    already ingested, ``--url`` points at a video to fetch directly.
 
     ``--scenario`` and at least one ``--event`` are required because LVS
     requires them: its schema marks ``model``, ``scenario`` and ``events``
@@ -135,8 +131,7 @@ class SummarizeInput(BaseModel):
     # misspelled key would otherwise pass silently with the default.
     model_config = ConfigDict(extra="forbid")
 
-    id: str | None = Field(None, description="LVS file ID returned by its files API (not a VIOS sensor ID).")
-    sensor: str | None = Field(None, description="VIOS sensor name or ID; resolve and upload the recording to LVS.")
+    id: str | None = Field(None, description="ID of an already-added file or live stream.")
     url: str | None = Field(None, description="Direct URL to a video to summarize (HTTP/HTTPS/S3).")
     # Every bound below is copied from LVS's own SummarizationQuery
     # (services/video-summarization/src/vss_api_models.py), lengths as well as
@@ -215,7 +210,7 @@ class SummarizeInput(BaseModel):
         if value is None:
             return None
         try:
-            parsed = datetime.fromisoformat(value.replace("Z", _UTC_OFFSET))
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError as error:
             raise ValueError(f"creation_time must be an ISO-8601 instant, got {value!r}") from error
         if parsed.tzinfo is None:
@@ -228,8 +223,8 @@ class SummarizeInput(BaseModel):
         # Click can express "mutually exclusive" only by hand-rolled callbacks;
         # stating it on the model keeps the rule with the fields and applies it
         # to programmatic callers too.
-        if sum(bool(source) for source in (self.id, self.url, self.sensor)) != 1:
-            raise ValueError("exactly one of id, url or sensor is required")
+        if bool(self.id) == bool(self.url):
+            raise ValueError("exactly one of id or url is required")
         return self
 
 
@@ -248,8 +243,6 @@ class SummarizeOptions(BaseModel):
         None,
         description="Override whether this persisted result is written to the configured Markdown cache.",
     )
-    start_time: str | None = Field(None, description="Start of a --sensor recording window (ISO-8601 UTC).")
-    end_time: str | None = Field(None, description="End of a --sensor recording window (ISO-8601 UTC).")
     video_id: str | None = Field(
         None,
         description="video_id recorded for the persisted record. Defaults to --id; required with --url.",
@@ -314,13 +307,13 @@ def _instant(value: Any, anchor: datetime | None) -> Any:
         return value
 
     if seconds >= _EPOCH_FLOOR:
-        return datetime.fromtimestamp(seconds, UTC).isoformat().replace(_UTC_OFFSET, "Z")
+        return datetime.fromtimestamp(seconds, UTC).isoformat().replace("+00:00", "Z")
     if anchor is None:
         raise ValueError(
             f"event time {value!r} is an offset into the clip, which unified memory cannot store as an "
             f"instant; pass --creation-time <media start, ISO-8601 UTC> so the times are absolute"
         )
-    return (anchor + timedelta(seconds=seconds)).isoformat().replace(_UTC_OFFSET, "Z")
+    return (anchor + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
 
 
 def _summary_content(completion: dict[str, Any], anchor: datetime | None = None) -> dict[str, Any]:
@@ -379,88 +372,17 @@ def _adapter() -> SummaryAdapter:
     return SummaryAdapter()
 
 
-def _prepare_sensor_source(
+def _resolve_memory_sensor(
     deployment: config_mod.Deployment,
     inputs: SummarizeInput,
     options: SummarizeOptions,
-) -> tuple[SensorRef, str, str]:
-    """Transfer a VIOS clip through the CLI host into LVS's own file namespace."""
-    import tempfile
-
-    import httpx
-
+) -> Any | None:
+    """Resolve a raw ``--id`` to VIOS identity when memory needs a name."""
+    if options.media_name or not inputs.id or not deployment.has("vst"):
+        return None
     from vss_core import vios
-    from vss_core._foundation.errors import BackendUnreachableError
 
-    if not deployment.has("vst"):
-        raise config_mod.ConfigError("--sensor requires VIOS; rerun vss configure against a deployment with VIOS")
-    origin = str(deployment.base_url).rstrip("/")
-
-    sensor_name = inputs.sensor
-    if not sensor_name:
-        raise InvalidInput("--sensor requires a non-empty sensor name or ID")
-
-    async def resolve() -> tuple[SensorRef, str, str]:
-        ref = await vios.resolve_sensor(origin, sensor_name)
-        segments = await vios.recorded_segments(origin, ref.stream_id)
-        start, end = vios.resolve_window(segments, options.start_time, options.end_time, ref.kind)
-        url = await vios.get_video_clip_url(
-            stream_id=ref.stream_id,
-            start_time=start,
-            end_time=end,
-            vst_internal_url=origin,
-        )
-        return ref, vios.normalise_media_url(url, origin), start
-
-    ref, media_url, start = asyncio.run(resolve())
-    timeout = float(options.request_timeout_seconds)
-    data = {
-        "purpose": "vision",
-        "media_type": "video",
-        "sensor_name": ref.name,
-        "creation_time": inputs.creation_time or start,
-    }
-    try:
-        # Spool large recordings to disk rather than retaining them in memory.
-        with tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024) as clip:
-            with httpx.stream("GET", media_url, timeout=timeout) as response:
-                response.raise_for_status()
-                for chunk in response.iter_bytes():
-                    clip.write(chunk)
-            clip.seek(0)
-            uploaded = httpx.post(
-                deployment.endpoint("lvs").rstrip("/") + "/v1/files",
-                data=data,
-                files={"file": ("clip.mp4", clip, "video/mp4")},
-                timeout=timeout,
-            )
-            uploaded.raise_for_status()
-        payload = uploaded.json()
-        file_id = payload.get("id") if isinstance(payload, dict) else None
-        if not isinstance(file_id, str) or not file_id:
-            raise BackendUnreachableError("lvs", "file upload returned no file ID")
-    except httpx.TimeoutException:
-        raise
-    except (httpx.HTTPError, ValueError) as error:
-        raise BackendUnreachableError("lvs", "could not transfer the VIOS recording to LVS") from error
-    return ref, file_id, start
-
-
-def _resolve_summary_source(
-    deployment: config_mod.Deployment,
-    inputs: SummarizeInput,
-    options: SummarizeOptions,
-    request: dict[str, Any],
-) -> tuple[SummarizeInput, SummarizeOptions, SensorRef | None]:
-    """Map a VIOS identity and recording time onto an LVS file request."""
-    if not inputs.sensor:
-        return inputs, options, None
-    sensor, request["id"], start = _prepare_sensor_source(deployment, inputs, options)
-    if not inputs.creation_time:
-        inputs = inputs.model_copy(update={"creation_time": start})
-        request["creation_time"] = start
-    options = options.model_copy(update={"video_id": options.video_id or sensor.sensor_id})
-    return inputs, options, sensor
+    return asyncio.run(vios.resolve_sensor(str(deployment.base_url).rstrip("/"), inputs.id))
 
 
 def _memory_input(
@@ -475,8 +397,8 @@ def _memory_input(
     the call that produced it without a second schema to keep in step.
     """
     media_ref: dict[str, Any] = {"source": options.media_source}
-    if request.get("id"):
-        media_ref["file_id"] = request["id"]
+    if inputs.id:
+        media_ref["stream_id"] = inputs.id
     if inputs.url:
         media_ref["url"] = inputs.url
     media_name = options.media_name or getattr(resolved_sensor, "name", None)
@@ -565,190 +487,6 @@ def _record(
     return persist, content
 
 
-@dataclass
-class _SummaryRun:
-    """One prepared summary request and the lifecycle of its memory record."""
-
-    deployment: config_mod.Deployment
-    inputs: SummarizeInput
-    options: SummarizeOptions
-    request: dict[str, Any]
-    model: str
-    memory: memory_mod.Memory | None
-    write_note: bool
-    asset_id: str | None
-    job_id: str
-    created_at: str
-    input_data: MemoryInput
-    persist_error: str | None = None
-
-    def submit(self) -> None:
-        import click
-
-        if self.memory is None:
-            return
-        try:
-            self.memory.service.upsert(
-                _adapter().submitted_record(
-                    job_id=self.job_id,
-                    created_at=self.created_at,
-                    input_data=self.input_data,
-                )
-            )
-        except memory_mod.write_failures() as error:
-            click.echo(f"vss: unified memory is not writable, summarizing without it ({error})", err=True)
-            self.persist_error = str(error)
-            self.memory = None
-
-    def outcome(
-        self,
-        body: dict[str, Any],
-        code: Exit,
-        *,
-        status: JobStatus,
-        persisted_override: bool | None = None,
-    ) -> Result:
-        persisted = body.get("record") == "closed" if persisted_override is None else persisted_override
-        return Result(
-            body=body,
-            exit=code,
-            job_id=self.job_id,
-            extra={"marker": {"asset_id": self.asset_id, "status": status, "persisted": persisted}},
-        )
-
-    def close(self, status: JobStatus, message: str) -> str:
-        """Distinguish an absent record, a closed one, and a stale submission."""
-        import click
-
-        if self.memory is None:
-            return "absent"
-        if _mark_terminal(
-            self.memory,
-            job_id=self.job_id,
-            created_at=self.created_at,
-            input_data=self.input_data,
-            status=status,
-            message=message,
-        ):
-            return "closed"
-        click.echo(
-            f"vss: could not record job {self.job_id} as {status} in unified memory, "
-            "so `status` still reports it submitted",
-            err=True,
-        )
-        return "stale"
-
-    def failed(self, detail: str, diagnostic: str, code: Exit) -> Result:
-        import click
-
-        record = self.close("failed", detail)
-        click.echo(diagnostic, err=True)
-        return self.outcome(
-            {"job_id": self.job_id, "status": "failed", "record": record, "error": detail}, code, status="failed"
-        )
-
-    def execute(self) -> Result:
-        import click
-        import httpx
-
-        url = self.deployment.endpoint("lvs").rstrip("/") + _SUMMARIZE_PATH
-        try:
-            response = httpx.post(url, json=self.request, timeout=float(self.options.request_timeout_seconds))
-        except httpx.TimeoutException as error:
-            record = self.close("timeout", str(error))
-            click.echo(
-                f"vss: summarization timed out after {self.options.request_timeout_seconds}s (job {self.job_id})",
-                err=True,
-            )
-            return self.outcome(
-                {"job_id": self.job_id, "status": "timeout", "record": record}, Exit.TIMEOUT, status="timeout"
-            )
-        except httpx.HTTPError as error:
-            return self.failed(str(error), f"vss: lvs unreachable at {url}: {error}", Exit.BACKEND_UNREACHABLE)
-
-        if response.status_code >= 400:
-            detail = f"HTTP {response.status_code}"
-            if response.status_code >= 500:
-                return self.failed(detail, f"vss: lvs backend error {detail}", Exit.BACKEND_UNREACHABLE)
-            return self.failed(
-                detail,
-                InvalidInput(f"summarization rejected {detail}: {response.text[:500]}").format_message(),
-                Exit.INVALID_INPUT,
-            )
-        try:
-            completion = response.json()
-        except ValueError:
-            return self.failed(
-                "response was not valid JSON", "vss: lvs response was not valid JSON", Exit.BACKEND_UNREACHABLE
-            )
-        if not isinstance(completion, dict):
-            return self.failed(
-                "response was not a JSON object", "vss: lvs response was not a JSON object", Exit.BACKEND_UNREACHABLE
-            )
-        return self.complete(completion)
-
-    def complete(self, completion: dict[str, Any]) -> Result:
-        body: dict[str, Any] = {"job_id": self.job_id, "summary": completion}
-        if self.memory is None:
-            body["record"] = "absent"
-            if self.persist_error is None:
-                return self.outcome(body, Exit.SUCCESS, status="completed")
-            body["persist"] = {"status": "failed", "error": self.persist_error}
-            return self.outcome(body, Exit.PARTIAL, status="partial")
-
-        # Preserve the paid-for summary if only persistence fails; never rerun
-        # inference just to repair a memory record.
-        unpersistable = (ValueError, RuntimeError, *memory_mod.write_failures())
-        try:
-            persist_result, content = _record(
-                self.memory,
-                job_id=self.job_id,
-                created_at=self.created_at,
-                input_data=self.input_data,
-                completion=completion,
-                model=self.model,
-                anchor=datetime.fromisoformat(self.inputs.creation_time.replace("Z", _UTC_OFFSET))
-                if self.inputs.creation_time
-                else None,
-            )
-        except unpersistable as error:
-            body["persist"] = {"status": "failed", "error": str(error)}
-            body["record"] = self.close("partial", str(error))
-            return self.outcome(body, Exit.PARTIAL, status="partial", persisted_override=False)
-        body["persist"] = {
-            "status": "complete",
-            "index": self.memory.index,
-            "group": memory_mod.group_token("summarize"),
-            "events": len(content["events"]),
-            "requested": persist_result.requested,
-            "expected": persist_result.expected,
-            "written": persist_result.written,
-            "collapsed": persist_result.collapsed,
-        }
-        body["record"] = "closed"
-        if self.write_note:
-            return self.with_memory_note(body)
-        return self.outcome(body, Exit.SUCCESS, status="completed")
-
-    def with_memory_note(self, body: dict[str, Any]) -> Result:
-        import click
-
-        # complete() only requests a note after a successful terminal write.
-        memory = self.memory
-        assert memory is not None
-        try:
-            from vss_cli import memory_notes
-
-            parent = memory.service.get(self.job_id, reconcile=False)
-            note = memory_notes.write(parent, self.deployment)
-            body["memory_note"] = {"written": note.written, "path": note.path}
-        except Exception as error:
-            click.echo(f"vss: summary succeeded but Markdown memory-note write failed ({error})", err=True)
-            body["memory_note"] = {"written": False, "error": str(error)}
-            return self.outcome(body, Exit.PARTIAL, status="completed", persisted_override=True)
-        return self.outcome(body, Exit.SUCCESS, status="completed")
-
-
 class SummarizeGroup(CommandGroup):
     """Summarize video and persist to memory."""
 
@@ -768,6 +506,9 @@ class SummarizeGroup(CommandGroup):
     Adapter: ClassVar[Callable[[], SummaryAdapter]] = staticmethod(_adapter)
 
     def run(self, action: str, inputs: BaseModel, ctx: Context) -> Result:  # noqa: ARG002 - fixed verb signature
+        import click
+        import httpx
+
         if not isinstance(inputs, SummarizeInput):  # pragma: no cover - the framework builds this
             raise TypeError(f"expected SummarizeInput, got {type(inputs).__name__}")
 
@@ -789,12 +530,10 @@ class SummarizeGroup(CommandGroup):
         # Fail before the expensive summarization: a persisted record needs a
         # video_id, which for a --url summary can only come from --video-id.
         asset_id = options.video_id or inputs.id
-        if want_persist and not asset_id and not inputs.sensor:
+        if want_persist and not asset_id:
             raise InvalidInput("cannot persist a --url summary without --video-id (pass --video-id or --no-persist)")
 
-        if (options.start_time or options.end_time) and not inputs.sensor:
-            raise InvalidInput("--start-time and --end-time require --sensor")
-        request = inputs.model_dump(exclude={"sensor"}, exclude_none=True, exclude_defaults=True)
+        request = inputs.model_dump(exclude_none=True, exclude_defaults=True)
         model = inputs.model or _default_model(deployment)
         request["model"] = model
 
@@ -807,24 +546,209 @@ class SummarizeGroup(CommandGroup):
 
         job_id = _mint_job_id()
         created_at = utc_now_iso()
-        inputs, options, resolved_sensor = _resolve_summary_source(deployment, inputs, options, request)
-        asset_id = options.video_id or inputs.id
+        resolved_sensor = _resolve_memory_sensor(deployment, inputs, options) if want_persist else None
         input_data = _memory_input(inputs, options, request, resolved_sensor)
-        job = _SummaryRun(
-            deployment=deployment,
-            inputs=inputs,
-            options=options,
-            request=request,
-            model=model,
-            memory=memory,
-            write_note=policy.write_note,
-            asset_id=asset_id,
-            job_id=job_id,
-            created_at=created_at,
-            input_data=input_data,
-        )
-        job.submit()
-        return job.execute()
+        persist_error: str | None = None
+
+        def outcome(
+            body: dict[str, Any],
+            code: Exit,
+            *,
+            status: JobStatus,
+            persisted_override: bool | None = None,
+        ) -> Result:
+            """Attach the compact §7.2 marker facts without changing the result."""
+            persisted = body.get("record") == "closed" if persisted_override is None else persisted_override
+            return Result(
+                body=body,
+                exit=code,
+                job_id=job_id,
+                extra={"marker": {"asset_id": asset_id, "status": status, "persisted": persisted}},
+            )
+
+        if memory is not None:
+            # Write the job before doing the work. From here on every exit path
+            # calls close(), which tries -- with a bounded retry -- to replace
+            # this with the outcome. When every attempt fails the record stays
+            # `submitted` and the marker says `stale`, which is the one case
+            # `status` reports a finished job as still running.
+            try:
+                memory.service.upsert(
+                    _adapter().submitted_record(job_id=job_id, created_at=created_at, input_data=input_data)
+                )
+            except memory_mod.write_failures() as error:
+                # A configured store that refuses the write is a persistence
+                # failure, not a reason to skip the work the caller asked for:
+                # carry on unpersisted and report it in the marker.
+                click.echo(f"vss: unified memory is not writable, summarizing without it ({error})", err=True)
+                persist_error = str(error)
+                memory = None
+
+        def close(status: JobStatus, message: str) -> str:
+            """Close the record out and say what the job_id is now worth.
+
+            ``absent`` when nothing was persisted, ``closed`` when the record
+            reflects the outcome, ``stale`` when it could not be updated and so
+            still reads as ``submitted``. Reported rather than swallowed: an
+            exit that advertises "reconcile with status" must not point at a
+            record that will answer with the wrong state.
+
+            The success paths answer in the same three words without coming
+            through here, since what they would say is already known. That is
+            what makes the marker's ``record`` total, so a caller keys off one
+            field instead of reading its absence as an outcome.
+            """
+            if memory is None:
+                return "absent"
+            if _mark_terminal(
+                memory,
+                job_id=job_id,
+                created_at=created_at,
+                input_data=input_data,
+                status=status,
+                message=message,
+            ):
+                return "closed"
+            click.echo(
+                f"vss: could not record job {job_id} as {status} in unified memory, "
+                f"so `status` still reports it submitted",
+                err=True,
+            )
+            return "stale"
+
+        def failed(detail: str, diagnostic: str, code: Exit) -> Result:
+            """Close the record out, diagnose on stderr, and still mark completion.
+
+            §7.2 makes the marker the final stdout line of *any* run, failures
+            included, for the same reason the timeout path returns instead of
+            raising: a harness reads stdout, so raising would leave the handle
+            for the record this just wrote nowhere it can be found.
+            """
+            record = close("failed", detail)
+            click.echo(diagnostic, err=True)
+            return outcome(
+                {"job_id": job_id, "status": "failed", "record": record, "error": detail},
+                code,
+                status="failed",
+            )
+
+        url = deployment.endpoint("lvs").rstrip("/") + _SUMMARIZE_PATH
+        try:
+            response = httpx.post(url, json=request, timeout=float(options.request_timeout_seconds))
+        except httpx.TimeoutException as error:
+            # Exit 7 carries the job id as a correlation handle: reconcile with
+            # `status` rather than re-running an hour of summarization. Returned
+            # as a Result so that handle is the final line of stdout like any
+            # other outcome -- a harness should not have to parse stderr prose
+            # for the one identifier it needs.
+            record = close("timeout", str(error))
+            click.echo(
+                f"vss: summarization timed out after {options.request_timeout_seconds}s (job {job_id})",
+                err=True,
+            )
+            return outcome(
+                {"job_id": job_id, "status": "timeout", "record": record},
+                Exit.TIMEOUT,
+                status="timeout",
+            )
+        except httpx.HTTPError as error:
+            return failed(str(error), f"vss: lvs unreachable at {url}: {error}", Exit.BACKEND_UNREACHABLE)
+
+        if response.status_code >= 400:
+            detail = f"HTTP {response.status_code}"
+            if response.status_code >= 500:
+                return failed(detail, f"vss: lvs backend error {detail}", Exit.BACKEND_UNREACHABLE)
+            # Built through InvalidInput rather than by hand: returning instead
+            # of raising skips the framework's formatting, and a second copy of
+            # the prefix would drift the moment that one is reworded.
+            return failed(
+                detail,
+                InvalidInput(f"summarization rejected {detail}: {response.text[:500]}").format_message(),
+                Exit.INVALID_INPUT,
+            )
+
+        try:
+            completion = response.json()
+        except ValueError:
+            detail = "response was not valid JSON"
+            return failed(detail, f"vss: lvs {detail}", Exit.BACKEND_UNREACHABLE)
+        if not isinstance(completion, dict):
+            detail = "response was not a JSON object"
+            return failed(detail, f"vss: lvs {detail}", Exit.BACKEND_UNREACHABLE)
+
+        body: dict[str, Any] = {"job_id": job_id, "summary": completion}
+        if memory is None:
+            if persist_error is None:
+                # `record` is on every path, this one included: a caller that
+                # reconciles a handle against `status` should switch on one
+                # field, not on whether that field is there. Nothing was asked
+                # to be written here, so what the handle is worth is `absent`.
+                body["record"] = "absent"
+                return outcome(body, Exit.SUCCESS, status="completed")
+            # Retrieval succeeded and only the write did not: exit 6 tells the
+            # harness to keep this answer instead of re-running the job.
+            body["persist"] = {"status": "failed", "error": persist_error}
+            body["record"] = close("partial", persist_error)
+            return outcome(body, Exit.PARTIAL, status="partial")
+
+        # ValueError joins the store's own failures: a completion this command
+        # cannot shape into a record is as unpersistable as a refused write,
+        # and costs the caller the same nothing. RuntimeError covers a bundle
+        # that landed only in part — the parent alone is not the paid-for result.
+        unpersistable: tuple[type[BaseException], ...] = (ValueError, RuntimeError, *memory_mod.write_failures())
+        try:
+            persist_result, content = _record(
+                memory,
+                job_id=job_id,
+                created_at=created_at,
+                input_data=input_data,
+                completion=completion,
+                model=model,
+                anchor=datetime.fromisoformat(inputs.creation_time.replace("Z", "+00:00"))
+                if inputs.creation_time
+                else None,
+            )
+        except unpersistable as error:
+            # Never lose the summary the caller already paid for: degrade to
+            # partial so only the write is retried, not the whole job. What the
+            # close answers matters as much as the failure that forced it: when
+            # the partial write cannot land either, the record still reads
+            # `submitted` and `status` will call this job running, so the marker
+            # is the only place that can say the handle went stale.
+            body["persist"] = {"status": "failed", "error": str(error)}
+            body["record"] = close("partial", str(error))
+            return outcome(body, Exit.PARTIAL, status="partial", persisted_override=False)
+
+        body["persist"] = {
+            "status": "complete",
+            "index": memory.index,
+            "group": memory_mod.group_token(self.name),
+            "events": len(content["events"]),
+            "requested": persist_result.requested,
+            "expected": persist_result.expected,
+            "written": persist_result.written,
+            "collapsed": persist_result.collapsed,
+        }
+        # `closed` without asking: the terminal upsert above is what closing
+        # means, and it either returned or we are in the except clause.
+        body["record"] = "closed"
+        if policy.write_note:
+            try:
+                from vss_cli import memory_notes
+
+                parent = memory.service.get(job_id, reconcile=False)
+                note = memory_notes.write(parent, deployment)
+                body["memory_note"] = {"written": note.written, "path": note.path}
+            except Exception as error:
+                click.echo(f"vss: summary succeeded but Markdown memory-note write failed ({error})", err=True)
+                body["memory_note"] = {"written": False, "error": str(error)}
+                return outcome(
+                    body,
+                    Exit.PARTIAL,
+                    status="completed",
+                    persisted_override=True,
+                )
+        return outcome(body, Exit.SUCCESS, status="completed")
 
 
 SUMMARIZE = SummarizeGroup()

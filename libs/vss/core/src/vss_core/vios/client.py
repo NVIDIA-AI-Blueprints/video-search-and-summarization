@@ -1169,11 +1169,9 @@ async def upload_media(
                 body = await response.text()
                 if response.status == 409:
                     raise VIOSInvalidInputError(
-                        f"VIOS already holds a file named {stored_name!r}. This does not confirm "
-                        "that its sensor is registered. Check `vss vios list --type video`. "
-                        "If it is missing, upload the original file under an unused filename, "
-                        "for example `vss vios add --type video /path/to/original.mp4 "
-                        "--name recovered_clip.mp4`. Do not delete a guessed sensor."
+                        f"VIOS already holds a file named {stored_name!r}; delete it first "
+                        f"(`vss vios delete --type video --sensor {pathlib.Path(stored_name).stem}`) "
+                        f"or pass --name to store it under another"
                     )
                 if response.status not in (200, 201):
                     raise VSTError(f"VIOS upload returned {response.status}: {_vios_error(body)}")
@@ -1248,9 +1246,7 @@ async def upload_from_url(
                 body = await response.text()
                 if response.status == 409:
                     raise VIOSInvalidInputError(
-                        f"VIOS already holds a file named {stored_name!r}. Check `vss vios list --type video`; "
-                        "a stored file does not confirm sensor registration. If its sensor is missing, "
-                        "repeat the upload with --name and an unused filename (for example recovered_clip.mp4)."
+                        f"VIOS already holds a file named {stored_name!r}; delete it first or pass --name"
                     )
                 if response.status not in (200, 201):
                     raise VSTError(f"VIOS upload returned {response.status}: {_vios_error(body)}")

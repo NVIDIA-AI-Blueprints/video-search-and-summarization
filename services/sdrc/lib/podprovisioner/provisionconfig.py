@@ -132,12 +132,6 @@ class provisionconfig:
                     logger.info(f"add operation Response Code: {response.status_code}")
                     if response.status_code == 200:
                         failed_to_add = False
-                    elif 400 <= response.status_code < 500 and response.status_code not in (408, 429):
-                        # A malformed camera URL or rule cannot recover by replaying
-                        # the same payload. Return the failure for status reporting.
-                        logger.error("Workload rejected add with HTTP %s; not retrying: %s",
-                                     response.status_code, response.text[:1000])
-                        break
                 except Exception as e:
                     logger.info(f"error occurred in add call {e}. Will retry...")
                     print (f"{e}")

@@ -63,7 +63,7 @@ Notes on choosing a row:
   is requested and the detected GPUs are neither H100 nor RTX PRO 6000, or no GPU
   can be dedicated to RT-VLM, stop and tell the user which constraint their system
   fails and what the detected hardware and placement actually are. Then ask
-  (using the available host question interface, or ordinary conversation) whether to fall back to the equivalent Nano variant or
+  (`AskUserQuestion`) whether to fall back to the equivalent Nano variant or
   override the constraint anyway. Only proceed with Super after the user overrides
   it knowingly — never assume the request itself is the override, and never
   silently downgrade to Nano either.

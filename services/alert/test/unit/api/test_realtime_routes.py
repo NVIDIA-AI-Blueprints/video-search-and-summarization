@@ -915,16 +915,6 @@ class TestAlwaysOnPayloadParsing:
         assert [d["rule_id"] for d in body["details"]] == ["rule-1"]
         assert body["details"][0]["result"] == "success"
 
-    def test_uploaded_file_is_rejected_before_rtvi_fan_out(self, client, mocks, always_on):
-        always_on([_sample_rule()])
-        payload = _streaming_event()
-        payload["event"]["camera_url"] = "http://vst-ingress:30888/vst/storage/temp_files/video.mp4"
-        response = client.post("/api/v1/realtime/always-on", json=payload)
-        assert response.status_code == 422
-        assert response.json()["reason"] == "INVALID_PAYLOAD"
-        assert "RTSP" in response.json()["details"][0]["message"]
-        mocks["realtime"].start_alert.assert_not_awaited()
-
     def test_accepts_full_vst_payload_with_extra_fields(
         self, client, mocks, always_on
     ):
@@ -2673,19 +2663,3 @@ class TestGetIncidentsConsolidate:
         resp = client.get("/api/v1/realtime/incidents")
         assert resp.status_code == 200
         assert mocks["incident"].list_incidents.await_args.kwargs["consolidate"] is None
-
-
-def test_always_on_service_rejects_file_source_without_loading_rules(mocks):
-    from unittest.mock import MagicMock
-
-    from realtime import AlwaysOnService
-
-    mocks["realtime"].register_rule_removed_callback = MagicMock()
-    service = AlwaysOnService(realtime_service=mocks["realtime"])
-    service.load_rules = MagicMock(side_effect=AssertionError("file source must fail before fan-out"))
-    result = asyncio.run(service.start_camera("file-sensor", "http://vst-ingress/video.mp4", "uploaded"))
-    assert result.status_code == 422
-    assert result.reason == "INVALID_PAYLOAD"
-    assert "RTSP" in result.details[0]["message"]
-    service.load_rules.assert_not_called()
-    mocks["realtime"].start_alert.assert_not_awaited()

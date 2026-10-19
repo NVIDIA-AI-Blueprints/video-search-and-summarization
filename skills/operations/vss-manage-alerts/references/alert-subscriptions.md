@@ -166,12 +166,7 @@ curl -s "$VST_API_BASE/sensor/<sensorId>/streams" | jq .
 
 Select the main stream (`isMain: true`) and extract the `url` field → this becomes `live_stream_url` in the payload.
 
-Require the selected URL to start with `rtsp://`. If VIOS returns an HTTP
-file/clip URL, stop before POSTing a rule and explain that this is a file-backed
-sensor. Offer on-demand verification (Workflow F) or video summarization for
-the file. Do not pass the HTTP URL to RT-VLM, fabricate an RTSP URL, or retry
-HTTP 422 as a transient failure. If the sensor has no RTSP stream, report that
-it exists but has no active RTSP stream.
+If the sensor has no RTSP stream — report that the sensor exists but has no active video stream.
 
 **Summary — three values to carry forward to Step 4:**
 

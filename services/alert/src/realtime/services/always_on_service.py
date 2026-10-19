@@ -386,17 +386,6 @@ class AlwaysOnService:
             ``STREAM_ADD_PARTIAL_SUCCESS``, ``STREAM_ADD_FAILED``, or
             ``STREAM_ADD_ALREADY_ACTIVE``.
         """
-        if not camera_url.strip().lower().startswith("rtsp://"):
-            message = (
-                "Always-on alerts require an RTSP camera stream. This source is file-backed; "
-                "use on-demand verification or video summarization for uploaded videos."
-            )
-            logger.warning("Rejecting always-on camera_id=%s: %s", camera_id, message)
-            return AlwaysOnResult(
-                status_code=422, reason=AlwaysOnReason.INVALID_PAYLOAD,
-                details=[{"status": 422, "result": "error", "message": message}],
-            )
-
         try:
             rules = self.load_rules()
         except AlwaysOnRulesConfigError as exc:

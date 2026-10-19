@@ -120,20 +120,12 @@ The CLI rejects a bad one locally rather than spending the upload first.
 vss search run "forklift near the loading dock" [--limit N]
 vss search get --job-id <id>
 
-vss summarize run --sensor NAME --scenario "warehouse monitoring" --event "forklift activity"
-vss summarize run --id <LVS-file-id> --scenario "warehouse monitoring" --event "forklift activity"
+vss summarize run --video-uri <uri> --prompt "..." --timeout <seconds>
 vss summarize get --job-id <id>
 
 vss vlm run --sensor NAME --start-time <ISO-UTC> --end-time <ISO-UTC> --prompt "..."
 vss vlm get --job-id <id>
 ```
-
-`summarize --sensor` resolves the VIOS recording, transfers the clip through
-the CLI host to LVS's files API, and uses the returned LVS file ID. Use
-`--start-time` and `--end-time` for a recorded camera window or one segment of
-a recording with gaps. `--id` is an LVS file ID, not a VIOS sensor name or UUID.
-`--url` is for a URL the backend can fetch directly. Never change a public
-origin into an invented internal address to make a request work.
 
 If a preflight fails, report its error and stop. Do not fall back to calling
 Elasticsearch, the embedding service, or the agent API directly — a hand-built query
