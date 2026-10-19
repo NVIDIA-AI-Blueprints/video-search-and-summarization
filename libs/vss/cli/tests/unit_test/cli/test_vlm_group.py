@@ -1526,6 +1526,7 @@ def test_run_file_source_does_not_persist_local_path(
 
 @pytest.mark.parametrize("clip_host", ["localhost:30888", "192.0.2.10:7777"])
 def test_sensor_url_streams_to_tempfile_and_uses_base64(
+    tmp_path: Path,
     clip_host: str,
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
@@ -1537,6 +1538,9 @@ def test_sensor_url_streams_to_tempfile_and_uses_base64(
     from vss_cli.group import Context
     from vss_cli.vlm import group as vlm_group_mod
     from vss_cli.vlm.group import VlmGroup
+
+    mkstemp = vlm_group_mod.tempfile.mkstemp
+    monkeypatch.setattr(vlm_group_mod.tempfile, "mkstemp", lambda **kwargs: mkstemp(dir=tmp_path, **kwargs))
 
     clip_bytes = b"\x00\x01\x02loopback-clip"
     loopback_url = f"http://{clip_host}/vst/api/v1/storage/file/abc/url"
@@ -1584,6 +1588,7 @@ def test_sensor_url_streams_to_tempfile_and_uses_base64(
     group = VlmGroup()
     result = group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
 
+    assert not list(tmp_path.glob("*.mp4")), "temporary clip must be removed after inference"
     assert result.exit == Exit.SUCCESS, f"expected SUCCESS, got {result.exit}: {result.body}"
     assert result.body.get("answer") == "loopback works"
     assert streamed_urls == [loopback_url], "expected exactly one stream call for the loopback clip"
