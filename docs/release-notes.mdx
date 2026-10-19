@@ -25,6 +25,19 @@ These Release Notes describe the key features, software enhancements and improve
 
   The `/deploy` pre-GA alias now resolves to `/vss-build-vision-ai`.
 
+- Added **Adaptive EVS** video token pruning to the Real-Time VLM (RTVI-VLM)
+  microservice. Building on fixed-rate Efficient Video Sampling (EVS), Adaptive
+  EVS adds content-dependent similarity pruning, per-stream video sessions, and
+  token-budgeted clip packing to reduce redundant visual input and per-chunk
+  inference time on long videos and live streams. Enable it with
+  `VIA_EVS_SESSION=true` and `VLM_VIDEO_PRUNING_RATE=0.5`, and optionally tune
+  how aggressively similar frames are pruned with
+  `VLLM_EVS_SIMILARITY_THRESHOLD` (default `0.4`). It is supported for local,
+  vLLM-compatible Qwen3-VL-based models. Refer to
+  *Efficient Video Sampling (EVS and Adaptive EVS)* in the
+  [Real-Time VLM](/system-components/vision-microservices/real-time-vlm)
+  documentation.
+
 ### Agent Workflows
 
 <Tabs>

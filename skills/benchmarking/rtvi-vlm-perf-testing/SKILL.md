@@ -103,11 +103,11 @@ Important defaults and requirements:
 - `RTVI_ENABLE_GOP_DECODE_OPT` defaults to `true` and only affects file-based decoding. It attaches a GOP-aware probe that skips delta frames for GOPs without selected target timestamps; disable with `false`, `0`, `no`, or `off` when isolating file-decode behavior. It has no effect on live RTSP or when all frames are selected.
 - Leave `VLLM_MM_ENCODER_ATTN_BACKEND` empty for the patched default vLLM path. Use `XFORMERS` only as an explicit experiment or emergency workaround if a current-vLLM image cannot be rebuilt with the Qwen2.5-VL vision attention patch.
 - For OSL=100 comparisons, record `VLLM_IGNORE_EOS`. Use `true` only when the intended measurement requires fixed-length generation up to `max_tokens`; do not compare those runs directly with runs that allow EOS to stop generation early.
-- EVS is off by default. `VIA_EVS_SESSION=true` enables EVS++ session mode with similarity-based pruning; `VLM_VIDEO_PRUNING_RATE` on its own enables fixed-rate pruning. Both are service-level settings read only by the RTVI VLM container, so changing them requires redeploying the stack. They cannot be set per benchmark request or per scenario.
-- Set `VLM_VIDEO_PRUNING_RATE=0.5` whenever EVS++ is enabled. This is what activates pruning inside vLLM: the engine only enables its EVS path when `video_pruning_rate` is passed at engine init, and this variable is its only source. With `VIA_EVS_SESSION=true` but the rate unset, sessions are still created and the handler still carries its internal `0.5`, but the engine never prunes, so the run pays EVS++ overhead with none of the token reduction. Treat a session-mode run with unchanged prompt-token counts as this misconfiguration until proven otherwise.
+- EVS is off by default. `VIA_EVS_SESSION=true` enables Adaptive EVS session mode with similarity-based pruning; `VLM_VIDEO_PRUNING_RATE` on its own enables fixed-rate pruning. Both are service-level settings read only by the RTVI VLM container, so changing them requires redeploying the stack. They cannot be set per benchmark request or per scenario.
+- Set `VLM_VIDEO_PRUNING_RATE=0.5` whenever Adaptive EVS is enabled. This is what activates pruning inside vLLM: the engine only enables its EVS path when `video_pruning_rate` is passed at engine init, and this variable is its only source. With `VIA_EVS_SESSION=true` but the rate unset, sessions are still created and the handler still carries its internal `0.5`, but the engine never prunes, so the run pays Adaptive EVS overhead with none of the token reduction. Treat a session-mode run with unchanged prompt-token counts as this misconfiguration until proven otherwise.
 - `VIA_EVS_SESSION=true` raises `ValueError` at startup on `NemotronH_Nano_Omni_Reasoning_V3` instead of falling back, so a failed service start after enabling EVS on that architecture is expected behavior rather than a deployment fault.
 - EVS session generations need `VLLM_IGNORE_EOS=true` to run to `max_tokens`. Without it they stop at the natural EOS and report far fewer generated tokens than the non-EVS path, which reads as a throughput win when it is really a shorter OSL.
-- Record `VIA_EVS_SESSION`, `VLLM_EVS_SIMILARITY_THRESHOLD`, and `VIA_EVS_TOKEN_BUDGET` in every report. The standard EVS++ perf configuration is `VLLM_EVS_SIMILARITY_THRESHOLD=0.4` and `VIA_EVS_TOKEN_BUDGET=1`; flag any run that deviates before comparing it against a baseline. All EVS variables are passed through by `compose.yaml` and `compose.perf.yaml`, and exported shell values override `.env.perf`; the full list with defaults is in `perf/benchmark/PERF_GUIDE.RTVI_VLM.md`.
+- Record `VIA_EVS_SESSION`, `VLLM_EVS_SIMILARITY_THRESHOLD`, and `VIA_EVS_TOKEN_BUDGET` in every report. The standard Adaptive EVS perf configuration is `VLLM_EVS_SIMILARITY_THRESHOLD=0.4` and `VIA_EVS_TOKEN_BUDGET=1`; flag any run that deviates before comparing it against a baseline. All EVS variables are passed through by `compose.yaml` and `compose.perf.yaml`, and exported shell values override `.env.perf`; the full list with defaults is in `perf/benchmark/PERF_GUIDE.RTVI_VLM.md`.
 - Record vLLM startup logs for model precision, `max_model_len`, processor/backend settings, and KV cache dtype. FP8 model weights do not by themselves prove that KV cache is FP8.
 - Capture resolved runtime settings from startup logs or the live process, including preprocess workers, multimodal cache policy, CUDA graph or eager mode, GPU memory utilization, scheduler limits, queue bounds, and model profile. Requested environment variables alone are not runtime proof.
 - Keep `RTVI_EMPTY_CUDA_CACHE_ON_RESULT=false` for perf runs. Enabling per-result `torch.cuda.empty_cache()` is diagnostic-only because it adds allocator synchronization on the hot path.
@@ -267,7 +267,7 @@ For RTVI VLM scenarios, use `vlm_api_mode: chat_completions` to benchmark
 The default remains `generate_captions`, and existing `generate_captions_params`
 are reused when chat-specific params are omitted.
 
-For EVS++ runs, redeploy to change settings because the benchmark CLI cannot change
+For Adaptive EVS runs, redeploy to change settings because the benchmark CLI cannot change
 them.
 
 Run the non-EVS baseline as its own deployment, and clear the EVS variables
@@ -293,7 +293,7 @@ benchmarking it:
 docker compose -f compose.perf.yaml --env-file .env.perf exec rtvi-server env | rg 'VIA_EVS|PRUNING' || echo "no EVS vars set"
 ```
 
-Then deploy the EVS++ run with this configuration:
+Then deploy the Adaptive EVS run with this configuration:
 
 ```bash
 cd docker
@@ -308,8 +308,8 @@ docker compose -f compose.perf.yaml --env-file .env.perf up -d
 accumulating visual tokens across clips, holding caption counts equal to the
 baseline so latency and throughput compare directly.
 
-Re-run identical scenario names for the baseline and the EVS++ run so report rows
-align. All benchmark modes exercise EVS++ when session mode is on, because routing
+Re-run identical scenario names for the baseline and the Adaptive EVS run so report rows
+align. All benchmark modes exercise Adaptive EVS when session mode is on, because routing
 depends on `VIA_EVS_SESSION` alone; the file-based modes go through the session path
 just as the live-stream modes do.
 
@@ -379,7 +379,7 @@ When diagnosing inconsistent live-stream latency:
 - `Pipeline disposal timed out` and CUDA OOM after repeated probes usually point to teardown, buffer lifetime, or decoder cache handoff problems; inspect `video_file_frame_getter.py` and container logs.
 - Long pauses after `Cleaning up N active streams...` often mean sequential stream deletion is waiting on RTVI live-stream drain timeouts. Confirm with RTVI logs before interrupting; a DELETE 200 every drain timeout means cleanup is still advancing.
 - File-burst throughput should pre-upload reusable files so `/files` upload/delete is outside measured steady state.
-- Compare caption counts between the baseline and the EVS++ run first. The standard configuration sets `VIA_EVS_TOKEN_BUDGET=1` specifically so counts match; if the EVS run emitted far fewer captions, budget accumulation or generation gating is still active, and the throughput numbers are not comparable rather than improved.
+- Compare caption counts between the baseline and the Adaptive EVS run first. The standard configuration sets `VIA_EVS_TOKEN_BUDGET=1` specifically so counts match; if the EVS run emitted far fewer captions, budget accumulation or generation gating is still active, and the throughput numbers are not comparable rather than improved.
 - Check generated token counts and caption counts before reporting any speedup that appears immediately after EVS is enabled. Raising `VLLM_EVS_SIMILARITY_THRESHOLD` prunes more frames, so caption coverage and quality need a sanity check alongside the perf delta.
 
 When this skill itself changes, update both the repo copy under
