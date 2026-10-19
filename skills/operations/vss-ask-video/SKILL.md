@@ -348,7 +348,8 @@ For a named instant, use a window of 1.5 s on each side. For a named event
 range, add 0.5 s on each side. Clamp this padding to the enclosing recorded
 segment and original scope; never cross a recording gap. Keep exact inspection
 bounds supplied by the user unchanged. File offsets are relative to the source
-recording, not the first clip. Camera times need a grounded date and timezone;
+recording, not the first clip; convert MM:SS or HH:MM:SS to seconds (02:00 is 120).
+Camera times need a grounded date and timezone;
 ask when those are missing rather than interpreting an ambiguous clock time.
 
 If this window alone can answer the question, use one ordinary `vss vlm run`
@@ -369,7 +370,10 @@ options, plus the helper's source-time cue. Preserve essential scene context;
 leave shell/tool history and prior answers out. Free-form questions stay
 free-form. The helper adds the time cue; it does not shorten the caller's prompt.
 
-Add `--relook-start-time` and `--relook-end-time` to the sensor command below.
+Second look requires a VIOS sensor, not `--file` or `--media-url`, and disabled
+chunking (`--chunk-duration 0`); a locked deployment policy still applies.
+Add `--relook-start-time "${RELOOK_START_TIME}" --relook-end-time "${RELOOK_END_TIME}"`
+to the sensor command below, preserving its exit-code guard.
 Keep the original window in `--start-time` and `--end-time`; both must fit in one
 recorded segment and the relook must be strictly narrower. This is one command
 with at most 2 logical reads, not an extra command after a completed inspection.
@@ -428,8 +432,8 @@ For a confirmed search handoff, use only the supplied bounded `VIDEO_URL` and
 visual question. Do not rerun search, resolve another sensor/window, or treat
 retrieval metadata as visual evidence. A sensor route must use `--sensor`; do
 not substitute `vss vios clip` or raw HTTP. Cite the returned `job_id`, sensor,
-and window. Exit 6 means the answer exists but persistence failed; retain the
-answer and report that limitation.
+and window. Exit 6 means an answer exists but persistence or an optional reread
+failed; retain the answer and report the returned limitation.
 
 ## Whole-recording questions
 

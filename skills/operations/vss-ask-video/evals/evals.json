@@ -248,7 +248,7 @@
   },
   {
     "id": "named-instant-long-video",
-    "question": "In dock_recording, a file-backed video recorded continuously from source second 0 to 235, what color is the box at 02:00?",
+    "question": "In dock_recording, a VIOS-registered file-backed sensor recorded continuously from source second 0 to 235, what color is the box at 02:00?",
     "expected_skill": "vss-ask-video",
     "ground_truth": "Inspect source seconds 118.5 to 121.5 once; the known instant makes a broad read unnecessary.",
     "expected_behavior": [
@@ -258,7 +258,7 @@
   },
   {
     "id": "named-instant-clamp-padding",
-    "question": "In dock_recording, a file-backed video recorded continuously from source second 0 to 30, what is on the desk at source second 0.5?",
+    "question": "In dock_recording, a VIOS-registered file-backed sensor recorded continuously from source second 0 to 30, what is on the desk at source second 0.5?",
     "expected_skill": "vss-ask-video",
     "ground_truth": "Clamp the instant padding to source seconds 0 to 2 and inspect once.",
     "expected_behavior": [
@@ -268,7 +268,7 @@
   },
   {
     "id": "named-range-clamp-padding",
-    "question": "In dock_recording, a file-backed video recorded continuously from source second 0 to 30, what does the worker pick up during source seconds 28 to 30?",
+    "question": "In dock_recording, a VIOS-registered file-backed sensor recorded continuously from source second 0 to 30, what does the worker pick up during source seconds 28 to 30?",
     "expected_skill": "vss-ask-video",
     "ground_truth": "Inspect source seconds 27.5 to 30 once; only the available padding is added.",
     "expected_behavior": [
