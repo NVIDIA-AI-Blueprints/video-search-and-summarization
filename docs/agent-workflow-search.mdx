@@ -117,7 +117,7 @@ Deploy the VSS search profile.
 The agent follows the same steps as above, then brings up the NemoClaw sandbox against the deployed origin and reports its chat URL. You reach the deployment through that chat, and the Web UI's chat sidebar and Chat tab answer through it as well. The `/api`, `/chat`, and `/websocket` ingress routes are unavailable here. Operate this deployment with the prompts in Steps 2 to 7 below.
 
 <Note>
-NemoClaw's chat and the Web UI's chat surfaces both wait for a gateway token before they answer. For the token step, see [Agent harness](/vss/vision-agent/build-vision-ai#agent-harness).
+NemoClaw's chat and the Web UI's chat surfaces both wait for a gateway token before they answer. For connection and video transfer steps, see the Quickstart's [NemoClaw handoff](/vss/getting-started/quickstart#continue-in-nemoclaw).
 </Note>
 
 ##### Custom search build
@@ -167,13 +167,25 @@ What the agent does:
 For instructions on downloading sample data, see [Download Sample Data From NGC](/vss/getting-started/quickstart#download-sample-data-from-ngc) in the Quickstart guide.
 </Note>
 
-The downloaded videos (following the Quickstart guide) are available at `./sample-data/dev-profile-sample-data/`.
-For this example, you will ask the agent to provision the video `warehouse_sample.mp4` by providing the path to the file:
+Replace `<sample-data-dir>` with the absolute extraction location from the
+Quickstart's download step. For a coding agent running on the deployment host,
+provide the host path:
 
-```text title="Paste into your coding agent or NemoClaw chat"
-Provision ./sample-data/dev-profile-sample-data/warehouse_sample.mp4 as an
+```text title="Paste into your coding agent"
+Provision <sample-data-dir>/dev-profile-sample-data/warehouse_sample.mp4 as an
 on-demand VIOS source. Confirm the source appears in VIOS's sensor list and
 that the configured consumers finish processing it.
+```
+
+If you selected NemoClaw, follow the Quickstart's
+[handoff](/vss/getting-started/quickstart#continue-in-nemoclaw), using
+`warehouse_sample.mp4` as the filename in the transfer command. Then provide the
+sandbox path:
+
+```text title="Paste into NemoClaw chat"
+Provision /sandbox/warehouse_sample.mp4 as an on-demand VIOS source. Confirm
+the source appears in VIOS's sensor list and that the configured consumers
+finish processing it.
 ```
 
 What the agent does on Agent-backed and headless deployments:
@@ -191,10 +203,18 @@ To ingest a live stream instead, have NVStreamer serve a file as a synthetic RTS
 
 **Provision a live RTSP source**
 
-```text title="Paste into your coding agent or NemoClaw chat"
-Serve ./sample-data/dev-profile-sample-data/warehouse_sample.mp4 as a synthetic
+```text title="Paste into your coding agent"
+Serve <sample-data-dir>/dev-profile-sample-data/warehouse_sample.mp4 as a synthetic
 RTSP camera and register it once in VIOS. Confirm the live stream is visible
 and the configured consumers have received it before reporting done.
+```
+
+For NemoClaw, use the file copied into the sandbox above:
+
+```text title="Paste into NemoClaw chat"
+Serve /sandbox/warehouse_sample.mp4 as a synthetic RTSP camera and register it
+once in VIOS. Confirm the live stream is visible and the configured consumers
+have received it before reporting done.
 ```
 
 <Note>

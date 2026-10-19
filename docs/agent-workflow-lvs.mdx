@@ -109,12 +109,23 @@ What the agent does:
 To operate the video summarization and report generation workflow from your agent, install the `vss-manage-video-io-storage`, `vss-summarize-video`, and `vss-generate-video-report` skills as described in [Agent Skills](/vss/vision-agent/agent-skills).
 Your agent can then upload videos, summarize them, and generate reports through VSS with natural-language prompts, without requiring manual interaction with the UI.
 
-Upload a video through the `vss-manage-video-io-storage` skill.
+Upload a video through the `vss-manage-video-io-storage` skill. Replace
+`<sample-data-dir>` with the absolute extraction location from the Quickstart's
+[Download Sample Data From NGC](/vss/getting-started/quickstart#download-sample-data-from-ngc).
 
 **Upload a video to VIOS**
 
-```text title="Paste into your coding agent or NemoClaw chat"
-Upload warehouse_sample.mp4 to VIOS.
+```text title="Paste into your coding agent"
+Upload <sample-data-dir>/dev-profile-sample-data/warehouse_sample.mp4 to VIOS.
+```
+
+If you selected NemoClaw, follow the Quickstart's
+[handoff](/vss/getting-started/quickstart#continue-in-nemoclaw), using
+`warehouse_sample.mp4` as the filename in the transfer command. Then use its
+sandbox path:
+
+```text title="Paste into NemoClaw chat"
+Upload /sandbox/warehouse_sample.mp4 to VIOS.
 ```
 
 What the agent does:

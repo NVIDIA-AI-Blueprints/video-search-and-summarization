@@ -110,12 +110,16 @@ See [Prerequisites](/vss/getting-started/prerequisites) for NGC setup.
 # Download sample data
 ngc registry resource download-version nvidia/vss-developer/dev-profile-sample-data:3.3.0
 
-EXTRACT_DIR=./sample-data
+EXTRACT_DIR="${PWD}/sample-data"
 mkdir -p "${EXTRACT_DIR}"
 tar -xf dev-profile-sample-data_v3.3.0/dev-profile-sample-data.tar.gz -C "${EXTRACT_DIR}"
 
 rm -rf dev-profile-sample-data_v3.3.0
 ```
+
+In the examples below, replace `<sample-data-dir>` with the absolute value of
+`EXTRACT_DIR` from this step. This is the extraction location on the deployment
+host; it is not necessarily inside the repository checkout.
 
 ### Download the Deployment Package
 
@@ -286,12 +290,9 @@ it, such as `lvs-server`, or when the harness is explicitly routed to the
 build's LLM NIM. It keeps Phoenix when the in-stack Agent is explicitly
 requested.
 
-If you selected NemoClaw, use the sandbox name and harness URL returned by the
-Skill. Run `nemoclaw <sandbox> gateway-token --quiet` on the deployment host to
-get a current token. Use it with the NemoClaw dashboard URL as `/#token=<token>`;
-to use chat in the VSS Web UI, enter it in **Connect NemoClaw chat**. Do not
-share the token-bearing URL. If you selected no harness, operate the
-deployment with the project-local `vss` CLI as directed by the Skill.
+If you selected NemoClaw, follow [Continue in NemoClaw](#continue-in-nemoclaw)
+before the upload, question, and report steps. If you selected no harness,
+operate the deployment with the project-local `vss` CLI as directed by the Skill.
 
 #### If the Skill-driven UI Doesn't Load
 
@@ -303,6 +304,39 @@ in-stack Agent check on port `8000` for the default Skill-generated stack.
 If the VSS containers are healthy but the NemoClaw dashboard, sandbox, or MCP
 tools are unavailable, follow
 [NemoClaw Troubleshooting](/vss/vision-agent/agent-harnesses/nemoclaw/troubleshooting).
+
+### Continue in NemoClaw
+
+Use the **sandbox name** and **chat URL** returned by the deployment Skill;
+replace `<sandbox-name>` below with that name.
+
+1. **Connect to chat.** For the default OpenClaw runtime, get a current token:
+
+   ```bash title="Run in the deployment host terminal"
+   nemoclaw <sandbox-name> gateway-token --quiet
+   ```
+
+   Open the returned chat URL with `/#token=<token>` appended, replacing
+   `<token>` with the command output. To use chat in the VSS Web UI instead,
+   enter the token in **Connect NemoClaw chat**. Do not share the token-bearing URL.
+
+2. **Copy the video into the sandbox.** Use the extraction location from
+   [Download Sample Data From NGC](#download-sample-data-from-ngc):
+
+   ```bash title="Run in the deployment host terminal"
+   nemoclaw <sandbox-name> upload \
+     "<sample-data-dir>/dev-profile-sample-data/warehouse_safety_0001.mp4" \
+     /sandbox/
+   ```
+
+   The video is now accessible to the agent at
+   `/sandbox/warehouse_safety_0001.mp4`. Use that path in NemoClaw upload
+   prompts. For another sample video, replace the filename in both the transfer
+   command and the sandbox path.
+
+Continue the operational prompts in NemoClaw chat. Copying the file into the
+sandbox makes it accessible to that agent; the upload prompt below registers it
+with VSS.
 
 ## Agent Skills walkthrough
 
@@ -392,26 +426,18 @@ different model or remote endpoint, name it in the prompt.
 
 The Skill reads the video from the filesystem of the agent session that runs
 it. For a coding agent running directly on the deployment host, provide the
-absolute host path:
+absolute path from [Download Sample Data From NGC](#download-sample-data-from-ngc):
 
 **Example prompts**
 
 ```text title="Paste into your coding agent"
-Upload <absolute-path>/sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4 to VSS.
+Upload <sample-data-dir>/dev-profile-sample-data/warehouse_safety_0001.mp4 to VSS.
 List all available sensors.
 Take a snapshot of warehouse_safety_0001 at 0:05.
 ```
 
-If Build Vision AI provisioned NemoClaw, copy the video into its sandbox from
-the deployment host first, using the sandbox name returned by the Skill:
-
-```bash title="Run in the deployment host terminal"
-nemoclaw <sandbox-name> upload \
-  <absolute-path>/sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4 \
-  /sandbox/
-```
-
-Then ask the agent in the NemoClaw session:
+If Build Vision AI provisioned NemoClaw, complete
+[Continue in NemoClaw](#continue-in-nemoclaw), then use the sandbox path:
 
 ```text title="Paste into NemoClaw chat"
 Upload /sandbox/warehouse_safety_0001.mp4 to VSS.
