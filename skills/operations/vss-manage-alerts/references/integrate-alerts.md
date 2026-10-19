@@ -46,12 +46,11 @@ details live in
 
 **Core verification data path (required):**
 
-- **Kafka (message broker)** — required (default `event_bridge.sourceType: kafka`, `sinkType: kafka`). `alert-bridge` consumes candidate events from `event_bridge.kafka_source.topics` (`incident: mdx-incidents`, `alert: mdx-alerts`) under group `alert-bridge-vlm-group`, and publishes verified records. Broker must be reachable at `${HOST_IP}:9092` (host-network Kafka). Source: `services/alert/config.yaml § kafka` + `§ event_bridge`. `depends_on: kafka { condition: service_healthy }`. Owned by ELK/infra.
+- **Kafka (message broker)** — required (default `event_bridge.sourceType: kafka`, `sinkType: kafka`). `alert-bridge` consumes candidate events from `event_bridge.kafka_source.topics` (`incident: mdx-incidents`, `alert: mdx-alerts`) under group `alert-bridge-vlm-group`, and publishes verified records. The shipped profile config uses the Compose service endpoint `kafka:29092`. Source: `developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/config.yml § kafka` + `§ event_bridge`. `depends_on: kafka { condition: service_healthy }`. Owned by ELK/infra.
 - **kafka-topic-init-container** — required. The candidate-event and verified-output topics (`mdx-incidents`, `mdx-alerts`, `mdx-vlm-incidents`, `mdx-vlm-alerts`) must exist before the worker pool starts, otherwise the consumer idles. `depends_on: kafka-topic-init-container { condition: service_completed_successfully }`. Owned by ELK/infra.
-- **Elasticsearch + Logstash + Kibana (ELK)** — required. In `cv-verification` the default `vlm_enhanced_sink` writes verified records to ES indices `mdx-vlm-incidents` / `mdx-vlm-alerts` **directly from `alert-bridge`**; in `vlm-realtime` those same ES indices are populated instead by **RT-VLM → Kafka `mdx-vlm-incidents` → Logstash** (AB does not write — see § Outputs scoping note). Either way ELK is required. Additionally the `persistence` layer stores alert configs, verifier prompts, and durable realtime rules (index prefix `ab-`, rules collection `alert-realtime-rules`); Kibana provides the alerts dashboard. Reachable at `http://${HOST_IP}:9200`. Source: `config.yaml § elastic` + `§ persistence` + `§ vlm_enhanced_sink`. `depends_on: elasticsearch { condition: service_healthy }`. Owned by ELK (`integrate-elk.md`).
-- **Redis** — required. Used for incident deduplication (`event_bridge.redis_source.dedup_ttl_seconds`), confirmed-verdict protection, and (in `vlm-realtime`) rule-state caching. Reachable at `${HOST_IP}:6379`. Source: `config.yaml § event_bridge.redis_source` + `§ redis_sink`. `depends_on: redis { condition: service_started }`. Owned by ELK/infra.
-- **VIOS (Video I/O & Storage / VST)** — required for **clip retrieval** and ingestion of the camera/NVStreamer streams (live streaming, recording, playback). `alert-bridge` calls the VST API (`vst_config.base_url: http://localhost:30888`, `sensor_list_endpoint: /vst/api/v1/sensor/streams`) to resolve the sensor's stream, then fetches an end-anchored clip (`segment_anchor: end`, `segment_duration_seconds: 10`) via the storage service (`storage.media_file_path_by_id_endpoint: /api/v1/storage/file/path`). Without VST, the verifier has no media to send to the VLM. Source: `config.yaml § vst_config`. Owned by VIOS (`integrate-vios-service.md` / `patch-vios.md`).
-- **RT-VLM (RTVI VLM microservice)** — required. The VLM used by the Alert Microservice for clip review. Reachable at `RTVI_VLM_BASE_URL=http://${HOST_IP}:8018`; mandatory for `vlm-realtime` (the realtime API issues `/v1/streams/add` + `/v1/generate_captions` against it) and the default verification backend for a standalone alerts deploy. Owned by RT-VLM (`patch-rt-vlm.md`). Alternative backend: a sibling VLM NIM (e.g. `cosmos-reason2-8b`) at `VLM_BASE_URL=http://${HOST_IP}:${VLM_PORT}` (`config.yaml § vlm.base_url: http://localhost:30082/v1`); each sibling NIM `depends_on` is `required: false`.
+- **Elasticsearch + Logstash + Kibana (ELK)** — required. In `cv-verification` the default `vlm_enhanced_sink` writes verified records to ES indices `mdx-vlm-incidents` / `mdx-vlm-alerts` **directly from `alert-bridge`**; in `vlm-realtime` those same ES indices are populated instead by **RT-VLM → Kafka `mdx-vlm-incidents` → Logstash** (AB does not write — see § Outputs scoping note). Either way ELK is required. Additionally the `persistence` layer stores alert configs, verifier prompts, and durable realtime rules (index prefix `ab-`, rules collection `alert-realtime-rules`); Kibana provides the alerts dashboard. The shipped profile config uses `http://elasticsearch:9200`. Source: `config.yml § elastic` + `§ persistence` + `§ vlm_enhanced_sink`. `depends_on: elasticsearch { condition: service_healthy }`. Owned by ELK (`integrate-elk.md`).
+- **VIOS (Video I/O & Storage / VST)** — required for **clip retrieval** and ingestion of the camera/NVStreamer streams (live streaming, recording, playback). `alert-bridge` calls the VST API at `VST_INTERNAL_URL` (Compose default `http://vst-ingress:30888`) to resolve the sensor's stream, then fetches an end-anchored clip (`segment_anchor: end`, `segment_duration_seconds: 10`) via the storage service (`storage.media_file_path_by_id_endpoint: /api/v1/storage/file/path`). Without VST, the verifier has no media to send to the VLM. Source: `config.yml § vst_config` + `deploy/docker/services/alert/compose.yml`. Owned by VIOS (`integrate-vios-service.md` / `patch-vios.md`).
+- **RT-VLM (RTVI VLM microservice)** — required. The VLM used by the Alert Microservice for clip review. The Compose default is `RTVI_VLM_BASE_URL=http://rtvi-vlm:8000`; it is mandatory for `vlm-realtime` (the realtime API issues `/v1/streams/add` + `/v1/generate_captions` against it) and the default verification backend for a standalone alerts deploy. Owned by RT-VLM (`patch-rt-vlm.md`). A selected sibling VLM NIM may instead be supplied through `VLM_BASE_URL`; each sibling NIM `depends_on` is `required: false`.
 
 **Candidate-alert source (required for `cv-verification`):**
 
@@ -160,21 +159,20 @@ The compose interpolates host-side names; the `env-substitute.py` entrypoint fol
 
 ## Network Requirements
 
-- **Ports exposed:** `9080` (REST realtime API + `/health`), bound on the host interface (`network_mode: host`). No other host-bound ports.
+- **Ports exposed:** container port `9080` (REST realtime API + `/health`) is published as `${ALERT_BRIDGE_HOST_PORT:-9080}:${ALERT_BRIDGE_PORT:-9080}`.
 - **Inbound traffic:** REST clients (the `vss-manage-alerts` skill / VSS Agent) on `:9080`.
 - **Outbound traffic:**
-  - Kafka broker at `${HOST_IP}:9092` (consume candidate events, optionally produce verified)
-  - Redis at `${HOST_IP}:6379` (dedup, rule state)
-  - Elasticsearch at `${HOST_IP}:9200` (verified sink + persistence)
-  - VST/VIOS at `${HOST_IP}:30888` (clip retrieval)
-  - Verification VLM at `${HOST_IP}:8018` (RT-VLM) or `${HOST_IP}:30082` (NIM)
+  - Kafka broker at `kafka:29092` (consume candidate events, optionally produce verified)
+  - Elasticsearch at `elasticsearch:9200` (verified sink + persistence)
+  - VST/VIOS at `${VST_INTERNAL_URL:-http://vst-ingress:30888}` (clip retrieval)
+  - Verification VLM at `${RTVI_VLM_BASE_URL:-http://rtvi-vlm:8000}` or the selected `VLM_BASE_URL`
   - NGC registry `nvcr.io` for the image pull on first boot
-- **DNS / hostname assumptions:** runs on `network_mode: host`, so all peer URLs resolve via `${HOST_IP}` (the routable host IP), not bridge service names. The `url_transform` rewrites internal IPs to `${EXTERNAL_IP}` so media URLs handed to a remote VLM or the UI stay reachable.
-- **`network_mode`:** host.
+- **DNS / hostname assumptions:** `alert-bridge` runs on the Compose bridge network and resolves in-stack peers by service name (`kafka`, `elasticsearch`, `vst-ingress`, `rtvi-vlm`). The `url_transform` rewrites internal media URLs to `${EXTERNAL_IP}` when a remote VLM or UI needs a host-reachable address.
+- **`network_mode`:** not set; Compose bridge networking is used.
 
 ## Known Integration Constraints
 
-- **Single-instance.** `container_name: vss-alert-bridge` is hardcoded; a second instance on the same host fails with a name conflict. The `:9080` host port is likewise singleton under `network_mode: host`.
+- **Single-instance.** `container_name: vss-alert-bridge` is hardcoded; a second instance on the same host fails with a name conflict. The published `${ALERT_BRIDGE_HOST_PORT:-9080}` must also be free.
 - **Config mounts + env-substitute entrypoint are mandatory.** A single `env-substitute.py` invocation renders the required main config and, when present, the optional realtime config under `/app/runtime`, then launches `enhance_alert_with_vlm.py`. This is required for always-on rules using `model: "${VLM_NAME}"`. `config.yml`, `alert_type_config.json`, and `env-substitute.py` must be bind-mounted; `realtime-config.yml` is optional only while `alert_agent.always_on` is false. If always-on is enabled without a rendered rules file, startup validation fails. `/app/runtime` must be a writable tmpfs.
 - **Topics must be pre-created.** `alert-bridge` consumes `mdx-incidents` / `mdx-alerts` and (optionally) produces `mdx-vlm-incidents` / `mdx-vlm-alerts`. It `depends_on: kafka-topic-init-container (service_completed_successfully)`; a standalone deploy must keep that init container in the allow-list (it is part of ELK's component set).
 - **CV `category` must match `alert_type_config.json`.** In `cv-verification`, an incident whose Behavior-Analytics `category` has no entry in `alert_type_config.json` is not verified (no prompt to send the VLM). Editing the JSON requires an `alert-bridge` restart.
@@ -202,17 +200,19 @@ services:
       - <your-profile-flag>            # Step 6.5 Patch 1 inserts the invented flag (additive)
       # - bp_developer_alerts_2d_cv    # existing upstream flags preserved
       # - bp_developer_alerts_2d_vlm
-    network_mode: host
     restart: unless-stopped
+    ports:
+      - ${ALERT_BRIDGE_HOST_PORT:-9080}:${ALERT_BRIDGE_PORT:-9080}
     environment:
-      VLM_BASE_URL: ${VLM_BASE_URL:-http://${HOST_IP}:${VLM_PORT}}
+      VLM_BASE_URL: ${VLM_BASE_URL:-http://rtvi-vlm:8000}
       VLM_NAME: ${VLM_NAME}
       EXTERNAL_IP: ${EXTERNAL_IP}
       INTERNAL_IP: ${HOST_IP}
       LLM_MODE: ${LLM_MODE}
       VLM_MODE: ${VLM_MODE}
       RTVI_VLM_MODEL_TO_USE: ${RTVI_VLM_MODEL_TO_USE}
-      RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL:-http://${HOST_IP}:8018}
+      RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL:-http://rtvi-vlm:8000}
+      VST_INTERNAL_URL: ${VST_INTERNAL_URL:-http://vst-ingress:30888}
       CONFIG_PATH: /app/runtime/config.yml
       ALWAYS_ON_RULES_CONFIG: /app/runtime/realtime-config.yml
     volumes:
