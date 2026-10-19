@@ -203,20 +203,7 @@ Provisioning uses the origin `vss configure` recorded, so configure the CLI firs
 
 Before the CLI can search, it has to be pointed at the build's ingress, but this is not a step you need to run. The agent does it on the first query: it resolves the deployment's origin, runs `vss configure` against it, and repeats that after each ingestion, because the recorded index inventory is a snapshot and a freshly deployed stack records none.
 
-Run it yourself when you want to see what was recorded, or to point the CLI at a different deployment. It is a host process invoked project-locally, never a globally installed `vss` and never inside a container:
-
-```bash title="Run in the deployment host terminal"
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
-vss configure --base-url "<VSS_PUBLIC_URL>"
-vss configure show
-```
-
-Replace `<VSS_PUBLIC_URL>` with the ingress origin returned for your deployment.
-
-`libs/vss` is the CLI's own workspace, so no extra is required. `configure`
-probes each route and records the ones that answer, along with the Elasticsearch
-index list, and `configure show` prints what it recorded.
+For optional configuration from the host terminal, see [With the VSS CLI](#with-the-vss-cli).
 
 #### Step 3: Search with a simple query
 
@@ -303,6 +290,23 @@ Tear down the search deployment and preserve the model caches.
 Bind-mounted data under `VSS_DATA_DIR`, such as Elasticsearch and Kafka data and VIOS recordings, survives either path and would carry into the next deployment. Clearing it is a separate step that needs root, so the agent will surface the command and confirm with you before running it.
 
 On the NemoClaw deployment the sandbox is a separate lifecycle from the containers, so tearing down one leaves the other running. Ask for the sandbox to be destroyed as well when you are finished with it.
+
+### With the VSS CLI
+
+Use the CLI directly to see what was recorded, or to point it at a different deployment. It is a host process invoked project-locally, never a globally installed `vss` and never inside a container:
+
+```bash title="Run in the deployment host terminal"
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
+vss configure --base-url "<VSS_PUBLIC_URL>"
+vss configure show
+```
+
+Replace `<VSS_PUBLIC_URL>` with the ingress origin returned for your deployment.
+
+`libs/vss` is the CLI's own workspace, so no extra is required. `configure`
+probes each route and records the ones that answer, along with the Elasticsearch
+index list, and `configure show` prints what it recorded.
 
 ### Manually
 
