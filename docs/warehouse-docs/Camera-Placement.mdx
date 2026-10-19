@@ -7,19 +7,19 @@ Camera placement is a critical step in scene setup, ensuring comprehensive cover
 
 ## Manual Camera Placement
 
-- Load the scene by following [Scene Loading](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation/synthetic-data-generation/camera-calibration#scene-loading).
+- Load the scene by following [Scene Loading](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation/synthetic-data-generation/camera-calibration#scene-loading).
 
 - Create an Xform prim by going to **Stage** > **World** > **Right Click** > **Create** > **Xform**, and then rename it to **Cameras**.
 
-  ![Camera Folder](/assets/images/simulation/Camera_Folder.png)
+  ![Camera Folder](../assets/images/simulation/Camera_Folder.png)
 
 - Create a new camera under **Cameras** by going to **Right Click** > **Create** > **Camera**.
 
-  ![Create Camera](/assets/images/simulation/Create_Camera.png)
+  ![Create Camera](../assets/images/simulation/Create_Camera.png)
 
 - Adjust the camera height, look-down angle, and camera-to-target distance according to your requirements, if applicable.
 
-  ![Adjust Camera](/assets/images/simulation/Adjust_Camera.png)
+  ![Adjust Camera](../assets/images/simulation/Adjust_Camera.png)
 
 ## Auto Camera Placement
 
@@ -27,9 +27,9 @@ Camera placement is a critical step in scene setup, ensuring comprehensive cover
 
     - Open **Camera Placement** tool by **Tools** > **Sensors** > **Camera Placement**.
 
-      ![Camera Placement Extension](/assets/images/simulation/Camera_Placement_Tool.png)
+      ![Camera Placement Extension](../assets/images/simulation/Camera_Placement_Tool.png)
 
-      ![Camera Placement Panel](/assets/images/simulation/Camera_Placement_Panel.png)
+      ![Camera Placement Panel](../assets/images/simulation/Camera_Placement_Panel.png)
 
     - **Setting**:
 
@@ -37,7 +37,7 @@ Camera placement is a critical step in scene setup, ensuring comprehensive cover
 
       - Set the **Camera Placement Output Path** and the **Total Camera Number** (Minimum number of cameras required to cover the scene when **Total Camera Number** = -1) in **Camera Placement** Section.
 
-        ![Camera Placement Settings](/assets/images/simulation/Camera_Placement_Setting.png)
+        ![Camera Placement Settings](../assets/images/simulation/Camera_Placement_Setting.png)
 
         - Set the **Camera Range Parameters**, including camera height, look down angles, and camera-to-target distance, according to your requirements if applicable.
         - Set the **Stage Processing Parameters** to adjust the voxelization resolution of the stage, and customize the ground height setting of the stage if applicable.
@@ -47,9 +47,9 @@ Camera placement is a critical step in scene setup, ensuring comprehensive cover
 
       - Click the **Place Cameras** button to start the camera placement, then wait for the process to complete.
 
-        ![Camera Placement Generation](/assets/images/simulation/Camera_Placement_Generation.png)
+        ![Camera Placement Generation](../assets/images/simulation/Camera_Placement_Generation.png)
 
-        ![Camera Placement Visualization](/assets/images/simulation/Camera_Placement_Visualizations.png)
+        ![Camera Placement Visualization](../assets/images/simulation/Camera_Placement_Visualizations.png)
 
     - Save the updated USD file with the current camera placements for subsequent SDG.
 

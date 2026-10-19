@@ -8,7 +8,7 @@ It generates incident reports, answers queries about video content, and provides
 
 ## Architecture
 
-![VSS Agent Architecture](/assets/images/agent-architecture.png)
+![VSS Agent Architecture](../assets/images/agent-architecture.png)
 
 ## Operational Modes
 
@@ -43,7 +43,7 @@ Four developer profiles are available:
 - **dev-profile-search**: Semantic video search with embeddings
 - **dev-profile-alerts**: Real-time VLM alerts or VLM verification of CV-generated incidents
 
-See [Agent Profiles](/vss/vision-agent/vss-agents/agent-profiles) for detailed profile descriptions
+See [Agent Profiles](/vision-agent/vss-agents/agent-profiles) for detailed profile descriptions
 
 ## Agents
 
@@ -122,18 +122,18 @@ and can be discovered by asking the agent "What sensors are available?"
 
 ## Related Documentation
 
-- [VSS Agent API](/vss/vision-agent/vss-agents/agent-overview/api-reference) - VSS Agent API endpoints
-- [Video Analytics MCP Server](/vss/vision-agent/vss-agents/video-analytics-mcp-server) - Video Analytics tools reference
-- [Agent Profiles](/vss/vision-agent/vss-agents/agent-profiles) - Available profiles and blueprints
-- [Agent Configuration](/vss/vision-agent/vss-agents/agent-configuration) - Configuration reference
-- [Agent Evaluation](/vss/vision-agent/vss-agents/agent-evaluation) - Evaluation framework and metrics
-- [Agent Skills](/vss/vision-agent/agent-skills) - Reusable agent skills for coding agents
+- [VSS Agent API](/vision-agent/vss-agents/agent-overview/api-reference) - VSS Agent API endpoints
+- [Video Analytics MCP Server](/vision-agent/vss-agents/video-analytics-mcp-server) - Video Analytics tools reference
+- [Agent Profiles](/vision-agent/vss-agents/agent-profiles) - Available profiles and blueprints
+- [Agent Configuration](/vision-agent/vss-agents/agent-configuration) - Configuration reference
+- [Agent Evaluation](/vision-agent/vss-agents/agent-evaluation) - Evaluation framework and metrics
+- [Agent Skills](/vision-agent/agent-skills) - Reusable agent skills for coding agents
 
 ## Known Issues
 
 1. By default, the agent uses thinking off for faster response, switching to on for complicated queries.
 
-   ![Reasoning toggles](/assets/images/vss-ui/global-chat-sidebar/reasoning-toggles.png)
+   ![Reasoning toggles](../assets/images/vss-ui/global-chat-sidebar/reasoning-toggles.png)
 
 3. When conversation is long, agent may generate incorrect URL links, causing videos, screenshots, or other media to fail to display or download properly. If you notice this issue, start a new chat from the left panel.
 

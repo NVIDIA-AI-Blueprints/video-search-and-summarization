@@ -6,20 +6,20 @@ position: 2
 The **Real Time Video Intelligence CV Microservice** leverages [NVIDIA DeepStream SDK](https://developer.nvidia.com/deepstream-sdk) to generate metadata for each stream that downstream microservices can use to generate spatial metrics and alerts.
 
 The microservice features `metropolis-perception-app`, a DeepStream pipeline that builds on the built-in [deepstream-test5 app](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_ref_app_test5.html) in the DeepStream SDK.
-This perception app provides a complete application that takes streaming video inputs, decodes the incoming streams, performs inference & tracking, and sends the metadata to other microservices using the defined [Protobuf schema](/vss/system-components/middleware/nvschema/protobuf-schema).
+This perception app provides a complete application that takes streaming video inputs, decodes the incoming streams, performs inference & tracking, and sends the metadata to other microservices using the defined [Protobuf schema](/system-components/middleware/nvschema/protobuf-schema).
 
 The application features a modular architecture that integrates preprocessing plugins and a custom video template plugin (Sparse4D) specifically designed for multi-object detection and tracking in three-dimensional space.
 
-At its core, Sparse4D performs Birds-Eye-View (BEV) 3D object detection and temporal tracking across multiple synchronized camera sensors within defined BEV groups. Refer to the [Sparse4D model page](/vss/system-components/models/sparse4d-3d-multi-camera) for more details on the model architecture and training process.
+At its core, Sparse4D performs Birds-Eye-View (BEV) 3D object detection and temporal tracking across multiple synchronized camera sensors within defined BEV groups. Refer to the [Sparse4D model page](/system-components/models/sparse4d-3d-multi-camera) for more details on the model architecture and training process.
 
 The pipeline ingests multicamera video streams, processes them through calibrated projection matrices for spatial alignment, and utilizes a feedback mechanism with temporal instance banking to maintain object identity across frames.
 Detection results include 3D position, orientation, velocity, and instance IDs, enabling sophisticated multi-camera fusion capabilities.
 
-For detailed information on all components, APIs, and customization options, refer to the [Object Detection and Tracking](/vss/system-components/vision-microservices/object-detection-and-tracking).
+For detailed information on all components, APIs, and customization options, refer to the [Object Detection and Tracking](/system-components/vision-microservices/object-detection-and-tracking).
 
 The diagram below shows the perception pipeline used in the microservice:
 
-![Metropolis Perception App Architecture](/assets/images/ds_fs_app_sparse4d.png)
+![Metropolis Perception App Architecture](../assets/images/ds_fs_app_sparse4d.png)
 
 ## Configurations
 
@@ -198,7 +198,7 @@ The partition key setting ensures that messages from the same sensor go to the s
 
 ### Calibration File
 
-The `calibration.json` file defines camera calibration parameters essential for 3D spatial understanding. This file contains intrinsic and extrinsic camera parameters for each camera in the system. On the host, it is located under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/<SAMPLE_VIDEO_DATASET>/` and mounted into the container at `/opt/data/ds-configurator/calibration.json`. For detailed information about camera calibration parameters and setup, refer to the [Calibration](/vss/system-components/calibration/calibration-schema).
+The `calibration.json` file defines camera calibration parameters essential for 3D spatial understanding. This file contains intrinsic and extrinsic camera parameters for each camera in the system. On the host, it is located under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/<SAMPLE_VIDEO_DATASET>/` and mounted into the container at `/opt/data/ds-configurator/calibration.json`. For detailed information about camera calibration parameters and setup, refer to the [Calibration](/system-components/calibration/calibration-schema).
 
 ### Labels File
 
@@ -265,7 +265,7 @@ network-input-shape=4;3;540;960 # Change the first value to match number of came
 
 The Sparse4D plugin supports model swapping, allowing you to use different Sparse4D models based on your specific use case.
 
-For adaptation to real-world datasets with 2D labels or detector pseudo-labels, follow the [2D-to-3D geometric distillation workflow](/vss/system-components/models/sparse4d-3d-multi-camera#2d-to-3d-geometric-distillation-for-real-world-datasets). The LTT correction model and 2D teacher are used during training; deploy the adapted Sparse4D model using the compatibility checks below. Real camera calibration is still required for the multi-camera 3D pipeline.
+For adaptation to real-world datasets with 2D labels or detector pseudo-labels, follow the [2D-to-3D geometric distillation workflow](/system-components/models/sparse4d-3d-multi-camera#2d-to-3d-geometric-distillation-for-real-world-datasets). The LTT correction model and 2D teacher are used during training; deploy the adapted Sparse4D model using the compatibility checks below. Real camera calibration is still required for the multi-camera 3D pipeline.
 
 #### Model Compatibility Requirements
 

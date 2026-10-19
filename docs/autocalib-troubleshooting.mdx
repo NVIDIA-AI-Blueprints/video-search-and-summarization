@@ -159,7 +159,7 @@ ambiguity:
 2. **Check layout scale and floor-map alignment** — VSS uses alignment data to
    place VGGT results on the floor map. Verify **Layout Pixels Per Meter** and
    that each alignment point set identifies the same ground-plane location in
-   Camera 0, Camera 1, and the layout. Follow the [alignment coordinate-space rules](/vss/system-components/calibration/auto-calibration/custom-dataset#alignment-data-alignment_datajson):
+   Camera 0, Camera 1, and the layout. Follow the [alignment coordinate-space rules](/system-components/calibration/auto-calibration/custom-dataset#alignment-data-alignment_datajson):
    UI file uploads use original camera coordinates; interactive draw/save uses
    rectified coordinates. After re-rectification, verify again and relaunch
    calibration.
@@ -168,11 +168,11 @@ ambiguity:
    type (AMC or VGGT) and use rectified frames when checking projections.
 4. **Validate the full group** — inspect every camera's position and viewing
    direction against the installation. Check known physical locations and
-   ROI/tripwire projections, especially in repeated regions. Use [virtual-object overlays and ground-truth evaluation](/vss/system-components/calibration/auto-calibration/workflow-steps#how-to-interpret-calibration-outputs)
+   ROI/tripwire projections, especially in repeated regions. Use [virtual-object overlays and ground-truth evaluation](/system-components/calibration/auto-calibration/workflow-steps#how-to-interpret-calibration-outputs)
    when available. Correct reference-camera alignment alone does not validate
    the other cameras.
 5. **Inspect scene suitability** — if geometry is still inconsistent, review
-   [shared scene content, weak connections, repeated structures, and occlusion](/vss/system-components/calibration/auto-calibration/custom-dataset#vggt-camera-group-suitability)
+   [shared scene content, weak connections, repeated structures, and occlusion](/system-components/calibration/auto-calibration/custom-dataset#vggt-camera-group-suitability)
    in the affected views. These are possible contributors, not a diagnosis from
    the completion state alone. Automatic frame selection, when available, may
    not resolve ambiguity present throughout the footage.
