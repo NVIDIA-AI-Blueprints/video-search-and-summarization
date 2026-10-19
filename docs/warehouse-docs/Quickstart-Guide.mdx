@@ -1143,15 +1143,15 @@ See [Deployment Options](/vss/vision-agent/agent-workflows/industry-specific-exa
 
    Close any warning dialogs that appear in JupyterLab.
 
-5. Open a terminal in JupyterLab and check out the [release/3.3.0 branch](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/release/3.3.0) before opening the warehouse launchable notebook:
+5. Open a terminal in JupyterLab and check out the [v3.3.0 release tag](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.3.0) before opening the warehouse launchable notebook:
 
    ```bash
    cd ~/video-search-and-summarization
-   git fetch origin release/3.3.0
-   git checkout release/3.3.0
+   git fetch origin tag v3.3.0
+   git checkout tags/v3.3.0
    ```
 
-6. Navigate to and open the `video-search-and-summarization/deploy/docker/scripts/deploy_warehouse_launchable.ipynb` notebook. If it is already open, close and reopen it after checking out the branch so it loads the release version.
+6. Navigate to and open the `video-search-and-summarization/deploy/docker/scripts/deploy_warehouse_launchable.ipynb` notebook. If it is already open, close and reopen it after checking out the tag so it loads the release version.
 
    The Compose files ship in-tree in the `video-search-and-summarization` repository—there is no separate Compose archive to download. On Brev, the repository is cloned onto the instance automatically; set `DEPLOY_SOURCE_PATH` in Section 1 to that path (typically `~/video-search-and-summarization`).
 7. In Section 1, set `NGC_CLI_API_KEY` and select `MODE`, `BP_PROFILE`, and `HARDWARE_PROFILE`.
