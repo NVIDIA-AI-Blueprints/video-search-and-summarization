@@ -13,7 +13,7 @@ The UI presents a **7-step stepper workflow**. Each step validates its inputs be
 
 The Project Setup step allows you to create and manage calibration projects.
 
-![Project Setup Step](/assets/images/vss-autocalib-ui/main-ui-2.jpg)
+![Project Setup Step](./assets/images/vss-autocalib-ui/main-ui-2.jpg)
 
 ### Creating a New Project
 
@@ -23,7 +23,7 @@ The Project Setup step allows you to create and manage calibration projects.
 2. Click the **Create** button
 3. The new project appears in the "Existing Projects" list below
 
-![Create New Project](/assets/images/vss-autocalib-ui/create_new_project.jpg)
+![Create New Project](./assets/images/vss-autocalib-ui/create_new_project.jpg)
 
 **Project Name Validation**
 - ✓ Valid: `warehouse_calibration`, `site_01`, `parking-lot-A`
@@ -36,7 +36,7 @@ The Project Setup step allows you to create and manage calibration projects.
 3. The selected project is highlighted with a green border and checkmark
 4. Project information is displayed at the bottom: "Project 'name' selected"
 
-![Select Project](/assets/images/vss-autocalib-ui/select_project.jpg)
+![Select Project](./assets/images/vss-autocalib-ui/select_project.jpg)
 
 **Project Card Information**
 
@@ -92,7 +92,7 @@ Use the checkboxes on project cards to multi-select projects for bulk delete (th
 
 Upload camera videos, layout image, ground truth data, and optional alignment file.
 
-![Video Configuration Step](/assets/images/vss-autocalib-ui/video_configuration_step.jpg)
+![Video Configuration Step](./assets/images/vss-autocalib-ui/video_configuration_step.jpg)
 
 ### Upload Status Overview
 
@@ -102,7 +102,7 @@ At the top of the page, you'll see a status summary showing:
 - **Layout**: Upload status (required)
 - **Alignment (Optional)**: Upload status
 
-![Upload Status](/assets/images/vss-autocalib-ui/upload_status.jpg)
+![Upload Status](./assets/images/vss-autocalib-ui/upload_status.jpg)
 
 ### Uploading Video Files
 
@@ -110,7 +110,7 @@ At the top of the page, you'll see a status summary showing:
 - **Minimum**: 1 video file (2 or more for multi-camera calibration)
 - **Formats**: MP4. Auto Calibration does **not** support video formats that are not supported by DeepStream.
 - **Required Video Resolution**: 1920×1080
-- **Input assumptions**: See [Assumptions](/vss/system-components/calibration/auto-calibration/custom-dataset#assumptions) for video content and recording requirements
+- **Input assumptions**: See [Assumptions](/system-components/calibration/auto-calibration/custom-dataset#assumptions) for video content and recording requirements
 
 Provide camera inputs using **either** file upload **or** RTSP capture (one camera for single-camera calibration, two or more for multi-camera). **RTSP capture is available only when VIOS is configured on the Auto Calibration server**; otherwise use file upload. The UI does not allow an active file-upload queue and RTSP capture at the same time; remove file-uploaded clips before switching to RTSP, and vice versa.
 
@@ -122,7 +122,7 @@ Provide camera inputs using **either** file upload **or** RTSP capture (one came
 4. Click **Upload N File(s)** to upload all selected videos
 5. Wait for the upload progress bar to complete
 
-![Video Upload](/assets/images/vss-autocalib-ui/video_upload.jpg)
+![Video Upload](./assets/images/vss-autocalib-ui/video_upload.jpg)
 
 **Managing Video Files**
 - **View List**: All selected or uploaded videos are listed with their filenames
@@ -144,7 +144,7 @@ Provide camera inputs using **either** file upload **or** RTSP capture (one came
 
 While RTSP capture or ingest is running, **Video Files** upload is disabled until the pipeline completes.
 
-![RTSP Input](/assets/images/vss-autocalib-ui/rtsp_input.jpg)
+![RTSP Input](./assets/images/vss-autocalib-ui/rtsp_input.jpg)
 
 > RTSP streams must be **time-synchronized**: one **Capture and add to project** with every stream configured together—no staggered captures for different camera subsets. List each **RTSP URL** under **Streams** in **order of overlapping FOV** (first stream = first camera in the overlap chain).
 > For **VIOS pre-registered RTSP streams**, use the **source URL** (for example, the **NVStreamer** URL if the stream originates from NVStreamer) rather than the VIOS-proxied URL.
@@ -168,7 +168,7 @@ Ground truth data is optional and used for calibration evaluation.
 
 If ground truth is already uploaded, the button changes to **Delete Ground Truth**. Click it to remove the file.
 
-![Ground Truth Delete](/assets/images/vss-autocalib-ui/gt_delete.jpg)
+![Ground Truth Delete](./assets/images/vss-autocalib-ui/gt_delete.jpg)
 
 ### Uploading Layout Image
 
@@ -190,7 +190,7 @@ The layout image is required and represents the top-down view or map of your sur
 
 If layout is already uploaded, the button changes to **Delete Layout**. Click it to remove the file.
 
-![Layout Delete](/assets/images/vss-autocalib-ui/layout_delete.jpg)
+![Layout Delete](./assets/images/vss-autocalib-ui/layout_delete.jpg)
 
 ### Uploading Alignment Data
 
@@ -211,7 +211,7 @@ Alignment data is optional at this step. You can either upload a pre-existing al
 
 If alignment is already uploaded, the button changes to **Delete Alignment**. Click it to remove the file.
 
-![Alignment Delete](/assets/images/vss-autocalib-ui/alignment_delete.jpg)
+![Alignment Delete](./assets/images/vss-autocalib-ui/alignment_delete.jpg)
 
 ### Requirements Note
 
@@ -232,7 +232,7 @@ If alignment is already uploaded, the button changes to **Delete Alignment**. Cl
 
 Set floor-plan scale and optional focal lengths. 
 
-![Parameters Step](/assets/images/vss-autocalib-ui/parameters_step.jpg)
+![Parameters Step](./assets/images/vss-autocalib-ui/parameters_step.jpg)
 
 ### Floor-Plan to 3D Scale
 
@@ -254,7 +254,7 @@ Initialize **layout pixels per meter** (`layout_px_per_m`) so overlays and world
 - **Drag**: Pan when zoomed
 - **Reset**: Clear measurement points and restore the last saved px/m
 
-![Floor Plan to 3D Scale](/assets/images/vss-autocalib-ui/floor_plan.jpg)
+![Floor Plan to 3D Scale](./assets/images/vss-autocalib-ui/floor_plan.jpg)
 
 > Wrong scale causes misaligned BEV / trajectory overlays after layout post-processing. Re-run shared post-processing after changing scale if calibration already completed.
 
@@ -281,7 +281,7 @@ Focal lengths are optional but can improve calibration accuracy.
 2. Click **Save Focal Length**
 3. Focal lengths are cleared from the project
 
-![Focal Length Configuration](/assets/images/vss-autocalib-ui/focal_length_configuration.jpg)
+![Focal Length Configuration](./assets/images/vss-autocalib-ui/focal_length_configuration.jpg)
 
 > Scale and focal length are view-only while AMC or VGGT calibration is running.
 
@@ -289,7 +289,7 @@ Focal lengths are optional but can improve calibration accuracy.
 
 On the Parameters step, you can customize calibration settings before running the pipeline. The settings control is **only visible on this step**.
 
-![Settings Dialog](/assets/images/vss-autocalib-ui/settings_dialog.jpg)
+![Settings Dialog](./assets/images/vss-autocalib-ui/settings_dialog.jpg)
 
 **Configuration Options**
 - **Option 1: Upload** — upload a pre-configured settings file to apply all parameters at once
@@ -300,7 +300,7 @@ On the Parameters step, you can customize calibration settings before running th
 - **Reset to Defaults**: Restore all settings to their default values
 - **Save Settings**: Save your changes
 
-![Settings Update](/assets/images/vss-autocalib-ui/settings_update.jpg)
+![Settings Update](./assets/images/vss-autocalib-ui/settings_update.jpg)
 
 > **Warning:** Do not change settings while AMC or VGGT calibration is running. Make configuration changes before starting calibration in Step 6: Execute. Rectification model / K1 search settings are configured on Step 4, not here.
 
@@ -310,7 +310,7 @@ On the Parameters step, you can customize calibration settings before running th
 
 Generate **linear (rectified) camera media** before alignment and calibration. AMC and VGGT consume staged `rectified.mp4` / `rectified.jpg`; they no longer perform implicit in-calibration rectification.
 
-![Rectification Step](/assets/images/vss-autocalib-ui/rectification_step.jpg)
+![Rectification Step](./assets/images/vss-autocalib-ui/rectification_step.jpg)
 
 Rectification must reach **COMPLETED** before you can proceed to Manual Alignment. Verification on Execute also requires completed linear media.
 
@@ -332,7 +332,7 @@ Rectification must reach **COMPLETED** before you can proceed to Manual Alignmen
 6. Review side-by-side original / GeoCalib rectified previews
 7. Click **Generate Rectified Videos** to write full videos and `distortion.yaml`
 
-![Auto Rectification Step](/assets/images/vss-autocalib-ui/auto_rectification_step.jpg)
+![Auto Rectification Step](./assets/images/vss-autocalib-ui/auto_rectification_step.jpg)
 
 ### Manual Rectification
 
@@ -344,7 +344,7 @@ Rectification must reach **COMPLETED** before you can proceed to Manual Alignmen
 4. Move sliders to set distortion parameters. Use live grid overlay feedback. Curved grid contours show the approximate look of straight objects/lines in the scene at the current distortion parameters set in the slider(s). Users may adjust **Contour rotation** to make in-view rotation for easier tuning; click **Rectify Image** for a frame-0 remapped preview
 5. Click **Generate Rectified Videos**
 
-![Manual Rectification Step](/assets/images/vss-autocalib-ui/manual_rectification.jpg)
+![Manual Rectification Step](./assets/images/vss-autocalib-ui/manual_rectification.jpg)
 
 ### Videos Are Rectified
 
@@ -352,7 +352,7 @@ Rectification must reach **COMPLETED** before you can proceed to Manual Alignmen
 2. Click **Stage Linear Videos**
 3. Source videos are staged as linear media (no distortion estimate); state becomes **COMPLETED**
 
-![Linear Rectification Step](/assets/images/vss-autocalib-ui/linear_media_rectification.jpg)
+![Linear Rectification Step](./assets/images/vss-autocalib-ui/linear_media_rectification.jpg)
 
 ### After Completion
 
@@ -360,7 +360,7 @@ Rectification must reach **COMPLETED** before you can proceed to Manual Alignmen
 - Rectification path, model, and parameter details are shown after rectification completes.
 - Alignment and calibration unlock
 
-![Download Rectified Params](/assets/images/vss-autocalib-ui/download_rectified_params.jpg)
+![Download Rectified Params](./assets/images/vss-autocalib-ui/download_rectified_params.jpg)
 
 ### Re-rectification
 
@@ -408,11 +408,11 @@ When alignment already exists:
 2. Click **Edit** to adjust points, then **Save Changes**
 3. Or **Delete Alignment Data** and recreate from scratch
 
-![Alignment Option](/assets/images/vss-autocalib-ui/manual_alignment.jpg)
+![Alignment Option](./assets/images/vss-autocalib-ui/manual_alignment.jpg)
 
-![Alignment Option](/assets/images/vss-autocalib-ui/manual_alignment_2.jpg)
+![Alignment Option](./assets/images/vss-autocalib-ui/manual_alignment_2.jpg)
 
-![Manual Alignment Tool](/assets/images/vss-autocalib-ui/step4_manual_alignment_tool.jpg)
+![Manual Alignment Tool](./assets/images/vss-autocalib-ui/step4_manual_alignment_tool.jpg)
 
 ### Alignment Status
 
@@ -420,7 +420,7 @@ At the top of the page, you'll see the current alignment status:
 - **Green Badge**: "Alignment data exists" — file already uploaded or created
 - **Gray Badge**: "No alignment data" — need to upload or create alignment
 
-![Alignment Status](/assets/images/vss-autocalib-ui/alignment_status.jpg)
+![Alignment Status](./assets/images/vss-autocalib-ui/alignment_status.jpg)
 
 ### Prerequisites Check
 
@@ -446,7 +446,7 @@ The alignment tool shows one concatenated canvas. The layout depends on how many
 - **Left**: Camera (cam_00.mp4)
 - **Right**: Layout map (BEV)
 
-![Alignment Canvas](/assets/images/vss-autocalib-ui/alignment_canvas.jpg)
+![Alignment Canvas](./assets/images/vss-autocalib-ui/alignment_canvas.jpg)
 
 **Progress Indicator**
 
@@ -470,7 +470,7 @@ At the top, you'll see:
 2. **Select Corresponding Point on Layout** — click on the same physical location on the layout map (right section); **Point Set 1 complete**
 3. **Repeat for Additional Points** — repeat for at least **4** total point sets (same minimum as multi-camera)
 
-![Point Selection Process](/assets/images/vss-autocalib-ui/point_selection_process.jpg)
+![Point Selection Process](./assets/images/vss-autocalib-ui/point_selection_process.jpg)
 
 **Point Selection Tips**
 - Choose points on the **ground plane**
@@ -494,7 +494,7 @@ At the top, you'll see:
 - **Click + Drag**: Pan around when zoomed in
 - **Zoom Range**: 50% to 300%
 
-![Zoom Controls](/assets/images/vss-autocalib-ui/zoom_controls.jpg)
+![Zoom Controls](./assets/images/vss-autocalib-ui/zoom_controls.jpg)
 
 ### Point Set Management
 
@@ -502,7 +502,7 @@ At the top, you'll see:
 - **Reset All Points**: Click the **Reset All** button to clear all points and start over
 - **Add More Points**: After completing 4 point sets, click **Add More Points** to add additional sets for improved accuracy
 
-![Point Management](/assets/images/vss-autocalib-ui/point_management.jpg)
+![Point Management](./assets/images/vss-autocalib-ui/point_management.jpg)
 
 ### Saving Alignment Data
 
@@ -521,13 +521,13 @@ At the top, you'll see:
 6. Success message appears
 7. Alignment tool closes automatically
 
-![Save Alignment](/assets/images/vss-autocalib-ui/save_alignment.jpg)
+![Save Alignment](./assets/images/vss-autocalib-ui/save_alignment.jpg)
 
 Click the **Cancel** button to exit the alignment tool without saving.
 
 ### Alignment Data Format
 
-The **generated / interactively saved** alignment data is a JSON array. Each outer element is one point set; camera coordinates are in pixel space of the **rectified / linear** images. For **external file upload** via the UI, supply **original / pre-rectification** camera coordinates instead — see Option 1 above and [Alignment Data (alignment_data.json)](/vss/system-components/calibration/auto-calibration/custom-dataset#alignment-data-alignment_datajson).
+The **generated / interactively saved** alignment data is a JSON array. Each outer element is one point set; camera coordinates are in pixel space of the **rectified / linear** images. For **external file upload** via the UI, supply **original / pre-rectification** camera coordinates instead — see Option 1 above and [Alignment Data (alignment_data.json)](/system-components/calibration/auto-calibration/custom-dataset#alignment-data-alignment_datajson).
 
 **Multi-camera** — three `[x, y]` pairs per set (camera 0, camera 1, layout):
 
@@ -593,7 +593,7 @@ If alignment data already exists and you want to recreate it:
 
 Verify project requirements and run calibration. AMC and VGGT are **independent** calibration choices: each can be launched or relaunched on its own. Multi-camera projects finish raw calibration first, then run **shared layout post-processing** for overlays, evaluation, MV3DT, and virtual-GT imagery.
 
-![Execute Step](/assets/images/vss-autocalib-ui/execute_step.png)
+![Execute Step](./assets/images/vss-autocalib-ui/execute_step.png)
 
 ### Project State Overview
 
@@ -606,7 +606,7 @@ At the top of the page, you'll see the current project state:
 
 When RUNNING, an elapsed time counter and progress bar are displayed.
 
-![Project State](/assets/images/vss-autocalib-ui/project_state.png)
+![Project State](./assets/images/vss-autocalib-ui/project_state.png)
 
 ### Requirements Checklist
 
@@ -619,7 +619,7 @@ The system validates all required files before allowing calibration:
 
 If any requirement is not met, you'll see a warning message: "Complete required inputs before verification."
 
-![Requirements Checklist](/assets/images/vss-autocalib-ui/project_inputs_req.jpg)
+![Requirements Checklist](./assets/images/vss-autocalib-ui/project_inputs_req.jpg)
 
 ### Optional Configuration
 
@@ -628,7 +628,7 @@ The system also displays optional configuration status:
 - **Ground Truth Data**: ✓ Uploaded (for evaluation purposes) or ⊙ Not provided (optional)
 - **Focal Length**: ✓ X value(s) shown, or ⊙ Not provided (optional)
 
-![Optional Configuration](/assets/images/vss-autocalib-ui/project_inputs_optional.jpg)
+![Optional Configuration](./assets/images/vss-autocalib-ui/project_inputs_optional.jpg)
 
 ### Verification Process
 
@@ -643,7 +643,7 @@ Before running AMC or VGGT, you must verify the project. Verification is **share
 5. Project state changes to "READY"
 6. AMC and VGGT start controls become enabled (when applicable)
 
-![Verify Project](/assets/images/vss-autocalib-ui/verify_project.png)
+![Verify Project](./assets/images/vss-autocalib-ui/verify_project.png)
 
 > Re-rectification after a previous verify invalidates downstream work: verify again, relaunch calibration, then re-run post-processing.
 
@@ -672,7 +672,7 @@ AMC (Auto Magic Calib) is the geometry-based / tracklet-based calibration method
   when ResNet produces too few or unreliable person tracks. It generally
   provides stronger detection at the cost of longer runtime.
 
-![AMC Calibration controls](/assets/images/vss-autocalib-ui/amc_after_verification.png)
+![AMC Calibration controls](./assets/images/vss-autocalib-ui/amc_after_verification.png)
 
 **During Calibration**
 - **Elapsed Time**: Updates every second
@@ -682,7 +682,7 @@ AMC (Auto Magic Calib) is the geometry-based / tracklet-based calibration method
 - **AMC Live Logs**: Real-time calibration logs displayed during execution
 - **Auto-refresh**: Status updates every 3 seconds
 
-![AMC Calibration Running](/assets/images/vss-autocalib-ui/amc_calib_running.png)
+![AMC Calibration Running](./assets/images/vss-autocalib-ui/amc_calib_running.png)
 
 **Stopping Calibration**
 
@@ -700,7 +700,7 @@ When AMC finishes successfully:
 - **AMC State**: Shows "COMPLETED"
 - AMC produces **raw** calibration outputs; layout overlays / GT eval / MV3DT for multi-camera come from shared post-processing
 
-![AMC Calibration Completed](/assets/images/vss-autocalib-ui/amc_completed.png)
+![AMC Calibration Completed](./assets/images/vss-autocalib-ui/amc_completed.png)
 
 ### Calibration Failure
 
@@ -727,7 +727,7 @@ VGGT does **not** require a successful AMC run. After verify + completed rectifi
 2. Project state returns to "INIT"
 3. Go back to previous steps, fix inputs, re-rectify if needed, then verify again
 
-![Project Reset](/assets/images/vss-autocalib-ui/project_reset.png)
+![Project Reset](./assets/images/vss-autocalib-ui/project_reset.png)
 
 ### VGGT Calibration
 
@@ -754,7 +754,7 @@ VGGT (Vision-Geometry Graph Transformer) is a **multi-camera** calibration metho
 - **Duration**: Typically a few minutes
 - Produces **raw** calibration outputs; shared post-processing builds layout-derived artifacts
 
-![VGGT Calibration](/assets/images/vss-autocalib-ui/vggt_calib.png)
+![VGGT Calibration](./assets/images/vss-autocalib-ui/vggt_calib.png)
 
 **VGGT Completion**
 
@@ -790,7 +790,7 @@ After AMC and/or VGGT complete, run **shared layout post-processing**. This stag
 
 Post-processing is disabled while AMC or VGGT is RUNNING, and stays in INIT until at least one calibration path and alignment are ready. Re-run after another calibration, alignment, scale, or rectification change.
 
-![SV Post Process](/assets/images/vss-autocalib-ui/post_processing.jpg)
+![SV Post Process](./assets/images/vss-autocalib-ui/post_processing.jpg)
 
 > Single-camera projects use the AMC single-view post-processing path; the shared multi-camera Layout Post-processing card is shown for two or more cameras.
 
@@ -803,7 +803,7 @@ At the bottom of the AMC panel, you'll see a summary:
 - **AMC State**: Current AMC state
 - **VGGT State**: Current VGGT state (multi-camera)
 
-![Calibration Information](/assets/images/vss-autocalib-ui/calib_info.jpg)
+![Calibration Information](./assets/images/vss-autocalib-ui/calib_info.jpg)
 
 ### Best Practices
 
@@ -846,7 +846,7 @@ At the bottom of the AMC panel, you'll see a summary:
 
 View calibration results, draw optional ROIs/tripwires on linear (rectified) frames, evaluate accuracy, and export calibration data.
 
-![Results Step](/assets/images/vss-autocalib-ui/results_step.jpg)
+![Results Step](./assets/images/vss-autocalib-ui/results_step.jpg)
 
 ### Results Availability
 
@@ -864,7 +864,7 @@ For multi-camera trajectory / virtual-GT overlays and evaluation metrics, run **
 
 > **Annotations do not need calibration:** The **ROI & Tripwire Drawing** editor and **Export image-mode JSON** (pixel coordinates) are available on Results as soon as the project has uploaded videos and linear media (Rectification completed, or **Videos Are Rectified** selected), even if AMC and VGGT have not run. The editor is locked while calibration is running. World-coordinate verification and export still require a completed calibration.
 
-![Results Not Ready](/assets/images/vss-autocalib-ui/step6_if_amc_is_running.jpg)
+![Results Not Ready](./assets/images/vss-autocalib-ui/step6_if_amc_is_running.jpg)
 
 ### Overlay Image
 
@@ -890,13 +890,13 @@ The overlay image shows calibration results on the layout map. Switch overlay so
 3. Use AMC / VGGT tabs to switch result types
 4. Click **Download** to save the image
 
-![Overlay Image](/assets/images/vss-autocalib-ui/overlay_image.jpg)
+![Overlay Image](./assets/images/vss-autocalib-ui/overlay_image.jpg)
 
 **GT Virtual Objects**
 - Per-camera overlay produced by layout post-processing: a **green** world floor grid (`z = 0`, typically 1 m spacing) and **red** fixed-height poles (current default **1.75 m**) at each grid intersection, both projected with the calibrated camera matrix (AMC or VGGT).
 - Use it as a visual check — if calibration is good, the green grid sits on the real floor and the red poles look upright and correctly scaled; a sliding grid or leaning poles usually means that camera’s pose is off. Requires completed layout post-processing and available virtual-GT artifacts; pick a camera to inspect each view, then compare AMC vs VGGT if both exist.
 
-![GT Virtual Objects Image](/assets/images/vss-autocalib-ui/GT_virtual_object.jpg)
+![GT Virtual Objects Image](./assets/images/vss-autocalib-ui/GT_virtual_object.jpg)
 
 ### Evaluation Metrics
 
@@ -911,7 +911,7 @@ If ground truth data was uploaded and post-processing ran, evaluation metrics ar
   - Minimum distance
 - **Result Type Tabs**: Switch between AMC and VGGT evaluation
 
-![Evaluation Metrics](/assets/images/vss-autocalib-ui/evaluation_metrics.jpg)
+![Evaluation Metrics](./assets/images/vss-autocalib-ui/evaluation_metrics.jpg)
 
 **Interpreting Metrics**
 - **Lower Average**: Better calibration accuracy
@@ -936,7 +936,7 @@ View detailed calibration parameters for each camera.
 3. Switch between AMC and VGGT tabs to compare
 4. Click **Export AMC** or **Export VGGT** to download all parameters
 
-![Camera Parameters](/assets/images/vss-autocalib-ui/cam_params.jpg)
+![Camera Parameters](./assets/images/vss-autocalib-ui/cam_params.jpg)
 
 **Parameter Contents**
 
@@ -951,7 +951,7 @@ ROI and tripwire editing is an **optional** activity on Results and does not req
 
 Choose **Camera** or **Global ROIs / tripwires** at the top left of the card before drawing.
 
-![Annotation Target](/assets/images/vss-autocalib-ui/annotation_target.jpg)
+![Annotation Target](./assets/images/vss-autocalib-ui/annotation_target.jpg)
 
 **Camera (per-stream annotations)**
 
@@ -960,7 +960,7 @@ Choose **Camera** or **Global ROIs / tripwires** at the top left of the card bef
 3. The first frame of the selected **linear (rectified)** video loads on the canvas
 4. Switch between cameras to draw ROIs, tripwire lines, and tripwire directions as needed
 
-![Camera Selection](/assets/images/vss-autocalib-ui/cam_selection.jpg)
+![Camera Selection](./assets/images/vss-autocalib-ui/cam_selection.jpg)
 
 **Global ROIs / tripwires (layout-map annotations)**
 
@@ -980,7 +980,7 @@ Choose **Camera** or **Global ROIs / tripwires** at the top left of the card bef
 - **Show/Hide**: Toggle visibility of annotations
 - **Reset**: Clear all annotations for the active target (current camera or global layout map)
 
-![Drawing Tools](/assets/images/vss-autocalib-ui/drawing_tools.jpg)
+![Drawing Tools](./assets/images/vss-autocalib-ui/drawing_tools.jpg)
 
 #### Drawing ROIs
 
@@ -1000,7 +1000,7 @@ ROIs define areas of interest for detection and tracking.
 - **Maximum Points**: Unlimited
 - **Auto-save**: Saved immediately upon completion
 
-![ROI Drawing](/assets/images/vss-autocalib-ui/roi_drawing.jpg)
+![ROI Drawing](./assets/images/vss-autocalib-ui/roi_drawing.jpg)
 
 **Editing ROIs**
 - **Delete**: Click the delete button next to the ROI in the right panel
@@ -1023,7 +1023,7 @@ Tripwire lines are used for counting objects crossing a line.
 - **Auto-save**: Saved immediately upon completion
 - **Use Case**: Bidirectional counting
 
-![Tripwire Line](/assets/images/vss-autocalib-ui/tripwire_line.jpg)
+![Tripwire Line](./assets/images/vss-autocalib-ui/tripwire_line.jpg)
 
 #### Drawing Tripwire Directions
 
@@ -1045,7 +1045,7 @@ Tripwire directions are used for unidirectional counting with an arrow indicator
 - **Auto-save**: Saved immediately upon completion
 - **Use Case**: Unidirectional counting (e.g., entry/exit)
 
-![Tripwire Direction](/assets/images/vss-autocalib-ui/tripwire_direction.jpg)
+![Tripwire Direction](./assets/images/vss-autocalib-ui/tripwire_direction.jpg)
 
 #### Canvas Controls
 
@@ -1069,7 +1069,7 @@ The right panel shows all annotations for the active target—the selected **Cam
 - **Tripwire Lines Section**: Count of completed tripwire lines; each line shown as a red chip; delete button for each
 - **Tripwire Directions Section**: Count of completed tripwire directions; each direction shown as a yellow chip with arrow; delete button for each
 
-![Annotation List](/assets/images/vss-autocalib-ui/annotation_list.jpg)
+![Annotation List](./assets/images/vss-autocalib-ui/annotation_list.jpg)
 
 #### Export Image-Mode JSON
 
@@ -1083,7 +1083,7 @@ For image-coordinate calibration (`"calibrationType": "image"`) only, include th
 2. Click **Export image-mode JSON**
 3. The browser downloads `<project_name>_image_mode_exported.json`
 
-![Export Image-Mode JSON](/assets/images/vss-autocalib-ui/export_image_mode.jpg)
+![Export Image-Mode JSON](./assets/images/vss-autocalib-ui/export_image_mode.jpg)
 
 **What Is Exported**
 
@@ -1113,9 +1113,9 @@ Verify per-camera and **global** ROIs and tripwires: how they appear on each rec
 5. Under the camera view, use checkboxes labeled **Global ROI:** / **Global tripwire:** to include or exclude that camera in each ROIs/Tripwires `sensors` list (only global items projected to that camera are listed)
 6. Use world-map zoom controls for detail; click **Close** when finished
 
-![Show ROI and Tripwires](/assets/images/vss-autocalib-ui/show_roi_and_tripwires.jpg)
+![Show ROI and Tripwires](./assets/images/vss-autocalib-ui/show_roi_and_tripwires.jpg)
 
-![ROI and Tripwire Verification](/assets/images/vss-autocalib-ui/roi_and_tripwire_verification.jpg)
+![ROI and Tripwire Verification](./assets/images/vss-autocalib-ui/roi_and_tripwire_verification.jpg)
 
 **Left Panel — Camera target**
 - Rectified video frame for the selected camera
@@ -1138,7 +1138,7 @@ Verify per-camera and **global** ROIs and tripwires: how they appear on each rec
 - **Reset** (↻): Return to 100% zoom
 - **Current Zoom**: Displayed as percentage
 
-![BEV Zoom Controls](/assets/images/vss-autocalib-ui/bev_zoom_controls.jpg)
+![BEV Zoom Controls](./assets/images/vss-autocalib-ui/bev_zoom_controls.jpg)
 
 ### Export Calibration Data
 
@@ -1151,13 +1151,13 @@ Export complete calibration data in various formats.
 3. **MV3DT ZIP VGGT** *(if available)* — MV3DT-compatible format with VGGT results; ZIP archive; filename: `{project_name}_vggt_mv3dt.zip`
 4. **Delete Results** — removes all calibration results; project returns to READY state; allows re-running calibration
 
-![Export Options](/assets/images/vss-autocalib-ui/export_options.jpg)
+![Export Options](./assets/images/vss-autocalib-ui/export_options.jpg)
 
 **How to Export**
 
 - **Full Export**: Click **Full Export**, choose **AMC** or **VGGT** in the dialog when both are available, optionally edit metadata or open the manual JSON editor by clicking **Full Control**, then click **Download JSON**. The file downloads to your browser's download folder.
 
-![Export JSON Editor](/assets/images/vss-autocalib-ui/export_json.jpg)
+![Export JSON Editor](./assets/images/vss-autocalib-ui/export_json.jpg)
 
 > This is an advanced user feature. Edit the JSON only if you understand the calibration schema; any changes should be made carefully to avoid invalid or incorrect calibration output.
 
@@ -1192,7 +1192,7 @@ If you need to re-run calibration with different parameters:
 
 At the bottom of the page, a success message confirms calibration is complete.
 
-![Calibration Complete](/assets/images/vss-autocalib-ui/calib_completed.jpg)
+![Calibration Complete](./assets/images/vss-autocalib-ui/calib_completed.jpg)
 
 **Message**
 - **Title**: "🎉 Calibration Complete!"

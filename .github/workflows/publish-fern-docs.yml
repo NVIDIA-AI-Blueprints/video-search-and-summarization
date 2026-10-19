@@ -13,45 +13,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Publishes the Fern documentation site to production
-# (nvidia-vss.docs.buildwithfern.com/vss and docs.nvidia.com/vss).
-#
-# Staging is a separate workflow: stage-fern-docs.yml.
-# After docs.yml lists more than one instance, this job must pass --instance
-# so it cannot publish to nvidia-vss-staging by accident.
-#
-# Runs on a published GitHub Release, or manually. On a release event GitHub
-# already points the checkout at refs/tags/<tag>, so this publishes exactly the
-# tagged content without naming a branch.
-#
-# Docs versioning (a version picker on the site, serving frozen content per
-# release) is deliberately not here. It needs a release tag cut *after* the docs
-# landed, plus a fern/docs.yml restructured around `products:`. Neither exists
-# yet. See the follow-up issue.
-#
-# Requires the DOCS_FERN_TOKEN repo secret.
+# One production site is assembled from develop and the branches listed in its
+# fern/docs.yml. Every docs push to develop or release/** rebuilds it when the
+# source branch is listed. Release branches carry this workflow independently;
+# they never need to merge into develop. Merge the source-preparation PR first,
+# then the develop PR which registers that branch. Before develop is ready,
+# release pushes skip production safely but still produce a release preview.
+# Requires DOCS_FERN_TOKEN.
 
 name: Publish Fern Docs
 
-# The docs substitute three values into every `git checkout` and image-tag line
-# (VSS_DOCS_GIT_REF, VSS_DOCS_IMAGE_TAG, VSS_DOCS_SBSA_IMAGE_TAG; see
-# .github/scripts/check_fern_substitutions.py). They are derived from the ref
-# that triggered the publish, never written down here: a release publishes the
-# docs for its tag (`git checkout v3.3.0`, image tag `3.3.0`), and only a manual
-# run with no tag publishes the develop docs (`develop`, `develop-latest`).
-# Hard-coding develop here once made the 3.2.1 release docs tell readers to
-# check out develop and pull develop-latest.
-
 on:
-  release:
-    types: [published]
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: "Publish the docs for this release tag (vX.Y.Z). Leave empty to publish the develop docs."
-        required: false
-        default: ""
-        type: string
+  push:
+    branches:
+      - develop
+      - 'release/**'
+    paths:
+      - 'docs/**'
+      - 'fern/**'
+      - 'services/analytics/video-analytics-api/src/app/specification/openapi.json'
+      - '.github/scripts/build_fern_site.py'
+      - '.github/scripts/check_fern_site.sh'
+      - '.github/scripts/publish_fern_docs.sh'
+      - '.github/actions/setup-fern/**'
+      - '.github/workflows/publish-fern-docs.yml'
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -63,95 +49,70 @@ concurrency:
 jobs:
   publish:
     name: Publish
-    # `release: published` also fires for GitHub pre-releases (v3.4.0rc0), which
-    # name no published image; skip them rather than fail the vX.Y.Z check below.
-    # A manual run naming a pre-release tag still fails there, loudly.
-    if: ${{ github.event_name != 'release' || !github.event.release.prerelease }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
-      - name: Checkout repository
+      - name: Checkout develop
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # A release event checks out its tag by default; a manual run naming a
-          # tag publishes that tag's docs, not whatever branch the button was
-          # pressed on.
-          ref: ${{ inputs.release_tag || github.ref }}
+          ref: develop
           persist-credentials: false
 
-      # Release image tags are the bare version (`3.3.0`, `3.3.0-sbsa`), so only
-      # a release tag of that shape can be published: a pre-release tag such as
-      # v3.3.0rc0 names no published image and is refused rather than pointing
-      # readers at a tag that does not exist.
-      - name: Derive the docs substitutions from the release
+      - name: Select configured source branch
+        id: target
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          tag="${RELEASE_TAG:-${INPUT_RELEASE_TAG:-}}"
-          if [ -z "$tag" ]; then
-            ref=develop
-            image=develop-latest
-          else
-            if ! printf '%s' "$tag" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-              echo "::error::'${tag}' is not a release tag (vX.Y.Z); release docs name the images published under that version"
-              exit 1
-            fi
-            ref="$tag"
-            image="${tag#v}"
+          if [ ! -f .github/scripts/build_fern_site.py ]; then
+            echo "::notice::Develop has not adopted branch assembly yet; skipping production"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          echo "docs will substitute: VSS_DOCS_GIT_REF=${ref} VSS_DOCS_IMAGE_TAG=${image} VSS_DOCS_SBSA_IMAGE_TAG=${image}-sbsa"
-          {
-            echo "VSS_DOCS_GIT_REF=${ref}"
-            echo "VSS_DOCS_IMAGE_TAG=${image}"
-            echo "VSS_DOCS_SBSA_IMAGE_TAG=${image}-sbsa"
-          } >> "$GITHUB_ENV"
+          python3 - <<'PYTHON'
+          import importlib.util
+          import os
+          import sys
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("build_fern_site", ".github/scripts/build_fern_site.py")
+          module = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = module
+          spec.loader.exec_module(module)
+          versions = module.parse_versions(Path("fern/docs.yml").read_text())
+          source = os.environ["REF_NAME"]
+          publish = os.environ["EVENT_NAME"] == "workflow_dispatch" or source == "develop" or any(v.branch == source for v in versions)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print(f"publish={str(publish).lower()}", file=output)
+          if not publish:
+              print(f"::notice::{source} is not listed on develop; skipping production")
+          PYTHON
 
-      - name: Setup Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: '20'
+      - name: Set up Fern CLI
+        if: steps.target.outputs.publish == 'true'
+        uses: ./.github/actions/setup-fern
 
-      - name: Install Fern CLI
+      - name: Build Fern site
+        if: steps.target.outputs.publish == 'true'
         run: |
           set -euo pipefail
-          VERSION=$(jq -r .version fern/fern.config.json)
-          if ! [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?|latest)$ ]]; then
-            echo "::error::fern.config.json .version '$VERSION' is not a valid semver or 'latest'"
-            exit 1
-          fi
-          npm install -g "fern-api@${VERSION}"
+          python3 .github/scripts/build_fern_site.py --fetch \
+            --output "${RUNNER_TEMP}/fern-site" | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Prepare and check Fern inputs
-        run: |
-          python3 .github/scripts/prepare_fern_inputs.py --output "${RUNNER_TEMP}/fern-input"
-          python3 .github/scripts/check_fern_substitutions.py --root "${RUNNER_TEMP}/fern-input"
+      - name: Check Fern site
+        if: steps.target.outputs.publish == 'true'
+        working-directory: ${{ runner.temp }}/fern-site
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}   # enables the redirects check
+        run: '"${GITHUB_WORKSPACE}/.github/scripts/check_fern_site.sh"'
 
       - name: Publish docs
-        working-directory: ${{ runner.temp }}/fern-input
+        if: steps.target.outputs.publish == 'true'
+        working-directory: ${{ runner.temp }}/fern-site
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         run: |
-          set -eo pipefail
-          ATTEMPTS=3
-          URL=""
-          for i in $(seq 1 "$ATTEMPTS"); do
-            echo "::group::fern generate attempt $i/$ATTEMPTS"
-            if fern generate --docs --instance nvidia-vss.docs.buildwithfern.com/vss 2>&1 | tee /tmp/fern-output.log; then
-              URL=$(grep -oP 'Published docs to \K.*(?= \()' /tmp/fern-output.log || true)
-            fi
-            echo "::endgroup::"
-            if [ -n "$URL" ]; then
-              break
-            fi
-            echo "Publish failed on attempt $i/$ATTEMPTS"
-            if [ "$i" -lt "$ATTEMPTS" ]; then
-              sleep $((i * 20))
-            fi
-          done
-          if [ -z "$URL" ]; then
-            echo "::error::Failed to publish docs after ${ATTEMPTS} attempts. See fern output above."
+          if ! "${GITHUB_WORKSPACE}/.github/scripts/publish_fern_docs.sh"; then
+            echo "::error::Failed to publish docs. See fern output above."
             exit 1
           fi
-          echo "### Published: [$URL]($URL)" >> "$GITHUB_STEP_SUMMARY"

@@ -238,12 +238,16 @@ revision — see `skills/vss-build-vision-ai/references/agent-harness.md`.
 
 ## Docs
 
-`publish-fern-docs.yml` derives `VSS_DOCS_GIT_REF` / `VSS_DOCS_IMAGE_TAG` /
-`VSS_DOCS_SBSA_IMAGE_TAG` from the release that triggered it (`v3.3.0` →
-`v3.3.0` / `3.3.0` / `3.3.0-sbsa`); a manual run may name a tag; a pre-release
-tag is refused because no image is published under it. PR previews and staging
-are develop and stay `develop` / `develop-latest`. These are checkout refs and
-registry tags, not package versions — the rc marker never appears in docs.
+The site is assembled from the checkout (Dev) and the maintained branches listed
+in `fern/docs.yml` on develop. A release entry uses `branch: release/3.3.0` and
+`release: "3.3.0"`: the branch supplies documentation, while installation examples
+stay pinned to `v3.3.0` / `3.3.0` / `3.3.0-sbsa`. Dev uses `develop` /
+`develop-latest` / `develop-latest-sbsa`. A release preview uses its checkout and
+the release values. The builder replaces `${VSS_DOCS_*:-default}` markers only
+in the temporary site tree; no stamp PR or workflow environment pin is needed.
+Branch-backed docs can be corrected without a software release or a merge into
+develop. Optional `ref: vX.Y.Z` entries provide frozen tag-backed docs. See
+`docs/README.md` for the two-PR rollout and publishing behavior.
 
 ## What is deliberately out of scope
 

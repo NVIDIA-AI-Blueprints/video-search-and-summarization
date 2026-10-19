@@ -9,7 +9,7 @@ We recommend reviewing the following definitions and suggestions for new camera 
 
 ## Definitions
 
-![Definitions](/assets/images/calibration/Camera_Position_Definition.png)
+![Definitions](./assets/images/calibration/Camera_Position_Definition.png)
 
 * Pitch: the angle between the camera center line and the horizontal plane (the rotation around the side-to-side axis).
 * Height: The mounting height of the camera from the ground.
@@ -42,23 +42,23 @@ Consider the following two views as a comparison:
 	* View1: Camera mounted at around 5ft high with a Pitch angle around zero degree.
 	* View2: Camera mounted at around 12ft high with a Pitch angle around 30 degrees.
 
-![example1](/assets/images/calibration/Camera_Position_Sample_1.png)
+![example1](./assets/images/calibration/Camera_Position_Sample_1.png)
 
 From the perspective of Metropolis reference applications, View2 is better than view1 for the following reasons:
 
 * In view1, there are more chances for occlusions between moving objects due to the low mounting height.
 
- ![example2](/assets/images/calibration/Camera_Position_Sample_2.png)
+ ![example2](./assets/images/calibration/Camera_Position_Sample_2.png)
 
- ![example3](/assets/images/calibration/Camera_Position_Sample_3.png)
+ ![example3](./assets/images/calibration/Camera_Position_Sample_3.png)
 
- ![example4](/assets/images/calibration/Camera_Position_Sample_4.png)
+ ![example4](./assets/images/calibration/Camera_Position_Sample_4.png)
 
 ## Camera Selection
 
-We recommend using ONVIF compliant cameras for the best compatibility with the Metropolis platform. For a list of tested cameras, refer to [Cameras Tested in VIOS](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#cameras-tested-in-vios).
+We recommend using ONVIF compliant cameras for the best compatibility with the Metropolis platform. For a list of tested cameras, refer to [Cameras Tested in VIOS](/system-components/middleware/video-io-storage-vios/vios-microservices#cameras-tested-in-vios).
 
-Time drift may occur in ONVIF cameras, which can lead to synchronization issues between multiple cameras. To mitigate this, refer to [Handling time drift in ONVIF cameras](/vss/system-components/middleware/video-io-storage-vios/vios-microservices#handling-time-drift-in-onvif-cameras) for best practices.
+Time drift may occur in ONVIF cameras, which can lead to synchronization issues between multiple cameras. To mitigate this, refer to [Handling time drift in ONVIF cameras](/system-components/middleware/video-io-storage-vios/vios-microservices#handling-time-drift-in-onvif-cameras) for best practices.
 
 ## Camera Connection
 
@@ -66,4 +66,4 @@ When connecting live cameras to the Metropolis analytics system for an on-prim d
 it is recommended to connect all cameras to the same switch and then connect to the system where the analytics system is deployed on through local ethernet.
 Thus connection delayout will best ensure the time synthronization across all cameras and minizie the end-to-end latency. A reference connection diagram is shown below:
 
- ![example4](/assets/images/calibration/Camera_Connection_Sample.png)
+ ![example4](./assets/images/calibration/Camera_Connection_Sample.png)
