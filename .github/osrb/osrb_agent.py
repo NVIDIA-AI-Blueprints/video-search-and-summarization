@@ -258,7 +258,7 @@ def build_triage_input(
 # lists the third-party rest inline and puts the base-image/OS packages in a
 # separate collapsed list.
 _FIRST_PARTY_RE = re.compile(
-    r"^(nvidia-vss|vss[-_]|vss$|deep[-_]search|cv[-_]pipeline|gst[-_]video[-_]sei|"
+    r"^(nvidia-vss|nvidia-vision-ai|vss[-_]|vss$|deep[-_]search|cv[-_]pipeline|gst[-_]video[-_]sei|"
     r"vllm[-_]cosmos|nvidia-rag|tritonserver|triton[-_]python[-_]backend|pyds|"
     r"pynvvideocodec)",
     re.IGNORECASE,

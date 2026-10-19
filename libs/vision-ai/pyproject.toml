@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Workspace root only -- not a distribution. The two packages are
+# libs/vision-ai (nvidia-vision-ai) and apps/cli (nvidia-vision-ai-cli).
+[project]
+name = "vision-ai-workspace"
+version = "0"
+requires-python = ">=3.13,<3.15"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["libs/vision-ai", "apps/cli"]
+
+[tool.uv.sources]
+nvidia-vision-ai = { workspace = true }
+nvidia-vision-ai-cli = { workspace = true }
+
+[dependency-groups]
+dev = [
+  "nvidia-vision-ai",
+  "nvidia-vision-ai-cli",
+  "pyright>=1.1.400",
+  "pytest>=8.3",
+  "pytest-asyncio>=0.25",
+  "ruff>=0.11",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+src = ["libs/vision-ai/src", "apps/cli/src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ARG", "SIM", "RUF", "PL", "S"]
+ignore = ["PLR0911", "PLR0913", "PLR2004", "S101"]
+
+[tool.ruff.lint.isort]
+force-single-line = true
+force-sort-within-sections = true
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["ARG", "PLC0415", "S"]
+
+[tool.pyright]
+include = ["libs/vision-ai/src", "apps/cli/src"]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+
+[tool.pytest.ini_options]
+testpaths = ["libs/vision-ai/tests", "apps/cli/tests"]
+pythonpath = ["apps/cli/tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "--import-mode=importlib"

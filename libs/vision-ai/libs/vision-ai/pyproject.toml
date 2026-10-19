@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+raw-options.root = "../../../.."
+raw-options.git_describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--match", "v[0-9]*"]
+raw-options.version_scheme = "no-guess-dev"
+raw-options.fallback_version = "0.1.0.dev0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nvidia_vision_ai"]
+
+[project]
+name = "nvidia-vision-ai"
+dynamic = ["version"]
+requires-python = ">=3.13,<3.15"
+description = "NVIDIA Vision AI harness library"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{ name = "NVIDIA Corporation" }]
+maintainers = [{ name = "NVIDIA Corporation" }]
+# Keep sorted. The library is transport-only: no config files, no CLI.
+dependencies = [
+  "httpx~=0.28",
+  "pydantic>=2.11,<3",
+  "tenacity~=9.0",
+]
