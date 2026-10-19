@@ -71,7 +71,7 @@ Optional: You can enable notifications by setting `webhook.openclaw.enabled` to 
 
 **Deploy prompt structure**
 
-```text title="Deploy prompt structure"
+```text title="Paste into your coding agent"
 Deploy the VSS alerts profile in real-time mode.
 ```
 
@@ -79,7 +79,7 @@ Name an image tag in the prompt to run a release's images instead of the
 `containers.env` default. See
 [Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
 
-```text title="Deploy prompt with a release image tag"
+```text title="Paste into your coding agent"
 Deploy the VSS alerts profile in real-time mode with image tag ${VSS_DOCS_IMAGE_TAG:-develop-latest}.
 ```
 
@@ -87,7 +87,7 @@ The `vss-build-vision-ai` skill uses Cosmos3 Nano Reasoner BF16 as the default V
 which VLM models are available during the deployment process, or request a different model
 directly in your deployment prompt:
 
-```text title="VLM model prompts"
+```text title="Paste into your coding agent"
 Which VLM models are available for the alerts profile?
 Deploy the VSS alerts profile in real-time mode with the Cosmos3 Super Reasoner FP8 VLM.
 ```
@@ -106,7 +106,7 @@ Add a stream with the `vss-manage-video-io-storage` skill.
 
 **Add an RTSP stream to VIOS**
 
-```text title="Add an RTSP stream to VIOS"
+```text title="Paste into your coding agent or NemoClaw chat"
 Add RTSP stream <rtsp stream URL> to VIOS with the sensor name warehouse_sample.
 ```
 
@@ -134,7 +134,7 @@ For Docker Compose deployments, Alert Bridge listens on port `9080`. Resolve the
 sensor UUID and main RTSP URL from VIOS, then create the rule through Alert
 Bridge—not directly through RT-VLM:
 
-```bash
+```bash title="Run in the deployment host terminal"
 curl -sS -X POST "http://<HOST_IP>:9080/api/v1/realtime" \
   -H "Content-Type: application/json" \
   -d '{
@@ -188,7 +188,7 @@ supported.
 
 ##### Add an Alert Rule
 
-```text title="Add an alert rule"
+```text title="Paste into your coding agent or NemoClaw chat"
 Detect anyone entering without personal protective equipment on sensor warehouse_sample.
 Send me alerts for fallen boxes in camera warehouse_sample.
 Watch warehouse_sample for anyone without a safety vest.
@@ -202,7 +202,7 @@ What the agent does:
 
 ##### List Active Alert Rules
 
-```text title="List active alert rules"
+```text title="Paste into your coding agent or NemoClaw chat"
 What alert rules are currently active?
 ```
 
@@ -214,7 +214,7 @@ What the agent does:
 
 ##### Show Alert Notifications
 
-```text title="Show alert notifications"
+```text title="Paste into your coding agent or NemoClaw chat"
 List any alerts for alert ID <alert ID>.
 ```
 
@@ -226,7 +226,7 @@ What the agent does:
 
 ##### Replace an Alert Rule
 
-```text title="Replace an alert rule"
+```text title="Paste into your coding agent or NemoClaw chat"
 Replace alert rule ID <alert ID> with a rule that watches warehouse_sample for fallen boxes.
 ```
 
@@ -238,7 +238,7 @@ What the agent does:
 
 ##### Delete an Alert Rule
 
-```text title="Delete an alert rule"
+```text title="Paste into your coding agent or NemoClaw chat"
 Delete alert rule ID <alert ID>.
 ```
 
@@ -254,7 +254,7 @@ The Alerts Microservice supports receiving alerts on the OpenClaw UI. Ensure tha
 To use this feature, send the following prompt after creating an alert rule. Substitute your own
 VST public URL and gateway. Do **not** copy captured sandbox hosts from a previous environment.
 
-```text
+```text title="Paste into NemoClaw chat"
 Start the alert-notify relay (dashboard backend only).
 
 NOTIFY_BACKENDS=dashboard
@@ -288,7 +288,7 @@ the connection carries the gateway token and alert contents. Use `ws://` only fo
 - For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
 </Note>
 
-```bash
+```bash title="Run in the deployment host terminal"
 # Set NGC CLI API key
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
@@ -304,7 +304,7 @@ template is
 
 From the repository checkout root, enter the Compose deployment directory:
 
-```bash
+```bash title="Run in the deployment host terminal"
 cd deploy/docker
 ```
 
@@ -315,7 +315,7 @@ committed. The commands below use `user-overrides.env` as a concrete example;
 if you choose another name, use it consistently in every `--env-file` argument.
 Repeat the copy only when you want to discard prior layout changes:
 
-```bash
+```bash title="Run in the deployment host terminal"
 PROFILE=alerts
 cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
   "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
@@ -400,7 +400,7 @@ HOST_IP=<reachable-host-ip-or-name>
 run this block. The guards stop before `mkdir` or `chmod` if either value is
 absent or is not absolute:
 
-```bash
+```bash title="Run in the deployment host terminal"
 : "${VSS_DATA_DIR:?Export VSS_DATA_DIR with the value from user-overrides.env}"
 : "${VSS_APPS_DIR:?Export VSS_APPS_DIR with the value from user-overrides.env}"
 case "$VSS_DATA_DIR" in
@@ -442,7 +442,7 @@ chmod -R a+rwx \
 Export the tag selected for this documentation branch before choosing a hardware
 layout:
 
-```bash
+```bash title="Run in the deployment host terminal"
 export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
 ```
 
@@ -776,7 +776,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 After replacing every placeholder in the selected layout, from `deploy/docker`
 validate the resolved configuration, then start the profile:
 
-```bash
+```bash title="Run in the deployment host terminal"
 PROFILE=alerts
 docker compose -f compose.yml \
   --env-file containers.env \
@@ -812,7 +812,7 @@ When using a remote VLM of model-type `nim` (not `openai`), see [How does a remo
 
 Once the deployment is complete, check that all the containers are running and healthy:
 
-```bash
+```bash title="Run in the deployment host terminal"
 docker ps
 ```
 
@@ -873,7 +873,7 @@ Now, use the ID to request generation of the report while also specifying the as
 
 To tear down the agent, run the following command:
 
-```bash
+```bash title="Run in the deployment host terminal"
 cd deploy/docker
 PROFILE=alerts
 docker compose -f compose.yml \
