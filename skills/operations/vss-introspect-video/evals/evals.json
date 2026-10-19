@@ -46,6 +46,7 @@
     "ground_truth": "Cover the whole grounded recording using bounded windows, retaining uncovered intervals as gaps.",
     "expected_behavior": [
       "Uses ordinary VIOS lookup for recording bounds and does not issue an unbounded VLM call.",
+      "First visual round skims at 0.5 fps; later rounds use shorter windows and higher fps.",
       "Claims whole-video sufficiency only when accepted windows provide defensibly complete coverage."
     ]
   },

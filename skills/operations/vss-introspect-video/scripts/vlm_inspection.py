@@ -6,21 +6,30 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import math
 import os
 import re
+import shutil
 import subprocess
+import tempfile
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Sequence
+from uuid import uuid4
 
 MAX_VLM_FRAMES = 60
 MAX_DEGENERATE_RETRIES = 1
 ATTEMPT_CONTEXT_ENV = "VSS_INTROSPECTION_ATTEMPT_CONTEXT"
 DEFAULT_ATTEMPT_CONTEXT_PATH = Path(
     "/sandbox/.openclaw/workspace/.vss/introspection-attempt.json"
+)
+REMOTE_VLM_CONFIG_PATH = Path(
+    os.environ.get("VSS_REMOTE_VLM_CONFIG", "/sandbox/.vss/remote-vlm.json")
 )
 QUALITY_REPAIR_SUFFIX = (
     "\n\nQuality repair: report only chronological visible facts from this "
@@ -373,6 +382,320 @@ def parse_vlm_stdout(stdout: str) -> dict[str, Any]:
     return chosen
 
 
+def remote_vlm_spec() -> dict[str, Any] | None:
+    """Optional Inference Hub override. Unset config keeps local `vss vlm run`."""
+    model = (os.environ.get("VSS_REMOTE_VLM_MODEL") or "").strip()
+    api = (os.environ.get("VSS_REMOTE_VLM_API") or "").strip()
+    base = (os.environ.get("VSS_REMOTE_VLM_BASE") or "").strip()
+    spec: dict[str, Any] = {}
+    if REMOTE_VLM_CONFIG_PATH.is_file():
+        loaded = json.loads(REMOTE_VLM_CONFIG_PATH.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            spec.update(loaded)
+    if model:
+        spec["model"] = model
+    if api:
+        spec["api"] = api
+    if base:
+        spec["base_url"] = base
+    model_id = str(spec.get("model") or "").strip()
+    if not model_id:
+        return None
+    lowered = model_id.lower()
+    if "cosmos3-super-reasoner" in lowered or "nim_nvidia_cosmos3-super" in lowered:
+        raise RuntimeError(f"refusing to invoke CR3 Super: {model_id}")
+    spec.setdefault("api", "responses" if "gpt-6-astra" in lowered else "chat_completions")
+    spec.setdefault("base_url", "https://inference-api.nvidia.com/v1")
+    spec.setdefault("max_tokens", 4096)
+    spec.setdefault("timeout_seconds", 1200)
+    spec["model"] = model_id
+    return spec
+
+
+def _inference_api_key() -> str:
+    key = (os.environ.get("NVIDIA_INFERENCE_API_KEY") or os.environ.get("VSS_VLM_API_KEY") or "").strip()
+    if not key:
+        raise RuntimeError("NVIDIA_INFERENCE_API_KEY is not available")
+    return key
+
+
+def _ffmpeg_bin() -> str:
+    configured = (os.environ.get("VSS_FFMPEG") or "").strip()
+    if configured:
+        return configured
+    path = shutil.which("ffmpeg")
+    if path:
+        return path
+    raise RuntimeError("ffmpeg is required for remote VLM frame reconstruction")
+
+
+def _parse_json_object(text: str) -> dict[str, Any]:
+    stripped = (text or "").strip()
+    if not stripped:
+        raise ValueError("empty json")
+    try:
+        payload = json.loads(stripped)
+        if isinstance(payload, dict):
+            return payload
+    except json.JSONDecodeError:
+        pass
+    start = stripped.find("{")
+    if start < 0:
+        raise ValueError("no json object")
+    decoder = json.JSONDecoder()
+    parsed, _ = decoder.raw_decode(stripped, start)
+    if not isinstance(parsed, dict):
+        raise ValueError("json payload is not an object")
+    return parsed
+
+
+def _vss_command(vss_project: str, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["uv", "run", "--project", vss_project, "vss", *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _extract_clip(vss_project: str, sensor: str, start: str, end: str, dest: Path) -> None:
+    completed = _vss_command(
+        vss_project,
+        "vios",
+        "clip",
+        "--sensor",
+        sensor,
+        "--start-time",
+        start,
+        "--end-time",
+        end,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            (completed.stderr or completed.stdout or "vss vios clip failed").strip()[-2000:]
+        )
+    payload = _parse_json_object(completed.stdout)
+    media_url = str(payload.get("media_url") or "").strip()
+    if not media_url:
+        raise RuntimeError("vss vios clip returned no media_url")
+    request = urllib.request.Request(media_url, method="GET")
+    with urllib.request.urlopen(request, timeout=120) as response:
+        dest.write_bytes(response.read())
+    if dest.stat().st_size < 32:
+        raise RuntimeError("downloaded clip is empty")
+
+
+def _sample_frames(clip: Path, dest: Path, fps: float, frames_needed: int) -> list[Path]:
+    dest.mkdir(parents=True, exist_ok=True)
+    pattern = dest / "frame_%04d.jpg"
+    completed = subprocess.run(
+        [
+            _ffmpeg_bin(),
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(clip),
+            "-vf",
+            f"fps={fps}",
+            "-frames:v",
+            str(frames_needed),
+            "-q:v",
+            "2",
+            str(pattern),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=600,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError((completed.stderr or "ffmpeg failed").strip()[-1000:])
+    frames = sorted(dest.glob("frame_*.jpg"))
+    if not frames:
+        raise RuntimeError("ffmpeg produced no frames")
+    return frames
+
+
+def _extract_remote_text(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return str(payload)
+    choices = payload.get("choices") or []
+    if choices and isinstance(choices[0], dict):
+        message = choices[0].get("message") or {}
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            texts = [
+                item.get("text")
+                for item in content
+                if isinstance(item, dict) and item.get("text")
+            ]
+            return "\n".join(str(text) for text in texts)
+        if choices[0].get("text"):
+            return str(choices[0]["text"])
+    if payload.get("output_text"):
+        return str(payload["output_text"])
+    output = payload.get("output")
+    if isinstance(output, list):
+        chunks: list[str] = []
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            for content in item.get("content") or []:
+                if isinstance(content, dict) and content.get("text"):
+                    chunks.append(str(content["text"]))
+        if chunks:
+            return "\n".join(chunks)
+    return json.dumps(payload)[:20000]
+
+
+def _post_inference(url: str, payload: dict[str, Any], timeout: int) -> tuple[int, Any]:
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {_inference_api_key()}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+            try:
+                return response.status, json.loads(raw)
+            except json.JSONDecodeError:
+                return response.status, raw
+    except urllib.error.HTTPError as error:
+        raw = error.read().decode("utf-8", errors="replace")
+        try:
+            parsed: Any = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = raw
+        return error.code, parsed
+
+
+def _call_remote_vlm(spec: dict[str, Any], prompt: str, frame_paths: list[Path]) -> dict[str, Any]:
+    model_id = str(spec["model"])
+    api = str(spec.get("api") or "chat_completions")
+    base = str(spec.get("base_url") or "").rstrip("/")
+    max_tokens = int(spec.get("max_tokens") or 4096)
+    timeout = int(spec.get("timeout_seconds") or 1200)
+    images = []
+    for path in frame_paths:
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        images.append(f"data:image/jpeg;base64,{encoded}")
+    if api == "responses":
+        url = f"{base}/responses"
+        payload: dict[str, Any] = {
+            "model": model_id,
+            "max_output_tokens": max_tokens,
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        *[{"type": "input_image", "image_url": url} for url in images],
+                        {"type": "input_text", "text": prompt},
+                    ],
+                }
+            ],
+        }
+    else:
+        url = f"{base}/chat/completions"
+        payload = {
+            "model": model_id,
+            "max_tokens": max_tokens,
+            "temperature": 0.2,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        *[{"type": "image_url", "image_url": {"url": item}} for item in images],
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+        }
+    last_status = 0
+    last_payload: Any = {}
+    errors: list[str] = []
+    for attempt in range(4):
+        status, response = _post_inference(url, payload, timeout)
+        last_status, last_payload = status, response
+        if status in {429, 500, 502, 503, 504} and attempt < 3:
+            errors.append(f"transport {status}")
+            continue
+        break
+    text = _extract_remote_text(last_payload)
+    ok = 200 <= last_status < 300
+    return {
+        "http_status": last_status,
+        "ok": ok,
+        "text": text,
+        "error": None if ok else (str(last_payload)[:1500] or "; ".join(errors)),
+        "job_id": "vlm-remote-" + uuid4().hex.upper(),
+    }
+
+
+def _run_remote_vlm(
+    *,
+    spec: dict[str, Any],
+    vss_project: str,
+    sensor: str,
+    start: str,
+    end: str,
+    fps: float,
+    prompt: str,
+) -> dict[str, Any]:
+    duration = window_duration_seconds(start, end)
+    frames_needed = min(MAX_VLM_FRAMES, frames_requested(fps, duration))
+    with tempfile.TemporaryDirectory(prefix="vss-remote-vlm-") as raw:
+        root = Path(raw)
+        clip = root / "clip.mp4"
+        try:
+            _extract_clip(vss_project, sensor, start, end, clip)
+            frames = _sample_frames(clip, root / "frames", fps, frames_needed)
+            result = _call_remote_vlm(spec, prompt, frames)
+        except Exception as error:
+            return {
+                "exit_code": 1,
+                "job_id": None,
+                "status": "failed",
+                "raw_answer": "",
+                "answer": "",
+                "usable": False,
+                "persistence_limited": False,
+                "quality_reason": "tool_failure",
+                "error": str(error)[-2000:],
+                "remote_model": spec.get("model"),
+                "remote_api": spec.get("api"),
+                "frames_sent": 0,
+            }
+    raw_answer = result.get("text") if isinstance(result.get("text"), str) else ""
+    verdict = classify_vlm_output(raw_answer)
+    exit_code = 0 if result.get("ok") else 1
+    return {
+        "exit_code": exit_code,
+        "job_id": result.get("job_id"),
+        "status": "completed" if result.get("ok") else "failed",
+        "raw_answer": raw_answer,
+        "answer": verdict["normalized_text"],
+        "usable": exit_code == 0 and verdict["usable"],
+        "persistence_limited": False,
+        "quality_reason": verdict["reason"],
+        "error": result.get("error"),
+        "remote_model": spec.get("model"),
+        "remote_api": spec.get("api"),
+        "http_status": result.get("http_status"),
+        "frames_sent": frames_needed,
+    }
+
+
 def _run_vlm(
     *,
     vss_project: str,
@@ -382,6 +705,17 @@ def _run_vlm(
     fps: float,
     prompt: str,
 ) -> dict[str, Any]:
+    spec = remote_vlm_spec()
+    if spec is not None:
+        return _run_remote_vlm(
+            spec=spec,
+            vss_project=vss_project,
+            sensor=sensor,
+            start=start,
+            end=end,
+            fps=fps,
+            prompt=prompt,
+        )
     command = [
         "uv",
         "run",

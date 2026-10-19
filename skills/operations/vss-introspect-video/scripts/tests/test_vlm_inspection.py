@@ -1095,3 +1095,35 @@ def test_failed_timestamped_call_keeps_the_existing_retry_budget(
     assert result["attempts"][0]["exit_code"] == 1
     assert result["complete"] is False
     assert vlm.MAX_DEGENERATE_RETRIES == 1
+
+
+def test_remote_vlm_spec_is_unset_by_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("VSS_REMOTE_VLM_MODEL", raising=False)
+    monkeypatch.setattr(vlm, "REMOTE_VLM_CONFIG_PATH", tmp_path / "missing.json")
+    assert vlm.remote_vlm_spec() is None
+
+
+def test_remote_vlm_spec_refuses_super(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("VSS_REMOTE_VLM_MODEL", raising=False)
+    config = tmp_path / "remote-vlm.json"
+    config.write_text(
+        json.dumps({"model": "nvidia/nvidia/cosmos3-super-reasoner"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(vlm, "REMOTE_VLM_CONFIG_PATH", config)
+    with pytest.raises(RuntimeError, match="CR3 Super"):
+        vlm.remote_vlm_spec()
+
+
+def test_remote_vlm_spec_selects_astra_responses(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("VSS_REMOTE_VLM_MODEL", raising=False)
+    config = tmp_path / "remote-vlm.json"
+    config.write_text(
+        json.dumps({"model": "openai/openai/gpt-6-astra"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(vlm, "REMOTE_VLM_CONFIG_PATH", config)
+    spec = vlm.remote_vlm_spec()
+    assert spec is not None
+    assert spec["api"] == "responses"
+    assert spec["base_url"] == "https://inference-api.nvidia.com/v1"

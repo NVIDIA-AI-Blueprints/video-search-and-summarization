@@ -116,6 +116,9 @@ def test_skill_documents_full_agent_owned_loop_and_canonical_limits() -> None:
     assert "one claim ID" in normalized
     assert "whole_video" in skill
     assert "uncovered intervals as explicit gaps" in normalized
+    assert "First visual round — skim (`0.5`)" in skill
+    assert "Later rounds — shorter window, higher FPS" in skill
+    assert "shorter window and higher FPS targeted at the remaining gap" in normalized
     assert "${VSS_WORKSPACE:-$HOME/.vss}/runs/vss-introspection/<question-id>/" in skill
     assert "The evidence planner never answers the question" in skill
     assert "ordinary `vss vios`" in skill
@@ -125,6 +128,8 @@ def test_skill_documents_full_agent_owned_loop_and_canonical_limits() -> None:
     assert "`evidence_details`" in skill
     assert "--answer" in skill
     assert "best_available_answer" in skill
+    assert "--requires-choice" in skill
+    assert "Choice ledgers never publish a harvestable abstention" in normalized
     assert "answer_label" not in skill
     assert "--answer-label" not in skill
     assert "--answer-explanation" not in skill

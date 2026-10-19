@@ -24,6 +24,17 @@ ATTEMPT_CONTEXT_ENV = "VSS_INTROSPECTION_ATTEMPT_CONTEXT"
 DEFAULT_ATTEMPT_CONTEXT_PATH = Path(
     "/sandbox/.openclaw/workspace/.vss/introspection-attempt.json"
 )
+POLICY_PATH = Path(
+    os.environ.get(
+        "VSS_INTROSPECTION_POLICY",
+        "/sandbox/.vss/introspection-policy.json",
+    )
+)
+CHOICE_MARKERS = (
+    "answer choices:",
+    "reply with the letter of the correct answer",
+    "reply with the letter of the correct answer choice",
+)
 
 EVIDENCE_TYPES = (
     "attribute",
@@ -87,6 +98,7 @@ LEDGER_KEYS = {
     "budgets",
     "status",
     "stop_reason",
+    "requires_choice",
 }
 CLAIM_STATE_KEYS = {"claim_id", "status", "coverage", "observation_ids", "gap"}
 OBSERVATION_KEYS = {"observation_id", "claim_id", "relation", "text", "source"}
@@ -451,6 +463,8 @@ def validate_ledger(ledger: Any) -> None:
         _fail("ledger.status", "invalid ledger status")
     if ledger["stop_reason"] not in STOP_REASONS:
         _fail("ledger.stop_reason", "invalid stop reason")
+    if ledger["requires_choice"] not in (True, False):
+        _fail("ledger.requires_choice", "must be a boolean")
     if ledger["budgets"] != BUDGETS:
         _fail("ledger.budgets", "must match the configured ledger budgets")
 
@@ -540,9 +554,42 @@ def validate_ledger(ledger: Any) -> None:
         _fail("ledger.stop_reason", "unresolved requires a terminal unresolved reason")
 
 
-def initialize_ledger(plan: Mapping[str, Any]) -> dict[str, Any]:
+def question_requires_choice(text: str | None) -> bool:
+    """True when the caller asked for one of a listed set of choices."""
+    if not isinstance(text, str) or not text.strip():
+        return False
+    folded = text.casefold()
+    return any(marker in folded for marker in CHOICE_MARKERS)
+
+
+def policy_requires_choice() -> bool:
+    """Eval/runtime policy may force choice questions to require an answer."""
+    if not POLICY_PATH.is_file():
+        return False
+    try:
+        payload = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return payload.get("requires_choice") is True
+
+
+def initialize_ledger(
+    plan: Mapping[str, Any],
+    *,
+    requires_choice: bool | None = None,
+    original_question: str | None = None,
+) -> dict[str, Any]:
     """Initialize a canonical ledger from a valid initial evidence plan."""
     validate_plan(plan, "initial")
+    detected = question_requires_choice(plan.get("question_text")) or question_requires_choice(
+        original_question
+    )
+    if requires_choice is None:
+        flag = detected or policy_requires_choice()
+    else:
+        if requires_choice not in (True, False):
+            _fail("requires_choice", "must be a boolean")
+        flag = bool(requires_choice) or detected or policy_requires_choice()
     ledger = {
         "ledger_version": "1.0",
         "revision": 0,
@@ -564,6 +611,7 @@ def initialize_ledger(plan: Mapping[str, Any]) -> dict[str, Any]:
         "budgets": dict(BUDGETS),
         "status": "in_progress",
         "stop_reason": None,
+        "requires_choice": flag,
     }
     validate_ledger(ledger)
     return ledger
@@ -1172,6 +1220,11 @@ def final_result(
     if ledger["status"] == "in_progress":
         _fail("ledger.status", "cannot finalize an in-progress ledger")
     answer_text = _answer_text(answer)
+    if answer_text is None and ledger.get("requires_choice"):
+        _fail(
+            "answer",
+            "choice questions require --answer; pass the complete option text",
+        )
     artifact_dir = _nonempty(artifact_dir, "artifact_dir")
     observation_map = {item["observation_id"]: item for item in ledger["observations"]}
     cited = _cited_observation_ids(ledger, evidence_ids)
@@ -1328,6 +1381,11 @@ def atomic_commit_terminal(
     """
     validate_terminal_pair(ledger, terminal_result)
     if provisional:
+        if ledger.get("requires_choice"):
+            _fail(
+                "terminal-commit",
+                "choice questions cannot publish a harvestable abstention",
+            )
         if terminal_result.get("status") != "unresolved" or terminal_result.get("answer") is not None:
             _fail(
                 "terminal-commit",
@@ -1397,6 +1455,15 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init")
     init.add_argument("--plan", required=True)
+    init.add_argument(
+        "--requires-choice",
+        action="store_true",
+        help="The caller asked for one of a listed set of choices. Abstention is refused.",
+    )
+    init.add_argument(
+        "--original-question",
+        help="Full caller question, including any listed choices. Used to detect requires_choice.",
+    )
     init.add_argument("--output")
     validate = commands.add_parser("validate")
     validate.add_argument("--kind", choices=("ledger", "task", "result"), required=True)
@@ -1431,7 +1498,7 @@ def _parser() -> argparse.ArgumentParser:
     finish.add_argument("--artifact-dir", required=True)
     finish.add_argument(
         "--answer",
-        help="Complete answer text supplied by the caller. Omit only when the question does not ask for a choice; do not pass an empty string.",
+        help="Complete answer text supplied by the caller. Required when the ledger requires a choice. Omit only for open-ended questions; do not pass an empty string.",
     )
     finish.add_argument("--evidence-id", action="append")
     finish.add_argument("--output")
@@ -1444,7 +1511,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the standard-library command interface."""
     args = _parser().parse_args(argv)
     if args.command == "init":
-        _emit(initialize_ledger(_read(args.plan)), args.output)
+        _emit(
+            initialize_ledger(
+                _read(args.plan),
+                requires_choice=True if args.requires_choice else None,
+                original_question=args.original_question,
+            ),
+            args.output,
+        )
     elif args.command == "validate":
         value = _read(args.input)
         if args.kind == "ledger":
@@ -1473,7 +1547,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             else collect_inspection_results(tasks, args.results_dir)
         )
         merged = resume_round_merge(base, current, tasks, results)
-        if args.output and merged["status"] == "unresolved":
+        if args.output and merged["status"] == "unresolved" and not merged.get("requires_choice"):
             artifact_dir = str(Path(args.output).resolve().parent)
             terminal = final_result(merged, artifact_dir, None)
             atomic_commit_terminal(

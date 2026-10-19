@@ -763,6 +763,94 @@ def test_unknown_fields_and_non_iso_vlm_times_are_rejected() -> None:
         ledger_mod.observation_id(item)
 
 
+def test_requires_choice_defaults_false_and_detects_listed_options() -> None:
+    ledger = initialized()
+    assert ledger["requires_choice"] is False
+    choice_plan = plan()
+    choice_plan["question_text"] = (
+        "What color is the vest?\n\nAnswer choices:\nA. yellow\nB. blue\n\n"
+        "Reply with the letter of the correct answer choice."
+    )
+    detected = ledger_mod.initialize_ledger(choice_plan)
+    assert detected["requires_choice"] is True
+    flagged = ledger_mod.initialize_ledger(plan(), requires_choice=True)
+    assert flagged["requires_choice"] is True
+    from_original = ledger_mod.initialize_ledger(
+        plan(),
+        original_question="Answer choices:\nA. yellow\nReply with the letter of the correct answer.",
+    )
+    assert from_original["requires_choice"] is True
+
+
+def test_choice_ledger_rejects_omitted_answer() -> None:
+    ledger = ledger_mod.initialize_ledger(plan(), requires_choice=True)
+    tasks = create_tasks(ledger)
+    ledger = ledger_mod.merge_round_results(
+        ledger,
+        tasks,
+        [result(tasks[0], coverage="none", gap="The person is not visible.")],
+    )
+    with pytest.raises(ledger_mod.LedgerValidationError, match="choice questions require --answer"):
+        ledger_mod.final_result(ledger, "runs/question-1")
+    supplied = "C. A baseball cap, gray long-sleeve shirt, and jeans"
+    final = ledger_mod.final_result(ledger, "runs/question-1", supplied)
+    assert final["answer"] == supplied
+    assert final["decision_source"] == "best_available_answer"
+    assert final["status"] == "answered"
+    assert final["evidence_status"] == "unresolved"
+
+
+def test_choice_merge_does_not_publish_harvestable_abstention(tmp_path: Path) -> None:
+    ledger = ledger_mod.initialize_ledger(plan(), requires_choice=True)
+    tasks = create_tasks(ledger)
+    ledger_path = tmp_path / "ledger.json"
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+    (tmp_path / "tasks.json").write_text(json.dumps(tasks), encoding="utf-8")
+    (tmp_path / "results.json").write_text(
+        json.dumps([result(tasks[0], coverage="none", gap="No useful view was found.")]),
+        encoding="utf-8",
+    )
+    assert ledger_mod.main(
+        [
+            "merge-round",
+            "--ledger",
+            str(ledger_path),
+            "--tasks",
+            str(tmp_path / "tasks.json"),
+            "--results",
+            str(tmp_path / "results.json"),
+            "--output",
+            str(ledger_path),
+        ]
+    ) == 0
+    merged = json.loads(ledger_path.read_text(encoding="utf-8"))
+    assert merged["status"] == "unresolved"
+    assert merged["requires_choice"] is True
+    assert not (tmp_path / "final-result.json").exists()
+    assert not (tmp_path / "terminal-commit.json").exists()
+
+
+def test_init_cli_requires_choice_flag(tmp_path: Path) -> None:
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps(plan()), encoding="utf-8")
+    output = tmp_path / "ledger.json"
+    assert ledger_mod.main(
+        ["init", "--plan", str(plan_path), "--requires-choice", "--output", str(output)]
+    ) == 0
+    written = json.loads(output.read_text(encoding="utf-8"))
+    assert written["requires_choice"] is True
+
+
+def test_policy_file_forces_requires_choice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    policy = tmp_path / "introspection-policy.json"
+    policy.write_text(json.dumps({"requires_choice": True}), encoding="utf-8")
+    monkeypatch.setattr(ledger_mod, "POLICY_PATH", policy)
+    ledger = ledger_mod.initialize_ledger(plan())
+    assert ledger["requires_choice"] is True
+
+
 def test_final_unresolved_result_uses_allowed_reason() -> None:
     ledger = initialized()
     tasks = create_tasks(ledger)

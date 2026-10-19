@@ -127,7 +127,9 @@ answer has `status: answered`, `evidence_status: unresolved`, and
 That includes a choice question answered with no accepted observations.
 An abstention omits the answer: `status` and `evidence_status` stay
 `unresolved`, `answer` is null, and `decision_source` is `abstention`. Use
-abstention only when the question does not ask for one of its choices.
+abstention only when the question does not ask for one of its choices. A
+ledger with `requires_choice: true` cannot abstain: `final-result` without
+`--answer` is rejected.
 Every gap has `claim_id`, `gap`, and one reason: `insufficient_coverage`,
 `not_visible`, `tool_failure`, or `budget_exhausted`.
 
@@ -138,6 +140,15 @@ LEDGER_TOOL="skills/operations/vss-introspect-video/scripts/evidence_ledger.py"
 
 python3 "${LEDGER_TOOL}" init \
   --plan "${RUN_DIR}/plan.json" \
+  --output "${RUN_DIR}/ledger.json"
+
+# When the caller listed choices or asked for a letter, mark the ledger so
+# abstention is refused. Pass the original question if the plan text is
+# option-blind.
+python3 "${LEDGER_TOOL}" init \
+  --plan "${RUN_DIR}/plan.json" \
+  --requires-choice \
+  --original-question "${ORIGINAL_QUESTION}" \
   --output "${RUN_DIR}/ledger.json"
 
 python3 "${LEDGER_TOOL}" merge-memory \
@@ -367,10 +378,30 @@ request. Report partial coverage unless the accepted windows defensibly cover
 the complete grounded interval, and keep uncovered intervals as explicit gaps.
 These are ordinary `vss vios` lookups, not an orchestration service.
 
+Choose `VLM_FPS` from the inspection round. Do not use one fixed density for
+every round:
+
+- **First visual round — skim (`0.5`)**: cover the still-uncovered interval
+  with the widest useful bounded windows. Skim only to locate whether, or
+  roughly when, the missing visible fact occurs. Do not start at inspect
+  density.
+- **Later rounds — shorter window, higher FPS**: do not re-skim the same
+  broad interval. Narrow to shorter windows around remaining gaps, candidate
+  event times, or occluded regions from the skim. Raise FPS to **locate
+  (`1`)** for event and action confirmation, then **inspect (`2`)** for
+  labels, clothing, object state, or precise spatial relationships. Prefer a
+  shorter grounded window before increasing density.
+
+RT-VLM keeps the requested FPS only while `fps × clip_seconds` is at most 60
+frames. The helper splits longer assigned scopes at that cap. A later round
+at a higher FPS or a shorter window is a new inspection, not a duplicate of
+the skim.
+
 Before dispatching a sensor inspection, use the deterministic window planner:
 
 ```bash
 VLM_HELPER="skills/operations/vss-introspect-video/scripts/vlm_inspection.py"
+VLM_FPS=0.5 # first visual round: skim. Later rounds: 1 then 2 on a shorter window
 
 python3 "${VLM_HELPER}" plan-windows \
   --start "${START_TIME}" \
@@ -406,7 +437,8 @@ it to:
 - return exactly one contract-valid result without changing claims, canonical
   state, or the final answer.
 
-For sensor work, use the helper instead of one unbounded VLM invocation:
+For sensor work, use the helper instead of one unbounded VLM invocation.
+Pass the round's `VLM_FPS` chosen above:
 
 ```bash
 python3 "${VLM_HELPER}" inspect \
@@ -517,6 +549,7 @@ do not invoke it directly for sensor tasks:
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
 VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
 
+VLM_FPS=0.5 # first visual round: skim. Later rounds: 1 then 2 on a shorter window
 "${VSS[@]}" vlm run \
   --prompt "${OPTION_BLIND_CLAIM_PROMPT}" \
   --sensor "${SENSOR_NAME}" \
@@ -568,8 +601,10 @@ attempted inspection fails and no useful evidence exists, it stops with
 `tool_failure`.
 
 A supported or contradicted claim whose coverage is still `partial` or `none`
-is not finished. If budget remains, create another task for it. If no budget
-remains, stop. Do not answer from a note while the ledger is `in_progress`.
+is not finished. If budget remains, create another task for it using a shorter
+window and higher FPS targeted at the remaining gap, not another full-interval
+skim. If no budget remains, stop. Do not answer from a note while the ledger
+is `in_progress`.
 
 Invoke planner expansion mode only when an independently assessable answer
 requirement is absent from the plan. Pass the prior plan and demonstrated
@@ -578,8 +613,9 @@ must preserve every existing claim ID and all evidence. Accept no more than the
 loaded expansion and total-claim budgets. Bind memory and reassess the new
 claim before inspecting it.
 
-If the run remains in progress, perform the next bounded round. Otherwise stop.
-Do not turn an unresolved gap into an observation.
+If the run remains in progress, perform the next bounded round on the narrower
+unresolved interval at higher FPS. Otherwise stop. Do not turn an unresolved
+gap into an observation.
 
 ### 8. Synthesize and write the final result
 
@@ -594,14 +630,16 @@ Answer the original question using accepted evidence and follow the caller’s
 requested response format.
 
 When the question asks for one of its choices, choose one. Do not leave that
-question unanswered. Compare the full meaning of each option against the
-evidence rather than matching isolated words. Pass the complete option text
-with `--answer`. If the evidence is incomplete, conflicting, not visible, or
-the inspection budget is exhausted, still select the choice best supported by
-what is known. Cite `--evidence-id` for any accepted observations used in that
-comparison. If no accepted observation exists, still pass `--answer` and omit
-`--evidence-id`. The result records `decision_source: best_available_answer`,
-keeps `evidence_status: unresolved`, and keeps the unresolved gaps.
+question unanswered. Mark the ledger with `--requires-choice` at `init`.
+Compare the full meaning of each option against the evidence rather than
+matching isolated words. Pass the complete option text with `--answer`. If the
+evidence is incomplete, conflicting, not visible, the inspection budget is
+exhausted, or every inspection failed, still select the choice best supported
+by what is known. Cite `--evidence-id` for any accepted observations used in
+that comparison. If no accepted observation exists, still pass `--answer` and
+omit `--evidence-id`. The helper rejects a missing `--answer` on a choice
+ledger. The result records `decision_source: best_available_answer`, keeps
+`evidence_status: unresolved`, and keeps the unresolved gaps.
 
 When the question does not ask for a choice, answer naturally without
 inventing options or labels. Pass `--answer` only when accepted observations
@@ -629,12 +667,15 @@ persists a budget stop when no inspection budget remains, then writes the
 file. It refuses an in-progress ledger that still has budget; create the next
 task instead of writing a synthesis note. `merge-round` also writes
 `final-result.json` and a **provisional** `terminal-commit.json` when the
-merged ledger is unresolved. That pair is a crash-safety fallback, not a
-finished choice. Rerun `final-result` with `--answer` and the complete option
-text; that overwrite publishes a non-provisional marker. Do not omit
-`--answer` for a choice question. Consumers must not harvest a provisional
-marker while the agent is still working. If the session goes idle with no
-overwrite, harvest the provisional pair as an abstention.
+merged ledger is unresolved **and does not require a choice**. That pair is a
+crash-safety fallback, not a finished choice. Choice ledgers never publish a
+harvestable abstention; `merge-round` writes the ledger only, and you must
+call `final-result` with `--answer` and the complete option text. That
+overwrite publishes a non-provisional marker. Do not omit `--answer` for a
+choice question; the helper refuses it. Consumers must not harvest a
+provisional marker while the agent is still working. If the session goes idle
+with no overwrite, harvest the provisional pair as an abstention only for
+open-ended questions.
 
 When the question does not ask for a choice, pass `--answer` only when
 accepted observations support an answer. If no answer is supported, omit
