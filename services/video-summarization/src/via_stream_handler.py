@@ -89,10 +89,8 @@ def _safe_collection_name(stream_id) -> str:
 
 MAX_MILVUS_STRING_LEN = 65535
 
-# Extra attempts at a CA-RAG aggregation call when it returns neither events nor
-# a video summary. The aggregation LLM intermittently samples an unparseable
-# response, which surfaces to the caller as HTTP 200 with total_events=0 and
-# video_summary="". Override with LVS_AGGREGATION_EMPTY_RETRIES; 0 disables.
+# Extra attempts at a CA-RAG aggregation call when it returns a blank or
+# malformed response. Override with LVS_AGGREGATION_EMPTY_RETRIES; 0 disables.
 DEFAULT_AGGREGATION_EMPTY_RETRIES = 2
 
 
@@ -3300,7 +3298,7 @@ This is very important and you must follow this strictly.
     @staticmethod
     def _parse_aggregation_result(result):
         """Recover a structured aggregation result from common model output forms."""
-        if isinstance(result, dict):
+        if isinstance(result, (dict, list)):
             parsed = deepcopy(result)
         elif not isinstance(result, str) or not result.strip():
             return None
@@ -3312,50 +3310,75 @@ This is very important and you must follow this strictly.
                 candidate.strip(),
                 flags=re.IGNORECASE,
             ).strip()
-            if not candidate.startswith("{"):
-                json_start = candidate.find("{")
-                if json_start < 0:
+            if not candidate.startswith(("{", "[")):
+                json_starts = [
+                    pos for pos in (candidate.find("{"), candidate.find("[")) if pos >= 0
+                ]
+                if not json_starts:
                     return None
-                candidate = candidate[json_start:]
+                candidate = candidate[min(json_starts) :]
 
             try:
                 parsed = json_repair.loads(candidate)
             except (TypeError, ValueError):
                 return None
-            if not isinstance(parsed, dict):
-                return None
+        if isinstance(parsed, list) and all(isinstance(event, dict) for event in parsed):
+            parsed = {
+                "events": parsed,
+                "total_events": len(parsed),
+                "video_summary": "",
+            }
+        elif not isinstance(parsed, dict):
+            return None
+
+        has_events = "events" in parsed
+        has_video_summary = "video_summary" in parsed
+        if not has_events and not has_video_summary:
+            return None
 
         events = parsed.get("events")
+        events_are_valid = not has_events
         if isinstance(events, str):
             try:
                 decoded_events = json_repair.loads(events)
             except (TypeError, ValueError):
                 decoded_events = None
             events = decoded_events
-        elif isinstance(events, dict):
+        if isinstance(events, dict):
             events = [events]
 
         # Aggregated events are structured objects. Discard scalar values instead
         # of allowing a truthy malformed field (for example ``"null"``) to bypass
         # the empty-result guard and reach Kafka or the HTTP response.
         if isinstance(events, list):
-            parsed["events"] = [event for event in events if isinstance(event, dict)]
+            normalized_events = [event for event in events if isinstance(event, dict)]
+            events_are_valid = len(normalized_events) == len(events)
+            parsed["events"] = normalized_events
         else:
             parsed["events"] = []
 
         video_summary = parsed.get("video_summary")
-        if not isinstance(video_summary, str):
+        summary_is_valid = not has_video_summary or isinstance(video_summary, str)
+        if not summary_is_valid:
             parsed["video_summary"] = ""
+
+        # A valid empty object is a legitimate no-match result. Keep malformed
+        # empty objects distinguishable from it so they still fail closed.
+        if (
+            not parsed["events"]
+            and not parsed.get("video_summary", "").strip()
+            and (not events_are_valid or not summary_is_valid)
+        ):
+            return None
         return parsed
 
     @classmethod
     def _is_empty_aggregation_result(cls, result) -> bool:
-        """True when an aggregation result carries neither events nor a summary.
+        """True when an aggregation result is blank or malformed.
 
-        A result with an empty ``events`` list but a non-empty ``video_summary``
-        is a legitimate "nothing notable happened" answer, so both fields must be
-        empty before the result is treated as a failed sample. Free-form text
-        that does not parse as JSON is a usable summary as long as it is not blank.
+        A well-formed structured result with no events and no narrative is a
+        legitimate no-match answer. Free-form text is also usable as long as it
+        is not blank.
         """
         if result is None or (isinstance(result, str) and not result.strip()):
             return True
@@ -3369,9 +3392,7 @@ This is very important and you must follow this strictly.
                 except (json.JSONDecodeError, TypeError, ValueError):
                     return False
             return True
-        events = parsed.get("events") or []
-        video_summary = parsed.get("video_summary") or ""
-        return not events and not video_summary.strip()
+        return False
 
     def _call_aggregation_with_empty_guard(
         self,
@@ -3400,7 +3421,7 @@ This is very important and you must follow this strictly.
                 return response
             if attempt < attempts:
                 logger.warning(
-                    "%s returned no events and no summary for %s "
+                    "%s returned a blank or malformed result for %s "
                     "(attempt %d of %d); retrying aggregation",
                     function_name,
                     source_id,
@@ -3409,7 +3430,7 @@ This is very important and you must follow this strictly.
                 )
             else:
                 logger.error(
-                    "%s returned no events and no summary for %s after %d attempt(s); "
+                    "%s returned a blank or malformed result for %s after %d attempt(s); "
                     "failing the aggregation stage",
                     function_name,
                     source_id,
@@ -3417,7 +3438,7 @@ This is very important and you must follow this strictly.
                 )
 
         raise ViaException(
-            f"Aggregation returned neither events nor a video summary after {attempts} attempt(s)",
+            f"Aggregation returned no usable result after {attempts} attempt(s)",
             "AggregationFailed",
             502,
             job_id=job_id,
