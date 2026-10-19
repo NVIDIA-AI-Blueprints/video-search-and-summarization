@@ -1483,6 +1483,8 @@ jobs:
           python3 .github/scripts/test_advance_ghcr_alias.py
           python3 .github/scripts/test_cleanup_pr_tags.py
           python3 .github/scripts/test_cancel_stale_pr_ci.py
+          python3 .github/scripts/test_build_fern_site.py
+          python3 .github/scripts/test_publish_fern_docs.py
           python3 .github/scripts/test_cancel_downstream_pipeline.py
           python3 .github/scripts/test_poll_downstream_pipeline.py
 

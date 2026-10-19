@@ -3,7 +3,7 @@ title: "Helm Deployment"
 description: ""
 position: 5
 ---
-The Warehouse Blueprint can also be deployed on Kubernetes using Helm, as an alternative to the Docker Compose method used in the [Quickstart Guide](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart). This guide provides an overview of the available Helm profiles and how to deploy them.
+The Warehouse Blueprint can also be deployed on Kubernetes using Helm, as an alternative to the Docker Compose method used in the [Quickstart Guide](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart). This guide provides an overview of the available Helm profiles and how to deploy them.
 
 ## Overview
 
@@ -17,7 +17,7 @@ Three Warehouse Blueprint Helm charts are available under `deploy/helm/industry-
 
 Agents are optional settings in the 2D chart, not a separate chart. Auto Calibration is available through Docker Compose only.
 
-Each of these charts wraps the shared microservice charts under `deploy/helm/services/` (VIOS, RTVI, analytics, infra, monitoring, and calibration-import) and configures them for its own detection approach, in the same way that the corresponding Docker Compose profile does. See [Deployment & Customization](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization) for a description of each profile's architecture.
+Each of these charts wraps the shared microservice charts under `deploy/helm/services/` (VIOS, RTVI, analytics, infra, monitoring, and calibration-import) and configures them for its own detection approach, in the same way that the corresponding Docker Compose profile does. See [Deployment & Customization](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization) for a description of each profile's architecture.
 
 ## Prerequisites
 

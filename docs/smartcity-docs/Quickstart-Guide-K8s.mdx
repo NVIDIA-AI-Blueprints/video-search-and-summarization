@@ -12,13 +12,13 @@ The high-level diagram illustrates the components of the Smart City Blueprint. T
 - **Real-time Video Processing Pipelines** - For processing live camera feeds
 - **AI Agents** - For intelligent analysis and interaction
 
-![Component Diagram - Smart City Blueprint components](/assets/images/scbp/SCBP-ArchOverview.png)
+![Component Diagram - Smart City Blueprint components](../assets/images/scbp/SCBP-ArchOverview.png)
 
 ## Prerequisites
 
 Before you begin, ensure all prerequisites are met:
 
-- Review the [Prerequisites](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites) page for complete requirements
+- Review the [Prerequisites](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites) page for complete requirements
 - Ensure you have installed all **Common Prerequisites** and **Kubernetes-Specific Prerequisites**
 - Verify you have a Kubernetes cluster with GPU-enabled nodes
 - Confirm sufficient GPU resources are available (see Hardware Profiles below)
@@ -27,7 +27,7 @@ Before you begin, ensure all prerequisites are met:
 
 The Smart City Blueprint on Kubernetes includes all available features in a single unified deployment:
 
-- CV-based object detection and tracking using the RTDETR model via the [Real Time Video Intelligence CV (RTVI CV) Microservice](/vss/system-components/vision-microservices/object-detection-and-tracking)
+- CV-based object detection and tracking using the RTDETR model via the [Real Time Video Intelligence CV (RTVI CV) Microservice](/system-components/vision-microservices/object-detection-and-tracking)
 - VLM-based verification for enhanced alert accuracy
 - Agents and Agent UI for natural language interaction with the system
 - Integration options:
@@ -589,7 +589,7 @@ Initialization of some components might take a while, especially the first time 
 
 2. Check to make sure streams were properly added to VST. Navigate to the VST UI (see endpoint below) and check the Dashboard to confirm your streams are in a healthy state.
 
-3. Check RTVI CV FPS to make sure the [RTVI CV microservice](/vss/system-components/vision-microservices/object-detection-and-tracking) is running properly:
+3. Check RTVI CV FPS to make sure the [RTVI CV microservice](/system-components/vision-microservices/object-detection-and-tracking) is running properly:
 
   ```bash
   kubectl logs -f statefulsets/perception-app

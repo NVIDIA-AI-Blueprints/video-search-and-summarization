@@ -15,13 +15,13 @@ which is then used for various downstream analytics computations such as proximi
 
 For example, in the image below, the person on the right has a truncated bounding box because they are partially outside the camera's field of view. This can affect the accuracy of proximity detection between the two individuals.
 
-![Truncated Bbox Proximity Detection](/assets/images/appendix/truncated_bbox.png)
+![Truncated Bbox Proximity Detection](../assets/images/appendix/truncated_bbox.png)
 
 More advanced techniques will be included in future releases to address similar issues.
 
 ### False Object Detections in MV3DT
 
-The [MV3DT Vision AI Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile) may exhibit the following detection and tracking issues:
+The [MV3DT Vision AI Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile) may exhibit the following detection and tracking issues:
 
 - **Tracker ID switches:** When people move close together, a tracker ID may switch from one person to another. IDs may also become associated with different objects across camera views.
 - **Tracking loss:** Previously tracked objects may lose their tracks while still visible.
@@ -64,7 +64,7 @@ If there are not enough physical GPUs for dedicated allocations, configure GPU s
 
 [Multi-Instance GPU (MIG)](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-operator-mig.html) provides memory and fault isolation on supported hardware; [GPU time-slicing](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html) shares GPU access without that isolation. Choose based on your hardware and workload requirements, including VIOS video encode/decode support in the selected MIG profile. See the [MIG and time-slicing comparison](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html#comparison-time-slicing-and-multi-instance-gpu).
 
-GPU time-slicing can be used with the Warehouse Blueprint’s [2D](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-profile), [3D](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile), [MV3DT](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile) and [2D with Agents](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile) profiles.
+GPU time-slicing can be used with the Warehouse Blueprint’s [2D](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-profile), [3D](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile), [MV3DT](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile) and [2D with Agents](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile) profiles.
 
 For ConfigMap and device-plugin configuration examples, see [NVIDIA GPU time-slicing configuration](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html#configuration). Two shared allocations allow RTVI-CV and VIOS alone to share one physical GPU. Additional GPU workloads, such as ReID or in-cluster RT-VLM, require additional shared allocations and sufficient GPU memory.
 
@@ -74,7 +74,7 @@ When a person is inside a forklift, the interaction may be incorrectly classifie
 
 ## Agents
 
-See [Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues) for agent limitations.
+See [Agent Known Issues](/vision-agent/vss-agents/agent-known-issues) for agent limitations.
 
 ## Alert Verification
 
@@ -94,7 +94,7 @@ This can occur when there is a connectivity issue with the VLM service.
 
 ## Camera Calibration with Auto Calibration
 
-The following are known limitations when using the [Auto Calibration service](/vss/system-components/calibration/auto-calibration).
+The following are known limitations when using the [Auto Calibration service](/system-components/calibration/auto-calibration).
 
 ### Floor Map and Scale Factor Requirement
 
@@ -119,6 +119,6 @@ The Auto Calibration UI supports only a two-point tripwire: a start point and an
 
 ## Brev Launchable
 
-The following limitations apply when running the Warehouse Blueprint via the [Brev Launchable](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#brev-launchable):
+The following limitations apply when running the Warehouse Blueprint via the [Brev Launchable](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#brev-launchable):
 
 * **Local LLM** — Local LLM deployment has not been tested or verified on Brev. Use a remote LLM when running the 2D with Agent profile.
