@@ -482,7 +482,8 @@ async def stop_server(request: Request):
 def main():
     import uvicorn
 
-    host = os.environ.get("WEBHOOK_HOST", "0.0.0.0")
+    # Bind all interfaces so Alert Bridge containers can deliver callbacks.
+    host = os.environ.get("WEBHOOK_HOST", "0.0.0.0")  # nosec B104
     port = int(os.environ.get("WEBHOOK_PORT", "9090"))
 
     logger.info("Starting on %s:%d", host, port)
