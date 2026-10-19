@@ -48,9 +48,8 @@ Requires the matching VSS profile/microservice deployed and reachable. NGC-hoste
 
 # VSS Alert Management
 
-The CLI has no `vss alerts` group. Do not suggest or probe it. Use this skill's
-supported Alert Bridge workflows for subscriptions and `vss analytics` for
-incident/metric reads covered by the CLI.
+The CLI has no `vss alerts` group. Do not suggest or probe it; select the
+supported workflow in this skill before executing any command.
 
 Always-on monitoring requires an RTSP stream. An uploaded, file-backed sensor
 with an HTTP clip URL cannot be registered as a live stream. Report that

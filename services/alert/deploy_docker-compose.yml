@@ -24,7 +24,7 @@ services:
     # vss_params, which a pre-3.3 loader requires. Same coordinates as the
     # profile deployments (deploy/docker/services/alert/compose.yml; defaults
     # in deploy/docker/containers.env). Set VSS_CONTAINER_TAG to pin a release.
-    image: ${VSS_ALERT_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-alert-ms}:${VSS_CONTAINER_TAG:-${VSS_ALERT_TAG:-develop-latest}}
+    image: ${VSS_ALERT_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-alert-ms}:${VSS_CONTAINER_TAG:-${VSS_ALERT_TAG:-3.3.0}}
     #image: alert-bridge:19
     user: "0:0"
     network_mode: "host"

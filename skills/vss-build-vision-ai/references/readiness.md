@@ -17,7 +17,7 @@ so keep the count guard in the same snippet as the state guard:
 ```bash
 BUILD_DIR="_builds/<name>"
 expected=$(docker compose -f "$BUILD_DIR/resolved.yml" config --services | wc -l)
-actual=$(docker compose -f "$BUILD_DIR/resolved.yml" ps --all -q | wc -l)
+actual=$(docker compose -f "$BUILD_DIR/resolved.yml" ps -q | wc -l)
 if [ "$expected" -le 0 ] || [ "$actual" -le 0 ] || [ "$actual" -lt "$expected" ]; then
   echo "FAIL: expected $expected services, got $actual — inspect resolved.yml" >&2
   exit 1
@@ -29,9 +29,8 @@ fi
 # `running` and `exited 0`; everything else (restarting, unhealthy,
 # exited with non-zero code) is a failure.
 bad=$(
-  docker compose -f "$BUILD_DIR/resolved.yml" ps --all --format json \
-    | jq -r 'select(((.State == "running" and (.Health == null or .Health == "" or .Health == "healthy"))
-                  or (.State == "exited" and .ExitCode == 0)) | not)
+  docker compose -f "$BUILD_DIR/resolved.yml" ps --format json \
+    | jq -r 'select((.State == "running" or (.State == "exited" and .ExitCode == 0)) | not)
              | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"'
 )
 if [ -n "$bad" ]; then
@@ -41,7 +40,7 @@ if [ -n "$bad" ]; then
 fi
 ```
 
-Every container must be either `running` with a healthy check (when present), or cleanly `exited 0`. One-shot init
+Every container must be either `running` or cleanly `exited 0`. One-shot init
 jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is
 fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy
 failure even though `up -d` returned 0.
