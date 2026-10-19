@@ -22,7 +22,7 @@ services:
   # carries every vios profile so it activates whenever a vios service does
   # (and never for a non-vios profile). Add new vios profiles here too.
   vios-apt-cache-init:
-    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-3.3.0}}
     container_name: vios-apt-cache-init
     profiles: ["streamprocessing-ms", "streamprocessing-ms-2d", "streamprocessing-ms-3d", "streamprocessing-ms-mv3dt", "nvstreamer", "nvstreamer-alerts", "nvstreamer-lvs", "nvstreamer-2d-fusion", "nvstreamer-2d", "nvstreamer-3d", "nvstreamer-mv3dt", "nvstreamer-amc"]
     user: "0:0"
@@ -42,7 +42,7 @@ services:
     restart: "no"
 
   streamprocessing-ms:
-    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-3.3.0}}
     profiles: ["streamprocessing-ms"]
     container_name: vss-vios-streamprocessing
     ports:
@@ -104,7 +104,7 @@ services:
         condition: service_completed_successfully
 
   streamprocessing-ms-2d:
-    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-3.3.0}}
     profiles: ["streamprocessing-ms-2d"]
     container_name: vss-vios-streamprocessing
     ports:
@@ -176,7 +176,7 @@ services:
         condition: service_completed_successfully
 
   streamprocessing-ms-3d:
-    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-3.3.0}}
     profiles: ["streamprocessing-ms-3d"]
     container_name: vss-vios-streamprocessing
     ports:
@@ -250,7 +250,7 @@ services:
         condition: service_completed_successfully
 
   streamprocessing-ms-mv3dt:
-    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    image: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-3.3.0}}
     profiles: ["streamprocessing-ms-mv3dt"]
     container_name: vss-vios-streamprocessing
     ports:

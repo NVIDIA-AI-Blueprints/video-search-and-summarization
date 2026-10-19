@@ -28,7 +28,7 @@
 
 services:
   perception:
-    image: ${VSS_RT_CV_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-cv}:${VSS_RT_CV_TAG:-develop-latest}
+    image: ${VSS_RT_CV_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-rt-cv}:${VSS_RT_CV_TAG:-3.3.0}
     entrypoint: []
     user: "0:0"
     runtime: nvidia

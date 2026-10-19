@@ -32,7 +32,7 @@ services:
   # it; the profile keeps the default stack byte-identical to before.
   mv3dt-config-init:
     profiles: ["dynamic-config"]
-    image: ${VSS_RT_CV_MV3DT_CONFIG_INIT_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-cv-mv3dt-config-init}:${VSS_RT_CV_MV3DT_CONFIG_INIT_TAG:-develop-latest}
+    image: ${VSS_RT_CV_MV3DT_CONFIG_INIT_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-rt-cv-mv3dt-config-init}:${VSS_RT_CV_MV3DT_CONFIG_INIT_TAG:-3.3.0}
     container_name: vss-rtvi-cv-mv3dt-config-init
     restart: "no"
     networks:
@@ -51,7 +51,7 @@ services:
       - mv3dt-generated:/tmp/generated
 
   perception:
-    image: ${VSS_RT_CV_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-cv}:${VSS_RT_CV_TAG:-develop-latest}
+    image: ${VSS_RT_CV_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-rt-cv}:${VSS_RT_CV_TAG:-3.3.0}
     runtime: nvidia
     container_name: vss-rtvi-cv-mv3dt
     ports:
@@ -79,7 +79,7 @@ services:
       OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
 
   measurement-fusion:
-    image: ${VSS_RT_CV_MV3DT_BEV_FUSION_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-cv-mv3dt-bev-fusion}:${VSS_RT_CV_MV3DT_BEV_FUSION_TAG:-develop-latest}
+    image: ${VSS_RT_CV_MV3DT_BEV_FUSION_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-rt-cv-mv3dt-bev-fusion}:${VSS_RT_CV_MV3DT_BEV_FUSION_TAG:-3.3.0}
     container_name: vss-rtvi-cv-bev-fusion
     restart: always
     environment:

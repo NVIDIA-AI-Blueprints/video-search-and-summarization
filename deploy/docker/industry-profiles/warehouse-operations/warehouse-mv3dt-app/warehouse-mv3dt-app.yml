@@ -272,7 +272,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml
       service: measurement-fusion
-    image: ${VSS_RT_CV_MV3DT_BEV_FUSION_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-cv-mv3dt-bev-fusion}:${VSS_RT_CV_MV3DT_BEV_FUSION_TAG:-develop-latest}
+    image: ${VSS_RT_CV_MV3DT_BEV_FUSION_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-rt-cv-mv3dt-bev-fusion}:${VSS_RT_CV_MV3DT_BEV_FUSION_TAG:-3.3.0}
     profiles: ["vss-rtvi-cv-bev-fusion"]
     depends_on:
       broker-health-check:
@@ -282,7 +282,7 @@ services:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml
       service: perception
-    image: ${VSS_RT_CV_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-cv}:${VSS_RT_CV_TAG:-develop-latest}
+    image: ${VSS_RT_CV_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-rt-cv}:${VSS_RT_CV_TAG:-3.3.0}
     user: "0:0"
     profiles: ["vss-rtvi-cv-mv3dt"]
     container_name: vss-rtvi-cv-mv3dt

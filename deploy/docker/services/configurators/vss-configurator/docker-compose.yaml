@@ -23,7 +23,7 @@
 services:
 
   bp-configurator-base:
-    image: ${VSS_CONFIGURATOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-configurator}:${VSS_CONFIGURATOR_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    image: ${VSS_CONFIGURATOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-configurator}:${VSS_CONFIGURATOR_TAG:-${VSS_CONTAINER_TAG:-3.3.0}}
     user: "0:0"
     profiles: ["vss-configurator-base"]
     container_name: vss-configurator-base
