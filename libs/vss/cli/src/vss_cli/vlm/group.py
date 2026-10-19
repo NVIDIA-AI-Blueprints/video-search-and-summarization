@@ -13,8 +13,9 @@ summarize pipeline and never re-enters a long-running job.
 Media reaches the VLM one of two ways (VLM-1 / VLM-2):
 
 * **Path B** (default): ``--sensor <name> [--start-time T --end-time T]``.
-  VIOS resolves the sensor to a clip URL and the VLM receives that URL. No
-  video bytes cross the CLI; the VLM fetches the clip from VIOS directly.
+  VIOS resolves the sensor to a clip URL. The VLM receives the VIOS-issued
+  internal URL; if VIOS supplies only a relative, loopback, or public-origin
+  URL, the CLI downloads the clip and streams it inline as base64 instead.
 * **Path A** (escape hatch): ``--media-url <url>``. A pre-resolved handle --
   any HTTP/HTTPS URL -- is sent directly as ``video_url``. Add ``--use-base64``
   to read a local file and send it as base64-encoded bytes instead.
@@ -136,6 +137,27 @@ def _is_loopback_url(url: str) -> bool:
     return host in ("localhost", "127.0.0.1", "::1", "host.openshell.internal") or host.startswith("127.")
 
 
+def _vios_requires_inline(media_url: str, origin: str) -> bool:
+    """Keep CLI-facing handles out of server-side VLM fetches.
+
+    An absolute VIOS-issued service URL can be passed through unchanged. A
+    relative/malformed URL needs repair, and a loopback or public-origin host
+    is only known to work from the CLI. Download those through the configured
+    origin rather than assuming the VLM can reach the same address.
+    """
+    try:
+        parsed = urllib.parse.urlsplit(media_url)
+        return (
+            parsed.scheme not in ("http", "https")
+            or not parsed.hostname
+            or parsed.path.startswith("//")
+            or _is_loopback_url(media_url)
+            or parsed.hostname == urllib.parse.urlsplit(origin).hostname
+        )
+    except ValueError:
+        return True
+
+
 def _vios_exit_for(exc: Exception) -> tuple[Exit, str]:
     """Map a VIOS/backend exception to (exit_code, status_string) without importing vss_core at module scope."""
     by_name: dict[str, tuple[Exit, str]] = {
@@ -175,7 +197,7 @@ class VlmInput(BaseModel):
     prompt: str = Field(..., max_length=512_000, description="Visual question to answer.")
     sensor: str | None = Field(
         None,
-        description="VIOS sensor name. Resolves to a clip URL that the VLM fetches directly (Path B).",
+        description="VIOS sensor name. Uses the VIOS-issued clip URL, or sends the clip inline for CLI-facing URLs (Path B).",
     )
     start_time: str | None = Field(
         None,
@@ -341,7 +363,7 @@ def _resolve_vios_clip(
     start_time: str | None,
     end_time: str | None,
 ) -> tuple[str, str | None, str | None]:
-    """Resolve a VIOS sensor to a clip URL and the effective window bounds.
+    """Resolve a VIOS sensor to its issued clip URL and effective window bounds.
 
     Returns ``(media_url, resolved_start, resolved_end)`` where the bounds reflect
     the actual window VIOS served, which may differ from the inputs when only one
@@ -361,8 +383,9 @@ def _resolve_vios_clip(
             end_time=end,
             vst_internal_url=origin,
         )
-        url = vios.normalise_media_url(url, origin)
-        await vios.warm_media_url(url)
+        # Only CLI-side requests use the public origin. The VLM runs in a
+        # different network and must retain VIOS's service address.
+        await vios.warm_media_url(vios.normalise_media_url(url, origin))
         return url, start, end
 
     return asyncio.run(_fetch())
@@ -652,7 +675,7 @@ class VlmGroup(CommandGroup):
             model_params["chunk_duration"] = inputs.chunk_duration
 
         # Initialise memory before media resolution so any failure path (including
-        # the loopback clip-fetch timeout below) can write a terminal record. A
+        # the inline clip-fetch timeout below) can write a terminal record. A
         # configured store that is unavailable must not prevent the visual answer:
         # carry on unpersisted and report the persistence failure as partial.
         persist_error: str | None = None
@@ -665,9 +688,10 @@ class VlmGroup(CommandGroup):
 
         # Resolve the media URL.
         media_url: str
+        media_handle: str | None = None
         resolved_start: str | None = inputs.start_time
         resolved_end: str | None = inputs.end_time
-        _loopback_tmp: str | None = None  # temp file path when loopback fallback fires
+        _clip_tmp: str | None = None  # downloaded clip for inline transfer
         if inputs.sensor:
             if "vst" not in (deployment.services or {}):
                 # Post-mint: the job id is already public, so this must write its
@@ -704,9 +728,14 @@ class VlmGroup(CommandGroup):
                     job_id=job_id,
                 )
             try:
+                from vss_core import vios
+
                 media_url, resolved_start, resolved_end = _resolve_vios_clip(
                     deployment, inputs.sensor, inputs.start_time, inputs.end_time
                 )
+                # Persist a client-reachable handle even when the VLM fetches
+                # the clip through VIOS's internal service URL.
+                media_handle = vios.normalise_media_url(media_url, deployment.base_url)
             except Exception as _vios_exc:
                 _vios_code, _vios_status = _vios_exit_for(_vios_exc)
                 _vios_persisted = _persist_failure(
@@ -730,21 +759,20 @@ class VlmGroup(CommandGroup):
                     exit=_vios_code,
                     job_id=job_id,
                 )
-            if _is_loopback_url(media_url):
-                # The VIOS clip URL resolves to localhost — reachable from this CLI
-                # host but blocked by rt_vlm's SSRF protection (or simply unreachable
-                # from inside the VLM container in Docker deployments). Stream the
-                # clip to a temp file and send it inline as base64.
-                tmp_fd, _loopback_tmp = tempfile.mkstemp(suffix=".mp4")
-                os.close(tmp_fd)
+            if _vios_requires_inline(media_url, deployment.base_url):
+                # Public/loopback reachability from the CLI says nothing about
+                # reachability from the VLM container. Fetch through the public
+                # origin ourselves and stream the bytes in the VLM request.
                 _download_ok = False
                 try:
-                    with httpx.stream("GET", media_url, timeout=float(inputs.timeout)) as clip_resp:
+                    tmp_fd, _clip_tmp = tempfile.mkstemp(suffix=".mp4")
+                    os.close(tmp_fd)
+                    with httpx.stream("GET", media_handle, timeout=float(inputs.timeout)) as clip_resp:
                         clip_resp.raise_for_status()
-                        with open(_loopback_tmp, "wb") as f:
+                        with open(_clip_tmp, "wb") as f:
                             for chunk in clip_resp.iter_bytes(chunk_size=65536):
                                 f.write(chunk)
-                    media_url = _loopback_tmp
+                    media_url = _clip_tmp
                     _download_ok = True
                 except httpx.TimeoutException:
                     detail = f"VIOS clip download timed out after {inputs.timeout}s"
@@ -780,7 +808,7 @@ class VlmGroup(CommandGroup):
                     # caller mistake. Write a terminal record and exit as
                     # BACKEND_UNREACHABLE (3) so callers/retries treat this
                     # correctly instead of seeing an invalid-input (2) exit.
-                    detail = f"cannot fetch VIOS clip for loopback base64 fallback: {exc}"
+                    detail = f"cannot fetch VIOS clip for inline transfer: {exc}"
                     clip_input = adapter.build_input(
                         prompt=inputs.prompt,
                         sensor=inputs.sensor,
@@ -809,10 +837,10 @@ class VlmGroup(CommandGroup):
                 finally:
                     # Clean up the temp file if the download failed.  On success
                     # (_download_ok=True) the file is kept for the VLM call below.
-                    if not _download_ok:
+                    if not _download_ok and _clip_tmp is not None:
                         with contextlib.suppress(OSError):
-                            os.unlink(_loopback_tmp)
-                        _loopback_tmp = None
+                            os.unlink(_clip_tmp)
+                        _clip_tmp = None
         elif inputs.file:
             # Path A (file): local file path read and sent as base64-encoded bytes.
             media_url = inputs.file
@@ -820,12 +848,12 @@ class VlmGroup(CommandGroup):
             # Path A (url): pre-resolved HTTP/HTTPS handle passed directly to the VLM.
             media_url = inputs.media_url  # type: ignore[assignment]
 
-        # True for --file, "--media-url <path> --use-base64", or the loopback
-        # SSRF fallback where the clip was streamed to a temp file: the video
-        # content is machine-specific bytes, not a retrievable URL handle.
-        _use_base64_effective = options.use_base64 or bool(inputs.file) or _loopback_tmp is not None
+        # True for --file, "--media-url <path> --use-base64", or a VIOS clip
+        # downloaded to a temp file: the payload uses bytes rather than a
+        # retrievable URL handle.
+        _use_base64_effective = options.use_base64 or bool(inputs.file) or _clip_tmp is not None
 
-        # Wrap everything that references _loopback_tmp in try/finally so the
+        # Wrap everything that references _clip_tmp in try/finally so the
         # temp file is deleted even if adapter.build_input or the VLM call raises.
         try:
             input_data: MemoryInput = adapter.build_input(
@@ -844,7 +872,7 @@ class VlmGroup(CommandGroup):
                 # one 192 KB raw chunk in memory at a time instead of the entire encoded
                 # payload, the joined string, the data-URI f-string, and the json.dumps
                 # output that the list-then-join approach created simultaneously.
-                file_to_read = _loopback_tmp if _loopback_tmp is not None else media_url
+                file_to_read = _clip_tmp if _clip_tmp is not None else media_url
                 # Pre-validate readability before giving the file to httpx.  If
                 # the open() fails inside the content generator, httpx wraps the
                 # OSError as httpx.WriteError (an httpx.HTTPError subclass) and
@@ -939,10 +967,10 @@ class VlmGroup(CommandGroup):
         finally:
             # Guarantee temp file deletion whether the VLM call succeeded, failed,
             # or raised — including if adapter.build_input raised before the call.
-            if _loopback_tmp is not None:
+            if _clip_tmp is not None:
                 with contextlib.suppress(OSError):
-                    os.unlink(_loopback_tmp)
-                _loopback_tmp = None
+                    os.unlink(_clip_tmp)
+                _clip_tmp = None
 
         if response.status_code >= 400:
             detail = f"HTTP {response.status_code}"
@@ -1049,7 +1077,7 @@ class VlmGroup(CommandGroup):
         output = adapter.build_output(
             answer=answer,
             model=completion.get("model") or model,
-            media_url=None if _use_base64_effective else media_url,
+            media_url=None if _use_base64_effective else (media_handle or media_url),
             intent=inputs.intent,
             completion_id=completion_id,
         )

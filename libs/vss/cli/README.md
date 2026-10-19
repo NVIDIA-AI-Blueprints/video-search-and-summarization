@@ -417,6 +417,15 @@ whatever that probe recorded. Direct questions:
 vss vlm run --sensor warehouse --prompt "What happened?" --start-time T --end-time T
 ```
 
+For `--sensor`, the VLM receives VIOS's original service URL. The CLI uses its
+configured public origin only for its own media requests. If VIOS returns a
+relative URL, loopback URL, or a URL on the configured public host, the CLI
+downloads the clip through that origin and streams it inline as base64. This
+avoids requiring the VLM container to reach the public host. Inline clips are
+subject to the backend's request limits (RT-VLM accepts roughly 75 MB of raw
+video); use a shorter sensor window for larger clips. `--media-url` passes the
+supplied URL directly to the VLM, which must be able to fetch it.
+
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--sensor` / `--media-url` / `--file` | one required | Exactly one media source |

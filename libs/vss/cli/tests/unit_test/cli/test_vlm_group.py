@@ -1479,7 +1479,7 @@ def test_sensor_path_uses_resolved_window_bounds(
 def _assert_no_local_path_in_record(records: list[Any], label: str) -> None:
     assert records, f"expected one persisted record ({label})"
     rec = records[0]
-    assert rec.output.handles is None, f"{label}: local path must not appear in output handles"
+    assert rec.output is None or rec.output.handles is None, f"{label}: local path must not appear in output handles"
     assert rec.input.params is None or "media_url" not in (rec.input.params or {}), (
         f"{label}: local path must not appear in input.params.media_url"
     )
@@ -1517,26 +1517,86 @@ def test_run_file_source_does_not_persist_local_path(
     _assert_no_local_path_in_record(store2.service.list_jobs(), "--media-url+--use-base64")
 
 
-def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
+def test_sensor_keeps_internal_url_for_vlm_and_public_url_for_cli(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When VIOS resolves --sensor to a loopback URL, the CLI must stream it to a temp
-    file (no double-materialisation of raw bytes) and send the clip inline as base64."""
+    """The CLI's origin must not replace a VIOS-issued service URL sent to RT-VLM."""
+    from unittest.mock import AsyncMock
+    from unittest.mock import Mock
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+    from vss_core import vios
+
+    internal_url = "http://vst-ingress:30888/vst/storage/file/clip.mp4?token=clip-token"
+    public_url = f"{BASE_URL}/vst/storage/file/clip.mp4?token=clip-token"
+    start, end = "2025-01-01T00:00:00Z", "2025-01-01T00:00:30Z"
+    sensor = vios.SensorRef(name="cam1", sensor_id="sensor-id", stream_id="stream-id", url="file.mp4", kind="video")
+    resolve_sensor = AsyncMock(return_value=sensor)
+    recorded_segments = AsyncMock(return_value=[(start, end)])
+    clip_url = AsyncMock(return_value=internal_url)
+    warm_media = AsyncMock(return_value=True)
+    monkeypatch.setattr(vios, "resolve_sensor", resolve_sensor)
+    monkeypatch.setattr(vios, "recorded_segments", recorded_segments)
+    monkeypatch.setattr(vios, "get_video_clip_url", clip_url)
+    monkeypatch.setattr(vios, "warm_media_url", warm_media)
+    download = Mock(side_effect=AssertionError("an internal clip URL must be fetched by RT-VLM"))
+    monkeypatch.setattr(httpx, "stream", download)
+    post = Mock(return_value=httpx.Response(200, json=_completion()))
+    monkeypatch.setattr(httpx, "post", post)
+
+    store = _in_memory(configured)
+    result = VlmGroup().run("", VlmInput(prompt="What?", sensor="cam1"), Context(deployment=configured, memory=store))
+
+    assert result.exit == Exit.SUCCESS
+    resolve_sensor.assert_awaited_once_with(BASE_URL, "cam1")
+    recorded_segments.assert_awaited_once_with(BASE_URL, "stream-id")
+    clip_url.assert_awaited_once_with(stream_id="stream-id", start_time=start, end_time=end, vst_internal_url=BASE_URL)
+    warm_media.assert_awaited_once_with(public_url)
+    download.assert_not_called()
+    request = post.call_args.kwargs["json"]
+    assert request["messages"][0]["content"][0]["video_url"]["url"] == internal_url
+    assert store.service.list_jobs()[0].output.handles.media_urls == [public_url]
+
+
+@pytest.mark.parametrize(
+    "clip_url",
+    [
+        "http://localhost:30888/vst/api/v1/storage/file/abc/url",
+        "http://127.0.0.1:30888/vst/storage/file/abc/url",
+        "http://[::1]:30888/vst/storage/file/abc/url",
+        "http://host.openshell.internal:7777/vst/storage/file/abc/url",
+        f"{BASE_URL}/vst/storage/file/abc/url?token=clip-token",
+        "http://h:30888/vst/storage/file/abc/url",
+        "/storage/file/abc/url",
+        "http://http://vst-ingress:30888/vst/storage/file/abc/url",
+    ],
+)
+@pytest.mark.parametrize("vlm_status", [200, 503])
+def test_sensor_cli_facing_url_streams_to_tempfile_and_uses_base64(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    clip_url: str,
+    vlm_status: int,
+) -> None:
+    """CLI-facing handles must be downloaded through the origin and streamed inline."""
     import base64 as _b64
     import contextlib
 
     from vss_cli.group import Context
     from vss_cli.vlm import group as vlm_group_mod
     from vss_cli.vlm.group import VlmGroup
+    from vss_core import vios
 
-    clip_bytes = b"\x00\x01\x02loopback-clip"
-    loopback_url = "http://localhost:30888/vst/api/v1/storage/file/abc/url"
+    clip_bytes = b"\x00\x01\x02" * 65536 + b"last-chunk"
+    monkeypatch.setattr(vlm_group_mod.tempfile, "tempdir", str(tmp_path))
 
     monkeypatch.setattr(
         vlm_group_mod,
         "_resolve_vios_clip",
-        lambda *_a, **_kw: (loopback_url, None, None),
+        lambda *_a, **_kw: (clip_url, None, None),
     )
 
     streamed_urls: list[str] = []
@@ -1553,7 +1613,8 @@ def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
                 pass  # 200 — no-op
 
             def iter_bytes(self, chunk_size: int = 8192):
-                yield clip_bytes
+                for offset in range(0, len(clip_bytes), chunk_size):
+                    yield clip_bytes[offset : offset + chunk_size]
 
         yield _FakeStream()
 
@@ -1566,7 +1627,7 @@ def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
             vlm_captured["json"] = _json.loads(b"".join(content))
         else:
             vlm_captured["json"] = json
-        return httpx.Response(200, json=_completion("loopback works"))
+        return httpx.Response(vlm_status, json=_completion("inline works"))
 
     monkeypatch.setattr(httpx, "stream", _fake_stream)
     monkeypatch.setattr(httpx, "post", _fake_vlm_post)
@@ -1576,24 +1637,30 @@ def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
     group = VlmGroup()
     result = group.run("", VlmInput(prompt="What?", sensor="cam1"), ctx)
 
-    assert result.exit == Exit.SUCCESS, f"expected SUCCESS, got {result.exit}: {result.body}"
-    assert result.body.get("answer") == "loopback works"
-    assert streamed_urls == [loopback_url], "expected exactly one stream call for the loopback clip"
+    assert result.exit == (Exit.SUCCESS if vlm_status == 200 else Exit.BACKEND_UNREACHABLE)
+    if vlm_status == 200:
+        assert result.body.get("answer") == "inline works"
+    assert streamed_urls == [vios.normalise_media_url(clip_url, BASE_URL)]
+    assert not list(tmp_path.glob("*.mp4")), "temporary clip must be removed after the VLM call"
 
-    # The VLM request must carry a data: URI, not the loopback URL.
+    # The VLM request must carry the exact clip bytes across base64 chunk boundaries.
     video_part = vlm_captured["json"]["messages"][0]["content"][0]["video_url"]["url"]
     assert video_part.startswith("data:video/mp4;base64,"), f"expected base64 data URI, got {video_part[:60]!r}"
     assert _b64.b64decode(video_part.split(",", 1)[1]) == clip_bytes
 
-    # The loopback URL must not be stored in the memory record.
-    _assert_no_local_path_in_record(store.service.list_jobs(), "--sensor loopback fallback")
+    _assert_no_local_path_in_record(store.service.list_jobs(), "--sensor inline transfer")
 
 
-def test_sensor_loopback_clip_fetch_timeout_writes_terminal_record(
+@pytest.mark.parametrize(
+    "clip_url", [f"{BASE_URL}/vst/storage/file/abc/clip", "http://localhost:30888/vst/storage/file/abc/clip"]
+)
+def test_sensor_clip_fetch_timeout_writes_terminal_record(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    clip_url: str,
 ) -> None:
-    """When the loopback clip fetch times out, the CLI must write a terminal record and
+    """When the clip fetch times out, the CLI must write a terminal record and
     return Exit.TIMEOUT — it must NOT re-raise (leaving no record for persistence-enabled runs)."""
     import contextlib
 
@@ -1601,12 +1668,12 @@ def test_sensor_loopback_clip_fetch_timeout_writes_terminal_record(
     from vss_cli.vlm import group as vlm_group_mod
     from vss_cli.vlm.group import VlmGroup
 
-    loopback_url = "http://localhost:30888/vst/api/v1/storage/file/abc/clip"
+    monkeypatch.setattr(vlm_group_mod.tempfile, "tempdir", str(tmp_path))
 
     monkeypatch.setattr(
         vlm_group_mod,
         "_resolve_vios_clip",
-        lambda *_a, **_kw: (loopback_url, "2025-01-01T00:00:00Z", "2025-01-01T00:00:30Z"),
+        lambda *_a, **_kw: (clip_url, "2025-01-01T00:00:00Z", "2025-01-01T00:00:30Z"),
     )
 
     @contextlib.contextmanager
@@ -1623,18 +1690,24 @@ def test_sensor_loopback_clip_fetch_timeout_writes_terminal_record(
 
     assert result.exit == Exit.TIMEOUT, f"expected TIMEOUT, got {result.exit}: {result.body}"
     assert result.body.get("status") == "timeout"
+    assert not list(tmp_path.glob("*.mp4"))
 
     # A terminal record must have been written to memory.
     jobs = store.service.list_jobs()
-    assert jobs, "expected at least one memory record written on loopback clip-fetch timeout"
+    assert jobs, "expected at least one memory record written on clip-fetch timeout"
     assert jobs[-1].job.status == "timeout", f"terminal record status: {jobs[-1].job.status}"
 
 
-def test_sensor_loopback_clip_http_error_writes_terminal_record(
+@pytest.mark.parametrize(
+    "clip_url", [f"{BASE_URL}/vst/storage/file/abc/clip", "http://localhost:30888/vst/storage/file/abc/clip"]
+)
+def test_sensor_clip_http_error_writes_terminal_record(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    clip_url: str,
 ) -> None:
-    """When the loopback VIOS clip fetch returns HTTP 5xx, the CLI must write a terminal
+    """When the VIOS clip fetch returns HTTP 5xx, the CLI must write a terminal
     record with status='failed' and return Exit.BACKEND_UNREACHABLE — NOT Exit.INVALID_INPUT."""
     import contextlib
 
@@ -1642,17 +1715,17 @@ def test_sensor_loopback_clip_http_error_writes_terminal_record(
     from vss_cli.vlm import group as vlm_group_mod
     from vss_cli.vlm.group import VlmGroup
 
-    loopback_url = "http://localhost:30888/vst/api/v1/storage/file/abc/clip"
+    monkeypatch.setattr(vlm_group_mod.tempfile, "tempdir", str(tmp_path))
 
     monkeypatch.setattr(
         vlm_group_mod,
         "_resolve_vios_clip",
-        lambda *_a, **_kw: (loopback_url, "2025-01-01T00:00:00Z", "2025-01-01T00:00:30Z"),
+        lambda *_a, **_kw: (clip_url, "2025-01-01T00:00:00Z", "2025-01-01T00:00:30Z"),
     )
 
     @contextlib.contextmanager
     def _error_stream(*_a: Any, **_kw: Any):
-        resp = httpx.Response(503, text="Service Unavailable", request=httpx.Request("GET", loopback_url))
+        resp = httpx.Response(503, text="Service Unavailable", request=httpx.Request("GET", clip_url))
         resp.raise_for_status()
         yield resp  # unreachable, but required to make this a generator
 
@@ -1665,9 +1738,10 @@ def test_sensor_loopback_clip_http_error_writes_terminal_record(
 
     assert result.exit == Exit.BACKEND_UNREACHABLE, f"expected BACKEND_UNREACHABLE, got {result.exit}: {result.body}"
     assert result.body.get("status") == "failed"
+    assert not list(tmp_path.glob("*.mp4"))
 
     jobs = store.service.list_jobs()
-    assert jobs, "expected a terminal record written on loopback clip HTTP error"
+    assert jobs, "expected a terminal record written on clip HTTP error"
     assert jobs[-1].job.status == "failed", f"terminal record status: {jobs[-1].job.status}"
 
 
