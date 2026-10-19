@@ -1143,11 +1143,20 @@ See [Deployment Options](/vss/vision-agent/agent-workflows/industry-specific-exa
 
    Close any warning dialogs that appear in JupyterLab.
 
-5. Navigate to and open the `video-search-and-summarization/deploy/docker/scripts/deploy_warehouse_launchable.ipynb` notebook.
+5. Open a terminal in JupyterLab and check out the [release/3.3.0 branch](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/release/3.3.0) before opening the warehouse launchable notebook:
+
+   ```bash
+   cd ~/video-search-and-summarization
+   git fetch origin release/3.3.0
+   git checkout release/3.3.0
+   git pull --ff-only origin release/3.3.0
+   ```
+
+6. Navigate to and open the `video-search-and-summarization/deploy/docker/scripts/deploy_warehouse_launchable.ipynb` notebook. If it is already open, close and reopen it after checking out the branch so it loads the release version.
 
    The Compose files ship in-tree in the `video-search-and-summarization` repository—there is no separate Compose archive to download. On Brev, the repository is cloned onto the instance automatically; set `DEPLOY_SOURCE_PATH` in Section 1 to that path (typically `~/video-search-and-summarization`).
-6. In Section 1, set `NGC_CLI_API_KEY` and select `MODE`, `BP_PROFILE`, and `HARDWARE_PROFILE`.
-7. Run each cell in order and use the URLs printed by Section 11. The notebook prints only the URLs available for the selected profile.
+7. In Section 1, set `NGC_CLI_API_KEY` and select `MODE`, `BP_PROFILE`, and `HARDWARE_PROFILE`.
+8. Run each cell in order and use the URLs printed by Section 11. The notebook prints only the URLs available for the selected profile.
 
 <Note>
 The complete setup takes around 20 minutes on first run as it downloads containers, pulls warehouse app data from NGC, and (for perception) compiles the TensorRT engine. Subsequent runs are faster — images stay cached locally and the engine is cached under `$VSS_DATA_DIR/models/`.
