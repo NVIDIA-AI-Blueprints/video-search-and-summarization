@@ -46,6 +46,9 @@ from spatialai_data_utils.eval.common.box_conventions import (
 from spatialai_data_utils.eval.common.loaders import load_gt
 from spatialai_data_utils.eval.detection.data_classes import DetectionBox, DetectionConfig
 from spatialai_data_utils.eval.detection.evaluate import AIC24DetEval
+from spatialai_data_utils.eval.tracking import data_classes as tracking_dc
+from spatialai_data_utils.eval.tracking.aic24_eval import AIC24TrackEval
+from spatialai_data_utils.eval.tracking.data_classes import TrackingConfig, TrackingMetricData
 from spatialai_data_utils.eval.tracking.hota.hota_eval import evaluate_hota
 
 # Elongated forklift-like boxes (1.2 x 2.9 m footprint) at yaws away from 45 deg.
@@ -64,6 +67,7 @@ def _data_infos():
         boxes = np.array([_gt_box(k, yaw) for k, yaw in enumerate(YAWS)], dtype=np.float64)
         infos.append({
             "scene_name": "scene_0",
+            "frame_idx": f,
             "token": f"scene_0__{f}",
             "gt_boxes": boxes,
             "gt_names": np.array(["forklift"] * len(YAWS)),
@@ -171,3 +175,37 @@ def test_detection_perfect_predictions_have_full_ap_and_zero_box_errors(tmp_path
     assert errors["trans_err"] == pytest.approx(0.0, abs=1e-6)
     assert errors["scale_err"] == pytest.approx(0.0, abs=1e-6)
     assert errors["orient_err"] == pytest.approx(0.0, abs=1e-6)
+
+
+@pytest.fixture
+def _restore_tracking_globals():
+    """``TrackingConfig`` registers ``TRACKING_NAMES`` / ``TrackingMetricData.nelem`` module-wide."""
+    saved_nelem, saved_names = TrackingMetricData.nelem, list(tracking_dc.TRACKING_NAMES)
+    yield
+    TrackingMetricData.nelem = saved_nelem
+    tracking_dc.TRACKING_NAMES = saved_names
+
+
+def _track_config():
+    return TrackingConfig(
+        tracking_names=["forklift"], pretty_tracking_names={"forklift": "Forklift"},
+        class_range={"forklift": 100}, dist_fcn="iou_3d", dist_th_tp=0.5, min_recall=0.1,
+        max_boxes_per_sample=500,
+        metric_worst={"amota": 0.0, "amotp": 1.0, "recall": 0.0, "motar": 0.0, "mota": 0.0, "motp": 1.0,
+                      "faf": 500, "gt": -1, "tp": 0, "mt": 0, "ml": -1, "fp": -1, "fn": -1, "ids": -1,
+                      "frag": -1, "tid": 20.0, "lgd": 20.0},
+        num_thresholds=4,
+    )
+
+
+@pytest.mark.parametrize("mirror_yaw, perfect", [(False, True), (True, False)])
+def test_amota_iou3d_perfect_predictions_score_one(tmp_path, _restore_tracking_globals, mirror_yaw, perfect):
+    """AIC24TrackEval with 3D IoU: perfect Sparse4D-style tracks reach AMOTA 1; mirrored-yaw tracks do not."""
+    infos = _data_infos()
+    path = _write_results(tmp_path, infos, yaw_fn=(lambda yaw: math.pi / 2 - yaw) if mirror_yaw else None)
+    summary = AIC24TrackEval(infos, config=_track_config(), result_path=path, output_dir=str(tmp_path / "out"),
+                             verbose=False).main(render_curves=False)
+    if perfect:
+        assert summary["label_metrics"]["amota"]["forklift"] == pytest.approx(1.0)
+    else:
+        assert summary["label_metrics"]["amota"]["forklift"] < 0.9
