@@ -27,7 +27,7 @@ VIOS is a **multi-image microservice**. Source: `vst.env` lines 64–66 (canonic
 
 | Image | Tag pattern | Registry | Role |
 |---|---|---|---|
-| `nvcr.io/nvidia/vss-core/vss-vios-sensor:${VST_SENSOR_IMAGE_TAG}` | `3.2.0` | `nvcr.io` | sensor-ms |
+| `nvcr.io/nvidia/vss-core/vss-vios-sensor:${VST_SENSOR_IMAGE_TAG}` | `3.3.0` | `nvcr.io` | sensor-ms |
 | `nvcr.io/nvidia/vss-core/vss-vios-streamprocessing:${VST_STREAM_PROCESSOR_IMAGE_TAG}` | same | `nvcr.io` | streamprocessing-ms |
 | `nvcr.io/nvidia/vss-core/vss-vios-ingress:${VST_INGRESS_IMAGE_TAG}` | same | `nvcr.io` | vst-ingress |
 | Docker `${SDR_MW_L_IMAGE}` / Helm `sdrc` `image.repository:image.tag` | see above | see above | `sdr-controller` — combined WDM SDRC controller + Envoy router. **Replaces the legacy `sdr:3.1.0` + `envoy-proxy:3.1.0` pair** that previously ran as `vss-vios-sdr` / `vss-vios-envoy`. |
@@ -145,11 +145,11 @@ bring-up. It is not a profile-level endpoint setting.
 
 | Variable | Required value | Why required | Source |
 |---|---|---|---|
-| `VST_INSTALL_ADDITIONAL_PACKAGES` | `true` | The `vss-vios-streamprocessing:3.2.0` image ships WITHOUT `libavcodec` / `libavformat` / `libavutil`. The container's entrypoint runs `apt install` to install them at startup ONLY when this env var is `true`. Without it, **PUT video uploads fail with `InvalidParameterError: Failed to get media information`** because both the primary (libav) and fallback (GStreamer discoverer) extraction paths fail inside the container. Finding 9, 2026-05-25. | `vst.env:28` (upstream default `true`); live verification 2026-05-25 |
-| `VST_INGRESS_IMAGE_TAG` | `3.2.0` | Published VSS 3.2.0 tag for the VIOS ingress image. | `dev-profile-base/.env` |
-| `VST_SENSOR_IMAGE_TAG` | `3.2.0` | Published VSS 3.2.0 tag for the VIOS sensor image. | `dev-profile-base/.env` |
-| `VST_STREAM_PROCESSOR_IMAGE_TAG` | `3.2.0` | Published VSS 3.2.0 tag for the VIOS streamprocessing image. | `dev-profile-base/.env` |
-| `NVSTREAMER_IMAGE_TAG` | `3.2.0` | Published VSS 3.2.0 tag for the NvStreamer image. | `dev-profile-base/.env` |
+| `VST_INSTALL_ADDITIONAL_PACKAGES` | `true` | The `vss-vios-streamprocessing:3.3.0` image needs the additional media libraries installed by the container entrypoint. Without them, **PUT video uploads fail with `InvalidParameterError: Failed to get media information`** because both the primary (libav) and fallback (GStreamer discoverer) extraction paths fail inside the container. | `vst.env` |
+| `VST_INGRESS_IMAGE_TAG` | `3.3.0` | Published VSS 3.3.0 tag for the VIOS ingress image. | `vst.env` |
+| `VST_SENSOR_IMAGE_TAG` | `3.3.0` | Published VSS 3.3.0 tag for the VIOS sensor image. | `vst.env` |
+| `VST_STREAM_PROCESSOR_IMAGE_TAG` | `3.3.0` | Published VSS 3.3.0 tag for the VIOS streamprocessing image. | `vst.env` |
+| `NVSTREAMER_IMAGE_TAG` | `3.3.0` | Published VSS 3.3.0 tag for the NvStreamer image. | `compose.env` |
 | `CENTRALIZE_DB_PASSWORD` | non-empty (any value) | PostgreSQL password — `vst.env` has no default; deploy hangs in `password authentication failed` on first init without this set | `vst.env` |
 | `KAFKA_BOOTSTRAP_URL` | `kafka:9092` (compose-internal hostname) | Used by streamprocessing-ms for `camera_streaming` event publication. Wrong value → silent caption-pipeline break | `vst.env` |
 | `REDIS_HOSTADDR` / `REDIS_PORT` | `redis` / `6379` (compose-internal) | streamprocessing-ms publishes `vst.event` here; `sdr-controller` consumes via `WDM_WL_REDIS_SERVER` / `WDM_WL_REDIS_PORT` (defaulted to `redis` / `6379` in [`sdrc/docker-compose.yaml`](../../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) lines 129-130). Wrong value → SDRC never picks up new streams → 503 on `/record/*` and `/replay/*` calls. | `vst.env` |
@@ -170,7 +170,7 @@ bring-up. It is not a profile-level endpoint setting.
 | Containers boot but `sensor/version` returns 502 / connection refused | Ingress (`vss-vios-ingress`) ready but `vss-vios-sensor` still booting → 502 from NGINX | Wait for `vss-vios-sensor` healthcheck; the Ingress start_period (`30s`) is shorter than sensor-ms boot — give it 60–120 s on first boot |
 | `vss-vios-postgres` healthcheck fails with `password authentication failed` | `CENTRALIZE_DB_PASSWORD` unset or rotated since last init | Set explicitly in `.env`; on first-time init Postgres adopts whatever was passed; subsequent runs require the same value or a volume reset |
 | Camera RTSP add returns HTTP 500 with `unable to connect to RTSP` | Camera RTSP credentials missing or wrong; or the camera is unreachable from the VIOS host | Provide `username`/`password` in `POST /sensor/add`; confirm L3 reachability from the VIOS host to the camera |
-| Compose rejects `vst.env`-style image variables as empty (`vss-vios-sensor:`) | `VST_*_IMAGE_TAG` env vars unset — no default in `vst.env` for the tag halves | Set `VST_SENSOR_IMAGE_TAG=3.2.0` etc. in the consumer `.env`; do not rely on the `vst.env` providing them |
+| Compose resolves a VIOS image tag incorrectly | Consumer overrides conflict with the fallback chain in `vst.env` | Remove stale overrides or set `VST_SENSOR_IMAGE_TAG=3.3.0` and the matching ingress/streamprocessor tags in the consumer `.env` |
 | Image-name typo `vss-vst-sensor` (legacy) fails to pull | Catalog or env using deprecated legacy image names | Use the canonical `vss-vios-*` names from `vst.env` lines 64–66 — Finding 2 |
 | `port already allocated` for `30888` | Other service binding the Ingress port | Override `VST_INGRESS_HTTP_PORT` to an unused port |
 | `sdrc-render-config` exits non-zero with `HOST_IP must be set in .env or shell before running compose` (or `wdm-env-from-config` aborts on the same env check) | `HOST_IP` env var unset on the compose invocation. Required by [`sdrc/docker-compose.yaml`](../../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) lines 61 + 84 — the SDRC init chain refuses to start without it. | Export `HOST_IP=<host's reachable IP>` (NOT `localhost` — it also mints `VST_INGRESS_ENDPOINT` for shareable media URLs) before `docker compose up`. |

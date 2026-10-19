@@ -105,7 +105,7 @@ Stored-video request shape:
 
 ```json
 {
-  "model": "nim_nvidia_cosmos-reason2-8b_hf-1208",
+  "model": "nim_nvidia_cosmos3-nano-reasoner_bf16-final",
   "url": "http://<host>:30888/<vios-video-or-clip-url>",
   "scenario": "warehouse safety review",
   "events": ["person activity", "forklift interaction"],
@@ -126,8 +126,8 @@ jq -e '.choices[0].message.content | length > 0'
 | Variable | Purpose | Default | Required? |
 |---|---|---|---|
 | `LVS_BACKEND_URL` | Host-facing LVS API URL used by operators and agents | `http://${HOST_IP}:38111` | Yes |
-| `LVS_IMAGE` | LVS image repository | `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization` | Yes |
-| `LVS_TAG` | LVS image tag (multi-arch; same on every platform) | `develop-latest` | Yes |
+| `VSS_VIDEO_SUMMARIZATION_IMAGE` | LVS image repository | `nvcr.io/nvidia/vss-core/vss-video-summarization` | Yes |
+| `VSS_VIDEO_SUMMARIZATION_TAG` | LVS image tag | `3.3.0`; use `3.3.0-sbsa` on SBSA | Yes |
 | `LVS_ENABLE_MCP` | Optional MCP/SSE endpoint | `true` | No |
 | `LVS_DATABASE_BACKEND` | Active database backend | `elasticsearch_db` | Yes |
 | `KAFKA_ENABLED` | Enable Kafka integration | `true` in the LVS developer profile | Yes for shared VSS infra |
@@ -136,12 +136,12 @@ jq -e '.choices[0].message.content | length > 0'
 | `LVS_ENABLE_LLM_MERGING` | Merge duplicate or overlapping events with the LLM | `true` | No |
 | `RTVI_VLM_URL` | RT-VLM endpoint LVS calls | `http://${HOST_IP}:${RTVI_VLM_PORT}` | Yes for local RT-VLM |
 | `RTVI_VLM_BASE_URL` | Operator/agent-facing RT-VLM URL | `http://${HOST_IP}:8018` | Yes for local RT-VLM |
-| `RTVI_VLM_MODEL_TO_USE` | RT-VLM backend selector | `cosmos-reason2` | Yes for integrated RT-VLM |
-| `RTVI_VLM_MODEL_PATH` | Integrated RT-VLM checkpoint | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Yes for integrated RT-VLM |
+| `RTVI_VLM_MODEL_TO_USE` | RT-VLM backend selector | `cosmos-reason3` | Yes for integrated RT-VLM |
+| `RTVI_VLM_MODEL_PATH` | Integrated RT-VLM checkpoint | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | Yes for integrated RT-VLM |
 | `RTVI_VLM_MESSAGE_BUS` | Generated-output broker type | `kafka` | Yes when RT-VLM Kafka is enabled |
 | `RTVI_VLM_MESSAGE_BUS_TOPIC` | Raw RT-VLM caption topic | `mdx-vlm-captions` | Yes when RT-VLM Kafka is enabled |
 | `RTVI_VLM_ERROR_BUS` | Error-output broker type | `kafka` | Yes when RT-VLM Kafka is enabled |
-| `VLM_NAME` | Model id sent to LVS | `nim_nvidia_cosmos-reason2-8b_hf-1208` | Yes |
+| `VLM_NAME` | Model id sent to LVS | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | Yes |
 | `LLM_NAME` | LLM model id | `nvidia/nemotron-3.5-lightning-30b-a3b` | Required for local LLM |
 | `LLM_BASE_URL` | Remote or local LLM OpenAI-compatible base URL | `http://${HOST_IP}:${LLM_PORT}` when local | Required |
 | `NVIDIA_API_KEY` / `OPENAI_API_KEY` | Remote endpoint auth and LVS LLM API key fallback | empty | Required when endpoint enforces auth |
@@ -181,14 +181,15 @@ jq -e '.choices[0].message.content | length > 0'
   `config.yaml` must point to a real file, not a Docker-created directory.
 - **Image variable isolation.** Generated profiles must keep the LVS image
   isolated from unrelated service image variables, using the source compose's
-  image contract or a patched LVS-specific `LVS_IMAGE` / `LVS_TAG` pair.
+  image contract or the `VSS_VIDEO_SUMMARIZATION_IMAGE` /
+  `VSS_VIDEO_SUMMARIZATION_TAG` pair.
 - **Single-file processing concurrency.** A busy LVS instance can return 503 for
   concurrent summarize requests. Generated smoke tests should run one request at
   a time.
 
 ## Example Compose Snippet
 
-Excerpted shape from `services/video-summarization/docker/deploy/compose.yaml`:
+Excerpted shape from `deploy/docker/services/video-summarization/compose.yml`:
 
 ```yaml
 services:

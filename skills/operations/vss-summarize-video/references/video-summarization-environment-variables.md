@@ -1,6 +1,6 @@
 # Video Summarization Environment Variables
 
-This is the 3.2.0 `lvs` profile env reference for the VSS develop branch. For
+This is the 3.3.0 `lvs` profile env reference. For
 full deployment decisions, use `vss-build-vision-ai`; this file is for quick
 video summarization debugging and request construction.
 
@@ -74,8 +74,8 @@ Video summarization service:
 | Var | Default / Example | Purpose |
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
-| `LVS_IMAGE` | `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization` | Image repository. |
-| `LVS_TAG` | `3.3.0-rc2` on x86/Tegra; use `3.3.0-rc2-sbsa` on SBSA. |
+| `VSS_VIDEO_SUMMARIZATION_IMAGE` | `nvcr.io/nvidia/vss-core/vss-video-summarization` | Image repository. |
+| `VSS_VIDEO_SUMMARIZATION_TAG` | `3.3.0` on x86/Tegra; use `3.3.0-sbsa` on SBSA. |
 | `LVS_ENABLE_MCP` | `false` | Enable optional MCP/SSE port. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Active CA-RAG database backend. Use `graph_db` for Neo4j or `graph_db_arango` for ArangoDB only with an embedding endpoint configured. |
 | `LVS_EMB_ENABLE` | `false` | Required as `true` for Neo4j or ArangoDB graph backends. |

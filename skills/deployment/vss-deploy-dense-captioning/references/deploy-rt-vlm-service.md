@@ -4,15 +4,15 @@
 
 **Service**: `rtvi-vlm` (container name `vss-rtvi-vlm`)
 **Image**: resolve it from the canonical Compose file; its standalone default is
-`ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest`, and environment
-overrides may select a release registry/tag or the `-sbsa` platform variant.
+`nvcr.io/nvidia/vss-core/vss-rt-vlm:3.3.0`, and environment overrides may
+select another registry/tag or the `-sbsa` platform variant.
 **Primary port**: `${RTVI_VLM_PORT}` → container `8000` (FastAPI REST, `/v1`)
 **Validated GPUs**: H100 · RTX PRO 6000 Blackwell · L40S · DGX SPARK · IGX Thor · AGX Thor
 
 Derive `<compose-default>` from the checked-out
 `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml` instead of
 hardcoding it in commands. The current compose default is
-`develop-latest`; Spark, GB10, and SBSA-class platforms append `-sbsa`. All
+`3.3.0`; Spark, GB10, and SBSA-class platforms append `-sbsa`. All
 other platforms use the normal multiarch tag.
 
 Real-Time VLM is VSS's streaming vision-language inference service: RTSP decode →
@@ -497,14 +497,8 @@ import sys
 p = Path(sys.argv[1])
 allowed = {
     "broker-health-check",
-    "cosmos-reason1-7b",
-    "cosmos-reason1-7b-shared-gpu",
-    "cosmos-reason2-8b",
-    "cosmos-reason2-8b-shared-gpu",
     "cosmos3-reasoner",
     "cosmos3-reasoner-shared-gpu",
-    "qwen3-vl-8b-instruct",
-    "qwen3-vl-8b-instruct-shared-gpu",
 }
 lines = p.read_text().splitlines()
 dependencies = {}

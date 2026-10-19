@@ -42,7 +42,7 @@ cp deploy/docker/developer-profiles/dev-profile-lvs/overrides.env \
 
 Set these non-secret values in `generated.env`:
 - `HOST_IP` — host IP (`hostname -I | awk '{print $1}'`)
-- `VSS_AGENT_CONFIG_FILE=./deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config_rag.yml`
+- `VSS_AGENT_CONFIG_FILE=/vss-agent/deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config_rag.yml`
 - `RAG_SERVER_URL` — Enterprise RAG server HTTP endpoint (defaults to `http://rag-server:8081/v1`)
 - `KNOWLEDGE_COLLECTION` — default Enterprise RAG collection for `frag_retrieval`
 
@@ -258,7 +258,7 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
 - Enterprise RAG requires a reachable RAG server with data already ingested in `KNOWLEDGE_COLLECTION`
 - If objects are not needed, respond with "skip"
 - The HITL response format is always: `{"response": {"type": "text", "text": "value"}}`
-- HTTP HITL requires explicit `HITL_ENABLED=true`; the shipped config derives
-  its `hitl_enabled` field from that variable and defaults it to false.
+- HTTP HITL is enabled by default; set `HITL_ENABLED=false` explicitly to
+  disable it.
 - See also: `video-summarization`, `video-understanding`, `report`, `vios`, `deploy`
 

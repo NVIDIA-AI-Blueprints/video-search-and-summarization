@@ -2,21 +2,16 @@
 
 ## Container Image
 
-- **Image name:** `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization`
-- **Tag pattern:** `develop-latest` tracks the newest `develop` build. Use a
-  `pr-<N>-latest` or commit-stamped tag for branch-specific testing.
-- **Registry:** `ghcr.io`
-- **Pull requirements:** The package is public; authenticated pulls use a
-  GitHub token with `read:packages` rather than an NGC key.
-- **Architecture support:** the tag is a multi-arch manifest covering
-  `linux/amd64` and `linux/arm64`, so the same tag works on x86, SBSA, and
-  Jetson/Thor targets.
+- **Image name:** `nvcr.io/nvidia/vss-core/vss-video-summarization`
+- **Tag:** `3.3.0`
+- **Registry:** `nvcr.io`
+- **Pull requirements:** authenticate to NGC with an API key before pulling.
+- **Architecture support:** use the normal tag on x86/Jetson/Thor and the
+  `3.3.0-sbsa` variant on SBSA/DGX Spark/Grace.
 
-The source-of-truth upstream service key is `lvs` in
-`services/video-summarization/docker/deploy/compose.yaml`; the default container
-name is `lvs`. Older developer-profile wrapper composes may expose
-`lvs-server` / `vss-lvs`, but build-vision-ai generated allow-lists must use
-the source-of-truth `lvs` key and compose path.
+The source-of-truth service key is `lvs-server` in
+`deploy/docker/services/video-summarization/compose.yml`; the default container
+name is `vss-lvs`.
 
 ## GPU Requirements
 
@@ -82,7 +77,7 @@ wrong, Docker may create an empty directory and LVS will fail at startup.
 | `POST /v1/summarize` returns 503 busy | LVS is already processing a file | Run one smoke-test summarize request at a time and retry after the current request completes |
 | LVS starts with config-file errors | The `config.yaml` bind source resolved to a missing file or Docker-created directory | Point `VSS_APPS_DIR` to `deploy/docker` or materialize `config.yaml` into the build output and rewrite the bind source |
 | LVS cannot reach Kafka or Elasticsearch | Host-networked service has wrong `HOST_IP`, `KAFKA_BOOTSTRAP_SERVERS`, `ES_HOST`, or `ES_PORT` | Use host-reachable addresses such as `${HOST_IP}:9092` and `localhost:9200`/`${HOST_IP}:9200` according to the generated env |
-| `lvs` pulls or starts the wrong image | A wrapper or generated compose image value does not match the selected LVS release | Use the source-of-truth LVS compose image contract or patch the image line to an LVS-specific `LVS_IMAGE` / `LVS_TAG` value |
+| `lvs` pulls or starts the wrong image | A wrapper or generated compose image value does not match the selected LVS release | Use the source-of-truth LVS compose image contract or set `VSS_VIDEO_SUMMARIZATION_IMAGE` / `VSS_VIDEO_SUMMARIZATION_TAG` |
 
 ## Prerequisites
 
@@ -129,7 +124,7 @@ Stored-video API smoke test:
 curl -s -X POST "http://${HOST_IP}:38111/v1/summarize" \
   -H "Content-Type: application/json" \
   -d "$(jq -n \
-    --arg model "${VLM_NAME:-nim_nvidia_cosmos-reason2-8b_hf-1208}" \
+    --arg model "${VLM_NAME:-nim_nvidia_cosmos3-nano-reasoner_bf16-final}" \
     --arg url "<VIOS_HTTP_VIDEO_OR_CLIP_URL>" \
     --arg scenario "warehouse safety review" \
     --argjson events '["person activity","forklift interaction"]' \

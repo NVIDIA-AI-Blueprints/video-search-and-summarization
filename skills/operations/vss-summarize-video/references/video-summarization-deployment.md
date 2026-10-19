@@ -1,7 +1,7 @@
 # Video Summarization Deployment Reference
 
 Use `vss-build-vision-ai` for full deployment. This file is the video summarization-specific
-service reference for the VSS 3.2.0 `lvs` profile.
+service reference for the VSS 3.3.0 `lvs` profile.
 
 ## Current VSS Docker Compose Shape
 
@@ -21,7 +21,7 @@ Key service signals in the current develop branch:
 | Compose profile | `lvs-server` |
 | video summarization service | `lvs-server` |
 | video summarization container | `vss-lvs` |
-| video summarization image | `${LVS_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization}:${LVS_TAG:-develop-latest}` (multi-arch manifest; same tag on every platform) |
+| video summarization image | `${VSS_VIDEO_SUMMARIZATION_IMAGE:-nvcr.io/nvidia/vss-core/vss-video-summarization}:${VSS_VIDEO_SUMMARIZATION_TAG:-3.3.0}` (use the `-sbsa` tag variant on SBSA) |
 | REST API | `http://<HOST_IP>:38111` |
 | Readiness | `GET /v1/ready` |
 | MCP port | `38112`, disabled by default in the developer profile |
@@ -89,8 +89,8 @@ Video summarization service values:
 | Var | Default / Example | Purpose |
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
-| `LVS_IMAGE` | `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization` | video summarization image repository. |
-| `LVS_TAG` | `3.3.0-rc2` on x86/Tegra; use `3.3.0-rc2-sbsa` on SBSA. |
+| `VSS_VIDEO_SUMMARIZATION_IMAGE` | `nvcr.io/nvidia/vss-core/vss-video-summarization` | video summarization image repository. |
+| `VSS_VIDEO_SUMMARIZATION_TAG` | `3.3.0` on x86/Tegra; use `3.3.0-sbsa` on SBSA. |
 | `LVS_ENABLE_MCP` | `false` | Enable MCP/SSE endpoint only when needed. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Default event database backend. |
 | `KAFKA_ENABLED` | `true` in dev-profile-lvs | Enables RTVI -> Kafka -> Logstash -> ES integration. |
@@ -278,8 +278,8 @@ profile name, or friendly name is also the serving id.
 The Helm service chart lives at `deploy/helm/services/video-summarization`.
 Current image values:
 
-- `image.repository: ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization`
-- `image.tag: "develop-latest"` (multi-arch manifest; same tag on every host)
+- `image.repository: nvcr.io/nvidia/vss-core/vss-video-summarization`
+- `image.tag: "3.3.0"` (use `"3.3.0-sbsa"` on SBSA)
 - `global.container_prefix` / `global.container_tag` override the repository
   root and tag for the whole managed set, LVS included
 - `service.backendPort: 38111`
