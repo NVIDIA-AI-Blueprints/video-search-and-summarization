@@ -56,20 +56,27 @@ DAEMON_JSON="/etc/docker/daemon.json"
 version_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]; }
 version_lt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$1" ]; }
 
-# Notebook subprocesses cannot answer a sudo password prompt. Fail immediately
-# with a command the user can run in an interactive host terminal.
+# Notebook subprocesses cannot answer a password prompt or share a terminal's
+# sudo timestamp. Hand off the entire script so the next notebook run is a no-op.
+PRIVILEGE_CHECKED=false
 run_privileged() {
   if [ "$EUID" -eq 0 ]; then
     "$@"
-    return
+  elif [ -t 0 ]; then
+    sudo "$@"
+  else
+    if [ "$PRIVILEGE_CHECKED" = false ]; then
+      if ! sudo -n true 2>/dev/null; then
+        local script_path
+        script_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/$(basename -- "${BASH_SOURCE[0]}")"
+        printf 'Administrator access is required. Run in the host terminal:\n  sudo bash %q\n' "$script_path" >&2
+        printf 'Then rerun this setup step.\n' >&2
+        return 1
+      fi
+      PRIVILEGE_CHECKED=true
+    fi
+    sudo -n "$@"
   fi
-  if ! sudo -n true 2>/dev/null; then
-    printf 'Administrator access is required. Run in the host terminal:\n  sudo' >&2
-    printf ' %q' "$@" >&2
-    printf '\nThen rerun this setup step.\n' >&2
-    return 1
-  fi
-  sudo -n "$@"
 }
 
 hold_installed_packages() {
@@ -113,9 +120,8 @@ configure_cgroup_driver() {
 
   local merged
   merged="$(mktemp)"
-  # Read under run_privileged like the write below: the file is often root-owned 0600,
-  # and this script runs as the login user.
-  if run_privileged test -f "$DAEMON_JSON"; then
+  # Existence needs no file-read permission; only the jq read below needs sudo.
+  if [ -f "$DAEMON_JSON" ]; then
     ensure_jq
     # Keep the file's other keys (default-runtime, runtimes, address pools) and
     # any unrelated exec-opt. Staged through a temp file because a
