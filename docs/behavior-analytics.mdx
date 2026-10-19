@@ -1888,7 +1888,7 @@ Below is a sample output of the dictionary format:
 
 The logic to compute the [space utilization metrics](/vss/system-components/analytics-microservices/behavior-analytics) is described as follows:
 
-* Everything is projected from 3D to 2D floor space (top-down view) of the moniored area.
+* Everything is projected from 3D to 2D floor space (top-down view) of the monitored area.
 * `totalSpace` is the size of the designated buffer zone which is on the floor plane.
 * `spaceOccupied` is the total area within the buffer zone that is occupied by target objects. Typical target objects are pallets and boxes. The detected 3D bounding boxes of the target objects are projected onto the floor plane and total size of the projected area (within the buffer zone) is calculated.
 * `freeSpace` is calculated as `totalSpace - spaceOccupied`.
