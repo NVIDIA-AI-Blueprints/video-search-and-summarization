@@ -5,6 +5,13 @@ position: 1
 ---
 This section covers the prerequisites for deploying and using the VSS Blueprint.
 
+<Note>
+The shared hardware, software, credentials, and runtime requirements below
+apply to **all systems**. DGX Spark and Thor setup sections add platform
+settings; completing only a platform section does not complete prerequisites.
+For an agent-assisted host check, use the [Quickstart](/vss/getting-started/quickstart#prerequisites).
+</Note>
+
 ## Hardware Requirements
 
 The VSS Blueprint has been validated and tested on the following NVIDIA GPUs:
@@ -68,6 +75,12 @@ kernel with Python 3.11 or later is required only when you follow the
 <Note>
 For detailed installation instructions for the software requirements listed above, see the [Appendix](/vss/getting-started/prerequisites#appendix-software-prerequisites-installation-guide):
 
+- **All systems — complete these first**
+
+  - [Configure Docker](/vss/getting-started/prerequisites#pin-and-configure-docker)
+  - [Install Docker Compose](/vss/getting-started/prerequisites#install-docker-compose)
+  - [Install Docker Buildx](/vss/getting-started/prerequisites#install-docker-buildx)
+  - [Install NGC CLI](/vss/getting-started/prerequisites#install-ngc-cli)
 - **x86 systems**
 
   - [Install NVIDIA Driver](/vss/getting-started/prerequisites#install-nvidia-driver)
@@ -80,12 +93,6 @@ For detailed installation instructions for the software requirements listed abov
   - [Setup DGX-SPARK](/vss/getting-started/prerequisites#setup-dgx-spark)
   - [Setup AGX-THOR](/vss/getting-started/prerequisites#setup-agx-thor)
   - [Setup IGX-THOR](/vss/getting-started/prerequisites#setup-igx-thor)
-- **all systems**
-
-  - [Configure Docker](/vss/getting-started/prerequisites#configure-docker)
-  - [Install Docker Compose](/vss/getting-started/prerequisites#install-docker-compose)
-  - [Install Docker Buildx](/vss/getting-started/prerequisites#install-docker-buildx)
-  - [Install NGC CLI](/vss/getting-started/prerequisites#install-ngc-cli)
 </Note>
 
 ## Runtime Environment Settings

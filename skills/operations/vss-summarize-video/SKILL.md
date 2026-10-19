@@ -211,9 +211,8 @@ separate skill.
 3. `vss vios timeline --sensor <name>`, then for each segment `vss vios clip
    --sensor <name> --start-time <start> --end-time <end>`. Always pass the
    segment's bounds: a window may not span a gap, and an RTSP sensor has no
-   default window. Pass `media_url` to `--url` as returned, except that a
-   `localhost` / `127.0.0.1` host becomes the host's routable IP: `vss-lvs`
-   cannot fetch loopback and rejects it.
+   default window. Use `--sensor` with those same bounds for LVS submission;
+   the CLI transfers the clip to LVS. Do not rewrite media URLs or endpoints.
 4. If `warmed` is `false`, stop and report it. `warmed: true` shows only that
    the CLI host fetched the URL, not that LVS can.
 
@@ -250,7 +249,7 @@ Do not build a `/v1/summarize` payload by hand, and do not fetch
 `/openapi.json` to construct one — the CLI owns the request shape,
 `vss configure` owns the endpoint, and `vss configure memory` owns persistence.
 
-Use the invocation in the end-to-end reference. It passes the fresh VIOS URL
+Use the invocation in the end-to-end reference. It passes the verified sensor and recorded window
 from Stage 2, the exact HITL values from Stage 3, `--chunk-duration 10`, and
 `--seed 1`; repeat `--event` per event and add `--object-of-interest` only when
 the caller provided objects. Pass no endpoint flag.
@@ -260,7 +259,7 @@ exist. The standard workflow also does not pass `--no-persist`, so the
 operator's configured persistence default applies. When persistence is enabled,
 the record needs two values:
 
-- `--video-id`, required alongside `--url`. Use the recording's VIOS **sensor**
+- `--video-id`, required alongside `--url` and resolved automatically with `--sensor`. Use the recording's VIOS **sensor**
   id — the `sensor_id` from Stage 2's `vss vios clip` output — never the
   stream id. It becomes the record's sensor, which is what `list --sensor-id`
   and time-windowed recall key on. Without `--video-id` the run exits 2 before

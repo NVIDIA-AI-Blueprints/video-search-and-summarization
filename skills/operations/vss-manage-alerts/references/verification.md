@@ -36,16 +36,21 @@ Verified CV alerts carry an extended `info` block:
 
 > **Interim path (Docker only).** The `mdx-vlm-alerts-*` store has **no REST query endpoint yet** — Workflow C's `/incidents` reads only the real-time incident store and will NOT surface these documents. A dedicated Alert Bridge query endpoint is planned; until it lands, query Elasticsearch (`:9200`, host-published) **on Docker only**. Elasticsearch is **not** on the public Ingress — on Kubernetes do not probe `:9200`, do not `kubectl port-forward`, and report that CV verdict inspection via ES is unavailable over `VSS_PUBLIC_URL`.
 
+Alert documents use `timestamp`. `ab-confirmed-verdicts` is an internal
+deduplication marker index, not the alert history; it has `created_at` and
+`expires_at`, not `@timestamp`. Do not use it to answer a verdict/history
+question or invent a sort field. Inspect the mapping for diagnostic queries.
+
 ```bash
 # Docker only — ES is not published on Kubernetes Ingress.
 ES="http://${HOST_IP}:9200"
 
 # latest verification results
-curl -sf "$ES/mdx-vlm-alerts-*/_search?size=10&sort=@timestamp:desc" | jq '.hits.hits[]._source'
+curl -sf "$ES/mdx-vlm-alerts-*/_search?size=10&sort=timestamp:desc" | jq '.hits.hits[]._source'
 
 # by alert category (alert_type / output_category as shown in ES)
 curl -sf "$ES/mdx-vlm-alerts-*/_search" -H 'Content-Type: application/json' -d '{
-  "size": 10, "sort": [{"@timestamp": "desc"}],
+  "size": 10, "sort": [{"timestamp": {"order": "desc", "unmapped_type": "date"}}],
   "query": {"match": {"category": "<alert_type>"}}
 }' | jq '.hits.hits[]._source'
 ```
@@ -68,7 +73,7 @@ curl -sf "$ES/mdx-vlm-alerts-*/_search" -H 'Content-Type: application/json' -d '
 # by time range
 curl -sf "$ES/mdx-vlm-alerts-*/_search" -H 'Content-Type: application/json' -d '{
   "size": 50,
-  "query": {"range": {"@timestamp": {"gte": "now-24h"}}}
+  "query": {"range": {"timestamp": {"gte": "now-24h"}}}
 }' | jq '.hits.hits[]._source | {category, timestamp, verdict: .info.verdict}'
 
 # on-demand (Workflow F) results land here ONLY when submitted with notification_type:"alert";

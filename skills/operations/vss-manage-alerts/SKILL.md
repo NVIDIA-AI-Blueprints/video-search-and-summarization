@@ -48,6 +48,16 @@ Requires the matching VSS profile/microservice deployed and reachable. NGC-hoste
 
 # VSS Alert Management
 
+The CLI has no `vss alerts` group. Do not suggest or probe it. Use this skill's
+supported Alert Bridge workflows for subscriptions and `vss analytics` for
+incident/metric reads covered by the CLI.
+
+Always-on monitoring requires an RTSP stream. An uploaded, file-backed sensor
+with an HTTP clip URL cannot be registered as a live stream. Report that
+limitation before creating rules; offer on-demand verification or video
+summarization for that same video. Do not substitute a different source or
+claim monitoring is active.
+
 The alerts profile runs in one of two modes (chosen at the `/vss-build-vision-ai` stock Alerts workflow in verification or real-time mode) — see **The Two Modes** table below. This skill routes by **deployed mode + user intent** (monitoring vs subscription CRUD vs Slack webhook), driving the **Alert Bridge REST API directly** (no VSS Agent `/generate`).
 
 ## When to Use

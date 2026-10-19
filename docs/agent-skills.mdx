@@ -162,6 +162,26 @@ For more information on agent harnesses with VSS, see [Agent Harnesses](/vss/vis
 | Codex | `~/.codex/skills/<name>/` |
 | Other `agentskills.io`-compatible hosts | `~/.agents/skills/<name>/` |
 
+## Discovering and invoking a Skill
+
+From a new session opened at the checkout root, ask the agent to read
+`skills/README.md` and list the installed VSS Skills. Installation takes a
+Skill directory containing `SKILL.md`; the category name `operations` is not
+part of the invocable name. If discovery misses a Skill, give its path or use
+an explicit invocation.
+
+| Host | Explicit deployment prompt |
+| --- | --- |
+| Codex | `$vss-build-vision-ai Deploy the VSS base profile on this machine with NemoClaw.` |
+| Claude Code | `/vss-build-vision-ai Deploy the VSS base profile on this machine with NemoClaw.` |
+| Other compatible harness | `Read skills/vss-build-vision-ai/SKILL.md and use it to deploy the VSS base profile with NemoClaw.` |
+
+Use a model with tool use and enough context for the deployment plan. Choose
+high reasoning effort if your host exposes that control. The validation
+statement above records the tested model; it does not establish that every
+model/effort combination has been tested. If an intake question tool is
+unavailable, the Skill asks the same question in ordinary conversation.
+
 ## Installing Skills
 
 Skills are installed by asking the coding agent itself to read the Skills catalog and

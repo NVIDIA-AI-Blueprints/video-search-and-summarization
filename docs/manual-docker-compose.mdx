@@ -1,0 +1,826 @@
+---
+title: "Manual Docker Compose deployment"
+description: "Deploy and verify the stock VSS base profile with an in-stack agent."
+---
+
+Use this guide to manage the stock Compose deployment from a host terminal.
+Complete the shared [prerequisites](/vss/getting-started/prerequisites),
+[download steps](/vss/getting-started/quickstart#download-sample-data-and-deployment-package),
+and registry login first. For the recommended agent-assisted route, use the
+[Quickstart](/vss/getting-started/quickstart).
+
+### Docker Compose deployment
+
+Use the selected developer profile with its checked-in `.env` file and a local
+`user-overrides.env` file throughout the native Docker Compose procedure below.
+
+<Note>
+- Set the NGC CLI API key, then run the deploy commands for your GPU type. Set `HF_TOKEN` only when the selected model downloads gated or rate-limited weights from Hugging Face. See [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc--hugging-face-api-keys).
+- Refer to [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
+- For **Nemotron Omni** video+audio with a remote VLM, set `ENABLE_AUDIO=true` and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) in [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm).
+- For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
+</Note>
+
+```bash title="Run in the host terminal"
+# Set the NGC CLI API key. Set HF_TOKEN only when the selected model requires it.
+export NGC_CLI_API_KEY='<your-ngc-api-key>'
+# export HF_TOKEN='<hf-token>'
+
+# Authenticate Docker to pull VSS release images, NIM, and other NGC images.
+printf '%s' "$NGC_CLI_API_KEY" | \
+  docker login nvcr.io --username '$oauthtoken' --password-stdin
+
+```
+
+See [Configuration](/vss/system-components/configuration) for common variables,
+valid values, defaults, and env-file precedence. The complete profile-specific
+template is
+`deploy/docker/developer-profiles/dev-profile-base/overrides.env`.
+
+Select a hardware tab, then a deployment mode. **Shared GPU** runs the local
+LLM and integrated RT-VLM on the same GPU. **Dedicated GPU** assigns them to
+separate GPUs with `LLM_DEVICE_ID` and `RT_VLM_DEVICE_ID`. Keep
+`VLM_DEVICE_ID` aligned with `RT_VLM_DEVICE_ID` for local integrated RT-VLM:
+the local VLM service binds the GPU named by `VLM_DEVICE_ID`, while the RT-VLM
+container binds the GPU named by `RT_VLM_DEVICE_ID`.
+
+From the repository checkout root, enter the Compose deployment directory:
+
+```bash title="Run in the host terminal"
+cd deploy/docker
+```
+
+`overrides.env` is the checked-in template. Copy it to any
+filename matching `*-overrides.env` before selecting a layout. Files matching
+that pattern are ignored by Git so local settings and credentials are not
+committed. The commands below use `user-overrides.env` as a concrete example;
+if you choose another name, use it consistently in every `--env-file` argument.
+Repeat the copy only when you want to discard prior layout changes:
+
+```bash title="Run in the host terminal"
+PROFILE=base
+cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
+```
+
+Before starting Compose, complete the host settings and select one hardware
+layout below in `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`.
+
+**Environment-variable overrides:** In `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`, update existing values in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
+
+On GB300, DGX Spark, and other SBSA hosts, export
+`VSS_CONTAINER_TAG_SUFFIX=-sbsa` in the shell before running Compose. This
+appends `-sbsa` to the managed RT-CV, RT-Embed, RT-VLM, and Video Summarization
+image tags while preserving the shared `VSS_CONTAINER_TAG` release channel. Do
+not put the suffix in `user-overrides.env`: `containers.env` derives the image
+tags before later env files are read.
+
+**Host-path and service-address overrides (all hardware profiles):**
+
+- `VSS_APPS_DIR`: Absolute path to this repository's `deploy/docker` directory.
+- `VSS_DATA_DIR`: Absolute writable host directory for downloaded models, videos, and service data.
+- `HOST_IP`: IP address or hostname that clients use to reach services on this VSS host. Set it to an address reachable by the intended clients.
+- `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `${HOST_IP}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
+
+
+Set these required placeholder values in the existing assignments:
+
+```ini
+VSS_APPS_DIR=/absolute/path/to/video-search-and-summarization/deploy/docker
+VSS_DATA_DIR=/absolute/path/to/vss-apps-data
+HOST_IP=<reachable-host-ip-or-name>
+```
+
+**Prepare host data directories before starting Compose.** Export
+`VSS_DATA_DIR` with the same absolute path you set in `user-overrides.env`, then
+run this block. The guard stops before `mkdir` or `chmod` if the value is absent
+or is not absolute:
+
+```bash title="Run in the host terminal"
+: "${VSS_DATA_DIR:?Export VSS_DATA_DIR with the value from user-overrides.env}"
+case "$VSS_DATA_DIR" in
+  /*) ;;
+  *) echo "VSS_DATA_DIR must be an absolute path" >&2; exit 1 ;;
+esac
+mkdir -p \
+  "$VSS_DATA_DIR/data_log/analytics_cache" \
+  "$VSS_DATA_DIR/data_log/calibration_toolkit" \
+  "$VSS_DATA_DIR/data_log/elastic/data" \
+  "$VSS_DATA_DIR/data_log/elastic/logs" \
+  "$VSS_DATA_DIR/data_log/kafka" \
+  "$VSS_DATA_DIR/data_log/nvstreamer/vst_data" \
+  "$VSS_DATA_DIR/data_log/redis/data" \
+  "$VSS_DATA_DIR/data_log/redis/log" \
+  "$VSS_DATA_DIR/data_log/vss_video_analytics_api" \
+  "$VSS_DATA_DIR/data_log/vst/clip_storage" \
+  "$VSS_DATA_DIR/agent_eval/dataset" \
+  "$VSS_DATA_DIR/agent_eval/results" \
+  "$VSS_DATA_DIR/models"
+chmod -R a+rwx \
+  "$VSS_DATA_DIR/data_log" \
+  "$VSS_DATA_DIR/agent_eval" \
+  "$VSS_DATA_DIR/models"
+```
+
+<Warning>
+These broad write permissions are intended for development deployments whose
+containers use multiple user IDs. For production, restrict host directory
+ownership and permissions to the identities used by your deployment. See
+[Secure Deployment](/vss/appendix/additional-deployments/secure-deployment#host-filesystem-permissions).
+</Warning>
+
+**Default container image tag**
+
+`containers.env` uses `VSS_CONTAINER_TAG` as the default tag for all images.
+Export the tag selected for this documentation branch before choosing a hardware
+layout:
+
+```bash title="Run in the host terminal"
+export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
+```
+
+Any service-specific image tag or tag suffix shown inside a hardware tab
+supersedes or augments this common default. Use the SBSA settings shown in the
+GB300 and DGX Spark tabs when deploying on those platforms.
+
+<Note>
+For DGX Spark, IGX Thor, and AGX Thor, the tabs below show the remote-LLM
+layout recommended for latency. The checked-in base configuration also supports a co-located local LLM and
+RT-VLM, but those local layouts have not
+yet been measured on the target hardware. See
+[Edge Deployment](/vss/appendix/additional-deployments/edge-deployment) for
+their settings and validation caveat.
+</Note>
+
+<Tabs>
+<Tab title="H100">
+<Tabs>
+<Tab title="Shared GPU">
+
+```ini
+HARDWARE_PROFILE=H100
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
+```
+</Tab>
+<Tab title="Dedicated GPU">
+
+```ini
+HARDWARE_PROFILE=H100
+LLM_DEVICE_ID=0
+VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
+RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
+LLM_MODE=local
+VLM_MODE=local
+```
+</Tab>
+<Tab title="Remote LLM">
+
+```ini
+HARDWARE_PROFILE=H100
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+```
+</Tab>
+<Tab title="Remote VLM">
+
+```ini
+HARDWARE_PROFILE=H100
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
+</Tab>
+<Tab title="Remote LLM + VLM">
+
+```ini
+HARDWARE_PROFILE=H100
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="GB300">
+<Tabs>
+<Tab title="Default">
+
+```ini
+HARDWARE_PROFILE=GB300
+LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
+```
+</Tab>
+<Tab title="Remote LLM">
+
+```ini
+HARDWARE_PROFILE=GB300
+VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+```
+</Tab>
+<Tab title="Remote VLM">
+
+```ini
+HARDWARE_PROFILE=GB300
+LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
+</Tab>
+<Tab title="Remote LLM + VLM">
+
+```ini
+HARDWARE_PROFILE=GB300
+RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="RTXPRO6000BW">
+<Tabs>
+<Tab title="Shared GPU">
+
+```ini
+HARDWARE_PROFILE=RTXPRO6000BW
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
+```
+</Tab>
+<Tab title="Dedicated GPU">
+
+```ini
+HARDWARE_PROFILE=RTXPRO6000BW
+LLM_DEVICE_ID=0
+VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
+RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
+LLM_MODE=local
+VLM_MODE=local
+```
+</Tab>
+<Tab title="Remote LLM">
+
+```ini
+HARDWARE_PROFILE=RTXPRO6000BW
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+```
+</Tab>
+<Tab title="Remote VLM">
+
+```ini
+HARDWARE_PROFILE=RTXPRO6000BW
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
+</Tab>
+<Tab title="Remote LLM + VLM">
+
+```ini
+HARDWARE_PROFILE=RTXPRO6000BW
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="L40S">
+
+Shared local LLM/VLM placement is not supported on L40S. Use a dedicated-GPU
+or remote-model layout.
+
+<Tabs>
+<Tab title="Dedicated GPU">
+
+```ini
+HARDWARE_PROFILE=L40S
+LLM_DEVICE_ID=0
+VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
+RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
+LLM_MODE=local
+VLM_MODE=local
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8
+```
+</Tab>
+<Tab title="Remote LLM">
+
+```ini
+HARDWARE_PROFILE=L40S
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8
+```
+</Tab>
+<Tab title="Remote VLM">
+
+```ini
+HARDWARE_PROFILE=L40S
+LLM_MODE=local
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
+</Tab>
+<Tab title="Remote LLM + VLM">
+
+```ini
+HARDWARE_PROFILE=L40S
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="DGX-SPARK">
+<Tabs>
+<Tab title="Remote LLM">
+See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options,
+and [Edge Deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
+
+```ini
+HARDWARE_PROFILE=DGX-SPARK
+VLM_DEVICE_ID=0
+RT_VLM_DEVICE_ID=0
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="IGX-THOR">
+<Tabs>
+<Tab title="Remote LLM">
+See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options,
+and [Edge Deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
+
+```ini
+HARDWARE_PROFILE=IGX-THOR
+VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
+RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="AGX-THOR">
+<Tabs>
+<Tab title="Remote LLM">
+See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options,
+and [Edge Deployment](/vss/appendix/additional-deployments/edge-deployment) for this particular setup.
+
+```ini
+HARDWARE_PROFILE=AGX-THOR
+VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
+RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="OTHER">
+See [Local LLM and VLM deployments on OTHER hardware](/vss/appendix/faq) for known limitations and constraints.
+
+<Tabs>
+<Tab title="Shared GPU">
+
+```ini
+HARDWARE_PROFILE=OTHER
+LLM_ENV_FILE=/path/to/llm.env
+VLM_ENV_FILE=/path/to/vlm.env
+```
+</Tab>
+<Tab title="Dedicated GPU">
+
+```ini
+HARDWARE_PROFILE=OTHER
+LLM_DEVICE_ID=0
+VLM_DEVICE_ID=1 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
+RT_VLM_DEVICE_ID=1 # Must match VLM_DEVICE_ID
+LLM_MODE=local
+VLM_MODE=local
+LLM_ENV_FILE=/path/to/llm.env
+VLM_ENV_FILE=/path/to/vlm.env
+```
+</Tab>
+<Tab title="Remote LLM">
+
+```ini
+HARDWARE_PROFILE=OTHER
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+VLM_ENV_FILE=/path/to/vlm.env
+```
+</Tab>
+<Tab title="Remote VLM">
+
+```ini
+HARDWARE_PROFILE=OTHER
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+LLM_ENV_FILE=/path/to/llm.env
+```
+</Tab>
+<Tab title="Remote LLM + VLM">
+
+```ini
+HARDWARE_PROFILE=OTHER
+LLM_MODE=remote
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+VLM_MODE=remote
+VLM_NAME_SLUG=none
+VLM_BASE_URL=https://<vlm-endpoint-without-v1>
+VLM_NAME=<vlm-model-id-from-v1-models>
+VLM_MODEL_TYPE=<nim-or-openai-or-vllm>
+VLM_PORT=30082
+RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
+RTVI_VLM_MODEL_TO_USE=openai-compat
+RTVI_VLM_MODEL_PATH=none
+```
+</Tab>
+</Tabs>
+</Tab>
+</Tabs>
+
+### Shared GPU memory and port checks
+
+The base template reserves `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4`, leaving
+headroom for the local LLM and CUDA allocations on the reviewed 96 GB GPU.
+Inspect `nvidia-smi` before launch and compare the selected layout with the
+[GPU requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
+A different model, GPU, or active workload requires a fresh memory budget.
+
+Before launch, inspect `df -h` for the model/data filesystem and `ss -ltn`
+for occupied ports. If Redis reports `address already in use` on port 6379,
+change the existing `REDIS_HOST_PORT=6379` assignment to `REDIS_HOST_PORT=6380`
+in `user-overrides.env`, choose another free port if needed, and rerun the same
+Compose command. Container traffic still uses Redis's internal port 6379.
+
+`--wait --wait-timeout 1200` makes a failed health check fail the launch command.
+On timeout, inspect `docker compose ... ps --all` and the failing service's
+logs before retrying. Container creation alone does not establish readiness.
+
+After replacing every placeholder in the selected layout, from `deploy/docker`
+validate the resolved configuration, then start the profile:
+
+```bash title="Run in the host terminal"
+PROFILE=base
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  config --quiet
+
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  up --detach --pull always --force-recreate --build --wait --wait-timeout 1200
+```
+
+Review every unset-variable warning from `config --quiet` against the selected
+profile before running `up --detach --pull always --force-recreate --build`. A zero exit code confirms that Compose could
+render the model; it does not prove that every operationally required value is
+set. Variables used only by inactive profiles can also produce warnings.
+
+Docker Compose downloads the required containers from the configured NGC registries and starts the agent. Depending on
+your network speed, this may take a few minutes.
+
+<Note>
+When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
+</Note>
+
+<Note>
+**Switch Agent Workflows:** Use the matching `developer-profiles/dev-profile-<profile>/.env` plus `user-overrides.env`. Later `--env-file` values win.
+
+Switch profiles by changing the `dev-profile-<profile>` directory, not by setting `MODE` to `base`/`lvs`/`search`/`alerts`. Those names are profile directories. For the **alerts** profile only, `MODE` is:
+
+- [Alert Verification Workflow](/vss/vision-agent/agent-workflows/alert-verification#direct-docker-compose-overrides) — `MODE=2d_cv`
+- [Real-Time Alert Workflow](/vss/vision-agent/agent-workflows/real-time-alerts#direct-docker-compose-overrides) — `MODE=2d_vlm`
+
+For a manual alerts deployment, setting `MODE` alone is not sufficient. Follow
+the linked workflow and copy its complete common override block into
+`dev-profile-alerts/user-overrides.env`; that block selects the matching
+service set, message-bus behavior, and agent/UI settings together.
+
+</Note>
+
+### Verify the manual in-stack Agent deployment
+
+Once the deployment is complete, check that all the containers are running and healthy:
+
+```bash title="Run in the host terminal"
+docker ps
+```
+
+Once all the containers are running, you can access the agent UI at `http://<HOST_IP>:7777/`.
+
+#### If the UI Doesn't Load
+
+If `http://<HOST_IP>:7777/` does not open, run these checks before redeploying:
+
+1. Check the VSS Agent health endpoint:
+
+   ```bash title="Run in the host terminal"
+   curl -fsS "http://<HOST_IP>:8000/health"
+   ```
+
+2. Confirm the expected base-profile containers are running and healthy:
+
+   ```bash title="Run in the host terminal"
+   docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+   ```
+
+   Look for the VSS Agent, VSS Agent UI, VIOS/VST, Nemotron LLM,
+   `vss-rtvi-vlm`, and Phoenix containers.
+
+3. If containers are unhealthy or certain services are unresponsive, check the corresponding
+   container logs for startup, or configuration errors.
+
+4. If containers are healthy but the UI or workflow is still unavailable, check
+   whether the host firewall is blocking container-to-host traffic. See
+   [Bridge-network container cannot reach a VSS service on the host](/vss/appendix/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host).
+
+For the recommended agent-guided deployment path, see
+[Deploy the base profile](/vss/getting-started/quickstart#deploy-the-base-profile).
+
+## Use the manually deployed in-stack Agent
+
+The upload, chat, and report steps in this section require the manual stock
+Compose deployment, or a Build Vision AI request that explicitly retained the
+in-stack VSS Agent. For the default agentless Skill deployment, use the
+[Agent Skills walkthrough](/vss/getting-started/quickstart#agent-skills-walkthrough) instead.
+
+### Upload a video
+
+In the chat interface, drag and drop the video `warehouse_safety_0001.mp4` into the chat window.
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_upload_video_1.png" alt="New chat window" />
+</Frame>
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_upload_video_2.png" alt="Upload success popup" />
+</Frame>
+
+Once the video is uploaded, the agent will respond with the playback clip.
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_upload_video_3.png" alt="Video uploaded" />
+</Frame>
+
+### Ask the Agent questions
+
+You can now ask the agent questions about the video. Here is an example:
+
+```bash title="Run in the host terminal"
+Is the worker wearing PPE?
+```
+
+The agent will show the intermediate steps of the agent's reasoning while the response is being generated and then output the final answer.
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_query_ppe.png" alt="Query: Is the worker wearing PPE?" />
+</Frame>
+
+Follow up questions can be asked, for example:
+
+```bash title="Run in the host terminal"
+When did the worker climb up the ladder?
+```
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_query_climb_ladder.png" alt="Query: When did the worker climb up the ladder?" />
+</Frame>
+
+Other examples of general supported queries include:
+
+- List all available sensors
+- Fetch the video for `<sensor-id>` or `<video-file-name>`
+- Take a snapshot of `<sensor-id>` or `<video-file-name>` at `<timestamp>`
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_query_sensor_list.png" alt="Query: List all available sensors" />
+</Frame>
+
+### Generate a report with the in-stack VSS Agent
+
+You can also ask the agent to generate a report about the video. Here is an example prompt to generate a report about the video:
+
+<Note>
+The screenshots below show the in-stack VSS Agent UI. In this workflow, VSS Agent provides a PDF report download and uses a Human in the Loop (HITL) dialog to review the VLM prompt. With NemoClaw's OpenClaw runtime, the summary or report appears directly in the OpenClaw chat UI. HITL happens in that chat: the agent asks for prompt details inline, and you answer in the conversation. The VSS Agent's structured HITL dialogs are not available through an external VSS UI connected to NemoClaw.
+</Note>
+
+```bash title="Run in the host terminal"
+Can you generate a report for this video?
+```
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_query_report.png" alt="Query: Can you generate a report for this video?" />
+</Frame>
+
+#### Human in the loop (HITL) prompt editing:
+
+When generating a report in the VSS Agent UI, the agent prompts the user to review the VLM prompt for report generation.
+This allows the user to edit the vlm prompt for report generation to improve the specificity and accuracy of the report.
+
+![Human in the loop prompt-editing flow diagram](/assets/images/agent-workflows/base_hitl_diagram.png)
+
+The HITL options for prompt-editing include:
+
+1. Press Submit (empty) → Approve and generate report
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_hitl_popup.png" alt="HITL: Approve and generate report" />
+</Frame>
+
+2. Type a new prompt directly or paste current prompt and edit it manually
+3. Type `/generate <description>`: LLM creates a prompt based on the description
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_hitl_generate.png" alt="HITL: Generate new prompt based on description" />
+</Frame>
+
+4. Type `/refine <instructions>`: LLM modifies the current prompt based on the description
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_hitl_refine.png" alt="HITL: Refine the existing prompt based on description" />
+</Frame>
+
+5. Type `/default` → Restore the system default VLM prompt. Last approved edits remain saved until you submit the restored default.
+6. Type `/cancel` → Cancel report generation
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_hitl_cancelled.png" alt="HITL: LLM-refined prompt result" />
+</Frame>
+
+After the prompt is edited using LLM, the user can review the prompt once more and make more edits or approve.
+
+<Frame>
+  <img src="/assets/images/agent-workflows/base_hitl_refine_result.png" alt="HITL: LLM-refined prompt result" />
+</Frame>
+
+For any video clip, a report can be generated and then follow-up questions can be asked about the report or video content. Here is what this may look like:
+
+1. Can you generate a report for `<sensor-id>` or `<video-file-name>`
+2. Follow up questions (Example: If the report mentions a truck at 0:05, you may ask: "What color was the truck at 0:05?")
+3. Give me a snapshot of the video at `<timestamp>`.
+
+<Note>
+The agent generates both Markdown (`.md`) and PDF (`.pdf`) reports. Generated reports are accessible at
+`http://<HOST_IP>:7777/static/agent_report_<DATE>.md` and `http://<HOST_IP>:7777/static/agent_report_<DATE>.pdf` through the public ingress. By default, the agent uses an in-memory object store (`_type: in_memory`), so reports will be lost when the
+`vss-agent` container restarts. To persist reports, enable `save_local_copy` in the agent configuration and
+mount a host directory as a Docker volume. For details, refer to [Report Generation](/vss/vision-agent/vss-agents/report-generation).
+</Note>
+
+### Teardown the Agent
+
+To teardown the agent, run the following command:
+
+```bash title="Run in the host terminal"
+cd deploy/docker
+PROFILE=base
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  down -v --remove-orphans
+```
+
+This command stops the manually deployed base-profile containers and removes
+their Compose volumes.
+
+## Service Endpoints
+
+The manually deployed in-stack Agent configuration exposes these services:
+
+| Service | URL |
+| --- | --- |
+| VSS UI | `http://<HOST_IP>:7777` |
+| VST UI | `http://<HOST_IP>:30888/vst/#/dashboard` |
+| Phoenix UI | `http://<HOST_IP>:7777/phoenix/projects` |

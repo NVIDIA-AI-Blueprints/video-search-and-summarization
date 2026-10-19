@@ -48,6 +48,9 @@ navigation:
       - page: "Quickstart"
         slug: quickstart
         path: ../docs/quickstart.mdx
+      - page: "Manual Docker Compose deployment"
+        slug: manual-docker-compose
+        path: ../docs/manual-docker-compose.mdx
   - section: "Vision Agent"
     slug: vision-agent
     contents:

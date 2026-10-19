@@ -80,11 +80,6 @@ CLIPPED=$(vss vios clip --sensor "$SENSOR_NAME" \
   --start-time "$(printf '%s' "$SEGMENT" | jq -r '.start_time')" \
   --end-time "$(printf '%s' "$SEGMENT" | jq -r '.end_time')") || exit $?
 CLIP=$(printf '%s' "$CLIPPED" | jq -er '.media_url')
-# A loopback CLI origin mints a loopback URL, which vss-lvs cannot fetch (and rejects).
-if printf '%s' "$CLIP" | grep -Eq '^https?://(localhost|127\.0\.0\.1)[:/]'; then
-  case "${HOST_IP:-}" in ""|localhost|127.*) HOST_ADDR=$(hostname -I | awk '{print $1}') ;; *) HOST_ADDR="$HOST_IP" ;; esac
-  CLIP=$(printf '%s' "$CLIP" | sed -E "s#^(https?://)(localhost|127\.0\.0\.1)([:/])#\1${HOST_ADDR:?no host IP for the loopback clip URL}\3#")
-fi
 SENSOR_ID=$(printf '%s' "$CLIPPED" | jq -er '.sensor_id')
 START_TIME=$(printf '%s' "$CLIPPED" | jq -er '.start_time')
 [ "$(printf '%s' "$CLIPPED" | jq -r '.warmed')" = true ] || { echo "clip is cold: $CLIP" >&2; exit 1; }
@@ -125,7 +120,9 @@ SUMMARIZE_OUT=/tmp/vss-summarize-video-run.json
 
 SUMMARIZE_COMMAND=(
   vss summarize run
-  --url "$CLIP"
+  --sensor "$SENSOR_NAME"
+  --start-time "$(printf '%s' "$SEGMENT" | jq -r '.start_time')"
+  --end-time "$(printf '%s' "$SEGMENT" | jq -r '.end_time')"
   --video-id "$VIDEO_ID"
   --scenario "$SCENARIO"
   --creation-time "$CREATION_TIME"
