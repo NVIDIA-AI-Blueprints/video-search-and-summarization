@@ -421,3 +421,60 @@ def test_embed_output_mapping_coerces_and_skips_empty_video_name():
     assert results[0].video_name == "v1"
     assert results[0].similarity == pytest.approx(0.8)
     assert results[0].object_ids == []
+
+
+def test_union_preserves_ranking_but_does_not_transfer_subject_evidence_by_source():
+    anonymous = _embed_result()
+    person = _embed_result(object_ids=["7"]).model_copy(update={"attribute_evidence": [{"object_id": "7"}]})
+    fused = _fusion.weighted_rrf_union(
+        {"embed": [anonymous], "attribute": [person], "tag": [person]},
+        weights={"embed": 1, "attribute": 1, "tag": 1},
+        rrf_k=60,
+    )
+    assert len(fused) == 1
+    assert fused[0].similarity == pytest.approx(3 / 61)
+    assert fused[0].attribute_evidence == []
+    same_subject = anonymous.model_copy(update={"object_ids": ["7"]})
+    matched = _fusion.weighted_rrf_union(
+        {"embed": [same_subject], "attribute": [person]}, weights={"embed": 1, "attribute": 1}, rrf_k=60
+    )
+    assert matched[0].attribute_evidence == [{"object_id": "7"}]
+
+
+@pytest.mark.parametrize("method", ["rrf", "weighted_linear"])
+def test_default_fusion_preserves_only_chosen_screenshot_subject_evidence(method):
+    primary = _attr_result(object_id="7", frame_score=0.9, screenshot_url="subject7")
+    primary.metadata.frame_timestamp = "2025-01-01T00:00:02Z"
+    other = _attr_result(object_id="8", frame_score=0.8, screenshot_url="subject8")
+    extra = _attr_result(object_id="7", frame_score=0.5)
+    candidates = _fusion.build_fusion_candidates([(_embed_result(), [primary, other, extra])], attribute_count=3)
+    candidate = candidates[0]
+    if method == "rrf":
+        fused = _fusion.rrf_fusion(candidates, 60, 1)
+    else:
+        fused = _fusion.weighted_linear_fusion(candidates, 0.5, 0.5)
+    assert fused[0].object_ids == ["7", "8"]  # ranking and candidate identity unchanged
+    assert fused[0].screenshot_url == "subject7"
+    assert [entry["object_id"] for entry in fused[0].attribute_evidence] == ["7", "7"]
+    assert fused[0].attribute_evidence[0]["frame_timestamp"] == primary.metadata.frame_timestamp
+    assert candidate.normalised_attribute_score == pytest.approx((0.9 + 0.8 + 0.5) / 3)
+
+
+def test_fusion_evidence_does_not_cross_sensors_or_subjects():
+    foreign = _attr_result(sensor_id="cam2", screenshot_url="foreign", behavior_score=0.9)
+    candidate = _fusion.build_fusion_candidates([(_embed_result(), [foreign])], 1)[0]
+    assert candidate.attribute_evidence == []
+    subject = _embed_result(object_ids=["7"])
+    incoming = _embed_result(object_ids=["7", "8"]).model_copy(
+        update={
+            "attribute_evidence": [
+                {"object_id": "7", "sensor_id": "cam1"},
+                {"object_id": "8", "sensor_id": "cam1"},
+                {"object_id": "7", "sensor_id": "cam2"},
+            ]
+        }
+    )
+    fused = _fusion.weighted_rrf_union(
+        {"embed": [subject], "attribute": [incoming]}, weights={"embed": 1, "attribute": 1}, rrf_k=60
+    )
+    assert fused[0].attribute_evidence == [{"object_id": "7", "sensor_id": "cam1"}]

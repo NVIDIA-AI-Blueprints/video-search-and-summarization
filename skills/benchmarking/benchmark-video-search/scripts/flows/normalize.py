@@ -60,6 +60,7 @@ def normalize_result(raw: dict[str, Any]) -> dict[str, Any]:
         verification = {}
 
     return {
+        **raw,
         "video_name": raw.get("video_name") or "",
         "description": raw.get("description") or "",
         "start_time": raw.get("start_time") or "",
@@ -72,6 +73,7 @@ def normalize_result(raw: dict[str, Any]) -> dict[str, Any]:
         "similarity": raw.get("similarity", raw.get("similarity_score", 0.0)),
         "object_ids": raw.get("object_ids") or [],
         "verification": {
+            **verification,
             "result": verification.get("result", "unverified"),
             "criteria_met": verification.get("criteria_met") or {},
         },

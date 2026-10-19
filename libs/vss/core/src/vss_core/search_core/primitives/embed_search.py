@@ -116,7 +116,18 @@ class EmbedSearch:
 
         with TimeMeasure("embed_search: ES search execution"):
             try:
-                response = await self._search(search_index, search_query)
+                if inp.candidate_limit is not None:
+                    filters = search_query.get("query", {}).get("bool", {}).get("filter", [])
+                    response = await self._es.exhaustive_vector_search(
+                        index=search_index,
+                        filters=filters,
+                        vector=query_embedding,
+                        field="llm.visionEmbeddings.vector",
+                        nested_path="llm.visionEmbeddings",
+                        candidate_limit=inp.candidate_limit,
+                    )
+                else:
+                    response = await self._search(search_index, search_query)
             except IndexNotFoundError:
                 # Empty uploads partition (video_file, no files ingested), not a
                 # fault; any other missing index raises. Gated on the anchor: see

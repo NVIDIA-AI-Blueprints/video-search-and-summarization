@@ -25,6 +25,7 @@ manager (or call ``aclose()``) so lazily-built primitives release their backend 
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -198,6 +199,7 @@ class VSSSearch:
                     "critic_result": SearchVerification(
                         result=verdict.result.value,
                         criteria_met=verdict.criteria_met or {},
+                        evidence=verdict.evidence,
                     )
                 }
             )
@@ -254,11 +256,47 @@ class VSSSearch:
             if not result.sensor_id:
                 continue
             try:
+                from vss_core._foundation.time import safe_iso8601_to_datetime
+
+                scope_start = safe_iso8601_to_datetime(inp.timestamp_start.isoformat()) if inp.timestamp_start else None
+                scope_end = safe_iso8601_to_datetime(inp.timestamp_end.isoformat()) if inp.timestamp_end else None
+                start = safe_iso8601_to_datetime(result.start_time)
+                end = safe_iso8601_to_datetime(result.end_time)
+                if start is None or end is None:
+                    continue
+                if scope_start is not None:
+                    start = max(start, scope_start)
+                if scope_end is not None:
+                    end = min(end, scope_end)
+                anchors = []
+                for evidence in result.attribute_evidence:
+                    object_id = evidence.get("object_id")
+                    if object_id is None or str(object_id) not in result.object_ids:
+                        continue
+                    frame = safe_iso8601_to_datetime(evidence.get("frame_timestamp") or "")
+                    if frame is None or frame < start:
+                        continue
+                    # Scope is half-open. Never expand verification beyond it.
+                    if scope_end is not None and frame >= scope_end:
+                        continue
+                    if frame >= end:
+                        end = frame + timedelta(milliseconds=1)
+                        if scope_end is not None:
+                            end = min(end, scope_end)
+                    if start <= frame < end:
+                        anchor = {k: evidence[k] for k in ("object_id", "bbox") if k in evidence}
+                        anchor["frame_offset_s"] = (frame - start).total_seconds()
+                        anchors.append(anchor)
+                if result.attribute_evidence and not anchors:
+                    # No same-subject anchor exists within the declared scope.
+                    # A verdict about another visible person would be misleading.
+                    continue
                 video = VideoInfo.model_validate(
                     {
                         "sensor_id": result.sensor_id,
-                        "start_timestamp": result.start_time,
-                        "end_timestamp": result.end_time,
+                        "start_timestamp": start,
+                        "end_timestamp": end,
+                        "subject_evidence": anchors,
                         # Only file sources are indexed on the synthetic epoch the
                         # critic rebases; live bounds must be taken literally.
                         "source_type": inp.source_type,

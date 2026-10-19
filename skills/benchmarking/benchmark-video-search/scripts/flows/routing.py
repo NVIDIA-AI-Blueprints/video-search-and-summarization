@@ -47,6 +47,8 @@ differences.
 from __future__ import annotations
 
 import json
+import warnings
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +57,71 @@ EMBED = "embed"
 ATTRIBUTE = "attribute"
 FUSION = "fusion"
 OBJECT = "object"
+
+
+class InvalidDecomposition(ValueError):
+    """Supplied decomposition fields violate the retrieval schema."""
+
+
+def validate_decomposition(value: Any) -> dict[str, Any]:
+    """Validate supplied fields without inventing omitted legacy fields.
+
+    Legacy hand-written decompositions may omit has_action (the documented
+    fusion default still applies). Present fields must obey the product types.
+    """
+    if not isinstance(value, dict):
+        raise InvalidDecomposition("decomposition must be a JSON object")
+    if value.get("_decomposition_error"):
+        raise InvalidDecomposition(str(value["_decomposition_error"]))
+    for name in ("attributes", "video_sources", "object_ids"):
+        if name not in value:
+            continue
+        items = value[name]
+        if not isinstance(items, list):
+            raise InvalidDecomposition(f"{name} must be a list")
+        for item in items:
+            if name == "object_ids" and type(item) is int:
+                continue
+            if not isinstance(item, str) or not item.strip():
+                raise InvalidDecomposition(
+                    f"{name} must contain nonempty strings"
+                    + (" or integer IDs" if name == "object_ids" else "")
+                )
+    if "has_action" in value and type(value["has_action"]) is not bool:
+        raise InvalidDecomposition("has_action must be a boolean")
+    if "query" in value and (
+        not isinstance(value["query"], str) or not value["query"].strip()
+    ):
+        raise InvalidDecomposition("query must be a nonempty string")
+    if "source_type" in value and value["source_type"] not in ("video_file", "rtsp"):
+        raise InvalidDecomposition("source_type must be video_file or rtsp")
+    if (
+        "top_k" in value
+        and value["top_k"] is not None
+        and (type(value["top_k"]) is not int or value["top_k"] < 1)
+    ):
+        raise InvalidDecomposition("top_k must be a positive integer or null")
+    bounds = []
+    for name in ("timestamp_start", "timestamp_end"):
+        stamp = value.get(name)
+        if stamp is None:
+            bounds.append(None)
+            continue
+        if not isinstance(stamp, str):
+            raise InvalidDecomposition(f"{name} must be an ISO-8601 string or null")
+        try:
+            bounds.append(datetime.fromisoformat(stamp.replace("Z", "+00:00")))
+        except ValueError as exc:
+            raise InvalidDecomposition(f"{name} must be an ISO-8601 timestamp") from exc
+    if all(bound is not None for bound in bounds):
+        try:
+            if bounds[0] >= bounds[1]:
+                raise InvalidDecomposition("timestamp_start must precede timestamp_end")
+        except TypeError as exc:
+            raise InvalidDecomposition(
+                "timestamp bounds must use consistent timezones"
+            ) from exc
+    return value
 
 
 def route(decomposition: dict[str, Any]) -> str:
@@ -76,6 +143,7 @@ def route(decomposition: dict[str, Any]) -> str:
     both case: the embedding leg carries the action, the attribute leg
     re-ranks by appearance.
     """
+    validate_decomposition(decomposition)
     if decomposition.get("object_ids"):
         return OBJECT
 
@@ -104,6 +172,8 @@ def plan_for(
     With no decomposition this reproduces the previous fixed-flag behaviour,
     so an un-annotated dataset keeps working exactly as before.
     """
+    if decomposition is not None:
+        validate_decomposition(decomposition)
     if not decomposition:
         return {
             "path": default_path,
@@ -151,24 +221,80 @@ def load_decompositions(path: str | Path) -> dict[str, dict[str, Any]]:
     opinion about routing -- but it is exactly what a run needs when the LLM is
     unreachable and the alternative is measuring one fixed path.
     """
-    data = json.loads(Path(path).read_text())
-    for key in ("queries", "expected_decomposition"):
-        if key in data and isinstance(data[key], dict):
-            data = data[key]
-            break
-
+    path = Path(path)
     decompositions: dict[str, dict[str, Any]] = {}
-    for query, value in data.items():
-        if not isinstance(value, dict):
-            continue
-        # A dataset entry nests the decomposition; a sidecar file is already one.
-        inner = value.get("decomposition") if "decomposition" in value else value
-        if isinstance(inner, dict):
-            decompositions[query] = inner
+
+    def add(key, value, origin):
+        if not isinstance(key, str) or not key:
+            warnings.warn(
+                f"Ignoring decomposition without query identity: {origin}", stacklevel=2
+            )
+            return
+        try:
+            validate_decomposition(value)
+        except ValueError as exc:
+            value = {"_decomposition_error": str(exc)}
+            warnings.warn(
+                f"Invalid decomposition {key!r} in {origin}: {exc}", stacklevel=2
+            )
+        if key in decompositions:
+            # Never let directory ordering choose between conflicting evidence.
+            if decompositions[key] != value:
+                value = {
+                    "_decomposition_error": "conflicting saved decompositions for the same query identity"
+                }
+            else:
+                return
+        decompositions[key] = value
+
+    def collect(data, origin):
+        if not isinstance(data, dict):
+            warnings.warn(
+                f"Ignoring malformed decomposition container: {origin}", stacklevel=2
+            )
+            return
+        if "original_query" in data:
+            key = data.get("query_id") or data["original_query"]
+            add(key, data.get("parsed"), origin)
+            return
+        if isinstance(data.get("queries"), list):
+            for row in data["queries"]:
+                if isinstance(row, dict):
+                    add(
+                        row.get("query_id") or row.get("query"),
+                        row.get("decomposition"),
+                        origin,
+                    )
+            return
+        for name in ("queries", "expected_decomposition"):
+            if isinstance(data.get(name), dict):
+                data = data[name]
+                break
+        for key, value in data.items():
+            inner = (
+                value.get("decomposition")
+                if isinstance(value, dict) and "decomposition" in value
+                else value
+            )
+            add(key, inner, origin)
+
+    if path.is_dir():
+        for file in sorted(path.glob("*.json")):
+            try:
+                collect(json.loads(file.read_text()), file)
+            except (OSError, ValueError) as exc:
+                warnings.warn(
+                    f"Skipping unreadable decomposition evidence {file}: {exc}",
+                    stacklevel=2,
+                )
+    else:
+        collect(json.loads(path.read_text()), path)
     return decompositions
 
 
-def unpack_dataset(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+def unpack_dataset(
+    data: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     """Split a dataset into ``(annotations, decompositions)``.
 
     Decompositions belong with the query they decompose, so the dataset is

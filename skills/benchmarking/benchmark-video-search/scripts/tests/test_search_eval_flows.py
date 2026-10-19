@@ -248,7 +248,8 @@ def test_empty_stdout_is_unanswerable_but_empty_data_is_a_real_zero() -> None:
     with pytest.raises(flows.QueryUnanswerableError, match="empty stdout"):
         flows.parse_cli_output("   \n ")
     assert flows.parse_cli_output('{"data": [], "search_messages": []}')[0] == []
-    assert flows.parse_cli_output('{"data": null}')[0] == []
+    with pytest.raises(flows.QueryUnanswerableError, match="list"):
+        flows.parse_cli_output('{"data": null}')
 
 
 def test_parses_ndjson_with_a_trailing_job_event() -> None:
@@ -1401,7 +1402,8 @@ def test_full_coverage_passes_and_matches_names_the_way_scoring_does(
     # A throwaway backend: the run's own --min-cosine-similarity floor or a
     # non-embed --search-path must not filter a healthy index into an alarm.
     assert built[0]["search_path"] == "embed"
-    assert "min_cosine_similarity" not in built[0]
+    assert built[0]["min_cosine_similarity"] == -1.0
+    assert built[0]["critic_enabled"] is False
 
 
 def test_coverage_is_retried_because_perception_is_asynchronous(

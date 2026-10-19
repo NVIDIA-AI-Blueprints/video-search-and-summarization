@@ -633,6 +633,29 @@ def _can_play_through_after_seek_failure(
     return True
 
 
+def select_file_indices(frames, timestamps, count):
+    """Original Drive index rule, preserving duplicate indices and timestamp alignment."""
+    if count <= 0 or not frames or len(frames) != len(timestamps):
+        raise ValueError("Cannot index-sample empty/misaligned frames or a nonpositive count")
+    indices = np.linspace(0, len(frames) - 1, count).round().astype(int).tolist()
+    return [frames[i] for i in indices], [timestamps[i] for i in indices], indices
+
+
+def resize_file_frames(frames, size):
+    """Resize selected HWC uint8 tensors on their current device before inference."""
+    from torchvision.transforms import InterpolationMode, Resize
+    resize = Resize(size, interpolation=InterpolationMode.BILINEAR, antialias=True)
+    if any(f.dtype != torch.uint8 or f.ndim != 3 or f.shape[-1] != 3 for f in frames):
+        raise ValueError("Cosmos file resize requires HWC RGB uint8 frames")
+    if all(tuple(f.shape[:2]) == tuple(size) for f in frames):
+        return frames
+    if len({tuple(f.shape) for f in frames}) == 1:
+        batch = torch.stack(frames).permute(0, 3, 1, 2)
+        return list(resize(batch).permute(0, 2, 3, 1).unbind(0))
+    return [resize(f.permute(2, 0, 1)).permute(1, 2, 0)
+            if tuple(f.shape[:2]) != tuple(size) else f for f in frames]
+
+
 class VideoFileFrameGetter:
     """Get frames from a video file as a list of tensors."""
 
@@ -654,7 +677,22 @@ class VideoFileFrameGetter:
         data_type_int8=False,
         audio_support=False,
         cv_pipeline_configs={},
+        cosmos_file_index_sampling=False,
+        cosmos_file_torchvision_resize=False,
+        cosmos_file_max_retained_frames=1024,
+        cosmos_file_max_retained_bytes=512 * 1024 * 1024,
     ) -> None:
+        self._cosmos_file_index_sampling = cosmos_file_index_sampling
+        self._cosmos_file_torchvision_resize = cosmos_file_torchvision_resize
+        self._cosmos_file_max_retained_frames = int(cosmos_file_max_retained_frames)
+        if self._cosmos_file_max_retained_frames < 1:
+            raise ValueError("Cosmos file retained frame budget must be positive")
+        self._cosmos_file_max_retained_bytes = int(cosmos_file_max_retained_bytes)
+        if self._cosmos_file_max_retained_bytes < 1:
+            raise ValueError("Cosmos file retained byte budget must be positive")
+        self._cached_frame_bytes = 0
+        self._file_resize_active = False
+        self._file_resize_size = (frame_height, frame_width)
         self._selected_pts_array = deque()
         self._last_gst_buffer = None
         self._loop = None
@@ -944,11 +982,30 @@ class VideoFileFrameGetter:
             if self._cached_frames is None or self._cached_frames_pts is None:
                 logger.debug("Dropping decoded file frame after cache handoff/teardown")
                 return False
+            if not self._cached_frames:
+                self._cached_frame_bytes = 0
+            if (self._cosmos_file_index_sampling or self._file_resize_active) and not self._is_live:
+                if len(self._cached_frames) >= self._cosmos_file_max_retained_frames:
+                    with self._err_msg_lock:
+                        self._err_msg = "Cosmos file retained-frame budget exceeded; shorten the ingestion chunk"
+                    self._quit_loop_after_error()
+                    return False
+                # Native-resolution tensors vary by orders of magnitude in size.
+                # Count their backing allocations, including padding/view storage.
+                frame_bytes = image_tensor.untyped_storage().nbytes()
+                if self._cached_frame_bytes + frame_bytes > self._cosmos_file_max_retained_bytes:
+                    with self._err_msg_lock:
+                        self._err_msg = "Cosmos file retained-byte budget exceeded; shorten the ingestion chunk or configure an explicit memory budget"
+                    self._quit_loop_after_error()
+                    return False
+                self._cached_frame_bytes += frame_bytes
             self._cached_frames.append(image_tensor)
             self._cached_frames_pts.append(pts_seconds)
             return True
 
     def _preprocess(self, frames):
+        if frames and self._file_resize_active and not self._is_live:
+            frames = resize_file_frames(frames, self._file_resize_size)
         if frames and not self._enable_jpeg_output:
             # Handle multi-image scenario where frames may have different dimensions
             if len(frames) > 1:
@@ -2697,10 +2754,27 @@ class VideoFileFrameGetter:
         if not frame_height:
             frame_height = self._frame_height_orig
 
+        self._file_resize_active = self._cosmos_file_torchvision_resize and not self._is_live
+        self._file_resize_size = (frame_height, frame_width)
+        if self._file_resize_active:
+            if not frame_height or not frame_width or self._enable_jpeg_output or self._do_preprocess:
+                raise ValueError(f"Invalid Cosmos native-resize configuration for {chunk}")
+            frame_width = frame_height = 0
+
         frame_selector_backup = self._frame_selector
         if frame_selector:
             self._frame_selector = frame_selector
         self._frame_selector.set_chunk(chunk)
+        index_count = None
+        if self._cosmos_file_index_sampling and not self._is_live:
+            if self._frame_selector._use_fps_for_chunking or self._frame_selector.selects_all_frames:
+                raise ValueError("Cosmos index sampling requires a fixed positive frame count")
+            index_count = self._frame_selector._num_frames
+            self._frame_selector = DefaultFrameSelector(DefaultFrameSelector.ALL_FRAMES)
+            self._frame_selector.set_chunk(chunk)
+            # File windows are half-open; retain the last actual frame before end.
+            self._frame_selector._selection_end_pts -= 1
+
 
         if (
             self._pipeline
@@ -2751,7 +2825,7 @@ class VideoFileFrameGetter:
                 old_pipeline = self._pipeline
                 self._pipeline = None
                 self._vdecodebin = None
-                if not (self._frame_width and self._frame_height):
+                if not self._file_resize_active and not (self._frame_width and self._frame_height):
                     # Next pipeline should use same resolution as first
                     # to allow all frames in the chunk have same resolution
                     self._frame_width = self._first_frame_width
@@ -3026,6 +3100,15 @@ class VideoFileFrameGetter:
             cached_frames_pts = self._cached_frames_pts or []
             self._cached_frames = None
             self._cached_frames_pts = None
+
+        if has_error and (index_count is not None or self._file_resize_active):
+            cached_frames.clear()
+            cached_frames_pts.clear()
+        if index_count is not None and cached_frames:
+            selected, selected_pts, indices = select_file_indices(cached_frames, cached_frames_pts, index_count)
+            cached_frames.clear()
+            cached_frames, cached_frames_pts = selected, selected_pts
+            logger.debug("Cosmos file preprocessing version=index-linspace-round-aa-v1 indices=%s pts=%s retained_budget=%d", indices, selected_pts, self._cosmos_file_max_retained_frames)
 
         # Adjust for the PTS offset if any.
         cached_frames_pts = [t + chunk.pts_offset_ns / 1e9 for t in cached_frames_pts]

@@ -300,6 +300,11 @@ def test_search_archive_cli_e2e_returns_search_output_json(
     assert result.returncode == 0, result.stderr
     payload, marker = _result_and_marker(result.stdout)
     _assert_search_marker(marker, persisted=False)
+    evidence = payload["data"][0]["critic_result"].pop("evidence")
+    assert evidence["query"] == "red forklift"
+    assert evidence["raw_response"]
+    assert evidence["visual_settings"]["frame_budget"] == 8
+    assert payload["data"][0].pop("attribute_evidence") == []
     assert payload["data"] == [
         {
             "video_name": "warehouse_clip.mp4",
@@ -314,7 +319,7 @@ def test_search_archive_cli_e2e_returns_search_output_json(
                 f"{mock_services.base_url}/vst/api/v1/replay/stream/"
                 f"{_STREAM_ID}/picture?startTime={quote(_START_TIME, safe='')}"
             ),
-            "similarity": 0.86,
+            "similarity": pytest.approx(0.86),
             "object_ids": [],
             "critic_result": {
                 "result": "confirmed",
@@ -605,7 +610,7 @@ async def test_vss_search_facade_e2e_uses_concrete_clients_with_mock_services(
 
     assert len(out.data) == 1
     assert out.data[0].video_name == "warehouse_clip.mp4"
-    assert out.data[0].similarity == 0.86
+    assert out.data[0].similarity == pytest.approx(0.86)
     assert _single(mock_services.requests_for("/v1/generate_text_embeddings")).body["text_input"] == ["red forklift"]
     search_request = _single(mock_services.requests_ending_with("/_search"))
     assert search_request.path == "/mdx-embed-filtered-2025-01-01/_search"
@@ -852,3 +857,36 @@ def _object_embedding_response() -> dict[str, Any]:
             ],
         },
     }
+
+
+def test_search_cli_can_skip_critic_without_model_probe(agent_root, mock_services):
+    result = _run_search_archive(agent_root, mock_services, "--query", "red forklift", "--no-critic")
+    assert result.returncode == 0, result.stderr
+    payload, _ = _result_and_marker(result.stdout)
+    assert payload["data"][0]["critic_result"] is None
+    assert mock_services.requests_for("/v1/chat/completions") == []
+    assert mock_services.requests_for("/v1/models") == []
+
+
+def test_search_cli_critic_visual_controls_reach_inference(agent_root, mock_services):
+    result = _run_search_archive(
+        agent_root,
+        mock_services,
+        "--query",
+        "red forklift",
+        "--critic-frame-budget",
+        "16",
+        "--critic-input-width",
+        "320",
+        "--critic-input-height",
+        "240",
+    )
+    assert result.returncode == 0, result.stderr
+    request = _single(mock_services.requests_for("/v1/chat/completions"))
+    assert request.body["num_frames_per_second_or_fixed_frames_chunk"] == 16
+    assert request.body["vlm_input_width"] == 320
+    assert request.body["vlm_input_height"] == 240
+    payload, _ = _result_and_marker(result.stdout)
+    settings = payload["data"][0]["critic_result"]["evidence"]["visual_settings"]
+    assert settings["frame_budget"] == 16
+    assert settings["input_width"] == 320

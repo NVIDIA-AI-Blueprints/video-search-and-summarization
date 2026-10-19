@@ -698,6 +698,135 @@ class TestCriticOutputShape:
         c = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
         out = await c.run(CriticAgentInput(query="q", videos=[_video()]))
         r = out.video_results[0]
-        assert set(r.model_dump().keys()) == {"video_info", "result", "criteria_met"}
+        assert set(r.model_dump().keys()) == {"video_info", "result", "criteria_met", "evidence"}
         # Enum value contract — must match agents/critic_agent.py:168-173
         assert r.result.value in {"confirmed", "rejected", "unverified"}
+
+
+@pytest.mark.asyncio
+async def test_uncertain_visibility_is_unverified_and_raw_evidence_saved(tmp_path):
+    response = '{"subject:person": true, "helmet": null}'
+    critic = CriticAgent(vlm_analyzer=_FakeVLM(response), vst=_FakeVST(), diagnostic_dir=tmp_path)
+    output = await critic.run(CriticAgentInput(query="person wearing a helmet", videos=[_video()]))
+    result = output.video_results[0]
+    assert result.result == CriticAgentResult.UNVERIFIED
+    assert result.evidence["raw_response"] == response
+    import json
+
+    evidence = json.loads(next(tmp_path.glob("*.json")).read_text())
+    assert evidence["query"] == "person wearing a helmet"
+    assert evidence["candidate"]["sensor_id"] == "cam01"
+    assert evidence["media_bounds"]["end"] == "2025-01-01T00:00:20Z"
+
+
+@pytest.mark.asyncio
+async def test_diagnostic_write_failure_does_not_change_verdict(tmp_path):
+    destination = tmp_path / "not-a-directory"
+    destination.write_text("occupied")
+    critic = CriticAgent(vlm_analyzer=_FakeVLM('{"subject:person": true}'), vst=_FakeVST(), diagnostic_dir=destination)
+    result = await critic.run(CriticAgentInput(query="person", videos=[_video()]))
+    assert result.video_results[0].result == CriticAgentResult.CONFIRMED
+    assert result.video_results[0].evidence["raw_response"]
+
+
+@pytest.mark.asyncio
+async def test_detailed_subject_anchors_and_all_constraints_in_prompt():
+    vlm = _FakeVLM('{"subject:person":true}')
+    video = _video().model_copy(update={"subject_evidence": [{"object_id": "person-7", "bbox": [1, 2, 3, 4]}]})
+    critic = CriticAgent(vlm_analyzer=vlm, vst=_FakeVST())
+    query = "person in red shirt and blue jeans wearing a hat carrying a bag running left"
+    await critic.run(CriticAgentInput(query=query, videos=[video]))
+    prompt = vlm.calls[0]["prompt"]
+    assert query in prompt
+    assert "ALL explicit constraints" in prompt
+    assert "person-7" in prompt
+    assert "never transfer another person's" in prompt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,body",
+    [
+        (200, {"choices": [{"message": {"content": []}}], "diagnostic": "malformed"}),
+        (400, {"error": "bad media", "diagnostic": "request-rejected"}),
+    ],
+)
+async def test_critic_retains_http_envelope_before_parse_or_status_failure(status, body):
+    import json
+
+    import httpx
+
+    from vss_core.vlm.openai import OpenAIVLMAnalyzer
+
+    class VST(_FakeVST):
+        async def get_video_clip_url(self, **kwargs):
+            return "https://vst.example/clip.mp4"
+
+    vst = VST()
+    analyzer = OpenAIVLMAnalyzer(base_url="https://vlm.example/v1", model="model", vst=vst)
+    analyzer._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(status, json=body, request=request))
+    )
+    try:
+        output = await CriticAgent(vlm_analyzer=analyzer, vst=vst).run(
+            CriticAgentInput(query="person", videos=[_video()])
+        )
+    finally:
+        await analyzer.aclose()
+    result = output.video_results[0]
+    assert result.result == CriticAgentResult.UNVERIFIED
+    envelope = result.evidence["http_responses"][0]
+    assert envelope["http_status"] == status
+    assert json.loads(envelope["raw_http_response"]) == body
+    assert envelope["body_truncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_concurrent_critic_candidates_keep_http_evidence_isolated():
+    import json
+
+    import httpx
+
+    from vss_core.vlm.openai import OpenAIVLMAnalyzer
+
+    class VST(_FakeVST):
+        async def get_video_clip_url(self, *, sensor_id, **kwargs):
+            return f"https://vst.example/{sensor_id}.mp4"
+
+    async def handler(request):
+        payload = json.loads(request.content)
+        sensor = payload["messages"][0]["content"][1]["video_url"]["url"].rsplit("/", 1)[-1]
+        await asyncio.sleep(0)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": '{"subject:person": true}'}}], "sensor": sensor},
+            request=request,
+        )
+
+    vst = VST()
+    analyzer = OpenAIVLMAnalyzer(base_url="https://vlm.example/v1", model="model", vst=vst)
+    analyzer._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        output = await CriticAgent(vlm_analyzer=analyzer, vst=vst).run(
+            CriticAgentInput(query="person", videos=[_video("first"), _video("second")])
+        )
+    finally:
+        await analyzer.aclose()
+    for result in output.video_results:
+        envelopes = result.evidence["http_responses"]
+        assert len(envelopes) == 1
+        assert json.loads(envelopes[0]["raw_http_response"])["sensor"] == f"{result.video_info.sensor_id}.mp4"
+
+
+def test_http_evidence_is_bounded_and_marks_truncation():
+    import httpx
+
+    from vss_core.vlm.evidence import capture_http_responses
+    from vss_core.vlm.evidence import record_http_response
+
+    with capture_http_responses() as responses:
+        record_http_response(httpx.Response(200, content=b"a" * (70 * 1024)))
+    assert len(responses[0]["raw_http_response"]) == 64 * 1024
+    assert responses[0]["body_bytes"] == 70 * 1024
+    assert responses[0]["body_truncated"] is True
+    assert len(responses[0]["body_sha256"]) == 64

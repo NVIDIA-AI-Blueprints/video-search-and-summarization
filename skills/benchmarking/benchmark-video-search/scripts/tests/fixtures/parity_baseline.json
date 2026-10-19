@@ -75,7 +75,8 @@
       "routed_to": {
         "fusion": 3
       }
-    }
+    },
+    "tolerate_unanswered": 1
   },
   "config": {
     "dataset": "parityds",

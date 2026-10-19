@@ -145,6 +145,7 @@ def build_query_backend(args: argparse.Namespace) -> Any:
             args.search_path in ("attribute", "fusion")
             and not args.attribute
             and not args.decompositions
+            and not getattr(args, "attribute_input_explicit", False)
         ):
             raise SystemExit(
                 f"ERROR: --search-path {args.search_path} requires at least one --attribute.\n"
@@ -164,6 +165,7 @@ def build_query_backend(args: argparse.Namespace) -> Any:
             f"vss CLI:        {' '.join(vss_cmd)}\n                (resolved from {how})"
         )
 
+        version = None
         if not args.skip_vss_preflight and not args.dry_run:
             # One subprocess now, instead of discovering a broken CLI on query
             # 1 of N. A stale venv exits 1 on every invocation.
@@ -215,18 +217,18 @@ def build_query_backend(args: argparse.Namespace) -> Any:
             )
 
         # Dense / full-gallery retrieval: every clip in one pass, no cosine floor,
-        # no adjacent merging. The request caps at the CLI's top_k ceiling (1000);
-        # the clip-level scorers label any resulting gallery-coverage gap.
+        # no adjacent merging. Exact scanning fails on budget overflow;
+        # clip-level scorers separately report annotation-gallery coverage.
         full_gallery = getattr(args, "full_gallery", False)
-        top_k = 1000 if full_gallery else args.top_k
+        top_k = (args.candidate_limit or 100000) if full_gallery else args.top_k
         min_cosine_similarity = -1.0 if full_gallery else args.min_cosine_similarity
         merge_adjacent = False if full_gallery else args.merge_adjacent
         if full_gallery:
             print(
-                "retrieval depth:  full gallery (top_k=1000, cosine floor -1, no merge)"
+                "retrieval depth:  bounded exact gallery scan (cosine floor -1, no merge; overflow fails)"
             )
 
-        return flows.CliQueryBackend(
+        backend = flows.CliQueryBackend(
             vss_cmd=vss_cmd,
             search_path=args.search_path,
             top_k=top_k,
@@ -238,7 +240,21 @@ def build_query_backend(args: argparse.Namespace) -> Any:
             decompositions=decompositions,
             pass_original_query=pass_original_query,
             full_gallery=full_gallery,
+            candidate_limit=args.candidate_limit or (100000 if full_gallery else None),
+            attribute_min_similarity=args.attribute_min_similarity,
+            critic_enabled=args.critic,
+            critic_eval_count=args.critic_eval_count,
+            critic_frame_budget=args.critic_frame_budget,
+            critic_input_width=args.critic_input_width,
+            critic_input_height=args.critic_input_height,
+            critic_diagnostic_dir=args.critic_diagnostic_dir,
+            attribute_input=args.attribute_input
+            if args.search_path == "attribute" and args.attribute_input_explicit
+            else None,
         )
+        backend.cli_version = version
+        backend.decomposition_source = args.decompositions
+        return backend
     raise SystemExit(f"Unknown query flow: {args.query_flow}")
 
 
@@ -346,6 +362,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     stage.add_argument(
+        "--resume-from",
+        help="Resume a compatible retrieval artifact or checkpoint directory; answered queries are reused.",
+    )
+    stage.add_argument(
         "--retrieval-in",
         help="Read a retrieval artifact to score (--stage score; required).",
     )
@@ -370,6 +390,48 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "How queries are issued. Only 'cli' exists today -- the path the "
             "new UI flow reaches through the vss-search-archive skill."
         ),
+    )
+    flow.add_argument(
+        "--scenarios",
+        nargs="+",
+        choices=("embed-only", "attribute-only", "live-routed"),
+        help="Gallery comparisons (default: all three); use --fixed-search-path for a legacy single run.",
+    )
+    flow.add_argument(
+        "--critic",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Verify candidates; gallery scenarios default off, legacy commands preserve deployment defaults.",
+    )
+    flow.add_argument("--critic-eval-count", type=int)
+    flow.add_argument("--critic-frame-budget", type=int)
+    flow.add_argument("--critic-input-width", type=int)
+    flow.add_argument("--critic-input-height", type=int)
+    flow.add_argument("--critic-diagnostic-dir")
+    flow.add_argument(
+        "--candidate-limit",
+        type=int,
+        help="Bound indexed vector documents scanned for exact embed/attribute search (1..100000); overflow fails, never truncates silently.",
+    )
+    flow.add_argument(
+        "--attribute-min-similarity",
+        type=float,
+        help="Attribute shifted-score floor, (1+cosine)/2; reference floor 0.",
+    )
+    flow.add_argument(
+        "--attribute-input", choices=("original", "decomposed"), default="original"
+    )
+    flow.add_argument(
+        "--query-domain",
+        help="Select query domain (for example pas), preserving the gallery.",
+    )
+    flow.add_argument(
+        "--preprocessing-provenance",
+        help="JSON with effective ingestion preprocessing settings; changed preprocessing requires re-ingestion before comparison.",
+    )
+    flow.add_argument(
+        "--decomposition-out",
+        help="Directory for durable per-query decomposition evidence.",
     )
     flow.add_argument(
         "--search-path",
@@ -501,7 +563,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--full-gallery",
         action="store_true",
         help=(
-            "Retrieve every gallery clip in one dense pass (embed path, top_k=1000, "
+            "Request an exact indexed ranking within --candidate-limit (embed path, "
             "cosine floor -1, no adjacent merging). The precondition the clip-level "
             "scorers grade against; pair with --scoring clip-relevance|drive."
         ),
@@ -521,7 +583,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     gallery.add_argument(
         "--pas-frame-supported",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help=(
             "Clip-relevance only: derive PAS queries' relevant_clip_ids from the "
             "released positive tracks whose representative frame supports the "
@@ -687,6 +750,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Print the resolved backends and a sample CLI invocation, then exit",
     )
     args = p.parse_args(argv)
+    explicit = [
+        token.split("=", 1)[0]
+        for token in (list(argv) if argv is not None else sys.argv[1:])
+    ]
+    args.tolerate_unanswered_override = (
+        args.tolerate_unanswered if "--tolerate-unanswered" in explicit else None
+    )
+    if args.resume_from and args.stage not in ("run", "retrieve"):
+        p.error("--resume-from requires --stage run or retrieve")
+    if args.resume_from and (
+        args.clear
+        or args.only_dataset
+        or not (args.skip_ingest or args.stage == "retrieve")
+    ):
+        p.error(
+            "--resume-from requires --skip-ingest or --stage retrieve and cannot modify ingestion"
+        )
+    args.attribute_input_explicit = "--attribute-input" in explicit
+    if args.gallery_gt and "--scoring" not in explicit:
+        args.scoring = "clip-relevance"
     # --stage score never touches the deployment, so --endpoint is the one
     # argument whose required-ness depends on the stage.
     if args.endpoint is None and args.stage != "score":
@@ -710,7 +793,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "--clear/--only-dataset/--confirm-delete only apply to --stage run or --stage ingest"
         )
     if args.scoring in ("clip-relevance", "drive") and not (
-        args.gallery_gt and args.ingestion_manifest
+        args.gallery_gt
+        and (
+            args.ingestion_manifest
+            or (args.stage in ("run", "ingest") and not args.skip_ingest)
+        )
     ):
         p.error(
             f"--scoring {args.scoring} requires --gallery-gt and --ingestion-manifest"
@@ -724,6 +811,56 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "--pas-frame-supported is only valid with --scoring clip-relevance "
             "(drive uses the Drive script's own eligibility)"
         )
+    if (
+        args.gallery_gt
+        and args.stage in ("run", "retrieve")
+        and not (
+            args.fixed_search_path
+            or args.full_gallery
+            or "--search-path" in explicit
+            or args.no_decompose
+        )
+        and args.scenarios is None
+    ):
+        args.scenarios = ["embed-only", "attribute-only", "live-routed"]
+    if args.scenarios and (
+        args.fixed_search_path
+        or args.full_gallery
+        or "--search-path" in explicit
+        or args.no_decompose
+    ):
+        p.error(
+            "--scenarios conflicts with legacy fixed-path/full-gallery/decomposition-off options"
+        )
+    if args.candidate_limit is not None and not 1 <= args.candidate_limit <= 100000:
+        p.error("--candidate-limit must be between 1 and 100000")
+    if args.resume_from and args.scenarios and len(args.scenarios) != 1:
+        p.error(
+            "--resume-from requires selecting the saved scenario with --scenarios <scenario>"
+        )
+    if args.scenarios and args.attribute:
+        p.error(
+            "--attribute conflicts with scenarios, which use the original query or saved extracted attributes"
+        )
+    if args.scenarios and len(set(args.scenarios)) != len(args.scenarios):
+        p.error("--scenarios cannot contain duplicates")
+    if args.critic_eval_count is not None and args.critic_eval_count < 1:
+        p.error("--critic-eval-count must be at least 1")
+    if args.critic_frame_budget is not None and not 1 <= args.critic_frame_budget <= 60:
+        p.error("--critic-frame-budget must be between 1 and 60")
+    if any(
+        value is not None and value < 16
+        for value in (args.critic_input_width, args.critic_input_height)
+    ):
+        p.error("critic input width/height must be at least 16")
+    if args.scenarios and not args.gallery_gt:
+        p.error("--scenarios requires --gallery-gt")
+    if args.attribute_input == "decomposed" and not args.decompositions:
+        p.error("--attribute-input decomposed requires --decompositions")
+    if args.attribute_input == "decomposed" and not (
+        args.scenarios or args.search_path == "attribute"
+    ):
+        p.error("--attribute-input decomposed requires attribute search or scenarios")
     if args.full_gallery:
         # Dense retrieval is a fixed embed pass over every clip: no routing, no floor,
         # no merging. Routing a query to attribute/fusion would filter the gallery and
@@ -737,7 +874,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                 "--full-gallery is a fixed dense embed retrieval; it does not decompose/route (--decompositions)"
             )
         args.no_decompose = True
-    if args.fixed_search_path and args.decompositions:
+    if (
+        args.fixed_search_path
+        and args.decompositions
+        and args.attribute_input != "decomposed"
+    ):
         p.error("--fixed-search-path cannot be combined with --decompositions")
     if args.fixed_search_path:
         args.no_decompose = True
@@ -747,6 +888,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.error("destructive cleanup cannot be combined with --skip-ingest")
     if args.confirm_delete and not (args.only_dataset or args.clear):
         p.error("--confirm-delete requires --only-dataset or --clear")
+    if (args.scenarios and "live-routed" not in args.scenarios) or (
+        not args.scenarios
+        and args.search_path == "attribute"
+        and args.attribute_input_explicit
+    ):
+        args.no_decompose = True
     return args
 
 
@@ -908,7 +1055,7 @@ def main() -> None:
     # planned per-path split accurately.
     print(f"{'=' * 60}\n")
 
-    if not args.skip_download:
+    if not args.skip_download and not args.gallery_gt:
         print("Downloading dataset from DSS...")
         flows.download_from_dss(args.data_dir, args.dataset)
 
@@ -924,6 +1071,8 @@ def main() -> None:
     # is byte-for-byte the old behaviour; --stage (Phase 2) makes each separately
     # runnable against an on-disk artifact.
     cfg = RunConfig.from_args(args, vst_url=vst_url)
+    if isinstance(query_backend, flows.CliQueryBackend):
+        query_backend.capture_deployment_provenance()
     pipeline.run_pipeline(
         cfg,
         ingest_backend=ingest_backend,

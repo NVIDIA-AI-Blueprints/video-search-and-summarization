@@ -102,6 +102,7 @@ def params_to_embed_input(
             timestamp_start=cast("datetime | None", ts_start),
             timestamp_end=cast("datetime | None", ts_end),
             top_k=top_k,
+            candidate_limit=_coerce_int(p["candidate_limit"], "candidate_limit") if p.get("candidate_limit") else None,
             min_cosine_similarity=min_cosine_similarity,
             exclude_videos=exclude_videos or [],
         )

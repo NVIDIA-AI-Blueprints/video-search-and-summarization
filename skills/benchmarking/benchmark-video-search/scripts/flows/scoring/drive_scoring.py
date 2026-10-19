@@ -55,8 +55,8 @@ def prepare(data_path: str, ingestion_path: str, scripts_dir: str) -> dict[str, 
     scorer, script, fingerprint = load_scorer(scripts_dir)
     gt = scorer.load_gt(data_path)
     gallery = [row["chunk_id"] for row in gt["gallery"]]
-    if not gallery or len(gallery) > 1000 or len(set(gallery)) != len(gallery):
-        raise ValueError("Drive scoring requires 1–1000 unique gallery clip IDs")
+    if not gallery or len(set(gallery)) != len(gallery):
+        raise ValueError("Drive scoring requires nonempty unique gallery clip IDs")
     if not isinstance(gt["queries"], list):
         raise TypeError("Drive ground truth must preserve queries as a list")
     ingestion = json.loads(Path(ingestion_path).read_text())

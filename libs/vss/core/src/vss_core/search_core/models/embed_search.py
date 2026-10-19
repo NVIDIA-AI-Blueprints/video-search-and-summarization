@@ -25,6 +25,7 @@ from datetime import datetime  # noqa: TC003  Pydantic field annotation; resolve
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import model_validator
 
 from ..errors import InvalidInputError
 
@@ -46,16 +47,28 @@ class EmbedSearchInput(BaseModel):
     video_sources: list[str] | None = None
     timestamp_start: datetime | None = None
     timestamp_end: datetime | None = None
+    candidate_limit: int | None = Field(
+        default=None,
+        ge=1,
+        le=100000,
+        description="Opt-in exact indexed scan budget; exceeding it fails instead of truncating.",
+    )
     top_k: int | None = Field(
         default=None,
         ge=1,
-        le=1000,
+        le=100000,
         description=("Cap on returned results. None uses SearchRuntime.default_max_results."),
     )
     # Cosine similarity is in [-1, 1]; the UI sends negative thresholds for
     # low-confidence searches, so don't clamp the lower bound to 0.
     min_cosine_similarity: float = Field(default=0.0, ge=-1.0, le=1.0)
     exclude_videos: list[dict[str, str]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_candidate_budget(self):
+        if self.top_k is not None and self.top_k > 1000 and self.candidate_limit is None:
+            raise ValueError("top_k above 1000 requires explicit candidate_limit")
+        return self
 
     def validate_semantics(self) -> None:
         """Raise :class:`InvalidInputError` for cross-field problems.

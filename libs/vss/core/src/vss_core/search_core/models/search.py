@@ -22,11 +22,13 @@ orchestrator config-time flag, not a user-routable field on the request.
 from __future__ import annotations
 
 from datetime import datetime  # noqa: TC003  Pydantic field annotation; resolved at runtime
+from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import model_validator
 
 from ..errors import InvalidInputError
 
@@ -54,13 +56,26 @@ class SearchInput(BaseModel):
     timestamp_end: datetime | None = None
     # None means use the primitive's configured default; all standalone
     # primitives receive SearchRuntime.default_max_results.
-    top_k: int | None = Field(default=None, ge=1, le=1000)
+    candidate_limit: int | None = Field(
+        default=None,
+        ge=1,
+        le=100000,
+        description="Opt-in exact indexed scan budget; exceeding it fails instead of truncating.",
+    )
+    top_k: int | None = Field(default=None, ge=1, le=100000)
     search_mode: Literal["embed", "attribute", "fusion", "object", "tag"] = "embed"
+    attribute_min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     attributes: list[str] = Field(default_factory=list)
     object_ids: list[int] | None = None
     # Cosine similarity is in [-1, 1]; the UI sends negative thresholds for
     # low-confidence searches, so don't clamp the lower bound to 0.
     min_cosine_similarity: float = Field(default=0.0, ge=-1.0, le=1.0)
+
+    @model_validator(mode="after")
+    def validate_candidate_budget(self):
+        if self.top_k is not None and self.top_k > 1000 and self.candidate_limit is None:
+            raise ValueError("top_k above 1000 requires explicit candidate_limit")
+        return self
 
     def validate_semantics(self) -> None:
         """Raise :class:`InvalidInputError` for cross-field problems.
@@ -108,6 +123,7 @@ class SearchVerification(BaseModel):
     model_config = ConfigDict(extra="forbid")
     result: Literal["confirmed", "rejected", "unverified"]
     criteria_met: dict[str, bool] = Field(default_factory=dict)
+    evidence: dict[str, Any] = Field(default_factory=dict)
 
 
 class SearchResult(BaseModel):
@@ -124,6 +140,7 @@ class SearchResult(BaseModel):
     object_ids: list[str] = Field(default_factory=list)
     # Matches the VSS agent's field, which the UI Search tab reads; None until
     # the critic evaluates this hit.
+    attribute_evidence: list[dict] = Field(default_factory=list)
     critic_result: SearchVerification | None = None
     # Indexed sensor identity (the behavior document's sensor.id) carried from
     # the embed adapter for fusion's per-hit attribute lookup when VST is absent.
@@ -166,6 +183,7 @@ class SearchOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     data: list[SearchResult] = Field(default_factory=list)
     search_messages: list[str] = Field(default_factory=list)
+    candidate_coverage: list[dict] = Field(default_factory=list)
     #: Optional so every existing producer and consumer is unaffected: absent
     #: means nobody collected, not "the search took no time".
     timings: SearchTimings | None = None

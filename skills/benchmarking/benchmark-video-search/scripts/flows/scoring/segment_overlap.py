@@ -34,7 +34,7 @@ from typing import Any
 import flows
 from flows.artifacts import RetrievalArtifact, RunConfig, ScoredResult
 
-from .base import report_unanswered
+from .base import effective_tolerance, report_unanswered
 from .summarize import _print_summary, _summarize
 
 
@@ -82,7 +82,9 @@ class SegmentOverlapScoring:
         # the scoring top_k. Slicing down must be visible, or the numbers read as if
         # the full retrieved set was scored.
         max_retrieved = max((len(r.hits) for r in answered), default=0)
-        sliced_queries = sum(1 for r in answered if cfg.top_k and len(r.hits) > cfg.top_k)
+        sliced_queries = sum(
+            1 for r in answered if cfg.top_k and len(r.hits) > cfg.top_k
+        )
         if sliced_queries:
             print(
                 f"  note: segment-overlap scored the top {cfg.top_k} of up to "
@@ -137,7 +139,10 @@ class SegmentOverlapScoring:
         # the caller has said how many they will accept.
         unanswered = artifact.unanswered
         report_unanswered(
-            artifact.unanswered, len(artifact.queries), artifact.tolerate_unanswered, len(results)
+            artifact.unanswered,
+            len(artifact.queries),
+            effective_tolerance(cfg, artifact),
+            len(results),
         )
 
         summary = _summarize(
@@ -156,6 +161,7 @@ class SegmentOverlapScoring:
                 else None
             ),
         )
+        summary["tolerate_unanswered"] = effective_tolerance(cfg, artifact)
         if sliced_queries:
             summary["candidate_budget"] = {
                 "scored_top_k": cfg.top_k,

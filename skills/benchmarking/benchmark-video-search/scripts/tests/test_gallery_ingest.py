@@ -76,9 +76,11 @@ class _FakeQuery:
     """Returns a dense ranking: each gallery clip once, ranked by a fixed similarity."""
 
     name = "cli"
+
     def __init__(self) -> None:
         # Instance attribute, not a mutable class-attribute default (RUF012).
         self.decompositions: dict[str, dict] = {}
+
     def describe(self) -> dict[str, Any]:
         return {"backend": "cli", "full_gallery": True}
 
@@ -212,3 +214,53 @@ def test_gallery_flow_ingest_retrieve_score(tmp_path: Path) -> None:
     assert result.scoring["model"] == "clip-relevance"
     assert result.summary["raw"]["mAP"] == pytest.approx(1.0)
     assert result.summary["raw"]["mAP_scope"] == "full-gallery"
+
+
+def test_gallery_skip_ingest_never_uploads(tmp_path):
+    root = _gallery_dir(tmp_path)
+    cfg = RunConfig(
+        endpoint="http://fake",
+        data_dir=tmp_path,
+        dataset="warehouse",
+        subset="",
+        concurrency=1,
+        vst_url="http://fake:30888",
+        gallery_gt=str(root),
+        skip_ingest=True,
+    )
+
+    class NeverUpload(_FakeIngest):
+        def upload(self, vf):
+            raise AssertionError("skip-ingest must not upload")
+
+    result = pipeline.run_ingest(cfg, NeverUpload(), _FakeQuery())
+    assert result.upload_stats is None
+
+
+def test_gallery_skipped_sources_keep_listed_identities(tmp_path, monkeypatch):
+    root = _gallery_dir(tmp_path)
+    monkeypatch.setattr(pipeline.flows, "list_sensor_names", lambda _: {"c0", "c1"})
+    monkeypatch.setattr(
+        pipeline.flows,
+        "list_sensor_streams",
+        lambda _: {"assigned-id-9": "c0", "assigned-id-4": "c1"},
+    )
+    cfg = RunConfig(
+        endpoint="http://fake",
+        data_dir=tmp_path,
+        dataset="warehouse",
+        subset="",
+        concurrency=1,
+        vst_url="http://fake:30888",
+        gallery_gt=str(root),
+        ingest_out=str(tmp_path / "manifest.json"),
+        skip_existing=True,
+        skip_readiness_wait=True,
+        skip_index_probe=True,
+    )
+    pipeline.run_ingest(cfg, _FakeIngest(), _FakeQuery())
+    clips = json.loads((tmp_path / "manifest.json").read_text())["clips"]
+    assert {c["dataset_id"]: c["sensor_id"] for c in clips} == {
+        "c0": "assigned-id-9",
+        "c1": "assigned-id-4",
+    }

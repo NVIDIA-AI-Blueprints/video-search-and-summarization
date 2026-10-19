@@ -74,6 +74,7 @@ class FusionCandidate:
     normalised_attribute_score: float
     screenshot_url: str
     object_ids: list[str] = field(default_factory=list)
+    attribute_evidence: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _validate_attribute_results(attribute_results: Any) -> list[AttributeSearchResult]:
@@ -149,9 +150,43 @@ def build_fusion_candidates(
                 normalised_attribute_score=normalised_attribute_score,
                 screenshot_url=screenshot_url,
                 object_ids=object_ids,
+                # Anchor visual verification to the subject of the chosen
+                # screenshot; ranking still uses every attribute contribution.
+                attribute_evidence=_candidate_attribute_evidence(validated, best_screenshot_result, embed_result),
             )
         )
     return candidates
+
+
+def _candidate_attribute_evidence(
+    results: list[AttributeSearchResult],
+    screenshot_result: AttributeSearchResult | None,
+    embed: SearchResult,
+) -> list[dict[str, Any]]:
+    if not results:
+        return list(embed.attribute_evidence)
+    anchor = screenshot_result or max(results, key=_attribute_score)
+    subject = anchor.metadata.object_id
+    sensor = anchor.metadata.sensor_id
+    if not subject or not sensor or sensor != embed.sensor_id:
+        return []
+    return [
+        result.metadata.model_dump()
+        for result in results
+        if result.metadata.object_id == subject and result.metadata.sensor_id == sensor
+    ]
+
+
+def _matching_subject_evidence(
+    result: SearchResult,
+    subject_ids: set[str],
+    sensor_id: str,
+) -> list[dict[str, Any]]:
+    return [
+        evidence
+        for evidence in result.attribute_evidence
+        if str(evidence.get("object_id", "")) in subject_ids and evidence.get("sensor_id", sensor_id) == sensor_id
+    ]
 
 
 def _result_from_candidate(candidate: FusionCandidate, similarity: float) -> SearchResult:
@@ -166,6 +201,7 @@ def _result_from_candidate(candidate: FusionCandidate, similarity: float) -> Sea
         screenshot_url=candidate.screenshot_url,
         similarity=similarity,
         object_ids=candidate.object_ids,
+        attribute_evidence=candidate.attribute_evidence,
     )
 
 
@@ -455,6 +491,7 @@ def weighted_rrf_union(
     representatives: list[SearchResult] = []
     scores: list[float] = []
     contributing_providers: list[set[str]] = []
+    subject_ids: list[set[str]] = []
     for provider, results in provider_results.items():
         weight = weights.get(provider, 0.0)
         if weight <= 0:
@@ -472,6 +509,7 @@ def weighted_rrf_union(
             contribution = weight / (rrf_k + rank)
             if candidate_index is None:
                 representatives.append(result)
+                subject_ids.append(set(result.object_ids))
                 scores.append(contribution)
                 contributing_providers.append({provider})
                 continue
@@ -488,6 +526,12 @@ def weighted_rrf_union(
                     "description": existing.description or result.description,
                     "screenshot_url": existing.screenshot_url or result.screenshot_url,
                     "object_ids": object_ids,
+                    "attribute_evidence": existing.attribute_evidence
+                    + (
+                        _matching_subject_evidence(result, subject_ids[candidate_index], existing.sensor_id)
+                        if subject_ids[candidate_index].intersection(result.object_ids)
+                        else []
+                    ),
                 }
             )
             scores[candidate_index] += contribution

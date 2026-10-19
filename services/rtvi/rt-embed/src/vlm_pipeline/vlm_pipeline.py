@@ -30,14 +30,13 @@ from typing import Callable, Optional
 import nvtx
 import torch
 import yaml
-from grpc._channel import _MultiThreadedRendezvous
-
 from api_models.captions import VlmQuery
 from api_models.embeddings import TextEmbeddingsQuery
 from common.chunk_info import ChunkInfo
 from common.health_status import HealthStatus
 from common.logger import LOG_STATUS_LEVEL, logger
 from common.service_exception import ServiceException
+from grpc._channel import _MultiThreadedRendezvous
 from models.base_vlm_model import VlmGenerationConfig, VlmModelOutput
 from models.dynamic_model_loader import DynamicModelLoader, load_model
 from utils.asset_manager import Asset
@@ -288,10 +287,21 @@ class DecoderProcess(ProcessBase):
             self._height = int(os.environ["VLM_INPUT_HEIGHT"])
             logger.info(f"Forcing input to VLM {self._width}X{self._height}")
 
+        is_cosmos = loader.get_model_class().__name__ == "CosmosEmbedModel"
+        cosmos_file_index_sampling = is_cosmos and os.getenv("COSMOS_FILE_INDEX_SAMPLING", "false").lower() in ("true", "1", "yes")
+        cosmos_file_torchvision_resize = is_cosmos and os.getenv("COSMOS_FILE_TORCHVISION_RESIZE", "false").lower() in ("true", "1", "yes")
+        cosmos_file_max_retained_frames = int(os.getenv("COSMOS_FILE_MAX_RETAINED_FRAMES", "1024"))
+        cosmos_file_max_retained_bytes = int(os.getenv("COSMOS_FILE_MAX_RETAINED_BYTES", str(512 * 1024 * 1024)))
+        logger.info("Cosmos file preprocessing version=index-linspace-round-aa-v1 index_sampling=%s antialias_resize=%s retained_frames=%d retained_bytes=%d; changes require re-ingestion", cosmos_file_index_sampling, cosmos_file_torchvision_resize, cosmos_file_max_retained_frames, cosmos_file_max_retained_bytes)
+
         # Initialize multiple frame getters (decoders)
         self._fgetters = [
             VideoFileFrameGetter(
                 frame_selector=DefaultFrameSelector(self._nfrms),
+                cosmos_file_index_sampling=cosmos_file_index_sampling,
+                cosmos_file_torchvision_resize=cosmos_file_torchvision_resize,
+                cosmos_file_max_retained_frames=cosmos_file_max_retained_frames,
+                cosmos_file_max_retained_bytes=cosmos_file_max_retained_bytes,
                 frame_width=self._width,
                 frame_height=self._height,
                 gpu_id=0,

@@ -223,4 +223,16 @@ def strip_nondeterministic(output: dict[str, Any]) -> dict[str, Any]:
     out = json.loads(json.dumps(output))  # deep copy of plain-JSON data
     out.get("summary", {}).pop("timestamp", None)
     out.get("summary", {}).pop("throughput", None)
+    # Repository revision and ingestion paths vary across checkouts. They are
+    # additive provenance; keep the scoring/retrieval golden unchanged.
+    out.get("config", {}).pop("provenance", None)
+    out.get("flow", {}).get("query", {}).pop("provenance", None)
+    for key in (
+        "resume_identity",
+        "checkpoint_directory",
+        "resume_reused_queries",
+        "retrieval_status",
+    ):
+        out.get("config", {}).pop(key, None)
+        out.get("flow", {}).get("query", {}).pop(key, None)
     return out

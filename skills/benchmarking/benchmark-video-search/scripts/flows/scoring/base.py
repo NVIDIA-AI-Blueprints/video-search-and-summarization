@@ -81,7 +81,7 @@ def report_unanswered(
     print("\n" + "!" * 60)
     print(f"WARNING: {len(unanswered)}/{total_queries} queries were never answered.")
     for entry in unanswered[:10]:
-        print(f'  [{entry["index"]}] {entry["query"][:60]!r}: {entry["reason"][:120]}')
+        print(f"  [{entry['index']}] {entry['query'][:60]!r}: {entry['reason'][:120]}")
     if len(unanswered) > 10:
         print(f"  ... and {len(unanswered) - 10} more")
     print("!" * 60 + "\n")
@@ -94,3 +94,8 @@ def report_unanswered(
             f"  {scored_count} queries under a {total_queries}-query label. "
             "Raise the tolerance to accept that."
         )
+
+
+def effective_tolerance(cfg: RunConfig, artifact: RetrievalArtifact) -> int:
+    override = getattr(cfg, "tolerate_unanswered_override", None)
+    return artifact.tolerate_unanswered if override is None else override

@@ -47,6 +47,7 @@ from vss_core.vios import get_sensor_id_from_stream_id
 
 from .._internal.coerce import _coerce_float
 from .._internal.coerce import _coerce_str
+from .._internal.coverage import candidate_coverage
 from .._internal.time_measure import TimeMeasure
 from ..agent_chunks import AgentMessageChunk
 from ..agent_chunks import AgentMessageChunkType
@@ -157,6 +158,11 @@ async def _run_attribute_only_search(
             "exclude_videos": exclude_videos,
         }
 
+        if search_input.search_mode == "attribute":
+            if search_input.attribute_min_similarity is not None:
+                attr_params["min_similarity"] = search_input.attribute_min_similarity
+            if search_input.candidate_limit is not None:
+                attr_params["candidate_limit"] = search_input.candidate_limit
         attribute_results = await attribute_search_fn.ainvoke(attr_params)
 
         search_results: list[SearchResult] = []
@@ -232,6 +238,7 @@ def attribute_result_to_search_result(
         # serializing a misleading blank identifier. ``"0"`` remains truthy
         # and is therefore preserved.
         object_ids=[object_id] if object_id else [],
+        attribute_evidence=[metadata.model_dump()],
     )
 
 
@@ -565,6 +572,11 @@ async def execute_core_search(
         yield SearchOutput(data=search_results, search_messages=[])
         return
 
+    downstream_max_top_k = 100000 if search_input.candidate_limit is not None else _DOWNSTREAM_MAX_TOP_K
+
+    coverage: list[dict] = []
+    candidate_coverage.set(coverage)
+
     # ----- SETUP COMMON QUERY PARAMETERS -----
     top_k = search_input.top_k if search_input.top_k is not None else config.default_max_results
     original_top_k = top_k
@@ -576,7 +588,7 @@ async def execute_core_search(
     # same reason; matching it keeps the two implementations comparable.
     if getattr(config, "merge_adjacent", True):
         top_k = top_k * 2
-    top_k = min(top_k, _DOWNSTREAM_MAX_TOP_K)
+    top_k = min(top_k, downstream_max_top_k)
 
     # Collected here (before routing) so a routing-affecting decision like
     # single-word attribute pruning can surface an observable note.
@@ -588,7 +600,7 @@ async def execute_core_search(
         "video_sources": search_input.video_sources,
         "timestamp_start": search_input.timestamp_start,
         "timestamp_end": search_input.timestamp_end,
-        "top_k": min(top_k, _DOWNSTREAM_MAX_TOP_K),
+        "top_k": min(top_k, downstream_max_top_k),
     }
 
     if search_input.search_mode == "tag":
@@ -617,7 +629,9 @@ async def execute_core_search(
         # retrieval; tag mode returns before that common post-processing, so
         # `--top-percent-filter` would otherwise be a no-op for tag.
         search_results = _fusion.apply_top_percent_filter(search_results, getattr(config, "top_percent_filter", None))
-        yield SearchOutput(data=search_results[:original_top_k], search_messages=search_messages)
+        yield SearchOutput(
+            data=search_results[:original_top_k], search_messages=search_messages, candidate_coverage=coverage
+        )
         return
 
     query_params: dict[str, str] = {"query": search_input.query}
@@ -632,6 +646,11 @@ async def execute_core_search(
         query_params["timestamp_end"] = search_input.timestamp_end.isoformat()
     query_params["min_cosine_similarity"] = str(search_input.min_cosine_similarity)
 
+    if search_input.candidate_limit is not None:
+        if search_input.search_mode not in {"embed", "attribute"}:
+            raise InvalidInputError("candidate_limit supports embed and attribute modes only")
+        query_params["candidate_limit"] = str(search_input.candidate_limit)
+
     attribute_list: list[str] = []
     is_attribute_only = search_input.search_mode == "attribute"
     if search_input.attributes:
@@ -640,7 +659,7 @@ async def execute_core_search(
         attribute_list = [attr.strip() for attr in attribute_list if attr.strip()]
 
     if search_input.search_mode == "fusion":
-        query_params["top_k"] = str(min(top_k, _DOWNSTREAM_MAX_TOP_K))
+        query_params["top_k"] = str(min(top_k, downstream_max_top_k))
         query_input_json = json.dumps(
             {
                 "params": query_params,
@@ -705,7 +724,9 @@ async def execute_core_search(
             )
             if getattr(config, "merge_adjacent", True):
                 search_results = _fusion.merge_consecutive_results(search_results)
-            yield SearchOutput(data=search_results[:original_top_k], search_messages=search_messages)
+            yield SearchOutput(
+                data=search_results[:original_top_k], search_messages=search_messages, candidate_coverage=coverage
+            )
             return
 
         if tag_search is None:
@@ -727,7 +748,7 @@ async def execute_core_search(
                     attribute_list=attribute_list,
                     search_input=search_input,
                     attribute_search_fn=attribute_search_fn,
-                    top_k=min(top_k, _DOWNSTREAM_MAX_TOP_K),
+                    top_k=min(top_k, downstream_max_top_k),
                     min_similarity=0.0,
                     search_messages=search_messages,
                 )
@@ -802,7 +823,9 @@ async def execute_core_search(
         search_results = _fusion.apply_top_percent_filter(search_results, getattr(config, "top_percent_filter", None))
         if getattr(config, "merge_adjacent", True):
             search_results = _fusion.merge_consecutive_results(search_results)
-        yield SearchOutput(data=search_results[:original_top_k], search_messages=search_messages)
+        yield SearchOutput(
+            data=search_results[:original_top_k], search_messages=search_messages, candidate_coverage=coverage
+        )
         return
 
     # ----- EXECUTION FLOW: embed / attribute-only -----
@@ -816,7 +839,7 @@ async def execute_core_search(
         logger.info("[Search] Running search")
 
         # Clamp to the downstream models' bound so the fetch size never trips a ValidationError.
-        top_k = min(top_k, _DOWNSTREAM_MAX_TOP_K)
+        top_k = min(top_k, downstream_max_top_k)
         query_params["top_k"] = str(top_k)
         # Search is single-pass, so there are no orchestrator-generated exclusions.
         query_input_json = json.dumps(
@@ -843,7 +866,7 @@ async def execute_core_search(
                     attribute_list=attribute_list,
                     search_input=search_input,
                     attribute_search_fn=attribute_search_fn,
-                    top_k=min(original_top_k, _DOWNSTREAM_MAX_TOP_K),
+                    top_k=min(original_top_k, downstream_max_top_k),
                     min_similarity=0.0,
                     exclude_videos=[],
                     search_messages=search_messages,
@@ -913,7 +936,7 @@ async def execute_core_search(
 
     search_results = search_results[:original_top_k]
 
-    yield SearchOutput(data=search_results, search_messages=search_messages)
+    yield SearchOutput(data=search_results, search_messages=search_messages, candidate_coverage=coverage)
 
 
 async def execute_core_search_wrapper(

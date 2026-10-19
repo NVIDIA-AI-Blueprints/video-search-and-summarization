@@ -60,7 +60,56 @@ def load_gallery_gt(gt_path: str | Path) -> dict[str, Any]:
             for row in c["gallery"]
         ]
         return {"meta": q.get("meta", {}), "gallery": gallery, "queries": q["queries"]}
-    return json.loads(path.read_text())
+    result = json.loads(path.read_text())
+    result["gallery"] = [
+        {
+            **row,
+            "video_path": str(
+                (path.parent / row.get("video_path", row["video"])).resolve()
+            ),
+        }
+        for row in result["gallery"]
+    ]
+    return result
+
+
+def validate_gallery_queries(gt):
+    """Check identities before ingestion or inference; repeated text is valid."""
+    gallery = [row["chunk_id"] for row in gt["gallery"]]
+    if not gallery or len(set(gallery)) != len(gallery):
+        raise SystemExit("ERROR: gallery has no clips, or duplicate clip ids")
+    queries = gt["queries"]
+    ids = [q.get("query_id") for q in queries]
+    if any(not isinstance(qid, str) or not qid.strip() for qid in ids) or len(
+        set(ids)
+    ) != len(ids):
+        raise SystemExit("ERROR: every gallery query needs a unique nonempty query_id")
+    if any(
+        not isinstance(q.get("query"), str) or not q["query"].strip() for q in queries
+    ):
+        raise SystemExit("ERROR: every gallery query needs a non-empty 'query' text")
+
+
+def resolve_query(record, context):
+    """Resolve stable identity, accepting legacy text only when unambiguous."""
+    query_id = getattr(record, "query_id", None)
+    if query_id is not None:
+        row = context["all_by_id"].get(query_id)
+        if row is None or row["query"] != record.query:
+            raise SystemExit(
+                f"ERROR: unknown or conflicting artifact query_id {query_id!r}"
+            )
+        return context["by_id"].get(query_id)
+    if record.query in context["ambiguous_query_texts"]:
+        raise SystemExit(
+            f"ERROR: legacy artifact query {record.query!r} is ambiguous; query_id is required"
+        )
+    row = context["all_by_text"].get(record.query)
+    if row is None:
+        raise SystemExit(
+            f"ERROR: artifact query {record.query!r} is not in the gallery GT"
+        )
+    return context["by_id"].get(row["query_id"])
 
 
 def load_ingestion_manifest(manifest_path: str | Path) -> list[dict[str, Any]]:
@@ -79,7 +128,7 @@ def build_context(
     gt_path: str | Path,
     manifest_path: str | Path,
     *,
-    pas_frame_supported: bool = False,
+    pas_frame_supported: bool | None = None,
 ) -> dict[str, Any]:
     """Load + cross-validate the gallery and its ingestion manifest.
 
@@ -88,14 +137,17 @@ def build_context(
     ClipScorer), the ``sensor_id -> clip_id`` map (for drive), and a
     ``query text -> query row`` map (to align artifact records with GT rows).
 
-    When ``pas_frame_supported`` is set, PAS queries are rewritten so their
+    By default, when the release includes track annotations, PAS queries are
+    rewritten so their
     ``relevant_clip_ids`` come from the released positive tracks whose
     representative frame supports the query's resolved attributes (PhysicalAI
     v1.1.2), read from ``additional_gt/tracks_pas_attributes.json`` in the
     release root. PAS queries left with no supported positive are excluded and
     listed; the returned context then also carries ``cohort`` and ``excluded``.
+    ``pas_frame_supported=True`` requires this protocol; ``False`` disables it.
     This derivation needs the release-directory layout -- a merged GT json has
-    nowhere to put the tracks file.
+    nowhere to put the tracks file. Missing annotations in automatic mode are
+    explicitly recorded. Event queries follow Drive eligibility.
     """
     gt = load_gallery_gt(gt_path)
     gallery = [row["chunk_id"] for row in gt["gallery"]]
@@ -124,21 +176,22 @@ def build_context(
             )
         sensor_to_clip[sensor] = cid
 
-    by_text: dict[str, dict[str, Any]] = {}
-    for q in queries:
-        text = q.get("query")
-        if not isinstance(text, str) or not text.strip():
-            raise SystemExit(
-                "ERROR: every gallery query needs a non-empty 'query' text"
-            )
-        if text in by_text:
-            raise SystemExit(f"ERROR: duplicate gallery query text {text!r}")
-        by_text[text] = q
+    validate_gallery_queries(gt)
+    texts = Counter(q["query"] for q in queries)
+    ambiguous_query_texts = {text for text, count in texts.items() if count > 1}
+    all_by_id = {q["query_id"]: q for q in queries}
+    all_by_text = {
+        q["query"]: q for q in queries if q["query"] not in ambiguous_query_texts
+    }
 
-    cohort: dict[str, Any] | None = None
     excluded: list[dict[str, Any]] = []
     excluded_query_texts: set[str] = set()
-    if pas_frame_supported:
+    root = Path(gt_path)
+    tracks_file = root / "additional_gt" / "tracks_pas_attributes.json"
+    apply_pas = pas_frame_supported is True or (
+        pas_frame_supported is None and root.is_dir() and tracks_file.exists()
+    )
+    if apply_pas:
         root = Path(gt_path)
         if not root.is_dir():
             raise SystemExit(
@@ -156,18 +209,6 @@ def build_context(
             queries, excluded = frame_supported_queries(queries, tracks, set(gallery))
         except (ValueError, KeyError) as e:
             raise SystemExit(f"ERROR: invalid PAS ground truth: {e}") from e
-        # Rebuild the text->row map from the derived queries; exclusions drop out.
-        by_text = {q["query"]: q for q in queries}
-        cohort = {
-            "protocol": PAS_VERSION,
-            "input": dict(
-                Counter(q.get("query_domain", "unknown") for q in gt["queries"])
-            ),
-            "eligible": dict(
-                Counter(q.get("query_domain", "unknown") for q in queries)
-            ),
-            "excluded": excluded,
-        }
         # Map excluded query_ids back to their texts so the scorer can skip
         # retrieval records for PAS queries the derivation dropped, without
         # mistaking them for a genuine artifact/GT mismatch.
@@ -176,6 +217,60 @@ def build_context(
             q["query"] for q in gt["queries"] if q.get("query_id") in excluded_ids
         }
 
+    # Match Drive event eligibility. Missing home clips are diagnostic only:
+    # the reference still scores a query with positives elsewhere in the gallery.
+    eligible = []
+    gallery_set = set(gallery)
+    missing_home = 0
+    for q in queries:
+        if q.get("query_domain") == "event":
+            if q.get("chunk_id") not in gallery_set:
+                missing_home += 1
+            reason = (
+                "near_universal"
+                if q.get("near_universal")
+                else "no_gallery_positives"
+                if not gallery_set.intersection(q["relevant_clip_ids"])
+                else None
+            )
+            if reason:
+                excluded.append(
+                    {
+                        "query_id": q["query_id"],
+                        "query_domain": "event",
+                        "reason": reason,
+                    }
+                )
+                excluded_query_texts.add(q["query"])
+                continue
+            q = {
+                **q,
+                "relevant_clip_ids": [
+                    cid for cid in q["relevant_clip_ids"] if cid in gallery_set
+                ],
+            }
+        eligible.append(q)
+    queries = eligible
+    by_text = {
+        q["query"]: q for q in queries if q["query"] not in ambiguous_query_texts
+    }
+    cohort = {
+        "protocol": PAS_VERSION if apply_pas else "released-clip-relevance",
+        "pas_frame_supported": "applied"
+        if apply_pas
+        else (
+            "disabled"
+            if pas_frame_supported is False
+            else "unknown: released track annotations unavailable"
+        ),
+        "input": dict(Counter(q.get("query_domain", "unknown") for q in gt["queries"])),
+        "eligible": dict(Counter(q.get("query_domain", "unknown") for q in queries)),
+        "input_queries": len(gt["queries"]),
+        "eligible_queries": len(queries),
+        "event_missing_home_clip": missing_home,
+        "excluded": excluded,
+    }
+
     return {
         "gt": gt,
         "gallery": gallery,
@@ -183,6 +278,11 @@ def build_context(
         "mapping": mapping,
         "sensor_to_clip": sensor_to_clip,
         "by_text": by_text,
+        "by_id": {q["query_id"]: q for q in queries},
+        "all_by_id": all_by_id,
+        "all_by_text": all_by_text,
+        "ambiguous_query_texts": ambiguous_query_texts,
+        "excluded_query_ids": {q["query_id"] for q in excluded},
         "sources": [Path(mapping[cid]["filename"]).stem for cid in gallery],
         "cohort": cohort,
         "excluded": excluded,

@@ -23,6 +23,8 @@ CONFIG = {
 
 
 def verdict(hit):
+    if hit.get("_verification_source") == "absent":
+        return "missing"
     key = "verification" if "verification" in hit else "critic_result"
     if key not in hit:
         return "missing"
@@ -105,6 +107,12 @@ class ClipScorer:
         result = {
             "query_id": query["query_id"],
             "query": query["query"],
+            "query_domain": query.get("query_domain", "unknown"),
+            "slice": query.get("slice", "unknown"),
+            "difficulty": query.get(
+                "pas_tier",
+                query.get("difficulty", query.get("pas_difficulty", "unknown")),
+            ),
             "average_precision": sum(contributions) / r,
             "ap_at_10": sum(contributions[:10]) / min(r, 10),
             "ndcg": ndcg(len(self.gallery)),
@@ -156,6 +164,12 @@ class ClipScorer:
                 "irrelevant_clips_removed": len(lost - relevant),
             },
             "critic": dict(Counter(verdict(h) for h in hits)),
+            "verification_coverage": {
+                "candidate_hits": len(hits),
+                "attempted": sum(verdict(h) not in {"missing", "null"} for h in hits),
+                "decided": sum(verdict(h) in {"confirmed", "rejected"} for h in hits),
+                "unverified": sum(verdict(h) == "unverified" for h in hits),
+            },
         }
 
 

@@ -30,6 +30,7 @@ from vss_core._foundation.errors import ConfigurationError
 from vss_core._foundation.retry import create_retry_strategy
 from vss_core._foundation.sanitize import scrub_log
 from vss_core._foundation.time_measure import TimeMeasure
+from vss_core.vlm.evidence import record_http_response
 
 if TYPE_CHECKING:
     from vss_core.vios.protocols import VSTSnapshot
@@ -66,6 +67,8 @@ class OpenAIVLMAnalyzer:
         cosmos_nim_runtime_options: bool = True,
         rt_vlm_frame_budget: float | None = None,
         rt_vlm_use_fps_for_chunking: bool = False,
+        rt_vlm_input_width: int | None = None,
+        rt_vlm_input_height: int | None = None,
     ) -> None:
         if not base_url.strip():
             raise ConfigurationError("VLM base_url must be non-empty")
@@ -82,6 +85,11 @@ class OpenAIVLMAnalyzer:
         ):
             qualifier = "> 0" if rt_vlm_use_fps_for_chunking else ">= 1"
             raise ConfigurationError(f"VLM rt_vlm_frame_budget must be {qualifier}")
+        for dimension in (rt_vlm_input_width, rt_vlm_input_height):
+            if dimension is not None and dimension < 16:
+                raise ConfigurationError("RT-VLM input dimensions must be >= 16")
+        self._rt_vlm_input_width = rt_vlm_input_width
+        self._rt_vlm_input_height = rt_vlm_input_height
         self._base_url = _normalize_base_url(base_url)
         self._model = model
         self._api_key = api_key
@@ -96,6 +104,18 @@ class OpenAIVLMAnalyzer:
         self._rt_vlm_frame_budget = rt_vlm_frame_budget
         self._rt_vlm_use_fps_for_chunking = rt_vlm_use_fps_for_chunking
         self._client: httpx.AsyncClient | None = None
+
+    @property
+    def verification_settings(self) -> dict[str, Any]:
+        return {
+            "model": self._model,
+            "frame_budget": self._rt_vlm_frame_budget,
+            "use_fps_for_chunking": self._rt_vlm_use_fps_for_chunking,
+            "input_width": self._rt_vlm_input_width,
+            "input_height": self._rt_vlm_input_height,
+            "max_frames": self._max_frames,
+            "media_mode": self._media_mode,
+        }
 
     @property
     def _chat_completions_url(self) -> str:
@@ -194,6 +214,8 @@ class OpenAIVLMAnalyzer:
         ):
             with retry:
                 response = await self._get_client().request(method, url, **kwargs)
+                if method.upper() == "POST" and url == self._chat_completions_url:
+                    record_http_response(response)
                 if response.status_code == 429 or response.status_code >= 500:
                     raise _RetryableVLMStatusError(f"HTTP {response.status_code}: {scrub_log(response.text[:200])}")
                 if configuration_4xx and 400 <= response.status_code < 500:
@@ -210,6 +232,10 @@ class OpenAIVLMAnalyzer:
         raise AssertionError("unreachable: retry strategy reraises exhausted request errors")
 
     def _add_model_runtime_options(self, payload: dict[str, Any], duration_seconds: float) -> None:
+        if self._rt_vlm_input_width is not None:
+            payload["vlm_input_width"] = self._rt_vlm_input_width
+        if self._rt_vlm_input_height is not None:
+            payload["vlm_input_height"] = self._rt_vlm_input_height
         model = self._model.lower()
         if self._cosmos_nim_runtime_options and "cosmos" in model:
             payload["media_io_kwargs"] = {

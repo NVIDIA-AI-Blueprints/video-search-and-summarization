@@ -44,6 +44,7 @@ shift is visible rather than silently changing what was measured.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -134,7 +135,9 @@ class LiveDecomposer:
                 "Check --llm-url, or pass --llm-model to skip discovery."
             ) from e
         if not isinstance(data, list) or not data:
-            raise DecompositionError(f"{self._url} served an empty or malformed model list.")
+            raise DecompositionError(
+                f"{self._url} served an empty or malformed model list."
+            )
         first = data[0]
         if not isinstance(first, dict) or not first.get("id"):
             raise DecompositionError(f"{self._url} served a model entry without an id.")
@@ -151,17 +154,29 @@ class LiveDecomposer:
             "llm_url": self._url,
             "model": self._model,
             "temperature": TEMPERATURE,
+            "max_tokens": MAX_TOKENS,
             "prompt_source": PROMPT_SOURCE,
+            "prompt_sha256": hashlib.sha256(self._prompt.encode()).hexdigest(),
+            "system_prompt_sha256": hashlib.sha256(_SYSTEM.encode()).hexdigest(),
+            "few_shot_sha256": hashlib.sha256(self._few_shot.encode()).hexdigest(),
         }
 
-    def decompose(self, query: str, video_sources: list[str] | None = None) -> tuple[dict[str, Any], float]:
+    def decompose(
+        self,
+        query: str,
+        video_sources: list[str] | None = None,
+        evidence_sink: Any = None,
+        query_id: str | None = None,
+    ) -> tuple[dict[str, Any], float]:
         """Return ``(decomposition, seconds)``.
 
         ``seconds`` is wall clock around the call, so it belongs to the query's
         end-to-end cost the same way the CLI subprocess does.
         """
         sources = (
-            f"Video files: {', '.join(video_sources)}" if video_sources else "No specific sources available"
+            f"Video files: {', '.join(video_sources)}"
+            if video_sources
+            else "No specific sources available"
         )
         body = {
             "model": self._model,
@@ -179,29 +194,84 @@ class LiveDecomposer:
                 },
             ],
         }
+        evidence = {
+            "original_query": query,
+            "query_id": query_id,
+            "submitted_request": body,
+            "model": self._model,
+            "prompt_source": PROMPT_SOURCE,
+            "raw_response": None,
+            "parsed": None,
+            "error": None,
+        }
+        if evidence_sink:
+            evidence_sink(evidence)
         started = time.perf_counter()
         try:
             resp = requests.post(
                 f"{self._url}/v1/chat/completions", json=body, timeout=self._timeout
             )
+            evidence["raw_http_response"] = resp.text
+            evidence["http_status"] = getattr(resp, "status_code", None)
+            if evidence_sink:
+                evidence_sink(evidence)
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"]
-        except (requests.RequestException, KeyError, IndexError, ValueError) as e:
-            raise DecompositionError(f"decomposition request failed for {query!r}: {e}") from e
+        except (
+            requests.RequestException,
+            KeyError,
+            IndexError,
+            TypeError,
+            ValueError,
+        ) as e:
+            evidence.update(error=str(e), inference_s=time.perf_counter() - started)
+            if evidence_sink:
+                evidence_sink(evidence)
+            raise DecompositionError(
+                f"decomposition request failed for {query!r}: {e}"
+            ) from e
         elapsed = time.perf_counter() - started
+        evidence.update(raw_response=content, inference_s=elapsed)
+        if evidence_sink:
+            evidence_sink(evidence)
 
+        if not isinstance(content, str):
+            evidence["error"] = "model content must be a string"
+            if evidence_sink:
+                evidence_sink(evidence)
+            raise DecompositionError(evidence["error"])
         try:
             decomposition = json.loads(_strip_fences(content))
         except json.JSONDecodeError as e:
+            evidence["error"] = str(e)
+            if evidence_sink:
+                evidence_sink(evidence)
             raise DecompositionError(
                 f"decomposition for {query!r} was not JSON: {content[:200]!r}"
             ) from e
         if not isinstance(decomposition, dict):
+            evidence["error"] = "expected JSON object"
+            if evidence_sink:
+                evidence_sink(evidence)
             raise DecompositionError(
                 f"decomposition for {query!r} was {type(decomposition).__name__}, expected object"
             )
+        from flows.routing import validate_decomposition
+
+        try:
+            validate_decomposition(decomposition)
+        except ValueError as exc:
+            evidence["error"] = str(exc)
+            if evidence_sink:
+                evidence_sink(evidence)
+            raise DecompositionError(
+                f"invalid decomposition for {query!r}: {exc}"
+            ) from exc
         # The prompt marks has_action REQUIRED, but the model omits it often
         # enough that routing would silently fall through to `fusion` for
         # attribute-only queries. Absent stays absent -- routing treats it as
         # unknown and says so -- rather than being invented here.
+        evidence["parsed"] = decomposition
+        if evidence_sink:
+            evidence_sink(evidence)
         return decomposition, elapsed

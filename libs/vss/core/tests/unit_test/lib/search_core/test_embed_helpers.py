@@ -157,7 +157,7 @@ def test_build_es_query_with_filter_overfetches():
 
 @pytest.mark.parametrize(("score", "expected"), [(0.85, 0.7), (0.5, 0.0), (1.0, 1.0), (0.6, 0.2)])
 def test_score_to_cosine(score, expected):
-    assert h.score_to_cosine(score) == expected
+    assert h.score_to_cosine(score) == pytest.approx(expected)
 
 
 # ---------------------------------------------------------------- stream id

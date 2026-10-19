@@ -139,7 +139,7 @@ def test_search_coerces_missing_criteria_to_empty_map() -> None:
 
     output = asyncio.run(vss.search(query="forklift"))
 
-    assert output.data[0].model_dump()["critic_result"] == {"result": "unverified", "criteria_met": {}}
+    assert output.data[0].model_dump()["critic_result"] == {"result": "unverified", "criteria_met": {}, "evidence": {}}
 
 
 def test_search_preserves_fusion_attributes_in_critic_query() -> None:
@@ -281,3 +281,25 @@ def test_search_passes_source_type_so_only_file_bounds_are_rebased() -> None:
     asyncio.run(vss.search(query="forklift", source_type="rtsp"))
 
     assert captured == ["rtsp"]
+
+
+def test_critic_half_open_interval_includes_supporting_frame_and_same_subject():
+    from vss_core.search_core.models import SearchInput
+
+    result = _result().model_copy(
+        update={
+            "object_ids": ["7"],
+            "attribute_evidence": [
+                {"object_id": "7", "frame_timestamp": "2025-01-01T00:00:20Z", "bbox": [1, 2, 3, 4]},
+                {"object_id": "8", "frame_timestamp": "2025-01-01T00:00:15Z", "bbox": [5, 6, 7, 8]},
+            ],
+        }
+    )
+    indices, videos = VSSSearch._critic_candidates(SearchOutput(data=[result]), SearchInput(query="person"))
+    assert indices == [0]
+    assert videos[0].end_timestamp.microsecond == 1000
+    assert [a["object_id"] for a in videos[0].subject_evidence] == ["7"]
+    _, scoped = VSSSearch._critic_candidates(
+        SearchOutput(data=[result]), SearchInput(query="person", timestamp_end="2025-01-01T00:00:20Z")
+    )
+    assert scoped == []

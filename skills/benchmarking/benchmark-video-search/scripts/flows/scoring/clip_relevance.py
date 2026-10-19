@@ -34,7 +34,7 @@ from typing import Any
 from flows.artifacts import RetrievalArtifact, RunConfig, ScoredResult
 
 from . import gallery as gallery_mod
-from .base import report_unanswered
+from .base import effective_tolerance, report_unanswered
 from .clip_scoring import VERSION, ClipScorer, aggregate
 
 
@@ -83,23 +83,34 @@ class ClipRelevanceScoring:
 
         pairs: list[dict[str, Any]] = []
         unanswered = 0
-        excluded_texts = gt.get("excluded_query_texts", set())
         excluded_count = 0
+        excluded_failures = []
+        eligible_failures = []
         for record in artifact.queries:
+            q = gallery_mod.resolve_query(record, gt)
+            if q is None:
+                excluded_count += 1
+                if record.status != "answered":
+                    excluded_failures.append(
+                        {
+                            "index": record.index,
+                            "query": record.query,
+                            "query_id": getattr(record, "query_id", None),
+                            "reason": record.error or "unanswered",
+                        }
+                    )
+                continue
             if record.status != "answered":
                 unanswered += 1
-                continue
-            if record.query in excluded_texts:
-                # PAS query dropped by the frame-supported derivation (no
-                # supported positive) -- excluded from scoring, not unanswered.
-                excluded_count += 1
-                continue
-            q = gt["by_text"].get(record.query)
-            if q is None:
-                raise SystemExit(
-                    f"ERROR: artifact query {record.query!r} is not in the gallery GT. "
-                    "Score with the gallery the retrieval actually ran against."
+                eligible_failures.append(
+                    {
+                        "index": record.index,
+                        "query": record.query,
+                        "query_id": q["query_id"],
+                        "reason": record.error or "unanswered",
+                    }
                 )
+                continue
             pair = scorer.pair(q, record.hits, record.search_latency_s or 0.0)
             pairs.append(pair)
             raw = pair["raw"]
@@ -112,28 +123,82 @@ class ClipRelevanceScoring:
         if not pairs:
             raise SystemExit("ABORTED: no answered query could be scored.")
         report_unanswered(
-            artifact.unanswered, len(artifact.queries), artifact.tolerate_unanswered, len(pairs)
+            eligible_failures,
+            len(artifact.queries) - excluded_count,
+            effective_tolerance(cfg, artifact),
+            len(pairs),
         )
 
         raws = [p["raw"] for p in pairs]
         filtereds = [p["critic_filtered"] for p in pairs]
-        any_critic = any(
-            p["critic"].get("confirmed") or p["critic"].get("rejected") for p in pairs
-        )
+        any_critic = any(p["verification_coverage"]["attempted"] for p in pairs)
+
+        def grouped(field, rows):
+            groups = {}
+            for row in rows:
+                groups.setdefault(str(row.get(field, "unknown")), []).append(row)
+            return {
+                key: {"queries_scored": len(group), **aggregate(group)}
+                for key, group in sorted(groups.items())
+            }
 
         summary: dict[str, Any] = {
             "scorer": VERSION,
+            "scenario": artifact.described.get("scenario", "legacy-single-run"),
+            "coverage": {
+                "annotation_gallery_size": len(gt["gallery"]),
+                "annotation_complete_rankings": sum(
+                    r["ranking_complete"] for r in raws
+                ),
+                "indexed_inventory": artifact.inventory,
+                "note": "gallery coverage measures returned clip identities; index inventory is separate evidence, not an exhaustiveness claim",
+            },
             "gallery_size": len(gt["gallery"]),
             "queries_scored": len(pairs),
             "queries_unanswered": unanswered,
+            "excluded_failures": excluded_failures,
+            "tolerate_unanswered": effective_tolerance(cfg, artifact),
             "raw": aggregate(raws),
+            "groups": {
+                "domain": grouped("query_domain", raws),
+                "event_slice": grouped(
+                    "slice", [r for r in raws if r["query_domain"] == "event"]
+                ),
+                "pas_difficulty": grouped(
+                    "difficulty", [r for r in raws if r["query_domain"] == "pas"]
+                ),
+            },
+            "denominators": {
+                "artifact_queries": len(artifact.queries),
+                "eligible_queries": len(gt["queries"]),
+                "answered_scored": len(pairs),
+                "unanswered": unanswered,
+                "excluded_artifact_queries": excluded_count,
+            },
+            "verification_coverage": {
+                key: sum(p["verification_coverage"][key] for p in pairs)
+                for key in ("candidate_hits", "attempted", "decided", "unverified")
+            },
+            "candidate_pool": "unchanged saved retrieval hits; filter declared pool then take metric cutoff; no further retrieval",
         }
         if gt.get("cohort") is not None:
             summary["cohort"] = gt["cohort"]
             summary["queries_excluded"] = excluded_count
         if any_critic:
             summary["critic_filtered"] = aggregate(filtereds)
+            summary["critic_filtered_groups"] = {
+                "domain": grouped("query_domain", filtereds),
+                "event_slice": grouped(
+                    "slice", [r for r in filtereds if r["query_domain"] == "event"]
+                ),
+                "pas_difficulty": grouped(
+                    "difficulty", [r for r in filtereds if r["query_domain"] == "pas"]
+                ),
+            }
             summary["critic_effect"] = {
+                "mAP_delta": summary["critic_filtered"]["mAP"] - summary["raw"]["mAP"],
+                "mAP@10_delta": summary["critic_filtered"]["mAP@10"]
+                - summary["raw"]["mAP@10"],
                 "relevant_clips_removed": sum(
                     p["critic_effect"]["relevant_clips_removed"] for p in pairs
                 ),

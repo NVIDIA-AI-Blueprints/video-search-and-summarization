@@ -36,10 +36,17 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from enum import StrEnum
+import hashlib
 import json
 import logging
+import os
+from pathlib import Path
+import tempfile
+import time
 from typing import TYPE_CHECKING
+from typing import Any
 from typing import Literal
+from uuid import uuid4
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
@@ -51,6 +58,7 @@ from vss_core._foundation.errors import ConfigurationError
 from vss_core._foundation.time import datetime_to_iso8601
 from vss_core._foundation.time_measure import TimeMeasure
 from vss_core.vios.client import map_interval_to_timeline
+from vss_core.vlm.evidence import capture_http_responses
 
 if TYPE_CHECKING:
     from vss_core.vios.protocols import VSTSnapshot
@@ -77,6 +85,11 @@ class VideoInfo(BaseModel):
     #: clip and return a confident verdict about footage the caller never
     #: retrieved.
     source_type: str | None = None
+    subject_evidence: list[dict[str, Any]] = Field(default_factory=list)
+
+    def __hash__(self) -> int:
+        # Subject diagnostics are mutable JSON; the media identity remains hashable.
+        return hash((self.sensor_id, self.start_timestamp, self.end_timestamp, self.source_type))
 
     @model_validator(mode="after")
     def validate_time_range(self) -> VideoInfo:
@@ -119,6 +132,7 @@ class VideoResult(BaseModel):
     video_info: VideoInfo
     result: CriticAgentResult
     criteria_met: dict[str, bool] | None = None  # None = critic produced no per-criterion verdict
+    evidence: dict[str, Any] = Field(default_factory=dict)
 
 
 class CriticAgentOutput(BaseModel):
@@ -165,7 +179,11 @@ HARD CONSTRAINTS / INVARIANTS for decision rule:
   user prompt names. Evaluate the attributes and actions that prompt asks for.
 - Never return an empty JSON object. There is always at least the subject criterion.
 
-Choose up to 3 criteria for a subject.
+Cover ALL explicit constraints in the user prompt, without a fixed criterion limit.
+If visibility, resolution, occlusion, or the interval does not supply enough evidence,
+use null for that criterion and return result "unverified". Uncertain is not false.
+A false criterion requires visible evidence contradicting the requested constraint.
+Never combine attributes of different people to confirm one subject.
 
 Example 1:
 user_prompt: "Find the man wearing a blue shirt, dark pants, and carrying a backpack"
@@ -330,6 +348,9 @@ def _parse_criteria(vlm_text: str) -> tuple[CriticAgentResult, dict[str, bool]]:
             # bool()'d into a (possibly failing) criterion — e.g. {"result": ""}
             # would otherwise flip an otherwise-confirmable clip to REJECTED.
             raw_criteria = {k: v for k, v in payload.items() if k != "result"}
+        if any(value is None for value in raw_criteria.values()):
+            known = {str(k): v for k, v in raw_criteria.items() if isinstance(v, bool)}
+            return CriticAgentResult.UNVERIFIED, known
         if any(not isinstance(value, bool) for value in raw_criteria.values()):
             raise TypeError("criteria values must be JSON booleans")
         criteria = {str(k): value for k, value in raw_criteria.items()}
@@ -412,6 +433,7 @@ class CriticAgent:
         max_concurrent_verifications: int = 5,
         time_format: TimeFormat = "iso",
         num_videos_to_evaluate: int | None = None,
+        diagnostic_dir: str | Path | None = None,
     ) -> None:
         if max_concurrent_verifications < 1:
             raise ConfigurationError("max_concurrent_verifications must be >= 1")
@@ -425,6 +447,7 @@ class CriticAgent:
         self._max_concurrent = max_concurrent_verifications
         self._time_format = time_format
         self._default_eval_count = num_videos_to_evaluate
+        self._diagnostic_dir = Path(diagnostic_dir) if diagnostic_dir is not None else None
         # The per-sensor replay-timeline cache is run-scoped (see _TimelineCache):
         # a fresh one is built per ``run`` so a reused critic re-fetches a
         # recording whose replay range grew or moved after re-ingest, while still
@@ -475,6 +498,7 @@ class CriticAgent:
                         video_info=video,
                         result=CriticAgentResult.UNVERIFIED,
                         criteria_met={},
+                        evidence={"query": inp.query, "failure_reason": f"{type(outcome).__name__}: {outcome}"},
                     )
                 )
             else:
@@ -492,9 +516,37 @@ class CriticAgent:
         video: VideoInfo,
         query: str,
     ) -> VideoResult:
-        """Evaluate a single video against the user query via the VLM."""
+        """Evaluate with HTTP diagnostics isolated to this concurrent candidate."""
+        with capture_http_responses() as responses:
+            return await self._evaluate_video_captured(semaphore, timeline_cache, video, query, responses)
+
+    async def _evaluate_video_captured(
+        self,
+        semaphore: asyncio.Semaphore,
+        timeline_cache: _TimelineCache,
+        video: VideoInfo,
+        query: str,
+        responses: list[dict[str, Any]],
+    ) -> VideoResult:
+        started = time.perf_counter()
         formatted_prompt = self._prompt.format(user_prompt=query)
+        if video.subject_evidence:
+            formatted_prompt += (
+                "\nRetrieved subject anchors (timestamps and bounding boxes refer only to the "
+                "retrieved subject). Verify THAT subject. If these anchors cannot identify it "
+                "in the visible interval, return unverified; never transfer another person's "
+                "attributes to it:\n" + json.dumps(video.subject_evidence, default=str)
+            )
+        evidence: dict[str, Any] = {
+            "query": query,
+            "http_responses": responses,
+            "candidate": video.model_dump(mode="json"),
+            "submitted_prompt": formatted_prompt,
+            "prompt_version": hashlib.sha256(self._prompt.encode()).hexdigest(),
+            "visual_settings": getattr(self._vlm, "verification_settings", {}),
+        }
         logger.debug(f"Formatted prompt: {formatted_prompt}")
+        self._save_evidence(evidence)
 
         try:
             if self._time_format == "iso":
@@ -528,6 +580,7 @@ class CriticAgent:
                     # unchanged. An interval outside the recording is rejected by
                     # VST at clip-URL time and fails open to `unverified` — the
                     # honest answer.
+                evidence["media_bounds"] = {"start": start_iso, "end": end_iso, "time_format": "iso"}
                 async with semaphore:
                     vlm_response = await self._vlm.analyze(
                         sensor_id=video.sensor_id,
@@ -585,6 +638,11 @@ class CriticAgent:
                             "vst",
                             f"requested interval lies outside the recorded timeline for sensor {video.sensor_id}",
                         )
+                    evidence["media_bounds"] = {
+                        "start": str(start_offset),
+                        "end": str(end_offset),
+                        "time_format": "offset",
+                    }
                     vlm_response = await self._vlm.analyze(
                         sensor_id=video.sensor_id,
                         start_timestamp=str(start_offset),
@@ -592,18 +650,59 @@ class CriticAgent:
                         prompt=formatted_prompt,
                         time_format="offset",
                     )
-        except BackendUnreachableError as e:
+        except Exception as e:
             logger.error(f"Error calling VLM analyzer: {e}")
+            evidence.update(failure_reason=f"{type(e).__name__}: {e}", elapsed_s=time.perf_counter() - started)
+            self._save_evidence(evidence)
             return VideoResult(
                 video_info=video,
                 result=CriticAgentResult.UNVERIFIED,
                 criteria_met={},
+                evidence=evidence,
             )
 
+        evidence.update(
+            raw_response=vlm_response,
+            elapsed_s=time.perf_counter() - started,
+            media_bounds={"start": start_iso, "end": end_iso, "time_format": self._time_format},
+        )
+        if self._time_format == "offset":
+            evidence["media_bounds"].update(start=str(start_offset), end=str(end_offset))
+        # Persist before parsing: a malformed response must remain inspectable.
+        self._save_evidence(evidence)
         logger.info(f"VLM response for {video.sensor_id}: {vlm_response}")
         verdict, criteria = _parse_criteria(vlm_response)
         logger.debug(f"Video {video.sensor_id} verdict={verdict.value} criteria={criteria}")
-        return VideoResult(video_info=video, result=verdict, criteria_met=criteria)
+        evidence.update(verdict=verdict.value, criteria_met=criteria)
+        if verdict == CriticAgentResult.UNVERIFIED:
+            evidence["failure_reason"] = "insufficient evidence or invalid response"
+        self._save_evidence(evidence)
+        return VideoResult(video_info=video, result=verdict, criteria_met=criteria, evidence=evidence)
+
+    def _save_evidence(self, evidence: dict[str, Any]) -> None:
+        """Diagnostics are best effort and cannot change an inference outcome."""
+        if self._diagnostic_dir is None:
+            return
+        try:
+            self._diagnostic_dir.mkdir(parents=True, exist_ok=True)
+            if "diagnostic_id" not in evidence:
+                evidence["diagnostic_id"] = uuid4().hex
+            destination = self._diagnostic_dir / f"{evidence['diagnostic_id']}.json"
+            temporary = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", dir=self._diagnostic_dir, suffix=".tmp", delete=False
+                ) as stream:
+                    temporary = stream.name
+                    json.dump(evidence, stream, ensure_ascii=False, indent=2)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, destination)
+            finally:
+                if temporary is not None:
+                    Path(temporary).unlink(missing_ok=True)
+        except Exception:
+            logger.warning("Could not save critic diagnostics", exc_info=True)
 
     async def aclose(self) -> None:
         return None

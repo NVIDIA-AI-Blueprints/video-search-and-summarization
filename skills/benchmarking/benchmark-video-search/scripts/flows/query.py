@@ -144,6 +144,14 @@ class CliQueryBackend:
         # here -- the caller (build_query_backend) sets top_k/min_cosine_similarity/
         # merge_adjacent to the dense values; describe() surfaces it for the reader.
         full_gallery: bool = False,
+        attribute_input: str | None = None,
+        candidate_limit: int | None = None,
+        attribute_min_similarity: float | None = None,
+        critic_enabled: bool | None = None,
+        critic_frame_budget: int | None = None,
+        critic_input_width: int | None = None,
+        critic_input_height: int | None = None,
+        critic_diagnostic_dir: str | None = None,
     ) -> None:
         if search_path not in SEARCH_PATHS:
             raise ValueError(
@@ -163,8 +171,18 @@ class CliQueryBackend:
         self.pass_original_query = pass_original_query
         self.critic_eval_count = critic_eval_count
         self.full_gallery = full_gallery
+        self.attribute_input = attribute_input
+        self.require_decomposition = False
+        self.critic_enabled = critic_enabled
+        self.critic_frame_budget = critic_frame_budget
+        self.critic_input_width = critic_input_width
+        self.critic_input_height = critic_input_height
+        self.critic_diagnostic_dir = critic_diagnostic_dir
+        self.candidate_limit = candidate_limit
+        self.attribute_min_similarity = attribute_min_similarity
         #: query text -> decomposition. Empty means fixed-flag behaviour.
         self.decompositions = decompositions or {}
+        self.ambiguous_query_texts: set[str] = set()
         #: plans actually executed, so the summary can report the path split.
         self.executed_plans: list[dict[str, Any]] = []
         #: query text -> per-stage timings, when the deployment reports them.
@@ -172,13 +190,50 @@ class CliQueryBackend:
         #: concurrently and a single slot would hand one query another's
         #: numbers. Dict assignment is atomic under the GIL, so no lock.
         self.timings_by_query: dict[str, dict[str, Any]] = {}
+        self.metadata_by_query: dict[str, dict[str, Any]] = {}
+
+    def capture_deployment_provenance(self) -> None:
+        """Read recorded deployment models via the CLI without probing inference."""
+        self.deployment_identity = {"status": "unavailable"}
+        try:
+            result = subprocess.run(
+                [*self.vss_cmd, "configure", "show"],
+                capture_output=True,
+                text=True,
+                check=False,
+                cwd=self.cwd,
+            )
+            if result.returncode != 0:
+                self.deployment_models = {
+                    "status": f"configure show exited {result.returncode}"
+                }
+                return
+            recorded = json.loads(result.stdout)
+            self.deployment_identity = {
+                "base_url": recorded.get("base_url"),
+                "services": {
+                    name: {
+                        "url": service.get("url"),
+                        "models": service.get("models", []),
+                    }
+                    for name, service in recorded.get("services", {}).items()
+                    if isinstance(service, dict)
+                },
+            }
+            self.deployment_models = {
+                name: service.get("models", [])
+                for name, service in recorded.get("services", {}).items()
+                if isinstance(service, dict)
+            }
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            self.deployment_models = {"status": f"unavailable: {type(exc).__name__}"}
 
     def describe(self) -> dict[str, Any]:
         # In routed mode `search_path` is only the fallback for queries the
         # decompositions do not cover, so labelling it "search_path" reads as
         # though every query used it. Name it for what it is.
         path_key = "fallback_path" if self.decompositions else "search_path"
-        return {
+        description = {
             "backend": self.name,
             "vss_cmd": " ".join(self.vss_cmd),
             "routing": "per-query (from decompositions)"
@@ -196,24 +251,93 @@ class CliQueryBackend:
             "full_gallery": self.full_gallery,
         }
 
-    def plan_for_query(self, query: str) -> dict[str, Any]:
+        for name in (
+            "attribute_input",
+            "candidate_limit",
+            "attribute_min_similarity",
+            "critic_enabled",
+            "critic_frame_budget",
+            "critic_input_width",
+            "critic_input_height",
+            "critic_diagnostic_dir",
+            "decomposition_source",
+            "deployment_identity",
+        ):
+            value = getattr(self, name, None)
+            if value is not None:
+                description[name] = value
+        return description
+
+    def decomposition_for_query(self, query: str, query_id: str | None = None):
+        if query_id is not None and query_id in self.decompositions:
+            return self.decompositions[query_id]
+        if query in self.ambiguous_query_texts:
+            return None
+        return self.decompositions.get(query)
+
+    def plan_for_query(self, query: str, query_id: str | None = None) -> dict[str, Any]:
         """The retrieval plan for one query.
 
         With no decompositions supplied this is the fixed-flag behaviour; with
         them, the path and arguments are derived per query the way the agent's
         decomposition step would have.
         """
+        if self.attribute_input is not None:
+            attrs = [query]
+            if self.attribute_input == "decomposed":
+                saved = self.decomposition_for_query(query, query_id)
+                if not isinstance(saved, dict):
+                    raise QueryUnanswerableError(
+                        "missing decomposition for attribute replay"
+                    )
+                attrs = saved.get("attributes")
+                if (
+                    not isinstance(attrs, list)
+                    or not attrs
+                    or any(not isinstance(a, str) or not a.strip() for a in attrs)
+                ):
+                    raise QueryUnanswerableError(
+                        "invalid or empty extracted attributes"
+                    )
+            return routing.plan_for(
+                query,
+                None,
+                default_path="attribute",
+                default_attributes=attrs,
+                default_source_type=self.source_type,
+            )
+        decomposition = self.decomposition_for_query(query, query_id)
+        if decomposition is not None:
+            try:
+                routing.validate_decomposition(decomposition)
+            except ValueError as exc:
+                raise QueryUnanswerableError(f"invalid decomposition: {exc}") from exc
+        if self.require_decomposition and (
+            not isinstance(decomposition, dict) or not decomposition
+        ):
+            raise QueryUnanswerableError(
+                "missing or invalid saved decomposition for live-routed query"
+            )
+        if self.require_decomposition and routing.route(decomposition) == "object":
+            raise QueryUnanswerableError(
+                "object-id routing is outside the benchmark embed/attribute/fusion scenarios"
+            )
         return routing.plan_for(
             query,
-            self.decompositions.get(query),
+            decomposition,
             default_path=self.search_path,
             default_attributes=self.attributes,
             default_source_type=self.source_type,
         )
 
-    def build_argv(self, query: str, plan: dict[str, Any] | None = None) -> list[str]:
+    def build_argv(
+        self,
+        query: str,
+        plan: dict[str, Any] | None = None,
+        query_id: str | None = None,
+    ) -> list[str]:
         """Assemble the invocation. Split out so it is unit-testable offline."""
-        plan = plan or self.plan_for_query(query)
+        plan = plan or self.plan_for_query(query, query_id)
         path = plan["path"]
         argv = [*self.vss_cmd, "search", "run", path]
 
@@ -239,8 +363,25 @@ class CliQueryBackend:
         if self.pass_original_query and query.strip():
             argv += ["--original-query", query]
 
+        if self.candidate_limit is not None and path in ("embed", "attribute"):
+            argv += ["--candidate-limit", str(self.candidate_limit)]
+        if self.attribute_min_similarity is not None and path in (
+            "attribute",
+            "fusion",
+        ):
+            argv += ["--attribute-min-similarity", str(self.attribute_min_similarity)]
         argv += ["--source-type", plan["source_type"]]
         argv += ["--top-k", str(plan.get("top_k") or self.top_k)]
+        if self.critic_enabled is False:
+            argv += ["--no-critic"]
+        for flag, value in (
+            ("--critic-frame-budget", self.critic_frame_budget),
+            ("--critic-input-width", self.critic_input_width),
+            ("--critic-input-height", self.critic_input_height),
+            ("--critic-diagnostic-dir", self.critic_diagnostic_dir),
+        ):
+            if value is not None:
+                argv += [flag, str(value)]
         if self.critic_eval_count is not None:
             argv += ["--critic-eval-count", str(self.critic_eval_count)]
 
@@ -260,8 +401,14 @@ class CliQueryBackend:
         argv.append("--raw")
         return argv
 
-    def search(self, query: str) -> tuple[list[dict[str, Any]], float]:
-        plan = self.plan_for_query(query)
+    def search(
+        self, query: str, query_id: str | None = None
+    ) -> tuple[list[dict[str, Any]], float]:
+        plan = self.plan_for_query(query, query_id)
+        if query_id is not None:
+            plan["query_id"] = query_id
+        plan["cli_subcommand"] = f"search run {plan['path']}"
+        plan["effective_argv"] = self.build_argv(query, plan)
         self.executed_plans.append(plan)
         argv = self.build_argv(query, plan)
         start = time.time()
@@ -291,14 +438,19 @@ class CliQueryBackend:
                 returncode=proc.returncode,
             )
 
-        hits, _messages, timings = parse_cli_output(proc.stdout)
+        metadata: dict[str, Any] = {}
+        hits, _messages, timings = parse_cli_output(proc.stdout, metadata=metadata)
+        if metadata:
+            self.metadata_by_query[query_id or query] = metadata
         if timings:
-            self.timings_by_query[query] = timings
+            self.timings_by_query[query_id or query] = timings
         return hits, latency
 
 
 def parse_cli_output(
     stdout: str,
+    *,
+    metadata: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], dict[str, Any]]:
     """Extract ``(hits, search_messages, timings)`` from ``vss search run`` stdout.
 
@@ -348,22 +500,41 @@ def parse_cli_output(
 
     for payload in documents:
         if isinstance(payload, list):
-            return payload, [], {}
+            return _validate_hits(payload), [], {}
         if not isinstance(payload, dict):
             continue
         # Job lifecycle events carry no results; keep looking.
         if "event" in payload and "data" not in payload:
             continue
         if "data" in payload:
-            messages = list(payload.get("search_messages") or [])
+            if metadata is not None and "candidate_coverage" in payload:
+                metadata["candidate_coverage"] = payload["candidate_coverage"]
+            hits = _validate_hits(payload["data"])
+            messages = payload.get("search_messages", [])
+            if not isinstance(messages, list) or any(
+                not isinstance(m, str) for m in messages
+            ):
+                raise QueryUnanswerableError(
+                    "CLI search_messages must be a list of strings"
+                )
             for message in messages:
                 print(f"  [search_message] {message}")
             # Present only on deployments carrying the search_core timings
             # change; absent means nobody collected, not zero time.
             timings = payload.get("timings") or {}
-            return payload.get("data") or [], messages, timings
+            if not isinstance(timings, dict):
+                raise QueryUnanswerableError("CLI timings must be an object")
+            return hits, messages, timings
 
     # Documents parsed, but none held a payload. A search that matched nothing
     # still emits `"data": []`; no `data` key at all means the CLI answered in a
     # shape this parser does not know -- a version skew, not zero recall.
     raise QueryUnanswerableError(f"CLI output had no 'data' field: {text[:200]}")
+
+
+def _validate_hits(value):
+    if not isinstance(value, list) or any(not isinstance(hit, dict) for hit in value):
+        raise QueryUnanswerableError(
+            "CLI data must be a list of search result objects; only [] is an empty ranking"
+        )
+    return value

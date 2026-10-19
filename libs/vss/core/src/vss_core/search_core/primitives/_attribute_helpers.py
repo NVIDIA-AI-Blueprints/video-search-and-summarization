@@ -411,6 +411,7 @@ async def _search_behavior(
     timestamp_end: datetime | None = None,
     video_sources: list[str] | None = None,
     source_type: str = "video_file",
+    candidate_limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """kNN-search the behavior embeddings and return the raw hits."""
     filter_clauses: list[dict[str, Any]] = []
@@ -429,7 +430,18 @@ async def _search_behavior(
     )
 
     try:
-        response = await es.search(index=search_index_str, body=search_query)
+        if candidate_limit is not None:
+            response = await es.exhaustive_vector_search(
+                index=search_index_str,
+                filters=filter_clauses,
+                vector=query_embedding,
+                field="embeddings.vector",
+                nested_path="embeddings",
+                candidate_limit=candidate_limit,
+                min_score=min_similarity,
+            )
+        else:
+            response = await es.search(index=search_index_str, body=search_query)
     except IndexNotFoundError as e:
         if _is_absent_uploads_anchor(index):
             logger.warning(
@@ -566,6 +578,9 @@ async def _get_frame_from_behavior(
         return None, None, None, None
 
 
+FRAME_LOOKUP_CONCURRENCY = 16
+
+
 async def _perform_frame_lookups(
     candidates: list[dict[str, Any]],
     query_embedding: list[float],
@@ -587,32 +602,40 @@ async def _perform_frame_lookups(
     start_time = timestamp_start.isoformat().replace("+00:00", "Z")
     end_time = timestamp_end.isoformat().replace("+00:00", "Z")
 
-    tasks: list[Any] = []
+    # Identical (sensor, object, interval) lookups share one result. Dispatch
+    # bounded batches rather than creating one task for every indexed behavior.
+    keys: list[tuple[str, str] | None] = []
     for candidate in candidates:
         source = candidate.get("_source") or {}
-        sensor = source.get("sensor") or {}
-        obj = source.get("object") or {}
-        object_id = obj.get("id")
-        sensor_id = sensor.get("id")
-        # ``0`` is a valid id, so test presence explicitly rather than truthiness.
-        if object_id not in (None, "") and sensor_id not in (None, ""):
-            tasks.append(
+        object_id = (source.get("object") or {}).get("id")
+        sensor_id = (source.get("sensor") or {}).get("id")
+        keys.append(
+            (str(sensor_id), str(object_id)) if object_id not in (None, "") and sensor_id not in (None, "") else None
+        )
+    unique_keys = list(dict.fromkeys(key for key in keys if key is not None))
+    by_key: dict[tuple[str, str], FrameLookupResult | None] = {}
+    for offset in range(0, len(unique_keys), FRAME_LOOKUP_CONCURRENCY):
+        batch = unique_keys[offset : offset + FRAME_LOOKUP_CONCURRENCY]
+        outcomes = await asyncio.gather(
+            *(
                 _get_frame_from_behavior(
                     frames_index=frames_index,
-                    sensor_id=str(sensor_id),
-                    object_id=str(object_id),
+                    sensor_id=sensor_id,
+                    object_id=object_id,
                     start_time=start_time,
                     end_time=end_time,
                     query_embedding=query_embedding,
                     es=es,
                 )
-            )
-        else:
-            tasks.append(None)
-
-    runnable = [task if task is not None else asyncio.sleep(0) for task in tasks]
-    frame_results = await asyncio.gather(*runnable, return_exceptions=True)
-    return [result if isinstance(result, tuple) else None for result in frame_results]
+                for sensor_id, object_id in batch
+            ),
+            return_exceptions=True,
+        )
+        for key, outcome in zip(batch, outcomes, strict=True):
+            if isinstance(outcome, BaseException) and not isinstance(outcome, Exception):
+                raise outcome
+            by_key[key] = outcome if isinstance(outcome, tuple) else None
+    return [by_key.get(key) if key is not None else None for key in keys]
 
 
 async def _fetch_object_embedding(
@@ -867,6 +890,7 @@ async def search_by_attributes(
     enable_frame_lookup: bool = True,
     exclude_videos: list[dict[str, str]] | None = None,
     source_type: str = "video_file",
+    candidate_limit: int | None = None,
 ) -> list[AttributeSearchResult]:
     """Single-embedding attribute search: behavior kNN -> frames -> dedup.
 
@@ -886,6 +910,7 @@ async def search_by_attributes(
             timestamp_end=timestamp_end,
             video_sources=video_sources,
             source_type=source_type,
+            candidate_limit=candidate_limit,
         )
 
     if not candidates:
@@ -1004,6 +1029,7 @@ async def search_single_attribute(
         timestamp_end=search_input.timestamp_end,
         video_sources=search_input.video_sources,
         top_k=search_input.top_k,
+        candidate_limit=search_input.candidate_limit,
         min_similarity=search_input.min_similarity,
         frames_index=frames_index,
         enable_frame_lookup=enable_frame_lookup,

@@ -366,18 +366,12 @@ def test_clip_relevance_gates_unanswered(tmp_path: Path) -> None:
     gt, manifest = _write_gt_and_manifest(tmp_path)
     backend = ClipRelevanceScoring()
     cfg = _cfg(tmp_path, "clip-relevance", gt, manifest)
-    # 1 answered + 2 unanswered, tolerate 0 -> must abort.
     art = _artifact(tmp_path, HITS)
-    art.unanswered = [
-        {"index": 2, "query": "x", "reason": "timeout"},
-        {"index": 3, "query": "y", "reason": "timeout"},
-    ]
-    art.queries.append(
-        QueryRecord(index=2, query="x", status="unanswerable", error="timeout")
-    )
-    art.queries.append(
-        QueryRecord(index=3, query="y", status="unanswerable", error="timeout")
-    )
+    record = art.queries[0]
+    record.status = "unanswerable"
+    record.error = "timeout"
+    record.hits = []
+    art.unanswered = [{"index": record.index, "query": record.query, "reason": "timeout"}]
     art.tolerate_unanswered = 0
     with pytest.raises(SystemExit, match="unanswered"):
         backend.score(art, backend.load_ground_truth(cfg, art), cfg)
@@ -396,16 +390,15 @@ def test_ap_at_10_uses_min_r_10_denominator() -> None:
     assert VERSION == "clips-v2"
     clips = [f"c{i}" for i in range(20)]
     mapping = {
-        c: {"sensor_id": f"s{i}", "filename": f"{c}.mp4"}
-        for i, c in enumerate(clips)
+        c: {"sensor_id": f"s{i}", "filename": f"{c}.mp4"} for i, c in enumerate(clips)
     }
     q = {"query_id": "q0", "query": "t", "relevant_clip_ids": clips}
     scorer = ClipScorer(mapping, [q])
     # top-10, every one relevant
     hits = [{"sensor_id": f"s{i}"} for i in range(10)]
     result = scorer.score(q, hits)
-    assert result["average_precision"] == pytest.approx(0.5)   # 10 / 20
-    assert result["ap_at_10"] == pytest.approx(1.0)            # 10 / min(20, 10)
+    assert result["average_precision"] == pytest.approx(0.5)  # 10 / 20
+    assert result["ap_at_10"] == pytest.approx(1.0)  # 10 / min(20, 10)
     assert result["relevant_count"] == 20
 
 
@@ -460,13 +453,17 @@ def _pas_release(tmp_path: Path) -> tuple[Path, str]:
                         "track_uid": "t1",
                         "chunk_id": "a",
                         "eligible_for_gt": True,
-                        "representative_frame": {"frame_attribute": {"shoe color": "white"}},
+                        "representative_frame": {
+                            "frame_attribute": {"shoe color": "white"}
+                        },
                     },
                     {
                         "track_uid": "t2",
                         "chunk_id": "b",
                         "eligible_for_gt": True,
-                        "representative_frame": {"frame_attribute": {"shoe color": "not visible"}},
+                        "representative_frame": {
+                            "frame_attribute": {"shoe color": "not visible"}
+                        },
                     },
                 ]
             }
@@ -503,7 +500,9 @@ def _pas_hits(order: list[tuple[str, float]]) -> list[dict[str, Any]]:
     ]
 
 
-def test_clip_relevance_pas_frame_supported_derives_ground_truth(tmp_path: Path) -> None:
+def test_clip_relevance_pas_frame_supported_derives_ground_truth(
+    tmp_path: Path,
+) -> None:
     """--pas-frame-supported rewrites PAS positives from representative frames.
 
     pas1 ('white shoes', released [t1,t2]) keeps only t1 (white) -> clip 'a';
@@ -537,9 +536,9 @@ def test_clip_relevance_pas_frame_supported_derives_ground_truth(tmp_path: Path)
 
     # pas1 derived to ['a'] (only t1 supports); pas2 excluded; event1 unchanged.
     by_qid = {p["raw"]["query_id"]: p for p in result.query_results}
-    assert by_qid["pas1"]["raw"]["relevant_count"] == 1   # only 'a' is relevant
+    assert by_qid["pas1"]["raw"]["relevant_count"] == 1  # only 'a' is relevant
     assert by_qid["pas1"]["raw"]["ranking"] == ["a", "b"]  # both clips retrieved
-    assert by_qid["pas1"]["raw"]["retrieved_relevant"] == 1   # 'a' ranked first
+    assert by_qid["pas1"]["raw"]["retrieved_relevant"] == 1  # 'a' ranked first
     assert by_qid["event1"]["raw"]["relevant_count"] == 1
     assert "pas2" not in by_qid  # excluded -> not scored
 
@@ -548,7 +547,11 @@ def test_clip_relevance_pas_frame_supported_derives_ground_truth(tmp_path: Path)
     assert cohort["input"] == {"pas": 2, "event": 1}
     assert cohort["eligible"] == {"pas": 1, "event": 1}
     assert cohort["excluded"] == [
-        {"query_id": "pas2", "query_domain": "pas", "reason": "no_frame_supported_positives"}
+        {
+            "query_id": "pas2",
+            "query_domain": "pas",
+            "reason": "no_frame_supported_positives",
+        }
     ]
     assert result.summary["queries_excluded"] == 1
     # config records that the derivation ran.
@@ -587,3 +590,119 @@ def test_drive_rejects_pas_frame_supported(tmp_path: Path) -> None:
     cfg.pas_frame_supported = True
     with pytest.raises(SystemExit, match="clip-relevance ground-truth"):
         backend.load_ground_truth(cfg, _artifact(tmp_path, HITS))
+
+
+def test_clip_eligibility_groups_and_critic_coverage(tmp_path):
+    gt_path, manifest = _write_gt_and_manifest(tmp_path)
+    payload = json.loads(Path(gt_path).read_text())
+    payload["queries"][1]["difficulty"] = "hard"
+    payload["queries"].extend(
+        [
+            {
+                "query_id": "excluded-universal",
+                "query": "anything",
+                "query_domain": "event",
+                "near_universal": True,
+                "relevant_clip_ids": CLIPS,
+            },
+            {
+                "query_id": "excluded-empty",
+                "query": "absent event",
+                "query_domain": "event",
+                "relevant_clip_ids": [],
+            },
+        ]
+    )
+    Path(gt_path).write_text(json.dumps(payload))
+    hits = {
+        q: [dict(h, verification={"result": "unverified"}) for h in values]
+        for q, values in HITS.items()
+    }
+    artifact = _artifact(tmp_path, hits)
+    cfg = _cfg(tmp_path, "clip-relevance", gt_path, manifest)
+    backend = ClipRelevanceScoring()
+    context = backend.load_ground_truth(cfg, artifact)
+    result = backend.score(artifact, context, cfg)
+    assert len(context["excluded"]) == 2
+    assert result.summary["cohort"]["eligible_queries"] == 2
+    assert result.summary["groups"]["pas_difficulty"]["hard"]["queries_scored"] == 1
+    assert result.summary["verification_coverage"] == {
+        "candidate_hits": 8,
+        "attempted": 8,
+        "decided": 0,
+        "unverified": 8,
+    }
+    assert result.summary["critic_filtered"]["mAP"] == result.summary["raw"]["mAP"]
+
+
+def test_absent_normalized_critic_does_not_claim_verification():
+    from flows.normalize import normalize_result
+
+    mapping = {row["dataset_id"]: row for row in MANIFEST["clips"]}
+    scorer = ClipScorer(mapping, GALLERY_GT["queries"])
+    raw = {"sensor_id": "s0", "video_name": "c0.mp4"}
+    pair = scorer.pair(GALLERY_GT["queries"][0], [normalize_result(raw)])
+    assert pair["verification_coverage"]["attempted"] == 0
+    assert pair["critic"] == {"missing": 1}
+
+
+def test_large_gallery_ap_cutoff_and_duplicates():
+    mapping = {
+        f"c{i}": {"sensor_id": f"s{i}", "filename": f"c{i}.mp4"} for i in range(1616)
+    }
+    query = {
+        "query_id": "large",
+        "query": "all positives",
+        "relevant_clip_ids": [f"c{i}" for i in range(12)],
+    }
+    scorer = ClipScorer(mapping, [query])
+    hits = [{"sensor_id": f"s{i}", "similarity": -i / 1616} for i in range(1616)]
+    hits.insert(1, dict(hits[0]))
+    result = scorer.score(query, hits)
+    assert result["ranking_complete"]
+    assert result["duplicate_hits"] == 1
+    assert result["average_precision"] == 1
+    assert result["ap_at_10"] == 1
+
+
+def test_normalization_preserves_subject_evidence():
+    from flows.normalize import for_scoring, normalize_result
+
+    evidence = {
+        "timestamp": "2025-01-01T00:00:01Z",
+        "bbox": [1, 2, 3, 4],
+        "score": 0.123456789,
+        "object_id": "person-2",
+    }
+    raw = {
+        "sensor_id": "s0",
+        "attribute_evidence": [evidence],
+        "timestamp": evidence["timestamp"],
+        "object_id": "person-2",
+        "verification": {
+            "result": "unverified",
+            "raw_response": "unclear",
+            "failure_reason": "occluded",
+            "visual_settings": {"frames": 4},
+        },
+    }
+    normalized = for_scoring([normalize_result(raw)])[0]
+    assert normalized["attribute_evidence"] == [evidence]
+    assert normalized["object_id"] == "person-2"
+    assert normalized["verification"]["raw_response"] == "unclear"
+    assert normalized["verification"]["visual_settings"] == {"frames": 4}
+
+
+def test_pas_auto_protocol_and_explicit_override(tmp_path):
+    from flows.scoring.gallery import build_context
+
+    release, manifest = _pas_release(tmp_path)
+    automatic = build_context(release, manifest)
+    assert automatic["cohort"]["pas_frame_supported"] == "applied"
+    assert len(automatic["queries"]) == 2
+    original = build_context(release, manifest, pas_frame_supported=False)
+    assert original["cohort"]["pas_frame_supported"] == "disabled"
+    assert len(original["queries"]) == 3
+    merged, merged_manifest = _write_gt_and_manifest(tmp_path)
+    unknown = build_context(merged, merged_manifest)
+    assert unknown["cohort"]["pas_frame_supported"].startswith("unknown:")

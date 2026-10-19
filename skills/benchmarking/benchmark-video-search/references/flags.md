@@ -33,7 +33,7 @@ comparable with the REST baseline. `--merge-adjacent` opts back in.
 
 A run is three stages — **ingest → retrieve → score** — connected by on-disk
 artifacts. `--stage {run,ingest,retrieve,score}` runs one and stops; `run` (the
-default) chains them in memory and is byte-identical to the old behaviour.
+default) chains the same stages and adds durable recovery metadata.
 
 The load-bearing artifact is the **retrieval artifact**: the raw hits plus the
 run context, written by `--stage retrieve` (or a default run given
@@ -45,6 +45,50 @@ metrics without re-querying.
 `--ingest-out` / `--ingest-in` carry the ingest manifest between a standalone
 ingest and a later retrieve. `--endpoint` is required for every stage except
 `--stage score`, which is fully offline.
+
+## Interrupted campaigns and resume
+
+Each retrieval saves completed queries atomically to
+`<retrieval-path>.checkpoint/`. Each query has its own file, so saving progress
+does not repeatedly rewrite the entire gallery ranking. The checkpoint header
+records the cohort and a fingerprint of the source code, effective retrieval and
+critic settings, decomposition prompt/model, deployed model identifiers,
+annotation files, ingestion identity, and supplied preprocessing provenance.
+A fatal CLI failure or keyboard interruption also writes an **aborted retrieval
+artifact** containing the completed rankings and the failure. Resume it before
+scoring; an aborted artifact is not a completed benchmark.
+
+Use `--resume-from <checkpoint-directory-or-retrieval-artifact>` with the same
+inputs and settings. Answered queries are reused; missing, failed, or corrupt
+query checkpoints run again. A corrupt header or changed campaign identity
+blocks reuse. A fresh run cannot overwrite an existing checkpoint; choose a new
+run name or output path for another round. Outputs and evidence use atomic
+publication, so a failed write preserves the previous complete document.
+
+Resume requires a readable persistent ingestion identity: the gallery's
+`--ingestion-manifest`, or the same `--ingest-in` produced by a standalone legacy
+`--stage ingest --ingest-out` run. Without it, the checkpoint remains inspectable
+but the runner cannot verify unchanged indexed data and refuses reuse. Keep the
+underlying deployment unchanged; the identity file cannot detect external
+re-ingestion that somebody performs without updating that file.
+
+For gallery scenarios, select exactly the scenario being resumed. `--stage run`
+resumes only with `--skip-ingest`; `--stage retrieve` already leaves ingestion
+unchanged. Cleanup or re-ingestion cannot accompany resume.
+
+```bash
+# Add the same endpoint, model, cohort and other settings as the original run.
+--stage retrieve --gallery-gt /path/to/release --ingestion-manifest ingestion.json \
+    --scenarios live-routed --retrieval-out round1 \
+    --resume-from round1.live-routed.retrieval.json.checkpoint
+```
+
+An exact gallery list is validated before cleanup/upload, including media in
+multiple directories. Relative `video`/`video_path` values in merged gallery JSON
+are resolved against that JSON's parent directory. Only declared clips are
+uploaded; unrelated neighboring files are excluded. A failed upload or index
+validation leaves the previous successful ingestion manifest intact. Index
+readiness probes use a cosine floor of `-1` and disable critic verification.
 
 ## Clip-level scoring (clip-relevance / drive)
 
@@ -151,3 +195,49 @@ want wall-clock and are reporting retrieval quality alone — CLI queries take
 ~8 s each, so a 673-query set is hours at 1.
 
 ---
+
+## Gallery comparisons
+
+With `--gallery-gt`, `run` and `retrieve` default to three independent scenarios:
+`embed-only`, `attribute-only`, and `live-routed`. They share one ingestion and
+write `<base>.<scenario>.retrieval.json`; `run` also writes scored results and
+`<base>.comparison.json`. Select fewer with `--scenarios embed-only attribute-only`.
+Explicit legacy `--search-path`, `--fixed-search-path`, `--no-decompose`, and
+`--full-gallery` retain a single run and conflict with `--scenarios`.
+
+Fixed baselines encode the original query. For attribute extraction analysis,
+use `--attribute-input decomposed --decompositions <artifact-or-evidence-directory>`.
+This forces attribute retrieval, rejects missing/empty/malformed attributes, and
+ignores decomposition-derived source/time filters. `--query-domain pas` selects
+PAS queries while retaining the gallery. Released PAS requirements appear only
+in evidence, never as retrieval inputs.
+
+`--decomposition-out <directory>` saves each submitted prompt/model/settings,
+raw response before parsing, parsed fields, timing, errors, and selected CLI
+arguments. These files survive later failures. Both this directory and a saved
+retrieval artifact can be replayed using `--decompositions`; replay makes no LLM
+call and reports replay timing separately. Entries use `query_id` when present;
+legacy text keys are accepted only for unique query text. Corrupt directory files
+are reported individually while valid entries remain replayable. Invalid typed
+fields remain query failures, never an implicit route or original-query fallback.
+Routing consistency measures agreement
+with the saved decomposition and is separate from semantic correctness.
+
+Fixed gallery baselines use exact indexed-vector scans with
+`--candidate-limit 100000` by default, embed cosine floor `-1` and attribute
+shifted-score floor `0`. The candidate budget counts indexed vector documents
+before deduplication; overflow fails rather than returning a truncated ranking.
+`--top-k` remains a metric cutoff. Indexed coverage and annotation-gallery
+coverage have different denominators. Live-routed retains the selected path's
+normal retrieval behavior and fusion semantics.
+
+Gallery scenarios default to critic off. Enable with `--critic` and optionally
+`--critic-eval-count`, `--critic-frame-budget`, `--critic-input-width`,
+`--critic-input-height`, and `--critic-diagnostic-dir`. Explicit critic runs
+verify five candidates by default. All raw candidates remain in the retrieval
+artifact for offline scoring; the critic does not fetch replacement candidates.
+
+Preprocessing and run identity are recorded in artifact provenance. Supply effective
+ingestion preprocessing/model settings using `--preprocessing-provenance settings.json`.
+Changes to preprocessing require re-ingestion. See [validation limits](focused-validation.md)
+for the opt-in Cosmos file controls and remaining deployment checks.

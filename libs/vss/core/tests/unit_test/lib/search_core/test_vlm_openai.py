@@ -12,6 +12,7 @@ import pytest
 
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core._foundation.errors import ConfigurationError
+from vss_core.vlm.evidence import capture_http_responses
 from vss_core.vlm.openai import OpenAIVLMAnalyzer
 from vss_core.vlm.openai import bound_rt_vlm_fps_sampling
 
@@ -229,16 +230,19 @@ async def test_base64_modes_send_one_native_mp4_video_part(media_mode: str) -> N
     )
     analyzer._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     try:
-        answer = await analyzer.analyze(
-            sensor_id="sensor-1",
-            start_timestamp="2025-01-01T00:00:00Z",
-            end_timestamp="2025-01-01T00:00:05Z",
-            prompt="What happened?",
-        )
+        with capture_http_responses() as responses:
+            answer = await analyzer.analyze(
+                sensor_id="sensor-1",
+                start_timestamp="2025-01-01T00:00:00Z",
+                end_timestamp="2025-01-01T00:00:05Z",
+                prompt="What happened?",
+            )
     finally:
         await analyzer.aclose()
 
     assert answer == "A worker moved."
+    assert len(responses) == 1
+    assert json.loads(responses[0]["raw_http_response"])["choices"][0]["message"]["content"] == answer
 
 
 def test_direct_cosmos_nim_keeps_runtime_options_by_default() -> None:

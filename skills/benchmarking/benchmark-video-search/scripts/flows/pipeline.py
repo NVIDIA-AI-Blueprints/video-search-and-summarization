@@ -29,11 +29,15 @@ behaviour -- the parity fixture pins that.
 
 from __future__ import annotations
 
+import copy
+import hashlib
+import inspect
 import json
 import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -48,13 +52,14 @@ from flows.artifacts import (
     RetrievalArtifact,
     RunConfig,
     ScoredResult,
+    atomic_write_json,
     read_ingest_manifest,
     read_retrieval_artifact,
     write_ingest_manifest,
     write_retrieval_artifact,
 )
 from flows.scoring import SCORING_BACKENDS
-from flows.scoring.gallery import load_gallery_gt
+from flows.scoring.gallery import load_gallery_gt, validate_gallery_queries
 
 #: Stages whose own time is below this are wrappers or noise; the console hides
 #: them so the table reads as "where did the time go" without a nesting caveat.
@@ -135,6 +140,8 @@ def _probe_backend(query_backend: Any, top_k: int, source: str | None = None) ->
         cwd=query_backend.cwd,
         pass_original_query=False,
         critic_eval_count=1,
+        critic_enabled=False,
+        min_cosine_similarity=-1.0,
         decompositions=decompositions,
     )
 
@@ -352,7 +359,10 @@ def describe_query_flow(
 
 
 def prune_foreign_videos(
-    agent_endpoint: str, vst_url: str, video_dir: Path
+    agent_endpoint: str,
+    vst_url: str,
+    video_dir: Path,
+    video_files: list[Path] | None = None,
 ) -> dict[str, Any]:
     """Delete every registered source that is NOT one of this dataset's videos.
 
@@ -374,7 +384,11 @@ def prune_foreign_videos(
         ) from e
 
     ours: set[str] = set()
-    for vf in sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv")):
+    for vf in (
+        video_files
+        if video_files is not None
+        else sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv"))
+    ):
         ours |= flows.name_variants(vf.name)
     if not ours:
         raise SystemExit(
@@ -421,6 +435,7 @@ def ingest_videos(
     backend: Any,
     video_dir: Path,
     skip_existing_from: str | None = None,
+    video_files: list[Path] | None = None,
 ) -> dict[str, Any]:
     """Upload every fixture through the selected ingest backend.
 
@@ -429,7 +444,11 @@ def ingest_videos(
     re-uploading someone else's fixture is at best wasteful and at worst
     creates a duplicate sensor for the same video.
     """
-    video_files = sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv"))
+    video_files = (
+        list(video_files)
+        if video_files is not None
+        else sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv"))
+    )
     if not video_files:
         print(f"  No video files found in {video_dir}")
         return flows.aggregate_upload_stats([])
@@ -512,7 +531,41 @@ def run_ingest(
     never be scored as a retrieval collapse.
     """
     manifest = IngestManifest(ingest_description=ingest_backend.describe())
+    if cfg.skip_ingest:
+        print("Skipping ingest (--skip-ingest)")
+        return manifest
     video_dir = cfg.data_dir / cfg.dataset / "videos"
+    gallery_gt = load_gallery_gt(cfg.gallery_gt) if cfg.gallery_gt else None
+    gallery_files = None
+    pending_gallery_mapping = None
+    if gallery_gt is not None:
+        validate_gallery_queries(gallery_gt)
+        if cfg.query_domain and not any(
+            str(row.get("query_domain", row.get("domain", ""))).casefold()
+            == cfg.query_domain.casefold()
+            for row in gallery_gt["queries"]
+        ):
+            raise SystemExit("ABORTED: no queries matched the selected gallery domain")
+        base = Path(cfg.gallery_gt)
+        base = base if base.is_dir() else base.parent
+        gallery_files = [
+            Path(row.get("video_path") or base / row["video"])
+            for row in gallery_gt["gallery"]
+        ]
+        if not gallery_files or any(
+            not path.is_file() or path.suffix.lower() not in (".mp4", ".mkv")
+            for path in gallery_files
+        ):
+            raise SystemExit(
+                "ABORTED: every declared gallery clip must exist as an MP4/MKV file before ingestion or cleanup"
+            )
+        stems = [path.stem.casefold() for path in gallery_files]
+        ids = [row["chunk_id"] for row in gallery_gt["gallery"]]
+        if len(set(stems)) != len(stems) or len(set(ids)) != len(ids):
+            raise SystemExit(
+                "ABORTED: gallery clip IDs and source filenames must be unique"
+            )
+        video_dir = gallery_files[0].parent
 
     cleared: dict[str, Any] | None = None
     if cfg.clear:
@@ -520,7 +573,13 @@ def run_ingest(
         cleared = clear_all_videos(cfg.endpoint, cfg.vst_url)
     elif cfg.only_dataset:
         print("\nPruning sources that are not in this dataset (--only-dataset)...")
-        cleared = prune_foreign_videos(cfg.endpoint, cfg.vst_url, video_dir)
+        cleared = (
+            prune_foreign_videos(
+                cfg.endpoint, cfg.vst_url, video_dir, video_files=gallery_files
+            )
+            if gallery_files is not None
+            else prune_foreign_videos(cfg.endpoint, cfg.vst_url, video_dir)
+        )
 
     # A source that would not delete is still searchable, so it still answers
     # queries and still counts as a false positive. Continuing would score a run
@@ -540,28 +599,22 @@ def run_ingest(
         # Clip-level gallery ingest: upload the gallery's own clips and write the
         # clip->sensor manifest the clip scorers need, so a single skill run
         # produces both the indexed gallery and its identity mapping.
-        gallery_gt = load_gallery_gt(cfg.gallery_gt)
-        video_dir = next(
-            (
-                Path(row["video_path"]).parent
-                for row in gallery_gt["gallery"]
-                if row.get("video_path")
-            ),
-            Path(cfg.gallery_gt) / "clips",
-        )
         upload_stats = ingest_videos(
             ingest_backend,
             video_dir,
             skip_existing_from=cfg.vst_url if cfg.skip_existing else None,
+            video_files=gallery_files,
         )
         flows.print_upload_summary(upload_stats)
         # Map each uploaded clip (by filename stem) to its gallery chunk_id + sensor.
-        by_stem = {Path(row["video"]).stem: row for row in gallery_gt["gallery"]}
+        by_stem = {
+            Path(row["video"]).stem.casefold(): row for row in gallery_gt["gallery"]
+        }
         clips = []
         for record in upload_stats.get("per_file", []):
             if not record.get("success"):
                 continue
-            row = by_stem.get(Path(record["video_name"]).stem)
+            row = by_stem.get(Path(record["video_name"]).stem.casefold())
             if row is None:
                 continue
             clips.append(
@@ -571,13 +624,43 @@ def run_ingest(
                     "filename": Path(row.get("video") or record["video_name"]).name,
                 }
             )
+        # Skipped uploads still belong to the gallery. Read their identities
+        # from the deployment inventory rather than deriving IDs from names.
+        skipped = set(upload_stats.get("skipped_existing") or [])
+        if skipped:
+            streams = flows.list_sensor_streams(cfg.vst_url)
+            by_name: dict[str, list[str]] = {}
+            for sensor_id, name in streams.items():
+                by_name.setdefault(Path(name).stem.casefold(), []).append(sensor_id)
+            for stem in sorted(skipped):
+                row = by_stem.get(stem.casefold())
+                identities = by_name.get(stem.casefold(), [])
+                if row is None or len(identities) != 1:
+                    raise SystemExit(
+                        f"ABORTED: cannot uniquely resolve existing gallery source {stem!r}"
+                    )
+                clips.append(
+                    {
+                        "dataset_id": row["chunk_id"],
+                        "sensor_id": identities[0],
+                        "filename": Path(row["video"]).name,
+                    }
+                )
         manifest_path = cfg.ingest_out or str(
             RESULTS_DIR / f"{_run_id(cfg, cfg.dataset, cfg.subset)}.ingestion.json"
         )
         out_path = Path(manifest_path)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps({"clips": clips}, indent=2) + "\n")
-        print(f"Ingestion manifest saved to: {out_path.absolute()}")
+        if not upload_stats.get("failed"):
+            if (
+                {row["dataset_id"] for row in clips} != set(ids)
+                or len(clips) != len(ids)
+                or any(not row.get("sensor_id") for row in clips)
+                or len({row["sensor_id"] for row in clips}) != len(clips)
+            ):
+                raise SystemExit(
+                    "ABORTED: uploaded identities must map the exact gallery uniquely; previous manifest preserved"
+                )
+            pending_gallery_mapping = (out_path, {"clips": clips})
         manifest.upload_stats = upload_stats
         expected = expected_sources_from_upload(upload_stats)
     elif cfg.skip_ingest:
@@ -690,6 +773,10 @@ def run_ingest(
             )
         manifest.index_probe = index_probe
 
+    if pending_gallery_mapping is not None:
+        out_path, mapping = pending_gallery_mapping
+        atomic_write_json(out_path, mapping)
+        print(f"Ingestion manifest saved to: {out_path.absolute()}")
     return manifest
 
 
@@ -728,7 +815,33 @@ def run_retrieve(
         # queries against the ingested gallery, not an eval dataset. There is no
         # segment ground truth here; scoring reads relevance from the gallery GT.
         gallery_gt = load_gallery_gt(cfg.gallery_gt)
-        queries = [q["query"] for q in gallery_gt["queries"]]
+        validate_gallery_queries(gallery_gt)
+        selected_rows = [
+            q
+            for q in gallery_gt["queries"]
+            if cfg.query_domain is None
+            or str(q.get("query_domain", q.get("domain", ""))).lower()
+            == cfg.query_domain.lower()
+        ]
+        if cfg.scoring in ("clip-relevance", "drive"):
+            # Validate the full scoring contract before any model request.
+            from flows.scoring.gallery import build_context
+
+            context = build_context(
+                cfg.gallery_gt,
+                cfg.ingestion_manifest,
+                pas_frame_supported=cfg.pas_frame_supported
+                if cfg.scoring == "clip-relevance"
+                else False,
+            )
+            excluded = {row.get("query_id") for row in context.get("excluded", [])}
+            selected_rows = [
+                row for row in selected_rows if row.get("query_id") not in excluded
+            ]
+        queries = [q["query"] for q in selected_rows]
+        query_ids = [q.get("query_id") for q in selected_rows]
+        if not queries:
+            raise SystemExit("No queries matched the selected gallery domain")
         annotations = {q: [] for q in queries}
         dataset_decompositions = {}
         gallery_sources = {Path(row["video"]).stem for row in gallery_gt["gallery"]}
@@ -748,6 +861,7 @@ def run_retrieve(
         # explicit flag wins over what the dataset carries.
         annotations, dataset_decompositions = flows.unpack_dataset(data)
         queries = list(annotations.keys())
+        query_ids = [None] * len(queries)
         query_source = "eval-dataset"
         artifact_dataset = cfg.dataset
         artifact_gallery_gt = None
@@ -768,17 +882,49 @@ def run_retrieve(
                 f"Using {len(dataset_decompositions)} decomposition(s) from the dataset"
             )
 
+    from collections import Counter
+
+    query_counts = (
+        Counter(row["query"] for row in gallery_gt["queries"])
+        if cfg.gallery_gt
+        else Counter(queries)
+    )
+    query_backend.ambiguous_query_texts = {
+        text for text, count in query_counts.items() if count > 1
+    }
+
+    def backend_call(name, query, query_id=None):
+        method = getattr(query_backend, name)
+        if query_id is not None and "query_id" in inspect.signature(method).parameters:
+            return method(query, query_id=query_id)
+        return method(query)
+
     # Compute the planned split over the ACTUAL query list, so the header
     # states what will run rather than only the fallback.
     planned_paths: dict[str, int] = {}
     if hasattr(query_backend, "plan_for_query"):
-        planned_paths = flows.path_distribution(
-            [query_backend.plan_for_query(q) for q in queries]
-        )
+        try:
+            planned_paths = flows.path_distribution(
+                [
+                    backend_call("plan_for_query", q, query_id)
+                    for q, query_id in zip(queries, query_ids)
+                ]
+            )
+        except flows.QueryUnanswerableError:
+            pass  # Invalid attribute replay is recorded per query below.
 
     described = describe_query_flow(
         query_backend, decomposer, fallback=decompose_fallback
     )
+    from flows.provenance import capture_provenance
+
+    described["provenance"] = capture_provenance(cfg, queries, query_ids=query_ids)
+    if hasattr(query_backend, "deployment_models"):
+        described["provenance"]["deployed_models"] = query_backend.deployment_models
+    if getattr(query_backend, "attribute_input", None) is not None:
+        described["attribute_input"] = query_backend.attribute_input
+    if cfg.query_domain:
+        described["query_domain"] = cfg.query_domain
     if planned_paths:
         described["planned_paths"] = "  ".join(
             f"{k}={v}" for k, v in planned_paths.items()
@@ -809,26 +955,289 @@ def run_retrieve(
     records: list[QueryRecord | None] = [None] * len(queries)
     print_lock = threading.Lock()
     completed = [0]
+    evidence_dir = Path(
+        cfg.decomposition_out
+        or str(RESULTS_DIR / f"{_run_id(cfg, cfg.dataset, cfg.subset)}.decompositions")
+    )
+    gallery_rows = selected_rows if cfg.gallery_gt else [{} for _ in queries]
     sources_seen: set[str] = set()
     verdicts: dict[str, int] = {}
     fatal: list[BaseException] = []
 
+    checkpoint_base = Path(
+        cfg.retrieval_out
+        or (
+            str(Path(cfg.output_file).with_suffix(".retrieval.json"))
+            if cfg.output_file
+            else str(
+                RESULTS_DIR
+                / f"{_run_id(cfg, artifact_dataset, cfg.subset)}.retrieval.json"
+            )
+        )
+    )
+    checkpoint_dir = Path(str(checkpoint_base) + ".checkpoint")
+    signature_data = {
+        "endpoint": cfg.endpoint,
+        "vst_url": cfg.vst_url,
+        "concurrency": cfg.concurrency,
+        "search_timeout_s": getattr(query_backend, "timeout", None),
+        "cli_cwd": getattr(query_backend, "cwd", None),
+        "source_identity": described["provenance"]["source_identity"],
+        "cli_version": getattr(query_backend, "cli_version", None),
+        "cohort": list(zip(query_ids, queries)),
+        "query_settings": query_backend.describe(),
+        "live_decomposition": decomposer.describe() if decomposer else None,
+        "saved_decompositions": getattr(query_backend, "decompositions", {}),
+        "dataset_identity": described["provenance"]["dataset_identity"],
+        "ingestion_identity": described["provenance"]["ingestion_identity"],
+        "deployed_models": described["provenance"].get("deployed_models"),
+        "preprocessing": described["provenance"]["preprocessing"],
+        "scoring": cfg.scoring,
+        "pas_frame_supported": cfg.pas_frame_supported,
+    }
+    serialized_identity = json.dumps(signature_data, sort_keys=True).encode()
+    resume_identity = hashlib.sha256(serialized_identity).hexdigest()
+    # Freeze the initial settings; a live run later mutates its decomposition map.
+    signature_data = json.loads(serialized_identity)
+    described["resume_identity"] = resume_identity
+    described["checkpoint_directory"] = str(checkpoint_dir.resolve())
+    reuse_checkpoint_destination = False
+    if cfg.resume_from:
+        if "sha256" not in described["provenance"]["ingestion_identity"]:
+            raise SystemExit(
+                "ABORTED: resume requires a readable --ingestion-manifest or --ingest-in identity file; unchanged indexed data cannot be verified without one"
+            )
+        resume_path = Path(cfg.resume_from)
+        if resume_path.is_dir():
+            header = json.loads((resume_path / "checkpoint.json").read_text())
+            previous_identity = header.get("resume_identity")
+            previous = []
+            for path in sorted(resume_path.glob("query-*.json")):
+                try:
+                    payload = json.loads(path.read_text())
+                    if payload.get("_resume_identity") != previous_identity:
+                        raise ValueError("query checkpoint identity mismatch")
+                    previous.append(QueryRecord.from_dict(payload))
+                except (OSError, ValueError, KeyError, TypeError, SystemExit) as exc:
+                    print(
+                        f"WARNING: checkpoint {path} cannot be reused; its query will rerun: {exc}",
+                        file=sys.stderr,
+                    )
+        else:
+            previous_artifact = read_retrieval_artifact(resume_path)
+            previous_identity = previous_artifact.described.get("resume_identity")
+            previous = previous_artifact.queries
+        if checkpoint_dir.exists():
+            destination_header = json.loads(
+                (checkpoint_dir / "checkpoint.json").read_text()
+            )
+            if destination_header.get("resume_identity") != resume_identity:
+                raise SystemExit(
+                    "ABORTED: destination checkpoint belongs to another run; choose a new output path"
+                )
+            reuse_checkpoint_destination = True
+        if previous_identity != resume_identity:
+            raise SystemExit(
+                "ABORTED: resume settings, cohort, models, preprocessing, or ingestion identity differ from the saved run"
+            )
+        for record in previous:
+            if record.status != "answered":
+                continue
+            if (
+                not isinstance(record.index, int)
+                or record.index < 0
+                or record.index >= len(queries)
+                or (record.query_id, record.query)
+                != (query_ids[record.index], queries[record.index])
+            ):
+                raise SystemExit(
+                    "ABORTED: resume query identity does not match the selected cohort"
+                )
+            records[record.index] = record
+    elif checkpoint_dir.exists():
+        raise SystemExit(
+            f"ABORTED: checkpoint already exists: {checkpoint_dir}; use --resume-from or a new output name"
+        )
+    described["resume_reused_queries"] = sum(record is not None for record in records)
+    if not reuse_checkpoint_destination:
+        try:
+            checkpoint_dir.mkdir(parents=True, exist_ok=False)
+        except FileExistsError:
+            raise SystemExit(
+                f"ABORTED: checkpoint already exists: {checkpoint_dir}; choose a new output path or use --resume-from"
+            ) from None
+    atomic_write_json(
+        checkpoint_dir / "checkpoint.json",
+        {
+            "resume_identity": resume_identity,
+            "cohort": signature_data["cohort"],
+            "identity_components": signature_data,
+            "status": "running",
+        },
+    )
+
+    def checkpoint(qi):
+        atomic_write_json(
+            checkpoint_dir / f"query-{qi:08d}.json",
+            {**records[qi].to_dict(), "_resume_identity": resume_identity},
+        )
+
+    for qi, record in enumerate(records):
+        if record is not None:
+            checkpoint(qi)
+            normalized = record.hits
+            sources_seen.update(flows.verification_sources(normalized))
+            for verdict, count in flows.verdict_counts(normalized).items():
+                verdicts[verdict] = verdicts.get(verdict, 0) + count
+    completed[0] = sum(record is not None for record in records)
+    resumed_plans = [
+        record.plan for record in records if record is not None and record.plan
+    ]
+
     def _retrieve_single(qi: int, query: str) -> None:
+        query_id = query_ids[qi]
+        identity = query_id or query
         # Decompose first, then search. The backend already routes from its
         # `decompositions` map, so writing this query's entry is the whole
         # integration -- path choice, attributes and top_k all follow. Distinct
         # keys per thread, so the shared dict needs no lock.
         decompose_s = 0.0
         decomposition: dict[str, Any] | None = None
-        if decomposer is not None:
+        evidence_path = None
+        latest_evidence = {}
+        evidence_write_error = None
+        if decomposer is not None and isinstance(decomposer, flows.LiveDecomposer):
+            evidence_path = evidence_dir / (
+                hashlib.sha256(str(identity).encode()).hexdigest() + ".json"
+            )
+            records[qi] = QueryRecord(
+                index=qi,
+                query_id=query_ids[qi],
+                query=query,
+                status="unanswerable",
+                evidence={
+                    "decomposition_file": str(evidence_path),
+                    "decomposition_mode": "fresh",
+                },
+            )
+
+            def save_evidence(evidence: dict[str, Any]) -> None:
+                nonlocal evidence_write_error
+                latest_evidence.clear()
+                latest_evidence.update(evidence)
+                try:
+                    atomic_write_json(evidence_path, evidence)
+                except OSError as exc:
+                    evidence_write_error = f"{type(exc).__name__}: {exc}"
+                    records[qi] = replace(
+                        records[qi],
+                        evidence={
+                            **(records[qi].evidence or {}),
+                            "decomposition_diagnostic_error": evidence_write_error,
+                            "decomposition_evidence": dict(latest_evidence),
+                        },
+                    )
+                    print(
+                        f"WARNING: decomposition evidence could not be published: {exc}",
+                        file=sys.stderr,
+                    )
+
+            decomposition, decompose_s = decomposer.decompose(
+                query,
+                video_sources=sorted(video_names),
+                evidence_sink=save_evidence,
+                query_id=query_id,
+            )
+            query_backend.decompositions[identity] = decomposition
+        elif decomposer is not None:
             decomposition, decompose_s = decomposer.decompose(
                 query, video_sources=sorted(video_names)
             )
-            query_backend.decompositions[query] = decomposition
+            query_backend.decompositions[identity] = decomposition
         elif hasattr(query_backend, "decompositions"):
-            decomposition = query_backend.decompositions.get(query)
+            replay_start = time.perf_counter()
+            decomposition = query_backend.decompositions.get(identity)
+            if (
+                decomposition is None
+                and query not in query_backend.ambiguous_query_texts
+            ):
+                decomposition = query_backend.decompositions.get(query)
+            replay_s = time.perf_counter() - replay_start
 
-        raw_results, latency_s = query_backend.search(query)
+        if cfg.gallery_gt:
+            records[qi] = QueryRecord(
+                index=qi,
+                query_id=query_ids[qi],
+                query=query,
+                status="unanswerable",
+                decomposition=decomposition,
+                evidence={
+                    "decomposition_mode": "fresh"
+                    if decomposer
+                    else "replay"
+                    if decomposition is not None
+                    else "none",
+                    "decomposition_file": str(evidence_path)
+                    if evidence_path
+                    else getattr(query_backend, "decomposition_source", None),
+                },
+            )
+        plan_before = (
+            backend_call("plan_for_query", query, query_id)
+            if hasattr(query_backend, "plan_for_query")
+            else None
+        )
+        if evidence_path is not None:
+            evidence = dict(latest_evidence)
+            evidence["selected_route"] = plan_before
+            evidence["effective_argv"] = query_backend.build_argv(query, plan_before)
+            save_evidence(evidence)
+        query_evidence = None
+        if cfg.gallery_gt or evidence_path is not None:
+            row = gallery_rows[qi]
+            query_evidence = {
+                "decomposition_mode": "fresh"
+                if decomposer
+                else "replay"
+                if decomposition is not None
+                else "none",
+                "decomposition_diagnostic_error": evidence_write_error,
+                "decomposition_evidence": dict(latest_evidence)
+                if evidence_write_error
+                else None,
+                "fresh_inference_s": decompose_s if decomposer else None,
+                "replay_s": replay_s
+                if decomposer is None and decomposition is not None
+                else None,
+                "decomposition_file": str(evidence_path) if evidence_path else None,
+                "released_pas_requirements": row.get(
+                    "resolved_attributes",
+                    row.get("attributes", row.get("requirements")),
+                ),
+                "extracted_attributes": decomposition.get("attributes")
+                if isinstance(decomposition, dict)
+                else None,
+            }
+        if plan_before is not None and hasattr(query_backend, "build_argv"):
+            plan_before["cli_subcommand"] = f"search run {plan_before['path']}"
+            plan_before["effective_argv"] = query_backend.build_argv(query, plan_before)
+        records[qi] = QueryRecord(
+            index=qi,
+            query_id=query_ids[qi],
+            query=query,
+            status="unanswerable",
+            decomposition=decomposition,
+            plan=plan_before,
+            evidence=query_evidence,
+        )
+        raw_results, latency_s = backend_call("search", query, query_id)
+        metadata = getattr(query_backend, "metadata_by_query", {}).get(identity)
+        if metadata:
+            query_evidence = {
+                **(query_evidence or {}),
+                **metadata,
+                "post_aggregation_hit_count": len(raw_results),
+            }
         normalized = flows.normalize_results(raw_results)
         # Both are read-modify-write on state shared across the pool, and the
         # verdict tally is what the no-opinion check reads at the end: lose
@@ -842,17 +1251,19 @@ def run_retrieve(
 
         # Present only when the deployment carries the search_core timings
         # change. Absent means nobody collected -- not that stages took no time.
-        stage_timings = getattr(query_backend, "timings_by_query", {}).get(query)
+        stage_timings = getattr(query_backend, "timings_by_query", {}).get(identity)
         plan = (
-            query_backend.plan_for_query(query)
+            backend_call("plan_for_query", query, query_id)
             if hasattr(query_backend, "plan_for_query")
             else None
         )
         records[qi] = QueryRecord(
             index=qi,
+            query_id=query_ids[qi],
             query=query,
             status="answered",
-            plan=plan,
+            plan=plan_before or plan,
+            evidence=query_evidence,
             decomposition=decomposition,
             decompose_s=decompose_s if decomposer is not None else None,
             search_latency_s=latency_s,
@@ -863,6 +1274,7 @@ def run_retrieve(
             hits=[{k: v for k, v in hit.items() if k != "_raw"} for hit in normalized],
         )
 
+        checkpoint(qi)
         with print_lock:
             completed[0] += 1
             print(
@@ -878,17 +1290,35 @@ def run_retrieve(
     unanswered: list[dict[str, Any]] = []
 
     wall_start = time.monotonic()
-    with ThreadPoolExecutor(max_workers=cfg.concurrency) as executor:
+    executor = ThreadPoolExecutor(max_workers=cfg.concurrency)
+    futures = {}
+    try:
         futures = {
-            executor.submit(_retrieve_single, qi, q): qi for qi, q in enumerate(queries)
+            executor.submit(_retrieve_single, qi, q): qi
+            for qi, q in enumerate(queries)
+            if records[qi] is None
         }
         for future in as_completed(futures):
             try:
                 future.result()
-            except flows.CliExitError as exc:
+            except (flows.CliExitError, KeyboardInterrupt) as exc:
                 # An environment fault, not a bad query. Scoring it as zero
                 # recall would report an accuracy cliff that never happened.
                 fatal.append(exc)
+                qi = futures[future]
+                reason = f"{type(exc).__name__}: {exc}"[:1000]
+                records[qi] = (
+                    replace(records[qi], status="unanswerable", error=reason)
+                    if records[qi]
+                    else QueryRecord(
+                        index=qi,
+                        query_id=query_ids[qi],
+                        query=queries[qi],
+                        status="unanswerable",
+                        error=reason,
+                    )
+                )
+                checkpoint(qi)
                 for pending in futures:
                     pending.cancel()
                 break
@@ -898,9 +1328,18 @@ def run_retrieve(
                 qi = futures[future]
                 reason = str(exc)[:300]
                 unanswered.append({"index": qi, "query": queries[qi], "reason": reason})
-                records[qi] = QueryRecord(
-                    index=qi, query=queries[qi], status="unanswerable", error=reason
+                records[qi] = (
+                    replace(records[qi], status="unanswerable", error=reason)
+                    if records[qi]
+                    else QueryRecord(
+                        index=qi,
+                        query_id=query_ids[qi],
+                        query=queries[qi],
+                        status="unanswerable",
+                        error=reason,
+                    )
                 )
+                checkpoint(qi)
                 print(f"  Query {qi} unanswerable: {exc}", file=sys.stderr)
             except Exception as exc:  # noqa: BLE001
                 # Same rule for anything else that stopped this query from
@@ -909,12 +1348,27 @@ def run_retrieve(
                 qi = futures[future]
                 reason = f"{type(exc).__name__}: {exc}"[:300]
                 unanswered.append({"index": qi, "query": queries[qi], "reason": reason})
-                records[qi] = QueryRecord(
-                    index=qi, query=queries[qi], status="unanswerable", error=reason
+                records[qi] = (
+                    replace(records[qi], status="unanswerable", error=reason)
+                    if records[qi]
+                    else QueryRecord(
+                        index=qi,
+                        query_id=query_ids[qi],
+                        query=queries[qi],
+                        status="unanswerable",
+                        error=reason,
+                    )
                 )
+                checkpoint(qi)
                 print(
                     f"  Query {qi} raised: {type(exc).__name__}: {exc}", file=sys.stderr
                 )
+    except KeyboardInterrupt as exc:
+        fatal.append(exc)
+        for pending in futures:
+            pending.cancel()
+    finally:
+        executor.shutdown(wait=True, cancel_futures=True)
     wall_clock_s = time.monotonic() - wall_start
 
     # A shared deployment can be wiped mid-run by someone else. If it was, the
@@ -936,9 +1390,29 @@ def run_retrieve(
         print("!" * 60 + "\n")
 
     if fatal:
-        raise SystemExit(f"\nABORTED: {fatal[0]}")
-
-    return RetrievalArtifact(
+        for qi, record in enumerate(records):
+            if record is None:
+                records[qi] = QueryRecord(
+                    index=qi,
+                    query_id=query_ids[qi],
+                    query=queries[qi],
+                    status="unanswerable",
+                    error="not completed before retrieval aborted",
+                )
+        unanswered = [
+            {
+                "index": row.index,
+                "query_id": row.query_id,
+                "query": row.query,
+                "reason": row.error or "retrieval aborted",
+            }
+            for row in records
+            if row.status != "answered"
+        ]
+    described["retrieval_status"] = "aborted" if fatal else "completed"
+    if fatal:
+        described["retrieval_error"] = f"{type(fatal[0]).__name__}: {fatal[0]}"[:1000]
+    artifact = RetrievalArtifact(
         dataset=artifact_dataset,
         subset=cfg.subset,
         data_dir=str(cfg.data_dir),
@@ -946,7 +1420,8 @@ def run_retrieve(
         described=described,
         queries=[r for r in records if r is not None],
         unanswered=unanswered,
-        executed_plans=list(getattr(query_backend, "executed_plans", []) or []),
+        executed_plans=resumed_plans
+        + list(getattr(query_backend, "executed_plans", []) or []),
         wall_clock_s=wall_clock_s,
         sources_seen=sorted(sources_seen),
         verdicts=dict(verdicts),
@@ -957,6 +1432,24 @@ def run_retrieve(
         query_source=query_source,
         gallery_gt=artifact_gallery_gt,
     )
+    for qi, record in enumerate(records):
+        if record is not None:
+            checkpoint(qi)
+    atomic_write_json(
+        checkpoint_dir / "checkpoint.json",
+        {
+            "resume_identity": resume_identity,
+            "cohort": signature_data["cohort"],
+            "identity_components": signature_data,
+            "status": described["retrieval_status"],
+        },
+    )
+    if fatal:
+        write_retrieval_artifact(checkpoint_base, artifact)
+        raise SystemExit(
+            f"\nABORTED: {fatal[0]}\nPartial retrieval saved to {checkpoint_base}; resume with --resume-from {checkpoint_dir}"
+        )
+    return artifact
 
 
 # =============================================================================
@@ -972,6 +1465,10 @@ def run_score(cfg: RunConfig, artifact: RetrievalArtifact) -> ScoredResult:
     writing the result file. ``scoring.model`` on the output tells a reader which
     shape the summary is in (absent means segment-overlap).
     """
+    if artifact.described.get("retrieval_status") == "aborted":
+        raise SystemExit(
+            "ABORTED: this retrieval was interrupted; resume its checkpoint before scoring"
+        )
     backend_cls = SCORING_BACKENDS.get(cfg.scoring)
     if backend_cls is None:
         raise SystemExit(
@@ -992,8 +1489,7 @@ def run_score(cfg: RunConfig, artifact: RetrievalArtifact) -> ScoredResult:
         output_file = cfg.output_file
     out_path = Path(output_file)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w") as f:
-        json.dump(result.to_output(), f, indent=2)
+    atomic_write_json(out_path, result.to_output())
     print(f"Results saved to: {out_path.absolute()}")
     return result
 
@@ -1005,10 +1501,11 @@ def run_score(cfg: RunConfig, artifact: RetrievalArtifact) -> ScoredResult:
 
 def _run_id(cfg: RunConfig, dataset: str, subset: str) -> str:
     """The base name shared by a run's artifact and result files."""
-    return (
-        cfg.run_name
-        or f"{dataset}_{subset or 'default'}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
-    )
+    if cfg.run_name:
+        return cfg.run_name
+    if not getattr(cfg, "_generated_run_id", None):
+        cfg._generated_run_id = f"{dataset}_{subset or 'default'}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S_%f')}"
+    return cfg._generated_run_id
 
 
 def run_pipeline(
@@ -1030,6 +1527,26 @@ def run_pipeline(
         score     -> read ``--retrieval-in`` (required), write the scored result
     """
     stage = cfg.stage
+    if cfg.resume_from and (
+        cfg.clear or cfg.only_dataset or (stage == "run" and not cfg.skip_ingest)
+    ):
+        raise SystemExit(
+            "ABORTED: resume requires unchanged ingestion (--skip-ingest or --stage retrieve)"
+        )
+    if cfg.gallery_gt and stage in ("run", "ingest") and not cfg.skip_ingest:
+        mapping_path = (
+            cfg.ingestion_manifest
+            or cfg.ingest_out
+            or str(
+                RESULTS_DIR / f"{_run_id(cfg, cfg.dataset, cfg.subset)}.ingestion.json"
+            )
+        )
+        cfg = replace(cfg, ingestion_manifest=mapping_path, ingest_out=mapping_path)
+
+    if cfg.scenarios and stage in ("run", "retrieve"):
+        return run_scenarios(
+            cfg, ingest_backend, query_backend, decomposer, decompose_fallback
+        )
 
     if stage == "ingest":
         manifest = run_ingest(cfg, ingest_backend, query_backend)
@@ -1071,3 +1588,134 @@ def run_pipeline(
         write_retrieval_artifact(cfg.retrieval_out, artifact)
         print(f"Retrieval artifact saved to: {cfg.retrieval_out}")
     return run_score(cfg, artifact)
+
+
+def run_scenarios(cfg, ingest_backend, query_backend, decomposer, fallback):
+    """Use the existing stages once per scenario, sharing one ingestion."""
+    if cfg.stage == "run" and cfg.gallery_gt and not cfg.skip_ingest:
+        cfg = replace(
+            cfg,
+            ingestion_manifest=cfg.ingestion_manifest
+            or cfg.ingest_out
+            or str(
+                RESULTS_DIR / f"{_run_id(cfg, cfg.dataset, cfg.subset)}.ingestion.json"
+            ),
+        )
+        cfg = replace(cfg, ingest_out=cfg.ingestion_manifest)
+    manifest = (
+        run_ingest(cfg, ingest_backend, query_backend)
+        if cfg.stage == "run"
+        else read_ingest_manifest(cfg.ingest_in)
+        if cfg.ingest_in
+        else IngestManifest()
+    )
+    base = Path(
+        cfg.retrieval_out
+        or cfg.output_file
+        or str(RESULTS_DIR / _run_id(cfg, cfg.dataset, cfg.subset))
+    )
+    if base.suffix == ".json":
+        base = base.with_suffix("")
+    comparison = {
+        "scenarios": {},
+        "query_domain": cfg.query_domain,
+        "routing_consistency": {
+            "meaning": "agreement with saved decomposition route; not semantic correctness"
+        },
+    }
+    last = None
+    for scenario in cfg.scenarios:
+        backend = copy.copy(query_backend)
+        backend.decompositions = dict(query_backend.decompositions)
+        backend.executed_plans = []
+        backend.timings_by_query = {}
+        backend.metadata_by_query = {}
+        backend.critic_enabled = (
+            backend.critic_enabled if backend.critic_enabled is not None else False
+        )
+        if backend.critic_enabled and backend.critic_eval_count is None:
+            backend.critic_eval_count = 5
+        child = replace(
+            cfg,
+            scenarios=None,
+            use_dataset_decompositions=False,
+            run_name=f"{cfg.run_name or base.name}.{scenario}",
+            output_file=f"{base}.{scenario}.json",
+            retrieval_out=f"{base}.{scenario}.retrieval.json",
+        )
+        active_decomposer = None
+        if scenario == "live-routed":
+            active_decomposer = decomposer
+            if active_decomposer is None and not backend.decompositions:
+                raise SystemExit(
+                    "live-routed requires a live decomposer or --decompositions; no fixed-path fallback"
+                )
+            backend.attribute_input = None
+            backend.require_decomposition = True
+        else:
+            backend.search_path = "embed" if scenario == "embed-only" else "attribute"
+            backend.top_k = cfg.candidate_limit
+            backend.candidate_limit = cfg.candidate_limit
+            backend.min_cosine_similarity = -1.0
+            backend.attribute_min_similarity = 0.0
+            backend.merge_adjacent = False
+            backend.attribute_input = (
+                cfg.attribute_input if scenario == "attribute-only" else None
+            )
+            if scenario == "embed-only" or cfg.attribute_input == "original":
+                backend.decompositions = {}
+        artifact = run_retrieve(child, backend, active_decomposer, fallback, manifest)
+        artifact.described["scenario"] = scenario
+        artifact.described["critic"] = {
+            "enabled": backend.critic_enabled,
+            "eval_count": backend.critic_eval_count,
+            "frame_budget": backend.critic_frame_budget,
+            "input_width": backend.critic_input_width,
+            "input_height": backend.critic_input_height,
+            "diagnostic_dir": backend.critic_diagnostic_dir,
+        }
+        if scenario != "live-routed":
+            artifact.described["ranking_protocol"] = (
+                "bounded exact indexed-vector scan; overflow fails"
+            )
+            artifact.described["candidate_limit"] = cfg.candidate_limit
+            artifact.described["metric_top_k"] = cfg.top_k
+        artifact.described["decomposition_mode"] = (
+            "fresh"
+            if active_decomposer
+            else "replay"
+            if backend.decompositions
+            else "none"
+        )
+        path = f"{base}.{scenario}.retrieval.json"
+        write_retrieval_artifact(path, artifact)
+        entry = {
+            "retrieval_artifact": path,
+            "paths": flows.path_distribution(artifact.executed_plans),
+            "queries": len(artifact.queries),
+            "unanswered": len(artifact.unanswered),
+            "indexed_candidate_coverage": [
+                {
+                    "query": r.query,
+                    "post_aggregation_hit_count": len(r.hits),
+                    "candidate_coverage": (r.evidence or {}).get("candidate_coverage"),
+                }
+                for r in artifact.queries
+            ],
+        }
+        if scenario == "live-routed":
+            routed = [r for r in artifact.queries if r.decomposition and r.plan]
+            from flows.routing import route
+
+            entry["routing_consistency"] = {
+                "compared": len(routed),
+                "consistent": sum(
+                    route(r.decomposition) == r.plan["path"] for r in routed
+                ),
+            }
+        if cfg.stage == "run":
+            last = run_score(child, artifact)
+            entry["summary"] = last.summary
+        comparison["scenarios"][scenario] = entry
+        atomic_write_json(f"{base}.comparison.json", comparison)
+    return last

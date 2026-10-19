@@ -35,7 +35,7 @@ from typing import Any
 from flows.artifacts import RetrievalArtifact, RunConfig, ScoredResult
 
 from . import drive_scoring
-from .base import report_unanswered
+from .base import effective_tolerance, report_unanswered
 
 
 class DriveScoring:
@@ -69,11 +69,11 @@ class DriveScoring:
         context = drive_scoring.prepare(
             cfg.gallery_gt, cfg.ingestion_manifest, cfg.drive_scorer_dir
         )
-        # prepare() does not check it, so require unique query texts here -- the
-        # text->index map used at score time would otherwise silently collide.
-        texts = [q["query"] for q in context["gt"]["queries"]]
-        if len(set(texts)) != len(texts):
-            raise SystemExit("ERROR: the gallery GT has duplicate query texts; they must be unique")
+        ids = [q.get("query_id") for q in context["gt"]["queries"]]
+        if any(not isinstance(qid, str) or not qid for qid in ids) or len(ids) != len(
+            set(ids)
+        ):
+            raise SystemExit("ERROR: gallery query IDs must be nonempty and unique")
         return context
 
     def score(
@@ -92,24 +92,55 @@ class DriveScoring:
         )
 
         # Map the artifact's query text onto the GT query index.
-        text_to_qi = {q["query"]: i for i, q in enumerate(gt["queries"])}
+        id_to_qi = {q["query_id"]: i for i, q in enumerate(gt["queries"])}
+        from collections import Counter
+
+        counts = Counter(q["query"] for q in gt["queries"])
+        text_to_qi = {
+            q["query"]: i
+            for i, q in enumerate(gt["queries"])
+            if counts[q["query"]] == 1
+        }
         eligible, exclusions = drive_scoring.eligible_indices(gt, gallery)
         eligible_set = set(eligible)
 
         rows: list[dict[str, Any]] = []
         unanswered = 0
+        eligible_failures = []
+        excluded_failures = []
+        excluded_count = 0
         for record in artifact.queries:
-            if record.status != "answered":
-                unanswered += 1
-                continue
-            qi = text_to_qi.get(record.query)
-            if qi is None:
+            query_id = getattr(record, "query_id", None)
+            qi = (
+                id_to_qi.get(query_id)
+                if query_id is not None
+                else text_to_qi.get(record.query)
+            )
+            if qi is None or gt["queries"][qi]["query"] != record.query:
                 raise SystemExit(
-                    f"ERROR: artifact query {record.query!r} is not in the gallery GT. "
-                    "Score with the gallery the retrieval actually ran against."
+                    f"ERROR: unknown or ambiguous artifact query {query_id or record.query!r}; stable query_id required for repeated texts"
                 )
             if qi not in eligible_set:
-                continue  # near_universal / no-relevance -- excluded by TAO's rules
+                excluded_count += 1
+                if record.status != "answered":
+                    excluded_failures.append(
+                        {
+                            "index": record.index,
+                            "query": record.query,
+                            "reason": record.error or "unanswered",
+                        }
+                    )
+                continue
+            if record.status != "answered":
+                unanswered += 1
+                eligible_failures.append(
+                    {
+                        "index": record.index,
+                        "query": record.query,
+                        "reason": record.error or "unanswered",
+                    }
+                )
+                continue
             row = drive_scoring.score_query(
                 ground_truth, qi, record.hits, record.search_latency_s or 0.0
             )
@@ -121,7 +152,10 @@ class DriveScoring:
         if not rows:
             raise SystemExit("ABORTED: no answered query could be scored.")
         report_unanswered(
-            artifact.unanswered, len(artifact.queries), artifact.tolerate_unanswered, len(rows)
+            eligible_failures,
+            len(artifact.queries) - excluded_count,
+            effective_tolerance(cfg, artifact),
+            len(rows),
         )
 
         agg = drive_scoring.aggregate_report(rows, gt, gallery, scorer, exclusions)
@@ -133,6 +167,8 @@ class DriveScoring:
             "gallery_size": len(gallery),
             "queries_scored": len(rows),
             "queries_unanswered": unanswered,
+            "excluded_failures": excluded_failures,
+            "tolerate_unanswered": effective_tolerance(cfg, artifact),
             **agg["overall"],
             "slices": agg["metrics"]["slices"],
         }

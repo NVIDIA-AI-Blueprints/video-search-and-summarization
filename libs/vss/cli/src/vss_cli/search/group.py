@@ -104,7 +104,7 @@ class _Common(BaseModel):
     )
     timestamp_start: str | None = Field(None, description="Absolute ISO-8601 window start.")
     timestamp_end: str | None = Field(None, description="Absolute ISO-8601 window end.")
-    top_k: int | None = Field(None, ge=1, le=1000, description="Maximum results to return.")
+    top_k: int | None = Field(None, ge=1, le=100000, description="Maximum results to return.")
 
 
 class EmbedInput(_Common):
@@ -124,6 +124,9 @@ class EmbedInput(_Common):
     --no-merge-adjacent for the raw chunks.
     """
 
+    candidate_limit: int | None = Field(
+        None, ge=1, le=100000, description="Exact indexed scan budget; fail if exceeded."
+    )
     query: str = Field(..., description="Text to embed and match against video embeddings.")
     description: str | None = Field(None, description="Free-text description accompanying the query.")
     min_cosine_similarity: float | None = Field(
@@ -136,8 +139,8 @@ class AttributeInput(_Common):
 
     Queries `mdx-behavior-*`, the documents RT-CV writes for every object it
     detects and tracks (class, colour, and other extracted attributes), and
-    optionally `mdx-raw-*` for frame-level lookups. No embeddings are involved
-    and nothing is embedded at query time.
+    optionally `mdx-raw-*` for frame-level lookups. Attribute text is encoded
+    by RT-CV and compared with detected-object embeddings.
 
     This is the right path when the thing you are looking for is a property a
     detector reports ("white jacket", "forklift") rather than a scene you
@@ -145,6 +148,12 @@ class AttributeInput(_Common):
     detect, however well it matches the words.
     """
 
+    candidate_limit: int | None = Field(
+        None, ge=1, le=100000, description="Exact indexed scan budget; fail if exceeded."
+    )
+    attribute_min_similarity: float | None = Field(
+        None, ge=0.0, le=1.0, description="Attribute score floor in (1 + cosine) / 2 space; 0 includes negative cosine."
+    )
     attributes: list[str] = Field(
         ...,
         description="Appearance/metadata attribute, e.g. 'white jacket'; repeatable.",
@@ -243,6 +252,12 @@ class SearchTuning(BaseModel):
         ),
         json_schema_extra={"cli_flag": "--critic-eval-count"},
     )
+
+    no_critic: bool = Field(False, description="Skip optional visual verification; return raw retrieval hits.")
+    critic_frame_budget: int | None = Field(None, ge=1, le=60, description="Frames per critic interval (default 8).")
+    critic_input_width: int | None = Field(None, ge=16, description="Critic RT-VLM input width.")
+    critic_input_height: int | None = Field(None, ge=16, description="Critic RT-VLM input height.")
+    critic_diagnostic_dir: str | None = Field(None, description="Directory for raw critic evidence JSON.")
 
 
 class SearchPersistOptions(BaseModel):
@@ -355,6 +370,10 @@ async def _rt_vlm_probe(service_url: str, model: str) -> str | None:
 async def _critic_from(
     deployment: config_mod.Deployment,
     eval_count: int | None = None,
+    frame_budget: int = 8,
+    input_width: int | None = None,
+    input_height: int | None = None,
+    diagnostic_dir: str | None = None,
 ) -> tuple[CriticAgent | None, OpenAIVLMAnalyzer | None, str | None]:
     """Build the reusable critic stack when this deployment exposes one.
 
@@ -403,7 +422,9 @@ async def _critic_from(
         # which is not enough to ground a question about an interval. Match
         # `vss vlm run`'s default (vss_cli/vlm/runner.py:_RT_VLM_FRAME_BUDGET)
         # so the critic judges the whole clip, not its first frame.
-        rt_vlm_frame_budget=8,
+        rt_vlm_frame_budget=frame_budget,
+        rt_vlm_input_width=input_width,
+        rt_vlm_input_height=input_height,
     )
     # iso, not offset: the critic already rebases file-source bounds onto the
     # real replay timeline itself (cached per sensor), so the analyzer's clip-URL
@@ -418,6 +439,7 @@ async def _critic_from(
             vst=vst,
             time_format="iso",
             num_videos_to_evaluate=eval_count,
+            diagnostic_dir=diagnostic_dir,
         ),
         vlm,
         None,
@@ -500,7 +522,13 @@ class SearchGroup(CommandGroup):
         # critic_eval_count is a caller preference, not a runtime field: pop it
         # out of `tuning` (which feeds SearchRuntime) and thread it to the
         # critic instead. None = verify every hit (bounded by --top-k).
+        no_critic = tuning.pop("no_critic", False)
         critic_eval_count = tuning.pop("critic_eval_count", None)
+        critic_controls = {
+            key: tuning.pop(f"critic_{key}")
+            for key in ("frame_budget", "input_width", "input_height", "diagnostic_dir")
+            if f"critic_{key}" in tuning
+        }
         # Auto-select the fusion method from the VLM tag leg choice. The
         # legacy `rrf` (embed + attribute, no tag leg) is the default; opting
         # into the VLM tag leg (--w-tag > 0) auto-selects `weighted_rrf`
@@ -619,7 +647,12 @@ class SearchGroup(CommandGroup):
             return "stale"
 
         async def _go() -> Any:
-            critic, vlm, disabled_reason = await _critic_from(deployment, eval_count=critic_eval_count)
+            if no_critic:
+                critic, vlm, disabled_reason = None, None, None
+            else:
+                critic, vlm, disabled_reason = await _critic_from(
+                    deployment, eval_count=critic_eval_count, **critic_controls
+                )
             try:
                 async with VSSSearch.from_runtime(runtime, critic=critic) as vss:
                     output = await vss.search(**payload)

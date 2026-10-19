@@ -87,6 +87,18 @@ class ElasticIndex(Protocol):
         **kwargs: Any,
     ) -> Any: ...
 
+    async def exhaustive_vector_search(
+        self,
+        *,
+        index: str | list[str],
+        filters: list[dict[str, Any]],
+        vector: list[float],
+        field: str,
+        candidate_limit: int,
+        min_score: float = 0.0,
+        nested_path: str | None = None,
+    ) -> Any: ...
+
     async def index(
         self,
         *,

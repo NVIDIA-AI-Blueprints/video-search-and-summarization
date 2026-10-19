@@ -51,8 +51,9 @@ ships rather than a REST endpoint that is being retired.
 | User asks to analyse an existing result file | Skip to **Step 6**; read the JSON, run nothing |
 | Every query returns 0 hits | Stop. Diagnose with **Step 3** before reporting anything — this is nearly always missing indices, not poor retrieval |
 | Critic-filtered metrics are all `NA` | The critic never ran. Check the clip-URL prerequisite below before concluding anything about verification quality |
-| User asks to score a clip gallery, or compare against Drive retrieval metrics | Use `--scoring clip-relevance` (or `drive`); retrieve with `--full-gallery`. See the clip-level note below, `references/flags.md`, and `references/clip-scoring.md` |
+| User asks to score a clip gallery, or compare against Drive retrieval metrics | Use `--gallery-gt` for the three-scenario clip comparison (or explicitly select the legacy `--full-gallery` embed run). See the clip-level note below, `references/flags.md`, and `references/clip-scoring.md` |
 | User asks for PhysicalAI PAS scoring from representative-frame support | Add `--pas-frame-supported` to `--scoring clip-relevance` (release-directory layout + `additional_gt/tracks_pas_attributes.json`); it is a ground-truth transform, not a retrieval change, and is invalid with `--scoring drive`. See `references/clip-scoring.md` |
+| A long run was interrupted and the user wants to continue | Use `--resume-from` with the existing retrieval artifact or checkpoint directory, the same ingestion identity and retrieval settings, and select one saved scenario. Do not re-ingest; see "Interrupted campaigns and resume" in `references/flags.md` |
 | User asks to re-score existing results without re-querying, or to run ingest / retrieve / score separately | The runner is staged: `--stage ingest | retrieve | score`, with a replayable retrieval artifact between retrieve and score. See "Pipeline stages" in`references/flags.md` |
 
 ## The default run
@@ -139,10 +140,13 @@ eval. Both measure a different flow; the result records the routing mode.
 Beyond the default run, the runner is **staged**: `--stage ingest|retrieve|score`
 with a replayable retrieval artifact between retrieve and score, so you can ingest
 once, retrieve once, and re-score without re-querying the deployment. And
-`--scoring` selects the metric model: `segment-overlap` (default) or the clip-level
-`clip-relevance` / `drive` variants, which score a Drive-release clip gallery instead
-of segments. Retrieve those with `--full-gallery`; they need `--gallery-gt` +
-`--ingestion-manifest`, and `drive` also needs `--drive-scorer-dir`. See
+`--scoring` selects the metric model: `segment-overlap` for segment datasets or
+`clip-relevance` (the gallery default) / `drive` for a Drive-release clip gallery.
+`--gallery-gt` runs embed-only, attribute-only, and live-routed scenarios by default;
+`--scenarios` selects fewer. They share ingestion and write separate retrieval
+artifacts and a comparison summary. The ingestion stage emits its identity manifest;
+existing deployments require `--ingestion-manifest`. `drive` also needs
+`--drive-scorer-dir`. Explicit `--full-gallery` retains the legacy fixed embed run. See
 `references/flags.md` for the flags and `references/reading-results.md` for the
 different result shapes.
 

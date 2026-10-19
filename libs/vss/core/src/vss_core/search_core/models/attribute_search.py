@@ -27,6 +27,7 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import model_validator
 
 from ..errors import InvalidInputError
 
@@ -46,7 +47,13 @@ class AttributeSearchInput(BaseModel):
     timestamp_start: datetime | None = None
     timestamp_end: datetime | None = None
     video_sources: list[str] | None = None
-    top_k: int | None = Field(default=None, ge=1, le=1000)
+    candidate_limit: int | None = Field(
+        default=None,
+        ge=1,
+        le=100000,
+        description="Opt-in exact indexed scan budget; exceeding it fails instead of truncating.",
+    )
+    top_k: int | None = Field(default=None, ge=1, le=100000)
     min_similarity: float = Field(default=0.3, ge=0.0, le=1.0)
     fuse_multi_attribute: bool = True
     exclude_videos: list[dict[str, str]] = Field(default_factory=list)
@@ -85,6 +92,12 @@ class AttributeSearchInput(BaseModel):
         if len(vectors) != count:
             raise InvalidInputError(f"query_embedding has {len(vectors)} vector(s) but query has {count} attribute(s)")
         return vectors
+
+    @model_validator(mode="after")
+    def validate_candidate_budget(self):
+        if self.top_k is not None and self.top_k > 1000 and self.candidate_limit is None:
+            raise ValueError("top_k above 1000 requires explicit candidate_limit")
+        return self
 
     def validate_semantics(self) -> None:
         """Raise :class:`InvalidInputError` for cross-field problems.

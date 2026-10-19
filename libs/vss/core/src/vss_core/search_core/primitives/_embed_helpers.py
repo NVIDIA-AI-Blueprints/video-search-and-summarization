@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
 import json
+import math
 import re
 from typing import TYPE_CHECKING
 from typing import Any
@@ -212,10 +213,9 @@ def build_es_query(
 def score_to_cosine(score: float) -> float:
     """Convert an ES ``_score`` in [0, 1] to cosine similarity in [-1, 1].
 
-    Rounds to 2dp before any threshold comparison to avoid floating-point edge
-    cases (e.g. ``2 * 0.60 - 1 = 0.19999...`` failing a ``0.20`` threshold).
+    Preserve full precision for ranking and thresholds.
     """
-    return round(2 * score - 1, 2)
+    return 2 * score - 1
 
 
 def extract_stream_id(sensor_data: dict[str, Any], video_path: str) -> str | None:
@@ -356,7 +356,9 @@ def parse_hit(
     missing ``_score``) and are skipped by the caller per-hit.
     """
     similarity_score = score_to_cosine(hit["_score"])
-    if similarity_score < min_cosine_similarity:
+    if similarity_score < min_cosine_similarity and not math.isclose(
+        similarity_score, min_cosine_similarity, rel_tol=0.0, abs_tol=1e-15
+    ):
         return None
 
     source = hit["_source"]

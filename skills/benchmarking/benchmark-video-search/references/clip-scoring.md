@@ -1,7 +1,8 @@
 # Clip-level scoring (clip-relevance / drive)
 
-The default `--scoring segment-overlap` scores timestamp overlap against the
-eval dataset's segment ground truth. The clip-level backends instead score a
+Gallery inputs default to `--scoring clip-relevance`; segment datasets default
+to `--scoring segment-overlap` for timestamp overlap. Explicit scorer overrides
+remain supported. The clip-level backends instead score a
 **clip gallery** (the Drive release format): each retrieved hit is resolved to a
 gallery clip and relevance is binary. Use them with `--full-gallery` retrieval
 and `--gallery-gt` + `--ingestion-manifest`.
@@ -14,8 +15,11 @@ and `--gallery-gt` + `--ingestion-manifest`.
   `additional_gt/clips_gt.json` (the Drive release layout); **or**
 - a merged JSON file with top-level `gallery` and `queries`.
 
-Gallery rows carry `chunk_id`; query rows need unique `query` text and a
-non-empty `relevant_clip_ids`. `--ingestion-manifest` is the clip→sensor map
+Gallery rows carry `chunk_id`; query rows need unique nonempty `query_id` values,
+nonempty `query` text, and eligible `relevant_clip_ids`. Repeated query text is
+valid: retrieval, decomposition evidence, replay, and scoring retain each ID.
+Older artifacts without IDs can be scored only when their query text is unique
+in the release; ambiguous legacy records fail explicitly. `--ingestion-manifest` is the clip→sensor map
 recorded at ingest time and must map the gallery exactly (one entry per
 `chunk_id`, via `dataset_id` / `sensor_id` / `filename`).
 
@@ -64,7 +68,10 @@ backfills or reorders.
 
 ## Frame-supported PAS ground truth (`--pas-frame-supported`)
 
-`--pas-frame-supported` (clip-relevance only) rewrites a PAS query's
+When released track annotations are present, clip-relevance automatically applies
+frame-supported PAS eligibility. `--pas-frame-supported` requires these annotations;
+`--no-pas-frame-supported` explicitly keeps the released clip labels. Missing
+annotations in automatic mode are recorded as unknown/not applied. This rewrites a PAS query's
 `relevant_clip_ids` from the **released positive tracks whose representative
 frame actually supports** the query's resolved attributes (PhysicalAI v1.1.2),
 read from `additional_gt/tracks_pas_attributes.json` in the release root.
@@ -103,3 +110,33 @@ records that the derivation ran.
 `--pas-frame-supported` is **not** valid with `--scoring drive` (the Drive
 script applies its own eligibility); the run refuses it rather than silently
 ignoring the flag.
+
+
+## Coverage and comparison reporting
+
+Clip summaries record the input, eligible, excluded, answered, and unanswered
+query counts. Event queries follow Drive eligibility: near-universal queries and
+queries with no gallery positives are excluded. A missing home clip is recorded
+and does not exclude positives elsewhere in the gallery. PAS frame exclusions
+remain separate, with their exact query identities and reasons.
+
+Metrics are grouped by query domain, event slice, and released PAS difficulty;
+missing metadata is shown as `unknown`. Each scenario's artifact and score summary
+carry its scenario identity. Annotation-gallery coverage is measured after
+first-occurrence deduplication; saved index inventory is separate evidence.
+Complete annotation coverage does not claim all indexed candidates were scored.
+
+Raw metrics remain primary. Critic coverage reports candidate, attempted,
+decided, and unverified counts. A normalized placeholder for a missing critic is
+not an attempt. Filtered metrics remove only explicit rejections from the saved
+candidate pool, retain uncertainty and order, then apply the metric cutoff.
+They report relevant/irrelevant clips removed and changes in mAP and mAP@10;
+no replacement candidates are fetched. Timestamp, bbox, score, object identity,
+and detailed verification diagnostics survive normalization and offline scoring.
+
+Offline scoring preserves the retrieval artifact's unanswered-query tolerance
+unless `--tolerate-unanswered` is explicitly supplied, including an explicit
+zero. For gallery metrics, this gate counts failures in the selected eligible
+cohort. Failures for excluded annotations remain in `excluded_failures` and do
+not invalidate complete eligible coverage. Released PAS difficulty comes from
+`pas_tier` (`easy`, `medium`, `hard`).

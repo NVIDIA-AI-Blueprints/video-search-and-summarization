@@ -876,3 +876,40 @@ async def test_enrich_keeps_result_on_stream_lookup_failure(monkeypatch):
 
     assert result.screenshot_url is None
     assert result.metadata.sensor_id == "cam1"
+
+
+@pytest.mark.asyncio
+async def test_frame_lookups_bound_concurrency_deduplicate_and_preserve_alignment(monkeypatch):
+    import asyncio
+
+    active = peak = calls = 0
+
+    async def lookup(**kwargs):
+        nonlocal active, peak, calls
+        calls += 1
+        active += 1
+        peak = max(peak, active)
+        try:
+            await asyncio.sleep(0)
+            if kwargs["object_id"] == "3":
+                raise RuntimeError("one frame lookup failed")
+            return (kwargs["object_id"], None, 0.8, None)
+        finally:
+            active -= 1
+
+    monkeypatch.setattr(ah, "_get_frame_from_behavior", lookup)
+    candidates = [_candidate(i) for i in range(50)] + [_candidate(None), _candidate(1), _candidate(3)]
+    results = await ah._perform_frame_lookups(
+        candidates=candidates,
+        query_embedding=[0.1],
+        frames_index="frames",
+        timestamp_start=datetime(2025, 1, 1, tzinfo=UTC),
+        timestamp_end=datetime(2025, 1, 2, tzinfo=UTC),
+        es=_MockFramesEs(),
+    )
+    assert calls == 50
+    assert 1 < peak <= ah.FRAME_LOOKUP_CONCURRENCY
+    assert len(results) == len(candidates)
+    assert results[-3] is None
+    assert results[-2] == results[1] == ("1", None, 0.8, None)
+    assert results[-1] is results[3] is None
