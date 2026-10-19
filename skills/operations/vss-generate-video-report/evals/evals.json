@@ -163,10 +163,11 @@
       "id": "video-report-vlm-unclear-options",
       "question": "When VLM/deployment is unclear and no default is selected, what options should the user get?",
       "expected_skill": "vss-generate-video-report",
-      "ground_truth": "Loads vss-generate-video-report and offers exactly three options: provide endpoint, suggest options from auto-discovery, or deploy a local VLM.",
+      "ground_truth": "Loads vss-generate-video-report and offers exactly four options: provide endpoint, use the public Ingress VLM, suggest options from auto-discovery, or deploy a local VLM.",
       "expected_behavior": [
         "Loads vss-generate-video-report.",
         "Offers provide endpoint option.",
+        "Offers public Ingress VLM option.",
         "Offers auto-discover based suggestion option.",
         "Offers deploy local VLM option."
       ]

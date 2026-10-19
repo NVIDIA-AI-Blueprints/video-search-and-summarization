@@ -63,7 +63,7 @@ The video-analytics-api server loads a JSON config file at startup via the `--co
 
 | Field | Type | Default | What it controls |
 |---|---|---|---|
-| `brokers` | array of strings | `["localhost:9092"]` (service-shipped) / `[]` (image-baked) | Kafka broker addresses. With `STREAM_TYPE=kafka`, an empty array or `null` skips Kafka startup work. `STREAM_TYPE=redis` also skips Kafka startup work, regardless of this setting. |
+| `brokers` | array of strings | `["kafka:29092"]` (service-shipped) / `[]` (image-baked) | Kafka broker addresses. With `STREAM_TYPE=kafka`, an empty array or `null` skips Kafka startup work. `STREAM_TYPE=redis` also skips Kafka startup work, regardless of this setting. |
 | `retries` | number or null | `null` | KafkaJS retry count. `null` uses KafkaJS defaults. |
 
 ## Config sources
@@ -78,9 +78,11 @@ Assumes Elasticsearch at `http://localhost:9200`, index prefix `mdx-`, Kafka **d
 
 ### Service-shipped config (default in compose)
 
-Path on host: `services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json`
+Path on host: `deploy/docker/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json`
 
-Identical to the image-baked default except Kafka is **enabled** (`brokers: ["localhost:9092"]`). This is the right choice when you have a local Kafka broker running.
+The service-shipped config uses Elasticsearch at `http://elasticsearch:9200`
+and enables Kafka at `kafka:29092`. These are Compose-internal service
+addresses.
 
 ### Custom config
 
