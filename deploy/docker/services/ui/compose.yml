@@ -100,8 +100,8 @@ services:
       # agent adapter instead of vss-agent; unlike the NEXT_PUBLIC_ values it
       # never reaches the browser, so the adapter stays on the compose network
       # rather than needing a host-reachable address (see pages/api/vss-chat.ts).
-      VSS_CHAT_BACKEND_MAIN: ${VSS_CHAT_BACKEND_MAIN:-http://vss-agent:8000/v1/chat/stream}
-      VSS_CHAT_BACKEND_SIDEBAR: ${VSS_CHAT_BACKEND_SIDEBAR:-http://vss-agent:8000/v1/chat/stream}
+      VSS_CHAT_BACKEND_MAIN: ${VSS_CHAT_BACKEND_MAIN:-http://vss-agent:${VSS_AGENT_PORT:-8000}/v1/chat/stream}
+      VSS_CHAT_BACKEND_SIDEBAR: ${VSS_CHAT_BACKEND_SIDEBAR:-http://vss-agent:${VSS_AGENT_PORT:-8000}/v1/chat/stream}
       NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON: ${NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON:-false}
       NEXT_PUBLIC_RIGHT_MENU_OPEN: ${NEXT_PUBLIC_RIGHT_MENU_OPEN:-false}
       NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS: ${NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS:-true}

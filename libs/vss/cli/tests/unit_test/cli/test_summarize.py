@@ -1661,7 +1661,11 @@ def test_sensor_transfer_uses_lvs_file_id_and_keeps_vios_identity(
     assert stored["info"]["file_id"] == "lvs-file-id"
 
 
+@pytest.mark.parametrize(
+    "failure", [None, "download-timeout", "upload-timeout", "upload-http", "upload-json", "upload-id"]
+)
 def test_sensor_source_uploads_clip_bytes_to_lvs(
+    failure: str | None,
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1693,19 +1697,40 @@ def test_sensor_source_uploads_clip_bytes_to_lvs(
     def stream(method, url, **kwargs):
         assert method == "GET"
         assert url == BASE_URL + "/vst/storage/temp_files/clip.mp4"
+        if failure == "download-timeout":
+            raise httpx.ReadTimeout("clip download timed out")
         yield httpx.Response(200, content=b"video-bytes", request=httpx.Request(method, url))
 
     def upload(url, *, files, data, **kwargs):
         assert url == BASE_URL + "/lvs/v1/files"
         assert files["file"][1].read() == b"video-bytes"
         assert data["sensor_name"] == "warehouse"
-        return httpx.Response(200, json={"id": "lvs-file-id"}, request=httpx.Request("POST", url))
+        if failure == "upload-timeout":
+            raise httpx.ReadTimeout("file upload timed out")
+        if failure == "upload-http":
+            return httpx.Response(503, request=httpx.Request("POST", url))
+        if failure == "upload-json":
+            return httpx.Response(200, text="not JSON", request=httpx.Request("POST", url))
+        payload = {} if failure == "upload-id" else {"id": "lvs-file-id"}
+        return httpx.Response(200, json=payload, request=httpx.Request("POST", url))
 
     monkeypatch.setattr(vios, "resolve_sensor", resolve)
     monkeypatch.setattr(vios, "recorded_segments", segments)
     monkeypatch.setattr(vios, "get_video_clip_url", clip)
     monkeypatch.setattr(httpx, "stream", stream)
     monkeypatch.setattr(httpx, "post", upload)
+    if failure:
+        from vss_cli.group import _exit_for
+
+        error_type = httpx.ReadTimeout if failure.endswith("timeout") else BackendUnreachableError
+        with pytest.raises(error_type) as error:
+            summarize_group._prepare_sensor_source(
+                deployment,
+                SummarizeInput(sensor="warehouse", scenario="warehouse", events=["forklift"]),
+                SummarizeOptions(),
+            )
+        assert _exit_for(error.value) == (Exit.TIMEOUT if failure.endswith("timeout") else Exit.BACKEND_UNREACHABLE)
+        return
     ref, file_id, creation_time = summarize_group._prepare_sensor_source(
         deployment,
         SummarizeInput(sensor="warehouse", scenario="warehouse", events=["forklift"]),

@@ -13,8 +13,9 @@ summarize pipeline and never re-enters a long-running job.
 Media reaches the VLM one of two ways (VLM-1 / VLM-2):
 
 * **Path B** (default): ``--sensor <name> [--start-time T --end-time T]``.
-  VIOS resolves the sensor to a clip URL and the VLM receives that URL. No
-  video bytes cross the CLI; the VLM fetches the clip from VIOS directly.
+  VIOS resolves the recording. For RT-VLM, the CLI streams the clip to a
+  temporary file and sends its bytes inline; the container need not fetch
+  the host-facing URL. Other backends receive the URL unless it is loopback.
 * **Path A** (escape hatch): ``--media-url <url>``. A pre-resolved handle --
   any HTTP/HTTPS URL -- is sent directly as ``video_url``. Add ``--use-base64``
   to read a local file and send it as base64-encoded bytes instead.
@@ -667,7 +668,7 @@ class VlmGroup(CommandGroup):
         media_url: str
         resolved_start: str | None = inputs.start_time
         resolved_end: str | None = inputs.end_time
-        _loopback_tmp: str | None = None  # temp file path when loopback fallback fires
+        _clip_tmp: str | None = None  # temporary recording for inline transport
         if inputs.sensor:
             if "vst" not in (deployment.services or {}):
                 # Post-mint: the job id is already public, so this must write its
@@ -730,21 +731,19 @@ class VlmGroup(CommandGroup):
                     exit=_vios_code,
                     job_id=job_id,
                 )
-            if _is_loopback_url(media_url):
-                # The VIOS clip URL resolves to localhost — reachable from this CLI
-                # host but blocked by rt_vlm's SSRF protection (or simply unreachable
-                # from inside the VLM container in Docker deployments). Stream the
-                # clip to a temp file and send it inline as base64.
-                tmp_fd, _loopback_tmp = tempfile.mkstemp(suffix=".mp4")
+            if backend == "rt_vlm" or _is_loopback_url(media_url):
+                # Fetch on the CLI host: the RT-VLM container may not reach even
+                # a non-loopback host origin. Reuse the bounded-memory file path.
+                tmp_fd, _clip_tmp = tempfile.mkstemp(suffix=".mp4")
                 os.close(tmp_fd)
                 _download_ok = False
                 try:
                     with httpx.stream("GET", media_url, timeout=float(inputs.timeout)) as clip_resp:
                         clip_resp.raise_for_status()
-                        with open(_loopback_tmp, "wb") as f:
+                        with open(_clip_tmp, "wb") as f:
                             for chunk in clip_resp.iter_bytes(chunk_size=65536):
                                 f.write(chunk)
-                    media_url = _loopback_tmp
+                    media_url = _clip_tmp
                     _download_ok = True
                 except httpx.TimeoutException:
                     detail = f"VIOS clip download timed out after {inputs.timeout}s"
@@ -780,7 +779,7 @@ class VlmGroup(CommandGroup):
                     # caller mistake. Write a terminal record and exit as
                     # BACKEND_UNREACHABLE (3) so callers/retries treat this
                     # correctly instead of seeing an invalid-input (2) exit.
-                    detail = f"cannot fetch VIOS clip for loopback base64 fallback: {exc}"
+                    detail = f"cannot fetch VIOS clip for inline transport: {exc}"
                     clip_input = adapter.build_input(
                         prompt=inputs.prompt,
                         sensor=inputs.sensor,
@@ -811,8 +810,8 @@ class VlmGroup(CommandGroup):
                     # (_download_ok=True) the file is kept for the VLM call below.
                     if not _download_ok:
                         with contextlib.suppress(OSError):
-                            os.unlink(_loopback_tmp)
-                        _loopback_tmp = None
+                            os.unlink(_clip_tmp)
+                        _clip_tmp = None
         elif inputs.file:
             # Path A (file): local file path read and sent as base64-encoded bytes.
             media_url = inputs.file
@@ -820,12 +819,12 @@ class VlmGroup(CommandGroup):
             # Path A (url): pre-resolved HTTP/HTTPS handle passed directly to the VLM.
             media_url = inputs.media_url  # type: ignore[assignment]
 
-        # True for --file, "--media-url <path> --use-base64", or the loopback
-        # SSRF fallback where the clip was streamed to a temp file: the video
+        # True for --file, "--media-url <path> --use-base64", or a sensor
+        # clip streamed to a temp file: the video
         # content is machine-specific bytes, not a retrievable URL handle.
-        _use_base64_effective = options.use_base64 or bool(inputs.file) or _loopback_tmp is not None
+        _use_base64_effective = options.use_base64 or bool(inputs.file) or _clip_tmp is not None
 
-        # Wrap everything that references _loopback_tmp in try/finally so the
+        # Wrap everything that references _clip_tmp in try/finally so the
         # temp file is deleted even if adapter.build_input or the VLM call raises.
         try:
             input_data: MemoryInput = adapter.build_input(
@@ -844,7 +843,7 @@ class VlmGroup(CommandGroup):
                 # one 192 KB raw chunk in memory at a time instead of the entire encoded
                 # payload, the joined string, the data-URI f-string, and the json.dumps
                 # output that the list-then-join approach created simultaneously.
-                file_to_read = _loopback_tmp if _loopback_tmp is not None else media_url
+                file_to_read = _clip_tmp if _clip_tmp is not None else media_url
                 # Pre-validate readability before giving the file to httpx.  If
                 # the open() fails inside the content generator, httpx wraps the
                 # OSError as httpx.WriteError (an httpx.HTTPError subclass) and
@@ -939,10 +938,10 @@ class VlmGroup(CommandGroup):
         finally:
             # Guarantee temp file deletion whether the VLM call succeeded, failed,
             # or raised — including if adapter.build_input raised before the call.
-            if _loopback_tmp is not None:
+            if _clip_tmp is not None:
                 with contextlib.suppress(OSError):
-                    os.unlink(_loopback_tmp)
-                _loopback_tmp = None
+                    os.unlink(_clip_tmp)
+                _clip_tmp = None
 
         if response.status_code >= 400:
             detail = f"HTTP {response.status_code}"

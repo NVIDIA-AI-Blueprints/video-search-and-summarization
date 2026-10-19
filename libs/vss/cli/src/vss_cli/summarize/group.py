@@ -439,6 +439,8 @@ def _prepare_sensor_source(
         file_id = payload.get("id") if isinstance(payload, dict) else None
         if not isinstance(file_id, str) or not file_id:
             raise BackendUnreachableError("lvs", "file upload returned no file ID")
+    except httpx.TimeoutException:
+        raise
     except (httpx.HTTPError, ValueError) as error:
         raise BackendUnreachableError("lvs", "could not transfer the VIOS recording to LVS") from error
     return ref, file_id, start

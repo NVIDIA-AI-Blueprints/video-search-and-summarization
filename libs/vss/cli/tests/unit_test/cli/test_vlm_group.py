@@ -10,6 +10,7 @@ reports itself.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import json
 from typing import TYPE_CHECKING
 from typing import Any
@@ -87,6 +88,10 @@ def _fake_post(response: Any) -> Any:
         return response
 
     return _return
+
+
+def _fake_clip_stream(method: str, url: str, **_kwargs: Any):
+    return nullcontext(httpx.Response(200, content=b"video-bytes", request=httpx.Request(method, url)))
 
 
 def _in_memory(deployment: config_mod.Deployment) -> memory_mod.Memory:
@@ -1062,11 +1067,12 @@ def test_run_request_preserves_fps_on_long_sensor_window(
 ) -> None:
     captured: dict[str, Any] = {}
 
-    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
-        captured["json"] = json
+    def _capture(_url: str, *, content: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json.loads(b"".join(content))
         return httpx.Response(200, json=_completion())
 
     monkeypatch.setattr(httpx, "post", _capture)
+    monkeypatch.setattr(httpx, "stream", _fake_clip_stream)
     monkeypatch.setattr(
         "vss_cli.vlm.group._resolve_vios_clip",
         lambda *_args, **_kwargs: ("http://vios/clip.mp4", "2025-01-01T00:00:00Z", "2025-01-01T00:02:00Z"),
@@ -1459,6 +1465,7 @@ def test_sensor_path_uses_resolved_window_bounds(
     )
     monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion("ok"))))
 
+    monkeypatch.setattr(httpx, "stream", _fake_clip_stream)
     store = _in_memory(configured)
     ctx = Context(deployment=configured, memory=store)
     group = VlmGroup()
@@ -1517,12 +1524,13 @@ def test_run_file_source_does_not_persist_local_path(
     _assert_no_local_path_in_record(store2.service.list_jobs(), "--media-url+--use-base64")
 
 
-def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
+@pytest.mark.parametrize("clip_host", ["localhost:30888", "192.0.2.10:7777"])
+def test_sensor_url_streams_to_tempfile_and_uses_base64(
+    clip_host: str,
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When VIOS resolves --sensor to a loopback URL, the CLI must stream it to a temp
-    file (no double-materialisation of raw bytes) and send the clip inline as base64."""
+    """RT-VLM receives bytes for both loopback and non-loopback sensor URLs."""
     import base64 as _b64
     import contextlib
 
@@ -1531,7 +1539,7 @@ def test_sensor_loopback_url_streams_to_tempfile_and_uses_base64(
     from vss_cli.vlm.group import VlmGroup
 
     clip_bytes = b"\x00\x01\x02loopback-clip"
-    loopback_url = "http://localhost:30888/vst/api/v1/storage/file/abc/url"
+    loopback_url = f"http://{clip_host}/vst/api/v1/storage/file/abc/url"
 
     monkeypatch.setattr(
         vlm_group_mod,
