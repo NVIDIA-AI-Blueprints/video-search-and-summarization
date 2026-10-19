@@ -14,8 +14,8 @@ Media reaches the VLM one of two ways (VLM-1 / VLM-2):
 
 * **Path B** (default): ``--sensor <name> [--start-time T --end-time T]``.
   VIOS resolves the recording. For RT-VLM, the CLI streams the clip to a
-  temporary file and sends its bytes inline; the container need not fetch
-  the host-facing URL. Other backends receive the URL unless it is loopback.
+  temporary file and sends its bytes inline, or uploads larger clips through
+  the files API; the container need not fetch the host-facing URL. Other backends receive the URL unless it is loopback.
 * **Path A** (escape hatch): ``--media-url <url>``. A pre-resolved handle --
   any HTTP/HTTPS URL -- is sent directly as ``video_url``. Add ``--use-base64``
   to read a local file and send it as base64-encoded bytes instead.
@@ -82,6 +82,8 @@ if TYPE_CHECKING:
 _JOB_DOMAIN = "vlm"
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _COMPLETIONS_PATH = "/v1/chat/completions"
+# RT-VLM VideoUrl permits 100,000,000 characters, including the data-URI prefix.
+_MAX_INLINE_VIDEO_BYTES = 74_999_982
 _LOG = logging.getLogger(__name__)
 
 
@@ -737,6 +739,8 @@ class _VlmRun:
                     open(media_url, "rb").close()
                 except OSError as error:
                     raise InvalidInput(f"cannot read local file {media_url!r}: {error}") from error
+                if self.backend == "rt_vlm" and os.path.getsize(media_url) > _MAX_INLINE_VIDEO_BYTES:
+                    return self.file_request(media_url)
                 return httpx.post(
                     url,
                     content=_iter_base64_json(
@@ -772,6 +776,54 @@ class _VlmRun:
             return self.failed(
                 str(error), Exit.BACKEND_UNREACHABLE, input_data, diagnostic=f"vss: VLM unreachable at {url}: {error}"
             )
+
+    def file_request(self, path: str) -> httpx.Response:
+        """Avoid RT-VLM's base64 size limit, then release only the asset we uploaded."""
+        import httpx
+
+        base = self.deployment.endpoint("rt_vlm").rstrip("/")
+        headers = _vlm_headers()
+        upload_headers = {key: value for key, value in headers.items() if key != "Content-Type"}
+        with open(path, "rb") as clip:
+            uploaded = httpx.post(
+                base + "/v1/files",
+                files={"file": ("clip.mp4", clip, "video/mp4")},
+                data={"purpose": "vision", "media_type": "video"},
+                headers=upload_headers,
+                timeout=float(self.inputs.timeout),
+            )
+        uploaded.raise_for_status()
+        try:
+            info = uploaded.json()
+        except ValueError:
+            raise httpx.RemoteProtocolError("RT-VLM file upload returned invalid JSON") from None
+        file_id = info.get("id") if isinstance(info, dict) else None
+        if not isinstance(file_id, str) or not file_id:
+            raise httpx.RemoteProtocolError("RT-VLM file upload returned no file ID")
+        try:
+            payload = _build_rt_vlm_request(
+                prompt=self.inputs.prompt,
+                media_url="",
+                model=self.model,
+                inputs=self.inputs,
+            )
+            payload["id"] = file_id
+            payload["messages"][0]["content"] = self.inputs.prompt
+            return httpx.post(
+                base + _COMPLETIONS_PATH,
+                json=payload,
+                headers=headers,
+                timeout=float(self.inputs.timeout),
+            )
+        finally:
+            # Cleanup must not replace a paid-for answer or the original model failure.
+            try:
+                deleted = httpx.delete(
+                    base + "/v1/files/" + file_id, headers=headers, timeout=float(self.inputs.timeout)
+                )
+                deleted.raise_for_status()
+            except httpx.HTTPError as error:
+                click.echo(f"vss: could not release RT-VLM file {file_id} ({type(error).__name__})", err=True)
 
     def execute(self) -> Result:
         source = self.source()

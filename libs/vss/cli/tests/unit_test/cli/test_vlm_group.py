@@ -2243,3 +2243,86 @@ def test_explicit_max_frames_replaces_an_inherited_fps_where_backends_take_one(
     VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", max_frames=30), ctx)
 
     assert captured["json"]["media_io_kwargs"] == {"video": expected}
+
+
+def test_inline_video_boundary_matches_rt_vlm_schema() -> None:
+    import ast
+    from pathlib import Path
+
+    from vss_cli.vlm.group import _MAX_INLINE_VIDEO_BYTES
+
+    root = next(parent for parent in Path(__file__).resolve().parents if (parent / "services/rtvi/rt-vlm").is_dir())
+    module = ast.parse((root / "services/rtvi/rt-vlm/src/api_models/nim_compat.py").read_text())
+    model = next(node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "VideoUrl")
+    field = next(node for node in model.body if isinstance(node, ast.AnnAssign) and node.target.id == "url")
+    limit = next(ast.literal_eval(item.value) for item in field.value.keywords if item.arg == "max_length")
+    prefix = len("data:video/mp4;base64,")
+    assert ((_MAX_INLINE_VIDEO_BYTES + 2) // 3) * 4 + prefix <= limit
+    assert ((_MAX_INLINE_VIDEO_BYTES + 3) // 3) * 4 + prefix > limit
+
+
+@pytest.mark.parametrize(
+    "failure", [None, "upload-http", "upload-json", "upload-id", "inference-http", "inference-timeout", "cleanup-http"]
+)
+def test_large_rt_vlm_clip_uses_files_api_and_releases_its_asset(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    failure: str | None,
+) -> None:
+    from vss_cli.group import Context
+    from vss_cli.vlm import group as vlm_group
+
+    clip = tmp_path / "large.mp4"
+    clip.write_bytes(b"video-bytes")
+    monkeypatch.setattr(vlm_group, "_MAX_INLINE_VIDEO_BYTES", 1)
+    monkeypatch.setenv("VSS_VLM_API_KEY", "test-key")
+    file_id = "ee089f6a-ccbb-4a8a-a48e-80faf5389e25"
+    uploaded = []
+    deleted = []
+
+    def post(url, *, files=None, data=None, json=None, headers=None, **kwargs):
+        request = httpx.Request("POST", url)
+        assert headers["Authorization"] == "Bearer test-key"
+        if files:
+            assert url == BASE_URL + "/rtvi-vlm/v1/files"
+            assert "Content-Type" not in headers
+            assert files["file"][1].read() == b"video-bytes"
+            assert data == {"purpose": "vision", "media_type": "video"}
+            uploaded.append(file_id)
+            if failure == "upload-http":
+                return httpx.Response(503, request=request)
+            if failure == "upload-json":
+                return httpx.Response(200, text="not JSON", request=request)
+            return httpx.Response(200, json={} if failure == "upload-id" else {"id": file_id}, request=request)
+        assert json["id"] == file_id
+        assert json["messages"][0]["content"] == "What?"
+        assert json["media_io_kwargs"] == {"video": {"fps": 2.0}}
+        if failure == "inference-timeout":
+            raise httpx.ReadTimeout("model timeout")
+        return httpx.Response(
+            503 if failure == "inference-http" else 200, json=_completion("large clip works"), request=request
+        )
+
+    def delete(url, **kwargs):
+        assert url == BASE_URL + "/rtvi-vlm/v1/files/" + file_id
+        deleted.append(file_id)
+        return httpx.Response(503 if failure == "cleanup-http" else 200, request=httpx.Request("DELETE", url))
+
+    monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setattr(httpx, "delete", delete)
+    store = _in_memory(configured)
+    result = VLM.run(
+        "", VlmInput(prompt="What?", file=str(clip), fps=2.0), Context(deployment=configured, memory=store)
+    )
+    assert uploaded == [file_id]
+    assert deleted == ([] if failure and failure.startswith("upload-") else [file_id])
+    if failure == "inference-timeout":
+        assert result.exit == Exit.TIMEOUT
+    elif failure and failure != "cleanup-http":
+        assert result.exit == Exit.BACKEND_UNREACHABLE
+    else:
+        assert result.exit == Exit.SUCCESS
+        assert result.body["answer"] == "large clip works"
+        _assert_no_local_path_in_record(store.service.list_jobs(), "large uploaded clip")
+    assert clip.exists(), "the original local file belongs to the user"
