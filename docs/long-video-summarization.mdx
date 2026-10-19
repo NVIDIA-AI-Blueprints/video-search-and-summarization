@@ -210,9 +210,9 @@ ARM_PLATFORM=igpu make -C docker build
 
 <Note>
 The container image tag must match the host CPU platform. Pre-built images
-are published as `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0`
+are published as `nvcr.io/nvidia/vss-core/vss-video-summarization:3.3.0`
 for x86 and Jetson Thor, and
-`ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0-sbsa` for DGX Spark
+`nvcr.io/nvidia/vss-core/vss-video-summarization:3.3.0-sbsa` for DGX Spark
 / SBSA / Grace. When building from source, select the matching
 `ARM_PLATFORM` value: `sbsa` for DGX Spark / Grace, `igpu` for Jetson /
 Thor.
@@ -272,9 +272,9 @@ LVS_DATABASE_BACKEND=elasticsearch_db
 # RTVI-VLM Integration
 COMPOSE_PROFILES=rtvi
 # Multi-arch tag, covering x86 and Jetson Thor (iGPU) platforms:
-RTVI_VLM_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:3.3.0
+RTVI_VLM_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.3.0
 # For DGX Spark / SBSA / Grace (server-class ARM) platforms, use the -sbsa tag:
-#RTVI_VLM_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:3.3.0-sbsa
+#RTVI_VLM_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.3.0-sbsa
 RTVI_VLM_PORT=8420
 RTVI_VLM_GPU=1
 # RTVI_VLM_URL=http://<external-rtvi-host>:8083  # set only when pointing at an external RTVI-VLM
@@ -461,9 +461,9 @@ touch .env
 
 # Container Configuration
 # Multi-arch tag, covering x86 and Jetson Thor (iGPU) platforms:
-CONTAINER_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0
+CONTAINER_IMAGE=nvcr.io/nvidia/vss-core/vss-video-summarization:3.3.0
 # For DGX Spark / SBSA / Grace (server-class ARM) platforms, use the -sbsa tag:
-#CONTAINER_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0-sbsa
+#CONTAINER_IMAGE=nvcr.io/nvidia/vss-core/vss-video-summarization:3.3.0-sbsa
 
 # API Keys and Authentication
 NGC_API_KEY=<your-ngc-api-key>

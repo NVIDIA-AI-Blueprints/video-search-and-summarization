@@ -214,8 +214,7 @@ Replace `HOST_IP`, `VIDEO_NAME`, `SENSOR_ID`, `MEDIA_URL`, and `START_TIME` with
 # Set NGC CLI API key
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
-# Authenticate Docker for gated NIM and other nvcr.io images. The managed VSS
-# images on ghcr.io are public and do not require a registry login.
+# Authenticate Docker to pull VSS release images, NIM, and other NGC images.
 printf '%s' "$NGC_CLI_API_KEY" | \
   docker login nvcr.io --username '$oauthtoken' --password-stdin
 ```
@@ -686,7 +685,7 @@ docker compose -f compose.yml \
 ```
 
 On the first bring-up, Docker Compose pulls the required containers from the
-configured GHCR and NGC registries and builds five support images locally:
+configured NGC registries and builds five support images locally:
 Elasticsearch, its initializer, the Kafka topic
 initializer, the broker health checker, and the LVS Kibana initializer. Those
 builds pull base images from Docker Hub and `docker.elastic.co`; the Kafka

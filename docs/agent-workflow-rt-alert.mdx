@@ -292,8 +292,7 @@ the connection carries the gateway token and alert contents. Use `ws://` only fo
 # Set NGC CLI API key
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
-# Authenticate Docker for gated NIM and other nvcr.io images. The managed VSS
-# images on ghcr.io are public and do not require a registry login.
+# Authenticate Docker to pull VSS release images, NIM, and other NGC images.
 printf '%s' "$NGC_CLI_API_KEY" | \
   docker login nvcr.io --username '$oauthtoken' --password-stdin
 ```
@@ -350,8 +349,8 @@ field while Compose still forwards it. Later `--env-file` arguments take
 precedence over earlier arguments; therefore, changes to `overrides.env` made
 after it has been copied do not affect a command that reads
 `user-overrides.env`.
-`VSS_CONTAINER_REGISTRY` (default `ghcr.io/nvidia-ai-blueprints/vss`) and
-`VSS_CONTAINER_TAG` (default `develop-latest`) are defined in
+`VSS_CONTAINER_REGISTRY` (default `nvcr.io/nvidia/vss-core`) and
+`VSS_CONTAINER_TAG` (default `3.3.0`) are defined in
 `deploy/docker/containers.env`.
 
 **Host-path and service-address overrides (all hardware profiles):**
@@ -793,7 +792,7 @@ docker compose -f compose.yml \
 ```
 
 On the first bring-up, Docker Compose pulls the required containers from the
-configured GHCR and NGC registries and builds five support images locally:
+configured NGC registries and builds five support images locally:
 Elasticsearch, its initializer, the Kafka topic
 initializer, the broker health checker, and the alerts Kibana initializer.
 Those builds pull base images from Docker Hub and `docker.elastic.co`; the

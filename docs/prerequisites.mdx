@@ -248,7 +248,6 @@ export NGC_CLI_API_KEY='your_ngc_api_key'
 
 # Authenticate Docker for gated NIM and other nvcr.io images. The username is
 # the literal string $oauthtoken; the password is your NGC Personal API Key.
-# Managed VSS images on ghcr.io are public and require no registry login.
 printf '%s' "$NGC_CLI_API_KEY" | \
   docker login nvcr.io --username '$oauthtoken' --password-stdin
 
@@ -305,7 +304,7 @@ NemoClaw harness.
 
 | Credential | Required when |
 | --- | --- |
-| `NGC_CLI_API_KEY` | Pulling gated NIM, model, sample-data, and other artifacts from NGC. This is required for the standard deployment paths. Use the same Personal API Key for `docker login nvcr.io`. Managed VSS images on public GHCR require no registry login. |
+| `NGC_CLI_API_KEY` | Pulling gated NIM, model, sample-data, and other artifacts from NGC. This is required for the standard deployment paths. Use the same Personal API Key for `docker login nvcr.io`. VSS release images are hosted at `nvcr.io/nvidia/vss-core`. |
 | `COMPATIBLE_API_KEY` | The NemoClaw harness uses a public OpenAI-compatible endpoint that requires a bearer token. Obtain the key from the endpoint provider. |
 | `NVIDIA_API_KEY` | A selected LLM or VLM is served from `build.nvidia.com` or `integrate.api.nvidia.com`. Create a key from [NVIDIA API Keys](https://build.nvidia.com/settings/api-keys). |
 | `HF_TOKEN` | A selected model or helper downloads gated or rate-limited weights from Hugging Face. |
