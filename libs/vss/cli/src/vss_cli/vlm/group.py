@@ -120,16 +120,10 @@ def _vlm_headers() -> dict[str, str]:
     return headers
 
 
-def _is_loopback_url(url: str) -> bool:
-    """True when the URL's host is a loopback address that a remote service cannot reach.
-
-    VIOS on Docker resolves clip URLs using the HAProxy-facing hostname, which is
-    often ``localhost`` or ``127.0.0.1`` from the CLI's perspective.  That URL is
-    reachable from the CLI host but not from inside the rt_vlm container; sending it
-    as ``video_url`` triggers SSRF protection (or a silent fetch failure), returning
-    an error or an empty answer.  Detecting this early lets the CLI fall back to
-    fetching the clip itself and inlining it as base64 before the VLM call.
-    """
+def _needs_inline_clip(url: str, backend: str) -> bool:
+    """RT-VLM must not fetch host-facing URLs; other backends need loopback protection."""
+    if backend == "rt_vlm":
+        return True
     try:
         host = urllib.parse.urlparse(url).hostname or ""
     except Exception:
@@ -731,7 +725,7 @@ class VlmGroup(CommandGroup):
                     exit=_vios_code,
                     job_id=job_id,
                 )
-            if backend == "rt_vlm" or _is_loopback_url(media_url):
+            if _needs_inline_clip(media_url, backend):
                 # Fetch on the CLI host: the RT-VLM container may not reach even
                 # a non-loopback host origin. Reuse the bounded-memory file path.
                 tmp_fd, _clip_tmp = tempfile.mkstemp(suffix=".mp4")

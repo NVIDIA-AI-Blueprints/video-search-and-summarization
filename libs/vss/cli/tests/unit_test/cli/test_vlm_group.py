@@ -1679,18 +1679,19 @@ def test_sensor_loopback_clip_http_error_writes_terminal_record(
     assert jobs[-1].job.status == "failed", f"terminal record status: {jobs[-1].job.status}"
 
 
-def test_is_loopback_url() -> None:
-    """_is_loopback_url matches CLI-only hosts and rejects VLM-routable hosts."""
-    from vss_cli.vlm.group import _is_loopback_url
+@pytest.mark.parametrize("backend", ["rt_vlm", "vllm"])
+def test_needs_inline_clip(backend: str) -> None:
+    """RT-VLM always gets bytes; other backends can still fetch non-loopback URLs."""
+    from vss_cli.vlm.group import _needs_inline_clip
 
-    assert _is_loopback_url("http://localhost:30888/vst/api/v1/storage/file/abc")
-    assert _is_loopback_url("http://127.0.0.1:9000/clip.mp4")
-    assert _is_loopback_url("http://127.1.2.3:8080/")
-    assert _is_loopback_url("http://[::1]/clip.mp4")
-    assert _is_loopback_url("http://host.openshell.internal:7777/vst/api/v1/storage/file/abc")
-    assert not _is_loopback_url("http://10.86.83.113:30888/vst/api/v1/storage/file/abc")
-    assert not _is_loopback_url("http://vst-host/clip.mp4")
-    assert not _is_loopback_url("https://192.168.1.100:8080/clip.mp4")
+    assert _needs_inline_clip("http://localhost:30888/vst/api/v1/storage/file/abc", backend)
+    assert _needs_inline_clip("http://127.0.0.1:9000/clip.mp4", backend)
+    assert _needs_inline_clip("http://127.1.2.3:8080/", backend)
+    assert _needs_inline_clip("http://[::1]/clip.mp4", backend)
+    assert _needs_inline_clip("http://host.openshell.internal:7777/vst/api/v1/storage/file/abc", backend)
+    assert _needs_inline_clip("http://10.86.83.113:30888/vst/api/v1/storage/file/abc", backend) == (backend == "rt_vlm")
+    assert _needs_inline_clip("http://vst-host/clip.mp4", backend) == (backend == "rt_vlm")
+    assert _needs_inline_clip("https://192.168.1.100:8080/clip.mp4", backend) == (backend == "rt_vlm")
 
 
 def test_run_empty_answer_exits_backend_unreachable(
