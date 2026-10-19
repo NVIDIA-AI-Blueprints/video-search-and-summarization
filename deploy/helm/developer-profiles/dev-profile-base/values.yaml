@@ -582,8 +582,12 @@ rtvi:
         value: "60"
       - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS
         value: "10"
+      # Shared GPU default leaves room for the local LLM and CUDA overhead.
+      # Mirrors deploy/docker/developer-profiles/dev-profile-base/overrides.env
+      # (RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4). Hardware tabs / per-deployment
+      # overrides can raise this for dedicated / remote-LLM memory budgets.
       - name: VLLM_GPU_MEMORY_UTILIZATION
-        value: ""
+        value: "0.4"
       - name: VLLM_DISABLED_KERNELS
         value: "FlashInferFP8ScaledMMLinearKernel"
       # GB300 uses TRITON_ATTN; an empty value preserves the default on other platforms.
