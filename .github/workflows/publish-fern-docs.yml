@@ -17,20 +17,21 @@
 # domain in fern/docs.yml. Release branches and PRs use named previews instead
 # (preview-release-docs.yml, fern-docs-ci.yml).
 #
-# The site is always built from develop: its fern/docs.yml lists the published
-# versions. build_fern_site.py turns that list into one Fern tree:
+# The workflow always checks out develop, but only for fern/docs.yml (which
+# versions to publish) and the build scripts. build_fern_site.py turns that
+# list into one Fern tree, with page content from:
 #   - Dev: the develop checkout, stamped `develop` / `develop-latest`;
-#   - each listed release tag vX.Y.Z: its docs from the tag, stamped
-#     `vX.Y.Z` / `X.Y.Z` / `X.Y.Z-sbsa`. The first listed version is the
-#     default and serves the unversioned URLs.
+#   - each listed release tag vX.Y.Z: `git archive` of that tag's docs/,
+#     stamped `vX.Y.Z` / `X.Y.Z` / `X.Y.Z-sbsa`. The first listed version is
+#     the default and serves the unversioned URLs.
+# Publishing a release does not require merging its release branch into
+# develop; only the `ref: vX.Y.Z` entry has to be on develop.
 #
 # Triggers:
 #   - push to develop touching the docs: refreshes Dev (releases are rebuilt
 #     unchanged from their immutable tags);
 #   - push of a release tag vX.Y.Z: publishes that release, which must already
-#     be listed in fern/docs.yml on develop (the build fails otherwise). The
-#     content still comes from develop plus the listed tags, never from the
-#     tagged commit's checkout;
+#     be listed in fern/docs.yml on develop (the build fails otherwise);
 #   - workflow_dispatch: republish.
 # A tag push runs this file from the tagged commit, so release branches must
 # carry this version of the workflow before they are tagged.
