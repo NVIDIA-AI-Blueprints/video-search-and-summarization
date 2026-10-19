@@ -133,6 +133,13 @@ All of them need the `DOCS_FERN_TOKEN` repository or organization secret.
 
 ## Releasing a docs version
 
+Publishing a release does not require merging the release branch into
+`develop`, and `develop` stays open for docs contributions throughout.
+`develop` supplies only the version list in `fern/docs.yml` and the build
+tooling. Each release's pages come from its own `vX.Y.Z` tag, so changes made
+only on the release branch are published whether or not they ever reach
+`develop`.
+
 1. Cut `release/X.Y.Z` from `develop`. Every docs push to the branch refreshes
    the `release-X-Y-Z` preview.
 2. On `develop`, add the release at the top of `versions:` in `fern/docs.yml`:
@@ -146,7 +153,8 @@ All of them need the `DOCS_FERN_TOKEN` repository or organization secret.
    This is safe before the tag exists: the build skips listed tags it cannot
    find, with a warning. The entry can also be added on the release branch
    and back-ported; what matters is that it is on `develop` when the tag is
-   pushed, because production is always built from `develop`.
+   pushed, because the publish workflow reads the version list from
+   `develop`. The release's pages still come from its tag.
 3. Push the `vX.Y.Z` tag on the release branch. Production republishes from
    `develop` with the tagged docs added, and `X.Y.Z` becomes the default
    version.
@@ -160,6 +168,11 @@ entry merges to `develop` (every docs merge republishes production).
   `.github/scripts/` and docs workflows. Back-port them to release branches cut
   before they landed: a branch push runs that branch's own workflows and
   builder, so an old branch is not checked by the current rules.
+- **Forward-port tooling before tagging.** Tooling that lands on a release
+  branch first (the build scripts, docs workflows, `setup-fern`) must also
+  reach `develop` before the tag is pushed, because a tag publish runs
+  `develop`'s builder. Cherry-picking those commits or opening a matching PR
+  against `develop` is enough; merging the release branch is not required.
 - **Retiring a version.** Delete its entry from `versions:`.
 - **Fixing a published release.** Tags are immutable, so a docs fix ships in a
   patch release (for example `v3.3.1`), listed as its own entry.
