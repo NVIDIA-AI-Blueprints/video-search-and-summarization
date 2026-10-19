@@ -19,9 +19,11 @@ from vss_cli.group import Result
 from vss_core import vios
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core.memory import MemoryNotFoundError
+from vss_core.memory import MemoryOutput
 from vss_core.vlm import second_look
 
 if TYPE_CHECKING:
+    from vss_cli.config import VlmConfig
     from vss_cli.group import Context
 
     from .group import VlmGroup
@@ -52,6 +54,8 @@ class _CliAnalyzer:
                 "prompt": prompt,
                 "relook_start_time": None,
                 "relook_end_time": None,
+                "relook_fps": None,
+                "relook_max_frames": None,
             }
         )
         # The synchronous CLI resolves VIOS media with its own event loop.
@@ -62,10 +66,33 @@ class _CliAnalyzer:
         return str(result.body["answer"])
 
 
-def run_second_look(group: VlmGroup, inputs: VlmInput, ctx: Context) -> Result:
+def _reread_inputs(inputs: VlmInput, policy: VlmConfig | None) -> VlmInput:
+    from .group import _ONE_OF_FPS_OR_FRAMES_BACKENDS
+    from .group import _apply_vlm_policy
+
+    if inputs.relook_fps is None and inputs.relook_max_frames is None:
+        return inputs
+    backend = policy.backend if policy is not None else "rt_vlm"
+    if backend == "openai":
+        raise InvalidInput("--relook-fps / --relook-max-frames are not supported by the openai backend")
+    updates: dict[str, float | int | None] = {}
+    if inputs.relook_fps is not None:
+        updates["fps"] = inputs.relook_fps
+    if inputs.relook_max_frames is not None:
+        updates["max_frames"] = inputs.relook_max_frames
+    if backend in _ONE_OF_FPS_OR_FRAMES_BACKENDS:
+        if len(updates) == 2:
+            raise InvalidInput(f"{backend} accepts --relook-fps or --relook-max-frames, not both")
+        # Switching modes must also pass the existing lock check for the cleared setting.
+        updates["max_frames" if inputs.relook_fps is not None else "fps"] = None
+    return _apply_vlm_policy(inputs.model_copy(update=updates), policy)
+
+
+def run_second_look(group: VlmGroup, inputs: VlmInput, ctx: Context, *, policy: VlmConfig | None) -> Result:
     from .group import _vios_exit_for
 
     assert ctx.deployment is not None and inputs.sensor is not None
+    second_inputs = _reread_inputs(inputs, policy)
     origin = ctx.deployment.base_url.rstrip("/")
     sensor = inputs.sensor
     if "vst" not in ctx.deployment.services:
@@ -101,7 +128,15 @@ def run_second_look(group: VlmGroup, inputs: VlmInput, ctx: Context) -> Result:
     # Each read already reports an unavailable configured store as partial.
     with suppress(memory_mod.MemoryUnavailable):
         memory = group.persist_memory(ctx, no_persist=bool(ctx.extra.get("no_persist")))
-    analyzer = _CliAnalyzer(group, inputs, replace(ctx, memory=memory))
+    # Remuxing may start at an earlier keyframe and shift the source-time context.
+    read_ctx = replace(
+        ctx, memory=memory, extra={**ctx.extra, "relook_container": None, "_second_look_exact_clip": True}
+    )
+    analyzer = _CliAnalyzer(group, inputs, read_ctx)
+    target_ctx = replace(
+        read_ctx, extra={**read_ctx.extra, "_second_look_container": ctx.extra.get("relook_container")}
+    )
+    target_analyzer = _CliAnalyzer(group, second_inputs, target_ctx)
     try:
         try:
             outcome = asyncio.run(
@@ -114,6 +149,7 @@ def run_second_look(group: VlmGroup, inputs: VlmInput, ctx: Context) -> Result:
                     second_end_timestamp=bounds[3],
                     prompt=inputs.prompt,
                     time_format=time_format,
+                    second_analyzer=target_analyzer,
                 )
             )
         except ValueError as exc:
@@ -123,22 +159,52 @@ def run_second_look(group: VlmGroup, inputs: VlmInput, ctx: Context) -> Result:
                 raise
             return analyzer.reads[0]
 
-        selected = analyzer.reads[0] if outcome.fallback_reason else analyzer.reads[-1]
-        details = asdict(outcome) | {"job_ids": [read.job_id for read in analyzer.reads]}
+        reads = analyzer.reads + target_analyzer.reads
+        selected = reads[0] if outcome.fallback_reason else reads[-1]
+        relationship = {
+            "group_id": reads[0].job_id,
+            "job_ids": [read.job_id for read in reads],
+            "selected_job_id": selected.job_id,
+        }
+        details = (
+            asdict(outcome)
+            | relationship
+            | {
+                "role": "first" if outcome.fallback_reason else "targeted",
+                "selected": True,
+                "reads": [
+                    {
+                        "job_id": read.job_id,
+                        "persisted": read.body.get("persisted", read.extra.get("marker", {}).get("persisted", False)),
+                        **({"persist_error": read.body["persist_error"]} if read.body.get("persist_error") else {}),
+                    }
+                    for read in reads
+                ],
+            }
+        )
         body = dict(selected.body, answer=outcome.answer, second_look=details)
-        partial = bool(outcome.fallback_reason) or any(read.exit != Exit.SUCCESS for read in analyzer.reads)
-        if memory is not None and body.get("persisted"):
+        partial = bool(outcome.fallback_reason) or any(read.exit != Exit.SUCCESS for read in reads)
+        if memory is not None:
             persistence_errors: tuple[type[BaseException], ...] = (MemoryNotFoundError, *memory_mod.write_failures())
-            try:
-                record = memory.service.get(selected.job_id)
-                if record.output is None:
-                    raise MemoryNotFoundError("Selected read has no saved output")
-                output = record.output.model_copy(update={"ext": {**(record.output.ext or {}), "second_look": details}})
-                memory.service.upsert(record.model_copy(update={"output": output}))
-            except persistence_errors:
-                body["persisted"] = False
-                body["persist_error"] = "Second-look metadata could not be saved."
-                partial = True
+            for index, read in enumerate(reads):
+                if not read.body.get("persisted", read.extra.get("marker", {}).get("persisted", False)):
+                    continue
+                metadata = (
+                    details
+                    if read is selected
+                    else relationship | {"role": "first" if index == 0 else "targeted", "selected": False}
+                )
+                try:
+                    record = memory.service.get(read.job_id)
+                    if record.output is None and read.exit in (Exit.SUCCESS, Exit.PARTIAL):
+                        raise MemoryNotFoundError("Completed read has no saved output")
+                    output = record.output or MemoryOutput()
+                    output = output.model_copy(update={"ext": {**(output.ext or {}), "second_look": metadata}})
+                    memory.service.upsert(record.model_copy(update={"output": output}))
+                except persistence_errors:
+                    body["persisted"] = False
+                    body["persist_error"] = "Second-look metadata could not be saved."
+                    partial = True
         return Result(
             body=body,
             job_id=selected.job_id,

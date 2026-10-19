@@ -13,8 +13,9 @@ summarize pipeline and never re-enters a long-running job.
 Media reaches the VLM one of two ways (VLM-1 / VLM-2):
 
 * **Path B** (default): ``--sensor <name> [--start-time T --end-time T]``.
-  VIOS resolves the sensor to a clip URL and the VLM receives that URL. No
-  video bytes cross the CLI; the VLM fetches the clip from VIOS directly.
+  VIOS resolves the sensor to a clip URL and the VLM receives that URL.
+  ``--use-base64`` downloads the clip and sends its bytes inline instead;
+  loopback URLs use this automatically.
 * **Path A** (escape hatch): ``--media-url <url>``. A pre-resolved handle --
   any HTTP/HTTPS URL -- is sent directly as ``video_url``. Add ``--use-base64``
   to read a local file and send it as base64-encoded bytes instead.
@@ -42,6 +43,7 @@ import base64
 import contextlib
 import json as _json_mod
 import logging
+import mimetypes
 import os
 import secrets
 import tempfile
@@ -193,6 +195,18 @@ class VlmInput(BaseModel):
         None,
         description="Second-read end, paired with --relook-start-time. Requires --sensor.",
     )
+    relook_fps: float | None = Field(
+        None,
+        gt=0,
+        le=256,
+        description="Frames per second for the second read only. Requires a relook window; honors policy locks.",
+    )
+    relook_max_frames: int | None = Field(
+        None,
+        ge=1,
+        le=2**31 - 1,
+        description="Frame budget for the second read only. Combines with --relook-fps on vLLM; honors policy locks.",
+    )
     media_url: str | None = Field(
         None,
         description="Pre-resolved HTTP/HTTPS video URL (Path A). Mutually exclusive with --sensor and --file.",
@@ -270,6 +284,8 @@ class VlmInput(BaseModel):
             raise ValueError("exactly one of --sensor, --media-url, or --file is required")
         if not has_sensor and (self.start_time or self.end_time):
             raise ValueError("--start-time / --end-time require --sensor")
+        if (self.relook_fps is not None or self.relook_max_frames is not None) and self.relook_start_time is None:
+            raise ValueError("--relook-fps and --relook-max-frames require a relook window")
         if self.relook_start_time is not None or self.relook_end_time is not None:
             if not self.relook_start_time or not self.relook_end_time:
                 raise ValueError("--relook-start-time and --relook-end-time must be supplied together")
@@ -289,9 +305,13 @@ class VlmOptions(BaseModel):
     use_base64: bool = Field(
         False,
         description=(
-            "Read the --media-url value as a local file path and send its bytes as base64. "
-            "Path A escape hatch when VIOS is not available."
+            "Send video bytes inline as base64: download a --sensor clip, "
+            "or read the --media-url value as a local file path."
         ),
+    )
+    relook_container: Literal["mp4", "mkv"] | None = Field(
+        None,
+        description="VIOS container for the second clip only. Requires a relook window; default is unchanged.",
     )
 
 
@@ -355,14 +375,18 @@ def _resolve_vios_clip(
     sensor: str,
     start_time: str | None,
     end_time: str | None,
+    *,
+    transcode: Literal["full"] | None = None,
+    container: Literal["mp4", "mkv"] | None = None,
 ) -> tuple[str, str | None, str | None]:
     """Resolve a VIOS sensor to a clip URL and the effective window bounds.
 
-    Returns ``(media_url, resolved_start, resolved_end)`` where the bounds reflect
-    the actual window VIOS served, which may differ from the inputs when only one
-    bound was supplied or neither was supplied.
+    Returns ``(media_url, resolved_start, resolved_end)`` with requested bounds
+    resolved against the recording. Full transcoding avoids the earlier
+    keyframe that the default remux can include.
     """
     from vss_core import vios
+    from vss_core._foundation.time import iso8601_to_datetime
 
     origin = deployment.base_url.rstrip("/")
 
@@ -370,11 +394,15 @@ def _resolve_vios_clip(
         ref = await vios.resolve_sensor(origin, sensor)
         segments = await vios.recorded_segments(origin, ref.stream_id)
         start, end = vios.resolve_window(segments, start_time, end_time, ref.kind)
+        window = tuple(iso8601_to_datetime(value) for value in (start, end))
+        whole_segment = any(window == tuple(iso8601_to_datetime(value) for value in segment) for segment in segments)
         url = await vios.get_video_clip_url(
             stream_id=ref.stream_id,
             start_time=start,
             end_time=end,
             vst_internal_url=origin,
+            transcode=None if whole_segment else transcode,
+            container=container,
         )
         url = vios.normalise_media_url(url, origin)
         await vios.warm_media_url(url)
@@ -608,7 +636,8 @@ def _iter_base64_json(
 
     try:
         with open(file_path, "rb") as fh:
-            yield (pre + '"data:video/mp4;base64,').encode()
+            media_type = mimetypes.guess_type(file_path)[0] or "video/mp4"
+            yield (pre + f'"data:{media_type};base64,').encode()
             while chunk := fh.read(3 * 65536):
                 yield base64.b64encode(chunk)
             yield ('"' + post).encode()
@@ -637,9 +666,8 @@ class VlmGroup(CommandGroup):
         inputs = _apply_vlm_policy(inputs, policy)
         backend = policy.backend if policy is not None else "rt_vlm"
         options = VlmOptions(**{k: v for k, v in ctx.extra.items() if k in VlmOptions.model_fields})
-
-        if options.use_base64 and inputs.sensor:
-            raise InvalidInput("--use-base64 cannot be combined with --sensor")
+        if options.relook_container is not None and inputs.relook_start_time is None:
+            raise InvalidInput("--relook-container requires a relook window")
 
         model = inputs.model or _default_model(deployment)
         if inputs.relook_start_time is not None:
@@ -648,7 +676,7 @@ class VlmGroup(CommandGroup):
             from .second_look import run_second_look
 
             return run_second_look(
-                self, inputs.model_copy(update={"model": model}), replace(ctx, deployment=deployment)
+                self, inputs.model_copy(update={"model": model}), replace(ctx, deployment=deployment), policy=policy
             )
         job_id = _mint_job_id()
 
@@ -690,7 +718,7 @@ class VlmGroup(CommandGroup):
         media_url: str
         resolved_start: str | None = inputs.start_time
         resolved_end: str | None = inputs.end_time
-        _loopback_tmp: str | None = None  # temp file path when loopback fallback fires
+        _loopback_tmp: str | None = None  # downloaded sensor clip for inline delivery
         if inputs.sensor:
             if "vst" not in (deployment.services or {}):
                 # Post-mint: the job id is already public, so this must write its
@@ -728,7 +756,12 @@ class VlmGroup(CommandGroup):
                 )
             try:
                 media_url, resolved_start, resolved_end = _resolve_vios_clip(
-                    deployment, inputs.sensor, inputs.start_time, inputs.end_time
+                    deployment,
+                    inputs.sensor,
+                    inputs.start_time,
+                    inputs.end_time,
+                    transcode="full" if ctx.extra.get("_second_look_exact_clip") else None,
+                    container=ctx.extra.get("_second_look_container"),
                 )
             except Exception as _vios_exc:
                 _vios_code, _vios_status = _vios_exit_for(_vios_exc)
@@ -753,12 +786,10 @@ class VlmGroup(CommandGroup):
                     exit=_vios_code,
                     job_id=job_id,
                 )
-            if _is_loopback_url(media_url):
-                # The VIOS clip URL resolves to localhost — reachable from this CLI
-                # host but blocked by rt_vlm's SSRF protection (or simply unreachable
-                # from inside the VLM container in Docker deployments). Stream the
-                # clip to a temp file and send it inline as base64.
-                tmp_fd, _loopback_tmp = tempfile.mkstemp(suffix=".mp4")
+            if _is_loopback_url(media_url) or options.use_base64:
+                # Inline on request, or when the remote VLM cannot reach a loopback URL.
+                suffix = os.path.splitext(urllib.parse.urlparse(media_url).path)[1] or ".mp4"
+                tmp_fd, _loopback_tmp = tempfile.mkstemp(suffix=suffix)
                 os.close(tmp_fd)
                 _download_ok = False
                 try:
@@ -797,13 +828,16 @@ class VlmGroup(CommandGroup):
                         exit=Exit.TIMEOUT,
                         job_id=job_id,
                     )
-                except Exception as exc:
+                except (httpx.HTTPError, OSError) as exc:
                     # httpx.HTTPError (network/protocol failure) or OSError
                     # during the write — both signal VIOS is unreachable, not a
                     # caller mistake. Write a terminal record and exit as
                     # BACKEND_UNREACHABLE (3) so callers/retries treat this
                     # correctly instead of seeing an invalid-input (2) exit.
-                    detail = f"cannot fetch VIOS clip for loopback base64 fallback: {exc}"
+                    if isinstance(exc, httpx.HTTPStatusError):
+                        detail = f"VIOS clip download returned HTTP {exc.response.status_code}"
+                    else:
+                        detail = f"VIOS clip download failed ({type(exc).__name__})"
                     clip_input = adapter.build_input(
                         prompt=inputs.prompt,
                         sensor=inputs.sensor,
@@ -843,8 +877,8 @@ class VlmGroup(CommandGroup):
             # Path A (url): pre-resolved HTTP/HTTPS handle passed directly to the VLM.
             media_url = inputs.media_url  # type: ignore[assignment]
 
-        # True for --file, "--media-url <path> --use-base64", or the loopback
-        # SSRF fallback where the clip was streamed to a temp file: the video
+        # True for --file, "--media-url <path> --use-base64", or a sensor clip
+        # streamed to a temp file: the video
         # content is machine-specific bytes, not a retrievable URL handle.
         _use_base64_effective = options.use_base64 or bool(inputs.file) or _loopback_tmp is not None
 

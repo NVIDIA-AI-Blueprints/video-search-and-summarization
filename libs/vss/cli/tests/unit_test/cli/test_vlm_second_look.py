@@ -20,6 +20,7 @@ from vss_cli.vlm.group import VLM
 from vss_cli.vlm.group import VlmGroup
 from vss_cli.vlm.group import VlmInput
 from vss_core import vios
+from vss_core._foundation.errors import BackendUnreachableError
 from vss_core.memory import MemoryNotFoundError
 
 from .test_vlm_group import _completion
@@ -69,7 +70,7 @@ def _setup(
 
     async def clip(**kwargs: Any) -> str:
         clips.append(kwargs)
-        return f"http://h:7777/vst/clip/{len(clips)}.mp4"
+        return f"http://h:7777/vst/clip/{len(clips)}.{kwargs.get('container') or 'mp4'}"
 
     def post(_url: str, *, json: dict[str, Any], **_kwargs: Any) -> httpx.Response:
         requests.append(json)
@@ -89,6 +90,10 @@ def _setup(
         {"sensor": None, "start_time": None, "end_time": None, "media_url": "http://h/video.mp4"},
         {"sensor": None, "start_time": None, "end_time": None, "file": "/tmp/video.mp4"},
         {"chunk_duration": 10},
+        {"relook_start_time": None, "relook_end_time": None, "relook_fps": 10},
+        {"relook_start_time": None, "relook_end_time": None, "relook_max_frames": 32},
+        {"relook_fps": 0},
+        {"relook_max_frames": 0},
     ],
 )
 def test_relook_requires_paired_sensor_windows_without_chunking(updates: dict[str, Any]) -> None:
@@ -96,11 +101,14 @@ def test_relook_requires_paired_sensor_windows_without_chunking(updates: dict[st
         _input(**updates)
 
 
-def test_cli_help_exposes_both_relook_flags() -> None:
+def test_cli_help_exposes_relook_flags() -> None:
     result = CliRunner().invoke(VLM.cli(), ["run", "--help"])
     assert result.exit_code == 0
     assert "--relook-start-time" in result.output
     assert "--relook-end-time" in result.output
+    assert "--relook-fps" in result.output
+    assert "--relook-max-frames" in result.output
+    assert "--relook-container" in result.output
 
 
 @pytest.mark.parametrize("iso_input", [False, True])
@@ -132,16 +140,25 @@ def test_two_reads_map_file_source_time_and_persist_selected_job(
         ("2026-10-19T00:01:40.000Z", "2026-10-19T00:03:20.000Z"),
         ("2026-10-19T00:02:00.000Z", "2026-10-19T00:02:03.000Z"),
     ]
-    for request, expected_window in zip(requests, ["100.0 to 200.0", "120.0 to 123.0"], strict=True):
+    assert [clip.get("transcode") for clip in clips] == ["full", "full"]
+    for request, expected_window in zip(requests, ["01:40 to 03:20", "02:00 to 02:03"], strict=True):
         assert request.get("chunk_duration", 0) == 0
         assert len(request["messages"]) == 1
         prompt = next(part["text"] for part in request["messages"][0]["content"] if part["type"] == "text")
-        assert "What is visible at 02:01?" in prompt
-        assert f"source-relative seconds {expected_window}" in prompt
+        assert prompt == f"This clip is from {expected_window} in the original video.\n\nWhat is visible at 02:01?"
         assert "first answer" not in prompt
     saved = ctx.memory.get("vlm", result.job_id)
     assert saved["output"]["answer"] == "targeted answer"
     assert saved["output"]["ext"]["second_look"] == {key: value for key, value in details.items() if value is not None}
+    assert details["role"] == "targeted" and details["selected"] is True
+    first = ctx.memory.get("vlm", details["job_ids"][0])
+    assert first["output"]["ext"]["second_look"] == {
+        "group_id": details["job_ids"][0],
+        "job_ids": details["job_ids"],
+        "selected_job_id": result.job_id,
+        "role": "first",
+        "selected": False,
+    }
 
 
 def test_live_stream_retains_absolute_time_context(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -158,8 +175,29 @@ def test_live_stream_retains_absolute_time_context(monkeypatch: pytest.MonkeyPat
     )
     assert result.exit == Exit.SUCCESS
     assert result.body["second_look"]["time_format"] == "iso"
-    assert "absolute ISO 8601 times" in str(requests[0]["messages"])
+    assert "This clip is from 2026-10-19T00:01:40.000Z to 2026-10-19T00:03:20.000Z" in str(requests[0]["messages"])
     assert "2026-10-19T00:02:00.000Z" in str(requests[1]["messages"])
+
+
+def test_whole_original_segment_skips_transcode_and_container_only_changes_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx, requests, clips = _setup(monkeypatch)
+    ctx.extra["relook_container"] = "mkv"
+    result = VlmGroup().run("", _input(start_time="0", end_time="300"), ctx)
+    assert result.exit == Exit.SUCCESS
+    assert [clip.get("transcode") for clip in clips] == [None, "full"]
+    assert [clip.get("container") for clip in clips] == [None, "mkv"]
+    urls = [request["messages"][0]["content"][0]["video_url"]["url"] for request in requests]
+    assert urls[0].endswith(".mp4") and urls[1].endswith(".mkv")
+
+
+def test_relook_container_requires_second_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx, requests, clips = _setup(monkeypatch)
+    ctx.extra["relook_container"] = "mkv"
+    with pytest.raises(InvalidInput, match="--relook-container requires a relook window"):
+        VlmGroup().run("", _input(relook_start_time=None, relook_end_time=None), ctx)
+    assert not requests and not clips
 
 
 def test_explicit_stream_handle_survives_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -185,7 +223,16 @@ def test_failed_optional_read_keeps_first_answer_and_both_jobs(monkeypatch: pyte
     assert result.job_id == details["job_ids"][0]
     saved = ctx.memory.get("vlm", result.job_id)
     assert saved["output"]["ext"]["second_look"] == {key: value for key, value in details.items() if value is not None}
-    assert ctx.memory.get("vlm", details["job_ids"][1])["job"]["status"] == "failed"
+    failed = ctx.memory.get("vlm", details["job_ids"][1])
+    assert failed["job"]["status"] == "failed" and failed["error"]
+    assert details["role"] == "first" and details["selected"] is True
+    assert failed["output"]["ext"]["second_look"] == {
+        "group_id": result.job_id,
+        "job_ids": details["job_ids"],
+        "selected_job_id": result.job_id,
+        "role": "targeted",
+        "selected": False,
+    }
 
 
 def test_first_read_failure_returns_original_failure_without_reread(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -196,6 +243,25 @@ def test_first_read_failure_returns_original_failure_without_reread(monkeypatch:
     assert "second_look" not in result.body
     assert len(requests) == len(clips) == 1
     assert ctx.memory.get("vlm", result.job_id)["job"]["status"] == "failed"
+
+
+def test_targeted_transcode_failure_retains_first_without_second_model_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx, requests, _clips = _setup(monkeypatch)
+    clip = vios.get_video_clip_url
+
+    async def fail_transcode(**kwargs: Any) -> str:
+        if kwargs.get("start_time") == "2026-10-19T00:02:00.000Z":
+            raise vios.VIOSTimeoutError("transcode timed out")
+        return await clip(**kwargs)
+
+    monkeypatch.setattr(vios, "get_video_clip_url", fail_transcode)
+    result = VlmGroup().run("", _input(), ctx)
+    assert result.exit == Exit.PARTIAL
+    assert result.body["answer"] == "first answer"
+    assert result.body["second_look"]["fallback_reason"]
+    assert len(requests) == 1
+    failed_job = result.body["second_look"]["job_ids"][1]
+    assert ctx.memory.get("vlm", failed_job)["job"]["status"] == "timeout"
 
 
 @pytest.mark.parametrize(
@@ -257,3 +323,150 @@ def test_second_look_metadata_failure_preserves_selected_answer(monkeypatch: pyt
     assert result.body["persisted"] is False
     assert result.body["persist_error"]
     assert len(requests) == len(result.body["second_look"]["job_ids"]) == 2
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        ({"relook_fps": 10}, {"fps": 10, "num_frames": 16, "max_frames": 16}),
+        ({"relook_max_frames": 32}, {"fps": 2, "num_frames": 32, "max_frames": 32}),
+        ({"relook_fps": 10, "relook_max_frames": 32}, {"fps": 10, "num_frames": 32, "max_frames": 32}),
+    ],
+)
+def test_vllm_reread_sampling_changes_only_second_request(
+    monkeypatch: pytest.MonkeyPatch, overrides: dict[str, int], expected: dict[str, int]
+) -> None:
+    ctx, requests, _clips = _setup(monkeypatch)
+    ctx.deployment = _deployment(vlm=config_mod.VlmConfig(backend="vllm", fps=2, max_frames=16))
+    result = VlmGroup().run("", _input(**overrides), ctx)
+    assert result.exit == Exit.SUCCESS
+    assert [request["media_io_kwargs"]["video"] for request in requests] == [
+        {"fps": 2, "num_frames": 16, "max_frames": 16},
+        expected,
+    ]
+    params = [ctx.memory.get("vlm", job_id)["input"]["params"] for job_id in result.body["second_look"]["job_ids"]]
+    assert (params[0]["fps"], params[0]["max_frames"]) == (2, 16)
+    assert (params[1]["fps"], params[1]["max_frames"]) == (expected["fps"], expected["max_frames"])
+
+
+@pytest.mark.parametrize("backend", ["rt_vlm", "cosmos_reason_nim"])
+@pytest.mark.parametrize(
+    ("defaults", "overrides", "first", "second"),
+    [
+        ({"fps": 2}, {"relook_max_frames": 32}, {"fps": 2}, {"num_frames": 32}),
+        ({"max_frames": 16}, {"relook_fps": 10}, {"num_frames": 16}, {"fps": 10}),
+    ],
+)
+def test_reread_sampling_switches_one_mode_backends(
+    monkeypatch: pytest.MonkeyPatch,
+    backend: str,
+    defaults: dict[str, int],
+    overrides: dict[str, int],
+    first: dict[str, int],
+    second: dict[str, int],
+) -> None:
+    ctx, requests, _clips = _setup(monkeypatch)
+    ctx.deployment = _deployment(vlm=config_mod.VlmConfig(backend=backend, **defaults))
+    result = VlmGroup().run("", _input(**overrides), ctx)
+    assert result.exit == Exit.SUCCESS
+    assert [request["media_io_kwargs"]["video"] for request in requests] == [first, second]
+
+
+@pytest.mark.parametrize(
+    ("policy", "overrides", "error"),
+    [
+        (config_mod.VlmConfig(backend="openai"), {"relook_fps": 10}, "not supported"),
+        (config_mod.VlmConfig(backend="openai"), {"relook_max_frames": 32}, "not supported"),
+        (config_mod.VlmConfig(backend="rt_vlm"), {"relook_fps": 10, "relook_max_frames": 32}, "not both"),
+        (config_mod.VlmConfig(backend="cosmos_reason_nim"), {"relook_fps": 10, "relook_max_frames": 32}, "not both"),
+        (config_mod.VlmConfig(backend="vllm", fps=2, locked=True), {"relook_fps": 10}, "--fps is locked"),
+        (
+            config_mod.VlmConfig(backend="vllm", max_frames=16, locked=True),
+            {"relook_max_frames": 32},
+            "--max-frames is locked",
+        ),
+        (config_mod.VlmConfig(backend="rt_vlm", fps=2, locked=True), {"relook_max_frames": 32}, "--fps is locked"),
+        (
+            config_mod.VlmConfig(backend="cosmos_reason_nim", max_frames=16, locked=True),
+            {"relook_fps": 10},
+            "--max-frames is locked",
+        ),
+    ],
+)
+def test_invalid_reread_policy_fails_before_either_read(
+    monkeypatch: pytest.MonkeyPatch, policy: config_mod.VlmConfig, overrides: dict[str, int], error: str
+) -> None:
+    ctx, requests, clips = _setup(monkeypatch)
+    ctx.deployment = _deployment(vlm=policy)
+    with pytest.raises(InvalidInput, match=error):
+        VlmGroup().run("", _input(**overrides), ctx)
+    assert not requests and not clips
+    vios.resolve_sensor.assert_not_awaited()
+
+
+def test_reread_can_keep_locked_sampling_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx, requests, _clips = _setup(monkeypatch)
+    ctx.deployment = _deployment(vlm=config_mod.VlmConfig(backend="vllm", fps=2, max_frames=16, locked=True))
+    result = VlmGroup().run("", _input(relook_fps=2, relook_max_frames=16), ctx)
+    assert result.exit == Exit.SUCCESS
+    assert requests[0]["media_io_kwargs"] == requests[1]["media_io_kwargs"]
+
+
+def test_metadata_write_failure_does_not_prevent_tagging_other_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx, _requests, _clips = _setup(monkeypatch)
+    upsert = ctx.memory.service.upsert
+    calls = 0
+
+    def fail_first_metadata_write(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise BackendUnreachableError("memory", "unavailable")
+        return upsert(*args, **kwargs)
+
+    monkeypatch.setattr(ctx.memory.service, "upsert", fail_first_metadata_write)
+    result = VlmGroup().run("", _input(), ctx)
+    assert result.exit == Exit.PARTIAL
+    assert result.body["answer"] == "targeted answer"
+    assert result.body["persisted"] is False
+    assert result.body["persist_error"]
+    assert calls == 4
+    selected = ctx.memory.get("vlm", result.job_id)
+    assert selected["output"]["ext"]["second_look"]["selected"] is True
+
+
+def test_first_save_failure_remains_explained_when_second_save_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx, _requests, _clips = _setup(monkeypatch)
+    upsert = ctx.memory.service.upsert
+    calls = 0
+
+    def fail_first_save(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise BackendUnreachableError("memory", "first save unavailable")
+        return upsert(*args, **kwargs)
+
+    monkeypatch.setattr(ctx.memory.service, "upsert", fail_first_save)
+    result = VlmGroup().run("", _input(), ctx)
+    assert result.exit == Exit.PARTIAL
+    assert result.body["answer"] == "targeted answer"
+    assert result.body["persisted"] is True
+    details = result.body["second_look"]
+    first, second = details["reads"]
+    assert first["job_id"] == details["job_ids"][0]
+    assert first["persisted"] is False
+    assert "first save unavailable" in first["persist_error"]
+    assert second == {"job_id": result.job_id, "persisted": True}
+    saved = ctx.memory.get("vlm", result.job_id)
+    assert saved["output"]["ext"]["second_look"]["reads"] == details["reads"]
+
+
+def test_no_persist_reports_each_unsaved_read_without_a_save_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx, _requests, _clips = _setup(monkeypatch)
+    ctx.extra["no_persist"] = True
+    result = VlmGroup().run("", _input(), ctx)
+    assert result.exit == Exit.SUCCESS
+    assert result.body["persisted"] is False
+    details = result.body["second_look"]
+    assert details["reads"] == [{"job_id": job_id, "persisted": False} for job_id in details["job_ids"]]

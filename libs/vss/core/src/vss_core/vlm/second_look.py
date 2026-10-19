@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from math import isfinite
 from typing import TYPE_CHECKING
 from typing import Literal
@@ -13,7 +14,7 @@ from typing import Literal
 import httpx
 
 from vss_core._foundation.errors import BackendUnreachableError
-from vss_core._foundation.errors import ConfigurationError
+from vss_core._foundation.errors import LibraryError
 
 if TYPE_CHECKING:
     from .protocols import VLMAnalyzer
@@ -59,12 +60,17 @@ def _validate_windows(timestamps: tuple[str, str, str, str], time_format: Litera
         raise ValueError("the second window must be strictly narrower than and contained in the original window")
 
 
+def _clock_time(value: str) -> str:
+    whole, _, fraction = format(Decimal(value), "f").partition(".")
+    minutes, seconds = divmod(int(whole), 60)
+    fraction = fraction.rstrip("0")
+    return f"{minutes:02d}:{seconds:02d}" + (f".{fraction}" if fraction else "")
+
+
 def _window_prompt(prompt: str, start: str, end: str, time_format: Literal["iso", "offset"]) -> str:
-    coordinates = "source-relative seconds" if time_format == "offset" else "absolute ISO 8601 times"
-    return (
-        f"{prompt}\n\nThis clip covers {coordinates} {start} to {end}. "
-        "Clip-local time zero corresponds to the start of this interval. Answer using this clip."
-    )
+    if time_format == "offset":
+        start, end = _clock_time(start), _clock_time(end)
+    return f"This clip is from {start} to {end} in the original video.\n\n{prompt}"
 
 
 async def second_look(
@@ -87,6 +93,10 @@ async def second_look(
     containment, not recording availability. A reused answer must belong to this
     source, original window and question. ISO bounds require explicit timezones;
     offsets are seconds from the source origin, not from the original window.
+
+    Analyzers must honor these source windows without keyframe preroll. For
+    ``OpenAIVLMAnalyzer`` with VIOS, inject ``VSTClient(..., exact_clips=True)``;
+    its default remux does not guarantee precise partial-window boundaries.
 
     A separately configured ``second_analyzer`` may request denser sampling. No
     analyzer settings are mutated. There are at most two logical analysis calls
@@ -124,7 +134,7 @@ async def second_look(
         if not second_answer.strip():
             second_answer = None
             fallback_reason = "Second read returned no answer; retained first answer."
-    except (BackendUnreachableError, ConfigurationError, httpx.HTTPError, TimeoutError, ConnectionError) as exc:
+    except (LibraryError, httpx.HTTPError, TimeoutError, ConnectionError) as exc:
         # Exception messages may contain credentials or signed media URLs.
         fallback_reason = f"Second read failed ({type(exc).__name__}); retained first answer."
 

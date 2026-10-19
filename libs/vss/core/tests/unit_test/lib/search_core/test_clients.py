@@ -5,11 +5,16 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
+from urllib.parse import parse_qs
+from urllib.parse import urlparse
 
 import aiohttp
 import pytest
 
 from vss_core._foundation.retry import create_retry_strategy
+from vss_core._foundation.time import iso8601_to_datetime
 from vss_core.search_core.clients.cosmos_embed import CosmosEmbedClient
 from vss_core.search_core.errors import BackendUnreachableError
 from vss_core.vios import VSTClient
@@ -176,6 +181,83 @@ async def test_vst_clip_rejects_mixed_iso_and_offset_inputs() -> None:
             end_time=10.0,
             vst_internal_url="http://internal:30888",
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("transcode", "container"), [(None, None), ("full", None), ("full", "mkv")])
+async def test_vst_clip_media_options_are_sent_only_when_requested(
+    monkeypatch: pytest.MonkeyPatch, transcode: str | None, container: str | None
+) -> None:
+    response = AsyncMock()
+    response.status = 200
+    response.text.return_value = '{"videoUrl": "http://vst/clip.mp4"}'
+    session = MagicMock()
+    session.__aenter__.return_value = session
+    session.get.return_value.__aenter__.return_value = response
+    monkeypatch.setattr(vst_module.aiohttp, "ClientSession", lambda **_kwargs: session)
+
+    kwargs = {"transcode": transcode} if transcode is not None else {}
+    if container is not None:
+        kwargs["container"] = container
+    url = await vst_module.get_video_clip_url(
+        stream_id="stream-1",
+        start_time="2026-01-01T00:00:03Z",
+        end_time="2026-01-01T00:00:06Z",
+        vst_internal_url="http://vst",
+        **kwargs,
+    )
+
+    assert url == "http://vst/clip.mp4"
+    session.get.assert_called_once()
+    query = parse_qs(urlparse(session.get.call_args.args[0]).query)
+    assert query == {
+        "startTime": ["2026-01-01T00:00:03Z"],
+        "endTime": ["2026-01-01T00:00:06Z"],
+        "blocking": ["true"],
+        "disableAudio": ["true"],
+        **({"transcode": ["full"]} if transcode is not None else {}),
+        **({"container": ["mkv"]} if container is not None else {}),
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("exact", "time_format", "start", "end", "transcode"),
+    [
+        (False, "offset", "100", "200", None),
+        (True, "offset", "100", "200", "full"),
+        (True, "offset", "0", "300", None),
+        (True, "iso", "2026-01-01T00:01:40Z", "2026-01-01T00:03:20Z", "full"),
+        (True, "iso", "2026-01-01T01:00:00+01:00", "2026-01-01T01:05:00+01:00", None),
+    ],
+)
+async def test_vst_exact_clips_are_opt_in_and_skip_whole_segments(
+    monkeypatch: pytest.MonkeyPatch, exact: bool, time_format: str, start: str, end: str, transcode: str | None
+) -> None:
+    monkeypatch.setattr(VSTClient, "resolve_stream_id", AsyncMock(return_value="stream-1"))
+    segments = AsyncMock(return_value=[("2026-01-01T00:00:00Z", "2026-01-01T00:05:00Z")])
+    clip = AsyncMock(return_value="http://vst/clip.mp4")
+    monkeypatch.setattr(vst_module, "recorded_segments", segments)
+    monkeypatch.setattr(vst_module, "get_video_clip_url", clip)
+    client = VSTClient(internal_url="http://vst", external_url="http://vst", exact_clips=exact)
+    await client.get_video_clip_url(
+        sensor_id="camera", start_timestamp=start, end_timestamp=end, time_format=time_format
+    )
+    request = clip.call_args.kwargs
+    assert request["transcode"] == transcode
+    if exact:
+        segments.assert_awaited_once()
+        expected = (
+            ("2026-01-01T00:01:40.000Z", "2026-01-01T00:03:20.000Z")
+            if transcode == "full"
+            else ("2026-01-01T00:00:00.000Z", "2026-01-01T00:05:00.000Z")
+        )
+        assert tuple(iso8601_to_datetime(request[key]) for key in ("start_time", "end_time")) == tuple(
+            iso8601_to_datetime(value) for value in expected
+        )
+    else:
+        segments.assert_not_awaited()
+        assert (request["start_time"], request["end_time"]) == (100.0, 200.0)
 
 
 class _FailingRequest:

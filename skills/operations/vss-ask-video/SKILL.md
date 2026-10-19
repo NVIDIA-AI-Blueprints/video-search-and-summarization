@@ -138,6 +138,8 @@ it.
 - An explicit fresh visual inspection of a grounded sensor and time window ->
   `vss vlm run`. "Freshly verify" means the recall layers are already ruled
   out, not that they should be tried first.
+- A time-cued question about a named sensor -> ground the timestamp against its
+  recorded timeline, then use the targeted-window rules below.
 - A pre-resolved bounded `VIDEO_URL` from a search skill ->
   `vss vlm run --media-url`.
 - A named local file with configured VSS -> `vss vlm run --file`, resolving the
@@ -313,8 +315,8 @@ Do not silently substitute ordinary VLM inspection.
 
 By default, each grounded scope the user asked for gets one `vss vlm run`. Two cameras, or
 two distinct windows, are two scopes and may each be inspected once; a scope
-already inspected is not inspected again. The only exception is the explicit
-second-look workflow below, which runs both reads inside one command. Exit 6 is the exception to
+already inspected is not inspected again. The only exception is the bounded
+second-look strategy below, chosen before inspection and run inside one command. Exit 6 is the exception to
 failure, not to the count: an answer exists, but persistence or an optional
 reread failed. Return it with the stated limitation. On any other nonzero exit, report the exit
 code and stop. A repeat call for a scope already inspected is wrong whatever
@@ -322,10 +324,10 @@ differs between the two - flags, persistence, or nothing at all - and retrying
 with `--no-persist` is still a repeat: if the deployment could not store the
 result, the deployment is the finding, and storage is not what was asked
 about. This holds when the call succeeds, too: a vague or hedged answer is
-still the answer, not grounds for a second look at more frames. A failing call
+still the answer, not by itself grounds for a second look at more frames. A failing call
 means the deployment could not serve that scope, which is the result to
 report. Widening a window, or re-running a scope under another spelling, is
-not a new scope - it is the same inspection the user did not ask twice for.
+not a new scope and does not justify another command.
 
 A failed call is also not a licence to repair the deployment. An unreachable
 Elasticsearch, an unregistered sensor, a missing recorded window, an expired
@@ -340,37 +342,48 @@ extracting frames and POSTing them to a cloud API is not a fallback, it is the
 hand-built HTTP call the hard rule forbids, and an answer obtained that way did
 not come from the deployment under test.
 
-### Optional second look
+### Targeted inspection and optional second look
 
-Second look addresses missing temporal evidence, not general model weakness.
-It is most useful for long videos when a relevant moment can be located.
-Choose this optional strategy only when both conditions hold:
+For a named instant, use a window of 1.5 s on each side. For a named event
+range, add 0.5 s on each side. Clamp this padding to the enclosing recorded
+segment and original scope; never cross a recording gap. Keep exact inspection
+bounds supplied by the user unchanged. File offsets are relative to the source
+recording, not the first clip. Camera times need a grounded date and timezone;
+ask when those are missing rather than interpreting an ambiguous clock time.
 
-- The question concerns a local event or detail that a broad read could miss.
-- A supplied timestamp, search result or prior grounded observation identifies
-  a narrower interval that still contains the evidence needed to answer.
+If this window alone can answer the question, use one ordinary `vss vlm run`
+with its bounds. A known timestamp does not require a broad first read, and a
+long source video does not turn a local question into whole-video summarization.
 
-Skip it when the moment is unknown, the question requires the whole recording
-(such as a total count), or adequate evidence is already visible and the
-difficulty is recognition or reasoning. Low confidence alone is not a trigger.
-For example, inspect a located handoff in a long recording; do not crop a
-whole-shift event count or repeatedly inspect the same unreadable sign.
-This is agent selection guidance, not an automatic capability classifier.
+The agent may choose second look for a local detail that broad sampling could
+miss, when a timestamp, search result or prior grounded observation identifies
+a self-sufficient narrower interval. The first answer is retained for comparison
+and fallback; its context is not passed to the targeted read. The user need not
+name the strategy.
+Skip it when the moment is unknown, the question needs the whole recording
+(such as a total count), or the same visible evidence is already insufficient
+for recognition or reasoning. Low confidence alone is not a trigger.
 
-For an explicitly requested or authorized second-look workflow, add
-`--relook-start-time` and `--relook-end-time` to the sensor command below.
-Keep the original window in `--start-time` and `--end-time`; both windows must
-fit within one recorded segment. Use ISO-8601 UTC bounds, or seconds from the
-recording start for file-backed sensors. Do not invent a window from a vague
-answer or turn a single timestamp into bounds without a grounded interval.
+Keep answer requests focused: video, the original question and any supplied
+options, plus the helper's source-time cue. Preserve essential scene context;
+leave shell/tool history and prior answers out. Free-form questions stay
+free-form. The helper adds the time cue; it does not shorten the caller's prompt.
 
-The CLI performs at most 2 logical reads with the configured model and sampling
-settings. It returns both answers and selects the narrower read's answer;
-selection is a policy, not evidence that the answer improved. It retains the first answer
-with a fallback reason if the optional read fails. Report that limitation.
-If the answers disagree, report the disagreement rather than claiming confirmation.
-Do not issue another command to retry. This option is sensor-only and does not
-extend introspection's follow-ups or the whole-recording routing rules below.
+Add `--relook-start-time` and `--relook-end-time` to the sensor command below.
+Keep the original window in `--start-time` and `--end-time`; both must fit in one
+recorded segment and the relook must be strictly narrower. This is one command
+with at most 2 logical reads, not an extra command after a completed inspection.
+It does not extend introspection's follow-ups or allow retries after a failure.
+
+For denser evidence, set `--relook-fps` or `--relook-max-frames` within the
+configured policy. RT-VLM and Cosmos NIM use one or the other; vLLM can combine
+them. A fixed frame budget on a shorter window increases temporal density;
+unchanged FPS does not. The plain OpenAI backend cannot apply these overrides.
+
+The CLI returns both answers and selects the narrower answer when available.
+Selection is a policy, not proof of improvement. Show both answers if they
+disagree and state which was selected. If the optional read fails, return the
+retained first answer and its fallback reason without claiming confirmation.
 
 For a trusted bounded URL or local file (no sensor registration or ingestion):
 
@@ -423,7 +436,9 @@ answer and report that limitation.
 When the request names a sensor but no window ("what happens in `dock_cam`?"),
 run `vss vios timeline --sensor <name>`. Under 120 s in total, run one `vss vlm
 run --sensor <name> --start-time <start> --end-time <end>` per segment. At
-120 s or longer, hand off to `/vss-summarize-video`.
+120 s or longer, hand off to `/vss-summarize-video`. A question about a named
+instant or event range follows targeted inspection above, regardless of the
+source recording's duration.
 
 ## Examples
 
@@ -454,7 +469,7 @@ run --sensor <name> --start-time <start> --end-time <end>` per segment. At
 - Archive/semantic similarity retrieval ("find videos of ...") -> `/vss-search-archive`.
   This skill may inspect only the pre-resolved bounded clip that search hands
   off after confirmation; it never performs the retrieval itself.
-- Long-form summarization, or a whole recording of 120 s or longer ->
+- Long-form summarization, or a whole-recording question of 120 s or longer without a local time cue ->
   `/vss-summarize-video`.
 - Structured reports -> `/vss-generate-video-report`.
 - Existing analytics incidents or metrics -> `/vss-query-analytics`.
