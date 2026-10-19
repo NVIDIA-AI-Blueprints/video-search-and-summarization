@@ -104,6 +104,7 @@ _TERMINAL_WRITE_BACKOFF_SECONDS = 0.5
 #: instant (1e8 seconds is 1973), which is how LVS answers without a
 #: ``creation_time`` to anchor against.
 _EPOCH_FLOOR = 1e8
+_UTC_OFFSET = "+00:00"
 
 
 class SummarizeInput(BaseModel):
@@ -214,7 +215,7 @@ class SummarizeInput(BaseModel):
         if value is None:
             return None
         try:
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(value.replace("Z", _UTC_OFFSET))
         except ValueError as error:
             raise ValueError(f"creation_time must be an ISO-8601 instant, got {value!r}") from error
         if parsed.tzinfo is None:
@@ -313,13 +314,13 @@ def _instant(value: Any, anchor: datetime | None) -> Any:
         return value
 
     if seconds >= _EPOCH_FLOOR:
-        return datetime.fromtimestamp(seconds, UTC).isoformat().replace("+00:00", "Z")
+        return datetime.fromtimestamp(seconds, UTC).isoformat().replace(_UTC_OFFSET, "Z")
     if anchor is None:
         raise ValueError(
             f"event time {value!r} is an offset into the clip, which unified memory cannot store as an "
             f"instant; pass --creation-time <media start, ISO-8601 UTC> so the times are absolute"
         )
-    return (anchor + timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
+    return (anchor + timedelta(seconds=seconds)).isoformat().replace(_UTC_OFFSET, "Z")
 
 
 def _summary_content(completion: dict[str, Any], anchor: datetime | None = None) -> dict[str, Any]:
@@ -704,7 +705,7 @@ class _SummaryRun:
                 input_data=self.input_data,
                 completion=completion,
                 model=self.model,
-                anchor=datetime.fromisoformat(self.inputs.creation_time.replace("Z", "+00:00"))
+                anchor=datetime.fromisoformat(self.inputs.creation_time.replace("Z", _UTC_OFFSET))
                 if self.inputs.creation_time
                 else None,
             )
