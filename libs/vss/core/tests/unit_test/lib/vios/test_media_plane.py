@@ -820,8 +820,10 @@ async def test_an_upload_name_conflict_is_a_caller_error(vios_http, tmp_path) ->
     media = tmp_path / "clip.mp4"
     media.write_bytes(b"x")
 
-    with pytest.raises(vios.VIOSInvalidInputError, match="already holds a file"):
+    with pytest.raises(vios.VIOSInvalidInputError, match="already holds a file") as error:
         await vios.upload_media(VST, media)
+    assert "does not confirm" in str(error.value)
+    assert "--name recovered_clip.mp4" in str(error.value)
 
 
 # ----------------------------------------------- add: derive, do not restate

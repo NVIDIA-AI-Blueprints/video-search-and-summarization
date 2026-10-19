@@ -121,3 +121,18 @@ class TestScenarioEventsForwarding:
         params = config["functions"]["summarization"]["params"]
         assert params["scenario"] == "security"
         assert "events" not in params
+
+
+def test_prose_request_uses_batch_processor_and_preserves_structured_default():
+    config = _base_config()
+    config["functions"]["summarization"]["type"] = "vlm_structured_summarization"
+    handler = _make_handler(config)
+    prose = handler.update_ca_rag_config(_make_ri(
+        summarize=True, enable_vlm_structured_output=False,
+        scenario="warehouse", events=["forklift"],
+    ))
+    summ = prose["functions"]["summarization"]
+    assert summ["type"] == "batch_summarization"
+    assert "warehouse" in summ["params"]["prompts"]["summary_aggregation"]
+    structured = handler.update_ca_rag_config(_make_ri(summarize=True))
+    assert structured["functions"]["summarization"]["type"] == "vlm_structured_summarization"

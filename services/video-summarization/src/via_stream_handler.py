@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -89,10 +89,9 @@ def _safe_collection_name(stream_id) -> str:
 
 MAX_MILVUS_STRING_LEN = 65535
 
-# Extra attempts at a CA-RAG aggregation call when it returns neither events nor
-# a video summary. The aggregation LLM intermittently samples an unparseable
-# response, which surfaces to the caller as HTTP 200 with total_events=0 and
-# video_summary="". Override with LVS_AGGREGATION_EMPTY_RETRIES; 0 disables.
+# Extra attempts for missing or malformed CA-RAG aggregation output. Explicit
+# no-match results (events=[] and total_events=0) are successful answers.
+# Override with LVS_AGGREGATION_EMPTY_RETRIES; 0 disables retries.
 DEFAULT_AGGREGATION_EMPTY_RETRIES = 2
 
 
@@ -3325,7 +3324,18 @@ This is very important and you must follow this strictly.
             if not isinstance(parsed, dict):
                 return None
 
-        events = parsed.get("events")
+        raw_events = parsed.get("events")
+        raw_summary = parsed.get("video_summary", "")
+        no_match = (
+            raw_events == []
+            and parsed.get("total_events", 0) == 0
+            and isinstance(raw_summary, str)
+        )
+        if no_match:
+            parsed["total_events"] = 0
+        elif not (isinstance(raw_events, list) and raw_events and all(isinstance(event, dict) for event in raw_events)):
+            parsed.pop("total_events", None)
+        events = raw_events
         if isinstance(events, str):
             try:
                 decoded_events = json_repair.loads(events)
@@ -3352,9 +3362,9 @@ This is very important and you must follow this strictly.
     def _is_empty_aggregation_result(cls, result) -> bool:
         """True when an aggregation result carries neither events nor a summary.
 
-        A result with an empty ``events`` list but a non-empty ``video_summary``
-        is a legitimate "nothing notable happened" answer, so both fields must be
-        empty before the result is treated as a failed sample. Free-form text
+        An explicit empty events list with a zero event count is a valid
+        no-match answer, including when the summary is empty. Missing or
+        malformed fields still trigger the bounded repair/retry path. Free-form text
         that does not parse as JSON is a usable summary as long as it is not blank.
         """
         if result is None or (isinstance(result, str) and not result.strip()):
@@ -3371,7 +3381,7 @@ This is very important and you must follow this strictly.
             return True
         events = parsed.get("events") or []
         video_summary = parsed.get("video_summary") or ""
-        return not events and not video_summary.strip()
+        return not events and not video_summary.strip() and parsed.get("total_events") != 0
 
     def _call_aggregation_with_empty_guard(
         self,
@@ -3949,6 +3959,21 @@ This is very important and you must follow this strictly.
                 ca_rag_config["functions"]["summarization"]["params"]["events"] = req_info.events
 
             if not req_info.enable_vlm_structured_output:
+                summ = ca_rag_config["functions"]["summarization"]
+                if summ.get("type") == "vlm_structured_summarization":
+                    summ["type"] = "batch_summarization"
+                    context = json.dumps({"scenario": req_info.scenario, "events": req_info.events})
+                    summ["params"]["prompts"] = {
+                        "caption": getattr(req_info, "prompt", ""),
+                        "caption_summarization": (
+                            "Summarize the video captions in prose. Preserve timestamps and "
+                            "report only observed events. Requested context: " + context
+                        ),
+                        "summary_aggregation": (
+                            "Combine these video summaries into a concise narrative. Preserve "
+                            "timestamps and state when requested events were not observed. " + context
+                        ),
+                    }
                 if req_info.schema:
                     ca_rag_config["functions"]["summarization"]["params"][
                         "schema"

@@ -10,6 +10,7 @@ half-succeeded job reports itself.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -637,7 +638,7 @@ def test_summary_memory_prefers_media_name_and_preserves_internal_ids(
 
     sensor = _persisted(memory)["input"]["sensors"][0]
     assert sensor["id"] == "west-entrance"
-    assert sensor["info"]["stream_id"] == "stream-uuid"
+    assert sensor["info"]["file_id"] == "stream-uuid"
     assert sensor["info"]["video_id"] == "video-uuid"
 
 
@@ -663,16 +664,19 @@ def test_summary_memory_resolves_vios_name(
             kind="stream",
         )
 
-    monkeypatch.setattr("vss_core.vios.resolve_sensor", resolve_sensor)
+    sensor_ref = asyncio.run(resolve_sensor())
+    monkeypatch.setattr(
+        summarize_group, "_prepare_sensor_source", lambda *_: (sensor_ref, "lvs-id", "2025-01-01T00:00:00.000Z")
+    )
     _capture_post(monkeypatch)
-    result = _run("--id", "stream-uuid")
+    result = _run("--sensor", "west-entrance")
     assert result.exit_code == 0, result.output
 
     sensor = _persisted(memory)["input"]["sensors"][0]
     assert sensor["id"] == "west-entrance"
     assert sensor["info"]["sensor_id"] == "sensor-uuid"
     assert sensor["info"]["stream_id"] == "stream-uuid"
-    assert sensor["info"]["video_id"] == "stream-uuid"
+    assert sensor["info"]["video_id"] == "sensor-uuid"
 
 
 def test_explicit_note_opt_in_writes_openclaw_daily_note(
@@ -793,7 +797,7 @@ def test_the_request_is_recorded_with_the_result(
     assert record["input"]["query"] == "what happened?"
     assert record["input"]["params"]["temperature"] == 0.2
     assert record["input"]["params"]["model"] == "cosmos-reason"
-    assert record["input"]["sensors"][0]["info"]["stream_id"] == "v1"
+    assert record["input"]["sensors"][0]["info"]["file_id"] == "v1"
     assert record["output"]["ext"]["completion_id"] == "cmpl-1"
 
 
@@ -1629,3 +1633,109 @@ def test_options_reject_unknown_keys() -> None:
 def test_input_rejects_unknown_keys() -> None:
     with pytest.raises(ValueError, match="modl"):
         SummarizeInput(id="v1", modl="x")
+
+
+def test_sensor_transfer_uses_lvs_file_id_and_keeps_vios_identity(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    memory: memory_mod.Memory,
+) -> None:
+    from vss_core.vios import SensorRef
+
+    sensor = SensorRef(
+        name="warehouse", sensor_id="vios-id", stream_id="stream-id", kind="video", url="file:///clip.mp4"
+    )
+    monkeypatch.setattr(
+        summarize_group, "_prepare_sensor_source", lambda *_: (sensor, "lvs-file-id", "2025-01-01T00:00:00.000Z")
+    )
+    seen = _capture_post(monkeypatch)
+    result = _run("--sensor", "warehouse")
+    assert result.exit_code == 0, result.output
+    assert seen["json"]["id"] == "lvs-file-id"
+    assert "sensor" not in seen["json"]
+    assert seen["json"]["creation_time"] == "2025-01-01T00:00:00.000Z"
+    stored = _persisted(memory)["input"]["sensors"][0]
+    assert stored["id"] == "warehouse"
+    assert stored["info"]["sensor_id"] == "vios-id"
+    assert stored["info"]["stream_id"] == "stream-id"
+    assert stored["info"]["file_id"] == "lvs-file-id"
+
+
+def test_sensor_source_uploads_clip_bytes_to_lvs(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from contextlib import contextmanager
+
+    from vss_core import vios
+
+    deployment = config_mod.Deployment(
+        base_url=configured.base_url,
+        services={**configured.services, "vst": config_mod.Service(url=BASE_URL + "/vst")},
+        memory=configured.memory,
+    )
+    sensor = vios.SensorRef(
+        name="warehouse", sensor_id="vios-id", stream_id="stream-id", kind="video", url="file:///clip.mp4"
+    )
+    start, end = "2025-01-01T00:00:00.000Z", "2025-01-01T00:01:00.000Z"
+
+    async def resolve(*_):
+        return sensor
+
+    async def segments(*_):
+        return [(start, end)]
+
+    async def clip(**kwargs):
+        assert kwargs["stream_id"] == "stream-id"
+        return "http://vst-ingress:30888/vst/storage/temp_files/clip.mp4"
+
+    @contextmanager
+    def stream(method, url, **kwargs):
+        assert method == "GET"
+        assert url == BASE_URL + "/vst/storage/temp_files/clip.mp4"
+        yield httpx.Response(200, content=b"video-bytes", request=httpx.Request(method, url))
+
+    def upload(url, *, files, data, **kwargs):
+        assert url == BASE_URL + "/lvs/v1/files"
+        assert files["file"][1].read() == b"video-bytes"
+        assert data["sensor_name"] == "warehouse"
+        return httpx.Response(200, json={"id": "lvs-file-id"}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(vios, "resolve_sensor", resolve)
+    monkeypatch.setattr(vios, "recorded_segments", segments)
+    monkeypatch.setattr(vios, "get_video_clip_url", clip)
+    monkeypatch.setattr(httpx, "stream", stream)
+    monkeypatch.setattr(httpx, "post", upload)
+    ref, file_id, creation_time = summarize_group._prepare_sensor_source(
+        deployment,
+        SummarizeInput(sensor="warehouse", scenario="warehouse", events=["forklift"]),
+        SummarizeOptions(),
+    )
+    assert ref == sensor
+    assert file_id == "lvs-file-id"
+    assert creation_time == start
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--sensor", "warehouse", "--id", "lvs-id"),
+        ("--sensor", "warehouse", "--url", "http://example/video.mp4"),
+        ("--id", "lvs-id", "--start-time", "2025-01-01T00:00:00Z"),
+    ],
+)
+def test_sensor_source_rejects_ambiguous_inputs(configured: config_mod.Deployment, args: tuple[str, ...]) -> None:
+    assert _run(*args).exit_code == int(Exit.INVALID_INPUT)
+
+
+def test_no_match_summary_is_a_completed_job(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+    memory: memory_mod.Memory,
+) -> None:
+    _capture_post(monkeypatch, _Response(_completion({"events": [], "total_events": 0, "video_summary": ""})))
+    result = _run("--id", "lvs-file-id")
+    assert result.exit_code == 0, result.output
+    assert _body(result)["record"] == "closed"
+    assert _body(result)["persist"]["events"] == 0
+    assert _persisted(memory)["job"]["status"] == "completed"

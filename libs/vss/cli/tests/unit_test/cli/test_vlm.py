@@ -571,7 +571,7 @@ def test_help_has_only_negative_persistence_override() -> None:
     assert "--persist" not in result.output.replace("--no-persist", "")
 
 
-def test_production_analyzer_passes_in_cluster_clip_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_production_analyzer_sends_video_bytes_without_backend_host_access(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
     class _FakeVST:
@@ -591,7 +591,7 @@ def test_production_analyzer_passes_in_cluster_clip_urls(monkeypatch: pytest.Mon
 
     assert model == "test-vlm"
     assert analyzer is not None
-    assert captured["analyzer"]["video_url_scope"] == "internal"
+    assert captured["analyzer"]["video_url_scope"] == "external"
     assert captured["analyzer"]["rt_vlm_frame_budget"] == 1.0
     assert captured["analyzer"]["rt_vlm_use_fps_for_chunking"] is True
-    assert captured["analyzer"]["media_mode"] == "video_url"
+    assert captured["analyzer"]["media_mode"] == "video_base64"

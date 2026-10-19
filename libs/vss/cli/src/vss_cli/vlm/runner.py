@@ -258,11 +258,10 @@ def _production_analyzer(
             model=model,
             vst=vst,
             timeout_seconds=timeout_seconds,
-            media_mode="video_url",
-            # RT-VLM fetches the clip itself. Use VST's in-cluster videoUrl
-            # (for example http://vst-ingress:30888/...) so SSRF policy does
-            # not reject the host-side localhost origin.
-            video_url_scope="internal",
+            # Fetch through the configured origin on the CLI host. The model
+            # container need not reach the host's public IP or resolve VIOS DNS.
+            media_mode="video_base64",
+            video_url_scope="external",
             cosmos_nim_runtime_options=False,
             rt_vlm_frame_budget=fps if fps is not None else (num_frames or _DEFAULT_FIXED_FRAME_BUDGET),
             rt_vlm_use_fps_for_chunking=fps is not None,

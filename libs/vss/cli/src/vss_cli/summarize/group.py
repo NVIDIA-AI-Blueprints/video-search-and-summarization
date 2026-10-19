@@ -79,6 +79,7 @@ if TYPE_CHECKING:
     from vss_core.memory import MemoryInput
     from vss_core.memory import PersistResult
     from vss_core.memory.models import JobStatus
+    from vss_core.vios import SensorRef
 
     from .memory_adapter import SummaryAdapter
 
@@ -107,8 +108,9 @@ _EPOCH_FLOOR = 1e8
 class SummarizeInput(BaseModel):
     """Summarize a video and apply the configured memory policy.
 
-    Exactly one source is required: ``--id`` names media the deployment has
-    already ingested, ``--url`` points at a video to fetch directly.
+    Exactly one source is required: ``--id`` names a file uploaded to LVS,
+    ``--sensor`` resolves a VIOS recording and transfers it to LVS, and
+    ``--url`` points at a video the backend can fetch directly.
 
     ``--scenario`` and at least one ``--event`` are required because LVS
     requires them: its schema marks ``model``, ``scenario`` and ``events``
@@ -131,7 +133,8 @@ class SummarizeInput(BaseModel):
     # misspelled key would otherwise pass silently with the default.
     model_config = ConfigDict(extra="forbid")
 
-    id: str | None = Field(None, description="ID of an already-added file or live stream.")
+    id: str | None = Field(None, description="LVS file ID returned by its files API (not a VIOS sensor ID).")
+    sensor: str | None = Field(None, description="VIOS sensor name or ID; resolve and upload the recording to LVS.")
     url: str | None = Field(None, description="Direct URL to a video to summarize (HTTP/HTTPS/S3).")
     # Every bound below is copied from LVS's own SummarizationQuery
     # (services/video-summarization/src/vss_api_models.py), lengths as well as
@@ -223,8 +226,8 @@ class SummarizeInput(BaseModel):
         # Click can express "mutually exclusive" only by hand-rolled callbacks;
         # stating it on the model keeps the rule with the fields and applies it
         # to programmatic callers too.
-        if bool(self.id) == bool(self.url):
-            raise ValueError("exactly one of id or url is required")
+        if sum(bool(source) for source in (self.id, self.url, self.sensor)) != 1:
+            raise ValueError("exactly one of id, url or sensor is required")
         return self
 
 
@@ -243,6 +246,8 @@ class SummarizeOptions(BaseModel):
         None,
         description="Override whether this persisted result is written to the configured Markdown cache.",
     )
+    start_time: str | None = Field(None, description="Start of a --sensor recording window (ISO-8601 UTC).")
+    end_time: str | None = Field(None, description="End of a --sensor recording window (ISO-8601 UTC).")
     video_id: str | None = Field(
         None,
         description="video_id recorded for the persisted record. Defaults to --id; required with --url.",
@@ -372,17 +377,69 @@ def _adapter() -> SummaryAdapter:
     return SummaryAdapter()
 
 
-def _resolve_memory_sensor(
+def _prepare_sensor_source(
     deployment: config_mod.Deployment,
     inputs: SummarizeInput,
     options: SummarizeOptions,
-) -> Any | None:
-    """Resolve a raw ``--id`` to VIOS identity when memory needs a name."""
-    if options.media_name or not inputs.id or not deployment.has("vst"):
-        return None
-    from vss_core import vios
+) -> tuple[SensorRef, str, str]:
+    """Transfer a VIOS clip through the CLI host into LVS's own file namespace."""
+    import tempfile
 
-    return asyncio.run(vios.resolve_sensor(str(deployment.base_url).rstrip("/"), inputs.id))
+    import httpx
+
+    from vss_core import vios
+    from vss_core._foundation.errors import BackendUnreachableError
+
+    if not deployment.has("vst"):
+        raise config_mod.ConfigError("--sensor requires VIOS; rerun vss configure against a deployment with VIOS")
+    origin = str(deployment.base_url).rstrip("/")
+
+    sensor_name = inputs.sensor
+    if not sensor_name:
+        raise InvalidInput("--sensor requires a non-empty sensor name or ID")
+
+    async def resolve() -> tuple[SensorRef, str, str]:
+        ref = await vios.resolve_sensor(origin, sensor_name)
+        segments = await vios.recorded_segments(origin, ref.stream_id)
+        start, end = vios.resolve_window(segments, options.start_time, options.end_time, ref.kind)
+        url = await vios.get_video_clip_url(
+            stream_id=ref.stream_id,
+            start_time=start,
+            end_time=end,
+            vst_internal_url=origin,
+        )
+        return ref, vios.normalise_media_url(url, origin), start
+
+    ref, media_url, start = asyncio.run(resolve())
+    timeout = float(options.request_timeout_seconds)
+    data = {
+        "purpose": "vision",
+        "media_type": "video",
+        "sensor_name": ref.name,
+        "creation_time": inputs.creation_time or start,
+    }
+    try:
+        # Spool large recordings to disk rather than retaining them in memory.
+        with tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024) as clip:
+            with httpx.stream("GET", media_url, timeout=timeout) as response:
+                response.raise_for_status()
+                for chunk in response.iter_bytes():
+                    clip.write(chunk)
+            clip.seek(0)
+            uploaded = httpx.post(
+                deployment.endpoint("lvs").rstrip("/") + "/v1/files",
+                data=data,
+                files={"file": ("clip.mp4", clip, "video/mp4")},
+                timeout=timeout,
+            )
+            uploaded.raise_for_status()
+        payload = uploaded.json()
+        file_id = payload.get("id") if isinstance(payload, dict) else None
+        if not isinstance(file_id, str) or not file_id:
+            raise BackendUnreachableError("lvs", "file upload returned no file ID")
+    except (httpx.HTTPError, ValueError) as error:
+        raise BackendUnreachableError("lvs", "could not transfer the VIOS recording to LVS") from error
+    return ref, file_id, start
 
 
 def _memory_input(
@@ -397,8 +454,8 @@ def _memory_input(
     the call that produced it without a second schema to keep in step.
     """
     media_ref: dict[str, Any] = {"source": options.media_source}
-    if inputs.id:
-        media_ref["stream_id"] = inputs.id
+    if request.get("id"):
+        media_ref["file_id"] = request["id"]
     if inputs.url:
         media_ref["url"] = inputs.url
     media_name = options.media_name or getattr(resolved_sensor, "name", None)
@@ -530,10 +587,12 @@ class SummarizeGroup(CommandGroup):
         # Fail before the expensive summarization: a persisted record needs a
         # video_id, which for a --url summary can only come from --video-id.
         asset_id = options.video_id or inputs.id
-        if want_persist and not asset_id:
+        if want_persist and not asset_id and not inputs.sensor:
             raise InvalidInput("cannot persist a --url summary without --video-id (pass --video-id or --no-persist)")
 
-        request = inputs.model_dump(exclude_none=True, exclude_defaults=True)
+        if (options.start_time or options.end_time) and not inputs.sensor:
+            raise InvalidInput("--start-time and --end-time require --sensor")
+        request = inputs.model_dump(exclude={"sensor"}, exclude_none=True, exclude_defaults=True)
         model = inputs.model or _default_model(deployment)
         request["model"] = model
 
@@ -546,7 +605,15 @@ class SummarizeGroup(CommandGroup):
 
         job_id = _mint_job_id()
         created_at = utc_now_iso()
-        resolved_sensor = _resolve_memory_sensor(deployment, inputs, options) if want_persist else None
+        resolved_sensor = None
+        if inputs.sensor:
+            resolved_sensor, request["id"], start = _prepare_sensor_source(deployment, inputs, options)
+            if not inputs.creation_time:
+                inputs = inputs.model_copy(update={"creation_time": start})
+                request["creation_time"] = start
+            asset_id = options.video_id or resolved_sensor.sensor_id
+            # Memory records retain VIOS identity while the request carries LVS's ID.
+            options = options.model_copy(update={"video_id": asset_id})
         input_data = _memory_input(inputs, options, request, resolved_sensor)
         persist_error: str | None = None
 
