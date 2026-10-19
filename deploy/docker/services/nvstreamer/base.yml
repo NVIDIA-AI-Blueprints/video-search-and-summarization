@@ -25,7 +25,7 @@
 # selecting nvstreamer-base would start all of them at once.
 services:
   nvstreamer-base:
-    image: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-nvstreamer}:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    image: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-vios-nvstreamer}:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-3.3.0}}
     container_name: vss-vios-nvstreamer
     user: "0:0"
     entrypoint: ["/bin/bash", "-c", "if [ \"$$NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES\" = \"true\" ]; then /home/vst/vst_release/tools/user_additional_install.sh; fi && /home/vst/vst_release/tools/configure_nvstreamer_ui.sh && exec /home/vst/vst_release/launch_vst"]

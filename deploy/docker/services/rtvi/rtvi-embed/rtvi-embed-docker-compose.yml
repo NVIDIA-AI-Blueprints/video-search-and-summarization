@@ -17,9 +17,9 @@
 
 services:
   rtvi-embed:
-    # SBSA/DGX-Spark uses the same GHCR repository with
-    # VSS_RT_EMBED_TAG=develop-latest-sbsa.
-    image: ${VSS_RT_EMBED_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-embed}:${VSS_RT_EMBED_TAG:-develop-latest}
+    # SBSA/DGX-Spark uses the same NGC repository with
+    # VSS_RT_EMBED_TAG=3.3.0-sbsa.
+    image: ${VSS_RT_EMBED_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-rt-embed}:${VSS_RT_EMBED_TAG:-3.3.0}
     container_name: vss-rtvi-embed
     user: "1001:1001"
     profiles: ["rtvi-embed"]

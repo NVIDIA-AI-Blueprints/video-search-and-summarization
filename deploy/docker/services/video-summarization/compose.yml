@@ -15,7 +15,7 @@
 
 services:
   lvs-server:
-    image: ${CONTAINER_IMAGE:-${VSS_VIDEO_SUMMARIZATION_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-video-summarization}:${VSS_VIDEO_SUMMARIZATION_TAG:-develop-latest}}
+    image: ${CONTAINER_IMAGE:-${VSS_VIDEO_SUMMARIZATION_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-video-summarization}:${VSS_VIDEO_SUMMARIZATION_TAG:-3.3.0}}
     container_name: vss-lvs
 
     profiles: ["lvs-server"]
