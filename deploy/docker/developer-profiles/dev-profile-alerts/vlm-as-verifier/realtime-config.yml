@@ -8,25 +8,7 @@ always_on_rules:
     description: "Detect missing PPE for workers using ladders"
     alert_type: "Ladder PPE Violation"
     always_on_params:
-      # The native streaming session pins the system prompt for its whole
-      # lifetime and later steps are frame-only, so the task lives here.
-      system_prompt: "You are monitoring a worksite camera. For each current frame, first check for a ladder: if there is no ladder, answer no. If there is a ladder, answer yes if anyone on the ladder is missing a hardhat or safety vest, otherwise no. Respond with only yes or no."
-      prompt: "Is anyone on a ladder without a hardhat or safety vest in the current frame?"
+      system_prompt: "You are a helpful assistant."
+      prompt: "Is there a ladder in the scene, if no you must always answer no. If there is a ladder, determine if anyone on the ladder without a hardhat or safety vest? Answer yes or no."
       model: "${VLM_NAME}"
-      # Native StreamingVLM; requires the native streaming RT-VLM image.
-      inference_mode: "streaming_vlm"
-      streaming_frame_policy: "ordered"
-      # Ask the question once at session start and constrain every step's
-      # answer to yes/no. Set true to repeat the prompt on every step (needs
-      # the RT-VLM -qod overlay image).
-      streaming_question_on_decode: false
-      response_format:
-        type: "choice"
-        choices: ["yes", "no"]
-      # One new frame per one-second step, eight retained frames (matches
-      # RTVI_STREAMING_VLM_MAX_VIDEO_SEGMENTS=8). Rules on one camera must share
-      # chunk and sampling settings.
-      streaming_window_frames: 8
-      chunk_duration: 1
-      chunk_overlap_duration: 0
-      num_frames_per_second_or_fixed_frames_chunk: 1
+      inference_mode: "chunked"
