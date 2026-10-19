@@ -311,11 +311,12 @@ Do not silently substitute ordinary VLM inspection.
 
 ## Direct fresh inspection
 
-Each grounded scope the user asked for gets one `vss vlm run`. Two cameras, or
+By default, each grounded scope the user asked for gets one `vss vlm run`. Two cameras, or
 two distinct windows, are two scopes and may each be inspected once; a scope
-already inspected is never inspected again. Exit 6 is the exception to
-failure, not to the count: the answer exists and only persistence failed, so
-return it with that limitation. On any other nonzero exit, report the exit
+already inspected is not inspected again. The only exception is the explicit
+second-look workflow below, which runs both reads inside one command. Exit 6 is the exception to
+failure, not to the count: an answer exists, but persistence or an optional
+reread failed. Return it with the stated limitation. On any other nonzero exit, report the exit
 code and stop. A repeat call for a scope already inspected is wrong whatever
 differs between the two - flags, persistence, or nothing at all - and retrying
 with `--no-persist` is still a repeat: if the deployment could not store the
@@ -338,6 +339,38 @@ another route:
 extracting frames and POSTing them to a cloud API is not a fallback, it is the
 hand-built HTTP call the hard rule forbids, and an answer obtained that way did
 not come from the deployment under test.
+
+### Optional second look
+
+Second look addresses missing temporal evidence, not general model weakness.
+It is most useful for long videos when a relevant moment can be located.
+Choose this optional strategy only when both conditions hold:
+
+- The question concerns a local event or detail that a broad read could miss.
+- A supplied timestamp, search result or prior grounded observation identifies
+  a narrower interval that still contains the evidence needed to answer.
+
+Skip it when the moment is unknown, the question requires the whole recording
+(such as a total count), or adequate evidence is already visible and the
+difficulty is recognition or reasoning. Low confidence alone is not a trigger.
+For example, inspect a located handoff in a long recording; do not crop a
+whole-shift event count or repeatedly inspect the same unreadable sign.
+This is agent selection guidance, not an automatic capability classifier.
+
+For an explicitly requested or authorized second-look workflow, add
+`--relook-start-time` and `--relook-end-time` to the sensor command below.
+Keep the original window in `--start-time` and `--end-time`; both windows must
+fit within one recorded segment. Use ISO-8601 UTC bounds, or seconds from the
+recording start for file-backed sensors. Do not invent a window from a vague
+answer or turn a single timestamp into bounds without a grounded interval.
+
+The CLI performs at most 2 logical reads with the configured model and sampling
+settings. It returns both answers and selects the narrower read's answer;
+selection is a policy, not evidence that the answer improved. It retains the first answer
+with a fallback reason if the optional read fails. Report that limitation.
+If the answers disagree, report the disagreement rather than claiming confirmation.
+Do not issue another command to retry. This option is sensor-only and does not
+extend introspection's follow-ups or the whole-recording routing rules below.
 
 For a trusted bounded URL or local file (no sensor registration or ingestion):
 

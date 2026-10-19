@@ -1,0 +1,150 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""Opt-in second look using the existing CLI transport and core policy."""
+
+from __future__ import annotations
+
+import asyncio
+from contextlib import suppress
+from dataclasses import asdict
+from dataclasses import replace
+from datetime import datetime
+from typing import TYPE_CHECKING
+from typing import Literal
+
+from vss_cli import memory as memory_mod
+from vss_cli.exits import Exit
+from vss_cli.group import InvalidInput
+from vss_cli.group import Result
+from vss_core import vios
+from vss_core._foundation.errors import BackendUnreachableError
+from vss_core.memory import MemoryNotFoundError
+from vss_core.vlm import second_look
+
+if TYPE_CHECKING:
+    from vss_cli.group import Context
+
+    from .group import VlmGroup
+    from .group import VlmInput
+
+
+class _CliAnalyzer:
+    def __init__(self, group: VlmGroup, inputs: VlmInput, ctx: Context) -> None:
+        self.group = group
+        self.inputs = inputs
+        self.ctx = ctx
+        self.reads: list[Result] = []
+
+    async def analyze(
+        self,
+        *,
+        sensor_id: str,
+        start_timestamp: str,
+        end_timestamp: str,
+        prompt: str,
+        time_format: Literal["iso", "offset"] = "iso",  # noqa: ARG002 - CLI accepts both formats.
+    ) -> str:
+        inputs = self.inputs.model_copy(
+            update={
+                "sensor": sensor_id,
+                "start_time": start_timestamp,
+                "end_time": end_timestamp,
+                "prompt": prompt,
+                "relook_start_time": None,
+                "relook_end_time": None,
+            }
+        )
+        # The synchronous CLI resolves VIOS media with its own event loop.
+        result = await asyncio.to_thread(self.group.run, "run", inputs, self.ctx)
+        self.reads.append(result)
+        if result.exit not in (Exit.SUCCESS, Exit.PARTIAL) or not result.body.get("answer", "").strip():
+            raise BackendUnreachableError("vlm", f"Read failed with exit {int(result.exit)}")
+        return str(result.body["answer"])
+
+
+def run_second_look(group: VlmGroup, inputs: VlmInput, ctx: Context) -> Result:
+    from .group import _vios_exit_for
+
+    assert ctx.deployment is not None and inputs.sensor is not None
+    origin = ctx.deployment.base_url.rstrip("/")
+    sensor = inputs.sensor
+    if "vst" not in ctx.deployment.services:
+        from vss_cli.config import ConfigError
+
+        raise ConfigError("second look requires a VSS deployment with VIOS")
+
+    async def resolve() -> tuple[str, list[str], Literal["iso", "offset"]]:
+        ref = await vios.resolve_sensor(origin, sensor)
+        segments = await vios.recorded_segments(origin, ref.stream_id)
+        if not segments:
+            raise vios.VIOSInvalidInputError("second look requires a recorded segment")
+        bounds = [
+            *vios.resolve_window(segments, inputs.start_time, inputs.end_time, ref.kind),
+            *vios.resolve_window(segments, inputs.relook_start_time, inputs.relook_end_time, ref.kind),
+        ]
+        if ref.kind == "video":
+            source_start = datetime.fromisoformat(segments[0][0].replace("Z", "+00:00"))
+            bounds = [
+                str((datetime.fromisoformat(value.replace("Z", "+00:00")) - source_start).total_seconds())
+                for value in bounds
+            ]
+            return sensor, bounds, "offset"
+        return sensor, bounds, "iso"
+
+    try:
+        sensor_id, bounds, time_format = asyncio.run(resolve())
+    except (vios.VIOSInvalidInputError, vios.VIOSNotFoundError, vios.VIOSTimeoutError, BackendUnreachableError) as exc:
+        code, status = _vios_exit_for(exc)
+        return Result(body={"status": status, "error": str(exc)}, exit=code)
+
+    memory = None
+    # Each read already reports an unavailable configured store as partial.
+    with suppress(memory_mod.MemoryUnavailable):
+        memory = group.persist_memory(ctx, no_persist=bool(ctx.extra.get("no_persist")))
+    analyzer = _CliAnalyzer(group, inputs, replace(ctx, memory=memory))
+    try:
+        try:
+            outcome = asyncio.run(
+                second_look(
+                    analyzer,
+                    sensor_id=sensor_id,
+                    start_timestamp=bounds[0],
+                    end_timestamp=bounds[1],
+                    second_start_timestamp=bounds[2],
+                    second_end_timestamp=bounds[3],
+                    prompt=inputs.prompt,
+                    time_format=time_format,
+                )
+            )
+        except ValueError as exc:
+            raise InvalidInput(str(exc)) from exc
+        except BackendUnreachableError:
+            if not analyzer.reads:
+                raise
+            return analyzer.reads[0]
+
+        selected = analyzer.reads[0] if outcome.fallback_reason else analyzer.reads[-1]
+        details = asdict(outcome) | {"job_ids": [read.job_id for read in analyzer.reads]}
+        body = dict(selected.body, answer=outcome.answer, second_look=details)
+        partial = bool(outcome.fallback_reason) or any(read.exit != Exit.SUCCESS for read in analyzer.reads)
+        if memory is not None and body.get("persisted"):
+            persistence_errors: tuple[type[BaseException], ...] = (MemoryNotFoundError, *memory_mod.write_failures())
+            try:
+                record = memory.service.get(selected.job_id)
+                if record.output is None:
+                    raise MemoryNotFoundError("Selected read has no saved output")
+                output = record.output.model_copy(update={"ext": {**(record.output.ext or {}), "second_look": details}})
+                memory.service.upsert(record.model_copy(update={"output": output}))
+            except persistence_errors:
+                body["persisted"] = False
+                body["persist_error"] = "Second-look metadata could not be saved."
+                partial = True
+        return Result(
+            body=body,
+            job_id=selected.job_id,
+            exit=Exit.PARTIAL if partial else Exit.SUCCESS,
+            extra={"marker": {"status": body["status"], "persisted": body.get("persisted", False)}},
+        )
+    finally:
+        if memory is not None and memory is not ctx.memory:
+            memory.close()

@@ -185,6 +185,14 @@ class VlmInput(BaseModel):
         None,
         description="Clip window end, ISO-8601 UTC. Only valid with --sensor.",
     )
+    relook_start_time: str | None = Field(
+        None,
+        description="Opt in to one narrower read: start in ISO time or source seconds for a recorded file.",
+    )
+    relook_end_time: str | None = Field(
+        None,
+        description="Second-read end, paired with --relook-start-time. Requires --sensor.",
+    )
     media_url: str | None = Field(
         None,
         description="Pre-resolved HTTP/HTTPS video URL (Path A). Mutually exclusive with --sensor and --file.",
@@ -262,6 +270,13 @@ class VlmInput(BaseModel):
             raise ValueError("exactly one of --sensor, --media-url, or --file is required")
         if not has_sensor and (self.start_time or self.end_time):
             raise ValueError("--start-time / --end-time require --sensor")
+        if self.relook_start_time is not None or self.relook_end_time is not None:
+            if not self.relook_start_time or not self.relook_end_time:
+                raise ValueError("--relook-start-time and --relook-end-time must be supplied together")
+            if not has_sensor:
+                raise ValueError("second look requires --sensor")
+            if self.chunk_duration:
+                raise ValueError("second look requires --chunk-duration 0")
         return self
 
 
@@ -627,6 +642,14 @@ class VlmGroup(CommandGroup):
             raise InvalidInput("--use-base64 cannot be combined with --sensor")
 
         model = inputs.model or _default_model(deployment)
+        if inputs.relook_start_time is not None:
+            from dataclasses import replace
+
+            from .second_look import run_second_look
+
+            return run_second_look(
+                self, inputs.model_copy(update={"model": model}), replace(ctx, deployment=deployment)
+            )
         job_id = _mint_job_id()
 
         from vss_core.memory.adapters import utc_now_iso

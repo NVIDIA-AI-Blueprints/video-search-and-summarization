@@ -171,5 +171,77 @@
       "Hands off to /vss-summarize-video instead of running `vss vlm run` itself.",
       "Does not stop to ask the user for a shorter window."
     ]
+  },
+  {
+    "id": "explicit-second-look",
+    "question": "Inspect dock_cam from 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z: was the worker wearing a helmet? Use a second look from 2026-08-13T20:00:12Z to 2026-08-13T20:00:16Z.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Use one vss vlm run with both original and narrower window flags; the CLI owns the two reads.",
+    "expected_behavior": [
+      "Passes --sensor dock_cam, --start-time and --end-time for the original scope, and --relook-start-time and --relook-end-time for the requested narrower scope.",
+      "Does not issue separate VLM commands or call the model endpoint directly.",
+      "Returns the selected answer and available job handles."
+    ]
+  },
+  {
+    "id": "hedged-answer-no-automatic-second-look",
+    "question": "The requested single inspection completed successfully with answer \"A helmet may be visible, but the image is unclear.\" The user did not ask for a second look. Return the result.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Return the answer with its uncertainty; do not reread.",
+    "expected_behavior": [
+      "Preserves the uncertainty in the completed answer.",
+      "Does not call VLM again or enable relook automatically."
+    ]
+  },
+  {
+    "id": "second-look-fallback",
+    "question": "The user requested a second look. The CLI exited 6 and returned the first answer \"The worker wears a helmet\" with second_look.fallback_reason indicating the narrower read failed. Return the result.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Return the retained first answer and disclose the failed second look.",
+    "expected_behavior": [
+      "Reports the first answer and the optional-read failure without claiming the reread confirmed it.",
+      "Does not retry the second read or start another inspection."
+    ]
+  },
+  {
+    "id": "second-look-located-event",
+    "question": "For this long recorded sensor window, use a second look if useful: did the worker transfer the box? A grounded search result places the handoff inside 12:10:12Z\u201312:10:18Z within the supplied original scope.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Choose the authorized second-look workflow using the grounded handoff interval, after resolving full absolute bounds.",
+    "expected_behavior": [
+      "Uses the supplied event location rather than guessing a window or relying on low confidence.",
+      "Keeps original scope and narrower interval explicit; one CLI command owns at most two reads."
+    ]
+  },
+  {
+    "id": "second-look-whole-recording-count",
+    "question": "How many trucks entered during the entire supplied 40-minute recording? Use second look only if useful; the only located event is one truck at minute 12.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Do not narrow the total-count question to one located truck.",
+    "expected_behavior": [
+      "Preserves the whole-recording scope and follows existing whole-recording routing.",
+      "Does not enable relook on an interval that cannot answer the total-count question."
+    ]
+  },
+  {
+    "id": "second-look-capability-limit",
+    "question": "A completed exact-window read saw a clearly visible device but could not recognize its specialist connector. The answer is uncertain; should we repeat the same evidence?",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Report the unresolved recognition limitation; uncertainty alone does not justify a reread.",
+    "expected_behavior": [
+      "Does not invent a narrower interval or invoke the VLM again.",
+      "Explains that relook supplies temporal evidence and is not a remedy for every recognition error."
+    ]
+  },
+  {
+    "id": "second-look-disagreement",
+    "question": "The authorized second-look command completed. Its first answer is E, second answer D, selected answer D, with no fallback. Return the result.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Report the selected answer and the disagreement; execution success is not evidence of correctness.",
+    "expected_behavior": [
+      "States that the narrower read selected D but the original read answered E.",
+      "Does not claim the reread confirmed D or that accuracy improved.",
+      "Does not launch another inspection."
+    ]
   }
 ]
