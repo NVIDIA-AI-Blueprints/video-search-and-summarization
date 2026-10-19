@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-// Adapted from WebRTC sources in fake_decoder.cc
-
 #pragma once
 
 #include <stdint.h>
