@@ -257,7 +257,9 @@ OPENAI_API_KEY=<your-openai-api-key>   # required when RTVI uses openai-compat
 
 # Ports
 BACKEND_PORT=38111
+BACKEND_HOST_PORT=38111
 LVS_MCP_PORT=38112
+LVS_MCP_HOST_PORT=38112
 
 # Database (in-stack Elasticsearch)
 ES_HOST=elasticsearch
@@ -266,7 +268,9 @@ ES_PORT=9200
 # LLM (external NIM)
 LVS_LLM_HOST=<llm-nim-host-ip>
 LVS_LLM_PORT=8002
-LVS_LLM_MODEL_NAME=nvidia/nemotron-3.5-lightning-30b-a3b
+# Query the configured NIM's /v1/models endpoint and copy its exact id here.
+# Model IDs can differ between NIM versions and serving configurations.
+LVS_LLM_MODEL_NAME=<id-returned-by-llm-nim-v1-models>
 LVS_DATABASE_BACKEND=elasticsearch_db
 
 # RTVI-VLM Integration
@@ -304,6 +308,17 @@ docker compose -f docker/deploy/compose.yaml --profile rtvi --env-file .env up -
 curl http://localhost:38111/v1/ready
 ```
 
+Before starting LVS, retrieve the LLM model ID from the configured NIM's
+`/v1/models` and set `LVS_LLM_MODEL_NAME` in `.env`. Restart LVS after changing
+that value. Before submitting a request, retrieve the model IDs exposed by each deployed
+inference service. Use the LLM result for `LVS_LLM_MODEL_NAME` and the RTVI-VLM
+result for the request's `model` field:
+
+```bash
+curl -fsS "http://${LVS_LLM_HOST}:${LVS_LLM_PORT}/v1/models" | python3 -m json.tool
+curl -fsS "http://localhost:${RTVI_VLM_PORT}/v1/models" | python3 -m json.tool
+```
+
 **Test the API**
 
 Submit a sample file summarization request:
@@ -313,7 +328,7 @@ curl --location 'http://localhost:38111/v1/summarize' \
   --header 'Content-Type: application/json' \
   --data '{
     "url": "http://<video-server-ip>:<port>/your-video.mp4",
-    "model": "gpt-4o",
+    "model": "<id-returned-by-rtvi-vlm-v1-models>",
     "scenario": "law enforcement",
     "chunk_duration": 15,
     "events": ["pulling over", "arrest", "chasing"]
@@ -358,7 +373,12 @@ KAFKA_ADVERTISED_HOST=localhost
 LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=true
 ```
 
-In addition, set the following in `configmaps/config.yaml` to enable the file path under Kafka mode and to give the Logstash consumer service time to flush the last chunk before the Video Summarization microservice reads events back:
+The checked-in `services/video-summarization/config/config.yaml` already reads
+`KAFKA_ENABLED` from the environment and sets
+`kafka_consumer_settle_secs: 5.0`. Compose mounts that file at
+`/opt/nvidia/via/config/default_config.yaml` in the container, so the `.env`
+settings above are sufficient for the standard Kafka profile. Edit the YAML
+only when you need advanced tuning; for example, the relevant defaults are:
 
 ```yaml
 tools:
@@ -374,12 +394,12 @@ functions:
     type:
       vlm_structured_summarization
     params:
-      kafka_enabled: true
+      kafka_enabled: !ENV ${KAFKA_ENABLED:false}
   summarization_online:
     type:
       vlm_structured_summarization_online
     params:
-      kafka_enabled: true
+      kafka_enabled: !ENV ${KAFKA_ENABLED:false}
 ```
 
 **Bring Up the Stack**
@@ -413,7 +433,7 @@ curl -fsS -X POST http://localhost:38111/v1/generate_captions \
   -H 'Content-Type: application/json' \
   -d "{
     \"id\": \"$ASSET_ID\",
-    \"model\": \"gpt-4o\",
+    \"model\": \"<id-returned-by-rtvi-vlm-v1-models>\",
     \"scenario\": \"warehouse safety monitoring\",
     \"events\": [\"box dropping\", \"unsafe forklift operations\", \"normal activity\"],
     \"chunk_duration\": 10
@@ -427,7 +447,7 @@ curl -fsS -X POST http://localhost:38111/v1/stream_summarize \
   -H 'Content-Type: application/json' \
   -d "{
     \"id\": \"$ASSET_ID\",
-    \"model\": \"gpt-4o\",
+    \"model\": \"<id-returned-by-rtvi-vlm-v1-models>\",
     \"start_time\": 0,
     \"end_time\": 0
   }"
@@ -438,8 +458,11 @@ curl -fsS -X POST http://localhost:38111/v1/stream_summarize \
 **Tear Down the Stack**
 
 ```bash
-docker compose -f docker/deploy/compose.yaml --profile rtvi --profile kafka down -v --remove-orphans
+docker compose -f docker/deploy/compose.yaml --profile rtvi --profile kafka down --remove-orphans
 ```
+
+This preserves Elasticsearch, Kafka, and plugin volumes. Add `-v` only when
+you intentionally want destructive cleanup of all volume-backed data.
 
 ### Standalone Container (Advanced)
 
@@ -510,7 +533,8 @@ VSS_LOG_LEVEL=DEBUG
 
 # LLM Configuration
 # Update these to point to your external LLM NIM services
-LVS_LLM_MODEL_NAME=nvidia/nemotron-3.5-lightning-30b-a3b
+# Query LVS_LLM_BASE_URL/models and use the exact returned id.
+LVS_LLM_MODEL_NAME=<id-returned-by-llm-nim-v1-models>
 LVS_LLM_BASE_URL=http://<llm-nim-host-ip>:8002/v1
 
 # Database Selection
@@ -554,14 +578,22 @@ MODEL_ROOT_DIR=$(grep "^MODEL_ROOT_DIR=" "$ENV_FILE" | cut -d'=' -f2)
 
 # Load port values from env file
 BACKEND_PORT=$(grep "^BACKEND_PORT=" "$ENV_FILE" | cut -d'=' -f2)
+BACKEND_HOST_PORT=$(grep "^BACKEND_HOST_PORT=" "$ENV_FILE" | cut -d'=' -f2)
 LVS_MCP_PORT=$(grep "^LVS_MCP_PORT=" "$ENV_FILE" | cut -d'=' -f2)
+LVS_MCP_HOST_PORT=$(grep "^LVS_MCP_HOST_PORT=" "$ENV_FILE" | cut -d'=' -f2)
 
 # Set defaults if not found
 BACKEND_PORT=${BACKEND_PORT:-38111}
 LVS_MCP_PORT=${LVS_MCP_PORT:-38112}
 
-# Build port mapping arguments
-PORT_ARGS="-p ${BACKEND_PORT}:${BACKEND_PORT} -p ${LVS_MCP_PORT}:${LVS_MCP_PORT}"
+# Build port mapping arguments. Override the host-side ports independently
+# when the defaults are already in use.
+BACKEND_HOST_PORT=${BACKEND_HOST_PORT:-$BACKEND_PORT}
+LVS_MCP_HOST_PORT=${LVS_MCP_HOST_PORT:-$LVS_MCP_PORT}
+PORT_ARGS=(
+    -p "${BACKEND_HOST_PORT}:${BACKEND_PORT}"
+    -p "${LVS_MCP_HOST_PORT}:${LVS_MCP_PORT}"
+)
 
 # Build volume mount for MODEL_ROOT_DIR if set
 MODEL_VOLUME_ARG=""
@@ -579,14 +611,15 @@ else
     echo "MODEL_ROOT_DIR not set in $ENV_FILE, skipping model cache mount"
 fi
 
-# Docker run command
-# Using host network so the container can resolve service names
-# (elasticsearch, rtvi-vlm, LLM NIM) running on the same host.
-# To use bridge network with explicit port mapping instead, remove
-# --network host and add $PORT_ARGS.
+# Docker run command. Use addresses reachable from this container for
+# Elasticsearch, RTVI-VLM, and the LLM NIM. Compose-only service names such as
+# `elasticsearch` and `rtvi-vlm` do not resolve from this standalone container;
+# use a routable host/IP, `host.docker.internal` for host-published services, or
+# attach the container to the dependencies' Docker network explicitly.
 docker run -d \
     --name "$CONTAINER_NAME" \
-    --network host \
+    --add-host host.docker.internal:host-gateway \
+    "${PORT_ARGS[@]}" \
     --env-file "$ENV_FILE" \
     $MODEL_VOLUME_ARG \
     --restart unless-stopped \
@@ -642,7 +675,7 @@ curl --location 'http://localhost:38111/v1/summarize' \
   --data '{
   "id": null,
   "url": "http://<video-server-ip>:<port>/your-video.mp4",
-  "model": "gpt-4o",
+  "model": "<id-returned-by-rtvi-vlm-v1-models>",
   "scenario": "law enforcement",
   "events": ["pulling over", "arrest", "chasing"]
 }' | python3 -m json.tool
@@ -954,7 +987,11 @@ conflict with an existing Kafka deployment.
 
 **ctx-rag function configuration:**
 
-In addition to the environment variables above, set the following in `configmaps/config.yaml` to fully enable Kafka mode end to end:
+The standard Compose workflow mounts
+`services/video-summarization/config/config.yaml` at
+`/opt/nvidia/via/config/default_config.yaml`. That configuration already reads
+`KAFKA_ENABLED` for both summarization functions, so prefer the `.env` setting
+above. The following YAML is shown only for advanced tuning:
 
 ```yaml
 tools:
@@ -970,13 +1007,33 @@ tools:
 functions:
   summarization:
     params:
-      kafka_enabled: true                # file path uses Kafka end-to-end
+      kafka_enabled: !ENV ${KAFKA_ENABLED:false}
   summarization_online:
     params:
-      kafka_enabled: true                # required for live-stream path
+      kafka_enabled: !ENV ${KAFKA_ENABLED:false}
 ```
 
 ### How Summaries Are Sent to Kafka
+
+With Kafka enabled, successful file and stream summarization responses include
+`downstream_processing` (also present on file summarization SSE response events):
+
+```json
+{
+  "kafka_delivery": "acknowledged",
+  "indexing": "unconfirmed"
+}
+```
+
+`acknowledged` means the broker accepted the structured-event and summary
+messages. It does **not** confirm that Logstash indexed them in Elasticsearch;
+HTTP 200 confirms summary generation and Kafka delivery only. Verify indexed
+documents and inspect Logstash errors before treating the archive workflow as
+complete. Kafka initialization, send, and delivery failures fail the request
+instead of silently returning success. For SSE, failures are reported in the
+stream because the HTTP response has already started. A null status means no
+Kafka publication status is available for that response (for example, Kafka is
+disabled or the SSE event precedes publication).
 
 Under the streaming and message bus profile, the publishing flow depends on the API path:
 
@@ -1224,7 +1281,13 @@ grep "MCP" /var/log/via/via-server.log
 * **422 Unprocessable Entity**: Failed to process request (validation error). `POST /v1/summarize` returns this status when called with `source_type=stream` — use `POST /v1/generate_captions` and `POST /v1/stream_summarize` for live-stream workflows instead. It also returns 422 when the media offsets are reversed (`start` later than `end`) or when `min_tokens` is greater than `max_tokens`.
 * **429 Rate Limit Exceeded**: Too many requests
 * **500 Internal Server Error**: Server-side error
-* **503 Service Unavailable**: Server is busy processing another file
+* **503 Service Unavailable**: Server is busy, or a required RTVI-VLM, Kafka, or summarization LLM dependency is unavailable
+
+`/v1/ready` checks RTVI-VLM and the LLMs referenced by the loaded RAG
+configuration. It validates model discovery and a minimal chat-completion
+inference. Successful LLM checks are cached for 30 seconds; failures return
+503. CA-RAG-disabled deployments skip the LLM check. The standalone Compose
+health check uses this readiness endpoint.
 
 ## Appendix
 
@@ -1235,7 +1298,9 @@ Complete list of available environment variables:
 **API Configuration**
 
 * `BACKEND_PORT`: REST API port (default: 38111)
+* `BACKEND_HOST_PORT`: Host port published for the REST API (default: 38111). Takes precedence over the legacy `LVS_BACKEND_PORT` alias, which remains supported by standalone Compose.
 * `LVS_MCP_PORT`: MCP server port (default: 38112)
+* `LVS_MCP_HOST_PORT`: Host port published for MCP (default: 38112)
 * `VSS_API_ENABLE_VERSIONING`: Enable /v1 prefix
 
 **Client CLI**
