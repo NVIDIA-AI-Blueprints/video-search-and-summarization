@@ -128,10 +128,10 @@ jq -e '.choices[0].message.content | length > 0'
 | `LVS_BACKEND_URL` | Host-facing LVS API URL used by operators and agents | `http://${HOST_IP}:38111` | Yes |
 | `VSS_VIDEO_SUMMARIZATION_IMAGE` | LVS image repository | `nvcr.io/nvidia/vss-core/vss-video-summarization` | Yes |
 | `VSS_VIDEO_SUMMARIZATION_TAG` | LVS image tag | `3.3.0`; use `3.3.0-sbsa` on SBSA | Yes |
-| `LVS_ENABLE_MCP` | Optional MCP/SSE endpoint | `true` | No |
+| `LVS_ENABLE_MCP` | Optional MCP/SSE endpoint | `false` | No |
 | `LVS_DATABASE_BACKEND` | Active database backend | `elasticsearch_db` | Yes |
 | `KAFKA_ENABLED` | Enable Kafka integration | `true` in the LVS developer profile | Yes for shared VSS infra |
-| `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker address from the LVS container | `${HOST_IP}:9092` | Yes when Kafka is enabled |
+| `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker address from the LVS container | `kafka:29092` | Yes when Kafka is enabled |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | Structured summary topic | `mdx-structured-events-summary` | Yes when Kafka is enabled |
 | `LVS_ENABLE_LLM_MERGING` | Merge duplicate or overlapping events with the LLM | `true` | No |
 | `RTVI_VLM_URL` | RT-VLM endpoint LVS calls | `http://${HOST_IP}:${RTVI_VLM_PORT}` | Yes for local RT-VLM |
@@ -158,10 +158,10 @@ jq -e '.choices[0].message.content | length > 0'
 - **Outbound:** LVS calls RT-VLM at `RTVI_VLM_URL`, Elasticsearch at
   `ES_HOST:ES_PORT`, Kafka at `KAFKA_BOOTSTRAP_SERVERS`, and the configured LLM
   endpoint.
-- **DNS / hostname assumptions:** The Docker service uses `network_mode: host`
-  in the upstream compose, so generated values should use host-reachable
-  addresses such as `${HOST_IP}` or `localhost`, not compose-network DNS names.
-- **`network_mode`:** host.
+- **DNS / hostname assumptions:** The Docker service uses its Compose bridge
+  network and explicit host port mappings. Use Compose service names for
+  container-to-container peers and `${HOST_IP}` for host-facing URLs.
+- **`network_mode`:** Compose bridge (default).
 
 ## Known Integration Constraints
 
@@ -200,7 +200,7 @@ services:
     ports:
       - ${BACKEND_HOST_PORT:-38111}:${BACKEND_PORT:-38111}
     volumes:
-      - $VSS_APPS_DIR/services/video-summarization/configs/config.yaml:/app/config.yaml:ro
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR must be set}/services/video-summarization/configs/config.yaml:/app/config.yaml:ro
     environment:
       CA_RAG_CONFIG: /app/config.yaml
       LVS_DATABASE_BACKEND: ${LVS_DATABASE_BACKEND:-elasticsearch_db}

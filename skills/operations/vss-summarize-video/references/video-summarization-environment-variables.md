@@ -55,7 +55,7 @@ RT-VLM:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `RTVI_VLM_IMAGE_TAG` | `3.3.0-26.08.2` on x86/Tegra; `3.3.0-26.08.2-sbsa` on SBSA | RT-VLM image tag. |
+| `VSS_RT_VLM_TAG` | `3.3.0` on x86/Tegra; `3.3.0-sbsa` on SBSA | RT-VLM image tag. |
 | `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing base URL. |
 | `RTVI_VLM_PORT` | `8018` | Host port. |
 | `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
@@ -67,7 +67,7 @@ RT-VLM:
 | `RTVI_VLM_MESSAGE_BUS` | `kafka` | Generated-output broker type. |
 | `RTVI_VLM_MESSAGE_BUS_TOPIC` | `mdx-vlm-captions` | Raw caption Kafka topic or Redis stream. |
 | `RTVI_VLM_ERROR_BUS` | `kafka` | Error-output broker type; empty disables errors. |
-| `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker URL from RT-VLM. |
+| `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` | Broker URL from RT-VLM. |
 
 Video summarization service:
 
@@ -82,7 +82,7 @@ Video summarization service:
 | `LVS_EMB_MODEL_NAME` | unset | Text embedding model id for graph backends, copied from the embedding endpoint's `/models` response. Current LVS graph-RAG examples use `nvidia/llama-3.2-nv-embedqa-1b-v2`. |
 | `LVS_EMB_BASE_URL` | unset | OpenAI/NVIDIA-compatible text embedding endpoint for graph backends; include `/v1`, for example `https://integrate.api.nvidia.com/v1` or `http://127.0.0.1:9232/v1`. |
 | `KAFKA_ENABLED` | `true` | video summarization Kafka integration. |
-| `KAFKA_BOOTSTRAP_SERVERS` | `${HOST_IP}:9092` | Broker URL from the video summarization service. |
+| `KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` | Broker URL from the video summarization service. |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | `mdx-structured-events-summary` | Structured summary topic. |
 | `LVS_ENABLE_LLM_MERGING` | `true` | Merge duplicate/overlapping events. |
 
@@ -111,7 +111,7 @@ It maps profile env into container env. Important container env names:
 | `GRAPH_DB_HOST`, `GRAPH_DB_USERNAME`, `GRAPH_DB_PASSWORD`, `GRAPH_DB_HTTP_PORT`, `GRAPH_DB_BOLT_PORT` | Neo4j graph backend connection. |
 | `ARANGO_DB_HOST`, `ARANGO_DB_USERNAME`, `ARANGO_DB_PASSWORD`, `ARANGO_DB_PORT` | ArangoDB graph backend connection. |
 | `KAFKA_ENABLED` | `${KAFKA_ENABLED:-false}` |
-| `KAFKA_BOOTSTRAP_SERVERS` | `${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}` |
+| `KAFKA_BOOTSTRAP_SERVERS` | `${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}` |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | `${KAFKA_STRUCTURED_SUMMARY_TOPIC:-mdx-structured-events-summary}` |
 | `RTVI_VLM_URL` | `${RTVI_VLM_URL:-}` |
 | `ENABLE_AUDIO` | `${ENABLE_AUDIO:-false}` |

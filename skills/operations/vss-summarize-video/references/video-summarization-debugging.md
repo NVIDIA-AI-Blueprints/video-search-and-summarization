@@ -65,9 +65,9 @@ Checks:
 
 ```bash
 docker logs --tail 100 logstash
-docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list
+docker exec kafka kafka-topics --bootstrap-server localhost:29092 --list
 docker exec kafka kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
+  --bootstrap-server localhost:29092 \
   --topic mdx-vlm-captions \
   --max-messages 1
 ```

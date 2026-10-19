@@ -258,7 +258,8 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
 - Enterprise RAG requires a reachable RAG server with data already ingested in `KNOWLEDGE_COLLECTION`
 - If objects are not needed, respond with "skip"
 - The HITL response format is always: `{"response": {"type": "text", "text": "value"}}`
-- HTTP HITL is enabled by default; set `HITL_ENABLED=false` explicitly to
-  disable it.
+- HTTP HITL is enabled by default in the Docker Compose LVS deployment; set
+  `HITL_ENABLED=false` to disable it. NemoClaw defaults HITL to false, so set
+  `HITL_ENABLED=true` explicitly when that harness needs HITL.
 - See also: `video-summarization`, `video-understanding`, `report`, `vios`, `deploy`
 

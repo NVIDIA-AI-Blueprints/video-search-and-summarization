@@ -55,7 +55,7 @@ details live in
 
 **Candidate-alert source (required for `cv-verification`):**
 
-- **RTVI CV (object detection)** — `vss-rt-cv` (DeepStream + Grounding DINO open-vocabulary detection, `perception-alerts`). Processes VIOS live streams and outputs detection metadata to Kafka. Owned by RT-CV (`skills/deployment/vss-deploy-detection-tracking-2d/`); for the alerts profile its config-bearing service-key `perception-alerts` is contributed by the `cv-verification` variant in `patch-alerts.md`.
+- **RTVI CV (object detection)** — `vss-rt-cv` (DeepStream + Grounding DINO open-vocabulary detection, `perception-alerts`). Processes VIOS live streams and outputs detection metadata to Kafka. Owned by RT-CV (`skills/deployment/vss-deploy-detection-tracking-2d/`); alerts composition is documented in [`vss-build-vision-ai/references/services/alerts.md`](../../../vss-build-vision-ai/references/services/alerts.md).
 - **Behavior Analytics** — `vss-behavior-analytics` (`vss-behavior-analytics-alerts`). Processes RTVI CV metadata into rule-based candidate alerts/incidents on Kafka. Its emitted `category` must match an `alert_type` key in `alert_type_config.json` (or a `/api/v1/verification/config` entry). Owned by Behavior Analytics (`skills/deployment/vss-setup-behavior-analytics/`); the alerts-profile service-key is contributed by the `cv-verification` variant.
 
 **Agent layer (optional) + synthetic source:**
@@ -67,7 +67,7 @@ details live in
   requested legacy MCP workflow such as SOP reporting. Nothing in
   `alert-bridge`, `perception-alerts`, or `vss-behavior-analytics` depends on
   either service.
-- **Nemotron LLM (NIM)** — **optional**, only meaningful when the agent layer is included (the LLM serves the agent's reasoning / tool selection / report generation). Alerts default `LLM_NAME=nvidia/nemotron-3.5-lightning-30b-a3b` at `LLM_BASE_URL=http://${HOST_IP}:${LLM_PORT}` (`:30081`); `LLM_MODE` picks dedicated (`local`) vs shared-GPU (`local_shared`) placement. Owned by the LLM-NIM catalog entry (`skills/vss-build-vision-ai/`); the `required: false` `llm_placement` variant in `patch-alerts.md`. Omit for a headless verify deployment.
+- **Nemotron LLM (NIM)** — **optional**, only meaningful when the agent layer is included (the LLM serves the agent's reasoning / tool selection / report generation). Alerts default `LLM_NAME=nvidia/nemotron-3.5-lightning-30b-a3b` at `LLM_BASE_URL=http://${HOST_IP}:${LLM_PORT}` (`:30081`); `LLM_MODE` picks dedicated (`local`) vs shared-GPU (`local_shared`) placement. Owned by the LLM-NIM catalog entry and alerts composition in [`vss-build-vision-ai/references/services/alerts.md`](../../../vss-build-vision-ai/references/services/alerts.md). Omit for a headless verify deployment.
 - **Phoenix** — observability for the agent layer (`PHOENIX_ENDPOINT=http://${HOST_IP}:6006`). Already part of ELK's `component_services` (`phoenix` key). Owned by ELK/infra.
 - **NVStreamer** — video streaming service that plays back dataset videos to replicate live cameras (`vss-vios-nvstreamer`, `ADAPTOR=streamer`). In `build-vision-ai` this is the **validation-harness** component emitted by Step 6 (recorded under the sidecar `validation_harness:` key) when the deployment needs a live/streaming source but no real camera is supplied — it is NOT a `component_services:` entry. Source: `references/validation-harness.md`.
 - **Video Analytics API** — `vss-video-analytics-api` (`:8081` REST query
@@ -185,7 +185,9 @@ The compose interpolates host-side names; the `env-substitute.py` entrypoint fol
   `nvstreamer-alerts`, `cosmos3-reasoner`,
   `cosmos3-reasoner-shared-gpu`, and `rtvi-vlm` as `required: false`. Recent
   Docker Compose rejects undefined peers at project-load; a standalone deploy
-  must strip whichever are undefined in its include graph.
+  must strip whichever are undefined in its include graph. Follow
+  [`vss-build-vision-ai/references/services/alerts.md`](../../../vss-build-vision-ai/references/services/alerts.md)
+  for the selected service composition.
 
 ## Example Compose Snippet
 
@@ -222,7 +224,6 @@ services:
       - /app/runtime:mode=1777,size=10M
     depends_on:
       kafka: { condition: service_healthy }
-      redis: { condition: service_started }
       elasticsearch: { condition: service_healthy }
       kafka-topic-init-container: { condition: service_completed_successfully }
       # rtvi-vlm / sibling-NIM / nvstreamer-alerts peers are required:false and

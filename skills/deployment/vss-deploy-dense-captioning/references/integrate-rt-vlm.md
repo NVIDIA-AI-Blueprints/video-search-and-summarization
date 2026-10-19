@@ -9,7 +9,12 @@ Use this service when the workflow requires either (a) dense captioning of a sto
 ## Required Peer Services
 
 - **Kafka** — required when `MESSAGE_BUS=kafka`. RT-VLM publishes generated caption records to `${MESSAGE_BUS_TOPIC}` and incident protobuf records to `${KAFKA_INCIDENT_TOPIC}`. Broker must be reachable at `${KAFKA_BOOTSTRAP_SERVERS}` (compose default `${HOST_IP}:9092` for host-network Kafka).
-- **Sibling VLM backend** — required when `VLM_MODEL_TO_USE=openai-compat`, which is the compose default. Either a sibling NIM (`cosmos-reason1-7b`, `cosmos-reason2-8b`, `qwen3-vl-8b-instruct`) reachable at `${VIA_VLM_ENDPOINT}`, OR remote OpenAI/Azure. In-process operation requires switching `VLM_MODEL_TO_USE` to `cosmos-reason1` / `cosmos-reason2` / `cosmos-reason3` / `vllm-compatible` and pointing `MODEL_PATH` at an NGC or git URL. Source: `real-time-vlm.rst` § Models Supported (lines 62–87).
+- **Sibling VLM backend** — required when `VLM_MODEL_TO_USE=openai-compat`,
+  which is the Compose default. Use `cosmos3-reasoner` or
+  `cosmos3-reasoner-shared-gpu` at `${VIA_VLM_ENDPOINT}`, or a remote
+  OpenAI-compatible endpoint. In-process operation uses
+  `VLM_MODEL_TO_USE=cosmos-reason3` or `vllm-compatible` with `MODEL_PATH`
+  pointing at an NGC or git URL.
 - **Video source** — RT-VLM accepts video input via **three independent paths**:
   1. **On-demand (VOD) via VIOS-shared bind mount.** Operator uploads to VIOS `POST /vst/api/v1/files`, file lands in `${VSS_DATA_DIR}/data_log/vst/clip_storage/`, RT-VLM mounts the same host directory at `/home/vst/vst_release/streamer_videos/` and can reference the file path in `POST /v1/files` or `POST /v1/generate_captions`. **VIOS is the producer; RT-VLM is the reader.** Both must mount the same host path or the path-based caption call gets "file not found".
   2. **On-demand (VOD) via direct URL.** Send `POST /v1/files` to RT-VLM with `url` as a **multipart form field** (`-F url=https://…|s3://…|file://…`, not a JSON body) — RT-VLM downloads and processes directly. VIOS is NOT involved. Available 3.2.0+ per `real-time-vlm.rst` § New API Capabilities lines 131–135.
@@ -19,7 +24,11 @@ Use this service when the workflow requires either (a) dense captioning of a sto
 - **Redis** — optional. Required only when `ENABLE_REDIS_ERROR_MESSAGES=true` to publish VLM/decode errors onto a Redis channel. Source: `real-time-vlm.rst` § Sample docker-compose.yml (lines 350–354).
 - **Elasticsearch + Logstash + Kibana (via ELK stack)** — optional but standard for IN-1: Logstash consumes `${MESSAGE_BUS_TOPIC}` when `MESSAGE_BUS=kafka`, plus `${KAFKA_INCIDENT_TOPIC}`, and writes documents into Elasticsearch. Schema compatibility is mediated by the NvSchema protobuf descriptors (`schema.desc` + `ext.desc`) shared between RT-VLM (producer) and Logstash (consumer). Source: `integrate-elk.md` § Required Peer Services + § Known Integration Constraints.
 
-Sibling NIM backends (`cosmos-reason1-7b`, `cosmos-reason2-8b`, `cosmos3-reasoner`, `qwen3-vl-8b-instruct`, plus their `-shared-gpu` variants) live in a separate `services/nim/compose.yml` and have their own forthcoming `integrate-vlm-nim.md`. When the in-process backend is used (the IN-1 default), those NIM service-keys are not deployed, and their `depends_on: { required: false }` entries on rtvi-vlm must be stripped from a standalone deploy — recent Docker Compose rejects undefined peers at project-load (see § Known Integration Constraints).
+Sibling NIM backends `cosmos3-reasoner` and
+`cosmos3-reasoner-shared-gpu` live in the NIM Compose. When an in-process or
+remote backend is used, those service keys are not deployed, and their
+`depends_on: { required: false }` entries must be stripped from a standalone
+deploy because recent Docker Compose rejects undefined peers at project load.
 
 ## Integration Interfaces
 
@@ -203,9 +212,8 @@ services:
       stack: 67108864
     ipc: host
     # depends_on: the undefined sibling-NIM peers must be STRIPPED for a standalone deploy.
-    # Upstream compose declares depends_on for sibling NIMs (cosmos-reason1-7b,
-    # cosmos-reason2-8b, cosmos3-reasoner, qwen3-vl-8b-instruct) all required:false, but recent
-    # Docker Compose rejects the standalone project at load time.
+    # Upstream compose declares cosmos3-reasoner and its shared-gpu variant
+    # required:false, but recent Docker Compose still rejects undefined peers.
 
 volumes:
   rtvi-hf-cache:

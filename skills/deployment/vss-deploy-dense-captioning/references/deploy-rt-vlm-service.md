@@ -17,8 +17,8 @@ other platforms use the normal multiarch tag.
 
 Real-Time VLM is VSS's streaming vision-language inference service: RTSP decode →
 segmentation → VLM inference (vLLM) → Kafka publication (NvSchema protobuf).
-In this compose, rtvi-vlm is wired by default to call a **sibling NIM**
-(`cosmos-reason1-7b`, `cosmos-reason2-8b`, or `qwen3-vl-8b-instruct`) over
+In this compose, rtvi-vlm can call a **sibling NIM**
+(`cosmos3-reasoner` or `cosmos3-reasoner-shared-gpu`) over
 OpenAI-compat HTTP (`RTVI_VLM_MODEL_TO_USE=openai-compat`). **Kafka lives on the
 host**, not in-compose (`KAFKA_BOOTSTRAP_SERVERS=${HOST_IP}:9092`).
 
@@ -48,8 +48,8 @@ live-authoritative schema — see §16.
   - `ipc: host` — required so vLLM shared-memory IPC reaches the host kernel SHM segment. Source: line 383.
 - **Kafka on host** reachable at `${HOST_IP}:9092` (compose does NOT bundle Kafka)
 - **Sibling NIM compose** providing the VLM backend: rtvi-vlm `depends_on`
-  `cosmos-reason1-7b` / `cosmos-reason2-8b` / `qwen3-vl-8b-instruct`, all
-  `required: false`. Launch one of those first.
+  `cosmos3-reasoner` / `cosmos3-reasoner-shared-gpu`, both `required: false`.
+  Launch one first, or configure `openai-compat` with an external endpoint.
 - **`VSS_DATA_DIR`** host path — compose bind-mounts
   `${VSS_DATA_DIR}/data_log/vst/clip_storage` with no default → mount breaks if unset
 - **Free port**: `${RTVI_VLM_PORT}` (whatever you pick)

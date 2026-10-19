@@ -76,7 +76,7 @@ wrong, Docker may create an empty directory and LVS will fail at startup.
 | `POST /v1/summarize` returns 400 for model errors | `model` does not match the id advertised by `GET /models` | Query `/models` and copy the exact id into the request and `VLM_NAME` |
 | `POST /v1/summarize` returns 503 busy | LVS is already processing a file | Run one smoke-test summarize request at a time and retry after the current request completes |
 | LVS starts with config-file errors | The `config.yaml` bind source resolved to a missing file or Docker-created directory | Point `VSS_APPS_DIR` to `deploy/docker` or materialize `config.yaml` into the build output and rewrite the bind source |
-| LVS cannot reach Kafka or Elasticsearch | Host-networked service has wrong `HOST_IP`, `KAFKA_BOOTSTRAP_SERVERS`, `ES_HOST`, or `ES_PORT` | Use host-reachable addresses such as `${HOST_IP}:9092` and `localhost:9200`/`${HOST_IP}:9200` according to the generated env |
+| LVS cannot reach Kafka or Elasticsearch | Service has incorrect `KAFKA_BOOTSTRAP_SERVERS`, `ES_HOST`, or `ES_PORT` | Use Compose peers such as `kafka:29092` and `elasticsearch:9200`, or explicitly configured reachable external endpoints |
 | `lvs` pulls or starts the wrong image | A wrapper or generated compose image value does not match the selected LVS release | Use the source-of-truth LVS compose image contract or set `VSS_VIDEO_SUMMARIZATION_IMAGE` / `VSS_VIDEO_SUMMARIZATION_TAG` |
 
 ## Prerequisites
@@ -143,7 +143,7 @@ curl -s -X POST "http://${HOST_IP}:38111/v1/summarize" \
 
 ```bash
 docker ps --filter name=lvs --format '{{.Names}} {{.Status}}'
-docker logs --tail 100 lvs
+docker logs --tail 100 vss-lvs
 curl -sf "http://${HOST_IP}:38111/metrics" | head
 ```
 

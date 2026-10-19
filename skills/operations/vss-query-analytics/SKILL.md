@@ -39,7 +39,7 @@ authorize deployment or another write operation.
 ## Bootstrap and configure
 
 The `vss` CLI on `PATH`. The OpenClaw and Hermes harness images ship it; from
-this repository checkout, install the matching CLI with
+the repository checkout root, install the matching CLI with
 `uv tool install ./libs/vss/cli`. Exit codes and common CLI rules live in the repository root
 [`AGENTS.md`](../../../AGENTS.md). Do not execute it inside a container.
 

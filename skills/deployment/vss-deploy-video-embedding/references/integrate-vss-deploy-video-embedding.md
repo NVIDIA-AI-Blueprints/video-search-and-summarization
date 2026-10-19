@@ -124,7 +124,6 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | `ASSET_STORAGE_DIR` | Optional host directory bound to `/tmp/assets` inside the container. | (unset; mount is skipped) | No |
 | `RTVI_EMBED_LOG_DIR` | Optional host directory bound to `/opt/nvidia/rtvi/log/rtvi/`. | (unset; mount is skipped) | No |
 | `VSS_DATA_DIR` | Host root for VSS data; `data_log/vst/clip_storage` under this path is mounted into the container. | (unset) | Yes |
-| `RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH` | Container-side clip reader mount for the VST `clip_storage` bind (matches `rtvi-embed-docker-compose.yml`). | `/home/vst/vst_release/streamer_videos` | Yes when binding clip storage |
 
 ## Network Requirements
 
@@ -147,12 +146,9 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 
 ## Example Compose Snippet
 
-Set the container-side clip reader mount before validating or starting this
-snippet. The canonical Compose target is:
-
-```bash
-export RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH=/home/vst/vst_release/streamer_videos
-```
+The shipped Compose file fixes the container-side clip reader mount at
+`/home/vst/vst_release/streamer_videos`; the example below uses the same
+literal target.
 
 ```yaml
 services:
@@ -187,7 +183,7 @@ services:
       - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
       - "${RTVI_EMBED_HF_CACHE:-rtvi-hf-cache}:/tmp/huggingface"
       - "rtvi-triton-model-repo:/tmp/triton_model_repo"
-      - "${VSS_DATA_DIR}/data_log/vst/clip_storage:${RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH}"
+      - "${VSS_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos"
     ipc: host
     ulimits:
       memlock:
@@ -211,9 +207,9 @@ volumes:
   rtvi-triton-model-repo:
 ```
 
-The export above states the current container-side target from the
-`clip_storage` volume in
-`deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
+The path above matches the container-side `clip_storage` target in
+`deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`; update
+this example if that canonical mount changes.
 
 ## Authentication & Authorization
 

@@ -9,9 +9,10 @@ Microservice**, formerly "Alert Verification" / "Alert Bridge"; image
 ## Container Image
 
 > **Source of truth — read it from the compose, do not hardcode.** The
-> `alert-bridge` image in `deploy/docker/services/alert/compose.yml` resolves
-> from `VSS_ALERT_IMAGE`, `VSS_CONTAINER_REGISTRY`, `VSS_CONTAINER_TAG`, and
-> `VSS_ALERT_TAG`. To read the current expression:
+> `alert-bridge` image in `deploy/docker/services/alert/compose.yml` uses
+> `VSS_ALERT_IMAGE` as a full-reference override. Otherwise it composes the
+> repository from `VSS_CONTAINER_REGISTRY` and the tag from
+> `VSS_CONTAINER_TAG` or `VSS_ALERT_TAG`. To read the current expression:
 >
 > ```bash
 > # authoritative image:tag for this deployment
@@ -83,7 +84,7 @@ healthcheck:
 
 | Symptom | Root cause | Fix |
 |---|---|---|
-| `invalid compose project` / unresolved `depends_on` at `docker compose config` | Standalone copy still references undefined `required: false` peers (`rtvi-vlm`, the 8 sibling NIMs, `nvstreamer-alerts`) | Strip undefined `depends_on` peers in the patched copy (Step 6.5 Patch 2 / `patch-alerts.md`). Keep `kafka`, `redis`, `elasticsearch`, `kafka-topic-init-container` (defined via ELK) and `rtvi-vlm` when RT-VLM is in the allow-list. |
+| `invalid compose project` / unresolved `depends_on` at `docker compose config` | Standalone copy still references undefined optional peers (`nvstreamer-alerts`, `cosmos3-reasoner`, `cosmos3-reasoner-shared-gpu`, `rtvi-vlm`) | Strip only undefined optional peers in the patched copy. Keep `kafka`, `elasticsearch`, and `kafka-topic-init-container`; keep `rtvi-vlm` when selected. See [`vss-build-vision-ai/references/services/alerts.md`](../../../vss-build-vision-ai/references/services/alerts.md). |
 | Container boots then exits / `config.yml not found` | The three config bind-mounts (or `env-substitute.py`) were not materialized into the patched tree | Materialize the verifier config files (Step 6.5 Patch 3): copy `developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/{config.yml,alert_type_config.json}` + the realtime config + `services/alert/scripts/env-substitute.py` into the patched tree, and set the `VLM_AS_VERIFIER_*` env to those paths. |
 | Consumer idle, no verifications happen | Candidate topics (`mdx-incidents` / `mdx-alerts`) not created, or no detector producing them | Keep `kafka-topic-init-container` in the allow-list; in `cv-verification` ensure RT-CV + Behavior Analytics are deployed and emitting. |
 | Every verdict is `unverified`, `verification_response_code != 200` | VLM endpoint unreachable or wrong model id | Confirm `VLM_BASE_URL` / `RTVI_VLM_BASE_URL` reachable and `VLM_NAME` matches what the backend advertises at `GET /v1/models` (mismatch → HTTP 400 "No such model"). |
@@ -91,7 +92,7 @@ healthcheck:
 | Incidents present but never verified | CV `category` not present in `alert_type_config.json` | Add the `alert_type` entry (mapping `category` → prompts) and restart `alert-bridge`. |
 | `POST /api/v1/realtime/always-on` returns `503 ALWAYS_ON_DISABLED` | `ALERT_AGENT_ALWAYS_ON=false` / `alert_agent.always_on: false` (verification / 2d_cv) | Redeploy alerts with `-m real-time` so `dev-profile.sh` sets `ALERT_AGENT_ALWAYS_ON=true`, or confirm `generated.env` has that value and the verifier config substitutes the gate. |
 | Name conflict `/vss-alert-bridge already in use` / port `9080` in use | `container_name` and host port are singleton under `network_mode: host` | Tear down the prior generation's `vss-alert-bridge` before bring-up (Step 6.5 Patch 0 orphan-container check). |
-| (`cv-verification`) `vss-rtvi-cv` exits: `mkdir: cannot create directory '/opt/engines/gdino': Permission denied` | The host `${VSS_APPS_DIR}/engines/` bind-mounted at `/opt/engines/` was created root-owned / non-writable; RT-CV builds TensorRT engines into `/opt/engines/{gdino,rtdetr-its}` at first run | Pre-create + world-write the engine dirs **before** bring-up: `mkdir -p ${VSS_APPS_DIR}/engines/{gdino,rtdetr-its} && chmod -R 777 ${VSS_APPS_DIR}/engines`. Mirrors `deploy/docker/scripts/dev-profile.sh` (alerts branch, lines 1435–1443). See `patch-alerts.md § cv-verification host-prep`. |
+| (`cv-verification`) `vss-rtvi-cv` exits: `mkdir: cannot create directory '/opt/engines/gdino': Permission denied` | The host `${VSS_APPS_DIR}/engines/` bind-mounted at `/opt/engines/` was created root-owned / non-writable; RT-CV builds TensorRT engines into `/opt/engines/{gdino,rtdetr-its}` at first run | Pre-create the engine directories with the ownership expected by RT-CV before bring-up. Follow [`vss-build-vision-ai/references/services/alerts.md`](../../../vss-build-vision-ai/references/services/alerts.md) and `deploy/docker/scripts/dev-profile.sh`. |
 | (`cv-verification`) `vss-rtvi-cv` fails loading the GDINO/RT-DETR ONNX, or detections never appear | ds-start phase 0 failed to download the detector models — missing `NGC_CLI_API_KEY`, unwritable `${VSS_DATA_DIR}/models`, or NGC network error | Confirm `NGC_CLI_API_KEY` is exported, `mkdir -p ${VSS_DATA_DIR}/models && chmod -R 777 ${VSS_DATA_DIR}/models`, restart `vss-rtvi-cv`, and check its logs for phase-0 download output. |
 | Explicitly selected `vss-agent` / legacy `vss-va-mcp` exits: config / template file not found | A generated `.env` rewrote `VSS_AGENT_CONFIG_FILE` / `VSS_VA_MCP_CONFIG_FILE` / `VSS_AGENT_TEMPLATE_PATH` to a **host-absolute** path; these must stay **container-relative** (`./deploy/docker/...`), resolved inside the container via the `${VSS_APPS_DIR}:/vss-agent/deploy/docker:ro` mount + `/vss-agent` workdir | Keep those variables verbatim as `./deploy/docker/...` when their owning service is selected — do not prefix `${VSS_APPS_DIR}`. Normal host-CLI/NemoClaw Alerts selects neither service and does not require `VSS_VA_MCP_CONFIG_FILE`. |
 
