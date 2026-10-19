@@ -1966,6 +1966,17 @@ function state_up() {
   if ([[ "${profile}" == "alerts" ]] || [[ "${profile}" == "lvs" ]] || [[ "${profile}" == "base" ]] || [[ "${profile}" == "search" ]]) && [[ "${vlm_mode}" == "remote" ]]; then
     set_env_var "VLM_PORT" "30082"
     set_env_var "RTVI_VLM_MODEL_TO_USE" "openai-compat"
+    # Stream processing builds clip URLs from VST_INGRESS_ENDPOINT and Alert Microservice
+    # hands them to the VLM, which fetches them itself. A remote VLM cannot resolve
+    # the Compose DNS name vst-ingress, so use the host-published ingress port;
+    # url_transform then maps HOST_IP to EXTERNAL_IP.
+    if [[ "${profile}" == "alerts" ]]; then
+      local _vst_ingress_endpoint="${VST_INGRESS_ENDPOINT:-}"
+      if [[ -z "${_vst_ingress_endpoint}" ]]; then
+        _vst_ingress_endpoint='${HOST_IP}:${VST_INGRESS_HOST_PORT:-30888}/vst'
+      fi
+      set_env_var "VST_INGRESS_ENDPOINT" "${_vst_ingress_endpoint}"
+    fi
     # LVS requests defer frame sampling to RT-VLM. Default remote endpoints to
     # five frames per chunk unless their profile or environment overrides it.
     if [[ "${profile}" == "lvs" ]]; then
