@@ -189,7 +189,7 @@ To configure required storage, set the `total_video_storage_size_MB` parameter i
 
 Default URL: `http://<IP_address>:30888/vst/`
 
-VIOS deployment can be verified using a web-based application binary. Please note: at this point the web-based application is only available for Chrome browser running on Linux, Windows or MacOS. The UI can be accessed on any viewing machine on local subnet. The following instructions refer to same host. Substitute 'localhost' with IP address of your viewing machine.
+VIOS deployment can be verified using a web-based application binary. Please note: at this point the web-based application is only available for Chrome browser running on Linux, Windows or macOS. The UI can be accessed on any viewing machine on local subnet. The following instructions refer to same host. Substitute 'localhost' with IP address of your viewing machine.
 
   1. Launch Chrome browser
   2. In the address bar enter `http://<IP_address>:30888/vst/`
@@ -580,7 +580,7 @@ Following table describes the parameters in VIOS config file, which should be pr
 | stream_monitor_interval_secs | Stream Monitor interval in seconds | 2 |
 | webrtc_latency_ms | Latency for webrtc in milliseconds | 500 |
 | enable_frame_drop | Enable/Disable frame drop | TRUE |
-| webrtc_video_quality_tunning | webRTC video quality tunning | `{"resolution_2160":{"bitrate_start":20000,"bitrate_range":[15000,25000],"qp_range_I":[0,30],"qp_range_P":[0,51]},"resolution_1440":{"bitrate_start":10000,"bitrate_range":[8000,15000],"qp_range_I":[10,30],"qp_range_P":[10,30]},"resolution_1080":{"bitrate_start":5000,"bitrate_range":[3000,8000],"qp_range_I":[10,30],"qp_range_P":[10,30]},"resolution_720":{"bitrate_start":3000,"bitrate_range":[2000,5000],"qp_range_I":[10,30],"qp_range_P":[10,30]},"resolution_480":{"bitrate_start":1000,"bitrate_range":[800,3000],"qp_range_I":[10,30],"qp_range_P":[10,30]}}` |
+| webrtc_video_quality_tunning | webRTC video quality tuning | `{"resolution_2160":{"bitrate_start":20000,"bitrate_range":[15000,25000],"qp_range_I":[0,30],"qp_range_P":[0,51]},"resolution_1440":{"bitrate_start":10000,"bitrate_range":[8000,15000],"qp_range_I":[10,30],"qp_range_P":[10,30]},"resolution_1080":{"bitrate_start":5000,"bitrate_range":[3000,8000],"qp_range_I":[10,30],"qp_range_P":[10,30]},"resolution_720":{"bitrate_start":3000,"bitrate_range":[2000,5000],"qp_range_I":[10,30],"qp_range_P":[10,30]},"resolution_480":{"bitrate_start":1000,"bitrate_range":[800,3000],"qp_range_I":[10,30],"qp_range_P":[10,30]}}` |
 | webrtc_peer_conn_timeout_sec | Timeout duration in seconds for peer connection establishment | 10 |
 | remote_vst_address | Cloud VIOS Address | 13.0.0.1:30000 |
 | webrtc_port_range | Min and Max Port Range for WebRTC | `''{"min": 0, "max": 0}''` |
