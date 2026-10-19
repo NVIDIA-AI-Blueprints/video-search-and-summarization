@@ -583,7 +583,7 @@ rtvi:
       - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS
         value: "10"
       - name: VLLM_GPU_MEMORY_UTILIZATION
-        value: ""
+        value: "0.4"
       - name: VLLM_DISABLED_KERNELS
         value: "FlashInferFP8ScaledMMLinearKernel"
       # GB300 uses TRITON_ATTN; an empty value preserves the default on other platforms.

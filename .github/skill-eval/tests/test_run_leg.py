@@ -752,6 +752,14 @@ class RunCommand(unittest.TestCase):
 
 
 class ProcessGroupShutdown(unittest.TestCase):
+    def test_missing_proc_filesystem_is_not_an_error(self):
+        def unavailable(_):
+            yield from ()
+            raise FileNotFoundError("/proc")
+
+        with mock.patch.object(Path, "iterdir", unavailable):
+            self.assertEqual(run_leg._registry_environment_groups(Path("registry")), set())
+
     def test_leader_exit_is_not_enough_when_group_still_exists(self):
         proc = mock.Mock(pid=4321)
         proc.wait.return_value = 0

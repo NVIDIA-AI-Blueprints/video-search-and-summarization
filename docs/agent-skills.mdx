@@ -63,6 +63,24 @@ VSS Agent Skills are used in two complementary ways:
   manage cameras and streams, submit and verify alerts, run searches, summarize videos,
   and generate reports through natural-language chat.
 
+### Validate a release Compose plan
+
+For VSS 3.3.0, run the host-side release validator from the repository checkout
+before deploying a generated `resolved.yml`:
+
+```bash
+export VSS_CONTAINER_TAG=3.3.0  # or the image tag selected for this deployment
+# Export the tag before generating resolved.yml with docker compose config.
+uv run --script deploy/docker/scripts/validate_release_compose.py \
+  resolved.yml --repo-root . --expect-container-tag "$VSS_CONTAINER_TAG"
+```
+
+This entry point supplies the release's `3.3.0` fallback to the shared Skill
+validator. It catches managed images left on that fallback when another tag
+was selected, and retains the placeholder, bind-mount, credential, and Alerts UI
+checks. Mirrored ecosystem images keep their independent tag pins. Use this
+release entry point when following the Skill's pre-deployment validation step.
+
 ## Available Skills
 
 The official VSS Agent Skills are published in the `skills/` folder of the
