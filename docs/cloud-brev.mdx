@@ -45,7 +45,7 @@ To obtain the required NGC API Key, follow the steps in:
    ```bash
    cd ~/video-search-and-summarization
    git fetch origin "${VSS_DOCS_GIT_REF:-develop}"
-   git checkout "${VSS_DOCS_GIT_REF:-develop}"
+   git checkout --detach FETCH_HEAD
    ```
 
 6. Navigate to and open the `video-search-and-summarization/deploy/docker/scripts/deploy_vss_launchable.ipynb` notebook. If it is already open, close and reopen it after checking out the reference so it loads the selected version.
