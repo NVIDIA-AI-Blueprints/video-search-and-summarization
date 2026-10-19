@@ -392,10 +392,11 @@ which:
 
 In the Warehouse Blueprint, these rules are deployed via the **always-on**
 mechanism: rules are declared once in `realtime-config.yml` and are
-fanned out automatically to every camera that VST exposes (one
+fanned out automatically to every RTSP camera that VST exposes (one
 `/api/v1/realtime/always-on` registration per `camera_streaming`
-event, one rule per camera). The `live_stream_url` field is filled in
-from the camera event's `camera_url`,so do not set it in the YAML.
+event, one rule per camera). Uploaded video files are skipped, because
+RT-VLM monitors live RTSP streams only. The `live_stream_url` field is
+filled in from the camera event's `camera_url`,so do not set it in the YAML.
 
 The Warehouse Blueprint ships four real-time use cases:
 
