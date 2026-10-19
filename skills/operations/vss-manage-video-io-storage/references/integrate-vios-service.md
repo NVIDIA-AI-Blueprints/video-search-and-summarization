@@ -313,9 +313,10 @@ The IN-1-relevant subset (full list in `deploy/docker/services/vios/vst.env`):
 | `REDIS_MSG_KEY` | Redis sensor-event key | `vst.event` | optional |
 | `KAFKA_BOOTSTRAP_URL` | Kafka broker | `kafka:29092` | optional |
 | `KAFKA_MSG_KEY` | Kafka sensor-event key | `sensor.id` | optional |
-| `VST_SENSOR_IMAGE_TAG` | Tag for `vss-vios-sensor` image | `3.3.0` | optional |
-| `VST_STREAM_PROCESSOR_IMAGE_TAG` | Tag for `vss-vios-streamprocessing` image | `3.3.0` | optional |
-| `VST_INGRESS_IMAGE_TAG` | Tag for `vss-vios-ingress` image | `3.3.0` | optional |
+| `VSS_VIOS_SENSOR_TAG` | Per-image tag override for `vss-vios-sensor`; otherwise follows `VSS_CONTAINER_TAG` | `3.3.0` | optional |
+| `VSS_VIOS_STREAMPROCESSING_TAG` | Per-image tag override for `vss-vios-streamprocessing`; otherwise follows `VSS_CONTAINER_TAG` | `3.3.0` | optional |
+| `VSS_VIOS_INGRESS_TAG` | Per-image tag override for `vss-vios-ingress`; otherwise follows `VSS_CONTAINER_TAG` | `3.3.0` | optional |
+| `VSS_NVSTREAMER_TAG` | Per-image tag override for `vss-vios-nvstreamer`; otherwise follows `VSS_CONTAINER_TAG` | `3.3.0` | optional |
 | `BP_CONFIGURATOR_READYZ_URL` | Optional readiness URL the configurator-wait poller hits | `http://127.0.0.1:5001/readyz` | optional |
 | `SENSOR_BP_WAIT_BP_CONFIGURATOR_MAX_SEC` / `SENSOR_BP_WAIT_STORAGE_MAX_SEC` | Wait-loop timeouts | `300` | optional |
 | `SDR_CONTROLLER_CONFIG_PATH` | Host path containing `configs/*.tmpl` for SDRC (`config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl`); the `render-config` init container renders them in place. Mount source for the `sdr-controller` `/configs` bind. | per-profile (e.g. `${VSS_APPS_DIR}/developer-profiles/dev-profile-lvs/sdrc/${MODE}`) | **Yes (SDRC)** |
@@ -352,7 +353,7 @@ The IN-1-relevant subset (full list in `deploy/docker/services/vios/vst.env`):
 
 ## Known Integration Constraints
 
-- **VIOS image-name canonicalization (Finding 2).** The current canonical image names are `vss-vios-sensor`, `vss-vios-streamprocessing`, `vss-vios-ingress` (NOT the legacy `vss-vst-*` names). Source: `vst.env` lines 64–66. Catalog and integration consumers must use the `vss-vios-*` naming, with the corresponding `*_IMAGE_TAG` env vars driven externally.
+- **VIOS image-name canonicalization (Finding 2).** The current canonical image names are `vss-vios-sensor`, `vss-vios-streamprocessing`, `vss-vios-ingress` (NOT the legacy `vss-vst-*` names). Source: [`deploy/docker/containers.env`](../../../../deploy/docker/containers.env). Catalog and integration consumers must use the `vss-vios-*` naming. Set `VSS_CONTAINER_TAG` for the whole release set or use the corresponding `VSS_VIOS_*_TAG` / `VSS_NVSTREAMER_TAG` per-image override.
 - **Bind-mount permissions are NOT recursive chown.** Specific subdirs require `chmod 777` (not recursive across the parent), enabling the container's UID 1001 to write. The standard remedy is `mkdir -p $VSS_DATA_DIR/data_log/vst/{clip_storage,vst_video,temp_files,vst_data}` followed by per-subdir permission grants.
 - **CLIP_STORAGE_PATH is the IN-1 contract with RT-VLM.** RT-VLM expects to read videos at the container path `${VST_CONTAINER_ROOT}/streamer_videos`, which a consuming deployment binds from the same host directory (`${VSS_DATA_DIR}/data_log/vst/clip_storage`) that VIOS writes to. If `VSS_DATA_DIR` is set inconsistently between VIOS and RT-VLM, the on-demand caption path silently breaks — RT-VLM gets an empty filesystem mount.
 - **`vst.env` must be loaded by every VIOS include.** The top-level `deploy/docker/services/vios/compose.yml` re-declares `env_file: [..., vst.env]` on each `include:` directive. If a deployment's compose copy `include:`s a VIOS sub-compose without re-declaring `vst.env`, ~20 VIOS-internal variables (`CLIP_STORAGE_PATH`, `SDR_IMAGE`, `KAFKA_BOOTSTRAP_URL`, `REDIS_HOSTADDR`, image tags, etc.) collapse to empty and dry-run fails. This was Finding 1 of the IN-1 first run. Source: `deploy/docker/services/vios/compose.yml` lines 17–26.
