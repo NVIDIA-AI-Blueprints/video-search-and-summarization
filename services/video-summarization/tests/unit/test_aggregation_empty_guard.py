@@ -16,10 +16,9 @@
 """
 Unit tests for the CA-RAG aggregation empty-result guard.
 
-The aggregation LLM intermittently samples an unparseable response, which used to
-surface to the caller as HTTP 200 with total_events=0, events=[] and
-video_summary="". These tests cover structured-result repair, bounded retries,
-and the actionable failure returned when every attempt remains empty.
+These tests distinguish valid no-match results from blank or malformed
+aggregation responses. They also cover structured-result repair, bounded
+retries, and actionable failures.
 """
 
 import json
@@ -41,10 +40,14 @@ class _FakeCtxMgr:
     def __init__(self, responses):
         self._responses = list(responses)
         self.calls = []
+        self.docs = []
 
     def call(self, state):
         self.calls.append(state)
         return self._responses.pop(0)
+
+    def add_doc(self, text, doc_i, doc_meta):
+        self.docs.append((text, doc_i, doc_meta))
 
 
 def _response(function_name, result, metadata=None):
@@ -71,19 +74,11 @@ class TestIsEmptyAggregationResult:
             None,
             "",
             "   ",
-            _summary(),
-            _summary(video_summary="   "),
-            {"events": [], "total_events": 0, "video_summary": ""},
-            "[]",
         ],
         ids=[
             "none",
             "blank",
             "whitespace",
-            "no-events-no-summary",
-            "whitespace-summary",
-            "dict-result",
-            "empty-json-array",
         ],
     )
     def test_empty_results(self, result):
@@ -93,13 +88,27 @@ class TestIsEmptyAggregationResult:
     @pytest.mark.parametrize(
         "result",
         [
+            _summary(),
+            _summary(video_summary="   "),
+            {"events": [], "total_events": 0, "video_summary": ""},
+            "[]",
+            [],
             _summary(video_summary="A forklift crossed the aisle."),
             _summary(events=[{"type": "forklift"}]),
             "A forklift crossed the aisle.",
         ],
-        ids=["summary-only", "events-only", "free-text"],
+        ids=[
+            "no-events-no-summary",
+            "no-events-whitespace-summary",
+            "no-events-dict-result",
+            "no-events-json-array",
+            "no-events-list-result",
+            "summary-only",
+            "events-only",
+            "free-text",
+        ],
     )
-    def test_non_empty_results(self, result):
+    def test_usable_results(self, result):
         handler = _make_handler()
         assert handler._is_empty_aggregation_result(result) is False
 
@@ -122,7 +131,7 @@ class TestCallAggregationWithEmptyGuard:
     def test_empty_result_is_retried_until_non_empty(self):
         handler = _make_handler(retries=2)
         good = _response("summarization", _summary(video_summary="A forklift tipped over."))
-        ctx_mgr = _FakeCtxMgr([_response("summarization", _summary()), good])
+        ctx_mgr = _FakeCtxMgr([_response("summarization", ""), good])
 
         response = handler._call_aggregation_with_empty_guard(
             ctx_mgr, "summarization", {"start_index": 0, "end_index": 1}, "test-id"
@@ -135,9 +144,7 @@ class TestCallAggregationWithEmptyGuard:
         from via_exception import ViaException
 
         handler = _make_handler(retries=2)
-        ctx_mgr = _FakeCtxMgr(
-            [_response("summarization", _summary()) for _ in range(3)]
-        )
+        ctx_mgr = _FakeCtxMgr([_response("summarization", "") for _ in range(3)])
 
         with pytest.raises(ViaException) as exc_info:
             handler._call_aggregation_with_empty_guard(
@@ -159,7 +166,7 @@ class TestCallAggregationWithEmptyGuard:
         from via_exception import ViaException
 
         handler = _make_handler(retries=0)
-        only = _response("summarization", _summary())
+        only = _response("summarization", "")
         ctx_mgr = _FakeCtxMgr([only])
 
         with pytest.raises(ViaException):
@@ -218,6 +225,18 @@ class TestCallAggregationWithEmptyGuard:
             )
 
         assert exc_info.value.code == "AggregationFailed"
+        assert len(ctx_mgr.calls) == 1
+
+    def test_valid_no_match_result_succeeds_without_retry(self):
+        handler = _make_handler(retries=2)
+        no_match = _response("summarization", _summary())
+        ctx_mgr = _FakeCtxMgr([no_match])
+
+        response = handler._call_aggregation_with_empty_guard(
+            ctx_mgr, "summarization", {"start_index": 0, "end_index": 21}, "test-id"
+        )
+
+        assert json.loads(response["summarization"]["result"])["events"] == []
         assert len(ctx_mgr.calls) == 1
 
     def test_malformed_events_do_not_discard_valid_summary(self):
