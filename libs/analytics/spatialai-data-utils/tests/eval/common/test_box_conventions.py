@@ -58,10 +58,12 @@ N_FRAMES = 3
 
 
 def _gt_box(k, yaw):
+    """GT box ``k`` of a frame: elongated footprint at ``yaw``, boxes 10 m apart so they never overlap."""
     return [10.0 * k, 5.0, 1.0, DIMS[0], DIMS[1], DIMS[2], yaw]
 
 
 def _data_infos():
+    """``N_FRAMES`` frames of one scene, each with one GT box per entry of ``YAWS`` (stable instance ids)."""
     infos = []
     for f in range(N_FRAMES):
         boxes = np.array([_gt_box(k, yaw) for k, yaw in enumerate(YAWS)], dtype=np.float64)
@@ -97,6 +99,7 @@ def _sparse4d_result(g, token, yaw_override=None):
 
 
 def _write_results(tmp_path, infos, yaw_fn=None):
+    """Write perfect Sparse4D-style results for ``infos``; ``yaw_fn`` optionally replaces each yaw. Returns the path."""
     results = {}
     for info in infos:
         recs = []
@@ -118,10 +121,12 @@ def _write_results(tmp_path, infos, yaw_fn=None):
 
 
 def test_nusc_size_to_box_dims_swaps_horizontal_extents():
+    """``wlh`` from the result file comes back as ``gt_boxes`` order."""
     assert nusc_size_to_box_dims([2.9, 1.2, 2.0]) == (1.2, 2.9, 2.0)
 
 
 def test_nusc_boxes_to_box_dims_converts_every_box_in_place():
+    """Every box of every sample is converted, in place."""
     boxes = EvalBoxes()
     boxes.add_boxes("a", [DetectionBox(sample_token="a", size=(2.9, 1.2, 2.0), detection_name="forklift")])
     boxes.add_boxes("b", [DetectionBox(sample_token="b", size=(0.5, 0.3, 1.8), detection_name="person"),
@@ -131,9 +136,11 @@ def test_nusc_boxes_to_box_dims_converts_every_box_in_place():
 
 
 def test_load_gt_keeps_gt_boxes_order_and_counter_clockwise_yaw():
+    """``load_gt`` keeps every GT box, its ``gt_boxes`` dims order and its counter-clockwise yaw."""
     infos = _data_infos()[:1]
     loaded = load_gt(infos, DetectionBox)[infos[0]["token"]]
-    for box, g in zip(loaded, infos[0]["gt_boxes"]):
+    assert len(loaded) == len(infos[0]["gt_boxes"])
+    for box, g in zip(loaded, infos[0]["gt_boxes"], strict=True):
         assert tuple(box.size) == pytest.approx(tuple(g[3:6]))
         assert quaternion_yaw(Quaternion(box.rotation)) == pytest.approx(math.atan2(math.sin(g[6]), math.cos(g[6])))
 
@@ -144,6 +151,7 @@ def test_load_gt_keeps_gt_boxes_order_and_counter_clockwise_yaw():
 
 
 def test_hota_iou3d_perfect_predictions_score_one(tmp_path):
+    """HOTA with 3D IoU: perfect Sparse4D-style predictions score 1."""
     infos = _data_infos()
     res = evaluate_hota(infos, _write_results(tmp_path, infos), str(tmp_path / "out"),
                         ["forklift"], verbose=False, eval_dist_fcn="iou_3d")
@@ -160,6 +168,7 @@ def test_hota_iou3d_does_not_reward_mirrored_yaw(tmp_path):
 
 
 def _det_config(dist_fcn):
+    """Minimal forklift ``DetectionConfig`` for ``center_distance`` (metres) or ``iou_3d`` (1 - IoU) matching."""
     ths = [0.5, 1.0, 2.0, 4.0] if dist_fcn == "center_distance" else [0.3, 0.5, 0.7]
     return DetectionConfig(class_range={"forklift": 100}, dist_fcn=dist_fcn, dist_ths=ths, dist_th_tp=ths[1],
                            min_recall=0.1, min_precision=0.1, max_boxes_per_sample=500, mean_ap_weight=5)
@@ -167,6 +176,7 @@ def _det_config(dist_fcn):
 
 @pytest.mark.parametrize("dist_fcn", ["center_distance", "iou_3d"])
 def test_detection_perfect_predictions_have_full_ap_and_zero_box_errors(tmp_path, dist_fcn):
+    """AIC24DetEval: perfect predictions get AP 1 and zero translation, scale and orientation error."""
     infos = _data_infos()
     summary = AIC24DetEval(infos, config=_det_config(dist_fcn), result_path=_write_results(tmp_path, infos),
                            output_dir=str(tmp_path / "out"), verbose=False).main(render_curves=False)
@@ -187,6 +197,7 @@ def _restore_tracking_globals():
 
 
 def _track_config():
+    """Minimal forklift ``TrackingConfig`` with 3D IoU matching (TP at IoU >= 0.5)."""
     return TrackingConfig(
         tracking_names=["forklift"], pretty_tracking_names={"forklift": "Forklift"},
         class_range={"forklift": 100}, dist_fcn="iou_3d", dist_th_tp=0.5, min_recall=0.1,
