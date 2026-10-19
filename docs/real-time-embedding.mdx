@@ -31,7 +31,7 @@ container; map it to a host port by setting the required `BACKEND_PORT` variable
 
 The diagram below shows the DeepStream Accelerated Pipeline architecture of the microservice.
 
-![Real-Time Embedding DeepStream Pipeline](/assets/images/real-time-embed/real-time-embed.png)
+![Real-Time Embedding DeepStream Pipeline](./assets/images/real-time-embed/real-time-embed.png)
 
 ### DeepStream Pipeline
 
@@ -56,9 +56,9 @@ It supports both video and text input for embedding generation.
 | **Cosmos-Embed1-448p** | 448p | [Cosmos-Embed1-448p](https://huggingface.co/nvidia/Cosmos-Embed1-448p) | Default model |
 | **Cosmos-Embed1-336p** | 336p | [Cosmos-Embed1-336p](https://huggingface.co/nvidia/Cosmos-Embed1-336p) | Lower-resolution variant |
 | **Cosmos-Embed1-224p** | 224p | [Cosmos-Embed1-224p](https://huggingface.co/nvidia/Cosmos-Embed1-224p) | Lowest-resolution variant |
-| **Cosmos-Embed1-448p-anomaly-detection** | 448p | [Cosmos-Embed1-448p-anomaly-detection](https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection) | Anomaly detection; default for [search workflow](/vss/vision-agent/agent-workflows/search) |
+| **Cosmos-Embed1-448p-anomaly-detection** | 448p | [Cosmos-Embed1-448p-anomaly-detection](https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection) | Anomaly detection; default for [search workflow](/vision-agent/agent-workflows/search) |
 
-To fine-tune Cosmos-Embed1 with NVIDIA TAO and integrate custom checkpoints, see [Model customization overview](/vss/system-components/models/model-customization-overview) and [Cosmos-Embed1 (video embedding)](/vss/system-components/models/cosmos-embed1-video-embedding).
+To fine-tune Cosmos-Embed1 with NVIDIA TAO and integrate custom checkpoints, see [Model customization overview](/system-components/models/model-customization-overview) and [Cosmos-Embed1 (video embedding)](/system-components/models/cosmos-embed1-video-embedding).
 
 ## Supported Inputs
 
@@ -74,7 +74,7 @@ To fine-tune Cosmos-Embed1 with NVIDIA TAO and integrate custom checkpoints, see
 
 For the endpoint catalog and links to the runtime Swagger UI and OpenAPI JSON,
 see the
-[Real-Time Embedding API Reference](/vss/system-components/vision-microservices/video-embedding-generation/api-reference).
+[Real-Time Embedding API Reference](/system-components/vision-microservices/video-embedding-generation/api-reference).
 
 The API is organized into the following categories:
 
@@ -191,7 +191,7 @@ The deployment is defined in the `docker-compose.yml` file.
 ### Environment Variables
 
 Create a `.env` file with the following variables and update the values as per your requirements.
-See [Environment Variables Reference](/vss/system-components/vision-microservices/video-embedding-generation#environment-variables-reference) for the complete list.
+See [Environment Variables Reference](/system-components/vision-microservices/video-embedding-generation#environment-variables-reference) for the complete list.
 Use `RTVI_IMAGE` with the current `compose.yaml`.
 
 ```bash
@@ -441,7 +441,7 @@ When you deploy with the compose file (`services/rtvi/rt-embed/docker/compose.ya
 RTVI-Embed sends Kafka messages containing generated embeddings for video input.
 The messages are sent to the `mdx-embed` topic.
 The microservice sends the Kafka messages as Protobuf messages with the `nv.VisionLLM` message type.
-Please refer to the [Protobuf-Schema](/vss/system-components/middleware/nvschema/protobuf-schema) documentation for more details on the Kafka message schema.
+Please refer to the [Protobuf-Schema](/system-components/middleware/nvschema/protobuf-schema) documentation for more details on the Kafka message schema.
 
 Note: Kafka messages are not sent for the text embeddings.
 
@@ -980,7 +980,7 @@ MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
 Supported Cosmos-Embed1 variants include:
 
 - `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p` (default)
-- `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection` (default for [search workflow](/vss/vision-agent/agent-workflows/search))
+- `git:https://huggingface.co/nvidia/Cosmos-Embed1-448p-anomaly-detection` (default for [search workflow](/vision-agent/agent-workflows/search))
 - `git:https://huggingface.co/nvidia/Cosmos-Embed1-336p`
 - `git:https://huggingface.co/nvidia/Cosmos-Embed1-224p`
 

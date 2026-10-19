@@ -33,7 +33,7 @@ The following software must be installed on your system:
   - 595.58.03 (DGX Station GB300)
   - 580.173.02 (DGX-SPARK)
   - 580.00, bundled with IGX-SW 2.0 (IGX-THOR)
-- **NVIDIA Fabric Manager:** 595.58.03 (for H100 SXM HBM3 to run local LLM) - See [Installation Guide](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq)
+- **NVIDIA Fabric Manager:** 595.58.03 (for H100 SXM HBM3 to run local LLM) - See [Installation Guide](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq)
 - **NVIDIA Container Toolkit:** 1.17.8+
 - **Docker:** 28.3.3+ and earlier than 29.5.0
 - **Docker Compose:** v2.39.1+
@@ -41,24 +41,24 @@ The following software must be installed on your system:
 - **NGC CLI:** 4.10.0+
 
 <Note>
-For detailed installation instructions for the software requirements listed above, see the [Appendix](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#prerequisite-software-installation-guide):
+For detailed installation instructions for the software requirements listed above, see the [Appendix](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#prerequisite-software-installation-guide):
 
 - **x86 systems**
 
-  - [Install NVIDIA Driver](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-nvidia-driver)
-  - [Install Docker](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-docker)
-  - [Install NVIDIA Container Toolkit](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-nvidia-container-toolkit)
+  - [Install NVIDIA Driver](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-nvidia-driver)
+  - [Install Docker](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-docker)
+  - [Install NVIDIA Container Toolkit](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-nvidia-container-toolkit)
 - **DGX Station GB300, DGX-SPARK, IGX-THOR**
 
-  - [Setup DGX Station (GB300)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#setup-dgx-station-gb300)
-  - [Setup DGX-SPARK](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#setup-dgx-spark)
-  - [Setup IGX-THOR](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#setup-igx-thor)
+  - [Setup DGX Station (GB300)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#setup-dgx-station-gb300)
+  - [Setup DGX-SPARK](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#setup-dgx-spark)
+  - [Setup IGX-THOR](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#setup-igx-thor)
 - **all systems**
 
-  - [Configure Docker](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#configure-docker)
-  - [Install Docker Compose](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-docker-compose)
-  - [Install Docker Buildx](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-docker-buildx)
-  - [Install NGC CLI](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-ngc-cli)
+  - [Configure Docker](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#configure-docker)
+  - [Install Docker Compose](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-docker-compose)
+  - [Install Docker Buildx](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-docker-buildx)
+  - [Install NGC CLI](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-ngc-cli)
 </Note>
 
 ## Runtime Environment Settings
@@ -146,7 +146,7 @@ echo performance > /sys/class/devfreq/8188050000.vic/governor
 ```
 
 <Note>
-If `vss-rtvi-cv` fails when streams are added and kernel logs show `tegra-vic` power-up failures, see [FAQ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq) for the IGX Thor `NvBufSurfTransform error -2` workaround. Lower FPS may be observed when using this workaround.
+If `vss-rtvi-cv` fails when streams are added and kernel logs show `tegra-vic` power-up failures, see [FAQ](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq) for the IGX Thor `NvBufSurfTransform error -2` workaround. Lower FPS may be observed when using this workaround.
 </Note>
 
 ## Minimum System Requirements
@@ -404,7 +404,7 @@ ngc --version
 ngc config set
 ```
 
-When prompted, enter your NGC API key. For information on obtaining an NGC API key, see [How to get an NVIDIA NGC API key](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq#how-to-get-an-nvidia-ngc-api-key).
+When prompted, enter your NGC API key. For information on obtaining an NGC API key, see [How to get an NVIDIA NGC API key](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq#how-to-get-an-nvidia-ngc-api-key).
 
 <Note>
 For the latest version of NGC CLI, visit the NGC CLI downloads page: https://ngc.nvidia.com/setup/installers/cli
@@ -423,7 +423,7 @@ DGX Spark ships with DGX OS pre-installed and includes Docker, NVIDIA Container 
 VSS deployments require DGX OS 7.5.0, NVIDIA driver 580.173.02. Connect all peripherals and networking before power, and do not interrupt the OOBE software download or automatic reboot.
 
 <Note>
-- Depending on the installation method used, Docker might require `sudo` to run. If so, see [Run docker without sudo](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#run-docker-without-sudo).
+- Depending on the installation method used, Docker might require `sudo` to run. If so, see [Run docker without sudo](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#run-docker-without-sudo).
 </Note>
 
 ### Setup IGX-THOR
@@ -448,7 +448,7 @@ Do not use pre-release builds unless the Tegra team has approved an exception.
 </Note>
 
 <Note>
-- When using the Jetson USB installation method, Docker and the NVIDIA Container Toolkit are included. When using L4T flash or SDK Manager, install them separately: [Install Docker](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-docker), [Install NVIDIA Container Toolkit](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-nvidia-container-toolkit).
-- Depending on the installation method used, Docker might require `sudo` to run. If so, see [Run docker without sudo](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#run-docker-without-sudo).
-- If NVIDIA containers fail to run after boot (CDI device injection error), see [IGX Thor: nvidia-cdi-refresh.service does not start on boot](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq#nvidia-cdi-refresh-service-does-not-start-on-boot) in the [FAQ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq).
+- When using the Jetson USB installation method, Docker and the NVIDIA Container Toolkit are included. When using L4T flash or SDK Manager, install them separately: [Install Docker](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-docker), [Install NVIDIA Container Toolkit](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-nvidia-container-toolkit).
+- Depending on the installation method used, Docker might require `sudo` to run. If so, see [Run docker without sudo](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#run-docker-without-sudo).
+- If NVIDIA containers fail to run after boot (CDI device injection error), see [IGX Thor: nvidia-cdi-refresh.service does not start on boot](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq#nvidia-cdi-refresh-service-does-not-start-on-boot) in the [FAQ](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq).
 </Note>

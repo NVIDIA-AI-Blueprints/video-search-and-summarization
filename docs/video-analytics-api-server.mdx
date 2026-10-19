@@ -18,7 +18,7 @@ Additionally, the API supports configuration management through endpoints for in
 
 The architecture of the API can be explained using the following block diagram.
 
-![Block Diagram - Architecture](/assets/images/video-analytics-api/architecture-video-analytics-api.png)
+![Block Diagram - Architecture](./assets/images/video-analytics-api/architecture-video-analytics-api.png)
 
 The data sent by sensor processing module is processed in streaming pipelines to create behavior, track objects across cameras and detect event/anomalies. The processed data is inserted into Elasticsearch.
 Video Analytics API comprises of REST API endpoints which queries Elasticsearch to obtain relevant data based on the input of client requests. To obtain real time data, certain endpoints use Kafka as their data source. Kafka is also used to handle notification related messages.
@@ -100,7 +100,7 @@ When using Redis as the message broker instead of Kafka, set `"brokers": null`.
 
 ### Calibration Config
 
-Calibration file is generated either by the Calibration Toolkit or by Omniverse's Calibration tool. See [Calibration](/vss/system-components/calibration) for more details.
+Calibration file is generated either by the Calibration Toolkit or by Omniverse's Calibration tool. See [Calibration](/system-components/calibration) for more details.
 
 ## Library
 
@@ -173,7 +173,7 @@ The Utils namespace consists of following classes:
 
 ### Documentation
 
-Refer to the [Video Analytics API Reference](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference).
+Refer to the [Video Analytics API Reference](/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference).
 
 The following sections describe the various API endpoints along with their respective sequence diagrams.
 
@@ -205,7 +205,7 @@ The proximity alert occurs when one object of type 'x' is closer to another obje
 
 **Sequence Diagram**
 
-![Sequence Diagram - Frame Based Alerts](/assets/images/video-analytics-api/Frame-Based-Alerts.png)
+![Sequence Diagram - Frame Based Alerts](./assets/images/video-analytics-api/Frame-Based-Alerts.png)
 
 The **http request** sent to the **/frames/alerts** route is redirected to the controller function where the query input is validated and an Elasticsearch query object is generated.
 The Elasticsearch is queried as a promise (async call) which then responds with results. The results are formatted appropriately and sent back to the client.
@@ -232,7 +232,7 @@ In the above example, `getUniqueObjects` is an async function which returns uniq
 
 **Sequence Diagram**
 
-![Sequence Diagram - Multi Camera Tracking: Unique Objects](/assets/images/video-analytics-api/Unique-Objects.png)
+![Sequence Diagram - Multi Camera Tracking: Unique Objects](./assets/images/video-analytics-api/Unique-Objects.png)
 
 The **http request** sent to the **/tracker/unique-objects** route is redirected to the controller function where the query input is validated and an Elasticsearch query object is generated.
 The Elasticsearch is queried as a promise (async call) which then responds with results. The results are formatted appropriately and sent back to the client.
@@ -261,7 +261,7 @@ In the above example `getTripwireEvents` is an async function which returns trip
 
 **Sequence Diagram**
 
-![Sequence Diagram - Tripwire Events](/assets/images/video-analytics-api/Tripwire-Events.png)
+![Sequence Diagram - Tripwire Events](./assets/images/video-analytics-api/Tripwire-Events.png)
 
 The **http request** sent to the **/events/tripwire** route is redirected to the controller function where the query input is validated and an Elasticsearch query object is generated.
 The Elasticsearch is queried as a promise (async call) which then responds with results. The results are formatted appropriately and sent back to the client.
@@ -441,7 +441,7 @@ the full warehouse blueprint stack.
 
 The Skill is published in the `skills/deployment/vss-setup-video-analytics-api` folder of the VSS Blueprint repository.
 Install it the same way as any other VSS Agent Skill - see
-[Installing Skills](/vss/vision-agent/agent-skills#installing-skills) for the catalog-wide install flow.
+[Installing Skills](/vision-agent/agent-skills#installing-skills) for the catalog-wide install flow.
 
 ### When to invoke
 
@@ -530,9 +530,9 @@ prompt tells the coding agent to follow the Skill workflow:
    `/frames`, `/incidents`, `/livez`, `/metrics`, `/sensor`,
    `/tracker`) initialized.
 
-![Example coding-agent session checking deployment prerequisites](/assets/images/video-analytics-api/standalone-deploy-bringup.png)
+![Example coding-agent session checking deployment prerequisites](./assets/images/video-analytics-api/standalone-deploy-bringup.png)
 
-![Both services healthy and the API server log showing all routers initialized](/assets/images/video-analytics-api/standalone-deploy-verify.png)
+![Both services healthy and the API server log showing all routers initialized](./assets/images/video-analytics-api/standalone-deploy-verify.png)
 
 <Note>
 With the service-shipped config, `kafka.brokers` is `["kafka:29092"]`. When

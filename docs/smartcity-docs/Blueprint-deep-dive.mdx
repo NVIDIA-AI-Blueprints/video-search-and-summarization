@@ -24,7 +24,7 @@ Smart City Blueprint is an application of the VSS 3.3 framework to address video
 
 The Smart City Blueprint uses the canonical VSS 3.3 architecture: microservices integrated over a message bus, combined with agents that serve user requests and interaction. The high-level architecture is shown in the figure below.
 
-![Smart City Blueprint architecture, showing the real-time streaming path and the agentic path](/assets/images/scbp/SCBP-ArchDeepDive.png)
+![Smart City Blueprint architecture, showing the real-time streaming path and the agentic path](../assets/images/scbp/SCBP-ArchDeepDive.png)
 
 At a high level, the blueprint architecture divides into a realtime streaming component and an agentic component. The realtime streaming component ingests camera feeds and processes them through a combination of computer vision, streaming analytics and vision language model (VLM) based techniques. The agentic component interprets and executes user requests exposed through a UI.
 
@@ -35,24 +35,24 @@ The various microservices used are now reviewed along with the salient configura
 
 ## Real Time Video Intelligence CV (RTVI CV)
 
-This RTVI CV microservice takes streaming video inputs, performs inference and tracking, and sends metadata to the Behavior Analytics microservice using the nvschema-defined schema. For more information about the RTVI CV microservice, refer to the [Real Time Video Intelligence CV (RTVI CV) Microservice](/vss/system-components/vision-microservices/object-detection-and-tracking) page.
+This RTVI CV microservice takes streaming video inputs, performs inference and tracking, and sends metadata to the Behavior Analytics microservice using the nvschema-defined schema. For more information about the RTVI CV microservice, refer to the [Real Time Video Intelligence CV (RTVI CV) Microservice](/system-components/vision-microservices/object-detection-and-tracking) page.
 
 ### Model Used
 
 The RTVI CV microservice supports two models out of the box for object detection used in the smart city blueprint: [RT-DETR](https://docs.nvidia.com/tao/tao-toolkit/6.25.11/text/cv_finetuning/pytorch/object_detection/rt_detr.html) and [Mask Grounding DINO](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/mask_grounding_dino):
 
-* RT-DETR is vision transformer based. The blueprint ships a checkpoint of the model fine tuned for traffic use cases. Further fine-tuning can be performed using the recipe in [Model Fine Tuning](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/development-workflow/model-fine-tuning).
+* RT-DETR is vision transformer based. The blueprint ships a checkpoint of the model fine tuned for traffic use cases. Further fine-tuning can be performed using the recipe in [Model Fine Tuning](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/development-workflow/model-fine-tuning).
 
 * Mask Grounding DINO (mG-DINO) is an open world detection model available through NVIDIA TAO, which can also be fine tuned using that recipe.
 
 RT-DETR has lower computational requirements than mG-DINO, so it supports a larger stream count; it is the model the Smart City overlay selects by default (`MODEL_NAME_2D=RTDETR`).
-Refer to [Deployment Options](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/quickstart-guide-docker-compose#deployment-options) for how to switch models, and to the RTVI CV microservice documentation for parameters such as precision, detection frequency and prompting.
+Refer to [Deployment Options](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/quickstart-guide-docker-compose#deployment-options) for how to switch models, and to the RTVI CV microservice documentation for parameters such as precision, detection frequency and prompting.
 
 ### Tracking
 
-Tracking enables frame-to-frame association of detected objects. By default, the Smart City Blueprint uses the NvDCF Accuracy 2D multi-object tracker through RTVI CV. For detailed tracking configuration, refer to the [RTVI CV microservice documentation](/vss/system-components/vision-microservices/object-detection-and-tracking).
+Tracking enables frame-to-frame association of detected objects. By default, the Smart City Blueprint uses the NvDCF Accuracy 2D multi-object tracker through RTVI CV. For detailed tracking configuration, refer to the [RTVI CV microservice documentation](/system-components/vision-microservices/object-detection-and-tracking).
 
-Refer to the "Customization of Microservice" section in the [RTVI CV microservice](/vss/system-components/vision-microservices/object-detection-and-tracking) documentation for detailed configuration information.
+Refer to the "Customization of Microservice" section in the [RTVI CV microservice](/system-components/vision-microservices/object-detection-and-tracking) documentation for detailed configuration information.
 
 ## Behavior Analytics
 
@@ -78,7 +78,7 @@ Salient configuration parameters for behavior analytics include:
 
 ## Alert Verification
 
-Alerts generated through behavior analytics are verified through VLMs based on their ability to identify anomalies of interest by analyzing a collection of frames from the video based on an alert specific prompt. Refer to the [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice) documentation for more information.
+Alerts generated through behavior analytics are verified through VLMs based on their ability to identify anomalies of interest by analyzing a collection of frames from the video based on an alert specific prompt. Refer to the [Alerts Microservice](/system-components/analytics-microservices/alerts-microservice) documentation for more information.
 
 Configuration options for the microservice for Smart City Blueprint are listed below:
 
@@ -92,11 +92,11 @@ Configuration options for the microservice for Smart City Blueprint are listed b
 
 The Video IO & Storage (VIOS) microservice, available as part of VSS 3.3, enables camera discovery, video ingestion, streaming, storage and replay. The Smart City Blueprint uses VIOS for interfacing with city/traffic cameras at scale, thereby providing a dependable, standardized mechanism by which downstream microservices can consume the camera streams.
 
-View the [Video IO & Storage (VIOS) microservice docs](/vss/system-components/middleware/video-io-storage-vios) page for more details. There are various configuration options available for the VIOS microservice, some of which have been tuned for the Smart City blueprint. Configurations you may want to modify are listed below. All paths are relative to the repository root.
+View the [Video IO & Storage (VIOS) microservice docs](/system-components/middleware/video-io-storage-vios) page for more details. There are various configuration options available for the VIOS microservice, some of which have been tuned for the Smart City blueprint. Configurations you may want to modify are listed below. All paths are relative to the repository root.
 
 * In `deploy/docker/services/vios/configs/vst_config.json` you can modify the `always_recording` value under `data` to enable/disable the default recording state for all streams added. By default, this is enabled and will record all streams added.
 
-* In `deploy/docker/services/vios/configs/vst_storage.json` you can modify the `total_video_storage_size_MB` value to adjust the maximum space video recordings will take up. The shipped default is `100000`, that is 100 GB, which sits comfortably inside the 1 TB minimum disk in the [Prerequisites](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites). Raise it only after confirming the disk can hold the new value alongside container images and Elasticsearch indices. To estimate how much you need, see the [Storage Calculation](/vss/system-components/middleware/video-io-storage-vios/vios-microservices) section of the VIOS docs.
+* In `deploy/docker/services/vios/configs/vst_storage.json` you can modify the `total_video_storage_size_MB` value to adjust the maximum space video recordings will take up. The shipped default is `100000`, that is 100 GB, which sits comfortably inside the 1 TB minimum disk in the [Prerequisites](/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites). Raise it only after confirming the disk can hold the new value alongside container images and Elasticsearch indices. To estimate how much you need, see the [Storage Calculation](/system-components/middleware/video-io-storage-vios/vios-microservices) section of the VIOS docs.
 
 * In `deploy/docker/services/vios/configs/rtsp_streams.json` you can enable/disable automatically adding streams from NVStreamer. By default, this is enabled and will add the first 100 streams available in your NVStreamer instance.
 
@@ -153,7 +153,7 @@ These are the values the profile sets for `LLM_NAME` and `VLM_NAME`. Because the
 The configuration file is at `deploy/docker/industry-profiles/smartcities/vss-agent/configs/config.yml` in the blueprint repository.
 
 The configuration relies on several environment variables that must be set during deployment.
-For the complete explanation of the agent configuration YAML file and environment variables, please refer to: [VSS Agent Configuration](/vss/vision-agent/vss-agents/agent-configuration).
+For the complete explanation of the agent configuration YAML file and environment variables, please refer to: [VSS Agent Configuration](/vision-agent/vss-agents/agent-configuration).
 
 ### Customization and Extension
 
@@ -164,4 +164,4 @@ The agent configuration is designed to be flexible and extensible. Key customiza
 * **Model Selection**: Swap LLMs and VLMs via environment variables to use different base models or adjust model parameters
 * **Tool Addition**: Extend agent capabilities by adding new MCP clients, custom data processing functions, or external API integrations
 
-For comprehensive customization guidance, refer to: [VSS Agent Customization](/vss/vision-agent/vss-agents/agent-customization).
+For comprehensive customization guidance, refer to: [VSS Agent Customization](/vision-agent/vss-agents/agent-customization).

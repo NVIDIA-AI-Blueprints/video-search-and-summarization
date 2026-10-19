@@ -11,13 +11,13 @@ Sparse4D is an advanced 3D Multi-Camera Detection and Tracking Network. We speci
 
 The Sparse4D model cards on NGC ([sparse4d_rn50](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/sparse4d_rn50) and [sparse4d_rn101](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/sparse4d_rn101)) expand on data formats and evaluation methodology. The remainder of this page covers TAO fine-tuning (BEV grouping, dataset conversion, training, evaluation, inference, and export).
 
-Use the model card's **Input** and **Raw ONNX/TensorRT outputs** sections for the tensor interface of the matching model release. Raw engine outputs are not the decoded `boxes_3d` / `scores_3d` dictionaries. The released models use 900 queries and a separate 600-instance temporal cache; the TAO tracking decoder selects the top 300 current queries by classification confidence, with fewer detections possible after threshold filtering. See the [model compatibility checklist](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#model-compatibility-requirements) before swapping models or reusing an engine.
+Use the model card's **Input** and **Raw ONNX/TensorRT outputs** sections for the tensor interface of the matching model release. Raw engine outputs are not the decoded `boxes_3d` / `scores_3d` dictionaries. The released models use 900 queries and a separate 600-instance temporal cache; the TAO tracking decoder selects the top 300 current queries by classification confidence, with fewer detections possible after threshold filtering. See the [model compatibility checklist](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#model-compatibility-requirements) before swapping models or reusing an engine.
 
-![TAO Sparse4D Model Architecture](/assets/images/sparse4d/sparse4d_arch_diagram.png)
+![TAO Sparse4D Model Architecture](../assets/images/sparse4d/sparse4d_arch_diagram.png)
 
 ## Inference using Perception Microservice
 
-Detailed information can be found in the [3D Multi-Camera Detection and Tracking (Sparse4D)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d) page.
+Detailed information can be found in the [3D Multi-Camera Detection and Tracking (Sparse4D)](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d) page.
 
 ## Model versions
 
@@ -35,7 +35,7 @@ The VSS 3.3 Sparse4D model cards list **v2.3** and **v3.0** as the latest traina
 
 For new VSS 3.3 work, start from `trainable_v2.3` (or `deployable_v2.3`) for general and synthetic-data deployments, or `trainable_v3.0` (`deployable_v3.0`) when targeting real-world data; use an older version only to reproduce a prior benchmark. The `ResNet50` backbone is the default for VSS 3.3 (lower latency, smaller footprint, built on top of an RT-DETR R50 pre-training initialization); pick the `ResNet101` backbone (available for v2.3) when accuracy headroom matters more than throughput.
 
-The Warehouse Operations Docker Compose profile selects ResNet50 v2.3 for `DATASET_TYPE=synthetic` and v3.0 for `DATASET_TYPE=real`; see the [dataset-specific model paths](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#dataset-specific-model-paths). This selection does not apply to every deployment entry point: the standalone detection/tracking helper in `skills/deployment/vss-deploy-detection-tracking-2d/assets/deploy-defaults.yml` remains pinned to `deployable_v2.2` and its v2.2 companion paths. Use the Warehouse Operations profile for the v2.3/v3.0 flow documented here; the standalone helper does not select these releases automatically.
+The Warehouse Operations Docker Compose profile selects ResNet50 v2.3 for `DATASET_TYPE=synthetic` and v3.0 for `DATASET_TYPE=real`; see the [dataset-specific model paths](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#dataset-specific-model-paths). This selection does not apply to every deployment entry point: the standalone detection/tracking helper in `skills/deployment/vss-deploy-detection-tracking-2d/assets/deploy-defaults.yml` remains pinned to `deployable_v2.2` and its v2.2 companion paths. Use the Warehouse Operations profile for the v2.3/v3.0 flow documented here; the standalone helper does not select these releases automatically.
 
 ## Real-Time Inference Throughput & Latency
 
@@ -113,12 +113,12 @@ Results highlighted in the above tables are for the latest v2.3 models on the te
 ### Dataset Requirements
 
   The Sparse4D model can be fine-tuned on existing MTMC Tracking 2025 scenes, your own synthetic dataset generated with Isaac Sim, or real-world imagery. For real-world data without 3D annotations, use the [2D-to-3D geometric distillation workflow](#2d-to-3d-geometric-distillation-for-real-world-datasets) to combine 2D supervision with 3D-labeled training data.
-  Please refer to the [Simulation and Synthetic Data Generation](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation) page for more details on synthetic data generation.
+  Please refer to the [Simulation and Synthetic Data Generation](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation) page for more details on synthetic data generation.
 
   Performing 3D Multi-Camera Detection & Tracking in large regions such as warehouses with high-density cameras becomes computationally expensive. Therefore, we divide a region into a collection of groups called Bird's Eye View (BEV) groups. Each Bird's Eye View (BEV) group can contain multiple cameras, and these BEV groups may overlap with one another. Sparse4D is trained on such BEV groups.
   The below image represents a top down view of a single scene with multiple BEV groups. Each unique color represents a BEV group highlighting its camera coverage in the entire scene.
 
-  ![BEV Groups](/assets/images/sparse4d/top_down_view_with_bev_groups.png)
+  ![BEV Groups](../assets/images/sparse4d/top_down_view_with_bev_groups.png)
 
   **Requirements for the supervised multi-camera 3D workflow:**
 
@@ -152,7 +152,7 @@ Results highlighted in the above tables are for the latest v2.3 models on the te
 
      - Single calibration file containing all camera parameters (intrinsic & extrinsic)
 
-Refer to [Dataset Post-Processing](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation/dataset-post-processing) for the file format of the files listed above.
+Refer to [Dataset Post-Processing](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/simulation-and-synthetic-data-generation/dataset-post-processing) for the file format of the files listed above.
 An example dataset can be found in the [Warehouse_014](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main/MTMC_Tracking_2025/train/Warehouse_014) scene from the [MTMC Tracking 2025](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main/MTMC_Tracking_2025) dataset.
 
 ### 2D-to-3D Geometric Distillation for Real-World Datasets
@@ -277,7 +277,7 @@ Inspect projected boxes on real images before a long run. Verify that expected l
 
 Compare the original checkpoint and the adapted checkpoint on held-out, 3D-labeled real scenes, and retain a synthetic validation set to check for regressions. Report detection and tracking metrics separately; a lower 2D loss alone does not establish better metric 3D accuracy or tracking.
 
-RT-DETR pseudo-label generation and the LTT MLP are training components. Standard Sparse4D evaluation, inference, and export do not require the external LTT checkpoint. Export the adapted Sparse4D model and follow the [model compatibility requirements](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#model-compatibility-requirements) when deploying it. The deployed multi-camera 3D pipeline still needs real camera calibration.
+RT-DETR pseudo-label generation and the LTT MLP are training components. Standard Sparse4D evaluation, inference, and export do not require the external LTT checkpoint. Export the adapted Sparse4D model and follow the [model compatibility requirements](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#model-compatibility-requirements) when deploying it. The deployed multi-camera 3D pipeline still needs real camera calibration.
 
 ### Camera Grouping for Model Fine-tuning
 
@@ -351,7 +351,7 @@ Key options:
 * `--vis_combined`: Generate a single combined image instead of separate images per group.
 
 <Note>
-For deployment and inference use cases where cameras should be partitioned into non-overlapping clusters, refer to the [Camera Clustering](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#camera-clustering) section in the 3D Vision AI Profile documentation.
+For deployment and inference use cases where cameras should be partitioned into non-overlapping clusters, refer to the [Camera Clustering](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#camera-clustering) section in the 3D Vision AI Profile documentation.
 </Note>
 
 ### Expected time for finetuning
@@ -774,7 +774,7 @@ results_dir: ??? # Path to where you want to store the data
 
 Once the configurations are modified, launch dataset conversion by running the following command:
 
-![TAO Sparse4D Dataset Conversion](/assets/images/sparse4d/dataset_convert.png)
+![TAO Sparse4D Dataset Conversion](../assets/images/sparse4d/dataset_convert.png)
 
 ### Launch Model Fine-tuning
 
@@ -830,11 +830,11 @@ train:
 
 Once the configurations are modified, launch training by running the following command:
 
-![TAO Sparse4D Finetuning](/assets/images/sparse4d/training.png)
+![TAO Sparse4D Finetuning](../assets/images/sparse4d/training.png)
 
 ### Evaluate the fine-tuned model
 
-The fine-tuned model's tracking accuracy can be evaluated using the Higher Order Tracking Accuracy (HOTA) metric, decomposed as Detection Accuracy (DetA), Association Accuracy (AssA), and Localization Accuracy (LocA). Please refer to the [KPI](/vss/system-components/models/sparse4d-3d-multi-camera#kpi) section above for more details on the metric definition and how to interpret per-class scores.
+The fine-tuned model's tracking accuracy can be evaluated using the Higher Order Tracking Accuracy (HOTA) metric, decomposed as Detection Accuracy (DetA), Association Accuracy (AssA), and Localization Accuracy (LocA). Please refer to the [KPI](/system-components/models/sparse4d-3d-multi-camera#kpi) section above for more details on the metric definition and how to interpret per-class scores.
 
 Below are the important configurations that need to be updated to launch evaluation:
 
@@ -849,7 +849,7 @@ dataset:
     ann_file: ??? # Update this based on your test dataset annotations file/folder.
 ```
 
-![TAO Sparse4D Evaluation](/assets/images/sparse4d/evaluate.png)
+![TAO Sparse4D Evaluation](../assets/images/sparse4d/evaluate.png)
 
 ### Run Inference on the fine-tuned model using TAO
 
@@ -878,7 +878,7 @@ visualize:
 
 Once the configurations are modified, launch inference by running the following command:
 
-![TAO Sparse4D Inference](/assets/images/sparse4d/visualize.png)
+![TAO Sparse4D Inference](../assets/images/sparse4d/visualize.png)
 
 ### Export the fine-tuned model
 
@@ -893,9 +893,9 @@ export:
 
 Once the configurations are modified, launch export by running the following command:
 
-![TAO Sparse4D Export](/assets/images/sparse4d/export.png)
+![TAO Sparse4D Export](../assets/images/sparse4d/export.png)
 
 ### Using the fine-tuned model in the Perception Microservice
 
 Once the model is fine-tuned and exported to ONNX format, it can be used in the Perception Microservice.
-Refer to the [Integrating a Sparse4D Model Checkpoint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#integrating-a-sparse4d-model-checkpoint) section for more details.
+Refer to the [Integrating a Sparse4D Model Checkpoint](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#integrating-a-sparse4d-model-checkpoint) section for more details.

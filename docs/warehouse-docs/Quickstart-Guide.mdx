@@ -18,19 +18,19 @@ The high-level diagram illustrates the components of the Warehouse Blueprint. Th
 
 The following diagram shows the major components of the Warehouse Blueprint:
 
-![Major components of Warehouse Blueprint](/assets/images/major_components_of_warehouse_blueprint.png)
+![Major components of Warehouse Blueprint](../assets/images/major_components_of_warehouse_blueprint.png)
 
 Camera streams are ingested by VST/VMS, processed by RT-CV (perception) and Behavior Analytics microservices, with CV metadata and alerts published to the Message Bus and persisted via Storage Services.
 
 The following diagram shows how AI Agents interact with the Warehouse Blueprint:
 
-![Agent interaction with Warehouse Blueprint](/assets/images/agent_interaction_with_warehouse_blueprint.png)
+![Agent interaction with Warehouse Blueprint](../assets/images/agent_interaction_with_warehouse_blueprint.png)
 
 The Agent orchestrates MCP servers for Video IO, Video Analytics, and Report Generation, leveraging Nemotron (LLM) and Cosmos-Reason (RTVI-VLM) inference microservices.
 
 ## Prerequisites
 
-Before you begin, ensure all of the prerequisites are met. See [Prerequisites](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites) for more details.
+Before you begin, ensure all of the prerequisites are met. See [Prerequisites](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites) for more details.
 
 ## Deployment Options
 
@@ -102,7 +102,7 @@ After extracting the package, set `VSS_DATA_DIR` in `industry-profiles/warehouse
 
 If you use your own videos or RTSP streams, they must have a resolution of `1920 x 1080` and be encoded without B-frames.
 
-To check for and remove B-frames, see [the FAQ guidance](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq#my-videos-produce-incorrect-timestamps-for-messages-or-are-processed-over-an-extended-duration).
+To check for and remove B-frames, see [the FAQ guidance](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq#my-videos-produce-incorrect-timestamps-for-messages-or-are-processed-over-an-extended-duration).
 
 For custom video inputs, provide time-synchronized MP4 videos encoded without B-frames that are at least 60 seconds long and all videos should have the same duration.
 
@@ -388,7 +388,7 @@ In the VIOS (VST) UI, metadata for live streams is read from Kafka or Redis, whi
 <Note>
 **Auto-calibration GPU requirement**
 
-The auto-calibration profile requires an NVIDIA GPU with a hardware encoder (NVENC). See the [Auto Calibration system requirements](/vss/system-components/calibration/auto-calibration/getting-started#prerequisites) before selecting `MODE=auto-calibration`.
+The auto-calibration profile requires an NVIDIA GPU with a hardware encoder (NVENC). See the [Auto Calibration system requirements](/system-components/calibration/auto-calibration/getting-started#prerequisites) before selecting `MODE=auto-calibration`.
 </Note>
 
 <a id="hardware-profile-configuration"></a>
@@ -407,7 +407,7 @@ Set the common deployment variables in `industry-profiles/warehouse-operations/o
 | `HOST_IP` | **Required.** Host IP address of the machine where the blueprint is deployed. For cloud VMs, use the private instance IP and set `EXTERNAL_IP` to the public IP or hostname. |
 | `EXTERNAL_IP` | Required only when clients cannot reach `HOST_IP`; used for externally reachable service URLs. |
 | `SAMPLE_VIDEO_DATASET` | Dataset to process. The repository contains 2D, 3D, and MV3DT calibration for the three datasets listed above. `warehouse-loading-dock-3cams-degraded-synthetic` is used the same way as a custom dataset; see the note above. |
-| `NUM_STREAMS` | Number of concurrent streams to process. This must match the camera count of `SAMPLE_VIDEO_DATASET`; it is not selected by system architecture. When NVStreamer is the sensor source, the VSS Configurator also waits until this many streams appear before registering cameras with VST. See [NVStreamer Settings](/vss/system-components/configuration/vss-configurator#nvstreamer-settings). |
+| `NUM_STREAMS` | Number of concurrent streams to process. This must match the camera count of `SAMPLE_VIDEO_DATASET`; it is not selected by system architecture. When NVStreamer is the sensor source, the VSS Configurator also waits until this many streams appear before registering cameras with VST. See [NVStreamer Settings](/system-components/configuration/vss-configurator#nvstreamer-settings). |
 | `DATASET_TYPE` | Used by the Blueprint in 3D mode to select the Sparse4D model and associated files for `real` or `synthetic` data. Use `real` for `nv-warehouse-4cams` and `synthetic` for the two synthetic datasets with repository calibration. |
 
 <Warning>
@@ -763,7 +763,7 @@ LLM_MODE=none
 </Note>
 
 <Note>
-To update an existing hardware profile or add a GPU that is not listed above, see [Adding a New Hardware Profile](/vss/system-components/configuration/vss-configurator#adding-a-new-hardware-profile) in the [VSS Configurator](/vss/system-components/configuration/vss-configurator) documentation.
+To update an existing hardware profile or add a GPU that is not listed above, see [Adding a New Hardware Profile](/system-components/configuration/vss-configurator#adding-a-new-hardware-profile) in the [VSS Configurator](/system-components/configuration/vss-configurator) documentation.
 </Note>
 
 <Note>
@@ -776,7 +776,7 @@ With `ENABLE_PROFILE_CONFIGURATOR=true`, the VSS Configurator uses `STREAM_TYPE`
 - VST: updates notification message broker consumer settings.
 - Video Analytics API: sets `kafka.brokers` to `["localhost:9092"]` for Kafka or `null` for Redis.
 
-For the common configuration pattern and examples of file updates automated by the VSS Configurator, see [VSS Configurator commons and profiles](/vss/system-components/configuration/vss-configurator#two-part-structure-commons-profiles).
+For the common configuration pattern and examples of file updates automated by the VSS Configurator, see [VSS Configurator commons and profiles](/system-components/configuration/vss-configurator#two-part-structure-commons-profiles).
 </Note>
 
 #### Elasticsearch ILM policy retention period
@@ -793,7 +793,7 @@ To increase the retention period, adjust index lifecycle (ILM) time by setting `
 ELASTICSEARCH_ILM_MIN_AGE=4h
 ```
 
-For how ILM policies are defined and other tuning options, see [ELK (Elasticsearch, Logstash, Kibana)](/vss/system-components/middleware/database/elk).
+For how ILM policies are defined and other tuning options, see [ELK (Elasticsearch, Logstash, Kibana)](/system-components/middleware/database/elk).
 
 #### NIM Deployment Modes
 
@@ -808,7 +808,7 @@ The following modes apply to the `LLM_MODE` environment variable.
 <Note>
 The Warehouse Blueprint uses `rtvi-vlm` for VLM inference. Configure `RTVI_VLM_ENDPOINT`, `RTVI_VLM_MODEL_PATH`, and `RTVI_VLM_MODEL_TO_USE` in `industry-profiles/warehouse-operations/overrides.env`. The shared `RTVI_VLM_BASE_URL` default is defined in `services/rtvi/rtvi.env` and normally does not need to be changed.
 The `bp_wh` agent profile that deploys RTVI-VLM is not supported on IGX-THOR or DGX-SPARK.
-For details on the RTVI-VLM microservice (configuration, supported models, and APIs), see [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm).
+For details on the RTVI-VLM microservice (configuration, supported models, and APIs), see [Real-Time VLM](/system-components/vision-microservices/real-time-vlm).
 </Note>
 
 #### Model Configuration
@@ -898,11 +898,11 @@ The 300s figure on the ReID health check is a start grace period, not a maximum.
 
 For detailed testing and validation steps, refer to:
 
-- [2D Vision AI Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-profile#testing-and-validation)
-- [2D Vision AI with Agents Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile#testing-and-validation)
-- [3D Vision AI Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#testing-and-validation)
-- [MV3DT Vision AI Profile](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#testing-and-validation)
-- [Troubleshooting Guide](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/troubleshooting-guide)
+- [2D Vision AI Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-profile#testing-and-validation)
+- [2D Vision AI with Agents Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile#testing-and-validation)
+- [3D Vision AI Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#testing-and-validation)
+- [MV3DT Vision AI Profile](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#testing-and-validation)
+- [Troubleshooting Guide](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/troubleshooting-guide)
 
 ## Service Access Points
 
@@ -918,8 +918,8 @@ Once deployed, the following service access points are available:
 | Phoenix-UI (Telemetry)(2D Vision AI with Agents Profile) | `http://<HOST_IP>:7777/phoenix` |
 
 <Note>
-- The Phoenix UI is only available when agent telemetry is enabled. For how to enable telemetry and inspect traces, see [VSS Agents Observability](/vss/vision-agent/vss-agents/observability).
-- Observability stack access details (Grafana, Prometheus, and exporters) are documented in [Observability](/vss/system-components/middleware/observability).
+- The Phoenix UI is only available when agent telemetry is enabled. For how to enable telemetry and inspect traces, see [VSS Agents Observability](/vision-agent/vss-agents/observability).
+- Observability stack access details (Grafana, Prometheus, and exporters) are documented in [Observability](/system-components/middleware/observability).
 </Note>
 
 | Service | Access Point |
@@ -966,10 +966,10 @@ The `down -v --rmi all` command removes this Compose project's non-external volu
 The Blueprint supports several levels of customization, including but not limited to adding new cameras and updating models.
 For details, refer to the following sections under the Blueprint deep dive pages:
 
-* [2D Vision AI Profile Customization](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-profile#customization)
-* [2D Vision AI with Agents Profile Customization](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile#customization)
-* [3D Vision AI Profile Customization](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#customization)
-* [MV3DT Vision AI Profile Customization](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#customization)
+* [2D Vision AI Profile Customization](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-profile#customization)
+* [2D Vision AI with Agents Profile Customization](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/2d-vision-ai-with-agents-profile#customization)
+* [3D Vision AI Profile Customization](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/3d-vision-ai-profile#customization)
+* [MV3DT Vision AI Profile Customization](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#customization)
 
 ## Warehouse Blueprint Skill
 
@@ -981,17 +981,17 @@ host and app data, generates a self-contained deployment, brings up the stack, a
 monitors readiness without requiring the operator to memorize every deployment command.
 
 For the complete VSS Skills catalog and installation model, see
-[Agent Skills](/vss/vision-agent/agent-skills).
+[Agent Skills](/vision-agent/agent-skills).
 
 <Note>
 The screenshots show an example 2D Kafka deployment in a coding agent. Hardware selections,
 versions, and diagnostic results are specific to that host; follow the current
-[Prerequisites](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites) for your deployment.
+[Prerequisites](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites) for your deployment.
 </Note>
 
 ### Installing Skills
 
-Install the Skills the same way as any other VSS Agent Skill. See [Installing Skills](/vss/vision-agent/agent-skills#installing-skills) for the full installation flow.
+Install the Skills the same way as any other VSS Agent Skill. See [Installing Skills](/vision-agent/agent-skills#installing-skills) for the full installation flow.
 
 After installation, start a new coding-agent session before invoking the Skill by name.
 
@@ -1010,35 +1010,35 @@ After installation, start a new coding-agent session before invoking the Skill b
    Select the deployment variant, service set, and dataset when prompted, and provide any missing credentials.
 
    <Frame caption="Select the Warehouse deployment and provide the required inputs.">
-     <img src="/assets/images/vss-warehouse-skill/warehouse-skill-deploy-blueprint.png" alt="Coding agent collects the deployment variant, dataset, and NGC credentials" />
+     <img src="../assets/images/vss-warehouse-skill/warehouse-skill-deploy-blueprint.png" alt="Coding agent collects the deployment variant, dataset, and NGC credentials" />
    </Frame>
 
 2. Review the proposed architecture and generated configuration.
 
    <Frame caption="Review the services, data flow, and GPU placement.">
-     <img src="/assets/images/vss-warehouse-skill/warehouse-skill-dry-run.png" alt="Warehouse 2D Kafka architecture and staged deployment configuration" />
+     <img src="../assets/images/vss-warehouse-skill/warehouse-skill-dry-run.png" alt="Warehouse 2D Kafka architecture and staged deployment configuration" />
    </Frame>
 
 3. Review the pre-flight results and resolve any blockers before deployment. In this example, the NGC key must be replaced.
 
    <Frame caption="Check host prerequisites, app data, calibration, and credentials.">
-     <img src="/assets/images/vss-warehouse-skill/warehouse-skill-preflight.png" alt="Pre-flight results identify an invalid NGC key as a deployment blocker" />
+     <img src="../assets/images/vss-warehouse-skill/warehouse-skill-preflight.png" alt="Pre-flight results identify an invalid NGC key as a deployment blocker" />
    </Frame>
 
 4. Let the Skill deploy the stack and verify container health, active camera streams, and analytics output.
 
    <Frame caption="Confirm that the deployment is running and producing data.">
-     <img src="/assets/images/vss-warehouse-skill/warehouse-skill-deployment-successful.png" alt="Deployment verification shows running services, four active streams, and analytics data" />
+     <img src="../assets/images/vss-warehouse-skill/warehouse-skill-deployment-successful.png" alt="Deployment verification shows running services, four active streams, and analytics data" />
    </Frame>
 
 After the stack is running, use the Warehouse Blueprint VIOS UI and Kibana UI to verify that the deployment is serving data. Kibana is not available in minimal deployments.
 
 <Frame caption="Verify camera streams in the VIOS UI.">
-  <img src="/assets/images/vss-warehouse-skill/warehouse-skill-vios-ui.png" alt="Warehouse camera streams in the VIOS UI" />
+  <img src="../assets/images/vss-warehouse-skill/warehouse-skill-vios-ui.png" alt="Warehouse camera streams in the VIOS UI" />
 </Frame>
 
 <Frame caption="Verify analytics output in Kibana.">
-  <img src="/assets/images/vss-warehouse-skill/warehouse-skill-kibana.png" alt="Warehouse Blueprint Kibana dashboard after deployment" />
+  <img src="../assets/images/vss-warehouse-skill/warehouse-skill-kibana.png" alt="Warehouse Blueprint Kibana dashboard after deployment" />
 </Frame>
 
 ### How the Skill Configures and Runs the Deployment
@@ -1054,7 +1054,7 @@ operator's behalf:
   selection is independent of the analytics mode. For `MODE=3d`, confirm that the
   generated `override.env` sets `DATASET_TYPE` to the family described under Common
   Variables. See
-  [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection).
+  [Deployment Selection](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection).
 * **Minimal vs extended** - for `bp_wh_kafka` and `bp_wh_redis`, chooses whether to
   deploy ELK, Video Analytics API, and monitoring on top of the core CV pipeline. See
   the Minimal Profile section above for the comparison.
@@ -1079,7 +1079,7 @@ operator's behalf:
 * **Container image tag** - runs a release's images when you name an image tag in
   the prompt, or when `VSS_CONTAINER_TAG` is already exported. Otherwise it uses the
   `containers.env` default. See
-  [Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
+  [Container image tag](/vision-agent/build-vision-ai#container-image-tag).
 * **Build and validate** - writes `_builds/<name>/override.env`, `compose.yml`,
   `configurator.env`, and `resolved.yml`. The Skill resolves the Warehouse env layers
   into `resolved.yml`, then validates the resolved services, images, bind mounts,
@@ -1095,11 +1095,11 @@ For deployment or runtime failures, consult the Skill's
 `references/troubleshooting.md`. Warehouse-specific configuration, validation, and
 readiness checks are defined in `references/profiles/warehouse.md`.
 
-After updating the repository, follow [Updating Skills](/vss/vision-agent/agent-skills#updating-skills) and start a new coding-agent session.
+After updating the repository, follow [Updating Skills](/vision-agent/agent-skills#updating-skills) and start a new coding-agent session.
 
 ### Related Documentation
 
-* [Agent Skills](/vss/vision-agent/agent-skills) - VSS Skills catalog, installation, usage, and update flow.
+* [Agent Skills](/vision-agent/agent-skills) - VSS Skills catalog, installation, usage, and update flow.
 
 ## Brev Launchable
 
@@ -1119,27 +1119,27 @@ Brev Launchable takes care of the host requirements.
 
 #### Obtain NGC API Key
 
-Follow [How to get an NVIDIA NGC API key](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq#how-to-get-an-nvidia-ngc-api-key).
+Follow [How to get an NVIDIA NGC API key](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq#how-to-get-an-nvidia-ngc-api-key).
 
 ### Deployment Profiles
 
-The launchable notebook uses the same `MODE` and `BP_PROFILE` values described in the [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection) section above. It derives `STREAM_TYPE` from `BP_PROFILE`: `bp_wh_redis` uses Redis, and the other profiles use Kafka.
+The launchable notebook uses the same `MODE` and `BP_PROFILE` values described in the [Deployment Selection](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection) section above. It derives `STREAM_TYPE` from `BP_PROFILE`: `bp_wh_redis` uses Redis, and the other profiles use Kafka.
 
 The notebook selects a default dataset and stream count for each mode and profile. To select a different dataset, set `SAMPLE_VIDEO_DATASET` in Section 1 and update the existing `NUM_STREAMS` value in `industry-profiles/warehouse-operations/overrides.env` to match the dataset's camera count before running Section 9. For 3D, also set `DATASET_TYPE` to `real` or `synthetic` for the selected dataset.
 
-See [Deployment Options](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-options) for full details on each profile.
+See [Deployment Options](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-options) for full details on each profile.
 
 ### Steps to Launch the Blueprint
 
 1. Go to the [Launchable page](https://brev.nvidia.com/launchable/deploy?launchableID=env-2tYIjRXL4eMCbH9Az8mJC5WPAI4).
 
-    ![Brev Launchable configuration page for the Warehouse Blueprint](/assets/images/cloud/brev_launchable.png)
+    ![Brev Launchable configuration page for the Warehouse Blueprint](../assets/images/cloud/brev_launchable.png)
 
 2. Click **Deploy Launchable** in the upper-right corner.
 3. Click **Go to Instance Page**.
 4. After the instance is enabled, click **Open Notebook**.
 
-    ![Warehouse Brev Launchable Notebook](/assets/images/cloud/brev_notebook_button.png)
+    ![Warehouse Brev Launchable Notebook](../assets/images/cloud/brev_notebook_button.png)
 
    Close any warning dialogs that appear in JupyterLab.
 
@@ -1173,4 +1173,4 @@ Section 11 of the notebook prints the URLs available for the selected profile:
 For VIOS video playback through a Brev secure link, set **Streaming Protocol** to **DASH** instead of **WebRTC** in the VIOS UI.
 </Note>
 
-For the full set of service access points (including direct ports for Video Analytics API, VA-MCP, and NIM endpoints), see [Service Access Points](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#service-access-points).
+For the full set of service access points (including direct ports for Video Analytics API, VA-MCP, and NIM endpoints), see [Service Access Points](/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#service-access-points).
