@@ -73,7 +73,7 @@ If you have already completed those steps for another agent workflow, skip to [S
 - For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
 </Note>
 
-```bash
+```bash title="Run in the deployment host terminal"
 # Set NGC CLI API key
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
@@ -89,7 +89,7 @@ template is
 
 From the repository checkout root, enter the Compose deployment directory:
 
-```bash
+```bash title="Run in the deployment host terminal"
 cd deploy/docker
 ```
 
@@ -100,7 +100,7 @@ committed. The commands below use `user-overrides.env` as a concrete example;
 if you choose another name, use it consistently in every `--env-file` argument.
 Repeat the copy only when you want to discard prior layout changes:
 
-```bash
+```bash title="Run in the deployment host terminal"
 PROFILE=alerts
 cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
   "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
@@ -188,7 +188,7 @@ HOST_IP=<reachable-host-ip-or-name>
 run this block. The guards stop before `mkdir` or `chmod` if either value is
 absent or is not absolute:
 
-```bash
+```bash title="Run in the deployment host terminal"
 : "${VSS_DATA_DIR:?Export VSS_DATA_DIR with the value from user-overrides.env}"
 : "${VSS_APPS_DIR:?Export VSS_APPS_DIR with the value from user-overrides.env}"
 case "$VSS_DATA_DIR" in
@@ -241,7 +241,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_CV}
 Export the tag selected for this documentation branch before choosing a hardware
 layout:
 
-```bash
+```bash title="Run in the deployment host terminal"
 export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
 ```
 
@@ -723,7 +723,7 @@ RTVI_VLM_MODEL_PATH=none
 After replacing every placeholder in the selected layout, from `deploy/docker`
 validate the resolved configuration, then start the profile:
 
-```bash
+```bash title="Run in the deployment host terminal"
 PROFILE=alerts
 docker compose -f compose.yml \
   --env-file containers.env \
@@ -761,7 +761,7 @@ Set `VST_INGRESS_ENDPOINT` for a remote VLM before you bring the stack up. See [
 
 Once the deployment is complete, check that all the containers are running and healthy:
 
-```bash
+```bash title="Run in the deployment host terminal"
 docker ps
 ```
 
@@ -783,7 +783,7 @@ Refer to the requirements table for valid platform and mode combinations compati
 The remaining steps on this page use the in-stack Agent UI, so request the
 in-stack VSS Agent explicitly when you deploy with Build Vision AI.
 
-```text title="Deploy prompt structure"
+```text title="Paste into your coding agent"
 Deploy the VSS alerts verification profile with the in-stack VSS Agent so I can use the Agent UI workflow.
 ```
 
@@ -791,7 +791,7 @@ Name an image tag in the prompt to run a release's images instead of the
 `containers.env` default. See
 [Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
 
-```text title="Deploy prompt with a release image tag"
+```text title="Paste into your coding agent"
 Deploy the VSS alerts verification profile with the in-stack VSS Agent and image tag ${VSS_DOCS_IMAGE_TAG:-develop-latest}.
 ```
 
@@ -801,7 +801,7 @@ See [VSS Agent Customization - Configure LLM](/vss/vision-agent/vss-agents/agent
 
 **Recommended edge deployment prompts**
 
-```text title="Recommended edge deployment prompts"
+```text title="Paste into your coding agent"
 Deploy the VSS alerts verification profile on this DGX-SPARK machine with a remote LLM and the in-stack VSS Agent.
 Deploy the VSS alerts verification profile on this IGX-THOR machine with a remote LLM and the in-stack VSS Agent.
 Deploy the VSS alerts verification profile on this AGX-THOR machine with a remote LLM and the in-stack VSS Agent.
@@ -811,7 +811,7 @@ The `vss-build-vision-ai` skill uses Cosmos3 Nano Reasoner BF16 as the default V
 which VLM models are available during the deployment process, or request a different model
 directly in your deployment prompt:
 
-```text title="VLM model prompts"
+```text title="Paste into your coding agent"
 Which VLM models are available for the alerts profile?
 Deploy the VSS alerts verification profile with the Cosmos3 Super Reasoner FP8 VLM and the in-stack VSS Agent.
 ```
@@ -963,7 +963,7 @@ Now, use the ID to request generation of the report while also specifying the as
 
 To tear down the agent, run the following command:
 
-```bash
+```bash title="Run in the deployment host terminal"
 cd deploy/docker
 PROFILE=alerts
 docker compose -f compose.yml \

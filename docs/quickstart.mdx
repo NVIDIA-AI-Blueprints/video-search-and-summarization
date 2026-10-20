@@ -106,16 +106,20 @@ NGC CLI access with an org selected. If you see `Artifact is not Guest accessibl
 or `Missing org`, configure NGC with an API key and org before retrying.
 See [Prerequisites](/vss/getting-started/prerequisites) for NGC setup.
 
-```bash
+```bash title="Run in the deployment host terminal"
 # Download sample data
 ngc registry resource download-version nvidia/vss-developer/dev-profile-sample-data:3.3.0
 
-EXTRACT_DIR=./sample-data
+EXTRACT_DIR="${PWD}/sample-data"
 mkdir -p "${EXTRACT_DIR}"
 tar -xf dev-profile-sample-data_v3.3.0/dev-profile-sample-data.tar.gz -C "${EXTRACT_DIR}"
 
 rm -rf dev-profile-sample-data_v3.3.0
 ```
+
+In the examples below, replace `<sample-data-dir>` with the absolute value of
+`EXTRACT_DIR` from this step. This is the extraction location on the deployment
+host; it is not necessarily inside the repository checkout.
 
 ### Download the Deployment Package
 
@@ -125,7 +129,7 @@ Perform this on the machine where you intend to deploy the agent.
 **Git LFS required:** The repository uses Git LFS for large files. Install it before cloning or pulling. For example, on Ubuntu/Debian: `sudo apt-get install git-lfs`. On other systems, see [Git LFS installation](https://git-lfs.com/).
 </Note>
 
-```bash
+```bash title="Run in the deployment host terminal"
 git clone --branch "${VSS_DOCS_GIT_REF:-develop}" https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
 git lfs install
@@ -155,7 +159,7 @@ GPU, Docker, and NVIDIA Container Toolkit requirements in
 The Build Vision AI Skill requires `uv` for mandatory service-graph checks and
 helper scripts. Install it before starting the coding agent:
 
-```bash
+```bash title="Run in the deployment host terminal"
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
@@ -170,7 +174,7 @@ Install the Build Vision AI Skill and the operations Skills before asking the
 agent to deploy or operate VSS. From the VSS Blueprint checkout, ask your coding
 agent:
 
-```text title="Install the VSS Skills"
+```text title="Paste into your coding agent: Install the VSS Skills"
 Install skills/vss-build-vision-ai and every Skill under skills/operations for
 this host. Use the host's standard skills directory. Symlink each Skill folder
 rather than copying it so a git pull here keeps the Skills up to date. If a
@@ -198,7 +202,7 @@ Before deployment, have the credentials required by your choices available:
 Authenticate Docker to `nvcr.io` before asking the Skill to deploy. Use the
 same NGC Personal API Key that you provide as `NGC_CLI_API_KEY`:
 
-```bash
+```bash title="Run in the deployment host terminal"
 export NGC_CLI_API_KEY='<your-ngc-personal-api-key>'
 printf '%s' "$NGC_CLI_API_KEY" | \
   docker login nvcr.io --username '$oauthtoken' --password-stdin
@@ -208,7 +212,7 @@ For a custom OpenAI-compatible NemoClaw endpoint, obtain the key from the
 endpoint provider. Do not paste the key into chat. Store it in the
 checkout-root, gitignored `nemoclaw.env` file:
 
-```bash
+```ini title="Edit nemoclaw.env in the checkout root"
 COMPATIBLE_API_KEY='your-provider-api-key'
 ```
 
@@ -236,7 +240,7 @@ credentials so the session both discovers the Skills and inherits those values.
 Use a coding agent with the [Build Vision AI Skill](/vss/vision-agent/build-vision-ai) to deploy
 the validated `base` developer profile. This is the default quickstart path.
 
-```text title="Example prompt"
+```text title="Paste into your coding agent"
 Deploy the VSS base profile on this machine.
 ```
 
@@ -272,7 +276,7 @@ The default Skill path does not include the in-stack `vss-agent` service, so
 do not use port `8000` as its readiness check. Confirm the service set and the
 base RT-VLM endpoint instead:
 
-```bash
+```bash title="Run in the deployment host terminal"
 docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 curl -fsS "http://<HOST_IP>:8018/v1/health/ready"
 curl -fsS "http://<HOST_IP>:30888/vst/api/v1/sensor/version"
@@ -286,12 +290,9 @@ it, such as `lvs-server`, or when the harness is explicitly routed to the
 build's LLM NIM. It keeps Phoenix when the in-stack Agent is explicitly
 requested.
 
-If you selected NemoClaw, use the sandbox name and harness URL returned by the
-Skill. Run `nemoclaw <sandbox> gateway-token --quiet` on the deployment host to
-get a current token. Use it with the NemoClaw dashboard URL as `/#token=<token>`;
-to use chat in the VSS Web UI, enter it in **Connect NemoClaw chat**. Do not
-share the token-bearing URL. If you selected no harness, operate the
-deployment with the project-local `vss` CLI as directed by the Skill.
+If you selected NemoClaw, follow [Continue in NemoClaw](#continue-in-nemoclaw)
+before the upload, question, and report steps. If you selected no harness,
+operate the deployment with the project-local `vss` CLI as directed by the Skill.
 
 #### If the Skill-driven UI Doesn't Load
 
@@ -303,6 +304,39 @@ in-stack Agent check on port `8000` for the default Skill-generated stack.
 If the VSS containers are healthy but the NemoClaw dashboard, sandbox, or MCP
 tools are unavailable, follow
 [NemoClaw Troubleshooting](/vss/vision-agent/agent-harnesses/nemoclaw/troubleshooting).
+
+### Continue in NemoClaw
+
+Use the **sandbox name** and **chat URL** returned by the deployment Skill;
+replace `<sandbox-name>` below with that name.
+
+1. **Connect to chat.** For the default OpenClaw runtime, get a current token:
+
+   ```bash title="Run in the deployment host terminal"
+   nemoclaw <sandbox-name> gateway-token --quiet
+   ```
+
+   Open the returned chat URL with `/#token=<token>` appended, replacing
+   `<token>` with the command output. To use chat in the VSS Web UI instead,
+   enter the token in **Connect NemoClaw chat**. Do not share the token-bearing URL.
+
+2. **Copy the video into the sandbox.** Use the extraction location from
+   [Download Sample Data From NGC](#download-sample-data-from-ngc):
+
+   ```bash title="Run in the deployment host terminal"
+   nemoclaw <sandbox-name> upload \
+     "<sample-data-dir>/dev-profile-sample-data/warehouse_safety_0001.mp4" \
+     /sandbox/
+   ```
+
+   The video is now accessible to the agent at
+   `/sandbox/warehouse_safety_0001.mp4`. Use that path in NemoClaw upload
+   prompts. For another sample video, replace the filename in both the transfer
+   command and the sandbox path.
+
+Continue the operational prompts in NemoClaw chat. Copying the file into the
+sandbox makes it accessible to that agent; the upload prompt below registers it
+with VSS.
 
 ## Agent Skills walkthrough
 
@@ -339,7 +373,7 @@ The base profile journey exercises four skills:
 
 **Example prompts**
 
-```text title="Example prompts"
+```text title="Paste into your coding agent"
 Deploy the VSS base profile on this machine.
 Deploy a vision agent with a remote LLM at https://integrate.api.nvidia.com.
 ```
@@ -348,7 +382,7 @@ Name an image tag in the prompt to run a release's images instead of the
 `containers.env` default. See
 [Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
 
-```text title="Example prompt with a release image tag"
+```text title="Paste into your coding agent: Example prompt with a release image tag"
 Deploy the VSS base profile with image tag ${VSS_DOCS_IMAGE_TAG:-develop-latest}.
 ```
 
@@ -392,28 +426,20 @@ different model or remote endpoint, name it in the prompt.
 
 The Skill reads the video from the filesystem of the agent session that runs
 it. For a coding agent running directly on the deployment host, provide the
-absolute host path:
+absolute path from [Download Sample Data From NGC](#download-sample-data-from-ngc):
 
 **Example prompts**
 
-```text title="Example prompts"
-Upload <absolute-path>/sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4 to VSS.
+```text title="Paste into your coding agent"
+Upload <sample-data-dir>/dev-profile-sample-data/warehouse_safety_0001.mp4 to VSS.
 List all available sensors.
 Take a snapshot of warehouse_safety_0001 at 0:05.
 ```
 
-If Build Vision AI provisioned NemoClaw, copy the video into its sandbox from
-the deployment host first, using the sandbox name returned by the Skill:
+If Build Vision AI provisioned NemoClaw, complete
+[Continue in NemoClaw](#continue-in-nemoclaw), then use the sandbox path:
 
-```bash
-nemoclaw <sandbox-name> upload \
-  <absolute-path>/sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4 \
-  /sandbox/
-```
-
-Then ask the agent in the NemoClaw session:
-
-```text title="NemoClaw example prompt"
+```text title="Paste into NemoClaw chat"
 Upload /sandbox/warehouse_safety_0001.mp4 to VSS.
 ```
 
@@ -432,7 +458,7 @@ Upload /sandbox/warehouse_safety_0001.mp4 to VSS.
 
 **Example prompts**
 
-```text title="Example prompts"
+```text title="Paste into your coding agent or NemoClaw chat"
 Is the worker in warehouse_safety_0001 wearing PPE?
 ```
 
@@ -457,7 +483,7 @@ media resolution, memory access, and any underlying VLM request.
 
 **Example prompt**
 
-```text title="Example prompt"
+```text title="Paste into your coding agent or NemoClaw chat"
 Generate a report for warehouse_safety_0001.
 ```
 
@@ -471,7 +497,7 @@ Generate a report for warehouse_safety_0001.
 
 **Example prompt**
 
-```text title="Example prompt"
+```text title="Paste into your coding agent"
 Tear down the VSS deployment.
 ```
 
@@ -1186,7 +1212,7 @@ Once the video is uploaded, the agent will respond with the playback clip.
 
 You can now ask the agent questions about the video. Here is an example:
 
-```bash
+```text title="Paste into the in-stack VSS Agent chat"
 Is the worker wearing PPE?
 ```
 
@@ -1198,7 +1224,7 @@ The agent will show the intermediate steps of the agent's reasoning while the re
 
 Follow up questions can be asked, for example:
 
-```bash
+```text title="Paste into the in-stack VSS Agent chat"
 When did the worker climb up the ladder?
 ```
 
@@ -1224,7 +1250,7 @@ You can also ask the agent to generate a report about the video. Here is an exam
 The screenshots below show the in-stack VSS Agent UI. In this workflow, VSS Agent provides a PDF report download and uses a Human in the Loop (HITL) dialog to review the VLM prompt. With NemoClaw's OpenClaw runtime, the summary or report appears directly in the OpenClaw chat UI. HITL happens in that chat: the agent asks for prompt details inline, and you answer in the conversation. The VSS Agent's structured HITL dialogs are not available through an external VSS UI connected to NemoClaw.
 </Note>
 
-```bash
+```text title="Paste into the in-stack VSS Agent chat"
 Can you generate a report for this video?
 ```
 

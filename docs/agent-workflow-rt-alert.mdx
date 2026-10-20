@@ -71,7 +71,7 @@ Optional: You can enable notifications by setting `webhook.openclaw.enabled` to 
 
 **Deploy prompt structure**
 
-```text title="Deploy prompt structure"
+```text title="Paste into your coding agent"
 Deploy the VSS alerts profile in real-time mode.
 ```
 
@@ -79,7 +79,7 @@ Name an image tag in the prompt to run a release's images instead of the
 `containers.env` default. See
 [Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
 
-```text title="Deploy prompt with a release image tag"
+```text title="Paste into your coding agent"
 Deploy the VSS alerts profile in real-time mode with image tag ${VSS_DOCS_IMAGE_TAG:-develop-latest}.
 ```
 
@@ -87,7 +87,7 @@ The `vss-build-vision-ai` skill uses Cosmos3 Nano Reasoner BF16 as the default V
 which VLM models are available during the deployment process, or request a different model
 directly in your deployment prompt:
 
-```text title="VLM model prompts"
+```text title="Paste into your coding agent"
 Which VLM models are available for the alerts profile?
 Deploy the VSS alerts profile in real-time mode with the Cosmos3 Super Reasoner FP8 VLM.
 ```
@@ -96,6 +96,10 @@ The agent sets `VLM_NAME` and `RTVI_VLM_MODEL_PATH` in the generated
 `_builds/<name>/override.env` to the model you request. The same options and
 hardware constraints listed in
 [Available VLM Models](#rt-alert-available-vlm-models) apply.
+
+If you selected NemoClaw, follow the Quickstart's
+[chat connection steps](/vss/getting-started/quickstart#continue-in-nemoclaw)
+and continue the operational prompts in that chat.
 
 #### Step 2: Add a Video Stream
 
@@ -106,7 +110,7 @@ Add a stream with the `vss-manage-video-io-storage` skill.
 
 **Add an RTSP stream to VIOS**
 
-```text title="Add an RTSP stream to VIOS"
+```text title="Paste into your coding agent or NemoClaw chat"
 Add RTSP stream <rtsp stream URL> to VIOS with the sensor name warehouse_sample.
 ```
 
@@ -128,56 +132,7 @@ Ask your agent to manage alert rules in natural language. The `vss-manage-alerts
 
 For rule creation and replacement requests, the skill extracts the sensor and detection condition from your prompt, resolves the sensor ID and RTSP stream URL, derives a short `alert_type` tag, and submits the rule to Alert Bridge. For alert lookups, the skill routes the request through the agent incident-query workflow so that you can review notifications that have fired.
 
-##### Create a Rule with the REST API
-
-For Docker Compose deployments, Alert Bridge listens on port `9080`. Resolve the
-sensor UUID and main RTSP URL from VIOS, then create the rule through Alert
-Bridge—not directly through RT-VLM:
-
-```bash
-curl -sS -X POST "http://<HOST_IP>:9080/api/v1/realtime" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "live_stream_url": "<RTSP_URL>",
-    "sensor_id": "<SENSOR_UUID>",
-    "sensor_name": "warehouse_sample",
-    "alert_type": "missing_ppe",
-    "prompt": "Is anyone visible without required personal protective equipment?",
-    "system_prompt": "Answer yes or no",
-    "chunk_duration": 30,
-    "chunk_overlap_duration": 5
-  }'
-```
-
-| Field | Required by API | Default or convention | Purpose |
-| --- | --- | --- | --- |
-| `live_stream_url` | Yes | — | Main RTSP URL returned by VIOS. |
-| `alert_type` | Yes | — | Stable snake-case category for the condition. |
-| `prompt` | Yes | — | Natural-language condition evaluated for each chunk. |
-| `sensor_id` | No | VIOS sensor UUID | Lets rules share the same underlying RT-VLM stream. |
-| `sensor_name` | No | VIOS sensor name | Human-readable source name. |
-| `system_prompt` | No | Empty string | Optional evaluation instruction used by the VLM. The example supplies `"Answer yes or no"` explicitly. |
-| `chunk_duration` | No | `30` seconds | Video duration evaluated per inference. |
-| `chunk_overlap_duration` | No | `5` seconds | Overlap between consecutive chunks. |
-
-A successful create returns HTTP `201` and a body like:
-
-```json
-{
-  "status": "success",
-  "id": "496aebd1-16d0-4123-81cf-10603e047d02",
-  "created_at": "2026-04-21T11:09:40.111515+00:00",
-  "message": "Realtime alert rule created"
-}
-```
-
-Keep the returned `id`; it identifies the rule for `GET /api/v1/realtime/{alert_rule_id}`
-and `DELETE /api/v1/realtime/{alert_rule_id}`. A real-time rule has no separate threshold,
-sensitivity, or cooldown field. Tune the detection condition in `prompt` and
-the evaluation cadence with the two chunk fields. The
-`alert_agent.event_filters` settings documented for the Alerts Microservice
-apply to upstream alert-verification event filtering, not to this real-time
-rule payload.
+For direct API instructions, see [Create a Rule with the REST API](#create-a-rule-with-the-rest-api) in the manual workflow.
 
 <Note>
 To combine this workflow with long-video summarization, deploy one
@@ -188,7 +143,7 @@ supported.
 
 ##### Add an Alert Rule
 
-```text title="Add an alert rule"
+```text title="Paste into your coding agent or NemoClaw chat"
 Detect anyone entering without personal protective equipment on sensor warehouse_sample.
 Send me alerts for fallen boxes in camera warehouse_sample.
 Watch warehouse_sample for anyone without a safety vest.
@@ -202,7 +157,7 @@ What the agent does:
 
 ##### List Active Alert Rules
 
-```text title="List active alert rules"
+```text title="Paste into your coding agent or NemoClaw chat"
 What alert rules are currently active?
 ```
 
@@ -214,7 +169,7 @@ What the agent does:
 
 ##### Show Alert Notifications
 
-```text title="Show alert notifications"
+```text title="Paste into your coding agent or NemoClaw chat"
 List any alerts for alert ID <alert ID>.
 ```
 
@@ -226,7 +181,7 @@ What the agent does:
 
 ##### Replace an Alert Rule
 
-```text title="Replace an alert rule"
+```text title="Paste into your coding agent or NemoClaw chat"
 Replace alert rule ID <alert ID> with a rule that watches warehouse_sample for fallen boxes.
 ```
 
@@ -238,7 +193,7 @@ What the agent does:
 
 ##### Delete an Alert Rule
 
-```text title="Delete an alert rule"
+```text title="Paste into your coding agent or NemoClaw chat"
 Delete alert rule ID <alert ID>.
 ```
 
@@ -254,7 +209,7 @@ The Alerts Microservice supports receiving alerts on the OpenClaw UI. Ensure tha
 To use this feature, send the following prompt after creating an alert rule. Substitute your own
 VST public URL and gateway. Do **not** copy captured sandbox hosts from a previous environment.
 
-```text
+```text title="Paste into NemoClaw chat"
 Start the alert-notify relay (dashboard backend only).
 
 NOTIFY_BACKENDS=dashboard
@@ -288,7 +243,7 @@ the connection carries the gateway token and alert contents. Use `ws://` only fo
 - For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
 </Note>
 
-```bash
+```bash title="Run in the deployment host terminal"
 # Set NGC CLI API key
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
@@ -304,7 +259,7 @@ template is
 
 From the repository checkout root, enter the Compose deployment directory:
 
-```bash
+```bash title="Run in the deployment host terminal"
 cd deploy/docker
 ```
 
@@ -315,7 +270,7 @@ committed. The commands below use `user-overrides.env` as a concrete example;
 if you choose another name, use it consistently in every `--env-file` argument.
 Repeat the copy only when you want to discard prior layout changes:
 
-```bash
+```bash title="Run in the deployment host terminal"
 PROFILE=alerts
 cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
   "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
@@ -400,7 +355,7 @@ HOST_IP=<reachable-host-ip-or-name>
 run this block. The guards stop before `mkdir` or `chmod` if either value is
 absent or is not absolute:
 
-```bash
+```bash title="Run in the deployment host terminal"
 : "${VSS_DATA_DIR:?Export VSS_DATA_DIR with the value from user-overrides.env}"
 : "${VSS_APPS_DIR:?Export VSS_APPS_DIR with the value from user-overrides.env}"
 case "$VSS_DATA_DIR" in
@@ -442,7 +397,7 @@ chmod -R a+rwx \
 Export the tag selected for this documentation branch before choosing a hardware
 layout:
 
-```bash
+```bash title="Run in the deployment host terminal"
 export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
 ```
 
@@ -776,7 +731,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 After replacing every placeholder in the selected layout, from `deploy/docker`
 validate the resolved configuration, then start the profile:
 
-```bash
+```bash title="Run in the deployment host terminal"
 PROFILE=alerts
 docker compose -f compose.yml \
   --env-file containers.env \
@@ -812,7 +767,7 @@ When using a remote VLM of model-type `nim` (not `openai`), see [How does a remo
 
 Once the deployment is complete, check that all the containers are running and healthy:
 
-```bash
+```bash title="Run in the deployment host terminal"
 docker ps
 ```
 
@@ -853,6 +808,57 @@ From the same **Alerts** tab, enable **VLM Verified** to view verified alerts fo
 
 ![Alerts table](/assets/images/agent-workflows/real-time-alerts-tab.png)
 
+##### Create a Rule with the REST API
+
+For Docker Compose deployments, Alert Bridge listens on port `9080`. Resolve the
+sensor UUID and main RTSP URL from VIOS, then create the rule through Alert
+Bridge—not directly through RT-VLM:
+
+```bash title="Run in the deployment host terminal"
+curl -sS -X POST "http://<HOST_IP>:9080/api/v1/realtime" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "live_stream_url": "<RTSP_URL>",
+    "sensor_id": "<SENSOR_UUID>",
+    "sensor_name": "warehouse_sample",
+    "alert_type": "missing_ppe",
+    "prompt": "Is anyone visible without required personal protective equipment?",
+    "system_prompt": "Answer yes or no",
+    "chunk_duration": 30,
+    "chunk_overlap_duration": 5
+  }'
+```
+
+| Field | Required by API | Default or convention | Purpose |
+| --- | --- | --- | --- |
+| `live_stream_url` | Yes | — | Main RTSP URL returned by VIOS. |
+| `alert_type` | Yes | — | Stable snake-case category for the condition. |
+| `prompt` | Yes | — | Natural-language condition evaluated for each chunk. |
+| `sensor_id` | No | VIOS sensor UUID | Lets rules share the same underlying RT-VLM stream. |
+| `sensor_name` | No | VIOS sensor name | Human-readable source name. |
+| `system_prompt` | No | Empty string | Optional evaluation instruction used by the VLM. The example supplies `"Answer yes or no"` explicitly. |
+| `chunk_duration` | No | `30` seconds | Video duration evaluated per inference. |
+| `chunk_overlap_duration` | No | `5` seconds | Overlap between consecutive chunks. |
+
+A successful create returns HTTP `201` and a body like:
+
+```json
+{
+  "status": "success",
+  "id": "496aebd1-16d0-4123-81cf-10603e047d02",
+  "created_at": "2026-04-21T11:09:40.111515+00:00",
+  "message": "Realtime alert rule created"
+}
+```
+
+Keep the returned `id`; it identifies the rule for `GET /api/v1/realtime/{alert_rule_id}`
+and `DELETE /api/v1/realtime/{alert_rule_id}`. A real-time rule has no separate threshold,
+sensitivity, or cooldown field. Tune the detection condition in `prompt` and
+the evaluation cadence with the two chunk fields. The
+`alert_agent.event_filters` settings documented for the Alerts Microservice
+apply to upstream alert-verification event filtering, not to this real-time
+rule payload.
+
 #### Troubleshooting
 
 If alerts do not appear in the VSS UI after you create an alert rule, check the following item:
@@ -873,7 +879,7 @@ Now, use the ID to request generation of the report while also specifying the as
 
 To tear down the agent, run the following command:
 
-```bash
+```bash title="Run in the deployment host terminal"
 cd deploy/docker
 PROFILE=alerts
 docker compose -f compose.yml \
