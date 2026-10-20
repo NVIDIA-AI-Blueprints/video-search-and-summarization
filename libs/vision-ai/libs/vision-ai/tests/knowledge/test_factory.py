@@ -17,12 +17,12 @@
 from pydantic import BaseModel
 import pytest
 
-from vss_core.knowledge import factory
-from vss_core.knowledge.base import BackendAdapter
-from vss_core.knowledge.factory import _freeze
-from vss_core.knowledge.factory import get_retriever
-from vss_core.knowledge.factory import register_adapter
-from vss_core.knowledge.schema import RetrievalResult
+from nvidia_vision_ai.knowledge import factory
+from nvidia_vision_ai.knowledge.base import BackendAdapter
+from nvidia_vision_ai.knowledge.factory import _freeze
+from nvidia_vision_ai.knowledge.factory import get_retriever
+from nvidia_vision_ai.knowledge.factory import register_adapter
+from nvidia_vision_ai.knowledge.schema import RetrievalResult
 
 
 class _StubConfig(BaseModel):

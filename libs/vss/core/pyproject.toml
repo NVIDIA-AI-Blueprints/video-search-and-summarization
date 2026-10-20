@@ -44,18 +44,3 @@ dependencies = [
   "PyYAML~=6.0",
   "tenacity~=9.0",
 ]
-
-[project.optional-dependencies]
-# Opt-in knowledge-retrieval backends; lazily imported by the factory.
-frag_lib = ["nvidia-rag>=2.4.0"]
-llama_index = [
-    "chromadb>=0.5",
-    "llama-index-core>=0.11",
-    "llama-index-vector-stores-chroma>=0.3",
-    "llama-index-embeddings-nvidia>=0.3",
-]
-langchain = [
-    "chromadb>=0.5",
-    "langchain-chroma>=0.1",
-    "langchain-nvidia-ai-endpoints>=0.3",
-]

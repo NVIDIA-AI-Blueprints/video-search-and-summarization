@@ -29,11 +29,11 @@ from unittest.mock import patch
 import aiohttp
 import pytest
 
-from vss_core.knowledge.adapters.frag_api import FragApiAdapter
-from vss_core.knowledge.adapters.frag_api import FragApiConfig
-from vss_core.knowledge.adapters.frag_api import _filters_to_expr
-from vss_core.knowledge.adapters.frag_api import _normalise_search_result
-from vss_core.knowledge.schema import ContentType
+from nvidia_vision_ai.knowledge.adapters.frag_api import FragApiAdapter
+from nvidia_vision_ai.knowledge.adapters.frag_api import FragApiConfig
+from nvidia_vision_ai.knowledge.adapters.frag_api import _filters_to_expr
+from nvidia_vision_ai.knowledge.adapters.frag_api import _normalise_search_result
+from nvidia_vision_ai.knowledge.schema import ContentType
 
 
 class TestFiltersToExpr:

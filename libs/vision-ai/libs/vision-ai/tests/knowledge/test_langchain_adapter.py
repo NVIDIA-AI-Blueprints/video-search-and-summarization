@@ -15,7 +15,7 @@
 """Tests for lib.knowledge.adapters.langchain.
 
 The `langchain-chroma` / `langchain-nvidia-ai-endpoints` packages are an
-optional extra (`nvidia-vss[langchain]`) and aren't installed in the default
+optional extra (`nvidia-vision-ai[langchain]`) and aren't installed in the default
 test env. The adapter does deferred imports inside `__init__`, so we inject
 fake modules into `sys.modules` BEFORE constructing the adapter — the
 deferred import resolves to our fakes and we never need the real packages.
@@ -79,10 +79,10 @@ class TestLangChainImport:
         for mod in ("langchain_chroma", "langchain_nvidia_ai_endpoints"):
             monkeypatch.setitem(sys.modules, mod, None)
 
-        from vss_core.knowledge.adapters.langchain import LangChainAdapter
-        from vss_core.knowledge.adapters.langchain import LangChainConfig
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainAdapter
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainConfig
 
-        with pytest.raises(ImportError, match=r"nvidia-vss\[langchain\]"):
+        with pytest.raises(ImportError, match=r"nvidia-vision-ai\[langchain\]"):
             LangChainAdapter(LangChainConfig(persist_dir="/tmp/chroma"))
 
 
@@ -90,19 +90,19 @@ class TestLangChainConfigDefaults:
     """`persist_dir` resolution — env var override > literal default."""
 
     def test_default_falls_back_to_tmp_chroma_data(self, monkeypatch):
-        from vss_core.knowledge.adapters.langchain import LangChainConfig
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainConfig
 
         monkeypatch.delenv("VSS_CHROMA_DIR", raising=False)
         assert LangChainConfig().persist_dir == "/tmp/chroma_data"
 
     def test_env_var_overrides_default(self, monkeypatch):
-        from vss_core.knowledge.adapters.langchain import LangChainConfig
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainConfig
 
         monkeypatch.setenv("VSS_CHROMA_DIR", "/var/lib/chroma")
         assert LangChainConfig().persist_dir == "/var/lib/chroma"
 
     def test_explicit_value_overrides_env(self, monkeypatch):
-        from vss_core.knowledge.adapters.langchain import LangChainConfig
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainConfig
 
         monkeypatch.setenv("VSS_CHROMA_DIR", "/var/lib/chroma")
         assert LangChainConfig(persist_dir="/custom/path").persist_dir == "/custom/path"
@@ -112,8 +112,8 @@ class TestLangChainInit:
     """Construction wires NVIDIAEmbeddings and caches the Chroma class."""
 
     def test_persist_dir_created_on_init(self, fake_langchain, tmp_path):
-        from vss_core.knowledge.adapters.langchain import LangChainAdapter
-        from vss_core.knowledge.adapters.langchain import LangChainConfig
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainAdapter
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainConfig
 
         persist = tmp_path / "fresh"
         assert not persist.exists()
@@ -122,8 +122,8 @@ class TestLangChainInit:
         assert persist.is_dir()
 
     def test_embed_api_key_env_fallback(self, fake_langchain, monkeypatch):
-        from vss_core.knowledge.adapters.langchain import LangChainAdapter
-        from vss_core.knowledge.adapters.langchain import LangChainConfig
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainAdapter
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainConfig
 
         monkeypatch.setenv("NVIDIA_API_KEY", "env-key-123")
         LangChainAdapter(LangChainConfig(persist_dir="/tmp/chroma"))
@@ -132,8 +132,8 @@ class TestLangChainInit:
         assert kwargs["api_key"] == "env-key-123"
 
     def test_embed_api_key_config_overrides_env(self, fake_langchain, monkeypatch):
-        from vss_core.knowledge.adapters.langchain import LangChainAdapter
-        from vss_core.knowledge.adapters.langchain import LangChainConfig
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainAdapter
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainConfig
 
         monkeypatch.setenv("NVIDIA_API_KEY", "env-key-123")
         LangChainAdapter(
@@ -148,8 +148,8 @@ class TestLangChainRetrieve:
     """retrieve() walks LangChain's vector store API and converts Documents to Chunks."""
 
     def _make_adapter(self, fake_langchain, **kwargs):
-        from vss_core.knowledge.adapters.langchain import LangChainAdapter
-        from vss_core.knowledge.adapters.langchain import LangChainConfig
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainAdapter
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainConfig
 
         defaults = {"persist_dir": "/tmp/chroma"}
         defaults.update(kwargs)
@@ -292,7 +292,7 @@ class TestLangChainRetrieve:
 
     def test_score_passthrough_when_outside_distance_range(self):
         # raw_score > 2 is treated as already-similarity; no 1 - x normalization.
-        from vss_core.knowledge.adapters.langchain import _doc_to_chunk
+        from nvidia_vision_ai.knowledge.adapters.langchain import _doc_to_chunk
 
         doc = MagicMock()
         doc.page_content = "x"
@@ -305,16 +305,16 @@ class TestLangChainRetrieve:
 class TestLangChainHealth:
     @pytest.mark.asyncio
     async def test_health_check_true_when_persist_dir_exists(self, fake_langchain, tmp_path):
-        from vss_core.knowledge.adapters.langchain import LangChainAdapter
-        from vss_core.knowledge.adapters.langchain import LangChainConfig
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainAdapter
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainConfig
 
         adapter = LangChainAdapter(LangChainConfig(persist_dir=str(tmp_path)))
         assert await adapter.health_check() is True
 
     @pytest.mark.asyncio
     async def test_health_check_false_when_persist_dir_missing(self, fake_langchain, tmp_path, monkeypatch):
-        from vss_core.knowledge.adapters.langchain import LangChainAdapter
-        from vss_core.knowledge.adapters.langchain import LangChainConfig
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainAdapter
+        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainConfig
 
         adapter = LangChainAdapter(LangChainConfig(persist_dir=str(tmp_path)))
         # Simulate the persist dir being yanked out from under us after construction.

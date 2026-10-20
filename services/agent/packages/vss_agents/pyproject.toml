@@ -37,6 +37,7 @@ dependencies = [
     "matplotlib>=3.8.0",
     "mcp >= 1.28.1",
     "nvidia-nat[async-endpoints,langchain,mcp,opentelemetry,phoenix,profiler,s3]==1.8.0",
+    "nvidia-vision-ai",
     "nvidia-vss-core",
     "protobuf>=6.33.5",
     "pydantic-settings~=2.13",
@@ -60,7 +61,7 @@ vst_tools = "vss_agents.tools.vst.register"
 vss_knowledge_layer = "vss_agents.register_knowledge_layers"
 
 [tool.uv.sources]
-# nvidia-vss-core comes from the workspace root, which points at libs/vss/core.
+# nvidia-vss-core and nvidia-vision-ai come from the workspace root, which points at libs/.
 langchain-nvidia-ai-endpoints = { index = "pypi" }
 torch = [
     { index = "pytorch-cpu", marker = "platform_machine == 'x86_64' or platform_machine == 'aarch64'" },

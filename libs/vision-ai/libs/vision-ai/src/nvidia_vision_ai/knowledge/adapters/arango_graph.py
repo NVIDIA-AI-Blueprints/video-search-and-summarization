@@ -32,11 +32,11 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
-from vss_core.knowledge.base import BackendAdapter
-from vss_core.knowledge.factory import register_adapter
-from vss_core.knowledge.schema import Chunk
-from vss_core.knowledge.schema import ContentType
-from vss_core.knowledge.schema import RetrievalResult
+from nvidia_vision_ai.knowledge.base import BackendAdapter
+from nvidia_vision_ai.knowledge.factory import register_adapter
+from nvidia_vision_ai.knowledge.schema import Chunk
+from nvidia_vision_ai.knowledge.schema import ContentType
+from nvidia_vision_ai.knowledge.schema import RetrievalResult
 
 logger = logging.getLogger(__name__)
 
@@ -330,5 +330,5 @@ def _failure(query: str, backend: str, message: str) -> RetrievalResult:
 def _missing_dependency_message() -> str:
     return (
         "arango_graph requires `python-arango`, `langchain-community`, and `langchain-classic`. Install via:\n"
-        "  pip install 'nvidia-vss[arango_graph]'"
+        "  pip install 'nvidia-vision-ai[arango_graph]'"
     )

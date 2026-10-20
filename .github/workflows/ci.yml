@@ -678,7 +678,7 @@ jobs:
           .wheel-smoke/bin/vision-ai --help
           .wheel-smoke/bin/vision-ai vlm --help
           .wheel-smoke/bin/python -I -c "import importlib.util as u, sys;
-          import nvidia_vision_ai_cli.app, nvidia_vision_ai.vlm, nvidia_vision_ai.memory;
+          import nvidia_vision_ai_cli.app, nvidia_vision_ai.vlm, nvidia_vision_ai.memory, nvidia_vision_ai.knowledge;
           bad = [m for m in ('vss_core', 'vss_cli', 'aiohttp', 'elasticsearch', 'cv2') if m in sys.modules or u.find_spec(m)];
           sys.exit(f'unexpected modules: {bad}' if bad else 0)"
 

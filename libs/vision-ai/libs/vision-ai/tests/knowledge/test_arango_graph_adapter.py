@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for vss_core.knowledge.adapters.arango_graph.
+"""Tests for nvidia_vision_ai.knowledge.adapters.arango_graph.
 
 The graph packages are optional. These tests inject fake LangChain graph
 modules so the adapter contract is covered without requiring live graph DBs.
@@ -184,8 +184,8 @@ def functional_arango(monkeypatch):
 
 class TestArangoGraphImport:
     def test_missing_resolved_llm_raises_clear_error(self):
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphAdapter
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphConfig
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphAdapter
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphConfig
 
         with pytest.raises(ValueError, match=r"resolved LangChain LLM"):
             ArangoGraphAdapter(ArangoGraphConfig())
@@ -194,8 +194,8 @@ class TestArangoGraphImport:
         for mod in ("arango", "langchain_community.graphs", "langchain_classic.chains"):
             monkeypatch.setitem(sys.modules, mod, None)
 
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphAdapter
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphConfig
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphAdapter
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphConfig
 
         with pytest.raises(ImportError, match=r"python-arango"):
             ArangoGraphAdapter(ArangoGraphConfig(), llm=MagicMock(name="resolved_llm"))
@@ -203,8 +203,8 @@ class TestArangoGraphImport:
 
 class TestArangoGraphArango:
     def test_constructs_arango_chain(self, fake_arango):
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphAdapter
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphConfig
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphAdapter
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphConfig
 
         ArangoGraphAdapter(
             ArangoGraphConfig(
@@ -250,8 +250,8 @@ class TestArangoGraphArango:
 
     @pytest.mark.asyncio
     async def test_arango_retrieve_preserves_metadata(self, fake_arango):
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphAdapter
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphConfig
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphAdapter
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphConfig
 
         adapter = ArangoGraphAdapter(ArangoGraphConfig(), llm=fake_arango.llm)
 
@@ -265,8 +265,8 @@ class TestArangoGraphArango:
         assert chunk.metadata["source_metadata"]["aql_query"] == "FOR n IN node_b RETURN n"
 
     def test_arango_config_can_override_env_defaults(self, fake_arango):
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphAdapter
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphConfig
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphAdapter
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphConfig
 
         ArangoGraphAdapter(
             ArangoGraphConfig(
@@ -288,8 +288,8 @@ class TestArangoGraphArango:
         assert fake_arango.graph_cls.call_args_list[0].kwargs == {"graph_name": "custom_graph"}
 
     def test_arango_chain_passes_query_guidance(self, fake_arango):
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphAdapter
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphConfig
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphAdapter
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphConfig
 
         ArangoGraphAdapter(
             ArangoGraphConfig(
@@ -308,8 +308,8 @@ class TestArangoGraphArango:
         assert chain_kwargs["max_aql_generation_attempts"] == 4
 
     def test_arango_chain_allows_no_semantics_or_examples(self, fake_arango):
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphAdapter
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphConfig
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphAdapter
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphConfig
 
         ArangoGraphAdapter(ArangoGraphConfig(), llm=fake_arango.llm)
 
@@ -319,8 +319,8 @@ class TestArangoGraphArango:
     def test_arango_config_rejects_unknown_fields(self, fake_arango):
         from pydantic import ValidationError
 
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphAdapter
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphConfig
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphAdapter
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphConfig
 
         with pytest.raises(ValidationError, match="extra_forbidden"):
             ArangoGraphAdapter(
@@ -330,8 +330,8 @@ class TestArangoGraphArango:
 
     @pytest.mark.asyncio
     async def test_arango_retrieve_runs_aql_generation_execution_and_answer_flow(self, functional_arango):
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphAdapter
-        from vss_core.knowledge.adapters.arango_graph import ArangoGraphConfig
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphAdapter
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphConfig
 
         adapter = ArangoGraphAdapter(
             ArangoGraphConfig(
@@ -385,14 +385,14 @@ class TestArangoGraphArango:
 
 class TestArangoGraphHelpers:
     def test_string_result_supported(self):
-        from vss_core.knowledge.adapters.arango_graph import _normalise_chain_result
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import _normalise_chain_result
 
         answer, metadata = _normalise_chain_result("plain answer")
         assert answer == "plain answer"
         assert metadata == {}
 
     def test_invoke_chain_uses_langchain_invoke(self):
-        from vss_core.knowledge.adapters.arango_graph import _invoke_chain
+        from nvidia_vision_ai.knowledge.adapters.arango_graph import _invoke_chain
 
         chain = MagicMock(name="chain")
         chain.invoke.return_value = {"result": "node_b_1 is related."}
