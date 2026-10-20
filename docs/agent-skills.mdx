@@ -97,49 +97,182 @@ the installed path or in the slash command.**
 
 ### Entry point
 
-| Skill | Description |
-| --- | --- |
-| [`vss-build-vision-ai`](/vss/vision-agent/build-vision-ai) | Primary build and deployment Skill for VSS. Deploys stock developer profiles, warehouse industry profiles, and custom capability combinations from natural-language requests. Hands off to the operations Skills once a stack is running, and to a single deployment Skill when only one microservice is wanted. |
+<div style="max-width: 100%; overflow-x: auto;">
+<table class="docutils align-default" style="border-collapse: collapse; table-layout: fixed; width: 100%;">
+<colgroup>
+<col style="width: 42%;" />
+<col style="width: 58%;" />
+</colgroup>
+<thead>
+<tr style="background-color: #f0f0f0;">
+<th style="padding: 10px; border: 1px solid #ccc; white-space: nowrap;">Skill</th>
+<th style="padding: 10px; border: 1px solid #ccc;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><a href="/vss/vision-agent/build-vision-ai"><code>vss-build-vision-ai</code></a></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Primary build and deployment Skill for VSS. Deploys stock developer profiles, warehouse industry profiles, and custom capability combinations from natural-language requests. Hands off to the operations Skills once a stack is running, and to a single deployment Skill when only one microservice is wanted.</td>
+</tr>
+</tbody>
+</table>
+</div>
 
 ### Deployment
 
-| Skill | Description |
-| --- | --- |
-| [`vss-deploy-warehouse-helm`](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/helm-deployment) | Deploy or upgrade the warehouse blueprint (2D / 3D / MV3DT) on Kubernetes via Helm, with GPU-aware `NUM_STREAMS` capping so the request never exceeds what the perception pipeline can sustain. |
-| `vss-deploy-dense-captioning` | Deploy and call the RT-VLM dense captioning microservice on stored video files and live RTSP streams. Captions, alerts, stream management, or OpenAI-compatible completions. |
-| `vss-deploy-detection-tracking-2d` | Deploy, operate, debug, or tear down the RTVI-CV (Real Time Video Intelligence CV) perception microservice locally, and call its REST API to manage streams, health probes, and metrics. Supports the `warehouse-2d`, `warehouse-3d`, `smartcity-rtdetr`, and `smartcity-gdino` use cases. |
-| `vss-deploy-detection-tracking-3d` | Deploy and operate the RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras — on sample, custom-video, or RTSP inputs. Auto-chains to `vss-generate-video-calibration` when calibration data is missing. For sample prompts and expected agent steps, see the [MV3DT Agent Skills walkthrough](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough). |
-| `vss-deploy-video-embedding` | Deploy and operate the RT-Embed video-embedding microservice — `/v1` REST API for file, text, and video embeddings and live RTSP, plus Redis, Kafka, and OpenTelemetry integration. |
-| `vss-setup-behavior-analytics` | Deploy the `vss-behavior-analytics` service standalone, with custom configs or calibration, without the full warehouse stack. |
-| `vss-setup-video-analytics-api` | Deploy the `vss-video-analytics-api` REST service standalone against custom Elasticsearch and Kafka infrastructure. |
+<div style="max-width: 100%; overflow-x: auto;">
+<table class="docutils align-default" style="border-collapse: collapse; table-layout: fixed; width: 100%;">
+<colgroup>
+<col style="width: 42%;" />
+<col style="width: 58%;" />
+</colgroup>
+<thead>
+<tr style="background-color: #f0f0f0;">
+<th style="padding: 10px; border: 1px solid #ccc; white-space: nowrap;">Skill</th>
+<th style="padding: 10px; border: 1px solid #ccc;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><a href="/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/helm-deployment"><code>vss-deploy-warehouse-helm</code></a></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Deploy or upgrade the warehouse blueprint (2D / 3D / MV3DT) on Kubernetes via Helm, with GPU-aware <code>NUM_STREAMS</code> capping so the request never exceeds what the perception pipeline can sustain.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-deploy-dense-captioning</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Deploy and call the RT-VLM dense captioning microservice on stored video files and live RTSP streams. Captions, alerts, stream management, or OpenAI-compatible completions.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-deploy-detection-tracking-2d</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Deploy, operate, debug, or tear down the RTVI-CV (Real Time Video Intelligence CV) perception microservice locally, and call its REST API to manage streams, health probes, and metrics. Supports the <code>warehouse-2d</code>, <code>warehouse-3d</code>, <code>smartcity-rtdetr</code>, and <code>smartcity-gdino</code> use cases.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-deploy-detection-tracking-3d</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Deploy and operate the RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras — on sample, custom-video, or RTSP inputs. Auto-chains to <code>vss-generate-video-calibration</code> when calibration data is missing. For sample prompts and expected agent steps, see the <a href="/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough">MV3DT Agent Skills walkthrough</a>.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-deploy-video-embedding</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Deploy and operate the RT-Embed video-embedding microservice — <code>/v1</code> REST API for file, text, and video embeddings and live RTSP, plus Redis, Kafka, and OpenTelemetry integration.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-setup-behavior-analytics</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Deploy the <code>vss-behavior-analytics</code> service standalone, with custom configs or calibration, without the full warehouse stack.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-setup-video-analytics-api</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Deploy the <code>vss-video-analytics-api</code> REST service standalone against custom Elasticsearch and Kafka infrastructure.</td>
+</tr>
+</tbody>
+</table>
+</div>
 
 ### Operations
 
-| Skill | Description |
-| --- | --- |
-| `vss-search-archive` | Search video archives using natural language with fusion search over Cosmos Embed1 embeddings and computer vision attribute matching. |
-| `vss-summarize-video` | Summarize a video by routing short clips to the VLM NIM and longer videos to the Video Summarization microservice. |
-| `vss-ask-video` | Answer a question about previously analyzed or freshly scoped video, routing through hot conversation context, agent Markdown memory, structured VSS memory, bounded memory introspection, or an exact-window `vss vlm run`. Not for retrieval or metadata-answerable questions. |
-| `vss-generate-video-report` | Produce a video analysis report through one of two documented backends — Mode A per-clip VLM (delegating to `vss-summarize-video` when the clip is 120 seconds or longer) or Mode B incident-range via `vss-query-analytics` — then render markdown output. Never routes through the VSS agent's `/generate` endpoint. |
-| `vss-generate-video-report-rag` | Generate video summary reports using the `video_search_frag` extension with Video Summarization, Enterprise RAG context, and HITL parameter collection. |
-| `vss-query-analytics` | Query video analytics data and metrics from Elasticsearch via the VA-MCP server. |
-| `vss-manage-alerts` | Add, manage, and monitor alerts on streamed video in either CV verification mode or VLM real-time mode. |
-| `vss-manage-video-io-storage` | Manage video and stream operations, recording timelines, clip extraction, and snapshots using the Video IO and Storage (VIOS) microservices. |
+<div style="max-width: 100%; overflow-x: auto;">
+<table class="docutils align-default" style="border-collapse: collapse; table-layout: fixed; width: 100%;">
+<colgroup>
+<col style="width: 42%;" />
+<col style="width: 58%;" />
+</colgroup>
+<thead>
+<tr style="background-color: #f0f0f0;">
+<th style="padding: 10px; border: 1px solid #ccc; white-space: nowrap;">Skill</th>
+<th style="padding: 10px; border: 1px solid #ccc;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-search-archive</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Search video archives using natural language with fusion search over Cosmos Embed1 embeddings and computer vision attribute matching.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-summarize-video</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Summarize a video by routing short clips to the VLM NIM and longer videos to the Video Summarization microservice.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-ask-video</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Answer a question about previously analyzed or freshly scoped video, routing through hot conversation context, agent Markdown memory, structured VSS memory, bounded memory introspection, or an exact-window <code>vss vlm run</code>. Not for retrieval or metadata-answerable questions.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-generate-video-report</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Produce a video analysis report through one of two documented backends — Mode A per-clip VLM (delegating to <code>vss-summarize-video</code> when the clip is 120 seconds or longer) or Mode B incident-range via <code>vss-query-analytics</code> — then render markdown output. Never routes through the VSS agent's <code>/generate</code> endpoint.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-generate-video-report-rag</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Generate video summary reports using the <code>video_search_frag</code> extension with Video Summarization, Enterprise RAG context, and HITL parameter collection.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-query-analytics</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Query video analytics data and metrics from Elasticsearch via the VA-MCP server.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-manage-alerts</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Add, manage, and monitor alerts on streamed video in either CV verification mode or VLM real-time mode.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-manage-video-io-storage</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Manage video and stream operations, recording timelines, clip extraction, and snapshots using the Video IO and Storage (VIOS) microservices.</td>
+</tr>
+</tbody>
+</table>
+</div>
 
 ### Tools
 
-| Skill | Description |
-| --- | --- |
-| `vss-generate-video-calibration` | Calibrate a multi-camera dataset with AutoMagicCalib (AMC) from local MP4s, live RTSP streams, or the bundled sample dataset. For the complete seven-step UI workflow and screenshots, see [Auto Calibration Workflow Steps](/vss/system-components/calibration/auto-calibration/workflow-steps). |
+<div style="max-width: 100%; overflow-x: auto;">
+<table class="docutils align-default" style="border-collapse: collapse; table-layout: fixed; width: 100%;">
+<colgroup>
+<col style="width: 42%;" />
+<col style="width: 58%;" />
+</colgroup>
+<thead>
+<tr style="background-color: #f0f0f0;">
+<th style="padding: 10px; border: 1px solid #ccc; white-space: nowrap;">Skill</th>
+<th style="padding: 10px; border: 1px solid #ccc;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-generate-video-calibration</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Calibrate a multi-camera dataset with AutoMagicCalib (AMC) from local MP4s, live RTSP streams, or the bundled sample dataset. For the complete seven-step UI workflow and screenshots, see <a href="/vss/system-components/calibration/auto-calibration/workflow-steps">Auto Calibration Workflow Steps</a>.</td>
+</tr>
+</tbody>
+</table>
+</div>
 
 ### Benchmarking
 
-| Skill | Description |
-| --- | --- |
-| `benchmark-video-search` | Retrieval quality and latency of a deployed Search profile: ingest a labelled dataset and run the `vss` CLI across retrieval paths. |
-| `vss-benchmark-vlm-qa` | End-to-end video Q&A accuracy and latency on `vss-devx-base` through `vss vlm run` (CR3 RT-VLM). |
-| `vss-benchmark-video-summarization` | Long Video Summarization latency and burst throughput on a deployed summarization instance. |
-| `vss-evaluate-caption-accuracy` | Check whether an RT-VLM configuration change moved caption quality: capture paired baseline and candidate captions, score both against a ground truth with an LLM judge, and emit an accuracy and processing-time table. |
+<div style="max-width: 100%; overflow-x: auto;">
+<table class="docutils align-default" style="border-collapse: collapse; table-layout: fixed; width: 100%;">
+<colgroup>
+<col style="width: 42%;" />
+<col style="width: 58%;" />
+</colgroup>
+<thead>
+<tr style="background-color: #f0f0f0;">
+<th style="padding: 10px; border: 1px solid #ccc; white-space: nowrap;">Skill</th>
+<th style="padding: 10px; border: 1px solid #ccc;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>benchmark-video-search</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Retrieval quality and latency of a deployed Search profile: ingest a labelled dataset and run the <code>vss</code> CLI across retrieval paths.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-benchmark-vlm-qa</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">End-to-end video Q&amp;A accuracy and latency on <code>vss-devx-base</code> through <code>vss vlm run</code> (CR3 RT-VLM).</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-benchmark-video-summarization</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Long Video Summarization latency and burst throughput on a deployed summarization instance.</td>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top; white-space: nowrap;"><code>vss-evaluate-caption-accuracy</code></td>
+<td style="padding: 10px; border: 1px solid #ccc; vertical-align: top;">Check whether an RT-VLM configuration change moved caption quality: capture paired baseline and candidate captions, score both against a ground truth with an LLM judge, and emit an accuracy and processing-time table.</td>
+</tr>
+</tbody>
+</table>
+</div>
 
 > `vss-deploy-profile` was removed in VSS 3.3.0. Use
 > [`vss-build-vision-ai`](/vss/vision-agent/build-vision-ai) instead — the VSS

@@ -9,7 +9,9 @@ Author MDX in `docs/`. Fern configuration lives in `fern/` only.
 |------|------|
 | `docs/` | MDX pages (landing page is `index.mdx`) |
 | `docs/assets/images/` | Images referenced as `/assets/images/...` |
-| `fern/docs.yml` | Site config and sidebar navigation (`path: ../docs/...`) |
+| `fern/docs.yml` | Site config, version selector, and redirects |
+| `fern/versions/3.3.0.yml` | Sidebar navigation for the current release (`path: ../../docs/...`) |
+| `fern/versions/archives.yml` | Archives version (previous-release links) |
 | `fern/fern.config.json` | Fern organization and CLI version |
 
 `fern/assets` is a symlink to `docs/assets` so existing `/assets/...` links resolve.

@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=https://schema.buildwithfern.dev/docs-yml.json
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+navigation:
+  - page: "Archived documentation"
+    path: ../../docs/archives.mdx
+    slug: /
