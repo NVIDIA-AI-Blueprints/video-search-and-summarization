@@ -2615,23 +2615,22 @@ class VlmPipeline:
         )
         if curr_chunk_counter is None:
             return
-        with self._enqueue_lock:
-            decode_start_time = decode_end_time = time.time()
-            self._vlm_procs[curr_chunk_counter % self._args.num_vlm_procs].enqueue_chunk(
-                chunk,
-                request_params=request_params,
-                chunk_id=curr_chunk_counter,
-                enqueue_time=time.time(),
-                request_id=request_id,
-                decode_start_time=decode_start_time,
-                decode_end_time=decode_end_time,
-                frames=[],
-                frame_times=[],
-                audio_frames=[],
-                audio_transcript=[],
-                error=None,
-                is_live_stream=False,
-            )
+        decode_start_time = decode_end_time = time.time()
+        self._vlm_procs[curr_chunk_counter % self._args.num_vlm_procs].enqueue_chunk(
+            chunk,
+            request_params=request_params,
+            chunk_id=curr_chunk_counter,
+            enqueue_time=time.time(),
+            request_id=request_id,
+            decode_start_time=decode_start_time,
+            decode_end_time=decode_end_time,
+            frames=[],
+            frame_times=[],
+            audio_frames=[],
+            audio_transcript=[],
+            error=None,
+            is_live_stream=False,
+        )
 
     def enqueue_text_chunk(
         self,
@@ -2646,23 +2645,22 @@ class VlmPipeline:
         )
         if curr_chunk_counter is None:
             return
-        with self._enqueue_lock:
-            decode_start_time = decode_end_time = time.time()
-            self._vlm_procs[curr_chunk_counter % self._args.num_vlm_procs].enqueue_chunk(
-                chunk,
-                request_params=request_params,
-                chunk_id=curr_chunk_counter,
-                enqueue_time=time.time(),
-                request_id=request_id,
-                decode_start_time=decode_start_time,
-                decode_end_time=decode_end_time,
-                frames=[],
-                frame_times=[],
-                audio_frames=[],
-                audio_transcript=[],
-                error=None,
-                is_live_stream=False,
-            )
+        decode_start_time = decode_end_time = time.time()
+        self._vlm_procs[curr_chunk_counter % self._args.num_vlm_procs].enqueue_chunk(
+            chunk,
+            request_params=request_params,
+            chunk_id=curr_chunk_counter,
+            enqueue_time=time.time(),
+            request_id=request_id,
+            decode_start_time=decode_start_time,
+            decode_end_time=decode_end_time,
+            frames=[],
+            frame_times=[],
+            audio_frames=[],
+            audio_transcript=[],
+            error=None,
+            is_live_stream=False,
+        )
 
     def _reserve_chunk_callback(
         self,

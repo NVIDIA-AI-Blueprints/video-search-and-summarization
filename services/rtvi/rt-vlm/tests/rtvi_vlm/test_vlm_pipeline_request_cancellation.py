@@ -13,7 +13,7 @@ import pytest
 
 from vlm_pipeline import process_base as process_base_module
 from vlm_pipeline.process_base import ProcessBase
-from vlm_pipeline.vlm_pipeline import PipelineChunkResult, VlmPipeline, VlmProcess
+from vlm_pipeline.vlm_pipeline import PipelineChunkResult, VlmPipeline, VlmProcess, VlmRequestParams
 
 pytestmark = pytest.mark.no_gpu
 
@@ -311,3 +311,57 @@ def test_failed_worker_abort_does_not_claim_pipeline_drain():
     with pytest.raises(RuntimeError, match="engine abort failed"):
         pipeline.abort_request("request")
     assert "request" in pipeline._cancelled_request_ids
+
+
+@pytest.mark.parametrize(
+    ("entry_point", "params_factory"),
+    [
+        ("enqueue_vlm_text_chunk", "from_vlm_query"),
+        ("enqueue_text_chunk", "from_text_embeddings_query"),
+    ],
+)
+def test_backpressured_text_enqueue_does_not_block_unrelated_cancellation(
+    entry_point, params_factory, monkeypatch
+):
+    pipeline = _pipeline()
+    pipeline._args = SimpleNamespace(num_vlm_procs=1)
+    entered, release, cancelled = Event(), Event(), Event()
+    errors = []
+    monkeypatch.setattr(VlmRequestParams, params_factory, lambda _: SimpleNamespace())
+
+    def blocked_enqueue(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=3)
+
+    pipeline._vlm_procs[0].enqueue_chunk.side_effect = blocked_enqueue
+
+    def enqueue():
+        try:
+            getattr(pipeline, entry_point)(object(), MagicMock(), object(), request_id="blocked")
+        except Exception as ex:
+            errors.append(ex)
+
+    def abort():
+        try:
+            pipeline.abort_request("unrelated", timeout_sec=1)
+            cancelled.set()
+        except Exception as ex:
+            errors.append(ex)
+
+    producer = Thread(target=enqueue)
+    producer.start()
+    assert entered.wait(timeout=2)
+    abort_thread = Thread(target=abort)
+    abort_thread.start()
+    try:
+        # The worker queue remains backpressured throughout this cancellation.
+        assert cancelled.wait(timeout=1)
+        assert not release.is_set()
+        assert "blocked" in pipeline._request_chunk_ids
+    finally:
+        release.set()
+        producer.join(timeout=2)
+        abort_thread.join(timeout=2)
+    assert not producer.is_alive()
+    assert not abort_thread.is_alive()
+    assert errors == []

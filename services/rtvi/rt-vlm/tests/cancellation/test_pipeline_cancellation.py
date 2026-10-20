@@ -102,6 +102,7 @@ _pipeline_module = _load_classes(
     "_isolated_request_pipeline",
     _root / "src/vlm_pipeline/vlm_pipeline.py",
     {
+        "VlmRequestParams": None,
         "PipelineChunkResult": None,
         "VlmProcess": {"_abort_request", "_release_request_tracking"},
         "VlmPipeline": {
@@ -110,6 +111,8 @@ _pipeline_module = _load_classes(
             "_all_vlm_processes_healthy",
             "abort_request",
             "release_request_cancellation",
+            "enqueue_vlm_text_chunk",
+            "enqueue_text_chunk",
         },
     },
     {
@@ -122,6 +125,7 @@ ProcessBase = process_base_module.ProcessBase
 PipelineChunkResult = _pipeline_module.PipelineChunkResult
 VlmPipeline = _pipeline_module.VlmPipeline
 VlmProcess = _pipeline_module.VlmProcess
+VlmRequestParams = _pipeline_module.VlmRequestParams
 
 _tests = _root / "tests/rtvi_vlm/test_vlm_pipeline_request_cancellation.py"
 _tree = ast.parse(_tests.read_text())

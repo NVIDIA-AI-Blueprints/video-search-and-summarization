@@ -4466,8 +4466,18 @@ class RTVIStreamHandler:
             req_info = self._request_info_map.get(request_id)
             return req_info is None or req_info.status_event.is_set()
 
+    def request_is_drained(self, request_id: str) -> bool:
+        """Distinguish an early error response from released pipeline ownership."""
+        with self._lock:
+            req_info = self._request_info_map.get(request_id)
+            return req_info is None or req_info.resources_released.is_set()
+
     def abort_request(
-        self, request_id: str, reason: str = "client_disconnected", timeout_sec: float = 30.0
+        self,
+        request_id: str,
+        reason: str = "client_disconnected",
+        timeout_sec: float = 30.0,
+        submission_done: Event | None = None,
     ) -> None:
         """Stop one request, acknowledge drain, then release its owned resources.
 
@@ -4488,7 +4498,11 @@ class RTVIStreamHandler:
             req_info = self._request_info_map.get(request_id)
         if req_info is None:
             self._vlm_pipeline.abort_request(request_id, timeout_sec=remaining())
-            self._vlm_pipeline.release_request_cancellation(request_id)
+            # Text-only submissions have no RequestInfo producer. Keep the
+            # cancellation marker until their off-thread enqueue has returned.
+            if submission_done is not None and not submission_done.wait(remaining()):
+                raise TimeoutError(f"Request {request_id} submission did not stop")
+            self._vlm_pipeline.release_request_cancellation(request_id, timeout_sec=remaining())
             return
 
         if not req_info._abort_lock.acquire(timeout=remaining()):
@@ -4523,8 +4537,11 @@ class RTVIStreamHandler:
                 raise TimeoutError(f"Request {request_id} producer did not stop")
             if not req_info.dispatch_done.wait(remaining()):
                 raise TimeoutError(f"Request {request_id} dispatch did not stop")
+            # Retire cancellation markers before publishing terminal cleanup.
+            # If a worker cannot acknowledge retirement, retain ownership so a
+            # retry cannot skip that unfinished step via the finalized path.
+            self._vlm_pipeline.release_request_cancellation(request_id, timeout_sec=remaining())
             self._finish_cancelled_file_request(req_info)
-            self._vlm_pipeline.release_request_cancellation(request_id)
             self._dispatch_pending_file_chunks()
         finally:
             req_info._abort_lock.release()

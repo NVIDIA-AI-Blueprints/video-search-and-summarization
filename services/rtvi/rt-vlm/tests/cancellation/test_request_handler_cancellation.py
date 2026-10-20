@@ -32,6 +32,7 @@ def load_handler():
     wanted = {
         "abort_request",
         "request_is_done",
+        "request_is_drained",
         "_finish_cancelled_file_request",
         "_release_file_request_resources",
         "_on_vlm_chunk_response",
@@ -127,7 +128,7 @@ class HandlerCancellationTests(unittest.TestCase):
         self.calls = []
         self.handler._vlm_pipeline = SimpleNamespace(
             abort_request=lambda rid, **kw: self.calls.append(("abort", rid)),
-            release_request_cancellation=lambda rid: self.calls.append(("release", rid)),
+            release_request_cancellation=lambda rid, **kw: self.calls.append(("release", rid)),
         )
         self.handler._finalize_stream_fps_tracking = lambda _: None
         self.handler._cleanup_request_files = lambda _: None
@@ -167,6 +168,31 @@ class HandlerCancellationTests(unittest.TestCase):
         self.handler.abort_request("A")
         self.assertEqual(self.asset.releases, 1)
         self.assertEqual(other.releases, 1)
+        self.assertTrue(self.request.resources_released.is_set())
+
+    def test_cancellation_marker_retirement_failure_is_retryable(self):
+        def fail_retirement(request_id, **kwargs):
+            self.calls.append(("release-failed", request_id))
+            raise TimeoutError("worker did not retire cancellation marker")
+
+        self.handler._vlm_pipeline.release_request_cancellation = fail_retirement
+        with self.assertRaisesRegex(TimeoutError, "did not retire"):
+            self.handler.abort_request("A")
+        self.assertFalse(self.request._file_finalized)
+        self.assertFalse(self.request.resources_released.is_set())
+        self.assertFalse(self.request.status_event.is_set())
+        self.assertEqual(self.asset.releases, 0)
+
+        self.handler._vlm_pipeline.release_request_cancellation = (
+            lambda rid, **kw: self.calls.append(("release", rid))
+        )
+        self.handler.abort_request("A")
+        self.handler.abort_request("A")
+        self.assertEqual(
+            self.calls,
+            [("abort", "A"), ("release-failed", "A"), ("abort", "A"), ("release", "A")],
+        )
+        self.assertEqual(self.asset.releases, 1)
         self.assertTrue(self.request.resources_released.is_set())
 
     def test_producer_must_quiesce_before_abort_and_asset_release(self):
@@ -305,12 +331,40 @@ class HandlerCancellationTests(unittest.TestCase):
 
     def test_failed_outcome_is_preserved_while_remaining_work_is_drained(self):
         self.request.status = RequestInfo.Status.FAILED
+        self.request.status_event.set()
+        self.assertTrue(self.handler.request_is_done("A"))
+        self.assertFalse(self.handler.request_is_drained("A"))
         self.handler.abort_request("A")
         self.assertEqual(self.request.status, RequestInfo.Status.FAILED)
         self.assertEqual(self.asset.releases, 1)
+        self.assertTrue(self.handler.request_is_drained("A"))
 
     def test_text_request_without_video_record_uses_pipeline_cancellation(self):
         self.handler.abort_request("text")
+        self.assertEqual(self.calls, [("abort", "text"), ("release", "text")])
+
+    def test_text_marker_is_retained_until_enqueue_producer_returns(self):
+        submission_done, aborted, finished = Event(), Event(), Event()
+
+        def mark_aborted(request_id, **kwargs):
+            self.calls.append(("abort", request_id))
+            aborted.set()
+
+        self.handler._vlm_pipeline.abort_request = mark_aborted
+
+        def cancel():
+            self.handler.abort_request("text", submission_done=submission_done, timeout_sec=2)
+            finished.set()
+
+        thread = threading.Thread(target=cancel)
+        thread.start()
+        try:
+            self.assertTrue(aborted.wait(timeout=1))
+            self.assertEqual(self.calls, [("abort", "text")])
+        finally:
+            submission_done.set()
+            thread.join(timeout=2)
+        self.assertTrue(finished.is_set())
         self.assertEqual(self.calls, [("abort", "text"), ("release", "text")])
 
     def test_cancelled_is_terminal_and_waiter_returns(self):
