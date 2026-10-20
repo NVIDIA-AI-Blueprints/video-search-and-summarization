@@ -40,19 +40,26 @@ def parse_latency_report(text: str) -> dict[str, dict[str, float]]:
     last: dict[str, dict[str, float]] = {}
     batch: dict[str, dict[str, float]] = {}
     topic: str | None = None
+    fields: tuple[str, ...] | None = None
     for raw_line in text.splitlines():
         title = raw_line.strip()
         if title.startswith(_REPORT_HEADER):
             last = _keep_report(last, batch)
             batch = {}
             topic = None
+            fields = None
             continue
         if title in TOPIC_TITLES:
             topic = TOPIC_TITLES[title]
+            fields = None
             continue
         if topic is None or not raw_line.startswith("|"):
             continue
-        row = _parse_row(raw_line)
+        header = _header_fields(raw_line)
+        if header is not None:
+            fields = header
+            continue
+        row = _parse_row(raw_line, fields)
         if row is None:
             continue
         batch[topic] = _merge(batch.get(topic), row)
@@ -182,23 +189,67 @@ def _load_app_overlay() -> dict[str, object]:
     return {}
 
 
-def _parse_row(line: str) -> dict[str, float] | None:
-    cells = [cell.strip() for cell in line.split("|")]
-    cells = [cell for cell in cells if cell]
+_DEFAULT_FIELDS = (
+    "count",
+    "min_s",
+    "max_s",
+    "avg_s",
+    "size_kb",
+    "p50_s",
+    "p95_s",
+    "p99_s",
+)
+_HEADER_FIELDS = {
+    "count": "count",
+    "min(s)": "min_s",
+    "max(s)": "max_s",
+    "avg(s)": "avg_s",
+    "size(kb)": "size_kb",
+}
+
+
+def _cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.split("|") if cell.strip()]
+
+
+def _header_fields(line: str) -> tuple[str, ...] | None:
+    cells = _cells(line)
+    if not cells or cells[0].lower() != "sensor":
+        return None
+    fields: list[str] = []
+    for cell in cells[1:]:
+        name = _column_field(cell)
+        if name is None:
+            return None
+        fields.append(name)
+    if "count" not in fields:
+        return None
+    return tuple(fields)
+
+
+def _column_field(cell: str) -> str | None:
+    key = cell.strip().lower().replace(" ", "")
+    if key in _HEADER_FIELDS:
+        return _HEADER_FIELDS[key]
+    match = re.fullmatch(r"p(\d+)\(s\)", key)
+    if match:
+        return f"p{match.group(1)}_s"
+    return None
+
+
+def _parse_row(line: str, fields: tuple[str, ...] | None = None) -> dict[str, float] | None:
+    cells = _cells(line)
     if len(cells) < 6 or not _NUMBER.match(cells[1]):
         return None
     numbers = [float(cell) for cell in cells[1:] if _NUMBER.match(cell)]
+    labels = fields or _DEFAULT_FIELDS
     if len(numbers) < 5:
         return None
-    row = {
-        "count": numbers[0],
-        "min_s": numbers[1],
-        "max_s": numbers[2],
-        "avg_s": numbers[3],
-        "size_kb": numbers[4],
-    }
-    for field, value in zip(("p50_s", "p95_s", "p99_s"), numbers[5:8]):
+    row: dict[str, float] = {}
+    for field, value in zip(labels, numbers):
         row[field] = value
+    if "count" not in row:
+        return None
     return row
 
 
@@ -213,7 +264,12 @@ def _merge(existing: dict[str, float] | None, row: Mapping[str, float]) -> dict[
         "size_kb": _weighted(existing, row, "size_kb", count),
         "avg_s": _weighted(existing, row, "avg_s", count),
     }
-    for field in ("p50_s", "p95_s", "p99_s"):
+    percentile_fields = {
+        field
+        for field in set(existing) | set(row)
+        if field.startswith("p") and field.endswith("_s")
+    }
+    for field in sorted(percentile_fields):
         if field in existing and field in row:
             merged[field] = _weighted(existing, row, field, count)
     return merged

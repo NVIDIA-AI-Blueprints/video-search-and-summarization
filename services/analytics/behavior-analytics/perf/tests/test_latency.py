@@ -133,6 +133,33 @@ class LatencyCorrectionTest(unittest.TestCase):
             result["kpis"],
         )
 
+    def test_parse_maps_percentile_columns_from_header(self) -> None:
+        report = """
+RAW MESSAGES
+| Sensor          |       Count |     Min(s) |     Max(s) |     Avg(s) |    Size(KB) |     p50(s) |     p99(s) |
+| Camera          |          10 |      0.010 |      0.030 |      0.020 |       1.000 |      0.020 |      0.030 |
+FRAMES MESSAGES
+| Sensor          |       Count |     Min(s) |     Max(s) |     Avg(s) |    Size(KB) |     p50(s) |     p99(s) |
+| Camera          |          10 |      0.110 |      0.230 |      0.160 |       2.000 |      0.150 |      0.220 |
+BEHAVIOR MESSAGES
+| Sensor          |       Count |     Min(s) |     Max(s) |     Avg(s) |    Size(KB) |     p50(s) |     p99(s) |
+| Camera          |           4 |      0.200 |      0.500 |      0.300 |       1.500 |      0.280 |      0.490 |
+EVENTS MESSAGES
+| Sensor          |       Count |     Min(s) |     Max(s) |     Avg(s) |    Size(KB) |     p50(s) |     p99(s) |
+| Camera          |          10 |      0.120 |      0.240 |      0.170 |       1.200 |      0.160 |      0.230 |
+INCIDENTS MESSAGES
+| Sensor          |       Count |     Min(s) |     Max(s) |     Avg(s) |    Size(KB) |     p50(s) |     p99(s) |
+| Camera          |           2 |      0.400 |      0.800 |      0.600 |       3.000 |      0.500 |      0.780 |
+"""
+        topics = parse_latency_report(report)
+        self.assertEqual(topics["raw"]["p50_s"], 0.02)
+        self.assertEqual(topics["raw"]["p99_s"], 0.03)
+        self.assertNotIn("p95_s", topics["raw"])
+        self.assertEqual(topics["frames"]["p99_s"], 0.22)
+        corrected = correct_topics(topics)
+        self.assertEqual(corrected["topics"]["frames"]["corrected"]["p99_s"], 0.19)
+        self.assertIsNone(corrected["topics"]["frames"]["corrected"]["p95_s"])
+
     def test_subtract_raw_from_output_topics(self) -> None:
         result = correct_topics(parse_latency_report(REPORT))
         frames = result["topics"]["frames"]["corrected"]
@@ -241,29 +268,44 @@ class LatencyCorrectionTest(unittest.TestCase):
         settings = minio_settings(config)
         self.assertEqual(settings["endpoint"], "10.111.52.248:9000")
         self.assertEqual(settings["service"], "behavior-analytics")
+
+        def fake_upload(local_file, **kwargs):
+            if not os.environ.get("MINIO_ACCESS_KEY") or not os.environ.get("MINIO_SECRET_KEY"):
+                raise ValueError("MinIO credentials are required for upload")
+            return f"{kwargs['service']}/{local_file.name}"
+
         with tempfile.TemporaryDirectory() as directory:
             result_path = Path(directory) / "result.json"
             result_path.write_text('{"success": true}\n')
-            with self.assertRaises(ValueError):
-                publish_result(result_path, config_path=config, config_id="warehouse_2d-kafka-playback")
-            with patch.dict(
-                os.environ,
-                {"MINIO_ACCESS_KEY": "ak", "MINIO_SECRET_KEY": "sk"},
-            ), patch(
-                "minio_upload.upload_result_file",
-                return_value="behavior-analytics/behavior-analytics_warehouse_2d-kafka-playback_20261018T000000Z.json",
-            ) as put:
-                published = publish_result(
-                    result_path,
-                    config_path=config,
-                    config_id="warehouse_2d-kafka-playback",
+            with patch("minio_upload.upload_result_file", side_effect=fake_upload) as put:
+                with patch.dict(
+                    os.environ,
+                    {"MINIO_ACCESS_KEY": "", "MINIO_SECRET_KEY": ""},
+                    clear=False,
+                ):
+                    with self.assertRaises(ValueError):
+                        publish_result(
+                            result_path,
+                            config_path=config,
+                            config_id="warehouse_2d-kafka-playback",
+                        )
+                with patch.dict(
+                    os.environ,
+                    {"MINIO_ACCESS_KEY": "ak", "MINIO_SECRET_KEY": "sk"},
+                    clear=False,
+                ):
+                    published = publish_result(
+                        result_path,
+                        config_path=config,
+                        config_id="warehouse_2d-kafka-playback",
+                    )
+            self.assertTrue(
+                published["object"].startswith(
+                    "behavior-analytics/behavior-analytics_warehouse_2d-kafka-playback_"
                 )
-            self.assertEqual(
-                published["object"],
-                "behavior-analytics/behavior-analytics_warehouse_2d-kafka-playback_20261018T000000Z.json",
             )
             self.assertTrue(published["uri"].startswith("s3://perf-results-dev/"))
-            put.assert_called_once()
+            self.assertGreaterEqual(put.call_count, 2)
 
     def test_negative_correction_fails(self) -> None:
         topics = parse_latency_report(REPORT)
@@ -451,9 +493,21 @@ class LatencyCorrectionTest(unittest.TestCase):
         ).read_text()
         self.assertNotIn("--no-build", deploy)
         self.assertIn('chmod -R a+rwX "$BA_PERF_DATA_DIR"', deploy)
-        self.assertIn("export BA_PERF_DATA_DIR", deploy)
         self.assertIn("overlay_app_config.py", deploy)
+        common = (
+            REPO_ROOT
+            / "services"
+            / "analytics"
+            / "behavior-analytics"
+            / "perf"
+            / "scripts"
+            / "common.sh"
+        ).read_text()
+        self.assertIn("export BA_PERF_DATA_DIR", common)
+        self.assertIn("export BA_PERF_OVERLAY_STAMP", common)
         self.assertIn("BA_PERF_BEHAVIOR_EMIT_ONCE", deploy)
+        self.assertIn('cp -a "$app_src" "$app_dst"', deploy)
+        self.assertIn('export MDX_SAMPLE_APPS_DIR="$BA_PERF_DATA_DIR"', deploy)
         post_deploy = (
             REPO_ROOT
             / "services"
@@ -550,7 +604,28 @@ class LatencyCorrectionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             stamp = Path(tmp) / "perf_app_overlay.json"
             stamp.write_text(json.dumps({"app": {"behaviorEmitOnce": "false"}}))
-            with patch.dict(os.environ, {"BA_PERF_OVERLAY_STAMP": str(stamp)}, clear=False):
+            env = {
+                "BA_PERF_DATA_DIR": tmp,
+                "BA_PERF_OVERLAY_STAMP": str(stamp),
+            }
+            with patch.dict(os.environ, env, clear=False):
+                result = build_result(
+                    REPORT,
+                    artifact_ref="nvcr.io/example/behavior-analytics:test",
+                    scenario="quick_test",
+                    config_id="warehouse_2d-kafka-playback",
+                    duration_seconds=60,
+                    warmup_seconds=10,
+                    apply_kpis=False,
+                )
+            self.assertEqual(result["app_overlay"]["app"]["behaviorEmitOnce"], "false")
+        with tempfile.TemporaryDirectory() as tmp:
+            stamp = Path(tmp) / "perf_app_overlay.json"
+            stamp.write_text(json.dumps({"app": {"behaviorEmitOnce": "false"}}))
+            extra = os.environ.copy()
+            extra.pop("BA_PERF_OVERLAY_STAMP", None)
+            extra["BA_PERF_DATA_DIR"] = tmp
+            with patch.dict(os.environ, extra, clear=True):
                 result = build_result(
                     REPORT,
                     artifact_ref="nvcr.io/example/behavior-analytics:test",

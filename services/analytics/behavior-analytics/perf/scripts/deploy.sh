@@ -9,8 +9,6 @@ export PROFILE2=kafka
 export SCRIPT_DIR="$INTEGRATION_DIR"
 export BUILD_SERVICE_IMAGE=false
 export CURRENT_BEHAVIOR_ANALYTICS_IMAGE="$(resolve_image)"
-export BA_PERF_DATA_DIR
-
 # generate_env.sh writes docker_compose/infra/.env for the warehouse 2D Kafka profile.
 source "$INTEGRATION_DIR/generate_env.sh"
 load_compose_env
@@ -18,19 +16,26 @@ docker pull "$BEHAVIOR_ANALYTICS_IMAGE"
 
 # Warehouse kafka playback sets behaviorEmitOnce=true, which holds each
 # behavior until behaviorStateValidInterval (default 6s). Yun's 40/100 ms
-# KPI is hypothesized to be per-batch (product default false). Overlay the
-# mounted config copy; do not change the git fixture. Restore the fixture
-# with BA_PERF_BEHAVIOR_EMIT_ONCE=true.
-config_file="$MDX_SAMPLE_APPS_DIR/apps/${APP_NAME}${APP_MODE}/analytics-stream-${STREAMING_SERVICE}-config.json"
+# KPI is hypothesized to be per-batch (product default false). Copy the
+# integration app settings into BA_PERF_DATA_DIR and overlay that copy so
+# git fixtures stay true. Restore fixture behavior with
+# BA_PERF_BEHAVIOR_EMIT_ONCE=true.
+ensure_host_dir "$BA_PERF_DATA_DIR"
+app_src="$MDX_SAMPLE_APPS_DIR/apps/${APP_NAME}${APP_MODE}"
+app_dst="$BA_PERF_DATA_DIR/apps/${APP_NAME}${APP_MODE}"
+mkdir -p "$BA_PERF_DATA_DIR/apps"
+rm -rf "$app_dst"
+cp -a "$app_src" "$app_dst"
+export MDX_SAMPLE_APPS_DIR="$BA_PERF_DATA_DIR"
+config_file="$app_dst/analytics-stream-${STREAMING_SERVICE}-config.json"
 python3 "$PERF_DIR/scripts/overlay_app_config.py" \
     "$config_file" \
     --behavior-emit-once "${BA_PERF_BEHAVIOR_EMIT_ONCE:-false}" \
-    --stamp "$BA_PERF_DATA_DIR/perf_app_overlay.json"
+    --stamp "$BA_PERF_OVERLAY_STAMP"
 
 # Kafka and Elasticsearch run as uid 1000. Keep their bind mounts under
 # /tmp (BA_PERF_DATA_DIR), not the Jenkins checkout. #62 failed at GPU
 # deleteDir on leftover ES lucene files from #60.
-ensure_host_dir "$BA_PERF_DATA_DIR"
 mkdir -p \
     "$BA_PERF_DATA_DIR/data_log/kafka" \
     "$BA_PERF_DATA_DIR/data_log/elastic/data" \
