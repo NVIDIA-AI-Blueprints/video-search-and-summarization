@@ -14,7 +14,7 @@
 # limitations under the License.
 """Tests for lib.knowledge.adapters.frag_lib.
 
-The `nvidia-rag` package is an optional extra (`nvidia-vss[frag_lib]`) and
+The `nvidia-rag` package is an optional extra (`nvidia-vision-ai[frag_lib]`) and
 isn't installed in the default test environment. The adapter does a deferred
 import inside `__init__`, so we inject fake `nvidia_rag.*` modules into
 `sys.modules` BEFORE constructing the adapter — that way the deferred
@@ -95,10 +95,10 @@ class TestFragLibImport:
         ):
             monkeypatch.setitem(sys.modules, mod, None)
 
-        from vss_core.knowledge.adapters.frag_lib import FragLibAdapter
-        from vss_core.knowledge.adapters.frag_lib import FragLibConfig
+        from nvidia_vision_ai.knowledge.adapters.frag_lib import FragLibAdapter
+        from nvidia_vision_ai.knowledge.adapters.frag_lib import FragLibConfig
 
-        with pytest.raises(ImportError, match=r"nvidia-vss\[frag_lib\]"):
+        with pytest.raises(ImportError, match=r"nvidia-vision-ai\[frag_lib\]"):
             FragLibAdapter(FragLibConfig())
 
 
@@ -107,8 +107,8 @@ class TestFragLibConfigOverrides:
 
     def test_llm_url_and_model_override(self, fake_nvidia_rag):
         _, _, rag_config = fake_nvidia_rag
-        from vss_core.knowledge.adapters.frag_lib import FragLibAdapter
-        from vss_core.knowledge.adapters.frag_lib import FragLibConfig
+        from nvidia_vision_ai.knowledge.adapters.frag_lib import FragLibAdapter
+        from nvidia_vision_ai.knowledge.adapters.frag_lib import FragLibConfig
 
         FragLibAdapter(FragLibConfig(llm_base_url="http://nim:8000", llm_model_name="meta/llama-3.1-70b"))
 
@@ -118,8 +118,8 @@ class TestFragLibConfigOverrides:
 
     def test_embedder_url_and_model_override(self, fake_nvidia_rag):
         _, _, rag_config = fake_nvidia_rag
-        from vss_core.knowledge.adapters.frag_lib import FragLibAdapter
-        from vss_core.knowledge.adapters.frag_lib import FragLibConfig
+        from nvidia_vision_ai.knowledge.adapters.frag_lib import FragLibAdapter
+        from nvidia_vision_ai.knowledge.adapters.frag_lib import FragLibConfig
 
         FragLibAdapter(
             FragLibConfig(embedder_base_url="http://embed:8000", embedder_model_name="nvidia/nv-embedqa-e5-v5")
@@ -131,8 +131,8 @@ class TestFragLibConfigOverrides:
 
     def test_milvus_uri_override(self, fake_nvidia_rag):
         _, _, rag_config = fake_nvidia_rag
-        from vss_core.knowledge.adapters.frag_lib import FragLibAdapter
-        from vss_core.knowledge.adapters.frag_lib import FragLibConfig
+        from nvidia_vision_ai.knowledge.adapters.frag_lib import FragLibAdapter
+        from nvidia_vision_ai.knowledge.adapters.frag_lib import FragLibConfig
 
         FragLibAdapter(FragLibConfig(milvus_uri="http://milvus:19530"))
 
@@ -140,8 +140,8 @@ class TestFragLibConfigOverrides:
 
     def test_pipeline_toggles(self, fake_nvidia_rag):
         _, _, rag_config = fake_nvidia_rag
-        from vss_core.knowledge.adapters.frag_lib import FragLibAdapter
-        from vss_core.knowledge.adapters.frag_lib import FragLibConfig
+        from nvidia_vision_ai.knowledge.adapters.frag_lib import FragLibAdapter
+        from nvidia_vision_ai.knowledge.adapters.frag_lib import FragLibConfig
 
         FragLibAdapter(FragLibConfig(enable_citations=False, enable_guardrails=True))
 
@@ -154,8 +154,8 @@ class TestFragLibRetrieve:
     the shared frag_api normaliser."""
 
     def _make_adapter(self, fake_nvidia_rag, **kwargs):
-        from vss_core.knowledge.adapters.frag_lib import FragLibAdapter
-        from vss_core.knowledge.adapters.frag_lib import FragLibConfig
+        from nvidia_vision_ai.knowledge.adapters.frag_lib import FragLibAdapter
+        from nvidia_vision_ai.knowledge.adapters.frag_lib import FragLibConfig
 
         return FragLibAdapter(FragLibConfig(**kwargs))
 
@@ -205,7 +205,7 @@ class TestFragLibRetrieve:
 
     @pytest.mark.asyncio
     async def test_callable_filter_applied_client_side(self, fake_nvidia_rag):
-        from vss_core.knowledge.schema import Chunk
+        from nvidia_vision_ai.knowledge.schema import Chunk
 
         adapter = self._make_adapter(fake_nvidia_rag)
         # Two fake citations — caller's predicate keeps only the first.
@@ -228,8 +228,8 @@ class TestFragLibRetrieve:
 class TestFragLibHealth:
     @pytest.mark.asyncio
     async def test_health_check_true_after_init(self, fake_nvidia_rag):
-        from vss_core.knowledge.adapters.frag_lib import FragLibAdapter
-        from vss_core.knowledge.adapters.frag_lib import FragLibConfig
+        from nvidia_vision_ai.knowledge.adapters.frag_lib import FragLibAdapter
+        from nvidia_vision_ai.knowledge.adapters.frag_lib import FragLibConfig
 
         adapter = FragLibAdapter(FragLibConfig())
         assert await adapter.health_check() is True

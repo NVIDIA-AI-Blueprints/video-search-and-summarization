@@ -12,10 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Retrieval-only LlamaIndex adapter over a ChromaDB persist dir.
+"""Retrieval-only LangChain adapter over a ChromaDB persist dir.
 
-Ingestion is out of scope; summarization stays at the bridge layer.
-Requires `nvidia-vss[llama_index]`; imports are deferred.
+Goes direct to `Chroma.asimilarity_search_with_score` — the retriever
+surface drops the per-doc score we need. Requires `nvidia-vision-ai[langchain]`;
+imports are deferred.
 """
 
 from __future__ import annotations
@@ -29,11 +30,11 @@ from typing import ClassVar
 from pydantic import BaseModel
 from pydantic import Field
 
-from vss_core.knowledge.base import BackendAdapter
-from vss_core.knowledge.factory import register_adapter
-from vss_core.knowledge.schema import Chunk
-from vss_core.knowledge.schema import ContentType
-from vss_core.knowledge.schema import RetrievalResult
+from nvidia_vision_ai.knowledge.base import BackendAdapter
+from nvidia_vision_ai.knowledge.factory import register_adapter
+from nvidia_vision_ai.knowledge.schema import Chunk
+from nvidia_vision_ai.knowledge.schema import ContentType
+from nvidia_vision_ai.knowledge.schema import RetrievalResult
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -46,7 +47,8 @@ MAX_TOP_K = 100
 FILTER_OVERFETCH_MULTIPLIER = 4
 
 
-class LlamaIndexConfig(BaseModel):
+# Mirrors LlamaIndexConfig field-for-field so operators can swap backends without config churn.
+class LangChainConfig(BaseModel):
     persist_dir: str = Field(
         default_factory=lambda: os.environ.get("VSS_CHROMA_DIR", "/tmp/chroma_data"),
         description="ChromaDB persist directory. Defaults to `VSS_CHROMA_DIR`, then `/tmp/chroma_data`.",
@@ -69,67 +71,59 @@ class LlamaIndexConfig(BaseModel):
     )
 
 
-@register_adapter("llama_index", config_type=LlamaIndexConfig)
-class LlamaIndexAdapter(BackendAdapter):
+@register_adapter("langchain", config_type=LangChainConfig)
+class LangChainAdapter(BackendAdapter):
     tool_description_hint: ClassVar[str] = (
         "Filter pushdown is not yet supported for this backend. Pass only "
         "`query` and (optionally) `collection` and `top_k`."
     )
 
-    def __init__(self, config: LlamaIndexConfig) -> None:
+    def __init__(self, config: LangChainConfig) -> None:
         super().__init__(config)
         try:
-            import chromadb
-            from llama_index.core import StorageContext
-            from llama_index.core import VectorStoreIndex
-            from llama_index.embeddings.nvidia import NVIDIAEmbedding
-            from llama_index.vector_stores.chroma import ChromaVectorStore
+            from langchain_chroma import Chroma
+            from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
         except ImportError as e:
             raise ImportError(
-                "llama_index backend requires the `nvidia-vss[llama_index]` extra. "
+                "langchain backend requires the `nvidia-vision-ai[langchain]` extra. "
                 "Install via:\n"
-                "  pip install 'nvidia-vss[llama_index]'\n"
-                "Or pick a different backend (`frag_api` / `frag_lib` / `es_caption`)."
+                "  pip install 'nvidia-vision-ai[langchain]'\n"
+                "Or pick a different backend (`frag_api` / `llama_index` / `es_caption`)."
             ) from e
 
         # Auto-create so first retrieve() against empty path returns [] rather than crashing.
         os.makedirs(config.persist_dir, exist_ok=True)
-        self._chroma_client = chromadb.PersistentClient(path=config.persist_dir)
 
         api_key = config.embed_api_key or os.environ.get("NVIDIA_API_KEY")
-        self._embed_model = NVIDIAEmbedding(
+        self._embed_model = NVIDIAEmbeddings(
             model=config.embed_model,
             base_url=config.embed_base_url,
-            nvidia_api_key=api_key,
+            api_key=api_key,
         )
 
-        self._VectorStoreIndex = VectorStoreIndex
-        self._ChromaVectorStore = ChromaVectorStore
-        self._StorageContext = StorageContext
-        self._index_cache: dict[str, Any] = {}
+        self._Chroma = Chroma
+        self._persist_dir: str = config.persist_dir
+        self._vs_cache: dict[str, Any] = {}
 
         self.collection_name: str = config.collection_name
         logger.info(
-            "llama_index initialised: persist_dir=%s embed_model=%s default_collection=%s",
+            "langchain initialised: persist_dir=%s embed_model=%s default_collection=%s",
             config.persist_dir,
             config.embed_model,
             self.collection_name,
         )
 
-    def _index_for_collection(self, collection_name: str) -> Any:
-        index = self._index_cache.get(collection_name)
-        if index is not None:
-            return index
-        chroma_collection = self._chroma_client.get_or_create_collection(collection_name)
-        vector_store = self._ChromaVectorStore(chroma_collection=chroma_collection)
-        storage_context = self._StorageContext.from_defaults(vector_store=vector_store)
-        index = self._VectorStoreIndex.from_vector_store(
-            vector_store=vector_store,
-            embed_model=self._embed_model,
-            storage_context=storage_context,
+    def _vectorstore_for_collection(self, collection_name: str) -> Any:
+        vs = self._vs_cache.get(collection_name)
+        if vs is not None:
+            return vs
+        vs = self._Chroma(
+            collection_name=collection_name,
+            embedding_function=self._embed_model,
+            persist_directory=self._persist_dir,
         )
-        self._index_cache[collection_name] = index
-        return index
+        self._vs_cache[collection_name] = vs
+        return vs
 
     async def retrieve(
         self,
@@ -145,14 +139,13 @@ class LlamaIndexAdapter(BackendAdapter):
             min(effective_top_k * FILTER_OVERFETCH_MULTIPLIER, MAX_TOP_K) if callable(filters) else effective_top_k
         )
         try:
-            index = self._index_for_collection(target_collection)
-            retriever = index.as_retriever(similarity_top_k=fetch_k)
-            nodes = await retriever.aretrieve(query)
+            vs = self._vectorstore_for_collection(target_collection)
+            results = await vs.asimilarity_search_with_score(query, k=fetch_k)
         except Exception as e:
-            logger.exception("llama_index retrieve failed")
-            return _failure(query, self.backend_name, f"LlamaIndex retrieval failed: {str(e)[:100]}")
+            logger.exception("langchain retrieve failed")
+            return _failure(query, self.backend_name, f"LangChain retrieval failed: {str(e)[:100]}")
 
-        chunks = [_node_to_chunk(n, idx=i) for i, n in enumerate(nodes)]
+        chunks = [_doc_to_chunk(doc, score, idx=i) for i, (doc, score) in enumerate(results)]
         chunks = [c for c in chunks if c is not None]
 
         if callable(filters):
@@ -169,11 +162,10 @@ class LlamaIndexAdapter(BackendAdapter):
 
     async def health_check(self) -> bool:
         try:
-            self._chroma_client.list_collections()
+            return self._Chroma is not None and os.path.isdir(self._persist_dir)
         except Exception as e:
-            logger.warning("llama_index health check failed: %s", e)
+            logger.warning("langchain health check failed: %s", e)
             return False
-        return True
 
 
 def _failure(query: str, backend: str, message: str) -> RetrievalResult:
@@ -187,20 +179,20 @@ def _failure(query: str, backend: str, message: str) -> RetrievalResult:
     )
 
 
-def _node_to_chunk(node: Any, idx: int = 0) -> Chunk | None:
+def _doc_to_chunk(doc: Any, score: float, idx: int = 0) -> Chunk | None:
     try:
-        inner = node.node
-        content = inner.text or ""
-        # LlamaIndex's ChromaVectorStore returns a similarity-like score
-        # (exp(-distance) for cosine), so we passthrough — no `1 - x` flip.
-        # LC's path needs inversion because Chroma exposes raw distance there.
-        score = float(getattr(node, "score", 0.0) or 0.0)
-        meta = dict(inner.metadata or {})
+        content = doc.page_content or ""
+        meta = dict(doc.metadata or {})
     except AttributeError:
         return None
 
-    file_name = meta.get("file_name") or meta.get("file_path") or "unknown"
-    page_label = meta.get("page_label")
+    # Chroma here exposes raw distance via `asimilarity_search_with_score`, so we invert
+    # to similarity. (LI's ChromaVectorStore already returns a similarity-like score
+    # so its adapter passes through — different upstream contracts, hence different code.)
+    sim = float(1.0 - score) if 0.0 <= float(score) <= 2.0 else float(score)
+
+    file_name = meta.get("file_name") or meta.get("source") or "unknown"
+    page_label = meta.get("page") or meta.get("page_number") or meta.get("page_label")
     page_number: int | None = None
     if isinstance(page_label, int) and page_label > 0:
         page_number = page_label
@@ -209,19 +201,19 @@ def _node_to_chunk(node: Any, idx: int = 0) -> Chunk | None:
         if as_int > 0:
             page_number = as_int
 
-    chunk_id = getattr(inner, "node_id", None) or f"{file_name}_{idx}"
+    chunk_id = meta.get("id") or f"{file_name}_{idx}"
     display_citation = f"[{file_name}, p.{page_number}]" if page_number else f"[{file_name}]"
 
     return Chunk(
         chunk_id=str(chunk_id),
         content=content,
-        score=score,
+        score=sim,
         metadata={
             "file_name": file_name,
             "page_number": page_number,
             "display_citation": display_citation,
             "content_type": ContentType.TEXT,
-            "document_id": meta.get("file_path") or file_name,
+            "document_id": meta.get("source") or file_name,
             "source_metadata": meta,
         },
     )

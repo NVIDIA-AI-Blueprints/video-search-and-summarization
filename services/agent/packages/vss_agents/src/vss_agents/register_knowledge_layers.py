@@ -27,14 +27,14 @@ from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
+from nvidia_vision_ai.knowledge import BackendAdapter
+from nvidia_vision_ai.knowledge import RetrievalResult
+from nvidia_vision_ai.knowledge import get_retriever
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
 from vss_agents.tools.lvs_media_state import configured_media
-from vss_core.knowledge import BackendAdapter
-from vss_core.knowledge import RetrievalResult
-from vss_core.knowledge import get_retriever
 
 logger = logging.getLogger(__name__)
 
@@ -152,8 +152,8 @@ async def _setup_retriever(
     if not config.llm_name:
         raise ValueError("arango_graph requires top-level `llm_name`, e.g. llm_name: nim_llm.")
 
-    from vss_core.knowledge.adapters.arango_graph import ArangoGraphAdapter
-    from vss_core.knowledge.adapters.arango_graph import ArangoGraphConfig
+    from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphAdapter
+    from nvidia_vision_ai.knowledge.adapters.arango_graph import ArangoGraphConfig
 
     llm = await builder.get_llm(config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
     logger.info("knowledge_retrieval arango_graph LLM resolved: %s", config.llm_name)

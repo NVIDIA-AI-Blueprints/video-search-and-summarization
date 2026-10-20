@@ -15,7 +15,7 @@
 """Tests for lib.knowledge.adapters.llama_index.
 
 The `llama-index-*` and `chromadb` packages are an optional extra
-(`nvidia-vss[llama_index]`) and aren't installed in the default test env.
+(`nvidia-vision-ai[llama_index]`) and aren't installed in the default test env.
 The adapter does deferred imports inside `__init__`, so we inject fake
 `llama_index.*` / `chromadb` modules into `sys.modules` BEFORE constructing
 the adapter — the deferred import resolves to our fakes and we never
@@ -122,10 +122,10 @@ class TestLlamaIndexImport:
         ):
             monkeypatch.setitem(sys.modules, mod, None)
 
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexAdapter
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexConfig
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexAdapter
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexConfig
 
-        with pytest.raises(ImportError, match=r"nvidia-vss\[llama_index\]"):
+        with pytest.raises(ImportError, match=r"nvidia-vision-ai\[llama_index\]"):
             LlamaIndexAdapter(LlamaIndexConfig(persist_dir="/tmp/chroma"))
 
 
@@ -133,19 +133,19 @@ class TestLlamaIndexConfigDefaults:
     """`persist_dir` resolution — env var override > literal default."""
 
     def test_default_falls_back_to_tmp_chroma_data(self, monkeypatch):
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexConfig
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexConfig
 
         monkeypatch.delenv("VSS_CHROMA_DIR", raising=False)
         assert LlamaIndexConfig().persist_dir == "/tmp/chroma_data"
 
     def test_env_var_overrides_default(self, monkeypatch):
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexConfig
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexConfig
 
         monkeypatch.setenv("VSS_CHROMA_DIR", "/var/lib/chroma")
         assert LlamaIndexConfig().persist_dir == "/var/lib/chroma"
 
     def test_explicit_value_overrides_env(self, monkeypatch):
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexConfig
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexConfig
 
         monkeypatch.setenv("VSS_CHROMA_DIR", "/var/lib/chroma")
         assert LlamaIndexConfig(persist_dir="/custom/path").persist_dir == "/custom/path"
@@ -155,16 +155,16 @@ class TestLlamaIndexInit:
     """Construction wires the PersistentClient + NVIDIA embedder."""
 
     def test_persistent_client_uses_persist_dir(self, fake_llama_index, tmp_path):
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexAdapter
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexConfig
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexAdapter
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexConfig
 
         LlamaIndexAdapter(LlamaIndexConfig(persist_dir=str(tmp_path)))
 
         fake_llama_index.chromadb_cls.PersistentClient.assert_called_once_with(path=str(tmp_path))
 
     def test_embed_api_key_env_fallback(self, fake_llama_index, monkeypatch):
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexAdapter
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexConfig
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexAdapter
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexConfig
 
         monkeypatch.setenv("NVIDIA_API_KEY", "env-key-123")
         LlamaIndexAdapter(LlamaIndexConfig(persist_dir="/tmp/chroma"))
@@ -174,8 +174,8 @@ class TestLlamaIndexInit:
         assert kwargs["nvidia_api_key"] == "env-key-123"
 
     def test_embed_api_key_config_overrides_env(self, fake_llama_index, monkeypatch):
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexAdapter
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexConfig
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexAdapter
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexConfig
 
         monkeypatch.setenv("NVIDIA_API_KEY", "env-key-123")
         LlamaIndexAdapter(
@@ -190,8 +190,8 @@ class TestLlamaIndexRetrieve:
     """retrieve() walks LlamaIndex's retriever API and converts nodes to Chunks."""
 
     def _make_adapter(self, fake_llama_index, **kwargs):
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexAdapter
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexConfig
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexAdapter
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexConfig
 
         defaults = {"persist_dir": "/tmp/chroma"}
         defaults.update(kwargs)
@@ -337,7 +337,7 @@ class TestLlamaIndexRetrieve:
 
     def test_score_passthrough(self):
         # LI returns similarity already; we never invert.
-        from vss_core.knowledge.adapters.llama_index import _node_to_chunk
+        from nvidia_vision_ai.knowledge.adapters.llama_index import _node_to_chunk
 
         inner = MagicMock()
         inner.text = "x"
@@ -354,16 +354,16 @@ class TestLlamaIndexRetrieve:
 class TestLlamaIndexHealth:
     @pytest.mark.asyncio
     async def test_health_check_true_when_chroma_reachable(self, fake_llama_index):
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexAdapter
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexConfig
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexAdapter
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexConfig
 
         adapter = LlamaIndexAdapter(LlamaIndexConfig(persist_dir="/tmp/chroma"))
         assert await adapter.health_check() is True
 
     @pytest.mark.asyncio
     async def test_health_check_false_when_chroma_unreachable(self, fake_llama_index):
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexAdapter
-        from vss_core.knowledge.adapters.llama_index import LlamaIndexConfig
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexAdapter
+        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexConfig
 
         adapter = LlamaIndexAdapter(LlamaIndexConfig(persist_dir="/tmp/chroma"))
         # Simulate Chroma being unreachable after construction.

@@ -30,10 +30,10 @@ from unittest.mock import patch
 import aiohttp
 import pytest
 
-from vss_core.knowledge.adapters.es_caption import EsCaptionAdapter
-from vss_core.knowledge.adapters.es_caption import EsCaptionConfig
-from vss_core.knowledge.adapters.es_caption import _derive_stream_name
-from vss_core.knowledge.adapters.es_caption import _normalise_hit
+from nvidia_vision_ai.knowledge.adapters.es_caption import EsCaptionAdapter
+from nvidia_vision_ai.knowledge.adapters.es_caption import EsCaptionConfig
+from nvidia_vision_ai.knowledge.adapters.es_caption import _derive_stream_name
+from nvidia_vision_ai.knowledge.adapters.es_caption import _normalise_hit
 
 
 def _hit(content_metadata: dict, text: str = "x", score: float = 1.0, sensor: dict | None = None) -> dict:

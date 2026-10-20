@@ -38,7 +38,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # What lands here is <release line>+tree.<source tree sha>: the release line
 # from the nearest v* git tag (the same `git describe --match 'v[0-9]*'` every
 # pyproject's hatch-vcs runs, so a checkout install of this commit agrees), and
-# the git tree hash of the image's source paths (services/agent and libs/vss),
+# the git tree hash of the image's source paths (services/agent, libs/vss and
+# libs/vision-ai),
 # composed by build-dev-images.yml. This is not provenance metadata any more --
 # GET /api/v1/version reports the installed nvidia-vss-core version, so this
 # string is what a deployment tells the world it is running, and it has to
@@ -82,6 +83,9 @@ COPY --chown=root:root --chmod=0444 libs/vss/core/pyproject.toml /src/libs/vss/c
 COPY --chown=root:root --chmod=0555 libs/vss/core/src /src/libs/vss/core/src
 COPY --chown=root:root --chmod=0444 libs/vss/cli/pyproject.toml /src/libs/vss/cli/pyproject.toml
 COPY --chown=root:root --chmod=0555 libs/vss/cli/src /src/libs/vss/cli/src
+COPY --chown=root:root --chmod=0444 libs/vision-ai/libs/vision-ai/pyproject.toml /src/libs/vision-ai/libs/vision-ai/pyproject.toml
+COPY --chown=root:root --chmod=0444 libs/vision-ai/libs/vision-ai/README.md /src/libs/vision-ai/libs/vision-ai/README.md
+COPY --chown=root:root --chmod=0555 libs/vision-ai/libs/vision-ai/src /src/libs/vision-ai/libs/vision-ai/src
 COPY --chown=root:root --chmod=0444 services/agent/docker/cleanup_vulnerabilities.py /src/services/agent/cleanup_vulnerabilities.py
 
 # Create virtual environment and install dependencies

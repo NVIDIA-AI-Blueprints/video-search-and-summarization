@@ -15,7 +15,7 @@
 """In-process adapter using the `nvidia-rag` library.
 
 Milvus-backed; same `filter_expr` shape as `frag_api`. Choose `frag_lib` to
-run the full RAG Blueprint pipeline in-process. Requires `nvidia-vss[frag_lib]`;
+run the full RAG Blueprint pipeline in-process. Requires `nvidia-vision-ai[frag_lib]`;
 imports are deferred.
 """
 
@@ -29,13 +29,13 @@ from typing import ClassVar
 from pydantic import BaseModel
 from pydantic import Field
 
-from vss_core.knowledge.adapters.frag_api import _failure
-from vss_core.knowledge.adapters.frag_api import _filters_to_expr
-from vss_core.knowledge.adapters.frag_api import _normalise_search_result
-from vss_core.knowledge.base import BackendAdapter
-from vss_core.knowledge.factory import register_adapter
-from vss_core.knowledge.schema import Chunk
-from vss_core.knowledge.schema import RetrievalResult
+from nvidia_vision_ai.knowledge.adapters.frag_api import _failure
+from nvidia_vision_ai.knowledge.adapters.frag_api import _filters_to_expr
+from nvidia_vision_ai.knowledge.adapters.frag_api import _normalise_search_result
+from nvidia_vision_ai.knowledge.base import BackendAdapter
+from nvidia_vision_ai.knowledge.factory import register_adapter
+from nvidia_vision_ai.knowledge.schema import Chunk
+from nvidia_vision_ai.knowledge.schema import RetrievalResult
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -85,7 +85,7 @@ class FragLibAdapter(BackendAdapter):
             raise ImportError(
                 "frag_lib backend requires the `nvidia-rag>=2.4.0` package. "
                 "Install via:\n"
-                "  pip install 'nvidia-vss[frag_lib]'\n"
+                "  pip install 'nvidia-vision-ai[frag_lib]'\n"
                 "Or switch to the `frag_api` backend if you have a deployed rag-server."
             ) from e
 

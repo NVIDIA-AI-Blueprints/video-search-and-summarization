@@ -34,12 +34,12 @@ _instances: dict[tuple[str, frozenset[tuple[str, Any]]], BackendAdapter] = {}
 _lock = asyncio.Lock()
 
 _LAZY_BACKENDS: dict[str, str] = {
-    "frag_api": "vss_core.knowledge.adapters.frag_api",
-    "es_caption": "vss_core.knowledge.adapters.es_caption",
-    "frag_lib": "vss_core.knowledge.adapters.frag_lib",
-    "llama_index": "vss_core.knowledge.adapters.llama_index",
-    "langchain": "vss_core.knowledge.adapters.langchain",
-    "arango_graph": "vss_core.knowledge.adapters.arango_graph",
+    "frag_api": "nvidia_vision_ai.knowledge.adapters.frag_api",
+    "es_caption": "nvidia_vision_ai.knowledge.adapters.es_caption",
+    "frag_lib": "nvidia_vision_ai.knowledge.adapters.frag_lib",
+    "llama_index": "nvidia_vision_ai.knowledge.adapters.llama_index",
+    "langchain": "nvidia_vision_ai.knowledge.adapters.langchain",
+    "arango_graph": "nvidia_vision_ai.knowledge.adapters.arango_graph",
 }
 
 
