@@ -36,3 +36,11 @@ def test_eval_judge_retains_reasoning_with_stock_model_output_budget(
     for name in names:
         assert evaluators[name].get("llm_judge_reasoning", True) is True
         assert evaluators[name]["llm_name"] == "eval_llm_judge"
+
+    if profile == "base":
+        prompt = evaluators["qa_evaluator"]["custom_prompt_template"]
+        assert prompt.split("OUTPUT:\n", 1)[1].strip() == (
+            "Use your reasoning channel to evaluate the answer. Your entire final response must\n"
+            "contain ONLY a single decimal score from 0.0 to 1.0. Do not include explanations,\n"
+            "labels, timestamps, counts, or other numbers from the compared answers in the final response."
+        )

@@ -533,8 +533,9 @@ eval:
         - Focus on SEMANTIC correctness, not exact text matching.
 
         OUTPUT:
-        Think through your evaluation step by step, then output ONLY a single decimal number
-        (your score from 0.0 to 1.0) on the final line.
+        Use your reasoning channel to evaluate the answer. Your entire final response must
+        contain ONLY a single decimal score from 0.0 to 1.0. Do not include explanations,
+        labels, timestamps, counts, or other numbers from the compared answers in the final response.
 
     report_evaluator:
       _type: report_evaluator
