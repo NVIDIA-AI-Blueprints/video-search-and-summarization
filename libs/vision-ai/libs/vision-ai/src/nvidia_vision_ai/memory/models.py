@@ -19,7 +19,7 @@ from pydantic import Field
 
 JobStatus = Literal["running", "completed", "failed"]
 
-_CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+_CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"  # pragma: allowlist secret
 
 
 def _ulid() -> str:

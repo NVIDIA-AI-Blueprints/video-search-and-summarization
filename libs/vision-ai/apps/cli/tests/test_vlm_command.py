@@ -29,7 +29,7 @@ def configure(home: Path, **values: Any) -> None:
 
 
 def test_success_records_completed_job(home: Path, vlm_server: Any) -> None:
-    configure(home, base_url="http://vlm:8000", model="m", api_key="secret")
+    configure(home, base_url="http://vlm:8000", model="m", api_key="secret")  # pragma: allowlist secret
     seen = vlm_server(lambda r: httpx.Response(200, json=completion()))
     result, out = run("vlm", "--prompt", "q", "--media-url", MEDIA)
     assert result.exit_code == 0, result.output
@@ -188,7 +188,7 @@ def test_explicit_max_frames_replaces_inherited_fps(home: Path, vlm_server: Any,
 
 
 def test_echoed_api_key_is_redacted(home: Path, vlm_server: Any) -> None:
-    configure(home, base_url="http://vlm:8000", model="m", api_key="sk-top-secret")
+    configure(home, base_url="http://vlm:8000", model="m", api_key="sk-top-secret")  # pragma: allowlist secret
     vlm_server(lambda r: httpx.Response(401, text="Invalid API key: sk-top-secret"))
     result, out = run("vlm", "--prompt", "q", "--media-url", MEDIA)
     assert result.exit_code == 6
@@ -198,7 +198,7 @@ def test_echoed_api_key_is_redacted(home: Path, vlm_server: Any) -> None:
 
 
 def test_api_key_with_newline_is_a_configuration_error(home: Path) -> None:
-    configure(home, base_url="http://vlm:8000", model="m", api_key="sk-secret\r\n")
+    configure(home, base_url="http://vlm:8000", model="m", api_key="sk-secret\r\n")  # pragma: allowlist secret
     result, out = run("vlm", "--prompt", "q", "--media-url", MEDIA)
     assert result.exit_code == 3
     assert "sk-secret" not in result.output
