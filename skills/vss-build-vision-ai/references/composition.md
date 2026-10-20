@@ -108,6 +108,12 @@ variant you selected, not to the one its Foundation shipped. Owner contracts
 state which owners are singletons, what output each fixes, and which consumer
 keys track it; read them before merging configs.
 
+The dev Alerts real-time separate-streaming-NIM option reuses its checked-in
+overlay and its existing `rtvi-vlm` profile gate; its two new services do not
+introduce new profile keys. Follow
+[`profiles/alerts-streaming.md`](profiles/alerts-streaming.md) for this scoped
+configuration delta and its inference-choice intake.
+
 Service activation alone is never a Compose-definition change.
 
 ## UI configuration
@@ -246,7 +252,11 @@ include:
 ```
 
 The ordered `path` list merges the patch into the included root model before
-including it in the build. Use Docker Compose 2.20.3 or newer.
+including it in the build. For the dev Alerts separate streaming NIM, append
+`../../deploy/docker/developer-profiles/dev-profile-alerts/compose.streaming-nim.yml`
+to that same list before build-local patches. Reuse that source overlay rather
+than copying it; generate only the selected rule payload under `patches/` as
+specified in `profiles/alerts-streaming.md`. Use Docker Compose 2.20.3 or newer.
 
 Create a `.yml` patch under `patches/` only when:
 
