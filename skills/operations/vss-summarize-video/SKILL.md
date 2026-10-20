@@ -374,8 +374,9 @@ re-voice either backend's content.
 | `/models` 404 / HTML | Probing the bare origin — use `services.lvs.url` + `/models` or `services.rt_vlm.url` + `/v1/models` from `vss configure show`. |
 
 Use the debugging reference for deeper diagnostics and the deployment
-reference for logs or configuration. The LVS image is a multi-arch manifest, so
-`LVS_TAG=3.3.0-rc2` is the x86/Jetson Thor default; use `3.3.0-rc2-sbsa` on SBSA/DGX Spark/Grace. RT-VLM likewise needs a host-matched tag (`3.3.0-26.08.2` on x86/Jetson Thor, `3.3.0-26.08.2-sbsa` on SBSA/DGX Spark/Grace).
+reference for logs or configuration. `VSS_VIDEO_SUMMARIZATION_TAG` and
+`VSS_RT_VLM_TAG` both default to `3.3.0` on x86/Jetson Thor; use the
+`3.3.0-sbsa` variant on SBSA/DGX Spark/Grace.
 
 ## Direct API and Service Operations
 

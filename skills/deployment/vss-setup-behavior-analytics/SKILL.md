@@ -31,6 +31,9 @@ A minimal standalone bring-up looks like:
 ```bash
 cd $REPO/deploy/docker
 export VSS_APPS_DIR=$(pwd)
+: "${NGC_CLI_API_KEY:?Set NGC_CLI_API_KEY before Docker login}"
+printf '%s' "$NGC_CLI_API_KEY" |
+  docker login nvcr.io --username '$oauthtoken' --password-stdin
 docker compose -f services/analytics/behavior-analytics/compose.yml up -d vss-behavior-analytics-base
 ```
 
@@ -101,7 +104,7 @@ This skill deploys one container. Hand off instead when the request is:
 ## Prerequisites
 
 1. **Repo checkout** with `$VSS_APPS_DIR` pointing at `<repo>/deploy/docker/`. Required by the service compose's volume binds.
-2. **Registry access** — none needed for the default image: `ghcr.io/nvidia-ai-blueprints/vss/vss-behavior-analytics` is public, so `docker pull` works unauthenticated. You only need credentials if you override `VSS_CONTAINER_REGISTRY` to NGC — see [`references/ngc-api-key-registry-login.md`](references/ngc-api-key-registry-login.md).
+2. **Registry access** — the default image is `nvcr.io/nvidia/vss-core/vss-behavior-analytics:3.3.0`; authenticate to NGC before pulling it. See [`references/ngc-api-key-registry-login.md`](references/ngc-api-key-registry-login.md).
 3. **Docker runtime** — Docker Engine **28.3.3** with Docker Compose plugin **v2.39.1+**. Verify with `docker --version` and `docker compose version`.
 4. **Optional broker** (Kafka / Redis Streams / MQTT). The container starts fine **without** one — the Kafka client retries a bounded number of times, then the app exits and `restart: always` cycles the container. Status will show `Restarting (N)` in `docker ps` until a broker is reachable. With a broker, dynamic config / dynamic calibration over `mdx-notification` become available.
 5. **Optional config / calibration files on disk** if the user is bringing their own.

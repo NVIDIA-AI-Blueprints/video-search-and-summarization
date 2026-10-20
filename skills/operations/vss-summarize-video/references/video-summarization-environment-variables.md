@@ -1,6 +1,6 @@
 # Video Summarization Environment Variables
 
-This is the 3.2.0 `lvs` profile env reference for the VSS develop branch. For
+This is the 3.3.0 `lvs` profile env reference. For
 full deployment decisions, use `vss-build-vision-ai`; this file is for quick
 video summarization debugging and request construction.
 
@@ -55,10 +55,10 @@ RT-VLM:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
-| `RTVI_VLM_IMAGE_TAG` | `3.3.0-26.08.2` on x86/Tegra; `3.3.0-26.08.2-sbsa` on SBSA | RT-VLM image tag. |
-| `RTVI_VLM_BASE_URL` | `http://${HOST_IP}:8018` | Agent-facing base URL. |
+| `VSS_RT_VLM_TAG` | `3.3.0` on x86/Tegra; `3.3.0-sbsa` on SBSA | RT-VLM image tag. |
+| `RTVI_VLM_BASE_URL` | `http://rtvi-vlm:8000` | Compose service URL injected into LVS as `RTVI_VLM_URL`. |
 | `RTVI_VLM_PORT` | `8018` | Host port. |
-| `RTVI_VLM_URL` | `http://${HOST_IP}:${RTVI_VLM_PORT}` | video summarization-facing URL. |
+| `RTVI_VLM_URL` | `http://rtvi-vlm:8000` (derived from `RTVI_VLM_BASE_URL`) | video summarization-facing URL. |
 | `RTVI_VLM_MODEL_TO_USE` | `cosmos-reason3` | Default integrated backend selector. |
 | `RTVI_VLM_MODEL_PATH` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | Default checkpoint. |
 | `RTVI_VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK` | empty; `5` for remote openai-compat LVS deployments | RT-VLM fixed-frame default used when LVS requests omit frame sampling overrides. Leave model-specific local defaults unchanged. |
@@ -67,22 +67,22 @@ RT-VLM:
 | `RTVI_VLM_MESSAGE_BUS` | `kafka` | Generated-output broker type. |
 | `RTVI_VLM_MESSAGE_BUS_TOPIC` | `mdx-vlm-captions` | Raw caption Kafka topic or Redis stream. |
 | `RTVI_VLM_ERROR_BUS` | `kafka` | Error-output broker type; empty disables errors. |
-| `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker URL from RT-VLM. |
+| `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` | Broker URL from RT-VLM. |
 
 Video summarization service:
 
 | Var | Default / Example | Purpose |
 |---|---|---|
 | `LVS_BACKEND_URL` | `http://${HOST_IP}:38111` | Agent-facing video summarization URL. |
-| `LVS_IMAGE` | `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization` | Image repository. |
-| `LVS_TAG` | `3.3.0-rc2` on x86/Tegra; use `3.3.0-rc2-sbsa` on SBSA. |
+| `VSS_VIDEO_SUMMARIZATION_IMAGE` | `nvcr.io/nvidia/vss-core/vss-video-summarization` | Image repository. |
+| `VSS_VIDEO_SUMMARIZATION_TAG` | `3.3.0` on x86/Tegra; use `3.3.0-sbsa` on SBSA. |
 | `LVS_ENABLE_MCP` | `false` | Enable optional MCP/SSE port. |
 | `LVS_DATABASE_BACKEND` | `elasticsearch_db` | Active CA-RAG database backend. Use `graph_db` for Neo4j or `graph_db_arango` for ArangoDB only with an embedding endpoint configured. |
 | `LVS_EMB_ENABLE` | `false` | Required as `true` for Neo4j or ArangoDB graph backends. |
 | `LVS_EMB_MODEL_NAME` | unset | Text embedding model id for graph backends, copied from the embedding endpoint's `/models` response. Current LVS graph-RAG examples use `nvidia/llama-3.2-nv-embedqa-1b-v2`. |
 | `LVS_EMB_BASE_URL` | unset | OpenAI/NVIDIA-compatible text embedding endpoint for graph backends; include `/v1`, for example `https://integrate.api.nvidia.com/v1` or `http://127.0.0.1:9232/v1`. |
 | `KAFKA_ENABLED` | `true` | video summarization Kafka integration. |
-| `KAFKA_BOOTSTRAP_SERVERS` | `${HOST_IP}:9092` | Broker URL from the video summarization service. |
+| `KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092` | Broker URL from the video summarization service. |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | `mdx-structured-events-summary` | Structured summary topic. |
 | `LVS_ENABLE_LLM_MERGING` | `true` | Merge duplicate/overlapping events. |
 
@@ -111,7 +111,7 @@ It maps profile env into container env. Important container env names:
 | `GRAPH_DB_HOST`, `GRAPH_DB_USERNAME`, `GRAPH_DB_PASSWORD`, `GRAPH_DB_HTTP_PORT`, `GRAPH_DB_BOLT_PORT` | Neo4j graph backend connection. |
 | `ARANGO_DB_HOST`, `ARANGO_DB_USERNAME`, `ARANGO_DB_PASSWORD`, `ARANGO_DB_PORT` | ArangoDB graph backend connection. |
 | `KAFKA_ENABLED` | `${KAFKA_ENABLED:-false}` |
-| `KAFKA_BOOTSTRAP_SERVERS` | `${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}` |
+| `KAFKA_BOOTSTRAP_SERVERS` | `${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}` |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | `${KAFKA_STRUCTURED_SUMMARY_TOPIC:-mdx-structured-events-summary}` |
 | `RTVI_VLM_URL` | `${RTVI_VLM_URL:-}` |
 | `ENABLE_AUDIO` | `${ENABLE_AUDIO:-false}` |
@@ -147,7 +147,7 @@ Neo4j graph backend with the open-source `neo4j:5.26.4` container:
 
 ```bash
 LVS_DATABASE_BACKEND=graph_db
-GRAPH_DB_HOST=127.0.0.1          # or ${HOST_IP}; avoid graph-db with host-networked lvs-server
+GRAPH_DB_HOST=graph-db            # Compose service name
 GRAPH_DB_USERNAME=neo4j
 GRAPH_DB_PASSWORD=<neo4j-password>
 GRAPH_DB_HTTP_PORT=7474
@@ -163,7 +163,7 @@ container:
 
 ```bash
 LVS_DATABASE_BACKEND=graph_db_arango
-ARANGO_DB_HOST=127.0.0.1         # or ${HOST_IP}; avoid arango-db with host-networked lvs-server
+ARANGO_DB_HOST=arango-db          # Compose service name
 ARANGO_DB_USERNAME=root
 ARANGO_DB_PASSWORD=<arango-password>
 ARANGO_DB_PORT=8529
@@ -183,11 +183,10 @@ embedding endpoint and copy it into `LVS_EMB_MODEL_NAME`:
 curl -fsS "${LVS_EMB_BASE_URL%/}/models" | jq -r '.data[].id'
 ```
 
-The current Docker `lvs-server` runs with host networking, while the checked-in
-video summarization compose uses `graph-db` / `arango-db` as default service
-hostnames. If you deploy the DB containers from a Compose override, override
-the corresponding DB host env to a host-reachable address (`127.0.0.1` or
-`${HOST_IP}`) in the resolved deployment.
+The current Docker `lvs-server` uses the default Compose bridge network, and
+the checked-in compose uses `graph-db` / `arango-db` as service hostnames.
+Override the corresponding DB host only when the database runs outside that
+Compose network.
 
 ## Runtime Rules
 

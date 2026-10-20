@@ -7,7 +7,7 @@ Step 5 is where the skill initializes the deployment log, starts the perception 
 Scripts refresh + X11 pre-flight + log init + app launch have **no user decisions between them**. They must be a single Bash tool call — not four separate calls. Four calls = four permission prompts for what is logically one action.
 
 ```bash
-SKILL_DIR="$HOME/.claude/skills/rtvicv-deploy"
+SKILL_DIR="$HOME/.claude/skills/vss-deploy-detection-tracking-2d"
 CONTAINER="<CONTAINER_NAME>"
 
 # ── Refresh scripts (always overwrite — stale scripts cause silent failures)
@@ -207,8 +207,8 @@ Root cause 90% of the time: `DISPLAY` inside the container is unset or malformed
 
 The agent renders **TWO boxes around the `run_app_and_wait.sh` call**:
 
-1. **PLAN box (BEFORE the bash call)** — title `Start application —
-   plan`. Shows the command that WILL run, the log path that WILL be
+1. **PLAN box (BEFORE the bash call)** — title `Perception Application —
+   Plan`. Shows the command that WILL run, the log path that WILL be
    written, the REST URLs that WILL be polled, the stream-add endpoint
    + planned inter-add delay (or `static — no REST call`), and the
    metrics endpoint + sample plan. Uses `→` glyph (action upcoming).
@@ -216,8 +216,8 @@ The agent renders **TWO boxes around the `run_app_and_wait.sh` call**:
 
 2. **(bash call)** — `docker exec ... run_app_and_wait.sh ...`.
 
-3. **RESULT box (AFTER the bash call)** — title `Start application —
-   result`. Same four sections (Launch, Readiness, Stream addition,
+3. **RESULT box (AFTER the bash call)** — title `Perception Application —
+   Results`. Same four sections (Launch, Readiness, Stream addition,
    Metrics) but rows now carry the measured values: pid, ready time
    in seconds, engine status, per-stream add HTTP codes, FPS, GPU /
    CPU / RAM averages. Uses `✔` glyph (action completed).
@@ -250,7 +250,7 @@ the canonical sink→flags table; the same mapping drives the Launch row.
 **PLAN box (BEFORE running run_app_and_wait.sh):**
 
 ```
-┌────────────────────────────────────────────────── Start application — plan ──────────────────────────────────────────────────┐
+┌─────────────────────────────────────────────── Perception Application — Plan ────────────────────────────────────────────────┐
 │                                                                                                                              │
 │  Launch                                                                                                                      │
 │     → Command       metropolis_perception_app -c reference-configs/warehouse-2d/ds-main-config.txt --tiledtext               │
@@ -272,7 +272,7 @@ the canonical sink→flags table; the same mapping drives the Launch row.
 **RESULT box (AFTER run_app_and_wait.sh returns LAUNCH_COMPLETE):**
 
 ```
-┌───────────────────────────────────────────────── Start application — result ─────────────────────────────────────────────────┐
+┌────────────────────────────────────────────── Perception Application — Results ──────────────────────────────────────────────┐
 │                                                                                                                              │
 │  Launch                                                                                                                      │
 │     ✔ Command       metropolis_perception_app -c reference-configs/warehouse-2d/ds-main-config.txt --tiledtext               │

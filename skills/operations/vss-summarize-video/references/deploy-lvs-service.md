@@ -2,21 +2,16 @@
 
 ## Container Image
 
-- **Image name:** `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization`
-- **Tag pattern:** `develop-latest` tracks the newest `develop` build. Use a
-  `pr-<N>-latest` or commit-stamped tag for branch-specific testing.
-- **Registry:** `ghcr.io`
-- **Pull requirements:** The package is public; authenticated pulls use a
-  GitHub token with `read:packages` rather than an NGC key.
-- **Architecture support:** the tag is a multi-arch manifest covering
-  `linux/amd64` and `linux/arm64`, so the same tag works on x86, SBSA, and
-  Jetson/Thor targets.
+- **Image name:** `nvcr.io/nvidia/vss-core/vss-video-summarization`
+- **Tag:** `3.3.0`
+- **Registry:** `nvcr.io`
+- **Pull requirements:** authenticate to NGC with an API key before pulling.
+- **Architecture support:** use the normal tag on x86/Jetson/Thor and the
+  `3.3.0-sbsa` variant on SBSA/DGX Spark/Grace.
 
-The source-of-truth upstream service key is `lvs` in
-`services/video-summarization/docker/deploy/compose.yaml`; the default container
-name is `lvs`. Older developer-profile wrapper composes may expose
-`lvs-server` / `vss-lvs`, but build-vision-ai generated allow-lists must use
-the source-of-truth `lvs` key and compose path.
+The source-of-truth service key is `lvs-server` in
+`deploy/docker/services/video-summarization/compose.yml`; the default container
+name is `vss-lvs`.
 
 ## GPU Requirements
 
@@ -61,10 +56,11 @@ wrong, Docker may create an empty directory and LVS will fail at startup.
 - **Expected startup time:** `lvs` usually becomes ready within 2 minutes
   after its peers are available. First boot of local RT-VLM or LLM peers can take
   up to 20 minutes due to image/model download and model warmup.
-- **Startup ordering dependencies:** `lvs` declares peer `depends_on` entries
-  for services such as Elasticsearch and LLM readiness helpers. Generated
-  standalone builds must keep included peers and strip only undefined optional
-  peers when a wrapper or selected deployment shape declares them.
+- **Startup ordering dependencies:** `lvs` declares optional, healthy
+  `depends_on` entries for the supported Nemotron and Cosmos NIM service keys
+  and for `rtvi-vlm`. Generated standalone builds must keep selected peers and
+  strip only undefined optional peers when a wrapper or selected deployment
+  shape does not define them.
 - **Health check endpoint:** `GET http://localhost:38111/v1/ready`
 - **Health check tuning:** `interval: 30s`, `timeout: 10s`, `retries: 10`,
   `start_period: 120s`
@@ -81,8 +77,8 @@ wrong, Docker may create an empty directory and LVS will fail at startup.
 | `POST /v1/summarize` returns 400 for model errors | `model` does not match the id advertised by `GET /models` | Query `/models` and copy the exact id into the request and `VLM_NAME` |
 | `POST /v1/summarize` returns 503 busy | LVS is already processing a file | Run one smoke-test summarize request at a time and retry after the current request completes |
 | LVS starts with config-file errors | The `config.yaml` bind source resolved to a missing file or Docker-created directory | Point `VSS_APPS_DIR` to `deploy/docker` or materialize `config.yaml` into the build output and rewrite the bind source |
-| LVS cannot reach Kafka or Elasticsearch | Host-networked service has wrong `HOST_IP`, `KAFKA_BOOTSTRAP_SERVERS`, `ES_HOST`, or `ES_PORT` | Use host-reachable addresses such as `${HOST_IP}:9092` and `localhost:9200`/`${HOST_IP}:9200` according to the generated env |
-| `lvs` pulls or starts the wrong image | A wrapper or generated compose image value does not match the selected LVS release | Use the source-of-truth LVS compose image contract or patch the image line to an LVS-specific `LVS_IMAGE` / `LVS_TAG` value |
+| LVS cannot reach Kafka or Elasticsearch | Service has incorrect `KAFKA_BOOTSTRAP_SERVERS`, `ES_HOST`, or `ES_PORT` | Use Compose peers such as `kafka:29092` and `elasticsearch:9200`, or explicitly configured reachable external endpoints |
+| `lvs` pulls or starts the wrong image | A wrapper or generated compose image value does not match the selected LVS release | Use the source-of-truth LVS compose image contract or set `VSS_VIDEO_SUMMARIZATION_IMAGE` / `VSS_VIDEO_SUMMARIZATION_TAG` |
 
 ## Prerequisites
 
@@ -101,10 +97,14 @@ wrong, Docker may create an empty directory and LVS will fail at startup.
 
 ## Dry Run
 
-From the generated build directory:
+From the generated build directory, set `COMPOSE_PROFILE` to the profile name
+written by the build (for a direct source-compose deployment, use
+`lvs-server`):
 
 ```bash
-docker compose --env-file .env -f compose.yml --profile <invented-flag> config >/tmp/lvs-resolved.yml
+docker compose --env-file .env -f compose.yml \
+  --profile "${COMPOSE_PROFILE:?Set COMPOSE_PROFILE to the generated profile name}" \
+  config >/tmp/lvs-resolved.yml
 ```
 
 Then verify no real unexpanded variables remain:
@@ -129,7 +129,7 @@ Stored-video API smoke test:
 curl -s -X POST "http://${HOST_IP}:38111/v1/summarize" \
   -H "Content-Type: application/json" \
   -d "$(jq -n \
-    --arg model "${VLM_NAME:-nim_nvidia_cosmos-reason2-8b_hf-1208}" \
+    --arg model "${VLM_NAME:-nim_nvidia_cosmos3-nano-reasoner_bf16-final}" \
     --arg url "<VIOS_HTTP_VIDEO_OR_CLIP_URL>" \
     --arg scenario "warehouse safety review" \
     --argjson events '["person activity","forklift interaction"]' \
@@ -148,7 +148,7 @@ curl -s -X POST "http://${HOST_IP}:38111/v1/summarize" \
 
 ```bash
 docker ps --filter name=lvs --format '{{.Names}} {{.Status}}'
-docker logs --tail 100 lvs
+docker logs --tail 100 vss-lvs
 curl -sf "http://${HOST_IP}:38111/metrics" | head
 ```
 
@@ -157,7 +157,9 @@ curl -sf "http://${HOST_IP}:38111/metrics" | head
 Use the generated build profile and generated env:
 
 ```bash
-docker compose --env-file .env -f compose.yml --profile <invented-flag> down
+docker compose --env-file .env -f compose.yml \
+  --profile "${COMPOSE_PROFILE:?Set COMPOSE_PROFILE to the generated profile name}" \
+  down
 ```
 
 Use `down -v` only when you intentionally want to remove Docker named volumes

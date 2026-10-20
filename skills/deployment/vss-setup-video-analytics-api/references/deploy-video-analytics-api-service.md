@@ -48,10 +48,16 @@ The defaults assume:
 The base compose already mounts the config from the services directory:
 
 ```
-services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json
+deploy/docker/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json
 ```
 
-This config is identical to the image-baked default except Kafka is **enabled** (`brokers: ["localhost:9092"]`). This is the right choice when a local Kafka broker is running and contains `mdx-notification`, `mdx-amr`, and at least one topic matching `mdx-rtls*`. With brokers configured, the server waits for those topics before it listens. Use Option A or a custom config with `kafka.brokers: []` for a broker-less deployment.
+This repository-relative path is mounted by Compose from its
+`deploy/docker` working directory. The config uses Compose-internal peers:
+Elasticsearch at
+`http://elasticsearch:9200` and Kafka at `kafka:29092`. Kafka must contain
+`mdx-notification`, `mdx-amr`, and at least one topic matching `mdx-rtls*`;
+the server waits for those topics before it listens. Use Option A or a custom
+config with `kafka.brokers: []` for a broker-less deployment.
 
 No compose change needed — this is the default:
 
@@ -130,12 +136,19 @@ If you don't need image upload endpoints, you can drop this mount — the contai
 
 The server waits for Elasticsearch and the `insertion-timestamp-pipeline` before it registers routes and binds port 8081. With `STREAM_TYPE=kafka` and configured brokers, it also waits for its required Kafka topics. Thus an unavailable `/livez` does not identify which bootstrap prerequisite is missing. An open Elasticsearch port or a healthy cluster alone does not prove that the custom ingest pipeline exists.
 
-Make sure the `elasticsearch.node` in your config matches the running ES instance. With `network_mode: "host"`, ES must also be on the host network.
+Make sure the `elasticsearch.node` in your config matches the running ES
+instance. The service-shipped config expects Compose DNS at
+`http://elasticsearch:9200`; a custom host-network deployment must replace it
+with a host-reachable endpoint and similarly update the Kafka broker address.
 
-If you need to bring up Elasticsearch too, start the database and its initializer together:
+If you need to bring up Elasticsearch too, start the database and its
+initializer together. Use the same project name for infra and the API so they
+share `vss-analytics_default` and the service DNS names resolve:
 
 ```bash
-docker compose -f services/infra/compose.yml up -d elasticsearch elasticsearch-init-container
+docker compose --project-name vss-analytics \
+  --profile elasticsearch --profile elasticsearch-init-container \
+  -f services/infra/compose.yml up -d elasticsearch elasticsearch-init-container
 ```
 
 Wait for ES to be healthy before starting the API:
@@ -198,12 +211,12 @@ mkdir -p "$VSS_DATA_DIR/data_log/vss_video_analytics_api"
 
 # (one-time) edit services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json if needed.
 
-docker compose -f services/analytics/video-analytics-api/compose.yml up -d vss-video-analytics-api
+docker compose --project-name vss-analytics --profile vss-video-analytics-api \
+  -f services/analytics/video-analytics-api/compose.yml up -d vss-video-analytics-api
 
 docker ps --filter "name=vss-video-analytics-api" --format '{{.Names}}\t{{.Status}}'
-# Compose auto-names the standalone container <project>-<service>-<index>; project defaults to
-# the compose file's parent dir, so the full name is:
-docker logs -f video-analytics-api-vss-video-analytics-api-1
+# compose.yml sets container_name explicitly:
+docker logs -f vss-video-analytics-api
 ```
 
 Healthy log lines include:
@@ -229,7 +242,8 @@ The API checks once per second until the pipeline exists, then, only with `STREA
 ## Teardown
 
 ```bash
-docker compose -f services/analytics/video-analytics-api/compose.yml down
+docker compose --project-name vss-analytics --profile vss-video-analytics-api \
+  -f services/analytics/video-analytics-api/compose.yml down
 ```
 
 For a multi-service teardown (broker, ES, etc.), use the `vss-build-vision-ai` teardown workflow.
@@ -253,14 +267,15 @@ For a multi-service teardown (broker, ES, etc.), use the `vss-build-vision-ai` t
 **Inspect a mounted config inside the container** (same path as `command: node index.js --config …`):
 
 ```bash
-docker exec video-analytics-api-vss-video-analytics-api-1 node -e \
+docker exec vss-video-analytics-api node -e \
   "const fs=require('fs'); const p='/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json'; console.log(JSON.stringify(JSON.parse(fs.readFileSync(p,'utf8')), null, 2))"
 ```
 
 With compose (standalone deploy):
 
 ```bash
-docker compose -f services/analytics/video-analytics-api/compose.yml \
+docker compose --project-name vss-analytics \
+  -f services/analytics/video-analytics-api/compose.yml \
   exec vss-video-analytics-api node -e \
   "const fs=require('fs'); const p='/opt/mdx/vss-video-analytics-api/configs/vss-video-analytics-api-config.json'; console.log(JSON.stringify(JSON.parse(fs.readFileSync(p,'utf8')), null, 2))"
 ```

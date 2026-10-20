@@ -236,9 +236,9 @@ the custom model overrides. The example below uses VideoPrism paths:
 
 ```bash
 export REPO_ROOT="$(git rev-parse --show-toplevel)"
-export VSS_RT_EMBED_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed
-# Pin a published RT-Embed image tag when needed; develop uses develop-latest by default.
-export VSS_RT_EMBED_TAG="${VSS_RT_EMBED_TAG:-develop-latest}"
+export VSS_RT_EMBED_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-embed
+# Pin another published RT-Embed image tag when needed.
+export VSS_RT_EMBED_TAG="${VSS_RT_EMBED_TAG:-3.3.0}"
 export RTVI_EMBED_PORT=8017
 export VSS_DATA_DIR="${REPO_ROOT}/.standalone-data"
 export NGC_API_KEY="<ngc-api-key>"

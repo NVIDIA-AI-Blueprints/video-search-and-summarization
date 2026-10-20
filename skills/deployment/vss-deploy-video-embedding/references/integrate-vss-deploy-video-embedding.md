@@ -66,8 +66,8 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | Variable | Purpose | Default | Required? |
 |---|---|---|---|
 | `RTVI_EMBED_PORT` | Host port mapped to container `8000`. | (unset; `${RTVI_EMBED_PORT?}` fails fast) | Yes |
-| `VSS_RT_EMBED_IMAGE` | Container image. | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-embed` | No |
-| `VSS_RT_EMBED_TAG` | Container image tag. | `develop-latest`; set `develop-latest-sbsa` on SBSA/DGX Spark. | No |
+| `VSS_RT_EMBED_IMAGE` | Container image. | `nvcr.io/nvidia/vss-core/vss-rt-embed` | No |
+| `VSS_RT_EMBED_TAG` | Container image tag. | `3.3.0`; set `3.3.0-sbsa` on SBSA/DGX Spark. | No |
 | `RT_EMBED_DEVICE_ID` | GPU device id used by the Compose `device_ids` reservation. | `0` | No |
 | `RTVI_EMBED_NVIDIA_VISIBLE_DEVICES` | Maps to `NVIDIA_VISIBLE_DEVICES` inside the container. | `all` | No |
 | `RTVI_EMBED_NUM_GPUS` | Sets `NUM_GPUS` inside the container. | (unset) | No |
@@ -124,13 +124,12 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 | `ASSET_STORAGE_DIR` | Optional host directory bound to `/tmp/assets` inside the container. | (unset; mount is skipped) | No |
 | `RTVI_EMBED_LOG_DIR` | Optional host directory bound to `/opt/nvidia/rtvi/log/rtvi/`. | (unset; mount is skipped) | No |
 | `VSS_DATA_DIR` | Host root for VSS data; `data_log/vst/clip_storage` under this path is mounted into the container. | (unset) | Yes |
-| `RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH` | Container-side clip reader mount for the VST `clip_storage` bind (matches `rtvi-embed-docker-compose.yml`). | (from shipped compose; see export below) | Yes when binding clip storage |
 
 ## Network Requirements
 
 - **Ports exposed** — `${RTVI_EMBED_PORT}:8000/tcp`.
 - **Inbound traffic** — REST clients (other VSS microservices or operator tooling) calling the `/v1/*` endpoints.
-- **Outbound traffic** — GHCR (`ghcr.io`) for the container image, Hugging Face (`huggingface.co`) for the default model, and `prod.api.nvidia.com` when using NGC-hosted models or assets; optional Redis, Kafka brokers, and OpenTelemetry collector when those integrations are enabled; RTSP sources when live streams are registered.
+- **Outbound traffic** — NGC (`nvcr.io`) for the container image, Hugging Face (`huggingface.co`) for the default model, and `prod.api.nvidia.com` when using NGC-hosted models or assets; optional Redis, Kafka brokers, and OpenTelemetry collector when those integrations are enabled; RTSP sources when live streams are registered.
 - **DNS / hostname assumptions** — Uses `KAFKA_BOOTSTRAP_SERVERS=${RTVI_EMBED_KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}` for Kafka and defaults `REDIS_HOST=redis`, both of which assume your Compose stack provides those names. The OpenTelemetry collector defaults to the compose-network name `otel-collector`.
 - **`network_mode`** — Default bridge (no `network_mode` override in the Compose service).
 
@@ -147,25 +146,14 @@ Example: register and embed a live RTSP stream. Live-stream requests **require**
 
 ## Example Compose Snippet
 
-Set the container-side clip reader mount before validating or starting this snippet. Run from the VSS repo root so the relative compose path resolves. Read the target from the shipped compose file (same value as in `rtvi-embed-docker-compose.yml`):
-
-```bash
-RTVI_EMBED_COMPOSE=deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml
-export RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH="$(
-  grep 'data_log/vst/clip_storage' "$RTVI_EMBED_COMPOSE" \
-    | head -1 \
-    | sed -E 's/.*clip_storage:([^[:space:]]+).*/\1/'
-)"
-[ -z "$RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH" ] && {
-  echo "ERROR: could not extract container clip-storage path from $RTVI_EMBED_COMPOSE" >&2
-  return 1 2>/dev/null || exit 1
-}
-```
+The shipped Compose file fixes the container-side clip reader mount at
+`/home/vst/vst_release/streamer_videos`; the example below uses the same
+literal target.
 
 ```yaml
 services:
   rtvi-embed:
-    image: ${VSS_RT_EMBED_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-embed}:${VSS_RT_EMBED_TAG:-develop-latest}
+    image: ${VSS_RT_EMBED_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-rt-embed}:${VSS_RT_EMBED_TAG:-3.3.0}
     container_name: vss-rtvi-embed
     user: "1001:1001"
     profiles: ["rtvi-embed"]
@@ -195,7 +183,7 @@ services:
       - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
       - "${RTVI_EMBED_HF_CACHE:-rtvi-hf-cache}:/tmp/huggingface"
       - "rtvi-triton-model-repo:/tmp/triton_model_repo"
-      - "${VSS_DATA_DIR}/data_log/vst/clip_storage:${RTVI_EMBED_CLIP_STORAGE_CONTAINER_PATH}"
+      - "${VSS_DATA_DIR}/data_log/vst/clip_storage:/home/vst/vst_release/streamer_videos"
     ipc: host
     ulimits:
       memlock:
@@ -219,7 +207,9 @@ volumes:
   rtvi-triton-model-repo:
 ```
 
-The export above parses the container-side target from the clip_storage volume line in `deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`.
+The path above matches the container-side `clip_storage` target in
+`deploy/docker/services/rtvi/rtvi-embed/rtvi-embed-docker-compose.yml`; update
+this example if that canonical mount changes.
 
 ## Authentication & Authorization
 

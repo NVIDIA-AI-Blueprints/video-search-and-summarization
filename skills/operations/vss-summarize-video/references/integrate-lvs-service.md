@@ -55,7 +55,8 @@ making this service skill depend back on the orchestrator.
   **Authentication:** Same deployment-level auth behavior as the summarize API.
 
 - **Method:** Peer REST call
-  **Endpoint:** `RTVI_VLM_URL`, default `http://${HOST_IP}:8018`
+  **Endpoint:** `RTVI_VLM_URL`, populated from `RTVI_VLM_BASE_URL` (the
+  developer profile sets `http://rtvi-vlm:8000`)
   **Purpose:** LVS calls RT-VLM while summarizing a stored video file or clip.
   **Authentication:** Local default is unauthenticated; remote endpoints use the
   configured API key.
@@ -105,7 +106,7 @@ Stored-video request shape:
 
 ```json
 {
-  "model": "nim_nvidia_cosmos-reason2-8b_hf-1208",
+  "model": "nim_nvidia_cosmos3-nano-reasoner_bf16-final",
   "url": "http://<host>:30888/<vios-video-or-clip-url>",
   "scenario": "warehouse safety review",
   "events": ["person activity", "forklift interaction"],
@@ -126,22 +127,22 @@ jq -e '.choices[0].message.content | length > 0'
 | Variable | Purpose | Default | Required? |
 |---|---|---|---|
 | `LVS_BACKEND_URL` | Host-facing LVS API URL used by operators and agents | `http://${HOST_IP}:38111` | Yes |
-| `LVS_IMAGE` | LVS image repository | `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization` | Yes |
-| `LVS_TAG` | LVS image tag (multi-arch; same on every platform) | `develop-latest` | Yes |
-| `LVS_ENABLE_MCP` | Optional MCP/SSE endpoint | `true` | No |
+| `VSS_VIDEO_SUMMARIZATION_IMAGE` | LVS image repository | `nvcr.io/nvidia/vss-core/vss-video-summarization` | Yes |
+| `VSS_VIDEO_SUMMARIZATION_TAG` | LVS image tag | `3.3.0`; use `3.3.0-sbsa` on SBSA | Yes |
+| `LVS_ENABLE_MCP` | Optional MCP/SSE endpoint | `false` | No |
 | `LVS_DATABASE_BACKEND` | Active database backend | `elasticsearch_db` | Yes |
 | `KAFKA_ENABLED` | Enable Kafka integration | `true` in the LVS developer profile | Yes for shared VSS infra |
-| `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker address from the LVS container | `${HOST_IP}:9092` | Yes when Kafka is enabled |
+| `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker address from the LVS container | `kafka:29092` | Yes when Kafka is enabled |
 | `KAFKA_STRUCTURED_SUMMARY_TOPIC` | Structured summary topic | `mdx-structured-events-summary` | Yes when Kafka is enabled |
 | `LVS_ENABLE_LLM_MERGING` | Merge duplicate or overlapping events with the LLM | `true` | No |
-| `RTVI_VLM_URL` | RT-VLM endpoint LVS calls | `http://${HOST_IP}:${RTVI_VLM_PORT}` | Yes for local RT-VLM |
-| `RTVI_VLM_BASE_URL` | Operator/agent-facing RT-VLM URL | `http://${HOST_IP}:8018` | Yes for local RT-VLM |
-| `RTVI_VLM_MODEL_TO_USE` | RT-VLM backend selector | `cosmos-reason2` | Yes for integrated RT-VLM |
-| `RTVI_VLM_MODEL_PATH` | Integrated RT-VLM checkpoint | `ngc:nim/nvidia/cosmos-reason2-8b:hf-1208` | Yes for integrated RT-VLM |
+| `RTVI_VLM_URL` | Container-internal RT-VLM URL populated by Compose from `RTVI_VLM_BASE_URL`; do not set directly | `http://rtvi-vlm:8000` | Yes for local RT-VLM |
+| `RTVI_VLM_BASE_URL` | Host-side Compose input for the RT-VLM peer | `http://rtvi-vlm:8000` | Yes for local RT-VLM |
+| `RTVI_VLM_MODEL_TO_USE` | RT-VLM backend selector | `cosmos-reason3` | Yes for integrated RT-VLM |
+| `RTVI_VLM_MODEL_PATH` | Integrated RT-VLM checkpoint | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` | Yes for integrated RT-VLM |
 | `RTVI_VLM_MESSAGE_BUS` | Generated-output broker type | `kafka` | Yes when RT-VLM Kafka is enabled |
 | `RTVI_VLM_MESSAGE_BUS_TOPIC` | Raw RT-VLM caption topic | `mdx-vlm-captions` | Yes when RT-VLM Kafka is enabled |
 | `RTVI_VLM_ERROR_BUS` | Error-output broker type | `kafka` | Yes when RT-VLM Kafka is enabled |
-| `VLM_NAME` | Model id sent to LVS | `nim_nvidia_cosmos-reason2-8b_hf-1208` | Yes |
+| `VLM_NAME` | Model id sent to LVS | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | Yes |
 | `LLM_NAME` | LLM model id | `nvidia/nemotron-3.5-lightning-30b-a3b` | Required for local LLM |
 | `LLM_BASE_URL` | Remote or local LLM OpenAI-compatible base URL | `http://${HOST_IP}:${LLM_PORT}` when local | Required |
 | `NVIDIA_API_KEY` / `OPENAI_API_KEY` | Remote endpoint auth and LVS LLM API key fallback | empty | Required when endpoint enforces auth |
@@ -158,10 +159,10 @@ jq -e '.choices[0].message.content | length > 0'
 - **Outbound:** LVS calls RT-VLM at `RTVI_VLM_URL`, Elasticsearch at
   `ES_HOST:ES_PORT`, Kafka at `KAFKA_BOOTSTRAP_SERVERS`, and the configured LLM
   endpoint.
-- **DNS / hostname assumptions:** The Docker service uses `network_mode: host`
-  in the upstream compose, so generated values should use host-reachable
-  addresses such as `${HOST_IP}` or `localhost`, not compose-network DNS names.
-- **`network_mode`:** host.
+- **DNS / hostname assumptions:** The Docker service uses its Compose bridge
+  network and explicit host port mappings. Use Compose service names for
+  container-to-container peers and `${HOST_IP}` for host-facing URLs.
+- **`network_mode`:** Compose bridge (default).
 
 ## Known Integration Constraints
 
@@ -173,43 +174,62 @@ jq -e '.choices[0].message.content | length > 0'
 - **Model id must be discovered.** `VLM_NAME` must match `GET /models`; a
   friendly model name that RT-VLM does not advertise causes summarize requests
   to fail.
-- **`lvs` has peer `depends_on` entries.** Standalone generated builds must keep
-  included peers such as Elasticsearch and LLM readiness helpers, and strip only
-  undefined optional peers when a wrapper or selected deployment shape declares
-  them.
+- **`lvs` has optional peer `depends_on` entries.** Standalone generated builds
+  must keep selected Nemotron/Cosmos NIM and `rtvi-vlm` peers, and strip only
+  undefined optional peers when a wrapper or selected deployment shape does not
+  declare them.
 - **LVS config bind mount must resolve to a file.** The compose mount for
   `config.yaml` must point to a real file, not a Docker-created directory.
 - **Image variable isolation.** Generated profiles must keep the LVS image
   isolated from unrelated service image variables, using the source compose's
-  image contract or a patched LVS-specific `LVS_IMAGE` / `LVS_TAG` pair.
+  image contract or the `VSS_VIDEO_SUMMARIZATION_IMAGE` /
+  `VSS_VIDEO_SUMMARIZATION_TAG` pair.
 - **Single-file processing concurrency.** A busy LVS instance can return 503 for
   concurrent summarize requests. Generated smoke tests should run one request at
   a time.
 
 ## Example Compose Snippet
 
-Excerpted shape from `services/video-summarization/docker/deploy/compose.yaml`:
+Excerpted shape from `deploy/docker/services/video-summarization/compose.yml`:
 
 ```yaml
 services:
-  lvs:
-    image: via-engine-${USER:-user}
-    container_name: lvs
+  lvs-server:
+    image: ${CONTAINER_IMAGE:-${VSS_VIDEO_SUMMARIZATION_IMAGE:-${VSS_CONTAINER_REGISTRY:-nvcr.io/nvidia/vss-core}/vss-video-summarization}:${VSS_VIDEO_SUMMARIZATION_TAG:-3.3.0}}
+    container_name: vss-lvs
+    profiles: ["lvs-server"]
     ports:
-      - ${LVS_BACKEND_PORT:-38111}:38111
+      - ${BACKEND_HOST_PORT:-38111}:${BACKEND_PORT:-38111}
     volumes:
-      - ../../config/config.yaml:/opt/nvidia/via/config/default_config.yaml:ro
+      - ${VSS_APPS_DIR:?VSS_APPS_DIR must be set}/services/video-summarization/configs/config.yaml:/app/config.yaml:ro
     environment:
+      CA_RAG_CONFIG: /app/config.yaml
       LVS_DATABASE_BACKEND: ${LVS_DATABASE_BACKEND:-elasticsearch_db}
       KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
-      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}
       KAFKA_STRUCTURED_SUMMARY_TOPIC: ${KAFKA_STRUCTURED_SUMMARY_TOPIC:-mdx-structured-events-summary}
-      RTVI_VLM_URL: ${RTVI_VLM_URL:-http://rtvi-vlm:8000}
+      RTVI_VLM_URL: ${RTVI_VLM_BASE_URL:-}
+      RTVI_VLM_URL_PASSTHROUGH: "true"
     depends_on:
-      elasticsearch:
-        condition: service_started
-      wait-for-elasticsearch:
-        condition: service_completed_successfully
-      wait-for-llm:
-        condition: service_completed_successfully
+      nvidia-nemotron-nano-9b-v2-fp8:
+        condition: service_healthy
+        required: false
+      nemotron-3.5-lightning-30b-a3b:
+        condition: service_healthy
+        required: false
+      nvidia-nemotron-nano-9b-v2-fp8-shared-gpu:
+        condition: service_healthy
+        required: false
+      nemotron-3.5-lightning-30b-a3b-shared-gpu:
+        condition: service_healthy
+        required: false
+      cosmos3-reasoner:
+        condition: service_healthy
+        required: false
+      cosmos3-reasoner-shared-gpu:
+        condition: service_healthy
+        required: false
+      rtvi-vlm:
+        condition: service_healthy
+        required: false
 ```
