@@ -207,6 +207,17 @@ rules:
       another VSS stack's containers. Preferred fix: filter by
       com.docker.compose.project, as the volume cleanup does.
 
+  - id: "SDI-4"
+    path: "references/teardown.md"
+    message: "*docker ps*"
+    reason: >-
+      Accepted risk, to revisit after the release: same catch-all as the TM2
+      entry above, reported by the LLM scanner with varying wording. The sweep
+      removes stale VSS-named containers left by a prior deploy, which otherwise
+      bind ports the new deploy needs (issue #151: /sensor/list returns 502) or
+      serve stale data. It runs only when the user explicitly asks for a
+      teardown. Preferred fix: filter by com.docker.compose.project.
+
   - id: "TM1"
     path: "references/data-directory.md"
     message: "*a+rwx*"
@@ -246,6 +257,18 @@ rules:
       the browser sends. Matched on id and path only because this LLM finding's
       wording varies between runs. Preferred fix: an origin allowlist from the
       resolved UI origin and device auth kept on, then drop this entry.
+
+  - id: "SDI-1"
+    path: "scripts/tests/test_apply_onboard_config.py"
+    message: "*allowedOrigins*"
+    reason: >-
+      Accepted risk, to revisit: same behavior as the SDI-2 entry above, reported
+      under SDI-1 on some runs. The test asserts that
+      .openclaw/apply-onboard-config.py always sets the control UI's
+      allowedOrigins to "*"; the gateway binds loopback and the gateway token is
+      the gate. Id and path alone did not suppress the live high, whose text
+      names allowedOrigins. Preferred fix: an origin allowlist from the resolved
+      UI origin, then drop this entry.
 
   - id: "TM2"
     path: "references/prerequisites.md"
