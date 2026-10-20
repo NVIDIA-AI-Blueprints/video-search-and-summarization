@@ -271,7 +271,7 @@ See [Warehouse Known Limitations](/vss/vision-agent/agent-workflows/industry-spe
   `ServiceUnavailable`. Bounded decoder queues do not cap total service
   memory or guarantee protection against backend OOM. Reduce concurrency
   and restart the service if the backend has terminated.
-- **Report generation can intermittently fail after deployment with the Brev Launchable notebook:** After deploying VSS 3.3.0 by running `deploy_vss_launchable.ipynb`, submitting report-generation queries in the VSS Chat UI can intermittently display `Network Error` instead of completing the report.
+- **Report generation can intermittently fail after deployment with the Brev Launchable notebook:** After deploying VSS 3.3.0 by running `deploy_vss_launchable.ipynb`, submitting report-generation queries in the VSS Chat UI can intermittently display `Network Error` instead of completing the report. Regenerating the report with the same query should resolve the issue.
 
 ## VSS 3.2.1
 
