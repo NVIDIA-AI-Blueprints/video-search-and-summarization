@@ -6,8 +6,8 @@ Lives with the ``vss vlm`` command group: memory owns the contract (protocol,
 helpers) and the command group owns the translation from its backend's shapes.
 
 ``vss vlm run`` is a **point call** — one bounded synchronous inference. The
-lifecycle is simpler than ``vss summarize``: no submitted/running intermediate
-states are needed. Exactly one record is written, with a terminal status.
+lifecycle is simpler than ``vss summarize``: the framework writes ``submitted``
+and then the terminal record, with no ``running`` state in between.
 
 ``VLMAdapter`` is the runner/introspection shape: a fully resolved sensor window
 with stream identity. The CLI point-call uses ``VlmAdapter``.

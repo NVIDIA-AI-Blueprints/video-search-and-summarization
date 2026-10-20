@@ -5,10 +5,10 @@
 Visual question-answering (VQA) over video in a single bounded synchronous
 call: ask a question, get an answer, persist the result to unified memory.
 
-Unlike ``vss summarize``, ``vss vlm run`` is a **point call** (SDD §3.3). The
-lifecycle record is written once with a terminal status; there is no
-``submitted`` intermediate. One call produces one answer -- never routes to the
-summarize pipeline and never re-enters a long-running job.
+Unlike ``vss summarize``, ``vss vlm run`` is a **point call** (SDD §3.3): the
+framework writes ``submitted`` and then the terminal record within the one
+call. One call produces one answer -- never routes to the summarize pipeline
+and never re-enters a long-running job.
 
 Media reaches the VLM one of two ways (VLM-1 / VLM-2):
 

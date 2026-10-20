@@ -19,7 +19,11 @@ def test_set_show_unset(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     result, out = run("configure", "vlm", "set", "base-url=http://vlm:8000", "fps=2", "api_key=-", stdin="s3cret\n")
     assert result.exit_code == 0, result.output
     path = home / "vlm" / "config.json"
-    assert json.loads(path.read_text()) == {"base_url": "http://vlm:8000", "fps": 2.0, "api_key": "s3cret"}
+    assert json.loads(path.read_text()) == {
+        "base_url": "http://vlm:8000",
+        "fps": 2.0,
+        "api_key": "s3cret",  # pragma: allowlist secret
+    }
     assert path.stat().st_mode & 0o777 == 0o600
     assert home.stat().st_mode & 0o777 == 0o700
     assert out["file"]["api_key"] == "***"

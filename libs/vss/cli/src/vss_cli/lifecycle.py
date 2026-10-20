@@ -47,7 +47,7 @@ RecordState = Literal["absent", "closed", "stale"]
 CloseStatus = Literal["failed", "partial", "timeout"]
 
 #: Crockford base32, for ULID job ids.
-_CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+_CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"  # pragma: allowlist secret
 
 #: Bounded retry for the terminal write. Small: a close that keeps failing
 #: must not replace the caller's diagnosis with one about Elasticsearch.
