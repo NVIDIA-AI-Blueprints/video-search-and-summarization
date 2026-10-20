@@ -285,7 +285,7 @@ def test_set_nvidia_key_is_reported_unvalidated_and_never_probed(
     host. Pinning the absent probe is what stops it coming back: a key this
     bogus used to print `NVIDIA_API_KEY ok` and exit 0 under `--require`.
     """
-    result = gate.run(*args, NVIDIA_API_KEY="nvapi-bogus-0000")
+    result = gate.run(*args, NVIDIA_API_KEY="test-not-a-real-key")
     assert result.returncode == 0, output(result)
     assert "not validated here" in result.stdout
     assert "NVIDIA_API_KEY ok" not in result.stdout
