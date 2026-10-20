@@ -7,6 +7,9 @@ The repository-wide rules in the root `AGENTS.md` apply as well.
 
 - `libs/vision-ai/` — `nvidia-vision-ai` (`nvidia_vision_ai`). Pydantic in, pydantic out. It must not read
   config files, environment variables or `~/.vision-ai`, and must not import the CLI.
+  The rule binds our code, not the SDKs a knowledge backend calls: with a value unset, the
+  NVIDIA embeddings SDKs (`langchain`, `llama_index`) read `NVIDIA_API_KEY` and nvidia-rag
+  (`frag_lib`) reads `NVIDIA_RAG_*`. Callers that need full control pass every value.
 - `apps/cli/` — `nvidia-vision-ai-cli` (`nvidia_vision_ai_cli`). The `vision-ai` command, the Runtime
   (settings precedence, `~/.vision-ai` layout), the job store wiring and the plugin contract (`tool.py`).
 - New tools implement `nvidia_vision_ai_cli.Tool` and register under the `vision_ai.tools` entry point.

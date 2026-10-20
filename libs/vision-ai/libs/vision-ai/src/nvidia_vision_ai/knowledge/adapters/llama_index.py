@@ -62,7 +62,7 @@ class LlamaIndexConfig(BaseModel):
     )
     embed_api_key: str | None = Field(
         default=None,
-        description="NVIDIA API key; falls back to NVIDIA_API_KEY env.",
+        description="NVIDIA API key. When unset, the NVIDIA embeddings SDK reads NVIDIA_API_KEY itself.",
     )
 
 
