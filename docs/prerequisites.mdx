@@ -5,6 +5,17 @@ position: 1
 ---
 This section covers the prerequisites for deploying and using the VSS Blueprint.
 
+<Note>
+The shared hardware, software, credentials, and runtime requirements below
+apply to **all systems**. DGX Spark and Thor setup sections add platform
+settings; completing only a platform section does not complete prerequisites.
+Complete the shared Docker, Docker Compose, Buildx, and NGC CLI setup in the
+appendix as well as the platform-specific steps. Start with
+[Pin and configure Docker](#pin-and-configure-docker).
+For an agent-assisted host check after cloning, use
+[Prepare your coding agent](/getting-started/quickstart#prepare-your-coding-agent).
+</Note>
+
 ## Hardware Requirements
 
 The VSS Blueprint has been validated and tested on the following NVIDIA GPUs:
@@ -612,6 +623,8 @@ Do not install Docker via `snap`. The snap-packaged Docker runs inside a confine
 #### Run docker without sudo
 
 After installation, complete the Linux post-installation steps so that Docker can run without sudo. See [Linux post-installation steps for Docker Engine](https://docs.docker.com/engine/install/linux-postinstall/).
+
+<a id="configure-docker"></a>
 
 ### Pin and configure Docker
 

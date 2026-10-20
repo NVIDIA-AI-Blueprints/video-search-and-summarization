@@ -472,6 +472,7 @@ jobs:
             .github/skill-eval/tests/test_vss_summarize_eval_contract.py \
             .github/skill-eval/tests/test_vss_summarize_model_selection.py \
             deploy/docker/scripts/tests/test_orchestrator_mcp_helper.py \
+            deploy/docker/scripts/tests/test_pin_docker_version.py \
             deploy/docker/scripts/tests/test_run_setup_notebook.py \
             deploy/docker/scripts/tests/test_dashboard_relay.py \
             deploy/docker/scripts/tests/test_dashboard_forward_watchdog.py \

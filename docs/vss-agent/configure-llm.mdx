@@ -7,6 +7,10 @@ This page describes how to configure the LLM for the VSS agent workflow—both *
 
 For **remote** LLMs, as long as the API is [OpenAI compatible](https://platform.openai.com/docs/api-reference/chat), you can point the agent to it for reasoning and coordinating tool calls during report generation, video understanding, video summarization, and more. Remote endpoints can enable rapid startup when they are already up and running.
 
+Agent containers default `OPENAI_API_KEY` to `NOAPIKEYSET` for local OpenAI-compatible clients, including direct NAT evaluation commands. Set a real `OPENAI_API_KEY` for an authenticated OpenAI endpoint; supplied Compose values and Helm `extraEnv` overrides take precedence.
+
+The Base and LVS evaluation configurations give `eval_llm_judge` the stock reasoning model's 32,768-token output budget so it can finish its score. When selecting a different judge model, adjust `max_tokens` to that model's supported output budget. QA judges keep their analysis in the reasoning channel and return only the decimal score in their final response, as required by the score parser.
+
 ## Local LLM customization
 
 When deploying with a local LLM, the agent workflow uses a default NIM endpoint. You can customize it as follows:

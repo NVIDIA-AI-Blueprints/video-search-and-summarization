@@ -258,6 +258,25 @@ class HelmReleaseChannelPolicyTest(unittest.TestCase):
                 self.assertIn(COMPOSE_TAG_VARIABLES.get(name, "VSS_CONTAINER_TAG"), text)
                 self.assertIn("develop-latest", text)
 
+    def test_base_profile_vlm_memory_matches_compose(self):
+        compose = (
+            REPO_ROOT
+            / "deploy/docker/developer-profiles/dev-profile-base/overrides.env"
+        ).read_text()
+        helm = (
+            REPO_ROOT / "deploy/helm/developer-profiles/dev-profile-base/values.yaml"
+        ).read_text()
+        fraction = re.search(
+            r"^RTVI_VLLM_GPU_MEMORY_UTILIZATION=(.+)$", compose, re.MULTILINE
+        )
+        helm_fraction = re.search(
+            r'- name: VLLM_GPU_MEMORY_UTILIZATION\n\s+value: "([^"]*)"', helm
+        )
+        self.assertIsNotNone(fraction)
+        self.assertIsNotNone(helm_fraction)
+        self.assertEqual(fraction[1], "0.4")
+        self.assertEqual(helm_fraction[1], fraction[1])
+
     def test_helm_sync_prompt_enforces_shared_channel(self):
         prompt = (REPO_ROOT / ".github/helm-sync/AGENTS.md").read_text()
         self.assertIn("Shared managed-image channel", prompt)

@@ -56,17 +56,45 @@ DAEMON_JSON="/etc/docker/daemon.json"
 version_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]; }
 version_lt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$1" ]; }
 
+# Notebook subprocesses cannot answer a password prompt or share a terminal's
+# sudo timestamp. Hand off the entire script so the next notebook run is a no-op.
+PRIVILEGE_CHECKED=false
+run_privileged() {
+  if [ "$EUID" -eq 0 ]; then
+    "$@"
+  elif [ -t 0 ]; then
+    sudo "$@"
+  else
+    if [ "$PRIVILEGE_CHECKED" = false ]; then
+      if ! sudo -n true 2>/dev/null; then
+        local script_path
+        script_path="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/$(basename -- "${BASH_SOURCE[0]}")"
+        printf 'Administrator access is required. Run in the host terminal:\n  sudo bash %q\n' "$script_path" >&2
+        printf 'Then rerun this setup step.\n' >&2
+        return 1
+      fi
+      PRIVILEGE_CHECKED=true
+    fi
+    sudo -n "$@"
+  fi
+}
+
 hold_installed_packages() {
   local installed_pkgs=()
+  local held_pkgs
+  held_pkgs="$(apt-mark showhold)"
   local pkg
   for pkg in "$@"; do
     if [ "$(dpkg-query -W -f='${db:Status-Status}' "$pkg" 2>/dev/null || true)" = "installed" ]; then
-      installed_pkgs+=("$pkg")
+      case $'\n'"$held_pkgs"$'\n' in
+        *$'\n'"$pkg"$'\n'*) ;; # Already held: no privilege needed.
+        *) installed_pkgs+=("$pkg") ;;
+      esac
     fi
   done
 
   if [ "${#installed_pkgs[@]}" -gt 0 ]; then
-    sudo apt-mark hold "${installed_pkgs[@]}"
+    run_privileged apt-mark hold "${installed_pkgs[@]}"
   fi
 }
 
@@ -75,8 +103,8 @@ hold_installed_packages() {
 ensure_jq() {
   if ! command -v jq >/dev/null 2>&1; then
     echo "jq is required to merge $DAEMON_JSON; installing it."
-    sudo apt-get update -qq
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y jq
+    run_privileged apt-get update -qq
+    run_privileged env DEBIAN_FRONTEND=noninteractive apt-get install -y jq
   fi
 }
 
@@ -90,29 +118,29 @@ configure_cgroup_driver() {
     return 0
   fi
 
+  # Establish privilege outside the conditional so a failed sudo cannot be
+  # mistaken for an absent config in a root-only directory.
+  run_privileged mkdir -p "$(dirname "$DAEMON_JSON")"
   local merged
   merged="$(mktemp)"
-  # Read under sudo like the write below: the file is often root-owned 0600,
-  # and this script runs as the login user.
-  if sudo test -f "$DAEMON_JSON"; then
+  if run_privileged test -f "$DAEMON_JSON"; then
     ensure_jq
     # Keep the file's other keys (default-runtime, runtimes, address pools) and
     # any unrelated exec-opt. Staged through a temp file because a
-    # `jq | sudo tee $DAEMON_JSON` pipeline truncates the live config even when
+    # `jq | run_privileged tee $DAEMON_JSON` pipeline truncates the live config even when
     # jq fails, and dockerd will not start on an empty one.
-    sudo jq '.["exec-opts"] = ((.["exec-opts"] // []
+    run_privileged jq '.["exec-opts"] = ((.["exec-opts"] // []
          | map(select(startswith("native.cgroupdriver=") | not)))
          + ["native.cgroupdriver=cgroupfs"])' "$DAEMON_JSON" > "$merged"
-    sudo cp "$DAEMON_JSON" "$DAEMON_JSON.bak"
+    run_privileged cp "$DAEMON_JSON" "$DAEMON_JSON.bak"
   else
     echo '{"exec-opts": ["native.cgroupdriver=cgroupfs"]}' > "$merged"
-    sudo mkdir -p "$(dirname "$DAEMON_JSON")"
   fi
-  sudo cp "$merged" "$DAEMON_JSON"
+  run_privileged cp "$merged" "$DAEMON_JSON"
   rm -f "$merged"
 
   echo "Set exec-opts native.cgroupdriver=cgroupfs in $DAEMON_JSON; restarting Docker."
-  sudo systemctl restart docker
+  run_privileged systemctl restart docker
 }
 
 DOCKER_VERSION="$(docker version --format '{{.Server.Version}}' 2>/dev/null || true)"
@@ -151,9 +179,9 @@ CONTAINERD_VER="2.2.3-1~ubuntu.${DISTRO}~${CODENAME}"
 # Refresh the APT cache first -- without this, the specific epoch-versioned
 # package may not be in the local index and the install would fail with
 # version-not-found before any pinning takes effect.
-sudo apt-get update -qq
+run_privileged apt-get update -qq
 
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+run_privileged env DEBIAN_FRONTEND=noninteractive apt-get install -y \
   --allow-downgrades \
   -o Dpkg::Options::=--force-confdef \
   -o Dpkg::Options::=--force-confold \
