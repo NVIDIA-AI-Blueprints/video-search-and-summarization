@@ -117,6 +117,13 @@ layout below in `deploy/docker/developer-profiles/dev-profile-alerts/user-overri
 - `VSS_DATA_DIR`: Absolute writable host directory for downloaded models, videos, and service data.
 - `HOST_IP`: IP address or hostname that clients use to reach services on this VSS host. Set it to an address reachable by the intended clients.
 - `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `${HOST_IP}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
+- `VST_INGRESS_ENDPOINT`: Host and path VIOS puts in the alert-clip URLs it hands to the VLM. The variable is absent from the profile files; add it when the VLM runs off this host (`VLM_MODE=remote`), on a line below the existing `VST_INGRESS_HOST_PORT` assignment:
+
+  ```ini
+  VST_INGRESS_ENDPOINT=${HOST_IP}:${VST_INGRESS_HOST_PORT}/vst
+  ```
+
+  Use host and path only, without a scheme. Substitute `${EXTERNAL_IP}` for `${HOST_IP}` when the VLM connects from outside the host network, and allow inbound traffic to port 30888 from wherever the VLM runs.
 
 <Note>
 The default deployed model is Cosmos3 Nano Reasoner with BF16 precision.
@@ -748,6 +755,8 @@ speed, this may take a few minutes.
 
 <Note>
 When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
+
+Set `VST_INGRESS_ENDPOINT` for a remote VLM before you bring the stack up. See [Environment-variable overrides](/vss/vision-agent/agent-workflows/alert-verification#step-1-deploy-the-agent) above.
 </Note>
 
 Once the deployment is complete, check that all the containers are running and healthy:
