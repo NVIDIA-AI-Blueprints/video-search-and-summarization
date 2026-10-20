@@ -247,6 +247,18 @@ rules:
       wording varies between runs. Preferred fix: an origin allowlist from the
       resolved UI origin and device auth kept on, then drop this entry.
 
+  - id: "SDI-1"
+    path: "scripts/tests/test_apply_onboard_config.py"
+    reason: >-
+      Accepted risk, to revisit: same behavior as the SDI-2 entry above, reported
+      under SDI-1 on some runs. The test asserts that
+      .openclaw/apply-onboard-config.py always sets the control UI's
+      allowedOrigins to "*"; the gateway binds loopback and the gateway token is
+      the gate. Matched on id and path only, like SDI-2, because this LLM
+      finding's wording varies between runs and a message glob missed it.
+      Preferred fix: an origin allowlist from the resolved UI origin, then drop
+      this entry.
+
   - id: "TM2"
     path: "references/prerequisites.md"
     message: "| sh*"
