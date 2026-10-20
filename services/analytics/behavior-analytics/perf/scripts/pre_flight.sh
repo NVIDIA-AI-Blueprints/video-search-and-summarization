@@ -17,6 +17,5 @@ if grep -q 'git-lfs.github.com' "$playback" || [[ "$(wc -c < "$playback")" -lt 1
     head -n 5 "$playback" >&2 || true
     exit 1
 fi
-mkdir -p "$OUTPUT_DIR"
-chmod 0777 "$OUTPUT_DIR"
+ensure_host_dir "$OUTPUT_DIR"
 echo "Behavior Analytics playback pre-flight passed."

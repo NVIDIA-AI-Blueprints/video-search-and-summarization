@@ -30,6 +30,7 @@ python3 "$PERF_DIR/scripts/overlay_app_config.py" \
 # Kafka and Elasticsearch run as uid 1000. Keep their bind mounts under
 # /tmp (BA_PERF_DATA_DIR), not the Jenkins checkout. #62 failed at GPU
 # deleteDir on leftover ES lucene files from #60.
+ensure_host_dir "$BA_PERF_DATA_DIR"
 mkdir -p \
     "$BA_PERF_DATA_DIR/data_log/kafka" \
     "$BA_PERF_DATA_DIR/data_log/elastic/data" \

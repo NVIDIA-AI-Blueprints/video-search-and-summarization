@@ -83,7 +83,7 @@ fi
 HOST_IP="localhost"
 
 # Create/populate the .env file based on profiles
-ENV_FILE="$SCRIPT_DIR/docker_compose/infra/.env"
+ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/docker_compose/infra/.env}"
 echo "Generating environment variables at $ENV_FILE"
 
 # Resolve paths in this shell first. The unquoted heredoc below interpolates

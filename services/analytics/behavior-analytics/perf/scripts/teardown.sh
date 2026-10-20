@@ -5,11 +5,6 @@
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 docker rm -f "$MONITOR_NAME" >/dev/null 2>&1 || true
-docker rm -f \
-    elasticsearch kafka mdx-analytics mdx-analytics-playback \
-    logstash kibana vss-broker-health-check vss-kafka-topics \
-    vss-elasticsearch-init \
-    >/dev/null 2>&1 || true
 
 if [[ -f "$INTEGRATION_DIR/docker_compose/infra/.env" ]]; then
     load_compose_env || true

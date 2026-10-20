@@ -70,7 +70,10 @@ def evaluate_kpis(result: Mapping[str, Any], kpis: Mapping[str, Any]) -> dict[st
             )
         for value_field, limit_field in _MAX_FIELDS:
             limit = limits.get(limit_field)
-            if limit is None or measured.get(value_field) is None:
+            if limit is None:
+                continue
+            if measured.get(value_field) is None:
+                violations.append(f"{label}.{value_field} missing")
                 continue
             value = float(measured[value_field])
             if value > float(limit):

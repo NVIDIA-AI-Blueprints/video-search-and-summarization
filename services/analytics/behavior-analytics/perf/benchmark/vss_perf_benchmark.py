@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 from latency import build_result
+from safe_fs import safe_write_text
 
 
 def main() -> int:
@@ -31,8 +32,7 @@ def main() -> int:
         duration_seconds=args.duration_seconds,
         warmup_seconds=args.warmup_seconds,
     )
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, indent=2) + "\n")
+    safe_write_text(args.output, json.dumps(result, indent=2) + "\n")
     print(args.output)
     return 0 if result["success"] else 1
 

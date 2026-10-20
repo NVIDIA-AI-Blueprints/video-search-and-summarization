@@ -17,6 +17,7 @@ sys.path.insert(0, str(PERF_ROOT / "benchmark"))
 
 from latency import build_result  # noqa: E402
 from minio_upload import publish_result  # noqa: E402
+from safe_fs import safe_write_text  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -51,24 +52,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def result_dir(args: argparse.Namespace) -> Path:
+    return result_file(args).parent
+
+
+def result_file(args: argparse.Namespace) -> Path:
     if args.output_json:
-        return args.output_json.parent if args.output_json.suffix == ".json" else args.output_json
+        path = Path(args.output_json)
+        if path.suffix.lower() != ".json":
+            return path / "result.json"
+        return path
     env_output = os.environ.get("OUTPUT_DIR")
     if env_output:
-        return Path(env_output)
-    return PERF_ROOT / "results" / f"behavior-analytics_{args.scenario}_{args.config_id}"
+        return Path(env_output) / "result.json"
+    return PERF_ROOT / "results" / f"behavior-analytics_{args.scenario}_{args.config_id}" / "result.json"
 
 
-def write_result(directory: Path, payload: dict[str, object]) -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
-    dest = directory / "result.json"
-    dest.write_text(json.dumps(payload, indent=2) + "\n")
-    return dest
+def write_result(dest: Path, payload: dict[str, object]) -> Path:
+    return safe_write_text(dest, json.dumps(payload, indent=2) + "\n")
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    output = result_dir(args)
+    output_file = result_file(args)
+    output = output_file.parent
     output.mkdir(parents=True, exist_ok=True)
 
     env = os.environ.copy()
@@ -85,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.stage_failure:
         dest = write_result(
-            output,
+            output_file,
             {
                 "schema_version": "0.1",
                 "service": "behavior-analytics",
@@ -107,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
             duration_seconds=int(env.get("PERF_DURATION_SECONDS", "60")),
             warmup_seconds=int(env.get("PERF_WARMUP_SECONDS", "10")),
         )
-        dest = write_result(output, payload)
+        dest = write_result(output_file, payload)
         extra: dict[str, object] = {}
         if should_upload:
             extra["minio"] = _upload(dest, args)
@@ -123,7 +129,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         cmd = ["bash", str(PERF_ROOT / "run_benchmark.sh")]
     completed = subprocess.run(cmd, env=env, check=False)
-    dest = output / "result.json"
+    measured = output / "result.json"
+    dest = output_file
+    if measured.is_file() and measured.resolve() != dest.resolve():
+        safe_write_text(dest, measured.read_text())
+    elif measured.is_file():
+        dest = measured
     extra: dict[str, object] = {}
     if dest.is_file() and should_upload:
         extra["minio"] = _upload(dest, args)
@@ -132,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if not dest.is_file():
         dest = write_result(
-            output,
+            output_file,
             {
                 "schema_version": "0.1",
                 "service": "behavior-analytics",

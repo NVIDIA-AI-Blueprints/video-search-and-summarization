@@ -14,6 +14,7 @@ from typing import Mapping
 from kpis import evaluate_kpis, load_kpis
 
 OUTPUT_TOPICS = ("frames", "behavior", "events", "incidents")
+COMPLETE_TOPICS = ("raw",) + OUTPUT_TOPICS
 CORRECTED_FIELDS = ("min_s", "max_s", "avg_s", "p50_s", "p95_s", "p99_s")
 TOPIC_TITLES = {
     "RAW MESSAGES": "raw",
@@ -31,9 +32,10 @@ def parse_latency_report(text: str) -> dict[str, dict[str, float]]:
 
     The monitor reprints a growing table every few seconds. Earlier dumps
     are prefixes of the last one, so merging every dump double-counts.
-    Empty dumps in the warm-up window are skipped. Within the last dump,
-    count is summed across sensors and average / percentile columns are
-    count-weighted.
+    Empty dumps in the warm-up window are skipped. Stopping the monitor can
+    leave a partial final dump; keep the last dump that includes every
+    expected topic. Within that dump, count is summed across sensors and
+    average / percentile columns are count-weighted.
     """
     last: dict[str, dict[str, float]] = {}
     batch: dict[str, dict[str, float]] = {}
@@ -41,8 +43,7 @@ def parse_latency_report(text: str) -> dict[str, dict[str, float]]:
     for raw_line in text.splitlines():
         title = raw_line.strip()
         if title.startswith(_REPORT_HEADER):
-            if batch:
-                last = batch
+            last = _keep_report(last, batch)
             batch = {}
             topic = None
             continue
@@ -55,8 +56,21 @@ def parse_latency_report(text: str) -> dict[str, dict[str, float]]:
         if row is None:
             continue
         batch[topic] = _merge(batch.get(topic), row)
-    if batch:
-        last = batch
+    return _keep_report(last, batch)
+
+
+def _report_complete(batch: Mapping[str, Mapping[str, float]]) -> bool:
+    return all(name in batch for name in COMPLETE_TOPICS)
+
+
+def _keep_report(
+    last: dict[str, dict[str, float]],
+    batch: dict[str, dict[str, float]],
+) -> dict[str, dict[str, float]]:
+    if not batch:
+        return last
+    if _report_complete(batch) or not last:
+        return batch
     return last
 
 

@@ -13,6 +13,8 @@ from unittest.mock import patch
 from kpis import DEFAULT_KPIS_PATH, _load_simple_yaml, evaluate_kpis, load_kpis
 from latency import build_result, correct_topics, parse_latency_report
 from minio_upload import minio_settings, publish_result
+from scenario_config import scenario_settings
+from safe_fs import safe_write_text
 
 OVERLAY = (
     Path(__file__).resolve().parents[1] / "scripts" / "overlay_app_config.py"
@@ -90,6 +92,21 @@ class LatencyCorrectionTest(unittest.TestCase):
         self.assertAlmostEqual(topics["behavior"]["min_s"], 0.1)
         self.assertAlmostEqual(topics["behavior"]["max_s"], 0.5)
         self.assertNotIn("events", topics)
+
+    def test_parse_keeps_complete_dump_if_final_report_is_partial(self) -> None:
+        partial = (
+            CUMULATIVE_REPORT
+            + "\nStatistics Report - 2026-10-18 22:48:00 - Batch ID: 19\n"
+            + "RAW MESSAGES\n"
+            + "| Sensor          |       Count |     Min(s) |     Max(s) |     Avg(s) |    Size(KB) |     p50(s) |     p95(s) |     p99(s) |\n"
+            + "| Camera          |        2000 |      0.000 |      0.003 |      0.000 |       0.333 |      0.000 |      0.001 |      0.001 |\n"
+            + "FRAMES MESSAGES\n"
+            + "| Camera          |        2000 |      0.001 |      0.019 |      0.007 |       1.001 |      0.007 |      0.012 |      0.012 |\n"
+        )
+        topics = parse_latency_report(partial)
+        self.assertEqual(topics["raw"]["count"], 5649)
+        self.assertEqual(topics["behavior"]["count"], 7)
+        self.assertEqual(topics["incidents"]["count"], 6110)
 
     def test_parse_uses_last_cumulative_dump_only(self) -> None:
         topics = parse_latency_report(CUMULATIVE_REPORT)
@@ -181,17 +198,41 @@ class LatencyCorrectionTest(unittest.TestCase):
         }
         failed = evaluate_kpis(measured, tight)
         self.assertFalse(failed["passed"])
-        self.assertTrue(any("frames.corrected.p50_s" in item for item in failed["violations"]))
-        missing_events = build_result(
-            REPORT,
-            artifact_ref="nvcr.io/example/behavior-analytics:test",
-            scenario="quick_test",
-            config_id="warehouse_2d-kafka-playback",
-            duration_seconds=60,
-            warmup_seconds=10,
+
+    def test_kpis_fail_when_configured_percentile_is_missing(self) -> None:
+        payload = {
+            "scenario": "quick_test",
+            "config_id": "warehouse_2d-kafka-playback",
+            "raw": {"count": 2000, "avg_s": 0.0},
+            "topics": {
+                "frames": {
+                    "present": True,
+                    "total": {"count": 2000},
+                    "corrected": {"avg_s": 0.01, "p50_s": None, "p99_s": 0.02},
+                },
+                "behavior": {
+                    "present": True,
+                    "total": {"count": 10},
+                    "corrected": {"avg_s": 0.01, "p50_s": 0.02, "p99_s": 0.03},
+                },
+                "events": {
+                    "present": True,
+                    "total": {"count": 20},
+                    "corrected": {"avg_s": 0.01, "p50_s": 0.02, "p99_s": 0.03},
+                },
+                "incidents": {
+                    "present": True,
+                    "total": {"count": 2000},
+                    "corrected": {"avg_s": 0.01, "p50_s": 0.02, "p99_s": 0.03},
+                },
+            },
+        }
+        result = evaluate_kpis(payload, load_kpis())
+        self.assertFalse(result["passed"], result)
+        self.assertTrue(
+            any("frames.corrected.p50_s missing" in item for item in result["violations"]),
+            result["violations"],
         )
-        self.assertFalse(missing_events["success"])
-        self.assertIn("events missing", missing_events["kpis"]["violations"])
 
     def test_minio_publish_uses_config_and_credentials(self) -> None:
         config = (
@@ -319,8 +360,31 @@ class LatencyCorrectionTest(unittest.TestCase):
                     ["--scenario", "quick_test", "--config-id", "warehouse_2d-kafka-playback"]
                 )
                 self.assertEqual(module.result_dir(args), Path(directory))
+                named = module.parse_args(["--output-json", str(Path(directory) / "benchmark.json")])
+                self.assertEqual(module.result_file(named), Path(directory) / "benchmark.json")
             finally:
                 os.environ.pop("OUTPUT_DIR", None)
+
+    def test_safe_write_replaces_symlink_instead_of_following_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "outside.txt"
+            target.write_text("secret\n")
+            dest = Path(directory) / "result.json"
+            dest.symlink_to(target)
+            safe_write_text(dest, '{"ok": true}\n')
+            self.assertFalse(dest.is_symlink())
+            self.assertEqual(dest.read_text(), '{"ok": true}\n')
+            self.assertEqual(target.read_text(), "secret\n")
+
+    def test_scenario_config_loads_playback_settings(self) -> None:
+        settings = scenario_settings(
+            Path(__file__).resolve().parents[1] / "configs" / "config.yaml",
+            "quick_test",
+        )
+        self.assertEqual(settings["duration_seconds"], 60)
+        self.assertEqual(settings["warmup_seconds"], 10)
+        self.assertEqual(settings["percentiles"], [50, 95, 99])
+        self.assertIn("behavior", settings["topics"])
 
     def test_generate_env_sources_under_nounset(self) -> None:
         script = (
@@ -332,40 +396,48 @@ class LatencyCorrectionTest(unittest.TestCase):
             / "integration"
             / "generate_env.sh"
         )
-        completed = subprocess.run(
-            [
-                "bash",
-                "-c",
-                "set -euo pipefail; "
-                f'SCRIPT_DIR={str(script.parent)!r}; '
-                "PROFILE1=warehouse_2d; PROFILE2=kafka; "
-                f"source {str(script)!r}; "
-                'test -n "$INFRA_DIR"; test -f "$ENV_FILE"',
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn("Generating environment variables", completed.stdout)
-        isolated = subprocess.run(
-            [
-                "bash",
-                "-c",
-                "set -euo pipefail; "
-                f'SCRIPT_DIR={str(script.parent)!r}; '
-                "PROFILE1=warehouse_2d; PROFILE2=kafka; "
-                "BA_PERF_DATA_DIR=/tmp/ba-perf-mdx; "
-                f"source {str(script)!r}; "
-                'test "$VSS_DATA_DIR" = /tmp/ba-perf-mdx; '
-                'test "$MDX_DATA_DIR" != "$VSS_DATA_DIR"; '
-                'test "$COMPOSE_PROJECT_NAME" = ba-perf',
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(isolated.returncode, 0, isolated.stderr)
+        checked_in_env = script.parent / "docker_compose" / "infra" / ".env"
+        before = checked_in_env.read_text() if checked_in_env.is_file() else None
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = Path(tmp) / "infra" / ".env"
+            completed = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    "set -euo pipefail; "
+                    f'SCRIPT_DIR={str(script.parent)!r}; '
+                    f'ENV_FILE={str(env_file)!r}; '
+                    "PROFILE1=warehouse_2d; PROFILE2=kafka; "
+                    f"source {str(script)!r}; "
+                    'test -n "$INFRA_DIR"; test -f "$ENV_FILE"',
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue(env_file.is_file())
+            isolated = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    "set -euo pipefail; "
+                    f'SCRIPT_DIR={str(script.parent)!r}; '
+                    f'ENV_FILE={str(env_file)!r}; '
+                    "PROFILE1=warehouse_2d; PROFILE2=kafka; "
+                    "BA_PERF_DATA_DIR=/tmp/ba-perf-mdx; "
+                    f"source {str(script)!r}; "
+                    'test "$VSS_DATA_DIR" = /tmp/ba-perf-mdx; '
+                    'test "$MDX_DATA_DIR" != "$VSS_DATA_DIR"; '
+                    'test "$COMPOSE_PROJECT_NAME" = ba-perf',
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(isolated.returncode, 0, isolated.stderr)
+        after = checked_in_env.read_text() if checked_in_env.is_file() else None
+        self.assertEqual(before, after)
 
     def test_deploy_builds_infra_images_not_behavior_analytics(self) -> None:
         deploy = (
@@ -403,6 +475,22 @@ class LatencyCorrectionTest(unittest.TestCase):
         ).read_text()
         self.assertIn("compose down --remove-orphans -v", teardown)
         self.assertIn("remove_root_tree", teardown)
+        self.assertNotIn("docker rm -f elasticsearch", teardown)
+        self.assertNotIn("docker rm -f kafka", teardown)
+        self.assertNotIn("docker rm -f mdx-analytics", teardown)
+        common = (
+            REPO_ROOT
+            / "services"
+            / "analytics"
+            / "behavior-analytics"
+            / "perf"
+            / "scripts"
+            / "common.sh"
+        ).read_text()
+        self.assertIn("scenario_config.py", common)
+        self.assertIn("Refusing to delete symlink", common)
+        root_run = (REPO_ROOT / "perf" / "run_benchmark.sh").read_text()
+        self.assertIn("export OUTPUT_DIR=", root_run)
         generate_env = (
             REPO_ROOT
             / "services"
@@ -496,6 +584,8 @@ class LatencyCorrectionTest(unittest.TestCase):
         self.assertIn("starting playback", measure)
         self.assertIn("--entrypoint python3", measure)
         self.assertIn("tools/latency/latency_monitor.py", measure)
+        self.assertIn('--user "$(id -u):$(id -g)"', measure)
+        self.assertNotIn("chmod 0777", measure)
         pre_flight = (
             REPO_ROOT
             / "services"
@@ -507,6 +597,8 @@ class LatencyCorrectionTest(unittest.TestCase):
         ).read_text()
         self.assertIn("git-lfs.github.com", pre_flight)
         self.assertIn('configs/kpis.yaml', pre_flight)
+        self.assertIn("ensure_host_dir", pre_flight)
+        self.assertNotIn("chmod 0777", pre_flight)
         up_line = next(line for line in deploy.splitlines() if "compose up -d --build" in line)
         self.assertNotIn("playback", up_line)
         apps = (
@@ -523,9 +615,14 @@ class LatencyCorrectionTest(unittest.TestCase):
         stream = apps.split("\n  analytics-stream:\n", 1)[1]
         self.assertNotIn("\n    build:", stream)
         self.assertIn("image: ${BEHAVIOR_ANALYTICS_IMAGE", stream)
-        infra = (
-            REPO_ROOT / "deploy" / "docker" / "services" / "infra" / "compose.yml"
-        ).read_text()
+        deploy_infra = REPO_ROOT / "deploy" / "docker" / "services" / "infra" / "compose.yml"
+        compose_infra = REPO_ROOT / "compose" / "docker" / "services" / "infra" / "compose.yml"
+        infra_path = deploy_infra if deploy_infra.is_file() else compose_infra
+        self.assertTrue(
+            infra_path.is_file(),
+            f"missing infra compose at {deploy_infra} or {compose_infra}",
+        )
+        infra = infra_path.read_text()
         self.assertIn("\n  broker-health-check:", infra)
         self.assertIn("dockerfile: Dockerfiles/${STREAM_TYPE}-health-check.Dockerfile", infra)
 

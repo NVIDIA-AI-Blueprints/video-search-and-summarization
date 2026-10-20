@@ -7,10 +7,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 load_compose_env
 cd "$COMPOSE_DIR"
 image="$BEHAVIOR_ANALYTICS_IMAGE"
+ensure_host_dir "$OUTPUT_DIR"
 report="$OUTPUT_DIR/latency.txt"
 rm -f "$report"
-mkdir -p "$OUTPUT_DIR"
-chmod 0777 "$OUTPUT_DIR"
 
 dump_measure_debug() {
     echo "Measure failed; dumping compose and container logs." >&2
@@ -45,11 +44,14 @@ fi
 sleep "${PERF_SETTLE_SECONDS:-20}"
 
 docker rm -f "$MONITOR_NAME" >/dev/null 2>&1 || true
+read -r -a monitor_topics <<< "$PERF_TOPICS"
+read -r -a monitor_percentiles <<< "$PERF_PERCENTILES"
 # Distroless image documents `python3 <script>` as the container command.
+# Run as the host user so OUTPUT_DIR does not need world-writable mode.
 if ! docker run -d \
     --name "$MONITOR_NAME" \
     --network "$network" \
-    --user 1000:1000 \
+    --user "$(id -u):$(id -g)" \
     -v "$OUTPUT_DIR:/output" \
     --entrypoint python3 \
     "$image" \
@@ -57,8 +59,8 @@ if ! docker run -d \
     --source-type kafka \
     --host kafka \
     --port 29092 \
-    --topics raw frames behavior events incidents \
-    --percentiles 50 95 99 \
+    --topics "${monitor_topics[@]}" \
+    --percentiles "${monitor_percentiles[@]}" \
     --output-file /output/latency.txt
 then
     fail_measure "latency monitor failed to start"
