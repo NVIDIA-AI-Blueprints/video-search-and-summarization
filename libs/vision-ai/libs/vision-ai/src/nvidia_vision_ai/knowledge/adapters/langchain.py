@@ -49,10 +49,7 @@ FILTER_OVERFETCH_MULTIPLIER = 4
 
 # Mirrors LlamaIndexConfig field-for-field so operators can swap backends without config churn.
 class LangChainConfig(BaseModel):
-    persist_dir: str = Field(
-        default_factory=lambda: os.environ.get("VSS_CHROMA_DIR", "/tmp/chroma_data"),
-        description="ChromaDB persist directory. Defaults to `VSS_CHROMA_DIR`, then `/tmp/chroma_data`.",
-    )
+    persist_dir: str = Field(description="ChromaDB persist directory.")
     collection_name: str = Field(
         default="default",
         description="Default Chroma collection; used when the LLM omits `collection`.",
@@ -94,7 +91,7 @@ class LangChainAdapter(BackendAdapter):
         # Auto-create so first retrieve() against empty path returns [] rather than crashing.
         os.makedirs(config.persist_dir, exist_ok=True)
 
-        api_key = config.embed_api_key or os.environ.get("NVIDIA_API_KEY")
+        api_key = config.embed_api_key
         self._embed_model = NVIDIAEmbeddings(
             model=config.embed_model,
             base_url=config.embed_base_url,

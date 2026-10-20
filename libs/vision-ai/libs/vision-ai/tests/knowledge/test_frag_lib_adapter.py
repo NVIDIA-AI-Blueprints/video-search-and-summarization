@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for lib.knowledge.adapters.frag_lib.
+"""Tests for nvidia_vision_ai.knowledge.adapters.frag_lib.
 
 The `nvidia-rag` package is an optional extra (`nvidia-vision-ai[frag_lib]`) and
 isn't installed in the default test environment. The adapter does a deferred

@@ -33,3 +33,4 @@ CI runs all four in the `Test (vision-ai)` job.
   Add a new code only with a reason a caller would act on differently.
 - Secrets (`SecretStr` settings) never become flags and never reach job records or stdout.
 - Keep the base install light: the library depends on httpx, pydantic and tenacity; the CLI adds click.
+  Knowledge backends sit behind optional extras and import them where they are used.

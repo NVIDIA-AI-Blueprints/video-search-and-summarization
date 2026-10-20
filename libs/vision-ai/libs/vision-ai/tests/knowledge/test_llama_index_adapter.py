@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for lib.knowledge.adapters.llama_index.
+"""Tests for nvidia_vision_ai.knowledge.adapters.llama_index.
 
 The `llama-index-*` and `chromadb` packages are an optional extra
 (`nvidia-vision-ai[llama_index]`) and aren't installed in the default test env.
@@ -130,24 +130,20 @@ class TestLlamaIndexImport:
 
 
 class TestLlamaIndexConfigDefaults:
-    """`persist_dir` resolution — env var override > literal default."""
+    """`persist_dir` is the caller's: no environment variable, no default path."""
 
-    def test_default_falls_back_to_tmp_chroma_data(self, monkeypatch):
-        from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexConfig
+    def test_persist_dir_is_required(self, monkeypatch):
+        from pydantic import ValidationError
 
-        monkeypatch.delenv("VSS_CHROMA_DIR", raising=False)
-        assert LlamaIndexConfig().persist_dir == "/tmp/chroma_data"
-
-    def test_env_var_overrides_default(self, monkeypatch):
         from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexConfig
 
         monkeypatch.setenv("VSS_CHROMA_DIR", "/var/lib/chroma")
-        assert LlamaIndexConfig().persist_dir == "/var/lib/chroma"
+        with pytest.raises(ValidationError):
+            LlamaIndexConfig()
 
-    def test_explicit_value_overrides_env(self, monkeypatch):
+    def test_explicit_value_is_used(self):
         from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexConfig
 
-        monkeypatch.setenv("VSS_CHROMA_DIR", "/var/lib/chroma")
         assert LlamaIndexConfig(persist_dir="/custom/path").persist_dir == "/custom/path"
 
 
@@ -162,16 +158,15 @@ class TestLlamaIndexInit:
 
         fake_llama_index.chromadb_cls.PersistentClient.assert_called_once_with(path=str(tmp_path))
 
-    def test_embed_api_key_env_fallback(self, fake_llama_index, monkeypatch):
+    def test_embed_api_key_ignores_env(self, fake_llama_index, monkeypatch):
         from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexAdapter
         from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexConfig
 
         monkeypatch.setenv("NVIDIA_API_KEY", "env-key-123")
         LlamaIndexAdapter(LlamaIndexConfig(persist_dir="/tmp/chroma"))
 
-        # NVIDIAEmbedding called with nvidia_api_key=env-key-123 (no override on config).
         kwargs = fake_llama_index.nvidia_embedding_cls.call_args.kwargs
-        assert kwargs["nvidia_api_key"] == "env-key-123"
+        assert kwargs["nvidia_api_key"] is None
 
     def test_embed_api_key_config_overrides_env(self, fake_llama_index, monkeypatch):
         from nvidia_vision_ai.knowledge.adapters.llama_index import LlamaIndexAdapter

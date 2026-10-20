@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for lib.knowledge.adapters.es_caption.
+"""Tests for nvidia_vision_ai.knowledge.adapters.es_caption.
 
 Covers:
 - query body shape: BM25 match, collection->uuid filter, default_doc_type,

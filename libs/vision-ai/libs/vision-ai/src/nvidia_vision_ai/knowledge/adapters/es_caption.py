@@ -25,14 +25,12 @@ for `raw_events`. Vector search and reranking are out of scope for v1.
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import ClassVar
 from typing import Literal
 
-import aiohttp
 from pydantic import BaseModel
 from pydantic import Field
 
@@ -52,10 +50,8 @@ META_PREFIX = "metadata.content_metadata"  # path to RT-VLM caption fields in ES
 
 class EsCaptionConfig(BaseModel):
     elasticsearch_url: str = Field(
-        # Reuse `ELASTIC_SEARCH_ENDPOINT` — the env var already used by
-        # dev-profile-search's vss-agent config to point at ES. Default falls
-        # back to the docker-network DNS that LVS itself writes to.
-        default_factory=lambda: os.environ.get("ELASTIC_SEARCH_ENDPOINT", "http://elasticsearch:9200"),
+        # The docker-network DNS that LVS itself writes to.
+        default="http://elasticsearch:9200",
     )
     index: str = Field(
         default="default_*",
@@ -124,6 +120,8 @@ class EsCaptionAdapter(BackendAdapter):
     ) -> RetrievalResult:
         body = self._build_query(query, collection_name, top_k, filters)
         endpoint = f"{self.elasticsearch_url}/{self.index}/_search"
+        import aiohttp  # the es_caption extra
+
         timeout = aiohttp.ClientTimeout(total=self.timeout)
         try:
             async with (
@@ -163,6 +161,8 @@ class EsCaptionAdapter(BackendAdapter):
 
     async def health_check(self) -> bool:
         endpoint = f"{self.elasticsearch_url}/_cluster/health"
+        import aiohttp  # the es_caption extra
+
         timeout = aiohttp.ClientTimeout(total=10)
         try:
             async with (

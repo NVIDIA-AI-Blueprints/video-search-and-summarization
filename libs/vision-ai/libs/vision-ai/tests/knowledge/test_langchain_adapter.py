@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for lib.knowledge.adapters.langchain.
+"""Tests for nvidia_vision_ai.knowledge.adapters.langchain.
 
 The `langchain-chroma` / `langchain-nvidia-ai-endpoints` packages are an
 optional extra (`nvidia-vision-ai[langchain]`) and aren't installed in the default
@@ -87,24 +87,20 @@ class TestLangChainImport:
 
 
 class TestLangChainConfigDefaults:
-    """`persist_dir` resolution — env var override > literal default."""
+    """`persist_dir` is the caller's: no environment variable, no default path."""
 
-    def test_default_falls_back_to_tmp_chroma_data(self, monkeypatch):
-        from nvidia_vision_ai.knowledge.adapters.langchain import LangChainConfig
+    def test_persist_dir_is_required(self, monkeypatch):
+        from pydantic import ValidationError
 
-        monkeypatch.delenv("VSS_CHROMA_DIR", raising=False)
-        assert LangChainConfig().persist_dir == "/tmp/chroma_data"
-
-    def test_env_var_overrides_default(self, monkeypatch):
         from nvidia_vision_ai.knowledge.adapters.langchain import LangChainConfig
 
         monkeypatch.setenv("VSS_CHROMA_DIR", "/var/lib/chroma")
-        assert LangChainConfig().persist_dir == "/var/lib/chroma"
+        with pytest.raises(ValidationError):
+            LangChainConfig()
 
-    def test_explicit_value_overrides_env(self, monkeypatch):
+    def test_explicit_value_is_used(self):
         from nvidia_vision_ai.knowledge.adapters.langchain import LangChainConfig
 
-        monkeypatch.setenv("VSS_CHROMA_DIR", "/var/lib/chroma")
         assert LangChainConfig(persist_dir="/custom/path").persist_dir == "/custom/path"
 
 
@@ -121,7 +117,7 @@ class TestLangChainInit:
         # `__init__` auto-creates the persist dir so a clean host doesn't crash.
         assert persist.is_dir()
 
-    def test_embed_api_key_env_fallback(self, fake_langchain, monkeypatch):
+    def test_embed_api_key_ignores_env(self, fake_langchain, monkeypatch):
         from nvidia_vision_ai.knowledge.adapters.langchain import LangChainAdapter
         from nvidia_vision_ai.knowledge.adapters.langchain import LangChainConfig
 
@@ -129,7 +125,7 @@ class TestLangChainInit:
         LangChainAdapter(LangChainConfig(persist_dir="/tmp/chroma"))
 
         kwargs = fake_langchain.nvidia_embeddings_cls.call_args.kwargs
-        assert kwargs["api_key"] == "env-key-123"
+        assert kwargs["api_key"] is None
 
     def test_embed_api_key_config_overrides_env(self, fake_langchain, monkeypatch):
         from nvidia_vision_ai.knowledge.adapters.langchain import LangChainAdapter

@@ -16,6 +16,7 @@
 
 from collections.abc import AsyncGenerator
 import logging
+import os
 from typing import Any
 from typing import Literal
 
@@ -136,8 +137,41 @@ class KnowledgeRetrievalInput(BaseModel):
     )
 
 
+# Deployment environment for each backend's config, first variable set wins.
+# nvidia_vision_ai.knowledge takes every value as a parameter, so the agent reads
+# what the adapters used to. An explicit backend_config value always wins.
+_BACKEND_ENV: dict[str, dict[str, tuple[str, ...]]] = {
+    "frag_api": {
+        "rag_url": ("RAG_SERVER_URL",),
+        "api_key": ("RAG_API_KEY",),
+        "collection_name": ("KNOWLEDGE_COLLECTION",),
+    },
+    "es_caption": {"elasticsearch_url": ("ELASTIC_SEARCH_ENDPOINT",)},
+    "langchain": {"persist_dir": ("VSS_CHROMA_DIR",), "embed_api_key": ("NVIDIA_API_KEY",)},
+    "llama_index": {"persist_dir": ("VSS_CHROMA_DIR",), "embed_api_key": ("NVIDIA_API_KEY",)},
+    "arango_graph": {
+        "arango_url": ("ARANGO_URL",),
+        "arango_database": ("ARANGO_DB",),
+        "arango_username": ("ARANGO_USER", "ARANGO_DB_USERNAME"),
+        "arango_password": ("ARANGO_PASSWORD", "ARANGO_DB_PASSWORD"),
+        "arango_graph_name": ("ARANGO_GRAPH_NAME",),
+    },
+}
+# The Chroma backends need a directory; this was their default before the move.
+_DEFAULT_CHROMA_DIR = "/tmp/chroma_data"
+
+
 def _setup_backend(config: KnowledgeRetrievalConfig, _builder: Builder) -> tuple[str, dict[str, Any]]:
-    return config.backend, dict(config.backend_config or {})
+    backend_config = dict(config.backend_config or {})
+    for field, names in _BACKEND_ENV.get(config.backend, {}).items():
+        if backend_config.get(field) is not None:
+            continue
+        value = next((os.environ[name] for name in names if name in os.environ), None)
+        if value is not None:
+            backend_config[field] = value
+    if config.backend in ("langchain", "llama_index") and backend_config.get("persist_dir") is None:
+        backend_config["persist_dir"] = _DEFAULT_CHROMA_DIR
+    return config.backend, backend_config
 
 
 async def _setup_retriever(

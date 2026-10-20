@@ -17,14 +17,12 @@
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 import re
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import ClassVar
 
-import aiohttp
 from pydantic import BaseModel
 from pydantic import Field
 
@@ -45,14 +43,10 @@ MAX_VDB_TOP_K = 100
 
 
 class FragApiConfig(BaseModel):
-    rag_url: str = Field(
-        default_factory=lambda: os.environ.get("RAG_SERVER_URL", "http://localhost:8081/v1"),
-    )
-    api_key: str | None = Field(
-        default_factory=lambda: os.environ.get("RAG_API_KEY"),
-    )
+    rag_url: str = "http://localhost:8081/v1"
+    api_key: str | None = None
     collection_name: str = Field(
-        default_factory=lambda: os.environ.get("KNOWLEDGE_COLLECTION", "default"),
+        default="default",
         description=(
             "Default Milvus collection name; used when the caller passes an empty `collection_name` to `retrieve()`."
         ),
@@ -110,6 +104,8 @@ class FragApiAdapter(BackendAdapter):
             payload["filter_expr"] = filter_expr
 
         endpoint = f"{self.rag_url}/search"
+        import aiohttp  # the frag_api extra
+
         timeout = aiohttp.ClientTimeout(total=self.timeout)
         try:
             async with (
@@ -149,6 +145,8 @@ class FragApiAdapter(BackendAdapter):
 
     async def health_check(self) -> bool:
         endpoint = f"{self.rag_url}/health"
+        import aiohttp  # the frag_api extra
+
         timeout = aiohttp.ClientTimeout(total=10)
         try:
             async with (
