@@ -203,6 +203,9 @@ Practical implication: a broker-less analytics container is **not** sitting idle
 
 ## Deploy + verify
 
+Authenticate Docker to `nvcr.io` before deployment; follow
+[`ngc-api-key-registry-login.md`](ngc-api-key-registry-login.md).
+
 ```bash
 cd <repo>/deploy/docker
 docker --version        # need 28.3.3

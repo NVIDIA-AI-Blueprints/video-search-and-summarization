@@ -6,7 +6,7 @@ Status messages, error recovery, and agent-vs-script responsibility tables for t
 
 | When | Print |
 |---|---|
-| Before Step 1 | *(no print — just call `TodoWrite` with the full 10-task plan)* |
+| Before Step 1 | *(no print — just call `TodoWrite` with the full 5-task plan)* |
 | Identifying use case | `Identifying use case to deploy...` |
 | Use case confirmed | `Use case confirmed: <usecase>. Looking up its NGC resources and config files in references/usecases.md.` |
 | Detecting platform | `Detecting target platform via uname -m and nvidia-smi...` |

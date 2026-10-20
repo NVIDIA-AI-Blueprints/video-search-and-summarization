@@ -142,7 +142,7 @@ Minimum standalone `rtvi-vlm.env` values:
 | `NGC_CLI_API_KEY` | Standalone deploy path | NGC registry image pull and NGC model/artifact download |
 | `RTVI_VLM_API_KEY` or `NGC_CLI_API_KEY` | Authenticated API calls | RT-VLM bearer auth after the service is running |
 | `RTVI_VLM_PORT` | Always | Host API port mapped to container `8000` |
-| `HOST_IP` | Always | Kafka bootstrap host (`${HOST_IP}:9092`) |
+| `HOST_IP` | External endpoints or non-default Kafka | Host-reachable address; not needed for the default in-Compose broker at `kafka:29092` |
 | `VSS_DATA_DIR` | Always | Required clip-storage bind mount |
 | `RTVI_VLM_MODEL_TO_USE` | Always for standalone | Backend selector; use `cosmos-reason3` for the default local model or `openai-compat` for a remote/sibling endpoint |
 | `RTVI_VLM_MODEL_PATH` | Local self-hosted model | Source-backed Cosmos Reason3 Nano BF16 path: `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
@@ -261,8 +261,11 @@ and 26.05 compatibility notes live in
 - Kafka validation: trust the live `vss-rtvi-vlm` environment for topic names.
   In a full VSS alerts real-time profile, use the existing VSS Kafka container
   `kafka` for CLI checks and final incident-consumer commands. For
-  standalone validation, use a broker that advertises `${HOST_IP}:9092`; never
-  stop or replace a pre-existing broker without user confirmation.
+  standalone validation with the default wiring, use the `kafka` service at
+  `kafka:29092`. For an external broker, set
+  `RTVI_VLM_KAFKA_BOOTSTRAP_SERVERS` to a container-reachable address such as
+  `host.docker.internal:9092`. Never stop or replace a pre-existing broker
+  without user confirmation.
 
 ## Error Reference
 

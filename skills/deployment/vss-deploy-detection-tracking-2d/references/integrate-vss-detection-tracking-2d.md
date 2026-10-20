@@ -83,13 +83,13 @@ The important RT-CV API categories are:
 
 | Variable | Purpose | Default | Required? |
 |---|---|---|---|
-| `VSS_RT_CV_IMAGE` | RT-CV image repository | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv` | Optional |
-| `VSS_RT_CV_TAG` | RT-CV image tag used by the base `perception` service | `develop-latest` | Optional |
+| `VSS_RT_CV_IMAGE` | RT-CV image repository | `nvcr.io/nvidia/vss-core/vss-rt-cv` | Optional |
+| `VSS_RT_CV_TAG` | RT-CV image tag used by the base `perception` service | `3.3.0` | Optional |
 | `RT_CV_DEVICE_ID` | GPU device id reserved for RT-CV | `0` | Optional |
 | `VSS_APPS_DIR` | Root used to resolve the RT-CV compose and config mounts | — | **Yes** |
 | `VSS_DATA_DIR` | Root used for model, cache, and sample-video mounts | — | **Yes** |
 | `VISION_ENCODER_MODEL` | Vision encoder downloaded by ds-start phase 0 | `siglip_v2` | Optional |
-| `VISION_ENCODER_VERSION` | Vision encoder version downloaded by ds-start phase 0 | `v1.1` | Optional |
+| `VISION_ENCODER_VERSION` | Vision encoder version downloaded by ds-start phase 0 | `v2.0` | Optional |
 | `NGC_CLI_API_KEY` | NGC credential used by ds-start phase 0 for model downloads | — | **Yes** for model downloads |
 | `NVSTREAMER_IMAGE_TAG` | Image tag for the optional sample-data publisher | deployment-specific | Optional |
 | `NVSTREAMER_HTTP_PORT` | HTTP API port for `nvstreamer-2d-fusion` | deployment-specific | Optional |
