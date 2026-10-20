@@ -827,8 +827,9 @@ def process_message(
             data = proto_class().FromString(message.value)
             timestamp_field = getattr(data, timestamp_path)
             data_timestamp = get_timestamp_from_proto_ts(timestamp_field).timestamp() * 1000
-            # Skip latency calculation for completed incidents because they are sent after expiration window not immediately
-            if message_type == "incidents" and data.info.get("isComplete") == "true":
+            # Completion messages include an intentional inactivity/expiration wait,
+            # rather than just live-update processing latency.
+            if message_type in ("incidents", "behavior") and data.info.get("isComplete") == "true":
                 continue
                 
         delay = calculate_delay(data_timestamp, stream_timestamp)
